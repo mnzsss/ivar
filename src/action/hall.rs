@@ -10,6 +10,7 @@ use crate::domain::name::HallName;
 use crate::domain::provider::Provider;
 use crate::error::{Failure, FixAction, Outcome, Report, WriteHuman};
 use crate::infra::fs;
+use crate::store::gitignore;
 use crate::store::layout::{self, Layout};
 use crate::store::manifest::{Manifest, Providers};
 
@@ -153,7 +154,7 @@ pub fn init(ctx: &Ctx, input: InitInput) -> Outcome<InitOutcome> {
 
     Manifest::write(&layout, &manifest)?;
     create_ivar_dir(&layout)?;
-    ensure_gitignore(&layout)?;
+    gitignore::ensure(&layout)?;
 
     Ok(Report::new(InitOutcome {
         root,
@@ -247,31 +248,6 @@ fn resolve_provider(raw: Option<&str>) -> Result<Provider, Failure> {
 /// rule that made consolidating seven dotdirs into one a single-file change.
 fn create_ivar_dir(layout: &Layout) -> Result<(), Failure> {
     fs::ensure_dir(&layout.ivar_dir())?;
-    Ok(())
-}
-
-/// Write (or extend) `<root>/.gitignore` with [`Layout::gitignore_lines`].
-///
-/// Reads any existing content first and only appends lines not already
-/// present, rather than overwriting: a hall is very often initialised inside
-/// a directory that already has its own `.gitignore` (`node_modules/`, build
-/// output, ...), and clobbering that would be its own silent-overwrite bug —
-/// the same one [`init`]'s doc comment refuses to commit for `ivar.json`.
-fn ensure_gitignore(layout: &Layout) -> Result<(), Failure> {
-    let path = layout.gitignore_path();
-    let mut content = fs::read_text(&path)?.unwrap_or_default();
-
-    for line in Layout::gitignore_lines() {
-        if !content.lines().any(|existing| existing == line) {
-            if !content.is_empty() && !content.ends_with('\n') {
-                content.push('\n');
-            }
-            content.push_str(line);
-            content.push('\n');
-        }
-    }
-
-    fs::write_atomic(&path, content.as_bytes())?;
     Ok(())
 }
 

@@ -229,6 +229,32 @@ impl Layout {
         self.root().join(provider.config_dir())
     }
 
+    /// `<hall>/CLAUDE.md` or `<hall>/AGENTS.md` — the Markdown file this
+    /// harness reads for standing instructions, and where `ivar sync` keeps its
+    /// managed block.
+    ///
+    /// Committed, and mostly the user's: `harness::config` owns only the bytes
+    /// between its two markers. The filename comes from
+    /// [`Provider::instruction_file`] for the same reason
+    /// [`Self::harness_dir`] uses `config_dir` — the mapping is not the
+    /// identity function, and guessing it writes config into a file the harness
+    /// never reads.
+    #[must_use]
+    pub fn instruction_file(&self, provider: &Provider) -> Utf8PathBuf {
+        self.root().join(provider.instruction_file())
+    }
+
+    /// `<hall>/.ivar/repos/` — the parent every repo's store dir sits under.
+    ///
+    /// Public because `sync` has to create it before the first clone lands, and
+    /// deriving it from `repo_bare(...).parent().parent()` at the call site is
+    /// exactly the path arithmetic outside this module that the module exists
+    /// to prevent.
+    #[must_use]
+    pub fn repos_dir(&self) -> Utf8PathBuf {
+        self.ivar_dir().join("repos")
+    }
+
     /// The exact lines the hall's `.gitignore` needs.
     ///
     /// `.ivar/*` excludes every direct child of `.ivar/` as its own entry, and
@@ -254,10 +280,6 @@ impl Layout {
     #[must_use]
     pub fn ivar_dir(&self) -> Utf8PathBuf {
         self.root.join(IVAR_DIR)
-    }
-
-    fn repos_dir(&self) -> Utf8PathBuf {
-        self.ivar_dir().join("repos")
     }
 
     fn repo_dir(&self, repo: &RepoName) -> Utf8PathBuf {
@@ -459,6 +481,15 @@ mod tests {
         assert_eq!(
             layout.hall_skills(),
             Utf8PathBuf::from("/hall/.ivar/skills")
+        );
+        assert_eq!(layout.repos_dir(), Utf8PathBuf::from("/hall/.ivar/repos"));
+        assert_eq!(
+            layout.instruction_file(&Provider::ClaudeCode),
+            Utf8PathBuf::from("/hall/CLAUDE.md")
+        );
+        assert_eq!(
+            layout.instruction_file(&Provider::OpenCode),
+            Utf8PathBuf::from("/hall/AGENTS.md")
         );
         assert_eq!(
             layout.plan_dir(&feature),

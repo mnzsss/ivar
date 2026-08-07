@@ -6,6 +6,8 @@
 //! Every write goes through `infra::json::write_canonical` and every path comes
 //! from [`layout`]. No module outside `store` computes a path under a hall.
 
+pub mod gitignore;
 pub mod layout;
 pub mod manifest;
+pub mod setup_receipt;
 pub mod versioned;
