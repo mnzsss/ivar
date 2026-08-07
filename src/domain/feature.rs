@@ -9,8 +9,10 @@
 //!
 //! `Feature` — the promotion record: which repos, and each one's
 //! [`WorktreeState`]. `FeatureBoard` — the execution board (approval +
-//! guards), which slice 4 creates and later slices fill in. All pure, no I/O —
-//! reading and writing these values is `store::feature`'s job.
+//! guards), which slice 4 creates and later slices fill in.
+//! [`ApprovalState`] — the four SPDD approval gates (Requirements, Analysis,
+//! Plan, Execution Graph) and their fingerprints. All pure, no I/O — reading
+//! and writing these values is `store::feature`'s job.
 //!
 //! # What a valid promotion is
 //!
@@ -21,8 +23,11 @@
 //!   sync must retry.
 
 use std::collections::BTreeMap;
+use std::fmt;
 
 use serde::{Deserialize, Serialize};
+
+use crate::error::{Failure, FixAction};
 
 use super::name::{BranchName, FeatureName, RepoName};
 
@@ -174,6 +179,333 @@ pub struct Guard {
     pub passed: bool,
 }
 
+/// The side-effect-free summary of a feature's pending delivery actions.
+///
+/// Produced by `ivar feature deliver --preview` and re-produced by apply mode,
+/// where [`Self::fingerprint`] is the gate: apply recomputes the fingerprint
+/// from the current state and refuses when it differs from the one the preview
+/// printed — the human approved *that* state, and anything else has drifted.
+///
+/// Pure data: building it reads the world, but this value itself is what the
+/// preview prints and what apply gates on. `fingerprint` is computed over the
+/// rest of this value (see `action/feature/deliver.rs`), so it is never
+/// part of its own digest.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DeliveryPreview {
+    /// The feature being delivered.
+    pub feature: FeatureName,
+    /// One entry per promoted repo, in push order.
+    pub repos: Vec<DeliveryRepo>,
+    /// Content hash of the preview summary, for apply gating.
+    pub fingerprint: String,
+}
+
+/// What delivering one promoted repo will do (or did), as far as the preview
+/// can know without touching the remote.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DeliveryRepo {
+    /// The repo's name, as declared in `ivar.json`.
+    pub repo: RepoName,
+    /// The feature branch this repo's worktree is on.
+    pub local_branch: BranchName,
+    /// The remote the branch is pushed to — the repo's `url` from the
+    /// manifest.
+    pub remote: String,
+    /// The refspec the push uses, `local_branch:refs/heads/local_branch`.
+    pub push_refspec: String,
+    /// What delivering this repo means. `ivar` never creates pull requests —
+    /// see [`DeliveryAction`] — so every repo is [`DeliveryAction::PushOnly`]
+    /// today.
+    pub action: DeliveryAction,
+    /// The branch this feature's work started from — the repo's default
+    /// branch.
+    pub base_branch: BranchName,
+    /// Repos that must be delivered before this one. `ivar`'s feature model
+    /// declares no cross-repo dependencies, so this is empty for every repo;
+    /// the ordering machinery that consumes it exists for when it is not.
+    pub dependencies: Vec<RepoName>,
+    /// Everything that stands between the current state and a clean push:
+    /// a dirty worktree, commits that have never been pushed. Informational
+    /// in the preview; the fingerprint gate is what apply actually enforces.
+    pub blockers: Vec<String>,
+}
+
+/// What a delivery action is. The valhalla model distinguishes creating and
+/// updating pull requests from a bare push; `ivar` is serverless — no PR
+/// surface exists, so only [`Self::PushOnly`] is ever produced. The other two
+/// variants exist so the type is the full model and a future PR-capable
+/// surface cannot invent a fourth meaning.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DeliveryAction {
+    /// Open a new pull request for this branch.
+    NewPr,
+    /// Update an existing pull request for this branch.
+    UpdatePr,
+    /// Just push the branch to the remote.
+    PushOnly,
+}
+
+/// One of the four SPDD approval gates, in lifecycle order.
+///
+/// A gate is crossed by an explicit command after a human reviews its
+/// artifact; once crossed it blocks edits to that artifact unless invalidated
+/// by a change to an upstream artifact. The chain: Requirements has no
+/// upstream, Analysis requires Requirements, Plan requires Analysis, and the
+/// Execution Graph requires Plan.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Gate {
+    /// `requirements.md` — what the feature must do.
+    Requirements,
+    /// `analysis.md` — how the requirements will be met.
+    Analysis,
+    /// `plan.md` — the step-by-step implementation plan.
+    Plan,
+    /// The execution graph derived from `plan.md`'s Operations.
+    ExecutionGraph,
+}
+
+impl Gate {
+    /// The four gates in lifecycle order, upstream first.
+    pub const ALL: [Gate; 4] = [
+        Gate::Requirements,
+        Gate::Analysis,
+        Gate::Plan,
+        Gate::ExecutionGraph,
+    ];
+
+    /// The gate that must be [`GateState::Approved`] before this one may be.
+    /// `Requirements` is the root of the chain and has no upstream.
+    #[must_use]
+    pub const fn upstream(self) -> Option<Gate> {
+        match self {
+            Gate::Requirements => None,
+            Gate::Analysis => Some(Gate::Requirements),
+            Gate::Plan => Some(Gate::Analysis),
+            Gate::ExecutionGraph => Some(Gate::Plan),
+        }
+    }
+
+    /// This gate and every gate downstream of it, in lifecycle order — the set
+    /// invalidated when this gate's artifact changes.
+    #[must_use]
+    pub const fn and_downstream(self) -> &'static [Gate] {
+        match self {
+            Gate::Requirements => &[
+                Gate::Requirements,
+                Gate::Analysis,
+                Gate::Plan,
+                Gate::ExecutionGraph,
+            ],
+            Gate::Analysis => &[Gate::Analysis, Gate::Plan, Gate::ExecutionGraph],
+            Gate::Plan => &[Gate::Plan, Gate::ExecutionGraph],
+            Gate::ExecutionGraph => &[Gate::ExecutionGraph],
+        }
+    }
+
+    /// This gate's position in [`Gate::ALL`] — how records sort into lifecycle
+    /// order.
+    const fn index(self) -> usize {
+        match self {
+            Gate::Requirements => 0,
+            Gate::Analysis => 1,
+            Gate::Plan => 2,
+            Gate::ExecutionGraph => 3,
+        }
+    }
+
+    /// Parse the CLI spelling of a gate name. Accepts the human-facing names
+    /// (which [`fmt::Display`] emits) — `execution_graph` is accepted as an
+    /// alias of `execution-graph` because it is what serde writes on disk.
+    pub fn parse(value: &str) -> Result<Self, UnknownGate> {
+        match value {
+            "requirements" => Ok(Gate::Requirements),
+            "analysis" => Ok(Gate::Analysis),
+            "plan" => Ok(Gate::Plan),
+            "execution-graph" | "execution_graph" => Ok(Gate::ExecutionGraph),
+            other => Err(UnknownGate(other.to_owned())),
+        }
+    }
+}
+
+impl fmt::Display for Gate {
+    /// The human-facing, CLI spelling. `ExecutionGraph` renders as
+    /// `execution-graph`, not serde's `execution_graph`. Goes through
+    /// [`fmt::Formatter::pad`], so width/alignment format specs (`{:<16}` in
+    /// the CLI's gate table) actually pad.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let name = match self {
+            Gate::Requirements => "requirements",
+            Gate::Analysis => "analysis",
+            Gate::Plan => "plan",
+            Gate::ExecutionGraph => "execution-graph",
+        };
+        f.pad(name)
+    }
+}
+
+/// The state of one gate.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GateState {
+    /// Not yet reviewed — the gate has never been crossed.
+    Pending,
+    /// Crossed by an explicit approve; the artifact fingerprint is current.
+    Approved,
+    /// Was approved, but its artifact (or an upstream one) has since changed.
+    /// The approval is void until a human reviews and re-approves.
+    NeedsRevision,
+}
+
+impl fmt::Display for GateState {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let name = match self {
+            GateState::Pending => "pending",
+            GateState::Approved => "approved",
+            GateState::NeedsRevision => "needs-revision",
+        };
+        f.pad(name)
+    }
+}
+
+/// A gate name that matched no gate. The CLI passes the raw string through to
+/// the action, which parses it here — `cli` cannot import `domain`.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("unknown gate `{0}` — expected one of: requirements, analysis, plan, execution-graph")]
+pub struct UnknownGate(pub String);
+
+impl From<UnknownGate> for Failure {
+    fn from(error: UnknownGate) -> Self {
+        Failure::blocked("plan.unknown_gate", error.to_string()).fix(FixAction::safe(
+            "plan.valid_gate",
+            "Use one of: requirements, analysis, plan, execution-graph.",
+        ))
+    }
+}
+
+/// A feature's approval state: one record per gate, the fingerprint of the
+/// artifact content each approval was recorded against.
+///
+/// Persisted per feature at `features/<feature>/planning/approvals.json`
+/// (schema v1, `Policy::Local`) by `store::feature`. `gates` always holds all
+/// four after [`ApprovalState::normalize`]; a hand-edited file may omit some,
+/// and the missing ones read as `Pending`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ApprovalState {
+    /// One record per gate, in lifecycle order.
+    pub gates: Vec<GateRecord>,
+}
+
+impl ApprovalState {
+    /// A fresh state: all four gates pending, no fingerprints.
+    #[must_use]
+    pub fn fresh() -> Self {
+        Self {
+            gates: Gate::ALL
+                .iter()
+                .map(|gate| GateRecord {
+                    gate: *gate,
+                    state: GateState::Pending,
+                    artifact_fingerprint: None,
+                })
+                .collect(),
+        }
+    }
+
+    /// `gate`'s current state, or `None` if it has no record yet.
+    #[must_use]
+    pub fn state(&self, gate: Gate) -> Option<GateState> {
+        self.record(gate).map(|record| record.state)
+    }
+
+    /// `gate`'s record, if present.
+    #[must_use]
+    pub fn record(&self, gate: Gate) -> Option<&GateRecord> {
+        self.gates.iter().find(|record| record.gate == gate)
+    }
+
+    /// `gate`'s record, mutably, if present.
+    pub fn record_mut(&mut self, gate: Gate) -> Option<&mut GateRecord> {
+        self.gates.iter_mut().find(|record| record.gate == gate)
+    }
+
+    /// Set `gate`'s state and fingerprint, updating the record if present and
+    /// appending one if not. Callers `normalize` first, so in practice this
+    /// always updates an existing record.
+    pub fn set(&mut self, gate: Gate, state: GateState, fingerprint: Option<String>) {
+        match self.record_mut(gate) {
+            Some(record) => {
+                record.state = state;
+                record.artifact_fingerprint = fingerprint;
+            }
+            None => self.gates.push(GateRecord {
+                gate,
+                state,
+                artifact_fingerprint: fingerprint,
+            }),
+        }
+    }
+
+    /// Make the record set complete and deterministic: ensure every gate has a
+    /// record (missing ones become `Pending`), in lifecycle order.
+    pub fn normalize(&mut self) {
+        for gate in Gate::ALL {
+            if !self.gates.iter().any(|record| record.gate == gate) {
+                self.gates.push(GateRecord {
+                    gate,
+                    state: GateState::Pending,
+                    artifact_fingerprint: None,
+                });
+            }
+        }
+        self.gates.sort_by_key(|record| record.gate.index());
+    }
+
+    /// Whether `gate`'s upstream (if any) is [`GateState::Approved`]. `true`
+    /// for `Requirements`, which has no upstream.
+    #[must_use]
+    pub fn upstream_approved(&self, gate: Gate) -> bool {
+        match gate.upstream() {
+            Some(upstream) => self.state(upstream) == Some(GateState::Approved),
+            None => true,
+        }
+    }
+
+    /// Invalidate `gate` and everything downstream of it: each becomes
+    /// [`GateState::NeedsRevision`] and its stored fingerprint is cleared — an
+    /// invalidated approval is void, so there is nothing left to compare
+    /// against.
+    pub fn invalidate_from(&mut self, gate: Gate) {
+        for downstream in gate.and_downstream() {
+            if let Some(record) = self.record_mut(*downstream) {
+                record.state = GateState::NeedsRevision;
+                record.artifact_fingerprint = None;
+            }
+        }
+    }
+}
+
+impl Default for ApprovalState {
+    fn default() -> Self {
+        Self::fresh()
+    }
+}
+
+/// One gate's approval record.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GateRecord {
+    /// The gate this record tracks.
+    pub gate: Gate,
+    /// The gate's current state.
+    pub state: GateState,
+    /// SHA-256 of the artifact's content at approval time. `None` when the
+    /// gate has never been approved, or its approval was invalidated.
+    pub artifact_fingerprint: Option<String>,
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(
@@ -251,5 +583,228 @@ mod tests {
     fn an_unknown_field_in_feature_json_is_refused() {
         let raw = r#"{"version":1,"name":"checkout","branch":"feat/checkout","promotions":{},"bogus":true}"#;
         assert!(serde_json::from_str::<Feature>(raw).is_err());
+    }
+
+    // -- delivery preview ----------------------------------------------------
+
+    fn delivery_repo(repo: &str) -> DeliveryRepo {
+        DeliveryRepo {
+            repo: RepoName::new(repo).unwrap(),
+            local_branch: BranchName::new("checkout").unwrap(),
+            remote: "git@example.com:acme/api.git".to_owned(),
+            push_refspec: "checkout:refs/heads/checkout".to_owned(),
+            action: DeliveryAction::PushOnly,
+            base_branch: BranchName::new("main").unwrap(),
+            dependencies: Vec::new(),
+            blockers: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn a_delivery_preview_round_trips_through_serde() {
+        let preview = DeliveryPreview {
+            feature: FeatureName::new("checkout").unwrap(),
+            repos: vec![delivery_repo("api")],
+            fingerprint: "abc123".to_owned(),
+        };
+
+        let parsed: DeliveryPreview =
+            serde_json::from_value(serde_json::to_value(&preview).unwrap()).unwrap();
+
+        assert_eq!(parsed, preview);
+    }
+
+    #[test]
+    fn delivery_action_serialises_as_snake_case() {
+        assert_eq!(
+            serde_json::to_string(&DeliveryAction::PushOnly).unwrap(),
+            r#""push_only""#
+        );
+        assert_eq!(
+            serde_json::to_string(&DeliveryAction::NewPr).unwrap(),
+            r#""new_pr""#
+        );
+        assert_eq!(
+            serde_json::to_string(&DeliveryAction::UpdatePr).unwrap(),
+            r#""update_pr""#
+        );
+    }
+
+    #[test]
+    fn an_unknown_field_in_a_delivery_repo_is_refused() {
+        let repo = delivery_repo("api");
+        let rendered = serde_json::to_value(&repo).unwrap();
+        let mut with_bogus = rendered.as_object().unwrap().clone();
+        with_bogus.insert("bogus".to_owned(), serde_json::json!(true));
+
+        assert!(
+            serde_json::from_value::<DeliveryRepo>(serde_json::Value::Object(with_bogus)).is_err()
+        );
+    }
+
+    // -- approval gates ---------------------------------------------------------
+
+    #[test]
+    fn the_four_gates_form_a_chain_in_lifecycle_order() {
+        assert_eq!(
+            Gate::ALL,
+            [
+                Gate::Requirements,
+                Gate::Analysis,
+                Gate::Plan,
+                Gate::ExecutionGraph
+            ]
+        );
+        assert_eq!(Gate::Requirements.upstream(), None);
+        assert_eq!(Gate::Analysis.upstream(), Some(Gate::Requirements));
+        assert_eq!(Gate::Plan.upstream(), Some(Gate::Analysis));
+        assert_eq!(Gate::ExecutionGraph.upstream(), Some(Gate::Plan));
+    }
+
+    #[test]
+    fn and_downstream_lists_the_gate_and_everything_after_it() {
+        assert_eq!(
+            Gate::Requirements.and_downstream(),
+            &[
+                Gate::Requirements,
+                Gate::Analysis,
+                Gate::Plan,
+                Gate::ExecutionGraph
+            ]
+        );
+        assert_eq!(
+            Gate::Analysis.and_downstream(),
+            &[Gate::Analysis, Gate::Plan, Gate::ExecutionGraph]
+        );
+        assert_eq!(
+            Gate::Plan.and_downstream(),
+            &[Gate::Plan, Gate::ExecutionGraph]
+        );
+        assert_eq!(
+            Gate::ExecutionGraph.and_downstream(),
+            &[Gate::ExecutionGraph]
+        );
+    }
+
+    #[test]
+    fn gate_parse_accepts_every_cli_name_and_rejects_unknowns() {
+        assert_eq!(Gate::parse("requirements"), Ok(Gate::Requirements));
+        assert_eq!(Gate::parse("analysis"), Ok(Gate::Analysis));
+        assert_eq!(Gate::parse("plan"), Ok(Gate::Plan));
+        assert_eq!(Gate::parse("execution-graph"), Ok(Gate::ExecutionGraph));
+        assert_eq!(Gate::parse("execution_graph"), Ok(Gate::ExecutionGraph));
+        assert!(matches!(Gate::parse("bogus"), Err(UnknownGate(_))));
+    }
+
+    #[test]
+    fn display_names_are_the_cli_surface() {
+        assert_eq!(Gate::Requirements.to_string(), "requirements");
+        assert_eq!(Gate::Analysis.to_string(), "analysis");
+        assert_eq!(Gate::Plan.to_string(), "plan");
+        assert_eq!(Gate::ExecutionGraph.to_string(), "execution-graph");
+        assert_eq!(GateState::Pending.to_string(), "pending");
+        assert_eq!(GateState::Approved.to_string(), "approved");
+        assert_eq!(GateState::NeedsRevision.to_string(), "needs-revision");
+    }
+
+    #[test]
+    fn serde_names_are_snake_case() {
+        assert_eq!(
+            serde_json::to_value(Gate::ExecutionGraph).unwrap(),
+            serde_json::json!("execution_graph")
+        );
+        assert_eq!(
+            serde_json::to_value(GateState::NeedsRevision).unwrap(),
+            serde_json::json!("needs_revision")
+        );
+    }
+
+    #[test]
+    fn fresh_approval_state_has_all_four_gates_pending() {
+        let approvals = ApprovalState::fresh();
+
+        assert_eq!(approvals.gates.len(), 4);
+        for gate in Gate::ALL {
+            assert_eq!(approvals.state(gate), Some(GateState::Pending));
+        }
+    }
+
+    #[test]
+    fn set_updates_an_existing_record_and_normalize_fills_gaps() {
+        let mut approvals = ApprovalState::fresh();
+        approvals.set(
+            Gate::Requirements,
+            GateState::Approved,
+            Some("fp".to_owned()),
+        );
+
+        assert_eq!(
+            approvals.state(Gate::Requirements),
+            Some(GateState::Approved)
+        );
+        assert_eq!(
+            approvals
+                .record(Gate::Requirements)
+                .unwrap()
+                .artifact_fingerprint
+                .as_deref(),
+            Some("fp")
+        );
+
+        // A hand-edited file may carry fewer gates; normalize completes them.
+        let mut partial = ApprovalState { gates: Vec::new() };
+        partial.normalize();
+        assert_eq!(partial.gates.len(), 4);
+        assert_eq!(
+            partial.state(Gate::ExecutionGraph),
+            Some(GateState::Pending)
+        );
+    }
+
+    #[test]
+    fn upstream_approved_tracks_the_chain() {
+        let mut approvals = ApprovalState::fresh();
+
+        assert!(approvals.upstream_approved(Gate::Requirements));
+        assert!(!approvals.upstream_approved(Gate::Analysis));
+
+        approvals.set(Gate::Requirements, GateState::Approved, None);
+
+        assert!(approvals.upstream_approved(Gate::Analysis));
+        assert!(!approvals.upstream_approved(Gate::Plan));
+    }
+
+    #[test]
+    fn invalidate_from_marks_the_gate_and_downstream_and_clears_fingerprints() {
+        let mut approvals = ApprovalState::fresh();
+        for gate in Gate::ALL {
+            approvals.set(gate, GateState::Approved, Some(format!("fp-{gate}")));
+        }
+
+        approvals.invalidate_from(Gate::Analysis);
+
+        assert_eq!(
+            approvals.state(Gate::Requirements),
+            Some(GateState::Approved)
+        );
+        for gate in [Gate::Analysis, Gate::Plan, Gate::ExecutionGraph] {
+            assert_eq!(approvals.state(gate), Some(GateState::NeedsRevision));
+            assert_eq!(approvals.record(gate).unwrap().artifact_fingerprint, None);
+        }
+    }
+
+    #[test]
+    fn approval_state_round_trips_through_serde() {
+        let mut approvals = ApprovalState::fresh();
+        approvals.set(
+            Gate::Requirements,
+            GateState::Approved,
+            Some("abc".to_owned()),
+        );
+
+        let rendered = serde_json::to_string(&approvals).unwrap();
+        let parsed: ApprovalState = serde_json::from_str(&rendered).unwrap();
+
+        assert_eq!(parsed, approvals);
     }
 }

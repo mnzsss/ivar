@@ -11,5 +11,7 @@
 
 pub mod feature;
 pub mod health;
+pub mod mcp;
 pub mod name;
 pub mod provider;
+pub mod session;

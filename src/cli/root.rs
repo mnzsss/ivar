@@ -181,6 +181,12 @@ pub enum SessionCommand {
     /// Open a session: view dir over a feature's promoted repos, agent
     /// running in it, TUI on top.
     Start(SessionStartArgs),
+    /// Re-bind to an existing live session: locate it, re-materialise its
+    /// view dir, and emit the binding as `IVAR_*` env vars.
+    Connect(SessionConnectArgs),
+    /// Bind a discovery session to a feature (one-way), moving its view dir
+    /// into the feature's session tree.
+    Convert(SessionConvertArgs),
 }
 
 /// Arguments for `ivar session start`.
@@ -194,9 +200,37 @@ pub struct SessionStartArgs {
     /// The provider to run. Defaults to the hall's default provider.
     #[arg(long)]
     pub provider: Option<String>,
+    /// Create the session without launching a provider. The view dir persists
+    /// after this command returns, until an explicit stop.
+    #[arg(long)]
+    pub detached: bool,
+    /// Relay: a fresh session on the same feature under a different provider
+    /// than the feature's most recent session. Requires `--provider`.
+    #[arg(long)]
+    pub relay: bool,
 }
 
-/// The `ivar plan` surface: the SPDD artifacts, committed per feature.
+/// Arguments for `ivar session connect`.
+#[derive(Debug, Args)]
+pub struct SessionConnectArgs {
+    /// The session id, or a unique prefix of one.
+    pub session_id: Option<String>,
+    /// Narrow the search to sessions bound to this feature.
+    #[arg(long)]
+    pub feature: Option<String>,
+}
+
+/// Arguments for `ivar session convert`.
+#[derive(Debug, Args)]
+pub struct SessionConvertArgs {
+    /// The discovery session's id, or a unique prefix of one.
+    pub session_id: String,
+    /// The feature to bind the session to. Must already exist.
+    pub feature: String,
+}
+
+/// The `ivar plan` surface: the SPDD artifacts, committed per feature, and
+/// the approval gates that transition a feature through the SPDD lifecycle.
 #[derive(Debug, Subcommand)]
 pub enum PlanCommand {
     /// Scaffold a feature's SPDD artifacts (requirements, analysis, plan).
@@ -205,6 +239,13 @@ pub enum PlanCommand {
     List,
     /// Print one feature's SPDD artifact.
     Show(PlanShowArgs),
+    /// Approve one of a feature's SPDD gates: requirements, analysis, plan,
+    /// or execution-graph. Requires the gate upstream of it to be approved
+    /// first, and records a fingerprint of the artifact's content.
+    Approve(PlanApproveArgs),
+    /// Declare a revision of an approved gate, marking it — and every gate
+    /// downstream — as needing revision.
+    Invalidate(PlanInvalidateArgs),
 }
 
 /// Arguments for `ivar plan create`.
@@ -221,6 +262,24 @@ pub struct PlanShowArgs {
     pub feature: String,
     /// Which artifact: `requirements`, `analysis`, or `plan`.
     pub artifact: crate::action::plan::show::Artifact,
+}
+
+/// Arguments for `ivar plan approve`.
+#[derive(Debug, Args)]
+pub struct PlanApproveArgs {
+    /// The feature whose gate to approve.
+    pub feature: String,
+    /// The gate: `requirements`, `analysis`, `plan`, or `execution-graph`.
+    pub gate: String,
+}
+
+/// Arguments for `ivar plan invalidate`.
+#[derive(Debug, Args)]
+pub struct PlanInvalidateArgs {
+    /// The feature whose gate to invalidate.
+    pub feature: String,
+    /// The gate: `requirements`, `analysis`, `plan`, or `execution-graph`.
+    pub gate: String,
 }
 
 /// The `ivar skill` surface: the hall's shared skills directory.

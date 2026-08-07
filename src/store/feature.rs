@@ -8,8 +8,14 @@
 //! `Feature` itself carries its `version` field, the same way `Manifest`
 //! does; the store stamps it on write and the type declares it, so a
 //! hand-edited file with a newer version is refused rather than adopted.
+//!
+//! The feature's **approval state** lives alongside it at
+//! `features/<name>/planning/approvals.json`, through the same versioned
+//! store. `ApprovalState` deliberately carries no `version` field of its own —
+//! the store stamps the schema version onto the JSON value, and the type
+//! accepts it as an unknown field.
 
-use crate::domain::feature::Feature;
+use crate::domain::feature::{ApprovalState, Feature};
 use crate::domain::name::FeatureName;
 use crate::error::Failure;
 use crate::store::layout::Layout;
@@ -19,10 +25,17 @@ use crate::store::versioned::{Policy, Store};
 /// the type owns the number, this module just wires it into the store.
 const CURRENT_VERSION: u32 = 1;
 
+/// `approvals.json`'s schema version.
+const APPROVALS_VERSION: u32 = 1;
+
 /// The filename every feature's promotion record lives in, under its
 /// feature directory. One file, not one-per-repo: promotions are a small
 /// map and rewriting one file is atomic through the canonical writer.
 const FEATURE_FILE: &str = "feature.json";
+
+/// The filename each feature's approval state lives in, under its planning
+/// directory.
+const APPROVALS_FILE: &str = "approvals.json";
 
 impl Feature {
     /// Read `features/<name>/feature.json`. `Ok(None)` when the feature has
@@ -44,12 +57,43 @@ impl Feature {
     }
 }
 
+impl ApprovalState {
+    /// Read `features/<name>/planning/approvals.json`. `Ok(None)` when no
+    /// gate has ever been approved or invalidated.
+    ///
+    /// A file newer than this binary understands is a hard error; see
+    /// [`Store::read`].
+    pub fn read(layout: &Layout, name: &FeatureName) -> Result<Option<Self>, Failure> {
+        approvals_store(layout, name).read().map_err(Failure::from)
+    }
+
+    /// Write this approval state to
+    /// `features/<name>/planning/approvals.json`, atomically, in canonical
+    /// form. Creates the planning directory if it does not exist.
+    pub fn write(&self, layout: &Layout, name: &FeatureName) -> Result<(), Failure> {
+        crate::infra::fs::ensure_dir(&layout.planning_dir(name))?;
+        approvals_store(layout, name)
+            .write(self)
+            .map_err(Failure::from)
+    }
+}
+
 /// The versioned store over one feature's file.
 fn store(layout: &Layout, name: &FeatureName) -> Store<Feature> {
     Store::new(
         layout.feature_dir(name).join(FEATURE_FILE),
         Vec::new(),
         CURRENT_VERSION,
+        Policy::Local,
+    )
+}
+
+/// The versioned store over one feature's approvals file.
+fn approvals_store(layout: &Layout, name: &FeatureName) -> Store<ApprovalState> {
+    Store::new(
+        layout.planning_dir(name).join(APPROVALS_FILE),
+        Vec::new(),
+        APPROVALS_VERSION,
         Policy::Local,
     )
 }
@@ -64,6 +108,7 @@ mod tests {
     )]
 
     use super::*;
+    use crate::domain::feature::{ApprovalState, Gate, GateState};
     use crate::domain::name::{BranchName, FeatureName, RepoName};
     use crate::infra::fs;
     use crate::test_support::hall_root;
@@ -143,5 +188,71 @@ mod tests {
             "the store must stamp the version: {text}"
         );
         assert!(text.contains("\"branch\": \"feat/checkout\""));
+    }
+
+    // -- approvals ------------------------------------------------------------
+
+    #[test]
+    fn absent_approvals_read_as_ok_none() {
+        let (_guard, layout) = layout_with_hall();
+        let name = FeatureName::new("checkout").unwrap();
+
+        assert_eq!(ApprovalState::read(&layout, &name).unwrap(), None);
+    }
+
+    #[test]
+    fn approvals_write_then_read_round_trips() {
+        let (_guard, layout) = layout_with_hall();
+        let name = FeatureName::new("checkout").unwrap();
+        let mut approvals = ApprovalState::fresh();
+        approvals.set(
+            Gate::Requirements,
+            GateState::Approved,
+            Some("fp".to_owned()),
+        );
+
+        approvals.write(&layout, &name).unwrap();
+        let read_back = ApprovalState::read(&layout, &name).unwrap().unwrap();
+
+        assert_eq!(read_back, approvals);
+        assert_eq!(
+            read_back.state(Gate::Requirements),
+            Some(GateState::Approved)
+        );
+    }
+
+    #[test]
+    fn approvals_land_in_the_planning_directory() {
+        let (_guard, layout) = layout_with_hall();
+        let name = FeatureName::new("checkout").unwrap();
+        let approvals = ApprovalState::fresh();
+
+        approvals.write(&layout, &name).unwrap();
+
+        assert!(fs::is_file(&layout.planning_dir(&name).join("approvals.json")).unwrap());
+    }
+
+    #[test]
+    fn approvals_are_canonical_and_version_stamped() {
+        let (_guard, layout) = layout_with_hall();
+        let name = FeatureName::new("checkout").unwrap();
+        let mut approvals = ApprovalState::fresh();
+        approvals.set(
+            Gate::Requirements,
+            GateState::Approved,
+            Some("fp".to_owned()),
+        );
+
+        approvals.write(&layout, &name).unwrap();
+
+        let text = fs::read_text(&layout.planning_dir(&name).join("approvals.json"))
+            .unwrap()
+            .unwrap();
+        assert!(
+            text.contains("\"version\": 1"),
+            "the store must stamp the version: {text}"
+        );
+        assert!(text.contains("\"gate\": \"requirements\""));
+        assert!(text.contains("\"state\": \"approved\""));
     }
 }

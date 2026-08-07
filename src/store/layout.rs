@@ -17,6 +17,7 @@
 //!     repos/<repo>/.bare/              the bare clone
 //!     repos/<repo>/<branch>/           a worktree off that bare
 //!     features/<feature>/              promotion records
+//!     features/<feature>/planning/     approval-gate state (approvals.json)
 //!     features/<feature>/execution/    the feature execution board
 //!     features/<feature>/sessions/<id>/  feature-session view dirs
 //!     sessions/<id>/                   discovery-session view dirs
@@ -43,7 +44,8 @@
 //! - Accessors returning `Utf8PathBuf`, taking validated newtypes from
 //!   [`crate::domain::name`] rather than `&str`: `manifest()`, `state()`,
 //!   `repo_bare(&RepoName)`, `repo_worktree(&RepoName, &BranchName)`,
-//!   `feature_dir(&FeatureName)`, `execution_dir(&FeatureName)`,
+//!   `feature_dir(&FeatureName)`, `planning_dir(&FeatureName)`,
+//!   `execution_dir(&FeatureName)`,
 //!   `feature_session(&FeatureName, &SessionId)`, `discovery_session(&SessionId)`,
 //!   `setup_script(&RepoName)`, `hall_skills()`, `plan_dir(&FeatureName)`,
 //!   `harness_dir(&Provider)`.
@@ -179,6 +181,15 @@ impl Layout {
         self.feature_dir(feature).join("execution")
     }
 
+    /// `<hall>/.ivar/features/<feature>/planning/` — the feature's approval
+    /// gate state (`approvals.json`). Local derived state: approvals are
+    /// per-machine records of what this machine's human has reviewed, and
+    /// belong in no teammate's clone.
+    #[must_use]
+    pub fn planning_dir(&self, feature: &FeatureName) -> Utf8PathBuf {
+        self.feature_dir(feature).join("planning")
+    }
+
     /// `<hall>/.ivar/features/<feature>/sessions/<id>/` — a feature-session
     /// view dir.
     #[must_use]
@@ -242,6 +253,18 @@ impl Layout {
     #[must_use]
     pub fn instruction_file(&self, provider: &Provider) -> Utf8PathBuf {
         self.root().join(provider.instruction_file())
+    }
+
+    /// `<hall>/.mcp.json` or `<hall>/opencode.json` — where this harness's MCP
+    /// server definitions materialise, at the hall root so every session in the
+    /// hall discovers them by walk-up from its View Dir.
+    ///
+    /// The filename comes from [`Provider::mcp_config_path`] rather than being
+    /// interpolated here — see [`Self::harness_dir`] for why the mapping is
+    /// this module's job to get right exactly once.
+    #[must_use]
+    pub fn mcp_config(&self, provider: &Provider) -> Utf8PathBuf {
+        self.root().join(provider.mcp_config_path())
     }
 
     /// `<hall>/.ivar/repos/` — the parent every repo's store dir sits under.
@@ -487,6 +510,10 @@ mod tests {
             Utf8PathBuf::from("/hall/.ivar/features/checkout/execution")
         );
         assert_eq!(
+            layout.planning_dir(&feature),
+            Utf8PathBuf::from("/hall/.ivar/features/checkout/planning")
+        );
+        assert_eq!(
             layout.feature_session(&feature, &session),
             Utf8PathBuf::from(
                 "/hall/.ivar/features/checkout/sessions/2c6e6f1e-2d8a-4b3a-9c2a-6a7f6f9a1b2c"
@@ -524,6 +551,14 @@ mod tests {
         assert_eq!(
             layout.instruction_file(&Provider::OpenCode),
             Utf8PathBuf::from("/hall/AGENTS.md")
+        );
+        assert_eq!(
+            layout.mcp_config(&Provider::ClaudeCode),
+            Utf8PathBuf::from("/hall/.mcp.json")
+        );
+        assert_eq!(
+            layout.mcp_config(&Provider::OpenCode),
+            Utf8PathBuf::from("/hall/opencode.json")
         );
         assert_eq!(
             layout.plan_dir(&feature),

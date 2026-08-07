@@ -25,10 +25,13 @@ use serde::Serialize;
 use ivar::action::Ctx;
 use ivar::action::feature::{create, demote, list as feature_list, promote, status};
 use ivar::action::hall::{self, InitInput};
+use ivar::action::plan::approve::{self as plan_approve};
 use ivar::action::plan::{create as plan_create, list as plan_list, show as plan_show};
 use ivar::action::provider::list as provider_list;
 use ivar::action::repo::{add, list as repo_list, pull, remove};
-use ivar::action::session::start as session_start;
+use ivar::action::session::{
+    connect as session_connect, conversion as session_conversion, start as session_start,
+};
 use ivar::action::skill::{create as skill_create, list as skill_list};
 use ivar::action::sync::{self, SyncInput};
 use ivar::cli::root::{
@@ -164,6 +167,32 @@ fn main() -> ExitCode {
                         feature: args.feature,
                         resume: args.resume,
                         provider: args.provider,
+                        detached: args.detached,
+                        relay: args.relay,
+                    },
+                ),
+                json,
+                &mut stdout,
+                &mut stderr,
+            ),
+            SessionCommand::Connect(args) => respond(
+                session_connect::connect(
+                    &ctx,
+                    session_connect::ConnectInput {
+                        session_id: args.session_id,
+                        feature: args.feature,
+                    },
+                ),
+                json,
+                &mut stdout,
+                &mut stderr,
+            ),
+            SessionCommand::Convert(args) => respond(
+                session_conversion::convert(
+                    &ctx,
+                    session_conversion::ConvertInput {
+                        session_id: args.session_id,
+                        feature: args.feature,
                     },
                 ),
                 json,
@@ -195,6 +224,30 @@ fn main() -> ExitCode {
                     plan_show::ShowInput {
                         feature: args.feature,
                         artifact: args.artifact,
+                    },
+                ),
+                json,
+                &mut stdout,
+                &mut stderr,
+            ),
+            PlanCommand::Approve(args) => respond(
+                plan_approve::approve(
+                    &ctx,
+                    plan_approve::ApproveInput {
+                        feature: args.feature,
+                        gate: args.gate,
+                    },
+                ),
+                json,
+                &mut stdout,
+                &mut stderr,
+            ),
+            PlanCommand::Invalidate(args) => respond(
+                plan_approve::invalidate(
+                    &ctx,
+                    plan_approve::InvalidateInput {
+                        feature: args.feature,
+                        gate: args.gate,
                     },
                 ),
                 json,
