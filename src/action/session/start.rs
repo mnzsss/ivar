@@ -271,15 +271,14 @@ fn feature_rows(layout: &Layout, names: &[FeatureName]) -> Vec<tui::widget::Row>
                 .ok()
                 .flatten()
                 .map(|feature| {
-                    let ready = feature
-                        .promotions
-                        .values()
-                        .filter(|p| p.worktree == crate::domain::feature::WorktreeState::Ready)
-                        .count();
                     if feature.promotions.is_empty() {
                         "empty".to_owned()
                     } else {
-                        format!("{ready}/{}", feature.promotions.len())
+                        format!(
+                            "{}/{}",
+                            feature.count_worktrees(crate::domain::feature::WorktreeState::Ready),
+                            feature.promotions.len()
+                        )
                     }
                 })
                 .unwrap_or_else(|| "unreadable".to_owned());

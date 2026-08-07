@@ -17,7 +17,7 @@ use std::io;
 
 use camino::Utf8Path;
 
-use crate::error::{Failure, FixAction};
+use crate::error::Failure;
 use crate::tui::key_router::{Action, Direction, Key, Mode, move_selection, reduce};
 use crate::tui::screen::Screen;
 use crate::tui::widget::{Row, Snapshot};
@@ -163,34 +163,6 @@ impl<P: Pty> Driver<P> {
             mode: self.mode,
         }
     }
-}
-
-/// Spawn `command` in `cwd` through `pty`, after checking the harness can
-/// actually do what is being asked. `resume` is validated by the caller;
-/// this only wires spawn-time facts (size) into the process.
-pub fn spawn_agent(
-    pty: &mut impl Pty,
-    command: &crate::infra::proc::Command,
-    cwd: &Utf8Path,
-    width: u16,
-    height: u16,
-) -> Result<(), Failure> {
-    pty.spawn(command, cwd, width, height)
-}
-
-/// The standard error for a PTY that died mid-session — the agent is gone,
-/// and the fix action names the one thing a user can do: look at why.
-pub fn agent_died() -> Failure {
-    Failure::failed(
-        "session.agent_died",
-        "the agent process exited while the TUI was running",
-    )
-    .expected("the agent to stay alive for the session")
-    .actual("the process terminated")
-    .fix(FixAction::safe(
-        "session.rerun",
-        "Check the agent's exit message and start the session again.",
-    ))
 }
 
 #[cfg(test)]

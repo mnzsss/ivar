@@ -95,6 +95,16 @@ impl Feature {
         self.promotions.get(repo).map(|p| p.worktree)
     }
 
+    /// How many promotions have a worktree in `state`. The one place the
+    /// count lives, so `feature list` and the session TUI agree.
+    #[must_use]
+    pub fn count_worktrees(&self, state: WorktreeState) -> usize {
+        self.promotions
+            .values()
+            .filter(|promotion| promotion.worktree == state)
+            .count()
+    }
+
     /// The schema version — always [`CURRENT_VERSION`] for a value built
     /// through [`Self::new`] or read by `store::feature`.
     #[must_use]

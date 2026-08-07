@@ -87,17 +87,11 @@ pub fn list(ctx: &Ctx) -> Outcome<ListOutcome> {
 }
 
 fn summary_of(feature: &Feature) -> FeatureSummary {
-    let promoted = feature.promotions.len();
-    let ready = feature
-        .promotions
-        .values()
-        .filter(|p| p.worktree == WorktreeState::Ready)
-        .count();
     FeatureSummary {
         name: feature.name.clone(),
         branch: feature.branch.to_string(),
-        promoted_count: promoted,
-        ready_count: ready,
+        promoted_count: feature.promotions.len(),
+        ready_count: feature.count_worktrees(WorktreeState::Ready),
     }
 }
 
