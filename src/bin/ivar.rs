@@ -24,7 +24,9 @@ use serde::Serialize;
 
 use ivar::action::Ctx;
 use ivar::action::execute::prepare;
-use ivar::action::feature::{create, deliver, demote, list as feature_list, promote, status};
+use ivar::action::feature::{
+    create, deliver, demote, list as feature_list, promote, status, view,
+};
 use ivar::action::hall::{self, InitInput};
 use ivar::action::plan::approve::{self as plan_approve};
 use ivar::action::plan::{create as plan_create, list as plan_list, show as plan_show};
@@ -180,6 +182,12 @@ fn main() -> ExitCode {
                         fingerprint: args.fingerprint,
                     },
                 ),
+                json,
+                &mut stdout,
+                &mut stderr,
+            ),
+            FeatureCommand::View { name } => respond(
+                view::view(&ctx, view::ViewInput { feature: name }),
                 json,
                 &mut stdout,
                 &mut stderr,

@@ -15,3 +15,4 @@ pub mod demote;
 pub mod list;
 pub mod promote;
 pub mod status;
+pub mod view;

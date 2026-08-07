@@ -147,6 +147,12 @@ pub enum FeatureCommand {
     /// side-effect-free summary (with its fingerprint) and pushes nothing;
     /// applying with `--fingerprint` is refused if the state has drifted.
     Deliver(FeatureDeliverArgs),
+    /// Open an interactive multi-shell view over the feature's promoted
+    /// repos — one shell per repo, each running in its worktree.
+    View {
+        /// The feature to view.
+        name: String,
+    },
 }
 
 /// Arguments for `ivar feature create`.

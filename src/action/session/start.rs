@@ -22,7 +22,6 @@
 //! below it stays the pure/step-driven design from ARCHITECTURE.md, seam 6.
 
 use std::io;
-use std::io::Read as _;
 
 use camino::Utf8PathBuf;
 
@@ -39,7 +38,7 @@ use crate::infra::fs;
 use crate::store::layout::Layout;
 use crate::store::manifest::Manifest;
 use crate::tui;
-use crate::tui::driver::{Driver, Pty};
+use crate::tui::driver::{Driver, PtsPty, Pty, ShellSpec};
 
 use super::super::{discover_hall, read_manifest};
 use super::lookup;
@@ -333,10 +332,10 @@ fn feature_config_provider(manifest: &Manifest) -> Provider {
 ///
 /// This slice wires the *structure*: the agent spawns in the view dir, its
 /// output flows through the driver's `screen` seam, and the widget renders
-/// the hall snapshot. The interactive loop — reading crossterm events and
-/// feeding them through `key_router` — is the next slice's work; here the
-/// TUI renders once and returns, which is what keeps the agent's session
-/// scriptable and the view dir usable without a live loop.
+/// the hall snapshot. The full interactive loop (raw mode, event reading,
+/// pumping, quit cleanup) lives in `tui::master_detail` and is what
+/// `ivar feature view` runs; here the TUI renders once and returns, which is
+/// what keeps the agent's session scriptable without a live loop.
 fn run_tui(
     command: crate::infra::proc::Command,
     view_dir: &camino::Utf8Path,
@@ -345,9 +344,14 @@ fn run_tui(
     width: u16,
     height: u16,
 ) -> Result<(), Failure> {
-    let mut pty = PtsPty::new();
-    pty.spawn(&command, view_dir, width, height)?;
-    let mut driver = Driver::new(pty, width, height);
+    // One shell — the agent — running in the view dir. The driver spawns the
+    // initially focused shell eagerly, so the agent starts here.
+    let shells = vec![ShellSpec {
+        label: "agent".to_owned(),
+        cwd: view_dir.to_path_buf(),
+        command,
+    }];
+    let mut driver = Driver::new(shells, PtsPty::new, width, height);
 
     // Drain whatever the agent produced at startup, then render one frame.
     let _ = driver.pump();
@@ -365,14 +369,7 @@ fn run_tui(
 
     let feature_names = collect_features(layout);
     let rows = feature_rows(layout, &feature_names);
-    let snapshot = tui::master_detail::snapshot(
-        layout.root().as_str(),
-        rows,
-        driver.selected(),
-        "",
-        &driver.agent_text(),
-        driver.mode(),
-    );
+    let snapshot = driver.snapshot(layout.root().as_str(), &rows);
     let _ = terminal.draw(|frame| tui::widget::render(&snapshot, frame.area(), frame.buffer_mut()));
 
     Ok(())
@@ -425,107 +422,8 @@ fn feature_rows(layout: &Layout, names: &[FeatureName]) -> Vec<tui::widget::Row>
         .collect()
 }
 
-/// The real PTY: `portable-pty` behind the [`Pty`] seam.
-///
-/// `portable-pty` gives a `PtyPair`; reads go through the slave's reader
-/// handle. Reads are blocking on the handle, so `try_read` is implemented
-/// by checking the master's bytes available — `portable-pty` exposes a
-/// non-blocking read on the master via `try_clone_reader` + polling; the
-/// seam keeps that detail here, where it can be swapped.
-struct PtsPty {
-    pair: Option<portable_pty::PtyPair>,
-}
-
-impl PtsPty {
-    fn new() -> Self {
-        Self { pair: None }
-    }
-}
-
-impl Pty for PtsPty {
-    fn spawn(
-        &mut self,
-        command: &crate::infra::proc::Command,
-        cwd: &camino::Utf8Path,
-        width: u16,
-        height: u16,
-    ) -> Result<(), Failure> {
-        let pty_system = portable_pty::native_pty_system();
-        let pair = pty_system
-            .openpty(portable_pty::PtySize {
-                rows: height,
-                cols: width,
-                pixel_width: 0,
-                pixel_height: 0,
-            })
-            .map_err(|source| {
-                Failure::failed(
-                    "session.pty_open_failed",
-                    format!("could not open a PTY: {source}"),
-                )
-            })?;
-
-        let mut builder = portable_pty::CommandBuilder::new(command.program());
-        for arg in command.arguments() {
-            builder.arg(arg);
-        }
-        for (key, value) in command.envs() {
-            builder.env(key, value);
-        }
-        builder.cwd(cwd.as_str());
-
-        let child = pair.slave.spawn_command(builder).map_err(|source| {
-            Failure::failed(
-                "session.spawn_failed",
-                format!("could not start `{}`: {source}", command.display()),
-            )
-            .fix(FixAction::safe(
-                "session.check_binary",
-                format!("Is `{}` installed and on PATH?", command.program()),
-            ))
-        })?;
-        drop(child);
-
-        self.pair = Some(pair);
-        Ok(())
-    }
-
-    fn write(&mut self, bytes: &[u8]) -> Result<(), io::Error> {
-        let Some(pair) = &self.pair else {
-            return Ok(());
-        };
-        let mut writer = pair.master.take_writer().map_err(io::Error::other)?;
-        writer.write_all(bytes)?;
-        Ok(())
-    }
-
-    fn try_read(&mut self) -> Result<Option<Vec<u8>>, io::Error> {
-        let Some(pair) = &self.pair else {
-            return Ok(None);
-        };
-        // Non-blocking probe: `portable-pty`'s reader blocks on a plain
-        // `read`, so this reads through a clone of the master and treats
-        // "no data yet" (WouldBlock / EOF) as `None`.
-        let mut reader = pair.master.try_clone_reader().map_err(io::Error::other)?;
-        let mut buf = [0u8; 4096];
-        match reader.read(&mut buf) {
-            Ok(0) => Ok(None),
-            // `n` is at most the buffer's length, so the slice is always in
-            // bounds — `get` is the lint-clean spelling of that guarantee.
-            Ok(n) => Ok(Some(buf.get(..n).map(<[u8]>::to_vec).unwrap_or_default())),
-            Err(e) if e.kind() == io::ErrorKind::WouldBlock => Ok(None),
-            Err(e) => Err(e),
-        }
-    }
-
-    fn is_running(&self) -> bool {
-        // Without a child handle to poll, this reports true for the session
-        // lifetime — the caller's loop ends on user quit. A future slice
-        // wires the child's exit status here.
-        self.pair.is_some()
-    }
-}
-
+/// The real PTY for a session is `tui::driver::PtsPty` — `portable-pty`
+/// behind the [`Pty`] seam, shared with `ivar feature view`.
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
