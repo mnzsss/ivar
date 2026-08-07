@@ -65,8 +65,9 @@ pub enum Command {
     /// Manage SPDD plans.
     #[command(subcommand)]
     Plan(PlanCommand),
-    /// Manage skills. Not implemented yet.
-    Skill,
+    /// Manage skills.
+    #[command(subcommand)]
+    Skill(SkillCommand),
 }
 
 /// The `ivar repo` surface: what a repo is, who owns it, and how the hall's
@@ -212,6 +213,25 @@ pub struct PlanShowArgs {
     pub feature: String,
     /// Which artifact: `requirements`, `analysis`, or `plan`.
     pub artifact: crate::action::plan::show::Artifact,
+}
+
+/// The `ivar skill` surface: the hall's shared skills directory.
+#[derive(Debug, Subcommand)]
+pub enum SkillCommand {
+    /// List the skills in the hall's shared skills directory.
+    List,
+    /// Scaffold a new skill: a folder with a SKILL.md.
+    Create(SkillCreateArgs),
+}
+
+/// Arguments for `ivar skill create`.
+#[derive(Debug, Args)]
+pub struct SkillCreateArgs {
+    /// The skill's id — one path segment, unique within the skills dir.
+    pub id: String,
+    /// The skill's description, for the SKILL.md frontmatter.
+    #[arg(long)]
+    pub description: String,
 }
 
 /// Arguments for `ivar init`.

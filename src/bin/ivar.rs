@@ -28,8 +28,9 @@ use ivar::action::hall::{self, InitInput};
 use ivar::action::plan::{create as plan_create, list as plan_list, show as plan_show};
 use ivar::action::repo::{add, list as repo_list, pull, remove};
 use ivar::action::session::start as session_start;
+use ivar::action::skill::{create as skill_create, list as skill_list};
 use ivar::action::sync::{self, SyncInput};
-use ivar::cli::root::{Cli, Command, FeatureCommand, PlanCommand, RepoCommand, SessionCommand};
+use ivar::cli::root::{Cli, Command, FeatureCommand, PlanCommand, RepoCommand, SessionCommand, SkillCommand};
 use ivar::error::{Failure, Outcome, Report, WriteHuman};
 use ivar::infra::term;
 
@@ -185,7 +186,23 @@ fn main() -> ExitCode {
                 &mut stderr,
             ),
         },
-        Command::Skill => respond_failure(not_implemented("skill"), json, &mut stdout, &mut stderr),
+        Command::Skill(cmd) => match cmd {
+            SkillCommand::List => {
+                respond(skill_list::list(&ctx), json, &mut stdout, &mut stderr)
+            }
+            SkillCommand::Create(args) => respond(
+                skill_create::create(
+                    &ctx,
+                    skill_create::CreateInput {
+                        id: args.id,
+                        description: args.description,
+                    },
+                ),
+                json,
+                &mut stdout,
+                &mut stderr,
+            ),
+        },
     }
 }
 

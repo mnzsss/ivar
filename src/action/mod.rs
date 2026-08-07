@@ -21,6 +21,7 @@ pub mod hall;
 pub mod plan;
 pub mod repo;
 pub mod session;
+pub mod skill;
 pub mod sync;
 
 use camino::{Utf8Path, Utf8PathBuf};
