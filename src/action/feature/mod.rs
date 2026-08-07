@@ -10,6 +10,7 @@
 //! [`promote`] for the branch-from-default-branch rule.
 
 pub mod create;
+pub mod deliver;
 pub mod demote;
 pub mod list;
 pub mod promote;

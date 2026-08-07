@@ -141,6 +141,10 @@ pub enum FeatureCommand {
     Demote(FeatureDemoteArgs),
     /// Show one feature in detail: every promoted repo and its state.
     Status(FeatureStatusArgs),
+    /// Preview, then push, a feature's promoted repos. `--preview` prints the
+    /// side-effect-free summary (with its fingerprint) and pushes nothing;
+    /// applying with `--fingerprint` is refused if the state has drifted.
+    Deliver(FeatureDeliverArgs),
 }
 
 /// Arguments for `ivar feature create`.
@@ -173,6 +177,21 @@ pub struct FeatureDemoteArgs {
 pub struct FeatureStatusArgs {
     /// The feature to inspect.
     pub feature: String,
+}
+
+/// Arguments for `ivar feature deliver`.
+#[derive(Debug, Args)]
+pub struct FeatureDeliverArgs {
+    /// The feature to deliver.
+    pub name: String,
+    /// Print the delivery preview and push nothing.
+    #[arg(long)]
+    pub preview: bool,
+    /// The fingerprint from the preview the human approved; required to apply.
+    /// Apply recomputes the preview and refuses when the fingerprint differs —
+    /// the state has drifted since the preview.
+    #[arg(long)]
+    pub fingerprint: Option<String>,
 }
 
 /// The `ivar session` surface.

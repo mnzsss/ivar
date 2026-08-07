@@ -23,7 +23,7 @@ use clap::Parser;
 use serde::Serialize;
 
 use ivar::action::Ctx;
-use ivar::action::feature::{create, demote, list as feature_list, promote, status};
+use ivar::action::feature::{create, deliver, demote, list as feature_list, promote, status};
 use ivar::action::hall::{self, InitInput};
 use ivar::action::plan::approve::{self as plan_approve};
 use ivar::action::plan::{create as plan_create, list as plan_list, show as plan_show};
@@ -152,6 +152,19 @@ fn main() -> ExitCode {
                     &ctx,
                     status::StatusInput {
                         feature: args.feature,
+                    },
+                ),
+                json,
+                &mut stdout,
+                &mut stderr,
+            ),
+            FeatureCommand::Deliver(args) => respond(
+                deliver::deliver(
+                    &ctx,
+                    deliver::DeliverInput {
+                        feature: args.name,
+                        preview: args.preview,
+                        fingerprint: args.fingerprint,
                     },
                 ),
                 json,

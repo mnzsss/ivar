@@ -170,6 +170,27 @@ pub trait Git {
     /// that refusal is the guard a cascade caller (repo deregister) has
     /// already decided to override before it calls here.
     fn remove_worktree(&self, git_dir: &Utf8Path, dest: &Utf8Path) -> Result<(), Error>;
+
+    /// Whether the worktree at `path` has uncommitted changes — tracked or
+    /// untracked. Empty `git status --porcelain` output means clean.
+    fn worktree_dirty(&self, path: &Utf8Path) -> Result<bool, Error>;
+
+    /// How many commits `branch` has that `base` does not, in the repository
+    /// at `git_dir` — `git rev-list --count <base>..<branch>`.
+    fn commits_ahead(&self, git_dir: &Utf8Path, base: &str, branch: &str) -> Result<u64, Error>;
+
+    /// Whether `branch` has an upstream configured in the repository at
+    /// `git_dir` — whether `branch@{upstream}` resolves.
+    ///
+    /// `Ok(false)` covers both "no upstream" and git refusing for any other
+    /// reason, so callers must ensure `git_dir` is a repository before asking.
+    fn has_upstream(&self, git_dir: &Utf8Path, branch: &str) -> Result<bool, Error>;
+
+    /// Push `from` to `to` on `remote`, from the repository at `git_dir`.
+    ///
+    /// `to` is a full ref (`refs/heads/<name>`); `remote` is the URL, so the
+    /// push goes exactly where the preview said it would.
+    fn push(&self, git_dir: &Utf8Path, remote: &str, from: &str, to: &str) -> Result<(), Error>;
 }
 
 /// The production [`Git`]: `git2` for reads, the `git` binary for mutations.
@@ -229,6 +250,22 @@ impl Git for System {
 
     fn remove_worktree(&self, git_dir: &Utf8Path, dest: &Utf8Path) -> Result<(), Error> {
         exec::remove_worktree(git_dir, dest)
+    }
+
+    fn worktree_dirty(&self, path: &Utf8Path) -> Result<bool, Error> {
+        exec::worktree_dirty(path)
+    }
+
+    fn commits_ahead(&self, git_dir: &Utf8Path, base: &str, branch: &str) -> Result<u64, Error> {
+        exec::commits_ahead(git_dir, base, branch)
+    }
+
+    fn has_upstream(&self, git_dir: &Utf8Path, branch: &str) -> Result<bool, Error> {
+        exec::has_upstream(git_dir, branch)
+    }
+
+    fn push(&self, git_dir: &Utf8Path, remote: &str, from: &str, to: &str) -> Result<(), Error> {
+        exec::push(git_dir, remote, from, to)
     }
 }
 
@@ -587,6 +624,147 @@ mod tests {
         let error = System
             .clone_bare(dir.join("nowhere").as_str(), &dir.join("dest"))
             .expect_err("nothing to clone");
+
+        assert!(matches!(error, Error::Refused { .. }));
+    }
+
+    // -- worktree_dirty --------------------------------------------------------
+
+    #[test]
+    fn worktree_dirty_reports_a_clean_worktree_as_clean() {
+        let (_guard, dir) = utf8_temp_dir();
+        let origin = seeded_repo(&dir.join("origin"), "main");
+        let bare = dir.join("api.bare");
+        System.clone_bare(origin.as_str(), &bare).unwrap();
+        let worktree = dir.join("api-main");
+        System.add_worktree(&bare, &worktree, "main").unwrap();
+
+        assert!(!System.worktree_dirty(&worktree).unwrap());
+    }
+
+    #[test]
+    fn worktree_dirty_sees_untracked_files_as_dirty() {
+        let (_guard, dir) = utf8_temp_dir();
+        let origin = seeded_repo(&dir.join("origin"), "main");
+        let bare = dir.join("api.bare");
+        System.clone_bare(origin.as_str(), &bare).unwrap();
+        let worktree = dir.join("api-main");
+        System.add_worktree(&bare, &worktree, "main").unwrap();
+
+        std::fs::write(worktree.join("notes.md"), "mine\n").unwrap();
+
+        assert!(System.worktree_dirty(&worktree).unwrap());
+    }
+
+    // -- commits_ahead ---------------------------------------------------------
+
+    /// A feature branch created off `main` with one new commit is one ahead of
+    /// `main`; the reverse direction is zero.
+    #[test]
+    fn commits_ahead_counts_commits_beyond_the_base() {
+        let (_guard, dir) = utf8_temp_dir();
+        let origin = seeded_repo(&dir.join("origin"), "main");
+        let bare = dir.join("api.bare");
+        System.clone_bare(origin.as_str(), &bare).unwrap();
+        git(&bare, &["branch", "feat/x"]);
+        let worktree = dir.join("feat-x");
+        System.add_worktree(&bare, &worktree, "feat/x").unwrap();
+
+        std::fs::write(worktree.join("work.md"), "work\n").unwrap();
+        git(&worktree, &["add", "work.md"]);
+        git(&worktree, &["commit", "-m", "work"]);
+
+        assert_eq!(System.commits_ahead(&bare, "main", "feat/x").unwrap(), 1);
+        assert_eq!(System.commits_ahead(&bare, "feat/x", "main").unwrap(), 0);
+    }
+
+    #[test]
+    fn commits_ahead_is_zero_for_a_branch_at_the_base() {
+        let (_guard, dir) = utf8_temp_dir();
+        let origin = seeded_repo(&dir.join("origin"), "main");
+        let bare = dir.join("api.bare");
+        System.clone_bare(origin.as_str(), &bare).unwrap();
+        git(&bare, &["branch", "feat/x"]);
+
+        assert_eq!(System.commits_ahead(&bare, "main", "feat/x").unwrap(), 0);
+    }
+
+    // -- has_upstream ----------------------------------------------------------
+
+    #[test]
+    fn has_upstream_is_false_until_an_upstream_is_configured() {
+        let (_guard, dir) = utf8_temp_dir();
+        let origin = seeded_repo(&dir.join("origin"), "main");
+        let bare = dir.join("api.bare");
+        System.clone_bare(origin.as_str(), &bare).unwrap();
+        git(&bare, &["branch", "feat/x"]);
+
+        assert!(!System.has_upstream(&bare, "feat/x").unwrap());
+
+        git(&bare, &["branch", "--set-upstream-to=main", "feat/x"]);
+
+        assert!(System.has_upstream(&bare, "feat/x").unwrap());
+    }
+
+    // -- push ------------------------------------------------------------------
+
+    #[test]
+    fn push_creates_the_branch_on_the_remote() {
+        let (_guard, dir) = utf8_temp_dir();
+        let origin = seeded_repo(&dir.join("origin"), "main");
+        let bare = dir.join("api.bare");
+        System.clone_bare(origin.as_str(), &bare).unwrap();
+        git(&bare, &["branch", "feat/x"]);
+        let worktree = dir.join("feat-x");
+        System.add_worktree(&bare, &worktree, "feat/x").unwrap();
+
+        std::fs::write(worktree.join("work.md"), "work\n").unwrap();
+        git(&worktree, &["add", "work.md"]);
+        git(&worktree, &["commit", "-m", "work"]);
+        let tip = {
+            let status = std::process::Command::new("git")
+                .args(["--git-dir", bare.as_str(), "rev-parse", "feat/x"])
+                .output()
+                .unwrap();
+            String::from_utf8_lossy(&status.stdout).trim().to_owned()
+        };
+
+        System
+            .push(&bare, origin.as_str(), "feat/x", "refs/heads/feat/x")
+            .unwrap();
+
+        let status = std::process::Command::new("git")
+            .args(["ls-remote", origin.as_str(), "refs/heads/feat/x"])
+            .output()
+            .unwrap();
+        assert!(
+            status.status.success(),
+            "ls-remote failed: {}",
+            String::from_utf8_lossy(&status.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&status.stdout);
+        assert!(
+            stdout.contains(&tip),
+            "the remote must hold the pushed tip: {stdout}"
+        );
+    }
+
+    #[test]
+    fn push_to_a_remote_that_does_not_exist_is_refused() {
+        let (_guard, dir) = utf8_temp_dir();
+        let origin = seeded_repo(&dir.join("origin"), "main");
+        let bare = dir.join("api.bare");
+        System.clone_bare(origin.as_str(), &bare).unwrap();
+        git(&bare, &["branch", "feat/x"]);
+
+        let error = System
+            .push(
+                &bare,
+                dir.join("no-such-remote").as_str(),
+                "feat/x",
+                "refs/heads/feat/x",
+            )
+            .expect_err("nothing to push to");
 
         assert!(matches!(error, Error::Refused { .. }));
     }

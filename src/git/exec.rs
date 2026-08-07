@@ -179,6 +179,82 @@ pub(crate) fn remove_worktree(git_dir: &Utf8Path, dest: &Utf8Path) -> Result<(),
     Ok(())
 }
 
+/// `git -C <worktree> status --porcelain` — whether the worktree holds
+/// uncommitted changes.
+///
+/// Porcelain output is empty exactly when the worktree is clean, so the
+/// boolean is the non-emptiness of the captured stdout. Untracked files count
+/// as dirty — a push does not carry them, and the preview saying "clean" while
+/// `git status` disagrees would be a lie the human acts on.
+pub(crate) fn worktree_dirty(path: &Utf8Path) -> Result<bool, Error> {
+    let command = git().cwd(path).arg("status").arg("--porcelain");
+    let output = proc::capture(&command)?;
+    if !output.success() {
+        return Err(Error::Refused {
+            command: command.display(),
+            detail: output.diagnostic(),
+        });
+    }
+    Ok(!output.stdout.is_empty())
+}
+
+/// `git --git-dir <git_dir> rev-list --count <base>..<branch>` — how many
+/// commits `branch` carries beyond `base`.
+///
+/// Both must exist; a missing revision is git's refusal, surfaced as
+/// [`Error::Refused`] with git's own sentence.
+pub(crate) fn commits_ahead(git_dir: &Utf8Path, base: &str, branch: &str) -> Result<u64, Error> {
+    let command = git()
+        .arg("--git-dir")
+        .arg(git_dir.as_str())
+        .arg("rev-list")
+        .arg("--count")
+        .arg(format!("{base}..{branch}"));
+    let stdout = run(command)?;
+    let count = stdout.trim().parse::<u64>().map_err(|_| Error::Refused {
+        command: format!("git rev-list --count {base}..{branch}"),
+        detail: format!("expected a commit count, got `{stdout}`"),
+    })?;
+    Ok(count)
+}
+
+/// `git --git-dir <git_dir> rev-parse --abbrev-ref --symbolic-full-name
+/// <branch>@{upstream}` — whether `branch` has an upstream configured.
+///
+/// A non-zero exit *is* the answer here — "no upstream configured for branch
+/// 'x'" is git's refusal, and the most useful sentence about why. That is why
+/// this does not go through [`run`], which turns every refusal into an error:
+/// the caller wants a `bool`. Callers must ensure `git_dir` is a repository
+/// first — a non-repository also exits non-zero, and would be read as "no
+/// upstream".
+pub(crate) fn has_upstream(git_dir: &Utf8Path, branch: &str) -> Result<bool, Error> {
+    let command = git()
+        .arg("--git-dir")
+        .arg(git_dir.as_str())
+        .arg("rev-parse")
+        .arg("--abbrev-ref")
+        .arg("--symbolic-full-name")
+        .arg(format!("{branch}@{{upstream}}"));
+    let output = proc::capture(&command)?;
+    Ok(output.success())
+}
+
+/// `git --git-dir <git_dir> push <remote> <from>:<to>`.
+///
+/// Pushes from the bare clone, which holds every worktree's refs — the feature
+/// branch's tip lives there whether or not a worktree is checked out. `remote`
+/// is the URL from the manifest, so preview and apply agree on what "the
+/// remote" means; `to` is the full ref the branch lands at.
+pub(crate) fn push(git_dir: &Utf8Path, remote: &str, from: &str, to: &str) -> Result<(), Error> {
+    run(git()
+        .arg("--git-dir")
+        .arg(git_dir.as_str())
+        .arg("push")
+        .arg(remote)
+        .arg(format!("{from}:{to}")))?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(
