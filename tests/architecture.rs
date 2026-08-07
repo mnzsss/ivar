@@ -7,6 +7,20 @@
 //! It is deliberately a lexical check over `use crate::…` and `crate::…` paths
 //! rather than anything clever. It cannot be fooled by a rename, and it costs
 //! nothing to keep working.
+//!
+//! # Comments are not imports
+//!
+//! Lines that are comments are skipped, so an intra-doc link like
+//! `[`crate::domain::name`]` from inside `git` does not read as a dependency.
+//! That is the rule saying what it means: `git` may not *depend on* `domain`,
+//! and it may absolutely explain that names reach it already validated by one.
+//! A doc link creates no compile-time edge, and forbidding it would only make
+//! the module that most needs the explanation the one that cannot give it.
+//!
+//! The known gap: a `use crate::…` inside a ```` ```rust ```` doc example is a
+//! real dependency of the doctest, and this skips it. No module here has one,
+//! and a doctest that reached across a layer would fail to compile against a
+//! private item long before anyone noticed the rule was silent.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
@@ -86,17 +100,23 @@ fn rust_files(dir: &Path) -> Vec<PathBuf> {
     found
 }
 
-/// Pulls the first path segment out of every `crate::<segment>` occurrence.
+/// Pulls the first path segment out of every `crate::<segment>` occurrence in
+/// code. Comment lines are skipped — see the module doc comment.
 fn crate_imports(text: &str) -> Vec<String> {
     let mut modules = Vec::new();
-    for (index, _) in text.match_indices("crate::") {
-        let rest = &text[index + "crate::".len()..];
-        let segment: String = rest
-            .chars()
-            .take_while(|c| c.is_alphanumeric() || *c == '_')
-            .collect();
-        if !segment.is_empty() && !modules.contains(&segment) {
-            modules.push(segment);
+    for line in text.lines() {
+        if line.trim_start().starts_with("//") {
+            continue;
+        }
+        for (index, _) in line.match_indices("crate::") {
+            let rest = &line[index + "crate::".len()..];
+            let segment: String = rest
+                .chars()
+                .take_while(|c| c.is_alphanumeric() || *c == '_')
+                .collect();
+            if !segment.is_empty() && !modules.contains(&segment) {
+                modules.push(segment);
+            }
         }
     }
     modules

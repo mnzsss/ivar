@@ -12,4 +12,5 @@ pub mod frontmatter;
 pub mod fs;
 pub mod hash;
 pub mod json;
+pub mod proc;
 pub mod term;
