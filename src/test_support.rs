@@ -50,3 +50,54 @@ pub(crate) fn hall_root() -> (TempDir, Utf8PathBuf) {
     std::fs::create_dir_all(&root).unwrap();
     (dir, root)
 }
+
+/// A real git repository at `path`, on `branch`, with no commits.
+///
+/// Real, not faked: `tempfile::TempDir` plus a real `git init` is fast,
+/// hermetic, and exercises what ships. `ivar` never mocks git — see
+/// ARCHITECTURE.md, seam 4.
+///
+/// Identity and branch name are passed with `-c` / `--initial-branch` rather
+/// than left to the machine's own git config, so a developer whose
+/// `init.defaultBranch` is `master` gets the same result as CI.
+pub(crate) fn empty_repo(path: &Utf8PathBuf, branch: &str) -> Utf8PathBuf {
+    std::fs::create_dir_all(path).unwrap();
+    git(path, &["init", "--initial-branch", branch, "."]);
+    path.clone()
+}
+
+/// A real git repository at `path`, on `branch`, with one commit adding a
+/// `README.md` containing `seed\n`.
+///
+/// The commit matters: `git clone --bare` of an empty repository produces a
+/// repository whose branch exists only as an unborn `HEAD`, which no worktree
+/// can be added on. Anything testing the clone-then-worktree path needs
+/// content.
+pub(crate) fn seeded_repo(path: &Utf8PathBuf, branch: &str) -> Utf8PathBuf {
+    empty_repo(path, branch);
+    std::fs::write(path.join("README.md"), "seed\n").unwrap();
+    git(path, &["add", "README.md"]);
+    git(path, &["commit", "-m", "seed"]);
+    path.clone()
+}
+
+/// Run git in `cwd`, with a fixed identity, panicking with git's own stderr if
+/// it refuses. Committer identity is forced because a machine with no global
+/// `user.email` cannot commit at all, and that failure is opaque.
+fn git(cwd: &Utf8PathBuf, args: &[&str]) {
+    let output = std::process::Command::new("git")
+        .args(["-c", "user.name=ivar tests"])
+        .args(["-c", "user.email=tests@ivar.invalid"])
+        .args(["-c", "commit.gpgsign=false"])
+        .args(args)
+        .current_dir(cwd)
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "git {} failed in {cwd}: {}",
+        args.join(" "),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}

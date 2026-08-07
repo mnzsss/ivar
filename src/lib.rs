@@ -51,6 +51,8 @@ pub mod infra;
 pub mod domain;
 pub mod store;
 
+pub mod git;
+
 pub mod action;
 pub mod cli;
 
@@ -58,8 +60,6 @@ pub mod cli;
 mod test_support;
 
 // Landing with their slices:
-// pub mod git;
-// pub mod harness;
 // pub mod tui;
 
 /// The binary and crate name, used wherever a message names the tool.
