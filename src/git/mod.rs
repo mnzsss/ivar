@@ -118,6 +118,15 @@ pub trait Git {
     /// Add a worktree at `dest`, checked out on the existing `branch`, off the
     /// bare repository at `git_dir`.
     fn add_worktree(&self, git_dir: &Utf8Path, dest: &Utf8Path, branch: &str) -> Result<(), Error>;
+
+    /// Fetch from the remote configured in `git_dir`, pruning deleted
+    /// refs. `Ok(())` means the fetch completed — with `--quiet`, a
+    /// no-op fetch is indistinguishable from one that pulled new commits,
+    /// and that is fine: the exit code is the answer.
+    fn fetch(&self, git_dir: &Utf8Path) -> Result<(), Error>;
+
+    /// Every local branch in `git_dir`, without the `refs/heads/` prefix.
+    fn list_branches(&self, git_dir: &Utf8Path) -> Result<Vec<String>, Error>;
 }
 
 /// The production [`Git`]: `git2` for reads, the `git` binary for mutations.
@@ -147,6 +156,14 @@ impl Git for System {
 
     fn add_worktree(&self, git_dir: &Utf8Path, dest: &Utf8Path, branch: &str) -> Result<(), Error> {
         exec::add_worktree(git_dir, dest, branch)
+    }
+
+    fn fetch(&self, git_dir: &Utf8Path) -> Result<(), Error> {
+        exec::fetch(git_dir)
+    }
+
+    fn list_branches(&self, git_dir: &Utf8Path) -> Result<Vec<String>, Error> {
+        read::list_branches(git_dir)
     }
 }
 
@@ -261,7 +278,7 @@ mod tests {
 
     use super::*;
     use crate::error::Status;
-    use crate::test_support::{seeded_repo, utf8_temp_dir};
+    use crate::test_support::{empty_repo, git, seeded_repo, utf8_temp_dir};
 
     // -- System routes each operation to a backend that answers ---------------
 
@@ -313,6 +330,87 @@ mod tests {
             "expected a linked-worktree admin dir, got {git_dir}"
         );
         assert_ne!(git_dir, bare);
+    }
+
+    // -- fetch -----------------------------------------------------------------
+
+    /// Fetching updates the bare clone with commits the origin gained since
+    /// the clone. A bare clone has no worktree, so the update is only visible
+    /// to git — this asserts the fetch reached the object database.
+    #[test]
+    fn fetch_pulls_new_commits_from_the_origin_into_the_bare_clone() {
+        let (_guard, dir) = utf8_temp_dir();
+        let origin = seeded_repo(&dir.join("origin"), "main");
+        let bare = dir.join("api.bare");
+        System.clone_bare(origin.as_str(), &bare).unwrap();
+
+        std::fs::write(origin.join("CHANGELOG.md"), "v1\n").unwrap();
+        git(&origin, &["add", "CHANGELOG.md"]);
+        git(&origin, &["commit", "-m", "v1"]);
+
+        System.fetch(&bare).unwrap();
+
+        // A bare clone has no `refs/remotes/*` — it copies `refs/heads/*`
+        // straight over, so the fetched branch is `main`, not `origin/main`.
+        let status = std::process::Command::new("git")
+            .args(["--git-dir", bare.as_str(), "rev-parse", "main"])
+            .output()
+            .unwrap();
+        assert!(
+            status.status.success(),
+            "main did not update: {}",
+            String::from_utf8_lossy(&status.stderr)
+        );
+    }
+
+    /// An up-to-date clone still fetches — `--quiet` makes it a no-op, but
+    /// the operation succeeds. The caller reports "up to date" through the
+    /// `Ok`, not through an error.
+    #[test]
+    fn fetch_succeeds_when_there_is_nothing_to_fetch() {
+        let (_guard, dir) = utf8_temp_dir();
+        let origin = seeded_repo(&dir.join("origin"), "main");
+        let bare = dir.join("api.bare");
+        System.clone_bare(origin.as_str(), &bare).unwrap();
+
+        System.fetch(&bare).unwrap();
+    }
+
+    // -- list_branches ----------------------------------------------------------
+
+    #[test]
+    fn list_branches_returns_local_branch_names_without_the_prefix() {
+        let (_guard, dir) = utf8_temp_dir();
+        let origin = seeded_repo(&dir.join("origin"), "main");
+        git(&origin, &["branch", "dev"]);
+        let bare = dir.join("api.bare");
+        System.clone_bare(origin.as_str(), &bare).unwrap();
+
+        let branches = System.list_branches(&bare).unwrap();
+
+        // Sorted lexically, whatever order git2 happened to iterate in.
+        assert_eq!(branches, vec!["dev".to_owned(), "main".to_owned()]);
+    }
+
+    /// An unborn default branch has no ref for `list_branches` to find —
+    /// that is not an error, it is the truth about a repo created moments ago.
+    #[test]
+    fn list_branches_answers_empty_for_a_repository_with_no_commits() {
+        let (_guard, dir) = utf8_temp_dir();
+        let origin = empty_repo(&dir.join("origin"), "main");
+
+        let branches = System.list_branches(&origin).unwrap();
+
+        assert!(branches.is_empty());
+    }
+
+    #[test]
+    fn list_branches_on_something_that_is_not_a_repository_says_so() {
+        let (_guard, dir) = utf8_temp_dir();
+
+        let error = System.list_branches(&dir).expect_err("not a repository");
+
+        assert!(matches!(error, Error::NotARepository { .. }));
     }
 
     /// `target_state` answers about the path itself. If it walked up, every

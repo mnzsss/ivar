@@ -84,7 +84,7 @@ pub(crate) fn seeded_repo(path: &Utf8PathBuf, branch: &str) -> Utf8PathBuf {
 /// Run git in `cwd`, with a fixed identity, panicking with git's own stderr if
 /// it refuses. Committer identity is forced because a machine with no global
 /// `user.email` cannot commit at all, and that failure is opaque.
-fn git(cwd: &Utf8PathBuf, args: &[&str]) {
+pub(crate) fn git(cwd: &Utf8PathBuf, args: &[&str]) {
     let output = std::process::Command::new("git")
         .args(["-c", "user.name=ivar tests"])
         .args(["-c", "user.email=tests@ivar.invalid"])

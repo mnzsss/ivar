@@ -91,6 +91,37 @@ pub(crate) fn worktree_git_dir(path: &Utf8Path) -> Result<Utf8PathBuf, Error> {
     })
 }
 
+/// Every local branch in the repository at `git_dir`, without the
+/// `refs/heads/` prefix, sorted lexically.
+///
+/// Reads the real refs, not `HEAD`, so a repository whose default branch has
+/// no commits yet still answers — with an empty list, since an unborn branch
+/// has no ref for `list_branches` to find. Sorted because git2 iterates in
+/// an unspecified order and every caller renders a list.
+pub(crate) fn list_branches(git_dir: &Utf8Path) -> Result<Vec<String>, Error> {
+    let repository = open(git_dir)?;
+
+    let mut branches = Vec::new();
+    for branch in repository.branches(Some(git2::BranchType::Local)).map_err(|source| {
+        Error::NotARepository {
+            path: git_dir.to_path_buf(),
+            detail: source.message().to_owned(),
+        }
+    })? {
+        let (branch, _) = branch.map_err(|source| Error::NotARepository {
+            path: git_dir.to_path_buf(),
+            detail: source.message().to_owned(),
+        })?;
+        if let Some(name) = branch.name().map_err(|_| Error::NotUtf8 {
+            display: "non-UTF-8 branch name".to_owned(),
+        })? {
+            branches.push(name.to_owned());
+        }
+    }
+    branches.sort();
+    Ok(branches)
+}
+
 /// Open `path` as a repository, or say clearly that it is not one.
 fn open(path: &Utf8Path) -> Result<git2::Repository, Error> {
     git2::Repository::open(path).map_err(|source| Error::NotARepository {

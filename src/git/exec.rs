@@ -89,6 +89,23 @@ pub(crate) fn add_worktree(git_dir: &Utf8Path, dest: &Utf8Path, branch: &str) ->
     Ok(())
 }
 
+/// `git --git-dir <git_dir> fetch --prune --quiet`.
+///
+/// Touches the network, so it shells out. `--quiet` because the output is
+/// evidence, not status — the caller wants the exit code, and git's fetch
+/// summary would be noise in every report. A no-op fetch (already up to date)
+/// exits zero just like a fetch that pulled commits; with `--quiet` there is
+/// no way to tell them apart, and the caller does not need to.
+pub(crate) fn fetch(git_dir: &Utf8Path) -> Result<(), Error> {
+    run(git()
+        .arg("--git-dir")
+        .arg(git_dir.as_str())
+        .arg("fetch")
+        .arg("--prune")
+        .arg("--quiet"))?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(
