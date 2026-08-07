@@ -19,6 +19,7 @@ use serde::Serialize;
 use crate::domain::name::RepoName;
 use crate::error::{Failure, FixAction, Outcome, Report, Warning, WriteHuman};
 use crate::git::{self, Git, TargetState};
+use crate::infra::fs;
 use crate::store::layout::Layout;
 use crate::store::manifest::{Manifest, Repo};
 
@@ -158,7 +159,15 @@ pub fn pull(ctx: &Ctx, input: PullInput) -> Outcome<PullOutcome> {
 /// then the fast-forward advances it. A repo whose default worktree was never
 /// materialised is `Failed` — the hall is out of line with `ivar.json`, and
 /// `ivar sync` is the way back in line.
-fn refresh_default(git: &impl Git, layout: &Layout, repo: &Repo) -> PullStatus {
+///
+/// A default worktree that a session has read-only-guarded is temporarily made
+/// writable for the duration of the git mutation and re-guarded after: git
+/// cannot create files in a write-bit-cleared directory, and a checkout that
+/// fails mid-merge would leave the branch advanced but the files missing.
+///
+/// `pub(crate)` because Smart Fetch on session start is this same operation —
+/// the plan's "use the existing pull logic" is literally this function.
+pub(crate) fn refresh_default(git: &impl Git, layout: &Layout, repo: &Repo) -> PullStatus {
     let worktree = layout.repo_worktree(repo.name(), repo.default_branch());
 
     match git.target_state(&worktree) {
@@ -175,7 +184,27 @@ fn refresh_default(git: &impl Git, layout: &Layout, repo: &Repo) -> PullStatus {
         }
     }
 
-    match git.fetch_branch(&worktree, repo.default_branch().as_str()) {
+    // Lift the read-only guard (if any) for the git mutation below. The
+    // restore is best-effort: the refresh result stands even if the chmod
+    // fails, and the next session start/connect re-applies the guard.
+    let lifted = match fs::unix_mode(&worktree) {
+        Ok(Some(mode)) if mode & 0o222 == 0 => match fs::restore_write_bits(&worktree) {
+            Ok(()) => true,
+            Err(error) => {
+                return PullStatus::Failed {
+                    reason: format!("could not lift the read-only guard: {error}"),
+                };
+            }
+        },
+        Ok(_) => false,
+        Err(error) => {
+            return PullStatus::Failed {
+                reason: error.to_string(),
+            };
+        }
+    };
+
+    let status = match git.fetch_branch(&worktree, repo.default_branch().as_str()) {
         Err(error) => PullStatus::Failed {
             reason: error.to_string(),
         },
@@ -185,7 +214,12 @@ fn refresh_default(git: &impl Git, layout: &Layout, repo: &Repo) -> PullStatus {
                 reason: format!("cannot fast-forward the default branch: {error}"),
             },
         },
+    };
+
+    if lifted {
+        let _ = fs::clear_write_bits(&worktree);
     }
+    status
 }
 
 /// The repos to refresh: the one named, or every repo in the manifest.
@@ -379,6 +413,43 @@ mod tests {
 
         assert_eq!(failure.status, Status::Blocked);
         assert_eq!(failure.code, "repo.not_found");
+    }
+
+    /// A read-only-guarded default worktree (the state a live session leaves
+    /// behind) must still refresh: the guard is lifted for the fetch-and-
+    /// fast-forward and re-applied afterwards. Without the lift, git cannot
+    /// create the new file and would leave the branch advanced but the file
+    /// missing — with a zero exit code.
+    #[test]
+    fn pull_refreshes_a_read_only_guarded_worktree_and_reapplies_the_guard() {
+        let (_guard, root) = hall_with(&[("api", "main")]);
+        let ctx = Ctx::new(root.clone());
+        crate::action::sync::sync(&ctx, Default::default()).unwrap();
+
+        let worktree = root.join(".ivar/repos/api/main");
+        let origin = origin_path(&root, "api");
+        std::fs::write(origin.join("CHANGELOG.md"), "v1\n").unwrap();
+        git(&origin, &["add", "CHANGELOG.md"]);
+        git(&origin, &["commit", "-m", "v1"]);
+
+        // The guard a session's view-dir materialisation would have applied.
+        fs::clear_write_bits(&worktree).unwrap();
+
+        let report = pull(&ctx, PullInput::default()).unwrap();
+
+        assert_eq!(status_of(&report, "api"), &PullStatus::Refreshed);
+        assert_eq!(
+            std::fs::read_to_string(worktree.join("CHANGELOG.md")).unwrap(),
+            "v1\n",
+            "the guarded worktree must catch up to the new commit"
+        );
+        assert_eq!(
+            fs::unix_mode(&worktree).unwrap().unwrap() & 0o222,
+            0,
+            "the read-only guard must be re-applied after the refresh"
+        );
+        // Restore so TempDir can clean up.
+        fs::restore_write_bits(&worktree).unwrap();
     }
 
     /// A repo whose default worktree was never materialised cannot be
