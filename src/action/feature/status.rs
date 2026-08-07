@@ -10,7 +10,6 @@ use crate::domain::feature::{Feature, WorktreeState};
 use crate::domain::name::{FeatureName, RepoName};
 use crate::error::{Failure, FixAction, Outcome, Report, WriteHuman};
 use crate::git::{self, Git, TargetState};
-use crate::store::layout::Layout;
 
 use super::super::discover_hall;
 use crate::action::Ctx;
@@ -140,6 +139,7 @@ mod tests {
     use crate::domain::name::{BranchName, HallName};
     use crate::domain::provider::Provider;
     use crate::error::Status;
+    use crate::store::layout::Layout;
     use crate::store::manifest::{Manifest, Providers, Repo};
     use crate::test_support::{hall_root, seeded_repo};
 

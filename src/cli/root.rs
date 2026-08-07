@@ -57,8 +57,9 @@ pub enum Command {
     /// Manage features.
     #[command(subcommand)]
     Feature(FeatureCommand),
-    /// Manage sessions. Not implemented yet.
-    Session,
+    /// Manage sessions.
+    #[command(subcommand)]
+    Session(SessionCommand),
     /// Manage providers. Not implemented yet.
     Provider,
     /// Manage SPDD plans. Not implemented yet.
@@ -162,6 +163,27 @@ pub struct FeatureDemoteArgs {
 pub struct FeatureStatusArgs {
     /// The feature to inspect.
     pub feature: String,
+}
+
+/// The `ivar session` surface.
+#[derive(Debug, Subcommand)]
+pub enum SessionCommand {
+    /// Open a session: view dir over a feature's promoted repos, agent
+    /// running in it, TUI on top.
+    Start(SessionStartArgs),
+}
+
+/// Arguments for `ivar session start`.
+#[derive(Debug, Args)]
+pub struct SessionStartArgs {
+    /// The feature to open a session for.
+    pub feature: String,
+    /// Resume an existing session, where the harness supports it.
+    #[arg(long)]
+    pub resume: bool,
+    /// The provider to run. Defaults to the hall's default provider.
+    #[arg(long)]
+    pub provider: Option<String>,
 }
 
 /// Arguments for `ivar init`.

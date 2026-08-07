@@ -56,6 +56,7 @@ pub mod harness;
 
 pub mod action;
 pub mod cli;
+pub mod tui;
 
 #[cfg(test)]
 mod test_support;

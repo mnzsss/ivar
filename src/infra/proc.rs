@@ -129,6 +129,33 @@ impl Command {
         rendered
     }
 
+    /// The program to run. Exposed so a consumer that spawns through its own
+    /// mechanism (e.g. `portable-pty`, which is not a `std::process` runner)
+    /// can rebuild the invocation from the same value this module would have
+    /// run — the one source of truth for what runs.
+    #[must_use]
+    pub fn program(&self) -> &str {
+        &self.program
+    }
+
+    /// The arguments, in order.
+    #[must_use]
+    pub fn arguments(&self) -> &[String] {
+        &self.args
+    }
+
+    /// The environment overrides.
+    #[must_use]
+    pub fn envs(&self) -> &[(String, String)] {
+        &self.env
+    }
+
+    /// The working directory, if set.
+    #[must_use]
+    pub fn working_dir(&self) -> Option<&Utf8PathBuf> {
+        self.cwd.as_ref()
+    }
+
     /// Everything both runners configure identically.
     fn to_std(&self) -> StdCommand {
         let mut command = StdCommand::new(&self.program);

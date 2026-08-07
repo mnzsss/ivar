@@ -26,8 +26,9 @@ use ivar::action::Ctx;
 use ivar::action::feature::{create, demote, list as feature_list, promote, status};
 use ivar::action::hall::{self, InitInput};
 use ivar::action::repo::{add, list as repo_list, pull, remove};
+use ivar::action::session::start as session_start;
 use ivar::action::sync::{self, SyncInput};
-use ivar::cli::root::{Cli, Command, FeatureCommand, RepoCommand};
+use ivar::cli::root::{Cli, Command, FeatureCommand, RepoCommand, SessionCommand};
 use ivar::error::{Failure, Outcome, Report, WriteHuman};
 use ivar::infra::term;
 
@@ -144,9 +145,21 @@ fn main() -> ExitCode {
                 &mut stderr,
             ),
         },
-        Command::Session => {
-            respond_failure(not_implemented("session"), json, &mut stdout, &mut stderr)
-        }
+        Command::Session(cmd) => match cmd {
+            SessionCommand::Start(args) => respond(
+                session_start::start(
+                    &ctx,
+                    session_start::StartInput {
+                        feature: args.feature,
+                        resume: args.resume,
+                        provider: args.provider,
+                    },
+                ),
+                json,
+                &mut stdout,
+                &mut stderr,
+            ),
+        },
         Command::Provider => {
             respond_failure(not_implemented("provider"), json, &mut stdout, &mut stderr)
         }
