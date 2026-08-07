@@ -1,0 +1,74 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# GitHub Actions gives a fork's pull request no secrets. That is not
+# configurable, so if this gate needed a credential, outside contribution would
+# be impossible. Every job here is offline and reproduces exactly what
+# CONTRIBUTING.md tells a contributor to run locally.
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+
+jobs:
+  gate:
+    name: gate (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # macOS and Linux only. Windows is unsupported: the view dir is built
+        # entirely from symlinks, which need Developer Mode or admin rights.
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v5
+      # rust-toolchain.toml pins the version; no toolchain input here on purpose.
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+
+      - name: fmt
+        run: cargo fmt --all --check
+
+      - name: clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: test
+        run: cargo test --all-features
+
+  msrv:
+    name: msrv
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: read MSRV from Cargo.toml
+        id: msrv
+        run: |
+          v=$(grep -m1 '^rust-version' Cargo.toml | sed -E 's/.*"(.*)".*/\1/')
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.msrv.outputs.version }}
+      - uses: Swatinem/rust-cache@v2
+      # Build only. The MSRV is a compile contract, not a test contract.
+      - run: cargo build --all-features
+
+  coverage:
+    name: coverage (report only)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: taiki-e/install-action@cargo-llvm-cov
+      - uses: Swatinem/rust-cache@v2
+      # Reports, never blocks. A per-file threshold is good discipline inside a
+      # private monorepo and a hostile gate for a stranger whose ten-line PR
+      # would fail on coverage of a file they did not touch.
+      - run: cargo llvm-cov --all-features --summary-only
