@@ -494,10 +494,7 @@ impl Pty for PtsPty {
         let Some(pair) = &self.pair else {
             return Ok(());
         };
-        let mut writer = pair
-            .master
-            .take_writer()
-            .map_err(io::Error::other)?;
+        let mut writer = pair.master.take_writer().map_err(io::Error::other)?;
         writer.write_all(bytes)?;
         Ok(())
     }
@@ -509,10 +506,7 @@ impl Pty for PtsPty {
         // Non-blocking probe: `portable-pty`'s reader blocks on a plain
         // `read`, so this reads through a clone of the master and treats
         // "no data yet" (WouldBlock / EOF) as `None`.
-        let mut reader = pair
-            .master
-            .try_clone_reader()
-            .map_err(io::Error::other)?;
+        let mut reader = pair.master.try_clone_reader().map_err(io::Error::other)?;
         let mut buf = [0u8; 4096];
         match reader.read(&mut buf) {
             Ok(0) => Ok(None),
