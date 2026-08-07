@@ -81,10 +81,11 @@ pub enum RepoCommand {
     /// Declare a repo in ivar.json, clone it bare, and materialise its
     /// default-branch worktree.
     Add(RepoAddArgs),
-    /// Remove a repo from ivar.json. Its files stay on disk until
-    /// `ivar cleanup`.
+    /// Remove a repo from ivar.json and tear down its files. Refuses while
+    /// the repo is promoted in a feature or referenced by a live session;
+    /// `--force` lifts both gates and cascades.
     Remove(RepoRemoveArgs),
-    /// Fetch one or all repos from their remotes.
+    /// Refresh one or all repos' default branches from their remotes.
     Pull(RepoPullArgs),
 }
 
@@ -111,6 +112,12 @@ pub struct RepoAddArgs {
 pub struct RepoRemoveArgs {
     /// The repo's name, as declared in ivar.json.
     pub name: String,
+    /// Tear down even while the repo is promoted in a feature or referenced
+    /// by a live session. Cascades: removes its worktrees, scrubs its
+    /// promotion records, repairs view-dir symlinks, and regenerates the
+    /// providers' config.
+    #[arg(long)]
+    pub force: bool,
 }
 
 /// Arguments for `ivar repo pull`.

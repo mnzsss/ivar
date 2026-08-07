@@ -108,7 +108,7 @@ pub enum Change {
 
 impl Change {
     /// The one-character marker the human surface prefixes an entry with.
-    const fn symbol(self) -> char {
+    pub(crate) const fn symbol(self) -> char {
         match self {
             Self::Created => '+',
             Self::Updated => '~',
@@ -177,7 +177,11 @@ pub struct Entry {
 }
 
 impl Entry {
-    fn new(surface: impl Into<String>, label: impl Into<String>, change: Change) -> Self {
+    pub(crate) fn new(
+        surface: impl Into<String>,
+        label: impl Into<String>,
+        change: Change,
+    ) -> Self {
         Self {
             surface: surface.into(),
             label: label.into(),
@@ -186,7 +190,7 @@ impl Entry {
         }
     }
 
-    fn detail(mut self, detail: impl Into<String>) -> Self {
+    pub(crate) fn detail(mut self, detail: impl Into<String>) -> Self {
         self.detail = Some(detail.into());
         self
     }
@@ -295,17 +299,7 @@ pub fn sync(ctx: &Ctx, input: SyncInput) -> Outcome<SyncOutcome> {
 
     // Built once, not once per provider: the block every provider gets is the
     // same bytes, and `Provider::ALL` will only grow.
-    let block = config::build_block(manifest.name(), &repo_names(&manifest));
-    for provider in Provider::ALL {
-        sync_provider(
-            &layout,
-            &manifest,
-            provider,
-            &block,
-            &mut entries,
-            &mut warnings,
-        );
-    }
+    sync_providers(&layout, &manifest, &mut entries, &mut warnings);
 
     Ok(Report::with_warnings(
         SyncOutcome {
@@ -314,6 +308,24 @@ pub fn sync(ctx: &Ctx, input: SyncInput) -> Outcome<SyncOutcome> {
         },
         warnings,
     ))
+}
+
+/// Regenerate every provider's managed block from `manifest`.
+///
+/// Shared by `ivar sync` and deregister (`repo remove --force`): both rewrite
+/// the hall's provider config after the manifest changes, and the block must
+/// describe the same hall in both places. Best-effort per provider — a
+/// failure becomes an entry and a warning, never an abort.
+pub(crate) fn sync_providers(
+    layout: &Layout,
+    manifest: &Manifest,
+    entries: &mut Vec<Entry>,
+    warnings: &mut Vec<Warning>,
+) {
+    let block = config::build_block(manifest.name(), &repo_names(manifest));
+    for provider in Provider::ALL {
+        sync_provider(layout, manifest, provider, &block, entries, warnings);
+    }
 }
 
 /// Create the directories every later step writes underneath.

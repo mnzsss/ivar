@@ -92,7 +92,13 @@ fn main() -> ExitCode {
                 &mut stderr,
             ),
             RepoCommand::Remove(args) => respond(
-                remove::remove(&ctx, remove::RemoveInput { name: args.name }),
+                remove::remove(
+                    &ctx,
+                    remove::RemoveInput {
+                        name: args.name,
+                        force: args.force,
+                    },
+                ),
                 json,
                 &mut stdout,
                 &mut stderr,

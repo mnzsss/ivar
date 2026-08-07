@@ -130,6 +130,55 @@ pub(crate) fn create_branch_and_worktree(
     Ok(())
 }
 
+/// `git -C <worktree> fetch --prune --quiet origin <branch>`.
+///
+/// Runs *inside* the worktree, not against the bare: a bare clone here has no
+/// `remote.origin.fetch` refspec, and fetching straight into the shared
+/// `refs/heads/*` is refused by git while the branch is checked out in a
+/// worktree. A worktree-local fetch lands in `FETCH_HEAD` and moves nothing —
+/// the fast-forward is the separate, deliberate next step.
+pub(crate) fn fetch_branch(worktree: &Utf8Path, branch: &str) -> Result<(), Error> {
+    run(git()
+        .cwd(worktree)
+        .arg("fetch")
+        .arg("--prune")
+        .arg("--quiet")
+        .arg("origin")
+        .arg(branch))?;
+    Ok(())
+}
+
+/// `git -C <worktree> merge --ff-only FETCH_HEAD`.
+///
+/// Advances the worktree's checked-out branch (and its files) to the tip the
+/// preceding [`fetch_branch`] landed in `FETCH_HEAD`. Non-zero when the
+/// branches diverged — "cannot fast-forward" — which the caller reports as
+/// skipped, never as a batch abort.
+pub(crate) fn fast_forward(worktree: &Utf8Path) -> Result<(), Error> {
+    run(git()
+        .cwd(worktree)
+        .arg("merge")
+        .arg("--ff-only")
+        .arg("FETCH_HEAD"))?;
+    Ok(())
+}
+
+/// `git --git-dir <git_dir> worktree remove --force <dest>`.
+///
+/// `--force` because a worktree with uncommitted changes is refused by git
+/// otherwise, and this is only called from a cascade that has decided the
+/// work is being torn down.
+pub(crate) fn remove_worktree(git_dir: &Utf8Path, dest: &Utf8Path) -> Result<(), Error> {
+    run(git()
+        .arg("--git-dir")
+        .arg(git_dir.as_str())
+        .arg("worktree")
+        .arg("remove")
+        .arg("--force")
+        .arg(dest.as_str()))?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(

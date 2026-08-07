@@ -246,13 +246,13 @@ fn run_tui(
 /// The features in the hall, sorted, for the TUI's left list.
 fn collect_features(layout: &Layout) -> Vec<FeatureName> {
     let mut names = Vec::new();
-    let dir = layout.ivar_dir().join("features");
+    let dir = layout.features_dir();
     if let Ok(entries) = fs::read_dir(&dir) {
         for entry in entries {
-            if let Some(name) = entry.file_name() {
-                if let Ok(name) = FeatureName::new(name) {
-                    names.push(name);
-                }
+            if let Some(name) = entry.file_name()
+                && let Ok(name) = FeatureName::new(name)
+            {
+                names.push(name);
             }
         }
     }

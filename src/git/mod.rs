@@ -143,6 +143,33 @@ pub trait Git {
         from_branch: &str,
         dest: &Utf8Path,
     ) -> Result<(), Error>;
+
+    /// Fetch `branch` from the remote into the worktree at `path` — the fetch
+    /// half of a default-branch refresh (`repo pull`).
+    ///
+    /// Runs *inside* the worktree (`git -C`), which is what makes it safe in
+    /// this architecture: a bare clone here has no `remote.origin.fetch`
+    /// refspec, and fetching straight into the shared `refs/heads/*` is
+    /// refused by git while the branch is checked out in a worktree. A
+    /// worktree-local fetch lands in `FETCH_HEAD` and moves no branch ref, so
+    /// a feature worktree's branch — sharing this bare's refs — is untouched.
+    fn fetch_branch(&self, worktree: &Utf8Path, branch: &str) -> Result<(), Error>;
+
+    /// Fast-forward the worktree at `path` to the tip its preceding
+    /// [`Self::fetch_branch`] left in `FETCH_HEAD` — `git merge --ff-only
+    /// FETCH_HEAD`.
+    ///
+    /// Advances the worktree's checked-out branch and its files. Refuses when
+    /// the branch diverged and cannot be fast-forwarded, which the caller
+    /// reports as "skipped" — never as a batch abort.
+    fn fast_forward(&self, worktree: &Utf8Path) -> Result<(), Error>;
+
+    /// Remove the worktree at `dest` from the repository at `git_dir`.
+    ///
+    /// Forced: git refuses to remove a worktree with uncommitted changes, and
+    /// that refusal is the guard a cascade caller (repo deregister) has
+    /// already decided to override before it calls here.
+    fn remove_worktree(&self, git_dir: &Utf8Path, dest: &Utf8Path) -> Result<(), Error>;
 }
 
 /// The production [`Git`]: `git2` for reads, the `git` binary for mutations.
@@ -190,6 +217,18 @@ impl Git for System {
         dest: &Utf8Path,
     ) -> Result<(), Error> {
         exec::create_branch_and_worktree(git_dir, branch, from_branch, dest)
+    }
+
+    fn fetch_branch(&self, worktree: &Utf8Path, branch: &str) -> Result<(), Error> {
+        exec::fetch_branch(worktree, branch)
+    }
+
+    fn fast_forward(&self, worktree: &Utf8Path) -> Result<(), Error> {
+        exec::fast_forward(worktree)
+    }
+
+    fn remove_worktree(&self, git_dir: &Utf8Path, dest: &Utf8Path) -> Result<(), Error> {
+        exec::remove_worktree(git_dir, dest)
     }
 }
 
@@ -400,6 +439,94 @@ mod tests {
         System.clone_bare(origin.as_str(), &bare).unwrap();
 
         System.fetch(&bare).unwrap();
+    }
+
+    // -- fetch_branch + fast_forward (the pull refresh) -----------------------
+
+    /// The fetch-and-fast-forward `repo pull` runs: fetch lands in
+    /// `FETCH_HEAD` without touching the checked-out branch, then the
+    /// fast-forward advances the worktree's files and the shared branch ref.
+    #[test]
+    fn fetch_branch_then_fast_forward_updates_the_default_worktree() {
+        let (_guard, dir) = utf8_temp_dir();
+        let origin = seeded_repo(&dir.join("origin"), "main");
+        let bare = dir.join("api.bare");
+        System.clone_bare(origin.as_str(), &bare).unwrap();
+        let worktree = dir.join("api-main");
+        System.add_worktree(&bare, &worktree, "main").unwrap();
+
+        std::fs::write(origin.join("CHANGELOG.md"), "v1\n").unwrap();
+        git(&origin, &["add", "CHANGELOG.md"]);
+        git(&origin, &["commit", "-m", "v1"]);
+
+        System.fetch_branch(&worktree, "main").unwrap();
+        System.fast_forward(&worktree).unwrap();
+
+        assert_eq!(
+            std::fs::read_to_string(worktree.join("CHANGELOG.md")).unwrap(),
+            "v1\n",
+            "the worktree's files must catch up to the fetched tip"
+        );
+    }
+
+    /// The "skipped" case: a default branch that diverged cannot be
+    /// fast-forwarded, and that is reported as a refusal — never a silent
+    /// clobber of the local commit.
+    #[test]
+    fn fast_forward_refuses_a_diverged_worktree() {
+        let (_guard, dir) = utf8_temp_dir();
+        let origin = seeded_repo(&dir.join("origin"), "main");
+        let bare = dir.join("api.bare");
+        System.clone_bare(origin.as_str(), &bare).unwrap();
+        let worktree = dir.join("api-main");
+        System.add_worktree(&bare, &worktree, "main").unwrap();
+
+        // The worktree gains a local commit while the origin moves elsewhere.
+        git(&worktree, &["commit", "--allow-empty", "-m", "local drift"]);
+        std::fs::write(origin.join("CHANGELOG.md"), "v1\n").unwrap();
+        git(&origin, &["add", "CHANGELOG.md"]);
+        git(&origin, &["commit", "-m", "v1"]);
+
+        System.fetch_branch(&worktree, "main").unwrap();
+        let error = System.fast_forward(&worktree).expect_err("diverged");
+
+        assert!(matches!(error, Error::Refused { .. }));
+    }
+
+    // -- remove_worktree -------------------------------------------------------
+
+    #[test]
+    fn remove_worktree_takes_a_worktree_down() {
+        let (_guard, dir) = utf8_temp_dir();
+        let origin = seeded_repo(&dir.join("origin"), "main");
+        let bare = dir.join("api.bare");
+        System.clone_bare(origin.as_str(), &bare).unwrap();
+        let worktree = dir.join("api-main");
+        System.add_worktree(&bare, &worktree, "main").unwrap();
+        assert!(worktree.join("README.md").is_file());
+
+        System.remove_worktree(&bare, &worktree).unwrap();
+
+        assert_eq!(System.target_state(&worktree).unwrap(), TargetState::Absent);
+    }
+
+    #[test]
+    fn remove_worktree_refuses_a_path_git_does_not_manage() {
+        let (_guard, dir) = utf8_temp_dir();
+        let origin = seeded_repo(&dir.join("origin"), "main");
+        let bare = dir.join("api.bare");
+        System.clone_bare(origin.as_str(), &bare).unwrap();
+        // A hand-made directory at where a worktree should be: not a git
+        // worktree, so `git worktree remove` refuses — the best-effort
+        // "step failed, continue" path deregister relies on.
+        let stray = dir.join("stray");
+        std::fs::create_dir_all(&stray).unwrap();
+
+        let error = System
+            .remove_worktree(&bare, &stray)
+            .expect_err("not a registered worktree");
+
+        assert!(matches!(error, Error::Refused { .. }));
     }
 
     // -- list_branches ----------------------------------------------------------

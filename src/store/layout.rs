@@ -255,6 +255,36 @@ impl Layout {
         self.ivar_dir().join("repos")
     }
 
+    /// `<hall>/.ivar/repos/<repo>/` — the whole store for one repo: the bare
+    /// clone and every worktree off it.
+    ///
+    /// Public because deregister removes the entire tree in one step, and
+    /// deriving it from `repo_bare(...).parent().parent()` at the call site is
+    /// exactly the path arithmetic outside this module that the module exists
+    /// to prevent.
+    #[must_use]
+    pub fn repo_dir(&self, repo: &RepoName) -> Utf8PathBuf {
+        self.repos_dir().join(repo.as_str())
+    }
+
+    /// `<hall>/.ivar/features/` — every feature's directory.
+    ///
+    /// Public because deregister has to enumerate features to find the ones
+    /// promoting a repo, and because a session TUI wants the same list.
+    #[must_use]
+    pub fn features_dir(&self) -> Utf8PathBuf {
+        self.ivar_dir().join("features")
+    }
+
+    /// `<hall>/.ivar/sessions/` — every discovery-session view dir.
+    ///
+    /// Public because deregister has to enumerate live session view dirs to
+    /// repair the symlinks it leaves dangling.
+    #[must_use]
+    pub fn discovery_sessions_dir(&self) -> Utf8PathBuf {
+        self.ivar_dir().join("sessions")
+    }
+
     /// The exact lines the hall's `.gitignore` needs.
     ///
     /// `.ivar/*` excludes every direct child of `.ivar/` as its own entry, and
@@ -280,14 +310,6 @@ impl Layout {
     #[must_use]
     pub fn ivar_dir(&self) -> Utf8PathBuf {
         self.root.join(IVAR_DIR)
-    }
-
-    fn repo_dir(&self, repo: &RepoName) -> Utf8PathBuf {
-        self.repos_dir().join(repo.as_str())
-    }
-
-    fn features_dir(&self) -> Utf8PathBuf {
-        self.ivar_dir().join("features")
     }
 }
 
@@ -483,6 +505,18 @@ mod tests {
             Utf8PathBuf::from("/hall/.ivar/skills")
         );
         assert_eq!(layout.repos_dir(), Utf8PathBuf::from("/hall/.ivar/repos"));
+        assert_eq!(
+            layout.repo_dir(&repo),
+            Utf8PathBuf::from("/hall/.ivar/repos/api")
+        );
+        assert_eq!(
+            layout.features_dir(),
+            Utf8PathBuf::from("/hall/.ivar/features")
+        );
+        assert_eq!(
+            layout.discovery_sessions_dir(),
+            Utf8PathBuf::from("/hall/.ivar/sessions")
+        );
         assert_eq!(
             layout.instruction_file(&Provider::ClaudeCode),
             Utf8PathBuf::from("/hall/CLAUDE.md")
