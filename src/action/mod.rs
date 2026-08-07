@@ -17,6 +17,7 @@
 //! which enforces this lexically over every file in this directory.
 
 pub mod hall;
+pub mod sync;
 
 use camino::{Utf8Path, Utf8PathBuf};
 

@@ -13,28 +13,10 @@
     clippy::indexing_slicing
 )]
 
-use assert_cmd::Command;
-use camino::Utf8PathBuf;
+mod common;
+
+use common::{hall_root as utf8_temp_dir, ivar};
 use predicates::prelude::*;
-use tempfile::TempDir;
-
-fn ivar() -> Command {
-    Command::cargo_bin("ivar").expect("binary builds")
-}
-
-/// A fresh directory to `init` into, with a name that does **not** start
-/// with `.` — `tempfile::TempDir` defaults to a `.tmp*` prefix itself, and
-/// using its path directly as the hall root would make every test that
-/// relies on derived naming collide with `HallName`'s "no leading dot" rule
-/// instead of exercising what the test is actually about.
-fn utf8_temp_dir() -> (TempDir, Utf8PathBuf) {
-    let dir = TempDir::new().expect("create temp dir");
-    let raw = Utf8PathBuf::try_from(dir.path().to_path_buf()).expect("temp dir path is utf8");
-    let canonical = raw.canonicalize_utf8().expect("canonicalize temp dir");
-    let root = canonical.join("hall");
-    std::fs::create_dir(&root).expect("create hall subdirectory");
-    (dir, root)
-}
 
 #[test]
 fn fresh_init_creates_the_expected_on_disk_shape() {
@@ -163,10 +145,13 @@ fn json_and_human_surfaces_carry_the_same_facts() {
     assert!(human.contains(root_human.as_str()));
 }
 
+/// A verb named in the settled surface but not yet built says so, rather than
+/// exiting zero having done nothing. `status` stands in for the rest; the point
+/// is the shape of the refusal, not which verb it is.
 #[test]
 fn a_root_verb_not_yet_implemented_fails_clearly_instead_of_pretending() {
     ivar()
-        .arg("sync")
+        .arg("status")
         .assert()
         .failure()
         .code(2)

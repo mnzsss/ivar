@@ -35,7 +35,9 @@ src/
     repo.rs feature.rs session.rs provider.rs plan.rs skill.rs
 
   action/          one function per leaf command. The unit of behaviour.
-    hall.rs        init · sync · status · doctor · cleanup
+    hall.rs        init · status · doctor · cleanup
+    sync.rs        sync — big enough to own a file: it is the only verb that
+                   crosses repos, providers and the hall in one pass
     repo.rs feature.rs session.rs provider.rs plan.rs skill.rs
     execute.rs     feature execute: prepare · approve · guard-check · tick · reply
 
@@ -49,6 +51,10 @@ src/
     versioned.rs   the version-detect / migrate / refuse-if-newer machine
     manifest.rs    ivar.json — committed, NEVER auto-migrates
     hall_state.rs  .ivar/state.json — local, migrates silently
+    gitignore.rs   the hall's .gitignore: append the needed lines, never clobber
+    setup_receipt.rs  what a worktree's setup script did last time. The one file
+                   NOT under layout: it lives in git's admin dir, so it dies
+                   with the worktree it describes.
     feature.rs session.rs board.rs lockfile.rs
     layout.rs      every path under a hall is computed here, nowhere else
 
@@ -250,11 +256,19 @@ contract** — a user's committed `.ivar/setups/<repo>.sh` breaks if they move.
 
 | variable | set when | value |
 | --- | --- | --- |
+| `IVAR_HALL` | always | the hall root |
+| `IVAR_REPO` | in a repo worktree | the repo name, as it appears in `ivar.json` |
+| `IVAR_BRANCH` | in a repo worktree | the branch that worktree is checked out on |
+| `IVAR_WORKTREE` | in a repo worktree | the absolute path of the worktree (also the cwd) |
 | `IVAR_WORKTREE_KIND` | always | `default` or `feature` |
 | `IVAR_FEATURE` | feature worktrees only | the feature name |
 | `IVAR_SESSION_ID` | inside a session | the session id |
 | `IVAR_SESSION_PATH` | inside a session | the view dir |
-| `IVAR_HALL` | always | the hall root |
+
+The three worktree variables were added when slice 2 landed the setup-script
+runner: a script's whole job is to bootstrap *this* repo on *this* branch, and
+neither fact was derivable. `IVAR_WORKTREE` duplicates the working directory on
+purpose — a script that `cd`s somewhere still needs a way back.
 
 The prefix is `IVAR_`, with **no fallback to the old `BIFROST_` names**. Same
 reasoning as the manifest: this implementation is new, nobody outside the private

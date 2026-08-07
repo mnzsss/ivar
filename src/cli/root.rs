@@ -12,6 +12,7 @@ use camino::Utf8PathBuf;
 use clap::{Args, Parser, Subcommand, ValueEnum};
 
 use crate::action::hall::InitInput;
+use crate::action::sync::SyncInput;
 
 /// Mount the repos a feature spans into one directory, on one branch, for
 /// one agent session.
@@ -41,9 +42,9 @@ pub enum Command {
     /// Create a hall: `ivar.json`, `.ivar/`, and the hall's `.gitignore`
     /// lines.
     Init(InitArgs),
-    /// Materialise harness config, setup scripts, and clone repos. Not
-    /// implemented yet — the next slice.
-    Sync,
+    /// Bring the local hall in line with `ivar.json`: clone missing repos,
+    /// materialise harness config, run setup scripts.
+    Sync(SyncArgs),
     /// Report hall health. Not implemented yet.
     Status,
     /// Diagnose and suggest fixes. Not implemented yet.
@@ -93,6 +94,28 @@ impl From<InitArgs> for InitInput {
             path: args.path,
             name: args.name,
             provider: args.provider,
+        }
+    }
+}
+
+/// Arguments for `ivar sync`.
+///
+/// No path argument: `sync` acts on the hall the current directory is inside,
+/// found by walking up the way `git` finds `.git`. A `--path` would be a second
+/// answer to "which hall?" and the first one is already the one people expect.
+#[derive(Debug, Args)]
+pub struct SyncArgs {
+    /// Run every repo's setup script even if it has already run for this
+    /// version of the script. For when a script's effect was undone outside
+    /// `ivar` — a deleted `node_modules`, a dropped database.
+    #[arg(long)]
+    pub force_setup: bool,
+}
+
+impl From<SyncArgs> for SyncInput {
+    fn from(args: SyncArgs) -> Self {
+        Self {
+            force_setup: args.force_setup,
         }
     }
 }

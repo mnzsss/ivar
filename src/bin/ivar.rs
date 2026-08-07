@@ -24,6 +24,7 @@ use serde::Serialize;
 
 use ivar::action::Ctx;
 use ivar::action::hall::{self, InitInput};
+use ivar::action::sync::{self, SyncInput};
 use ivar::cli::root::{Cli, Command};
 use ivar::error::{Failure, Outcome, Report, WriteHuman};
 use ivar::infra::term;
@@ -50,7 +51,12 @@ fn main() -> ExitCode {
             &mut stdout,
             &mut stderr,
         ),
-        Command::Sync => respond_failure(not_implemented("sync"), json, &mut stdout, &mut stderr),
+        Command::Sync(args) => respond(
+            sync::sync(&ctx, SyncInput::from(args)),
+            json,
+            &mut stdout,
+            &mut stderr,
+        ),
         Command::Status => {
             respond_failure(not_implemented("status"), json, &mut stdout, &mut stderr)
         }
