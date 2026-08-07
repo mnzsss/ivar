@@ -106,6 +106,30 @@ pub(crate) fn fetch(git_dir: &Utf8Path) -> Result<(), Error> {
     Ok(())
 }
 
+/// `git --git-dir <git_dir> worktree add -b <branch> <dest> <from_branch>`.
+///
+/// The one operation that creates a branch *and* a worktree in a single git
+/// call — what `feature promote` needs, and the reason `sync`'s
+/// [`add_worktree`] stays strictly branch-exists-only: sync materialises what
+/// the remote already has, promote is where new branches are born.
+pub(crate) fn create_branch_and_worktree(
+    git_dir: &Utf8Path,
+    branch: &str,
+    from_branch: &str,
+    dest: &Utf8Path,
+) -> Result<(), Error> {
+    run(git()
+        .arg("--git-dir")
+        .arg(git_dir.as_str())
+        .arg("worktree")
+        .arg("add")
+        .arg("-b")
+        .arg(branch)
+        .arg(dest.as_str())
+        .arg(from_branch))?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(

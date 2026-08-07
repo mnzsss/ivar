@@ -54,8 +54,9 @@ pub enum Command {
     /// Manage repos.
     #[command(subcommand)]
     Repo(RepoCommand),
-    /// Manage features. Not implemented yet.
-    Feature,
+    /// Manage features.
+    #[command(subcommand)]
+    Feature(FeatureCommand),
     /// Manage sessions. Not implemented yet.
     Session,
     /// Manage providers. Not implemented yet.
@@ -113,6 +114,54 @@ pub struct RepoRemoveArgs {
 pub struct RepoPullArgs {
     /// The repo to fetch. Fetches every repo when omitted.
     pub repo: Option<String>,
+}
+
+/// The `ivar feature` surface: one branch across the repos it has promoted.
+#[derive(Debug, Subcommand)]
+pub enum FeatureCommand {
+    /// Create a feature: name, branch, no repos promoted yet.
+    Create(FeatureCreateArgs),
+    /// List features and how far each got.
+    List,
+    /// Promote a repo onto a feature's branch: create the branch off the
+    /// repo's default branch and materialise its worktree.
+    Promote(FeaturePromoteArgs),
+    /// Remove a repo from a feature. Its worktree stays on disk.
+    Demote(FeatureDemoteArgs),
+    /// Show one feature in detail: every promoted repo and its state.
+    Status(FeatureStatusArgs),
+}
+
+/// Arguments for `ivar feature create`.
+#[derive(Debug, Args)]
+pub struct FeatureCreateArgs {
+    /// The feature's name — one path segment, unique within the hall.
+    pub name: String,
+}
+
+/// Arguments for `ivar feature promote`.
+#[derive(Debug, Args)]
+pub struct FeaturePromoteArgs {
+    /// The feature to promote into.
+    pub feature: String,
+    /// The repo to promote onto the feature's branch.
+    pub repo: String,
+}
+
+/// Arguments for `ivar feature demote`.
+#[derive(Debug, Args)]
+pub struct FeatureDemoteArgs {
+    /// The feature to demote from.
+    pub feature: String,
+    /// The repo to demote.
+    pub repo: String,
+}
+
+/// Arguments for `ivar feature status`.
+#[derive(Debug, Args)]
+pub struct FeatureStatusArgs {
+    /// The feature to inspect.
+    pub feature: String,
 }
 
 /// Arguments for `ivar init`.

@@ -127,6 +127,22 @@ pub trait Git {
 
     /// Every local branch in `git_dir`, without the `refs/heads/` prefix.
     fn list_branches(&self, git_dir: &Utf8Path) -> Result<Vec<String>, Error>;
+
+    /// Create `branch` off `from_branch` in the bare repository at `git_dir`
+    /// and add a worktree at `dest` checked out on it — `git worktree add -b
+    /// <branch> <dest> <from_branch>` in one call.
+    ///
+    /// `from_branch` must exist; git refuses otherwise. This is the one
+    /// worktree-creating operation that also creates its branch, which is
+    /// exactly what `feature promote` needs and what `sync`'s
+    /// [`Self::add_worktree`] deliberately does not do.
+    fn create_branch_and_worktree(
+        &self,
+        git_dir: &Utf8Path,
+        branch: &str,
+        from_branch: &str,
+        dest: &Utf8Path,
+    ) -> Result<(), Error>;
 }
 
 /// The production [`Git`]: `git2` for reads, the `git` binary for mutations.
@@ -164,6 +180,16 @@ impl Git for System {
 
     fn list_branches(&self, git_dir: &Utf8Path) -> Result<Vec<String>, Error> {
         read::list_branches(git_dir)
+    }
+
+    fn create_branch_and_worktree(
+        &self,
+        git_dir: &Utf8Path,
+        branch: &str,
+        from_branch: &str,
+        dest: &Utf8Path,
+    ) -> Result<(), Error> {
+        exec::create_branch_and_worktree(git_dir, branch, from_branch, dest)
     }
 }
 

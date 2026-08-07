@@ -23,10 +23,11 @@ use clap::Parser;
 use serde::Serialize;
 
 use ivar::action::Ctx;
+use ivar::action::feature::{create, demote, list as feature_list, promote, status};
 use ivar::action::hall::{self, InitInput};
-use ivar::action::repo::{add, list, pull, remove};
+use ivar::action::repo::{add, list as repo_list, pull, remove};
 use ivar::action::sync::{self, SyncInput};
-use ivar::cli::root::{Cli, Command, RepoCommand};
+use ivar::cli::root::{Cli, Command, FeatureCommand, RepoCommand};
 use ivar::error::{Failure, Outcome, Report, WriteHuman};
 use ivar::infra::term;
 
@@ -68,7 +69,7 @@ fn main() -> ExitCode {
             respond_failure(not_implemented("cleanup"), json, &mut stdout, &mut stderr)
         }
         Command::Repo(cmd) => match cmd {
-            RepoCommand::List => respond(list::list(&ctx), json, &mut stdout, &mut stderr),
+            RepoCommand::List => respond(repo_list::list(&ctx), json, &mut stdout, &mut stderr),
             RepoCommand::Add(args) => respond(
                 add::add(
                     &ctx,
@@ -102,9 +103,47 @@ fn main() -> ExitCode {
                 &mut stderr,
             ),
         },
-        Command::Feature => {
-            respond_failure(not_implemented("feature"), json, &mut stdout, &mut stderr)
-        }
+        Command::Feature(cmd) => match cmd {
+            FeatureCommand::Create(args) => respond(
+                create::create(&ctx, create::CreateInput { name: args.name }),
+                json,
+                &mut stdout,
+                &mut stderr,
+            ),
+            FeatureCommand::List => {
+                respond(feature_list::list(&ctx), json, &mut stdout, &mut stderr)
+            }
+            FeatureCommand::Promote(args) => respond(
+                promote::promote(
+                    &ctx,
+                    promote::PromoteInput {
+                        feature: args.feature,
+                        repo: args.repo,
+                    },
+                ),
+                json,
+                &mut stdout,
+                &mut stderr,
+            ),
+            FeatureCommand::Demote(args) => respond(
+                demote::demote(
+                    &ctx,
+                    demote::DemoteInput {
+                        feature: args.feature,
+                        repo: args.repo,
+                    },
+                ),
+                json,
+                &mut stdout,
+                &mut stderr,
+            ),
+            FeatureCommand::Status(args) => respond(
+                status::status(&ctx, status::StatusInput { feature: args.feature }),
+                json,
+                &mut stdout,
+                &mut stderr,
+            ),
+        },
         Command::Session => {
             respond_failure(not_implemented("session"), json, &mut stdout, &mut stderr)
         }

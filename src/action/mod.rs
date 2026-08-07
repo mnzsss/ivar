@@ -16,6 +16,7 @@
 //! `harness`, `tui`, `infra`) but never `cli` — see `tests/architecture.rs`,
 //! which enforces this lexically over every file in this directory.
 
+pub mod feature;
 pub mod hall;
 pub mod repo;
 pub mod sync;
