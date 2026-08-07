@@ -25,10 +25,11 @@ use serde::Serialize;
 use ivar::action::Ctx;
 use ivar::action::feature::{create, demote, list as feature_list, promote, status};
 use ivar::action::hall::{self, InitInput};
+use ivar::action::plan::{create as plan_create, list as plan_list, show as plan_show};
 use ivar::action::repo::{add, list as repo_list, pull, remove};
 use ivar::action::session::start as session_start;
 use ivar::action::sync::{self, SyncInput};
-use ivar::cli::root::{Cli, Command, FeatureCommand, RepoCommand, SessionCommand};
+use ivar::cli::root::{Cli, Command, FeatureCommand, PlanCommand, RepoCommand, SessionCommand};
 use ivar::error::{Failure, Outcome, Report, WriteHuman};
 use ivar::infra::term;
 
@@ -163,7 +164,27 @@ fn main() -> ExitCode {
         Command::Provider => {
             respond_failure(not_implemented("provider"), json, &mut stdout, &mut stderr)
         }
-        Command::Plan => respond_failure(not_implemented("plan"), json, &mut stdout, &mut stderr),
+        Command::Plan(cmd) => match cmd {
+            PlanCommand::Create(args) => respond(
+                plan_create::create(&ctx, plan_create::CreateInput { feature: args.feature }),
+                json,
+                &mut stdout,
+                &mut stderr,
+            ),
+            PlanCommand::List => respond(plan_list::list(&ctx), json, &mut stdout, &mut stderr),
+            PlanCommand::Show(args) => respond(
+                plan_show::show(
+                    &ctx,
+                    plan_show::ShowInput {
+                        feature: args.feature,
+                        artifact: args.artifact,
+                    },
+                ),
+                json,
+                &mut stdout,
+                &mut stderr,
+            ),
+        },
         Command::Skill => respond_failure(not_implemented("skill"), json, &mut stdout, &mut stderr),
     }
 }

@@ -62,8 +62,9 @@ pub enum Command {
     Session(SessionCommand),
     /// Manage providers. Not implemented yet.
     Provider,
-    /// Manage SPDD plans. Not implemented yet.
-    Plan,
+    /// Manage SPDD plans.
+    #[command(subcommand)]
+    Plan(PlanCommand),
     /// Manage skills. Not implemented yet.
     Skill,
 }
@@ -184,6 +185,33 @@ pub struct SessionStartArgs {
     /// The provider to run. Defaults to the hall's default provider.
     #[arg(long)]
     pub provider: Option<String>,
+}
+
+/// The `ivar plan` surface: the SPDD artifacts, committed per feature.
+#[derive(Debug, Subcommand)]
+pub enum PlanCommand {
+    /// Scaffold a feature's SPDD artifacts (requirements, analysis, plan).
+    Create(PlanCreateArgs),
+    /// List which features have plans, and how complete.
+    List,
+    /// Print one feature's SPDD artifact.
+    Show(PlanShowArgs),
+}
+
+/// Arguments for `ivar plan create`.
+#[derive(Debug, Args)]
+pub struct PlanCreateArgs {
+    /// The feature to scaffold plans for.
+    pub feature: String,
+}
+
+/// Arguments for `ivar plan show`.
+#[derive(Debug, Args)]
+pub struct PlanShowArgs {
+    /// The feature whose artifact to show.
+    pub feature: String,
+    /// Which artifact: `requirements`, `analysis`, or `plan`.
+    pub artifact: crate::action::plan::show::Artifact,
 }
 
 /// Arguments for `ivar init`.
