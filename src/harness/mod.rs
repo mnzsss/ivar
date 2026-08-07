@@ -155,8 +155,14 @@ mod tests {
 
     #[test]
     fn each_provider_maps_to_its_harness() {
-        assert_eq!(Harness::for_provider(Provider::ClaudeCode).unwrap(), Harness::ClaudeCode);
-        assert_eq!(Harness::for_provider(Provider::OpenCode).unwrap(), Harness::OpenCode);
+        assert_eq!(
+            Harness::for_provider(Provider::ClaudeCode).unwrap(),
+            Harness::ClaudeCode
+        );
+        assert_eq!(
+            Harness::for_provider(Provider::OpenCode).unwrap(),
+            Harness::OpenCode
+        );
     }
 
     #[test]

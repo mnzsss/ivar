@@ -55,18 +55,19 @@ pub fn demote(ctx: &Ctx, input: DemoteInput) -> Outcome<DemoteOutcome> {
     let feature_name = FeatureName::new(input.feature)?;
     let repo_name = RepoName::new(input.repo)?;
 
-    let mut feature = crate::domain::feature::Feature::read(&layout, &feature_name)?.ok_or_else(|| {
-        Failure::blocked(
-            "feature.not_found",
-            format!("feature `{feature_name}` does not exist"),
-        )
-        .expected("an existing feature")
-        .actual(format!("`{feature_name}` has no feature.json"))
-        .fix(FixAction::safe(
-            "feature.create_first",
-            format!("Create it first with `ivar feature create {feature_name}`."),
-        ))
-    })?;
+    let mut feature =
+        crate::domain::feature::Feature::read(&layout, &feature_name)?.ok_or_else(|| {
+            Failure::blocked(
+                "feature.not_found",
+                format!("feature `{feature_name}` does not exist"),
+            )
+            .expected("an existing feature")
+            .actual(format!("`{feature_name}` has no feature.json"))
+            .fix(FixAction::safe(
+                "feature.create_first",
+                format!("Create it first with `ivar feature create {feature_name}`."),
+            ))
+        })?;
 
     if !feature.demote(&repo_name) {
         return Err(Failure::blocked(
@@ -100,8 +101,8 @@ mod tests {
     )]
 
     use super::*;
-    use crate::action::feature::create::create as create_action;
     use crate::action::feature::create::CreateInput;
+    use crate::action::feature::create::create as create_action;
     use crate::action::feature::promote::{self, PromoteInput};
     use crate::action::hall::{self, InitInput};
     use crate::domain::feature::Feature;
@@ -159,16 +160,31 @@ mod tests {
     fn demote_removes_the_promotion_record_and_keeps_the_worktree() {
         let (_guard, root) = hall_with_feature();
         let ctx = Ctx::new(root.clone());
-        promote::promote(&ctx, PromoteInput { feature: "checkout".to_owned(), repo: "api".to_owned() })
-            .unwrap();
+        promote::promote(
+            &ctx,
+            PromoteInput {
+                feature: "checkout".to_owned(),
+                repo: "api".to_owned(),
+            },
+        )
+        .unwrap();
 
-        let report = demote(&ctx, DemoteInput { feature: "checkout".to_owned(), repo: "api".to_owned() })
-            .unwrap();
+        let report = demote(
+            &ctx,
+            DemoteInput {
+                feature: "checkout".to_owned(),
+                repo: "api".to_owned(),
+            },
+        )
+        .unwrap();
 
         assert!(report.is_clean());
-        let feature = Feature::read(&Layout::at(root.clone()), &FeatureName::new("checkout").unwrap())
-            .unwrap()
-            .unwrap();
+        let feature = Feature::read(
+            &Layout::at(root.clone()),
+            &FeatureName::new("checkout").unwrap(),
+        )
+        .unwrap()
+        .unwrap();
         assert!(!feature.is_promoted(&RepoName::new("api").unwrap()));
         // The worktree stays.
         assert!(root.join(".ivar/repos/api/checkout/README.md").is_file());
@@ -179,8 +195,14 @@ mod tests {
         let (_guard, root) = hall_with_feature();
         let ctx = Ctx::new(root);
 
-        let failure = demote(&ctx, DemoteInput { feature: "ghost".to_owned(), repo: "api".to_owned() })
-            .unwrap_err();
+        let failure = demote(
+            &ctx,
+            DemoteInput {
+                feature: "ghost".to_owned(),
+                repo: "api".to_owned(),
+            },
+        )
+        .unwrap_err();
 
         assert_eq!(failure.status, Status::Blocked);
         assert_eq!(failure.code, "feature.not_found");
@@ -191,8 +213,14 @@ mod tests {
         let (_guard, root) = hall_with_feature();
         let ctx = Ctx::new(root);
 
-        let failure = demote(&ctx, DemoteInput { feature: "checkout".to_owned(), repo: "api".to_owned() })
-            .unwrap_err();
+        let failure = demote(
+            &ctx,
+            DemoteInput {
+                feature: "checkout".to_owned(),
+                repo: "api".to_owned(),
+            },
+        )
+        .unwrap_err();
 
         assert_eq!(failure.status, Status::Blocked);
         assert_eq!(failure.code, "feature.not_promoted");

@@ -59,7 +59,11 @@ pub struct PromoteOutcome {
 
 impl WriteHuman for PromoteOutcome {
     fn write_human(&self, w: &mut impl io::Write) -> io::Result<()> {
-        let setup = if self.setup_ran { ", setup script ran" } else { "" };
+        let setup = if self.setup_ran {
+            ", setup script ran"
+        } else {
+            ""
+        };
         writeln!(
             w,
             "Promoted `{}` onto feature `{}` (branch: {}{setup})",
@@ -143,7 +147,10 @@ pub fn promote(ctx: &Ctx, input: PromoteInput) -> Outcome<PromoteOutcome> {
             )
             .expected("a bare clone, produced by `ivar sync`")
             .actual("a directory git does not recognise")
-            .fix(FixAction::safe("repo.sync_first", "Run `ivar sync` to rebuild what is missing under `.ivar/`.")));
+            .fix(FixAction::safe(
+                "repo.sync_first",
+                "Run `ivar sync` to rebuild what is missing under `.ivar/`.",
+            )));
         }
         TargetState::Absent => {
             return Err(Failure::blocked(
@@ -152,7 +159,10 @@ pub fn promote(ctx: &Ctx, input: PromoteInput) -> Outcome<PromoteOutcome> {
             )
             .expected("the repo to have been cloned by `ivar sync`")
             .actual(format!("`{bare}` does not exist"))
-            .fix(FixAction::safe("repo.sync_first", "Run `ivar sync` to clone the repo, then promote again.")));
+            .fix(FixAction::safe(
+                "repo.sync_first",
+                "Run `ivar sync` to clone the repo, then promote again.",
+            )));
         }
     }
 
@@ -271,8 +281,8 @@ mod tests {
     )]
 
     use super::*;
-    use crate::action::feature::create::create as create_action;
     use crate::action::feature::create::CreateInput;
+    use crate::action::feature::create::create as create_action;
     use crate::action::hall::{self, InitInput};
     use crate::domain::feature::Feature;
     use crate::domain::name::{BranchName, HallName};

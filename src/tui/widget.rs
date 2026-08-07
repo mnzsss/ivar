@@ -56,7 +56,12 @@ pub struct Snapshot {
 pub fn render(snapshot: &Snapshot, area: Rect, buf: &mut Buffer) {
     let left_width = (area.width * 2) / 5;
     let list_area = Rect::new(area.x, area.y, left_width, area.height);
-    let detail_area = Rect::new(area.x + left_width, area.y, area.width - left_width, area.height);
+    let detail_area = Rect::new(
+        area.x + left_width,
+        area.y,
+        area.width - left_width,
+        area.height,
+    );
 
     render_list(snapshot, list_area, buf);
     render_detail(snapshot, detail_area, buf);
@@ -68,9 +73,7 @@ fn render_list(snapshot: &Snapshot, area: Rect, buf: &mut Buffer) {
     } else {
         " ivar "
     };
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .title(title);
+    let block = Block::default().borders(Borders::ALL).title(title);
 
     let mut lines: Vec<Line> = Vec::new();
     for (index, row) in snapshot.rows.iter().enumerate() {
@@ -94,9 +97,7 @@ fn render_detail(snapshot: &Snapshot, area: Rect, buf: &mut Buffer) {
     } else {
         " detail "
     };
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .title(title);
+    let block = Block::default().borders(Borders::ALL).title(title);
 
     let body = if snapshot.detail.is_empty() {
         snapshot.agent_scrollback.clone()
@@ -111,8 +112,8 @@ fn render_detail(snapshot: &Snapshot, area: Rect, buf: &mut Buffer) {
 mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-    use ratatui::backend::TestBackend;
     use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
 
     use super::*;
 

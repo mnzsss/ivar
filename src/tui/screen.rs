@@ -105,7 +105,10 @@ mod tests {
     #[test]
     fn a_blank_screen_is_all_empty_rows() {
         let screen = Screen::new(10, 3);
-        assert_eq!(screen.rows(), &["".to_owned(), "".to_owned(), "".to_owned()]);
+        assert_eq!(
+            screen.rows(),
+            &["".to_owned(), "".to_owned(), "".to_owned()]
+        );
         assert_eq!(screen.as_text(), "\n\n");
     }
 

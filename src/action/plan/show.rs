@@ -13,7 +13,9 @@ use super::super::discover_hall;
 use crate::action::Ctx;
 
 /// Which artifact to show.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, clap::ValueEnum)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, clap::ValueEnum,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum Artifact {
     Requirements,
@@ -95,7 +97,9 @@ mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
     use super::*;
-    use crate::action::feature::create::{self as feature_create, CreateInput as FeatureCreateInput};
+    use crate::action::feature::create::{
+        self as feature_create, CreateInput as FeatureCreateInput,
+    };
     use crate::action::hall::{self, InitInput};
     use crate::action::plan::create::{self as plan_create, CreateInput as PlanCreateInput};
     use crate::error::Status;
@@ -113,8 +117,20 @@ mod tests {
             },
         )
         .unwrap();
-        feature_create::create(&ctx, FeatureCreateInput { name: "checkout".to_owned() }).unwrap();
-        plan_create::create(&ctx, PlanCreateInput { feature: "checkout".to_owned() }).unwrap();
+        feature_create::create(
+            &ctx,
+            FeatureCreateInput {
+                name: "checkout".to_owned(),
+            },
+        )
+        .unwrap();
+        plan_create::create(
+            &ctx,
+            PlanCreateInput {
+                feature: "checkout".to_owned(),
+            },
+        )
+        .unwrap();
         (guard, root)
     }
 

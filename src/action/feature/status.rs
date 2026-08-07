@@ -40,7 +40,11 @@ pub struct StatusOutcome {
 
 impl WriteHuman for StatusOutcome {
     fn write_human(&self, w: &mut impl io::Write) -> io::Result<()> {
-        writeln!(w, "Feature `{}` (branch: {}) in {}:", self.name, self.branch, self.root)?;
+        writeln!(
+            w,
+            "Feature `{}` (branch: {}) in {}:",
+            self.name, self.branch, self.root
+        )?;
         if self.repos.is_empty() {
             writeln!(w, "  no repos promoted")?;
         }
@@ -132,8 +136,8 @@ mod tests {
     )]
 
     use super::*;
-    use crate::action::feature::create::create as create_action;
     use crate::action::feature::create::CreateInput;
+    use crate::action::feature::create::create as create_action;
     use crate::action::feature::promote::{self, PromoteInput};
     use crate::action::hall::{self, InitInput};
     use crate::domain::name::{BranchName, HallName};
@@ -171,7 +175,13 @@ mod tests {
         .unwrap();
         Manifest::write(&layout, &manifest).unwrap();
 
-        create_action(&ctx, CreateInput { name: "checkout".to_owned() }).unwrap();
+        create_action(
+            &ctx,
+            CreateInput {
+                name: "checkout".to_owned(),
+            },
+        )
+        .unwrap();
         // Materialise the bare clone — promote operates on the cloned repo.
         crate::action::sync::sync(&ctx, Default::default()).unwrap();
         (guard, root)
@@ -182,7 +192,13 @@ mod tests {
         let (_guard, root) = hall_with_feature();
         let ctx = Ctx::new(root);
 
-        let report = status(&ctx, StatusInput { feature: "checkout".to_owned() }).unwrap();
+        let report = status(
+            &ctx,
+            StatusInput {
+                feature: "checkout".to_owned(),
+            },
+        )
+        .unwrap();
 
         assert!(report.is_clean());
         assert!(report.value.repos.is_empty());
@@ -193,10 +209,22 @@ mod tests {
     fn status_reports_a_promoted_repo_as_ready_with_its_worktree_present() {
         let (_guard, root) = hall_with_feature();
         let ctx = Ctx::new(root.clone());
-        promote::promote(&ctx, PromoteInput { feature: "checkout".to_owned(), repo: "api".to_owned() })
-            .unwrap();
+        promote::promote(
+            &ctx,
+            PromoteInput {
+                feature: "checkout".to_owned(),
+                repo: "api".to_owned(),
+            },
+        )
+        .unwrap();
 
-        let report = status(&ctx, StatusInput { feature: "checkout".to_owned() }).unwrap();
+        let report = status(
+            &ctx,
+            StatusInput {
+                feature: "checkout".to_owned(),
+            },
+        )
+        .unwrap();
 
         let detail = &report.value.repos[0];
         assert_eq!(detail.repo.as_str(), "api");
@@ -209,7 +237,13 @@ mod tests {
         let (_guard, root) = hall_with_feature();
         let ctx = Ctx::new(root);
 
-        let failure = status(&ctx, StatusInput { feature: "ghost".to_owned() }).unwrap_err();
+        let failure = status(
+            &ctx,
+            StatusInput {
+                feature: "ghost".to_owned(),
+            },
+        )
+        .unwrap_err();
 
         assert_eq!(failure.status, Status::Blocked);
         assert_eq!(failure.code, "feature.not_found");

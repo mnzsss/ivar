@@ -283,8 +283,16 @@ impl WriteHuman for StatusOutcome {
     fn write_human(&self, w: &mut impl io::Write) -> io::Result<()> {
         writeln!(w, "Hall at {} — {}", self.root, self.health)?;
         for repo in &self.repos {
-            let bare = if repo.bare_cloned { "cloned" } else { "missing" };
-            let worktree = if repo.worktree { "worktree ok" } else { "no worktree" };
+            let bare = if repo.bare_cloned {
+                "cloned"
+            } else {
+                "missing"
+            };
+            let worktree = if repo.worktree {
+                "worktree ok"
+            } else {
+                "no worktree"
+            };
             writeln!(w, "  {}  {bare}  {worktree}", repo.name)?;
         }
         Ok(())
@@ -536,7 +544,10 @@ fn ask_remove(path: &Utf8Path) -> Result<bool, Failure> {
     eprintln!("Remove `{path}`? [y/N] ");
     let mut answer = String::new();
     io::stdin().read_line(&mut answer).map_err(|source| {
-        Failure::failed("cleanup.read_answer", format!("could not read your answer: {source}"))
+        Failure::failed(
+            "cleanup.read_answer",
+            format!("could not read your answer: {source}"),
+        )
     })?;
     Ok(answer.trim().eq_ignore_ascii_case("y"))
 }

@@ -126,7 +126,9 @@ mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
     use super::*;
-    use crate::action::feature::create::{self as feature_create, CreateInput as FeatureCreateInput};
+    use crate::action::feature::create::{
+        self as feature_create, CreateInput as FeatureCreateInput,
+    };
     use crate::action::hall::{self, InitInput};
     use crate::error::Status;
     use crate::test_support::hall_root;
@@ -143,7 +145,13 @@ mod tests {
             },
         )
         .unwrap();
-        feature_create::create(&ctx, FeatureCreateInput { name: "checkout".to_owned() }).unwrap();
+        feature_create::create(
+            &ctx,
+            FeatureCreateInput {
+                name: "checkout".to_owned(),
+            },
+        )
+        .unwrap();
         (guard, root)
     }
 
@@ -152,7 +160,13 @@ mod tests {
         let (_guard, root) = seeded_hall();
         let ctx = Ctx::new(root.clone());
 
-        let report = create(&ctx, CreateInput { feature: "checkout".to_owned() }).unwrap();
+        let report = create(
+            &ctx,
+            CreateInput {
+                feature: "checkout".to_owned(),
+            },
+        )
+        .unwrap();
 
         assert!(report.is_clean());
         let plan_dir = root.join("plans/checkout");
@@ -166,7 +180,13 @@ mod tests {
         let (_guard, root) = seeded_hall();
         let ctx = Ctx::new(root);
 
-        let failure = create(&ctx, CreateInput { feature: "ghost".to_owned() }).unwrap_err();
+        let failure = create(
+            &ctx,
+            CreateInput {
+                feature: "ghost".to_owned(),
+            },
+        )
+        .unwrap_err();
 
         assert_eq!(failure.status, Status::Blocked);
         assert_eq!(failure.code, "plan.feature_not_found");
@@ -176,9 +196,21 @@ mod tests {
     fn create_is_rejected_when_artifacts_already_exist() {
         let (_guard, root) = seeded_hall();
         let ctx = Ctx::new(root.clone());
-        create(&ctx, CreateInput { feature: "checkout".to_owned() }).unwrap();
+        create(
+            &ctx,
+            CreateInput {
+                feature: "checkout".to_owned(),
+            },
+        )
+        .unwrap();
 
-        let failure = create(&ctx, CreateInput { feature: "checkout".to_owned() }).unwrap_err();
+        let failure = create(
+            &ctx,
+            CreateInput {
+                feature: "checkout".to_owned(),
+            },
+        )
+        .unwrap_err();
 
         assert_eq!(failure.status, Status::Blocked);
         assert_eq!(failure.code, "plan.already_exists");

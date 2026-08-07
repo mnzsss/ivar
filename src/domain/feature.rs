@@ -197,10 +197,7 @@ mod tests {
         feature.promote(repo.clone());
 
         assert!(feature.is_promoted(&repo));
-        assert_eq!(
-            feature.worktree_state(&repo),
-            Some(WorktreeState::Pending)
-        );
+        assert_eq!(feature.worktree_state(&repo), Some(WorktreeState::Pending));
     }
 
     #[test]

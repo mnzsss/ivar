@@ -952,9 +952,7 @@ mod tests {
     fn with_repo_added_appends_and_keeps_the_original_untouched() {
         let original = empty_manifest();
 
-        let updated = original
-            .with_repo_added(repo("api", "url-a"))
-            .unwrap();
+        let updated = original.with_repo_added(repo("api", "url-a")).unwrap();
 
         assert_eq!(updated.repos().len(), 1);
         assert_eq!(updated.repos()[0].name().as_str(), "api");
@@ -969,9 +967,7 @@ mod tests {
             .with_repo_added(repo("api", "url-a"))
             .unwrap();
 
-        let error = manifest
-            .with_repo_added(repo("api", "url-b"))
-            .unwrap_err();
+        let error = manifest.with_repo_added(repo("api", "url-b")).unwrap_err();
 
         assert!(matches!(error, Error::DuplicateRepoName { .. }));
     }
@@ -984,7 +980,9 @@ mod tests {
             .with_repo_added(repo("web", "url-b"))
             .unwrap();
 
-        let updated = manifest.with_repo_removed(&RepoName::new("api").unwrap()).unwrap();
+        let updated = manifest
+            .with_repo_removed(&RepoName::new("api").unwrap())
+            .unwrap();
 
         assert_eq!(updated.repos().len(), 1);
         assert_eq!(updated.repos()[0].name().as_str(), "web");

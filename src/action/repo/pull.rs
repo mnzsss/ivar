@@ -102,7 +102,10 @@ pub fn pull(ctx: &Ctx, input: PullInput) -> Outcome<PullOutcome> {
 ///
 /// A named repo that is not in the manifest is blocked with a fix action —
 /// a typo should not silently fetch nothing.
-fn resolve_targets<'a>(manifest: &'a Manifest, named: Option<&str>) -> Result<Vec<&'a Repo>, Failure> {
+fn resolve_targets<'a>(
+    manifest: &'a Manifest,
+    named: Option<&str>,
+) -> Result<Vec<&'a Repo>, Failure> {
     match named {
         None => Ok(manifest.repos().iter().collect()),
         Some(raw) => {
@@ -113,16 +116,13 @@ fn resolve_targets<'a>(manifest: &'a Manifest, named: Option<&str>) -> Result<Ve
                 .find(|repo| repo.name() == &name)
                 .map(|repo| vec![repo])
                 .ok_or_else(|| {
-                    Failure::blocked(
-                        "repo.not_found",
-                        format!("`{name}` is not in ivar.json"),
-                    )
-                    .expected(format!("a repo name declared in `ivar.json`"))
-                    .actual(format!("`{name}` does not appear in `repos`"))
-                    .fix(FixAction::safe(
-                        "repo.check_name",
-                        "Check the repo name spelling, or run `ivar repo list`.",
-                    ))
+                    Failure::blocked("repo.not_found", format!("`{name}` is not in ivar.json"))
+                        .expected(format!("a repo name declared in `ivar.json`"))
+                        .actual(format!("`{name}` does not appear in `repos`"))
+                        .fix(FixAction::safe(
+                            "repo.check_name",
+                            "Check the repo name spelling, or run `ivar repo list`.",
+                        ))
                 })
         }
     }
@@ -214,7 +214,13 @@ mod tests {
         let ctx = Ctx::new(root.clone());
         crate::action::sync::sync(&ctx, Default::default()).unwrap();
 
-        let report = pull(&ctx, PullInput { repo: Some("api".to_owned()) }).unwrap();
+        let report = pull(
+            &ctx,
+            PullInput {
+                repo: Some("api".to_owned()),
+            },
+        )
+        .unwrap();
 
         assert_eq!(report.value.repos.len(), 1);
         assert_eq!(report.value.repos[0].as_str(), "api");
@@ -225,7 +231,13 @@ mod tests {
         let (_guard, root) = hall_with(&[("api", "main")]);
         let ctx = Ctx::new(root);
 
-        let failure = pull(&ctx, PullInput { repo: Some("ghost".to_owned()) }).unwrap_err();
+        let failure = pull(
+            &ctx,
+            PullInput {
+                repo: Some("ghost".to_owned()),
+            },
+        )
+        .unwrap_err();
 
         assert_eq!(failure.status, Status::Blocked);
         assert_eq!(failure.code, "repo.not_found");

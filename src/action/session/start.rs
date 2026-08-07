@@ -218,8 +218,14 @@ fn run_tui(
     let _ = driver.pump();
     let mut terminal = ratatui::Terminal::new(ratatui::backend::TestBackend::new(width, height))
         .map_err(|source| {
-            Failure::failed("session.terminal_failed", format!("could not open a terminal: {source}"))
-                .fix(FixAction::safe("session.retry", "Try again in a real terminal."))
+            Failure::failed(
+                "session.terminal_failed",
+                format!("could not open a terminal: {source}"),
+            )
+            .fix(FixAction::safe(
+                "session.retry",
+                "Try again in a real terminal.",
+            ))
         })?;
 
     let feature_names = collect_features(layout);
@@ -232,9 +238,7 @@ fn run_tui(
         &driver.agent_text(),
         driver.mode(),
     );
-    let _ = terminal.draw(|frame| {
-        tui::widget::render(&snapshot, frame.area(), frame.buffer_mut())
-    });
+    let _ = terminal.draw(|frame| tui::widget::render(&snapshot, frame.area(), frame.buffer_mut()));
 
     Ok(())
 }
@@ -314,9 +318,17 @@ impl Pty for PtsPty {
     ) -> Result<(), Failure> {
         let pty_system = portable_pty::native_pty_system();
         let pair = pty_system
-            .openpty(portable_pty::PtySize { rows: height, cols: width, pixel_width: 0, pixel_height: 0 })
+            .openpty(portable_pty::PtySize {
+                rows: height,
+                cols: width,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
             .map_err(|source| {
-                Failure::failed("session.pty_open_failed", format!("could not open a PTY: {source}"))
+                Failure::failed(
+                    "session.pty_open_failed",
+                    format!("could not open a PTY: {source}"),
+                )
             })?;
 
         let mut builder = portable_pty::CommandBuilder::new(command.program());
@@ -329,8 +341,14 @@ impl Pty for PtsPty {
         builder.cwd(cwd.as_str());
 
         let child = pair.slave.spawn_command(builder).map_err(|source| {
-            Failure::failed("session.spawn_failed", format!("could not start `{}`: {source}", command.display()))
-                .fix(FixAction::safe("session.check_binary", format!("Is `{}` installed and on PATH?", command.program())))
+            Failure::failed(
+                "session.spawn_failed",
+                format!("could not start `{}`: {source}", command.display()),
+            )
+            .fix(FixAction::safe(
+                "session.check_binary",
+                format!("Is `{}` installed and on PATH?", command.program()),
+            ))
         })?;
         drop(child);
 
@@ -342,7 +360,10 @@ impl Pty for PtsPty {
         let Some(pair) = &self.pair else {
             return Ok(());
         };
-        let mut writer = pair.master.take_writer().map_err(|source| io::Error::new(io::ErrorKind::Other, source))?;
+        let mut writer = pair
+            .master
+            .take_writer()
+            .map_err(|source| io::Error::new(io::ErrorKind::Other, source))?;
         writer.write_all(bytes)?;
         Ok(())
     }
@@ -354,7 +375,10 @@ impl Pty for PtsPty {
         // Non-blocking probe: `portable-pty`'s reader blocks on a plain
         // `read`, so this reads through a clone of the master and treats
         // "no data yet" (WouldBlock / EOF) as `None`.
-        let mut reader = pair.master.try_clone_reader().map_err(|source| io::Error::new(io::ErrorKind::Other, source))?;
+        let mut reader = pair
+            .master
+            .try_clone_reader()
+            .map_err(|source| io::Error::new(io::ErrorKind::Other, source))?;
         let mut buf = [0u8; 4096];
         match reader.read(&mut buf) {
             Ok(0) => Ok(None),
@@ -413,7 +437,13 @@ mod tests {
         .unwrap();
         Manifest::write(&layout, &manifest).unwrap();
 
-        feature_create::create(&ctx, CreateInput { name: "checkout".to_owned() }).unwrap();
+        feature_create::create(
+            &ctx,
+            CreateInput {
+                name: "checkout".to_owned(),
+            },
+        )
+        .unwrap();
         crate::action::sync::sync(&ctx, Default::default()).unwrap();
         feature_promote::promote(
             &ctx,
@@ -435,13 +465,18 @@ mod tests {
         let feature = Feature::read(&layout, &FeatureName::new("checkout").unwrap())
             .unwrap()
             .unwrap();
-        let view_dir = layout
-            .feature_session(&FeatureName::new("checkout").unwrap(), &crate::domain::name::SessionId::new("2c6e6f1e-2d8a-4b3a-9c2a-6a7f6f9a1b2c").unwrap());
+        let view_dir = layout.feature_session(
+            &FeatureName::new("checkout").unwrap(),
+            &crate::domain::name::SessionId::new("2c6e6f1e-2d8a-4b3a-9c2a-6a7f6f9a1b2c").unwrap(),
+        );
 
         materialise_view_dir(&layout, &manifest, &feature, &view_dir).unwrap();
 
         let link = view_dir.join("api");
-        assert!(fs::is_dir(&link).unwrap(), "the api symlink must resolve to a dir");
+        assert!(
+            fs::is_dir(&link).unwrap(),
+            "the api symlink must resolve to a dir"
+        );
         let target = match fs::read_symlink(&link).unwrap() {
             fs::SymlinkTarget::Target(path) => path,
             other => panic!("expected a symlink, got {other:?}"),
@@ -462,8 +497,14 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(resolve_provider(&manifest, None).unwrap(), Provider::ClaudeCode);
-        assert_eq!(resolve_provider(&manifest, Some("opencode")).unwrap(), Provider::OpenCode);
+        assert_eq!(
+            resolve_provider(&manifest, None).unwrap(),
+            Provider::ClaudeCode
+        );
+        assert_eq!(
+            resolve_provider(&manifest, Some("opencode")).unwrap(),
+            Provider::OpenCode
+        );
         assert!(resolve_provider(&manifest, Some("nope")).is_err());
     }
 }

@@ -124,7 +124,11 @@ pub fn add(ctx: &Ctx, input: AddInput) -> Outcome<AddOutcome> {
     if let Some(existing) = manifest.repos().iter().find(|r| r.url() == input.url) {
         return Err(Failure::blocked(
             "repo.url_exists",
-            format!("`{}` is already tracked as `{}`", input.url, existing.name()),
+            format!(
+                "`{}` is already tracked as `{}`",
+                input.url,
+                existing.name()
+            ),
         )
         .expected("a URL not already in the manifest")
         .actual(format!("`{}` already points at this URL", existing.name()))
@@ -345,9 +349,7 @@ mod tests {
         assert_eq!(error.status, Status::Blocked);
         assert_eq!(error.code, "repo.url_exists");
         assert!(
-            error
-                .what
-                .contains("api"),
+            error.what.contains("api"),
             "the existing name must be named: {}",
             error.what
         );
@@ -394,7 +396,9 @@ mod tests {
         add(&ctx, input(&url)).unwrap();
         let layout = Layout::at(root.clone());
         let mut manifest = Manifest::read(&layout).unwrap().unwrap();
-        manifest = manifest.with_repo_removed(&RepoName::new("api").unwrap()).unwrap();
+        manifest = manifest
+            .with_repo_removed(&RepoName::new("api").unwrap())
+            .unwrap();
         Manifest::write(&layout, &manifest).unwrap();
 
         let report = add(
@@ -419,7 +423,9 @@ mod tests {
         add(&ctx, input(&url)).unwrap();
         let layout = Layout::at(root.clone());
         let mut manifest = Manifest::read(&layout).unwrap().unwrap();
-        manifest = manifest.with_repo_removed(&RepoName::new("api").unwrap()).unwrap();
+        manifest = manifest
+            .with_repo_removed(&RepoName::new("api").unwrap())
+            .unwrap();
         Manifest::write(&layout, &manifest).unwrap();
 
         let report = add(

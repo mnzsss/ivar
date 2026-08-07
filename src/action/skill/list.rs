@@ -7,8 +7,8 @@ use serde::Serialize;
 
 use crate::domain::name::RepoName;
 use crate::error::{Outcome, Report, WriteHuman};
-use crate::infra::fs;
 use crate::infra::frontmatter;
+use crate::infra::fs;
 
 use super::super::discover_hall;
 use crate::action::Ctx;
@@ -153,7 +153,10 @@ mod tests {
 
         assert_eq!(report.value.skills.len(), 2);
         assert_eq!(report.value.skills[0].id.as_str(), "audit");
-        assert_eq!(report.value.skills[0].description, "Review a codebase for issues");
+        assert_eq!(
+            report.value.skills[0].description,
+            "Review a codebase for issues"
+        );
         assert_eq!(report.value.skills[1].id.as_str(), "refactor");
     }
 

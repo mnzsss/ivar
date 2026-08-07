@@ -139,7 +139,12 @@ fn main() -> ExitCode {
                 &mut stderr,
             ),
             FeatureCommand::Status(args) => respond(
-                status::status(&ctx, status::StatusInput { feature: args.feature }),
+                status::status(
+                    &ctx,
+                    status::StatusInput {
+                        feature: args.feature,
+                    },
+                ),
                 json,
                 &mut stdout,
                 &mut stderr,
@@ -167,7 +172,12 @@ fn main() -> ExitCode {
         },
         Command::Plan(cmd) => match cmd {
             PlanCommand::Create(args) => respond(
-                plan_create::create(&ctx, plan_create::CreateInput { feature: args.feature }),
+                plan_create::create(
+                    &ctx,
+                    plan_create::CreateInput {
+                        feature: args.feature,
+                    },
+                ),
                 json,
                 &mut stdout,
                 &mut stderr,
@@ -187,9 +197,7 @@ fn main() -> ExitCode {
             ),
         },
         Command::Skill(cmd) => match cmd {
-            SkillCommand::List => {
-                respond(skill_list::list(&ctx), json, &mut stdout, &mut stderr)
-            }
+            SkillCommand::List => respond(skill_list::list(&ctx), json, &mut stdout, &mut stderr),
             SkillCommand::Create(args) => respond(
                 skill_create::create(
                     &ctx,

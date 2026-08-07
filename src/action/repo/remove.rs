@@ -117,7 +117,13 @@ mod tests {
         // Materialise the repo first, so there is something on disk to keep.
         crate::action::sync::sync(&ctx, Default::default()).unwrap();
 
-        let report = remove(&ctx, RemoveInput { name: "api".to_owned() }).unwrap();
+        let report = remove(
+            &ctx,
+            RemoveInput {
+                name: "api".to_owned(),
+            },
+        )
+        .unwrap();
 
         assert!(report.is_clean());
         let layout = Layout::at(root.clone());
@@ -132,7 +138,13 @@ mod tests {
         let (_guard, root) = hall_with_repo();
         let ctx = Ctx::new(root);
 
-        let failure = remove(&ctx, RemoveInput { name: "ghost".to_owned() }).unwrap_err();
+        let failure = remove(
+            &ctx,
+            RemoveInput {
+                name: "ghost".to_owned(),
+            },
+        )
+        .unwrap_err();
 
         assert_eq!(failure.status, Status::Blocked);
         assert_eq!(failure.code, "manifest.repo_not_found");
@@ -143,7 +155,13 @@ mod tests {
         let (_guard, root) = hall_root();
         let ctx = Ctx::new(root);
 
-        let failure = remove(&ctx, RemoveInput { name: "api".to_owned() }).unwrap_err();
+        let failure = remove(
+            &ctx,
+            RemoveInput {
+                name: "api".to_owned(),
+            },
+        )
+        .unwrap_err();
 
         assert_eq!(failure.code, "hall.not_found");
     }

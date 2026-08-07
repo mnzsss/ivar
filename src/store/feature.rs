@@ -116,8 +116,11 @@ mod tests {
         let name = FeatureName::new("checkout").unwrap();
         let path = layout.feature_dir(&name).join("feature.json");
         fs::ensure_dir(path.parent().unwrap()).unwrap();
-        fs::write_text(&path, r#"{"version":99,"name":"checkout","branch":"feat/checkout","promotions":{}}"#)
-            .unwrap();
+        fs::write_text(
+            &path,
+            r#"{"version":99,"name":"checkout","branch":"feat/checkout","promotions":{}}"#,
+        )
+        .unwrap();
 
         let error = Feature::read(&layout, &name).unwrap_err();
 

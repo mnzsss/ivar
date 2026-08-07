@@ -111,8 +111,8 @@ mod tests {
     )]
 
     use super::*;
-    use crate::action::feature::create::create as create_action;
     use crate::action::feature::create::CreateInput;
+    use crate::action::feature::create::create as create_action;
     use crate::action::hall::{self, InitInput};
     use crate::test_support::hall_root;
 
@@ -146,12 +146,29 @@ mod tests {
     fn list_reports_created_features_sorted_by_name() {
         let (_guard, root) = seeded_hall();
         let ctx = Ctx::new(root.clone());
-        create_action(&ctx, CreateInput { name: "zeta".to_owned() }).unwrap();
-        create_action(&ctx, CreateInput { name: "alpha".to_owned() }).unwrap();
+        create_action(
+            &ctx,
+            CreateInput {
+                name: "zeta".to_owned(),
+            },
+        )
+        .unwrap();
+        create_action(
+            &ctx,
+            CreateInput {
+                name: "alpha".to_owned(),
+            },
+        )
+        .unwrap();
 
         let report = list(&ctx).unwrap();
 
-        let names: Vec<&str> = report.value.features.iter().map(|f| f.name.as_str()).collect();
+        let names: Vec<&str> = report
+            .value
+            .features
+            .iter()
+            .map(|f| f.name.as_str())
+            .collect();
         assert_eq!(names, vec!["alpha", "zeta"]);
         assert_eq!(report.value.features[0].promoted_count, 0);
     }

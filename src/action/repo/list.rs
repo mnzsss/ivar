@@ -51,7 +51,11 @@ impl WriteHuman for ListOutcome {
         }
         writeln!(w, "Repos in {}:", self.root)?;
         for repo in &self.repos {
-            let bare = if repo.bare_cloned { "cloned" } else { "missing" };
+            let bare = if repo.bare_cloned {
+                "cloned"
+            } else {
+                "missing"
+            };
             let worktree = if repo.default_worktree {
                 String::new()
             } else {
@@ -102,9 +106,7 @@ fn status_of(git: &impl git::Git, layout: &Layout, repo: &Repo) -> RepoStatus {
     let worktree = layout.repo_worktree(repo.name(), repo.default_branch());
 
     let bare_state = git.target_state(&bare).unwrap_or(TargetState::Absent);
-    let worktree_state = git
-        .target_state(&worktree)
-        .unwrap_or(TargetState::Absent);
+    let worktree_state = git.target_state(&worktree).unwrap_or(TargetState::Absent);
 
     let branches = if matches!(bare_state, TargetState::Repository) {
         git.list_branches(&bare).unwrap_or_default()

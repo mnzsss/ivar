@@ -102,12 +102,13 @@ pub(crate) fn list_branches(git_dir: &Utf8Path) -> Result<Vec<String>, Error> {
     let repository = open(git_dir)?;
 
     let mut branches = Vec::new();
-    for branch in repository.branches(Some(git2::BranchType::Local)).map_err(|source| {
-        Error::NotARepository {
+    for branch in repository
+        .branches(Some(git2::BranchType::Local))
+        .map_err(|source| Error::NotARepository {
             path: git_dir.to_path_buf(),
             detail: source.message().to_owned(),
-        }
-    })? {
+        })?
+    {
         let (branch, _) = branch.map_err(|source| Error::NotARepository {
             path: git_dir.to_path_buf(),
             detail: source.message().to_owned(),

@@ -42,12 +42,7 @@ impl WriteHuman for ListOutcome {
         }
         writeln!(w, "Plans in {}:", self.root)?;
         for plan in &self.plans {
-            writeln!(
-                w,
-                "  {}  [{}]",
-                plan.feature,
-                plan.artifacts.join(", ")
-            )?;
+            writeln!(w, "  {}  [{}]", plan.feature, plan.artifacts.join(", "))?;
         }
         Ok(())
     }
@@ -93,7 +88,9 @@ mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
     use super::*;
-    use crate::action::feature::create::{self as feature_create, CreateInput as FeatureCreateInput};
+    use crate::action::feature::create::{
+        self as feature_create, CreateInput as FeatureCreateInput,
+    };
     use crate::action::hall::{self, InitInput};
     use crate::action::plan::create::{self as plan_create, CreateInput};
     use crate::test_support::hall_root;
@@ -128,8 +125,20 @@ mod tests {
     fn list_reports_created_plans_with_their_artifacts() {
         let (_guard, root) = seeded_hall();
         let ctx = Ctx::new(root.clone());
-        feature_create::create(&ctx, FeatureCreateInput { name: "checkout".to_owned() }).unwrap();
-        plan_create::create(&ctx, CreateInput { feature: "checkout".to_owned() }).unwrap();
+        feature_create::create(
+            &ctx,
+            FeatureCreateInput {
+                name: "checkout".to_owned(),
+            },
+        )
+        .unwrap();
+        plan_create::create(
+            &ctx,
+            CreateInput {
+                feature: "checkout".to_owned(),
+            },
+        )
+        .unwrap();
 
         let report = list(&ctx).unwrap();
 
