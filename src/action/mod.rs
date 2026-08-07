@@ -17,9 +17,14 @@
 //! which enforces this lexically over every file in this directory.
 
 pub mod hall;
+pub mod repo;
 pub mod sync;
 
 use camino::{Utf8Path, Utf8PathBuf};
+
+use crate::error::{Failure, FixAction};
+use crate::store::layout::Layout;
+use crate::store::manifest::Manifest;
 
 /// Ambient context every action reads from.
 ///
@@ -51,6 +56,37 @@ impl Ctx {
             self.cwd.join(path)
         }
     }
+}
+
+/// Discover the hall containing [`Ctx::cwd`], or a [`Failure`] saying there
+/// is none. Every verb except `init` starts here.
+pub(crate) fn discover_hall(ctx: &Ctx) -> Result<Layout, Failure> {
+    Layout::discover(&ctx.cwd)?.ok_or_else(|| {
+        Failure::blocked(
+            "hall.not_found",
+            format!("no hall at `{}` or above it", ctx.cwd),
+        )
+        .expected("an ivar.json in this directory or an ancestor")
+        .actual("no ivar.json found walking up to the filesystem root")
+        .fix(FixAction::safe("hall.init", "Create a hall here first.").command("ivar init"))
+    })
+}
+
+/// Read the manifest [`discover_hall`] just proved exists.
+///
+/// The `None` arm is a genuine race — `ivar.json` deleted between the walk-up
+/// and this read — not an impossible state, so it gets a real message rather
+/// than an `unwrap`.
+pub(crate) fn read_manifest(layout: &Layout) -> Result<Manifest, Failure> {
+    Manifest::read(layout)?.ok_or_else(|| {
+        Failure::blocked(
+            "hall.manifest_vanished",
+            format!("`{}` disappeared while reading it", layout.manifest()),
+        )
+        .expected("the ivar.json that was there a moment ago")
+        .actual("it is gone")
+        .fix(FixAction::safe("hall.retry", "Run the command again.").command("ivar sync"))
+    })
 }
 
 #[cfg(test)]

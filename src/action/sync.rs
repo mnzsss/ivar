@@ -64,6 +64,8 @@ use crate::store::manifest::{Manifest, Repo};
 use crate::store::setup_receipt::Receipt;
 
 use super::Ctx;
+use super::discover_hall;
+use super::read_manifest;
 
 /// The interpreter a setup script runs under.
 ///
@@ -264,7 +266,7 @@ impl WriteHuman for SyncOutcome {
 /// See the module doc comment for the order, the idempotence rule, and what
 /// this deliberately does not do.
 pub fn sync(ctx: &Ctx, input: SyncInput) -> Outcome<SyncOutcome> {
-    let layout = discover(ctx)?;
+    let layout = discover_hall(ctx)?;
     let manifest = read_manifest(&layout)?;
     let git = git::System;
 
@@ -312,36 +314,6 @@ pub fn sync(ctx: &Ctx, input: SyncInput) -> Outcome<SyncOutcome> {
         },
         warnings,
     ))
-}
-
-/// The hall [`Ctx::cwd`] is inside, or a [`Failure`] saying there is none.
-fn discover(ctx: &Ctx) -> Result<Layout, Failure> {
-    Layout::discover(&ctx.cwd)?.ok_or_else(|| {
-        Failure::blocked(
-            "hall.not_found",
-            format!("no hall at `{}` or above it", ctx.cwd),
-        )
-        .expected("an ivar.json in this directory or an ancestor")
-        .actual("no ivar.json found walking up to the filesystem root")
-        .fix(FixAction::safe("hall.init", "Create a hall here first.").command("ivar init"))
-    })
-}
-
-/// The manifest [`Layout::discover`] just proved exists.
-///
-/// The `None` arm is a genuine race — `ivar.json` deleted between the walk-up
-/// and this read — not an impossible state, so it gets a real message rather
-/// than an `unwrap`.
-fn read_manifest(layout: &Layout) -> Result<Manifest, Failure> {
-    Manifest::read(layout)?.ok_or_else(|| {
-        Failure::blocked(
-            "hall.manifest_vanished",
-            format!("`{}` disappeared while reading it", layout.manifest()),
-        )
-        .expected("the ivar.json that was there a moment ago")
-        .actual("it is gone")
-        .fix(FixAction::safe("hall.retry_sync", "Run `ivar sync` again.").command("ivar sync"))
-    })
 }
 
 /// Create the directories every later step writes underneath.

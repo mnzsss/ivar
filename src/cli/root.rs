@@ -51,8 +51,9 @@ pub enum Command {
     Doctor,
     /// Reconcile stale state. Not implemented yet.
     Cleanup,
-    /// Manage repos. Not implemented yet.
-    Repo,
+    /// Manage repos.
+    #[command(subcommand)]
+    Repo(RepoCommand),
     /// Manage features. Not implemented yet.
     Feature,
     /// Manage sessions. Not implemented yet.
@@ -63,6 +64,55 @@ pub enum Command {
     Plan,
     /// Manage skills. Not implemented yet.
     Skill,
+}
+
+/// The `ivar repo` surface: what a repo is, who owns it, and how the hall's
+/// copy of it stays current. Each subcommand is one action file under
+/// `action/repo/` — see ARCHITECTURE.md's module map.
+#[derive(Debug, Subcommand)]
+pub enum RepoCommand {
+    /// List the repos in ivar.json and their state.
+    List,
+    /// Declare a repo in ivar.json, clone it bare, and materialise its
+    /// default-branch worktree.
+    Add(RepoAddArgs),
+    /// Remove a repo from ivar.json. Its files stay on disk until
+    /// `ivar cleanup`.
+    Remove(RepoRemoveArgs),
+    /// Fetch one or all repos from their remotes.
+    Pull(RepoPullArgs),
+}
+
+/// Arguments for `ivar repo add`.
+#[derive(Debug, Args)]
+pub struct RepoAddArgs {
+    /// The repo's name — one path segment, unique within the hall.
+    pub name: String,
+    /// The git remote URL to clone from.
+    pub url: String,
+    /// The branch a fresh worktree defaults to. Defaults to `main`.
+    #[arg(long)]
+    pub default_branch: Option<String>,
+    /// Reuse a bare clone already present at the expected path.
+    #[arg(long, conflicts_with = "fresh")]
+    pub reuse: bool,
+    /// Delete an existing bare clone (and its worktree) and clone anew.
+    #[arg(long, conflicts_with = "reuse")]
+    pub fresh: bool,
+}
+
+/// Arguments for `ivar repo remove`.
+#[derive(Debug, Args)]
+pub struct RepoRemoveArgs {
+    /// The repo's name, as declared in ivar.json.
+    pub name: String,
+}
+
+/// Arguments for `ivar repo pull`.
+#[derive(Debug, Args)]
+pub struct RepoPullArgs {
+    /// The repo to fetch. Fetches every repo when omitted.
+    pub repo: Option<String>,
 }
 
 /// Arguments for `ivar init`.

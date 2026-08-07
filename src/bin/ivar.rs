@@ -24,8 +24,9 @@ use serde::Serialize;
 
 use ivar::action::Ctx;
 use ivar::action::hall::{self, InitInput};
+use ivar::action::repo::{add, list, pull, remove};
 use ivar::action::sync::{self, SyncInput};
-use ivar::cli::root::{Cli, Command};
+use ivar::cli::root::{Cli, Command, RepoCommand};
 use ivar::error::{Failure, Outcome, Report, WriteHuman};
 use ivar::infra::term;
 
@@ -66,7 +67,41 @@ fn main() -> ExitCode {
         Command::Cleanup => {
             respond_failure(not_implemented("cleanup"), json, &mut stdout, &mut stderr)
         }
-        Command::Repo => respond_failure(not_implemented("repo"), json, &mut stdout, &mut stderr),
+        Command::Repo(cmd) => match cmd {
+            RepoCommand::List => respond(list::list(&ctx), json, &mut stdout, &mut stderr),
+            RepoCommand::Add(args) => respond(
+                add::add(
+                    &ctx,
+                    add::AddInput {
+                        name: args.name,
+                        url: args.url,
+                        default_branch: args.default_branch,
+                        reuse_existing: if args.fresh {
+                            Some(false)
+                        } else if args.reuse {
+                            Some(true)
+                        } else {
+                            None
+                        },
+                    },
+                ),
+                json,
+                &mut stdout,
+                &mut stderr,
+            ),
+            RepoCommand::Remove(args) => respond(
+                remove::remove(&ctx, remove::RemoveInput { name: args.name }),
+                json,
+                &mut stdout,
+                &mut stderr,
+            ),
+            RepoCommand::Pull(args) => respond(
+                pull::pull(&ctx, pull::PullInput { repo: args.repo }),
+                json,
+                &mut stdout,
+                &mut stderr,
+            ),
+        },
         Command::Feature => {
             respond_failure(not_implemented("feature"), json, &mut stdout, &mut stderr)
         }
