@@ -52,6 +52,7 @@ pub mod domain;
 pub mod store;
 
 pub mod git;
+pub mod harness;
 
 pub mod action;
 pub mod cli;
