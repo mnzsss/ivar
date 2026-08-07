@@ -171,6 +171,51 @@ impl Manifest {
         self.skills.as_ref()
     }
 
+    /// Return a new `Manifest` with `repo` appended to `repos`.
+    ///
+    /// Returns [`Error::DuplicateRepoName`] if a repo with `repo.name()`
+    /// already appears. The original is untouched — `ivar.json` is rewritten
+    /// from the returned value, never mutated in place.
+    pub fn with_repo_added(&self, repo: Repo) -> Result<Self, Error> {
+        if self.repos.iter().any(|existing| existing.name == repo.name) {
+            return Err(Error::DuplicateRepoName {
+                name: repo.name().clone(),
+            });
+        }
+        let mut repos = self.repos.clone();
+        repos.push(repo);
+        Self::new(
+            self.name.clone(),
+            self.providers.clone(),
+            repos,
+            self.skills.clone(),
+        )
+    }
+
+    /// Return a new `Manifest` without the repo named `name`.
+    ///
+    /// Returns [`Error::RepoNotFound`] if no repo in `self.repos` carries
+    /// that name. Removing never touches the filesystem — the repo's bare
+    /// clone and worktrees stay until `ivar cleanup` (slice 8) is told to
+    /// remove them.
+    pub fn with_repo_removed(&self, name: &RepoName) -> Result<Self, Error> {
+        let repos: Vec<Repo> = self
+            .repos
+            .iter()
+            .filter(|repo| repo.name != *name)
+            .cloned()
+            .collect();
+        if repos.len() == self.repos.len() {
+            return Err(Error::RepoNotFound { name: name.clone() });
+        }
+        Self::new(
+            self.name.clone(),
+            self.providers.clone(),
+            repos,
+            self.skills.clone(),
+        )
+    }
+
     /// Read `ivar.json` from `layout`'s hall root.
     ///
     /// `Ok(None)` if the file is absent. A present-but-unparseable file, an
@@ -439,6 +484,11 @@ pub enum Error {
     /// and a raw `git clone` error the first time someone runs `ivar sync`.
     #[error("repo `{name}` has an empty `url`")]
     EmptyRepoUrl { name: RepoName },
+
+    /// A repo named `name` is not in `self.repos` — `ivar repo remove` was
+    /// asked to remove something the hall does not know about.
+    #[error("repo `{name}` is not in ivar.json")]
+    RepoNotFound { name: RepoName },
 }
 
 impl From<Error> for Failure {
@@ -490,6 +540,13 @@ impl From<Error> for Failure {
             .fix(FixAction::safe(
                 "manifest.set_repo_url",
                 format!("Set `url` on the `{name}` entry in `repos` to its git remote, or remove the entry."),
+            )),
+            Error::RepoNotFound { name } => Failure::blocked("manifest.repo_not_found", what)
+            .expected(format!("`{name}` to be listed in `repos`"))
+            .actual(format!("`{name}` does not appear in ivar.json"))
+            .fix(FixAction::safe(
+                "manifest.add_repo_first",
+                format!("Add `{name}` with `ivar repo add`, or check the spelling."),
             )),
         }
     }
@@ -869,6 +926,93 @@ mod tests {
         assert_eq!(repo.name().as_str(), "api");
         assert_eq!(repo.url(), "git@github.com:acme/api.git");
         assert_eq!(repo.default_branch().as_str(), "main");
+    }
+
+    // -- mutation: with_repo_added / with_repo_removed -------------------------
+
+    fn empty_manifest() -> Manifest {
+        Manifest::new(
+            HallName::new("acme").unwrap(),
+            Providers::new(vec![Provider::ClaudeCode], Provider::ClaudeCode),
+            vec![],
+            None,
+        )
+        .unwrap()
+    }
+
+    fn repo(name: &str, url: &str) -> Repo {
+        Repo::new(
+            RepoName::new(name).unwrap(),
+            url,
+            BranchName::new("main").unwrap(),
+        )
+    }
+
+    #[test]
+    fn with_repo_added_appends_and_keeps_the_original_untouched() {
+        let original = empty_manifest();
+
+        let updated = original
+            .with_repo_added(repo("api", "url-a"))
+            .unwrap();
+
+        assert_eq!(updated.repos().len(), 1);
+        assert_eq!(updated.repos()[0].name().as_str(), "api");
+        // The original is not mutated — callers rewrite the file from the
+        // returned value, so this is what makes add/remove transactional.
+        assert!(original.repos().is_empty());
+    }
+
+    #[test]
+    fn with_repo_added_rejects_a_duplicate_name() {
+        let manifest = empty_manifest()
+            .with_repo_added(repo("api", "url-a"))
+            .unwrap();
+
+        let error = manifest
+            .with_repo_added(repo("api", "url-b"))
+            .unwrap_err();
+
+        assert!(matches!(error, Error::DuplicateRepoName { .. }));
+    }
+
+    #[test]
+    fn with_repo_removed_drops_the_named_repo_and_keeps_the_rest() {
+        let manifest = empty_manifest()
+            .with_repo_added(repo("api", "url-a"))
+            .unwrap()
+            .with_repo_added(repo("web", "url-b"))
+            .unwrap();
+
+        let updated = manifest.with_repo_removed(&RepoName::new("api").unwrap()).unwrap();
+
+        assert_eq!(updated.repos().len(), 1);
+        assert_eq!(updated.repos()[0].name().as_str(), "web");
+        // Removing never touches the filesystem — that is `ivar cleanup`'s job.
+        assert_eq!(manifest.repos().len(), 2);
+    }
+
+    #[test]
+    fn with_repo_removed_rejects_a_name_that_is_not_present() {
+        let manifest = empty_manifest();
+
+        let error = manifest
+            .with_repo_removed(&RepoName::new("ghost").unwrap())
+            .unwrap_err();
+
+        assert!(matches!(error, Error::RepoNotFound { .. }));
+    }
+
+    #[test]
+    fn repo_not_found_failure_names_the_repo_and_a_safe_fix() {
+        let failure: Failure = Error::RepoNotFound {
+            name: RepoName::new("ghost").unwrap(),
+        }
+        .into();
+        assert_eq!(failure.status, Status::Blocked);
+        assert_eq!(failure.code, "manifest.repo_not_found");
+        assert!(failure.what.contains("ghost"));
+        assert!(failure.fix_actions[0].safe);
     }
 
     #[test]
