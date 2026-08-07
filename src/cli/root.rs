@@ -141,6 +141,8 @@ pub enum FeatureCommand {
     Demote(FeatureDemoteArgs),
     /// Show one feature in detail: every promoted repo and its state.
     Status(FeatureStatusArgs),
+    /// Prepare a feature's execution board from its plan and execution graph.
+    Execute(FeatureExecuteArgs),
     /// Preview, then push, a feature's promoted repos. `--preview` prints the
     /// side-effect-free summary (with its fingerprint) and pushes nothing;
     /// applying with `--fingerprint` is refused if the state has drifted.
@@ -177,6 +179,17 @@ pub struct FeatureDemoteArgs {
 pub struct FeatureStatusArgs {
     /// The feature to inspect.
     pub feature: String,
+}
+
+/// Arguments for `ivar feature execute`.
+#[derive(Debug, Args)]
+pub struct FeatureExecuteArgs {
+    /// The feature to prepare an execution board for.
+    pub feature: String,
+    /// Path to the execution graph JSON — workstreams with
+    /// `id`/`title`/`operations`/`depends_on`/`write_contract`.
+    #[arg(long)]
+    pub graph_json: String,
 }
 
 /// Arguments for `ivar feature deliver`.

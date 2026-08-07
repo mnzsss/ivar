@@ -8,11 +8,13 @@
 //! # What lives here
 //!
 //! `Feature` — the promotion record: which repos, and each one's
-//! [`WorktreeState`]. `FeatureBoard` — the execution board (approval +
+//! [`WorktreeState`]. `FeatureBoard` — the approval board (approval +
 //! guards), which slice 4 creates and later slices fill in.
 //! [`ApprovalState`] — the four SPDD approval gates (Requirements, Analysis,
-//! Plan, Execution Graph) and their fingerprints. All pure, no I/O — reading
-//! and writing these values is `store::feature`'s job.
+//! Plan, Execution Graph) and their fingerprints. [`ExecutionBoard`] — the
+//! plan-derived graph of workstreams plus its status and journal, created by
+//! `feature execute prepare`. All pure, no I/O — reading and writing these
+//! values is `store::feature`'s job.
 //!
 //! # What a valid promotion is
 //!
@@ -136,6 +138,55 @@ pub enum WorktreeState {
     Ready,
     /// Setup script failed; the next sync will retry it.
     Failed,
+}
+
+/// The outcome of a closed feature, recorded in `plan.md`'s frontmatter by
+/// `ivar feature close` and read back to make closing idempotent.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PromotionOutcome {
+    /// The feature's work shipped.
+    Delivered,
+    /// The feature was closed without shipping.
+    Abandoned,
+}
+
+impl PromotionOutcome {
+    /// Parse the CLI spelling of an outcome — `delivered` or `abandoned`.
+    /// [`fmt::Display`] emits the same names.
+    pub fn parse(value: &str) -> Result<Self, UnknownOutcome> {
+        match value {
+            "delivered" => Ok(PromotionOutcome::Delivered),
+            "abandoned" => Ok(PromotionOutcome::Abandoned),
+            other => Err(UnknownOutcome(other.to_owned())),
+        }
+    }
+}
+
+impl fmt::Display for PromotionOutcome {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let name = match self {
+            PromotionOutcome::Delivered => "delivered",
+            PromotionOutcome::Abandoned => "abandoned",
+        };
+        f.pad(name)
+    }
+}
+
+/// An outcome name that matched neither [`PromotionOutcome`] variant. The CLI
+/// passes the raw string through to the action, which parses it here — `cli`
+/// cannot import `domain`.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("unknown outcome `{0}` — expected one of: delivered, abandoned")]
+pub struct UnknownOutcome(pub String);
+
+impl From<UnknownOutcome> for Failure {
+    fn from(error: UnknownOutcome) -> Self {
+        Failure::blocked("feature.unknown_outcome", error.to_string()).fix(FixAction::safe(
+            "feature.valid_outcome",
+            "Use one of: delivered, abandoned.",
+        ))
+    }
 }
 
 /// The execution board for a feature: whether it is approved to run, and
@@ -506,6 +557,182 @@ pub struct GateRecord {
     pub artifact_fingerprint: Option<String>,
 }
 
+/// The execution board for a feature: the plan-derived graph of workstreams,
+/// the board's overall status, and the append-only journal of what happened
+/// to it.
+///
+/// Persisted per feature at `features/<feature>/execution/board.json`
+/// (schema v1, `Policy::Local`) by `store::feature`. Created by
+/// `feature execute prepare` from the plan and its execution graph; later
+/// slices (tick, reply) advance `status` and append to [`Self::journal`].
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ExecutionBoard {
+    /// The schema version — always 1 for a value built through [`Self::new`]
+    /// or read by `store::feature`.
+    pub version: u32,
+    /// The board's overall execution status.
+    pub status: ExecutionStatus,
+    /// The workstream graph this board executes.
+    pub graph: ExecutionGraph,
+    /// Append-only record of everything that happened to the board.
+    pub journal: Vec<JournalEntry>,
+}
+
+impl ExecutionBoard {
+    /// A fresh board at [`ExecutionStatus::Pending`] with an empty journal,
+    /// executing `graph`.
+    #[must_use]
+    pub fn new(graph: ExecutionGraph) -> Self {
+        Self {
+            version: CURRENT_VERSION,
+            status: ExecutionStatus::Pending,
+            graph,
+            journal: Vec::new(),
+        }
+    }
+
+    /// Advance the board's status. v1's only mutation beside the journal —
+    /// nothing in v1 drives these transitions yet; tick/reply (v2) will.
+    pub fn set_status(&mut self, status: ExecutionStatus) {
+        self.status = status;
+    }
+
+    /// Append a journal entry. The journal is append-only, so this is the
+    /// only way it grows.
+    pub fn push_journal(&mut self, entry: JournalEntry) {
+        self.journal.push(entry);
+    }
+}
+
+/// The overall state of an execution board.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ExecutionStatus {
+    /// Board created; no workstream has started.
+    Pending,
+    /// At least one workstream is active.
+    Running,
+    /// Execution is halted; nothing advances until it resumes.
+    Paused,
+    /// Every workstream is done.
+    Completed,
+    /// Execution failed and cannot continue without intervention.
+    Failed,
+}
+
+impl fmt::Display for ExecutionStatus {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let name = match self {
+            Self::Pending => "pending",
+            Self::Running => "running",
+            Self::Paused => "paused",
+            Self::Completed => "completed",
+            Self::Failed => "failed",
+        };
+        f.pad(name)
+    }
+}
+
+/// The plan-derived graph of workstreams an execution board executes.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ExecutionGraph {
+    /// The workstreams, in declared order.
+    pub workstreams: Vec<WorkstreamDef>,
+    /// SHA-256 of the `plan.md` the graph was derived from. The graph is
+    /// void when the plan changes — the same content the Execution Graph
+    /// approval gate fingerprints.
+    pub plan_fingerprint: String,
+}
+
+/// One workstream of an execution graph: a named unit of work made of
+/// operations, with ordering dependencies and a write contract.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WorkstreamDef {
+    /// The workstream's id — unique within the graph.
+    pub id: String,
+    /// A human-readable title.
+    pub title: String,
+    /// The operations this workstream runs, in order.
+    pub operations: Vec<String>,
+    /// Ids of workstreams this one depends on — each must be done first.
+    pub depends_on: Vec<String>,
+    /// What this workstream is allowed to touch — the write contract.
+    pub write_contract: Vec<String>,
+    /// Whether the workstream has started or is still waiting.
+    pub status: WorkstreamStatus,
+}
+
+/// The execution state of one workstream on a board.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkstreamStatus {
+    /// Not yet started — either its dependencies are undone or it just has
+    /// not begun.
+    Waiting,
+    /// At least one operation has run.
+    Active,
+    /// Every operation finished.
+    Done,
+}
+
+impl fmt::Display for WorkstreamStatus {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let name = match self {
+            Self::Waiting => "waiting",
+            Self::Active => "active",
+            Self::Done => "done",
+        };
+        f.pad(name)
+    }
+}
+
+/// One entry in an execution board's journal — an append-only record of what
+/// happened to the board and its workstreams.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct JournalEntry {
+    /// When the entry was recorded. A string — UNIX epoch seconds today,
+    /// so the format can evolve without a schema bump.
+    pub timestamp: String,
+    /// The workstream the entry is about; the board itself when empty.
+    pub workstream: String,
+    /// The kind of event: `prepared`, `started`, `completed`, `failed`, …
+    pub kind: String,
+    /// A human-readable sentence.
+    pub message: String,
+}
+
+impl JournalEntry {
+    /// A new entry stamped with the current time (UNIX epoch seconds, as a
+    /// string).
+    #[must_use]
+    pub fn new(
+        workstream: impl Into<String>,
+        kind: impl Into<String>,
+        message: impl Into<String>,
+    ) -> Self {
+        Self {
+            timestamp: now_epoch_seconds(),
+            workstream: workstream.into(),
+            kind: kind.into(),
+            message: message.into(),
+        }
+    }
+}
+
+/// The current time as UNIX epoch seconds, for journal timestamps. A plain
+/// `SystemTime` value rendered as a string — no clock dependency, and the
+/// format can evolve later since [`JournalEntry::timestamp`] is a string.
+fn now_epoch_seconds() -> String {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_secs().to_string())
+        .unwrap_or_default()
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(
@@ -640,6 +867,54 @@ mod tests {
         assert!(
             serde_json::from_value::<DeliveryRepo>(serde_json::Value::Object(with_bogus)).is_err()
         );
+    }
+
+    // -- close outcome ---------------------------------------------------------
+
+    #[test]
+    fn outcome_parse_accepts_both_cli_names_and_rejects_unknowns() {
+        assert_eq!(
+            PromotionOutcome::parse("delivered"),
+            Ok(PromotionOutcome::Delivered)
+        );
+        assert_eq!(
+            PromotionOutcome::parse("abandoned"),
+            Ok(PromotionOutcome::Abandoned)
+        );
+        assert!(matches!(
+            PromotionOutcome::parse("bogus"),
+            Err(UnknownOutcome(_))
+        ));
+    }
+
+    #[test]
+    fn outcome_display_and_serde_agree_on_the_cli_names() {
+        assert_eq!(PromotionOutcome::Delivered.to_string(), "delivered");
+        assert_eq!(PromotionOutcome::Abandoned.to_string(), "abandoned");
+        assert_eq!(
+            serde_json::to_value(PromotionOutcome::Delivered).unwrap(),
+            serde_json::json!("delivered")
+        );
+        assert_eq!(
+            serde_json::to_value(PromotionOutcome::Abandoned).unwrap(),
+            serde_json::json!("abandoned")
+        );
+    }
+
+    #[test]
+    fn outcome_round_trips_through_serde() {
+        for outcome in [PromotionOutcome::Delivered, PromotionOutcome::Abandoned] {
+            let rendered = serde_json::to_string(&outcome).unwrap();
+            let parsed: PromotionOutcome = serde_json::from_str(&rendered).unwrap();
+            assert_eq!(parsed, outcome);
+        }
+    }
+
+    #[test]
+    fn an_unknown_outcome_converts_to_a_blocked_failure() {
+        let failure: Failure = UnknownOutcome("shipped".to_owned()).into();
+        assert_eq!(failure.status, crate::error::Status::Blocked);
+        assert_eq!(failure.code, "feature.unknown_outcome");
     }
 
     // -- approval gates ---------------------------------------------------------
@@ -806,5 +1081,99 @@ mod tests {
         let parsed: ApprovalState = serde_json::from_str(&rendered).unwrap();
 
         assert_eq!(parsed, approvals);
+    }
+
+    // -- execution board -------------------------------------------------------
+
+    fn execution_board() -> ExecutionBoard {
+        ExecutionBoard::new(ExecutionGraph {
+            plan_fingerprint: "abc123".to_owned(),
+            workstreams: vec![WorkstreamDef {
+                id: "ws1".to_owned(),
+                title: "WS one".to_owned(),
+                operations: vec!["op1".to_owned()],
+                depends_on: Vec::new(),
+                write_contract: vec!["src/".to_owned()],
+                status: WorkstreamStatus::Waiting,
+            }],
+        })
+    }
+
+    fn journal_entry(workstream: &str, kind: &str) -> JournalEntry {
+        JournalEntry {
+            timestamp: "1".to_owned(),
+            workstream: workstream.to_owned(),
+            kind: kind.to_owned(),
+            message: format!("{workstream}: {kind}"),
+        }
+    }
+
+    #[test]
+    fn a_new_board_is_pending_with_an_empty_journal_and_version_one() {
+        let board = execution_board();
+
+        assert_eq!(board.status, ExecutionStatus::Pending);
+        assert_eq!(board.version, 1);
+        assert!(board.journal.is_empty());
+        assert_eq!(board.graph.workstreams.len(), 1);
+    }
+
+    #[test]
+    fn status_transitions_from_pending_through_running_to_completed() {
+        let mut board = execution_board();
+
+        assert_eq!(board.status, ExecutionStatus::Pending);
+        board.set_status(ExecutionStatus::Running);
+        assert_eq!(board.status, ExecutionStatus::Running);
+        board.set_status(ExecutionStatus::Completed);
+        assert_eq!(board.status, ExecutionStatus::Completed);
+    }
+
+    #[test]
+    fn journal_entries_append_in_order_and_never_rewrite() {
+        let mut board = execution_board();
+
+        board.push_journal(journal_entry("board", "prepared"));
+        board.push_journal(journal_entry("ws1", "started"));
+        board.push_journal(journal_entry("ws1", "completed"));
+
+        assert_eq!(board.journal.len(), 3);
+        assert_eq!(board.journal[0].kind, "prepared");
+        assert_eq!(board.journal[1].kind, "started");
+        assert_eq!(board.journal[2].kind, "completed");
+        assert_eq!(board.journal[0].workstream, "board");
+    }
+
+    #[test]
+    fn the_execution_board_round_trips_through_serde() {
+        let mut board = execution_board();
+        board.set_status(ExecutionStatus::Running);
+        board.push_journal(journal_entry("board", "prepared"));
+
+        let rendered = serde_json::to_string(&board).unwrap();
+        let parsed: ExecutionBoard = serde_json::from_str(&rendered).unwrap();
+
+        assert_eq!(parsed, board);
+        assert_eq!(parsed.status, ExecutionStatus::Running);
+    }
+
+    #[test]
+    fn execution_enums_serialise_as_snake_case_and_render_for_humans() {
+        assert_eq!(
+            serde_json::to_value(ExecutionStatus::Completed).unwrap(),
+            serde_json::json!("completed")
+        );
+        assert_eq!(
+            serde_json::to_value(WorkstreamStatus::Waiting).unwrap(),
+            serde_json::json!("waiting")
+        );
+        assert_eq!(ExecutionStatus::Pending.to_string(), "pending");
+        assert_eq!(ExecutionStatus::Running.to_string(), "running");
+        assert_eq!(ExecutionStatus::Paused.to_string(), "paused");
+        assert_eq!(ExecutionStatus::Completed.to_string(), "completed");
+        assert_eq!(ExecutionStatus::Failed.to_string(), "failed");
+        assert_eq!(WorkstreamStatus::Waiting.to_string(), "waiting");
+        assert_eq!(WorkstreamStatus::Active.to_string(), "active");
+        assert_eq!(WorkstreamStatus::Done.to_string(), "done");
     }
 }
