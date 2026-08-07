@@ -26,22 +26,13 @@ pub struct PullInput {
     pub repo: Option<String>,
 }
 
-/// One repo that was fetched.
-#[derive(Debug, Clone, Serialize)]
-pub struct PullEntry {
-    /// The repo's name.
-    pub name: RepoName,
-    /// Whether the fetch actually did something.
-    pub fetched: bool,
-}
-
 /// What `ivar repo pull` did.
 #[derive(Debug, Clone, Serialize)]
 pub struct PullOutcome {
     /// The hall root this ran against.
     pub root: Utf8PathBuf,
-    /// Every repo that fetched successfully.
-    pub repos: Vec<PullEntry>,
+    /// Every repo that fetched successfully, in manifest order.
+    pub repos: Vec<RepoName>,
     /// Every repo whose fetch failed, by name — each one also becomes a
     /// [`Warning`](crate::error::Warning), so the process exits 1.
     pub failed: Vec<String>,
@@ -50,9 +41,8 @@ pub struct PullOutcome {
 impl WriteHuman for PullOutcome {
     fn write_human(&self, w: &mut impl io::Write) -> io::Result<()> {
         writeln!(w, "Fetched in {}:", self.root)?;
-        for entry in &self.repos {
-            let what = if entry.fetched { "fetched" } else { "up to date" };
-            writeln!(w, "  {}  {what}", entry.name)?;
+        for name in &self.repos {
+            writeln!(w, "  {name}  fetched")?;
         }
         for name in &self.failed {
             writeln!(w, "  {name}  FAILED")?;
@@ -66,7 +56,7 @@ impl WriteHuman for PullOutcome {
 
 /// Fetch one repo — or all, when `input.repo` is `None`.
 ///
-/// A repo whose fetch fails becomes a [`PullEntry`] in `failed` and a
+/// A repo whose fetch fails becomes an entry in `failed` and a
 /// [`Warning`], and the others still fetch — the warning discipline from
 /// ARCHITECTURE.md, applied the way `sync` applies it.
 pub fn pull(ctx: &Ctx, input: PullInput) -> Outcome<PullOutcome> {
@@ -83,14 +73,10 @@ pub fn pull(ctx: &Ctx, input: PullInput) -> Outcome<PullOutcome> {
     for repo in targets {
         let bare = layout.repo_bare(repo.name());
         match git.fetch(&bare) {
-            Ok(()) => repos.push(PullEntry {
-                name: repo.name().clone(),
-                // With `--quiet` a no-op fetch is indistinguishable from one
-                // that pulled commits — the caller cannot know, and does not
-                // need to. What the report can say truthfully is that the
-                // fetch ran.
-                fetched: true,
-            }),
+            // With `--quiet` a no-op fetch is indistinguishable from one
+            // that pulled commits — what the report can say truthfully is
+            // that the fetch ran.
+            Ok(()) => repos.push(repo.name().clone()),
             Err(error) => {
                 failed.push(repo.name().to_string());
                 warnings.push(Warning::new(
@@ -231,7 +217,7 @@ mod tests {
         let report = pull(&ctx, PullInput { repo: Some("api".to_owned()) }).unwrap();
 
         assert_eq!(report.value.repos.len(), 1);
-        assert_eq!(report.value.repos[0].name.as_str(), "api");
+        assert_eq!(report.value.repos[0].as_str(), "api");
     }
 
     #[test]
@@ -292,10 +278,7 @@ mod tests {
     fn the_human_surface_reports_each_repo_and_any_failures() {
         let outcome = PullOutcome {
             root: Utf8PathBuf::from("/hall"),
-            repos: vec![PullEntry {
-                name: RepoName::new("api").unwrap(),
-                fetched: true,
-            }],
+            repos: vec![RepoName::new("api").unwrap()],
             failed: vec!["web".to_owned()],
         };
 

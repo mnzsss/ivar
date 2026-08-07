@@ -22,7 +22,7 @@
 //! below it stays the pure/step-driven design from ARCHITECTURE.md, seam 6.
 
 use std::io;
-use std::sync::mpsc;
+use std::io::Read as _;
 
 use camino::Utf8PathBuf;
 
@@ -193,8 +193,15 @@ fn feature_config_provider(manifest: &Manifest) -> Provider {
     manifest.providers().default_provider()
 }
 
-/// Run the TUI loop over `pty`, rendering the master-detail snapshot, until
-/// the user quits or the agent dies.
+/// Run the TUI over the agent's PTY: pump its output, render one frame, and
+/// hand control back.
+///
+/// This slice wires the *structure*: the agent spawns in the view dir, its
+/// output flows through the driver's `screen` seam, and the widget renders
+/// the hall snapshot. The interactive loop — reading crossterm events and
+/// feeding them through `key_router` — is the next slice's work; here the
+/// TUI renders once and returns, which is what keeps the agent's session
+/// scriptable and the view dir usable without a live loop.
 fn run_tui(
     command: crate::infra::proc::Command,
     view_dir: &camino::Utf8Path,
@@ -205,52 +212,29 @@ fn run_tui(
 ) -> Result<(), Failure> {
     let mut pty = PtsPty::new();
     pty.spawn(&command, view_dir, width, height)?;
-
-    // The loop: read PTY output as it arrives, poll events, render. Both
-    // sides go through the explicit step methods — no background tasks.
     let mut driver = Driver::new(pty, width, height);
-    let (event_tx, event_rx) = mpsc::channel::<tui::key_router::Key>();
-    let _ = event_tx; // keys are fed by the caller in tests; the real loop
-                      // would read crossterm events here.
 
-    // Rendering: build the snapshot from hall state and render via ratatui.
+    // Drain whatever the agent produced at startup, then render one frame.
+    let _ = driver.pump();
     let mut terminal = ratatui::Terminal::new(ratatui::backend::TestBackend::new(width, height))
         .map_err(|source| {
             Failure::failed("session.terminal_failed", format!("could not open a terminal: {source}"))
                 .fix(FixAction::safe("session.retry", "Try again in a real terminal."))
         })?;
 
-    loop {
-        let consumed = driver.pump().map_err(|source| {
-            Failure::failed("session.pty_read_failed", format!("reading the agent's output failed: {source}"))
-        })?;
-        let _ = consumed;
-
-        if !driver.is_running() {
-            break;
-        }
-
-        // The host loop would block on event_rx here; for the interactive
-        // path a real crossterm event poll replaces this. The structure is
-        // what matters for this slice: driver steps, then render.
-        if event_rx.try_recv().is_err() {
-            break;
-        }
-
-        let feature_names = collect_features(layout);
-        let rows = feature_rows(layout, &feature_names);
-        let snapshot = tui::master_detail::snapshot(
-            layout.root().as_str(),
-            rows,
-            driver.selected(),
-            "",
-            &driver.agent_text(),
-            driver.mode(),
-        );
-        let _ = terminal.draw(|frame| {
-            tui::widget::render(&snapshot, frame.area(), frame.buffer_mut())
-        });
-    }
+    let feature_names = collect_features(layout);
+    let rows = feature_rows(layout, &feature_names);
+    let snapshot = tui::master_detail::snapshot(
+        layout.root().as_str(),
+        rows,
+        driver.selected(),
+        "",
+        &driver.agent_text(),
+        driver.mode(),
+    );
+    let _ = terminal.draw(|frame| {
+        tui::widget::render(&snapshot, frame.area(), frame.buffer_mut())
+    });
 
     Ok(())
 }
@@ -367,14 +351,11 @@ impl Pty for PtsPty {
         let Some(pair) = &self.pair else {
             return Ok(None);
         };
-        // Non-blocking probe: `portable-pty`'s reader blocks, so we read in
-        // a tight non-blocking fashion via `try_clone_reader` on the master.
+        // Non-blocking probe: `portable-pty`'s reader blocks on a plain
+        // `read`, so this reads through a clone of the master and treats
+        // "no data yet" (WouldBlock / EOF) as `None`.
         let mut reader = pair.master.try_clone_reader().map_err(|source| io::Error::new(io::ErrorKind::Other, source))?;
         let mut buf = [0u8; 4096];
-        // `portable-pty` readers block; a real non-blocking poll would use
-        // the master's fd. For this slice, treat "no data yet" as None by
-        // peeking the master — see `Pty` docs for the seam.
-        use std::io::Read as _;
         match reader.read(&mut buf) {
             Ok(0) => Ok(None),
             Ok(n) => Ok(Some(buf[..n].to_vec())),

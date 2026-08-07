@@ -405,8 +405,9 @@ pub fn doctor(ctx: &Ctx) -> Outcome<DoctorOutcome> {
     for repo in manifest.repos() {
         let bare = layout.repo_bare(repo.name());
         let worktree = layout.repo_worktree(repo.name(), repo.default_branch());
+        let bare_state = git.target_state(&bare)?;
 
-        match git.target_state(&bare)? {
+        match bare_state {
             TargetState::Repository => {}
             TargetState::Occupied => findings.push(Diagnosis {
                 code: "repo.bare_occupied",
@@ -420,7 +421,8 @@ pub fn doctor(ctx: &Ctx) -> Outcome<DoctorOutcome> {
             }),
         }
 
-        if git.target_state(&bare)? == TargetState::Repository {
+        // The worktree question only has an answer when the clone is there.
+        if bare_state == TargetState::Repository {
             match git.target_state(&worktree)? {
                 TargetState::Repository => {}
                 TargetState::Occupied => findings.push(Diagnosis {
