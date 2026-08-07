@@ -1,0 +1,944 @@
+//! `ivar.json` — the hall's identity, committed and team-shared.
+//!
+//! This is the file a teammate reviews in a pull request, and the file
+//! `git pull && ivar sync` acts on. It is read far more often than written, and it
+//! is the one file that never migrates itself (see [`super::versioned`],
+//! [`Policy::Committed`](super::versioned)).
+//!
+//! # The schema, v1
+//!
+//! ```json
+//! {
+//!   "version": 1,
+//!   "name": "acme",
+//!   "providers": { "available": ["claude-code", "opencode"], "default": "claude-code" },
+//!   "repos": [
+//!     { "name": "api", "url": "git@github.com:acme/api.git", "default_branch": "main" }
+//!   ],
+//!   "skills": { "targets": { "claude": true, "opencode": true } }
+//! }
+//! ```
+//!
+//! `skills` is optional — a hall without a shared skill home simply omits it.
+//!
+//! # Why v1 and not v2
+//!
+//! The predecessor's `hall.json` is at `version: 2`, and v2 exists **only** to
+//! carry server identity: `hallId`, `workspaceId`, `canonicalRevision`, and the
+//! Workspace binding inside `skills`. `ivar` is local-only — there is no server to
+//! be the source of truth, so those four fields do not exist here.
+//!
+//! Numbering this v2 would inherit a lineage no user outside the private monorepo
+//! ever had, and would imply a v1 that was never public. It is a new file, with a
+//! new name, in a new implementation: **v1**.
+//!
+//! The consequence is that there is no v0 → v1 migration to write. The chain
+//! starts and ends at 1. It still must start at 0 structurally, so unversioned data
+//! is rejected rather than silently adopted — a file with no `version` field is not
+//! an `ivar.json`.
+//!
+//! # Contract
+//!
+//! - `Manifest` — `Deserialize` + `Serialize`, with
+//!   `#[serde(deny_unknown_fields)]` on **every** struct here. A typo or a stale
+//!   key is a hard parse error naming the key, not silence. This is a config a
+//!   human hand-edits; silence is how a team ends up with a setting that does
+//!   nothing.
+//! - Fields typed with the newtypes from [`crate::domain::name`], so `../` cannot
+//!   arrive through a hand-edited file. Remember that deriving `Deserialize` on
+//!   the newtype must route through its validator.
+//! - `read(&Layout)` — absent is `Ok(None)`; present-but-unparseable is a hard
+//!   error. Discriminate on `NotFound` specifically.
+//! - `write(&Layout, &Manifest)` — canonical JSON, atomic, and subject to the
+//!   committed-file policy.
+//! - Invariants validated on read, not just on write, because the file is
+//!   hand-edited: `providers.default` must appear in `providers.available`;
+//!   `available` must be non-empty; repo names must be unique; a repo's `url`
+//!   must be non-blank.
+//!
+//! # Reference
+//!
+//! `packages/bifrost/src/manifest/schema.ts` and `manifest/index.ts` in the private
+//! monorepo, read as a source of field semantics — **not** as a shape to copy. The
+//! server fields and the `LEGACY_MANIFEST_FILE` fallback are both deliberately
+//! absent here.
+//!
+//! # Invariant enforcement: explicit `validate`, not a validating `Deserialize`
+//!
+//! The four value invariants (`providers.default` in `providers.available`;
+//! `providers.available` non-empty; unique repo names; non-blank repo `url`)
+//! are checked by
+//! [`Manifest::validate`], called explicitly by both [`Manifest::read`] and
+//! [`Manifest::write`] — not baked into a hand-rolled `Deserialize` the way
+//! [`crate::domain::name`]'s newtypes route through their validators.
+//!
+//! That is a deliberate departure from the newtype pattern, not an oversight.
+//! Routing invariant checks through `Deserialize` would fold a violation into
+//! `serde`'s error type before it ever reaches this module's [`Error`] — every
+//! caller would see is a generic `store.schema_mismatch` with the detail buried
+//! in a formatted string, not the specific variant, `code`, and fix action this
+//! module's contract promises for each violation. So field-*shape* validation
+//! (a `RepoName` cannot be `../etc`, a `Provider` cannot be an unknown id) stays
+//! in `Deserialize`, via the newtypes; field-*relationship* validation runs after,
+//! as an explicit step with full access to this module's own error type.
+//!
+//! [`Manifest::new`] runs the same check, so a `Manifest` built programmatically
+//! (never touching JSON) is validated by construction. The one gap: nothing stops
+//! `serde_json::from_value::<Manifest>` called directly (bypassing `Manifest::read`)
+//! from producing a shape-valid, invariant-unchecked value — but nothing in this
+//! crate does that, since the house rule is that all disk access goes through
+//! [`versioned::Store`], and `Store::read` is exactly what `Manifest::read` wraps
+//! and then validates.
+
+use std::collections::HashSet;
+
+use serde::{Deserialize, Serialize};
+
+use crate::domain::name::{BranchName, HallName, RepoName};
+use crate::domain::provider::Provider;
+use crate::error::{Failure, FixAction};
+use crate::store::layout::Layout;
+use crate::store::versioned::{self, Policy, Store};
+
+/// `ivar.json`'s schema version. See the "Why v1 and not v2" section above:
+/// this is the first public version, with no v0 predecessor to migrate from.
+const CURRENT_VERSION: u32 = 1;
+
+/// The hall's identity, committed and team-shared. See the module doc comment
+/// for the full JSON shape, the contract, and how the invariants are
+/// enforced.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Manifest {
+    version: u32,
+    name: HallName,
+    providers: Providers,
+    repos: Vec<Repo>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    skills: Option<Skills>,
+}
+
+impl Manifest {
+    /// Build a validated `Manifest`. Refuses exactly what [`Self::validate`]
+    /// refuses — see the module doc comment for why this is the one type-level
+    /// guarantee this module makes: any `Manifest` built through this
+    /// constructor already satisfies every invariant.
+    pub fn new(
+        name: HallName,
+        providers: Providers,
+        repos: Vec<Repo>,
+        skills: Option<Skills>,
+    ) -> Result<Self, Error> {
+        let manifest = Self {
+            version: CURRENT_VERSION,
+            name,
+            providers,
+            repos,
+            skills,
+        };
+        manifest.validate()?;
+        Ok(manifest)
+    }
+
+    /// The schema version. Always [`CURRENT_VERSION`] for a value obtained
+    /// through [`Self::new`] or [`Self::read`].
+    #[must_use]
+    pub fn version(&self) -> u32 {
+        self.version
+    }
+
+    /// The hall's name.
+    #[must_use]
+    pub fn name(&self) -> &HallName {
+        &self.name
+    }
+
+    /// The hall's provider configuration.
+    #[must_use]
+    pub fn providers(&self) -> &Providers {
+        &self.providers
+    }
+
+    /// The repos this hall knows about.
+    #[must_use]
+    pub fn repos(&self) -> &[Repo] {
+        &self.repos
+    }
+
+    /// The hall's shared skill home, if it has one.
+    #[must_use]
+    pub fn skills(&self) -> Option<&Skills> {
+        self.skills.as_ref()
+    }
+
+    /// Read `ivar.json` from `layout`'s hall root.
+    ///
+    /// `Ok(None)` if the file is absent. A present-but-unparseable file, an
+    /// unknown key, a schema version newer than this binary understands, or a
+    /// violated invariant are all hard errors — see the module doc comment.
+    ///
+    /// A missing (or non-numeric) `version` field is refused by
+    /// [`versioned::Store`] itself, as [`versioned::Error::NoMigrationPath`]:
+    /// `ivar.json`'s chain is empty (see "Why v1 and not v2" above), so there
+    /// is no v0 to migrate from and a file detected at v0 is not an
+    /// `ivar.json`. This module only renames that refusal into its own terms.
+    pub fn read(layout: &Layout) -> Result<Option<Self>, Error> {
+        let manifest = match Self::open(layout).read() {
+            Ok(manifest) => manifest,
+            // The store refuses data it has no migration path to. For
+            // `ivar.json` — chain empty, first public version 1 — that means
+            // exactly one thing, and this module can say it in the user's
+            // terms rather than the store's.
+            Err(versioned::Error::NoMigrationPath { path, .. }) => {
+                return Err(Error::MissingVersion { path });
+            }
+            Err(other) => return Err(Error::Store(other)),
+        };
+
+        let Some(manifest) = manifest else {
+            return Ok(None);
+        };
+        manifest.validate()?;
+        Ok(Some(manifest))
+    }
+
+    /// Write `manifest` to `layout`'s hall root: canonical JSON, atomic, and
+    /// subject to [`Policy::Committed`] (a `write` while the on-disk file is
+    /// older than [`CURRENT_VERSION`] refuses, directing the caller at
+    /// `ivar migrate` — see [`versioned`]).
+    pub fn write(layout: &Layout, manifest: &Self) -> Result<(), Error> {
+        manifest.validate()?;
+        Self::open(layout).write(manifest).map_err(Error::Store)
+    }
+
+    /// The [`Store`] this module reads and writes `ivar.json` through. Built
+    /// fresh on every call — cheap, and keeps this module stateless.
+    fn open(layout: &Layout) -> Store<Self> {
+        Store::new(
+            layout.manifest(),
+            Vec::new(),
+            CURRENT_VERSION,
+            Policy::Committed,
+        )
+    }
+
+    /// The value invariants named in the module doc comment. See
+    /// the "Invariant enforcement" section above for why this is an explicit
+    /// step rather than folded into `Deserialize`.
+    fn validate(&self) -> Result<(), Error> {
+        if self.providers.available.is_empty() {
+            return Err(Error::NoAvailableProviders);
+        }
+        if !self.providers.available.contains(&self.providers.default) {
+            return Err(Error::DefaultProviderNotAvailable {
+                default: self.providers.default,
+                available: self.providers.available.clone(),
+            });
+        }
+
+        let mut seen: HashSet<&RepoName> = HashSet::new();
+        for repo in &self.repos {
+            if !seen.insert(&repo.name) {
+                return Err(Error::DuplicateRepoName {
+                    name: repo.name.clone(),
+                });
+            }
+            if repo.url.trim().is_empty() {
+                return Err(Error::EmptyRepoUrl {
+                    name: repo.name.clone(),
+                });
+            }
+        }
+        Ok(())
+    }
+}
+
+/// A hall's provider configuration: which harnesses it knows about, and which
+/// one `ivar session start` picks when none is named explicitly.
+///
+/// Unlike [`Manifest`], this type does not validate its own invariants at
+/// construction — `providers.default` being a member of `providers.available`
+/// is checked by [`Manifest::validate`], not here, because the check needs
+/// nothing from `Providers` that `Manifest` cannot already see, and keeping
+/// every invariant check in one place (rather than splitting it between this
+/// type and `Manifest`) is what keeps [`Error`]'s variants exhaustive and easy
+/// to audit against the module doc comment's list of three.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Providers {
+    available: Vec<Provider>,
+    default: Provider,
+}
+
+impl Providers {
+    /// Build a `Providers` value. Not validated here — see the type doc
+    /// comment for why; [`Manifest::new`] validates the whole `Manifest` this
+    /// ends up inside.
+    #[must_use]
+    pub fn new(available: Vec<Provider>, default: Provider) -> Self {
+        Self { available, default }
+    }
+
+    /// Every provider this hall knows about.
+    #[must_use]
+    pub fn available(&self) -> &[Provider] {
+        &self.available
+    }
+
+    /// The provider `ivar session start` picks when none is named explicitly.
+    #[must_use]
+    pub fn default_provider(&self) -> Provider {
+        self.default
+    }
+}
+
+/// One repo a hall knows about.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Repo {
+    name: RepoName,
+    url: String,
+    default_branch: BranchName,
+}
+
+impl Repo {
+    /// Build a `Repo`. `url` stays a plain `String` rather than one of
+    /// `domain::name`'s newtypes: it is a git remote, never joined onto a path,
+    /// so none of the path-safety rules apply to it.
+    ///
+    /// It must still be non-empty, and that is checked by
+    /// [`Manifest::validate`] alongside the other invariants rather than here —
+    /// so it is enforced on **read** too, which is the case that matters, since
+    /// this file is hand-edited. An empty `url` is the difference between a
+    /// `Failure` naming the offending repo and a bare `git clone` error the
+    /// first time someone runs `ivar sync`.
+    #[must_use]
+    pub fn new(name: RepoName, url: impl Into<String>, default_branch: BranchName) -> Self {
+        Self {
+            name,
+            url: url.into(),
+            default_branch,
+        }
+    }
+
+    /// This repo's name. Unique among a manifest's repos — see
+    /// [`Manifest::validate`].
+    #[must_use]
+    pub fn name(&self) -> &RepoName {
+        &self.name
+    }
+
+    /// The git remote URL this repo clones from.
+    #[must_use]
+    pub fn url(&self) -> &str {
+        &self.url
+    }
+
+    /// The branch a fresh worktree of this repo defaults to.
+    #[must_use]
+    pub fn default_branch(&self) -> &BranchName {
+        &self.default_branch
+    }
+}
+
+/// A hall's shared skill home: which harnesses skills materialise for.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Skills {
+    targets: Targets,
+}
+
+impl Skills {
+    /// Build a `Skills` value.
+    #[must_use]
+    pub fn new(targets: Targets) -> Self {
+        Self { targets }
+    }
+
+    /// Which harnesses this hall's shared skills materialise for.
+    #[must_use]
+    pub fn targets(&self) -> &Targets {
+        &self.targets
+    }
+}
+
+/// Which harnesses a hall's shared skills materialise for.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Targets {
+    claude: bool,
+    opencode: bool,
+}
+
+impl Targets {
+    /// Build a `Targets` value.
+    #[must_use]
+    pub fn new(claude: bool, opencode: bool) -> Self {
+        Self { claude, opencode }
+    }
+
+    /// Whether skills materialise at `.claude/skills/`.
+    #[must_use]
+    pub fn claude(&self) -> bool {
+        self.claude
+    }
+
+    /// Whether skills materialise at `.opencode/skills/`.
+    #[must_use]
+    pub fn opencode(&self) -> bool {
+        self.opencode
+    }
+}
+
+/// The comma-joined provider ids in `providers`, for error messages.
+fn provider_ids(providers: &[Provider]) -> String {
+    providers
+        .iter()
+        .map(Provider::id)
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// Everything that can go wrong reading or writing `ivar.json`.
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    /// Something failed at the [`Store`] layer: I/O, invalid JSON, an unknown
+    /// key, a schema version newer than this binary understands, or the
+    /// committed-file write policy. Delegates its `Failure` conversion
+    /// entirely to the wrapped error, which already has its own code and fix
+    /// action.
+    #[error(transparent)]
+    Store(#[from] versioned::Error),
+
+    /// The file has no `version` field, or one that is not a JSON number. See
+    /// the "Why v1 and not v2" section of the module doc comment: `ivar.json`
+    /// has no v0, so unversioned data is not an `ivar.json` at all, not a file
+    /// silently adopted as one.
+    #[error("{path}: has no `version` field (or a non-numeric one); this is not an ivar.json")]
+    MissingVersion { path: camino::Utf8PathBuf },
+
+    /// `providers.default` does not appear in `providers.available`.
+    #[error("default provider `{default}` is not in `providers.available`")]
+    DefaultProviderNotAvailable {
+        default: Provider,
+        available: Vec<Provider>,
+    },
+
+    /// `providers.available` is empty.
+    #[error("`providers.available` must not be empty")]
+    NoAvailableProviders,
+
+    /// Two repos share the same `name`.
+    #[error("repo name `{name}` is used by more than one repo")]
+    DuplicateRepoName { name: RepoName },
+
+    /// A repo's `url` is empty or blank.
+    ///
+    /// Not a path-safety concern — a remote URL is never joined onto disk — but
+    /// it is the difference between a `Failure` that names the offending repo
+    /// and a raw `git clone` error the first time someone runs `ivar sync`.
+    #[error("repo `{name}` has an empty `url`")]
+    EmptyRepoUrl { name: RepoName },
+}
+
+impl From<Error> for Failure {
+    fn from(error: Error) -> Self {
+        // The `#[error(...)]` attribute is the single source of the sentence.
+        // Re-typing it per arm is how the two drift — they already had.
+        let what = error.to_string();
+
+        match error {
+            Error::Store(source) => source.into(),
+            Error::MissingVersion { .. } => Failure::blocked("manifest.missing_version", what)
+            .expected("a `version` field naming the schema version")
+            .actual("no `version` field, or a non-numeric one")
+            .fix(FixAction::safe(
+                "manifest.add_version_field",
+                "Add a `\"version\": 1` field to the manifest — every ivar.json has one.",
+            )),
+            Error::DefaultProviderNotAvailable { default, available } => {
+                let ids = provider_ids(&available);
+                Failure::blocked("manifest.default_provider_not_available", what)
+                .expected(format!("`providers.default` to be one of: {ids}"))
+                .actual(format!("`providers.default` is `{default}`, not in [{ids}]"))
+                .fix(FixAction::safe(
+                    "manifest.fix_default_provider",
+                    format!(
+                        "Add `{default}` to `providers.available`, or change `providers.default` to one of: {ids}."
+                    ),
+                ))
+            }
+            Error::NoAvailableProviders => {
+                Failure::blocked("manifest.no_available_providers", what)
+            }
+            .expected("at least one provider id in `providers.available`")
+            .actual("an empty `providers.available` list")
+            .fix(FixAction::safe(
+                "manifest.add_available_provider",
+                "Add at least one provider id (`claude-code` or `opencode`) to `providers.available`.",
+            )),
+            Error::DuplicateRepoName { name } => Failure::blocked("manifest.duplicate_repo_name", what)
+            .expected("every entry in `repos` to have a unique `name`")
+            .actual(format!("`{name}` appears more than once in `repos`"))
+            .fix(FixAction::safe(
+                "manifest.rename_duplicate_repo",
+                format!("Rename or remove the duplicate `{name}` entry in `repos` so the name appears once."),
+            )),
+            Error::EmptyRepoUrl { name } => Failure::blocked("manifest.empty_repo_url", what)
+            .expected("a git remote URL")
+            .actual("an empty string")
+            .fix(FixAction::safe(
+                "manifest.set_repo_url",
+                format!("Set `url` on the `{name}` entry in `repos` to its git remote, or remove the entry."),
+            )),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::indexing_slicing
+    )]
+
+    use camino::Utf8PathBuf;
+
+    use super::*;
+    use crate::error::Status;
+    use crate::infra::{fs, json};
+    use crate::test_support::utf8_temp_dir;
+
+    fn sample_manifest() -> Manifest {
+        Manifest::new(
+            HallName::new("acme").unwrap(),
+            Providers::new(
+                vec![Provider::ClaudeCode, Provider::OpenCode],
+                Provider::ClaudeCode,
+            ),
+            vec![Repo::new(
+                RepoName::new("api").unwrap(),
+                "git@github.com:acme/api.git",
+                BranchName::new("main").unwrap(),
+            )],
+            Some(Skills::new(Targets::new(true, true))),
+        )
+        .unwrap()
+    }
+
+    // -- round-trip: write, read back, exact bytes on disk -------------------
+
+    #[test]
+    fn write_then_read_round_trips_and_writes_canonical_bytes() {
+        let (_dir, root) = utf8_temp_dir();
+        let layout = Layout::at(root);
+        let manifest = sample_manifest();
+
+        Manifest::write(&layout, &manifest).unwrap();
+
+        let expected = json::to_canonical_string(&serde_json::json!({
+            "version": 1,
+            "name": "acme",
+            "providers": { "available": ["claude-code", "opencode"], "default": "claude-code" },
+            "repos": [
+                { "name": "api", "url": "git@github.com:acme/api.git", "default_branch": "main" }
+            ],
+            "skills": { "targets": { "claude": true, "opencode": true } },
+        }))
+        .unwrap();
+        let on_disk = fs::read_text(&layout.manifest()).unwrap().unwrap();
+        assert_eq!(
+            on_disk, expected,
+            "write must produce the canonical byte format"
+        );
+
+        let read_back = Manifest::read(&layout).unwrap().unwrap();
+        assert_eq!(read_back, manifest);
+    }
+
+    #[test]
+    fn manifest_without_skills_omits_the_key_and_still_round_trips() {
+        let (_dir, root) = utf8_temp_dir();
+        let layout = Layout::at(root);
+        let manifest = Manifest::new(
+            HallName::new("acme").unwrap(),
+            Providers::new(vec![Provider::ClaudeCode], Provider::ClaudeCode),
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        Manifest::write(&layout, &manifest).unwrap();
+
+        let on_disk = fs::read_text(&layout.manifest()).unwrap().unwrap();
+        assert!(!on_disk.contains("skills"));
+        assert_eq!(Manifest::read(&layout).unwrap(), Some(manifest));
+    }
+
+    // -- absent is Ok(None); unparseable is a hard error ----------------------
+
+    #[test]
+    fn absent_file_reads_as_ok_none() {
+        let (_dir, root) = utf8_temp_dir();
+        let layout = Layout::at(root);
+
+        assert_eq!(Manifest::read(&layout).unwrap(), None);
+    }
+
+    #[test]
+    fn present_but_unparseable_file_is_a_hard_error() {
+        let (_dir, root) = utf8_temp_dir();
+        let layout = Layout::at(root);
+        fs::write_text(&layout.manifest(), "{ not json").unwrap();
+
+        let error = Manifest::read(&layout).unwrap_err();
+        assert!(matches!(error, Error::Store(versioned::Error::Json(_))));
+    }
+
+    // -- unknown key is a hard error naming the key ---------------------------
+
+    #[test]
+    fn unknown_key_is_rejected_naming_the_key() {
+        let (_dir, root) = utf8_temp_dir();
+        let layout = Layout::at(root);
+        fs::write_text(
+            &layout.manifest(),
+            r#"{"version":1,"name":"acme","providers":{"available":["claude-code"],"default":"claude-code"},"repos":[],"nickname":"oops"}"#,
+        )
+        .unwrap();
+
+        let error = Manifest::read(&layout).unwrap_err();
+        let message = error.to_string();
+        assert!(message.contains("nickname"), "message was: {message}");
+    }
+
+    // -- the invariants, violated, rejected on read ---------------------------
+
+    #[test]
+    fn default_provider_not_in_available_is_rejected_on_read() {
+        let (_dir, root) = utf8_temp_dir();
+        let layout = Layout::at(root);
+        fs::write_text(
+            &layout.manifest(),
+            r#"{"version":1,"name":"acme","providers":{"available":["claude-code"],"default":"opencode"},"repos":[]}"#,
+        )
+        .unwrap();
+
+        let error = Manifest::read(&layout).unwrap_err();
+        match error {
+            Error::DefaultProviderNotAvailable { default, available } => {
+                assert_eq!(default, Provider::OpenCode);
+                assert_eq!(available, vec![Provider::ClaudeCode]);
+            }
+            other => panic!("expected DefaultProviderNotAvailable, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn empty_available_providers_is_rejected_on_read() {
+        let (_dir, root) = utf8_temp_dir();
+        let layout = Layout::at(root);
+        fs::write_text(
+            &layout.manifest(),
+            r#"{"version":1,"name":"acme","providers":{"available":[],"default":"claude-code"},"repos":[]}"#,
+        )
+        .unwrap();
+
+        let error = Manifest::read(&layout).unwrap_err();
+        assert!(matches!(error, Error::NoAvailableProviders));
+    }
+
+    #[test]
+    fn duplicate_repo_names_are_rejected_on_read() {
+        let (_dir, root) = utf8_temp_dir();
+        let layout = Layout::at(root);
+        fs::write_text(
+            &layout.manifest(),
+            r#"{"version":1,"name":"acme","providers":{"available":["claude-code"],"default":"claude-code"},"repos":[
+                {"name":"api","url":"a","default_branch":"main"},
+                {"name":"api","url":"b","default_branch":"main"}
+            ]}"#,
+        )
+        .unwrap();
+
+        let error = Manifest::read(&layout).unwrap_err();
+        match error {
+            Error::DuplicateRepoName { name } => assert_eq!(name.as_str(), "api"),
+            other => panic!("expected DuplicateRepoName, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn an_empty_repo_url_is_rejected_on_read() {
+        // Not path safety — a remote URL never becomes a path. This is the
+        // difference between naming the offending repo and letting `ivar sync`
+        // hand the user a bare `git clone` error.
+        let (_dir, root) = utf8_temp_dir();
+        let layout = Layout::at(root);
+        fs::write_text(
+            &layout.manifest(),
+            r#"{"version":1,"name":"acme","providers":{"available":["claude-code"],"default":"claude-code"},"repos":[
+                {"name":"api","url":"   ","default_branch":"main"}
+            ]}"#,
+        )
+        .unwrap();
+
+        let error = Manifest::read(&layout).unwrap_err();
+        match error {
+            Error::EmptyRepoUrl { name } => assert_eq!(name.as_str(), "api"),
+            other => panic!("expected EmptyRepoUrl, got {other:?}"),
+        }
+    }
+
+    // -- a hand-edited traversal in a repo name is rejected at deserialize ----
+
+    #[test]
+    fn repo_name_traversal_is_rejected_when_deserialized() {
+        let (_dir, root) = utf8_temp_dir();
+        let layout = Layout::at(root);
+        fs::write_text(
+            &layout.manifest(),
+            r#"{"version":1,"name":"acme","providers":{"available":["claude-code"],"default":"claude-code"},"repos":[
+                {"name":"../etc","url":"a","default_branch":"main"}
+            ]}"#,
+        )
+        .unwrap();
+
+        let error = Manifest::read(&layout).unwrap_err();
+        assert!(matches!(
+            error,
+            Error::Store(versioned::Error::Deserialize { .. })
+        ));
+    }
+
+    // -- no version field is rejected, not adopted as v0 ----------------------
+
+    #[test]
+    fn missing_version_field_is_rejected_not_adopted_as_v0() {
+        let (_dir, root) = utf8_temp_dir();
+        let layout = Layout::at(root);
+        let original = r#"{"name":"acme","providers":{"available":["claude-code"],"default":"claude-code"},"repos":[]}"#;
+        fs::write_text(&layout.manifest(), original).unwrap();
+
+        let error = Manifest::read(&layout).unwrap_err();
+        assert!(matches!(error, Error::MissingVersion { .. }));
+
+        let bytes_after = fs::read_bytes(&layout.manifest()).unwrap().unwrap();
+        assert_eq!(
+            bytes_after,
+            original.as_bytes(),
+            "refusing an unversioned file must not touch it"
+        );
+    }
+
+    // -- a version newer than current is refused, file untouched -------------
+
+    #[test]
+    fn version_newer_than_current_is_refused_and_the_file_is_untouched() {
+        let (_dir, root) = utf8_temp_dir();
+        let layout = Layout::at(root);
+        let original = r#"{"version":99,"name":"from-the-future","providers":{"available":["claude-code"],"default":"claude-code"},"repos":[]}"#;
+        fs::write_text(&layout.manifest(), original).unwrap();
+
+        let error = Manifest::read(&layout).unwrap_err();
+        match &error {
+            Error::Store(versioned::Error::TooNew { found, highest, .. }) => {
+                assert_eq!(*found, 99);
+                assert_eq!(*highest, 1);
+            }
+            other => panic!("expected TooNew, got {other:?}"),
+        }
+
+        let bytes_after = fs::read_bytes(&layout.manifest()).unwrap().unwrap();
+        assert_eq!(bytes_after, original.as_bytes());
+    }
+
+    // -- Policy::Committed: a plain read never rewrites the file -------------
+
+    #[test]
+    fn committed_policy_read_never_rewrites_the_file() {
+        let (_dir, root) = utf8_temp_dir();
+        let layout = Layout::at(root);
+        // Valid v1 data, deliberately not in canonical form (unsorted keys, no
+        // trailing newline). A plain `read` must never rewrite this to
+        // canonical form on its own — only an explicit `write` does that.
+        let original = r#"{"repos":[],"name":"acme","version":1,"providers":{"default":"claude-code","available":["claude-code"]}}"#;
+        fs::write_text(&layout.manifest(), original).unwrap();
+
+        let manifest = Manifest::read(&layout).unwrap().unwrap();
+        assert_eq!(manifest.name().as_str(), "acme");
+
+        let bytes_after = fs::read_bytes(&layout.manifest()).unwrap().unwrap();
+        assert_eq!(
+            bytes_after,
+            original.as_bytes(),
+            "read must never rewrite a committed file"
+        );
+    }
+
+    #[test]
+    fn write_refuses_when_on_disk_is_older_than_current_and_leaves_it_untouched() {
+        let (_dir, root) = utf8_temp_dir();
+        let layout = Layout::at(root);
+        let original = r#"{"name":"acme","providers":{"available":["claude-code"],"default":"claude-code"},"repos":[]}"#;
+        fs::write_text(&layout.manifest(), original).unwrap();
+
+        let error = Manifest::write(&layout, &sample_manifest()).unwrap_err();
+        assert!(matches!(
+            error,
+            Error::Store(versioned::Error::CommittedRefusesImplicitUpgrade { .. })
+        ));
+
+        let bytes_after = fs::read_bytes(&layout.manifest()).unwrap().unwrap();
+        assert_eq!(bytes_after, original.as_bytes());
+    }
+
+    // -- Manifest::new validates by construction ------------------------------
+
+    #[test]
+    fn new_rejects_default_provider_not_in_available() {
+        let error = Manifest::new(
+            HallName::new("acme").unwrap(),
+            Providers::new(vec![Provider::ClaudeCode], Provider::OpenCode),
+            vec![],
+            None,
+        )
+        .unwrap_err();
+        assert!(matches!(error, Error::DefaultProviderNotAvailable { .. }));
+    }
+
+    #[test]
+    fn new_rejects_empty_available_providers() {
+        let error = Manifest::new(
+            HallName::new("acme").unwrap(),
+            Providers::new(vec![], Provider::ClaudeCode),
+            vec![],
+            None,
+        )
+        .unwrap_err();
+        assert!(matches!(error, Error::NoAvailableProviders));
+    }
+
+    #[test]
+    fn new_rejects_duplicate_repo_names() {
+        let repo = |url: &str| {
+            Repo::new(
+                RepoName::new("api").unwrap(),
+                url,
+                BranchName::new("main").unwrap(),
+            )
+        };
+        let error = Manifest::new(
+            HallName::new("acme").unwrap(),
+            Providers::new(vec![Provider::ClaudeCode], Provider::ClaudeCode),
+            vec![repo("a"), repo("b")],
+            None,
+        )
+        .unwrap_err();
+        assert!(matches!(error, Error::DuplicateRepoName { .. }));
+    }
+
+    #[test]
+    fn new_accepts_a_well_formed_manifest() {
+        let manifest = sample_manifest();
+        assert_eq!(manifest.version(), 1);
+        assert_eq!(manifest.name().as_str(), "acme");
+        assert_eq!(
+            manifest.providers().available(),
+            [Provider::ClaudeCode, Provider::OpenCode]
+        );
+        assert_eq!(
+            manifest.providers().default_provider(),
+            Provider::ClaudeCode
+        );
+        assert_eq!(manifest.repos().len(), 1);
+        assert!(manifest.skills().is_some());
+    }
+
+    // -- accessors -------------------------------------------------------------
+
+    #[test]
+    fn repo_accessors_return_the_constructed_values() {
+        let repo = Repo::new(
+            RepoName::new("api").unwrap(),
+            "git@github.com:acme/api.git",
+            BranchName::new("main").unwrap(),
+        );
+        assert_eq!(repo.name().as_str(), "api");
+        assert_eq!(repo.url(), "git@github.com:acme/api.git");
+        assert_eq!(repo.default_branch().as_str(), "main");
+    }
+
+    #[test]
+    fn targets_accessors_return_the_constructed_values() {
+        let targets = Targets::new(true, false);
+        assert!(targets.claude());
+        assert!(!targets.opencode());
+    }
+
+    #[test]
+    fn skills_accessor_returns_the_constructed_targets() {
+        let skills = Skills::new(Targets::new(true, true));
+        assert!(skills.targets().claude());
+        assert!(skills.targets().opencode());
+    }
+
+    // -- Error -> Failure: every variant has its own code and fix action -----
+
+    #[test]
+    fn missing_version_failure_names_the_path_and_a_safe_fix() {
+        let failure: Failure = Error::MissingVersion {
+            path: Utf8PathBuf::from("/hall/ivar.json"),
+        }
+        .into();
+        assert_eq!(failure.status, Status::Blocked);
+        assert_eq!(failure.code, "manifest.missing_version");
+        assert_eq!(failure.fix_actions.len(), 1);
+        assert!(failure.fix_actions[0].safe);
+    }
+
+    #[test]
+    fn default_provider_not_available_failure_names_the_offending_value() {
+        let failure: Failure = Error::DefaultProviderNotAvailable {
+            default: Provider::OpenCode,
+            available: vec![Provider::ClaudeCode],
+        }
+        .into();
+        assert_eq!(failure.status, Status::Blocked);
+        assert_eq!(failure.code, "manifest.default_provider_not_available");
+        assert!(failure.what.contains("opencode"));
+        assert!(failure.actual.as_deref().unwrap().contains("opencode"));
+        assert!(failure.fix_actions[0].what.contains("claude-code"));
+    }
+
+    #[test]
+    fn no_available_providers_failure_has_a_safe_fix() {
+        let failure: Failure = Error::NoAvailableProviders.into();
+        assert_eq!(failure.code, "manifest.no_available_providers");
+        assert!(failure.fix_actions[0].safe);
+    }
+
+    #[test]
+    fn duplicate_repo_name_failure_names_the_offending_repo() {
+        let failure: Failure = Error::DuplicateRepoName {
+            name: RepoName::new("api").unwrap(),
+        }
+        .into();
+        assert_eq!(failure.code, "manifest.duplicate_repo_name");
+        assert!(failure.what.contains("api"));
+        assert!(failure.fix_actions[0].what.contains("api"));
+    }
+
+    #[test]
+    fn store_error_delegates_its_failure_conversion() {
+        let failure: Failure = Error::Store(versioned::Error::TooNew {
+            path: Utf8PathBuf::from("/hall/ivar.json"),
+            found: 2,
+            highest: 1,
+        })
+        .into();
+        assert_eq!(failure.code, "store.version_too_new");
+    }
+}
