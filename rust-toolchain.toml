@@ -1,0 +1,8 @@
+[toolchain]
+# Pinned exactly, not "stable". A floating channel means a compiler release can
+# turn CI red on an unrelated day, and the gate runs clippy with -D warnings, so
+# every new lint would be a build break. Bump this deliberately.
+# The MSRV floor is rust-version in Cargo.toml, and CI builds against it too.
+channel = "1.97.1"
+components = ["rustfmt", "clippy"]
+profile = "minimal"

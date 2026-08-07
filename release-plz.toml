@@ -1,0 +1,12 @@
+[workspace]
+# release-plz owns versioning: it reads conventional commits, computes the bump,
+# generates the CHANGELOG, opens a release PR, tags and publishes on merge.
+# Merging the release PR is the act of publishing.
+changelog_update = true
+git_release_enable = true
+git_tag_enable = true
+semver_check = true
+
+[[package]]
+name = "ivar"
+publish = true # crates.io: `cargo install ivar`, and it holds the name

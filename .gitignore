@@ -1,0 +1,9 @@
+/target
+**/*.rs.bk
+*.pdb
+
+# insta review leftovers
+**/*.snap.new
+
+# macOS
+.DS_Store

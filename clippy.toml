@@ -1,0 +1,13 @@
+# `error::Failure` is ~152 bytes and that is deliberate: it carries `expected`,
+# `actual`, ordered `fix_actions` and `details`, because the error envelope is a
+# machine-readable contract, not a message. Every action returns
+# `Result<_, Failure>`, so the default 128-byte threshold would fire on every
+# verb in the binary.
+#
+# The alternative was `#[allow(clippy::result_large_err)]` repeated on each one,
+# which is how a lint stops being read at all. Boxing was rejected too: it would
+# push `Box<Failure>` into every construction site to satisfy a lint about a
+# shape that is intentional.
+#
+# Raise this only with the same reasoning written down.
+large-error-threshold = 192

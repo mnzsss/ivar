@@ -1,0 +1,116 @@
+[package]
+name = "ivar"
+# 0.0.0 is the crates.io name reservation, not a release. release-plz takes the
+# first real release to 0.0.1, which is what the README and the landing promise.
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.95.0" # MSRV. Public contract from the first publish; CI builds against it.
+# The floor is set by sysinfo 0.39, which requires 1.95. Verified: 1.94 fails.
+license = "MIT OR Apache-2.0"
+description = "Mount the repos a feature spans into one directory, on one branch, for one agent session."
+repository = "https://github.com/mnzsss/ivar"
+homepage = "https://ivar.mnzs.dev"
+documentation = "https://ivar.mnzs.dev"
+readme = "README.md"
+keywords = ["multi-repo", "git-worktree", "monorepo", "cli", "agents"]
+categories = ["command-line-utilities", "development-tools"]
+exclude = [".github/", "docs/", "ARCHITECTURE.md"]
+
+[lib]
+name = "ivar"
+path = "src/lib.rs"
+
+[[bin]]
+name = "ivar"
+path = "src/bin/ivar.rs"
+
+# Choices and rejected alternatives: docs/adr/0001-stack-and-tooling.md
+# There is deliberately no async runtime here. Adding one is an architectural
+# change, not a dependency bump.
+[dependencies]
+# --- CLI -------------------------------------------------------------------
+clap = { version = "4.6", features = ["derive", "wrap_help"] }
+clap_complete = "4.6"
+clap_mangen = "0.3"
+
+# --- serialization ---------------------------------------------------------
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# serde_yaml is deprecated (0.9.34+deprecated, 2024-03). YAML is used only for
+# Markdown frontmatter and is quarantined in infra::frontmatter, so this is a
+# one-file swap. See ADR-0001 §1.
+serde-saphyr = "1"
+
+# --- git -------------------------------------------------------------------
+# Reads only, and never the network. Mutations shell out to the git binary.
+# See ADR-0001 §3 — this split is a rule, not a convenience.
+git2 = { version = "0.21", default-features = false }
+
+# --- terminal --------------------------------------------------------------
+ratatui = "0.30"
+crossterm = "0.29"
+portable-pty = "0.9"
+# Does not track SGR 8 (invisible) or 9 (strikethrough). Known, documented gap;
+# behind the tui::screen::Screen seam so termwiz stays a later swap.
+# wezterm-term is NOT on crates.io and therefore not an option. ADR-0001 §2.
+vt100 = "0.16"
+
+# --- http ------------------------------------------------------------------
+# Blocking on purpose. platform-verifier makes TLS trust the OS store instead of
+# a compiled-in root bundle, which is the corporate-proxy failure the closest
+# prior art shipped and then got a bug report for. ADR-0001 §4.
+ureq = { version = "3", features = ["platform-verifier"] }
+
+# --- foundation ------------------------------------------------------------
+camino = { version = "1", features = ["serde1"] }
+thiserror = "2"
+fs-err = "3"
+sha2 = "0.11"
+walkdir = "2"
+uuid = { version = "1", features = ["v4"] }
+
+# --- terminal output -------------------------------------------------------
+owo-colors = "4"
+comfy-table = "8"
+indicatif = "0.18"
+
+# --- system ----------------------------------------------------------------
+etcetera = "0.11"
+sysinfo = "0.39"
+netstat2 = "0.11"
+
+[dev-dependencies]
+# Real temp git repos, real filesystem, real subprocesses. Internal code is
+# never mocked; external systems are faked at a trait seam. wiremock is
+# deliberately absent — it is async and would pull tokio into the test profile.
+tempfile = "3"
+assert_cmd = "2"
+insta = { version = "1", features = ["json"] }
+rstest = "0.26"
+predicates = "3"
+
+[lints.rust]
+unsafe_code = "forbid"
+missing_debug_implementations = "warn"
+unreachable_pub = "warn"
+
+[lints.clippy]
+# Sharp edges that produce real bugs in a tool with write access to git repos.
+todo = "warn"
+unimplemented = "warn"
+dbg_macro = "warn"
+print_stdout = "warn"  # output goes through the Outcome renderer, not println!
+print_stderr = "warn"
+unwrap_used = "warn"
+expect_used = "warn"
+panic = "warn"
+indexing_slicing = "warn"
+str_to_string = "warn"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
+# panic = "abort" is deliberately NOT set. The progress reporter runs worker and
+# reporter in scoped threads and re-propagates a worker panic with
+# resume_unwind; that needs unwinding to exist.
