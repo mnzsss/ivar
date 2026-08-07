@@ -45,11 +45,11 @@ pub enum Command {
     /// Bring the local hall in line with `ivar.json`: clone missing repos,
     /// materialise harness config, run setup scripts.
     Sync(SyncArgs),
-    /// Report hall health. Not implemented yet.
+    /// Report hall health.
     Status,
-    /// Diagnose and suggest fixes. Not implemented yet.
+    /// Diagnose problems and suggest fixes.
     Doctor,
-    /// Reconcile stale state. Not implemented yet.
+    /// Reconcile stale state (interactive; asks before deleting).
     Cleanup,
     /// Manage repos.
     #[command(subcommand)]
@@ -60,8 +60,9 @@ pub enum Command {
     /// Manage sessions.
     #[command(subcommand)]
     Session(SessionCommand),
-    /// Manage providers. Not implemented yet.
-    Provider,
+    /// Manage providers.
+    #[command(subcommand)]
+    Provider(ProviderCommand),
     /// Manage SPDD plans.
     #[command(subcommand)]
     Plan(PlanCommand),
@@ -222,6 +223,13 @@ pub enum SkillCommand {
     List,
     /// Scaffold a new skill: a folder with a SKILL.md.
     Create(SkillCreateArgs),
+}
+
+/// The `ivar provider` surface: which harnesses a hall knows about.
+#[derive(Debug, Subcommand)]
+pub enum ProviderCommand {
+    /// List the hall's providers and the default one.
+    List,
 }
 
 /// Arguments for `ivar skill create`.

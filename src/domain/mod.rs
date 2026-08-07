@@ -10,5 +10,6 @@
 //! like. What does not: reading it, writing it, or shelling out about it.
 
 pub mod feature;
+pub mod health;
 pub mod name;
 pub mod provider;

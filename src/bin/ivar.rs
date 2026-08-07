@@ -26,11 +26,15 @@ use ivar::action::Ctx;
 use ivar::action::feature::{create, demote, list as feature_list, promote, status};
 use ivar::action::hall::{self, InitInput};
 use ivar::action::plan::{create as plan_create, list as plan_list, show as plan_show};
+use ivar::action::provider::list as provider_list;
 use ivar::action::repo::{add, list as repo_list, pull, remove};
 use ivar::action::session::start as session_start;
 use ivar::action::skill::{create as skill_create, list as skill_list};
 use ivar::action::sync::{self, SyncInput};
-use ivar::cli::root::{Cli, Command, FeatureCommand, PlanCommand, RepoCommand, SessionCommand, SkillCommand};
+use ivar::cli::root::{
+    Cli, Command, FeatureCommand, PlanCommand, ProviderCommand, RepoCommand, SessionCommand,
+    SkillCommand,
+};
 use ivar::error::{Failure, Outcome, Report, WriteHuman};
 use ivar::infra::term;
 
@@ -62,15 +66,9 @@ fn main() -> ExitCode {
             &mut stdout,
             &mut stderr,
         ),
-        Command::Status => {
-            respond_failure(not_implemented("status"), json, &mut stdout, &mut stderr)
-        }
-        Command::Doctor => {
-            respond_failure(not_implemented("doctor"), json, &mut stdout, &mut stderr)
-        }
-        Command::Cleanup => {
-            respond_failure(not_implemented("cleanup"), json, &mut stdout, &mut stderr)
-        }
+        Command::Status => respond(hall::status(&ctx), json, &mut stdout, &mut stderr),
+        Command::Doctor => respond(hall::doctor(&ctx), json, &mut stdout, &mut stderr),
+        Command::Cleanup => respond(hall::cleanup(&ctx), json, &mut stdout, &mut stderr),
         Command::Repo(cmd) => match cmd {
             RepoCommand::List => respond(repo_list::list(&ctx), json, &mut stdout, &mut stderr),
             RepoCommand::Add(args) => respond(
@@ -162,9 +160,11 @@ fn main() -> ExitCode {
                 &mut stderr,
             ),
         },
-        Command::Provider => {
-            respond_failure(not_implemented("provider"), json, &mut stdout, &mut stderr)
-        }
+        Command::Provider(cmd) => match cmd {
+            ProviderCommand::List => {
+                respond(provider_list::list(&ctx), json, &mut stdout, &mut stderr)
+            }
+        },
         Command::Plan(cmd) => match cmd {
             PlanCommand::Create(args) => respond(
                 plan_create::create(&ctx, plan_create::CreateInput { feature: args.feature }),
@@ -204,19 +204,6 @@ fn main() -> ExitCode {
             ),
         },
     }
-}
-
-/// A root verb that exists in the settled surface (ARCHITECTURE.md names all
-/// eleven) but has not landed yet. Never a silent success and never
-/// `todo!()` (that lint is denied crate-wide) — a [`Failure`] that names the
-/// verb, so `--json` and the human surface agree on exactly what is missing.
-fn not_implemented(verb: &str) -> Failure {
-    Failure::blocked(
-        "cli.not_implemented",
-        format!("`ivar {verb}` is not implemented yet"),
-    )
-    .expected("a verb that has shipped")
-    .actual("this verb is named in the root surface but not wired up in this slice")
 }
 
 /// Render a [`Report`]'s exit code: clean is `0`, warnings present is `1`.

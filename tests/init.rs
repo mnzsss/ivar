@@ -145,15 +145,15 @@ fn json_and_human_surfaces_carry_the_same_facts() {
     assert!(human.contains(root_human.as_str()));
 }
 
-/// A verb named in the settled surface but not yet built says so, rather than
-/// exiting zero having done nothing. `status` stands in for the rest; the point
-/// is the shape of the refusal, not which verb it is.
+/// A verb that operates on a hall fails clearly when there is none, rather
+/// than exiting zero having done nothing. `status` stands in for the rest;
+/// the point is the shape of the refusal, not which verb it is.
 #[test]
-fn a_root_verb_not_yet_implemented_fails_clearly_instead_of_pretending() {
+fn a_hall_verb_outside_a_hall_fails_clearly_instead_of_pretending() {
     ivar()
         .arg("status")
         .assert()
         .failure()
         .code(2)
-        .stderr(predicate::str::contains("not implemented yet"));
+        .stderr(predicate::str::contains("no hall at"));
 }

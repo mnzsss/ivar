@@ -19,6 +19,7 @@
 pub mod feature;
 pub mod hall;
 pub mod plan;
+pub mod provider;
 pub mod repo;
 pub mod session;
 pub mod skill;

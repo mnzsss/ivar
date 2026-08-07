@@ -1,14 +1,16 @@
-//! `hall`: `init` (this slice). `sync · status · doctor · cleanup` land in
-//! later slices — see ARCHITECTURE.md's build order.
+//! `hall`: `init` (this slice). `status · doctor · cleanup` land here too —
+//! see ARCHITECTURE.md's module map.
 
 use std::io;
 
 use camino::{Utf8Path, Utf8PathBuf};
 use serde::Serialize;
 
+use crate::domain::health::{Health, RepoHealth};
 use crate::domain::name::HallName;
 use crate::domain::provider::Provider;
 use crate::error::{Failure, FixAction, Outcome, Report, WriteHuman};
+use crate::git::{self, Git, TargetState};
 use crate::infra::fs;
 use crate::store::gitignore;
 use crate::store::layout::{self, Layout};
@@ -251,6 +253,292 @@ fn create_ivar_dir(layout: &Layout) -> Result<(), Failure> {
     Ok(())
 }
 
+// ---------------------------------------------------------------------------
+// `ivar status` — hall health, derived and rendered.
+// ---------------------------------------------------------------------------
+
+/// What `ivar status` found.
+#[derive(Debug, Clone, Serialize)]
+pub struct StatusOutcome {
+    /// The hall root.
+    pub root: Utf8PathBuf,
+    /// The hall's overall health.
+    pub health: &'static str,
+    /// One entry per repo, with its observed state.
+    pub repos: Vec<RepoStatusEntry>,
+}
+
+/// One repo's observed state for the status report.
+#[derive(Debug, Clone, Serialize)]
+pub struct RepoStatusEntry {
+    /// The repo's name.
+    pub name: crate::domain::name::RepoName,
+    /// Whether the bare clone exists.
+    pub bare_cloned: bool,
+    /// Whether the default worktree exists.
+    pub worktree: bool,
+}
+
+impl WriteHuman for StatusOutcome {
+    fn write_human(&self, w: &mut impl io::Write) -> io::Result<()> {
+        writeln!(w, "Hall at {} — {}", self.root, self.health)?;
+        for repo in &self.repos {
+            let bare = if repo.bare_cloned { "cloned" } else { "missing" };
+            let worktree = if repo.worktree { "worktree ok" } else { "no worktree" };
+            writeln!(w, "  {}  {bare}  {worktree}", repo.name)?;
+        }
+        Ok(())
+    }
+}
+
+/// Report the hall's health. Read-only — never mutates anything.
+pub fn status(ctx: &Ctx) -> Outcome<StatusOutcome> {
+    let layout = discover_hall(ctx)?;
+    let manifest = read_manifest(&layout)?;
+    let git = git::System;
+
+    let mut repos = Vec::new();
+    for repo in manifest.repos() {
+        let bare = layout.repo_bare(repo.name());
+        let worktree = layout.repo_worktree(repo.name(), repo.default_branch());
+        let bare_state = git.target_state(&bare)?;
+        let bare_cloned = matches!(bare_state, TargetState::Repository);
+        let worktree_state = if bare_cloned {
+            git.target_state(&worktree)?
+        } else {
+            TargetState::Absent
+        };
+        repos.push(RepoStatusEntry {
+            name: repo.name().clone(),
+            bare_cloned,
+            worktree: matches!(worktree_state, TargetState::Repository),
+        });
+    }
+
+    let health = Health::derive(
+        &repos
+            .iter()
+            .map(|repo| RepoHealth {
+                bare_cloned: repo.bare_cloned,
+                default_worktree_present: Some(repo.worktree),
+                ahead_of_bare: false,
+            })
+            .collect::<Vec<_>>(),
+    );
+
+    Ok(Report::new(StatusOutcome {
+        root: layout.root().to_path_buf(),
+        health: health_word(health),
+        repos,
+    }))
+}
+
+/// The one-word health label for the report. The ladder lives in
+/// `domain::health`; this is only the rendering.
+fn health_word(health: Health) -> &'static str {
+    match health {
+        Health::Uninitialized => "uninitialized",
+        Health::Operational => "operational",
+        Health::Stale => "stale",
+        Health::Degraded => "degraded",
+    }
+}
+
+/// The hall [`Ctx::cwd`] is inside, or a [`Failure`] saying there is none.
+/// Shared with the other verbs that operate on the current hall.
+fn discover_hall(ctx: &Ctx) -> Result<Layout, Failure> {
+    super::discover_hall(ctx)
+}
+
+/// The manifest [`Layout::discover`] just proved exists.
+fn read_manifest(layout: &Layout) -> Result<Manifest, Failure> {
+    super::read_manifest(layout)
+}
+
+// ---------------------------------------------------------------------------
+// `ivar doctor` — diagnose the hall and suggest fixes.
+// ---------------------------------------------------------------------------
+
+/// One diagnosed problem.
+#[derive(Debug, Clone, Serialize)]
+pub struct Diagnosis {
+    /// A stable code for the problem, e.g. `repo.bare_missing`.
+    pub code: &'static str,
+    /// What is wrong, in one sentence.
+    pub what: String,
+    /// The suggested fix.
+    pub fix: String,
+}
+
+/// What `ivar doctor` found.
+#[derive(Debug, Clone, Serialize)]
+pub struct DoctorOutcome {
+    /// The hall root.
+    pub root: Utf8PathBuf,
+    /// Every diagnosed problem. Empty means a healthy hall.
+    pub findings: Vec<Diagnosis>,
+}
+
+impl WriteHuman for DoctorOutcome {
+    fn write_human(&self, w: &mut impl io::Write) -> io::Result<()> {
+        if self.findings.is_empty() {
+            writeln!(w, "No problems found in {}.", self.root)?;
+            return Ok(());
+        }
+        writeln!(w, "Problems in {}:", self.root)?;
+        for finding in &self.findings {
+            writeln!(w, "  - {} — {}", finding.code, finding.what)?;
+            writeln!(w, "    fix: {}", finding.fix)?;
+        }
+        Ok(())
+    }
+}
+
+/// Diagnose the hall, read-only. `status` says *how healthy*; `doctor` says
+/// *what is wrong and what to do about it*.
+pub fn doctor(ctx: &Ctx) -> Outcome<DoctorOutcome> {
+    let layout = discover_hall(ctx)?;
+    let manifest = read_manifest(&layout)?;
+    let git = git::System;
+
+    let mut findings = Vec::new();
+    for repo in manifest.repos() {
+        let bare = layout.repo_bare(repo.name());
+        let worktree = layout.repo_worktree(repo.name(), repo.default_branch());
+
+        match git.target_state(&bare)? {
+            TargetState::Repository => {}
+            TargetState::Occupied => findings.push(Diagnosis {
+                code: "repo.bare_occupied",
+                what: format!("`{}` exists but is not a git repository", bare),
+                fix: "Remove it and run `ivar sync` to clone afresh.".to_owned(),
+            }),
+            TargetState::Absent => findings.push(Diagnosis {
+                code: "repo.bare_missing",
+                what: format!("`{}` has not been cloned", repo.name()),
+                fix: "Run `ivar sync` to clone it.".to_owned(),
+            }),
+        }
+
+        if git.target_state(&bare)? == TargetState::Repository {
+            match git.target_state(&worktree)? {
+                TargetState::Repository => {}
+                TargetState::Occupied => findings.push(Diagnosis {
+                    code: "repo.worktree_occupied",
+                    what: format!("`{}` exists but is not a git worktree", worktree),
+                    fix: "Remove it and run `ivar sync` to materialise it afresh.".to_owned(),
+                }),
+                TargetState::Absent => findings.push(Diagnosis {
+                    code: "repo.worktree_missing",
+                    what: format!("`{}` has no default-branch worktree", repo.name()),
+                    fix: "Run `ivar sync` to materialise it.".to_owned(),
+                }),
+            }
+        }
+    }
+
+    Ok(Report::new(DoctorOutcome {
+        root: layout.root().to_path_buf(),
+        findings,
+    }))
+}
+
+// ---------------------------------------------------------------------------
+// `ivar cleanup` — remove work left behind, asking before anything is deleted.
+// ---------------------------------------------------------------------------
+
+/// What `ivar cleanup` would remove, or removed.
+#[derive(Debug, Clone, Serialize)]
+pub struct CleanupOutcome {
+    /// The hall root.
+    pub root: Utf8PathBuf,
+    /// Everything removed.
+    pub removed: Vec<String>,
+    /// Everything declined (the user said no, or the run was not a tty).
+    pub kept: Vec<String>,
+}
+
+impl WriteHuman for CleanupOutcome {
+    fn write_human(&self, w: &mut impl io::Write) -> io::Result<()> {
+        if self.removed.is_empty() && self.kept.is_empty() {
+            writeln!(w, "Nothing to clean up in {}.", self.root)?;
+            return Ok(());
+        }
+        for path in &self.removed {
+            writeln!(w, "  removed {path}")?;
+        }
+        for path in &self.kept {
+            writeln!(w, "  kept    {path}")?;
+        }
+        Ok(())
+    }
+}
+
+/// Remove stale state, asking before anything is deleted.
+///
+/// This is the one verb that can destroy work, so it is **interactive by
+/// design** (ARCHITECTURE.md: `cleanup` is where removal lives, and it will
+/// ask) and deliberately has no `--force` / `--dry-run` automation flags.
+/// On a non-tty run it lists what *would* be removed and keeps everything —
+/// a script can never delete through `ivar cleanup`.
+///
+/// What it removes today: bare clones of repos no longer in the manifest.
+/// (Worktree removal is where uncommitted work lives; that stays a manual
+/// `git worktree remove` until a later slice.)
+pub fn cleanup(ctx: &Ctx) -> Outcome<CleanupOutcome> {
+    let layout = discover_hall(ctx)?;
+    let manifest = read_manifest(&layout)?;
+
+    let mut removed = Vec::new();
+    let mut kept = Vec::new();
+
+    let repos_dir = layout.repos_dir();
+    if fs::is_dir(&repos_dir)? {
+        for entry in fs::read_dir(&repos_dir)? {
+            let Some(name) = entry.file_name() else {
+                continue;
+            };
+            // A repo still in the manifest is not stale.
+            if manifest
+                .repos()
+                .iter()
+                .any(|repo| repo.name().as_str() == name)
+            {
+                continue;
+            }
+            let repo_dir = repos_dir.join(name);
+            if ask_remove(&repo_dir)? {
+                fs::remove_path(&repo_dir)?;
+                removed.push(repo_dir.to_string());
+            } else {
+                kept.push(repo_dir.to_string());
+            }
+        }
+    }
+
+    Ok(Report::new(CleanupOutcome {
+        root: layout.root().to_path_buf(),
+        removed,
+        kept,
+    }))
+}
+
+/// Ask before removing `path`. Returns `true` to remove, `false` to keep.
+///
+/// Non-tty runs answer `false` — cleanup must never delete without a human
+/// looking at the question.
+fn ask_remove(path: &Utf8Path) -> Result<bool, Failure> {
+    if !crate::infra::term::is_tty(crate::infra::term::Stream::Stderr) {
+        return Ok(false);
+    }
+    eprintln!("Remove `{path}`? [y/N] ");
+    let mut answer = String::new();
+    io::stdin().read_line(&mut answer).map_err(|source| {
+        Failure::failed("cleanup.read_answer", format!("could not read your answer: {source}"))
+    })?;
+    Ok(answer.trim().eq_ignore_ascii_case("y"))
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(
@@ -264,7 +552,7 @@ mod tests {
 
     use super::*;
     use crate::error::Status;
-    use crate::test_support::hall_root as utf8_temp_dir;
+    use crate::test_support::{hall_root, hall_root as utf8_temp_dir};
 
     fn fresh_input() -> InitInput {
         InitInput {
@@ -458,6 +746,156 @@ mod tests {
         assert_eq!(
             String::from_utf8(out).unwrap(),
             "Initialised hall `acme` at /hall (provider: claude-code)\n"
+        );
+    }
+
+    // -- status ---------------------------------------------------------------
+
+    fn hall_with_repo() -> (tempfile::TempDir, Utf8PathBuf) {
+        let (guard, root) = hall_root();
+        let ctx = Ctx::new(root.clone());
+        init(
+            &ctx,
+            InitInput {
+                path: Utf8PathBuf::from("."),
+                name: Some("acme".to_owned()),
+                provider: None,
+            },
+        )
+        .unwrap();
+
+        let origin = crate::test_support::seeded_repo(
+            &root.parent().unwrap().join("origins").join("api"),
+            "main",
+        );
+        let layout = Layout::at(root.clone());
+        let manifest = Manifest::new(
+            HallName::new("acme").unwrap(),
+            Providers::new(vec![Provider::ClaudeCode], Provider::ClaudeCode),
+            vec![crate::store::manifest::Repo::new(
+                crate::domain::name::RepoName::new("api").unwrap(),
+                origin.as_str(),
+                crate::domain::name::BranchName::new("main").unwrap(),
+            )],
+            None,
+        )
+        .unwrap();
+        Manifest::write(&layout, &manifest).unwrap();
+
+        (guard, root)
+    }
+
+    #[test]
+    fn status_reports_a_fresh_hall_as_operational() {
+        let (_guard, root) = hall_root();
+        let ctx = Ctx::new(root.clone());
+        init(&ctx, fresh_input()).unwrap();
+
+        let report = status(&ctx).unwrap();
+
+        assert_eq!(report.value.health, "operational");
+        assert!(report.value.repos.is_empty());
+    }
+
+    #[test]
+    fn status_reports_a_synced_hall_with_repos_as_operational() {
+        let (_guard, root) = hall_with_repo();
+        let ctx = Ctx::new(root.clone());
+        crate::action::sync::sync(&ctx, Default::default()).unwrap();
+
+        let report = status(&ctx).unwrap();
+
+        assert_eq!(report.value.health, "operational");
+        assert_eq!(report.value.repos.len(), 1);
+        assert!(report.value.repos[0].bare_cloned);
+        assert!(report.value.repos[0].worktree);
+    }
+
+    #[test]
+    fn status_reports_a_never_synced_repo_as_degraded() {
+        let (_guard, root) = hall_with_repo();
+        let ctx = Ctx::new(root);
+
+        let report = status(&ctx).unwrap();
+
+        assert_eq!(report.value.health, "degraded");
+        assert!(!report.value.repos[0].bare_cloned);
+    }
+
+    // -- doctor ---------------------------------------------------------------
+
+    #[test]
+    fn doctor_finds_nothing_in_a_healthy_hall() {
+        let (_guard, root) = hall_with_repo();
+        let ctx = Ctx::new(root.clone());
+        crate::action::sync::sync(&ctx, Default::default()).unwrap();
+
+        let report = doctor(&ctx).unwrap();
+
+        assert!(report.value.findings.is_empty());
+    }
+
+    #[test]
+    fn doctor_names_a_missing_bare_clone_and_its_fix() {
+        let (_guard, root) = hall_with_repo();
+        let ctx = Ctx::new(root);
+
+        let report = doctor(&ctx).unwrap();
+
+        assert_eq!(report.value.findings.len(), 1);
+        assert_eq!(report.value.findings[0].code, "repo.bare_missing");
+        assert!(report.value.findings[0].fix.contains("ivar sync"));
+    }
+
+    // -- cleanup --------------------------------------------------------------
+
+    #[test]
+    fn cleanup_in_a_non_tty_run_keeps_everything() {
+        let (_guard, root) = hall_with_repo();
+        let ctx = Ctx::new(root.clone());
+        // A repo dir for a repo that is no longer in the manifest.
+        let stale = root.join(".ivar/repos/old");
+        fs::ensure_dir(&stale).unwrap();
+
+        let report = cleanup(&ctx).unwrap();
+
+        // Non-tty: nothing is deleted without a human.
+        assert!(report.value.removed.is_empty());
+        assert_eq!(report.value.kept.len(), 1);
+        assert!(fs::is_dir(&stale).unwrap());
+    }
+
+    #[test]
+    fn cleanup_leaves_repos_still_in_the_manifest_alone() {
+        let (_guard, root) = hall_with_repo();
+        let ctx = Ctx::new(root.clone());
+        crate::action::sync::sync(&ctx, Default::default()).unwrap();
+
+        let report = cleanup(&ctx).unwrap();
+
+        assert!(report.value.removed.is_empty());
+        assert!(report.value.kept.is_empty());
+        assert!(root.join(".ivar/repos/api/.bare/HEAD").is_file());
+    }
+
+    #[test]
+    fn the_human_surface_of_status_names_the_health() {
+        let outcome = StatusOutcome {
+            root: Utf8PathBuf::from("/hall"),
+            health: "operational",
+            repos: vec![RepoStatusEntry {
+                name: crate::domain::name::RepoName::new("api").unwrap(),
+                bare_cloned: true,
+                worktree: true,
+            }],
+        };
+
+        let mut out = Vec::new();
+        outcome.write_human(&mut out).unwrap();
+
+        assert_eq!(
+            String::from_utf8(out).unwrap(),
+            "Hall at /hall — operational\n  api  cloned  worktree ok\n"
         );
     }
 }
