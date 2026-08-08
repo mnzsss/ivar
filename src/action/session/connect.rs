@@ -40,6 +40,10 @@ pub struct ConnectOutcome {
     pub feature: Option<FeatureName>,
     /// The session's (re-materialised) view dir.
     pub view_dir: Utf8PathBuf,
+    /// The provider's listening ports, if the session's agent opened any —
+    /// e.g. a dev server the user wants to reach. Empty when none are open.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ports: Vec<u16>,
 }
 
 impl WriteHuman for ConnectOutcome {
@@ -48,7 +52,17 @@ impl WriteHuman for ConnectOutcome {
         if let Some(feature) = &self.feature {
             writeln!(w, "export IVAR_FEATURE={feature}")?;
         }
-        writeln!(w, "export IVAR_SESSION_PATH={}", self.view_dir)
+        writeln!(w, "export IVAR_SESSION_PATH={}", self.view_dir)?;
+        if !self.ports.is_empty() {
+            let ports = self
+                .ports
+                .iter()
+                .map(u16::to_string)
+                .collect::<Vec<_>>()
+                .join(", ");
+            writeln!(w, "export IVAR_SESSION_PORTS={ports}")?;
+        }
+        Ok(())
     }
 }
 
@@ -91,10 +105,22 @@ pub fn connect(ctx: &Ctx, input: ConnectInput) -> Outcome<ConnectOutcome> {
     // when nothing drifted.
     materialise_view_dir(&layout, &manifest, feature.as_ref(), &session.view_dir)?;
 
+    // The provider's listening ports — a dev server the session's agent may
+    // have opened. Best-effort: empty when none are found (ticket 22). A
+    // session record without a state (never fully launched) yields none.
+    let ports = match session.state.as_ref().map(|s| s.provider()) {
+        Some(provider) => {
+            let binary = crate::harness::Harness::for_provider(provider)?.binary();
+            crate::infra::proc::find_ports_for_program(binary)
+        }
+        None => Vec::new(),
+    };
+
     Ok(Report::new(ConnectOutcome {
         session_id: session.id.to_string(),
         feature: session.feature.clone(),
         view_dir: session.view_dir.clone(),
+        ports,
     }))
 }
 

@@ -338,6 +338,41 @@ pub fn find_listening_ports(pid: u32) -> Vec<u16> {
     ports
 }
 
+/// Discover the listening ports of every process whose command line mentions
+/// `program` — the ticket-22 primitive: "the port a repo's process opened".
+///
+/// Walks `/proc/*/cmdline`, matches the program name, and unions each
+/// process's listening ports via [`find_listening_ports`]. Best-effort: a
+/// `/proc` entry that cannot be read is skipped, and a non-Linux host (no
+/// `/proc`) yields an empty list — absence is a warning, not an error.
+#[must_use]
+pub fn find_ports_for_program(program: &str) -> Vec<u16> {
+    let mut ports = Vec::new();
+
+    let Ok(entries) = std::fs::read_dir("/proc") else {
+        return ports;
+    };
+    for entry in entries.flatten() {
+        let Some(pid) = entry
+            .file_name()
+            .to_str()
+            .and_then(|name| name.parse::<u32>().ok())
+        else {
+            continue;
+        };
+        let cmdline = std::fs::read_to_string(format!("/proc/{pid}/cmdline")).unwrap_or_default();
+        // cmdline is NUL-separated; a space-free match on the joined string
+        // is enough to catch `node dev.js`, `cargo run`, etc.
+        if cmdline.replace('\0', " ").contains(program) {
+            ports.extend(find_listening_ports(pid));
+        }
+    }
+
+    ports.sort_unstable();
+    ports.dedup();
+    ports
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(
@@ -571,5 +606,27 @@ mod tests {
             assert!(*port > 0, "port must be > 0, got {port}");
             assert!(*port < u16::MAX, "port must be < 65536, got {port}");
         }
+    }
+
+    #[test]
+    fn find_ports_for_program_finds_this_test_process() {
+        // The test binary's own cmdline contains its name, so it must be
+        // found by its own invocation — the closest thing to a hermetic
+        // assertion on a /proc walk.
+        let program = std::env::current_exe()
+            .ok()
+            .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
+            .unwrap_or_else(|| "ivar".to_owned());
+
+        // No panic, valid ports — the process may or may not listen.
+        let ports = find_ports_for_program(&program);
+        assert!(ports.iter().all(|p| *p > 0 && *p < u16::MAX));
+    }
+
+    #[test]
+    fn find_ports_for_program_returns_empty_for_a_ghost_program() {
+        // A program name that no live process can plausibly have.
+        let ports = find_ports_for_program("no-such-program-xyz-12345");
+        assert!(ports.is_empty());
     }
 }
