@@ -68,6 +68,11 @@ pub enum Command {
     /// Manage skills.
     #[command(subcommand)]
     Skill(SkillCommand),
+    /// Answer git's credential helper protocol on stdin. Registered as
+    /// `credential.https://github.com.helper = !ivar git-credential` so a
+    /// token never lands in `.git/config`.
+    #[command(hide = true)]
+    GitCredential,
 }
 
 /// The `ivar repo` surface: what a repo is, who owns it, and how the hall's

@@ -15,7 +15,7 @@
 //! (ARCHITECTURE.md, "1. `action` is the unit, and it has one output
 //! shape").
 
-use std::io;
+use std::io::{self, Write};
 use std::process::ExitCode;
 
 use camino::Utf8PathBuf;
@@ -25,16 +25,18 @@ use serde::Serialize;
 use ivar::action::Ctx;
 use ivar::action::execute::{
     ack as execute_ack, approve as execute_approve, guard_check as execute_guard_check, prepare,
-    reconcile as execute_reconcile, reply as execute_reply, replan as execute_replan,
+    reconcile as execute_reconcile, replan as execute_replan, reply as execute_reply,
     tick as execute_tick,
 };
 use ivar::action::feature::{
-    close, create, delete, deliver, demote, list as feature_list, prune as feature_prune, promote,
+    close, create, delete, deliver, demote, list as feature_list, promote, prune as feature_prune,
     rebase, review, status, view,
 };
 use ivar::action::hall::{self, InitInput};
 use ivar::action::plan::approve::{self as plan_approve};
-use ivar::action::plan::{create as plan_create, list as plan_list, show as plan_show, status as plan_status};
+use ivar::action::plan::{
+    create as plan_create, list as plan_list, show as plan_show, status as plan_status,
+};
 use ivar::action::provider::{add as provider_add, list as provider_list};
 use ivar::action::repo::{
     add, list as repo_list, pull, remove, setup as repo_setup, upstream as repo_upstream,
@@ -128,7 +130,12 @@ fn main() -> ExitCode {
                 &mut stderr,
             ),
             RepoCommand::Setup(args) => respond(
-                repo_setup::setup(&ctx, repo_setup::SetupInput { repo: args.repo.unwrap_or_default() }),
+                repo_setup::setup(
+                    &ctx,
+                    repo_setup::SetupInput {
+                        repo: args.repo.unwrap_or_default(),
+                    },
+                ),
                 json,
                 &mut stdout,
                 &mut stderr,
@@ -340,7 +347,9 @@ fn main() -> ExitCode {
                 &mut stdout,
                 &mut stderr,
             ),
-            FeatureCommand::Prune => respond(feature_prune::prune(&ctx), json, &mut stdout, &mut stderr),
+            FeatureCommand::Prune => {
+                respond(feature_prune::prune(&ctx), json, &mut stdout, &mut stderr)
+            }
         },
         Command::Session(cmd) => match cmd {
             SessionCommand::Start(args) => respond(
@@ -383,14 +392,26 @@ fn main() -> ExitCode {
                 &mut stderr,
             ),
             SessionCommand::Stop(args) => respond(
-                session_stop::stop(&ctx, session_stop::StopInput { session: args.session }),
+                session_stop::stop(
+                    &ctx,
+                    session_stop::StopInput {
+                        session: args.session,
+                    },
+                ),
                 json,
                 &mut stdout,
                 &mut stderr,
             ),
-            SessionCommand::Prune => respond(session_prune::prune(&ctx), json, &mut stdout, &mut stderr),
+            SessionCommand::Prune => {
+                respond(session_prune::prune(&ctx), json, &mut stdout, &mut stderr)
+            }
             SessionCommand::Relay(args) => respond(
-                session_relay::relay(&ctx, session_relay::RelayInput { session: args.session }),
+                session_relay::relay(
+                    &ctx,
+                    session_relay::RelayInput {
+                        session: args.session,
+                    },
+                ),
                 json,
                 &mut stdout,
                 &mut stderr,
@@ -459,7 +480,9 @@ fn main() -> ExitCode {
             PlanCommand::Status(args) => respond(
                 plan_status::status(
                     &ctx,
-                    plan_status::StatusInput { plan_path: args.plan_path },
+                    plan_status::StatusInput {
+                        plan_path: args.plan_path,
+                    },
                 ),
                 json,
                 &mut stdout,
@@ -494,7 +517,12 @@ fn main() -> ExitCode {
                 &mut stderr,
             ),
             SkillCommand::Update(args) => respond(
-                skill_update::update(&ctx, skill_update::UpdateInput { skills: args.skills }),
+                skill_update::update(
+                    &ctx,
+                    skill_update::UpdateInput {
+                        skills: args.skills,
+                    },
+                ),
                 json,
                 &mut stdout,
                 &mut stderr,
@@ -512,8 +540,21 @@ fn main() -> ExitCode {
                 &mut stderr,
             ),
             SkillCommand::Sync => respond(skill_sync::sync(&ctx), json, &mut stdout, &mut stderr),
-            SkillCommand::Status => respond(skill_status::status(&ctx), json, &mut stdout, &mut stderr),
-            SkillCommand::Doctor => respond(skill_doctor::doctor(&ctx), json, &mut stdout, &mut stderr),
+            SkillCommand::Status => {
+                respond(skill_status::status(&ctx), json, &mut stdout, &mut stderr)
+            }
+            SkillCommand::Doctor => {
+                respond(skill_doctor::doctor(&ctx), json, &mut stdout, &mut stderr)
+            }
+        },
+        // Git's credential protocol is raw on stdin/stdout — it must not pass
+        // through `respond`, which would render a `Report` on top of it.
+        Command::GitCredential => match ivar::git::credential::run() {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => {
+                let _ = writeln!(io::stderr().lock(), "ivar: git-credential: {e}");
+                ExitCode::from(2)
+            }
         },
     }
 }

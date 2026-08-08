@@ -46,7 +46,7 @@
 // `pub(crate)`, so the boundary above is a fact and not a promise: nothing
 // outside this module — in this crate or out of it — can name
 // `git::exec::clone_bare` and freeze which backend serves an operation.
-pub(crate) mod credential;
+pub mod credential;
 pub(crate) mod exec;
 pub(crate) mod read;
 
