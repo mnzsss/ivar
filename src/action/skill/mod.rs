@@ -13,9 +13,9 @@
 pub mod add;
 pub mod create;
 pub mod detach;
+pub mod doctor;
 pub mod list;
 pub mod remove;
 pub mod status;
 pub mod sync;
-pub mod doctor;
 pub mod update;
