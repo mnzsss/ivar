@@ -25,49 +25,70 @@ supporting a new harness is never blocked on whether it exposes a pre-tool hook.
 
 ## Module map
 
+Describes the tree as it is. When a file moves, this moves with it — a map that
+has drifted is worse than none, because it is the thing a newcomer trusts.
+
 ```
 src/
   bin/ivar.rs      entrypoint: parse argv, dispatch, render, set exit code. No logic.
   lib.rs           crate attrs, module tree, the layering rule as a doc comment.
 
   cli/             clap derive types ONLY — structs, enums, doc comments.
-    root.rs        the 11 root entries
-    repo.rs feature.rs session.rs provider.rs plan.rs skill.rs
+    root.rs        every command, one file: the 12 root entries and each group's
+                   subcommands. One file because clap derive is declarative and
+                   splitting it would only scatter the surface.
 
   action/          one function per leaf command. The unit of behaviour.
-    hall.rs        init · status · doctor · cleanup
+    hall.rs        init · status · doctor · cleanup · migrate
     sync.rs        sync — big enough to own a file: it is the only verb that
                    crosses repos, providers and the hall in one pass
-    repo.rs feature.rs session.rs provider.rs plan.rs skill.rs
-    execute.rs     feature execute: prepare · approve · guard-check · tick · reply
+    repo/          add · list · remove · pull · setup · upstream
+    feature/       create · list · promote · demote · status · deliver · close ·
+                   delete · rebase · review · view · prune
+    execute/       feature execute: prepare · replan · ack · reconcile ·
+                   approve · tick · guard_check · reply
+    session/       start · connect · conversion · stop · prune · relay, plus
+                   lookup (shared id-prefix resolution)
+    plan/          create · list · show · approve · status
+    provider/      add · list
+    skill/         create · add · update · remove · detach · sync · status ·
+                   list · doctor
+                   (a directory per group once it passed a handful of verbs;
+                   `hall` and `sync` stayed single files because they did not)
 
   domain/          pure types and invariants. No I/O, no git, no clap.
-    hall.rs repo.rs feature.rs session.rs promotion.rs plan.rs skill.rs
+    name.rs        validated newtypes: HallName, RepoName, FeatureName, BranchName…
+    feature.rs     features, promotion, plans, gates and the execution board
+    session.rs     session state and identity
     provider.rs    which harnesses exist, and their capability flags
     health.rs      hall health derivation (uninitialized/operational/stale/degraded)
-    name.rs        validated newtypes: HallName, RepoName, FeatureName, BranchName…
+    skill.rs skill_sync.rs  skills, and the sync plan over them
+    mcp.rs         MCP server definitions as data
 
   store/           on-disk persistence. Owns file layout, nothing else.
     versioned.rs   the version-detect / migrate / refuse-if-newer machine
     manifest.rs    ivar.json — committed, NEVER auto-migrates
-    hall_state.rs  .ivar/state.json — local, migrates silently
+    layout.rs      every path under a hall is computed here, nowhere else
     gitignore.rs   the hall's .gitignore: append the needed lines, never clobber
     setup_receipt.rs  what a worktree's setup script did last time. The one file
                    NOT under layout: it lives in git's admin dir, so it dies
                    with the worktree it describes.
-    feature.rs session.rs board.rs lockfile.rs
-    layout.rs      every path under a hall is computed here, nowhere else
+    feature.rs session.rs  the per-feature and per-session state files
+    skill.rs       the lockfile and skill state
+    render.rs      materialising a skill: symlink or copy, and verify
 
   git/             the only module that knows git exists
-    mod.rs         the Git trait
+    mod.rs         the Git trait, and the real implementation over the two below
     read.rs        git2: refs, HEAD, worktree list, ahead/behind, status, blobs
     exec.rs        the git binary: clone --bare, worktree add/rm, branch, fetch,
                    push, rebase, checkout
     credential.rs  git credential-helper protocol, for the token fallback
 
   harness/         provider adapters
-    mod.rs         the Harness trait + closed enum dispatch + capability flags
-    claude_code.rs opencode.rs
+    mod.rs         the Harness trait + closed enum dispatch + capability flags.
+                   Claude Code and OpenCode are variants here, not files —
+                   they differ by data (config path, argv, capabilities), and a
+                   file each would have held a match arm and nothing more.
     config.rs      per-harness config materialisation (CLAUDE.md, AGENTS.md, MCP)
 
   tui/             ratatui. Sync render, explicit drive.
@@ -75,21 +96,23 @@ src/
     widget.rs      pure deterministic projection of a snapshot into a Buffer
     driver.rs      all I/O: pty reads, resize, event folding. Owns no executor.
     key_router.rs  pure reducer: (mode, key) -> (mode, action)
-    master_detail.rs feature view layout
+    master_detail.rs feature view layout, and the one event loop in the crate
 
   infra/           adapters to the outside world
     fs.rs          the filesystem primitive set. Nothing else touches std::fs.
+                   Includes the read-only guard: the recursive chmod that clears
+                   a non-promoted worktree's write bits (`mode & !0o222`).
     json.rs        write_canonical — the ONLY on-disk JSON writer
     frontmatter.rs split + parse + emit YAML frontmatter. The YAML swap point.
     hash.rs        sha256 of a file, and of a tree
-    proc.rs        subprocess spawn, capture, exit codes
-    progress.rs    the mpsc::sync_channel reporter
-    ports.rs       listening-socket enumeration + process tree. Port attribution.
+    proc.rs        subprocess spawn, capture, exit codes — and port attribution,
+                   by reading /proc for a pid's listening sockets
     github.rs      the GitHub trait: gh -> token -> clean failure. Faked in tests.
-    ro_guard.rs    recursive chmod that makes a worktree read-only
-    term.rs        colour, NO_COLOR, is-a-tty
+    term.rs        colour, NO_COLOR, is-a-tty. Decides *whether* to colour.
 
-  error.rs         Failure · Status · FixAction · Warning · Report
+  error.rs         Failure · Status · FixAction · Warning · Report · Palette.
+                   Palette lives here because the layout of a failure does, and
+                   colour must not become a second copy of that layout.
 ```
 
 ## Layering
@@ -294,7 +317,8 @@ first assembly instead of surfacing at integration.
 5  ivar session start        view dir, harness spawn, TUI, PTY, emulator
 6  ivar plan …               SPDD artifacts, approval gates
 7  ivar skill …              mostly ported already by the spike
-8  status · doctor · cleanup  reconciliation and hygiene, informed by everything above
+8  status · doctor · cleanup · migrate   reconciliation and hygiene, informed
+                             by everything above
 ```
 
 Slices 1–2 are where the foundations get set, so they are the expensive ones:
