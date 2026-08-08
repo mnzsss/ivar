@@ -24,21 +24,30 @@ use serde::Serialize;
 
 use ivar::action::Ctx;
 use ivar::action::execute::{
-    ack as execute_ack, prepare, reconcile as execute_reconcile, replan as execute_replan,
+    ack as execute_ack, approve as execute_approve, guard_check as execute_guard_check, prepare,
+    reconcile as execute_reconcile, reply as execute_reply, replan as execute_replan,
+    tick as execute_tick,
 };
 use ivar::action::feature::{
-    close, create, delete, deliver, demote, list as feature_list, promote, rebase, review, status,
-    view,
+    close, create, delete, deliver, demote, list as feature_list, prune as feature_prune, promote,
+    rebase, review, status, view,
 };
 use ivar::action::hall::{self, InitInput};
 use ivar::action::plan::approve::{self as plan_approve};
-use ivar::action::plan::{create as plan_create, list as plan_list, show as plan_show};
-use ivar::action::provider::list as provider_list;
-use ivar::action::repo::{add, list as repo_list, pull, remove};
-use ivar::action::session::{
-    connect as session_connect, conversion as session_conversion, start as session_start,
+use ivar::action::plan::{create as plan_create, list as plan_list, show as plan_show, status as plan_status};
+use ivar::action::provider::{add as provider_add, list as provider_list};
+use ivar::action::repo::{
+    add, list as repo_list, pull, remove, setup as repo_setup, upstream as repo_upstream,
 };
-use ivar::action::skill::{create as skill_create, list as skill_list};
+use ivar::action::session::{
+    connect as session_connect, conversion as session_conversion, prune as session_prune,
+    relay as session_relay, start as session_start, stop as session_stop,
+};
+use ivar::action::skill::{
+    add as skill_add, create as skill_create, detach as skill_detach, doctor as skill_doctor,
+    list as skill_list, remove as skill_remove, status as skill_status, sync as skill_sync,
+    update as skill_update,
+};
 use ivar::action::sync::{self, SyncInput};
 use ivar::cli::root::{
     Cli, Command, ExecuteCommand, FeatureCommand, PlanCommand, ProviderCommand, RepoCommand,
@@ -114,6 +123,24 @@ fn main() -> ExitCode {
             ),
             RepoCommand::Pull(args) => respond(
                 pull::pull(&ctx, pull::PullInput { repo: args.repo }),
+                json,
+                &mut stdout,
+                &mut stderr,
+            ),
+            RepoCommand::Setup(args) => respond(
+                repo_setup::setup(&ctx, repo_setup::SetupInput { repo: args.repo.unwrap_or_default() }),
+                json,
+                &mut stdout,
+                &mut stderr,
+            ),
+            RepoCommand::Upstream(args) => respond(
+                repo_upstream::upstream(
+                    &ctx,
+                    repo_upstream::UpstreamInput {
+                        repo: args.repo,
+                        url: args.url.unwrap_or_default(),
+                    },
+                ),
                 json,
                 &mut stdout,
                 &mut stderr,
@@ -214,6 +241,55 @@ fn main() -> ExitCode {
                     &mut stdout,
                     &mut stderr,
                 ),
+                ExecuteCommand::Approve(args) => respond(
+                    execute_approve::approve(
+                        &ctx,
+                        execute_approve::ApproveInput {
+                            feature: args.feature,
+                            workstream: args.workstream,
+                        },
+                    ),
+                    json,
+                    &mut stdout,
+                    &mut stderr,
+                ),
+                ExecuteCommand::Tick(args) => respond(
+                    execute_tick::tick(
+                        &ctx,
+                        execute_tick::TickInput {
+                            feature: args.feature,
+                        },
+                    ),
+                    json,
+                    &mut stdout,
+                    &mut stderr,
+                ),
+                ExecuteCommand::GuardCheck(args) => respond(
+                    execute_guard_check::guard_check(
+                        &ctx,
+                        execute_guard_check::GuardCheckInput {
+                            feature: args.feature,
+                            session: args.session,
+                            path: args.path,
+                        },
+                    ),
+                    json,
+                    &mut stdout,
+                    &mut stderr,
+                ),
+                ExecuteCommand::Reply(args) => respond(
+                    execute_reply::reply(
+                        &ctx,
+                        execute_reply::ReplyInput {
+                            feature: args.feature,
+                            session: args.session,
+                            message: args.message,
+                        },
+                    ),
+                    json,
+                    &mut stdout,
+                    &mut stderr,
+                ),
             },
             FeatureCommand::Deliver(args) => respond(
                 deliver::deliver(
@@ -264,6 +340,7 @@ fn main() -> ExitCode {
                 &mut stdout,
                 &mut stderr,
             ),
+            FeatureCommand::Prune => respond(feature_prune::prune(&ctx), json, &mut stdout, &mut stderr),
         },
         Command::Session(cmd) => match cmd {
             SessionCommand::Start(args) => respond(
@@ -305,11 +382,30 @@ fn main() -> ExitCode {
                 &mut stdout,
                 &mut stderr,
             ),
+            SessionCommand::Stop(args) => respond(
+                session_stop::stop(&ctx, session_stop::StopInput { session: args.session }),
+                json,
+                &mut stdout,
+                &mut stderr,
+            ),
+            SessionCommand::Prune => respond(session_prune::prune(&ctx), json, &mut stdout, &mut stderr),
+            SessionCommand::Relay(args) => respond(
+                session_relay::relay(&ctx, session_relay::RelayInput { session: args.session }),
+                json,
+                &mut stdout,
+                &mut stderr,
+            ),
         },
         Command::Provider(cmd) => match cmd {
             ProviderCommand::List => {
                 respond(provider_list::list(&ctx), json, &mut stdout, &mut stderr)
             }
+            ProviderCommand::Add(args) => respond(
+                provider_add::add(&ctx, provider_add::AddInput { name: args.name }),
+                json,
+                &mut stdout,
+                &mut stderr,
+            ),
         },
         Command::Plan(cmd) => match cmd {
             PlanCommand::Create(args) => respond(
@@ -360,6 +456,15 @@ fn main() -> ExitCode {
                 &mut stdout,
                 &mut stderr,
             ),
+            PlanCommand::Status(args) => respond(
+                plan_status::status(
+                    &ctx,
+                    plan_status::StatusInput { plan_path: args.plan_path },
+                ),
+                json,
+                &mut stdout,
+                &mut stderr,
+            ),
         },
         Command::Skill(cmd) => match cmd {
             SkillCommand::List => respond(skill_list::list(&ctx), json, &mut stdout, &mut stderr),
@@ -375,6 +480,40 @@ fn main() -> ExitCode {
                 &mut stdout,
                 &mut stderr,
             ),
+            SkillCommand::Add(args) => respond(
+                skill_add::add(
+                    &ctx,
+                    skill_add::AddInput {
+                        repo: args.repo,
+                        path: args.path,
+                        ref_: args.r#ref,
+                    },
+                ),
+                json,
+                &mut stdout,
+                &mut stderr,
+            ),
+            SkillCommand::Update(args) => respond(
+                skill_update::update(&ctx, skill_update::UpdateInput { skills: args.skills }),
+                json,
+                &mut stdout,
+                &mut stderr,
+            ),
+            SkillCommand::Remove(args) => respond(
+                skill_remove::remove(&ctx, skill_remove::RemoveInput { skill: args.skill }),
+                json,
+                &mut stdout,
+                &mut stderr,
+            ),
+            SkillCommand::Detach(args) => respond(
+                skill_detach::detach(&ctx, skill_detach::DetachInput { skill: args.skill }),
+                json,
+                &mut stdout,
+                &mut stderr,
+            ),
+            SkillCommand::Sync => respond(skill_sync::sync(&ctx), json, &mut stdout, &mut stderr),
+            SkillCommand::Status => respond(skill_status::status(&ctx), json, &mut stdout, &mut stderr),
+            SkillCommand::Doctor => respond(skill_doctor::doctor(&ctx), json, &mut stdout, &mut stderr),
         },
     }
 }

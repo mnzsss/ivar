@@ -26,9 +26,22 @@ pub mod session;
 pub mod skill;
 pub mod sync;
 
-use camino::{Utf8Path, Utf8PathBuf};
+use std::io;
 
-use crate::error::{Failure, FixAction};
+use camino::{Utf8Path, Utf8PathBuf};
+use serde::Serialize;
+
+use crate::error::{Failure, FixAction, WriteHuman};
+
+/// The outcome of a verb that has nothing to report — it simply completed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct Done;
+
+impl WriteHuman for Done {
+    fn write_human(&self, _w: &mut impl io::Write) -> io::Result<()> {
+        Ok(())
+    }
+}
 use crate::store::layout::Layout;
 use crate::store::manifest::Manifest;
 

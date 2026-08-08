@@ -10,5 +10,12 @@
 //! is a later integration, and the `.gitignore` already treats `.ivar/skills/`
 //! as committed so a future `push`/`pull` has somewhere to put things.
 
+pub mod add;
 pub mod create;
+pub mod detach;
 pub mod list;
+pub mod remove;
+pub mod status;
+pub mod sync;
+pub mod doctor;
+pub mod update;

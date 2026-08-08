@@ -1,11 +1,10 @@
 //! The root command surface.
 //!
-//! The settled surface (ARCHITECTURE.md's module map):
+//! The settled v1 surface (ARCHITECTURE.md's module map):
 //! `ivar init · sync · status · doctor · cleanup · repo · feature · session ·
-//! provider · plan · skill`. Only `init` carries real arguments this slice —
-//! every other verb is a bare placeholder `bin/ivar.rs` turns into a
-//! `Failure` naming it as not implemented yet, never a silent success and
-//! never `todo!()`. See ARCHITECTURE.md's build order: those verbs land in
+//! provider · plan · skill`. Every verb dispatches to an action file that
+//! returns `Failure::blocked("…not implemented yet")` — never a silent success
+//! and never `todo!()`. See ARCHITECTURE.md's build order: those verbs land in
 //! later slices, not stubbed 40-deep now.
 
 use camino::Utf8PathBuf;
@@ -87,6 +86,10 @@ pub enum RepoCommand {
     Remove(RepoRemoveArgs),
     /// Refresh one or all repos' default branches from their remotes.
     Pull(RepoPullArgs),
+    /// Run the setup script for one repo.
+    Setup(RepoSetupArgs),
+    /// Manage remote upstream for a repo.
+    Upstream(RepoUpstreamArgs),
 }
 
 /// Arguments for `ivar repo add`.
@@ -125,6 +128,26 @@ pub struct RepoRemoveArgs {
 pub struct RepoPullArgs {
     /// The repo to fetch. Fetches every repo when omitted.
     pub repo: Option<String>,
+}
+
+/// Arguments for `ivar repo setup`.
+#[derive(Debug, Args)]
+pub struct RepoSetupArgs {
+    /// The repo whose setup script to run. Runs every repo's setup when omitted.
+    pub repo: Option<String>,
+}
+
+/// Arguments for `ivar repo upstream`.
+#[derive(Debug, Args)]
+pub struct RepoUpstreamArgs {
+    /// The repo to manage.
+    pub repo: String,
+    /// The upstream remote URL to set (or remove with `--remove`).
+    #[arg(long)]
+    pub url: Option<String>,
+    /// Remove the upstream remote entirely.
+    #[arg(long, conflicts_with = "url")]
+    pub remove: bool,
 }
 
 /// The `ivar feature` surface: one branch across the repos it has promoted.
@@ -169,6 +192,9 @@ pub enum FeatureCommand {
         /// The feature to view.
         name: String,
     },
+    /// Delete features whose branches have been merged into their default
+    /// branches.
+    Prune,
 }
 
 /// Arguments for `ivar feature create`.
@@ -230,6 +256,14 @@ pub enum ExecuteCommand {
     /// Record a workstream's code divergence in the board's journal. The plan
     /// is never rewritten.
     Reconcile(ExecuteReconcileArgs),
+    /// Transition AwaitingApproval → Approved for a workstream on the board.
+    Approve(ExecuteApproveArgs),
+    /// Find ready workstreams on the board and launch them.
+    Tick(ExecuteTickArgs),
+    /// Check the write contract for a session or repo path.
+    GuardCheck(ExecuteGuardCheckArgs),
+    /// Send a reply to a blocked workstream, unblocking it.
+    Reply(ExecuteReplyArgs),
 }
 
 /// Arguments for `ivar feature execute replan`.
@@ -263,6 +297,50 @@ pub struct ExecuteReconcileArgs {
     /// The executor's own description of what changed and why.
     #[arg(long)]
     pub description: String,
+}
+
+/// Arguments for `ivar feature execute approve`.
+#[derive(Debug, Args)]
+pub struct ExecuteApproveArgs {
+    /// The feature whose board holds the workstream to approve.
+    pub feature: String,
+    /// The workstream to transition to Approved.
+    #[arg(long)]
+    pub workstream: String,
+}
+
+/// Arguments for `ivar feature execute tick`.
+#[derive(Debug, Args)]
+pub struct ExecuteTickArgs {
+    /// The feature whose board to tick — find ready workstreams and launch them.
+    pub feature: String,
+}
+
+/// Arguments for `ivar feature execute guard-check`.
+#[derive(Debug, Args)]
+pub struct ExecuteGuardCheckArgs {
+    /// The feature whose write contract to check.
+    #[arg(long)]
+    pub feature: Option<String>,
+    /// The session to check the write contract for.
+    #[arg(long)]
+    pub session: Option<String>,
+    /// A path to check the write contract against.
+    #[arg(long)]
+    pub path: Option<String>,
+}
+
+/// Arguments for `ivar feature execute reply`.
+#[derive(Debug, Args)]
+pub struct ExecuteReplyArgs {
+    /// The feature whose blocked workstream to reply to.
+    #[arg(long)]
+    pub feature: Option<String>,
+    /// The session to send a reply into.
+    #[arg(long)]
+    pub session: Option<String>,
+    /// The reply message.
+    pub message: String,
 }
 
 /// Arguments for `ivar feature deliver`.
@@ -323,6 +401,12 @@ pub enum SessionCommand {
     /// Bind a discovery session to a feature (one-way), moving its view dir
     /// into the feature's session tree.
     Convert(SessionConvertArgs),
+    /// Stop a session — tear down its view dir and end any running harness.
+    Stop(SessionStopArgs),
+    /// Remove stale sessions that are no longer bound to any feature.
+    Prune,
+    /// Relay session info: four-line output contract for external consumers.
+    Relay(SessionRelayArgs),
 }
 
 /// Arguments for `ivar session start`.
@@ -365,6 +449,22 @@ pub struct SessionConvertArgs {
     pub feature: String,
 }
 
+/// Arguments for `ivar session stop`.
+#[derive(Debug, Args)]
+pub struct SessionStopArgs {
+    /// The session to stop — its id, or a unique prefix of one. Stops the
+    /// most recent session on the current feature when omitted.
+    pub session: Option<String>,
+}
+
+/// Arguments for `ivar session relay`.
+#[derive(Debug, Args)]
+pub struct SessionRelayArgs {
+    /// The session to relay info about — its id, or a unique prefix of one.
+    /// Relays the most recent session on the current feature when omitted.
+    pub session: Option<String>,
+}
+
 /// The `ivar plan` surface: the SPDD artifacts, committed per feature, and
 /// the approval gates that transition a feature through the SPDD lifecycle.
 #[derive(Debug, Subcommand)]
@@ -382,6 +482,8 @@ pub enum PlanCommand {
     /// Declare a revision of an approved gate, marking it — and every gate
     /// downstream — as needing revision.
     Invalidate(PlanInvalidateArgs),
+    /// Show approval gate status for a plan file.
+    Status(PlanStatusArgs),
 }
 
 /// Arguments for `ivar plan create`.
@@ -425,6 +527,21 @@ pub enum SkillCommand {
     List,
     /// Scaffold a new skill: a folder with a SKILL.md.
     Create(SkillCreateArgs),
+    /// Install an external skill from a git repo.
+    Add(SkillAddArgs),
+    /// Update external skills to their tracked ref.
+    Update(SkillUpdateArgs),
+    /// Remove a skill from the hall's shared skills directory.
+    Remove(SkillRemoveArgs),
+    /// Convert an external skill into an authored (local) skill.
+    Detach(SkillDetachArgs),
+    /// Materialise hall skills to native targets for other tools.
+    Sync,
+    /// Show skill installation state — which are external, authored, or stale.
+    Status,
+    /// Health diagnostics for skills: find broken links, missing refs, and
+    /// suggest fix_actions.
+    Doctor,
 }
 
 /// The `ivar provider` surface: which harnesses a hall knows about.
@@ -432,6 +549,8 @@ pub enum SkillCommand {
 pub enum ProviderCommand {
     /// List the hall's providers and the default one.
     List,
+    /// Register a new provider by name.
+    Add(ProviderAddArgs),
 }
 
 /// Arguments for `ivar skill create`.
@@ -442,6 +561,54 @@ pub struct SkillCreateArgs {
     /// The skill's description, for the SKILL.md frontmatter.
     #[arg(long)]
     pub description: String,
+}
+
+/// Arguments for `ivar skill add`.
+#[derive(Debug, Args)]
+pub struct SkillAddArgs {
+    /// The git repo URL or path to install the skill from.
+    pub repo: String,
+    /// A sub-path inside the repo that holds the skill folder.
+    #[arg(long)]
+    pub path: Option<String>,
+    /// A git ref (branch, tag, or sha) to pin the skill to.
+    #[arg(long)]
+    pub r#ref: Option<String>,
+}
+
+/// Arguments for `ivar skill update`.
+#[derive(Debug, Args)]
+pub struct SkillUpdateArgs {
+    /// Which external skills to update; updates all when omitted.
+    pub skills: Vec<String>,
+}
+
+/// Arguments for `ivar skill remove`.
+#[derive(Debug, Args)]
+pub struct SkillRemoveArgs {
+    /// The skill's id to remove.
+    pub skill: String,
+}
+
+/// Arguments for `ivar skill detach`.
+#[derive(Debug, Args)]
+pub struct SkillDetachArgs {
+    /// The external skill's id to convert into an authored skill.
+    pub skill: String,
+}
+
+/// Arguments for `ivar plan status`.
+#[derive(Debug, Args)]
+pub struct PlanStatusArgs {
+    /// Path to the plan file (plan.md or similar).
+    pub plan_path: String,
+}
+
+/// Arguments for `ivar provider add`.
+#[derive(Debug, Args)]
+pub struct ProviderAddArgs {
+    /// The provider's name (e.g. `claude-code`, `opencode`).
+    pub name: String,
 }
 
 /// Arguments for `ivar init`.

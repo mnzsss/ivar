@@ -15,3 +15,5 @@ pub mod add;
 pub mod list;
 pub mod pull;
 pub mod remove;
+pub mod setup;
+pub mod upstream;

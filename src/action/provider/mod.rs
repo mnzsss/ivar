@@ -6,4 +6,5 @@
 //! (it is committed and team-shared, so a command that rewrites it behind
 //! `git pull` would be a second writer of a file a human owns).
 
+pub mod add;
 pub mod list;

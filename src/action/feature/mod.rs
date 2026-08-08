@@ -19,6 +19,7 @@ pub mod deliver;
 pub mod demote;
 pub mod list;
 pub mod promote;
+pub mod prune;
 pub mod rebase;
 pub mod review;
 pub mod status;

@@ -8,9 +8,13 @@
 //! a workstream's code divergence in the journal without rewriting the plan.
 
 pub mod ack;
+pub mod approve;
+pub mod guard_check;
 pub mod prepare;
 pub mod reconcile;
 pub mod replan;
+pub mod reply;
+pub mod tick;
 
 use crate::domain::feature::{ExecutionBoard, WorkstreamDef};
 use crate::domain::name::FeatureName;
