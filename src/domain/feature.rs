@@ -27,14 +27,19 @@
 use std::collections::BTreeMap;
 use std::fmt;
 
+use camino::Utf8Path;
 use serde::{Deserialize, Serialize};
 
 use crate::error::{Failure, FixAction};
 
 use super::name::{BranchName, FeatureName, RepoName};
+use super::provider::Provider;
 
 /// The schema version of `feature.json`, stamped by `store::feature`.
 const CURRENT_VERSION: u32 = 1;
+
+/// The schema version of `board.json`, stamped by `store::feature`.
+const BOARD_CURRENT_VERSION: u32 = 2;
 
 /// One feature: a branch name and the set of repos promoted onto it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -577,6 +582,12 @@ pub struct ExecutionBoard {
     pub graph: ExecutionGraph,
     /// Append-only record of everything that happened to the board.
     pub journal: Vec<JournalEntry>,
+    /// Monotonic counter for journal entries — the total order of events.
+    pub next_event_seq: u64,
+    /// Which workstream blocked the board, when `status` is [`ExecutionStatus::Blocked`].
+    pub blocked_by: Option<String>,
+    /// Provider session id → workstream id, for running workstreams.
+    pub sessions: BTreeMap<String, String>,
 }
 
 impl ExecutionBoard {
@@ -585,10 +596,13 @@ impl ExecutionBoard {
     #[must_use]
     pub fn new(graph: ExecutionGraph) -> Self {
         Self {
-            version: CURRENT_VERSION,
+            version: BOARD_CURRENT_VERSION,
             status: ExecutionStatus::Pending,
             graph,
             journal: Vec::new(),
+            next_event_seq: 0,
+            blocked_by: None,
+            sessions: BTreeMap::new(),
         }
     }
 
@@ -611,8 +625,14 @@ impl ExecutionBoard {
 pub enum ExecutionStatus {
     /// Board created; no workstream has started.
     Pending,
+    /// Board prepared from a plan; waiting for human approval.
+    AwaitingApproval,
+    /// Board approved; ready to tick.
+    Approved,
     /// At least one workstream is active.
     Running,
+    /// Execution is halted; nothing advances until it resumes.
+    Blocked,
     /// Execution is halted; nothing advances until it resumes.
     Paused,
     /// Every workstream is done.
@@ -625,7 +645,10 @@ impl fmt::Display for ExecutionStatus {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let name = match self {
             Self::Pending => "pending",
+            Self::AwaitingApproval => "awaiting_approval",
+            Self::Approved => "approved",
             Self::Running => "running",
+            Self::Blocked => "blocked",
             Self::Paused => "paused",
             Self::Completed => "completed",
             Self::Failed => "failed",
@@ -663,6 +686,48 @@ pub struct WorkstreamDef {
     pub write_contract: Vec<String>,
     /// Whether the workstream has started or is still waiting.
     pub status: WorkstreamStatus,
+    /// The provider to run this workstream on — `None` is the hall default.
+    pub provider: Option<Provider>,
+    /// The agent to run this workstream with — `None` is the provider default.
+    pub agent: Option<String>,
+}
+
+/// The write contract of a workstream: the globs its operations may touch.
+///
+/// Pure — no filesystem. Matching is done against an in-memory list of globs,
+/// with `..` never allowed to escape the hall view dir.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WriteContract(Vec<String>);
+
+impl WriteContract {
+    /// Build a contract from the raw glob list.
+    #[must_use]
+    pub fn new(globs: Vec<String>) -> Self {
+        Self(globs)
+    }
+
+    /// Whether `path` is allowed by the contract. The default is to deny:
+    /// an empty contract allows nothing.
+    #[must_use]
+    pub fn allows(&self, path: &Utf8Path) -> bool {
+        let path_str = path.as_str();
+        // `..` never escapes the hall view dir.
+        if path_str.split('/').any(|seg| seg == "..") {
+            return false;
+        }
+        self.0.iter().any(|glob| {
+            if let Some(prefix) = glob.strip_suffix('/') {
+                // A trailing `/` matches the directory and everything under it.
+                path_str == prefix
+                    || path_str.starts_with(prefix) && path_str[prefix.len()..].starts_with('/')
+            } else if glob.contains('*') {
+                glob_match(glob, path_str)
+            } else {
+                path_str == glob
+                    || path_str.starts_with(glob) && path_str[glob.len()..].starts_with('/')
+            }
+        })
+    }
 }
 
 /// The execution state of one workstream on a board.
@@ -676,6 +741,8 @@ pub enum WorkstreamStatus {
     Active,
     /// Every operation finished.
     Done,
+    /// Blocked on a dependency or a fingerprint mismatch.
+    Blocked,
     /// Halted by a plan revision: the plan's Operations for this workstream
     /// changed, so it stays here until a human acknowledges the new revision
     /// (`feature execute replan` pauses; `feature execute ack-revision`
@@ -689,6 +756,7 @@ impl fmt::Display for WorkstreamStatus {
             Self::Waiting => "waiting",
             Self::Active => "active",
             Self::Done => "done",
+            Self::Blocked => "blocked",
             Self::Paused => "paused",
         };
         f.pad(name)
@@ -700,6 +768,10 @@ impl fmt::Display for WorkstreamStatus {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct JournalEntry {
+    /// Total order of the entry within the board — the monotonic `seq`.
+    pub seq: u64,
+    /// Identity of the event, for dedup — the `event_id`.
+    pub event_id: String,
     /// When the entry was recorded. A string — UNIX epoch seconds today,
     /// so the format can evolve without a schema bump.
     pub timestamp: String,
@@ -721,6 +793,8 @@ impl JournalEntry {
         message: impl Into<String>,
     ) -> Self {
         Self {
+            seq: 0,
+            event_id: String::new(),
             timestamp: now_epoch_seconds(),
             workstream: workstream.into(),
             kind: kind.into(),
@@ -737,6 +811,28 @@ fn now_epoch_seconds() -> String {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|elapsed| elapsed.as_secs().to_string())
         .unwrap_or_default()
+}
+
+/// Whether `path` matches a simple glob: `*` matches any run of characters,
+/// and a trailing `/` matches the directory and everything under it.
+fn glob_match(glob: &str, path: &str) -> bool {
+    let glob = glob.trim_end_matches('/');
+    if glob.is_empty() {
+        return false;
+    }
+    // Split on the first `*` and match the literal head/tail around it.
+    let Some(star) = glob.find('*') else {
+        return path == glob;
+    };
+    let head = &glob[..star];
+    let tail = &glob[star + 1..];
+    if !path.starts_with(head) {
+        return false;
+    }
+    if tail.is_empty() {
+        return true;
+    }
+    path[head.len()..].contains(tail)
 }
 
 #[cfg(test)]
@@ -1101,12 +1197,16 @@ mod tests {
                 depends_on: Vec::new(),
                 write_contract: vec!["src/".to_owned()],
                 status: WorkstreamStatus::Waiting,
+                provider: None,
+                agent: None,
             }],
         })
     }
 
     fn journal_entry(workstream: &str, kind: &str) -> JournalEntry {
         JournalEntry {
+            seq: 1,
+            event_id: format!("test-{workstream}-{kind}"),
             timestamp: "1".to_owned(),
             workstream: workstream.to_owned(),
             kind: kind.to_owned(),
@@ -1115,11 +1215,11 @@ mod tests {
     }
 
     #[test]
-    fn a_new_board_is_pending_with_an_empty_journal_and_version_one() {
+    fn a_new_board_is_pending_with_an_empty_journal_and_version_two() {
         let board = execution_board();
 
         assert_eq!(board.status, ExecutionStatus::Pending);
-        assert_eq!(board.version, 1);
+        assert_eq!(board.version, 2);
         assert!(board.journal.is_empty());
         assert_eq!(board.graph.workstreams.len(), 1);
     }

@@ -110,6 +110,8 @@ impl From<GraphWorkstream> for WorkstreamDef {
             depends_on: workstream.depends_on,
             write_contract: workstream.write_contract,
             status: WorkstreamStatus::Waiting,
+            provider: None,
+            agent: None,
         }
     }
 }
@@ -476,6 +478,8 @@ mod tests {
                     depends_on: Vec::new(),
                     write_contract: Vec::new(),
                     status: WorkstreamStatus::Waiting,
+                    provider: None,
+                    agent: None,
                 }],
             }),
         };

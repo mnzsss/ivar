@@ -119,90 +119,67 @@ pub fn board_path(layout: &Layout, name: &FeatureName) -> Utf8PathBuf {
     layout.execution_dir(name).join(BOARD_FILE)
 }
 
+/// Migrate a board.json from v0 → v1. The board has never had a v0 shape:
+/// it has been written with `version: 1` since the day it shipped, like
+/// `ivar.json` itself. The step exists to keep the chain contiguous — a file
+/// with no `version` field at all is treated as v1 and passed through; the
+/// store stamps the final version regardless.
+fn v0_to_v1(value: serde_json::Value) -> Result<serde_json::Value, String> {
+    Ok(value)
+}
+
 /// Migrate a board.json from v1 → v2.
 ///
-/// v1 carried a flat `status` on the board and nested everything inside
-/// `graph`.  v2 flattens workstreams to the top level, adds per-workstream
-/// statuses, drops the wrapper object, and introduces new fields with
-/// sensible defaults.
+/// v2 keeps v1's shape — `status`, `graph {workstreams, plan_fingerprint}`,
+/// `journal` — and adds fields with sensible defaults: `next_event_seq` and
+/// `seq`/`event_id` on the journal (the monotonic order and identity that
+/// make tick/reply idempotent), `blocked_by` and `sessions` on the board, and
+/// `provider`/`agent` on each workstream (the executor override that lets a
+/// workstream declare where it runs).
 fn v1_to_v2(mut value: serde_json::Value) -> Result<serde_json::Value, String> {
-    let root = value
-        .as_object_mut()
-        .ok_or("board must be an object")?;
+    let root = value.as_object_mut().ok_or("board must be an object")?;
 
-    // --- workstreams -------------------------------------------------------
-    let graph = match root.remove("graph") {
-        Some(serde_json::Value::Object(g)) => g,
-        _ => return Err("missing graph".to_owned()),
-    };
-
-    let mut workstreams = Vec::new();
-    if let Some(streams) = graph.get("workstreams").and_then(|w| w.as_array()) {
+    // --- workstreams: add provider/agent where missing ----------------------
+    let graph = root
+        .get_mut("graph")
+        .and_then(|g| g.as_object_mut())
+        .ok_or("board is missing graph")?;
+    if let Some(streams) = graph.get_mut("workstreams").and_then(|w| w.as_array_mut()) {
         for ws in streams {
-            let obj = ws.as_object().ok_or("workstream not an object")?;
-
-            // write_contract may be {"paths": [...]} (v1) or [...] (already v2);
-            // always normalise to a bare array.
-            let wc = match obj.get("write_contract") {
-                Some(serde_json::Value::Object(inner)) => inner
-                    .get("paths")
-                    .and_then(|p| p.as_array())
-                    .cloned()
-                    .unwrap_or_default(),
-                Some(arr) if arr.is_array() => arr
-                    .as_array()
-                    .cloned()
-                    .unwrap_or_default(),
-                _ => Vec::new(),
-            };
-
-            let depends = obj
-                .get("depends_on")
-                .and_then(|d| d.as_array())
-                .map(|arr| arr.len() > 0)
-                .unwrap_or(false);
-
-            let status = if depends { "waiting" } else { "active" };
-
-            let entry = serde_json::json!({
-                "id": obj.get("id").cloned().unwrap_or_default(),
-                "title": obj.get("title").cloned().unwrap_or_default(),
-                "operations": obj.get("operations").cloned().unwrap_or_else(|| serde_json::json!([])),
-                "depends_on": obj.get("depends_on").cloned().unwrap_or_else(|| serde_json::json!([])),
-                "write_contract": wc,
-                "status": status,
-                "provider": null,
-                "agent": null,
-            });
-            workstreams.push(entry);
+            let obj = ws.as_object_mut().ok_or("workstream not an object")?;
+            obj.entry("provider").or_insert(serde_json::Value::Null);
+            obj.entry("agent").or_insert(serde_json::Value::Null);
         }
     }
 
-    // --- journal -----------------------------------------------------------
+    // --- journal: number the entries with seq/event_id ----------------------
+    let mut fallback = Vec::new();
     let journal = root
-        .remove("journal")
-        .and_then(|j| {
-            if j.is_array() {
-                Some(j.as_array().cloned().unwrap_or_default())
-            } else {
-                None
-            }
-        })
-        .unwrap_or_default();
+        .get_mut("journal")
+        .and_then(|j| j.as_array_mut())
+        .unwrap_or(&mut fallback);
+    for (index, entry) in journal.iter_mut().enumerate() {
+        let obj = entry.as_object_mut().ok_or("journal entry not an object")?;
+        let seq = (index + 1) as u64;
+        let kind = obj
+            .get("kind")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_owned)
+            .unwrap_or_else(|| "unknown".to_owned());
+        obj.entry("seq").or_insert(serde_json::Value::from(seq));
+        obj.entry("event_id")
+            .or_insert_with(|| serde_json::Value::String(format!("migrated.v1.{kind}.{seq}")));
+    }
+    let next_seq = (journal.len() + 1) as u64;
 
-    // --- build v2 shape ----------------------------------------------------
-    let v2 = serde_json::json!({
-        "version": BOARD_VERSION,
-        "status": "pending",
-        "workstreams": workstreams,
-        "plan_fingerprint": root.get("plan_fingerprint").cloned().unwrap_or_default(),
-        "journal": journal,
-        "next_event_seq": 1,
-        "blocked_by": null,
-        "sessions": {},
-    });
+    // --- board: new fields with sensible defaults ---------------------------
+    root.entry("next_event_seq")
+        .or_insert(serde_json::Value::from(next_seq));
+    root.entry("blocked_by").or_insert(serde_json::Value::Null);
+    root.entry("sessions")
+        .or_insert(serde_json::Value::Object(Default::default()));
 
-    Ok(v2)
+    Ok(value)
 }
 
 /// The versioned store over one feature's file.
@@ -229,7 +206,10 @@ fn approvals_store(layout: &Layout, name: &FeatureName) -> Store<ApprovalState> 
 fn board_store(layout: &Layout, name: &FeatureName) -> Store<ExecutionBoard> {
     Store::new(
         board_path(layout, name),
-        vec![Migration::new(1, 2, v1_to_v2)],
+        vec![
+            Migration::new(0, 1, v0_to_v1),
+            Migration::new(1, 2, v1_to_v2),
+        ],
         BOARD_VERSION,
         Policy::Local,
     )
@@ -475,8 +455,9 @@ mod tests {
         let (_guard, layout) = layout_with_hall();
         let name = FeatureName::new("checkout").unwrap();
 
-        // Write a hand-crafted v1 board.json — flat `status`, nested `graph`,
-        // write_contract as {"paths": [...]}, no new fields.
+        // Write a hand-crafted v1 board.json — the shape the ivar actually
+        // wrote before the v2 bump: `status`, `graph {workstreams,
+        // plan_fingerprint}`, `journal`, no seq/event_id, no provider/agent.
         let v1_board = serde_json::json!({
             "version": 1,
             "status": "running",
@@ -487,7 +468,7 @@ mod tests {
                         "title": "WS one",
                         "operations": ["op1"],
                         "depends_on": [],
-                        "write_contract": {"paths": ["src/"]},
+                        "write_contract": ["src/"],
                         "status": "active"
                     },
                     {
@@ -495,7 +476,7 @@ mod tests {
                         "title": "WS two",
                         "operations": ["op2"],
                         "depends_on": ["ws1"],
-                        "write_contract": {"paths": ["tests/"]},
+                        "write_contract": ["tests/"],
                         "status": "waiting"
                     }
                 ],
@@ -505,6 +486,7 @@ mod tests {
                 {
                     "kind": "prepared",
                     "timestamp": "1700000000",
+                    "workstream": "board",
                     "message": "board prepared"
                 }
             ]
@@ -527,13 +509,8 @@ mod tests {
         assert_eq!(migrated.graph.plan_fingerprint, "v1-fp");
         assert_eq!(migrated.journal.len(), 1);
 
-        // New fields get sensible defaults.
-        assert_eq!(migrated.status, ExecutionStatus::Pending);
-        assert_eq!(migrated.next_event_seq, 1);
-        assert!(migrated.blocked_by.is_none());
-        assert!(migrated.sessions.is_empty());
-
-        // Workstream statuses computed from depends_on.
+        // Existing status and workstream statuses are preserved.
+        assert_eq!(migrated.status, ExecutionStatus::Running);
         assert_eq!(
             migrated.graph.workstreams[0].status,
             WorkstreamStatus::Active
@@ -542,6 +519,19 @@ mod tests {
             migrated.graph.workstreams[1].status,
             WorkstreamStatus::Waiting
         );
+
+        // New fields get sensible defaults.
+        assert_eq!(
+            migrated.next_event_seq, 2,
+            "one journal entry → next seq is 2"
+        );
+        assert!(migrated.blocked_by.is_none());
+        assert!(migrated.sessions.is_empty());
+
+        // Journal entries gained seq and event_id.
+        let entry = &migrated.journal[0];
+        assert_eq!(entry.seq, 1);
+        assert!(!entry.event_id.is_empty());
 
         // provider / agent default to None (hall default path).
         for ws in &migrated.graph.workstreams {
