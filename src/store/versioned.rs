@@ -435,14 +435,30 @@ where
         Ok(())
     }
 
-    /// Refuse data older than `current` that no migration can reach.
+    /// Whether a file detected at `detected` can actually reach `current`.
+    ///
+    /// Public because [`Inspection::NeedsMigration`] alone is not enough to
+    /// promise a migration will run: with an empty chain there is nothing to
+    /// migrate *with*, so a caller that previews "v0 → v1" from `inspect` and
+    /// then calls [`migrate`](Self::migrate) would report a plan that refuses.
+    /// A preview that can disagree with the act it previews is worse than no
+    /// preview, so the reachability question is answerable without attempting
+    /// the write.
     ///
     /// The chain invariants asserted in [`Store::new`] mean a non-empty chain
     /// always spans 0..=`current`, so the only way to have no path is an empty
-    /// chain — see [`Error::NoMigrationPath`] for why that case is real and why
-    /// the refusal lives here rather than in the caller.
+    /// chain.
+    #[must_use]
+    pub fn has_migration_path(&self, detected: u32) -> bool {
+        detected >= self.current || !self.migrations.is_empty()
+    }
+
+    /// Refuse data older than `current` that no migration can reach.
+    ///
+    /// See [`Error::NoMigrationPath`] for why that case is real and why the
+    /// refusal lives here rather than in the caller.
     fn guard_has_migration_path(&self, detected: u32) -> Result<(), Error> {
-        if detected < self.current && self.migrations.is_empty() {
+        if !self.has_migration_path(detected) {
             return Err(Error::NoMigrationPath {
                 path: self.path.clone(),
                 found: detected,

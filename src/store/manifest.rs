@@ -99,11 +99,33 @@ use crate::domain::name::{BranchName, HallName, RepoName};
 use crate::domain::provider::Provider;
 use crate::error::{Failure, FixAction};
 use crate::store::layout::Layout;
-use crate::store::versioned::{self, Policy, Store};
+use crate::store::versioned::{self, Inspection, Policy, Store};
 
 /// `ivar.json`'s schema version. See the "Why v1 and not v2" section above:
 /// this is the first public version, with no v0 predecessor to migrate from.
 const CURRENT_VERSION: u32 = 1;
+
+/// What migrating `ivar.json` would do. Produced by [`Manifest::plan`], which
+/// never touches the file.
+///
+/// Distinct from [`Inspection`] in one way that matters: `Inspection` reports
+/// what the *version numbers* say, while this reports what would actually
+/// happen — [`Self::Unreachable`] is the case where the file is older and there
+/// is no chain to advance it, which `Inspection` calls `NeedsMigration` and
+/// [`Manifest::migrate`] would refuse.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(tag = "plan", rename_all = "snake_case")]
+pub enum MigrationPlan {
+    /// Already current. Nothing to do.
+    Current { version: u32 },
+    /// Older, with a migration chain that reaches the current version.
+    Available { from: u32, to: u32 },
+    /// Older, and no migration reaches it. For `ivar.json` this means a file
+    /// with no `version` field, which is not an `ivar.json` at all.
+    Unreachable { from: u32, to: u32 },
+    /// Newer than this build understands. Refused, and never modified.
+    TooNew { found: u32, highest: u32 },
+}
 
 /// The hall's identity, committed and team-shared. See the module doc comment
 /// for the full JSON shape, the contract, and how the invariants are
@@ -293,6 +315,68 @@ impl Manifest {
     pub fn write(layout: &Layout, manifest: &Self) -> Result<(), Error> {
         manifest.validate()?;
         Self::open(layout).write(manifest).map_err(Error::Store)
+    }
+
+    /// What an explicit migrate would do to `ivar.json`, without touching it.
+    ///
+    /// `Ok(None)` if there is no `ivar.json` at all. Never fails on a file this
+    /// binary cannot open — reporting safely on such a file is the point, and
+    /// is what lets `ivar migrate` describe a too-new hall instead of refusing
+    /// to speak about it.
+    pub fn plan(layout: &Layout) -> Result<Option<MigrationPlan>, Error> {
+        let store = Self::open(layout);
+        let Some(inspection) = store.inspect().map_err(Error::Store)? else {
+            return Ok(None);
+        };
+        Ok(Some(match inspection {
+            Inspection::Current => MigrationPlan::Current {
+                version: CURRENT_VERSION,
+            },
+            Inspection::TooNew { detected, current } => MigrationPlan::TooNew {
+                found: detected,
+                highest: current,
+            },
+            Inspection::NeedsMigration { detected, current } => {
+                // `NeedsMigration` says "older", not "reachable". Asking the
+                // store settles which, so the preview cannot promise a
+                // migration that the migrate itself would refuse.
+                if store.has_migration_path(detected) {
+                    MigrationPlan::Available {
+                        from: detected,
+                        to: current,
+                    }
+                } else {
+                    MigrationPlan::Unreachable {
+                        from: detected,
+                        to: current,
+                    }
+                }
+            }
+        }))
+    }
+
+    /// Advance `ivar.json`'s on-disk schema version, writing the migrated form.
+    ///
+    /// This is the only way a committed file's version ever moves — see
+    /// [`Policy::Committed`]. Callers are expected to have shown
+    /// [`Self::plan`] and got a human's answer first; nothing here asks.
+    ///
+    /// `Ok(None)` if there is no `ivar.json`.
+    pub fn migrate(layout: &Layout) -> Result<Option<Self>, Error> {
+        let migrated = match Self::open(layout).migrate() {
+            Ok(migrated) => migrated,
+            // Same renaming `read` does: for this file, "no migration path"
+            // means "no version field", and that is not an ivar.json.
+            Err(versioned::Error::NoMigrationPath { path, .. }) => {
+                return Err(Error::MissingVersion { path });
+            }
+            Err(other) => return Err(Error::Store(other)),
+        };
+        let Some(manifest) = migrated else {
+            return Ok(None);
+        };
+        manifest.validate()?;
+        Ok(Some(manifest))
     }
 
     /// The [`Store`] this module reads and writes `ivar.json` through. Built

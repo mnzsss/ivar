@@ -1,5 +1,5 @@
-//! `hall`: `init` (this slice). `status · doctor · cleanup` land here too —
-//! see ARCHITECTURE.md's module map.
+//! `hall`: the verbs that act on the hall itself — `init · status · doctor ·
+//! cleanup · migrate`. See ARCHITECTURE.md's module map.
 
 use std::io;
 use std::io::Write;
@@ -10,12 +10,12 @@ use serde::Serialize;
 use crate::domain::health::{Health, RepoHealth};
 use crate::domain::name::HallName;
 use crate::domain::provider::Provider;
-use crate::error::{Failure, FixAction, Outcome, Report, WriteHuman};
+use crate::error::{Failure, FixAction, Outcome, Report, Warning, WriteHuman};
 use crate::git::{self, Git, TargetState};
 use crate::infra::fs;
 use crate::store::gitignore;
 use crate::store::layout::{self, Layout};
-use crate::store::manifest::{Manifest, Providers};
+use crate::store::manifest::{Manifest, MigrationPlan, Providers};
 
 use super::Ctx;
 
@@ -455,6 +455,166 @@ pub fn doctor(ctx: &Ctx) -> Outcome<DoctorOutcome> {
 }
 
 // ---------------------------------------------------------------------------
+// `ivar migrate` — advance ivar.json's schema version, asking first.
+// ---------------------------------------------------------------------------
+
+/// The outcome for every plan that leaves the file exactly as it was — three of
+/// the four, plus a declined prompt.
+fn untouched(manifest: Utf8PathBuf, plan: MigrationPlan) -> MigrateOutcome {
+    MigrateOutcome {
+        manifest,
+        plan,
+        migrated: false,
+    }
+}
+
+/// What `ivar migrate` found, and whether it acted.
+#[derive(Debug, Clone, Serialize)]
+pub struct MigrateOutcome {
+    /// The file this is about. Always the hall's `ivar.json`.
+    pub manifest: Utf8PathBuf,
+    /// What migrating would do, decided before anything was written.
+    pub plan: MigrationPlan,
+    /// Whether the file was actually rewritten. `false` whenever the plan had
+    /// nothing to do, and also when a human declined or nobody was asked.
+    pub migrated: bool,
+}
+
+impl WriteHuman for MigrateOutcome {
+    fn write_human(&self, w: &mut impl io::Write) -> io::Result<()> {
+        match self.plan {
+            MigrationPlan::Current { version } => {
+                writeln!(
+                    w,
+                    "{} is at version {version}. Nothing to do.",
+                    self.manifest
+                )
+            }
+            MigrationPlan::Available { from, to } if self.migrated => {
+                writeln!(w, "Migrated {} from version {from} to {to}.", self.manifest)?;
+                writeln!(
+                    w,
+                    "Commit it: your teammates need this change before their ivar can write the file."
+                )
+            }
+            MigrationPlan::Available { from, to } => {
+                writeln!(
+                    w,
+                    "{} would migrate from version {from} to {to}.",
+                    self.manifest
+                )?;
+                writeln!(w, "Nothing was written.")
+            }
+            MigrationPlan::Unreachable { from, to } => writeln!(
+                w,
+                "{} reports version {from}, and this build has no migration to reach version {to}.",
+                self.manifest
+            ),
+            MigrationPlan::TooNew { found, highest } => writeln!(
+                w,
+                "{} is at version {found}; this build understands up to {highest}.",
+                self.manifest
+            ),
+        }
+    }
+}
+
+/// Advance `ivar.json`'s on-disk schema version, after showing what would
+/// change and asking.
+///
+/// This verb exists because [`crate::store::versioned::Policy::Committed`]
+/// refuses to advance a committed file on its own, and its refusal names this
+/// command as the way forward. `ivar.json` is in git: rewriting it during
+/// somebody's unrelated `ivar sync` would put a schema bump in their next
+/// commit and break a teammate still on the older binary. So it is a team
+/// event with a human behind it.
+///
+/// Interactive by the same rule as [`cleanup`], and for the same reason: on a
+/// non-tty run it prints the plan and writes nothing, so a script or an agent
+/// can never advance a committed file unattended. There is deliberately no
+/// `--yes`.
+///
+/// Local state (`.ivar/state.json`, lockfiles) is not this verb's business —
+/// it migrates itself silently on read, because nobody reviews it. See
+/// `docs/reference/on-disk-format.md`.
+pub fn migrate(ctx: &Ctx) -> Outcome<MigrateOutcome> {
+    let layout = discover_hall(ctx)?;
+    let manifest_path = layout.manifest().to_path_buf();
+
+    // `plan` deliberately, not `read_manifest`: a too-new or unreachable file
+    // is exactly what this verb has to be able to describe, and reading it
+    // would refuse before there was anything to say.
+    let plan = Manifest::plan(&layout)?.ok_or_else(|| {
+        Failure::blocked(
+            "hall.manifest_vanished",
+            format!("`{manifest_path}` disappeared while reading it"),
+        )
+        .expected("the ivar.json that was there a moment ago")
+        .actual("it is gone")
+        .fix(FixAction::safe("hall.retry", "Run the command again.").command("ivar migrate"))
+    })?;
+
+    // One destructure decides the whole verb: `Available` is the only plan with
+    // work in it, and each of the other three reports differently.
+    //
+    // The two that describe an unusable hall carry a warning. Describing it is
+    // the job; exiting 0 while doing it is not — nothing was refused and
+    // nothing broke, so this is the warning channel (exit 1), not a `Failure`.
+    let (from, to) = match plan {
+        MigrationPlan::Available { from, to } => (from, to),
+        MigrationPlan::Current { .. } => {
+            return Ok(Report::new(untouched(manifest_path, plan)));
+        }
+        MigrationPlan::TooNew { found, highest } => {
+            let warning = Warning::new(
+                "hall.manifest_too_new",
+                manifest_path.to_string(),
+                format!(
+                    "schema version {found}, but this build understands up to {highest} — upgrade ivar; this command cannot help"
+                ),
+            );
+            return Ok(Report::with_warnings(
+                untouched(manifest_path, plan),
+                vec![warning],
+            ));
+        }
+        MigrationPlan::Unreachable { from, to } => {
+            let warning = Warning::new(
+                "hall.manifest_unreachable",
+                manifest_path.to_string(),
+                format!(
+                    "schema version {from} with no migration to version {to} — check this is the file you meant; a file at a version this format never had is not one ivar wrote"
+                ),
+            );
+            return Ok(Report::with_warnings(
+                untouched(manifest_path, plan),
+                vec![warning],
+            ));
+        }
+    };
+
+    let question = format!("Migrate `{manifest_path}` from version {from} to {to}?");
+    if !ask(
+        &question,
+        "migrate.write_prompt",
+        "migrate.read_answer",
+        Some(
+            "This rewrites a committed file. Commit the result — a teammate on an older ivar will refuse it until they upgrade.",
+        ),
+    )? {
+        return Ok(Report::new(untouched(manifest_path, plan)));
+    }
+
+    Manifest::migrate(&layout)?;
+
+    Ok(Report::new(MigrateOutcome {
+        manifest: manifest_path,
+        plan,
+        migrated: true,
+    }))
+}
+
+// ---------------------------------------------------------------------------
 // `ivar cleanup` — remove work left behind, asking before anything is deleted.
 // ---------------------------------------------------------------------------
 
@@ -539,22 +699,51 @@ pub fn cleanup(ctx: &Ctx) -> Outcome<CleanupOutcome> {
 /// Non-tty runs answer `false` — cleanup must never delete without a human
 /// looking at the question.
 fn ask_remove(path: &Utf8Path) -> Result<bool, Failure> {
+    ask(
+        &format!("Remove `{path}`?"),
+        "cleanup.write_prompt",
+        "cleanup.read_answer",
+        None,
+    )
+}
+
+/// Ask `question` on stderr and read a yes/no from stdin. `true` only for an
+/// explicit `y`.
+///
+/// **Non-tty runs answer `false` without asking.** That is the safety property
+/// both callers depend on: neither a `cleanup` that deletes nor a `migrate`
+/// that rewrites a committed file may act when there is nobody to read the
+/// question. A pipe is not consent.
+///
+/// The prompt goes to stderr so that piping stdout — the machine surface —
+/// never swallows the question, and `--json` output stays parseable.
+///
+/// `write_code` / `read_code` are the caller's own [`Failure::code`]s: these
+/// are the stable identifiers a machine matches on, so each verb keeps its own
+/// rather than inheriting a shared one from this helper.
+fn ask(
+    question: &str,
+    write_code: &'static str,
+    read_code: &'static str,
+    caveat: Option<&str>,
+) -> Result<bool, Failure> {
     if !crate::infra::term::is_tty(crate::infra::term::Stream::Stderr) {
         return Ok(false);
     }
     let mut stderr = io::stderr().lock();
-    writeln!(stderr, "Remove `{path}`? [y/N] ").map_err(|source| {
-        Failure::failed(
-            "cleanup.write_prompt",
-            format!("could not write the prompt: {source}"),
-        )
-    })?;
+    let write = |result: io::Result<()>| {
+        result.map_err(|source| {
+            Failure::failed(write_code, format!("could not write the prompt: {source}"))
+        })
+    };
+    if let Some(caveat) = caveat {
+        write(writeln!(stderr, "{caveat}"))?;
+    }
+    write(writeln!(stderr, "{question} [y/N] "))?;
+
     let mut answer = String::new();
     io::stdin().read_line(&mut answer).map_err(|source| {
-        Failure::failed(
-            "cleanup.read_answer",
-            format!("could not read your answer: {source}"),
-        )
+        Failure::failed(read_code, format!("could not read your answer: {source}"))
     })?;
     Ok(answer.trim().eq_ignore_ascii_case("y"))
 }
@@ -580,6 +769,134 @@ mod tests {
             name: None,
             provider: None,
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // `ivar migrate`
+    // -----------------------------------------------------------------------
+
+    /// A hall whose `ivar.json` has been rewritten to `version`, returning the
+    /// raw bytes now on disk so a test can prove they were left alone.
+    fn hall_at_version(root: &Utf8Path, version: u32) -> String {
+        let path = root.join("ivar.json");
+        let text = fs::read_text(&path).unwrap().unwrap();
+        let mut value: serde_json::Value = serde_json::from_str(&text).unwrap();
+        value
+            .as_object_mut()
+            .unwrap()
+            .insert("version".to_owned(), serde_json::Value::from(version));
+        fs::write_text(
+            &path,
+            &format!("{}\n", serde_json::to_string(&value).unwrap()),
+        )
+        .unwrap();
+        fs::read_text(&path).unwrap().unwrap()
+    }
+
+    fn human(outcome: &MigrateOutcome) -> String {
+        let mut out = Vec::new();
+        outcome.write_human(&mut out).unwrap();
+        String::from_utf8(out).unwrap()
+    }
+
+    #[test]
+    fn migrate_on_a_current_hall_reports_nothing_to_do_and_writes_nothing() {
+        let (_guard, root) = utf8_temp_dir();
+        let ctx = Ctx::new(root.clone());
+        init(&ctx, fresh_input()).unwrap();
+        let before = fs::read_text(&root.join("ivar.json")).unwrap().unwrap();
+
+        let report = migrate(&ctx).unwrap();
+
+        assert_eq!(report.value.plan, MigrationPlan::Current { version: 1 });
+        assert!(!report.value.migrated);
+        assert!(report.is_clean());
+        assert!(human(&report.value).contains("Nothing to do"));
+        assert_eq!(
+            fs::read_text(&root.join("ivar.json")).unwrap().unwrap(),
+            before,
+            "a no-op migrate must not rewrite the file"
+        );
+    }
+
+    #[test]
+    fn migrate_outside_a_hall_is_blocked() {
+        let (_guard, root) = utf8_temp_dir();
+        let ctx = Ctx::new(root);
+
+        let failure = migrate(&ctx).unwrap_err();
+
+        assert_eq!(failure.status, Status::Blocked);
+        assert_eq!(failure.code, "hall.not_found");
+    }
+
+    #[test]
+    fn migrate_refuses_a_file_newer_than_this_build_without_touching_it() {
+        let (_guard, root) = utf8_temp_dir();
+        let ctx = Ctx::new(root.clone());
+        init(&ctx, fresh_input()).unwrap();
+        let on_disk = hall_at_version(&root, 99);
+
+        let report = migrate(&ctx).unwrap();
+
+        assert_eq!(
+            report.value.plan,
+            MigrationPlan::TooNew {
+                found: 99,
+                highest: 1
+            }
+        );
+        assert!(!report.value.migrated);
+        // The whole point of `plan` over `read`: a too-new hall gets described,
+        // not refused into silence.
+        assert!(human(&report.value).contains("understands up to 1"));
+        // ...but describing it must not report success. A warning is what
+        // makes `bin/ivar.rs` exit 1 instead of 0.
+        assert!(!report.is_clean(), "a too-new hall must not exit clean");
+        assert_eq!(report.warnings[0].code, "hall.manifest_too_new");
+        assert_eq!(
+            fs::read_text(&root.join("ivar.json")).unwrap().unwrap(),
+            on_disk,
+            "a too-new file must never be modified"
+        );
+    }
+
+    #[test]
+    fn migrate_reports_an_unversioned_file_as_unreachable_rather_than_adopting_it() {
+        let (_guard, root) = utf8_temp_dir();
+        let ctx = Ctx::new(root.clone());
+        init(&ctx, fresh_input()).unwrap();
+        let on_disk = hall_at_version(&root, 0);
+
+        let report = migrate(&ctx).unwrap();
+
+        // `ivar.json`'s chain is empty and its first public version is 1, so
+        // there is no v0 to migrate from. Relabelling it as current would adopt
+        // a foreign file as ours — the format contract forbids exactly that.
+        assert_eq!(
+            report.value.plan,
+            MigrationPlan::Unreachable { from: 0, to: 1 }
+        );
+        assert!(!report.value.migrated);
+        assert!(human(&report.value).contains("no migration to reach version 1"));
+        assert!(
+            !report.is_clean(),
+            "an unreachable hall must not exit clean"
+        );
+        assert_eq!(report.warnings[0].code, "hall.manifest_unreachable");
+        assert_eq!(
+            fs::read_text(&root.join("ivar.json")).unwrap().unwrap(),
+            on_disk
+        );
+    }
+
+    #[test]
+    fn a_non_tty_run_never_answers_yes() {
+        // The safety property both `cleanup` and `migrate` rest on: with no
+        // terminal there is nobody to read the question, and a pipe is not
+        // consent. The test suite itself is the non-tty case.
+        assert!(!ask("Delete everything?", "t.write", "t.read", None).unwrap());
+        assert!(!ask("Rewrite it?", "t.write", "t.read", Some("careful")).unwrap());
     }
 
     #[test]
