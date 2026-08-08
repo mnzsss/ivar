@@ -1,0 +1,52 @@
+{
+  "description": "Unchanged when everything matches",
+  "input": {
+    "skills": [
+      {
+        "id": "delta",
+        "description": "The delta skill",
+        "source": "authored",
+        "dir": "/hall/.ivar/skills/delta"
+      }
+    ],
+    "targets": [
+      {
+        "id": "claude",
+        "skill": "delta",
+        "path": "/hall/.claude/skills/delta",
+        "source_path": "/hall/.ivar/skills/delta",
+        "source_hash": "sha256:same",
+        "status": "ok"
+      }
+    ],
+    "state": {
+      "installations": {
+        "delta": {
+          "commit_sha": null,
+          "installed_at": "2026-01-01T00:00:00.000Z",
+          "providers": {
+            "claude": {
+              "linked_at": "2026-01-01T00:00:00.000Z",
+              "mode": "symlink",
+              "rendered_hash": "sha256:same",
+              "target_path": "/hall/.claude/skills/delta"
+            }
+          },
+          "source_hash": "sha256:same",
+          "source_path": "/hall/.ivar/skills/delta"
+        }
+      }
+    },
+    "options": null
+  },
+  "expected_steps": [
+    {
+      "action": "unchanged",
+      "mode": "symlink",
+      "reason": null,
+      "skill": "delta",
+      "source": "/hall/.ivar/skills/delta",
+      "target": "/hall/.claude/skills/delta"
+    }
+  ]
+}

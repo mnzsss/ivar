@@ -1,0 +1,37 @@
+{
+  "description": "Create when target is missing and no state exists",
+  "input": {
+    "skills": [
+      {
+        "id": "alpha",
+        "description": "The alpha skill",
+        "source": "authored",
+        "dir": "/hall/.ivar/skills/alpha"
+      }
+    ],
+    "targets": [
+      {
+        "id": "claude",
+        "skill": "alpha",
+        "path": "/hall/.claude/skills/alpha",
+        "source_path": "/hall/.ivar/skills/alpha",
+        "source_hash": "sha256:any",
+        "status": "missing"
+      }
+    ],
+    "state": {
+      "installations": {}
+    },
+    "options": null
+  },
+  "expected_steps": [
+    {
+      "action": "create",
+      "mode": "symlink",
+      "reason": null,
+      "skill": "alpha",
+      "source": "/hall/.ivar/skills/alpha",
+      "target": "/hall/.claude/skills/alpha"
+    }
+  ]
+}

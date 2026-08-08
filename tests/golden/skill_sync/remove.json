@@ -1,0 +1,60 @@
+{
+  "description": "Remove when skill is no longer declared",
+  "input": {
+    "skills": [
+      {
+        "id": "gamma",
+        "description": "The gamma skill",
+        "source": "authored",
+        "dir": "/hall/.ivar/skills/gamma"
+      }
+    ],
+    "targets": [
+      {
+        "id": "claude",
+        "skill": "gamma",
+        "path": "/hall/.claude/skills/gamma",
+        "source_path": "/hall/.ivar/skills/gamma",
+        "source_hash": "sha256:any",
+        "status": "missing"
+      }
+    ],
+    "state": {
+      "installations": {
+        "ghost": {
+          "commit_sha": null,
+          "installed_at": "2026-01-01T00:00:00.000Z",
+          "providers": {
+            "claude": {
+              "linked_at": "2026-01-01T00:00:00.000Z",
+              "mode": "symlink",
+              "rendered_hash": "sha256:x",
+              "target_path": "/hall/.claude/skills/ghost"
+            }
+          },
+          "source_hash": "sha256:x",
+          "source_path": "/hall/.ivar/skills/ghost"
+        }
+      }
+    },
+    "options": null
+  },
+  "expected_steps": [
+    {
+      "action": "create",
+      "mode": "symlink",
+      "reason": null,
+      "skill": "gamma",
+      "source": "/hall/.ivar/skills/gamma",
+      "target": "/hall/.claude/skills/gamma"
+    },
+    {
+      "action": "remove",
+      "mode": "symlink",
+      "reason": null,
+      "skill": "ghost",
+      "source": "/hall/.ivar/skills/ghost",
+      "target": "/hall/.claude/skills/ghost"
+    }
+  ]
+}

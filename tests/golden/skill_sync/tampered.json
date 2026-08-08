@@ -1,0 +1,52 @@
+{
+  "description": "Tampered — this vector has an intentionally wrong action to verify tests catch failures",
+  "input": {
+    "skills": [
+      {
+        "id": "epsilon",
+        "description": "The epsilon skill",
+        "source": "authored",
+        "dir": "/hall/.ivar/skills/epsilon"
+      }
+    ],
+    "targets": [
+      {
+        "id": "claude",
+        "skill": "epsilon",
+        "path": "/hall/.claude/skills/epsilon",
+        "source_path": "/hall/.ivar/skills/epsilon",
+        "source_hash": "sha256:same",
+        "status": "ok"
+      }
+    ],
+    "state": {
+      "installations": {
+        "epsilon": {
+          "commit_sha": null,
+          "installed_at": "2026-01-01T00:00:00.000Z",
+          "providers": {
+            "claude": {
+              "linked_at": "2026-01-01T00:00:00.000Z",
+              "mode": "symlink",
+              "rendered_hash": "sha256:same",
+              "target_path": "/hall/.claude/skills/epsilon"
+            }
+          },
+          "source_hash": "sha256:same",
+          "source_path": "/hall/.ivar/skills/epsilon"
+        }
+      }
+    },
+    "options": null
+  },
+  "expected_steps": [
+    {
+      "action": "remove",
+      "mode": "copy",
+      "reason": "this is wrong",
+      "skill": "epsilon",
+      "source": "/wrong/path",
+      "target": "/wrong/target"
+    }
+  ]
+}

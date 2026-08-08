@@ -15,3 +15,5 @@ pub mod mcp;
 pub mod name;
 pub mod provider;
 pub mod session;
+pub mod skill;
+pub mod skill_sync;

@@ -1,0 +1,37 @@
+{
+  "description": "Update when target is not a symlink (obstruction)",
+  "input": {
+    "skills": [
+      {
+        "id": "beta",
+        "description": "The beta skill",
+        "source": "authored",
+        "dir": "/hall/.ivar/skills/beta"
+      }
+    ],
+    "targets": [
+      {
+        "id": "claude",
+        "skill": "beta",
+        "path": "/hall/.claude/skills/beta",
+        "source_path": "/hall/.ivar/skills/beta",
+        "source_hash": "sha256:any",
+        "status": "not_link"
+      }
+    ],
+    "state": {
+      "installations": {}
+    },
+    "options": null
+  },
+  "expected_steps": [
+    {
+      "action": "update",
+      "mode": "symlink",
+      "reason": "untracked target entry exists",
+      "skill": "beta",
+      "source": "/hall/.ivar/skills/beta",
+      "target": "/hall/.claude/skills/beta"
+    }
+  ]
+}
