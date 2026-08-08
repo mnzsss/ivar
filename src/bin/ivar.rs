@@ -55,18 +55,23 @@ use ivar::cli::root::{
     Cli, Command, ExecuteCommand, FeatureCommand, PlanCommand, ProviderCommand, RepoCommand,
     SessionCommand, SkillCommand,
 };
-use ivar::error::{Failure, Outcome, Report, WriteHuman};
+use ivar::error::{Failure, Outcome, Palette, Report, WriteHuman};
 use ivar::infra::term;
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
     let json = cli.json;
 
-    // Decided once, from the flag plus the real environment/tty — no
-    // renderer in this slice applies colour yet (`Failure::write_human`
-    // deliberately does not), but the flag already feeds the one function
-    // that will drive every future one.
-    let _colour = term::colour(cli.color.as_override());
+    // Prime both per-stream colour decisions with the flag, before any output
+    // exists to render. `term`'s caches take their value from the first call
+    // and ignore the argument afterwards, which is what lets `respond` and
+    // `respond_failure` ask for the answer without every one of the ~60
+    // dispatch arms below having to carry a palette down to them.
+    //
+    // Both streams are primed because they are redirected independently: the
+    // value goes to stdout, failures and warnings to stderr.
+    let _ = term::colour_for(term::Stream::Stdout, cli.color.as_override());
+    let _ = term::colour_for(term::Stream::Stderr, cli.color.as_override());
 
     let ctx = Ctx::new(current_dir());
 
@@ -571,7 +576,14 @@ fn exit_code_for<T>(report: &Report<T>) -> ExitCode {
     }
 }
 
-/// Render `failure`, `--json` or human, and always exit `2`.
+/// The palette for whatever is being written to stderr — failures and warnings.
+///
+/// Reads the decision `main` already primed, so the flag is honoured without
+/// being threaded through every dispatch arm.
+fn stderr_palette() -> Palette {
+    Palette::from_decision(term::colour_for(term::Stream::Stderr, None))
+}
+
 /// Render whatever an action returned, and pick the exit code.
 ///
 /// The one place the success half of an [`Outcome`] is turned into bytes, so
@@ -593,9 +605,12 @@ where
             if json {
                 let _ = write_json(stdout, &report);
             } else {
+                // The value is never painted: it is data, and the --json
+                // surface shows the same strings raw.
                 let _ = report.value.write_human(stdout);
+                let palette = stderr_palette();
                 for warning in &report.warnings {
-                    let _ = writeln!(stderr, "{warning}");
+                    let _ = warning.write_painted(stderr, &palette);
                 }
             }
             exit
@@ -613,7 +628,7 @@ fn respond_failure(
     if json {
         let _ = write_json(stdout, &failure);
     } else {
-        let _ = failure.write_human(stderr);
+        let _ = failure.write_painted(stderr, &stderr_palette());
     }
     ExitCode::from(2)
 }
