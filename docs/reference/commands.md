@@ -1,0 +1,633 @@
+# Command reference
+
+Every verb `ivar` has, what it does, and what it takes.
+
+The tables below — flags, arguments, defaults — are **generated from the binary's
+own argument parser**, so they cannot drift from what your `ivar` actually
+accepts. The prose around them is written by hand, because when to reach for a
+verb is a judgement call and a generator has no opinion about it.
+
+If you are looking for the shape of the tool rather than its surface, read
+[Concepts](../concepts.md) first. This page is a lookup table, not a tour.
+
+## How to read this
+
+- **`ivar <verb>`** — the hall-level verbs. The hall is the root of the surface:
+  `ivar sync`, not `ivar hall sync`.
+- **`ivar <group> <verb>`** — `repo`, `feature`, `session`, `provider`, `plan`
+  and `skill` group their verbs, because each has more of them than a flat root
+  could carry.
+- **`--json`** works on every verb and prints exactly the value the verb
+  computed — the human text you see is a rendering of that same value, never a
+  separately written summary. Script against `--json`.
+
+## Exit codes
+
+| code | meaning |
+| --- | --- |
+| `0` | done, with nothing needing attention |
+| `1` | done, but something needs attention — the warnings are on stderr |
+| `2` | refused before starting, or broke mid-flight |
+
+Exit `1` is the one worth designing around: a verb that crosses eight repos and
+hits a problem in one of them reports seven successes and a warning, and that is
+a `1`, not a failure. Treating `1` as fatal in a script will make `ivar` look
+broken when it is telling you something.
+
+<!-- BEGIN GENERATED COMMANDS -->
+<!-- Generated from clap by tests/docs_reference.rs. Do not edit by hand: run
+     `IVAR_UPDATE_DOCS=1 cargo test --test docs_reference`. -->
+
+### `ivar`
+
+Mount the repos a feature spans into one directory, on one branch, for one agent session.
+
+| flag | value | default | description |
+| --- | --- | --- | --- |
+| `--json` |  |  | Emit machine-readable output. Prints exactly the value the command computed. The human-readable text is a rendering of that same value, so the two can never tell you different things — script against this. |
+| `--color` | `<COLOR>` | `auto` | When to colour output. `auto` follows `NO_COLOR`, then `FORCE_COLOR`, then whether the stream is a terminal — a pipe or a redirect gets none. `always` and `never` override all of that. Only labels are ever coloured; values never are, so `--json` is unaffected either way. |
+
+
+#### `ivar init`
+
+Create a hall: `ivar.json`, `.ivar/`, and the hall's `.gitignore` lines
+
+| argument | required | description |
+| --- | --- | --- |
+| `path` | no | Directory to create the hall in. Defaults to the current directory |
+
+| flag | value | default | description |
+| --- | --- | --- | --- |
+| `--name` | `<NAME>` |  | The hall's name. Defaults to the target directory's name |
+| `--provider` | `<PROVIDER>` |  | The provider to record as the hall's sole available (and default) provider. Defaults to `claude-code` |
+
+
+#### `ivar sync`
+
+Bring the local hall in line with `ivar.json`: clone missing repos, materialise harness config, run setup scripts
+
+| flag | value | default | description |
+| --- | --- | --- | --- |
+| `--force-setup` |  |  | Run every repo's setup script even if it has already run for this version of the script. For when a script's effect was undone outside `ivar` — a deleted `node_modules`, a dropped database |
+
+
+#### `ivar status`
+
+Report hall health
+
+
+#### `ivar doctor`
+
+Diagnose problems and suggest fixes
+
+
+#### `ivar cleanup`
+
+Reconcile stale state (interactive; asks before deleting)
+
+
+#### `ivar migrate`
+
+Advance `ivar.json`'s schema version (interactive; shows the change, then asks). Only ever needed after upgrading `ivar` to a build whose format is newer than the one your hall was written with. Local state migrates itself; `ivar.json` is committed, so advancing it is a decision you make and then commit.
+
+
+#### `ivar repo`
+
+Manage repos
+
+
+##### `ivar repo list`
+
+List the repos in ivar.json and their state
+
+
+##### `ivar repo add`
+
+Declare a repo in ivar.json, clone it bare, and materialise its default-branch worktree
+
+| argument | required | description |
+| --- | --- | --- |
+| `name` | yes | The repo's name — one path segment, unique within the hall |
+| `url` | yes | The git remote URL to clone from |
+
+| flag | value | default | description |
+| --- | --- | --- | --- |
+| `--default-branch` | `<DEFAULT_BRANCH>` |  | The branch a fresh worktree defaults to. Defaults to `main` |
+| `--reuse` |  |  | Reuse a bare clone already present at the expected path |
+| `--fresh` |  |  | Delete an existing bare clone (and its worktree) and clone anew |
+
+
+##### `ivar repo remove`
+
+Remove a repo from ivar.json and tear down its files. Refuses while the repo is promoted in a feature or referenced by a live session; `--force` lifts both gates and cascades
+
+| argument | required | description |
+| --- | --- | --- |
+| `name` | yes | The repo's name, as declared in ivar.json |
+
+| flag | value | default | description |
+| --- | --- | --- | --- |
+| `--force` |  |  | Tear down even while the repo is promoted in a feature or referenced by a live session. Cascades: removes its worktrees, scrubs its promotion records, repairs view-dir symlinks, and regenerates the providers' config |
+
+
+##### `ivar repo pull`
+
+Refresh one or all repos' default branches from their remotes
+
+| argument | required | description |
+| --- | --- | --- |
+| `repo` | no | The repo to fetch. Fetches every repo when omitted |
+
+
+##### `ivar repo setup`
+
+Run the setup script for one repo
+
+| argument | required | description |
+| --- | --- | --- |
+| `repo` | no | The repo whose setup script to run. Runs every repo's setup when omitted |
+
+| flag | value | default | description |
+| --- | --- | --- | --- |
+| `--force-setup` |  |  | Ignore the receipt and run the setup script even if unchanged |
+
+
+##### `ivar repo upstream`
+
+Manage remote upstream for a repo
+
+| argument | required | description |
+| --- | --- | --- |
+| `repo` | yes | The repo to manage |
+
+| flag | value | default | description |
+| --- | --- | --- | --- |
+| `--url` | `<URL>` |  | The upstream remote URL to set (or remove with `--remove`) |
+| `--remove` |  |  | Remove the upstream remote entirely |
+
+
+#### `ivar feature`
+
+Manage features
+
+
+##### `ivar feature create`
+
+Create a feature: name, branch, no repos promoted yet
+
+| argument | required | description |
+| --- | --- | --- |
+| `name` | yes | The feature's name — one path segment, unique within the hall |
+
+
+##### `ivar feature list`
+
+List features and how far each got
+
+
+##### `ivar feature promote`
+
+Promote a repo onto a feature's branch: create the branch off the repo's default branch and materialise its worktree
+
+| argument | required | description |
+| --- | --- | --- |
+| `feature` | yes | The feature to promote into |
+| `repo` | yes | The repo to promote onto the feature's branch |
+
+
+##### `ivar feature demote`
+
+Remove a repo from a feature. Its worktree stays on disk
+
+| argument | required | description |
+| --- | --- | --- |
+| `feature` | yes | The feature to demote from |
+| `repo` | yes | The repo to demote |
+
+
+##### `ivar feature status`
+
+Show one feature in detail: every promoted repo and its state
+
+| argument | required | description |
+| --- | --- | --- |
+| `feature` | yes | The feature to inspect |
+
+
+##### `ivar feature execute`
+
+Operate on a feature's execution board
+
+
+###### `ivar feature execute prepare`
+
+Prepare a feature's execution board from its plan and execution graph
+
+| argument | required | description |
+| --- | --- | --- |
+| `feature` | yes | The feature to prepare an execution board for |
+
+| flag | value | default | description |
+| --- | --- | --- | --- |
+| `--graph-json` | `<GRAPH_JSON>` |  | Path to the execution graph JSON — workstreams with `id`/`title`/`operations`/`depends_on`/`write_contract` |
+
+
+###### `ivar feature execute replan`
+
+Fold a revised plan into the board: advance the plan fingerprint and pause every workstream whose Operations changed until it acknowledges the new revision
+
+| argument | required | description |
+| --- | --- | --- |
+| `feature` | yes | The feature whose board is replanned |
+
+| flag | value | default | description |
+| --- | --- | --- | --- |
+| `--plan` | `<PLAN>` |  | Path to the revised plan.md — the new revision to fold in |
+
+
+###### `ivar feature execute ack-revision`
+
+Acknowledge a plan revision for one paused workstream, unpausing it. The board resumes once every paused workstream has acknowledged
+
+| argument | required | description |
+| --- | --- | --- |
+| `feature` | yes | The feature whose board holds the paused workstream |
+
+| flag | value | default | description |
+| --- | --- | --- | --- |
+| `--workstream` | `<WORKSTREAM>` |  | The paused workstream's id |
+
+
+###### `ivar feature execute reconcile`
+
+Record a workstream's code divergence in the board's journal. The plan is never rewritten
+
+| argument | required | description |
+| --- | --- | --- |
+| `feature` | yes | The feature whose board records the divergence |
+
+| flag | value | default | description |
+| --- | --- | --- | --- |
+| `--workstream` | `<WORKSTREAM>` |  | The workstream the divergence belongs to |
+| `--description` | `<DESCRIPTION>` |  | The executor's own description of what changed and why |
+
+
+###### `ivar feature execute approve`
+
+Transition AwaitingApproval → Approved for the whole board
+
+| argument | required | description |
+| --- | --- | --- |
+| `feature` | yes | The feature whose board to approve |
+
+
+###### `ivar feature execute tick`
+
+Find ready workstreams on the board and launch them
+
+| argument | required | description |
+| --- | --- | --- |
+| `feature` | yes | The feature whose board to tick — find ready workstreams and launch them |
+
+
+###### `ivar feature execute guard-check`
+
+Check the write contract for a session or repo path
+
+| flag | value | default | description |
+| --- | --- | --- | --- |
+| `--feature` | `<FEATURE>` |  | The feature whose write contract to check |
+| `--session` | `<SESSION>` |  | The session to check the write contract for |
+| `--path` | `<PATH>` |  | A path to check the write contract against |
+
+
+###### `ivar feature execute reply`
+
+Send a reply to a blocked workstream, unblocking it
+
+| argument | required | description |
+| --- | --- | --- |
+| `message` | yes | The reply message |
+
+| flag | value | default | description |
+| --- | --- | --- | --- |
+| `--feature` | `<FEATURE>` |  | The feature whose blocked workstream to reply to |
+| `--session` | `<SESSION>` |  | The session to send a reply into |
+
+
+##### `ivar feature deliver`
+
+Preview, then push, a feature's promoted repos. `--preview` prints the side-effect-free summary (with its fingerprint) and pushes nothing; applying with `--fingerprint` is refused if the state has drifted
+
+| argument | required | description |
+| --- | --- | --- |
+| `name` | yes | The feature to deliver |
+
+| flag | value | default | description |
+| --- | --- | --- | --- |
+| `--preview` |  |  | Print the delivery preview and push nothing |
+| `--fingerprint` | `<FINGERPRINT>` |  | The fingerprint from the preview the human approved; required to apply. Apply recomputes the preview and refuses when the fingerprint differs — the state has drifted since the preview |
+
+
+##### `ivar feature close`
+
+Close a feature: stop its executor sessions, remove its execution state, and record the outcome on plan.md's frontmatter. Idempotent — closing an already-closed feature is a no-op
+
+| argument | required | description |
+| --- | --- | --- |
+| `name` | yes | The feature to close |
+
+| flag | value | default | description |
+| --- | --- | --- | --- |
+| `--outcome` | `<OUTCOME>` |  | How the feature ended: `delivered` or `abandoned` |
+
+
+##### `ivar feature delete`
+
+Delete a feature: its worktrees, its directory under `.ivar/`, and its plans. Refuses if anything under the feature directory is not removable, and preserves the feature record for retry if a teardown step fails
+
+| argument | required | description |
+| --- | --- | --- |
+| `name` | yes | The feature to delete |
+
+
+##### `ivar feature rebase`
+
+Rebase every promoted repo's worktree onto its default branch. A dirty worktree is skipped; a conflict is aborted and reported
+
+| argument | required | description |
+| --- | --- | --- |
+| `name` | yes | The feature to rebase |
+
+
+##### `ivar feature review`
+
+Write a VSCode workspace opening the feature: promoted repos on the feature branch, everyone else on their default branch
+
+| argument | required | description |
+| --- | --- | --- |
+| `name` | yes | The feature to open |
+
+
+##### `ivar feature view`
+
+Open an interactive multi-shell view over the feature's promoted repos — one shell per repo, each running in its worktree
+
+| argument | required | description |
+| --- | --- | --- |
+| `name` | yes | The feature to view |
+
+
+##### `ivar feature prune`
+
+Delete features whose branches have been merged into their default branches
+
+
+#### `ivar session`
+
+Manage sessions
+
+
+##### `ivar session start`
+
+Open a session: view dir over a feature's promoted repos, agent running in it, TUI on top
+
+| argument | required | description |
+| --- | --- | --- |
+| `feature` | yes | The feature to open a session for |
+
+| flag | value | default | description |
+| --- | --- | --- | --- |
+| `--resume` |  |  | Resume an existing session, where the harness supports it |
+| `--provider` | `<PROVIDER>` |  | The provider to run. Defaults to the hall's default provider |
+| `--detached` |  |  | Create the session without launching a provider. The view dir persists after this command returns, until an explicit stop |
+| `--relay` |  |  | Relay: a fresh session on the same feature under a different provider than the feature's most recent session. Requires `--provider` |
+
+
+##### `ivar session connect`
+
+Re-bind to an existing live session: locate it, re-materialise its view dir, and emit the binding as `IVAR_*` env vars
+
+| argument | required | description |
+| --- | --- | --- |
+| `session_id` | no | The session id, or a unique prefix of one |
+
+| flag | value | default | description |
+| --- | --- | --- | --- |
+| `--feature` | `<FEATURE>` |  | Narrow the search to sessions bound to this feature |
+
+
+##### `ivar session convert`
+
+Bind a discovery session to a feature (one-way), moving its view dir into the feature's session tree
+
+| argument | required | description |
+| --- | --- | --- |
+| `session_id` | yes | The discovery session's id, or a unique prefix of one |
+| `feature` | yes | The feature to bind the session to. Must already exist |
+
+
+##### `ivar session stop`
+
+Stop a session — tear down its view dir and end any running harness
+
+| argument | required | description |
+| --- | --- | --- |
+| `session` | no | The session to stop — its id, or a unique prefix of one. Stops the most recent session on the current feature when omitted |
+
+
+##### `ivar session prune`
+
+Remove stale sessions that are no longer bound to any feature
+
+
+##### `ivar session relay`
+
+Relay session info: four-line output contract for external consumers
+
+| argument | required | description |
+| --- | --- | --- |
+| `feature` | yes | The feature to relay a session for |
+
+| flag | value | default | description |
+| --- | --- | --- | --- |
+| `--provider` | `<PROVIDER>` |  | The provider to relay to. Required — relay must switch providers |
+
+
+#### `ivar provider`
+
+Manage providers
+
+
+##### `ivar provider list`
+
+List the hall's providers and the default one
+
+
+##### `ivar provider add`
+
+Register a new provider by name
+
+| argument | required | description |
+| --- | --- | --- |
+| `name` | yes | The provider's name (e.g. `claude-code`, `opencode`) |
+
+
+#### `ivar plan`
+
+Manage SPDD plans
+
+
+##### `ivar plan create`
+
+Scaffold a feature's SPDD artifacts (requirements, analysis, plan)
+
+| argument | required | description |
+| --- | --- | --- |
+| `feature` | yes | The feature to scaffold plans for |
+
+
+##### `ivar plan list`
+
+List which features have plans, and how complete
+
+
+##### `ivar plan show`
+
+Print one feature's SPDD artifact
+
+| argument | required | description |
+| --- | --- | --- |
+| `feature` | yes | The feature whose artifact to show |
+| `artifact` | yes | Which artifact: `requirements`, `analysis`, or `plan` |
+
+
+##### `ivar plan approve`
+
+Approve one of a feature's SPDD gates: requirements, analysis, plan, or execution-graph. Requires the gate upstream of it to be approved first, and records a fingerprint of the artifact's content
+
+| argument | required | description |
+| --- | --- | --- |
+| `feature` | yes | The feature whose gate to approve |
+| `gate` | yes | The gate: `requirements`, `analysis`, `plan`, or `execution-graph` |
+
+
+##### `ivar plan invalidate`
+
+Declare a revision of an approved gate, marking it — and every gate downstream — as needing revision
+
+| argument | required | description |
+| --- | --- | --- |
+| `feature` | yes | The feature whose gate to invalidate |
+| `gate` | yes | The gate: `requirements`, `analysis`, `plan`, or `execution-graph` |
+
+
+##### `ivar plan status`
+
+Show approval gate status for a plan file
+
+| argument | required | description |
+| --- | --- | --- |
+| `plan_path` | yes | Path to the plan file (plan.md or similar) |
+
+
+#### `ivar skill`
+
+Manage skills
+
+
+##### `ivar skill list`
+
+List the skills in the hall's shared skills directory
+
+
+##### `ivar skill create`
+
+Scaffold a new skill: a folder with a SKILL.md
+
+| argument | required | description |
+| --- | --- | --- |
+| `id` | yes | The skill's id — one path segment, unique within the skills dir |
+
+| flag | value | default | description |
+| --- | --- | --- | --- |
+| `--description` | `<DESCRIPTION>` |  | The skill's description, for the SKILL.md frontmatter |
+
+
+##### `ivar skill add`
+
+Install an external skill from a git repo
+
+| argument | required | description |
+| --- | --- | --- |
+| `repo` | yes | The git repo URL or path to install the skill from |
+
+| flag | value | default | description |
+| --- | --- | --- | --- |
+| `--path` | `<PATH>` |  | A sub-path inside the repo that holds the skill folder |
+| `--ref` | `<REF>` |  | A git ref (branch, tag, or sha) to pin the skill to |
+
+
+##### `ivar skill update`
+
+Update external skills to their tracked ref
+
+| argument | required | description |
+| --- | --- | --- |
+| `skills` | no | Which external skills to update; updates all when omitted |
+
+
+##### `ivar skill remove`
+
+Remove a skill from the hall's shared skills directory
+
+| argument | required | description |
+| --- | --- | --- |
+| `skill` | yes | The skill's id to remove |
+
+
+##### `ivar skill detach`
+
+Convert an external skill into an authored (local) skill
+
+| argument | required | description |
+| --- | --- | --- |
+| `skill` | yes | The external skill's id to convert into an authored skill |
+
+
+##### `ivar skill sync`
+
+Materialise hall skills to native targets for other tools
+
+
+##### `ivar skill status`
+
+Show skill installation state — which are external, authored, or stale
+
+
+##### `ivar skill doctor`
+
+Health diagnostics for skills: find broken links, missing refs, and suggest fix_actions
+
+<!-- END GENERATED COMMANDS -->
+
+## Notes the generator cannot give you
+
+**`ivar migrate` is not part of a normal week.** It exists for one situation:
+you upgraded `ivar`, the new build's `ivar.json` format is newer than the one
+your hall was written with, and something refused to write until a human agreed
+to advance it. See [On-disk format](on-disk-format.md).
+
+**`ivar cleanup` and `ivar migrate` both ask, and both refuse to act when nobody
+is there to answer.** Run either with output piped and they print what they
+*would* do and change nothing. That is deliberate: neither deletion nor a
+rewrite of a committed file should be reachable by a script that nobody is
+watching. There is no `--yes`.
+
+**`ivar session start` is the one verb that takes over your terminal.** It opens
+a TUI. Everything else prints and exits.
+
+**`ivar feature execute …` is machinery for running a plan across workstreams,
+not a verb you reach for by hand** — the plan and the board drive it. Read
+[Planning and execution](../guides/planning-and-execution.md) before using it
+directly.
