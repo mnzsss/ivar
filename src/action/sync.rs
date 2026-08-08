@@ -22,8 +22,9 @@
 //! 1. The hall skeleton — `.ivar/`, `.ivar/repos/`, and the `.gitignore` lines.
 //! 2. Each repo in `ivar.json`: bare clone, default-branch worktree, setup
 //!    script.
-//! 3. Each provider: the managed block in its instruction file, materialised
-//!    for a provider the hall lists and stripped for one it does not.
+//! 3. Each provider: the managed block in its instruction file, its MCP
+//!    config, and its official workflow commands — all materialised for a
+//!    provider the hall lists and stripped for one it does not.
 //!
 //! Repos come before providers because the managed block names them, and a
 //! block listing a repo that failed to clone would be describing a hall that
@@ -56,7 +57,7 @@ use crate::error::{Failure, FixAction, Outcome, Report, Warning, WriteHuman};
 // git's operations reachable — this module never names `git::exec` or
 // `git::read`, which is the boundary the trait exists for.
 use crate::git::{self, TargetState};
-use crate::harness::config;
+use crate::harness::{commands, config};
 use crate::infra::{fs, hash, proc};
 use crate::store::gitignore;
 use crate::store::layout::Layout;
@@ -146,6 +147,17 @@ impl From<config::Change> for Change {
             config::Change::Updated => Self::Updated,
             config::Change::Unchanged => Self::Unchanged,
             config::Change::Removed => Self::Removed,
+        }
+    }
+}
+
+impl From<commands::Change> for Change {
+    fn from(change: commands::Change) -> Self {
+        match change {
+            commands::Change::Created => Self::Created,
+            commands::Change::Updated => Self::Updated,
+            commands::Change::Removed => Self::Removed,
+            commands::Change::Unchanged => Self::Unchanged,
         }
     }
 }
@@ -317,9 +329,13 @@ pub fn sync(ctx: &Ctx, input: SyncInput) -> Outcome<SyncOutcome> {
 /// describe the same hall in both places. Best-effort per provider — a
 /// failure becomes an entry and a warning, never an abort.
 ///
-/// The MCP config materialises here too, one file at the hall root per
-/// provider: it is hall-scoped (discovered by walk-up from every session's
-/// view dir), so there is no other verb for it to belong to.
+/// The MCP config and the shipped workflow commands materialise here too: the
+/// MCP config is one file at the hall root per provider (hall-scoped,
+/// discovered by walk-up from every session's view dir), and the commands are
+/// `/ivar-*` files in the provider's native command directory. Each is a
+/// separate concern with a separate failure channel, so one provider's
+/// command write failing never aborts its instruction block or another
+/// provider.
 pub(crate) fn sync_providers(
     layout: &Layout,
     manifest: &Manifest,
@@ -330,6 +346,7 @@ pub(crate) fn sync_providers(
     for provider in Provider::ALL {
         sync_provider(layout, manifest, provider, &block, entries, warnings);
         sync_mcp(layout, manifest, provider, entries, warnings);
+        sync_commands(layout, manifest, provider, entries, warnings);
     }
 }
 
@@ -690,6 +707,44 @@ fn sync_mcp(
     match result {
         Ok(change) => entries.push(Entry::new(provider.id(), label, change.into())),
         Err(error) => record_failure(entries, warnings, provider.id(), &label, error.into()),
+    }
+}
+
+/// Materialise (or strip) `provider`'s shipped workflow commands.
+///
+/// A provider the hall lists gets its `/ivar-*` commands reconciled against
+/// the embedded catalog — created, repaired, and cleaned of anything else in
+/// the reserved namespace; one it does not list has them all removed. Every
+/// other file in the command directory belongs to the user and survives
+/// either way. Best-effort like the block and MCP steps: a failure becomes a
+/// `Failed` entry and a warning, and the other providers still finish.
+fn sync_commands(
+    layout: &Layout,
+    manifest: &Manifest,
+    provider: Provider,
+    entries: &mut Vec<Entry>,
+    warnings: &mut Vec<Warning>,
+) {
+    let path = layout.commands_dir(&provider);
+    let result = if manifest.providers().available().contains(&provider) {
+        commands::materialise(&path)
+    } else {
+        commands::remove(&path)
+    };
+
+    match result {
+        Ok(changes) => {
+            for change in changes {
+                entries.push(Entry::new(
+                    provider.id(),
+                    format!("command {}", change.file_name),
+                    change.change.into(),
+                ));
+            }
+        }
+        Err(error) => {
+            record_failure(entries, warnings, provider.id(), "official commands", error.into());
+        }
     }
 }
 
@@ -1300,6 +1355,196 @@ mod tests {
         let on_disk = fs::read_text(&root.join(".mcp.json")).unwrap().unwrap();
         assert!(on_disk.contains("\"docs\""), "was: {on_disk}");
         assert!(on_disk.contains("\"npx\""), "was: {on_disk}");
+    }
+
+    // -- official workflow commands -------------------------------------------
+
+    /// A hall whose `ivar.json` lists both providers.
+    fn hall_with_both_providers() -> (tempfile::TempDir, Utf8PathBuf) {
+        let (guard, root) = hall_with(&[]);
+        let layout = Layout::at(root.clone());
+        let manifest = Manifest::new(
+            HallName::new("acme").unwrap(),
+            Providers::new(
+                vec![Provider::ClaudeCode, Provider::OpenCode],
+                Provider::ClaudeCode,
+            ),
+            vec![],
+            None,
+        )
+        .unwrap();
+        Manifest::write(&layout, &manifest).unwrap();
+        (guard, root)
+    }
+
+    /// The embedded source of the shipped command `id`.
+    fn embedded(id: &str) -> String {
+        commands::catalog()
+            .iter()
+            .find(|command| command.id == id)
+            .unwrap()
+            .content
+            .to_owned()
+    }
+
+    #[test]
+    fn sync_materialises_shipped_commands_for_available_providers() {
+        let (_guard, root) = hall_with_both_providers();
+        let ctx = Ctx::new(root.clone());
+
+        let report = sync(&ctx, SyncInput::default()).unwrap();
+
+        assert!(report.is_clean());
+        for provider in Provider::ALL {
+            let dir = root.join(provider.commands_dir());
+            for command in commands::catalog() {
+                assert!(
+                    fs::is_file(&dir.join(command.file_name())).unwrap(),
+                    "{} missing for {provider}",
+                    command.file_name()
+                );
+            }
+        }
+        assert_eq!(
+            entry(&report.value, "claude-code", "command ivar-plan.md").change,
+            Change::Created
+        );
+        assert_eq!(
+            entry(&report.value, "opencode", "command ivar-plan.md").change,
+            Change::Created
+        );
+    }
+
+    #[test]
+    fn second_sync_reports_commands_unchanged_without_rewriting() {
+        let (_guard, root) = hall_with(&[]);
+        let ctx = Ctx::new(root.clone());
+        sync(&ctx, SyncInput::default()).unwrap();
+
+        let dir = root.join(".claude/commands");
+        let before: Vec<(Utf8PathBuf, Vec<u8>, Option<std::time::SystemTime>)> = commands::catalog()
+            .iter()
+            .map(|command| {
+                let path = dir.join(command.file_name());
+                let bytes = fs::read_bytes(&path).unwrap().unwrap();
+                let mtime = std::fs::metadata(path.as_std_path())
+                    .ok()
+                    .and_then(|metadata| metadata.modified().ok());
+                (path, bytes, mtime)
+            })
+            .collect();
+
+        let report = sync(&ctx, SyncInput::default()).unwrap();
+
+        for (path, before_bytes, before_mtime) in &before {
+            assert_eq!(fs::read_bytes(path).unwrap().unwrap(), *before_bytes, "{path}");
+            let mtime = std::fs::metadata(path.as_std_path())
+                .ok()
+                .and_then(|metadata| metadata.modified().ok());
+            assert_eq!(&mtime, before_mtime, "{path} must not be rewritten");
+        }
+        assert_eq!(
+            entry(&report.value, "claude-code", "command ivar-plan.md").change,
+            Change::Unchanged
+        );
+    }
+
+    #[test]
+    fn sync_repairs_modified_shipped_command_and_preserves_custom_command() {
+        let (_guard, root) = hall_with(&[]);
+        let ctx = Ctx::new(root.clone());
+        sync(&ctx, SyncInput::default()).unwrap();
+
+        let custom = root.join(".claude/commands/custom.md");
+        fs::write_text(&custom, "mine\n").unwrap();
+        fs::write_text(&root.join(".claude/commands/ivar-plan.md"), "changed\n").unwrap();
+
+        let report = sync(&ctx, SyncInput::default()).unwrap();
+
+        assert_eq!(
+            entry(&report.value, "claude-code", "command ivar-plan.md").change,
+            Change::Updated
+        );
+        assert_eq!(
+            fs::read_text(&root.join(".claude/commands/ivar-plan.md"))
+                .unwrap()
+                .unwrap(),
+            embedded("plan")
+        );
+        assert_eq!(fs::read_text(&custom).unwrap().unwrap(), "mine\n");
+    }
+
+    #[test]
+    fn sync_removes_only_shipped_commands_for_unavailable_provider() {
+        let (_guard, root) = hall_with_both_providers();
+        let ctx = Ctx::new(root.clone());
+        sync(&ctx, SyncInput::default()).unwrap();
+
+        let custom = root.join(".opencode/commands/custom.md");
+        fs::write_text(&custom, "mine\n").unwrap();
+
+        // Drop OpenCode from the manifest.
+        let layout = Layout::at(root.clone());
+        let manifest = Manifest::new(
+            HallName::new("acme").unwrap(),
+            Providers::new(vec![Provider::ClaudeCode], Provider::ClaudeCode),
+            vec![],
+            None,
+        )
+        .unwrap();
+        Manifest::write(&layout, &manifest).unwrap();
+
+        let report = sync(&ctx, SyncInput::default()).unwrap();
+
+        assert_eq!(
+            entry(&report.value, "opencode", "command ivar-plan.md").change,
+            Change::Removed
+        );
+        assert!(
+            !fs::exists(&root.join(".opencode/commands/ivar-plan.md")).unwrap(),
+            "a dropped provider's shipped commands must be removed"
+        );
+        assert_eq!(
+            fs::read_text(&custom).unwrap().unwrap(),
+            "mine\n",
+            "the user's command must survive provider removal"
+        );
+    }
+
+    /// Deterministic by construction: a regular file occupying the parent path
+    /// refuses `ensure_dir` regardless of whether the test runs as root —
+    /// permission bits would not be.
+    #[test]
+    fn command_write_failure_warns_and_other_provider_steps_continue() {
+        let (_guard, root) = hall_with_both_providers();
+        fs::write_text(&root.join(".opencode"), "not a directory\n").unwrap();
+        let ctx = Ctx::new(root.clone());
+
+        let report = sync(&ctx, SyncInput::default()).unwrap();
+
+        assert!(!report.is_clean(), "a failed command write must not be clean");
+        assert!(
+            report
+                .value
+                .entries
+                .iter()
+                .any(|e| e.surface == "opencode"
+                    && e.label == "official commands"
+                    && e.change == Change::Failed),
+            "expected a failed opencode commands entry in {:?}",
+            report.value.entries
+        );
+        assert!(
+            report.warnings.iter().any(|warning| warning.subject == "opencode"),
+            "expected an opencode warning in {:?}",
+            report.warnings
+        );
+        // The other provider's commands and config completed regardless.
+        assert!(fs::is_file(&root.join(".claude/commands/ivar-plan.md")).unwrap());
+        assert!(fs::is_file(&root.join("CLAUDE.md")).unwrap());
+        // OpenCode's own non-command config still landed.
+        assert!(fs::is_file(&root.join("AGENTS.md")).unwrap());
+        assert!(fs::is_file(&root.join("opencode.json")).unwrap());
     }
 
     // -- not in a hall ---------------------------------------------------------
