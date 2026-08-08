@@ -95,7 +95,11 @@ mod tests {
 
         assert_eq!(ensure(&layout).unwrap(), Changed::Created);
 
-        assert_eq!(read(&layout), ".ivar/*\n!.ivar/skills/\n!.ivar/setups/\n");
+        assert_eq!(
+            read(&layout),
+            ".ivar/*\n!.ivar/skills/\n!.ivar/setups/\n\
+             .claude/commands/ivar-*.md\n.opencode/commands/ivar-*.md\n"
+        );
     }
 
     #[test]
@@ -159,5 +163,7 @@ mod tests {
         assert_eq!(content.matches(".ivar/*").count(), 1);
         assert!(content.contains("!.ivar/skills/"));
         assert!(content.contains("!.ivar/setups/"));
+        assert!(content.contains(".claude/commands/ivar-*.md"));
+        assert!(content.contains(".opencode/commands/ivar-*.md"));
     }
 }
