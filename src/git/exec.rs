@@ -66,10 +66,21 @@ fn run(command: proc::Command) -> Result<String, Error> {
 
 /// `git clone --bare <url> <dest>`.
 ///
-/// One attempt at the URL as given. See the `git` module doc comment for why
-/// the predecessor's SSH-then-HTTPS-via-`gh` fallback is not here yet.
+/// For GitHub HTTPS URLs the ivar credential helper is attached to *this
+/// invocation only* (`-c credential.helper`), so a private repo clones
+/// through `gh`/`$GITHUB_TOKEN` without the token ever being written to
+/// `.git/config` — the helper answers on demand and disappears.
 pub(crate) fn clone_bare(url: &str, dest: &Utf8Path) -> Result<(), Error> {
-    run(git().arg("clone").arg("--bare").arg(url).arg(dest.as_str()))?;
+    let mut command = git().arg("clone").arg("--bare");
+    if crate::infra::github::is_github_https(url) {
+        // The helper is invoked by git only when it needs a credential; for a
+        // public repo it is never called, so the `-c` has no observable cost.
+        command = command
+            .arg("-c")
+            .arg("credential.helper=!ivar git-credential");
+    }
+    command = command.arg(url).arg(dest.as_str());
+    run(command)?;
     Ok(())
 }
 
