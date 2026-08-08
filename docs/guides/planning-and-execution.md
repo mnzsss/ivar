@@ -1,0 +1,135 @@
+# Planning and execution
+
+For work too large to hold in one head — or one context window. Three written
+artifacts, four approval gates, then execution across parallel workstreams.
+
+This is optional. A one-repo bug fix does not need it. Reach for it when the
+change spans repos and you want the design settled before code starts.
+
+## The three artifacts
+
+```sh
+ivar plan create checkout
+```
+
+Scaffolds three files under `plans/<feature>/`, **committed** to the hall:
+
+| file | what it holds |
+| --- | --- |
+| `requirements.md` | what must be true when this is done |
+| `analysis.md` | what the code actually looks like now, and the trade-offs |
+| `plan.md` | the design, and the concrete operations that implement it |
+
+They are committed on purpose. They are the artifact a reviewer reads and the
+record of why the change looks the way it does — so they belong in git history,
+not in local state that a `cleanup` could remove.
+
+`plan.md` is written as a **REASONS canvas** — Requirements, Entities, Approach,
+Structure, Operations, Norms, Safeguards. The design sections *reference* the
+standing sources rather than restating them, and record only this feature's
+delta. Its **Operations** section is the part that matters mechanically: it is
+what execution shards into workstreams.
+
+Read them back with `ivar plan show checkout requirements`, and see how far along
+every feature is with `ivar plan list`.
+
+## The four gates
+
+```sh
+ivar plan approve checkout requirements
+ivar plan approve checkout analysis
+ivar plan approve checkout plan
+ivar feature execute approve checkout     # the fourth gate — see below
+```
+
+Each gate is a human decision, in order — a gate refuses until the one upstream
+of it is approved. Approving records a fingerprint of the artifact's content.
+
+**The fourth gate is crossed from the execute side, not the plan side.** `ivar
+plan approve checkout execution-graph` deliberately refuses and points you at
+`ivar feature execute approve`. The graph is board state rather than a document,
+and approving it is the act that arms execution — so it belongs to the verb that
+owns the board, and having two paths to it would let them disagree about what
+"approved" means.
+
+That fingerprint is what makes the gates mean something: **editing an approved
+artifact invalidates it, and cascades downstream.** Change requirements after
+approving all four and analysis, plan and graph all fall back to needing review.
+Nothing silently proceeds on a design that changed underneath it.
+
+To reopen a gate deliberately:
+
+```sh
+ivar plan invalidate checkout analysis    # and everything downstream
+```
+
+`ivar plan status <path>` reports the gate state of a plan file.
+
+## Execution
+
+Once the graph is approved, the plan runs against a **feature execution board** —
+persistent coordination state under `.ivar/features/<feature>/execution/` that
+survives sessions. It holds the execution graph, an append-only journal, directed
+inboxes per workstream, cursors, blockers and each workstream's write contract.
+
+```sh
+ivar feature execute prepare checkout    # build the board from plan + graph
+ivar feature execute approve checkout    # awaiting-approval → approved
+ivar feature execute tick checkout       # launch whatever is ready
+```
+
+`tick` finds workstreams whose dependencies are satisfied and launches them. Call
+it again as work completes.
+
+When a workstream blocks on a question:
+
+```sh
+ivar feature execute reply checkout --session <id> --message "use the v2 endpoint"
+```
+
+The write contract is enforceable, and a harness can check it before writing:
+
+```sh
+ivar feature execute guard-check checkout --session <id> --path repos/api/src/x.rs
+```
+
+### When reality diverges from the plan
+
+Two directions, deliberately different verbs:
+
+**The design was wrong** — the approach or the entities do not survive contact,
+or the change crosses workstream boundaries. Edit `plan.md`, then:
+
+```sh
+ivar feature execute replan checkout --plan plans/checkout/plan.md
+```
+
+This advances the plan's fingerprint and **pauses every workstream whose
+operations changed** until it acknowledges the new revision. Unaffected
+workstreams keep running.
+
+```sh
+ivar feature execute ack-revision checkout --workstream api-contract
+```
+
+**The code drifted, but only locally** — a different method signature, an
+implementation detail confined to one workstream. Record it and keep going:
+
+```sh
+ivar feature execute reconcile checkout --workstream api-contract \
+  --description "handler returns Result, not Option"
+```
+
+Reconcile writes to the journal. It does **not** rewrite the plan.
+
+The distinction is the point: `replan` is design-level, blocking, and happens
+before code. `reconcile` is a note that the code and the plan differ in a way
+nobody needs to re-approve. Using the first for the second stalls four
+workstreams over a type signature.
+
+## What this does not do
+
+**Approving does not run anything.** `ivar feature execute approve` arms the
+board; `ivar feature execute tick` is what launches work. Two commands, because
+"I approve this design" and "start eight agents now" are different decisions and
+should not share a keystroke.
