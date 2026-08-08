@@ -141,6 +141,27 @@ pub fn approve(ctx: &Ctx, input: ApproveInput) -> Outcome<ApproveOutcome> {
     let feature = FeatureName::new(input.feature)?;
     let gate = Gate::parse(&input.gate)?;
 
+    // The execution-graph gate has exactly one writer: `ivar feature execute
+    // approve`. `plan approve` refusing it here is what prevents the
+    // board/gate divergence the predecessor TS shipped — a gate with two
+    // approvers (one of which was unreachable) is precisely how that bug was
+    // born.
+    if gate == Gate::ExecutionGraph {
+        return Err(Failure::blocked(
+            "plan.approve_execution_graph_via_execute",
+            format!(
+                "the `execution-graph` gate is approved by `ivar feature execute approve`, not `plan approve`"
+            ),
+        )
+        .expected("approving the execution graph through the execute path")
+        .actual("`plan approve` cannot write the execution-graph gate")
+        .fix(FixAction::safe(
+            "execute.approve",
+            "Run `ivar feature execute approve <feature>` to approve the execution graph.",
+        )
+        .command("ivar feature execute approve")));
+    }
+
     require_feature(&layout, &feature)?;
 
     let mut approvals = load_approvals(&layout, &feature)?;
@@ -423,6 +444,31 @@ mod tests {
     }
 
     #[test]
+    fn approve_execution_graph_is_refused_naming_the_execute_path() {
+        let (_guard, root) = seeded_hall();
+        let ctx = Ctx::new(root.clone());
+
+        let failure = approve(
+            &ctx,
+            ApproveInput {
+                feature: "checkout".to_owned(),
+                gate: "execution-graph".to_owned(),
+            },
+        )
+        .unwrap_err();
+
+        assert_eq!(failure.status, Status::Blocked);
+        assert_eq!(failure.code, "plan.approve_execution_graph_via_execute");
+        assert!(
+            failure
+                .fix_actions
+                .iter()
+                .any(|fix| fix.code == "execute.approve"),
+            "the fix must name `ivar feature execute approve`: {failure}"
+        );
+    }
+
+    #[test]
     fn approve_analysis_requires_requirements_approved() {
         let (_guard, root) = seeded_hall();
         let ctx = Ctx::new(root.clone());
@@ -514,7 +560,7 @@ mod tests {
     fn upstream_invalidation_cascades_to_every_downstream_gate() {
         let (_guard, root) = seeded_hall();
         let ctx = Ctx::new(root.clone());
-        for gate in ["requirements", "analysis", "plan", "execution-graph"] {
+        for gate in ["requirements", "analysis", "plan"] {
             approve(
                 &ctx,
                 ApproveInput {

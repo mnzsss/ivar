@@ -134,6 +134,7 @@ fn main() -> ExitCode {
                     &ctx,
                     repo_setup::SetupInput {
                         repo: args.repo.unwrap_or_default(),
+                        force: args.force_setup,
                     },
                 ),
                 json,
@@ -146,6 +147,7 @@ fn main() -> ExitCode {
                     repo_upstream::UpstreamInput {
                         repo: args.repo,
                         url: args.url.unwrap_or_default(),
+                        remove: args.remove,
                     },
                 ),
                 json,
@@ -253,7 +255,6 @@ fn main() -> ExitCode {
                         &ctx,
                         execute_approve::ApproveInput {
                             feature: args.feature,
-                            workstream: args.workstream,
                         },
                     ),
                     json,
@@ -409,7 +410,8 @@ fn main() -> ExitCode {
                 session_relay::relay(
                     &ctx,
                     session_relay::RelayInput {
-                        session: args.session,
+                        feature: args.feature,
+                        provider: args.provider,
                     },
                 ),
                 json,

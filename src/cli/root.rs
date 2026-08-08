@@ -140,6 +140,9 @@ pub struct RepoPullArgs {
 pub struct RepoSetupArgs {
     /// The repo whose setup script to run. Runs every repo's setup when omitted.
     pub repo: Option<String>,
+    /// Ignore the receipt and run the setup script even if unchanged.
+    #[arg(long)]
+    pub force_setup: bool,
 }
 
 /// Arguments for `ivar repo upstream`.
@@ -261,7 +264,7 @@ pub enum ExecuteCommand {
     /// Record a workstream's code divergence in the board's journal. The plan
     /// is never rewritten.
     Reconcile(ExecuteReconcileArgs),
-    /// Transition AwaitingApproval → Approved for a workstream on the board.
+    /// Transition AwaitingApproval → Approved for the whole board.
     Approve(ExecuteApproveArgs),
     /// Find ready workstreams on the board and launch them.
     Tick(ExecuteTickArgs),
@@ -307,11 +310,8 @@ pub struct ExecuteReconcileArgs {
 /// Arguments for `ivar feature execute approve`.
 #[derive(Debug, Args)]
 pub struct ExecuteApproveArgs {
-    /// The feature whose board holds the workstream to approve.
+    /// The feature whose board to approve.
     pub feature: String,
-    /// The workstream to transition to Approved.
-    #[arg(long)]
-    pub workstream: String,
 }
 
 /// Arguments for `ivar feature execute tick`.
@@ -463,11 +463,17 @@ pub struct SessionStopArgs {
 }
 
 /// Arguments for `ivar session relay`.
+///
+/// A thin alias over `session start --relay`: the same feature under a
+/// different provider. It carries no logic of its own — see the session
+/// relay action — so its surface mirrors start's relay flags.
 #[derive(Debug, Args)]
 pub struct SessionRelayArgs {
-    /// The session to relay info about — its id, or a unique prefix of one.
-    /// Relays the most recent session on the current feature when omitted.
-    pub session: Option<String>,
+    /// The feature to relay a session for.
+    pub feature: String,
+    /// The provider to relay to. Required — relay must switch providers.
+    #[arg(long)]
+    pub provider: String,
 }
 
 /// The `ivar plan` surface: the SPDD artifacts, committed per feature, and
