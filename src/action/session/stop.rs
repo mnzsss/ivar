@@ -283,7 +283,7 @@ mod tests {
         let entries: Vec<_> = fs::read_dir(&sessions_dir)
             .unwrap()
             .into_iter()
-            .filter(|e| e.file_name().map_or(false, |n| !n.starts_with('.')))
+            .filter(|e| e.file_name().is_some_and(|n| !n.starts_with('.')))
             .collect();
         assert!(entries.is_empty(), "all sessions must be stopped");
         unguard_worktrees(&root);

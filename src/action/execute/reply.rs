@@ -110,13 +110,12 @@ pub fn reply(ctx: &Ctx, input: ReplyInput) -> Outcome<ReplyOutcome> {
     // Check for duplicate event_id in the journal (idempotency). This comes
     // before the blocked check: replaying the same reply after the board
     // already moved on is a no-op, not an error.
-    if board.journal.iter().any(|entry| entry.event_id == event_id) {
+    if let Some(existing) = board
+        .journal
+        .iter()
+        .find(|entry| entry.event_id == event_id)
+    {
         // Already recorded — return the seq of the existing entry.
-        let existing = board
-            .journal
-            .iter()
-            .find(|e| e.event_id == event_id)
-            .unwrap();
         return Ok(Report::new(ReplyOutcome {
             workstream: workstream_id,
             entry_seq: existing.seq,
@@ -241,7 +240,7 @@ fn append_inbox_line(
         "timestamp": epoch_seconds(),
         "message": message,
     });
-    let line_str = format!("{}\n", serde_json::to_string(&line).unwrap());
+    let line_str = format!("{line}\n");
 
     // OpenAppend mode: creates if absent, appends if present.
     use std::fs::OpenOptions;

@@ -128,9 +128,9 @@ pub fn read(hall_root: &camino::Utf8Path) -> Result<Option<State>, Error> {
 /// Uses canonical JSON (sorted keys, two-space indent, trailing newline).
 /// Creates the parent directory if it does not exist.
 pub fn write(hall_root: &camino::Utf8Path, state: &State) -> Result<(), Error> {
-    let path = hall_root.join(".ivar").join("skills").join("state.json");
-    crate::infra::fs::ensure_dir(path.parent().unwrap())?;
-    json::write_canonical(&path, state)?;
+    let dir = hall_root.join(".ivar").join("skills");
+    crate::infra::fs::ensure_dir(&dir)?;
+    json::write_canonical(&dir.join("state.json"), state)?;
     Ok(())
 }
 

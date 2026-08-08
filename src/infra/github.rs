@@ -228,8 +228,10 @@ pub fn resolve_ref(repo: &str, r#ref: &str) -> Result<String, Failure> {
         )
     })?;
 
-    parsed["object"]["sha"]
-        .as_str()
+    parsed
+        .get("object")
+        .and_then(|object| object.get("sha"))
+        .and_then(serde_json::Value::as_str)
         .map(String::from)
         .ok_or_else(|| {
             Failure::failed("github.resolve_ref_parse", "response missing object.sha")

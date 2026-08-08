@@ -13,7 +13,8 @@
     clippy::unwrap_used,
     clippy::expect_used,
     clippy::panic,
-    clippy::indexing_slicing
+    clippy::indexing_slicing,
+    clippy::print_stdout
 )]
 
 mod common;
@@ -98,8 +99,7 @@ fn view_dir_does_not_break_lazygit() {
     let view_dir = std::fs::read_dir(&sessions_dir)
         .expect("sessions dir exists")
         .filter_map(|e| e.ok())
-        .filter(|e| e.path().is_dir())
-        .next()
+        .find(|e| e.path().is_dir())
         .expect("at least one session dir")
         .path();
 

@@ -184,15 +184,14 @@ fn plan_for_skill(skill: &Skill, target: &Target, state: &State, opts: PlanOptio
 
     // Commit-sha short-circuit: if the hall is at a clean commit we have
     // already recorded, nothing has changed.
-    if let Some(repo_head) = &opts.repo_head {
-        if opts.tree_clean
-            && entry.as_ref().and_then(|entry| entry.commit_sha.as_deref()) == Some(repo_head)
-        {
-            return Step {
-                reason: Some("commit-sha unchanged".to_owned()),
-                ..base
-            };
-        }
+    if let Some(repo_head) = &opts.repo_head
+        && opts.tree_clean
+        && entry.as_ref().and_then(|entry| entry.commit_sha.as_deref()) == Some(repo_head)
+    {
+        return Step {
+            reason: Some("commit-sha unchanged".to_owned()),
+            ..base
+        };
     }
 
     if let Some(provider) = provider {
@@ -219,18 +218,14 @@ fn plan_for_skill(skill: &Skill, target: &Target, state: &State, opts: PlanOptio
                 reason: Some("target is not a symlink".to_owned()),
                 ..base
             },
-            MaterialStatus::Ok => {
-                let recorded_hash = &entry.expect("provider implies entry").source_hash;
-                if recorded_hash != &target.source_hash {
-                    Step {
-                        action: Action::Unchanged,
-                        reason: Some("source changed (hash refreshed)".to_owned()),
-                        ..base
-                    }
-                } else {
-                    base
-                }
-            }
+            MaterialStatus::Ok => match entry {
+                Some(entry) if entry.source_hash != target.source_hash => Step {
+                    action: Action::Unchanged,
+                    reason: Some("source changed (hash refreshed)".to_owned()),
+                    ..base
+                },
+                _ => base,
+            },
         }
     } else {
         match target.status {
@@ -266,14 +261,17 @@ fn plan_deletes(skills: &[Skill], state: &State, targets: &[Target]) -> Vec<Step
         if declared.contains(id.as_str()) {
             continue;
         }
-        for (_target_id, provider) in &entry.providers {
+        let Ok(skill) = RepoName::new(id) else {
+            continue;
+        };
+        for provider in entry.providers.values() {
             let target_path = provider.target_path.clone();
             let source_path = target_by_skill
                 .get(id.as_str())
                 .map(|target| target.source_path.clone())
                 .unwrap_or_else(|| entry.source_path.clone());
             steps.push(Step {
-                skill: RepoName::new(id).expect("stored ids were validated"),
+                skill: skill.clone(),
                 target: target_path,
                 source: source_path,
                 action: Action::Remove,

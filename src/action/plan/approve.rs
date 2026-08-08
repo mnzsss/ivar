@@ -149,9 +149,7 @@ pub fn approve(ctx: &Ctx, input: ApproveInput) -> Outcome<ApproveOutcome> {
     if gate == Gate::ExecutionGraph {
         return Err(Failure::blocked(
             "plan.approve_execution_graph_via_execute",
-            format!(
-                "the `execution-graph` gate is approved by `ivar feature execute approve`, not `plan approve`"
-            ),
+            "the `execution-graph` gate is approved by `ivar feature execute approve`, not `plan approve`",
         )
         .expected("approving the execution graph through the execute path")
         .actual("`plan approve` cannot write the execution-graph gate")

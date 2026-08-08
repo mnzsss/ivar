@@ -386,7 +386,7 @@ mod tests {
                 title: "WS one".to_owned(),
                 operations: vec!["op1".to_owned()],
                 depends_on: Vec::new(),
-                write_contract: vec!["src/".to_owned()].into(),
+                write_contract: vec!["src/".to_owned()],
                 status: WorkstreamStatus::Waiting,
                 provider: None,
                 agent: None,

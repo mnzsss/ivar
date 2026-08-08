@@ -213,7 +213,12 @@ fn git_remote(bare: &Utf8Path, args: &[&str]) -> proc::Command {
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+    #![allow(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::indexing_slicing
+    )]
 
     use super::*;
     use crate::action::hall::{self, InitInput};
@@ -271,7 +276,7 @@ mod tests {
     fn upstream_url(root: &Utf8PathBuf) -> Option<String> {
         let bare = Layout::at(root.clone()).repo_bare(&RepoName::new("api").unwrap());
         let output = proc::capture(&git_remote(&bare, &["get-url", REMOTE])).unwrap();
-        output.success().then(|| output.stdout)
+        output.success().then_some(output.stdout)
     }
 
     #[test]

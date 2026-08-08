@@ -350,7 +350,7 @@ mod tests {
         fs::read_dir(dir)
             .unwrap()
             .into_iter()
-            .filter(|e| e.file_name().map_or(false, &filter))
+            .filter(|e| e.file_name().is_some_and(&filter))
             .count()
     }
 

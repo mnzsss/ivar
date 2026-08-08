@@ -134,33 +134,33 @@ pub fn tick(ctx: &Ctx, input: TickInput) -> Outcome<TickOutcome> {
     let plan_path = layout.plan_dir(&feature).join("plan.md");
     let current_fingerprint = hash::file(&plan_path).ok();
 
-    if let Some(fp) = &current_fingerprint {
-        if fp != &board_fingerprint {
-            // Divergent plan — block all waiting workstreams.
-            for ws in &mut board.graph.workstreams {
-                if ws.status == WorkstreamStatus::Waiting {
-                    ws.status = WorkstreamStatus::Blocked;
-                }
+    if let Some(fp) = &current_fingerprint
+        && fp != &board_fingerprint
+    {
+        // Divergent plan — block all waiting workstreams.
+        for ws in &mut board.graph.workstreams {
+            if ws.status == WorkstreamStatus::Waiting {
+                ws.status = WorkstreamStatus::Blocked;
             }
-            board.push_journal(JournalEntry::new(
-                "board",
-                "diverged",
-                format!(
-                    "Plan diverged from board fingerprint (expected {}, got {})",
-                    board_fingerprint, fp
-                ),
-            ));
-            board.write(&layout, &feature)?;
-
-            let board_path = feature::board_path(&layout, &feature);
-            return Ok(Report::new(TickOutcome {
-                root: layout.root().to_path_buf(),
-                feature,
-                launched: Vec::new(),
-                board,
-                board_path,
-            }));
         }
+        board.push_journal(JournalEntry::new(
+            "board",
+            "diverged",
+            format!(
+                "Plan diverged from board fingerprint (expected {}, got {})",
+                board_fingerprint, fp
+            ),
+        ));
+        board.write(&layout, &feature)?;
+
+        let board_path = feature::board_path(&layout, &feature);
+        return Ok(Report::new(TickOutcome {
+            root: layout.root().to_path_buf(),
+            feature,
+            launched: Vec::new(),
+            board,
+            board_path,
+        }));
     }
 
     let mut launched = Vec::new();

@@ -65,7 +65,7 @@ pub enum Source {
 }
 
 /// Frontmatter parsed from a skill's `SKILL.md`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct SkillFrontmatter {
     /// The human-readable name of the skill. Required (validated after parse).
@@ -76,16 +76,6 @@ pub struct SkillFrontmatter {
     /// External source, if any. `None` means the skill is authored locally.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source: Option<ExternalRef>,
-}
-
-impl Default for SkillFrontmatter {
-    fn default() -> Self {
-        Self {
-            name: String::new(),
-            description: None,
-            source: None,
-        }
-    }
 }
 
 impl SkillFrontmatter {

@@ -9,6 +9,13 @@
 //! it exists to verify that the test framework actually fails when the code
 //! produces a different result. See `scripts/differential.sh`.
 
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing
+)]
+
 use std::collections::HashMap;
 
 use camino::Utf8PathBuf;

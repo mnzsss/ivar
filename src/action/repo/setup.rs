@@ -151,7 +151,12 @@ pub fn setup(ctx: &Ctx, input: SetupInput) -> Outcome<SetupOutcome> {
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+    #![allow(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::indexing_slicing
+    )]
 
     use super::*;
     use crate::action::hall::{self, InitInput};

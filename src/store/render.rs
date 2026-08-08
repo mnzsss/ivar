@@ -223,15 +223,15 @@ fn render_copy(step: &crate::domain::skill_sync::Step) -> Result<(), Error> {
                 source_io: std::io::Error::other("path is not valid UTF-8"),
             });
         };
-        if let Ok(Some(contents)) = fs::read_bytes(&utf8_entry) {
-            if let Err(e) = fs::write_bytes(&dest, &contents) {
-                let io_error = io_of(&e);
-                return Err(Error::Copy {
-                    source: step.source.clone(),
-                    target: step.target.clone(),
-                    source_io: io_error,
-                });
-            }
+        if let Ok(Some(contents)) = fs::read_bytes(&utf8_entry)
+            && let Err(e) = fs::write_bytes(&dest, &contents)
+        {
+            let io_error = io_of(&e);
+            return Err(Error::Copy {
+                source: step.source.clone(),
+                target: step.target.clone(),
+                source_io: io_error,
+            });
         }
     }
 

@@ -440,7 +440,7 @@ mod tests {
         board.write(&layout, &feature).unwrap();
     }
 
-    fn gate<'a>(outcome: &'a StatusOutcome, gate: Gate) -> &'a GateStatus {
+    fn gate(outcome: &StatusOutcome, gate: Gate) -> &GateStatus {
         outcome.gates.iter().find(|g| g.gate == gate).unwrap()
     }
 

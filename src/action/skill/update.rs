@@ -146,7 +146,9 @@ fn try_download_and_extract(
     skill_dir: &camino::Utf8Path,
     fm: &crate::domain::skill::SkillFrontmatter,
 ) -> Result<(), String> {
-    let ext = fm.source.as_ref().unwrap();
+    let Some(ext) = fm.source.as_ref() else {
+        return Err("skill has no external source".to_owned());
+    };
 
     // Fetch tarball from GitHub and extract it into the skill directory.
     // Uses the infra::github helpers for auth + network.
@@ -175,10 +177,7 @@ fn extract_tarball_into(data: &[u8], target_dir: &camino::Utf8Path) -> std::io::
     let status = child.wait()?;
 
     if !status.success() {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::Other,
-            "tar extraction failed",
-        ));
+        return Err(std::io::Error::other("tar extraction failed"));
     }
 
     Ok(())
@@ -186,7 +185,12 @@ fn extract_tarball_into(data: &[u8], target_dir: &camino::Utf8Path) -> std::io::
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+    #![allow(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::indexing_slicing
+    )]
 
     use super::*;
     use crate::action::hall::{self, InitInput};

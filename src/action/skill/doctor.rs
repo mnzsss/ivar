@@ -173,7 +173,7 @@ pub fn doctor(ctx: &Ctx) -> Outcome<DoctorOutcome> {
     let declared: std::collections::HashSet<&str> = skills.iter().map(|s| s.id.as_str()).collect();
     for (id, entry) in &state.installations {
         if !declared.contains(id.as_str()) {
-            for (_target_id, _provider) in &entry.providers {
+            for _provider in entry.providers.values() {
                 problems.push(Problem {
                     code: "skill.orphaned_state",
                     subject: id.clone(),
@@ -214,10 +214,10 @@ fn enumerate_skills(
                 format!("directory entry has no name: {:?}", entry),
             )
         })?;
-        if let Ok(_id) = crate::domain::name::RepoName::new(file_name) {
-            if let Ok(Some(skill)) = skill::parse_skill(entry.clone()) {
-                skills.push(skill);
-            }
+        if let Ok(_id) = crate::domain::name::RepoName::new(file_name)
+            && let Ok(Some(skill)) = skill::parse_skill(entry.clone())
+        {
+            skills.push(skill);
         }
     }
     skills.sort_by(|a, b| a.id.cmp(&b.id));

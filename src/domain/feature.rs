@@ -1432,7 +1432,7 @@ mod tests {
             board.sessions.get("sess-abc").map(String::as_str),
             Some("ws1")
         );
-        assert!(board.sessions.get("sess-xyz").is_none());
+        assert!(!board.sessions.contains_key("sess-xyz"));
     }
 
     #[test]
