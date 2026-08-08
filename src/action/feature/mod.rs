@@ -6,8 +6,9 @@
 //! feature branch), `demote` (remove a repo from the feature), `status`
 //! (per-feature detail), `deliver` (push a feature's branches), `close`
 //! (record the outcome and stop the feature's sessions), `delete` (tear the
-//! feature down), `rebase` (bring promoted worktrees up to date), and
-//! `review` (open the feature in VSCode).
+//! feature down), `rebase` (bring promoted worktrees up to date), `review`
+//! (open the feature in VSCode), and `prune` (delete features whose branches
+//! are fully merged, never one with a live session).
 //!
 //! The worktree creation on promote is the heart of the slice — see
 //! [`promote`] for the branch-from-default-branch rule.

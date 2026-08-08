@@ -10,7 +10,9 @@
 //!
 //! The files are committed (they are the team's shared record of *why* a
 //! feature exists), which is why the layout puts them at the hall root under
-//! `plans/`, not under `.ivar/`.
+//! `plans/`, not under `.ivar/`. `status` is the read surface over the whole
+//! cycle — the gates, what invalidated each, and the execution board — so the
+//! SPDD state is visible without opening JSON.
 
 pub mod approve;
 pub mod create;
