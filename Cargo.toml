@@ -30,8 +30,6 @@ path = "src/bin/ivar.rs"
 [dependencies]
 # --- CLI -------------------------------------------------------------------
 clap = { version = "4.6", features = ["derive", "wrap_help"] }
-clap_complete = "4.6"
-clap_mangen = "0.3"
 
 # --- serialization ---------------------------------------------------------
 serde = { version = "1", features = ["derive"] }

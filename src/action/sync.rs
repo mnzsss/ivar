@@ -523,7 +523,16 @@ fn explain_missing_branch(
 /// The script's output is **streamed, not captured**: a `pnpm install` is
 /// minutes long, and a user watching a frozen progress line has no way to tell
 /// a slow install from a hang.
-fn run_setup_script(
+/// Run this repo's setup script in its default worktree, if there is one and it
+/// needs running.
+///
+/// `Ok(None)` means the repo has no setup script — the common case, and not
+/// worth a line in the report.
+///
+/// The script's output is **streamed, not captured**: a `pnpm install` is
+/// minutes long, and a user watching a frozen progress line has no way to tell
+/// a slow install from a hang.
+pub(crate) fn run_setup_script(
     git: &impl git::Git,
     layout: &Layout,
     repo: &Repo,

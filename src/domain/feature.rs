@@ -271,9 +271,9 @@ pub struct DeliveryRepo {
     pub remote: String,
     /// The refspec the push uses, `local_branch:refs/heads/local_branch`.
     pub push_refspec: String,
-    /// What delivering this repo means. `ivar` never creates pull requests —
-    /// see [`DeliveryAction`] — so every repo is [`DeliveryAction::PushOnly`]
-    /// today.
+    /// What delivering this repo means — create a new pull request, update an
+    /// existing one, or push only (the branch already exists on the remote but
+    /// has no PR).
     pub action: DeliveryAction,
     /// The branch this feature's work started from — the repo's default
     /// branch.
@@ -286,6 +286,11 @@ pub struct DeliveryRepo {
     /// a dirty worktree, commits that have never been pushed. Informational
     /// in the preview; the fingerprint gate is what apply actually enforces.
     pub blockers: Vec<String>,
+    /// The created or updated PR URL, recorded after apply. Present only when
+    /// the action was [`DeliveryAction::NewPr`] or
+    /// [`DeliveryAction::UpdatePr`] and the PR step succeeded.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pr_url: Option<String>,
 }
 
 /// What a delivery action is. The valhalla model distinguishes creating and
@@ -708,6 +713,11 @@ impl WriteContract {
 
     /// Whether `path` is allowed by the contract. The default is to deny:
     /// an empty contract allows nothing.
+    ///
+    /// A glob may be relative to the hall view dir (the common case, e.g.
+    /// `src/`) or absolute. A relative glob matches `path` at any depth —
+    /// `/hall/src/main.rs` and `src/main.rs` both match `src/` — because the
+    /// workstream never knows where the hall lives.
     #[must_use]
     pub fn allows(&self, path: &Utf8Path) -> bool {
         let path_str = path.as_str();
@@ -716,15 +726,47 @@ impl WriteContract {
             return false;
         }
         self.0.iter().any(|glob| {
+            let absolute = glob.starts_with('/');
             if let Some(prefix) = glob.strip_suffix('/') {
                 // A trailing `/` matches the directory and everything under it.
-                path_str == prefix
-                    || path_str.starts_with(prefix) && path_str[prefix.len()..].starts_with('/')
+                let prefix = prefix.to_owned();
+                if absolute {
+                    path_str == prefix
+                        || path_str.starts_with(&prefix)
+                            && path_str[prefix.len()..].starts_with('/')
+                } else {
+                    // Relative: match the prefix at any depth.
+                    let needle_dir = format!("/{prefix}/");
+                    path_str == prefix
+                        || path_str.ends_with(&format!("/{prefix}"))
+                        || path_str.contains(&needle_dir)
+                        || path_str.starts_with(&format!("{prefix}/"))
+                }
             } else if glob.contains('*') {
-                glob_match(glob, path_str)
-            } else {
+                if absolute {
+                    glob_match(glob, path_str)
+                } else {
+                    // Try the glob against every suffix so a relative glob
+                    // matches at any depth.
+                    let mut slice = path_str;
+                    loop {
+                        if glob_match(glob, slice) {
+                            return true;
+                        }
+                        match slice.find('/') {
+                            Some(idx) => slice = &slice[idx + 1..],
+                            None => return false,
+                        }
+                    }
+                }
+            } else if absolute {
                 path_str == glob
                     || path_str.starts_with(glob) && path_str[glob.len()..].starts_with('/')
+            } else {
+                // A bare relative name matches a path that ends with it.
+                path_str == glob
+                    || path_str.ends_with(&format!("/{glob}"))
+                    || path_str.ends_with(&format!("/{glob}/"))
             }
         })
     }
@@ -926,6 +968,7 @@ mod tests {
             base_branch: BranchName::new("main").unwrap(),
             dependencies: Vec::new(),
             blockers: Vec::new(),
+            pr_url: None,
         }
     }
 
