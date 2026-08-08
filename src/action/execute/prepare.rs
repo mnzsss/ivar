@@ -30,7 +30,7 @@ use camino::{Utf8Path, Utf8PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::domain::feature::{
-    ExecutionBoard, ExecutionGraph, JournalEntry, WorkstreamDef, WorkstreamStatus,
+    ExecutionBoard, ExecutionGraph, ExecutionStatus, JournalEntry, WorkstreamDef, WorkstreamStatus,
 };
 use crate::domain::name::FeatureName;
 use crate::error::{Failure, FixAction, Outcome, Report, WriteHuman};
@@ -137,6 +137,9 @@ pub fn prepare(ctx: &Ctx, input: PrepareInput) -> Outcome<PrepareOutcome> {
         plan_fingerprint,
         workstreams,
     });
+    // A freshly prepared board awaits human approval before any workstream
+    // can tick.
+    board.set_status(ExecutionStatus::AwaitingApproval);
     board.push_journal(JournalEntry::new(
         "board",
         "prepared",
@@ -328,7 +331,7 @@ mod tests {
 
         assert!(report.is_clean());
         assert_eq!(report.value.feature.as_str(), "checkout");
-        assert_eq!(report.value.board.status, ExecutionStatus::Pending);
+        assert_eq!(report.value.board.status, ExecutionStatus::AwaitingApproval);
         assert_eq!(report.value.board.graph.workstreams.len(), 2);
         assert_eq!(report.value.board.graph.workstreams[1].id, "ws-board");
         assert_eq!(
@@ -469,19 +472,25 @@ mod tests {
             root: Utf8PathBuf::from("/hall"),
             feature: FeatureName::new("checkout").unwrap(),
             board_path: Utf8PathBuf::from("/hall/.ivar/features/checkout/execution/board.json"),
-            board: ExecutionBoard::new(ExecutionGraph {
-                plan_fingerprint: "abc".to_owned(),
-                workstreams: vec![WorkstreamDef {
-                    id: "ws1".to_owned(),
-                    title: "WS one".to_owned(),
-                    operations: vec!["op1".to_owned()],
-                    depends_on: Vec::new(),
-                    write_contract: Vec::new(),
-                    status: WorkstreamStatus::Waiting,
-                    provider: None,
-                    agent: None,
-                }],
-            }),
+            board: {
+                let mut board = ExecutionBoard::new(ExecutionGraph {
+                    plan_fingerprint: "abc".to_owned(),
+                    workstreams: vec![WorkstreamDef {
+                        id: "ws1".to_owned(),
+                        title: "WS one".to_owned(),
+                        operations: vec!["op1".to_owned()],
+                        depends_on: Vec::new(),
+                        write_contract: Vec::new(),
+                        status: WorkstreamStatus::Waiting,
+                        provider: None,
+                        agent: None,
+                    }],
+                });
+                // `prepare` leaves the board awaiting approval — mirror that
+                // in the outcome the human surface renders.
+                board.set_status(ExecutionStatus::AwaitingApproval);
+                board
+            },
         };
 
         let mut out = Vec::new();
@@ -489,7 +498,7 @@ mod tests {
 
         assert_eq!(
             String::from_utf8(out).unwrap(),
-            "Prepared execution board for `checkout` (1 workstream, pending) at \
+            "Prepared execution board for `checkout` (1 workstream, awaiting_approval) at \
              /hall/.ivar/features/checkout/execution/board.json\n"
         );
     }
