@@ -1,8 +1,8 @@
 //! The root command surface.
 //!
 //! The settled v1 surface (ARCHITECTURE.md's module map):
-//! `ivar init · sync · status · doctor · cleanup · repo · feature · session ·
-//! provider · plan · skill`. Every verb dispatches to an action file that
+//! `ivar init · sync · status · doctor · cleanup · migrate · repo · feature ·
+//! session · provider · plan · skill`. Every verb dispatches to an action file that
 //! returns `Failure::blocked("…not implemented yet")` — never a silent success
 //! and never `todo!()`. See ARCHITECTURE.md's build order: those verbs land in
 //! later slices, not stubbed 40-deep now.
@@ -55,6 +55,14 @@ pub enum Command {
     Doctor,
     /// Reconcile stale state (interactive; asks before deleting).
     Cleanup,
+    /// Advance `ivar.json`'s schema version (interactive; shows the change,
+    /// then asks).
+    ///
+    /// Only ever needed after upgrading `ivar` to a build whose format is
+    /// newer than the one your hall was written with. Local state migrates
+    /// itself; `ivar.json` is committed, so advancing it is a decision you
+    /// make and then commit.
+    Migrate,
     /// Manage repos.
     #[command(subcommand)]
     Repo(RepoCommand),

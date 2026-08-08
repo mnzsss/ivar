@@ -94,6 +94,7 @@ fn main() -> ExitCode {
         Command::Status => respond(hall::status(&ctx), json, &mut stdout, &mut stderr),
         Command::Doctor => respond(hall::doctor(&ctx), json, &mut stdout, &mut stderr),
         Command::Cleanup => respond(hall::cleanup(&ctx), json, &mut stdout, &mut stderr),
+        Command::Migrate => respond(hall::migrate(&ctx), json, &mut stdout, &mut stderr),
         Command::Repo(cmd) => match cmd {
             RepoCommand::List => respond(repo_list::list(&ctx), json, &mut stdout, &mut stderr),
             RepoCommand::Add(args) => respond(
