@@ -150,20 +150,6 @@ pub fn is_github_https(url: &str) -> bool {
     url.starts_with("https://github.com/")
 }
 
-/// Rewrite a GitHub HTTPS URL to include the token from the auth cascade.
-///
-/// If the URL is not a GitHub HTTPS URL, returns it unchanged.
-/// If no token is available, returns `Err` naming the missing output.
-pub fn github_auth_url(url: &str) -> Result<String, Failure> {
-    if !is_github_https(url) {
-        return Ok(url.to_owned());
-    }
-
-    let token = get_token()?;
-    let rewritten = url.replacen("https://", &format!("https://{token}@"), 1);
-    Ok(rewritten)
-}
-
 /// Read a response body into a String using the ureq 3.x Response API.
 fn read_body<T: Read>(mut reader: T) -> Result<String, Failure> {
     let mut buf = String::new();
@@ -320,31 +306,5 @@ mod tests {
         assert!(!is_github_https("https://gitlab.com/owner/repo"));
         assert!(!is_github_https("git@github.com:owner/repo.git"));
         assert!(!is_github_https("/local/path/repo"));
-    }
-
-    #[test]
-    fn github_auth_url_passes_non_github_urls_through() {
-        let url = "https://gitlab.com/owner/repo.git";
-        assert_eq!(
-            github_auth_url("https://gitlab.com/owner/repo.git").unwrap(),
-            url
-        );
-    }
-
-    #[test]
-    fn github_auth_url_embeds_the_token_from_the_cascade() {
-        // token_from is what get_token would call; the URL rewriting is pure.
-        let token = token_from(None, Some("tok".to_owned()), None).unwrap();
-        let rewritten = format!("https://{token}@github.com/owner/repo.git");
-        assert_eq!(rewritten, "https://tok@github.com/owner/repo.git");
-    }
-
-    #[test]
-    fn github_auth_url_without_token_is_blocked() {
-        // github_auth_url shells out to gh, so we cannot drive the no-token
-        // branch without env mutation; the pure cascade covers the same
-        // failure shape, and the rewrite is a pure string operation on top.
-        let error = token_from(None, None, None).unwrap_err();
-        assert_eq!(error.code, "github.no_token");
     }
 }
