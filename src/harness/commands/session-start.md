@@ -1,0 +1,63 @@
+---
+description: Start or resume an ivar session — select a feature or explore read-only.
+argument-hint: [feature-name]
+---
+
+Start an ivar session inside this hall.
+
+## Health gate
+
+Session start is permitted when the hall is **operational** or **stale**. A
+stale hall shows a warning — run `ivar sync` to refresh. Structural degradation
+blocks session start with a diagnostic code and repair command. Run
+`ivar doctor` for details and `ivar sync` to repair.
+
+## Steps
+
+1. Run `ivar feature list` to see existing features.
+2. If `$ARGUMENTS` is provided, use it as the feature name. Otherwise, ask the
+   user:
+   - Pick an existing feature, OR
+   - Create a new feature (run `ivar feature create <name>`), OR
+   - **Discovery session** — delegate to `/ivar-discovery` for guided
+     exploration.
+3. Run the appropriate command with optional flags:
+   - Feature session: `ivar session start <feature>`
+   - Specify a provider: `ivar session start <feature> --provider opencode`
+   - Resume an existing session: `ivar session start <feature> --resume`
+   - Create without launching a provider: `ivar session start <feature> --detached`
+   - Discovery session: **run `/ivar-discovery` instead** — it handles the
+     guided discovery flow with optional conversion to a Feature session.
+4. Parse the output for the three stable machine-readable binding keys:
+   ```
+   IVAR_SESSION_ID=<uuid>
+   IVAR_FEATURE=<feature-or-empty>
+   IVAR_SESSION_PATH=<absolute-view-dir>
+   ```
+5. Export env vars for this shell session:
+   ```bash
+   export IVAR_SESSION_ID=<id>
+   export IVAR_FEATURE=<feature>
+   export IVAR_SESSION_PATH=<path>
+   ```
+6. From this point forward, **all file reads, writes, and shell commands must
+   operate inside the session path**. Prefix all paths with
+   `$IVAR_SESSION_PATH/repos/<repo>/`. When running shell commands,
+   `cd $IVAR_SESSION_PATH` first.
+
+## Important
+
+- **Always use the CLI commands.** Never create `.ivar/features/`,
+  `.ivar/sessions/`, state files, or lock files manually. The schema is strict
+  — wrong field names cause silent failures.
+- **Before creating a new session**, run `ivar status` to check for existing
+  sessions. If one already exists for the feature, use `/ivar-session-connect`
+  instead.
+- Multiple sessions may bind the same feature at once (e.g. one per provider);
+  they share that feature's worktrees.
+- If a repo is read-only, you cannot write to it. Run `/ivar-promote <repo>`
+  first.
+- Session state is ephemeral. When you stop the session, the view dir is
+  deleted. The worktrees and feature state persist.
+- For discovery sessions, always use `/ivar-discovery` — it provides the
+  guided workflow and supports one-way Feature conversion.

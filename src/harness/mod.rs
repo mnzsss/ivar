@@ -10,6 +10,12 @@
 //! slice 2's harness work: `ivar sync` materialises it, and removes it for a
 //! provider the hall no longer lists.
 //!
+//! [`commands`] — the embedded catalog of shipped workflow commands, and the
+//! reconciliation that materialises them into each provider's command
+//! directory. The catalog and every Markdown source are compiled into the
+//! binary; this module owns only the command files `ivar-*.md` and leaves every
+//! other file in the command directory to the user.
+//!
 //! [`Harness`] — the trait plus closed-enum dispatch that slice 5
 //! (`ivar session start`) needs: each variant owns its command construction.
 //! ARCHITECTURE.md, seam 5: the set of harnesses is known at compile time, so
@@ -22,6 +28,7 @@
 //! arrive here already computed by [`crate::store::layout`], which stays the
 //! one place that knows where anything under a hall lives.
 
+pub mod commands;
 pub mod config;
 
 use crate::domain::provider::Provider;
