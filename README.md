@@ -40,6 +40,12 @@ it consumes the Linux build with no separate path.
 
 <https://ivar.mnzs.dev>
 
+In this repo: [Concepts](docs/concepts.md) for the model,
+[Getting started](docs/getting-started.md) for the two ways in,
+[Why not just `git worktree`?](docs/why-not-worktree.md) for the fair objection,
+and the [command reference](docs/reference/commands.md). Full index:
+[docs/](docs/README.md).
+
 ## Contributing
 
 Please open an issue before a pull request — see [CONTRIBUTING.md](CONTRIBUTING.md).
