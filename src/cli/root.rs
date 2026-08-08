@@ -18,15 +18,20 @@ use crate::action::sync::SyncInput;
 #[derive(Debug, Parser)]
 #[command(version, about, long_about = None)]
 pub struct Cli {
-    /// Emit machine-readable output. `--json` and the human surface render
-    /// the exact same value the action returned — see ARCHITECTURE.md,
-    /// "1. `action` is the unit, and it has one output shape".
+    /// Emit machine-readable output.
+    ///
+    /// Prints exactly the value the command computed. The human-readable text
+    /// is a rendering of that same value, so the two can never tell you
+    /// different things — script against this.
     #[arg(long, global = true)]
     pub json: bool,
 
-    /// Colour control. `auto` (the default) follows `NO_COLOR` /
-    /// `FORCE_COLOR` / tty detection; `always` and `never` are an explicit
-    /// override fed to `infra::term::colour`.
+    /// When to colour output.
+    ///
+    /// `auto` follows `NO_COLOR`, then `FORCE_COLOR`, then whether the stream
+    /// is a terminal — a pipe or a redirect gets none. `always` and `never`
+    /// override all of that. Only labels are ever coloured; values never are,
+    /// so `--json` is unaffected either way.
     #[arg(long = "color", global = true, value_enum, default_value_t = ColorMode::Auto)]
     pub color: ColorMode,
 

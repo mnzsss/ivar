@@ -2,17 +2,26 @@
 //!
 //! # Contract
 //!
-//! - `colour()` — whether to emit colour, decided once and cached. Precedence,
-//!   highest first: an explicit `--no-color` from the caller, then `NO_COLOR`
-//!   (set to anything, per <https://no-color.org>), then `FORCE_COLOR`, then
-//!   whether stdout is a tty. A pipe gets no colour.
+//! - `colour()` — whether to emit colour on **stdout**, decided once and cached.
+//!   Precedence, highest first: an explicit `--no-color` from the caller, then
+//!   `NO_COLOR` (set to anything, per <https://no-color.org>), then
+//!   `FORCE_COLOR`, then whether stdout is a tty. A pipe gets no colour.
+//! - `colour_for(stream, …)` — the same question for a named stream, cached per
+//!   stream. Failures and warnings go to stderr, and `ivar … 2>log` must put no
+//!   escape codes in that file even while stdout is still a terminal — so the
+//!   tty half of the decision has to be asked of the stream being written to.
+//!   The flag and the environment variables are global and apply to both.
 //! - `width()` — terminal columns, with a sane fallback when there is no tty.
 //! - `is_tty()` — for stdout and stderr separately. They can differ, and the
 //!   progress reporter cares.
 //!
-//! Colour is applied by the surface that writes, using `owo-colors`. Values
-//! themselves are never coloured — that would put escape codes inside data and
-//! break the `--json` contract.
+//! This module decides *whether* to colour. What the colours mean, and the
+//! escape codes themselves, belong to [`crate::error::Palette`] — which is where
+//! the layout of a failure already lives, so painting it needs no second
+//! renderer. There is no colour crate: the vocabulary is five SGR constants.
+//!
+//! Values themselves are never coloured — that would put escape codes inside
+//! data and break the `--json` contract. Only labels are painted.
 //!
 //! # Design
 //!
@@ -83,6 +92,7 @@ pub fn decide_colour(
 }
 
 static COLOUR: OnceLock<bool> = OnceLock::new();
+static COLOUR_STDERR: OnceLock<bool> = OnceLock::new();
 
 /// Whether to emit colour. Decided once, from the real environment and the
 /// real tty state, then cached for the lifetime of the process.
@@ -102,6 +112,31 @@ pub fn colour(override_: Option<bool>) -> bool {
             is_tty(Stream::Stdout),
         )
     })
+}
+
+/// Whether to emit colour on `stream`. Decided once per stream, then cached.
+///
+/// Identical to [`colour`] except for which stream's tty state serves as the
+/// fallback. `Stream::Stdout` shares [`colour`]'s cache, so the two can never
+/// disagree about stdout.
+///
+/// This exists because the two streams are redirected independently. A run of
+/// `ivar sync 2>errors.log` has a tty on stdout and a file on stderr; asking
+/// stdout's state would write SGR codes into `errors.log`, which is the thing
+/// `NO_COLOR` exists to prevent.
+#[must_use]
+pub fn colour_for(stream: Stream, override_: Option<bool>) -> bool {
+    match stream {
+        Stream::Stdout => colour(override_),
+        Stream::Stderr => *COLOUR_STDERR.get_or_init(|| {
+            decide_colour(
+                override_,
+                env::var("NO_COLOR").ok().as_deref(),
+                env::var("FORCE_COLOR").ok().as_deref(),
+                is_tty(Stream::Stderr),
+            )
+        }),
+    }
 }
 
 /// Terminal columns, or [`DEFAULT_WIDTH`] when there is no tty to ask (a pipe,
@@ -174,6 +209,38 @@ mod tests {
         let first = colour(None);
         let second = colour(None);
         assert_eq!(first, second);
+    }
+
+    #[test]
+    fn colour_for_stdout_agrees_with_colour() {
+        assert_eq!(colour_for(Stream::Stdout, None), colour(None));
+    }
+
+    #[test]
+    fn colour_for_is_stable_across_calls_for_either_stream() {
+        assert_eq!(
+            colour_for(Stream::Stderr, None),
+            colour_for(Stream::Stderr, None)
+        );
+    }
+
+    #[test]
+    fn an_explicit_override_reaches_both_streams() {
+        // The pure rule is what the cached wrappers delegate to; asserting it
+        // per stream here documents that the flag is global while only the tty
+        // fallback is per-stream.
+        for tty in [true, false] {
+            assert!(decide_colour(Some(true), None, None, tty));
+            assert!(!decide_colour(Some(false), None, None, tty));
+        }
+    }
+
+    #[test]
+    fn a_redirected_stream_gets_no_colour_even_when_the_other_is_a_tty() {
+        // stderr redirected to a file (not a tty) with no env overrides: the
+        // fallback must answer false regardless of stdout being a terminal.
+        assert!(!decide_colour(None, None, None, false));
+        assert!(decide_colour(None, None, None, true));
     }
 
     #[test]
