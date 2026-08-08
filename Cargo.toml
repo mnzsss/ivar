@@ -5,7 +5,17 @@ name = "ivar"
 version = "0.0.0"
 edition = "2024"
 rust-version = "1.95.0" # MSRV. Public contract from the first publish; CI builds against it.
-# The floor is set by sysinfo 0.39, which requires 1.95. Verified: 1.94 fails.
+# This number is NOT currently dep-driven. It was set by sysinfo 0.39 (which
+# needed 1.95), and sysinfo was dropped as unused — so the justification went
+# with it. The highest rust-version left in the graph is 1.88.0 (ratatui 0.30),
+# and edition 2024 needs >= 1.85, which makes 1.95 a ceiling nobody asks for.
+#
+# It is deliberately left where it is rather than lowered on that arithmetic
+# alone: the floor the crate's *own* code needs has never been measured, and an
+# MSRV is a published contract. Lowering it is safe for consumers and provable
+# in one step — the `msrv` CI job reads this value and runs `cargo build`
+# against exactly it — so the way to move it is to lower it and read the gate,
+# not to reason about it here.
 license = "MIT OR Apache-2.0"
 description = "Mount the repos a feature spans into one directory, on one branch, for one agent session."
 repository = "https://github.com/mnzsss/ivar"
@@ -103,6 +113,18 @@ str_to_string = "warn"
 lto = true
 codegen-units = 1
 strip = true
-# panic = "abort" is deliberately NOT set. The progress reporter runs worker and
-# reporter in scoped threads and re-propagates a worker panic with
-# resume_unwind; that needs unwinding to exist.
+# panic = "abort" is deliberately NOT set — but the reason recorded here for
+# years was wrong, so it is written out plainly instead: it claimed a progress
+# reporter that runs worker and reporter in scoped threads and re-propagates a
+# panic with resume_unwind. There is no such module in this crate; `rg
+# resume_unwind` finds nothing.
+#
+# What is actually true today: nothing in the crate requires unwinding. The one
+# thing that looked like it might — the TUI leaving the terminal in raw mode and
+# the alternate screen — does not, because `ratatui::init` installs a panic hook
+# (tui/master_detail.rs), and panic hooks run under `abort` as well.
+#
+# So this is an open, unforced choice left at the default, not a constraint.
+# Setting it would trade a smaller binary for losing `catch_unwind`; make that
+# call deliberately if binary size ever matters, and do not re-derive a reason
+# from this comment's existence.
