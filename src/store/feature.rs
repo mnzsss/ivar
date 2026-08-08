@@ -25,7 +25,7 @@ use crate::domain::feature::{ApprovalState, ExecutionBoard, Feature};
 use crate::domain::name::FeatureName;
 use crate::error::Failure;
 use crate::store::layout::Layout;
-use crate::store::versioned::{Policy, Store};
+use crate::store::versioned::{Migration, Policy, Store};
 
 /// `feature.json`'s schema version. Matches [`Feature`]'s own constant —
 /// the type owns the number, this module just wires it into the store.
@@ -35,7 +35,7 @@ const CURRENT_VERSION: u32 = 1;
 const APPROVALS_VERSION: u32 = 1;
 
 /// `board.json`'s schema version.
-const BOARD_VERSION: u32 = 1;
+const BOARD_VERSION: u32 = 2;
 
 /// The filename every feature's promotion record lives in, under its
 /// feature directory. One file, not one-per-repo: promotions are a small
@@ -119,6 +119,92 @@ pub fn board_path(layout: &Layout, name: &FeatureName) -> Utf8PathBuf {
     layout.execution_dir(name).join(BOARD_FILE)
 }
 
+/// Migrate a board.json from v1 → v2.
+///
+/// v1 carried a flat `status` on the board and nested everything inside
+/// `graph`.  v2 flattens workstreams to the top level, adds per-workstream
+/// statuses, drops the wrapper object, and introduces new fields with
+/// sensible defaults.
+fn v1_to_v2(mut value: serde_json::Value) -> Result<serde_json::Value, String> {
+    let root = value
+        .as_object_mut()
+        .ok_or("board must be an object")?;
+
+    // --- workstreams -------------------------------------------------------
+    let graph = match root.remove("graph") {
+        Some(serde_json::Value::Object(g)) => g,
+        _ => return Err("missing graph".to_owned()),
+    };
+
+    let mut workstreams = Vec::new();
+    if let Some(streams) = graph.get("workstreams").and_then(|w| w.as_array()) {
+        for ws in streams {
+            let obj = ws.as_object().ok_or("workstream not an object")?;
+
+            // write_contract may be {"paths": [...]} (v1) or [...] (already v2);
+            // always normalise to a bare array.
+            let wc = match obj.get("write_contract") {
+                Some(serde_json::Value::Object(inner)) => inner
+                    .get("paths")
+                    .and_then(|p| p.as_array())
+                    .cloned()
+                    .unwrap_or_default(),
+                Some(arr) if arr.is_array() => arr
+                    .as_array()
+                    .cloned()
+                    .unwrap_or_default(),
+                _ => Vec::new(),
+            };
+
+            let depends = obj
+                .get("depends_on")
+                .and_then(|d| d.as_array())
+                .map(|arr| arr.len() > 0)
+                .unwrap_or(false);
+
+            let status = if depends { "waiting" } else { "active" };
+
+            let entry = serde_json::json!({
+                "id": obj.get("id").cloned().unwrap_or_default(),
+                "title": obj.get("title").cloned().unwrap_or_default(),
+                "operations": obj.get("operations").cloned().unwrap_or_else(|| serde_json::json!([])),
+                "depends_on": obj.get("depends_on").cloned().unwrap_or_else(|| serde_json::json!([])),
+                "write_contract": wc,
+                "status": status,
+                "provider": null,
+                "agent": null,
+            });
+            workstreams.push(entry);
+        }
+    }
+
+    // --- journal -----------------------------------------------------------
+    let journal = root
+        .remove("journal")
+        .and_then(|j| {
+            if j.is_array() {
+                Some(j.as_array().cloned().unwrap_or_default())
+            } else {
+                None
+            }
+        })
+        .unwrap_or_default();
+
+    // --- build v2 shape ----------------------------------------------------
+    let v2 = serde_json::json!({
+        "version": BOARD_VERSION,
+        "status": "pending",
+        "workstreams": workstreams,
+        "plan_fingerprint": root.get("plan_fingerprint").cloned().unwrap_or_default(),
+        "journal": journal,
+        "next_event_seq": 1,
+        "blocked_by": null,
+        "sessions": {},
+    });
+
+    Ok(v2)
+}
+
 /// The versioned store over one feature's file.
 fn store(layout: &Layout, name: &FeatureName) -> Store<Feature> {
     Store::new(
@@ -143,7 +229,7 @@ fn approvals_store(layout: &Layout, name: &FeatureName) -> Store<ApprovalState> 
 fn board_store(layout: &Layout, name: &FeatureName) -> Store<ExecutionBoard> {
     Store::new(
         board_path(layout, name),
-        Vec::new(),
+        vec![Migration::new(1, 2, v1_to_v2)],
         BOARD_VERSION,
         Policy::Local,
     )
@@ -161,7 +247,7 @@ mod tests {
     use super::*;
     use crate::domain::feature::{
         ApprovalState, ExecutionBoard, ExecutionGraph, ExecutionStatus, Gate, GateState,
-        WorkstreamDef, WorkstreamStatus,
+        JournalEntry, WorkstreamDef, WorkstreamStatus,
     };
     use crate::domain::name::{BranchName, FeatureName, RepoName};
     use crate::infra::fs;
@@ -320,8 +406,10 @@ mod tests {
                 title: "WS one".to_owned(),
                 operations: vec!["op1".to_owned()],
                 depends_on: Vec::new(),
-                write_contract: vec!["src/".to_owned()],
+                write_contract: vec!["src/".to_owned()].into(),
                 status: WorkstreamStatus::Waiting,
+                provider: None,
+                agent: None,
             }],
         })
     }
@@ -340,12 +428,7 @@ mod tests {
         let name = FeatureName::new("checkout").unwrap();
         let mut board = execution_board();
         board.set_status(ExecutionStatus::Running);
-        board.push_journal(crate::domain::feature::JournalEntry {
-            timestamp: "1".to_owned(),
-            workstream: "board".to_owned(),
-            kind: "prepared".to_owned(),
-            message: "board prepared".to_owned(),
-        });
+        board.push_journal(JournalEntry::new("board", "prepared", "board prepared"));
 
         board.write(&layout, &name).unwrap();
         let read_back = ExecutionBoard::read(&layout, &name).unwrap().unwrap();
@@ -378,10 +461,101 @@ mod tests {
             .unwrap()
             .unwrap();
         assert!(
-            text.contains("\"version\": 1"),
+            text.contains("\"version\": 2"),
             "the store must stamp the version: {text}"
         );
         assert!(text.contains("\"status\": \"pending\""));
         assert!(text.contains("\"plan_fingerprint\": \"abc123\""));
+    }
+
+    // -- v1 → v2 migration ---------------------------------------------------
+
+    #[test]
+    fn a_v1_board_migrates_on_read_and_persists_as_v2() {
+        let (_guard, layout) = layout_with_hall();
+        let name = FeatureName::new("checkout").unwrap();
+
+        // Write a hand-crafted v1 board.json — flat `status`, nested `graph`,
+        // write_contract as {"paths": [...]}, no new fields.
+        let v1_board = serde_json::json!({
+            "version": 1,
+            "status": "running",
+            "graph": {
+                "workstreams": [
+                    {
+                        "id": "ws1",
+                        "title": "WS one",
+                        "operations": ["op1"],
+                        "depends_on": [],
+                        "write_contract": {"paths": ["src/"]},
+                        "status": "active"
+                    },
+                    {
+                        "id": "ws2",
+                        "title": "WS two",
+                        "operations": ["op2"],
+                        "depends_on": ["ws1"],
+                        "write_contract": {"paths": ["tests/"]},
+                        "status": "waiting"
+                    }
+                ],
+                "plan_fingerprint": "v1-fp"
+            },
+            "journal": [
+                {
+                    "kind": "prepared",
+                    "timestamp": "1700000000",
+                    "message": "board prepared"
+                }
+            ]
+        });
+
+        fs::ensure_dir(&layout.execution_dir(&name)).unwrap();
+        fs::write_text(
+            &layout.execution_dir(&name).join("board.json"),
+            &serde_json::to_string(&v1_board).unwrap(),
+        )
+        .unwrap();
+
+        // Read through the store — triggers migration under Policy::Local.
+        let migrated = ExecutionBoard::read(&layout, &name)
+            .unwrap()
+            .expect("migration must succeed");
+
+        // Core structure preserved.
+        assert_eq!(migrated.graph.workstreams.len(), 2);
+        assert_eq!(migrated.graph.plan_fingerprint, "v1-fp");
+        assert_eq!(migrated.journal.len(), 1);
+
+        // New fields get sensible defaults.
+        assert_eq!(migrated.status, ExecutionStatus::Pending);
+        assert_eq!(migrated.next_event_seq, 1);
+        assert!(migrated.blocked_by.is_none());
+        assert!(migrated.sessions.is_empty());
+
+        // Workstream statuses computed from depends_on.
+        assert_eq!(
+            migrated.graph.workstreams[0].status,
+            WorkstreamStatus::Active
+        );
+        assert_eq!(
+            migrated.graph.workstreams[1].status,
+            WorkstreamStatus::Waiting
+        );
+
+        // provider / agent default to None (hall default path).
+        for ws in &migrated.graph.workstreams {
+            assert!(ws.provider.is_none());
+            assert!(ws.agent.is_none());
+        }
+
+        // File persisted as v2 on disk.
+        let text = fs::read_text(&layout.execution_dir(&name).join("board.json"))
+            .unwrap()
+            .unwrap();
+        assert!(
+            text.contains("\"version\": 2"),
+            "disk must hold v2 after migration: {text}"
+        );
     }
 }
