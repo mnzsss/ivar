@@ -25,16 +25,6 @@
 //! serves an operation is this module's decision to change, and a caller that
 //! named `exec::clone_bare` directly would freeze it.
 //!
-//! # What this slice does not do yet
-//!
-//! [`Git::clone_bare`] clones the URL it is given, once. The predecessor tried
-//! SSH first and fell back to HTTPS authenticated through the `gh` credential
-//! helper, which is a real convenience for private GitHub repos. That fallback
-//! needs `infra::github` and `git::credential`, neither of which exists yet —
-//! it is deferred with the cost named, not forgotten. A private repo that the
-//! user's own git is not already configured for fails here with git's own
-//! message, which is at least the message they can act on.
-//!
 //! # Layering
 //!
 //! `git` may import `infra` and `error`. Not `domain` — so branch and repo
