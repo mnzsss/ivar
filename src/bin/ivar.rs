@@ -26,7 +26,10 @@ use ivar::action::Ctx;
 use ivar::action::execute::{
     ack as execute_ack, prepare, reconcile as execute_reconcile, replan as execute_replan,
 };
-use ivar::action::feature::{create, deliver, demote, list as feature_list, promote, status, view};
+use ivar::action::feature::{
+    close, create, delete, deliver, demote, list as feature_list, promote, rebase, review, status,
+    view,
+};
 use ivar::action::hall::{self, InitInput};
 use ivar::action::plan::approve::{self as plan_approve};
 use ivar::action::plan::{create as plan_create, list as plan_list, show as plan_show};
@@ -221,6 +224,36 @@ fn main() -> ExitCode {
                         fingerprint: args.fingerprint,
                     },
                 ),
+                json,
+                &mut stdout,
+                &mut stderr,
+            ),
+            FeatureCommand::Close(args) => respond(
+                close::close(
+                    &ctx,
+                    close::CloseInput {
+                        name: args.name,
+                        outcome: args.outcome,
+                    },
+                ),
+                json,
+                &mut stdout,
+                &mut stderr,
+            ),
+            FeatureCommand::Delete(args) => respond(
+                delete::delete(&ctx, delete::DeleteInput { name: args.name }),
+                json,
+                &mut stdout,
+                &mut stderr,
+            ),
+            FeatureCommand::Rebase(args) => respond(
+                rebase::rebase(&ctx, rebase::RebaseInput { name: args.name }),
+                json,
+                &mut stdout,
+                &mut stderr,
+            ),
+            FeatureCommand::Review(args) => respond(
+                review::review(&ctx, review::ReviewInput { name: args.name }),
                 json,
                 &mut stdout,
                 &mut stderr,

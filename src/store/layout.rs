@@ -199,6 +199,23 @@ impl Layout {
             .join(session.as_str())
     }
 
+    /// `<hall>/.ivar/features/<feature>/sessions/` — every feature-session
+    /// view dir. `feature close` removes the whole tree to stop a feature's
+    /// live sessions in one step.
+    #[must_use]
+    pub fn feature_sessions_dir(&self, feature: &FeatureName) -> Utf8PathBuf {
+        self.feature_dir(feature).join("sessions")
+    }
+
+    /// `<hall>/<feature>.code-workspace` — the VSCode workspace `feature
+    /// review` writes. Lives at the hall root, next to the worktrees it opens,
+    /// so the relative folder paths inside it resolve against this file.
+    #[must_use]
+    pub fn workspace_file(&self, feature: &FeatureName) -> Utf8PathBuf {
+        self.root
+            .join(format!("{}.code-workspace", feature.as_str()))
+    }
+
     /// `<hall>/.ivar/sessions/<id>/` — a discovery-session view dir.
     #[must_use]
     pub fn discovery_session(&self, session: &SessionId) -> Utf8PathBuf {
@@ -518,6 +535,14 @@ mod tests {
             Utf8PathBuf::from(
                 "/hall/.ivar/features/checkout/sessions/2c6e6f1e-2d8a-4b3a-9c2a-6a7f6f9a1b2c"
             )
+        );
+        assert_eq!(
+            layout.feature_sessions_dir(&feature),
+            Utf8PathBuf::from("/hall/.ivar/features/checkout/sessions")
+        );
+        assert_eq!(
+            layout.workspace_file(&feature),
+            Utf8PathBuf::from("/hall/checkout.code-workspace")
         );
         assert_eq!(
             layout.discovery_session(&session),

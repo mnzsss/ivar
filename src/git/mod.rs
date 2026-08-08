@@ -197,6 +197,18 @@ pub trait Git {
     /// `to` is a full ref (`refs/heads/<name>`); `remote` is the URL, so the
     /// push goes exactly where the preview said it would.
     fn push(&self, git_dir: &Utf8Path, remote: &str, from: &str, to: &str) -> Result<(), Error>;
+
+    /// `git -C <worktree> rebase <branch>` — replay the worktree's branch on
+    /// top of `<branch>`.
+    ///
+    /// A conflict (or any refusal) is [`Error::Refused`] carrying git's own
+    /// stderr; the caller runs [`Self::abort_rebase`] and reports the repo as
+    /// conflicted rather than aborting the batch.
+    fn rebase_branch(&self, worktree: &Utf8Path, branch: &str) -> Result<(), Error>;
+
+    /// `git -C <worktree> rebase --abort` — abandon an in-progress rebase and
+    /// restore the branch to where it was before it started.
+    fn abort_rebase(&self, worktree: &Utf8Path) -> Result<(), Error>;
 }
 
 /// The production [`Git`]: `git2` for reads, the `git` binary for mutations.
@@ -276,6 +288,14 @@ impl Git for System {
 
     fn push(&self, git_dir: &Utf8Path, remote: &str, from: &str, to: &str) -> Result<(), Error> {
         exec::push(git_dir, remote, from, to)
+    }
+
+    fn rebase_branch(&self, worktree: &Utf8Path, branch: &str) -> Result<(), Error> {
+        exec::rebase_branch(worktree, branch)
+    }
+
+    fn abort_rebase(&self, worktree: &Utf8Path) -> Result<(), Error> {
+        exec::abort_rebase(worktree)
     }
 }
 

@@ -148,6 +148,21 @@ pub enum FeatureCommand {
     /// side-effect-free summary (with its fingerprint) and pushes nothing;
     /// applying with `--fingerprint` is refused if the state has drifted.
     Deliver(FeatureDeliverArgs),
+    /// Close a feature: stop its executor sessions, remove its execution
+    /// state, and record the outcome on plan.md's frontmatter. Idempotent —
+    /// closing an already-closed feature is a no-op.
+    Close(FeatureCloseArgs),
+    /// Delete a feature: its worktrees, its directory under `.ivar/`, and its
+    /// plans. Refuses if anything under the feature directory is not
+    /// removable, and preserves the feature record for retry if a teardown
+    /// step fails.
+    Delete(FeatureDeleteArgs),
+    /// Rebase every promoted repo's worktree onto its default branch. A dirty
+    /// worktree is skipped; a conflict is aborted and reported.
+    Rebase(FeatureRebaseArgs),
+    /// Write a VSCode workspace opening the feature: promoted repos on the
+    /// feature branch, everyone else on their default branch.
+    Review(FeatureReviewArgs),
     /// Open an interactive multi-shell view over the feature's promoted
     /// repos — one shell per repo, each running in its worktree.
     View {
@@ -263,6 +278,37 @@ pub struct FeatureDeliverArgs {
     /// the state has drifted since the preview.
     #[arg(long)]
     pub fingerprint: Option<String>,
+}
+
+/// Arguments for `ivar feature close`.
+#[derive(Debug, Args)]
+pub struct FeatureCloseArgs {
+    /// The feature to close.
+    pub name: String,
+    /// How the feature ended: `delivered` or `abandoned`.
+    #[arg(long)]
+    pub outcome: String,
+}
+
+/// Arguments for `ivar feature delete`.
+#[derive(Debug, Args)]
+pub struct FeatureDeleteArgs {
+    /// The feature to delete.
+    pub name: String,
+}
+
+/// Arguments for `ivar feature rebase`.
+#[derive(Debug, Args)]
+pub struct FeatureRebaseArgs {
+    /// The feature to rebase.
+    pub name: String,
+}
+
+/// Arguments for `ivar feature review`.
+#[derive(Debug, Args)]
+pub struct FeatureReviewArgs {
+    /// The feature to open.
+    pub name: String,
 }
 
 /// The `ivar session` surface.

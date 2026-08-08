@@ -274,6 +274,28 @@ pub(crate) fn push(git_dir: &Utf8Path, remote: &str, from: &str, to: &str) -> Re
     Ok(())
 }
 
+/// `git -C <worktree> rebase <branch>` — replay the worktree's checked-out
+/// branch on top of `<branch>`.
+///
+/// A conflict stops the rebase and exits non-zero — [`run`] turns that into
+/// [`Error::Refused`] with git's own stderr — and leaves the worktree in the
+/// middle of the rebase. The caller decides what that means (abort and move
+/// on, in `feature rebase`'s case); this function's job ends at reporting.
+pub(crate) fn rebase_branch(worktree: &Utf8Path, branch: &str) -> Result<(), Error> {
+    run(git().cwd(worktree).arg("rebase").arg(branch))?;
+    Ok(())
+}
+
+/// `git -C <worktree> rebase --abort` — abandon an in-progress rebase and
+/// restore the branch to where it was before it started.
+///
+/// Refuses (non-zero) when no rebase is in progress — "no rebase in progress"
+/// is git's own answer, surfaced as [`Error::Refused`].
+pub(crate) fn abort_rebase(worktree: &Utf8Path) -> Result<(), Error> {
+    run(git().cwd(worktree).arg("rebase").arg("--abort"))?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(
