@@ -1,4 +1,4 @@
-//! `ivar feature deliver` — preview, then push, a feature's promoted repos.
+//! `ivar feature deliver` — preview, then push + PR, a feature's promoted repos.
 //!
 //! The valhalla definition this ports: **Delivery Preview** — "a
 //! side-effect-free summary of the pending delivery actions generated before
@@ -22,26 +22,31 @@
 //! matching fingerprint opens the push, which then runs **best-effort per
 //! repo**: a failed push is a [`Warning`], never an abort of the batch.
 //!
-//! # What is deliberately not here
+//! # Pull requests
 //!
-//! No pull requests. `ivar` is serverless — there is no PR surface — so every
-//! repo's action is [`DeliveryAction::PushOnly`] and the push is a plain
-//! `git push` of the feature branch to the repo's manifest URL. The
-//! `dependencies` ordering machinery exists ([`order_by_dependencies`]) but
-//! the ivar feature model declares no cross-repo dependencies, so every list
-//! is empty and the order is name order.
+//! After all repos are pushed, `deliver` creates pull requests for repos whose
+//! action is [`DeliveryAction::NewPr`] or [`DeliveryAction::UpdatePr`]. A PR
+//! that already exists (detected via `gh pr list --head`) is not recreated —
+//! the branch is updated in place.
+//!
+//! Sibling PRs (one per promoted repo) are linked together with a comment on
+//! each PR noting the others — always with "part of" language, never "depends
+//! on". This linking happens in a second pass, after all PR URLs are known.
+//!
+//! One repo's failure to create a PR becomes a [`Warning`], not a batch abort.
 
 use std::collections::BTreeMap;
 use std::io;
 
 use camino::{Utf8Path, Utf8PathBuf};
+use serde::Deserialize;
 use serde::Serialize;
 
 use crate::domain::feature::{DeliveryAction, DeliveryPreview, DeliveryRepo, Feature};
-use crate::domain::name::{FeatureName, RepoName};
+use crate::domain::name::{BranchName, FeatureName, RepoName};
 use crate::error::{Failure, FixAction, Outcome, Report, Warning, WriteHuman};
 use crate::git::{self, TargetState};
-use crate::infra::{hash, json};
+use crate::infra::{hash, json, proc};
 use crate::store::layout::Layout;
 use crate::store::manifest::Manifest;
 
@@ -165,7 +170,7 @@ pub fn deliver(ctx: &Ctx, input: DeliverInput) -> Outcome<DeliverOutcome> {
     order_by_dependencies(&mut repos);
     let fingerprint = fingerprint_for(&feature_name, &repos)?;
 
-    let preview = DeliveryPreview {
+    let mut preview = DeliveryPreview {
         feature: feature_name.clone(),
         repos,
         fingerprint,
@@ -204,6 +209,8 @@ pub fn deliver(ctx: &Ctx, input: DeliverInput) -> Outcome<DeliverOutcome> {
 
     let mut pushes = Vec::new();
     let mut warnings = Vec::new();
+
+    // -- Phase 1: push every repo best-effort ---------------------------------
     for repo in &preview.repos {
         let bare = layout.repo_bare(&repo.repo);
         match push_repo(&git, &bare, repo) {
@@ -226,6 +233,48 @@ pub fn deliver(ctx: &Ctx, input: DeliverInput) -> Outcome<DeliverOutcome> {
                 });
             }
         }
+    }
+
+    // -- Phase 2: create PRs for repos that need them -------------------------
+    let mut pr_url_map: BTreeMap<RepoName, String> = BTreeMap::new();
+    let mut pr_results: Vec<(RepoName, Result<String, Failure>)> = Vec::new();
+    for repo in &preview.repos {
+        if repo.action == DeliveryAction::PushOnly {
+            continue;
+        }
+
+        let bare = layout.repo_bare(&repo.repo);
+        let result = create_pr(&bare, &repo.local_branch, &repo.base_branch, &feature_name);
+        pr_results.push((repo.repo.clone(), result));
+    }
+
+    for (repo_name, result) in pr_results {
+        match result {
+            Ok(url) => {
+                pr_url_map.insert(repo_name.clone(), url);
+            }
+            Err(failure) => {
+                let detail = failure.what.clone();
+                warnings.push(Warning::new(
+                    "deliver.pr_create_failed",
+                    repo_name.as_str(),
+                    detail.clone(),
+                ));
+            }
+        }
+    }
+
+    // Record PR URLs on the preview repos so they round-trip through JSON.
+    for repo in &mut preview.repos {
+        if let Some(url) = pr_url_map.remove(&repo.repo) {
+            repo.pr_url = Some(url);
+        }
+    }
+
+    // -- Phase 3: link sibling PRs (second pass — URLs only known after phase 2)
+    let pr_urls: Vec<String> = pr_url_map.values().cloned().collect();
+    if !pr_urls.is_empty() {
+        link_sibling_prs(&pr_urls);
     }
 
     Ok(Report::with_warnings(
@@ -360,15 +409,29 @@ fn build_repos(
             blockers.push("worktree has uncommitted changes".to_owned());
         }
 
+        // Predict the delivery action: only GitHub remotes get a PR. A repo
+        // on any other host (a local path, a mirror, GitLab) is push-only —
+        // `gh` cannot raise a PR there. For GitHub, check the remote: if an
+        // open PR already exists for this branch we update it, otherwise we
+        // create one.
+        let action = if !crate::infra::github::is_github_https(declared.url()) {
+            DeliveryAction::PushOnly
+        } else if has_existing_pr(&bare, feature.branch.as_str()).unwrap_or(false) {
+            DeliveryAction::UpdatePr
+        } else {
+            DeliveryAction::NewPr
+        };
+
         repos.push(DeliveryRepo {
             repo: repo_name.clone(),
             local_branch: feature.branch.clone(),
             remote: declared.url().to_owned(),
             push_refspec: format!("{}:refs/heads/{}", feature.branch, feature.branch),
-            action: DeliveryAction::PushOnly,
+            action,
             base_branch: declared.default_branch().clone(),
             dependencies: Vec::new(),
             blockers,
+            pr_url: None,
         });
     }
 
@@ -463,6 +526,121 @@ fn order_by_dependencies(repos: &mut Vec<DeliveryRepo>) {
     }
 
     *repos = ordered;
+}
+
+/// Whether a pull request already exists for `branch` on the remote at `url`.
+///
+/// Runs `gh pr list --head <branch> --state open --json url` and checks whether
+/// any entry is returned. A non-zero exit or spawn failure means no PR — the
+/// branch simply hasn't been promoted through GitHub yet.
+fn has_existing_pr(git_dir: &Utf8Path, branch: &str) -> Result<bool, Failure> {
+    let output = proc::capture(
+        &proc::Command::new("gh")
+            .args([
+                "pr", "list", "--head", branch, "--state", "open", "--json", "url",
+            ])
+            .cwd(git_dir),
+    );
+
+    let output = match output {
+        Ok(o) if o.success() => o.stdout,
+        _ => return Ok(false),
+    };
+
+    // The `url` field is incidental — only the presence of an entry matters.
+    let entries: Vec<serde_json::Value> = serde_json::from_str(&output).unwrap_or_default();
+    Ok(!entries.is_empty())
+}
+
+/// Create a pull request for the feature branch via `gh pr create`.
+///
+/// Returns the PR URL when successful. Uses the repo's manifest URL as the
+/// base (the default branch), and the feature branch as the head. The body
+/// carries the feature name so the PR is traceable back to its parent.
+fn create_pr(
+    git_dir: &Utf8Path,
+    branch: &BranchName,
+    base_branch: &BranchName,
+    feature_name: &FeatureName,
+) -> Result<String, Failure> {
+    let output = proc::capture(
+        &proc::Command::new("gh")
+            .args([
+                "pr",
+                "create",
+                "--base",
+                base_branch.as_str(),
+                "--head",
+                branch.as_str(),
+                "--title",
+                &format!("{feature_name}"),
+                "--body",
+                &format!("Part of feature `{feature_name}`."),
+                "--json",
+                "url",
+            ])
+            .cwd(git_dir),
+    )?;
+
+    if !output.success() {
+        return Err(Failure::failed(
+            "deliver.pr_create_failed",
+            format!("could not create PR for `{branch}`"),
+        )
+        .expected("gh to be authenticated and the branch to exist on the remote")
+        .actual(output.diagnostic())
+        .fix(FixAction::safe(
+            "deliver.check_auth",
+            "Ensure `gh auth status` is OK and the branch was pushed.",
+        )));
+    }
+
+    #[derive(Debug, Clone, Deserialize)]
+    struct GhCreateOutput {
+        url: String,
+    }
+
+    let parsed: GhCreateOutput = serde_json::from_str(&output.stdout).map_err(|e| {
+        Failure::failed(
+            "deliver.pr_parse_failed",
+            format!("could not parse gh pr create output: {e}"),
+        )
+        .expected("a JSON object with a `url` field")
+        .actual(output.stdout.clone())
+    })?;
+
+    Ok(parsed.url)
+}
+
+/// Add a comment to each PR linking it to its siblings.
+///
+/// Every sibling PR gets a comment noting the other PRs in the batch — always
+/// with "part of" language, never "depends on". The comment uses the header
+/// `## Sibling PRs:` so repeated runs do not duplicate content.
+fn link_sibling_prs(pr_urls: &[String]) {
+    for (i, url) in pr_urls.iter().enumerate() {
+        let others: Vec<&str> = pr_urls
+            .iter()
+            .enumerate()
+            .filter(|&(j, _)| j != i)
+            .map(|(_, u)| u.as_str())
+            .collect();
+
+        if others.is_empty() {
+            continue;
+        }
+
+        let mut body =
+            String::from("## Sibling PRs:\n\nThis PR is part of feature delivery alongside:\n\n");
+        for other in &others {
+            body.push_str("- ");
+            body.push_str(other);
+            body.push('\n');
+        }
+
+        let _ =
+            proc::capture(&proc::Command::new("gh").args(["pr", "comment", url, "--body", &body]));
+    }
 }
 
 #[cfg(test)]
@@ -838,6 +1016,7 @@ mod tests {
                 .map(|dep| RepoName::new(dep).unwrap())
                 .collect(),
             blockers: Vec::new(),
+            pr_url: None,
         }
     }
 
