@@ -1052,7 +1052,11 @@ mod tests {
         init(&ctx, fresh_input()).unwrap();
 
         let content = fs::read_text(&root.join(".gitignore")).unwrap().unwrap();
-        assert_eq!(content, ".ivar/*\n!.ivar/skills/\n!.ivar/setups/\n");
+        assert_eq!(
+            content,
+            ".ivar/*\n!.ivar/skills/\n!.ivar/setups/\n\
+             .claude/commands/ivar-*.md\n.opencode/commands/ivar-*.md\n"
+        );
         assert!(!content.lines().any(|line| line == ".ivar/"));
     }
 

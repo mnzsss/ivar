@@ -48,7 +48,7 @@
 //!   `execution_dir(&FeatureName)`,
 //!   `feature_session(&FeatureName, &SessionId)`, `discovery_session(&SessionId)`,
 //!   `setup_script(&RepoName)`, `hall_skills()`, `plan_dir(&FeatureName)`,
-//!   `harness_dir(&Provider)`.
+//!   `harness_dir(&Provider)`, `commands_dir(&Provider)`.
 //! - `gitignore_lines()` — the exact patterns the hall's `.gitignore` needs.
 //!
 //! # The gitignore trap
@@ -58,6 +58,11 @@
 //! followed by negations silently drops the hall's committed children from
 //! version control. Silently. Put a test on this; the failure mode is invisible
 //! until a teammate clones and the skills (or the setup scripts) are not there.
+//!
+//! Two further lines — `.claude/commands/ivar-*.md` and
+//! `.opencode/commands/ivar-*.md` — keep the shipped workflow commands `ivar`
+//! materialises out of the hall's git history. They match only the reserved
+//! `ivar-*` prefix, so a user's own commands remain committable.
 //!
 //! `docs/reference/on-disk-format.md` marks *two* children of `.ivar/` committed —
 //! `skills/` and `setups/` — and `ARCHITECTURE.md`'s environment-contract section
@@ -274,6 +279,20 @@ impl Layout {
         self.root().join(provider.config_dir())
     }
 
+    /// `<hall>/.claude/commands/` or `<hall>/.opencode/commands/` — the
+    /// provider-native directory holding project workflow commands. Lives at
+    /// the hall root, next to the rest of the harness's config.
+    ///
+    /// `ivar` owns only files matching `ivar-*.md` inside it; every other
+    /// file belongs to the user and must survive every operation. The
+    /// subdirectory comes from [`Provider::commands_dir`] for the same reason
+    /// [`Self::harness_dir`] uses `config_dir` — the mapping is not the
+    /// identity function.
+    #[must_use]
+    pub fn commands_dir(&self, provider: &Provider) -> Utf8PathBuf {
+        self.root().join(provider.commands_dir())
+    }
+
     /// `<hall>/CLAUDE.md` or `<hall>/AGENTS.md` — the Markdown file this
     /// harness reads for standing instructions, and where `ivar sync` keeps its
     /// managed block.
@@ -349,9 +368,20 @@ impl Layout {
     /// to be committed. This only works because the exclusion is `.ivar/*` and
     /// not `.ivar/` — see the module doc comment's "gitignore trap" section for
     /// why the whole-directory form silently breaks the negations.
+    ///
+    /// The last two lines ignore exactly the shipped workflow command files
+    /// `ivar` materialises into each provider's command directory. They are
+    /// narrow on purpose — `.claude/commands/ivar-*.md`, never
+    /// `.claude/commands/` — so a user's own commands stay committable.
     #[must_use]
     pub fn gitignore_lines() -> Vec<&'static str> {
-        vec![".ivar/*", "!.ivar/skills/", "!.ivar/setups/"]
+        vec![
+            ".ivar/*",
+            "!.ivar/skills/",
+            "!.ivar/setups/",
+            ".claude/commands/ivar-*.md",
+            ".opencode/commands/ivar-*.md",
+        ]
     }
 
     /// `<hall>/.gitignore` — where [`Self::gitignore_lines`] belong.
@@ -511,7 +541,46 @@ mod tests {
     fn gitignore_lines_excludes_the_dotdir_per_entry_and_reincludes_committed_children() {
         assert_eq!(
             Layout::gitignore_lines(),
-            vec![".ivar/*", "!.ivar/skills/", "!.ivar/setups/"]
+            vec![
+                ".ivar/*",
+                "!.ivar/skills/",
+                "!.ivar/setups/",
+                ".claude/commands/ivar-*.md",
+                ".opencode/commands/ivar-*.md",
+            ]
+        );
+    }
+
+    /// The ignore contract for generated commands: only files matching the
+    /// reserved `ivar-*` prefix are ignored, never the command directory as a
+    /// whole — a user's own commands must stay committable.
+    #[test]
+    fn gitignore_lines_ignore_only_ivar_shipped_commands() {
+        assert_eq!(
+            Layout::gitignore_lines(),
+            vec![
+                ".ivar/*",
+                "!.ivar/skills/",
+                "!.ivar/setups/",
+                ".claude/commands/ivar-*.md",
+                ".opencode/commands/ivar-*.md",
+            ]
+        );
+    }
+
+    /// Each provider's project workflow commands live in that provider's
+    /// native location, not under `.ivar/` — they are derived state for the
+    /// harness, exactly like the managed block and MCP config.
+    #[test]
+    fn command_dirs_use_each_providers_native_location() {
+        let layout = Layout::at(Utf8PathBuf::from("/hall"));
+        assert_eq!(
+            layout.commands_dir(&Provider::ClaudeCode),
+            Utf8PathBuf::from("/hall/.claude/commands")
+        );
+        assert_eq!(
+            layout.commands_dir(&Provider::OpenCode),
+            Utf8PathBuf::from("/hall/.opencode/commands")
         );
     }
 
@@ -620,6 +689,10 @@ mod tests {
         assert_eq!(
             layout.harness_dir(&Provider::ClaudeCode),
             Utf8PathBuf::from("/hall/.claude")
+        );
+        assert_eq!(
+            layout.commands_dir(&Provider::ClaudeCode),
+            Utf8PathBuf::from("/hall/.claude/commands")
         );
     }
 
