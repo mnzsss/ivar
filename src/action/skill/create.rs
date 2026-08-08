@@ -123,8 +123,8 @@ mod tests {
         assert!(report.is_clean());
         let source = fs::read_text(&report.value.skill_file).unwrap().unwrap();
         let meta: serde_json::Value = frontmatter::parse::<serde_json::Value>(&source).unwrap();
-        assert_eq!(meta["name"], "refactor");
-        assert_eq!(meta["description"], "Safely restructure code");
+        assert_eq!(meta.get("name").unwrap(), "refactor");
+        assert_eq!(meta.get("description").unwrap(), "Safely restructure code");
     }
 
     #[test]

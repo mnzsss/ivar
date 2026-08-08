@@ -163,7 +163,7 @@ pub fn delete(ctx: &Ctx, input: DeleteInput) -> Outcome<DeleteOutcome> {
     let mut warnings = Vec::new();
     let mut worktrees = Vec::new();
     let mut all_worktrees_removed = true;
-    for (repo, _promotion) in &feature.promotions {
+    for repo in feature.promotions.keys() {
         let worktree = layout.repo_worktree(repo, &feature.branch);
         if !fs::is_dir(&worktree)? {
             // Nothing materialised — nothing to remove.

@@ -122,7 +122,7 @@ pub fn rebase(ctx: &Ctx, input: RebaseInput) -> Outcome<RebaseOutcome> {
 
     let mut repos = Vec::new();
     let mut warnings = Vec::new();
-    for (repo_name, _promotion) in &feature.promotions {
+    for repo_name in feature.promotions.keys() {
         let worktree = layout.repo_worktree(repo_name, &feature.branch);
         let default_branch = manifest
             .repos()
@@ -158,20 +158,17 @@ pub fn rebase(ctx: &Ctx, input: RebaseInput) -> Outcome<RebaseOutcome> {
 
         // Rebase over uncommitted work is how it gets lost — a dirty worktree
         // is skipped, never rebased around.
-        match git.worktree_dirty(&worktree)? {
-            true => {
-                repos.push(RepoRebase {
-                    repo: repo_name.clone(),
-                    status: RebaseStatus::Skipped,
-                });
-                warnings.push(Warning::new(
-                    "rebase.dirty",
-                    repo_name.as_str(),
-                    "worktree has uncommitted changes; commit or stash them first",
-                ));
-                continue;
-            }
-            false => {}
+        if git.worktree_dirty(&worktree)? {
+            repos.push(RepoRebase {
+                repo: repo_name.clone(),
+                status: RebaseStatus::Skipped,
+            });
+            warnings.push(Warning::new(
+                "rebase.dirty",
+                repo_name.as_str(),
+                "worktree has uncommitted changes; commit or stash them first",
+            ));
+            continue;
         }
 
         match git.rebase_branch(&worktree, &default_branch) {
