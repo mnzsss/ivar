@@ -141,8 +141,9 @@ pub enum FeatureCommand {
     Demote(FeatureDemoteArgs),
     /// Show one feature in detail: every promoted repo and its state.
     Status(FeatureStatusArgs),
-    /// Prepare a feature's execution board from its plan and execution graph.
-    Execute(FeatureExecuteArgs),
+    /// Operate on a feature's execution board.
+    #[command(subcommand)]
+    Execute(ExecuteCommand),
     /// Preview, then push, a feature's promoted repos. `--preview` prints the
     /// side-effect-free summary (with its fingerprint) and pushes nothing;
     /// applying with `--fingerprint` is refused if the state has drifted.
@@ -187,7 +188,7 @@ pub struct FeatureStatusArgs {
     pub feature: String,
 }
 
-/// Arguments for `ivar feature execute`.
+/// Arguments for `ivar feature execute prepare`.
 #[derive(Debug, Args)]
 pub struct FeatureExecuteArgs {
     /// The feature to prepare an execution board for.
@@ -196,6 +197,57 @@ pub struct FeatureExecuteArgs {
     /// `id`/`title`/`operations`/`depends_on`/`write_contract`.
     #[arg(long)]
     pub graph_json: String,
+}
+
+/// The `ivar feature execute` surface: verbs that create or advance a
+/// feature's execution board.
+#[derive(Debug, Subcommand)]
+pub enum ExecuteCommand {
+    /// Prepare a feature's execution board from its plan and execution graph.
+    Prepare(FeatureExecuteArgs),
+    /// Fold a revised plan into the board: advance the plan fingerprint and
+    /// pause every workstream whose Operations changed until it acknowledges
+    /// the new revision.
+    Replan(ExecuteReplanArgs),
+    /// Acknowledge a plan revision for one paused workstream, unpausing it.
+    /// The board resumes once every paused workstream has acknowledged.
+    AckRevision(ExecuteAckArgs),
+    /// Record a workstream's code divergence in the board's journal. The plan
+    /// is never rewritten.
+    Reconcile(ExecuteReconcileArgs),
+}
+
+/// Arguments for `ivar feature execute replan`.
+#[derive(Debug, Args)]
+pub struct ExecuteReplanArgs {
+    /// The feature whose board is replanned.
+    pub feature: String,
+    /// Path to the revised plan.md — the new revision to fold in.
+    #[arg(long)]
+    pub plan: String,
+}
+
+/// Arguments for `ivar feature execute ack-revision`.
+#[derive(Debug, Args)]
+pub struct ExecuteAckArgs {
+    /// The feature whose board holds the paused workstream.
+    pub feature: String,
+    /// The paused workstream's id.
+    #[arg(long)]
+    pub workstream: String,
+}
+
+/// Arguments for `ivar feature execute reconcile`.
+#[derive(Debug, Args)]
+pub struct ExecuteReconcileArgs {
+    /// The feature whose board records the divergence.
+    pub feature: String,
+    /// The workstream the divergence belongs to.
+    #[arg(long)]
+    pub workstream: String,
+    /// The executor's own description of what changed and why.
+    #[arg(long)]
+    pub description: String,
 }
 
 /// Arguments for `ivar feature deliver`.

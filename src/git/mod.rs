@@ -175,6 +175,12 @@ pub trait Git {
     /// untracked. Empty `git status --porcelain` output means clean.
     fn worktree_dirty(&self, path: &Utf8Path) -> Result<bool, Error>;
 
+    /// The worktree at `path`'s uncommitted divergence from its last commit —
+    /// `git diff HEAD`, staged and unstaged, tracked files only. Empty when
+    /// the worktree is clean; untracked files are invisible to `git diff` by
+    /// design.
+    fn diff_worktree(&self, path: &Utf8Path) -> Result<String, Error>;
+
     /// How many commits `branch` has that `base` does not, in the repository
     /// at `git_dir` — `git rev-list --count <base>..<branch>`.
     fn commits_ahead(&self, git_dir: &Utf8Path, base: &str, branch: &str) -> Result<u64, Error>;
@@ -254,6 +260,10 @@ impl Git for System {
 
     fn worktree_dirty(&self, path: &Utf8Path) -> Result<bool, Error> {
         exec::worktree_dirty(path)
+    }
+
+    fn diff_worktree(&self, path: &Utf8Path) -> Result<String, Error> {
+        exec::diff_worktree(path)
     }
 
     fn commits_ahead(&self, git_dir: &Utf8Path, base: &str, branch: &str) -> Result<u64, Error> {

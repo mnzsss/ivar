@@ -676,6 +676,11 @@ pub enum WorkstreamStatus {
     Active,
     /// Every operation finished.
     Done,
+    /// Halted by a plan revision: the plan's Operations for this workstream
+    /// changed, so it stays here until a human acknowledges the new revision
+    /// (`feature execute replan` pauses; `feature execute ack-revision`
+    /// unpauses).
+    Paused,
 }
 
 impl fmt::Display for WorkstreamStatus {
@@ -684,6 +689,7 @@ impl fmt::Display for WorkstreamStatus {
             Self::Waiting => "waiting",
             Self::Active => "active",
             Self::Done => "done",
+            Self::Paused => "paused",
         };
         f.pad(name)
     }
@@ -1167,6 +1173,10 @@ mod tests {
             serde_json::to_value(WorkstreamStatus::Waiting).unwrap(),
             serde_json::json!("waiting")
         );
+        assert_eq!(
+            serde_json::to_value(WorkstreamStatus::Paused).unwrap(),
+            serde_json::json!("paused")
+        );
         assert_eq!(ExecutionStatus::Pending.to_string(), "pending");
         assert_eq!(ExecutionStatus::Running.to_string(), "running");
         assert_eq!(ExecutionStatus::Paused.to_string(), "paused");
@@ -1175,5 +1185,6 @@ mod tests {
         assert_eq!(WorkstreamStatus::Waiting.to_string(), "waiting");
         assert_eq!(WorkstreamStatus::Active.to_string(), "active");
         assert_eq!(WorkstreamStatus::Done.to_string(), "done");
+        assert_eq!(WorkstreamStatus::Paused.to_string(), "paused");
     }
 }

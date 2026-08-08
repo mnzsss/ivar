@@ -198,6 +198,25 @@ pub(crate) fn worktree_dirty(path: &Utf8Path) -> Result<bool, Error> {
     Ok(!output.stdout.is_empty())
 }
 
+/// `git -C <worktree> diff HEAD` — the worktree's uncommitted divergence from
+/// its last commit, staged and unstaged.
+///
+/// Empty when the worktree is clean. Untracked files are invisible to
+/// `git diff` by design, so "clean" means "no tracked content diverged" — the
+/// caller (reconcile) wants the code divergence an executor left uncommitted,
+/// which is always a tracked edit.
+pub(crate) fn diff_worktree(path: &Utf8Path) -> Result<String, Error> {
+    let command = git().cwd(path).arg("diff").arg("HEAD");
+    let output = proc::capture(&command)?;
+    if !output.success() {
+        return Err(Error::Refused {
+            command: command.display(),
+            detail: output.diagnostic(),
+        });
+    }
+    Ok(output.stdout)
+}
+
 /// `git --git-dir <git_dir> rev-list --count <base>..<branch>` — how many
 /// commits `branch` carries beyond `base`.
 ///

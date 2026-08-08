@@ -23,10 +23,10 @@ use clap::Parser;
 use serde::Serialize;
 
 use ivar::action::Ctx;
-use ivar::action::execute::prepare;
-use ivar::action::feature::{
-    create, deliver, demote, list as feature_list, promote, status, view,
+use ivar::action::execute::{
+    ack as execute_ack, prepare, reconcile as execute_reconcile, replan as execute_replan,
 };
+use ivar::action::feature::{create, deliver, demote, list as feature_list, promote, status, view};
 use ivar::action::hall::{self, InitInput};
 use ivar::action::plan::approve::{self as plan_approve};
 use ivar::action::plan::{create as plan_create, list as plan_list, show as plan_show};
@@ -38,8 +38,8 @@ use ivar::action::session::{
 use ivar::action::skill::{create as skill_create, list as skill_list};
 use ivar::action::sync::{self, SyncInput};
 use ivar::cli::root::{
-    Cli, Command, FeatureCommand, PlanCommand, ProviderCommand, RepoCommand, SessionCommand,
-    SkillCommand,
+    Cli, Command, ExecuteCommand, FeatureCommand, PlanCommand, ProviderCommand, RepoCommand,
+    SessionCommand, SkillCommand,
 };
 use ivar::error::{Failure, Outcome, Report, WriteHuman};
 use ivar::infra::term;
@@ -161,18 +161,57 @@ fn main() -> ExitCode {
                 &mut stdout,
                 &mut stderr,
             ),
-            FeatureCommand::Execute(args) => respond(
-                prepare::prepare(
-                    &ctx,
-                    prepare::PrepareInput {
-                        feature: args.feature,
-                        graph_json: args.graph_json,
-                    },
+            FeatureCommand::Execute(cmd) => match cmd {
+                ExecuteCommand::Prepare(args) => respond(
+                    prepare::prepare(
+                        &ctx,
+                        prepare::PrepareInput {
+                            feature: args.feature,
+                            graph_json: args.graph_json,
+                        },
+                    ),
+                    json,
+                    &mut stdout,
+                    &mut stderr,
                 ),
-                json,
-                &mut stdout,
-                &mut stderr,
-            ),
+                ExecuteCommand::Replan(args) => respond(
+                    execute_replan::replan(
+                        &ctx,
+                        execute_replan::ReplanInput {
+                            feature: args.feature,
+                            plan: args.plan,
+                        },
+                    ),
+                    json,
+                    &mut stdout,
+                    &mut stderr,
+                ),
+                ExecuteCommand::AckRevision(args) => respond(
+                    execute_ack::ack_revision(
+                        &ctx,
+                        execute_ack::AckInput {
+                            feature: args.feature,
+                            workstream: args.workstream,
+                        },
+                    ),
+                    json,
+                    &mut stdout,
+                    &mut stderr,
+                ),
+                ExecuteCommand::Reconcile(args) => respond(
+                    execute_reconcile::reconcile(
+                        &ctx,
+                        execute_reconcile::ReconcileInput {
+                            feature: args.feature,
+                            workstream: args.workstream,
+                            description: args.description,
+                        },
+                    ),
+                    json,
+                    &mut stdout,
+                    &mut stderr,
+                ),
+            },
             FeatureCommand::Deliver(args) => respond(
                 deliver::deliver(
                     &ctx,
