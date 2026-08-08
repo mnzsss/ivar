@@ -143,8 +143,9 @@ mod tests {
         let report = list(&ctx).unwrap();
 
         assert_eq!(report.value.plans.len(), 1);
-        assert_eq!(report.value.plans[0].feature.as_str(), "checkout");
-        assert_eq!(report.value.plans[0].artifacts.len(), 3);
+        let plan = report.value.plans.first().unwrap();
+        assert_eq!(plan.feature.as_str(), "checkout");
+        assert_eq!(plan.artifacts.len(), 3);
     }
 
     #[test]

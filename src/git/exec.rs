@@ -130,6 +130,172 @@ pub(crate) fn create_branch_and_worktree(
     Ok(())
 }
 
+/// `git -C <worktree> fetch --prune --quiet origin <branch>`.
+///
+/// Runs *inside* the worktree, not against the bare: a bare clone here has no
+/// `remote.origin.fetch` refspec, and fetching straight into the shared
+/// `refs/heads/*` is refused by git while the branch is checked out in a
+/// worktree. A worktree-local fetch lands in `FETCH_HEAD` and moves nothing —
+/// the fast-forward is the separate, deliberate next step.
+pub(crate) fn fetch_branch(worktree: &Utf8Path, branch: &str) -> Result<(), Error> {
+    run(git()
+        .cwd(worktree)
+        .arg("fetch")
+        .arg("--prune")
+        .arg("--quiet")
+        .arg("origin")
+        .arg(branch))?;
+    Ok(())
+}
+
+/// `git -C <worktree> merge --ff-only FETCH_HEAD`.
+///
+/// Advances the worktree's checked-out branch (and its files) to the tip the
+/// preceding [`fetch_branch`] landed in `FETCH_HEAD`. Non-zero when the
+/// branches diverged — "cannot fast-forward" — which the caller reports as
+/// skipped, never as a batch abort.
+pub(crate) fn fast_forward(worktree: &Utf8Path) -> Result<(), Error> {
+    run(git()
+        .cwd(worktree)
+        .arg("merge")
+        .arg("--ff-only")
+        .arg("FETCH_HEAD"))?;
+    Ok(())
+}
+
+/// `git --git-dir <git_dir> worktree remove --force <dest>`.
+///
+/// `--force` because a worktree with uncommitted changes is refused by git
+/// otherwise, and this is only called from a cascade that has decided the
+/// work is being torn down.
+pub(crate) fn remove_worktree(git_dir: &Utf8Path, dest: &Utf8Path) -> Result<(), Error> {
+    run(git()
+        .arg("--git-dir")
+        .arg(git_dir.as_str())
+        .arg("worktree")
+        .arg("remove")
+        .arg("--force")
+        .arg(dest.as_str()))?;
+    Ok(())
+}
+
+/// `git -C <worktree> status --porcelain` — whether the worktree holds
+/// uncommitted changes.
+///
+/// Porcelain output is empty exactly when the worktree is clean, so the
+/// boolean is the non-emptiness of the captured stdout. Untracked files count
+/// as dirty — a push does not carry them, and the preview saying "clean" while
+/// `git status` disagrees would be a lie the human acts on.
+pub(crate) fn worktree_dirty(path: &Utf8Path) -> Result<bool, Error> {
+    let command = git().cwd(path).arg("status").arg("--porcelain");
+    let output = proc::capture(&command)?;
+    if !output.success() {
+        return Err(Error::Refused {
+            command: command.display(),
+            detail: output.diagnostic(),
+        });
+    }
+    Ok(!output.stdout.is_empty())
+}
+
+/// `git -C <worktree> diff HEAD` — the worktree's uncommitted divergence from
+/// its last commit, staged and unstaged.
+///
+/// Empty when the worktree is clean. Untracked files are invisible to
+/// `git diff` by design, so "clean" means "no tracked content diverged" — the
+/// caller (reconcile) wants the code divergence an executor left uncommitted,
+/// which is always a tracked edit.
+pub(crate) fn diff_worktree(path: &Utf8Path) -> Result<String, Error> {
+    let command = git().cwd(path).arg("diff").arg("HEAD");
+    let output = proc::capture(&command)?;
+    if !output.success() {
+        return Err(Error::Refused {
+            command: command.display(),
+            detail: output.diagnostic(),
+        });
+    }
+    Ok(output.stdout)
+}
+
+/// `git --git-dir <git_dir> rev-list --count <base>..<branch>` — how many
+/// commits `branch` carries beyond `base`.
+///
+/// Both must exist; a missing revision is git's refusal, surfaced as
+/// [`Error::Refused`] with git's own sentence.
+pub(crate) fn commits_ahead(git_dir: &Utf8Path, base: &str, branch: &str) -> Result<u64, Error> {
+    let command = git()
+        .arg("--git-dir")
+        .arg(git_dir.as_str())
+        .arg("rev-list")
+        .arg("--count")
+        .arg(format!("{base}..{branch}"));
+    let stdout = run(command)?;
+    let count = stdout.trim().parse::<u64>().map_err(|_| Error::Refused {
+        command: format!("git rev-list --count {base}..{branch}"),
+        detail: format!("expected a commit count, got `{stdout}`"),
+    })?;
+    Ok(count)
+}
+
+/// `git --git-dir <git_dir> rev-parse --abbrev-ref --symbolic-full-name
+/// <branch>@{upstream}` — whether `branch` has an upstream configured.
+///
+/// A non-zero exit *is* the answer here — "no upstream configured for branch
+/// 'x'" is git's refusal, and the most useful sentence about why. That is why
+/// this does not go through [`run`], which turns every refusal into an error:
+/// the caller wants a `bool`. Callers must ensure `git_dir` is a repository
+/// first — a non-repository also exits non-zero, and would be read as "no
+/// upstream".
+pub(crate) fn has_upstream(git_dir: &Utf8Path, branch: &str) -> Result<bool, Error> {
+    let command = git()
+        .arg("--git-dir")
+        .arg(git_dir.as_str())
+        .arg("rev-parse")
+        .arg("--abbrev-ref")
+        .arg("--symbolic-full-name")
+        .arg(format!("{branch}@{{upstream}}"));
+    let output = proc::capture(&command)?;
+    Ok(output.success())
+}
+
+/// `git --git-dir <git_dir> push <remote> <from>:<to>`.
+///
+/// Pushes from the bare clone, which holds every worktree's refs — the feature
+/// branch's tip lives there whether or not a worktree is checked out. `remote`
+/// is the URL from the manifest, so preview and apply agree on what "the
+/// remote" means; `to` is the full ref the branch lands at.
+pub(crate) fn push(git_dir: &Utf8Path, remote: &str, from: &str, to: &str) -> Result<(), Error> {
+    run(git()
+        .arg("--git-dir")
+        .arg(git_dir.as_str())
+        .arg("push")
+        .arg(remote)
+        .arg(format!("{from}:{to}")))?;
+    Ok(())
+}
+
+/// `git -C <worktree> rebase <branch>` — replay the worktree's checked-out
+/// branch on top of `<branch>`.
+///
+/// A conflict stops the rebase and exits non-zero — [`run`] turns that into
+/// [`Error::Refused`] with git's own stderr — and leaves the worktree in the
+/// middle of the rebase. The caller decides what that means (abort and move
+/// on, in `feature rebase`'s case); this function's job ends at reporting.
+pub(crate) fn rebase_branch(worktree: &Utf8Path, branch: &str) -> Result<(), Error> {
+    run(git().cwd(worktree).arg("rebase").arg(branch))?;
+    Ok(())
+}
+
+/// `git -C <worktree> rebase --abort` — abandon an in-progress rebase and
+/// restore the branch to where it was before it started.
+///
+/// Refuses (non-zero) when no rebase is in progress — "no rebase in progress"
+/// is git's own answer, surfaced as [`Error::Refused`].
+pub(crate) fn abort_rebase(worktree: &Utf8Path) -> Result<(), Error> {
+    run(git().cwd(worktree).arg("rebase").arg("--abort"))?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(

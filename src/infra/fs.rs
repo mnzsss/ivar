@@ -63,6 +63,9 @@ use std::io;
 
 use camino::{Utf8Path, Utf8PathBuf};
 
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
+
 use crate::error::{Failure, FixAction};
 
 /// Everything that can go wrong touching the filesystem.
@@ -313,6 +316,20 @@ pub fn ensure_dir(path: &Utf8Path) -> Result<(), Error> {
     })
 }
 
+/// Move `from` to `to` — a file or a directory, within one filesystem.
+///
+/// A plain `rename`, not a replace: `to` must not already exist. The one use
+/// in this crate is `session convert` moving a View Dir from `.ivar/sessions/`
+/// to `.ivar/features/<feature>/sessions/` — both under the same `.ivar/`
+/// tree, so the same-filesystem requirement is structural.
+pub fn rename(from: &Utf8Path, to: &Utf8Path) -> Result<(), Error> {
+    fs_err::rename(from.as_std_path(), to.as_std_path()).map_err(|source| Error::Rename {
+        from: from.to_owned(),
+        to: to.to_owned(),
+        source,
+    })
+}
+
 /// List the entries of a directory, sorted, so callers get a deterministic
 /// order regardless of what the OS handed back.
 pub fn read_dir(path: &Utf8Path) -> Result<Vec<Utf8PathBuf>, Error> {
@@ -392,6 +409,47 @@ pub fn chmod(path: &Utf8Path, mode: u32) -> Result<(), Error> {
         path: path.to_owned(),
         source,
     })
+}
+
+/// The raw Unix mode bits of `path` (following symlinks). `Ok(None)` if the
+/// path does not exist.
+///
+/// The one read every read-only-guard decision starts from: whether the write
+/// bits are present, and — for a temporary lift — what to restore them to.
+#[cfg(unix)]
+pub fn unix_mode(path: &Utf8Path) -> Result<Option<u32>, Error> {
+    Ok(stat(path)?.map(|metadata| metadata.permissions().mode()))
+}
+
+/// Clear every write bit on `path` — the read-only guard ivar applies to the
+/// default-branch worktrees a session does not promote. Idempotent: a path
+/// with no write bits is left untouched, syscall included.
+#[cfg(unix)]
+pub fn clear_write_bits(path: &Utf8Path) -> Result<(), Error> {
+    let Some(mode) = unix_mode(path)? else {
+        return Ok(());
+    };
+    if mode & 0o222 != 0 {
+        chmod(path, mode & !0o222)?;
+    }
+    Ok(())
+}
+
+/// Restore write bits on `path`, undoing [`clear_write_bits`].
+///
+/// This is how a git mutation temporarily lifts a read-only guard: git cannot
+/// create files in a write-bit-cleared directory, and a checkout that fails
+/// mid-merge would leave the branch advanced but the files missing. Idempotent:
+/// a path that already has write bits is left untouched.
+#[cfg(unix)]
+pub fn restore_write_bits(path: &Utf8Path) -> Result<(), Error> {
+    let Some(mode) = unix_mode(path)? else {
+        return Ok(());
+    };
+    if mode & 0o222 == 0 {
+        chmod(path, mode | 0o222)?;
+    }
+    Ok(())
 }
 
 /// Create a symlink at `link` pointing to `target`. Fails if `link` already
@@ -921,6 +979,79 @@ mod tests {
 
         // Restore so TempDir can clean up.
         chmod(&path, current_mode).unwrap();
+    }
+
+    // -- the read-only guard: unix_mode / clear_write_bits / restore_write_bits
+
+    #[test]
+    fn unix_mode_reports_mode_bits_or_absence() {
+        let (_dir, root) = utf8_temp_dir();
+        let path = root.join("f.txt");
+        write_text(&path, "x").unwrap();
+
+        let mode = unix_mode(&path).unwrap().unwrap();
+        assert_ne!(mode & 0o222, 0, "a freshly written file is writable");
+        assert_eq!(unix_mode(&root.join("missing")).unwrap(), None);
+    }
+
+    #[test]
+    fn clear_write_bits_removes_them_and_is_idempotent() {
+        use std::os::unix::fs::MetadataExt;
+
+        let (_dir, root) = utf8_temp_dir();
+        let path = root.join("f.txt");
+        write_text(&path, "x").unwrap();
+        let original = unix_mode(&path).unwrap().unwrap();
+
+        clear_write_bits(&path).unwrap();
+        assert_eq!(unix_mode(&path).unwrap().unwrap() & 0o222, 0);
+
+        // Idempotent: the second call must not even touch the inode.
+        let ino = fs_err::symlink_metadata(path.as_std_path()).unwrap().ino();
+        clear_write_bits(&path).unwrap();
+        assert_eq!(
+            fs_err::symlink_metadata(path.as_std_path()).unwrap().ino(),
+            ino,
+            "an already-guarded path must not be re-chmodded"
+        );
+
+        // Restore so TempDir can clean up.
+        chmod(&path, original).unwrap();
+    }
+
+    #[test]
+    fn restore_write_bits_undoes_the_guard_and_is_idempotent() {
+        use std::os::unix::fs::MetadataExt;
+
+        let (_dir, root) = utf8_temp_dir();
+        let path = root.join("f.txt");
+        write_text(&path, "x").unwrap();
+
+        clear_write_bits(&path).unwrap();
+        restore_write_bits(&path).unwrap();
+        assert_ne!(unix_mode(&path).unwrap().unwrap() & 0o222, 0);
+
+        let ino = fs_err::symlink_metadata(path.as_std_path()).unwrap().ino();
+        restore_write_bits(&path).unwrap();
+        assert_eq!(
+            fs_err::symlink_metadata(path.as_std_path()).unwrap().ino(),
+            ino,
+            "an already-writable path must not be re-chmodded"
+        );
+    }
+
+    #[test]
+    fn rename_moves_a_directory() {
+        let (_dir, root) = utf8_temp_dir();
+        let from = root.join("from");
+        fs_err::create_dir_all(from.as_std_path()).unwrap();
+        write_text(&from.join("keep.txt"), "x").unwrap();
+        let to = root.join("to");
+
+        rename(&from, &to).unwrap();
+
+        assert!(!exists(&from).unwrap());
+        assert!(is_file(&to.join("keep.txt")).unwrap());
     }
 
     #[test]

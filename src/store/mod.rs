@@ -10,5 +10,6 @@ pub mod feature;
 pub mod gitignore;
 pub mod layout;
 pub mod manifest;
+pub mod session;
 pub mod setup_receipt;
 pub mod versioned;

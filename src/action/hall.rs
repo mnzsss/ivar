@@ -2,6 +2,7 @@
 //! see ARCHITECTURE.md's module map.
 
 use std::io;
+use std::io::Write;
 
 use camino::{Utf8Path, Utf8PathBuf};
 use serde::Serialize;
@@ -541,7 +542,13 @@ fn ask_remove(path: &Utf8Path) -> Result<bool, Failure> {
     if !crate::infra::term::is_tty(crate::infra::term::Stream::Stderr) {
         return Ok(false);
     }
-    eprintln!("Remove `{path}`? [y/N] ");
+    let mut stderr = io::stderr().lock();
+    writeln!(stderr, "Remove `{path}`? [y/N] ").map_err(|source| {
+        Failure::failed(
+            "cleanup.write_prompt",
+            format!("could not write the prompt: {source}"),
+        )
+    })?;
     let mut answer = String::new();
     io::stdin().read_line(&mut answer).map_err(|source| {
         Failure::failed(

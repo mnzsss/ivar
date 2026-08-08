@@ -17,7 +17,6 @@
 /// Deliberately lossy: the widget does not need cell colours for the agent
 /// scrollback — it needs text, at a size, that fits the panel. Keeping the
 /// seam to text is what makes the emulator swap cheap.
-
 /// How many rows of scrollback the emulator keeps beyond the visible
 /// viewport. The widget only ever renders the visible part; the scrollback
 /// is what `vt100` needs so a long agent output does not truncate mid-line
@@ -116,7 +115,7 @@ mod tests {
     fn feeding_plain_text_puts_it_in_the_viewport() {
         let mut screen = Screen::new(80, 24);
         screen.feed(b"hello agent\n");
-        assert_eq!(screen.rows()[0], "hello agent");
+        assert_eq!(screen.rows().first().unwrap(), "hello agent");
     }
 
     #[test]
@@ -124,7 +123,7 @@ mod tests {
         let mut screen = Screen::new(80, 24);
         screen.feed(b"\x1b[31mred text\x1b[0m\n");
         // The colour escape is gone; the text remains.
-        assert_eq!(screen.rows()[0], "red text");
+        assert_eq!(screen.rows().first().unwrap(), "red text");
     }
 
     #[test]

@@ -17,6 +17,7 @@
 //!     repos/<repo>/.bare/              the bare clone
 //!     repos/<repo>/<branch>/           a worktree off that bare
 //!     features/<feature>/              promotion records
+//!     features/<feature>/planning/     approval-gate state (approvals.json)
 //!     features/<feature>/execution/    the feature execution board
 //!     features/<feature>/sessions/<id>/  feature-session view dirs
 //!     sessions/<id>/                   discovery-session view dirs
@@ -43,7 +44,8 @@
 //! - Accessors returning `Utf8PathBuf`, taking validated newtypes from
 //!   [`crate::domain::name`] rather than `&str`: `manifest()`, `state()`,
 //!   `repo_bare(&RepoName)`, `repo_worktree(&RepoName, &BranchName)`,
-//!   `feature_dir(&FeatureName)`, `execution_dir(&FeatureName)`,
+//!   `feature_dir(&FeatureName)`, `planning_dir(&FeatureName)`,
+//!   `execution_dir(&FeatureName)`,
 //!   `feature_session(&FeatureName, &SessionId)`, `discovery_session(&SessionId)`,
 //!   `setup_script(&RepoName)`, `hall_skills()`, `plan_dir(&FeatureName)`,
 //!   `harness_dir(&Provider)`.
@@ -179,6 +181,15 @@ impl Layout {
         self.feature_dir(feature).join("execution")
     }
 
+    /// `<hall>/.ivar/features/<feature>/planning/` — the feature's approval
+    /// gate state (`approvals.json`). Local derived state: approvals are
+    /// per-machine records of what this machine's human has reviewed, and
+    /// belong in no teammate's clone.
+    #[must_use]
+    pub fn planning_dir(&self, feature: &FeatureName) -> Utf8PathBuf {
+        self.feature_dir(feature).join("planning")
+    }
+
     /// `<hall>/.ivar/features/<feature>/sessions/<id>/` — a feature-session
     /// view dir.
     #[must_use]
@@ -186,6 +197,23 @@ impl Layout {
         self.feature_dir(feature)
             .join("sessions")
             .join(session.as_str())
+    }
+
+    /// `<hall>/.ivar/features/<feature>/sessions/` — every feature-session
+    /// view dir. `feature close` removes the whole tree to stop a feature's
+    /// live sessions in one step.
+    #[must_use]
+    pub fn feature_sessions_dir(&self, feature: &FeatureName) -> Utf8PathBuf {
+        self.feature_dir(feature).join("sessions")
+    }
+
+    /// `<hall>/<feature>.code-workspace` — the VSCode workspace `feature
+    /// review` writes. Lives at the hall root, next to the worktrees it opens,
+    /// so the relative folder paths inside it resolve against this file.
+    #[must_use]
+    pub fn workspace_file(&self, feature: &FeatureName) -> Utf8PathBuf {
+        self.root
+            .join(format!("{}.code-workspace", feature.as_str()))
     }
 
     /// `<hall>/.ivar/sessions/<id>/` — a discovery-session view dir.
@@ -244,6 +272,18 @@ impl Layout {
         self.root().join(provider.instruction_file())
     }
 
+    /// `<hall>/.mcp.json` or `<hall>/opencode.json` — where this harness's MCP
+    /// server definitions materialise, at the hall root so every session in the
+    /// hall discovers them by walk-up from its View Dir.
+    ///
+    /// The filename comes from [`Provider::mcp_config_path`] rather than being
+    /// interpolated here — see [`Self::harness_dir`] for why the mapping is
+    /// this module's job to get right exactly once.
+    #[must_use]
+    pub fn mcp_config(&self, provider: &Provider) -> Utf8PathBuf {
+        self.root().join(provider.mcp_config_path())
+    }
+
     /// `<hall>/.ivar/repos/` — the parent every repo's store dir sits under.
     ///
     /// Public because `sync` has to create it before the first clone lands, and
@@ -253,6 +293,36 @@ impl Layout {
     #[must_use]
     pub fn repos_dir(&self) -> Utf8PathBuf {
         self.ivar_dir().join("repos")
+    }
+
+    /// `<hall>/.ivar/repos/<repo>/` — the whole store for one repo: the bare
+    /// clone and every worktree off it.
+    ///
+    /// Public because deregister removes the entire tree in one step, and
+    /// deriving it from `repo_bare(...).parent().parent()` at the call site is
+    /// exactly the path arithmetic outside this module that the module exists
+    /// to prevent.
+    #[must_use]
+    pub fn repo_dir(&self, repo: &RepoName) -> Utf8PathBuf {
+        self.repos_dir().join(repo.as_str())
+    }
+
+    /// `<hall>/.ivar/features/` — every feature's directory.
+    ///
+    /// Public because deregister has to enumerate features to find the ones
+    /// promoting a repo, and because a session TUI wants the same list.
+    #[must_use]
+    pub fn features_dir(&self) -> Utf8PathBuf {
+        self.ivar_dir().join("features")
+    }
+
+    /// `<hall>/.ivar/sessions/` — every discovery-session view dir.
+    ///
+    /// Public because deregister has to enumerate live session view dirs to
+    /// repair the symlinks it leaves dangling.
+    #[must_use]
+    pub fn discovery_sessions_dir(&self) -> Utf8PathBuf {
+        self.ivar_dir().join("sessions")
     }
 
     /// The exact lines the hall's `.gitignore` needs.
@@ -280,14 +350,6 @@ impl Layout {
     #[must_use]
     pub fn ivar_dir(&self) -> Utf8PathBuf {
         self.root.join(IVAR_DIR)
-    }
-
-    fn repo_dir(&self, repo: &RepoName) -> Utf8PathBuf {
-        self.repos_dir().join(repo.as_str())
-    }
-
-    fn features_dir(&self) -> Utf8PathBuf {
-        self.ivar_dir().join("features")
     }
 }
 
@@ -465,10 +527,22 @@ mod tests {
             Utf8PathBuf::from("/hall/.ivar/features/checkout/execution")
         );
         assert_eq!(
+            layout.planning_dir(&feature),
+            Utf8PathBuf::from("/hall/.ivar/features/checkout/planning")
+        );
+        assert_eq!(
             layout.feature_session(&feature, &session),
             Utf8PathBuf::from(
                 "/hall/.ivar/features/checkout/sessions/2c6e6f1e-2d8a-4b3a-9c2a-6a7f6f9a1b2c"
             )
+        );
+        assert_eq!(
+            layout.feature_sessions_dir(&feature),
+            Utf8PathBuf::from("/hall/.ivar/features/checkout/sessions")
+        );
+        assert_eq!(
+            layout.workspace_file(&feature),
+            Utf8PathBuf::from("/hall/checkout.code-workspace")
         );
         assert_eq!(
             layout.discovery_session(&session),
@@ -484,12 +558,32 @@ mod tests {
         );
         assert_eq!(layout.repos_dir(), Utf8PathBuf::from("/hall/.ivar/repos"));
         assert_eq!(
+            layout.repo_dir(&repo),
+            Utf8PathBuf::from("/hall/.ivar/repos/api")
+        );
+        assert_eq!(
+            layout.features_dir(),
+            Utf8PathBuf::from("/hall/.ivar/features")
+        );
+        assert_eq!(
+            layout.discovery_sessions_dir(),
+            Utf8PathBuf::from("/hall/.ivar/sessions")
+        );
+        assert_eq!(
             layout.instruction_file(&Provider::ClaudeCode),
             Utf8PathBuf::from("/hall/CLAUDE.md")
         );
         assert_eq!(
             layout.instruction_file(&Provider::OpenCode),
             Utf8PathBuf::from("/hall/AGENTS.md")
+        );
+        assert_eq!(
+            layout.mcp_config(&Provider::ClaudeCode),
+            Utf8PathBuf::from("/hall/.mcp.json")
+        );
+        assert_eq!(
+            layout.mcp_config(&Provider::OpenCode),
+            Utf8PathBuf::from("/hall/opencode.json")
         );
         assert_eq!(
             layout.plan_dir(&feature),

@@ -94,6 +94,7 @@ use std::collections::HashSet;
 
 use serde::{Deserialize, Serialize};
 
+use crate::domain::mcp::McpServerDef;
 use crate::domain::name::{BranchName, HallName, RepoName};
 use crate::domain::provider::Provider;
 use crate::error::{Failure, FixAction};
@@ -116,6 +117,8 @@ pub struct Manifest {
     repos: Vec<Repo>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     skills: Option<Skills>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    mcp: Option<Vec<McpServerDef>>,
 }
 
 impl Manifest {
@@ -135,6 +138,7 @@ impl Manifest {
             providers,
             repos,
             skills,
+            mcp: None,
         };
         manifest.validate()?;
         Ok(manifest)
@@ -169,6 +173,41 @@ impl Manifest {
     #[must_use]
     pub fn skills(&self) -> Option<&Skills> {
         self.skills.as_ref()
+    }
+
+    /// The hall-scoped MCP server definitions `ivar sync` materialises into
+    /// each provider's config file at the hall root.
+    ///
+    /// Empty when the manifest carries none — the v1 common case. The materialiser
+    /// still writes a valid (empty) config, so the file exists and the walk-up
+    /// discovery contract holds.
+    #[must_use]
+    pub fn mcp_servers(&self) -> &[McpServerDef] {
+        self.mcp.as_deref().unwrap_or_default()
+    }
+
+    /// Return a new `Manifest` carrying `servers` as its hall-scoped MCP
+    /// definitions.
+    ///
+    /// Refuses (with [`Error::DuplicateMcpServerName`]) when two definitions
+    /// share a `name` — duplicate names would silently collapse into one key
+    /// in the generated config. An empty list is stored as *absent*, so a hall
+    /// with no MCP servers round-trips byte-identical to one that never had
+    /// the key.
+    pub fn with_mcp_servers(&self, servers: Vec<McpServerDef>) -> Result<Self, Error> {
+        let mut manifest = Self::new(
+            self.name.clone(),
+            self.providers.clone(),
+            self.repos.clone(),
+            self.skills.clone(),
+        )?;
+        manifest.mcp = if servers.is_empty() {
+            None
+        } else {
+            Some(servers)
+        };
+        manifest.validate()?;
+        Ok(manifest)
     }
 
     /// Return a new `Manifest` with `repo` appended to `repos`.
@@ -292,6 +331,17 @@ impl Manifest {
                 return Err(Error::EmptyRepoUrl {
                     name: repo.name.clone(),
                 });
+            }
+        }
+
+        if let Some(servers) = &self.mcp {
+            let mut seen: HashSet<&str> = HashSet::new();
+            for server in servers {
+                if !seen.insert(server.name.as_str()) {
+                    return Err(Error::DuplicateMcpServerName {
+                        name: server.name.clone(),
+                    });
+                }
             }
         }
         Ok(())
@@ -489,6 +539,10 @@ pub enum Error {
     /// asked to remove something the hall does not know about.
     #[error("repo `{name}` is not in ivar.json")]
     RepoNotFound { name: RepoName },
+
+    /// Two MCP server definitions in `mcp` share the same `name`.
+    #[error("MCP server name `{name}` is used by more than one definition")]
+    DuplicateMcpServerName { name: String },
 }
 
 impl From<Error> for Failure {
@@ -548,6 +602,15 @@ impl From<Error> for Failure {
                 "manifest.add_repo_first",
                 format!("Add `{name}` with `ivar repo add`, or check the spelling."),
             )),
+            Error::DuplicateMcpServerName { name } => {
+                Failure::blocked("manifest.duplicate_mcp_server_name", what)
+                .expected("every definition in `mcp` to have a unique `name`")
+                .actual(format!("`{name}` appears more than once in `mcp`"))
+                .fix(FixAction::safe(
+                    "manifest.rename_duplicate_mcp_server",
+                    format!("Give one of the duplicate `{name}` definitions a different name."),
+                ))
+            }
         }
     }
 }
@@ -1082,5 +1145,90 @@ mod tests {
         })
         .into();
         assert_eq!(failure.code, "store.version_too_new");
+    }
+
+    // -- MCP server definitions ----------------------------------------------
+
+    fn mcp_server(name: &str) -> McpServerDef {
+        McpServerDef::new(name, "stdio").command("npx")
+    }
+
+    #[test]
+    fn a_manifest_without_mcp_servers_reports_an_empty_slice() {
+        let manifest = empty_manifest();
+
+        assert!(manifest.mcp_servers().is_empty());
+    }
+
+    #[test]
+    fn with_mcp_servers_carries_the_definitions_into_the_manifest() {
+        let manifest = empty_manifest()
+            .with_mcp_servers(vec![mcp_server("docs"), mcp_server("sentry")])
+            .unwrap();
+
+        assert_eq!(manifest.mcp_servers().len(), 2);
+        assert_eq!(manifest.mcp_servers()[0].name, "docs");
+        assert_eq!(manifest.mcp_servers()[1].name, "sentry");
+    }
+
+    #[test]
+    fn with_mcp_servers_rejects_duplicate_names() {
+        let error = empty_manifest()
+            .with_mcp_servers(vec![mcp_server("docs"), mcp_server("docs")])
+            .unwrap_err();
+
+        match error {
+            Error::DuplicateMcpServerName { name } => assert_eq!(name, "docs"),
+            other => panic!("expected DuplicateMcpServerName, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn an_empty_server_list_is_stored_as_absent_and_omits_the_key() {
+        let manifest = empty_manifest()
+            .with_mcp_servers(vec![])
+            .unwrap()
+            .with_mcp_servers(vec![mcp_server("docs")])
+            .unwrap()
+            .with_mcp_servers(vec![])
+            .unwrap();
+
+        assert!(manifest.mcp_servers().is_empty());
+
+        let (_dir, root) = utf8_temp_dir();
+        let layout = Layout::at(root);
+        Manifest::write(&layout, &manifest).unwrap();
+        let on_disk = fs::read_text(&layout.manifest()).unwrap().unwrap();
+        assert!(
+            !on_disk.contains("mcp"),
+            "an absent mcp list must stay off disk: {on_disk}"
+        );
+    }
+
+    #[test]
+    fn mcp_servers_round_trip_through_write_and_read() {
+        let (_dir, root) = utf8_temp_dir();
+        let layout = Layout::at(root);
+        let manifest = empty_manifest()
+            .with_mcp_servers(vec![mcp_server("docs")])
+            .unwrap();
+
+        Manifest::write(&layout, &manifest).unwrap();
+
+        let read_back = Manifest::read(&layout).unwrap().unwrap();
+        assert_eq!(read_back, manifest);
+        assert_eq!(read_back.mcp_servers()[0].name, "docs");
+    }
+
+    #[test]
+    fn duplicate_mcp_server_failure_names_the_offending_name() {
+        let failure: Failure = Error::DuplicateMcpServerName {
+            name: "docs".to_owned(),
+        }
+        .into();
+        assert_eq!(failure.status, Status::Blocked);
+        assert_eq!(failure.code, "manifest.duplicate_mcp_server_name");
+        assert!(failure.what.contains("docs"));
+        assert!(failure.fix_actions[0].safe);
     }
 }

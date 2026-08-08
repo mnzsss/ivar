@@ -81,10 +81,11 @@ pub enum RepoCommand {
     /// Declare a repo in ivar.json, clone it bare, and materialise its
     /// default-branch worktree.
     Add(RepoAddArgs),
-    /// Remove a repo from ivar.json. Its files stay on disk until
-    /// `ivar cleanup`.
+    /// Remove a repo from ivar.json and tear down its files. Refuses while
+    /// the repo is promoted in a feature or referenced by a live session;
+    /// `--force` lifts both gates and cascades.
     Remove(RepoRemoveArgs),
-    /// Fetch one or all repos from their remotes.
+    /// Refresh one or all repos' default branches from their remotes.
     Pull(RepoPullArgs),
 }
 
@@ -111,6 +112,12 @@ pub struct RepoAddArgs {
 pub struct RepoRemoveArgs {
     /// The repo's name, as declared in ivar.json.
     pub name: String,
+    /// Tear down even while the repo is promoted in a feature or referenced
+    /// by a live session. Cascades: removes its worktrees, scrubs its
+    /// promotion records, repairs view-dir symlinks, and regenerates the
+    /// providers' config.
+    #[arg(long)]
+    pub force: bool,
 }
 
 /// Arguments for `ivar repo pull`.
@@ -134,6 +141,34 @@ pub enum FeatureCommand {
     Demote(FeatureDemoteArgs),
     /// Show one feature in detail: every promoted repo and its state.
     Status(FeatureStatusArgs),
+    /// Operate on a feature's execution board.
+    #[command(subcommand)]
+    Execute(ExecuteCommand),
+    /// Preview, then push, a feature's promoted repos. `--preview` prints the
+    /// side-effect-free summary (with its fingerprint) and pushes nothing;
+    /// applying with `--fingerprint` is refused if the state has drifted.
+    Deliver(FeatureDeliverArgs),
+    /// Close a feature: stop its executor sessions, remove its execution
+    /// state, and record the outcome on plan.md's frontmatter. Idempotent —
+    /// closing an already-closed feature is a no-op.
+    Close(FeatureCloseArgs),
+    /// Delete a feature: its worktrees, its directory under `.ivar/`, and its
+    /// plans. Refuses if anything under the feature directory is not
+    /// removable, and preserves the feature record for retry if a teardown
+    /// step fails.
+    Delete(FeatureDeleteArgs),
+    /// Rebase every promoted repo's worktree onto its default branch. A dirty
+    /// worktree is skipped; a conflict is aborted and reported.
+    Rebase(FeatureRebaseArgs),
+    /// Write a VSCode workspace opening the feature: promoted repos on the
+    /// feature branch, everyone else on their default branch.
+    Review(FeatureReviewArgs),
+    /// Open an interactive multi-shell view over the feature's promoted
+    /// repos — one shell per repo, each running in its worktree.
+    View {
+        /// The feature to view.
+        name: String,
+    },
 }
 
 /// Arguments for `ivar feature create`.
@@ -168,12 +203,126 @@ pub struct FeatureStatusArgs {
     pub feature: String,
 }
 
+/// Arguments for `ivar feature execute prepare`.
+#[derive(Debug, Args)]
+pub struct FeatureExecuteArgs {
+    /// The feature to prepare an execution board for.
+    pub feature: String,
+    /// Path to the execution graph JSON — workstreams with
+    /// `id`/`title`/`operations`/`depends_on`/`write_contract`.
+    #[arg(long)]
+    pub graph_json: String,
+}
+
+/// The `ivar feature execute` surface: verbs that create or advance a
+/// feature's execution board.
+#[derive(Debug, Subcommand)]
+pub enum ExecuteCommand {
+    /// Prepare a feature's execution board from its plan and execution graph.
+    Prepare(FeatureExecuteArgs),
+    /// Fold a revised plan into the board: advance the plan fingerprint and
+    /// pause every workstream whose Operations changed until it acknowledges
+    /// the new revision.
+    Replan(ExecuteReplanArgs),
+    /// Acknowledge a plan revision for one paused workstream, unpausing it.
+    /// The board resumes once every paused workstream has acknowledged.
+    AckRevision(ExecuteAckArgs),
+    /// Record a workstream's code divergence in the board's journal. The plan
+    /// is never rewritten.
+    Reconcile(ExecuteReconcileArgs),
+}
+
+/// Arguments for `ivar feature execute replan`.
+#[derive(Debug, Args)]
+pub struct ExecuteReplanArgs {
+    /// The feature whose board is replanned.
+    pub feature: String,
+    /// Path to the revised plan.md — the new revision to fold in.
+    #[arg(long)]
+    pub plan: String,
+}
+
+/// Arguments for `ivar feature execute ack-revision`.
+#[derive(Debug, Args)]
+pub struct ExecuteAckArgs {
+    /// The feature whose board holds the paused workstream.
+    pub feature: String,
+    /// The paused workstream's id.
+    #[arg(long)]
+    pub workstream: String,
+}
+
+/// Arguments for `ivar feature execute reconcile`.
+#[derive(Debug, Args)]
+pub struct ExecuteReconcileArgs {
+    /// The feature whose board records the divergence.
+    pub feature: String,
+    /// The workstream the divergence belongs to.
+    #[arg(long)]
+    pub workstream: String,
+    /// The executor's own description of what changed and why.
+    #[arg(long)]
+    pub description: String,
+}
+
+/// Arguments for `ivar feature deliver`.
+#[derive(Debug, Args)]
+pub struct FeatureDeliverArgs {
+    /// The feature to deliver.
+    pub name: String,
+    /// Print the delivery preview and push nothing.
+    #[arg(long)]
+    pub preview: bool,
+    /// The fingerprint from the preview the human approved; required to apply.
+    /// Apply recomputes the preview and refuses when the fingerprint differs —
+    /// the state has drifted since the preview.
+    #[arg(long)]
+    pub fingerprint: Option<String>,
+}
+
+/// Arguments for `ivar feature close`.
+#[derive(Debug, Args)]
+pub struct FeatureCloseArgs {
+    /// The feature to close.
+    pub name: String,
+    /// How the feature ended: `delivered` or `abandoned`.
+    #[arg(long)]
+    pub outcome: String,
+}
+
+/// Arguments for `ivar feature delete`.
+#[derive(Debug, Args)]
+pub struct FeatureDeleteArgs {
+    /// The feature to delete.
+    pub name: String,
+}
+
+/// Arguments for `ivar feature rebase`.
+#[derive(Debug, Args)]
+pub struct FeatureRebaseArgs {
+    /// The feature to rebase.
+    pub name: String,
+}
+
+/// Arguments for `ivar feature review`.
+#[derive(Debug, Args)]
+pub struct FeatureReviewArgs {
+    /// The feature to open.
+    pub name: String,
+}
+
 /// The `ivar session` surface.
 #[derive(Debug, Subcommand)]
 pub enum SessionCommand {
     /// Open a session: view dir over a feature's promoted repos, agent
     /// running in it, TUI on top.
     Start(SessionStartArgs),
+    /// Re-bind to an existing live session: locate it, re-materialise its
+    /// view dir, and emit the binding as `IVAR_*` env vars.
+    Connect(SessionConnectArgs),
+    /// Bind a discovery session to a feature (one-way), moving its view dir
+    /// into the feature's session tree.
+    Convert(SessionConvertArgs),
 }
 
 /// Arguments for `ivar session start`.
@@ -187,9 +336,37 @@ pub struct SessionStartArgs {
     /// The provider to run. Defaults to the hall's default provider.
     #[arg(long)]
     pub provider: Option<String>,
+    /// Create the session without launching a provider. The view dir persists
+    /// after this command returns, until an explicit stop.
+    #[arg(long)]
+    pub detached: bool,
+    /// Relay: a fresh session on the same feature under a different provider
+    /// than the feature's most recent session. Requires `--provider`.
+    #[arg(long)]
+    pub relay: bool,
 }
 
-/// The `ivar plan` surface: the SPDD artifacts, committed per feature.
+/// Arguments for `ivar session connect`.
+#[derive(Debug, Args)]
+pub struct SessionConnectArgs {
+    /// The session id, or a unique prefix of one.
+    pub session_id: Option<String>,
+    /// Narrow the search to sessions bound to this feature.
+    #[arg(long)]
+    pub feature: Option<String>,
+}
+
+/// Arguments for `ivar session convert`.
+#[derive(Debug, Args)]
+pub struct SessionConvertArgs {
+    /// The discovery session's id, or a unique prefix of one.
+    pub session_id: String,
+    /// The feature to bind the session to. Must already exist.
+    pub feature: String,
+}
+
+/// The `ivar plan` surface: the SPDD artifacts, committed per feature, and
+/// the approval gates that transition a feature through the SPDD lifecycle.
 #[derive(Debug, Subcommand)]
 pub enum PlanCommand {
     /// Scaffold a feature's SPDD artifacts (requirements, analysis, plan).
@@ -198,6 +375,13 @@ pub enum PlanCommand {
     List,
     /// Print one feature's SPDD artifact.
     Show(PlanShowArgs),
+    /// Approve one of a feature's SPDD gates: requirements, analysis, plan,
+    /// or execution-graph. Requires the gate upstream of it to be approved
+    /// first, and records a fingerprint of the artifact's content.
+    Approve(PlanApproveArgs),
+    /// Declare a revision of an approved gate, marking it — and every gate
+    /// downstream — as needing revision.
+    Invalidate(PlanInvalidateArgs),
 }
 
 /// Arguments for `ivar plan create`.
@@ -214,6 +398,24 @@ pub struct PlanShowArgs {
     pub feature: String,
     /// Which artifact: `requirements`, `analysis`, or `plan`.
     pub artifact: crate::action::plan::show::Artifact,
+}
+
+/// Arguments for `ivar plan approve`.
+#[derive(Debug, Args)]
+pub struct PlanApproveArgs {
+    /// The feature whose gate to approve.
+    pub feature: String,
+    /// The gate: `requirements`, `analysis`, `plan`, or `execution-graph`.
+    pub gate: String,
+}
+
+/// Arguments for `ivar plan invalidate`.
+#[derive(Debug, Args)]
+pub struct PlanInvalidateArgs {
+    /// The feature whose gate to invalidate.
+    pub feature: String,
+    /// The gate: `requirements`, `analysis`, `plan`, or `execution-graph`.
+    pub gate: String,
 }
 
 /// The `ivar skill` surface: the hall's shared skills directory.

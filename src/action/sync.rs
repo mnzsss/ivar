@@ -108,7 +108,7 @@ pub enum Change {
 
 impl Change {
     /// The one-character marker the human surface prefixes an entry with.
-    const fn symbol(self) -> char {
+    pub(crate) const fn symbol(self) -> char {
         match self {
             Self::Created => '+',
             Self::Updated => '~',
@@ -177,7 +177,11 @@ pub struct Entry {
 }
 
 impl Entry {
-    fn new(surface: impl Into<String>, label: impl Into<String>, change: Change) -> Self {
+    pub(crate) fn new(
+        surface: impl Into<String>,
+        label: impl Into<String>,
+        change: Change,
+    ) -> Self {
         Self {
             surface: surface.into(),
             label: label.into(),
@@ -186,7 +190,7 @@ impl Entry {
         }
     }
 
-    fn detail(mut self, detail: impl Into<String>) -> Self {
+    pub(crate) fn detail(mut self, detail: impl Into<String>) -> Self {
         self.detail = Some(detail.into());
         self
     }
@@ -295,17 +299,7 @@ pub fn sync(ctx: &Ctx, input: SyncInput) -> Outcome<SyncOutcome> {
 
     // Built once, not once per provider: the block every provider gets is the
     // same bytes, and `Provider::ALL` will only grow.
-    let block = config::build_block(manifest.name(), &repo_names(&manifest));
-    for provider in Provider::ALL {
-        sync_provider(
-            &layout,
-            &manifest,
-            provider,
-            &block,
-            &mut entries,
-            &mut warnings,
-        );
-    }
+    sync_providers(&layout, &manifest, &mut entries, &mut warnings);
 
     Ok(Report::with_warnings(
         SyncOutcome {
@@ -314,6 +308,29 @@ pub fn sync(ctx: &Ctx, input: SyncInput) -> Outcome<SyncOutcome> {
         },
         warnings,
     ))
+}
+
+/// Regenerate every provider's managed block from `manifest`.
+///
+/// Shared by `ivar sync` and deregister (`repo remove --force`): both rewrite
+/// the hall's provider config after the manifest changes, and the block must
+/// describe the same hall in both places. Best-effort per provider — a
+/// failure becomes an entry and a warning, never an abort.
+///
+/// The MCP config materialises here too, one file at the hall root per
+/// provider: it is hall-scoped (discovered by walk-up from every session's
+/// view dir), so there is no other verb for it to belong to.
+pub(crate) fn sync_providers(
+    layout: &Layout,
+    manifest: &Manifest,
+    entries: &mut Vec<Entry>,
+    warnings: &mut Vec<Warning>,
+) {
+    let block = config::build_block(manifest.name(), &repo_names(manifest));
+    for provider in Provider::ALL {
+        sync_provider(layout, manifest, provider, &block, entries, warnings);
+        sync_mcp(layout, manifest, provider, entries, warnings);
+    }
 }
 
 /// Create the directories every later step writes underneath.
@@ -637,6 +654,36 @@ fn sync_provider(
     }
 }
 
+/// Materialise (or strip) `provider`'s MCP config at the hall root.
+///
+/// The MCP config is hall-scoped — one file at the root per provider,
+/// discovered by walk-up from every session's view dir — so it is regenerated
+/// on every sync next to the instruction-file block, from whatever the
+/// manifest declares (empty for v1). A provider the hall lists gets its config
+/// written; one it does not list has the MCP key stripped, exactly like the
+/// managed block.
+fn sync_mcp(
+    layout: &Layout,
+    manifest: &Manifest,
+    provider: Provider,
+    entries: &mut Vec<Entry>,
+    warnings: &mut Vec<Warning>,
+) {
+    let path = layout.mcp_config(&provider);
+    let label = format!("{} MCP config", provider.mcp_config_path());
+
+    let result = if manifest.providers().available().contains(&provider) {
+        config::materialise_mcp(&path, provider, manifest.mcp_servers())
+    } else {
+        config::remove_mcp(&path, provider)
+    };
+
+    match result {
+        Ok(change) => entries.push(Entry::new(provider.id(), label, change.into())),
+        Err(error) => record_failure(entries, warnings, provider.id(), &label, error.into()),
+    }
+}
+
 /// Turn a step's [`Failure`] into a report entry plus a warning, and keep going.
 ///
 /// The warning is what makes the process exit `1` instead of `0`; the entry is
@@ -665,6 +712,7 @@ mod tests {
 
     use super::*;
     use crate::action::hall::{self, InitInput};
+    use crate::domain::mcp::McpServerDef;
     use crate::domain::name::HallName;
     use crate::error::Status;
     use crate::store::manifest::Providers;
@@ -1127,6 +1175,122 @@ mod tests {
             Change::Unchanged
         );
         assert!(!fs::exists(&root.join("AGENTS.md")).unwrap());
+    }
+
+    // -- MCP config -----------------------------------------------------------
+
+    #[test]
+    fn sync_materialises_the_mcp_config_at_the_hall_root() {
+        let (_guard, root) = hall_with(&[]);
+        let ctx = Ctx::new(root.clone());
+
+        let report = sync(&ctx, SyncInput::default()).unwrap();
+
+        assert!(report.is_clean());
+        assert_eq!(
+            entry(&report.value, "claude-code", ".mcp.json MCP config").change,
+            Change::Created
+        );
+        let on_disk = fs::read_text(&root.join(".mcp.json")).unwrap().unwrap();
+        // Valid JSON, matching the empty-server v1 shape.
+        let parsed: serde_json::Value = serde_json::from_str(&on_disk).unwrap();
+        assert_eq!(parsed, serde_json::json!({ "mcpServers": {} }));
+    }
+
+    /// `sync` runs after every `git pull`; the second run must leave the MCP
+    /// config byte-identical too.
+    #[test]
+    fn the_mcp_config_is_unchanged_on_a_second_sync() {
+        let (_guard, root) = hall_with(&[]);
+        let ctx = Ctx::new(root.clone());
+        sync(&ctx, SyncInput::default()).unwrap();
+        let before = fs::read_bytes(&root.join(".mcp.json")).unwrap().unwrap();
+
+        let report = sync(&ctx, SyncInput::default()).unwrap();
+
+        assert_eq!(
+            entry(&report.value, "claude-code", ".mcp.json MCP config").change,
+            Change::Unchanged
+        );
+        assert_eq!(
+            fs::read_bytes(&root.join(".mcp.json")).unwrap().unwrap(),
+            before
+        );
+    }
+
+    #[test]
+    fn sync_materialises_the_opencode_config_when_opencode_is_available() {
+        let (_guard, root) = hall_with(&[]);
+        let layout = Layout::at(root.clone());
+        let manifest = Manifest::new(
+            HallName::new("acme").unwrap(),
+            Providers::new(
+                vec![Provider::ClaudeCode, Provider::OpenCode],
+                Provider::ClaudeCode,
+            ),
+            vec![],
+            None,
+        )
+        .unwrap();
+        Manifest::write(&layout, &manifest).unwrap();
+        let ctx = Ctx::new(root.clone());
+
+        let report = sync(&ctx, SyncInput::default()).unwrap();
+
+        assert_eq!(
+            entry(&report.value, "opencode", "opencode.json MCP config").change,
+            Change::Created
+        );
+        let on_disk = fs::read_text(&root.join("opencode.json")).unwrap().unwrap();
+        assert!(on_disk.contains("$schema"), "was: {on_disk}");
+        assert!(on_disk.contains("\"mcp\": {}"), "was: {on_disk}");
+    }
+
+    #[test]
+    fn sync_strips_a_stale_mcp_config_for_a_provider_the_hall_dropped() {
+        let (_guard, root) = hall_with(&[]);
+        // A stale opencode.json from when the hall did list OpenCode — carrying
+        // a user key that must survive the strip.
+        fs::write_text(
+            &root.join("opencode.json"),
+            &serde_json::json!({
+                "$schema": "https://opencode.ai/config.json",
+                "model": "anthropic/claude-sonnet-4-5",
+                "mcp": { "stale": { "type": "local", "command": ["old"] } },
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let ctx = Ctx::new(root.clone());
+
+        let report = sync(&ctx, SyncInput::default()).unwrap();
+
+        assert_eq!(
+            entry(&report.value, "opencode", "opencode.json MCP config").change,
+            Change::Removed
+        );
+        let on_disk = fs::read_text(&root.join("opencode.json")).unwrap().unwrap();
+        assert!(on_disk.contains("claude-sonnet-4-5"), "was: {on_disk}");
+        assert!(!on_disk.contains("stale"), "was: {on_disk}");
+    }
+
+    #[test]
+    fn sync_writes_declared_servers_into_the_config() {
+        let (_guard, root) = hall_with(&[]);
+        let layout = Layout::at(root.clone());
+        let manifest = Manifest::read(&layout).unwrap().unwrap();
+        let manifest = manifest
+            .with_mcp_servers(vec![McpServerDef::new("docs", "stdio").command("npx")])
+            .unwrap();
+        Manifest::write(&layout, &manifest).unwrap();
+        let ctx = Ctx::new(root.clone());
+
+        let report = sync(&ctx, SyncInput::default()).unwrap();
+
+        assert!(report.is_clean());
+        let on_disk = fs::read_text(&root.join(".mcp.json")).unwrap().unwrap();
+        assert!(on_disk.contains("\"docs\""), "was: {on_disk}");
+        assert!(on_disk.contains("\"npx\""), "was: {on_disk}");
     }
 
     // -- not in a hall ---------------------------------------------------------

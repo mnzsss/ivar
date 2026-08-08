@@ -152,12 +152,10 @@ mod tests {
         let report = list(&ctx).unwrap();
 
         assert_eq!(report.value.skills.len(), 2);
-        assert_eq!(report.value.skills[0].id.as_str(), "audit");
-        assert_eq!(
-            report.value.skills[0].description,
-            "Review a codebase for issues"
-        );
-        assert_eq!(report.value.skills[1].id.as_str(), "refactor");
+        let audit = report.value.skills.first().unwrap();
+        assert_eq!(audit.id.as_str(), "audit");
+        assert_eq!(audit.description, "Review a codebase for issues");
+        assert_eq!(report.value.skills.get(1).unwrap().id.as_str(), "refactor");
     }
 
     #[test]
@@ -171,8 +169,9 @@ mod tests {
         let report = list(&ctx).unwrap();
 
         assert_eq!(report.value.skills.len(), 1);
-        assert_eq!(report.value.skills[0].id.as_str(), "broken");
-        assert!(report.value.skills[0].description.is_empty());
+        let broken = report.value.skills.first().unwrap();
+        assert_eq!(broken.id.as_str(), "broken");
+        assert!(broken.description.is_empty());
     }
 
     #[test]

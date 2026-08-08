@@ -23,17 +23,26 @@ use clap::Parser;
 use serde::Serialize;
 
 use ivar::action::Ctx;
-use ivar::action::feature::{create, demote, list as feature_list, promote, status};
+use ivar::action::execute::{
+    ack as execute_ack, prepare, reconcile as execute_reconcile, replan as execute_replan,
+};
+use ivar::action::feature::{
+    close, create, delete, deliver, demote, list as feature_list, promote, rebase, review, status,
+    view,
+};
 use ivar::action::hall::{self, InitInput};
+use ivar::action::plan::approve::{self as plan_approve};
 use ivar::action::plan::{create as plan_create, list as plan_list, show as plan_show};
 use ivar::action::provider::list as provider_list;
 use ivar::action::repo::{add, list as repo_list, pull, remove};
-use ivar::action::session::start as session_start;
+use ivar::action::session::{
+    connect as session_connect, conversion as session_conversion, start as session_start,
+};
 use ivar::action::skill::{create as skill_create, list as skill_list};
 use ivar::action::sync::{self, SyncInput};
 use ivar::cli::root::{
-    Cli, Command, FeatureCommand, PlanCommand, ProviderCommand, RepoCommand, SessionCommand,
-    SkillCommand,
+    Cli, Command, ExecuteCommand, FeatureCommand, PlanCommand, ProviderCommand, RepoCommand,
+    SessionCommand, SkillCommand,
 };
 use ivar::error::{Failure, Outcome, Report, WriteHuman};
 use ivar::infra::term;
@@ -92,7 +101,13 @@ fn main() -> ExitCode {
                 &mut stderr,
             ),
             RepoCommand::Remove(args) => respond(
-                remove::remove(&ctx, remove::RemoveInput { name: args.name }),
+                remove::remove(
+                    &ctx,
+                    remove::RemoveInput {
+                        name: args.name,
+                        force: args.force,
+                    },
+                ),
                 json,
                 &mut stdout,
                 &mut stderr,
@@ -149,6 +164,106 @@ fn main() -> ExitCode {
                 &mut stdout,
                 &mut stderr,
             ),
+            FeatureCommand::Execute(cmd) => match cmd {
+                ExecuteCommand::Prepare(args) => respond(
+                    prepare::prepare(
+                        &ctx,
+                        prepare::PrepareInput {
+                            feature: args.feature,
+                            graph_json: args.graph_json,
+                        },
+                    ),
+                    json,
+                    &mut stdout,
+                    &mut stderr,
+                ),
+                ExecuteCommand::Replan(args) => respond(
+                    execute_replan::replan(
+                        &ctx,
+                        execute_replan::ReplanInput {
+                            feature: args.feature,
+                            plan: args.plan,
+                        },
+                    ),
+                    json,
+                    &mut stdout,
+                    &mut stderr,
+                ),
+                ExecuteCommand::AckRevision(args) => respond(
+                    execute_ack::ack_revision(
+                        &ctx,
+                        execute_ack::AckInput {
+                            feature: args.feature,
+                            workstream: args.workstream,
+                        },
+                    ),
+                    json,
+                    &mut stdout,
+                    &mut stderr,
+                ),
+                ExecuteCommand::Reconcile(args) => respond(
+                    execute_reconcile::reconcile(
+                        &ctx,
+                        execute_reconcile::ReconcileInput {
+                            feature: args.feature,
+                            workstream: args.workstream,
+                            description: args.description,
+                        },
+                    ),
+                    json,
+                    &mut stdout,
+                    &mut stderr,
+                ),
+            },
+            FeatureCommand::Deliver(args) => respond(
+                deliver::deliver(
+                    &ctx,
+                    deliver::DeliverInput {
+                        feature: args.name,
+                        preview: args.preview,
+                        fingerprint: args.fingerprint,
+                    },
+                ),
+                json,
+                &mut stdout,
+                &mut stderr,
+            ),
+            FeatureCommand::Close(args) => respond(
+                close::close(
+                    &ctx,
+                    close::CloseInput {
+                        name: args.name,
+                        outcome: args.outcome,
+                    },
+                ),
+                json,
+                &mut stdout,
+                &mut stderr,
+            ),
+            FeatureCommand::Delete(args) => respond(
+                delete::delete(&ctx, delete::DeleteInput { name: args.name }),
+                json,
+                &mut stdout,
+                &mut stderr,
+            ),
+            FeatureCommand::Rebase(args) => respond(
+                rebase::rebase(&ctx, rebase::RebaseInput { name: args.name }),
+                json,
+                &mut stdout,
+                &mut stderr,
+            ),
+            FeatureCommand::Review(args) => respond(
+                review::review(&ctx, review::ReviewInput { name: args.name }),
+                json,
+                &mut stdout,
+                &mut stderr,
+            ),
+            FeatureCommand::View { name } => respond(
+                view::view(&ctx, view::ViewInput { feature: name }),
+                json,
+                &mut stdout,
+                &mut stderr,
+            ),
         },
         Command::Session(cmd) => match cmd {
             SessionCommand::Start(args) => respond(
@@ -158,6 +273,32 @@ fn main() -> ExitCode {
                         feature: args.feature,
                         resume: args.resume,
                         provider: args.provider,
+                        detached: args.detached,
+                        relay: args.relay,
+                    },
+                ),
+                json,
+                &mut stdout,
+                &mut stderr,
+            ),
+            SessionCommand::Connect(args) => respond(
+                session_connect::connect(
+                    &ctx,
+                    session_connect::ConnectInput {
+                        session_id: args.session_id,
+                        feature: args.feature,
+                    },
+                ),
+                json,
+                &mut stdout,
+                &mut stderr,
+            ),
+            SessionCommand::Convert(args) => respond(
+                session_conversion::convert(
+                    &ctx,
+                    session_conversion::ConvertInput {
+                        session_id: args.session_id,
+                        feature: args.feature,
                     },
                 ),
                 json,
@@ -189,6 +330,30 @@ fn main() -> ExitCode {
                     plan_show::ShowInput {
                         feature: args.feature,
                         artifact: args.artifact,
+                    },
+                ),
+                json,
+                &mut stdout,
+                &mut stderr,
+            ),
+            PlanCommand::Approve(args) => respond(
+                plan_approve::approve(
+                    &ctx,
+                    plan_approve::ApproveInput {
+                        feature: args.feature,
+                        gate: args.gate,
+                    },
+                ),
+                json,
+                &mut stdout,
+                &mut stderr,
+            ),
+            PlanCommand::Invalidate(args) => respond(
+                plan_approve::invalidate(
+                    &ctx,
+                    plan_approve::InvalidateInput {
+                        feature: args.feature,
+                        gate: args.gate,
                     },
                 ),
                 json,
