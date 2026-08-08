@@ -1,7 +1,12 @@
 name: ci
 
 on:
+  # Draft PRs do not run CI: `opened`/`synchronize` fire for drafts too, so
+  # each job gates on `draft == false`, and `converted_to_draft` is left out of
+  # the types so flipping a PR to draft never starts a run. Marking it
+  # ready_for_review is what (re)arms CI.
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
   push:
     branches: [main]
 
@@ -19,6 +24,9 @@ env:
 jobs:
   gate:
     name: gate (${{ matrix.os }})
+    # Draft PRs are a work-in-progress marker, not a review request — skip
+    # their runs and arm CI via ready_for_review instead.
+    if: github.event.pull_request.draft == false
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -45,6 +53,7 @@ jobs:
 
   msrv:
     name: msrv
+    if: github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -62,6 +71,7 @@ jobs:
 
   coverage:
     name: coverage (report only)
+    if: github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
