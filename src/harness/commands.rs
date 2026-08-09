@@ -545,10 +545,10 @@ mod tests {
             assert!(command.content.contains("`ivar "));
             // Every source names its own user-facing command, so a provider
             // (and a reader) always knows what it is being invoked as.
+            let slash_name = format!("/ivar-{}", command.id);
             assert!(
-                command.content.contains(&format!("/ivar-{}", command.id)),
-                "{} must name `/ivar-{}` in its content",
-                command.id,
+                command.content.contains(&slash_name),
+                "{0} must name `{slash_name}` in its content",
                 command.id
             );
             assert!(!command.content.contains("bifrost"));
