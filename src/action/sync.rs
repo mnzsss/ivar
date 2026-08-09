@@ -743,7 +743,13 @@ fn sync_commands(
             }
         }
         Err(error) => {
-            record_failure(entries, warnings, provider.id(), "official commands", error.into());
+            record_failure(
+                entries,
+                warnings,
+                provider.id(),
+                "official commands",
+                error.into(),
+            );
         }
     }
 }
@@ -772,17 +778,18 @@ fn record_failure(
 /// bootstrap the newly selected provider's commands immediately. A write
 /// failure is a warning — the manifest stays valid and `ivar sync` is the
 /// repair — never a failure that rolls the setup back.
-pub(crate) fn materialise_commands(
-    layout: &Layout,
-    provider: Provider,
-) -> Result<(), Warning> {
-    commands::materialise(&layout.commands_dir(&provider)).map(|_| ()).map_err(|error| {
-        Warning::new(
-            "provider.commands_not_materialised",
-            provider.id(),
-            format!("official commands could not be written: {error}; run `ivar sync` to repair"),
-        )
-    })
+pub(crate) fn materialise_commands(layout: &Layout, provider: Provider) -> Result<(), Warning> {
+    commands::materialise(&layout.commands_dir(&provider))
+        .map(|_| ())
+        .map_err(|error| {
+            Warning::new(
+                "provider.commands_not_materialised",
+                provider.id(),
+                format!(
+                    "official commands could not be written: {error}; run `ivar sync` to repair"
+                ),
+            )
+        })
 }
 
 #[cfg(test)]
@@ -1440,22 +1447,27 @@ mod tests {
         sync(&ctx, SyncInput::default()).unwrap();
 
         let dir = root.join(".claude/commands");
-        let before: Vec<(Utf8PathBuf, Vec<u8>, Option<std::time::SystemTime>)> = commands::catalog()
-            .iter()
-            .map(|command| {
-                let path = dir.join(command.file_name());
-                let bytes = fs::read_bytes(&path).unwrap().unwrap();
-                let mtime = std::fs::metadata(path.as_std_path())
-                    .ok()
-                    .and_then(|metadata| metadata.modified().ok());
-                (path, bytes, mtime)
-            })
-            .collect();
+        let before: Vec<(Utf8PathBuf, Vec<u8>, Option<std::time::SystemTime>)> =
+            commands::catalog()
+                .iter()
+                .map(|command| {
+                    let path = dir.join(command.file_name());
+                    let bytes = fs::read_bytes(&path).unwrap().unwrap();
+                    let mtime = std::fs::metadata(path.as_std_path())
+                        .ok()
+                        .and_then(|metadata| metadata.modified().ok());
+                    (path, bytes, mtime)
+                })
+                .collect();
 
         let report = sync(&ctx, SyncInput::default()).unwrap();
 
         for (path, before_bytes, before_mtime) in &before {
-            assert_eq!(fs::read_bytes(path).unwrap().unwrap(), *before_bytes, "{path}");
+            assert_eq!(
+                fs::read_bytes(path).unwrap().unwrap(),
+                *before_bytes,
+                "{path}"
+            );
             let mtime = std::fs::metadata(path.as_std_path())
                 .ok()
                 .and_then(|metadata| metadata.modified().ok());
@@ -1540,20 +1552,22 @@ mod tests {
 
         let report = sync(&ctx, SyncInput::default()).unwrap();
 
-        assert!(!report.is_clean(), "a failed command write must not be clean");
         assert!(
-            report
-                .value
-                .entries
-                .iter()
-                .any(|e| e.surface == "opencode"
-                    && e.label == "official commands"
-                    && e.change == Change::Failed),
+            !report.is_clean(),
+            "a failed command write must not be clean"
+        );
+        assert!(
+            report.value.entries.iter().any(|e| e.surface == "opencode"
+                && e.label == "official commands"
+                && e.change == Change::Failed),
             "expected a failed opencode commands entry in {:?}",
             report.value.entries
         );
         assert!(
-            report.warnings.iter().any(|warning| warning.subject == "opencode"),
+            report
+                .warnings
+                .iter()
+                .any(|warning| warning.subject == "opencode"),
             "expected an opencode warning in {:?}",
             report.warnings
         );

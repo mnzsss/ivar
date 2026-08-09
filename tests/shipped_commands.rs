@@ -41,7 +41,7 @@ const SHIPPED_IDS: [&str; 14] = [
 /// The exact bytes of the Bifrost-era `plan` command — its SHA-256 is the
 /// catalog's legacy fingerprint for `plan`, which is what lets `sync` remove
 /// the unprefixed file (and only the file whose digest matches).
-            const LEGACY_PLAN: &str = r#"---
+const LEGACY_PLAN: &str = r#"---
 description: Conduct the SPDD planning process — Requirements, Analysis, Plan, and approval gates.
 argument-hint: <feature-name>
 ---
@@ -170,7 +170,9 @@ fn init_materialises_the_selected_providers_commands() {
 
     for id in SHIPPED_IDS {
         assert!(
-            root.join(".claude/commands").join(format!("ivar-{id}.md")).is_file(),
+            root.join(".claude/commands")
+                .join(format!("ivar-{id}.md"))
+                .is_file(),
             "{id} should be materialised by init"
         );
     }
@@ -194,7 +196,9 @@ fn provider_add_materialises_the_new_providers_commands_immediately() {
 
     for id in SHIPPED_IDS {
         assert!(
-            root.join(".opencode/commands").join(format!("ivar-{id}.md")).is_file(),
+            root.join(".opencode/commands")
+                .join(format!("ivar-{id}.md"))
+                .is_file(),
             "{id} should be materialised without a follow-up sync"
         );
     }

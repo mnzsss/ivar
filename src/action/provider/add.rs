@@ -218,8 +218,14 @@ mod tests {
 
         let report = add(&ctx, add_input("opencode")).unwrap();
 
-        assert!(!report.is_clean(), "a failed command write must not be clean");
-        assert_eq!(report.warnings[0].code, "provider.commands_not_materialised");
+        assert!(
+            !report.is_clean(),
+            "a failed command write must not be clean"
+        );
+        assert_eq!(
+            report.warnings[0].code,
+            "provider.commands_not_materialised"
+        );
         assert_eq!(report.warnings[0].subject, "opencode");
         assert!(report.warnings[0].what.contains("ivar sync"));
         assert_eq!(

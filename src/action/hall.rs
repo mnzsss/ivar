@@ -12,7 +12,7 @@ use crate::domain::name::HallName;
 use crate::domain::provider::Provider;
 use crate::error::{Failure, FixAction, Outcome, Report, Warning, WriteHuman};
 use crate::git::{self, Git, TargetState};
-use crate::harness::commands::{self, Integrity, Inspection};
+use crate::harness::commands::{self, Inspection, Integrity};
 use crate::infra::fs;
 use crate::store::gitignore;
 use crate::store::layout::{self, Layout};
@@ -526,8 +526,7 @@ fn command_diagnosis(
             what: format!(
                 "{provider}'s legacy `{file_name}` command was customised and is preserved",
             ),
-            fix: "Review it, then rename or remove it — `ivar sync` keeps it by design."
-                .to_owned(),
+            fix: "Review it, then rename or remove it — `ivar sync` keeps it by design.".to_owned(),
         }),
         Integrity::Stale => Some(Diagnosis {
             code: "provider.command_stale",
@@ -1209,8 +1208,14 @@ mod tests {
         )
         .unwrap();
 
-        assert!(!report.is_clean(), "a failed command write must not be clean");
-        assert_eq!(report.warnings[0].code, "provider.commands_not_materialised");
+        assert!(
+            !report.is_clean(),
+            "a failed command write must not be clean"
+        );
+        assert_eq!(
+            report.warnings[0].code,
+            "provider.commands_not_materialised"
+        );
         assert_eq!(report.warnings[0].subject, "opencode");
         assert!(report.warnings[0].what.contains("ivar sync"));
         // The manifest is still valid and still selects OpenCode.
@@ -1385,7 +1390,11 @@ mod tests {
         let report = doctor(&ctx).unwrap();
 
         let finding = finding(&report.value, "provider.legacy_command_modified");
-        assert!(finding.what.contains("repo-list.md"), "was: {}", finding.what);
+        assert!(
+            finding.what.contains("repo-list.md"),
+            "was: {}",
+            finding.what
+        );
         assert!(
             finding.fix.contains("rename") || finding.fix.contains("remove"),
             "the legacy fix must tell the user to rename or remove the preserved file: {}",
