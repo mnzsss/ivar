@@ -4,8 +4,8 @@ description: Promote a repo from read-only default-branch checkout to a writable
 
 # Promote
 
-Promote a repo from read-only default-branch checkout to a writable
-feature-branch worktree for the current feature.
+`/ivar-promote` moves a repo from read-only default-branch checkout to a
+writable feature-branch worktree for the current feature.
 
 ## Usage
 

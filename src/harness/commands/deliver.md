@@ -4,8 +4,8 @@ description: Preview and apply delivery for a feature — push branches and crea
 
 # Deliver
 
-Preview and apply delivery for a feature. Pushes branches and creates or updates
-pull requests.
+`/ivar-deliver` previews and applies delivery for a feature: it pushes branches
+and creates or updates pull requests.
 
 ## Usage
 

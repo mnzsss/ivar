@@ -3,7 +3,10 @@ description: Reconnect to an active ivar session instead of creating a new one.
 argument-hint: [session-id-prefix]
 ---
 
-Reconnect to an active ivar session.
+# Session Connect
+
+`/ivar-session-connect` reconnects to an active ivar session instead of creating
+a new one.
 
 ## Steps
 

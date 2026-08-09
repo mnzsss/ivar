@@ -4,7 +4,7 @@ description: Create a new persistent feature for cross-repo work.
 
 # Feature Create
 
-Create a new persistent feature for cross-repo work.
+`/ivar-feature-create` creates a new persistent feature for cross-repo work.
 
 ## Usage
 

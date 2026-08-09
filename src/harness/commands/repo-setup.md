@@ -4,9 +4,10 @@ description: Author a repo's Setup Script (.ivar/setups/<repo>.sh) by inspecting
 
 # Repo Setup
 
-Author a repo's **Setup Script** — `.ivar/setups/<repo>.sh` at the hall root —
-by inspecting the repo and writing the commands that prepare a freshly-cut
-worktree (install deps, copy env files, run codegen). `ivar` runs this script:
+`/ivar-repo-setup` authors a repo's **Setup Script** —
+`.ivar/setups/<repo>.sh` at the hall root — by inspecting the repo and writing
+the commands that prepare a freshly-cut worktree (install deps, copy env files,
+run codegen). `ivar` runs this script:
 
 - During **`ivar sync`** — against each repo's default-branch worktree.
 - On the first **Promote** of that repo — against its new feature-branch

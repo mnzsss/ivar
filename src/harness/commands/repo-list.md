@@ -4,8 +4,8 @@ description: List all repositories registered in the hall manifest, along with f
 
 # Repo List
 
-List all repositories registered in the hall manifest, along with features,
-sessions, and promoted repos.
+`/ivar-repo-list` lists all repositories registered in the hall manifest, along
+with features, sessions, and promoted repos.
 
 ## Usage
 
