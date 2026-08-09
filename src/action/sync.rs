@@ -765,6 +765,26 @@ fn record_failure(
     warnings.push(Warning::new("sync.step_failed", surface, failure.what));
 }
 
+/// Materialise `provider`'s shipped workflow commands during setup, or the
+/// warning to carry when they cannot be written.
+///
+/// Shared by `init` and `provider add`: both write the manifest first and then
+/// bootstrap the newly selected provider's commands immediately. A write
+/// failure is a warning — the manifest stays valid and `ivar sync` is the
+/// repair — never a failure that rolls the setup back.
+pub(crate) fn materialise_commands(
+    layout: &Layout,
+    provider: Provider,
+) -> Result<(), Warning> {
+    commands::materialise(&layout.commands_dir(&provider)).map(|_| ()).map_err(|error| {
+        Warning::new(
+            "provider.commands_not_materialised",
+            provider.id(),
+            format!("official commands could not be written: {error}; run `ivar sync` to repair"),
+        )
+    })
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(
@@ -1405,10 +1425,8 @@ mod tests {
                 );
             }
         }
-        assert_eq!(
-            entry(&report.value, "claude-code", "command ivar-plan.md").change,
-            Change::Created
-        );
+        // OpenCode's commands come from this sync — init only bootstrapped the
+        // default provider, Claude Code.
         assert_eq!(
             entry(&report.value, "opencode", "command ivar-plan.md").change,
             Change::Created
