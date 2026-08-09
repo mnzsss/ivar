@@ -251,6 +251,15 @@ pub struct Guard {
 pub struct DeliveryPreview {
     /// The feature being delivered.
     pub feature: FeatureName,
+    /// The state of the feature's [`Gate::Plan`] — the gate delivery is
+    /// conditioned on. Read from the approvals artifact, never stored on the
+    /// feature: there is no lifecycle field to fall out of step with it.
+    ///
+    /// `--preview` reports it and refuses nothing; apply refuses anything but
+    /// [`GateState::Approved`]. It is part of the fingerprinted summary, so
+    /// crossing the gate after a preview reads as drift, exactly like a new
+    /// commit would.
+    pub plan_gate: GateState,
     /// One entry per promoted repo, in push order.
     pub repos: Vec<DeliveryRepo>,
     /// Content hash of the preview summary, for apply gating.
@@ -976,6 +985,7 @@ mod tests {
     fn a_delivery_preview_round_trips_through_serde() {
         let preview = DeliveryPreview {
             feature: FeatureName::new("checkout").unwrap(),
+            plan_gate: GateState::Approved,
             repos: vec![delivery_repo("api")],
             fingerprint: "abc123".to_owned(),
         };

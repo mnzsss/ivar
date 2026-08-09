@@ -146,9 +146,11 @@ unpausing it. The board resumes once every paused workstream has.
 ## Delivering and finishing
 
 **Delivery preview** — the side-effect-free summary from `ivar feature deliver
---preview`: per promoted repo, the local branch, remote, push refspec, PR action,
-base branch, ordering and blockers. Apply is gated on the preview's fingerprint
-and refuses if state drifted.
+--preview`: the feature's plan-gate state, and per promoted repo the local
+branch, remote, push refspec, PR action, base branch, ordering and blockers.
+Apply is gated on two things — the plan gate being approved, and the preview's
+fingerprint, which refuses if state drifted. The gate state is part of the
+fingerprinted summary, so crossing it is itself drift.
 
 **`part of`** — how sibling PRs across repos reference each other. Deliberately
 not `depends on`: `ivar` models co-belonging, not dependency, and claims nothing

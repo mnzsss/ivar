@@ -70,6 +70,41 @@ fn setup_deliver_hall(root: &Utf8PathBuf) {
     git(&worktree, &["commit", "-m", "work"]);
 }
 
+/// Walk `feature` through the SPDD gates up to and including `plan`, using only
+/// CLI verbs. This is the path a human takes; `deliver` refuses without it.
+fn approve_through_plan(root: &Utf8PathBuf, feature: &str) {
+    ivar()
+        .current_dir(root)
+        .args(["plan", "create", feature])
+        .assert()
+        .success();
+
+    for gate in ["requirements", "analysis", "plan"] {
+        ivar()
+            .current_dir(root)
+            .args(["plan", "approve", feature, gate])
+            .assert()
+            .success();
+    }
+}
+
+/// The fingerprint `--preview` printed for `feature`.
+fn preview_fingerprint(root: &Utf8PathBuf, feature: &str) -> String {
+    let output = ivar()
+        .current_dir(root)
+        .args(["feature", "deliver", feature, "--preview", "--json"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let value: serde_json::Value = serde_json::from_slice(&output).expect("valid json");
+    value["preview"]["fingerprint"]
+        .as_str()
+        .expect("fingerprint is a string")
+        .to_owned()
+}
+
 // -- preview ------------------------------------------------------------------
 
 #[test]
@@ -153,6 +188,7 @@ fn preview_for_a_feature_with_no_promoted_repos_is_empty() {
 fn apply_requires_a_preview_fingerprint() {
     let (_guard, root) = hall_root();
     setup_deliver_hall(&root);
+    approve_through_plan(&root, "checkout");
 
     ivar()
         .current_dir(&root)
@@ -167,6 +203,7 @@ fn apply_requires_a_preview_fingerprint() {
 fn apply_is_rejected_when_the_fingerprint_does_not_match() {
     let (_guard, root) = hall_root();
     setup_deliver_hall(&root);
+    approve_through_plan(&root, "checkout");
 
     // Get a valid preview first.
     let preview_output = ivar()
@@ -200,12 +237,145 @@ fn apply_is_rejected_when_the_fingerprint_does_not_match() {
         .stderr(predicate::str::contains("drifted"));
 }
 
+// -- apply: the plan gate -----------------------------------------------------
+
+#[test]
+fn apply_is_refused_while_the_plan_gate_is_not_approved() {
+    let (_guard, root) = hall_root();
+    setup_deliver_hall(&root);
+
+    ivar()
+        .current_dir(&root)
+        .args(["feature", "deliver", "checkout"])
+        .assert()
+        .failure()
+        .code(2)
+        .stderr(predicate::str::contains("plan"))
+        .stderr(predicate::str::contains("ivar plan approve checkout plan"));
+}
+
+#[test]
+fn apply_is_refused_even_with_a_matching_fingerprint_while_the_gate_is_pending() {
+    let (_guard, root) = hall_root();
+    setup_deliver_hall(&root);
+
+    // A fingerprint straight off the preview — the drift gate is satisfied, and
+    // the plan gate still refuses. The two are independent.
+    let fp = preview_fingerprint(&root, "checkout");
+
+    ivar()
+        .current_dir(&root)
+        .args(["feature", "deliver", "checkout", "--fingerprint", &fp])
+        .assert()
+        .failure()
+        .code(2)
+        .stderr(predicate::str::contains("ivar plan approve checkout plan"));
+}
+
+#[test]
+fn approving_only_the_upstream_gates_is_not_enough() {
+    let (_guard, root) = hall_root();
+    setup_deliver_hall(&root);
+
+    ivar()
+        .current_dir(&root)
+        .args(["plan", "create", "checkout"])
+        .assert()
+        .success();
+    for gate in ["requirements", "analysis"] {
+        ivar()
+            .current_dir(&root)
+            .args(["plan", "approve", "checkout", gate])
+            .assert()
+            .success();
+    }
+
+    ivar()
+        .current_dir(&root)
+        .args(["feature", "deliver", "checkout"])
+        .assert()
+        .failure()
+        .code(2)
+        .stderr(predicate::str::contains("ivar plan approve checkout plan"));
+}
+
+#[test]
+fn invalidating_the_plan_gate_closes_delivery_again() {
+    let (_guard, root) = hall_root();
+    setup_deliver_hall(&root);
+    approve_through_plan(&root, "checkout");
+
+    ivar()
+        .current_dir(&root)
+        .args(["plan", "invalidate", "checkout", "plan"])
+        .assert()
+        .success();
+
+    ivar()
+        .current_dir(&root)
+        .args(["feature", "deliver", "checkout"])
+        .assert()
+        .failure()
+        .code(2)
+        .stderr(predicate::str::contains("ivar plan approve checkout plan"));
+}
+
+#[test]
+fn the_preview_reports_the_plan_gate_without_refusing() {
+    let (_guard, root) = hall_root();
+    setup_deliver_hall(&root);
+
+    let output = ivar()
+        .current_dir(&root)
+        .args(["feature", "deliver", "checkout", "--preview", "--json"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let value: serde_json::Value = serde_json::from_slice(&output).expect("valid json");
+    assert_eq!(value["preview"]["plan_gate"], "pending");
+
+    approve_through_plan(&root, "checkout");
+
+    let output = ivar()
+        .current_dir(&root)
+        .args(["feature", "deliver", "checkout", "--preview", "--json"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let value: serde_json::Value = serde_json::from_slice(&output).expect("valid json");
+    assert_eq!(value["preview"]["plan_gate"], "approved");
+}
+
+#[test]
+fn approving_the_plan_after_a_preview_drifts_the_fingerprint() {
+    let (_guard, root) = hall_root();
+    setup_deliver_hall(&root);
+
+    let stale = preview_fingerprint(&root, "checkout");
+    approve_through_plan(&root, "checkout");
+
+    // The gate state is part of what the human approved, so crossing it is
+    // drift like any other — the preview has to be taken again.
+    ivar()
+        .current_dir(&root)
+        .args(["feature", "deliver", "checkout", "--fingerprint", &stale])
+        .assert()
+        .failure()
+        .code(2)
+        .stderr(predicate::str::contains("drifted"));
+}
+
 // -- apply: pushing -----------------------------------------------------------
 
 #[test]
 fn deliver_pushes_the_feature_branch_to_the_remote() {
     let (_guard, root) = hall_root();
     setup_deliver_hall(&root);
+    approve_through_plan(&root, "checkout");
 
     // Preview to get the fingerprint.
     let preview_output = ivar()
@@ -250,6 +420,7 @@ fn deliver_pushes_the_feature_branch_to_the_remote() {
 fn a_failed_push_becomes_a_warning_not_an_abort() {
     let (_guard, root) = hall_root();
     setup_deliver_hall(&root);
+    approve_through_plan(&root, "checkout");
 
     // Break the remote before delivering.
     let manifest_path = root.join("ivar.json");
@@ -312,4 +483,69 @@ fn human_preview_surface_lists_each_repo_and_the_fingerprint() {
     // The remote is a local path — push only, no PR.
     assert!(human.contains("action:  push only"));
     assert!(human.contains("fingerprint:"));
+}
+
+// -- end to end ---------------------------------------------------------------
+
+/// Zero to delivered, through CLI verbs only.
+///
+/// The point of this test is what it does *not* do: no file under `.ivar/` is
+/// written by hand at any step. Every state the run passes through — the hall,
+/// the repo, the feature, the promotion, the four planning artifacts, the three
+/// crossed gates, the preview fingerprint — is reachable by running `ivar`.
+/// A gate that could only be crossed by editing JSON would fail here.
+#[test]
+fn the_whole_path_from_an_empty_directory_to_a_pushed_branch_runs_on_cli_verbs_only() {
+    let (_guard, root) = hall_root();
+    let origin = seeded_repo(&root.parent().unwrap().join("origins/api"), "main");
+
+    ivar().current_dir(&root).arg("init").assert().success();
+    ivar()
+        .current_dir(&root)
+        .args(["repo", "add", "api", origin.as_str()])
+        .assert()
+        .success();
+    ivar()
+        .current_dir(&root)
+        .args(["feature", "create", "checkout"])
+        .assert()
+        .success();
+    ivar()
+        .current_dir(&root)
+        .args(["feature", "promote", "checkout", "api"])
+        .assert()
+        .success();
+
+    // Something to deliver.
+    let worktree = root.join(".ivar/repos/api/checkout");
+    std::fs::write(worktree.join("work.md"), "work\n").unwrap();
+    git(&worktree, &["add", "work.md"]);
+    git(&worktree, &["commit", "-m", "work"]);
+
+    approve_through_plan(&root, "checkout");
+
+    let fingerprint = preview_fingerprint(&root, "checkout");
+    ivar()
+        .current_dir(&root)
+        .args([
+            "feature",
+            "deliver",
+            "checkout",
+            "--fingerprint",
+            &fingerprint,
+        ])
+        .assert()
+        .success();
+
+    // The branch actually landed on the origin.
+    let output = std::process::Command::new("git")
+        .args(["-C", origin.as_str(), "rev-parse", "--verify"])
+        .arg("refs/heads/checkout")
+        .output()
+        .expect("git runs");
+    assert!(
+        output.status.success(),
+        "the feature branch never reached the origin: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
 }

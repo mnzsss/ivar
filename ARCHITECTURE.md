@@ -248,6 +248,43 @@ lines) exists only because `ink` accepts strings. In `ratatui` you own the cells
 so a `vt100` cell maps straight to a `Style` and the entire layer disappears. Do
 not reintroduce it.
 
+### 7. Lifecycle is derived from the gates, never stored
+
+A feature has no `lifecycle` field, and will not get one. Where it is in the SPDD
+cycle is **read from the approvals artifact** — `ApprovalState` in
+`features/<feature>/planning/approvals.json` — plus its promotions and the state
+of its branches. `feature deliver` conditions apply on `Gate::Plan` being
+`Approved`, reading it at the moment it needs it.
+
+The alternative was a stored enum with explicit transitions, which is what the
+TypeScript predecessor does: eleven states, a `transitionLifecycle` call at each
+edge, and `deliver` refusing anything but `delivery_approved`. It shipped with a
+state nothing wrote. The approve commands recorded their gate in the approvals
+artifact and never touched the enum, so every feature stayed in `draft` — the
+three gates green, delivery unreachable, and the only way through was hand-editing
+the JSON.
+
+The defect is not that someone forgot a call. It is that a stored lifecycle is a
+second copy of a fact the gates already hold, and two copies of a fact drift.
+Derivation removes the class: there is no transition to omit when there is no
+transition, and no state that exists on disk but is reachable by nothing.
+
+What this costs, stated plainly:
+
+- **Reading the state costs a file read**, at every point that wants it. Cheap,
+  local, and the artifact was already being read by `plan status`.
+- **There is no history.** Derived state answers *where is this now*, never *when
+  did it get here*. The execution board's journal is where anything append-only
+  belongs; do not smuggle history into the gates.
+- **A derived value must be recomputed, not cached across a mutation.** The gate
+  is read inside `deliver`, after the feature is read, and is not threaded in
+  from a caller who might be holding a stale copy.
+
+`plan_gate` rides inside the fingerprinted delivery preview rather than being
+checked beside it, so crossing the gate after a preview reads as drift like any
+other change. A preview taken before approval cannot be applied after it — the
+human approves one state, and that state includes whether the plan was approved.
+
 ## On-disk layout
 
 One dotdir, one manifest, one name everywhere.
