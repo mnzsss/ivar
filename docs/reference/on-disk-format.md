@@ -31,11 +31,19 @@ half-understood state file is worse than no state file.
   .ivar/repos/                  local        bare clones and worktrees
   .ivar/features/               local        promotion records, execution boards
   .ivar/sessions/               local        discovery-session view dirs
+  .claude/commands/ivar-*.md    local        derived workflow commands (Claude Code)
+  .opencode/commands/ivar-*.md  local        derived workflow commands (OpenCode)
 ```
 
 "Committed" means it belongs in your hall's git history and your teammates get it
 on `git pull`. "Local" means it is gitignored, belongs to one machine, and is
 reproducible — deleting it costs you a re-clone, never work.
+
+The `ivar-*.md` workflow commands under each provider's command directory are
+local derived state in the same sense: `ivar init`, `ivar provider add`, and
+`ivar sync` recreate or repair them from the binary, so they are never
+committed and never hand-edited. Every *other* file in those directories is
+yours and is never changed.
 
 `ivar.json` is deliberately **not** inside `.ivar/`. It is the file a reviewer
 reads in a pull request, so it stays visible at the root.

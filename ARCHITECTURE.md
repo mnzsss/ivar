@@ -90,6 +90,12 @@ src/
                    they differ by data (config path, argv, capabilities), and a
                    file each would have held a match arm and nothing more.
     config.rs      per-harness config materialisation (CLAUDE.md, AGENTS.md, MCP)
+    commands.rs    embedded shipped-workflow catalog, reconciliation, integrity
+                   inspection, legacy fingerprint cleanup. Owns only the
+                   `ivar-*.md` files in each provider's command directory.
+    commands/*.md  provider-neutral workflow sources, compiled into the binary
+                   with include_str!. No command content or file reconciliation
+                   lives in `bin/ivar.rs` or `action`.
 
   tui/             ratatui. Sync render, explicit drive.
     screen.rs      the Screen seam over vt100 — the emulator swap point
@@ -260,6 +266,8 @@ One dotdir, one manifest, one name everywhere.
     skills/               hall-scoped skills (committed)
   plans/<feature>/        requirements.md · analysis.md · plan.md (committed)
   .claude/ .opencode/     harness-dictated, and the TARGET of symlinks, not the source
+  .claude/commands/ivar-*.md   derived workflow commands (gitignored)
+  .opencode/commands/ivar-*.md derived workflow commands (gitignored)
 ```
 
 Two traps, both learned the hard way:

@@ -42,9 +42,10 @@ ivar sync
 ```
 
 `ivar sync` reads the committed `ivar.json` and makes your machine match it:
-clones every repo bare, cuts a default-branch worktree for each, materialises the
-config for the harnesses the hall uses, and runs each repo's setup script so a
-fresh worktree has its `.env` and its `node_modules`.
+clones every repo bare, cuts a default-branch worktree for each, materialises
+the config for the harnesses the hall uses — including the `/ivar-*` workflow
+commands each provider gets — and runs each repo's setup script so a fresh
+worktree has its `.env` and its `node_modules`.
 
 That is the onboarding claim, and it is the whole of it — one command, N repos.
 
@@ -79,7 +80,10 @@ ivar init --name acme
 
 That writes three things: `ivar.json` (committed — the hall's identity), `.ivar/`
 (local, gitignored — clones, worktrees, state), and the `.gitignore` lines that
-keep the second out of the first.
+keep the second out of the first. It also installs the selected provider's
+`/ivar-*` workflow commands into its native command directory — adding a
+provider later with `ivar provider add` installs that provider's commands in
+the same run.
 
 Add the repos the team's work spans:
 
