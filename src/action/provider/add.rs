@@ -2,12 +2,16 @@
 //!
 //! Appends `name` to `providers.available`, leaving `providers.default`
 //! untouched — adding a harness never silently changes which one sessions
-//! start in. The manifest is the committed record; `ivar sync` is what
-//! materialises the new provider's config from it.
+//! start in. The manifest is the committed record, and the new provider's
+//! shipped workflow commands are materialised immediately; `ivar sync` is what
+//! materialises the rest of its config (managed block, MCP) from the manifest.
 //!
 //! Two refusals, both before anything is written: an unknown provider id
 //! (the set is closed — `claude-code` and `opencode`), and a provider that is
 //! already registered. Neither touches `ivar.json`.
+//!
+//! A command-write failure is a **warning**, not a failure: the manifest keeps
+//! the provider, and the warning names `ivar sync` as the repair.
 
 use std::io;
 
@@ -18,6 +22,7 @@ use crate::domain::provider::Provider;
 use crate::error::{Failure, FixAction, Outcome, Report, WriteHuman};
 use crate::store::manifest::{Manifest, Providers};
 
+use super::super::sync;
 use super::super::{discover_hall, read_manifest};
 use crate::action::Ctx;
 
@@ -53,8 +58,7 @@ impl WriteHuman for AddOutcome {
             w,
             "Registered provider `{}` in {} — available: {} (default: {}).",
             self.provider, self.root, rendered, self.default
-        )?;
-        writeln!(w, "Run `ivar sync` to materialise its config.")
+        )
     }
 }
 
@@ -100,21 +104,34 @@ pub fn add(ctx: &Ctx, input: AddInput) -> Outcome<AddOutcome> {
     .with_mcp_servers(manifest.mcp_servers().to_vec())?;
     Manifest::write(&layout, &updated)?;
 
-    Ok(Report::new(AddOutcome {
+    // The provider is registered and its commands are bootstrapped in the same
+    // run — no follow-up sync needed for them. A write failure is a warning
+    // (the manifest keeps the provider; sync is the repair), never a rollback.
+    let mut report = Report::new(AddOutcome {
         root: layout.root().to_path_buf(),
         provider,
         available,
         default,
-    }))
+    });
+    if let Err(warning) = sync::materialise_commands(&layout, provider) {
+        report.warn(warning);
+    }
+    Ok(report)
 }
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+    #![allow(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::indexing_slicing
+    )]
 
     use super::*;
     use crate::action::hall::{self, InitInput};
     use crate::error::Status;
+    use crate::infra::fs;
     use crate::store::layout::Layout;
     use crate::test_support::hall_root;
 
@@ -168,6 +185,47 @@ mod tests {
             persisted_available(&root),
             vec![Provider::ClaudeCode, Provider::OpenCode],
             "ivar.json must record the new provider"
+        );
+    }
+
+    #[test]
+    fn provider_add_materialises_the_new_providers_commands() {
+        let (_guard, root) = seeded_hall();
+        let ctx = Ctx::new(root.clone());
+
+        let report = add(&ctx, add_input("opencode")).unwrap();
+
+        assert!(report.is_clean());
+        for command in crate::harness::commands::catalog() {
+            assert!(
+                std::path::Path::new(&root)
+                    .join(".opencode/commands")
+                    .join(command.file_name())
+                    .is_file(),
+                "{} should be materialised immediately, without a follow-up sync",
+                command.file_name()
+            );
+        }
+    }
+
+    #[test]
+    fn provider_add_returns_warning_when_commands_cannot_be_written() {
+        let (_guard, root) = seeded_hall();
+        // Occupy OpenCode's command-directory parent with a regular file, so
+        // `ensure_dir` cannot create `.opencode/commands` under it.
+        fs::write_text(&root.join(".opencode"), "not a directory\n").unwrap();
+        let ctx = Ctx::new(root.clone());
+
+        let report = add(&ctx, add_input("opencode")).unwrap();
+
+        assert!(!report.is_clean(), "a failed command write must not be clean");
+        assert_eq!(report.warnings[0].code, "provider.commands_not_materialised");
+        assert_eq!(report.warnings[0].subject, "opencode");
+        assert!(report.warnings[0].what.contains("ivar sync"));
+        assert_eq!(
+            persisted_available(&root),
+            vec![Provider::ClaudeCode, Provider::OpenCode],
+            "the provider must stay registered even when its commands could not be written"
         );
     }
 
@@ -234,7 +292,7 @@ mod tests {
         assert_eq!(
             String::from_utf8(out).unwrap(),
             "Registered provider `opencode` in /hall — available: claude-code, opencode \
-             (default: claude-code).\nRun `ivar sync` to materialise its config.\n"
+             (default: claude-code).\n"
         );
     }
 }

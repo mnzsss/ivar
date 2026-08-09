@@ -18,6 +18,7 @@ use crate::store::layout::{self, Layout};
 use crate::store::manifest::{Manifest, MigrationPlan, Providers};
 
 use super::Ctx;
+use super::sync;
 
 /// The provider a hall gets when nobody names one: Claude Code. It is the
 /// harness this tool's own docs are written for, and it is what
@@ -77,10 +78,16 @@ impl WriteHuman for InitOutcome {
 }
 
 /// Create a hall at `input.path`: write `ivar.json` (via `store::manifest`),
-/// create `.ivar/`, and write the hall's `.gitignore` lines (via
-/// [`Layout::gitignore_lines`]). Nothing else — no git clone, no harness
-/// config materialisation, no skill home. Those are `ivar sync`'s job (see
-/// ARCHITECTURE.md's build order).
+/// create `.ivar/`, write the hall's `.gitignore` lines (via
+/// [`Layout::gitignore_lines`]), and materialise the selected provider's
+/// shipped workflow commands into its native command directory. Nothing else —
+/// no git clone, no harness config materialisation, no skill home. Those are
+/// `ivar sync`'s job (see ARCHITECTURE.md's build order).
+///
+/// The commands are attempted only after the manifest and skeleton are
+/// durable, and their failure is a **warning**, not a rollback: a hall that
+/// cannot materialise its commands is still a valid hall, and `ivar sync` is
+/// the repair. The manifest never loses to a convenience file.
 ///
 /// Four decisions this slice settles:
 ///
@@ -159,11 +166,18 @@ pub fn init(ctx: &Ctx, input: InitInput) -> Outcome<InitOutcome> {
     create_ivar_dir(&layout)?;
     gitignore::ensure(&layout)?;
 
-    Ok(Report::new(InitOutcome {
+    // The manifest and skeleton are on disk before the commands are attempted,
+    // and a failed attempt is a warning, never a failure: the hall is valid
+    // and `ivar sync` repairs the commands.
+    let mut report = Report::new(InitOutcome {
         root,
         name,
         provider,
-    }))
+    });
+    if let Err(warning) = sync::materialise_commands(&layout, provider) {
+        report.warn(warning);
+    }
+    Ok(report)
 }
 
 /// A hall's `ivar.json` already sits at `manifest_path`. Blocked, with a
@@ -1071,6 +1085,68 @@ mod tests {
         let content = fs::read_text(&root.join(".gitignore")).unwrap().unwrap();
         assert!(content.starts_with("node_modules/\n"));
         assert_eq!(content.matches(".ivar/*").count(), 1);
+    }
+
+    // -- shipped workflow commands --------------------------------------------
+
+    #[test]
+    fn init_materialises_commands_for_its_selected_provider() {
+        let (_guard, root) = utf8_temp_dir();
+        let ctx = Ctx::new(root.clone());
+
+        let report = init(
+            &ctx,
+            InitInput {
+                path: Utf8PathBuf::from("."),
+                name: Some("acme".to_owned()),
+                provider: Some("opencode".to_owned()),
+            },
+        )
+        .unwrap();
+
+        assert!(report.is_clean());
+        for command in crate::harness::commands::catalog() {
+            assert!(
+                fs::is_file(&root.join(".opencode/commands").join(command.file_name())).unwrap(),
+                "{} should be materialised for opencode",
+                command.file_name()
+            );
+        }
+        assert!(
+            !fs::exists(&root.join(".claude")).unwrap(),
+            "a Claude command directory must not exist for an OpenCode hall"
+        );
+    }
+
+    #[test]
+    fn init_returns_warning_when_command_materialisation_fails() {
+        let (_guard, root) = utf8_temp_dir();
+        // Occupy OpenCode's command-directory parent with a regular file, so
+        // `ensure_dir` cannot create `.opencode/commands` under it.
+        fs::write_text(&root.join(".opencode"), "not a directory\n").unwrap();
+        let ctx = Ctx::new(root.clone());
+
+        let report = init(
+            &ctx,
+            InitInput {
+                path: Utf8PathBuf::from("."),
+                name: Some("acme".to_owned()),
+                provider: Some("opencode".to_owned()),
+            },
+        )
+        .unwrap();
+
+        assert!(!report.is_clean(), "a failed command write must not be clean");
+        assert_eq!(report.warnings[0].code, "provider.commands_not_materialised");
+        assert_eq!(report.warnings[0].subject, "opencode");
+        assert!(report.warnings[0].what.contains("ivar sync"));
+        // The manifest is still valid and still selects OpenCode.
+        let on_disk = fs::read_text(&root.join("ivar.json")).unwrap().unwrap();
+        let value: serde_json::Value = serde_json::from_str(&on_disk).unwrap();
+        assert_eq!(
+            value["providers"]["available"],
+            serde_json::json!(["opencode"])
+        );
     }
 
     #[test]
