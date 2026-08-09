@@ -285,6 +285,29 @@ checked beside it, so crossing the gate after a preview reads as drift like any
 other change. A preview taken before approval cannot be applied after it — the
 human approves one state, and that state includes whether the plan was approved.
 
+### 8. `cli` converts by destructuring, so a dropped flag will not compile
+
+Every `*Args` struct in `cli::root` has exactly one `From<XArgs> for XInput`
+impl, and every one of them opens with `let XArgs { .. } = args;` naming each
+field. `bin/ivar.rs` is then pure dispatch: `action::verb(&ctx, args.into())`,
+with no field list of its own.
+
+The rule exists because the two failure directions are not symmetric:
+
+- **An `Input` field the CLI never supplies** cannot happen. A struct literal in
+  Rust must be exhaustive, so the compiler already refuses it.
+- **An arg the parser declares and nothing reads** compiles fine. The field is
+  simply never touched, `--help` promises the flag, and passing it does nothing.
+
+That second one is the whole bug class. Exhaustive destructuring converts it into
+`error[E0027]: pattern does not mention field`, naming the field, at the one site
+that was supposed to forward it. No test can do this as well as the compiler, so
+there is no test — do not replace the `let XArgs { … } = args;` lines with field
+access to shorten them, or the guarantee silently goes away.
+
+Nothing is validated here. Turning a `String` into a `FeatureName` needs
+`domain`, which `cli` may not import; that stays the action's job.
+
 ## On-disk layout
 
 One dotdir, one manifest, one name everywhere.

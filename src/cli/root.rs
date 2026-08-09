@@ -10,7 +10,27 @@
 use camino::Utf8PathBuf;
 use clap::{Args, Parser, Subcommand, ValueEnum};
 
+use crate::action::execute::{
+    ack as execute_ack, approve as execute_approve, guard_check as execute_guard_check, prepare,
+    reconcile as execute_reconcile, replan as execute_replan, reply as execute_reply,
+    tick as execute_tick,
+};
+use crate::action::feature::{
+    close, create, delete, deliver, demote, promote, rebase, review, status, view,
+};
 use crate::action::hall::InitInput;
+use crate::action::plan::approve as plan_approve;
+use crate::action::plan::{create as plan_create, show as plan_show, status as plan_status};
+use crate::action::provider::add as provider_add;
+use crate::action::repo::{add, pull, remove, setup as repo_setup, upstream as repo_upstream};
+use crate::action::session::{
+    connect as session_connect, conversion as session_conversion, relay as session_relay,
+    start as session_start, stop as session_stop,
+};
+use crate::action::skill::{
+    add as skill_add, create as skill_create, detach as skill_detach, remove as skill_remove,
+    update as skill_update,
+};
 use crate::action::sync::SyncInput;
 
 /// Mount the repos a feature spans into one directory, on one branch, for
@@ -209,10 +229,7 @@ pub enum FeatureCommand {
     Review(FeatureReviewArgs),
     /// Open an interactive multi-shell view over the feature's promoted
     /// repos — one shell per repo, each running in its worktree.
-    View {
-        /// The feature to view.
-        name: String,
-    },
+    View(FeatureViewArgs),
     /// Delete features whose branches have been merged into their default
     /// branches.
     Prune,
@@ -404,6 +421,13 @@ pub struct FeatureRebaseArgs {
 #[derive(Debug, Args)]
 pub struct FeatureReviewArgs {
     /// The feature to open.
+    pub name: String,
+}
+
+/// Arguments for `ivar feature view`.
+#[derive(Debug, Args)]
+pub struct FeatureViewArgs {
+    /// The feature to view.
     pub name: String,
 }
 
@@ -657,17 +681,6 @@ pub struct InitArgs {
     pub provider: Option<String>,
 }
 
-impl From<InitArgs> for InitInput {
-    /// A straight field copy — no validation. See the type doc comment.
-    fn from(args: InitArgs) -> Self {
-        Self {
-            path: args.path,
-            name: args.name,
-            provider: args.provider,
-        }
-    }
-}
-
 /// Arguments for `ivar sync`.
 ///
 /// No path argument: `sync` acts on the hall the current directory is inside,
@@ -682,11 +695,416 @@ pub struct SyncArgs {
     pub force_setup: bool,
 }
 
+// -- args → input ------------------------------------------------------------
+//
+// Every conversion below **destructures its args struct exhaustively**. That is
+// the whole point of writing them out rather than reaching for `args.field`:
+// adding a flag to a `*Args` struct and forgetting to forward it stops being a
+// flag the parser advertises and the action never sees, and becomes a compile
+// error naming the field.
+//
+// The direction Rust already covers is the other one — an `*Input` field the
+// CLI does not supply cannot be constructed at all. The direction it does not
+// cover is a declared arg nobody reads, and that is the one that ships help
+// text promising a flag that does nothing. Hence the `let Xxx { .. } = args;`
+// line in each impl. Do not replace it with field access.
+//
+// No validation happens here, and none may: turning a `String` into a
+// `FeatureName` needs `domain`, which `cli` must not import (see the layering
+// table in ARCHITECTURE.md). These are shape conversions only.
+
+impl From<InitArgs> for InitInput {
+    fn from(args: InitArgs) -> Self {
+        let InitArgs {
+            path,
+            name,
+            provider,
+        } = args;
+        Self {
+            path,
+            name,
+            provider,
+        }
+    }
+}
+
 impl From<SyncArgs> for SyncInput {
     fn from(args: SyncArgs) -> Self {
+        let SyncArgs { force_setup } = args;
+        Self { force_setup }
+    }
+}
+
+impl From<RepoAddArgs> for add::AddInput {
+    /// `--reuse` / `--fresh` are a tri-state on the wire and an
+    /// `Option<bool>` in the action: reuse an existing bare clone, replace it,
+    /// or refuse to guess. clap already rejects passing both.
+    fn from(args: RepoAddArgs) -> Self {
+        let RepoAddArgs {
+            name,
+            url,
+            default_branch,
+            reuse,
+            fresh,
+        } = args;
+        let reuse_existing = match (reuse, fresh) {
+            (true, false) => Some(true),
+            (false, true) => Some(false),
+            _ => None,
+        };
         Self {
-            force_setup: args.force_setup,
+            name,
+            url,
+            default_branch,
+            reuse_existing,
         }
+    }
+}
+
+impl From<RepoRemoveArgs> for remove::RemoveInput {
+    fn from(args: RepoRemoveArgs) -> Self {
+        let RepoRemoveArgs { name, force } = args;
+        Self { name, force }
+    }
+}
+
+impl From<RepoPullArgs> for pull::PullInput {
+    fn from(args: RepoPullArgs) -> Self {
+        let RepoPullArgs { repo } = args;
+        Self { repo }
+    }
+}
+
+impl From<RepoSetupArgs> for repo_setup::SetupInput {
+    /// An omitted repo means every repo, which the action spells as an empty
+    /// name.
+    fn from(args: RepoSetupArgs) -> Self {
+        let RepoSetupArgs { repo, force_setup } = args;
+        Self {
+            repo: repo.unwrap_or_default(),
+            force: force_setup,
+        }
+    }
+}
+
+impl From<RepoUpstreamArgs> for repo_upstream::UpstreamInput {
+    fn from(args: RepoUpstreamArgs) -> Self {
+        let RepoUpstreamArgs { repo, url, remove } = args;
+        Self {
+            repo,
+            url: url.unwrap_or_default(),
+            remove,
+        }
+    }
+}
+
+impl From<FeatureCreateArgs> for create::CreateInput {
+    fn from(args: FeatureCreateArgs) -> Self {
+        let FeatureCreateArgs { name } = args;
+        Self { name }
+    }
+}
+
+impl From<FeaturePromoteArgs> for promote::PromoteInput {
+    fn from(args: FeaturePromoteArgs) -> Self {
+        let FeaturePromoteArgs { feature, repo } = args;
+        Self { feature, repo }
+    }
+}
+
+impl From<FeatureDemoteArgs> for demote::DemoteInput {
+    fn from(args: FeatureDemoteArgs) -> Self {
+        let FeatureDemoteArgs { feature, repo } = args;
+        Self { feature, repo }
+    }
+}
+
+impl From<FeatureStatusArgs> for status::StatusInput {
+    fn from(args: FeatureStatusArgs) -> Self {
+        let FeatureStatusArgs { feature } = args;
+        Self { feature }
+    }
+}
+
+impl From<FeatureExecuteArgs> for prepare::PrepareInput {
+    fn from(args: FeatureExecuteArgs) -> Self {
+        let FeatureExecuteArgs {
+            feature,
+            graph_json,
+        } = args;
+        Self {
+            feature,
+            graph_json,
+        }
+    }
+}
+
+impl From<ExecuteReplanArgs> for execute_replan::ReplanInput {
+    fn from(args: ExecuteReplanArgs) -> Self {
+        let ExecuteReplanArgs { feature, plan } = args;
+        Self { feature, plan }
+    }
+}
+
+impl From<ExecuteAckArgs> for execute_ack::AckInput {
+    fn from(args: ExecuteAckArgs) -> Self {
+        let ExecuteAckArgs {
+            feature,
+            workstream,
+        } = args;
+        Self {
+            feature,
+            workstream,
+        }
+    }
+}
+
+impl From<ExecuteReconcileArgs> for execute_reconcile::ReconcileInput {
+    fn from(args: ExecuteReconcileArgs) -> Self {
+        let ExecuteReconcileArgs {
+            feature,
+            workstream,
+            description,
+        } = args;
+        Self {
+            feature,
+            workstream,
+            description,
+        }
+    }
+}
+
+impl From<ExecuteApproveArgs> for execute_approve::ApproveInput {
+    fn from(args: ExecuteApproveArgs) -> Self {
+        let ExecuteApproveArgs { feature } = args;
+        Self { feature }
+    }
+}
+
+impl From<ExecuteTickArgs> for execute_tick::TickInput {
+    fn from(args: ExecuteTickArgs) -> Self {
+        let ExecuteTickArgs { feature } = args;
+        Self { feature }
+    }
+}
+
+impl From<ExecuteGuardCheckArgs> for execute_guard_check::GuardCheckInput {
+    fn from(args: ExecuteGuardCheckArgs) -> Self {
+        let ExecuteGuardCheckArgs {
+            feature,
+            session,
+            path,
+        } = args;
+        Self {
+            feature,
+            session,
+            path,
+        }
+    }
+}
+
+impl From<ExecuteReplyArgs> for execute_reply::ReplyInput {
+    fn from(args: ExecuteReplyArgs) -> Self {
+        let ExecuteReplyArgs {
+            feature,
+            session,
+            message,
+        } = args;
+        Self {
+            feature,
+            session,
+            message,
+        }
+    }
+}
+
+impl From<FeatureDeliverArgs> for deliver::DeliverInput {
+    fn from(args: FeatureDeliverArgs) -> Self {
+        let FeatureDeliverArgs {
+            name,
+            preview,
+            fingerprint,
+        } = args;
+        Self {
+            feature: name,
+            preview,
+            fingerprint,
+        }
+    }
+}
+
+impl From<FeatureCloseArgs> for close::CloseInput {
+    fn from(args: FeatureCloseArgs) -> Self {
+        let FeatureCloseArgs { name, outcome } = args;
+        Self { name, outcome }
+    }
+}
+
+impl From<FeatureDeleteArgs> for delete::DeleteInput {
+    fn from(args: FeatureDeleteArgs) -> Self {
+        let FeatureDeleteArgs { name } = args;
+        Self { name }
+    }
+}
+
+impl From<FeatureRebaseArgs> for rebase::RebaseInput {
+    fn from(args: FeatureRebaseArgs) -> Self {
+        let FeatureRebaseArgs { name } = args;
+        Self { name }
+    }
+}
+
+impl From<FeatureReviewArgs> for review::ReviewInput {
+    fn from(args: FeatureReviewArgs) -> Self {
+        let FeatureReviewArgs { name } = args;
+        Self { name }
+    }
+}
+
+impl From<FeatureViewArgs> for view::ViewInput {
+    fn from(args: FeatureViewArgs) -> Self {
+        let FeatureViewArgs { name } = args;
+        Self { feature: name }
+    }
+}
+
+impl From<SessionStartArgs> for session_start::StartInput {
+    fn from(args: SessionStartArgs) -> Self {
+        let SessionStartArgs {
+            feature,
+            resume,
+            provider,
+            detached,
+            relay,
+        } = args;
+        Self {
+            feature,
+            resume,
+            provider,
+            detached,
+            relay,
+        }
+    }
+}
+
+impl From<SessionConnectArgs> for session_connect::ConnectInput {
+    fn from(args: SessionConnectArgs) -> Self {
+        let SessionConnectArgs {
+            session_id,
+            feature,
+        } = args;
+        Self {
+            session_id,
+            feature,
+        }
+    }
+}
+
+impl From<SessionConvertArgs> for session_conversion::ConvertInput {
+    fn from(args: SessionConvertArgs) -> Self {
+        let SessionConvertArgs {
+            session_id,
+            feature,
+        } = args;
+        Self {
+            session_id,
+            feature,
+        }
+    }
+}
+
+impl From<SessionStopArgs> for session_stop::StopInput {
+    fn from(args: SessionStopArgs) -> Self {
+        let SessionStopArgs { session } = args;
+        Self { session }
+    }
+}
+
+impl From<SessionRelayArgs> for session_relay::RelayInput {
+    fn from(args: SessionRelayArgs) -> Self {
+        let SessionRelayArgs { feature, provider } = args;
+        Self { feature, provider }
+    }
+}
+
+impl From<ProviderAddArgs> for provider_add::AddInput {
+    fn from(args: ProviderAddArgs) -> Self {
+        let ProviderAddArgs { name } = args;
+        Self { name }
+    }
+}
+
+impl From<PlanCreateArgs> for plan_create::CreateInput {
+    fn from(args: PlanCreateArgs) -> Self {
+        let PlanCreateArgs { feature } = args;
+        Self { feature }
+    }
+}
+
+impl From<PlanShowArgs> for plan_show::ShowInput {
+    fn from(args: PlanShowArgs) -> Self {
+        let PlanShowArgs { feature, artifact } = args;
+        Self { feature, artifact }
+    }
+}
+
+impl From<PlanApproveArgs> for plan_approve::ApproveInput {
+    fn from(args: PlanApproveArgs) -> Self {
+        let PlanApproveArgs { feature, gate } = args;
+        Self { feature, gate }
+    }
+}
+
+impl From<PlanInvalidateArgs> for plan_approve::InvalidateInput {
+    fn from(args: PlanInvalidateArgs) -> Self {
+        let PlanInvalidateArgs { feature, gate } = args;
+        Self { feature, gate }
+    }
+}
+
+impl From<PlanStatusArgs> for plan_status::StatusInput {
+    fn from(args: PlanStatusArgs) -> Self {
+        let PlanStatusArgs { plan_path } = args;
+        Self { plan_path }
+    }
+}
+
+impl From<SkillCreateArgs> for skill_create::CreateInput {
+    fn from(args: SkillCreateArgs) -> Self {
+        let SkillCreateArgs { id, description } = args;
+        Self { id, description }
+    }
+}
+
+impl From<SkillAddArgs> for skill_add::AddInput {
+    fn from(args: SkillAddArgs) -> Self {
+        let SkillAddArgs { repo, path, r#ref } = args;
+        Self {
+            repo,
+            path,
+            ref_: r#ref,
+        }
+    }
+}
+
+impl From<SkillUpdateArgs> for skill_update::UpdateInput {
+    fn from(args: SkillUpdateArgs) -> Self {
+        let SkillUpdateArgs { skills } = args;
+        Self { skills }
+    }
+}
+
+impl From<SkillRemoveArgs> for skill_remove::RemoveInput {
+    fn from(args: SkillRemoveArgs) -> Self {
+        let SkillRemoveArgs { skill } = args;
+        Self { skill }
+    }
+}
+
+impl From<SkillDetachArgs> for skill_detach::DetachInput {
+    fn from(args: SkillDetachArgs) -> Self {
+        let SkillDetachArgs { skill } = args;
+        Self { skill }
     }
 }
 
