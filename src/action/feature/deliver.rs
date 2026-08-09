@@ -42,7 +42,9 @@ use camino::{Utf8Path, Utf8PathBuf};
 use serde::Deserialize;
 use serde::Serialize;
 
-use crate::domain::feature::{DeliveryAction, DeliveryPreview, DeliveryRepo, Feature};
+use crate::domain::feature::{
+    ApprovalState, DeliveryAction, DeliveryPreview, DeliveryRepo, Feature, Gate, GateState,
+};
 use crate::domain::name::{BranchName, FeatureName, RepoName};
 use crate::error::{Failure, FixAction, Outcome, Report, Warning, WriteHuman};
 use crate::git::{self, TargetState};
@@ -121,6 +123,7 @@ impl WriteHuman for DeliverOutcome {
                     }
                 }
             }
+            writeln!(w, "  plan gate:   {}", self.preview.plan_gate)?;
             writeln!(w, "  fingerprint: {}", self.preview.fingerprint)
         } else {
             writeln!(
@@ -165,13 +168,16 @@ pub fn deliver(ctx: &Ctx, input: DeliverInput) -> Outcome<DeliverOutcome> {
     let feature_name = FeatureName::new(input.feature)?;
     let feature = read_feature(&layout, &feature_name)?;
 
+    let plan_gate = plan_gate_state(&layout, &feature_name)?;
+
     let mut repos = build_repos(&git, &layout, &manifest, &feature)?;
     repos.sort_by(|a, b| a.repo.cmp(&b.repo));
     order_by_dependencies(&mut repos);
-    let fingerprint = fingerprint_for(&feature_name, &repos)?;
+    let fingerprint = fingerprint_for(&feature_name, plan_gate, &repos)?;
 
     let mut preview = DeliveryPreview {
         feature: feature_name.clone(),
+        plan_gate,
         repos,
         fingerprint,
     };
@@ -182,6 +188,14 @@ pub fn deliver(ctx: &Ctx, input: DeliverInput) -> Outcome<DeliverOutcome> {
             preview,
             pushes: Vec::new(),
         }));
+    }
+
+    // The approval gate comes before the drift gate. Both refuse, but only one
+    // of them tells a human who never planned the feature what to do next, and
+    // a `deliver` with no fingerprint at all is far more often that human than
+    // one whose preview went stale.
+    if plan_gate != GateState::Approved {
+        return Err(plan_not_approved(&feature_name, plan_gate));
     }
 
     let expected = input
@@ -309,9 +323,14 @@ fn read_feature(layout: &Layout, name: &FeatureName) -> Result<Feature, Failure>
 ///
 /// Every fact the human approved is in the digest — branch, remote, refspec,
 /// base, blockers — so any drift between preview and apply changes it.
-fn fingerprint_for(feature: &FeatureName, repos: &[DeliveryRepo]) -> Result<String, Failure> {
+fn fingerprint_for(
+    feature: &FeatureName,
+    plan_gate: GateState,
+    repos: &[DeliveryRepo],
+) -> Result<String, Failure> {
     let preview = DeliveryPreview {
         feature: feature.clone(),
+        plan_gate,
         repos: repos.to_vec(),
         fingerprint: String::new(),
     };
@@ -478,6 +497,43 @@ fn push_repo(git: &impl git::Git, bare: &Utf8Path, repo: &DeliveryRepo) -> Resul
 }
 
 /// The `Blocked` failure for applying without a preview fingerprint.
+/// The state of `feature`'s [`Gate::Plan`], read from the approvals artifact.
+///
+/// A feature with no approvals file has never been planned, which reads as
+/// [`GateState::Pending`] — the same answer as a file that records the gate as
+/// pending, because they mean the same thing.
+fn plan_gate_state(layout: &Layout, feature: &FeatureName) -> Result<GateState, Failure> {
+    let approvals = ApprovalState::read(layout, feature)?.unwrap_or_default();
+    Ok(approvals.state(Gate::Plan).unwrap_or(GateState::Pending))
+}
+
+/// Delivering a feature whose plan gate is not approved, refused.
+///
+/// `ivar` has no persisted lifecycle field; this *is* the lifecycle, read from
+/// the artifact a human crossed. See ARCHITECTURE.md, seam 7.
+fn plan_not_approved(feature: &FeatureName, state: GateState) -> Failure {
+    let actual = match state {
+        GateState::Pending => format!("`{feature}`'s plan gate has never been approved"),
+        GateState::NeedsRevision => {
+            format!("`{feature}`'s plan gate was approved, then invalidated by a revision")
+        }
+        GateState::Approved => format!("`{feature}`'s plan gate is approved"),
+    };
+
+    Failure::blocked(
+        "deliver.plan_not_approved",
+        format!("delivering `{feature}` needs its plan gate approved"),
+    )
+    .expected("the `plan` gate in state approved")
+    .actual(actual)
+    .fix(FixAction::safe(
+        "deliver.approve_plan",
+        format!(
+            "Approve it with `ivar plan approve {feature} plan`, then preview and apply again."
+        ),
+    ))
+}
+
 fn preview_required(feature: &FeatureName) -> Failure {
     Failure::blocked(
         "deliver.preview_required",
@@ -667,6 +723,29 @@ mod tests {
 
     /// A hall with `repos` declared, a `checkout` feature, every repo promoted,
     /// and one commit on each feature branch so there is something to deliver.
+    /// Walk `checkout` through the SPDD gates up to and including `plan`, using
+    /// the real plan actions. Apply refuses without this.
+    fn approve_through_plan(root: &Utf8PathBuf) {
+        let ctx = Ctx::new(root.clone());
+        crate::action::plan::create::create(
+            &ctx,
+            crate::action::plan::create::CreateInput {
+                feature: "checkout".to_owned(),
+            },
+        )
+        .unwrap();
+        for gate in ["requirements", "analysis", "plan"] {
+            crate::action::plan::approve::approve(
+                &ctx,
+                crate::action::plan::approve::ApproveInput {
+                    feature: "checkout".to_owned(),
+                    gate: gate.to_owned(),
+                },
+            )
+            .unwrap();
+        }
+    }
+
     fn hall_with_promoted(repos: &[&str]) -> (tempfile::TempDir, Utf8PathBuf) {
         let (guard, root) = hall_root();
         let ctx = Ctx::new(root.clone());
@@ -873,6 +952,7 @@ mod tests {
     #[test]
     fn apply_requires_a_preview_fingerprint() {
         let (_guard, root) = hall_with_promoted(&["api"]);
+        approve_through_plan(&root);
         let ctx = Ctx::new(root.clone());
 
         let failure = deliver(
@@ -892,6 +972,7 @@ mod tests {
     #[test]
     fn apply_is_rejected_when_the_state_has_drifted_since_the_preview() {
         let (_guard, root) = hall_with_promoted(&["api"]);
+        approve_through_plan(&root);
         let ctx = Ctx::new(root.clone());
         let approved = deliver(&ctx, preview_input("checkout")).unwrap();
         let fingerprint = approved.value.preview.fingerprint.clone();
@@ -926,6 +1007,7 @@ mod tests {
     #[test]
     fn deliver_pushes_the_feature_branch_to_the_remote() {
         let (_guard, root) = hall_with_promoted(&["api"]);
+        approve_through_plan(&root);
         let ctx = Ctx::new(root.clone());
         let approved = deliver(&ctx, preview_input("checkout")).unwrap();
         let fingerprint = approved.value.preview.fingerprint.clone();
@@ -943,6 +1025,7 @@ mod tests {
     #[test]
     fn a_failed_push_is_a_warning_and_does_not_block_the_others() {
         let (_guard, root) = hall_with_promoted(&["api", "web"]);
+        approve_through_plan(&root);
         // Break web's remote before previewing, so the approved state says the
         // bogus URL — the fingerprint then matches when apply runs.
         let layout = Layout::at(root.clone());
@@ -1059,6 +1142,7 @@ mod tests {
             root: Utf8PathBuf::from("/hall"),
             preview: DeliveryPreview {
                 feature: FeatureName::new("checkout").unwrap(),
+                plan_gate: GateState::Approved,
                 repos: vec![delivery_repo("api", vec![])],
                 fingerprint: "abc123".to_owned(),
             },
@@ -1084,6 +1168,7 @@ mod tests {
             root: Utf8PathBuf::from("/hall"),
             preview: DeliveryPreview {
                 feature: FeatureName::new("checkout").unwrap(),
+                plan_gate: GateState::Approved,
                 repos: vec![delivery_repo("api", vec![])],
                 fingerprint: "abc123".to_owned(),
             },

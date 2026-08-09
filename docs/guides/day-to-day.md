@@ -99,6 +99,17 @@ half-rebased across five repos.
 
 ## Deliver
 
+Delivery is gated on the **plan** gate. A feature whose plan was never approved
+cannot be pushed:
+
+```sh
+ivar plan approve checkout plan
+```
+
+There is no lifecycle field to set — the gate *is* the state. See
+[Planning and execution](planning-and-execution.md) for the gate chain, and
+`ARCHITECTURE.md` seam 7 for why it is derived rather than stored.
+
 Always preview first:
 
 ```sh
@@ -107,16 +118,18 @@ ivar feature deliver checkout --preview
 
 This is side-effect-free. Per promoted repo it shows the branch, the remote, the
 refspec, whether a PR would be created or updated, the base branch, and any
-blockers.
+blockers — plus the plan gate's state and the fingerprint.
 
-Then apply:
+Then apply, passing the fingerprint the preview printed:
 
 ```sh
-ivar feature deliver checkout
+ivar feature deliver checkout --fingerprint <fingerprint>
 ```
 
-The apply is gated on the preview's fingerprint: if anything drifted since you
-looked, it refuses rather than pushing something you did not review.
+The apply is gated on that fingerprint: if anything drifted since you looked, it
+refuses rather than pushing something you did not review. Crossing the plan gate
+counts as drift too — the gate's state is inside the fingerprinted summary, so a
+preview taken before approval cannot be applied after it. Preview again.
 
 Sibling PRs are linked to each other with **`part of`** — never `depends on`.
 `ivar` models co-belonging, not dependency: these PRs are parts of one change,
