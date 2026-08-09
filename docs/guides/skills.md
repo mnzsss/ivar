@@ -16,8 +16,8 @@ them by cloning, and nothing hosted is required.
 ```
 
 `.ivar/skills/` is **committed**, along with `.ivar/setups/` — the hall's
-`.gitignore` is written as `.ivar/*` plus `!.ivar/skills/` and `!.ivar/setups/`
-for exactly this reason. Everything else under `.ivar/` is derived and ignored,
+`.gitignore` includes `.ivar/*` plus `!.ivar/skills/` and `!.ivar/setups/` for
+exactly this reason. Everything else under `.ivar/` is derived and ignored,
 and the materialised copies above are derived too.
 
 (The re-include lines have to be spelled that way. `.ivar/` on its own would
@@ -82,3 +82,25 @@ repo builds" — repo-specific instructions belong in the repo.
 
 There is no hosted skill sync in `ivar`, and no account. The hall's git repo does
 the sharing.
+
+## Not skills: shipped workflow commands
+
+Alongside hall skills, `ivar` ships **workflow commands** — `/ivar-deliver`,
+`/ivar-plan`, `/ivar-sync`, and the other official workflows. They are a
+separate surface with a separate lifecycle:
+
+```
+.ivar/skills/<id>/SKILL.md                 committed hall-owned source
+.claude/skills/<id>/...                    derived hall skill target
+.opencode/skills/<id>/...                  derived hall skill target
+.claude/commands/ivar-<id>.md              derived Ivar workflow command
+.opencode/commands/ivar-<id>.md            derived Ivar workflow command
+```
+
+Workflow commands are embedded in the binary and materialised by
+`ivar init`, `ivar provider add`, and `ivar sync`; they are local derived
+state, not team-shared files you edit. The `ivar-*` prefix is reserved for
+them — do not name a custom command `/ivar-<something>`, because `ivar sync`
+treats anything in that namespace as its own and removes files it did not
+ship. A custom command like `/my-cheatsheet` lives happily next to them and is
+never touched.

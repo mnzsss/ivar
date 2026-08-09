@@ -204,9 +204,16 @@ across the hall from `.ivar/skills/` and materialised into each harness's native
 location. **External** skills track a ref in another repo; **authored** ones are
 local. **Detaching** converts external to authored, one way.
 
+**Workflow Command** — an instruction workflow shipped inside the `ivar` binary
+and materialised into each available Provider as `/ivar-<name>`. Workflow
+Commands are local derived state: `ivar init`, `ivar provider add`, and
+`ivar sync` create or repair them. They are not **Skills** and are not shared
+through `.ivar/skills/`.
+
 **Sync** — reconciling the local hall against `ivar.json`: clone missing repos,
-materialise per-harness config, run setup scripts. Idempotent, and it touches no
-git remote — refreshing branches is **pull**, a separate verb.
+materialise per-harness config (managed block, MCP, official workflow
+commands), run setup scripts. Idempotent, and it touches no git remote —
+refreshing branches is **pull**, a separate verb.
 
 **Migrate** — the explicit, interactive advance of `ivar.json`'s schema version.
 The one way a committed file's version moves. See

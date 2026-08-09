@@ -23,10 +23,10 @@
 //!   walk-up.
 //! - `instruction_file()` — the Markdown file the harness reads for standing
 //!   instructions.
-//! - `commands_dir()` — where `ivar`'s own slash-commands are mirrored. Owned
-//!   entirely by `ivar` and gitignored: files there that do not correspond to a
-//!   shipped skill get deleted on sync, so user-authored commands must not live
-//!   there.
+//! - `commands_dir()` — the provider-native directory for project workflow
+//!   commands. `ivar` owns exactly the files named `ivar-*.md` and removes
+//!   anything else in that reserved namespace on sync; every other file in
+//!   the directory belongs to the user and is never touched.
 //! - `skills_dir()` — where hall-scoped skills materialise for this harness.
 //! - `mcp_config_path()` and `mcp_key()` — the file and the key the servers hang
 //!   off. These differ per harness and are mapped here rather than at each call
@@ -154,11 +154,12 @@ impl Provider {
         }
     }
 
-    /// Where `ivar`'s own slash-commands are mirrored for this harness.
+    /// The provider-native directory holding project workflow commands.
     ///
-    /// Owned entirely by `ivar` and gitignored: files here that do not
-    /// correspond to a shipped skill get deleted on sync, so user-authored
-    /// commands must not live here.
+    /// `ivar` owns files named `ivar-*.md` in it — the shipped workflow
+    /// commands — and removes anything else in that reserved namespace on
+    /// sync. Other command files belong to the user and are never changed or
+    /// removed by `ivar`.
     #[must_use]
     pub const fn commands_dir(&self) -> &'static str {
         match self {
