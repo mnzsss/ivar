@@ -524,7 +524,7 @@ fn command_diagnosis(
         Integrity::LegacyModified => Some(Diagnosis {
             code: "provider.legacy_command_modified",
             what: format!(
-                "{provider}'s legacy `{file_name}` command was customised and is preserved",
+                "{provider}'s legacy `{file_name}` command was customised and is preserved"
             ),
             fix: "Review it, then rename or remove it — `ivar sync` keeps it by design.".to_owned(),
         }),
