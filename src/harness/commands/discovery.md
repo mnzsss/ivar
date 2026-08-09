@@ -3,8 +3,11 @@ description: Guided discovery session — explore the codebase, understand a pro
 argument-hint: [objective]
 ---
 
-Run a guided Discovery Session. Use this when you need to understand a problem,
-explore the codebase, or make a decision before committing to a Feature.
+# Discovery
+
+`/ivar-discovery` runs a guided Discovery Session. Use this when you need to
+understand a problem, explore the codebase, or make a decision before committing
+to a Feature.
 
 ## Behavior
 

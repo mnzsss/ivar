@@ -3,8 +3,10 @@ description: Conduct the SPDD planning process — Requirements, Analysis, Plan,
 argument-hint: <feature-name>
 ---
 
-Run the full SPDD planning process for a feature. This workflow conducts three
-planning phases with human approval gates between each.
+# Plan
+
+`/ivar-plan` runs the full SPDD planning process for a feature. This workflow
+conducts three planning phases with human approval gates between each.
 
 ## Prerequisites
 

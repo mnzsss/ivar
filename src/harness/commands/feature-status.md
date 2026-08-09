@@ -4,7 +4,8 @@ description: Check which repos are promoted and which are read-only for a featur
 
 # Feature Status
 
-Check which repos are promoted and which are read-only for a feature.
+`/ivar-feature-status` checks which repos are promoted and which are read-only
+for a feature.
 
 ## Usage
 

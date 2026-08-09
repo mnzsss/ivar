@@ -4,7 +4,8 @@ description: Open a feature in a multi-root VSCode workspace for cross-repo revi
 
 # Review
 
-Open a feature in a multi-root VSCode workspace for cross-repo review.
+`/ivar-review` opens a feature in a multi-root VSCode workspace for cross-repo
+review.
 
 ## Usage
 

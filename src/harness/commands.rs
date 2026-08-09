@@ -543,6 +543,14 @@ mod tests {
             assert!(command.content.starts_with("---\n"));
             assert!(command.content.contains("description:"));
             assert!(command.content.contains("`ivar "));
+            // Every source names its own user-facing command, so a provider
+            // (and a reader) always knows what it is being invoked as.
+            assert!(
+                command.content.contains(&format!("/ivar-{}", command.id)),
+                "{} must name `/ivar-{}` in its content",
+                command.id,
+                command.id
+            );
             assert!(!command.content.contains("bifrost"));
             assert!(!command.content.contains("BIFROST_"));
         }

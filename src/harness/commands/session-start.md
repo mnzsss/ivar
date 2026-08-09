@@ -3,7 +3,10 @@ description: Start or resume an ivar session — select a feature or explore rea
 argument-hint: [feature-name]
 ---
 
-Start an ivar session inside this hall.
+# Session Start
+
+`/ivar-session-start` starts or resumes an ivar session — select a feature or
+explore read-only.
 
 ## Health gate
 

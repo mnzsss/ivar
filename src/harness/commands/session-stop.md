@@ -2,7 +2,9 @@
 description: Stop the current ivar session and clean up guards.
 ---
 
-Stop the active ivar session.
+# Session Stop
+
+`/ivar-session-stop` stops the current ivar session and cleans up guards.
 
 ## Steps
 

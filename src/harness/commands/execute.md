@@ -3,7 +3,9 @@ description: Execute a plan as multiple parallel workstreams — decompose, appr
 argument-hint: <plan-path>
 ---
 
-Execute a multi-workstream plan against the current feature.
+# Execute
+
+`/ivar-execute` executes a multi-workstream plan against the current feature.
 
 ## Prerequisites
 

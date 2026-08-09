@@ -2,8 +2,10 @@
 description: Reconcile the hall's derived local state against its ivar.json.
 ---
 
-Reconcile the hall's derived local state against its sources of truth: the
-committed `ivar.json` and the installed `ivar` package.
+# Sync
+
+`/ivar-sync` reconciles the hall's derived local state against its sources of
+truth: the committed `ivar.json` and the installed `ivar` package.
 
 ## What sync does
 
