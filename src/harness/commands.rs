@@ -146,11 +146,10 @@ impl From<Error> for Failure {
 /// Bytes are compared before every write — [`fs::write_atomic`] runs only when
 /// the content differs, so a sync that changes nothing rewrites nothing.
 pub fn materialise(commands_dir: &Utf8Path) -> Result<Vec<CommandChange>, Error> {
-    fs::ensure_dir(commands_dir)
-        .map_err(|source| Error::Fs {
-            path: commands_dir.to_owned(),
-            source,
-        })?;
+    fs::ensure_dir(commands_dir).map_err(|source| Error::Fs {
+        path: commands_dir.to_owned(),
+        source,
+    })?;
 
     let mut changes = Vec::new();
 
@@ -316,10 +315,7 @@ pub fn inspect(commands_dir: &Utf8Path, enabled: bool) -> Result<Vec<Inspection>
                 Some((path, Integrity::Current))
             }
             Some((_, path, _)) => Some((path, Integrity::Modified)),
-            None if enabled => Some((
-                &commands_dir.join(&file_name),
-                Integrity::Missing,
-            )),
+            None if enabled => Some((&commands_dir.join(&file_name), Integrity::Missing)),
             None => None,
         };
         if let Some((path, integrity)) = integrity {
@@ -368,7 +364,8 @@ fn write_command(path: &Utf8Path, content: &str) -> Result<(), Error> {
 /// Every `.md` file in `commands_dir`, sorted (the underlying
 /// [`fs::read_dir`] sorts), for a directory that exists.
 fn markdown_files(commands_dir: &Utf8Path) -> Result<Vec<Utf8PathBuf>, Error> {
-    Ok(directory_entries(commands_dir)?.unwrap_or_default()
+    Ok(directory_entries(commands_dir)?
+        .unwrap_or_default()
         .into_iter()
         .filter(|path| path.file_name().is_some_and(|name| name.ends_with(".md")))
         .collect())
@@ -646,26 +643,20 @@ mod tests {
         assert_eq!(change(&repaired, "ivar-plan.md").change, Change::Updated);
         assert_eq!(
             fs::read_text(&dir.join("ivar-plan.md")).unwrap().unwrap(),
-            catalog()
-                .iter()
-                .find(|c| c.id == "plan")
-                .unwrap()
-                .content
+            catalog().iter().find(|c| c.id == "plan").unwrap().content
         );
 
         let third = materialise(&dir).unwrap();
         assert_eq!(third.len(), 14);
         assert!(
-            third.iter().all(|change| change.change == Change::Unchanged),
+            third
+                .iter()
+                .all(|change| change.change == Change::Unchanged),
             "expected everything unchanged, got {third:?}"
         );
         assert_eq!(
             fs::read_text(&dir.join("ivar-plan.md")).unwrap().unwrap(),
-            catalog()
-                .iter()
-                .find(|c| c.id == "plan")
-                .unwrap()
-                .content
+            catalog().iter().find(|c| c.id == "plan").unwrap().content
         );
     }
 
@@ -705,7 +696,11 @@ mod tests {
         let changes = remove(&dir).unwrap();
 
         assert_eq!(changes.len(), 14);
-        assert!(changes.iter().all(|change| change.change == Change::Removed));
+        assert!(
+            changes
+                .iter()
+                .all(|change| change.change == Change::Removed)
+        );
         for command in catalog() {
             assert!(
                 !fs::exists(&dir.join(command.file_name())).unwrap(),
@@ -743,7 +738,9 @@ mod tests {
 
         let changes = materialise(&dir).unwrap();
         assert!(
-            !changes.iter().any(|change| change.change == Change::Removed),
+            !changes
+                .iter()
+                .any(|change| change.change == Change::Removed),
             "a modified legacy file must never be deleted: {changes:?}"
         );
         assert_eq!(
