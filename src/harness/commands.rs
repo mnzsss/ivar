@@ -154,7 +154,8 @@ pub fn materialise(commands_dir: &Utf8Path) -> Result<Vec<CommandChange>, Error>
     let mut changes = Vec::new();
 
     for command in catalog() {
-        let path = commands_dir.join(command.file_name());
+        let file_name = command.file_name();
+        let path = commands_dir.join(&file_name);
         let existing = fs::read_bytes(&path).map_err(|source| Error::Fs {
             path: path.clone(),
             source,
@@ -172,7 +173,7 @@ pub fn materialise(commands_dir: &Utf8Path) -> Result<Vec<CommandChange>, Error>
         };
         changes.push(CommandChange {
             id: command.id.to_owned(),
-            file_name: command.file_name(),
+            file_name,
             change,
         });
     }
