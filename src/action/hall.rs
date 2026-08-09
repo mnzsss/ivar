@@ -12,6 +12,7 @@ use crate::domain::name::HallName;
 use crate::domain::provider::Provider;
 use crate::error::{Failure, FixAction, Outcome, Report, Warning, WriteHuman};
 use crate::git::{self, Git, TargetState};
+use crate::harness::commands::{self, Integrity, Inspection};
 use crate::infra::fs;
 use crate::store::gitignore;
 use crate::store::layout::{self, Layout};
@@ -462,10 +463,82 @@ pub fn doctor(ctx: &Ctx) -> Outcome<DoctorOutcome> {
         }
     }
 
+    // Shipped workflow commands: a missing or modified official command is a
+    // problem worth naming, but a *convenience* one — it never changes hall
+    // health and never blocks session start. `ivar sync` is the repair.
+    for provider in Provider::ALL {
+        let enabled = manifest.providers().available().contains(&provider);
+        let dir = layout.commands_dir(&provider);
+        match commands::inspect(&dir, enabled) {
+            Ok(inspections) => {
+                for inspection in inspections {
+                    if let Some(diagnosis) = command_diagnosis(provider, &inspection, enabled) {
+                        findings.push(diagnosis);
+                    }
+                }
+            }
+            Err(error) => findings.push(Diagnosis {
+                code: "provider.commands_inspect_failed",
+                what: format!("could not inspect {provider}'s workflow commands: {error}"),
+                fix: "Run `ivar sync` to reconcile them.".to_owned(),
+            }),
+        }
+    }
+
     Ok(Report::new(DoctorOutcome {
         root: layout.root().to_path_buf(),
         findings,
     }))
+}
+
+/// One diagnosis for a command file that is not in its target state.
+///
+/// Every finding says `ivar sync` repairs it — it does — except
+/// `legacy_command_modified`, where sync preserves the customized file by
+/// design, so the way out is the user reviewing it and renaming or removing
+/// it themselves.
+fn command_diagnosis(
+    provider: Provider,
+    inspection: &Inspection,
+    enabled: bool,
+) -> Option<Diagnosis> {
+    let file_name = inspection.path.file_name().unwrap_or("file");
+    match inspection.integrity {
+        Integrity::Current => None,
+        Integrity::Missing => Some(Diagnosis {
+            code: "provider.command_missing",
+            what: format!(
+                "{provider}'s `/ivar-{}` command is missing (`{file_name}`)",
+                inspection.id
+            ),
+            fix: "Run `ivar sync` to restore it.".to_owned(),
+        }),
+        Integrity::Modified => Some(Diagnosis {
+            code: "provider.command_modified",
+            what: format!(
+                "{provider}'s `/ivar-{}` command has been modified (`{file_name}`)",
+                inspection.id
+            ),
+            fix: "Run `ivar sync` to restore it.".to_owned(),
+        }),
+        Integrity::LegacyModified => Some(Diagnosis {
+            code: "provider.legacy_command_modified",
+            what: format!(
+                "{provider}'s legacy `{file_name}` command was customised and is preserved",
+            ),
+            fix: "Review it, then rename or remove it — `ivar sync` keeps it by design."
+                .to_owned(),
+        }),
+        Integrity::Stale => Some(Diagnosis {
+            code: "provider.command_stale",
+            what: if enabled {
+                format!("{provider}'s `{file_name}` is not an ivar-shipped command")
+            } else {
+                format!("{provider} is no longer listed, but its `{file_name}` command remains")
+            },
+            fix: "Run `ivar sync` to remove it.".to_owned(),
+        }),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1262,6 +1335,116 @@ mod tests {
         assert_eq!(report.value.findings.len(), 1);
         assert_eq!(report.value.findings[0].code, "repo.bare_missing");
         assert!(report.value.findings[0].fix.contains("ivar sync"));
+    }
+
+    // -- doctor: shipped workflow commands ------------------------------------
+
+    fn finding<'a>(report: &'a DoctorOutcome, code: &str) -> &'a Diagnosis {
+        report
+            .findings
+            .iter()
+            .find(|finding| finding.code == code)
+            .unwrap_or_else(|| panic!("no `{code}` finding in {:?}", report.findings))
+    }
+
+    #[test]
+    fn doctor_reports_missing_shipped_command() {
+        let (_guard, root) = utf8_temp_dir();
+        let ctx = Ctx::new(root.clone());
+        init(&ctx, fresh_input()).unwrap();
+        fs::remove_file(&root.join(".claude/commands/ivar-plan.md")).unwrap();
+
+        let report = doctor(&ctx).unwrap();
+
+        let finding = finding(&report.value, "provider.command_missing");
+        assert!(finding.what.contains("plan"), "was: {}", finding.what);
+        assert!(finding.fix.contains("ivar sync"));
+    }
+
+    #[test]
+    fn doctor_reports_modified_shipped_command() {
+        let (_guard, root) = utf8_temp_dir();
+        let ctx = Ctx::new(root.clone());
+        init(&ctx, fresh_input()).unwrap();
+        fs::write_text(&root.join(".claude/commands/ivar-sync.md"), "tampered\n").unwrap();
+
+        let report = doctor(&ctx).unwrap();
+
+        let finding = finding(&report.value, "provider.command_modified");
+        assert!(finding.what.contains("sync"), "was: {}", finding.what);
+        assert!(finding.fix.contains("ivar sync"));
+    }
+
+    #[test]
+    fn doctor_reports_modified_legacy_command_with_a_preserve_fix() {
+        let (_guard, root) = utf8_temp_dir();
+        let ctx = Ctx::new(root.clone());
+        init(&ctx, fresh_input()).unwrap();
+        fs::write_text(&root.join(".claude/commands/repo-list.md"), "customised\n").unwrap();
+
+        let report = doctor(&ctx).unwrap();
+
+        let finding = finding(&report.value, "provider.legacy_command_modified");
+        assert!(finding.what.contains("repo-list.md"), "was: {}", finding.what);
+        assert!(
+            finding.fix.contains("rename") || finding.fix.contains("remove"),
+            "the legacy fix must tell the user to rename or remove the preserved file: {}",
+            finding.fix
+        );
+    }
+
+    #[test]
+    fn doctor_reports_stale_commands_for_unavailable_provider() {
+        let (_guard, root) = utf8_temp_dir();
+        let ctx = Ctx::new(root.clone());
+        init(&ctx, fresh_input()).unwrap();
+        // Add OpenCode, sync (materialises its commands), then drop it again.
+        let layout = Layout::at(root.clone());
+        let both = Manifest::new(
+            HallName::new("acme").unwrap(),
+            Providers::new(
+                vec![Provider::ClaudeCode, Provider::OpenCode],
+                Provider::ClaudeCode,
+            ),
+            vec![],
+            None,
+        )
+        .unwrap();
+        Manifest::write(&layout, &both).unwrap();
+        crate::action::sync::sync(&ctx, Default::default()).unwrap();
+        let claude_only = Manifest::new(
+            HallName::new("acme").unwrap(),
+            Providers::new(vec![Provider::ClaudeCode], Provider::ClaudeCode),
+            vec![],
+            None,
+        )
+        .unwrap();
+        Manifest::write(&layout, &claude_only).unwrap();
+
+        let report = doctor(&ctx).unwrap();
+
+        let finding = finding(&report.value, "provider.command_stale");
+        assert!(finding.what.contains("opencode"), "was: {}", finding.what);
+        assert!(finding.fix.contains("ivar sync"));
+    }
+
+    #[test]
+    fn doctor_says_nothing_about_healthy_commands() {
+        let (_guard, root) = utf8_temp_dir();
+        let ctx = Ctx::new(root.clone());
+        init(&ctx, fresh_input()).unwrap();
+
+        let report = doctor(&ctx).unwrap();
+
+        assert!(
+            report
+                .value
+                .findings
+                .iter()
+                .all(|finding| !finding.code.starts_with("provider.command")),
+            "healthy commands must produce no command findings: {:?}",
+            report.value.findings
+        );
     }
 
     // -- cleanup --------------------------------------------------------------
