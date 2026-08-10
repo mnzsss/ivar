@@ -22,5 +22,6 @@
 pub mod driver;
 pub mod key_router;
 pub mod master_detail;
+pub(crate) mod pty;
 pub mod screen;
 pub mod widget;
