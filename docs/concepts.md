@@ -65,6 +65,13 @@ first refreshing the default branch so the new branch starts from current `main`
 and runs the repo's setup script if it has one. Now it is writable — for every
 session bound to that feature, not just this one.
 
+If the feature's branch **already exists**, promotion adopts it: the worktree is
+checked out on it as-is, at the commit it already points to. Nothing is rebased
+and nothing is reset, because that branch is usually the work you are promoting
+for — pushed by a teammate, left behind by a feature you deleted and recreated,
+or carried in from whatever you used before `ivar`. Moving it onto current `main`
+is `ivar feature rebase`, a separate verb you ask for.
+
 This is the whole of the isolation model: **promoted is writable, everything else
 is read-only, and the guarantee is a filesystem one.** Agent hooks are the error
 message that names the way out. They are not the barrier, which is why a harness

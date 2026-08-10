@@ -2,11 +2,30 @@
 //!
 //! # The branch-from-default-branch rule
 //!
-//! The feature's branch is always created from the repo's `default_branch`
-//! as declared in `ivar.json`. Not from whatever the default worktree
-//! happens to be on, and not from a user-chosen base: `ivar.json` is the one
-//! team-shared statement of where a repo's work begins, so promotion never
-//! depends on the local state of a worktree that a teammate may not have.
+//! A feature's branch that does not yet exist is always created from the
+//! repo's `default_branch` as declared in `ivar.json`. Not from whatever the
+//! default worktree happens to be on, and not from a user-chosen base:
+//! `ivar.json` is the one team-shared statement of where a repo's work begins,
+//! so promotion never depends on the local state of a worktree that a teammate
+//! may not have.
+//!
+//! # Adopting a branch that already exists
+//!
+//! The rule above says where a branch *starts*. It has nothing to say about a
+//! branch that is already there, and promotion used to fail on one: it always
+//! ran `git worktree add -b`, which refuses a name git already knows.
+//!
+//! That made three ordinary situations impossible. A teammate pushes a feature
+//! branch and you promote the same feature. You delete a feature and recreate
+//! it. You arrive at `ivar` with branches from whatever you used before. In
+//! each, the branch is the work, and refusing to check it out is refusing the
+//! work.
+//!
+//! So promotion looks first: a branch git already has is **adopted**, checked
+//! out as-is with no rebase and no reset, and a branch it does not have is
+//! created off `default_branch` as before. Adoption never moves a ref — the
+//! commits on that branch are someone's work, and `promote` is not the verb
+//! that rewrites it. `ivar feature rebase` is.
 //!
 //! The setup script (if the repo has one) runs in the new worktree, exactly
 //! as `sync` runs it in the default worktree — a fresh worktree shares
@@ -53,12 +72,22 @@ pub struct PromoteOutcome {
     pub repo: RepoName,
     /// The branch the repo's worktree is now on.
     pub branch: String,
+    /// Whether that branch already existed and was checked out as-is, rather
+    /// than created off the repo's default branch. Reported because the two
+    /// leave the worktree at very different commits, and only the user knows
+    /// which one they meant.
+    pub adopted_branch: bool,
     /// Whether the repo's setup script ran in the new worktree.
     pub setup_ran: bool,
 }
 
 impl WriteHuman for PromoteOutcome {
     fn write_human(&self, w: &mut impl io::Write) -> io::Result<()> {
+        let branch = if self.adopted_branch {
+            format!("adopted existing branch: {}", self.branch)
+        } else {
+            format!("branch: {}", self.branch)
+        };
         let setup = if self.setup_ran {
             ", setup script ran"
         } else {
@@ -66,8 +95,8 @@ impl WriteHuman for PromoteOutcome {
         };
         writeln!(
             w,
-            "Promoted `{}` onto feature `{}` (branch: {}{setup})",
-            self.repo, self.feature, self.branch,
+            "Promoted `{}` onto feature `{}` ({branch}{setup})",
+            self.repo, self.feature,
         )
     }
 }
@@ -169,12 +198,28 @@ pub fn promote(ctx: &Ctx, input: PromoteInput) -> Outcome<PromoteOutcome> {
     if let Some(parent) = worktree.parent() {
         fs::ensure_dir(parent)?;
     }
-    git.create_branch_and_worktree(
-        &bare,
-        feature.branch.as_str(),
-        from_branch.as_str(),
-        &worktree,
-    )?;
+
+    // Look before creating. `git worktree add -b` refuses a branch git already
+    // knows, and that branch is usually the work the user is promoting *for* —
+    // pushed by a teammate, left by a deleted-and-recreated feature, or carried
+    // in from whatever they used before `ivar`.
+    let adopted_branch = git
+        .list_branches(&bare)?
+        .iter()
+        .any(|existing| existing == feature.branch.as_str());
+
+    if adopted_branch {
+        // Checked out as-is. No rebase, no reset: those commits are someone's
+        // work, and `ivar feature rebase` is the verb that moves them.
+        git.add_worktree(&bare, &worktree, feature.branch.as_str())?;
+    } else {
+        git.create_branch_and_worktree(
+            &bare,
+            feature.branch.as_str(),
+            from_branch.as_str(),
+            &worktree,
+        )?;
+    }
 
     // The worktree exists. Record the promotion before running the setup
     // script, so a script failure leaves the record at `Failed` (retried on
@@ -197,6 +242,7 @@ pub fn promote(ctx: &Ctx, input: PromoteInput) -> Outcome<PromoteOutcome> {
         feature: feature_name,
         repo: repo_name,
         branch: feature.branch.to_string(),
+        adopted_branch,
         setup_ran,
     }))
 }
@@ -306,7 +352,7 @@ mod tests {
     use crate::domain::provider::Provider;
     use crate::error::Status;
     use crate::store::manifest::{Manifest, Providers, Repo};
-    use crate::test_support::{hall_root, seeded_repo};
+    use crate::test_support::{git, hall_root, seeded_repo};
 
     /// A hall with one seeded repo declared, and a feature created.
     fn hall_with_feature() -> (tempfile::TempDir, Utf8PathBuf) {
@@ -341,6 +387,7 @@ mod tests {
             &ctx,
             CreateInput {
                 name: "checkout".to_owned(),
+                branch: None,
             },
         )
         .unwrap();
@@ -502,6 +549,7 @@ mod tests {
             feature: FeatureName::new("checkout").unwrap(),
             repo: RepoName::new("api").unwrap(),
             branch: "checkout".to_owned(),
+            adopted_branch: false,
             setup_ran: false,
         };
 
@@ -512,5 +560,82 @@ mod tests {
             String::from_utf8(out).unwrap(),
             "Promoted `api` onto feature `checkout` (branch: checkout)\n"
         );
+    }
+
+    /// Adoption and creation leave the worktree at different commits, so the
+    /// surface has to say which happened.
+    #[test]
+    fn the_human_surface_says_when_a_branch_was_adopted() {
+        let outcome = PromoteOutcome {
+            root: Utf8PathBuf::from("/hall"),
+            feature: FeatureName::new("checkout").unwrap(),
+            repo: RepoName::new("api").unwrap(),
+            branch: "checkout".to_owned(),
+            adopted_branch: true,
+            setup_ran: false,
+        };
+
+        let mut out = Vec::new();
+        outcome.write_human(&mut out).unwrap();
+
+        assert_eq!(
+            String::from_utf8(out).unwrap(),
+            "Promoted `api` onto feature `checkout` (adopted existing branch: checkout)\n"
+        );
+    }
+
+    /// The gap this closes: a branch git already has — pushed by a teammate,
+    /// left by a deleted feature, carried in from another tool — used to make
+    /// promotion fail outright, because `git worktree add -b` refuses it.
+    #[test]
+    fn promote_adopts_a_branch_that_already_exists() {
+        let (_guard, root) = hall_with_feature();
+        let bare = Layout::at(root.clone()).repo_bare(&RepoName::new("api").unwrap());
+        git(&bare, &["branch", "checkout", "main"]);
+        let tip = rev_parse(&bare, "checkout");
+        let ctx = Ctx::new(root.clone());
+
+        let report = promote(&ctx, promote_input("checkout", "api")).unwrap();
+
+        assert!(report.value.adopted_branch);
+        let worktree = root.join(".ivar/repos/api/checkout");
+        assert!(fs::is_dir(&worktree).unwrap());
+        assert_eq!(head_branch(&worktree), "checkout");
+        // Checked out where the branch already pointed. Adoption must not move
+        // the ref — those commits are someone's work.
+        assert_eq!(rev_parse(&worktree, "HEAD"), tip);
+    }
+
+    /// The unchanged path, asserted next to the new one so a future edit
+    /// cannot quietly make adoption the only behaviour.
+    #[test]
+    fn promote_still_creates_a_branch_that_does_not_exist() {
+        let (_guard, root) = hall_with_feature();
+        let ctx = Ctx::new(root.clone());
+
+        let report = promote(&ctx, promote_input("checkout", "api")).unwrap();
+
+        assert!(!report.value.adopted_branch);
+        assert_eq!(
+            head_branch(&root.join(".ivar/repos/api/checkout")),
+            "checkout"
+        );
+    }
+
+    fn head_branch(worktree: &camino::Utf8Path) -> String {
+        rev_parse_args(worktree, &["--abbrev-ref", "HEAD"])
+    }
+
+    fn rev_parse(git_dir_or_worktree: &camino::Utf8Path, rev: &str) -> String {
+        rev_parse_args(git_dir_or_worktree, &[rev])
+    }
+
+    fn rev_parse_args(path: &camino::Utf8Path, args: &[&str]) -> String {
+        let output = std::process::Command::new("git")
+            .args(["-C", path.as_str(), "rev-parse"])
+            .args(args)
+            .output()
+            .expect("git runs");
+        String::from_utf8(output.stdout).unwrap().trim().to_owned()
     }
 }

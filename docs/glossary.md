@@ -24,8 +24,10 @@ is a file plus branches rather than a conversation.
 
 **Promote** — making a repo writable for a feature: refresh its default branch,
 cut a worktree on the feature's branch, run its setup script the first time, and
-repoint the view dir. Idempotent. Feature-scoped and shared — every session bound
-to that feature writes the same worktree.
+repoint the view dir. A branch that already exists is **adopted** — checked out
+at the commit it points to, never rebased or reset; one that does not is created
+off the default branch. Idempotent. Feature-scoped and shared — every session
+bound to that feature writes the same worktree.
 
 **Demote** — the inverse. The repo leaves the feature's promotion list; its
 worktree stays on disk, so nothing is lost.
