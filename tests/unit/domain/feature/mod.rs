@@ -13,6 +13,10 @@ mod tests {
 )]
 
 use super::*;
+use crate::domain::name::{BranchName, FeatureName, RepoName};
+use crate::domain::provider::Provider;
+use crate::error::Failure;
+use camino::Utf8Path;
 
 fn feature() -> Feature {
     Feature::new(
