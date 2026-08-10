@@ -6,12 +6,8 @@
 )]
 
 use super::*;
-use crate::action::execute::prepare::{
-    self as prepare_action, PrepareInput as PrepareActionInput,
-};
-use crate::action::feature::create::{
-    self as feature_create, CreateInput as FeatureCreateInput,
-};
+use crate::action::execute::prepare::{self as prepare_action, PrepareInput as PrepareActionInput};
+use crate::action::feature::create::{self as feature_create, CreateInput as FeatureCreateInput};
 use crate::action::hall::{self, InitInput};
 use crate::action::plan::create::{self as plan_create, CreateInput as PlanCreateInput};
 use crate::domain::feature::ExecutionBoard;

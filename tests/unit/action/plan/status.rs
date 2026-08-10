@@ -3,9 +3,7 @@
 use super::*;
 use crate::action::execute::approve as execute_approve;
 use crate::action::execute::prepare as execute_prepare;
-use crate::action::feature::create::{
-    self as feature_create, CreateInput as FeatureCreateInput,
-};
+use crate::action::feature::create::{self as feature_create, CreateInput as FeatureCreateInput};
 use crate::action::hall::{self, InitInput};
 use crate::action::plan::approve::{self as plan_approve, ApproveInput};
 use crate::action::plan::create::{self as plan_create, CreateInput as PlanCreateInput};

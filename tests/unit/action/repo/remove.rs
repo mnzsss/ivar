@@ -176,9 +176,11 @@ fn remove_without_force_tears_down_a_clean_repo() {
         !fs::exists(&root.join(".ivar/repos/api")).unwrap(),
         "the whole repo tree must go"
     );
-    assert!(report.value.steps.iter().any(|step| {
-        step.label.contains(".ivar/repos/api/") && step.change == Change::Removed
-    }));
+    assert!(
+        report.value.steps.iter().any(|step| {
+            step.label.contains(".ivar/repos/api/") && step.change == Change::Removed
+        })
+    );
 }
 
 #[test]
@@ -204,8 +206,8 @@ fn remove_force_cascades_across_worktrees_promotions_and_view_dirs() {
     promote(&ctx, "billing", "api");
     // A live feature-session view dir referencing the checkout worktree.
     let session = SessionId::new("2c6e6f1e-2d8a-4b3a-9c2a-6a7f6f9a1b2c").unwrap();
-    let view_dir = Layout::at(root.clone())
-        .feature_session(&FeatureName::new("checkout").unwrap(), &session);
+    let view_dir =
+        Layout::at(root.clone()).feature_session(&FeatureName::new("checkout").unwrap(), &session);
     fs::ensure_dir(&view_dir).unwrap();
     fs::create_symlink(
         &root.join(".ivar/repos/api/checkout"),

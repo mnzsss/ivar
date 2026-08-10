@@ -7,9 +7,7 @@
 
 use super::*;
 use crate::action::execute::prepare::{self as prepare_action, PrepareInput};
-use crate::action::feature::create::{
-    self as feature_create, CreateInput as FeatureCreateInput,
-};
+use crate::action::feature::create::{self as feature_create, CreateInput as FeatureCreateInput};
 use crate::action::feature::promote::{self, PromoteInput};
 use crate::action::hall::{self, InitInput};
 use crate::action::plan::create::{self as plan_create, CreateInput as PlanCreateInput};
