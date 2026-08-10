@@ -1,20 +1,25 @@
 //! `ivar session start` — the heart of the tool.
 //!
 //! A session materialises a **view dir** — a directory of symlinks, one per
-//! promoted repo, pointing at the feature worktrees — spawns the hall's
-//! agent harness inside it, and opens the TUI (master-detail, embedded PTY).
+//! promoted repo, pointing at the feature worktrees, plus a real per-session
+//! harness config dir — spawns the hall's agent harness inside it, and opens
+//! the TUI (master-detail, embedded PTY).
 //!
 //! # The model, in one paragraph
 //!
 //! The view dir is *the* thing an agent session works in: a single directory
 //! where `../api` and `../web` are real git worktrees on the same branch.
-//! Its only contents are symlinks (ARCHITECTURE.md: no Windows, symlinks are
-//! the point) plus the harness's own config dir, which is symlinked in from
-//! the hall root (`.claude/`, `.opencode/`).
+//! Every repo entry is a symlink (ARCHITECTURE.md: no Windows, symlinks are
+//! the point), but the harness's own config dir (`.claude/`, `.opencode/`) is
+//! a **real directory**, not a symlink to the hall's — only its `commands/`
+//! subdirectory is symlinked back to the hall, so the hall's shipped
+//! `/ivar-*` commands reach the agent without a session's config writes
+//! landing in the hall. See [`materialise_view_dir`] for why.
 //!
 //! # What this slice wires
 //!
-//! - The view dir (symlinks per promoted repo, harness config dir symlinked).
+//! - The view dir (symlinks per promoted repo; a real harness config dir with
+//!   `commands/` symlinked in from the hall).
 //! - The harness spawn through [`crate::harness`] with real `portable-pty`.
 //! - The TUI loop, driven by the [`crate::tui`] modules.
 //!
@@ -320,8 +325,10 @@ fn smart_fetch(git: &impl git::Git, layout: &Layout, manifest: &Manifest) -> Vec
     warnings
 }
 
-/// Materialise `view_dir`: one symlink per registered repo plus the harness
-/// config dir symlinked from the hall root.
+/// Materialise `view_dir`: one symlink per registered repo, plus a real
+/// per-session harness config dir (`.claude/` for claude-code, `.opencode/`
+/// for opencode, via [`Provider::config_dir`]) with the hall's `commands/`
+/// symlinked back in.
 ///
 /// For a **feature session** (`feature: Some`), a promoted repo is symlinked
 /// to its feature worktree (writable); every other repo is symlinked to its
@@ -334,6 +341,30 @@ fn smart_fetch(git: &impl git::Git, layout: &Layout, manifest: &Manifest) -> Vec
 ///
 /// A repo whose worktree is missing is skipped with the rest still linked —
 /// the session should still open for the repos that are there.
+///
+/// # The harness config dir is real, never a symlink
+///
+/// A later per-session write — the execute guard's `settings.json` — lands
+/// inside `<view_dir>/<config_dir>/`. This function used to symlink that
+/// whole directory in from the hall, under the name `.config`: wrong on two
+/// counts. Claude Code reads `.claude/`, never `.config/`, and nothing in
+/// this crate sets `CLAUDE_CONFIG_DIR`, so the hall's standing config —
+/// including the shipped `/ivar-*` commands — never reached a session's
+/// agent at all. And even fixed to the right name, a symlinked directory
+/// would send the guard's per-session `settings.json` into `hall/.claude`
+/// itself, applying one workstream's write guard to every session sharing
+/// the hall.
+///
+/// A real directory keeps per-session state per-session. Only `commands/`
+/// inside it is symlinked back to the hall — via [`Layout::commands_dir`],
+/// not a hardcoded path, so the mapping from provider to dotdir stays in one
+/// place — so the hall's shipped commands still reach the agent. That
+/// symlink follows the same [`fs::replace_symlink_if_changed`] discipline as
+/// the repo links above: re-materialised on every `session connect`, and
+/// left alone when nothing changed, to avoid the transient resolution race
+/// documented on that function. Creating the config dir itself
+/// ([`fs::ensure_dir`]) is unconditional and already idempotent — a
+/// directory that exists is left as is.
 pub(crate) fn materialise_view_dir(
     layout: &Layout,
     manifest: &Manifest,
@@ -364,20 +395,26 @@ pub(crate) fn materialise_view_dir(
         }
     }
 
-    // The harness config dir (.claude/, .opencode/) — symlinked in from the
-    // hall root, so a session's agent reads the hall's standing config.
-    let config_dir = layout.harness_dir(&feature_config_provider(manifest));
-    if fs::is_dir(&config_dir)? {
-        let link = view_dir.join(".config");
-        fs::replace_symlink_if_changed(&config_dir, &link)?;
+    // The harness config dir — `.claude/` for claude-code, `.opencode/` for
+    // opencode — is a real directory inside the view dir, never a symlink to
+    // the hall's own (see the doc comment above for why). Only `commands/`
+    // is symlinked back in, so the hall's shipped `/ivar-*` commands reach
+    // the agent.
+    let provider = feature_config_provider(manifest);
+    let config_dir = view_dir.join(provider.config_dir());
+    fs::ensure_dir(&config_dir)?;
+    let hall_commands = layout.commands_dir(&provider);
+    if fs::is_dir(&hall_commands)? {
+        let commands_link = config_dir.join("commands");
+        fs::replace_symlink_if_changed(&hall_commands, &commands_link)?;
     }
 
     Ok(())
 }
 
-/// The provider whose config dir the view dir symlinks in. Sessions run the
-/// hall's default provider unless told otherwise; the config dir follows the
-/// same rule so the symlink does not depend on a session flag.
+/// The provider whose config dir materialises in the view dir. Sessions run
+/// the hall's default provider unless told otherwise; the config dir follows
+/// the same rule so it does not depend on a session flag.
 fn feature_config_provider(manifest: &Manifest) -> Provider {
     manifest.providers().default_provider()
 }
@@ -568,6 +605,111 @@ mod tests {
         assert!(
             target.as_str().contains(".ivar/repos/api/checkout"),
             "the symlink must point at the feature worktree: {target}"
+        );
+    }
+
+    /// `<view_dir>/.claude` must be a
+    /// real directory, never a symlink to the hall's own — a symlinked one
+    /// would send a later per-session `settings.json` write into
+    /// `hall/.claude`, applying one workstream's write guard to every session
+    /// sharing the hall.
+    #[test]
+    fn materialise_view_dir_makes_the_config_dir_real_not_a_symlink() {
+        let (_guard, root) = hall_with_promoted_feature();
+        let layout = Layout::at(root.clone());
+        let manifest = Manifest::read(&layout).unwrap().unwrap();
+        let feature = Feature::read(&layout, &FeatureName::new("checkout").unwrap())
+            .unwrap()
+            .unwrap();
+        let view_dir = layout.feature_session(
+            &FeatureName::new("checkout").unwrap(),
+            &crate::domain::name::SessionId::new(uuid::Uuid::new_v4().to_string()).unwrap(),
+        );
+
+        materialise_view_dir(&layout, &manifest, Some(&feature), &view_dir).unwrap();
+
+        let config_dir = view_dir.join(Provider::ClaudeCode.config_dir());
+        assert!(
+            fs::is_dir(&config_dir).unwrap(),
+            "the config dir must exist and resolve to a directory"
+        );
+        assert_eq!(
+            fs::read_symlink(&config_dir).unwrap(),
+            fs::SymlinkTarget::NotASymlink,
+            "the config dir itself must be a real directory, not a symlink"
+        );
+    }
+
+    /// `commands/` inside the real config dir must still be the hall's own,
+    /// so the hall's shipped `/ivar-*` commands reach the agent.
+    #[test]
+    fn materialise_view_dir_symlinks_hall_commands_into_the_config_dir() {
+        let (_guard, root) = hall_with_promoted_feature();
+        let layout = Layout::at(root.clone());
+        let manifest = Manifest::read(&layout).unwrap().unwrap();
+        let feature = Feature::read(&layout, &FeatureName::new("checkout").unwrap())
+            .unwrap()
+            .unwrap();
+        let view_dir = layout.feature_session(
+            &FeatureName::new("checkout").unwrap(),
+            &crate::domain::name::SessionId::new(uuid::Uuid::new_v4().to_string()).unwrap(),
+        );
+
+        materialise_view_dir(&layout, &manifest, Some(&feature), &view_dir).unwrap();
+
+        let commands_link = view_dir
+            .join(Provider::ClaudeCode.config_dir())
+            .join("commands");
+        let target = read_link_target(&commands_link);
+        assert_eq!(
+            target,
+            layout.commands_dir(&Provider::ClaudeCode),
+            "commands/ must resolve to the hall's own commands dir"
+        );
+        assert!(
+            fs::is_file(&commands_link.join("ivar-execute.md")).unwrap(),
+            "a shipped ivar-* command must be reachable through the symlink"
+        );
+    }
+
+    /// The view dir is re-materialised on every `session connect`; the config
+    /// dir and its commands symlink must stay stable across repeated
+    /// materialisation, not churn or error out the second time.
+    #[test]
+    fn materialise_view_dir_is_stable_across_repeated_materialisation() {
+        let (_guard, root) = hall_with_promoted_feature();
+        let layout = Layout::at(root.clone());
+        let manifest = Manifest::read(&layout).unwrap().unwrap();
+        let feature = Feature::read(&layout, &FeatureName::new("checkout").unwrap())
+            .unwrap()
+            .unwrap();
+        let view_dir = layout.feature_session(
+            &FeatureName::new("checkout").unwrap(),
+            &crate::domain::name::SessionId::new(uuid::Uuid::new_v4().to_string()).unwrap(),
+        );
+
+        materialise_view_dir(&layout, &manifest, Some(&feature), &view_dir).unwrap();
+        let commands_link = view_dir
+            .join(Provider::ClaudeCode.config_dir())
+            .join("commands");
+        let first_target = read_link_target(&commands_link);
+
+        // Re-materialise, exactly as `session connect` would.
+        materialise_view_dir(&layout, &manifest, Some(&feature), &view_dir).unwrap();
+
+        assert!(
+            fs::is_dir(&view_dir.join(Provider::ClaudeCode.config_dir())).unwrap(),
+            "the config dir must still be a real directory after re-materialisation"
+        );
+        assert_eq!(
+            fs::read_symlink(&view_dir.join(Provider::ClaudeCode.config_dir())).unwrap(),
+            fs::SymlinkTarget::NotASymlink,
+            "the config dir must still not be a symlink after re-materialisation"
+        );
+        let second_target = read_link_target(&commands_link);
+        assert_eq!(
+            first_target, second_target,
+            "the commands symlink must point at the same place after re-materialisation"
         );
     }
 
