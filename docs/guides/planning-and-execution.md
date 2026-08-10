@@ -90,7 +90,7 @@ ivar feature execute reply checkout --session <id> --message "use the v2 endpoin
 The write contract is enforceable, and a harness can check it before writing:
 
 ```sh
-ivar feature execute guard-check checkout --session <id> --path repos/api/src/x.rs
+ivar feature execute guard-check checkout --session <id> --path api/src/x.rs
 ```
 
 ### When reality diverges from the plan
