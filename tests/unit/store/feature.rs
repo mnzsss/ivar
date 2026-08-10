@@ -2,9 +2,6 @@
 //!
 //! Physically located here but compiled inside the library crate via `#[path]`
 //! so `use super::*` reaches private parent items.
-
-#[cfg(test)]
-mod tests {
 #![allow(
     clippy::unwrap_used,
     clippy::expect_used,
@@ -14,8 +11,8 @@ mod tests {
 
 use super::*;
 use crate::domain::feature::{
-    ApprovalState, ExecutionBoard, ExecutionGraph, ExecutionStatus, Gate, GateState,
-    JournalEntry, WorkstreamDef, WorkstreamStatus,
+    ApprovalState, ExecutionBoard, ExecutionGraph, ExecutionStatus, Gate, GateState, JournalEntry,
+    WorkstreamDef, WorkstreamStatus,
 };
 use crate::domain::name::{BranchName, FeatureName, RepoName};
 use crate::infra::fs;
@@ -336,5 +333,4 @@ fn a_v1_board_migrates_on_read_and_persists_as_v2() {
         text.contains("\"version\": 2"),
         "disk must hold v2 after migration: {text}"
     );
-}
 }

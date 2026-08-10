@@ -2,9 +2,6 @@
 //!
 //! Physically located here but compiled inside the library crate via `#[path]`
 //! so `use super::*` reaches private parent items.
-
-#[cfg(test)]
-mod tests {
 #![allow(
     clippy::unwrap_used,
     clippy::expect_used,
@@ -367,5 +364,4 @@ fn a_graph_naming_an_unknown_provider_is_refused_clearly() {
         "must name the valid options: {}",
         failure.what
     );
-}
 }

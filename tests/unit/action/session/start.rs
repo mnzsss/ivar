@@ -2,9 +2,6 @@
 //!
 //! Physically located here but compiled inside the library crate via `#[path]`
 //! so `use super::*` reaches private parent items.
-
-#[cfg(test)]
-mod tests {
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use super::*;
@@ -589,5 +586,4 @@ fn read_link_target(link: &camino::Utf8Path) -> Utf8PathBuf {
         fs::SymlinkTarget::Target(target) => target,
         other => panic!("expected a symlink, got {other:?}"),
     }
-}
 }

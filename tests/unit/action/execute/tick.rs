@@ -2,9 +2,6 @@
 //!
 //! Physically located here but compiled inside the library crate via `#[path]`
 //! so `use super::*` reaches private parent items.
-
-#[cfg(test)]
-mod tests {
 #![allow(
     clippy::unwrap_used,
     clippy::expect_used,
@@ -563,5 +560,4 @@ fn tick_actually_spawns_the_provider() {
         fs::is_file(&sentinel).unwrap(),
         "tick must actually spawn `claude`, not just record a fake session"
     );
-}
 }

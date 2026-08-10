@@ -2,9 +2,6 @@
 //!
 //! Physically located here but compiled inside the library crate via `#[path]`
 //! so `use super::*` reaches private parent items.
-
-#[cfg(test)]
-mod tests {
 #![allow(
     clippy::unwrap_used,
     clippy::expect_used,
@@ -82,7 +79,8 @@ fn feature_round_trips_through_serde_without_unknown_fields() {
 
 #[test]
 fn an_unknown_field_in_feature_json_is_refused() {
-    let raw = r#"{"version":1,"name":"checkout","branch":"feat/checkout","promotions":{},"bogus":true}"#;
+    let raw =
+        r#"{"version":1,"name":"checkout","branch":"feat/checkout","promotions":{},"bogus":true}"#;
     assert!(serde_json::from_str::<Feature>(raw).is_err());
 }
 
@@ -140,9 +138,7 @@ fn an_unknown_field_in_a_delivery_repo_is_refused() {
     let mut with_bogus = rendered.as_object().unwrap().clone();
     with_bogus.insert("bogus".to_owned(), serde_json::json!(true));
 
-    assert!(
-        serde_json::from_value::<DeliveryRepo>(serde_json::Value::Object(with_bogus)).is_err()
-    );
+    assert!(serde_json::from_value::<DeliveryRepo>(serde_json::Value::Object(with_bogus)).is_err());
 }
 
 // -- close outcome ---------------------------------------------------------
@@ -631,5 +627,4 @@ fn board_round_trips_new_v2_fields() {
     assert_eq!(parsed.next_event_seq, 3);
     assert_eq!(parsed.blocked_by.as_deref(), Some("ws1"));
     assert_eq!(parsed.sessions.len(), 1);
-}
 }

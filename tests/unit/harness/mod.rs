@@ -2,9 +2,6 @@
 //!
 //! Physically located here but compiled inside the library crate via `#[path]`
 //! so `use super::*` reaches private parent items.
-
-#[cfg(test)]
-mod tests {
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use super::*;
@@ -133,5 +130,4 @@ fn claude_code_execute_command_has_no_cwd_flag() {
         .display();
 
     assert!(!display.contains("--cwd"), "was: {display}");
-}
 }
