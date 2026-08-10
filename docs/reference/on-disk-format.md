@@ -27,6 +27,8 @@ half-understood state file is worse than no state file.
   plans/<feature>/*.md          committed    requirements, analysis, plan
   .ivar/skills/                 committed    skills the team shares
   .ivar/setups/<repo>.sh        committed    per-repo worktree bootstrap
+  .ivar/setups/<repo>.session.sh committed   per-repo session hook
+  .ivar/secrets/                local        secret material you maintain by hand
   .ivar/state.json              local        hall state, health, bookkeeping
   .ivar/repos/                  local        bare clones and worktrees
   .ivar/features/               local        promotion records, execution boards
@@ -44,6 +46,12 @@ local derived state in the same sense: `ivar init`, `ivar provider add`, and
 `ivar sync` recreate or repair them from the binary, so they are never
 committed and never hand-edited. Every *other* file in those directories is
 yours and is never changed.
+
+`.ivar/secrets/` is local for a reason worth stating: the hall's `.gitignore`
+excludes `.ivar/*` and negates only the committed children, so anything else
+under `.ivar/` is ignored by construction. A secrets directory that depended on
+someone remembering to add a line is a secrets directory that eventually leaks.
+`ivar` creates the directory and never writes into it.
 
 `ivar.json` is deliberately **not** inside `.ivar/`. It is the file a reviewer
 reads in a pull request, so it stays visible at the root.

@@ -9,6 +9,7 @@
 
 pub mod connect;
 pub mod conversion;
+pub(crate) mod hook;
 pub(crate) mod lookup;
 pub mod prune;
 pub mod relay;

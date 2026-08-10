@@ -356,9 +356,14 @@ pub(crate) fn sync_providers(
 /// cannot track an empty directory, so a hall that created them would promise a
 /// teammate something their clone does not deliver. They come into existence
 /// with their first file.
+///
+/// `.ivar/secrets/` is created, and the difference is the reason: it is local,
+/// gitignored, and reaches no teammate's clone, so there is nothing to promise
+/// falsely. Creating it is how a user finds out where `IVAR_SECRETS_DIR` points
+/// without reading the docs.
 fn ensure_skeleton(layout: &Layout) -> Result<Entry, Failure> {
     let mut created = false;
-    for dir in [layout.ivar_dir(), layout.repos_dir()] {
+    for dir in [layout.ivar_dir(), layout.repos_dir(), layout.secrets_dir()] {
         if !fs::is_dir(&dir)? {
             created = true;
         }
@@ -617,9 +622,14 @@ fn setup_command(
         .env("IVAR_REPO", repo.name().as_str())
         .env("IVAR_BRANCH", repo.default_branch().as_str())
         .env("IVAR_WORKTREE", worktree.as_str())
+        .env("IVAR_SECRETS_DIR", layout.secrets_dir().as_str())
         // `default`, never `feature`: this is the hall's own checkout of the
         // repo's default branch. Feature worktrees get theirs on promote.
         .env("IVAR_WORKTREE_KIND", "default")
+    // `IVAR_FEATURE` is deliberately absent: there is no feature here. The
+    // promote path sets it, and a script that reads it unguarded should fail
+    // loudly on the default worktree rather than silently bootstrap the wrong
+    // thing.
 }
 
 fn setup_script_failed(script: &Utf8Path, code: Option<i32>) -> Failure {
@@ -1107,6 +1117,43 @@ mod tests {
             std::fs::read_to_string(&evidence).unwrap(),
             "api main default\n"
         );
+    }
+
+    /// `sync` runs against the default worktree, where there is no feature —
+    /// so `IVAR_SECRETS_DIR` is set and `IVAR_FEATURE` deliberately is not.
+    #[test]
+    fn a_setup_script_gets_the_secrets_dir_and_no_feature_on_the_default_worktree() {
+        let (_guard, root) = hall_with(&[("api", "main")]);
+        write_setup_script(
+            &root,
+            "api",
+            "#!/usr/bin/env bash\nset -euo pipefail\n\
+             printf '%s\\n%s\\n' \"$IVAR_SECRETS_DIR\" \"${IVAR_FEATURE:-<unset>}\" > .ivar-env\n",
+        );
+        let ctx = Ctx::new(root.clone());
+
+        sync(&ctx, SyncInput::default()).unwrap();
+
+        let evidence =
+            std::fs::read_to_string(root.join(".ivar/repos/api/main/.ivar-env")).unwrap();
+        let mut lines = evidence.lines();
+        assert!(
+            lines.next().unwrap().ends_with("/.ivar/secrets"),
+            "was: {evidence}"
+        );
+        assert_eq!(lines.next().unwrap(), "<unset>");
+    }
+
+    /// The directory has to exist for a user to find it and drop a file in.
+    /// It is local and gitignored, so creating it promises a teammate nothing.
+    #[test]
+    fn sync_creates_the_secrets_dir() {
+        let (_guard, root) = hall_with(&[("api", "main")]);
+        let ctx = Ctx::new(root.clone());
+
+        sync(&ctx, SyncInput::default()).unwrap();
+
+        assert!(fs::is_dir(&root.join(".ivar/secrets")).unwrap());
     }
 
     #[test]

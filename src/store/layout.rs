@@ -21,7 +21,10 @@
 //!     features/<feature>/execution/    the feature execution board
 //!     features/<feature>/sessions/<id>/  feature-session view dirs
 //!     sessions/<id>/                   discovery-session view dirs
+//!     secrets/                         per-repo secret material, hand-maintained
+//!                                      (gitignored — see below)
 //!     setups/<repo>.sh                 per-repo setup scripts — COMMITTED
+//!     setups/<repo>.session.sh         per-repo session hooks — COMMITTED
 //!     skills/                          hall-scoped skills — COMMITTED
 //!   plans/<feature>/                   requirements.md · analysis.md · plan.md — COMMITTED
 //!   .claude/  .opencode/               harness-dictated. These are the TARGET of the
@@ -47,9 +50,20 @@
 //!   `feature_dir(&FeatureName)`, `planning_dir(&FeatureName)`,
 //!   `execution_dir(&FeatureName)`,
 //!   `feature_session(&FeatureName, &SessionId)`, `discovery_session(&SessionId)`,
-//!   `setup_script(&RepoName)`, `hall_skills()`, `plan_dir(&FeatureName)`,
+//!   `setup_script(&RepoName)`, `session_hook(&RepoName)`, `secrets_dir()`,
+//!   `hall_skills()`, `plan_dir(&FeatureName)`,
 //!   `harness_dir(&Provider)`, `commands_dir(&Provider)`.
 //! - `gitignore_lines()` — the exact patterns the hall's `.gitignore` needs.
+//!
+//! # Why `secrets/` needs no gitignore line of its own
+//!
+//! The hall's `.gitignore` excludes `.ivar/*` and negates exactly the two
+//! committed children. Anything else under `.ivar/` is therefore ignored by
+//! construction, and `secrets/` is deliberately placed there rather than at the
+//! hall root for precisely that reason: a secrets directory that depends on
+//! someone remembering to add a line is a secrets directory that eventually
+//! leaks. Adding a third negation would be the trap described below; not adding
+//! one is the whole design.
 //!
 //! # The gitignore trap
 //!
@@ -252,6 +266,33 @@ impl Layout {
         self.ivar_dir()
             .join("setups")
             .join(format!("{}.sh", repo.as_str()))
+    }
+
+    /// `<hall>/.ivar/setups/<repo>.session.sh` — the repo's session hook.
+    /// Committed, and a sibling of [`Self::setup_script`] on purpose: the two
+    /// belong to the same repo and are read by the same people.
+    ///
+    /// The setup script bootstraps a *worktree* and is gated by a receipt, so
+    /// it runs about once. This runs on every `session start`, ungated, and is
+    /// where per-session state belongs — the database or compose project a
+    /// session must not share with its siblings.
+    #[must_use]
+    pub fn session_hook(&self, repo: &RepoName) -> Utf8PathBuf {
+        self.ivar_dir()
+            .join("setups")
+            .join(format!("{}.session.sh", repo.as_str()))
+    }
+
+    /// `<hall>/.ivar/secrets/` — where a setup script reads values git does not
+    /// carry. Hand-maintained, never written by `ivar`, and gitignored by the
+    /// same `.ivar/*` rule that covers the rest of local state.
+    ///
+    /// `ivar` stores no secrets. This is a *location* handed to setup scripts
+    /// through `IVAR_SECRETS_DIR`, the same posture `domain::mcp` takes: hold
+    /// references, never values.
+    #[must_use]
+    pub fn secrets_dir(&self) -> Utf8PathBuf {
+        self.ivar_dir().join("secrets")
     }
 
     /// `<hall>/.ivar/skills/` — hall-scoped skills. Committed.

@@ -183,7 +183,14 @@ pub fn promote(ctx: &Ctx, input: PromoteInput) -> Outcome<PromoteOutcome> {
     feature.set_worktree_state(&repo_name, WorktreeState::Ready);
     feature.write(&layout)?;
 
-    let setup_ran = run_setup_script(&git, &layout, &repo_name, &worktree, &feature.branch)?;
+    let setup_ran = run_setup_script(
+        &git,
+        &layout,
+        &repo_name,
+        &worktree,
+        &feature.branch,
+        &feature.name,
+    )?;
 
     Ok(Report::new(PromoteOutcome {
         root: layout.root().to_path_buf(),
@@ -208,6 +215,7 @@ fn run_setup_script(
     repo: &RepoName,
     worktree: &camino::Utf8Path,
     branch: &BranchName,
+    feature: &FeatureName,
 ) -> Result<bool, Failure> {
     let script = layout.setup_script(repo);
     if !fs::is_file(&script)? {
@@ -226,7 +234,9 @@ fn run_setup_script(
         return Ok(true);
     }
 
-    let code = proc::inherit(&setup_command(layout, repo, worktree, &script, branch))?;
+    let code = proc::inherit(&setup_command(
+        layout, repo, worktree, &script, branch, feature,
+    ))?;
     Receipt::write(&git_dir, &Receipt::of_run(&fingerprint, code))?;
 
     if code != Some(0) {
@@ -260,6 +270,7 @@ fn setup_command(
     worktree: &camino::Utf8Path,
     script: &camino::Utf8Path,
     branch: &BranchName,
+    feature: &FeatureName,
 ) -> proc::Command {
     proc::Command::new(SETUP_INTERPRETER)
         .arg(script.as_str())
@@ -268,7 +279,13 @@ fn setup_command(
         .env("IVAR_REPO", repo.as_str())
         .env("IVAR_BRANCH", branch.as_str())
         .env("IVAR_WORKTREE", worktree.as_str())
+        .env("IVAR_SECRETS_DIR", layout.secrets_dir().as_str())
         .env("IVAR_WORKTREE_KIND", "feature")
+        // Set here and nowhere else in this file's sibling path: `sync` runs
+        // the same script against the default worktree, where there is no
+        // feature to name. `IVAR_WORKTREE_KIND` is what a script branches on
+        // to know whether this is set.
+        .env("IVAR_FEATURE", feature.as_str())
 }
 
 #[cfg(test)]
@@ -447,6 +464,34 @@ mod tests {
         assert_eq!(
             std::fs::read_to_string(&evidence).unwrap(),
             "api checkout feature\n"
+        );
+    }
+
+    /// `IVAR_FEATURE` is the variable `ARCHITECTURE.md` promises on feature
+    /// worktrees and only there, and `IVAR_SECRETS_DIR` is what a script reads
+    /// values from that git does not carry.
+    #[test]
+    fn a_setup_script_on_promote_gets_the_feature_name_and_the_secrets_dir() {
+        let (_guard, root) = hall_with_feature();
+        let script = Layout::at(root.clone()).setup_script(&RepoName::new("api").unwrap());
+        fs::ensure_dir(script.parent().unwrap()).unwrap();
+        fs::write_text(
+            &script,
+            "#!/usr/bin/env bash\nset -euo pipefail\n\
+             printf '%s\\n%s\\n' \"$IVAR_FEATURE\" \"$IVAR_SECRETS_DIR\" > .ivar-env\n",
+        )
+        .unwrap();
+        let ctx = Ctx::new(root.clone());
+
+        promote(&ctx, promote_input("checkout", "api")).unwrap();
+
+        let evidence =
+            std::fs::read_to_string(root.join(".ivar/repos/api/checkout/.ivar-env")).unwrap();
+        let mut lines = evidence.lines();
+        assert_eq!(lines.next().unwrap(), "checkout");
+        assert!(
+            lines.next().unwrap().ends_with("/.ivar/secrets"),
+            "was: {evidence}"
         );
     }
 
