@@ -33,8 +33,8 @@ to a Feature.
    - If `$ARGUMENTS` is provided, treat it as a provisional objective.
    - If no `$ARGUMENTS` is provided, ask the user: "What would you like to
      understand or decide?"
-   - Run `ivar session start` to create a Discovery Session (a session with no
-     feature).
+   - Run `ivar session start` with no feature argument to create a Discovery
+     Session (a session with no feature).
    - Parse output for `IVAR_SESSION_ID`, `IVAR_SESSION_PATH`.
    - Export the env vars.
 

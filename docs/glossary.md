@@ -50,9 +50,10 @@ and view dir contents are generated per provider.
 
 ## Sessions
 
-**Discovery session** — a session with no bound feature. Every repo is symlinked
-to its default branch, read-only, and promotion is disabled. For exploring and
-cross-repo reading. May convert exactly once into a feature session.
+**Discovery session** — a session with no bound feature, started by `ivar
+session start` with no feature named. Every repo is symlinked to its default
+branch, read-only, and promotion is disabled. For exploring and cross-repo
+reading. May convert exactly once into a feature session.
 
 **Session conversion** — one-way binding of a discovery session to a feature.
 Preserves the session's id, provider and start time, and moves its view dir from
