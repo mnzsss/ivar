@@ -20,7 +20,12 @@
 //! (`ivar session start`) needs: each variant owns its command construction.
 //! ARCHITECTURE.md, seam 5: the set of harnesses is known at compile time, so
 //! dispatch is a match over a closed enum, not a vtable, and capabilities are
-//! explicit flags rather than inferred.
+//! explicit flags rather than inferred. [`Harness::start_command`] builds the
+//! *interactive* invocation; [`Harness::execute_command`] builds the
+//! *headless, parsed* one that `ivar feature execute tick` spawns.
+//!
+//! [`stream`] — provider JSON in, [`stream::ExecutorEvent`] out. What
+//! `execute_command`'s stdout means never leaves that module as raw JSON.
 //!
 //! # Layering
 //!
@@ -30,6 +35,7 @@
 
 pub mod commands;
 pub mod config;
+pub mod stream;
 
 use crate::domain::provider::Provider;
 use crate::error::{Failure, FixAction};
@@ -132,6 +138,49 @@ impl Harness {
             }
         }
     }
+
+    /// The invocation that runs a headless, output-parsed execution of
+    /// `prompt` — what `ivar feature execute tick` spawns, as opposed to the
+    /// interactive session [`Self::start_command`] builds.
+    ///
+    /// Claude Code: `claude -p <prompt> --output-format stream-json
+    /// --verbose`. Stream-json output *requires* `--verbose`, and there is no
+    /// `--cwd` flag — the working directory is set on the spawn (via
+    /// [`proc::Command::cwd`]), not the argv.
+    ///
+    /// OpenCode: `opencode run -p <prompt>`.
+    ///
+    /// `model` and `agent` are appended only when the caller supplies them,
+    /// and each is its own flag on both CLIs: `--model` selects the model,
+    /// `--agent` selects the agent. They are never collapsed into one another
+    /// — conflating them (the old `tick.rs` rendered `agent` as `--model
+    /// <agent>`) is precisely the bug this builder exists to undo.
+    #[must_use]
+    pub fn execute_command(
+        self,
+        prompt: &str,
+        model: Option<&str>,
+        agent: Option<&str>,
+    ) -> proc::Command {
+        let command = proc::Command::new(self.binary());
+        let command = match self {
+            Self::ClaudeCode => command
+                .arg("-p")
+                .arg(prompt)
+                .arg("--output-format")
+                .arg("stream-json")
+                .arg("--verbose"),
+            Self::OpenCode => command.arg("run").arg("-p").arg(prompt),
+        };
+        let command = match model {
+            Some(model) => command.arg("--model").arg(model),
+            None => command,
+        };
+        match agent {
+            Some(agent) => command.arg("--agent").arg(agent),
+            None => command,
+        }
+    }
 }
 
 /// Whether `resume` is possible for `harness`, as a `Blocked` failure with a
@@ -207,5 +256,82 @@ mod tests {
         assert!(caps.interactive);
         let opencode = Harness::OpenCode.capabilities();
         assert!(!opencode.supports_review);
+    }
+
+    // -- execute_command --------------------------------------------------
+
+    #[test]
+    fn claude_code_execute_command_is_headless_and_streamed() {
+        let command = Harness::ClaudeCode.execute_command("do the thing", None, None);
+
+        assert_eq!(command.program(), "claude");
+        assert_eq!(
+            command.arguments(),
+            [
+                "-p",
+                "do the thing",
+                "--output-format",
+                "stream-json",
+                "--verbose"
+            ]
+        );
+    }
+
+    #[test]
+    fn opencode_execute_command_is_run_dash_p() {
+        let command = Harness::OpenCode.execute_command("do the thing", None, None);
+
+        assert_eq!(command.program(), "opencode");
+        assert_eq!(command.arguments(), ["run", "-p", "do the thing"]);
+    }
+
+    #[test]
+    fn model_is_appended_only_when_supplied() {
+        let without = Harness::ClaudeCode.execute_command("p", None, None);
+        assert!(!without.display().contains("--model"));
+
+        let with = Harness::ClaudeCode.execute_command("p", Some("opus"), None);
+        assert!(with.display().contains("--model opus"));
+    }
+
+    #[test]
+    fn agent_is_appended_only_when_supplied() {
+        let without = Harness::OpenCode.execute_command("p", None, None);
+        assert!(!without.display().contains("--agent"));
+
+        let with = Harness::OpenCode.execute_command("p", None, Some("reviewer"));
+        assert!(with.display().contains("--agent reviewer"));
+    }
+
+    /// The bug this builder undoes: `model` and `agent` are two distinct
+    /// flags, never collapsed into one. Passing both must produce both flags,
+    /// each carrying its own value — not one flag carrying either value.
+    #[test]
+    fn model_and_agent_are_distinct_flags_not_conflated() {
+        let display = Harness::ClaudeCode
+            .execute_command("p", Some("opus"), Some("reviewer"))
+            .display();
+
+        assert!(display.contains("--model opus"), "was: {display}");
+        assert!(display.contains("--agent reviewer"), "was: {display}");
+        assert!(
+            !display.contains("--model reviewer"),
+            "agent leaked into --model: {display}"
+        );
+        assert!(
+            !display.contains("--agent opus"),
+            "model leaked into --agent: {display}"
+        );
+    }
+
+    #[test]
+    fn claude_code_execute_command_has_no_cwd_flag() {
+        // There is no --cwd flag on the claude CLI; the working directory is
+        // set on the spawn (`proc::Command::cwd`), never on the argv.
+        let display = Harness::ClaudeCode
+            .execute_command("p", None, None)
+            .display();
+
+        assert!(!display.contains("--cwd"), "was: {display}");
     }
 }
