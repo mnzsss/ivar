@@ -23,6 +23,13 @@ use crate::action::Ctx;
 pub struct CreateInput {
     /// The feature's name, unvalidated — [`FeatureName`] is this module's job.
     pub name: String,
+    /// The branch to use, unvalidated. `None` derives it from the name.
+    ///
+    /// The two differ when a branch that already exists cannot be spelled as a
+    /// feature name: a [`FeatureName`] is one path segment, while `feat/login`
+    /// is an ordinary branch. Without this, such a branch is unreachable —
+    /// `promote` can adopt it, but no feature could ever name it.
+    pub branch: Option<String>,
 }
 
 /// What `ivar feature create` did.
@@ -46,16 +53,20 @@ impl WriteHuman for CreateOutcome {
     }
 }
 
-/// Create a feature named `input.name`, deriving its branch from the name
-/// (`<name>` → branch `<name>`; the caller may pass a slash-containing name
-/// like `auth/webauthn`, which is a valid branch and a valid feature).
+/// Create a feature named `input.name`, on `input.branch` or on a branch of
+/// the same name.
+///
+/// A [`FeatureName`] is one path segment; a [`BranchName`] is not. So
+/// `<name>` → branch `<name>` covers the ordinary case, and `--branch` covers
+/// the one it cannot spell: adopting `feat/login`, which is a perfectly good
+/// branch and an impossible feature name.
 ///
 /// Refuses when a feature with that name already exists — a second `create`
 /// would overwrite promotions that a teammate is already working against.
 pub fn create(ctx: &Ctx, input: CreateInput) -> Outcome<CreateOutcome> {
     let layout = discover_hall(ctx)?;
     let name = FeatureName::new(input.name.clone())?;
-    let branch = BranchName::new(input.name)?;
+    let branch = BranchName::new(input.branch.unwrap_or(input.name))?;
 
     let dir = layout.feature_dir(&name);
     if fs::is_dir(&dir)? {
@@ -119,6 +130,7 @@ mod tests {
             &ctx,
             CreateInput {
                 name: "checkout".to_owned(),
+                branch: None,
             },
         )
         .unwrap();
@@ -137,6 +149,7 @@ mod tests {
             &ctx,
             CreateInput {
                 name: "checkout".to_owned(),
+                branch: None,
             },
         )
         .unwrap();
@@ -145,6 +158,7 @@ mod tests {
             &ctx,
             CreateInput {
                 name: "checkout".to_owned(),
+                branch: None,
             },
         )
         .unwrap_err();
@@ -162,6 +176,7 @@ mod tests {
             &ctx,
             CreateInput {
                 name: "checkout".to_owned(),
+                branch: None,
             },
         )
         .unwrap_err();
@@ -178,12 +193,52 @@ mod tests {
             &ctx,
             CreateInput {
                 name: "../etc".to_owned(),
+                branch: None,
             },
         )
         .unwrap_err();
 
         assert_eq!(failure.status, Status::Blocked);
         assert_eq!(failure.code, "name.not_a_segment");
+    }
+
+    /// The whole point of the option: `feat/login` is a fine branch and an
+    /// impossible feature name, so without this the branch is unreachable.
+    #[test]
+    fn an_explicit_branch_may_be_one_a_feature_name_could_not_spell() {
+        let (_guard, root) = seeded_hall();
+        let ctx = Ctx::new(root.clone());
+
+        let report = create(
+            &ctx,
+            CreateInput {
+                name: "login".to_owned(),
+                branch: Some("feat/login".to_owned()),
+            },
+        )
+        .unwrap();
+
+        assert_eq!(report.value.name.as_str(), "login");
+        assert_eq!(report.value.branch.as_str(), "feat/login");
+        assert!(fs::is_file(&root.join(".ivar/features/login/feature.json")).unwrap());
+    }
+
+    /// The branch is still validated — `--branch` is not a hole in the rules.
+    #[test]
+    fn an_explicit_branch_is_still_validated() {
+        let (_guard, root) = seeded_hall();
+        let ctx = Ctx::new(root);
+
+        let failure = create(
+            &ctx,
+            CreateInput {
+                name: "login".to_owned(),
+                branch: Some("../etc".to_owned()),
+            },
+        )
+        .unwrap_err();
+
+        assert_eq!(failure.status, Status::Blocked);
     }
 
     #[test]

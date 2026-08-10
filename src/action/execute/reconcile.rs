@@ -211,6 +211,7 @@ mod tests {
             &ctx,
             FeatureCreateInput {
                 name: "checkout".to_owned(),
+                branch: None,
             },
         )
         .unwrap();
@@ -313,6 +314,7 @@ mod tests {
             &ctx,
             FeatureCreateInput {
                 name: "checkout".to_owned(),
+                branch: None,
             },
         )
         .unwrap();
@@ -368,6 +370,7 @@ mod tests {
             &ctx,
             FeatureCreateInput {
                 name: "checkout".to_owned(),
+                branch: None,
             },
         )
         .unwrap();

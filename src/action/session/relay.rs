@@ -187,6 +187,7 @@ mod tests {
             &ctx,
             CreateInput {
                 name: "checkout".to_owned(),
+                branch: None,
             },
         )
         .unwrap();
@@ -449,6 +450,7 @@ mod tests {
             &ctx,
             CreateInput {
                 name: "checkout".to_owned(),
+                branch: None,
             },
         )
         .unwrap();

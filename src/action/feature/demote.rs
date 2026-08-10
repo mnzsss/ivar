@@ -146,6 +146,7 @@ mod tests {
             &ctx,
             CreateInput {
                 name: "checkout".to_owned(),
+                branch: None,
             },
         )
         .unwrap();
