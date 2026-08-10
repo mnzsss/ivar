@@ -2,9 +2,6 @@
 //!
 //! Physically located here but compiled inside the library crate via `#[path]`
 //! so `use super::*` reaches private parent items.
-
-#[cfg(test)]
-mod tests {
 #![allow(
     clippy::unwrap_used,
     clippy::expect_used,
@@ -396,5 +393,4 @@ fn relay_output_when_no_board_exists_shows_zero_of_zero() {
         "no board → zero of zero, was: {text}"
     );
     unguard_worktrees(&root);
-}
 }

@@ -2,9 +2,6 @@
 //!
 //! Physically located here but compiled inside the library crate via `#[path]`
 //! so `use super::*` reaches private parent items.
-
-#[cfg(test)]
-mod tests {
 #![allow(
     clippy::unwrap_used,
     clippy::expect_used,
@@ -349,5 +346,4 @@ fn find_ports_for_program_returns_empty_for_a_ghost_program() {
     // A program name that no live process can plausibly have.
     let ports = find_ports_for_program("no-such-program-xyz-12345");
     assert!(ports.is_empty());
-}
 }
