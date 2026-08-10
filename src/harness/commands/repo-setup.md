@@ -66,6 +66,16 @@ The script runs via `bash` with `cwd` = the worktree, and these vars set:
 | `IVAR_WORKTREE` | Absolute path to this worktree (same as cwd) |
 | `IVAR_WORKTREE_KIND` | `default` or `feature` |
 | `IVAR_FEATURE` | Feature slug (only set when `IVAR_WORKTREE_KIND=feature`) |
+| `IVAR_SECRETS_DIR` | `.ivar/secrets/` — gitignored, hand-maintained, never written by `ivar` |
+
+Read secret values from `IVAR_SECRETS_DIR`, never from the script itself:
+
+```sh
+[ -f .env ] || cp "${IVAR_SECRETS_DIR}/${IVAR_REPO}.env" .env
+```
+
+The directory is local to each machine, so a script that reads from it stays
+committable while the values in it never leave the developer's disk.
 
 Because `cwd` is the worktree, plain `pnpm install` / `cp .env.example .env`
 land in the right repo.
@@ -76,6 +86,25 @@ A successful receipt is stored in the worktree's git administrative directory.
 Within the same surviving worktree: absent or invalid receipt → run; same
 script fingerprint + prior success → skip; changed fingerprint or prior failure
 → rerun; `--force-setup` → rerun regardless.
+
+## The session hook, when once-per-worktree is wrong
+
+`.ivar/setups/<repo>.session.sh` is a second, optional file for the same repo.
+It runs on every `ivar session start`, in the promoted worktree, ungated by any
+receipt, and it additionally gets `IVAR_SESSION_ID` and `IVAR_SESSION_PATH`.
+
+Put a step here instead of in the setup script when it must happen once **per
+session** rather than once per worktree — bringing up a database or a compose
+project that sibling sessions must not share:
+
+```sh
+export COMPOSE_PROJECT_NAME="myapp-${IVAR_SESSION_ID}"
+docker compose up -d db
+```
+
+Everything else belongs in the setup script. A hook that runs `pnpm install`
+runs it on every session start, which is the cost the receipt exists to avoid.
+A failing hook warns and the session still opens.
 
 ## Critical
 

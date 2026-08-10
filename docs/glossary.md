@@ -103,6 +103,19 @@ repo's first promote, gated by a receipt owned by that physical worktree — so 
 runs once, and re-runs when the script's own content changes. A failure is
 reported, never silently swallowed, and never aborts the other repos.
 
+**Session hook** — a per-repo script at `.ivar/setups/<repo>.session.sh`,
+committed to the hall, run on every `session start` in each promoted repo's
+worktree. The **Setup script**'s sibling, and the difference is lifetime: the
+setup script prepares a worktree once and is receipt-gated, while a hook runs
+every session and is not. Per-session daemon state — a database, a compose
+project sibling sessions must not share — belongs here. A failure warns; the
+session still opens.
+
+**Secrets dir** — `.ivar/secrets/`, handed to setup scripts and session hooks as
+`IVAR_SECRETS_DIR`. Created by `sync`, never written to by `ivar`, and gitignored
+by the same `.ivar/*` rule that covers the rest of local state. `ivar` stores no
+secrets; it points at a directory you maintain.
+
 ## Planning
 
 **Requirements · Analysis · Plan** — the three SPDD artifacts, committed under

@@ -20,11 +20,17 @@ solution is a container per environment, which `ivar` rejects by design: the who
 mechanism is real directories on your real filesystem that your real editor and
 your real `lazygit` can open.
 
-**What `ivar` gives you instead is the hook.** Each repo can carry a setup script
-at `.ivar/setups/<repo>.sh`, run when a worktree is first materialised, with the
-session identifier in its environment. The person who knows how to isolate that
-repo is the person who wrote it — so `ivar` hands them the seam rather than
-guessing.
+**What `ivar` gives you instead is the hook.** Each repo can carry a **session
+hook** at `.ivar/setups/<repo>.session.sh`, run on every `ivar session start`,
+in that repo's worktree, with the session identifier in its environment. The
+person who knows how to isolate that repo is the person who wrote it — so `ivar`
+hands them the seam rather than guessing.
+
+Note which file this is. The setup script next to it
+(`.ivar/setups/<repo>.sh`) is receipt-gated and runs about once per worktree —
+right for `pnpm install`, useless for a database that must come up every session.
+The hook is ungated and runs every time. A hook that fails warns and the session
+still opens.
 
 Two recipes that work:
 

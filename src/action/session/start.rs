@@ -41,7 +41,7 @@ use crate::tui;
 use crate::tui::driver::{Driver, PtsPty, Pty, ShellSpec};
 
 use super::super::{discover_hall, read_manifest};
-use super::lookup;
+use super::{hook, lookup};
 
 /// What `ivar session start` needs.
 #[derive(Debug, Clone)]
@@ -135,7 +135,7 @@ pub fn start(ctx: &Ctx, input: StartInput) -> Outcome<StartOutcome> {
     //    worktree — never a promoted repo's feature worktree — and a fetch
     //    that lands new files needs a writable target, so this runs before
     //    the guard-applying materialisation below.
-    let warnings = smart_fetch(&git::System, &layout, &manifest);
+    let mut warnings = smart_fetch(&git::System, &layout, &manifest);
 
     // 2. The view dir and the session record.
     let session_id = SessionId::new(uuid::Uuid::new_v4().to_string())?;
@@ -146,7 +146,19 @@ pub fn start(ctx: &Ctx, input: StartInput) -> Outcome<StartOutcome> {
     state.bind(feature_name.clone(), &started_at);
     state.write(&view_dir)?;
 
-    // 3. The agent command — skipped entirely for a detached session.
+    // 3. Session hooks, after the view dir and the record exist (a hook reads
+    //    `IVAR_SESSION_PATH`) and before the agent spawns (a hook brings up the
+    //    database the agent is about to talk to). Failure warns; it never
+    //    stops the session — see `session::hook`.
+    warnings.extend(hook::run_session_hooks(
+        &layout,
+        &manifest,
+        &feature,
+        &view_dir,
+        &session_id,
+    ));
+
+    // 4. The agent command — skipped entirely for a detached session.
     if !input.detached {
         let command = harness.start_command(input.resume);
         let width = crate::infra::term::width();
