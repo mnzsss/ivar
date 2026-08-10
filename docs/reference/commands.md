@@ -179,6 +179,10 @@ Create a feature: name, branch, no repos promoted yet
 | --- | --- | --- |
 | `name` | yes | The feature's name — one path segment, unique within the hall |
 
+| flag | value | default | description |
+| --- | --- | --- | --- |
+| `--branch` | `<BRANCH>` |  | The branch to work on. Defaults to the feature's name. Use it to adopt a branch a feature name cannot spell, such as `feat/login` |
+
 
 ##### `ivar feature list`
 
@@ -187,7 +191,7 @@ List features and how far each got
 
 ##### `ivar feature promote`
 
-Promote a repo onto a feature's branch: create the branch off the repo's default branch and materialise its worktree
+Promote a repo onto a feature's branch and materialise its worktree. A branch that already exists is adopted as-is; one that does not is created off the repo's default branch
 
 | argument | required | description |
 | --- | --- | --- |

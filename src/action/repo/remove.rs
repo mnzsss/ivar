@@ -410,6 +410,7 @@ mod tests {
             ctx,
             CreateInput {
                 name: name.to_owned(),
+                branch: None,
             },
         )
         .unwrap();

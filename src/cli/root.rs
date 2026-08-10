@@ -198,8 +198,9 @@ pub enum FeatureCommand {
     Create(FeatureCreateArgs),
     /// List features and how far each got.
     List,
-    /// Promote a repo onto a feature's branch: create the branch off the
-    /// repo's default branch and materialise its worktree.
+    /// Promote a repo onto a feature's branch and materialise its worktree.
+    /// A branch that already exists is adopted as-is; one that does not is
+    /// created off the repo's default branch.
     Promote(FeaturePromoteArgs),
     /// Remove a repo from a feature. Its worktree stays on disk.
     Demote(FeatureDemoteArgs),
@@ -240,6 +241,10 @@ pub enum FeatureCommand {
 pub struct FeatureCreateArgs {
     /// The feature's name — one path segment, unique within the hall.
     pub name: String,
+    /// The branch to work on. Defaults to the feature's name. Use it to
+    /// adopt a branch a feature name cannot spell, such as `feat/login`.
+    #[arg(long)]
+    pub branch: Option<String>,
 }
 
 /// Arguments for `ivar feature promote`.
@@ -800,8 +805,8 @@ impl From<RepoUpstreamArgs> for repo_upstream::UpstreamInput {
 
 impl From<FeatureCreateArgs> for create::CreateInput {
     fn from(args: FeatureCreateArgs) -> Self {
-        let FeatureCreateArgs { name } = args;
-        Self { name }
+        let FeatureCreateArgs { name, branch } = args;
+        Self { name, branch }
     }
 }
 

@@ -211,6 +211,7 @@ mod tests {
             &ctx,
             FeatureCreateInput {
                 name: "checkout".to_owned(),
+                branch: None,
             },
         )
         .unwrap();

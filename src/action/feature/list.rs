@@ -144,6 +144,7 @@ mod tests {
             &ctx,
             CreateInput {
                 name: "zeta".to_owned(),
+                branch: None,
             },
         )
         .unwrap();
@@ -151,6 +152,7 @@ mod tests {
             &ctx,
             CreateInput {
                 name: "alpha".to_owned(),
+                branch: None,
             },
         )
         .unwrap();
