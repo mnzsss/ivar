@@ -90,7 +90,7 @@ fn view_dir_does_not_break_lazygit() {
     // Start a session (detached) to materialise the View Dir.
     ivar()
         .current_dir(&root)
-        .args(["session", "start", "--feature", "checkout", "--detached"])
+        .args(["session", "start", "checkout", "--detached"])
         .assert()
         .success();
 
