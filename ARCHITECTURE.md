@@ -52,7 +52,10 @@ src/
                    fingerprint, push, and pull-request phases split across
                    mod.rs, repos.rs, preview.rs, and pull_requests.rs.
     execute/       feature execute: prepare · replan · ack · reconcile ·
-                   approve · tick · guard_check · reply
+                   approve · guard_check · reply, plus tick/ — the launch
+                   orchestration in mod.rs, the per-workstream worker thread
+                   (session materialisation + spawn + stream drain) in
+                   launch.rs, and the event-folding onto the board in events.rs
     session/       start · connect · conversion · stop · prune · relay, plus
                    lookup (shared id-prefix resolution)
     plan/          create · list · show · approve · status
@@ -110,6 +113,10 @@ src/
     commands/*.md  provider-neutral workflow sources, compiled into the binary
                    with include_str!. No command content or file reconciliation
                    lives in `bin/ivar.rs` or `action`.
+    guard/         the per-session execution guard materialisation: the
+                   dispatch and shared constants in mod.rs, the Claude Code
+                   hook script + settings.json merge in claude.rs, and the
+                   OpenCode plugin in opencode.rs
 
   tui/             ratatui. Sync render, explicit drive.
     screen.rs      the Screen seam over vt100 — the emulator swap point
@@ -206,6 +213,10 @@ exceptions:
   `action/repo/remove.rs`, `action/session/conversion.rs`,
   `action/feature/delete.rs`, `action/execute/replan.rs` — coherent command-level
   behaviors only modestly over the trigger.
+- `action/execute/tick/mod.rs` — the tick orchestration: the module doc's
+  concurrency contract, the public inputs/outcomes, and the single `tick()`
+  that fans out and folds; its worker and event-folding halves were extracted
+  to launch.rs and events.rs.
 - `git/exec.rs` — the single home for all mutations performed through the Git
   executable.
 
