@@ -13,9 +13,7 @@ mod tests {
 )]
 
 use super::*;
-use crate::action::feature::create::{
-    self as feature_create, CreateInput as FeatureCreateInput,
-};
+use crate::action::feature::create::{self as feature_create, CreateInput as FeatureCreateInput};
 use crate::action::hall::{self, InitInput};
 use crate::action::plan::create::{self as plan_create, CreateInput as PlanCreateInput};
 use crate::domain::feature::ExecutionStatus;

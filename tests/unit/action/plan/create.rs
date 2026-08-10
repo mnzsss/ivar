@@ -1,9 +1,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use super::*;
-use crate::action::feature::create::{
-    self as feature_create, CreateInput as FeatureCreateInput,
-};
+use crate::action::feature::create::{self as feature_create, CreateInput as FeatureCreateInput};
 use crate::action::hall::{self, InitInput};
 use crate::error::Status;
 use crate::test_support::hall_root;

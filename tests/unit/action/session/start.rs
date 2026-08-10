@@ -378,8 +378,7 @@ fn smart_fetch_advances_default_branches_and_never_touches_feature_worktrees() {
         &RepoName::new("api").unwrap(),
         &BranchName::new("main").unwrap(),
     );
-    let feature_worktree =
-        layout.repo_worktree(&RepoName::new("api").unwrap(), &feature.branch);
+    let feature_worktree = layout.repo_worktree(&RepoName::new("api").unwrap(), &feature.branch);
 
     // The origin gains a commit after sync.
     let origin = root.parent().unwrap().join("origins").join("api");
