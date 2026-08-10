@@ -59,6 +59,7 @@ pub mod cli;
 pub mod tui;
 
 #[cfg(test)]
+#[path = "../tests/support/unit.rs"]
 mod test_support;
 
 // Landing with their slices:

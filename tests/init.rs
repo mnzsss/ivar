@@ -13,6 +13,7 @@
     clippy::indexing_slicing
 )]
 
+#[path = "support/integration.rs"]
 mod common;
 
 use common::{hall_root as utf8_temp_dir, ivar};
