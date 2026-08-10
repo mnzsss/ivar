@@ -389,6 +389,7 @@ mod tests {
                 write_contract: vec!["src/".to_owned()],
                 status: WorkstreamStatus::Waiting,
                 provider: None,
+                model: None,
                 agent: None,
             }],
         })

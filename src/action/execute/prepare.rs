@@ -33,6 +33,7 @@ use crate::domain::feature::{
     ExecutionBoard, ExecutionGraph, ExecutionStatus, JournalEntry, WorkstreamDef, WorkstreamStatus,
 };
 use crate::domain::name::FeatureName;
+use crate::domain::provider::Provider;
 use crate::error::{Failure, FixAction, Outcome, Report, WriteHuman};
 use crate::infra::{fs, hash, json};
 use crate::store::feature;
@@ -91,6 +92,12 @@ struct GraphFile {
 }
 
 /// One workstream as authored in the graph JSON.
+///
+/// `provider`, `model` and `agent` are all optional and default to `None` on
+/// a missing key — a graph authored before they existed carries only the
+/// original five fields and must keep parsing unchanged. `#[serde(
+/// deny_unknown_fields)]` stays: an unrecognised key is still refused, only a
+/// *known* absent key is tolerated.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct GraphWorkstream {
@@ -99,6 +106,21 @@ struct GraphWorkstream {
     operations: Vec<String>,
     depends_on: Vec<String>,
     write_contract: Vec<String>,
+    /// The provider to run this workstream on. Parses through
+    /// [`Provider`]'s own `Deserialize`, so an id outside the closed set
+    /// (`claude-code`, `opencode`) is refused with a message naming the
+    /// valid options — never silently coerced to `None`.
+    #[serde(default)]
+    provider: Option<Provider>,
+    /// The model to run this workstream with, e.g. `claude --model` or
+    /// `opencode -m`. Distinct from `agent` — see [`WorkstreamDef::model`].
+    #[serde(default)]
+    model: Option<String>,
+    /// The agent to run this workstream with, e.g. `claude --agent` or
+    /// `opencode --agent`. Distinct from `model` — see
+    /// [`WorkstreamDef::agent`].
+    #[serde(default)]
+    agent: Option<String>,
 }
 
 impl From<GraphWorkstream> for WorkstreamDef {
@@ -110,8 +132,9 @@ impl From<GraphWorkstream> for WorkstreamDef {
             depends_on: workstream.depends_on,
             write_contract: workstream.write_contract,
             status: WorkstreamStatus::Waiting,
-            provider: None,
-            agent: None,
+            provider: workstream.provider,
+            model: workstream.model,
+            agent: workstream.agent,
         }
     }
 }
@@ -249,7 +272,7 @@ mod tests {
     use crate::action::plan::create::{self as plan_create, CreateInput as PlanCreateInput};
     use crate::domain::feature::ExecutionStatus;
     use crate::error::Status;
-    use crate::test_support::hall_root;
+    use crate::test_support::{hall_root, utf8_temp_dir};
 
     const GRAPH_JSON: &str = r#"{
         "workstreams": [
@@ -484,6 +507,7 @@ mod tests {
                         write_contract: Vec::new(),
                         status: WorkstreamStatus::Waiting,
                         provider: None,
+                        model: None,
                         agent: None,
                     }],
                 });
@@ -501,6 +525,101 @@ mod tests {
             String::from_utf8(out).unwrap(),
             "Prepared execution board for `checkout` (1 workstream, awaiting_approval) at \
              /hall/.ivar/features/checkout/execution/board.json\n"
+        );
+    }
+
+    // --- provider/model/agent through the graph -----------------------------
+
+    /// Pinned directly: a graph carrying only the five original
+    /// keys (`id`, `title`, `operations`, `depends_on`, `write_contract`)
+    /// must still parse, and the three new fields must come out `None` — not
+    /// refused, not defaulted to something else.
+    #[test]
+    fn a_graph_with_only_the_five_original_fields_parses_with_the_new_fields_none() {
+        let (_guard, root) = utf8_temp_dir();
+        let path = root.join("graph.json");
+        fs::write_text(&path, GRAPH_JSON).unwrap();
+
+        let workstreams = read_workstreams(&path).unwrap();
+
+        assert_eq!(workstreams.len(), 2);
+        for workstream in &workstreams {
+            assert_eq!(workstream.provider, None);
+            assert_eq!(workstream.model, None);
+            assert_eq!(workstream.agent, None);
+        }
+    }
+
+    /// A graph that does author `provider`, `model` and `agent` carries all
+    /// three through to the `WorkstreamDef` — the gap this operation closes.
+    #[test]
+    fn a_graph_authoring_provider_model_and_agent_carries_all_three_through() {
+        let (_guard, root) = utf8_temp_dir();
+        let path = root.join("graph.json");
+        fs::write_text(
+            &path,
+            r#"{
+                "workstreams": [
+                    {
+                        "id": "ws-exec",
+                        "title": "Executor",
+                        "operations": ["run"],
+                        "depends_on": [],
+                        "write_contract": ["src/action/execute/tick.rs"],
+                        "provider": "claude-code",
+                        "model": "claude-opus-4",
+                        "agent": "implementer"
+                    }
+                ]
+            }"#,
+        )
+        .unwrap();
+
+        let workstreams = read_workstreams(&path).unwrap();
+
+        assert_eq!(workstreams.len(), 1);
+        assert_eq!(workstreams[0].provider, Some(Provider::ClaudeCode));
+        assert_eq!(workstreams[0].model.as_deref(), Some("claude-opus-4"));
+        assert_eq!(workstreams[0].agent.as_deref(), Some("implementer"));
+    }
+
+    /// An unknown provider id is a clear refusal, not a silent `None` — it
+    /// must parse into `Provider` and fail naming the bad id and the valid
+    /// options, the same message `--provider` itself would give.
+    #[test]
+    fn a_graph_naming_an_unknown_provider_is_refused_clearly() {
+        let (_guard, root) = utf8_temp_dir();
+        let path = root.join("graph.json");
+        fs::write_text(
+            &path,
+            r#"{
+                "workstreams": [
+                    {
+                        "id": "ws-exec",
+                        "title": "Executor",
+                        "operations": ["run"],
+                        "depends_on": [],
+                        "write_contract": ["src/"],
+                        "provider": "not-a-provider"
+                    }
+                ]
+            }"#,
+        )
+        .unwrap();
+
+        let failure = read_workstreams(&path).unwrap_err();
+
+        assert_eq!(failure.status, Status::Failed);
+        assert_eq!(failure.code, "json.parse_failed");
+        assert!(
+            failure.what.contains("not-a-provider"),
+            "must name the rejected id: {}",
+            failure.what
+        );
+        assert!(
+            failure.what.contains("claude-code") && failure.what.contains("opencode"),
+            "must name the valid options: {}",
+            failure.what
         );
     }
 }

@@ -702,7 +702,16 @@ pub struct WorkstreamDef {
     pub status: WorkstreamStatus,
     /// The provider to run this workstream on — `None` is the hall default.
     pub provider: Option<Provider>,
-    /// The agent to run this workstream with — `None` is the provider default.
+    /// The model to run this workstream with — `None` is the provider
+    /// default. Reaches the provider as its own flag: `claude --model` or
+    /// `opencode -m`. Distinct from [`Self::agent`] — a provider's model and
+    /// agent selectors are different flags, and conflating them (as the old
+    /// `tick.rs` did, rendering `agent` as `--model <agent>`) sends the wrong
+    /// value to the wrong flag.
+    pub model: Option<String>,
+    /// The agent to run this workstream with — `None` is the provider
+    /// default. Reaches the provider as its own flag, distinct from
+    /// [`Self::model`]: `claude --agent` or `opencode --agent`.
     pub agent: Option<String>,
 }
 
@@ -1251,6 +1260,7 @@ mod tests {
                 write_contract: vec!["src/".to_owned()],
                 status: WorkstreamStatus::Waiting,
                 provider: None,
+                model: None,
                 agent: None,
             }],
         })

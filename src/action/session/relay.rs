@@ -386,6 +386,7 @@ mod tests {
             write_contract: Vec::new(),
             status,
             provider: None,
+            model: None,
             agent: None,
         }
     }
