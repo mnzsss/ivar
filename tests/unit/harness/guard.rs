@@ -12,7 +12,9 @@
 use std::os::unix::fs::PermissionsExt;
 
 use super::*;
+use crate::infra::fs;
 use crate::test_support::utf8_temp_dir;
+use serde_json::Value;
 
 fn feature() -> FeatureName {
     FeatureName::new("checkout").unwrap()

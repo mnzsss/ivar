@@ -94,29 +94,26 @@ use std::io;
 use std::sync::mpsc;
 use std::thread;
 
-use camino::{Utf8Path, Utf8PathBuf};
+use camino::Utf8PathBuf;
 use serde::Serialize;
 
 use crate::domain::feature::{
-    ExecutionBoard, ExecutionStatus, Feature, JournalEntry, WorkstreamDef, WorkstreamStatus,
+    ExecutionBoard, ExecutionStatus, Feature, JournalEntry, WorkstreamStatus,
 };
 use crate::domain::name::{FeatureName, SessionId};
-use crate::domain::provider::Provider;
-use crate::domain::session::{SessionState, rfc3339_now};
 use crate::error::{Failure, FixAction, Outcome, Report, Warning, WriteHuman};
 use crate::git;
-use crate::harness::stream::{ExecutorEvent, parse_claude_line, parse_opencode_line};
-use crate::harness::{Harness, guard};
-use crate::infra::{fs, hash, proc};
+use crate::harness::Harness;
+use crate::infra::{fs, hash};
 use crate::store::feature;
-use crate::store::layout::Layout;
-use crate::store::manifest::Manifest;
 
 use super::super::{discover_hall, read_manifest};
 use super::prompt;
 use crate::action::Ctx;
 use crate::action::repo::pull;
-use crate::action::session::start;
+
+mod events;
+mod launch;
 
 /// What `ivar feature execute tick` needs.
 #[derive(Debug, Clone)]
@@ -321,7 +318,7 @@ pub fn tick(ctx: &Ctx, input: TickInput) -> Outcome<TickOutcome> {
         let prompt_text = prompt::render(&plan_text, ws)?;
         let session_id = SessionId::new(uuid::Uuid::new_v4().to_string())?;
         let view_dir = layout.feature_session(&feature, &session_id);
-        let command = build_spawn_command(
+        let command = launch::build_spawn_command(
             harness,
             &prompt_text,
             ws,
@@ -331,7 +328,7 @@ pub fn tick(ctx: &Ctx, input: TickInput) -> Outcome<TickOutcome> {
             &session_id,
         );
         command_displays.insert(session_id.to_string(), command.display());
-        jobs.push(LaunchJob {
+        jobs.push(launch::LaunchJob {
             workstream_id: ws.id.clone(),
             session_id,
             provider,
@@ -366,7 +363,7 @@ pub fn tick(ctx: &Ctx, input: TickInput) -> Outcome<TickOutcome> {
     // stream is drained because each spawn happens on its own OS thread
     // rather than in a shared sequential loop — the mechanism, not merely the
     // intent, behind "the slowest startup never queues behind its siblings".
-    let (tx, rx) = mpsc::channel::<TickEvent>();
+    let (tx, rx) = mpsc::channel::<events::TickEvent>();
     let mut handles = Vec::with_capacity(jobs.len());
     for job in jobs {
         let tx = tx.clone();
@@ -376,7 +373,7 @@ pub fn tick(ctx: &Ctx, input: TickInput) -> Outcome<TickOutcome> {
         let feature = feature.clone();
         let hall_root = layout.root().to_path_buf();
         handles.push(thread::spawn(move || {
-            run_launch(
+            launch::run_launch(
                 layout,
                 manifest,
                 feature_record,
@@ -394,7 +391,7 @@ pub fn tick(ctx: &Ctx, input: TickInput) -> Outcome<TickOutcome> {
     // finished — so this loop is also what makes `tick` block until every
     // launched workstream reaches a terminal state.
     for event in rx {
-        apply_event(&mut board, &layout, &feature, &command_displays, event)?;
+        events::apply_event(&mut board, &layout, &feature, &command_displays, event)?;
     }
     for handle in handles {
         let _ = handle.join();
@@ -449,302 +446,6 @@ fn plan_vanished(feature: &FeatureName) -> Failure {
         "Restore plan.md, or re-run `ivar feature plan` for this feature.",
     ))
 }
-
-/// Everything computed for one workstream's launch before any worker thread
-/// starts — deciding is the calling thread's job; a worker only does I/O.
-struct LaunchJob {
-    workstream_id: String,
-    session_id: SessionId,
-    provider: Provider,
-    view_dir: Utf8PathBuf,
-    command: proc::Command,
-}
-
-/// One [`ExecutorEvent`] from one worker, tagged with which workstream and
-/// session it belongs to — the vocabulary the calling thread folds into the
-/// board.
-struct TickEvent {
-    workstream_id: String,
-    session_id: String,
-    event: ExecutorEvent,
-}
-
-/// Build the invocation for `harness`'s headless execute mode, with the
-/// working directory and the ivar session environment baked in.
-///
-/// The child's environment carries exactly these five `IVAR_*` variables and
-/// whatever it inherits ambiently — never `GIT_AUTHOR_NAME`,
-/// `GIT_AUTHOR_EMAIL`, `GIT_COMMITTER_NAME` or `GIT_COMMITTER_EMAIL`
-/// A launched executor that inherited an overridden git
-/// identity is exactly the failure that produced 16 mis-attributed commits on
-/// another branch of this repo — the entire point of letting an agent commit
-/// is that it commits as the user, so this function adds nothing that could
-/// override that.
-fn build_spawn_command(
-    harness: Harness,
-    prompt: &str,
-    ws: &WorkstreamDef,
-    view_dir: &Utf8Path,
-    layout: &Layout,
-    feature: &FeatureName,
-    session_id: &SessionId,
-) -> proc::Command {
-    let command = harness
-        .execute_command(prompt, ws.model.as_deref(), ws.agent.as_deref())
-        .cwd(view_dir.to_path_buf())
-        .env("IVAR_HALL", layout.root().as_str())
-        .env("IVAR_FEATURE", feature.as_str())
-        .env("IVAR_SECRETS_DIR", layout.secrets_dir().as_str())
-        .env("IVAR_SESSION_ID", session_id.as_str())
-        .env("IVAR_SESSION_PATH", view_dir.as_str());
-
-    #[cfg(test)]
-    let command = apply_test_path_stub(command);
-
-    command
-}
-
-/// See the `TEST_STUB_BIN_DIR` doc comment: never a real `claude`/`opencode`
-/// in a test. A no-op when no test has installed a stub.
-#[cfg(test)]
-fn apply_test_path_stub(command: proc::Command) -> proc::Command {
-    let Some(dir) = TEST_STUB_BIN_DIR.with(|cell| cell.borrow().clone()) else {
-        return command;
-    };
-    let ambient = std::env::var("PATH").unwrap_or_default();
-    command.env("PATH", format!("{dir}:{ambient}"))
-}
-
-/// Runs entirely on its own thread, owning exactly one child and its parser.
-/// Materialises this workstream's own session — view dir, session record,
-/// execution guard — spawns its provider, drains its stream, and reports
-/// every step as an [`ExecutorEvent`] over `tx`. Never touches the board: see
-/// the module doc's "Who spawns, who owns the board" section.
-fn run_launch(
-    layout: Layout,
-    manifest: Manifest,
-    feature_record: Feature,
-    feature: FeatureName,
-    hall_root: Utf8PathBuf,
-    job: LaunchJob,
-    tx: &mpsc::Sender<TickEvent>,
-) {
-    let send = |event: ExecutorEvent| {
-        let _ = tx.send(TickEvent {
-            workstream_id: job.workstream_id.clone(),
-            session_id: job.session_id.to_string(),
-            event,
-        });
-    };
-
-    if let Err(failure) =
-        start::materialise_view_dir(&layout, &manifest, Some(&feature_record), &job.view_dir)
-    {
-        send(ExecutorEvent::Failed {
-            error: failure.to_string(),
-        });
-        return;
-    }
-
-    let started_at = rfc3339_now();
-    let mut state = SessionState::new(job.provider, &started_at);
-    state.bind(feature.clone(), &started_at);
-    if let Err(failure) = state.write(&job.view_dir) {
-        send(ExecutorEvent::Failed {
-            error: failure.to_string(),
-        });
-        return;
-    }
-
-    if let Err(failure) = guard::materialise(
-        job.provider,
-        &job.view_dir,
-        &hall_root,
-        &feature,
-        &job.session_id,
-    ) {
-        send(ExecutorEvent::Failed {
-            error: failure.to_string(),
-        });
-        return;
-    }
-
-    let mut child = match proc::stream(&job.command) {
-        Ok(child) => child,
-        Err(error) => {
-            let failure: Failure = error.into();
-            send(ExecutorEvent::Failed {
-                error: failure.to_string(),
-            });
-            return;
-        }
-    };
-
-    send(ExecutorEvent::Started);
-
-    let parse_line: fn(&str) -> Vec<ExecutorEvent> = match job.provider {
-        Provider::ClaudeCode => parse_claude_line,
-        Provider::OpenCode => parse_opencode_line,
-    };
-
-    while let Ok(Some(line)) = child.read_line() {
-        for event in parse_line(&line) {
-            send(event);
-        }
-    }
-
-    match child.wait() {
-        Ok(Some(0)) => send(ExecutorEvent::Completed),
-        Ok(Some(code)) => {
-            let stderr = child.stderr();
-            let error = if stderr.is_empty() {
-                format!("exited {code}")
-            } else {
-                format!("exited {code}: {stderr}")
-            };
-            send(ExecutorEvent::Failed { error });
-        }
-        Ok(None) => send(ExecutorEvent::Failed {
-            error: "killed by a signal".to_owned(),
-        }),
-        Err(error) => {
-            let failure: Failure = error.into();
-            send(ExecutorEvent::Failed {
-                error: failure.to_string(),
-            });
-        }
-    }
-}
-
-/// Fold one worker's [`TickEvent`] into the board. The calling thread is the
-/// sole owner of the board (see the module doc); this is the only function
-/// that mutates it once launches begin. A state transition forces an
-/// immediate flush; `ToolUsed` only appends to the in-memory journal — see
-/// the module doc's "Write cadence".
-fn apply_event(
-    board: &mut ExecutionBoard,
-    layout: &Layout,
-    feature: &FeatureName,
-    command_displays: &BTreeMap<String, String>,
-    tick_event: TickEvent,
-) -> Result<(), Failure> {
-    let TickEvent {
-        workstream_id,
-        session_id,
-        event,
-    } = tick_event;
-    board.next_event_seq += 1;
-    let seq = board.next_event_seq;
-
-    let mut flush = true;
-    match event {
-        ExecutorEvent::Started => {
-            let command_display = command_displays
-                .get(&session_id)
-                .map(String::as_str)
-                .unwrap_or_default();
-            board.push_journal(JournalEntry {
-                seq,
-                event_id: format!("started.{session_id}"),
-                timestamp: now_epoch_seconds(),
-                workstream: workstream_id,
-                kind: "started".to_owned(),
-                message: format!("Launched session {session_id} ({command_display})"),
-            });
-        }
-        ExecutorEvent::ToolUsed { tool, path } => {
-            let message = match path {
-                Some(path) => format!("{tool} {path}"),
-                None => tool,
-            };
-            board.push_journal(JournalEntry {
-                seq,
-                event_id: format!("tool.used.{session_id}.{seq}"),
-                timestamp: now_epoch_seconds(),
-                workstream: workstream_id,
-                kind: "tool.used".to_owned(),
-                message,
-            });
-            flush = false;
-        }
-        ExecutorEvent::QuestionAsked { prompt: question } => {
-            board.push_journal(JournalEntry {
-                seq,
-                event_id: format!("question.asked.{session_id}.{seq}"),
-                timestamp: now_epoch_seconds(),
-                workstream: workstream_id.clone(),
-                kind: "question.asked".to_owned(),
-                message: question,
-            });
-            block_on(board, &workstream_id);
-        }
-        ExecutorEvent::NativeSession { id } => {
-            board.push_journal(JournalEntry {
-                seq,
-                event_id: format!("native_session.{session_id}.{seq}"),
-                timestamp: now_epoch_seconds(),
-                workstream: workstream_id,
-                kind: "native_session".to_owned(),
-                message: format!("Native session id: {id}"),
-            });
-        }
-        ExecutorEvent::Completed => {
-            board.push_journal(JournalEntry {
-                seq,
-                event_id: format!("session.completed.{session_id}.{seq}"),
-                timestamp: now_epoch_seconds(),
-                workstream: workstream_id.clone(),
-                kind: "session.completed".to_owned(),
-                message: format!("Session {session_id} completed"),
-            });
-            for ws in &mut board.graph.workstreams {
-                if ws.id == workstream_id {
-                    ws.status = WorkstreamStatus::Done;
-                }
-            }
-        }
-        ExecutorEvent::Failed { error } => {
-            board.push_journal(JournalEntry {
-                seq,
-                event_id: format!("session.failed.{session_id}.{seq}"),
-                timestamp: now_epoch_seconds(),
-                workstream: workstream_id.clone(),
-                kind: "session.failed".to_owned(),
-                message: error,
-            });
-            block_on(board, &workstream_id);
-        }
-    }
-
-    if flush {
-        board.write(layout, feature)?;
-    }
-    Ok(())
-}
-
-/// A workstream that cannot proceed on its own — it asked a question, or its
-/// process failed — moves to [`WorkstreamStatus::Blocked`], the terminal-ish
-/// status closest to "stopped, needs a human" the domain model has (there is
-/// no `WorkstreamStatus::Failed` — see the module doc's "Terminal status"
-/// section). The board follows it to [`ExecutionStatus::Blocked`], the exact
-/// transition `reply` reverses.
-fn block_on(board: &mut ExecutionBoard, workstream_id: &str) {
-    for ws in &mut board.graph.workstreams {
-        if ws.id == workstream_id {
-            ws.status = WorkstreamStatus::Blocked;
-        }
-    }
-    board.blocked_by = Some(workstream_id.to_owned());
-    board.set_status(ExecutionStatus::Blocked);
-}
-
-fn now_epoch_seconds() -> String {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|elapsed| elapsed.as_secs().to_string())
-        .unwrap_or_default()
-}
-
 // -- Test-only PATH stubbing --------------------------------------------
 //
 // A test must never spawn the real `claude`/`opencode` a developer's machine
@@ -770,7 +471,6 @@ thread_local! {
     static TEST_STUB_BIN_DIR: std::cell::RefCell<Option<Utf8PathBuf>> =
         const { std::cell::RefCell::new(None) };
 }
-
 #[cfg(test)]
-#[path = "../../../tests/unit/action/execute/tick.rs"]
+#[path = "../../../../tests/unit/action/execute/tick.rs"]
 mod tests;
