@@ -8,8 +8,13 @@
 use camino::Utf8PathBuf;
 
 use super::*;
-use crate::error::Status;
+use crate::domain::mcp::McpServerDef;
+use crate::domain::name::{BranchName, HallName, RepoName};
+use crate::domain::provider::Provider;
+use crate::error::{Failure, Status};
 use crate::infra::{fs, json};
+use crate::store::layout::Layout;
+use crate::store::versioned;
 use crate::test_support::utf8_temp_dir;
 
 fn sample_manifest() -> Manifest {
