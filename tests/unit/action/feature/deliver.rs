@@ -10,13 +10,14 @@ use crate::action::feature::create::CreateInput;
 use crate::action::feature::create::create as create_action;
 use crate::action::feature::promote::{self, PromoteInput};
 use crate::action::hall::{self, InitInput};
-use crate::domain::feature::DeliveryAction;
+use crate::domain::feature::{DeliveryAction, DeliveryRepo};
 use crate::domain::name::{BranchName, HallName};
 use crate::domain::provider::Provider;
 use crate::error::Status;
 use crate::store::layout::Layout;
 use crate::store::manifest::{Manifest, Providers, Repo};
 use crate::test_support::{git, hall_root, seeded_repo};
+use camino::Utf8Path;
 
 /// A hall with `repos` declared, a `checkout` feature, every repo promoted,
 /// and one commit on each feature branch so there is something to deliver.
