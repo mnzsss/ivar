@@ -98,10 +98,11 @@ worktree.
 
 If a repo needs bootstrapping that git does not carry — a worktree shares history
 but not untracked files, so it has no `.env` and no `node_modules` — give it a
-setup script:
+setup script at `.ivar/setups/api.sh`. Write it yourself, or let
+`/ivar-repo-setup` inspect the repo and write it for you.
 
 ```sh
-ivar repo setup api        # scaffolds .ivar/setups/api.sh
+ivar repo setup api        # runs .ivar/setups/api.sh against api's worktree
 ```
 
 Commit it. It is part of the hall, and it is what makes your teammates' `ivar
