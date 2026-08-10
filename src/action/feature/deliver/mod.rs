@@ -38,13 +38,13 @@
 use std::collections::BTreeMap;
 use std::io;
 
-use camino::{Utf8Path, Utf8PathBuf};
+use camino::Utf8PathBuf;
 use serde::Serialize;
 
-use crate::domain::feature::{DeliveryAction, DeliveryPreview, DeliveryRepo, Feature, GateState};
+use crate::domain::feature::{DeliveryAction, DeliveryPreview, Feature, GateState};
 use crate::domain::name::{FeatureName, RepoName};
 use crate::error::{Failure, FixAction, Outcome, Report, Warning, WriteHuman};
-use crate::git::{self, Git};
+use crate::git::{self};
 use crate::store::layout::Layout;
 
 use super::super::{discover_hall, read_manifest};

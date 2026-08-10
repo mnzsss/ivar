@@ -10,7 +10,6 @@ use crate::domain::feature::{DeliveryAction, DeliveryRepo, Feature};
 use crate::domain::name::RepoName;
 use crate::error::{Failure, FixAction};
 use crate::git::{self, TargetState};
-use crate::infra::github;
 use crate::store::layout::Layout;
 use crate::store::manifest::Manifest;
 
