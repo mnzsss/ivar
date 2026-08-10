@@ -88,13 +88,12 @@ other team's repo sits next to yours:
 
 ```
 .ivar/features/checkout/sessions/<id>/
-  repos/
-    api  -> ../../../../repos/api/checkout        (promoted: writable)
-    web  -> ../../../../repos/web/checkout        (promoted: writable)
-    docs -> ../../../../repos/docs/main           (read-only)
+  api  -> ../../../../repos/api/checkout        (promoted: writable)
+  web  -> ../../../../repos/web/checkout        (promoted: writable)
+  docs -> ../../../../repos/docs/main           (read-only)
 ```
 
-`cd repos/api`, change the contract, `cd ../web`, regenerate the client. Same
+`cd api`, change the contract, `cd ../web`, regenerate the client. Same
 branch, same session, no handoff, nothing pushed in between.
 
 A session is **live** while its view dir exists — liveness is not a process. Kill
