@@ -12,6 +12,7 @@ pub mod approve;
 pub mod guard_check;
 pub(crate) mod plan_ops;
 pub mod prepare;
+pub mod prompt;
 pub mod reconcile;
 pub mod replan;
 pub mod reply;
