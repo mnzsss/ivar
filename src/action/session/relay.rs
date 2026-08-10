@@ -85,7 +85,7 @@ pub fn relay(ctx: &Ctx, input: RelayInput) -> Outcome<RelayOutcome> {
     let report = start::start(
         ctx,
         start::StartInput {
-            feature: feature_name.to_string(),
+            feature: Some(feature_name.to_string()),
             resume: false,
             provider: Some(input.provider.clone()),
             detached: true,
@@ -96,12 +96,12 @@ pub fn relay(ctx: &Ctx, input: RelayInput) -> Outcome<RelayOutcome> {
     let start_outcome = &report.value;
 
     // Read the execution board for the step count.
-    let (steps_done, steps_total) = read_board_steps(&layout, &start_outcome.feature);
+    let (steps_done, steps_total) = read_board_steps(&layout, &feature_name);
 
     Ok(Report::with_warnings(
         RelayOutcome {
             session_id: start_outcome.session_id.clone(),
-            feature: start_outcome.feature.clone(),
+            feature: feature_name,
             provider: start_outcome.provider,
             steps_done,
             steps_total,
@@ -205,7 +205,7 @@ mod tests {
         session_start::start(
             &ctx,
             StartInput {
-                feature: "checkout".to_owned(),
+                feature: Some("checkout".to_owned()),
                 resume: false,
                 provider: None,
                 detached: true,
@@ -254,7 +254,7 @@ mod tests {
         let via_start = session_start::start(
             &ctx_b,
             StartInput {
-                feature: "checkout".to_owned(),
+                feature: Some("checkout".to_owned()),
                 resume: false,
                 provider: Some("opencode".to_owned()),
                 detached: true,
@@ -265,7 +265,7 @@ mod tests {
 
         let a = &via_relay.value;
         let b = &via_start.value;
-        assert_eq!(a.feature, b.feature, "same feature");
+        assert_eq!(Some(a.feature.clone()), b.feature, "same feature");
         assert_eq!(a.provider, b.provider, "same provider");
         assert_eq!(
             via_relay.is_clean(),

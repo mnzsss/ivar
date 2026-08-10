@@ -459,8 +459,9 @@ pub enum SessionCommand {
 /// Arguments for `ivar session start`.
 #[derive(Debug, Args)]
 pub struct SessionStartArgs {
-    /// The feature to open a session for.
-    pub feature: String,
+    /// The feature to open a session for. Omit for a discovery session: no
+    /// feature bound, every repo read-only on its default branch.
+    pub feature: Option<String>,
     /// Resume an existing session, where the harness supports it.
     #[arg(long)]
     pub resume: bool,

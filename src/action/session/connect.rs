@@ -205,7 +205,7 @@ mod tests {
         session_start::start(
             &ctx,
             StartInput {
-                feature: "checkout".to_owned(),
+                feature: Some("checkout".to_owned()),
                 resume: false,
                 provider: None,
                 detached: true,
@@ -452,8 +452,8 @@ mod tests {
         Manifest::write(&layout, &manifest).unwrap();
         crate::action::sync::sync(&ctx, Default::default()).unwrap();
 
-        // Materialise a discovery session directly (there is no CLI for one
-        // yet — conversion is its consumer).
+        // Materialise a discovery session directly rather than through
+        // `session start`: connect only cares about the shape on disk.
         let session_id =
             crate::domain::name::SessionId::new("2c6e6f1e-2d8a-4b3a-9c2a-6a7f6f9a1b2c".to_owned())
                 .unwrap();
@@ -525,7 +525,7 @@ mod tests {
         session_start::start(
             &ctx,
             StartInput {
-                feature: "checkout".to_owned(),
+                feature: Some("checkout".to_owned()),
                 resume: false,
                 provider: None,
                 detached: true,

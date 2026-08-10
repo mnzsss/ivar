@@ -178,7 +178,7 @@ mod tests {
         session_start::start(
             &ctx,
             StartInput {
-                feature: "checkout".to_owned(),
+                feature: Some("checkout".to_owned()),
                 resume: false,
                 provider: None,
                 detached: true,
@@ -266,7 +266,7 @@ mod tests {
         session_start::start(
             &ctx,
             StartInput {
-                feature: "checkout".to_owned(),
+                feature: Some("checkout".to_owned()),
                 resume: false,
                 provider: None,
                 detached: true,

@@ -398,7 +398,7 @@ Open a session: view dir over a feature's promoted repos, agent running in it, T
 
 | argument | required | description |
 | --- | --- | --- |
-| `feature` | yes | The feature to open a session for |
+| `feature` | no | The feature to open a session for. Omit for a discovery session: no feature bound, every repo read-only on its default branch |
 
 | flag | value | default | description |
 | --- | --- | --- | --- |

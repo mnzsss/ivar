@@ -18,6 +18,14 @@
 //! - The harness spawn through [`crate::harness`] with real `portable-pty`.
 //! - The TUI loop, driven by the [`crate::tui`] modules.
 //!
+//! # Discovery sessions
+//!
+//! Naming no feature starts a **discovery session**: the view dir still holds
+//! one symlink per repo, but every repo points at its read-only default-branch
+//! worktree and the session record binds nothing. It lives under
+//! `.ivar/sessions/<id>/` instead of a feature's tree, and `session convert` is
+//! what later binds it to a feature — once, one way.
+//!
 //! The TUI loop is the one place the crate runs an event loop; everything
 //! below it stays the pure/step-driven design from ARCHITECTURE.md, seam 6.
 
@@ -46,8 +54,10 @@ use super::{hook, lookup};
 /// What `ivar session start` needs.
 #[derive(Debug, Clone)]
 pub struct StartInput {
-    /// The feature to open a session for.
-    pub feature: String,
+    /// The feature to open a session for. `None` starts a **discovery
+    /// session**: no feature bound, every repo read-only on its default
+    /// branch.
+    pub feature: Option<String>,
     /// Resume an existing session (honoured only for harnesses whose
     /// capabilities include resume).
     pub resume: bool,
@@ -67,8 +77,8 @@ pub struct StartInput {
 pub struct StartOutcome {
     /// The session's view dir.
     pub view_dir: Utf8PathBuf,
-    /// The feature this session is bound to.
-    pub feature: FeatureName,
+    /// The feature this session is bound to. `None` for a discovery session.
+    pub feature: Option<FeatureName>,
     /// The provider that ran.
     pub provider: Provider,
     /// The session id (a UUID, from the view dir's name).
@@ -79,18 +89,18 @@ pub struct StartOutcome {
 
 impl WriteHuman for StartOutcome {
     fn write_human(&self, w: &mut impl io::Write) -> io::Result<()> {
+        let subject = match &self.feature {
+            Some(feature) => format!("Session `{}` for feature `{feature}`", self.session_id),
+            None => format!("Discovery session `{}`", self.session_id),
+        };
         if self.detached {
             writeln!(
                 w,
-                "Session `{}` for feature `{}` started detached (no provider launched). View dir: {}",
-                self.session_id, self.feature, self.view_dir
+                "{subject} started detached (no provider launched). View dir: {}",
+                self.view_dir
             )
         } else {
-            writeln!(
-                w,
-                "Session `{}` for feature `{}` ended. View dir: {}",
-                self.session_id, self.feature, self.view_dir
-            )
+            writeln!(w, "{subject} ended. View dir: {}", self.view_dir)
         }
     }
 }
@@ -106,19 +116,10 @@ pub fn start(ctx: &Ctx, input: StartInput) -> Outcome<StartOutcome> {
     let layout = discover_hall(ctx)?;
     let manifest = read_manifest(&layout)?;
 
-    let feature_name = FeatureName::new(input.feature)?;
-    let feature = Feature::read(&layout, &feature_name)?.ok_or_else(|| {
-        Failure::blocked(
-            "feature.not_found",
-            format!("feature `{feature_name}` does not exist"),
-        )
-        .expected("an existing feature")
-        .actual(format!("`{feature_name}` has no feature.json"))
-        .fix(FixAction::safe(
-            "feature.create_first",
-            format!("Create it first with `ivar feature create {feature_name}`."),
-        ))
-    })?;
+    let feature = match input.feature {
+        Some(raw) => Some(read_feature(&layout, FeatureName::new(raw)?)?),
+        None => None,
+    };
 
     let provider = resolve_provider(&manifest, input.provider.as_deref())?;
     let harness = Harness::for_provider(provider)?;
@@ -126,7 +127,8 @@ pub fn start(ctx: &Ctx, input: StartInput) -> Outcome<StartOutcome> {
         harness::check_resume_supported(harness)?;
     }
     if input.relay {
-        check_relay(&layout, &feature_name, input.provider.as_deref(), provider)?;
+        let feature = feature.as_ref().ok_or_else(relay_needs_feature)?;
+        check_relay(&layout, &feature.name, input.provider.as_deref(), provider)?;
     }
 
     // 1. Smart Fetch, before the view dir exists: refresh every registered
@@ -137,26 +139,35 @@ pub fn start(ctx: &Ctx, input: StartInput) -> Outcome<StartOutcome> {
     //    the guard-applying materialisation below.
     let mut warnings = smart_fetch(&git::System, &layout, &manifest);
 
-    // 2. The view dir and the session record.
+    // 2. The view dir and the session record. A discovery session lives in
+    //    the hall's own session tree, and its record stays unbound.
     let session_id = SessionId::new(uuid::Uuid::new_v4().to_string())?;
-    let view_dir = layout.feature_session(&feature_name, &session_id);
-    materialise_view_dir(&layout, &manifest, Some(&feature), &view_dir)?;
+    let view_dir = match &feature {
+        Some(feature) => layout.feature_session(&feature.name, &session_id),
+        None => layout.discovery_session(&session_id),
+    };
+    materialise_view_dir(&layout, &manifest, feature.as_ref(), &view_dir)?;
     let started_at = rfc3339_now();
     let mut state = SessionState::new(provider, &started_at);
-    state.bind(feature_name.clone(), &started_at);
+    if let Some(feature) = &feature {
+        state.bind(feature.name.clone(), &started_at);
+    }
     state.write(&view_dir)?;
 
     // 3. Session hooks, after the view dir and the record exist (a hook reads
     //    `IVAR_SESSION_PATH`) and before the agent spawns (a hook brings up the
     //    database the agent is about to talk to). Failure warns; it never
-    //    stops the session — see `session::hook`.
-    warnings.extend(hook::run_session_hooks(
-        &layout,
-        &manifest,
-        &feature,
-        &view_dir,
-        &session_id,
-    ));
+    //    stops the session — see `session::hook`. A discovery session
+    //    promotes nothing, so there is no worktree for a hook to run in.
+    if let Some(feature) = &feature {
+        warnings.extend(hook::run_session_hooks(
+            &layout,
+            &manifest,
+            feature,
+            &view_dir,
+            &session_id,
+        ));
+    }
 
     // 4. The agent command — skipped entirely for a detached session.
     if !input.detached {
@@ -166,7 +177,7 @@ pub fn start(ctx: &Ctx, input: StartInput) -> Outcome<StartOutcome> {
 
         // If we are on a tty, run the TUI; otherwise spawn without it.
         if crate::infra::term::is_tty(crate::infra::term::Stream::Stdout) {
-            run_tui(command, &view_dir, &layout, &feature_name, width, height)?;
+            run_tui(command, &view_dir, &layout, width, height)?;
         } else {
             // Not a tty: the agent still starts (best-effort) so the view dir is
             // genuinely usable, but the interactive loop is skipped.
@@ -179,12 +190,44 @@ pub fn start(ctx: &Ctx, input: StartInput) -> Outcome<StartOutcome> {
     Ok(Report::with_warnings(
         StartOutcome {
             view_dir,
-            feature: feature_name,
+            feature: feature.map(|feature| feature.name),
             provider,
             session_id: session_id.to_string(),
             detached: input.detached,
         },
         warnings,
+    ))
+}
+
+/// Read the named feature, or refuse: a session cannot open over a feature
+/// that was never created.
+fn read_feature(layout: &Layout, name: FeatureName) -> Result<Feature, Failure> {
+    Feature::read(layout, &name)?.ok_or_else(|| {
+        Failure::blocked(
+            "feature.not_found",
+            format!("feature `{name}` does not exist"),
+        )
+        .expected("an existing feature")
+        .actual(format!("`{name}` has no feature.json"))
+        .fix(FixAction::safe(
+            "feature.create_first",
+            format!("Create it first with `ivar feature create {name}`."),
+        ))
+    })
+}
+
+/// A relay hands one feature's work to a different provider. With no feature
+/// named there is no work to hand over.
+fn relay_needs_feature() -> Failure {
+    Failure::blocked(
+        "session.relay_needs_feature",
+        "a relay must name the feature to relay on",
+    )
+    .expected("a feature argument on a relay")
+    .actual("no feature given, which would be a discovery session")
+    .fix(FixAction::safe(
+        "session.relay_pass_feature",
+        "Pass the feature to relay on, or drop `--relay` to start a discovery session.",
     ))
 }
 
@@ -352,7 +395,6 @@ fn run_tui(
     command: crate::infra::proc::Command,
     view_dir: &camino::Utf8Path,
     layout: &Layout,
-    _feature_name: &FeatureName,
     width: u16,
     height: u16,
 ) -> Result<(), Failure> {
@@ -561,7 +603,7 @@ mod tests {
         let report = start(
             &ctx,
             StartInput {
-                feature: "checkout".to_owned(),
+                feature: Some("checkout".to_owned()),
                 resume: false,
                 provider: None,
                 detached: true,
@@ -611,7 +653,7 @@ mod tests {
         let report = start(
             &ctx,
             StartInput {
-                feature: "checkout".to_owned(),
+                feature: Some("checkout".to_owned()),
                 resume: false,
                 provider: None,
                 detached: true,
@@ -660,7 +702,7 @@ mod tests {
         let report = start(
             &ctx,
             StartInput {
-                feature: "checkout".to_owned(),
+                feature: Some("checkout".to_owned()),
                 resume: false,
                 provider: None,
                 detached: true,
@@ -693,7 +735,7 @@ mod tests {
         let first = start(
             &ctx,
             StartInput {
-                feature: "checkout".to_owned(),
+                feature: Some("checkout".to_owned()),
                 resume: false,
                 provider: None,
                 detached: true,
@@ -706,7 +748,7 @@ mod tests {
         let report = start(
             &ctx,
             StartInput {
-                feature: "checkout".to_owned(),
+                feature: Some("checkout".to_owned()),
                 resume: false,
                 provider: Some("opencode".to_owned()),
                 detached: true,
@@ -741,7 +783,7 @@ mod tests {
         let failure = start(
             &ctx,
             StartInput {
-                feature: "checkout".to_owned(),
+                feature: Some("checkout".to_owned()),
                 resume: false,
                 provider: None,
                 detached: true,
@@ -760,7 +802,7 @@ mod tests {
         start(
             &ctx,
             StartInput {
-                feature: "checkout".to_owned(),
+                feature: Some("checkout".to_owned()),
                 resume: false,
                 provider: None, // claude-code, the hall default
                 detached: true,
@@ -772,7 +814,7 @@ mod tests {
         let failure = start(
             &ctx,
             StartInput {
-                feature: "checkout".to_owned(),
+                feature: Some("checkout".to_owned()),
                 resume: false,
                 provider: Some("claude-code".to_owned()),
                 detached: true,
@@ -793,7 +835,7 @@ mod tests {
         let failure = start(
             &ctx,
             StartInput {
-                feature: "checkout".to_owned(),
+                feature: Some("checkout".to_owned()),
                 resume: false,
                 provider: Some("opencode".to_owned()),
                 detached: true,
