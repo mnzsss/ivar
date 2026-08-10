@@ -6,6 +6,8 @@
 )]
 
 use super::*;
+use crate::domain::mcp::McpServerDef;
+use crate::domain::provider::Provider;
 use crate::test_support::utf8_temp_dir;
 
 fn hall() -> HallName {
