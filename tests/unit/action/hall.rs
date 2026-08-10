@@ -5,10 +5,15 @@
     clippy::indexing_slicing
 )]
 
-use camino::Utf8PathBuf;
+use camino::{Utf8Path, Utf8PathBuf};
 
 use super::*;
-use crate::error::Status;
+use crate::domain::name::HallName;
+use crate::domain::provider::Provider;
+use crate::error::{Status, WriteHuman};
+use crate::infra::fs;
+use crate::store::layout::Layout;
+use crate::store::manifest::{Manifest, MigrationPlan, Providers};
 use crate::test_support::{hall_root, hall_root as utf8_temp_dir};
 
 fn fresh_input() -> InitInput {
