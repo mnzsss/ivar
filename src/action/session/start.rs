@@ -486,6 +486,7 @@ mod tests {
     use crate::action::feature::create::{self as feature_create, CreateInput};
     use crate::action::feature::promote::{self as feature_promote, PromoteInput};
     use crate::action::hall::{self, InitInput};
+    use crate::action::session::conversion::{self, ConvertInput};
     use crate::domain::name::{BranchName, HallName, RepoName};
     use crate::domain::provider::Provider;
     use crate::store::manifest::{Manifest, Providers, Repo};
@@ -622,6 +623,112 @@ mod tests {
         assert_eq!(state.provider(), Provider::ClaudeCode);
         assert_eq!(state.feature().unwrap().as_str(), "checkout");
         assert!(state.feature_bound_at().is_some());
+    }
+
+    // -- discovery sessions ----------------------------------------------------
+
+    /// No feature named: the session materialises in the hall's own session
+    /// tree, its record binds nothing, and the promoted repo is linked to its
+    /// read-only default-branch worktree rather than the feature worktree.
+    #[test]
+    fn start_without_a_feature_creates_a_discovery_session() {
+        let (_guard, root) = hall_with_promoted_feature();
+        let ctx = Ctx::new(root.clone());
+
+        let report = start(
+            &ctx,
+            StartInput {
+                feature: None,
+                resume: false,
+                provider: None,
+                detached: true,
+                relay: false,
+            },
+        )
+        .unwrap();
+        assert!(report.is_clean());
+
+        let outcome = &report.value;
+        assert!(outcome.feature.is_none());
+        assert!(
+            outcome
+                .view_dir
+                .as_str()
+                .contains(&format!(".ivar/sessions/{}", outcome.session_id)),
+            "the view dir must live in the hall session tree: {}",
+            outcome.view_dir
+        );
+        assert!(fs::is_dir(&outcome.view_dir).unwrap());
+
+        let target = read_link_target(&outcome.view_dir.join("api"));
+        assert!(
+            target.as_str().contains(".ivar/repos/api/main"),
+            "a discovery session links the default worktree: {target}"
+        );
+
+        let state = SessionState::read(&outcome.view_dir).unwrap().unwrap();
+        assert!(state.is_discovery());
+        assert_eq!(state.feature_bound_at(), None);
+        assert_eq!(state.provider(), Provider::ClaudeCode);
+    }
+
+    /// The two halves of the flow meet: `session convert` binds the session
+    /// `start` produced.
+    #[test]
+    fn a_started_discovery_session_can_be_converted() {
+        let (_guard, root) = hall_with_promoted_feature();
+        let ctx = Ctx::new(root.clone());
+
+        let started = start(
+            &ctx,
+            StartInput {
+                feature: None,
+                resume: false,
+                provider: None,
+                detached: true,
+                relay: false,
+            },
+        )
+        .unwrap()
+        .value;
+
+        let converted = conversion::convert(
+            &ctx,
+            ConvertInput {
+                session_id: started.session_id.clone(),
+                feature: "checkout".to_owned(),
+            },
+        )
+        .unwrap()
+        .value;
+
+        assert_eq!(converted.session_id, started.session_id);
+        assert!(
+            !fs::is_dir(&started.view_dir).unwrap(),
+            "the discovery view dir moves into the feature tree"
+        );
+    }
+
+    /// A relay hands one feature's work over; with no feature there is
+    /// nothing to hand over.
+    #[test]
+    fn relay_without_a_feature_is_blocked() {
+        let (_guard, root) = hall_with_promoted_feature();
+        let ctx = Ctx::new(root.clone());
+
+        let failure = start(
+            &ctx,
+            StartInput {
+                feature: None,
+                resume: false,
+                provider: Some("opencode".to_owned()),
+                detached: true,
+                relay: true,
+            },
+        )
+        .unwrap_err();
+
+        assert_eq!(failure.code, "session.relay_needs_feature");
     }
 
     // -- smart fetch -----------------------------------------------------------
