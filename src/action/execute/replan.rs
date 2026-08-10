@@ -61,6 +61,7 @@ use crate::error::{Failure, FixAction, Outcome, Report, WriteHuman};
 use crate::infra::{fs, hash};
 
 use super::super::discover_hall;
+use super::plan_ops::{PlanWorkstream, operations_from_plan};
 use super::require_board;
 use crate::action::Ctx;
 use crate::store::feature;
@@ -215,87 +216,6 @@ fn is_affected(workstream: &WorkstreamDef, revised: &[PlanWorkstream]) -> bool {
         }
         None => true,
     }
-}
-
-/// One workstream's Operations as authored in the revised plan.
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct PlanWorkstream {
-    /// The workstream's id — the subheading text under `Operations`.
-    id: String,
-    /// The operations, in order.
-    operations: Vec<String>,
-    /// The paths the workstream may touch.
-    write_contract: Vec<String>,
-}
-
-/// Parse `text`'s Operations section. See the module doc comment for the
-/// exact format; a plan without an Operations section yields an empty list,
-/// which makes every board workstream affected — the conservative answer
-/// when the new plan carries no operations at all.
-fn operations_from_plan(text: &str) -> Vec<PlanWorkstream> {
-    let mut workstreams = Vec::new();
-    let mut in_operations = false;
-    let mut collecting_write_contract = false;
-    let mut current: Option<PlanWorkstream> = None;
-
-    for line in text.lines() {
-        let trimmed = line.trim();
-
-        if let Some(heading) = trimmed.strip_prefix('#') {
-            let title = heading.trim_start_matches('#').trim();
-            if title.eq_ignore_ascii_case("operations") {
-                // The section (re)starts; whatever workstream was open ends.
-                if let Some(workstream) = current.take() {
-                    workstreams.push(workstream);
-                }
-                in_operations = true;
-                collecting_write_contract = false;
-                continue;
-            }
-            if !in_operations {
-                continue;
-            }
-            // Any other heading inside the section starts a new workstream,
-            // named by the heading text.
-            if let Some(workstream) = current.take() {
-                workstreams.push(workstream);
-            }
-            current = Some(PlanWorkstream {
-                id: title.to_owned(),
-                operations: Vec::new(),
-                write_contract: Vec::new(),
-            });
-            collecting_write_contract = false;
-            continue;
-        }
-
-        if !in_operations {
-            continue;
-        }
-        let Some(workstream) = current.as_mut() else {
-            continue;
-        };
-        if trimmed == "write_contract:" {
-            collecting_write_contract = true;
-            continue;
-        }
-        if let Some(bullet) = trimmed
-            .strip_prefix("- ")
-            .or_else(|| trimmed.strip_prefix("* "))
-        {
-            let item = bullet.trim().to_owned();
-            if collecting_write_contract {
-                workstream.write_contract.push(item);
-            } else {
-                workstream.operations.push(item);
-            }
-        }
-    }
-    if let Some(workstream) = current {
-        workstreams.push(workstream);
-    }
-
-    workstreams
 }
 
 #[cfg(test)]

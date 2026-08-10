@@ -10,6 +10,7 @@
 pub mod ack;
 pub mod approve;
 pub mod guard_check;
+pub(crate) mod plan_ops;
 pub mod prepare;
 pub mod reconcile;
 pub mod replan;
