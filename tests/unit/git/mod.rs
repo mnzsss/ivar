@@ -6,7 +6,8 @@
 )]
 
 use super::*;
-use crate::error::Status;
+use crate::error::{Failure, Status};
+use crate::infra::proc;
 use crate::test_support::{empty_repo, git, seeded_repo, utf8_temp_dir};
 
 // -- System routes each operation to a backend that answers ---------------
