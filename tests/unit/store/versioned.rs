@@ -9,7 +9,7 @@ use camino::Utf8PathBuf;
 use serde::{Deserialize, Serialize};
 
 use super::*;
-use crate::error::Status;
+use crate::error::{Failure, Status};
 use crate::infra::fs;
 use crate::test_support::utf8_temp_dir;
 
