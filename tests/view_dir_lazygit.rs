@@ -17,6 +17,7 @@
     clippy::print_stdout
 )]
 
+#[path = "support/integration.rs"]
 mod common;
 
 use common::{hall_root, ivar, seeded_repo};

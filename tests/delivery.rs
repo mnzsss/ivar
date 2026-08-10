@@ -17,6 +17,7 @@
     clippy::indexing_slicing
 )]
 
+#[path = "support/integration.rs"]
 mod common;
 
 use camino::{Utf8Path, Utf8PathBuf};

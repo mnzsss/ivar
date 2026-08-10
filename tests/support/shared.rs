@@ -1,18 +1,28 @@
-//! Scratch directories for tests. Compiled only under `cfg(test)`.
+//! Shared test scaffolding: UTF-8 temp dirs, canonical hall roots, and real
+//! Git repositories with deterministic identity.
 //!
-//! This exists because the same four-line `TempDir` + `Utf8PathBuf` dance was
-//! written out in five modules, byte for byte, and two more had already
-//! diverged into a canonicalising variant. Five copies means five places to fix
-//! when the construction needs a tweak, and the odds of all five getting it are
-//! not good.
+//! This module is included through the two adapters that sit at the
+//! compilation boundaries:
 //!
-//! Integration tests under `tests/` cannot see this — `cfg(test)` items are not
-//! part of the compiled library — so `tests/init.rs` still carries its own.
-//! That is the cost of the boundary, not an oversight.
+//! - [`unit`](unit) — linked from `src/lib.rs` as `crate::test_support`, so
+//!   library unit tests keep `use crate::test_support::…` unchanged;
+//! - [`integration`](integration) — linked from each top-level integration
+//!   test as `common`, adding the `assert_cmd` binary and manifest helpers
+//!   that only integration tests need.
+//!
+//! The equivalent helpers used to live in `src/test_support.rs` and
+//! `tests/common/mod.rs`, byte-for-byte duplicated where their path types
+//! diverged. One implementation, two adapters.
 
-#![allow(clippy::unwrap_used, clippy::expect_used)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing,
+    dead_code
+)]
 
-use camino::Utf8PathBuf;
+use camino::{Utf8Path, Utf8PathBuf};
 use tempfile::TempDir;
 
 /// A scratch directory and its UTF-8 path.
@@ -29,9 +39,9 @@ pub(crate) fn utf8_temp_dir() -> (TempDir, Utf8PathBuf) {
 /// A scratch directory, canonicalised, with an empty `hall` subdirectory in it.
 ///
 /// Canonicalising matters for anything that compares paths against the result of
-/// [`crate::store::layout::Layout::discover`], which canonicalises too: on macOS
-/// `TempDir` hands back a `/var/...` path whose real name is `/private/var/...`,
-/// and the two are not equal as strings.
+/// `Layout::discover`, which canonicalises too: on macOS `TempDir` hands back a
+/// `/var/...` path whose real name is `/private/var/...`, and the two are not
+/// equal as strings.
 pub(crate) fn canonical_temp_dir() -> (TempDir, Utf8PathBuf) {
     let (dir, path) = utf8_temp_dir();
     let canonical = path.canonicalize_utf8().unwrap();
@@ -41,9 +51,9 @@ pub(crate) fn canonical_temp_dir() -> (TempDir, Utf8PathBuf) {
 /// A canonicalised scratch directory with an empty `hall` subdirectory inside it.
 ///
 /// The subdirectory is not incidental: `TempDir` names itself `.tmpXXXX`, and a
-/// leading dot is refused by `HallName` ([`crate::domain::name::InvalidName::Hidden`]).
-/// Using the tempdir itself as a hall root would make every test that exercises
-/// name *derivation* collide with an unrelated rule.
+/// leading dot is refused by `HallName`. Using the tempdir itself as a hall root
+/// would make every test that exercises name *derivation* collide with an
+/// unrelated rule.
 pub(crate) fn hall_root() -> (TempDir, Utf8PathBuf) {
     let (dir, canonical) = canonical_temp_dir();
     let root = canonical.join("hall");
@@ -60,10 +70,10 @@ pub(crate) fn hall_root() -> (TempDir, Utf8PathBuf) {
 /// Identity and branch name are passed with `-c` / `--initial-branch` rather
 /// than left to the machine's own git config, so a developer whose
 /// `init.defaultBranch` is `master` gets the same result as CI.
-pub(crate) fn empty_repo(path: &Utf8PathBuf, branch: &str) -> Utf8PathBuf {
+pub(crate) fn empty_repo(path: &Utf8Path, branch: &str) -> Utf8PathBuf {
     std::fs::create_dir_all(path).unwrap();
     git(path, &["init", "--initial-branch", branch, "."]);
-    path.clone()
+    path.to_path_buf()
 }
 
 /// A real git repository at `path`, on `branch`, with one commit adding a
@@ -73,18 +83,18 @@ pub(crate) fn empty_repo(path: &Utf8PathBuf, branch: &str) -> Utf8PathBuf {
 /// repository whose branch exists only as an unborn `HEAD`, which no worktree
 /// can be added on. Anything testing the clone-then-worktree path needs
 /// content.
-pub(crate) fn seeded_repo(path: &Utf8PathBuf, branch: &str) -> Utf8PathBuf {
+pub(crate) fn seeded_repo(path: &Utf8Path, branch: &str) -> Utf8PathBuf {
     empty_repo(path, branch);
     std::fs::write(path.join("README.md"), "seed\n").unwrap();
     git(path, &["add", "README.md"]);
     git(path, &["commit", "-m", "seed"]);
-    path.clone()
+    path.to_path_buf()
 }
 
 /// Run git in `cwd`, with a fixed identity, panicking with git's own stderr if
 /// it refuses. Committer identity is forced because a machine with no global
 /// `user.email` cannot commit at all, and that failure is opaque.
-pub(crate) fn git(cwd: &Utf8PathBuf, args: &[&str]) {
+pub(crate) fn git(cwd: &Utf8Path, args: &[&str]) {
     let output = std::process::Command::new("git")
         .args(["-c", "user.name=ivar tests"])
         .args(["-c", "user.email=tests@ivar.invalid"])
