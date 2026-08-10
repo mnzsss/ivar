@@ -8,10 +8,14 @@
 use super::*;
 use crate::action::hall::{self, InitInput};
 use crate::domain::mcp::McpServerDef;
-use crate::domain::name::HallName;
+use crate::domain::name::{BranchName, HallName, RepoName};
+use crate::domain::provider::Provider;
 use crate::error::Status;
-use crate::store::manifest::Providers;
+use crate::harness::{commands, config};
+use crate::store::layout::Layout;
+use crate::store::manifest::{Manifest, Providers, Repo};
 use crate::test_support::{hall_root, seeded_repo};
+use camino::Utf8Path;
 
 /// A hall with `repos` already declared in its `ivar.json`, plus the
 /// origins those repos point at. Returns the hall root and the scratch dir
