@@ -1,8 +1,8 @@
 //! The subprocess boundary. Nothing else in this crate touches
 //! `std::process`.
 //!
-//! `ivar` shells out for exactly two reasons, and they want different things
-//! from this module:
+//! `ivar` shells out for exactly three reasons, and they want different
+//! things from this module:
 //!
 //! - **git mutations and anything touching a remote** (ADR-0001 §3). Short,
 //!   quiet, and their output is *evidence* — a failing `git clone`'s stderr is
@@ -12,9 +12,16 @@
 //!   the user wants to watch it. Capturing would leave them staring at a frozen
 //!   line, which is the failure the predecessor's own setup runner was written
 //!   to avoid — it inherits the terminal on purpose. So they [`inherit`].
+//! - **a provider process speaking a line-oriented protocol** — `claude -p
+//!   --output-format stream-json`, `opencode run`. Nobody is watching it and
+//!   there is no final answer to capture: the whole point is the lines that
+//!   arrive *while it runs*, so a caller can parse and react to them as they
+//!   come rather than discovering the transcript only once the process is
+//!   already dead. So they [`stream`].
 //!
-//! Both are blocking. There is no async runtime in this crate, and adding one
-//! is an architectural change, not a dependency bump.
+//! All three block the calling thread for as long as they're asked to wait.
+//! There is no async runtime in this crate, and adding one is an
+//! architectural change, not a dependency bump.
 //!
 //! # A non-zero exit is data, not an error
 //!
@@ -38,8 +45,8 @@
 //! would replace a readable error with an unreadable one.
 
 use std::ffi::OsStr;
-use std::io;
-use std::process::{Command as StdCommand, Stdio};
+use std::io::{self, BufRead, BufReader, Read};
+use std::process::{Child, ChildStderr, ChildStdout, Command as StdCommand, Stdio};
 
 use camino::Utf8PathBuf;
 
@@ -245,6 +252,125 @@ pub fn inherit(command: &Command) -> Result<Option<i32>, Error> {
         .map_err(|source| spawn_error(command, source))?;
 
     Ok(status.code())
+}
+
+/// Spawn `command` with stdout piped for incremental reading while it runs,
+/// stdin `/dev/null`, and stderr piped so it can be drained and explained if
+/// the child fails.
+///
+/// [`capture`] buffers both streams and only hands them back once the process
+/// is dead; that is exactly wrong for a caller parsing a provider's line
+/// protocol, which needs each line as it arrives, not the whole transcript
+/// after the fact. A [`portable_pty`](https://docs.rs/portable-pty)-backed
+/// PTY was rejected for the same reason `session::start` uses one for a human
+/// and this doesn't: a PTY interleaves and reflows what it displays, which
+/// destroys line boundaries in a protocol that depends on them.
+///
+/// Stdin is `/dev/null`, for the same reason [`capture`] sets it: a child
+/// nobody is watching interactively must never sit blocked on a prompt only a
+/// human could answer.
+pub fn stream(command: &Command) -> Result<Stream, Error> {
+    let mut child = command
+        .to_std()
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|source| spawn_error(command, source))?;
+
+    let (stdout, stderr) = match (child.stdout.take(), child.stderr.take()) {
+        (Some(stdout), Some(stderr)) => (stdout, stderr),
+        // Unreachable in practice: both were just requested as `Stdio::piped()`
+        // above. Handled as a spawn error rather than `expect`/`unwrap` (the
+        // crate warns on both) because there is nowhere safer to report it.
+        _ => {
+            return Err(spawn_error(
+                command,
+                io::Error::other("child stdout/stderr missing after a piped spawn"),
+            ));
+        }
+    };
+
+    Ok(Stream {
+        command: command.clone(),
+        child,
+        stdout: BufReader::new(stdout),
+        stderr,
+        captured_stderr: String::new(),
+    })
+}
+
+/// A child spawned by [`stream`]: readable line by line while it runs, with a
+/// wait-for-exit for once the caller is done draining it.
+///
+/// `stdout` piped through a [`BufReader`] rather than [`capture`]'s "read it
+/// all" is the entire capability this type exists to add — see the module
+/// doc comment.
+#[derive(Debug)]
+pub struct Stream {
+    /// Kept only so a failure inside [`Self::wait`] can render through
+    /// [`spawn_error`], the same `Error::Spawn` shape [`capture`] and
+    /// [`inherit`] already produce, rather than a second error type.
+    command: Command,
+    child: Child,
+    stdout: BufReader<ChildStdout>,
+    stderr: ChildStderr,
+    captured_stderr: String,
+}
+
+impl Stream {
+    /// The next line of stdout, blocking until one arrives or the stream
+    /// ends. `Ok(None)` is end of stream — the child closed stdout, which
+    /// happens at or before exit, so [`Self::wait`] is what to call next, not
+    /// this again.
+    ///
+    /// The trailing line ending is stripped (`\n`, or `\r\n` with both
+    /// removed), matching [`decode`]'s trimming for [`capture`]'s output.
+    pub fn read_line(&mut self) -> io::Result<Option<String>> {
+        let mut line = String::new();
+        let bytes_read = self.stdout.read_line(&mut line)?;
+        if bytes_read == 0 {
+            return Ok(None);
+        }
+        if line.ends_with('\n') {
+            line.pop();
+            if line.ends_with('\r') {
+                line.pop();
+            }
+        }
+        Ok(Some(line))
+    }
+
+    /// Block for the child to exit. Returns its exit code, `None` for a
+    /// signal death — the same shape [`inherit`] returns, because both
+    /// answer exactly one question: how did the process end.
+    ///
+    /// Also drains whatever the child wrote to stderr and decodes it lossily,
+    /// like [`capture`], so [`Self::stderr`] has something to explain a
+    /// failure with. Safe to call more than once, like the underlying
+    /// [`Child::wait`].
+    pub fn wait(&mut self) -> Result<Option<i32>, Error> {
+        let mut raw_stderr = Vec::new();
+        // A child that closed stderr (the normal case at exit) makes this
+        // return `Ok(0)` rather than block; one still open would block here,
+        // which is the known limitation the plan's safeguards accept: a hung
+        // child hangs the caller, visibly rather than silently.
+        let _ = self.stderr.read_to_end(&mut raw_stderr);
+        self.captured_stderr = decode(&raw_stderr);
+
+        let status = self
+            .child
+            .wait()
+            .map_err(|source| spawn_error(&self.command, source))?;
+        Ok(status.code())
+    }
+
+    /// The child's stderr, decoded and trimmed like [`capture`]'s. Empty
+    /// until [`Self::wait`] has drained it.
+    #[must_use]
+    pub fn stderr(&self) -> &str {
+        &self.captured_stderr
+    }
 }
 
 fn spawn_error(command: &Command, source: io::Error) -> Error {
@@ -529,6 +655,97 @@ mod tests {
             inherit(&Command::new("sh").arg("-c").arg("exit 7")).unwrap(),
             Some(7)
         );
+    }
+
+    // -- stream: the whole point ------------------------------------------------
+
+    /// This is the operation. A test that only reads lines after the child has
+    /// exited would pass against [`capture`] too and prove nothing about
+    /// [`stream`] existing at all.
+    #[test]
+    fn stream_yields_a_line_while_the_child_is_still_running() {
+        let mut child_stream = stream(
+            &Command::new("sh")
+                .arg("-c")
+                .arg("echo first; sleep 0.3; echo second"),
+        )
+        .unwrap();
+
+        let first = child_stream.read_line().unwrap();
+        assert_eq!(first.as_deref(), Some("first"));
+
+        // Read while the `sleep 0.3` is still running, not after the process
+        // already exited — `try_wait` returning `Ok(None)` is "still alive".
+        assert!(
+            matches!(child_stream.child.try_wait(), Ok(None)),
+            "the child had already exited by the time the first line was read"
+        );
+
+        let second = child_stream.read_line().unwrap();
+        assert_eq!(second.as_deref(), Some("second"));
+
+        assert_eq!(child_stream.read_line().unwrap(), None);
+        assert_eq!(child_stream.wait().unwrap(), Some(0));
+    }
+
+    #[test]
+    fn stream_reads_multiple_lines_in_order_and_then_ends() {
+        let mut child_stream =
+            stream(&Command::new("sh").arg("-c").arg("printf 'a\\nb\\nc\\n'")).unwrap();
+
+        assert_eq!(child_stream.read_line().unwrap().as_deref(), Some("a"));
+        assert_eq!(child_stream.read_line().unwrap().as_deref(), Some("b"));
+        assert_eq!(child_stream.read_line().unwrap().as_deref(), Some("c"));
+        assert_eq!(child_stream.read_line().unwrap(), None);
+        assert_eq!(child_stream.wait().unwrap(), Some(0));
+    }
+
+    #[test]
+    fn stream_wait_returns_the_exit_code_like_inherit() {
+        let mut child_stream = stream(&Command::new("sh").arg("-c").arg("exit 7")).unwrap();
+
+        while child_stream.read_line().unwrap().is_some() {}
+
+        assert_eq!(child_stream.wait().unwrap(), Some(7));
+    }
+
+    #[test]
+    fn stream_captures_stderr_for_explaining_a_failure() {
+        let mut child_stream = stream(
+            &Command::new("sh")
+                .arg("-c")
+                .arg("printf trouble >&2; exit 1"),
+        )
+        .unwrap();
+
+        while child_stream.read_line().unwrap().is_some() {}
+        assert_eq!(child_stream.wait().unwrap(), Some(1));
+
+        assert_eq!(child_stream.stderr(), "trouble");
+    }
+
+    /// Mirrors `an_empty_env_value_is_set_rather_than_unset`'s sibling
+    /// concern for `capture`: a process nobody can see must never block
+    /// waiting on a prompt.
+    #[test]
+    fn stream_stdin_is_null_so_a_read_does_not_block() {
+        let mut child_stream =
+            stream(&Command::new("sh").arg("-c").arg("read -r line; echo done")).unwrap();
+
+        assert_eq!(child_stream.read_line().unwrap().as_deref(), Some("done"));
+        assert_eq!(child_stream.wait().unwrap(), Some(0));
+    }
+
+    #[test]
+    fn stream_reports_a_spawn_error_like_capture_and_inherit() {
+        let error =
+            stream(&Command::new("ivar-no-such-program-exists-anywhere")).expect_err("no binary");
+
+        assert!(matches!(error, Error::Spawn { .. }));
+
+        let failure: Failure = error.into();
+        assert_eq!(failure.status, Status::Blocked);
+        assert_eq!(failure.code, "proc.spawn_failed");
     }
 
     // -- display, diagnostic, availability ------------------------------------
