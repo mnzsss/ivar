@@ -152,9 +152,17 @@ fn json_and_human_surfaces_carry_the_same_facts() {
 /// A verb that operates on a hall fails clearly when there is none, rather
 /// than exiting zero having done nothing. `status` stands in for the rest;
 /// the point is the shape of the refusal, not which verb it is.
+///
+/// The `current_dir` is load-bearing. `Layout::discover` walks *up*, and
+/// without an explicit cwd this inherits the test process's — the crate root,
+/// which is inside a hall whenever `ivar` is developed with `ivar`. The test
+/// would then assert a refusal against a directory that genuinely has a hall
+/// above it, and fail for being right.
 #[test]
 fn a_hall_verb_outside_a_hall_fails_clearly_instead_of_pretending() {
+    let (_guard, outside) = utf8_temp_dir();
     ivar()
+        .current_dir(&outside)
         .arg("status")
         .assert()
         .failure()
