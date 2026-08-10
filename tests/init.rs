@@ -1,7 +1,7 @@
 //! End-to-end tests for `ivar init`, driving the compiled binary.
 //!
 //! Unit tests for the action itself (name derivation, provider default,
-//! nesting/already-initialised failures) live in `src/action/hall.rs`. These
+//! nesting/already-initialised failures) live in `src/action/hall/init.rs`. These
 //! tests exist for what only the real binary can prove: the manifest's exact
 //! on-disk bytes, the process exit code, and that `--json` and the human
 //! surface report the same facts.

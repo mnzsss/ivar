@@ -1,7 +1,7 @@
 //! End-to-end tests for `ivar sync`, driving the compiled binary.
 //!
 //! The behaviour — idempotence, the receipt, the managed block, per-repo
-//! failures becoming warnings — is unit-tested in `src/action/sync.rs` against
+//! failures becoming warnings — is unit-tested in `src/action/sync/mod.rs` against
 //! real git repositories in temp directories. These tests exist for the two
 //! things only the real process can prove:
 //!

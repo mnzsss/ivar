@@ -34,17 +34,23 @@ src/
   lib.rs           crate attrs, module tree, the layering rule as a doc comment.
 
   cli/             clap derive types ONLY — structs, enums, doc comments.
-    root.rs        every command, one file: the 12 root entries and each group's
+    root.rs        every command, one file: the root entries and each group's
                    subcommands. One file because clap derive is declarative and
                    splitting it would only scatter the surface.
 
   action/          one function per leaf command. The unit of behaviour.
-    hall.rs        init · status · doctor · cleanup · migrate
-    sync.rs        sync — big enough to own a file: it is the only verb that
-                   crosses repos, providers and the hall in one pass
+    hall/          init · status · doctor · migrate · cleanup — one file per
+                   verb (init.rs, status.rs, doctor.rs, migrate.rs, cleanup.rs);
+                   the facade owns the shared discovery/read/prompt helpers.
+    sync/          sync — big enough to own a directory: the public verb and
+                   report types live in mod.rs, repo materialisation in
+                   repo.rs, provider/config reconciliation in providers.rs,
+                   and setup-script execution in setup.rs.
     repo/          add · list · remove · pull · setup · upstream
-    feature/       create · list · promote · demote · status · deliver · close ·
-                   delete · rebase · review · view · prune
+    feature/       create · list · promote · demote · status · close · delete ·
+                   rebase · review · view · prune, plus deliver/ — the preview
+                   fingerprint, push, and pull-request phases split across
+                   mod.rs, repos.rs, preview.rs, and pull_requests.rs.
     execute/       feature execute: prepare · replan · ack · reconcile ·
                    approve · tick · guard_check · reply
     session/       start · connect · conversion · stop · prune · relay, plus
@@ -53,12 +59,13 @@ src/
     provider/      add · list
     skill/         create · add · update · remove · detach · sync · status ·
                    list · doctor
-                   (a directory per group once it passed a handful of verbs;
-                   `hall` and `sync` stayed single files because they did not)
 
   domain/          pure types and invariants. No I/O, no git, no clap.
     name.rs        validated newtypes: HallName, RepoName, FeatureName, BranchName…
-    feature.rs     features, promotion, plans, gates and the execution board
+    feature/       a facade over four focused files: feature.rs (the promotion
+                   record and FeatureBoard), delivery.rs (guards and the
+                   delivery preview), approval.rs (the SPDD gates), and
+                   execution.rs (the execution board and workstream graph)
     session.rs     session state and identity
     provider.rs    which harnesses exist, and their capability flags
     health.rs      hall health derivation (uninitialized/operational/stale/degraded)
@@ -66,8 +73,11 @@ src/
     mcp.rs         MCP server definitions as data
 
   store/           on-disk persistence. Owns file layout, nothing else.
-    versioned.rs   the version-detect / migrate / refuse-if-newer machine
-    manifest.rs    ivar.json — committed, NEVER auto-migrates
+    versioned/     the version-detect / migrate / refuse-if-newer machine in
+                   mod.rs, with its Error and Failure conversion in error.rs
+    manifest/      ivar.json — committed, NEVER auto-migrates. model.rs owns
+                   the data and invariants, persistence.rs the read/write/plan/
+                   migrate, error.rs the Error and its Failure conversion.
     layout.rs      every path under a hall is computed here, nowhere else
     gitignore.rs   the hall's .gitignore: append the needed lines, never clobber
     setup_receipt.rs  what a worktree's setup script did last time. The one file
@@ -79,6 +89,7 @@ src/
 
   git/             the only module that knows git exists
     mod.rs         the Git trait, and the real implementation over the two below
+    error.rs       git::Error and its Failure conversion
     read.rs        git2: refs, HEAD, worktree list, ahead/behind, status, blobs
     exec.rs        the git binary: clone --bare, worktree add/rm, branch, fetch,
                    push, rebase, checkout
@@ -89,10 +100,13 @@ src/
                    Claude Code and OpenCode are variants here, not files —
                    they differ by data (config path, argv, capabilities), and a
                    file each would have held a match arm and nothing more.
-    config.rs      per-harness config materialisation (CLAUDE.md, AGENTS.md, MCP)
-    commands.rs    embedded shipped-workflow catalog, reconciliation, integrity
-                   inspection, legacy fingerprint cleanup. Owns only the
-                   `ivar-*.md` files in each provider's command directory.
+    config/        per-harness config materialisation (CLAUDE.md, AGENTS.md, MCP).
+                   mod.rs owns the managed-block behaviour; mcp.rs owns the MCP
+                   document construction and the Claude/OpenCode translation.
+    commands/      the shipped workflow catalog and reconciliation: catalog.rs
+                   owns ShippedCommand + the COMMANDS data, commands.rs owns
+                   materialise/remove/inspect. The *.md sources live here and
+                   are compiled in with include_str!.
     commands/*.md  provider-neutral workflow sources, compiled into the binary
                    with include_str!. No command content or file reconciliation
                    lives in `bin/ivar.rs` or `action`.
@@ -101,18 +115,22 @@ src/
     screen.rs      the Screen seam over vt100 — the emulator swap point
     widget.rs      pure deterministic projection of a snapshot into a Buffer
     driver.rs      all I/O: pty reads, resize, event folding. Owns no executor.
+    pty.rs         the concrete PtsPty adapter over portable-pty, behind the
+                   Pty trait the driver is generic over
     key_router.rs  pure reducer: (mode, key) -> (mode, action)
     master_detail.rs feature view layout, and the one event loop in the crate
 
   infra/           adapters to the outside world
-    fs.rs          the filesystem primitive set. Nothing else touches std::fs.
-                   Includes the read-only guard: the recursive chmod that clears
-                   a non-promoted worktree's write bits (`mode & !0o222`).
+    fs/            the filesystem primitive set. Nothing else touches std::fs.
+                   io.rs owns reads/writes/directories/metadata/removal,
+                   symlink.rs owns create/replace/read plus SymlinkTarget,
+                   guard.rs owns the read-only guard (chmod, mode, write bits),
+                   and the facade owns the shared Error.
     json.rs        write_canonical — the ONLY on-disk JSON writer
     frontmatter.rs split + parse + emit YAML frontmatter. The YAML swap point.
     hash.rs        sha256 of a file, and of a tree
-    proc.rs        subprocess spawn, capture, exit codes — and port attribution,
-                   by reading /proc for a pid's listening sockets
+    proc/          subprocess spawn, capture, exit codes in mod.rs; the Linux
+                   /proc port attribution lives in ports.rs.
     github.rs      the GitHub trait: gh -> token -> clean failure. Faked in tests.
     term.rs        colour, NO_COLOR, is-a-tty. Decides *whether* to colour.
 
@@ -120,6 +138,80 @@ src/
                    Palette lives here because the layout of a failure does, and
                    colour must not become a second copy of that layout.
 ```
+
+## Test layout
+
+Every Rust test body lives under `tests/`, never under `src/`. There are two
+compilation boundaries, and the layout keeps them distinct:
+
+```
+tests/
+  architecture.rs           the layering rule and the centralization invariant
+  delivery.rs init.rs …     top-level integration targets, discovered by Cargo
+                            and compiled as their own crates
+  support/
+    shared.rs               the one implementation of temp-dir and real-Git
+                            helpers
+    unit.rs                 linked from src/lib.rs as crate::test_support
+    integration.rs          linked from each integration target as `common`,
+                            adding the assert_cmd binary and manifest helpers
+  unit/                     the unit-test tree, mirrored one-to-one against src/
+```
+
+A production file keeps only a path-linked declaration; the body lives in the
+mirrored file under `tests/unit/`:
+
+```rust
+#[cfg(test)]
+#[path = "../../tests/unit/error.rs"]
+mod tests;
+```
+
+The `#[path]` link means the module is still compiled as a child of its owning
+production module inside the library test crate — `use super::*` and access to
+private parent items keep working, so relocating a test never widens production
+visibility. Physical location and compilation home are deliberately different
+things, and `tests/architecture.rs` enforces both: the layering scan walks
+`tests/unit/<module>/` with the same allowed imports as `src/<module>/`, and a
+second rule refuses any `#[test]`, `#[rstest]`, or inline `mod tests { … }`
+body under `src/`.
+
+`tests/unit/` is not a Cargo integration target: Cargo only auto-discovers
+top-level `tests/*.rs` files, and there is deliberately no top-level
+`tests/unit.rs`.
+
+## Retained large files
+
+The 300-line production review is a review trigger, not a rule — splitting a
+coherent file to satisfy a number would optimise for counting rather than
+responsibility. Files that remain above it are coherent single-responsibility
+exceptions:
+
+- `cli/root.rs` — the declarative Clap surface, one searchable command model.
+- `store/versioned/mod.rs` — the single documented versioning machine with its
+  two policies (its Error was extracted to `error.rs`).
+- `store/layout.rs` — every managed path is computed in one place.
+- `bin/ivar.rs` — parse, dispatch, render, exit code; no domain logic.
+- `error.rs` — the single output/error envelope (`Failure`, `Status`,
+  `FixAction`, `Warning`, `Report`, `Palette`).
+- `domain/name.rs` — one validation vocabulary with a common error model.
+- `action/session/start.rs` — the session-start orchestration, kept one file by
+  an explicit planning decision.
+- `harness/commands.rs` and `harness/config/mod.rs` — the reconciliation halves
+  of their pairs; their declarative halves (catalog.rs, mcp.rs) were extracted.
+- `action/sync/mod.rs`, `action/feature/deliver/mod.rs`,
+  `domain/feature/execution.rs` — module facades whose capabilities live in
+  focused child files.
+- `action/plan/status.rs`, `action/plan/approve.rs`,
+  `action/repo/remove.rs`, `action/session/conversion.rs`,
+  `action/feature/delete.rs`, `action/execute/replan.rs` — coherent command-level
+  behaviors only modestly over the trigger.
+- `git/exec.rs` — the single home for all mutations performed through the Git
+  executable.
+
+There is no permanent lint for 300 lines. Adding one would make generated,
+declarative, and inherently cohesive files optimise for counting.
+
 
 ## Layering
 
