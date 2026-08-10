@@ -2,7 +2,8 @@
 //! compiled binary.
 //!
 //! The reconciliation behaviour itself is unit-tested in
-//! `src/harness/commands.rs` against temp directories. These tests exist for
+//! `src/harness/commands.rs` (with the catalog in
+//! `src/harness/commands/catalog.rs`) against temp directories. These tests exist for
 //! what only the real process can prove: `init` and `provider add` bootstrap
 //! commands without a follow-up sync, sync repairs and removes them at the
 //! hall level, and the commands never disturb hall health.
