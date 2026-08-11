@@ -133,6 +133,34 @@ fn the_drivers_steps_never_block_on_a_real_shell() {
     assert!(panel.contains('h'), "the typed key never reached the panel");
 }
 
+/// A resize must reach the process, not just the emulator: `stty size` is
+/// the shell reading the window size the kernel holds for its terminal.
+#[test]
+fn a_resize_reaches_the_shell() {
+    let mut pty = PtsPty::new();
+    pty.spawn(&Command::new("sh"), cwd(), 80, 24)
+        .expect("spawn sh");
+    pty.resize(100, 40).expect("resize");
+    pty.write(b"stty size\n").expect("ask for the size");
+
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    let mut seen = Vec::new();
+    while std::time::Instant::now() < deadline {
+        if let Some(bytes) = pty.try_read().expect("try_read") {
+            seen.extend_from_slice(&bytes);
+            // `stty size` prints rows then columns.
+            if String::from_utf8_lossy(&seen).contains("40 100") {
+                return;
+            }
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
+    panic!(
+        "the shell never saw 40x100; saw {:?}",
+        String::from_utf8_lossy(&seen)
+    );
+}
+
 /// Backspace, end to end: the byte the router sends must be the one the
 /// terminal's line discipline treats as erase. `cat` echoes the line it
 /// receives, so what it echoes is proof of what the erase did.

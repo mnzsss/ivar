@@ -94,21 +94,42 @@ pub struct Snapshot {
     pub panel: Panel,
 }
 
+/// How the terminal splits: sidebar at 30% width, the shell panel at the
+/// rest. One function so the host loop and the renderer cannot disagree
+/// about how big the panel is.
+#[must_use]
+pub fn split(area: Rect) -> (Rect, Rect) {
+    let sidebar_width = (area.width * 30) / 100;
+    (
+        Rect::new(area.x, area.y, sidebar_width, area.height),
+        Rect::new(
+            area.x + sidebar_width,
+            area.y,
+            area.width.saturating_sub(sidebar_width),
+            area.height,
+        ),
+    )
+}
+
+/// The size, in cells, of the box a shell actually draws into for a terminal
+/// of `area` — the panel minus its border.
+///
+/// This is the size the PTY and the emulator must be given. Handing them the
+/// whole terminal instead is what makes a shell wrap its lines in the wrong
+/// column: it believes it has room the panel does not have.
+#[must_use]
+pub fn panel_size(area: Rect) -> (u16, u16) {
+    let (_, panel) = split(area);
+    let inner = Block::default().borders(Borders::ALL).inner(panel);
+    (inner.width.max(1), inner.height.max(1))
+}
+
 /// Render `snapshot` into `buf` (which must cover `area`).
 ///
-/// Layout: sidebar at 30% width, the shell panel at 70%. The selected row is
-/// highlighted; the panel's block cursor is drawn only when the panel is
-/// [`PanelState::Live`].
+/// The selected row is highlighted; the panel's block cursor is drawn only
+/// when the panel is [`PanelState::Live`].
 pub fn render(snapshot: &Snapshot, area: Rect, buf: &mut Buffer) {
-    let sidebar_width = (area.width * 30) / 100;
-    let sidebar_area = Rect::new(area.x, area.y, sidebar_width, area.height);
-    let panel_area = Rect::new(
-        area.x + sidebar_width,
-        area.y,
-        area.width - sidebar_width,
-        area.height,
-    );
-
+    let (sidebar_area, panel_area) = split(area);
     render_sidebar(snapshot, sidebar_area, buf);
     render_panel(snapshot, panel_area, buf);
 }

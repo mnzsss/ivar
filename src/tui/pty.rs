@@ -176,6 +176,20 @@ impl Pty for PtsPty {
         }
     }
 
+    fn resize(&mut self, width: u16, height: u16) -> Result<(), io::Error> {
+        let Some(master) = &self.master else {
+            return Ok(());
+        };
+        master
+            .resize(portable_pty::PtySize {
+                rows: height,
+                cols: width,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
+            .map_err(io::Error::other)
+    }
+
     fn is_running(&self) -> bool {
         let mut child = self.child.borrow_mut();
         let Some(handle) = child.as_mut() else {

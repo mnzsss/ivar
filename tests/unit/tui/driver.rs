@@ -32,6 +32,8 @@ struct FakePty {
     /// Shared so a test can end the shell from outside, the way a real one
     /// ends on its own.
     running: Rc<Cell<bool>>,
+    /// Every size this PTY was told about, in order.
+    resized: Rc<RefCell<Vec<(u16, u16)>>>,
 }
 
 impl FakePty {
@@ -39,16 +41,19 @@ impl FakePty {
         let (write_tx, write_rx) = mpsc::channel();
         let (read_tx, read_rx) = mpsc::channel();
         let running = Rc::new(Cell::new(true));
+        let resized = Rc::new(RefCell::new(Vec::new()));
         (
             Self {
                 written: write_tx,
                 output: read_rx,
                 running: Rc::clone(&running),
+                resized: Rc::clone(&resized),
             },
             PtyHandle {
                 written: Rc::new(write_rx),
                 output: Rc::new(read_tx),
                 running,
+                resized,
             },
         )
     }
@@ -60,6 +65,7 @@ struct PtyHandle {
     written: Rc<Receiver<Vec<u8>>>,
     output: Rc<Sender<Vec<u8>>>,
     running: Rc<Cell<bool>>,
+    resized: Rc<RefCell<Vec<(u16, u16)>>>,
 }
 
 impl Pty for FakePty {
@@ -81,6 +87,11 @@ impl Pty for FakePty {
 
     fn try_read(&mut self) -> Result<Option<Vec<u8>>, io::Error> {
         Ok(self.output.try_recv().ok())
+    }
+
+    fn resize(&mut self, width: u16, height: u16) -> Result<(), io::Error> {
+        self.resized.borrow_mut().push((width, height));
+        Ok(())
     }
 
     fn is_running(&self) -> bool {
@@ -123,6 +134,11 @@ fn injected_output(log: &PtyLog, shell: usize) -> Rc<Sender<Vec<u8>>> {
 
 fn written(log: &PtyLog, shell: usize) -> Rc<Receiver<Vec<u8>>> {
     log.0.borrow()[shell].written.clone()
+}
+
+/// Every size shell `shell` was told about, in order.
+fn resizes(log: &PtyLog, shell: usize) -> Vec<(u16, u16)> {
+    log.0.borrow()[shell].resized.borrow().clone()
 }
 
 /// End shell `shell`, the way a real one ends when the user types `exit`.
@@ -293,6 +309,9 @@ fn a_spawn_failure_is_shown_in_the_panel_not_crashed() {
         fn try_read(&mut self) -> Result<Option<Vec<u8>>, io::Error> {
             Ok(None)
         }
+        fn resize(&mut self, _width: u16, _height: u16) -> Result<(), io::Error> {
+            Ok(())
+        }
         fn is_running(&self) -> bool {
             false
         }
@@ -307,6 +326,28 @@ fn a_spawn_failure_is_shown_in_the_panel_not_crashed() {
         panel_text(&panel)
     );
     assert_eq!(panel.state, PanelState::Exited);
+}
+
+/// A resize has two halves, and the invisible one is the one that matters:
+/// the emulator can be told the new size all it likes, but if the shell is
+/// not told, it keeps wrapping its lines at the old width.
+#[test]
+fn resizing_tells_every_spawned_shell_its_new_size() {
+    let (mut driver, log) = driver_with(2);
+
+    // Only shell 0 is spawned at this point (lazy spawn).
+    driver.resize(100, 40);
+    assert_eq!(resizes(&log, 0), vec![(100, 40)]);
+
+    // Focus the second shell: it spawns at the current size, and follows
+    // every resize after that.
+    driver.apply_event(Key::Prefix);
+    driver.apply_event(Key::Down);
+    driver.apply_event(Key::Enter);
+    driver.resize(60, 20);
+
+    assert_eq!(resizes(&log, 0), vec![(100, 40), (60, 20)]);
+    assert_eq!(resizes(&log, 1), vec![(60, 20)]);
 }
 
 /// A shell that has exited must say so. Leaving the panel in `Live` shows a

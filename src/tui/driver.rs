@@ -60,6 +60,13 @@ pub trait Pty {
     /// the process exited and there is nothing left to read.
     fn try_read(&mut self) -> Result<Option<Vec<u8>>, io::Error>;
 
+    /// Tell the process its terminal changed size.
+    ///
+    /// A shell that is not told draws to the size it was spawned with, so
+    /// every line wraps in the wrong place until it is restarted. This is
+    /// the half of a resize the emulator cannot do on its own.
+    fn resize(&mut self, width: u16, height: u16) -> Result<(), io::Error>;
+
     /// Whether the process is still running.
     fn is_running(&self) -> bool;
 }
@@ -232,12 +239,22 @@ impl<P: Pty, F: FnMut() -> P> Driver<P, F> {
         Ok(consumed)
     }
 
-    /// Resize every shell's viewport (and the PTYs they will spawn into).
+    /// Resize every shell's viewport, and tell every already-spawned shell
+    /// that its terminal changed size.
+    ///
+    /// Both halves matter: resizing only the emulator leaves the shell
+    /// wrapping its lines at the old width, which is invisible here and very
+    /// visible on screen.
     pub fn resize(&mut self, width: u16, height: u16) {
         self.width = width;
         self.height = height;
         for shell in &mut self.shells {
             shell.screen.resize(width, height);
+            if let Some(pty) = &mut shell.pty {
+                // A shell that refuses the resize is not worth tearing the
+                // view down for; it just keeps the size it had.
+                let _ = pty.resize(width, height);
+            }
         }
     }
 

@@ -16,11 +16,12 @@ use std::time::Duration;
 
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ratatui::DefaultTerminal;
+use ratatui::layout::Rect;
 
 use crate::error::Failure;
 use crate::tui::driver::{Driver, PtsPty, ShellSpec};
 use crate::tui::key_router::Key;
-use crate::tui::widget::{Row, render};
+use crate::tui::widget::{Row, panel_size, render};
 
 /// Everything the feature-view host loop needs, pushed in by the action.
 #[derive(Debug, Clone)]
@@ -43,7 +44,7 @@ pub fn run(view: FeatureView) -> Result<(), Failure> {
     // a panic hook that restores both; `restore` undoes them. Keeping the
     // pair here makes the restore unconditional.
     let mut terminal = ratatui::init();
-    let result = run_loop(&mut terminal, view, width, height, &prefix);
+    let result = run_loop(&mut terminal, view, Rect::new(0, 0, width, height), &prefix);
     ratatui::restore();
     result
 }
@@ -132,10 +133,13 @@ impl Prefix {
 fn run_loop(
     terminal: &mut DefaultTerminal,
     view: FeatureView,
-    width: u16,
-    height: u16,
+    area: Rect,
     prefix: &Prefix,
 ) -> Result<(), Failure> {
+    // The shell draws inside the panel, not inside the terminal: sizing the
+    // PTY to the whole screen is what makes its lines wrap in the wrong
+    // column.
+    let (width, height) = panel_size(area);
     let mut driver = Driver::new(view.shells, PtsPty::new, width, height);
     let mut dirty = true;
 
@@ -155,9 +159,11 @@ fn run_loop(
                     }
                 }
                 Event::Resize(width, height) => {
-                    driver.resize(width, height);
+                    let area = Rect::new(0, 0, width, height);
+                    let (panel_width, panel_height) = panel_size(area);
+                    driver.resize(panel_width, panel_height);
                     terminal
-                        .resize(ratatui::layout::Rect::new(0, 0, width, height))
+                        .resize(area)
                         .map_err(|source| io_failure("feature.tui_resize_failed", source))?;
                     dirty = true;
                 }

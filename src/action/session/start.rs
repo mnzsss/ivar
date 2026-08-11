@@ -349,7 +349,11 @@ fn run_tui(
         cwd: view_dir.to_path_buf(),
         command,
     }];
-    let mut driver = Driver::new(shells, PtsPty::new, width, height);
+    // Sized to the panel, not to the terminal: the agent draws inside the
+    // right-hand box, so that is the width its lines have to wrap at.
+    let area = ratatui::layout::Rect::new(0, 0, width, height);
+    let (panel_width, panel_height) = tui::widget::panel_size(area);
+    let mut driver = Driver::new(shells, PtsPty::new, panel_width, panel_height);
 
     // Drain whatever the agent produced at startup, then render one frame.
     let _ = driver.pump();
