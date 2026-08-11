@@ -780,7 +780,7 @@ fn a_feature_session_instruction_file_combines_hall_and_bootstrap() {
     let layout = Layout::at(root.clone());
 
     // `sync` wrote the hall's managed block into CLAUDE.md.
-    let hall_file = layout.instruction_file(&Provider::ClaudeCode);
+    let hall_file = layout.instruction_alias(&Provider::ClaudeCode);
     let hall_before = fs::read_text(&hall_file).unwrap().unwrap();
     assert!(
         hall_before.contains("managed:start"),

@@ -173,7 +173,7 @@ fn materialise_session_instructions(
     let plan_rel = format!("plans/{}/plan.md", feature.name);
     let block = config::session::build_session_block(&feature.name, &plan_rel);
 
-    let hall_file = layout.instruction_file(&provider);
+    let hall_file = layout.instruction_alias(&provider);
     let content = match fs::read_text(&hall_file)? {
         Some(hall) => format!("{block}\n\n{hall}"),
         None => block,

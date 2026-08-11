@@ -32,7 +32,7 @@ pub(crate) fn sync_provider(
     entries: &mut Vec<Entry>,
     warnings: &mut Vec<Warning>,
 ) {
-    let path = layout.instruction_file(&provider);
+    let path = layout.instruction_alias(&provider);
     let label = format!("{} managed block", provider.instruction_file());
 
     let result = if manifest.providers().available().contains(&provider) {

@@ -334,19 +334,28 @@ impl Layout {
         self.root().join(provider.commands_dir())
     }
 
-    /// `<hall>/CLAUDE.md` or `<hall>/AGENTS.md` — the Markdown file this
-    /// harness reads for standing instructions, and where `ivar sync` keeps its
-    /// managed block.
+    /// `<hall>/HALL.md` — the sole editable source of shared hall
+    /// instructions. Committed, and mostly the user's: `harness::config`
+    /// owns only the bytes between its two markers.
     ///
-    /// Committed, and mostly the user's: `harness::config` owns only the bytes
-    /// between its two markers. The filename comes from
-    /// [`Provider::instruction_file`] for the same reason
-    /// [`Self::harness_dir`] uses `config_dir` — the mapping is not the
-    /// identity function, and guessing it writes config into a file the harness
-    /// never reads.
+    /// Every provider's root alias is a relative symlink to this file — it is
+    /// the canonical source, and the aliases are never sources themselves.
     #[must_use]
-    pub fn instruction_file(&self, provider: &Provider) -> Utf8PathBuf {
-        self.root().join(provider.instruction_file())
+    pub fn hall_instructions(&self) -> Utf8PathBuf {
+        self.root.join("HALL.md")
+    }
+
+    /// `<hall>/CLAUDE.md` or `<hall>/AGENTS.md` — the provider-native root
+    /// alias that must point relatively to `HALL.md`.
+    ///
+    /// The filename comes from [`Provider::instruction_file`] for the same
+    /// reason [`Self::harness_dir`] uses `config_dir` — the mapping is not the
+    /// identity function, and guessing it writes config into a file the harness
+    /// never reads. The alias is derived state: `ivar sync` keeps it a symlink
+    /// to `HALL.md`, and sessions never read it — they read the canonical file.
+    #[must_use]
+    pub fn instruction_alias(&self, provider: &Provider) -> Utf8PathBuf {
+        self.root.join(provider.instruction_file())
     }
 
     /// `<hall>/.mcp.json` or `<hall>/opencode.json` — where this harness's MCP

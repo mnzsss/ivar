@@ -220,13 +220,14 @@ fn accessors_compute_the_documented_paths() {
         Utf8PathBuf::from("/hall/.ivar/sessions")
     );
     assert_eq!(
-        layout.instruction_file(&Provider::ClaudeCode),
+        layout.instruction_alias(&Provider::ClaudeCode),
         Utf8PathBuf::from("/hall/CLAUDE.md")
     );
     assert_eq!(
-        layout.instruction_file(&Provider::OpenCode),
+        layout.instruction_alias(&Provider::OpenCode),
         Utf8PathBuf::from("/hall/AGENTS.md")
     );
+    assert_eq!(layout.hall_instructions(), Utf8PathBuf::from("/hall/HALL.md"));
     assert_eq!(
         layout.mcp_config(&Provider::ClaudeCode),
         Utf8PathBuf::from("/hall/.mcp.json")
@@ -269,5 +270,26 @@ fn repo_worktree_nests_a_slash_containing_branch_name() {
     assert_eq!(
         layout.repo_worktree(&repo, &branch),
         Utf8PathBuf::from("/hall/.ivar/repos/api/feat/auth-v2")
+    );
+}
+
+/// The canonical hall instructions and each provider's root alias are
+/// distinct paths — one file is the source, the others are symlinks to it.
+/// A single ambiguous accessor is exactly what let the two be confused.
+#[test]
+fn hall_instructions_and_provider_aliases_are_distinct() {
+    let layout = Layout::at(Utf8PathBuf::from("/hall"));
+
+    assert_eq!(
+        layout.hall_instructions(),
+        Utf8PathBuf::from("/hall/HALL.md")
+    );
+    assert_eq!(
+        layout.instruction_alias(&Provider::ClaudeCode),
+        Utf8PathBuf::from("/hall/CLAUDE.md")
+    );
+    assert_eq!(
+        layout.instruction_alias(&Provider::OpenCode),
+        Utf8PathBuf::from("/hall/AGENTS.md")
     );
 }
