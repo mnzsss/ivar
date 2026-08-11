@@ -113,7 +113,13 @@ pub fn connect(ctx: &Ctx, input: ConnectInput) -> Outcome<ConnectOutcome> {
         .as_ref()
         .map(SessionState::provider)
         .unwrap_or_else(|| manifest.providers().default_provider());
-    view::materialise(&layout, &manifest, feature.as_ref(), provider, &session.view_dir)?;
+    view::materialise(
+        &layout,
+        &manifest,
+        feature.as_ref(),
+        provider,
+        &session.view_dir,
+    )?;
 
     // The provider's listening ports — a dev server the session's agent may
     // have opened. Best-effort: empty when none are found (ticket 22). A

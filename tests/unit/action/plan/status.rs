@@ -340,7 +340,13 @@ fn status_accepts_a_dangling_plan_projection() {
     let report = status(&ctx, status_input("plans/checkout/plan.md")).unwrap();
 
     assert_eq!(report.value.feature.as_str(), "checkout");
-    assert!(report.value.gates.iter().all(|gate| gate.state == GateState::Pending));
+    assert!(
+        report
+            .value
+            .gates
+            .iter()
+            .all(|gate| gate.state == GateState::Pending)
+    );
 }
 
 /// A symlink under `plans/` that escapes to a directory outside the hall is

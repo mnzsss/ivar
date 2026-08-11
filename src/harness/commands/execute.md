@@ -16,8 +16,10 @@ argument-hint: <plan-path>
 
 ## Steps
 
-1. Read the plan at `$ARGUMENTS` to understand its structure. Verify the plan's
-   approval gate status with `ivar plan status $ARGUMENTS`.
+1. Read the plan at `$ARGUMENTS` to understand its structure. Inside a feature
+   session the plan is projected into the view dir, so it is reachable at
+   `plans/<feature>/plan.md` relative to `$IVAR_SESSION_PATH`. Verify the
+   plan's approval gate status with `ivar plan status $ARGUMENTS`.
 
 2. If no Execution Board exists for this feature (no
    `.ivar/features/<feature>/execution/` directory), propose a **candidate

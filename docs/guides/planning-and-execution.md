@@ -24,6 +24,14 @@ They are committed on purpose. They are the artifact a reviewer reads and the
 record of why the change looks the way it does — so they belong in git history,
 not in local state that a `cleanup` could remove.
 
+Inside a feature session, the same directory is projected into the view dir:
+`plans/<feature>/` relative to `$IVAR_SESSION_PATH` resolves to the hall's
+committed plan directory, so an agent confined to the session can read and
+edit the artifacts, and a relay from one provider to another carries them
+along. `ivar plan status plans/<feature>/plan.md` run from inside the session
+re-derives where the feature is — the gates and the board stay the source of
+truth.
+
 `plan.md` is written as a **REASONS canvas** — Requirements, Entities, Approach,
 Structure, Operations, Norms, Safeguards. The design sections *reference* the
 standing sources rather than restating them, and record only this feature's

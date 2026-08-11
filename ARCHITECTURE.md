@@ -59,6 +59,9 @@ src/
                    materialisation + spawn + stream drain) in launch.rs, and
                    the event-folding onto the board in events.rs
     session/       start · connect · conversion · stop · prune · relay, plus
+                   view (the shared View Dir materialisation: repo symlinks,
+                   per-session harness config, the projected plan, the
+                   bootstrap instructions) and
                    lookup (shared id-prefix resolution)
     plan/          create · list · show · approve · status
     provider/      add · list
@@ -436,6 +439,18 @@ One dotdir, one manifest, one name everywhere.
   .claude/commands/ivar-*.md   derived workflow commands (gitignored)
   .opencode/commands/ivar-*.md derived workflow commands (gitignored)
 ```
+
+A feature-session view dir is a real directory at
+`<hall>/.ivar/features/<feature>/sessions/<uuid>/` containing: one symlink per
+registered repo (feature worktree if promoted, read-only default otherwise), a
+real harness config dir for the session's own provider (`.claude/` or
+`.opencode/`, with `commands/` symlinked back to the hall), the feature's plan
+projected in (`plans/<feature>/` → `<hall>/plans/<feature>/`, so the agent
+confined to the view dir can read and edit the artifacts), and the provider's
+instruction file (`CLAUDE.md` / `AGENTS.md`) holding the hall's standing
+instructions plus an ephemeral session bootstrap block. The plan link and the
+instruction file are per-session views, never copies — they die with the view
+dir, and plan edits land in the hall.
 
 Two traps, both learned the hard way:
 
