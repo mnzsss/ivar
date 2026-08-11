@@ -7,6 +7,7 @@
 
 use ratatui::Terminal;
 use ratatui::backend::TestBackend;
+use ratatui::text::Line;
 
 use super::*;
 
@@ -27,9 +28,9 @@ fn snapshot() -> Snapshot {
         selected: 1,
         mode: Mode::Focus,
         panel: Panel {
-            lines: vec!["$ git status".to_owned(), "clean".to_owned()],
+            lines: vec![Line::raw("$ git status"), Line::raw("clean")],
             scroll_offset: 0,
-            live: true,
+            state: PanelState::Live,
         },
     }
 }
@@ -47,48 +48,44 @@ fn render_to_buffer(snap: &Snapshot, width: u16, height: u16) -> ratatui::buffer
 
 #[test]
 fn live_window_bottom_aligns_short_output() {
-    let panel = Panel {
-        lines: vec!["a".to_owned(), "b".to_owned(), String::new(), String::new()],
-        scroll_offset: 0,
-        live: true,
-    };
+    let lines = vec!["a".to_owned(), "b".to_owned(), String::new(), String::new()];
 
-    assert_eq!(window(&panel, 4), vec!["", "", "a", "b"]);
+    assert_eq!(
+        window(&lines, 0, 4, String::is_empty),
+        vec!["", "", "a", "b"]
+    );
 }
 
 #[test]
 fn live_window_shows_the_last_rows_when_output_overflows() {
-    let panel = Panel {
-        lines: (1..=6).map(|n| n.to_string()).collect(),
-        scroll_offset: 0,
-        live: true,
-    };
+    let lines: Vec<String> = (1..=6).map(|n| n.to_string()).collect();
 
-    assert_eq!(window(&panel, 4), vec!["3", "4", "5", "6"]);
+    assert_eq!(
+        window(&lines, 0, 4, String::is_empty),
+        vec!["3", "4", "5", "6"]
+    );
 }
 
 #[test]
 fn scroll_window_ends_scroll_offset_lines_above_the_bottom() {
-    let panel = Panel {
-        lines: (1..=10).map(|n| n.to_string()).collect(),
-        scroll_offset: 3,
-        live: false,
-    };
+    let lines: Vec<String> = (1..=10).map(|n| n.to_string()).collect();
 
     // Offset 3: the window ends 3 lines above the bottom (line "10"), so
     // the last shown line is "7" and the 4-row window spans "4"..="7".
-    assert_eq!(window(&panel, 4), vec!["4", "5", "6", "7"]);
+    assert_eq!(
+        window(&lines, 3, 4, String::is_empty),
+        vec!["4", "5", "6", "7"]
+    );
 }
 
 #[test]
 fn scroll_window_pads_at_the_bottom_near_the_top_of_the_buffer() {
-    let panel = Panel {
-        lines: vec!["a".to_owned(), "b".to_owned()],
-        scroll_offset: 2,
-        live: false,
-    };
+    let lines = vec!["a".to_owned(), "b".to_owned()];
 
-    assert_eq!(window(&panel, 4), vec!["a", "b", "", ""]);
+    assert_eq!(
+        window(&lines, 2, 4, String::is_empty),
+        vec!["a", "b", "", ""]
+    );
 }
 
 // -- rendering ------------------------------------------------------------
@@ -148,9 +145,9 @@ fn the_block_cursor_appears_only_at_the_live_bottom() {
 
     // Scrolled: no cursor anywhere in the panel.
     let mut scrolled = snapshot();
-    scrolled.panel.live = false;
+    scrolled.panel.state = PanelState::Scrolling;
     scrolled.panel.scroll_offset = 1;
-    scrolled.panel.lines.push("older".to_owned());
+    scrolled.panel.lines.push(Line::raw("older"));
     let scrolled_buffer = render_to_buffer(&scrolled, 80, 24);
     let panel_start = 24; // the 30% sidebar leaves the panel at column 24
     let cursor_in_panel = scrolled_buffer

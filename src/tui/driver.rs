@@ -24,12 +24,13 @@
 use std::io;
 
 use camino::{Utf8Path, Utf8PathBuf};
+use ratatui::text::Line;
 
 use crate::error::Failure;
 use crate::infra::proc::Command;
 use crate::tui::key_router::{Action, Direction, Key, Mode, move_selection, reduce};
 use crate::tui::screen::Screen;
-use crate::tui::widget::{Panel, Row, Snapshot};
+use crate::tui::widget::{Panel, PanelState, Row, Snapshot};
 
 /// How many lines of plain scrollback each shell keeps for scroll mode,
 /// beyond the emulator's live viewport. Bounds the memory a long-running
@@ -261,28 +262,39 @@ impl<P: Pty, F: FnMut() -> P> Driver<P, F> {
         };
         if let Some(error) = &shell.spawn_error {
             return Panel {
-                lines: vec![format!("could not start shell: {error}")],
+                lines: vec![Line::raw(format!("could not start shell: {error}"))],
                 scroll_offset: 0,
-                live: false,
+                state: PanelState::Exited,
             };
         }
-        if shell.pty.is_none() {
+        let Some(pty) = &shell.pty else {
             return Panel {
-                lines: vec!["press enter in nav to start a shell here".to_owned()],
+                lines: vec![Line::raw("press enter in nav to start a shell here")],
                 scroll_offset: 0,
-                live: false,
+                state: PanelState::Scrolling,
             };
-        }
+        };
         match self.mode {
             Mode::Scroll if shell.scroll_offset > 0 => Panel {
-                lines: shell.buffer.clone(),
+                // Scrollback is the plain-text approximation, so it is the one
+                // view that has no colour to carry.
+                lines: shell.buffer.iter().cloned().map(Line::raw).collect(),
                 scroll_offset: shell.scroll_offset.min(shell.buffer.len()),
-                live: false,
+                state: PanelState::Scrolling,
             },
             _ => Panel {
-                lines: shell.screen.rows().to_vec(),
+                lines: shell.screen.styled_rows().to_vec(),
                 scroll_offset: 0,
-                live: self.mode == Mode::Focus,
+                state: if !pty.is_running() {
+                    // The last frame stays readable — it is the output the
+                    // user came for — but the title says the shell is gone,
+                    // and the cursor stops pretending to be a prompt.
+                    PanelState::Exited
+                } else if self.mode == Mode::Focus {
+                    PanelState::Live
+                } else {
+                    PanelState::Scrolling
+                },
             },
         }
     }

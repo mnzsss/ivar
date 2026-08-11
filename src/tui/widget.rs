@@ -15,11 +15,12 @@
 //!
 //! # The panel
 //!
-//! [`Panel`] is the shell's text plus where in it the user is looking:
-//! `lines` are all available lines, `scroll_offset` says how far above the
-//! bottom the view sits (`0` = the live viewport), and `live` says whether
-//! the block cursor belongs in the panel at all — it only ever appears at
-//! the live bottom.
+//! [`Panel`] is the shell's output plus where in it the user is looking:
+//! `lines` are all available lines (styled — the emulator's colours survive
+//! the trip, see `screen`), `scroll_offset` says how far above the bottom the
+//! view sits (`0` = the live viewport), and `state` says which of the three
+//! things the panel currently is. The block cursor belongs only to
+//! [`PanelState::Live`].
 
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
@@ -38,17 +39,30 @@ pub struct Row {
     pub status: String,
 }
 
-/// The focused shell's text and the user's position in it.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// What the panel is showing right now. The three are exclusive, which is
+/// why this is an enum and not a pair of flags.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PanelState {
+    /// The shell's live viewport: the only state with a block cursor.
+    Live,
+    /// Scrollback, or a live viewport the user is not focused on.
+    Scrolling,
+    /// The shell has exited. Its last output stays readable, but nothing
+    /// more is coming and keystrokes have nowhere to go.
+    Exited,
+}
+
+/// The focused shell's output and the user's position in it.
+#[derive(Debug, Clone, PartialEq)]
 pub struct Panel {
     /// Every available line, oldest first (the emulator's live viewport, or
-    /// the driver's line buffer when scrolling).
-    pub lines: Vec<String>,
+    /// the driver's line buffer when scrolling), with the emulator's colours
+    /// and attributes intact.
+    pub lines: Vec<Line<'static>>,
     /// Lines scrolled back from the bottom. `0` is the live view.
     pub scroll_offset: usize,
-    /// Whether this is the live viewport — the only state that shows the
-    /// block cursor.
-    pub live: bool,
+    /// What the panel is.
+    pub state: PanelState,
 }
 
 impl Panel {
@@ -58,13 +72,13 @@ impl Panel {
         Self {
             lines: Vec::new(),
             scroll_offset: 0,
-            live: false,
+            state: PanelState::Scrolling,
         }
     }
 }
 
 /// Everything the feature view renders.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Snapshot {
     /// The title — the feature name (or hall root, for a session).
     pub title: String,
@@ -84,7 +98,7 @@ pub struct Snapshot {
 ///
 /// Layout: sidebar at 30% width, the shell panel at 70%. The selected row is
 /// highlighted; the panel's block cursor is drawn only when the panel is
-/// [`Panel::live`].
+/// [`PanelState::Live`].
 pub fn render(snapshot: &Snapshot, area: Rect, buf: &mut Buffer) {
     let sidebar_width = (area.width * 30) / 100;
     let sidebar_area = Rect::new(area.x, area.y, sidebar_width, area.height);
@@ -99,7 +113,7 @@ pub fn render(snapshot: &Snapshot, area: Rect, buf: &mut Buffer) {
     render_panel(snapshot, panel_area, buf);
 }
 
-/// The window of `panel` that fits `available` rows.
+/// The window of `lines` that fits `available` rows.
 ///
 /// Live (`scroll_offset == 0`): the emulator's rows are top-aligned with
 /// blank padding below, so trim the padding and bottom-align the content the
@@ -111,30 +125,34 @@ pub fn render(snapshot: &Snapshot, area: Rect, buf: &mut Buffer) {
 /// of the buffer is reached.
 ///
 /// Always returns exactly `available` rows.
+///
+/// Generic over the line type, with `is_blank` deciding what padding looks
+/// like: *which* lines to show is a purely positional question that does not
+/// depend on whether a line carries a style, which is what keeps this
+/// testable on plain strings.
 #[must_use]
-pub fn window(panel: &Panel, available: usize) -> Vec<String> {
+pub fn window<T: Clone + Default>(
+    lines: &[T],
+    scroll_offset: usize,
+    available: usize,
+    is_blank: impl Fn(&T) -> bool,
+) -> Vec<T> {
     let available = available.max(1);
-    if panel.scroll_offset == 0 {
-        let mut lines = panel.lines.clone();
-        while lines.last().is_some_and(|line| line.is_empty()) {
+    if scroll_offset == 0 {
+        let mut lines = lines.to_vec();
+        while lines.last().is_some_and(&is_blank) {
             lines.pop();
         }
-        let mut windowed: Vec<String> = lines.into_iter().rev().take(available).collect();
+        let mut windowed: Vec<T> = lines.into_iter().rev().take(available).collect();
         windowed.reverse();
-        let mut padded = vec![String::new(); available.saturating_sub(windowed.len())];
+        let mut padded = vec![T::default(); available.saturating_sub(windowed.len())];
         padded.append(&mut windowed);
         padded
     } else {
-        let end = panel.lines.len().saturating_sub(panel.scroll_offset);
+        let end = lines.len().saturating_sub(scroll_offset);
         let start = end.saturating_sub(available);
-        let mut windowed: Vec<String> = panel
-            .lines
-            .iter()
-            .skip(start)
-            .take(available)
-            .cloned()
-            .collect();
-        windowed.resize(available, String::new());
+        let mut windowed: Vec<T> = lines.iter().skip(start).take(available).cloned().collect();
+        windowed.resize(available, T::default());
         windowed
     }
 }
@@ -170,26 +188,33 @@ fn render_panel(snapshot: &Snapshot, area: Rect, buf: &mut Buffer) {
         .get(snapshot.selected)
         .map(|row| row.label.as_str())
         .unwrap_or("?");
-    let state = if snapshot.panel.live {
-        "live"
-    } else {
-        "scroll"
+    let live = snapshot.panel.state == PanelState::Live;
+    let state = match snapshot.panel.state {
+        PanelState::Live => "live",
+        PanelState::Scrolling => "scroll",
+        PanelState::Exited => "exited",
     };
     let title = format!(" {selected} — {state} ");
     let block = Block::default().borders(Borders::ALL).title(title);
 
     let inner = block.inner(area);
     let available = usize::from(inner.height).max(1);
-    let lines = window(&snapshot.panel, available);
-    let body: Vec<Line> = lines.iter().map(|line| Line::raw(line.as_str())).collect();
-    Paragraph::new(body).block(block).render(area, buf);
+    let lines = window(
+        &snapshot.panel.lines,
+        snapshot.panel.scroll_offset,
+        available,
+        |line| line.width() == 0,
+    );
+    let cursor_x = lines.last().map(Line::width).unwrap_or(0);
+    Paragraph::new(lines).block(block).render(area, buf);
 
     // The block cursor lives only at the live bottom: the row after the
     // shell's last line, so it reads as the prompt position.
-    if snapshot.panel.live && inner.height > 0 {
+    if live && inner.height > 0 {
         let y = inner.y + inner.height - 1;
-        let last = lines.last().map(String::as_str).unwrap_or("");
-        let cursor_x = (last.chars().count() as u16).min(inner.width.saturating_sub(1));
+        let cursor_x = u16::try_from(cursor_x)
+            .unwrap_or(u16::MAX)
+            .min(inner.width.saturating_sub(1));
         if let Some(cell) = buf.cell_mut((inner.x + cursor_x, y)) {
             cell.set_style(Style::default().add_modifier(Modifier::REVERSED));
         }

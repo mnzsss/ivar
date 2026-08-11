@@ -58,3 +58,58 @@ fn the_cursor_survives_between_feeds() {
     screen.feed(b"\rprogress: 99%");
     assert_eq!(screen.rows().first().unwrap(), "progress: 99%");
 }
+
+/// The reason the view was monochrome: the emulator's colours have to reach
+/// the widget, and `rows()` throws them away by design. `styled_rows()` is
+/// the path that keeps them.
+#[test]
+fn colours_and_attributes_survive_into_the_styled_rows() {
+    let mut screen = Screen::new(40, 3);
+    screen.feed(b"\x1b[31mred\x1b[0m plain");
+
+    let line = screen.styled_rows().first().unwrap();
+    let red = line.spans.first().unwrap();
+    assert_eq!(red.content, "red");
+    assert_eq!(red.style.fg, Some(Color::Indexed(1)));
+
+    // The reset really resets: what follows is not red.
+    let rest: String = line
+        .spans
+        .iter()
+        .skip(1)
+        .map(|s| s.content.clone())
+        .collect();
+    assert_eq!(rest, " plain");
+    assert!(
+        line.spans
+            .iter()
+            .skip(1)
+            .all(|s| s.style.fg != Some(Color::Indexed(1))),
+        "the reset must end the red run"
+    );
+
+    // And the plain-text view is unchanged — both are still available.
+    assert_eq!(screen.rows().first().unwrap(), "red plain");
+}
+
+#[test]
+fn bold_and_rgb_reach_the_style() {
+    let mut screen = Screen::new(40, 3);
+    screen.feed(b"\x1b[1;38;2;10;20;30mloud");
+
+    let span = screen.styled_rows().first().unwrap().spans.first().unwrap();
+    assert_eq!(span.content, "loud");
+    assert_eq!(span.style.fg, Some(Color::Rgb(10, 20, 30)));
+    assert!(span.style.add_modifier.contains(Modifier::BOLD));
+}
+
+/// A row must not paint its full width: the trailing blanks are trimmed, or
+/// every line carries a background all the way to the panel's edge.
+#[test]
+fn trailing_blanks_are_trimmed_from_a_styled_row() {
+    let mut screen = Screen::new(40, 3);
+    screen.feed(b"hi");
+
+    let line = screen.styled_rows().first().unwrap();
+    assert_eq!(line.width(), 2, "was: {line:?}");
+}

@@ -6,35 +6,60 @@
     clippy::type_complexity
 )]
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::sync::mpsc;
 use std::sync::mpsc::{Receiver, Sender};
 
 use super::*;
+use crate::tui::widget::PanelState;
+
+/// A panel's text, for assertions that do not care about styling.
+fn panel_text(panel: &Panel) -> String {
+    panel
+        .lines
+        .iter()
+        .map(ratatui::text::Line::to_string)
+        .collect::<Vec<_>>()
+        .join("\n")
+}
 
 /// An in-memory PTY: written bytes land in a channel, read bytes come
 /// from a queue the test controls.
 struct FakePty {
     written: Sender<Vec<u8>>,
     output: Receiver<Vec<u8>>,
-    running: bool,
+    /// Shared so a test can end the shell from outside, the way a real one
+    /// ends on its own.
+    running: Rc<Cell<bool>>,
 }
 
 impl FakePty {
-    fn new() -> (Self, Receiver<Vec<u8>>, Sender<Vec<u8>>) {
+    fn new() -> (Self, PtyHandle) {
         let (write_tx, write_rx) = mpsc::channel();
         let (read_tx, read_rx) = mpsc::channel();
+        let running = Rc::new(Cell::new(true));
         (
             Self {
                 written: write_tx,
                 output: read_rx,
-                running: true,
+                running: Rc::clone(&running),
             },
-            write_rx,
-            read_tx,
+            PtyHandle {
+                written: Rc::new(write_rx),
+                output: Rc::new(read_tx),
+                running,
+            },
         )
     }
+}
+
+/// The test's end of one [`FakePty`]: what it was told, and control over
+/// whether it is still alive.
+struct PtyHandle {
+    written: Rc<Receiver<Vec<u8>>>,
+    output: Rc<Sender<Vec<u8>>>,
+    running: Rc<Cell<bool>>,
 }
 
 impl Pty for FakePty {
@@ -45,7 +70,7 @@ impl Pty for FakePty {
         _width: u16,
         _height: u16,
     ) -> Result<(), Failure> {
-        self.running = true;
+        self.running.set(true);
         Ok(())
     }
 
@@ -59,7 +84,7 @@ impl Pty for FakePty {
     }
 
     fn is_running(&self) -> bool {
-        self.running
+        self.running.get()
     }
 }
 
@@ -68,7 +93,7 @@ impl Pty for FakePty {
 /// ends are `Rc`-wrapped so the log can be shared without cloning the
 /// (non-cloneable) std mpsc handles themselves.
 #[derive(Clone)]
-struct PtyLog(Rc<RefCell<Vec<(Rc<Receiver<Vec<u8>>>, Rc<Sender<Vec<u8>>>)>>>);
+struct PtyLog(Rc<RefCell<Vec<PtyHandle>>>);
 
 fn shells(count: usize) -> Vec<ShellSpec> {
     (0..count)
@@ -85,22 +110,24 @@ fn driver_with(count: usize) -> (Driver<FakePty, impl FnMut() -> FakePty>, PtyLo
     let log = PtyLog(Rc::new(RefCell::new(Vec::new())));
     let log_for_factory = log.clone();
     let factory = move || {
-        let (pty, write_rx, read_tx) = FakePty::new();
-        log_for_factory
-            .0
-            .borrow_mut()
-            .push((Rc::new(write_rx), Rc::new(read_tx)));
+        let (pty, handle) = FakePty::new();
+        log_for_factory.0.borrow_mut().push(handle);
         pty
     };
     (Driver::new(shells(count), factory, 80, 24), log)
 }
 
 fn injected_output(log: &PtyLog, shell: usize) -> Rc<Sender<Vec<u8>>> {
-    log.0.borrow()[shell].1.clone()
+    log.0.borrow()[shell].output.clone()
 }
 
 fn written(log: &PtyLog, shell: usize) -> Rc<Receiver<Vec<u8>>> {
-    log.0.borrow()[shell].0.clone()
+    log.0.borrow()[shell].written.clone()
+}
+
+/// End shell `shell`, the way a real one ends when the user types `exit`.
+fn stop(log: &PtyLog, shell: usize) {
+    log.0.borrow()[shell].running.set(false);
 }
 
 #[test]
@@ -199,7 +226,7 @@ fn pump_drains_every_shells_output() {
 
     let snapshot = driver.snapshot("checkout", &[], "ctrl+o");
     // The focused shell (repo-1) is what the panel shows.
-    let text = snapshot.panel.lines.join("\n");
+    let text = panel_text(&snapshot.panel);
     assert!(text.contains("from repo-1"), "was: {text}");
 }
 
@@ -275,9 +302,27 @@ fn a_spawn_failure_is_shown_in_the_panel_not_crashed() {
     assert!(!driver.is_running());
     let panel = driver.snapshot("checkout", &[], "ctrl+o").panel;
     assert!(
-        panel.lines.join("\n").contains("could not start shell"),
+        panel_text(&panel).contains("could not start shell"),
         "was: {:?}",
-        panel.lines
+        panel_text(&panel)
     );
-    assert!(!panel.live);
+    assert_eq!(panel.state, PanelState::Exited);
+}
+
+/// A shell that has exited must say so. Leaving the panel in `Live` shows a
+/// block cursor at a prompt that is not there any more.
+#[test]
+fn an_exited_shell_is_marked_in_the_panel() {
+    let (driver, log) = driver_with(1);
+    assert_eq!(
+        driver.snapshot("checkout", &[], "ctrl+o").panel.state,
+        PanelState::Live,
+        "a running shell in Focus is live"
+    );
+
+    stop(&log, 0);
+
+    let panel = driver.snapshot("checkout", &[], "ctrl+o").panel;
+    assert_eq!(panel.state, PanelState::Exited);
+    assert!(!driver.is_running());
 }

@@ -111,7 +111,14 @@ fn the_drivers_steps_never_block_on_a_real_shell() {
         let mut panel = String::new();
         for _ in 0..200 {
             let _ = driver.pump();
-            panel = driver.snapshot("t", &[], "ctrl+o").panel.lines.join("");
+            panel = driver
+                .snapshot("t", &[], "ctrl+o")
+                .panel
+                .lines
+                .iter()
+                .map(ratatui::text::Line::to_string)
+                .collect::<Vec<_>>()
+                .join("");
             if panel.contains('h') {
                 break;
             }
