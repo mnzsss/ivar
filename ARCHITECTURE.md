@@ -214,8 +214,9 @@ exceptions:
 - `domain/name.rs` — one validation vocabulary with a common error model.
 - `action/session/start.rs` — the session-start orchestration, kept one file by
   an explicit planning decision.
-- `harness/commands.rs` and `harness/config/mod.rs` — the reconciliation halves
-  of their pairs; their declarative halves (catalog.rs, mcp.rs) were extracted.
+- `harness/commands.rs` and `harness/config/instructions.rs` — the reconciliation
+  halves of their pairs; their declarative halves (catalog.rs, mcp.rs) were
+  extracted.
 - `action/sync/mod.rs`, `action/feature/deliver/mod.rs`,
   `domain/feature/execution.rs` — module facades whose capabilities live in
   focused child files.
