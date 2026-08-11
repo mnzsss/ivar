@@ -137,7 +137,7 @@ use camino::Utf8PathBuf;
 use serde::Serialize;
 
 use crate::domain::feature::{
-    ExecutionBoard, ExecutionStatus, Feature, JournalEntry, WorkstreamStatus,
+    ExecutionBoard, ExecutionStatus, Feature, JournalEntry, WorkstreamStatus, WriteContract,
 };
 use crate::domain::name::{FeatureName, SessionId};
 use crate::error::{Failure, FixAction, Outcome, Report, Warning, WriteHuman};
@@ -348,6 +348,18 @@ pub fn tick(ctx: &Ctx, input: TickInput) -> Outcome<TickOutcome> {
     let mut jobs = Vec::with_capacity(to_launch.len());
     let mut command_displays = BTreeMap::new();
     let mut cannot_ask = Vec::new();
+    // Every contract in the wave, unioned once: what the post-run audit
+    // measures the worktrees against. The wave shares its worktrees, so a
+    // sibling's legitimate write is indistinguishable from this workstream's
+    // stray one — see `launch::audit_write_contract`'s "Why the wave's
+    // contract, not this workstream's".
+    let wave_contract: Vec<String> = board
+        .graph
+        .workstreams
+        .iter()
+        .filter(|ws| to_launch.contains(&ws.id))
+        .flat_map(|ws| ws.write_contract.iter().cloned())
+        .collect();
     for ws in &board.graph.workstreams {
         if !to_launch.contains(&ws.id) {
             continue;
@@ -382,6 +394,7 @@ pub fn tick(ctx: &Ctx, input: TickInput) -> Outcome<TickOutcome> {
             provider,
             view_dir,
             command,
+            wave_contract: WriteContract::new(wave_contract.clone()),
         });
     }
 

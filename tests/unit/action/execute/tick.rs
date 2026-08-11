@@ -9,6 +9,8 @@
     clippy::indexing_slicing
 )]
 
+use std::collections::BTreeSet;
+
 use super::*;
 use crate::action::execute::approve::{self as approve_action, ApproveInput};
 use crate::action::execute::prepare::{self as prepare_action, PrepareInput};
@@ -16,6 +18,7 @@ use crate::action::execute::reply::{self as reply_action, ReplyInput};
 use crate::action::feature::create::{self as feature_create, CreateInput as FeatureCreateInput};
 use crate::action::hall::{self, InitInput};
 use crate::action::plan::create::{self as plan_create, CreateInput as PlanCreateInput};
+use crate::domain::feature::WriteContract;
 use crate::error::Status;
 use crate::infra::fs;
 use crate::store::layout::Layout;
@@ -713,5 +716,80 @@ fn a_replied_workstream_relaunches_with_the_answer_in_its_prompt() {
     assert!(
         prompt_text.contains("use the v2 endpoint"),
         "the relaunched prompt must carry the human's answer: {prompt_text}"
+    );
+}
+
+// -- the post-run write-contract audit ----------------------------------
+
+/// The audit's whole reason for existing: the execution guard is a
+/// `PreToolUse` hook on `Write|Edit|MultiEdit|NotebookEdit`, and `Bash`
+/// carries a command rather than a path, so a shell write reaches the disk
+/// without the guard ever being asked. This is what sees it afterwards.
+#[test]
+fn a_path_outside_every_contract_in_the_wave_is_a_violation() {
+    // A contract names directories with a trailing `/` and files by name —
+    // the shapes `WriteContract::allows` arbitrates.
+    let contract = WriteContract::new(vec!["src/a/".to_owned(), "src/b/".to_owned()]);
+    let baseline = BTreeSet::new();
+    let after: BTreeSet<Utf8PathBuf> = [
+        Utf8PathBuf::from("/hall/repos/api-main/src/a/one.rs"),
+        Utf8PathBuf::from("/hall/repos/api-main/src/b/two.rs"),
+        Utf8PathBuf::from("/hall/repos/api-main/src/elsewhere/three.rs"),
+    ]
+    .into_iter()
+    .collect();
+
+    let violations = launch::contract_violations(&contract, &baseline, &after);
+
+    assert_eq!(
+        violations,
+        vec![Utf8PathBuf::from(
+            "/hall/repos/api-main/src/elsewhere/three.rs"
+        )]
+    );
+}
+
+/// A wave shares its worktrees, so a sibling's legitimate write shows up in
+/// this workstream's `git status` exactly like its own stray one. Measuring
+/// against the wave's union is what keeps the audit from blaming `ws-a` for
+/// the file `ws-b` was launched to write.
+#[test]
+fn a_sibling_workstream_s_own_files_are_not_reported_as_violations() {
+    // The union `tick` builds: `ws-a` owns `src/a`, `ws-b` owns `src/b`.
+    let wave = WriteContract::new(vec!["src/a/".to_owned(), "src/b/".to_owned()]);
+    let baseline = BTreeSet::new();
+    let after: BTreeSet<Utf8PathBuf> = [Utf8PathBuf::from("/hall/repos/api-main/src/b/two.rs")]
+        .into_iter()
+        .collect();
+
+    assert!(launch::contract_violations(&wave, &baseline, &after).is_empty());
+}
+
+/// What was already dirty when the workstream started is not what it wrote —
+/// an uncommitted human edit, or an earlier tick's work, must not fail the
+/// next workstream that runs beside it.
+#[test]
+fn what_was_already_dirty_before_the_run_is_not_a_violation() {
+    let contract = WriteContract::new(vec!["src/a/".to_owned()]);
+    let inherited = Utf8PathBuf::from("/hall/repos/api-main/notes.md");
+    let baseline: BTreeSet<Utf8PathBuf> = [inherited.clone()].into_iter().collect();
+    let after: BTreeSet<Utf8PathBuf> = [inherited].into_iter().collect();
+
+    assert!(launch::contract_violations(&contract, &baseline, &after).is_empty());
+}
+
+/// An empty contract allows nothing — the domain's own default-deny — so a
+/// workstream with no contract that writes anything at all is caught.
+#[test]
+fn an_empty_contract_allows_nothing() {
+    let contract = WriteContract::new(Vec::new());
+    let baseline = BTreeSet::new();
+    let after: BTreeSet<Utf8PathBuf> = [Utf8PathBuf::from("/hall/repos/api-main/src/a/one.rs")]
+        .into_iter()
+        .collect();
+
+    assert_eq!(
+        launch::contract_violations(&contract, &baseline, &after).len(),
+        1
     );
 }

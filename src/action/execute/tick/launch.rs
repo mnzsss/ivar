@@ -3,18 +3,20 @@
 //! child's stream. Never touches the board — see `mod.rs`'s "Who spawns, who
 //! owns the board".
 
+use std::collections::BTreeSet;
 use std::sync::mpsc;
 
 use camino::{Utf8Path, Utf8PathBuf};
 
-use crate::domain::feature::{Feature, WorkstreamDef};
-use crate::domain::name::{FeatureName, SessionId};
+use crate::domain::feature::{Feature, WorkstreamDef, WriteContract};
+use crate::domain::name::{FeatureName, RepoName, SessionId};
 use crate::domain::provider::Provider;
 use crate::domain::session::{SessionState, rfc3339_now};
 use crate::error::Failure;
+use crate::git::{self, Git};
 use crate::harness::stream::{ExecutorEvent, parse_claude_line, parse_opencode_line};
 use crate::harness::{Harness, guard};
-use crate::infra::proc;
+use crate::infra::{fs, proc};
 use crate::store::layout::Layout;
 use crate::store::manifest::Manifest;
 
@@ -32,6 +34,11 @@ pub(super) struct LaunchJob {
     pub(super) provider: Provider,
     pub(super) view_dir: Utf8PathBuf,
     pub(super) command: proc::Command,
+    /// Every write contract in this wave, unioned — what the post-run audit
+    /// measures the worktrees against. See "Auditing what the guard cannot
+    /// see" below for why this is the wave's contract and not this
+    /// workstream's own.
+    pub(super) wave_contract: WriteContract,
 }
 
 /// Build the invocation for `harness`'s headless execute mode, with the
@@ -134,6 +141,18 @@ pub(super) fn run_launch(
         return;
     }
 
+    let (worktrees, baseline) = match audit_baseline(&layout, &feature_record) {
+        Ok(pair) => pair,
+        Err(failure) => {
+            send(ExecutorEvent::Failed {
+                error: format!(
+                    "the write-contract audit could not read the worktrees, so this workstream was not launched: {failure}"
+                ),
+            });
+            return;
+        }
+    };
+
     let mut child = match proc::stream(&job.command) {
         Ok(child) => child,
         Err(error) => {
@@ -171,7 +190,13 @@ pub(super) fn run_launch(
     }
 
     match child.wait() {
-        Ok(Some(0)) => send(ExecutorEvent::Completed),
+        Ok(Some(0)) => match audit_write_contract(&worktrees, &job.wave_contract, &baseline) {
+            Ok(None) => send(ExecutorEvent::Completed),
+            Ok(Some(violation)) => send(ExecutorEvent::Failed { error: violation }),
+            Err(failure) => send(ExecutorEvent::Failed {
+                error: format!("the write-contract audit could not run: {failure}"),
+            }),
+        },
         Ok(Some(code)) => {
             let stderr = child.stderr();
             let error = if stderr.is_empty() {
@@ -191,4 +216,172 @@ pub(super) fn run_launch(
             });
         }
     }
+}
+
+// -- Auditing what the guard cannot see ---------------------------------
+
+/// The promoted worktrees a feature spans, each paired with the repo it came
+/// from so a violation can be named `<repo>/<path>` rather than by an absolute
+/// path nobody recognises.
+type FeatureWorktrees = Vec<(RepoName, Utf8PathBuf)>;
+
+/// The worktrees this workstream can reach, and what already diverged in them
+/// before it started — the audit measures what *this* run added, not what it
+/// inherited from an earlier tick or an uncommitted human edit.
+///
+/// Read before the child exists, so nothing the child writes can land in its
+/// own baseline. A failure here stops the launch rather than the run: a
+/// workstream whose writes could never be audited should not have started.
+fn audit_baseline(
+    layout: &Layout,
+    feature_record: &Feature,
+) -> Result<(FeatureWorktrees, BTreeSet<Utf8PathBuf>), Failure> {
+    let worktrees = feature_worktrees(layout, feature_record)?;
+    let baseline = changed_now(&worktrees)?;
+    Ok((worktrees, baseline))
+}
+
+/// The promoted worktrees this feature spans, as `(repo name, worktree
+/// path)`, skipping any that is not on disk. A feature with no promoted repo
+/// yields none, and everything below is then a no-op.
+///
+/// A worktree that cannot be *stat*ed refuses rather than being skipped: a
+/// silently dropped worktree is a worktree the audit does not look at, which
+/// is the one outcome this function must not produce quietly.
+fn feature_worktrees(
+    layout: &Layout,
+    feature_record: &Feature,
+) -> Result<FeatureWorktrees, Failure> {
+    let mut worktrees = Vec::new();
+    for repo in feature_record.promotions.keys() {
+        let worktree = layout.repo_worktree(repo, &feature_record.branch);
+        if fs::is_dir(&worktree)? {
+            worktrees.push((repo.clone(), worktree));
+        }
+    }
+    Ok(worktrees)
+}
+
+/// Every path across `worktrees` that currently diverges from its last commit,
+/// absolute. Absolute because that is the shape
+/// [`WriteContract::allows`](crate::domain::feature::WriteContract::allows)
+/// already arbitrates for the guard — a relative glob matches at any depth, so
+/// the same contract decides the same way here as it does at the tool
+/// boundary.
+fn changed_now(worktrees: &FeatureWorktrees) -> Result<BTreeSet<Utf8PathBuf>, Failure> {
+    let git = git::System;
+    let mut changed = BTreeSet::new();
+    for (_, worktree) in worktrees {
+        for relative in git.changed_paths(worktree)? {
+            changed.insert(worktree.join(relative));
+        }
+    }
+    Ok(changed)
+}
+
+/// What this run wrote that no contract in the wave allows, as a ready-made
+/// failure message — `None` when the run stayed inside the lines.
+///
+/// # Why this exists at all
+///
+/// The execution guard ([`guard`]) is a `PreToolUse` hook registered for
+/// `Write|Edit|MultiEdit|NotebookEdit`: the tools whose call carries a path it
+/// can arbitrate. `Bash` carries a *command*, and a command has no path to
+/// check — a shell one-liner, a heredoc into `python3 -`, a formatter, a code
+/// generator, all write without the guard ever being consulted. That is not a
+/// gap that can be closed at the tool boundary, because deciding what a shell
+/// command writes means deciding what a program does.
+///
+/// So it is closed here instead, at the only place that cannot be talked past:
+/// the filesystem, after the fact. This observes effects rather than
+/// intentions, which also catches the writes no pre-check could have predicted
+/// — the formatter that reached outside its contract, the generator that
+/// emitted one file too many.
+///
+/// It **detects**, it does not prevent: the bytes are already on disk when
+/// this runs. What it guarantees is that they cannot pass unnoticed as a
+/// completed workstream. Nothing is reverted — an audit that deleted an
+/// agent's work on suspicion would be a worse failure than the one it guards
+/// against.
+///
+/// # Why the wave's contract, not this workstream's
+///
+/// A tick launches a wave of workstreams in parallel against the *same*
+/// worktrees. A path this workstream never touched, written by a sibling
+/// running beside it, is indistinguishable here from one it wrote itself —
+/// `git status` records the change, not its author. Measuring against this
+/// workstream's own contract alone would therefore blame it for every
+/// sibling's legitimate work.
+///
+/// The wave's union is the sharpest line that stays true: a path no contract
+/// in the wave allows is a violation whoever wrote it, and a wave of one — the
+/// common case — measures exactly the workstream's own contract. What this
+/// deliberately does not catch is one workstream writing inside *another's*
+/// contract; attributing that needs an author, which the filesystem does not
+/// record. The guard still refuses it for the tools it covers.
+fn audit_write_contract(
+    worktrees: &FeatureWorktrees,
+    wave_contract: &WriteContract,
+    baseline: &BTreeSet<Utf8PathBuf>,
+) -> Result<Option<String>, Failure> {
+    let after = changed_now(worktrees)?;
+    let violations = contract_violations(wave_contract, baseline, &after);
+    if violations.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(violation_message(worktrees, &violations)))
+}
+
+/// The paths in `after` that `baseline` did not already hold and that
+/// `wave_contract` does not allow.
+pub(super) fn contract_violations(
+    wave_contract: &WriteContract,
+    baseline: &BTreeSet<Utf8PathBuf>,
+    after: &BTreeSet<Utf8PathBuf>,
+) -> Vec<Utf8PathBuf> {
+    after
+        .difference(baseline)
+        .filter(|path| !wave_contract.allows(path))
+        .cloned()
+        .collect()
+}
+
+/// How many violating paths a failure message names before it stops counting.
+/// A runaway generator can produce thousands; a journal entry that carries all
+/// of them is one nobody reads.
+const VIOLATIONS_NAMED: usize = 20;
+
+/// The failure a violating run reports, naming what it wrote and why that is
+/// being reported at the end rather than refused at the time.
+fn violation_message(worktrees: &FeatureWorktrees, violations: &[Utf8PathBuf]) -> String {
+    let named: Vec<String> = violations
+        .iter()
+        .take(VIOLATIONS_NAMED)
+        .map(|path| display_path(worktrees, path))
+        .collect();
+    let rest = violations.len().saturating_sub(named.len());
+    let tail = if rest == 0 {
+        String::new()
+    } else {
+        format!(" (and {rest} more)")
+    };
+    format!(
+        "write contract violated: {} path(s) changed that no workstream in this wave may write — {}{tail}. \
+         The execution guard arbitrates Write, Edit, MultiEdit and NotebookEdit; a shell command carries no \
+         path for it to check and writes past it, so this audit is what sees that. Nothing was reverted.",
+        violations.len(),
+        named.join(", "),
+    )
+}
+
+/// `<repo>/<path within the worktree>` when `path` is inside one of
+/// `worktrees`, and the absolute path when it is not — a violation outside
+/// every worktree is worth showing in full.
+fn display_path(worktrees: &FeatureWorktrees, path: &Utf8Path) -> String {
+    for (repo, worktree) in worktrees {
+        if let Ok(relative) = path.strip_prefix(worktree) {
+            return format!("{repo}/{relative}");
+        }
+    }
+    path.to_string()
 }
