@@ -80,6 +80,37 @@ Two sessions on the same feature share its worktrees, and both may write them.
 Git serialises individual operations; nothing stops two agents editing the same
 file.
 
+## The write contract is enforced at two layers, and neither is a sandbox
+
+A workstream's write contract is arbitrated by a `PreToolUse` hook in the
+session's harness config. That hook sees the tools that carry a path — `Write`,
+`Edit`, `MultiEdit`, `NotebookEdit` — and refuses anything outside the contract
+before the write happens.
+
+It does **not** see `Bash`. A shell call carries a command, not a path, and
+deciding what a command writes means deciding what a program does. So a
+heredoc into `python3`, a formatter run over the repo, a code generator — all
+reach the disk without the hook being asked.
+
+The second layer is what catches those: after a workstream's process exits,
+`ivar` compares its worktrees against the wave's contracts and fails the
+workstream when a path changed that no contract covers. That is **detection,
+not prevention** — the bytes are already written when it runs, and nothing is
+reverted. The failure and the paths land in the board's journal.
+
+Two things it deliberately does not do:
+
+- **Attribute.** A tick runs a wave of workstreams against the same worktrees,
+  and `git status` records that a file changed, not who changed it. So the
+  audit measures against the union of the wave's contracts. One workstream
+  writing inside *another's* contract is invisible to it; the hook still
+  refuses that for the tools it covers.
+- **Revert.** An audit that deleted an agent's work on suspicion would be a
+  worse failure than the one it guards against.
+
+If you need writes outside the contract to be impossible rather than reported,
+that is a filesystem sandbox, and `ivar` does not run one.
+
 ## Windows is not supported
 
 The view dir is built entirely out of symlinks, and creating a symlink on Windows

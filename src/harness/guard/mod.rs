@@ -1,5 +1,7 @@
 //! Per-session execution guard materialisation: the artefact that arbitrates
-//! every write an executor makes against its workstream's write contract.
+//! an executor's *file-editing tool calls* against its workstream's write
+//! contract — every write it can see, which is not every write. See "What the
+//! guard cannot see" below, and the post-run audit that covers the rest.
 //!
 //! [`materialise`] writes one of two things into a session's view dir,
 //! depending on [`Provider`]:
@@ -36,6 +38,34 @@
 //! therefore always inspect the `allowed` field of `guard-check`'s `--json`
 //! output, and treat a non-zero exit as one more reason that field is
 //! unavailable, not as the primary signal.
+//!
+//! # What the guard cannot see
+//!
+//! The matcher lists the tools whose call carries a path: `Write`, `Edit`,
+//! `MultiEdit`, `NotebookEdit`. `Bash` is deliberately not among them, and
+//! that is a hole, not an oversight — but not one this layer can close.
+//!
+//! A `Bash` call carries a *command*, not a path. Deciding which files
+//! `python3 - <<EOF` writes means deciding what the program does; a hook that
+//! guessed would deny `cargo test | tee log` and allow the heredoc that
+//! rewrites the repo. Denying `Bash` outright is the only rule this module's
+//! own default-deny discipline can state honestly, and it leaves an executor
+//! unable to run the tests it was launched to make pass.
+//!
+//! This mattered exactly once, expensively: with the harness launched without
+//! a permission mode (see [`super::Harness::execute_command`]), `Write` and
+//! `Edit` were denied by the *harness* before the guard was ever consulted,
+//! and the one workstream that delivered anything did so through fifty-two
+//! `python3` heredocs — every one of them past this guard, none of them
+//! refused. The guard covered precisely the tools that could not run, and not
+//! the one that could.
+//!
+//! So the hole is closed a layer down instead, where intentions have become
+//! effects: `tick` audits the feature's worktrees against the write contract
+//! after each run (see `action::execute::tick::launch`'s
+//! `audit_write_contract`). That audit detects rather than prevents — the
+//! bytes are on disk by the time it looks — but it cannot be talked past,
+//! because it reads the filesystem rather than the agent's stated intent.
 //!
 //! # Why the hall path is baked in, not discovered
 //!
