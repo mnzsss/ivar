@@ -116,7 +116,7 @@ fn only_the_initially_focused_shell_is_spawned() {
 fn navigation_moves_the_selection_in_nav_mode() {
     let (mut driver, _log) = driver_with(2);
 
-    driver.apply_event(Key::CtrlB);
+    driver.apply_event(Key::Prefix);
     assert_eq!(driver.mode(), Mode::Nav);
     driver.apply_event(Key::Down);
     assert_eq!(driver.selected(), 1);
@@ -131,7 +131,7 @@ fn enter_spawns_and_focuses_the_selected_shell() {
     let (mut driver, log) = driver_with(3);
 
     // Nav to the third shell and focus it: it spawns lazily.
-    driver.apply_event(Key::CtrlB);
+    driver.apply_event(Key::Prefix);
     driver.apply_event(Key::Down);
     driver.apply_event(Key::Down);
     driver.apply_event(Key::Enter);
@@ -174,7 +174,7 @@ fn focus_forwards_characters_to_the_shell() {
 fn q_in_nav_quits() {
     let (mut driver, _log) = driver_with(1);
 
-    driver.apply_event(Key::CtrlB);
+    driver.apply_event(Key::Prefix);
     assert!(driver.apply_event(Key::Char('q')));
 }
 
@@ -183,7 +183,7 @@ fn pump_drains_every_shells_output() {
     let (mut driver, log) = driver_with(2);
 
     // Focus the second shell so both are spawned.
-    driver.apply_event(Key::CtrlB);
+    driver.apply_event(Key::Prefix);
     driver.apply_event(Key::Down);
     driver.apply_event(Key::Enter);
 
@@ -197,7 +197,7 @@ fn pump_drains_every_shells_output() {
     assert!(driver.pump().unwrap());
     assert!(!driver.pump().unwrap(), "nothing left to read");
 
-    let snapshot = driver.snapshot("checkout", &[]);
+    let snapshot = driver.snapshot("checkout", &[], "ctrl+o");
     // The focused shell (repo-1) is what the panel shows.
     let text = snapshot.panel.lines.join("\n");
     assert!(text.contains("from repo-1"), "was: {text}");
@@ -214,24 +214,33 @@ fn scroll_mode_scrolls_the_focused_shell_and_returns_to_focus() {
     injected_output(&log, 0).send(lines).unwrap();
     driver.pump().unwrap();
 
-    driver.apply_event(Key::CtrlB);
+    driver.apply_event(Key::Prefix);
     driver.apply_event(Key::Char('['));
     assert_eq!(driver.mode(), Mode::Scroll);
 
     driver.apply_event(Key::PgUp);
-    let offset = driver.snapshot("checkout", &[]).panel.scroll_offset;
+    let offset = driver
+        .snapshot("checkout", &[], "ctrl+o")
+        .panel
+        .scroll_offset;
     assert!(offset > 0, "PgUp must scroll back");
     assert_eq!(offset, 22, "one page = the viewport height (80x24 -> 22)");
 
     driver.apply_event(Key::PgDn);
-    let offset = driver.snapshot("checkout", &[]).panel.scroll_offset;
+    let offset = driver
+        .snapshot("checkout", &[], "ctrl+o")
+        .panel
+        .scroll_offset;
     assert_eq!(offset, 0, "PgDn returns to the live bottom");
 
     driver.apply_event(Key::PgUp);
     driver.apply_event(Key::Esc);
     assert_eq!(driver.mode(), Mode::Focus);
     assert_eq!(
-        driver.snapshot("checkout", &[]).panel.scroll_offset,
+        driver
+            .snapshot("checkout", &[], "ctrl+o")
+            .panel
+            .scroll_offset,
         0,
         "leaving scroll resets the offset"
     );
@@ -264,7 +273,7 @@ fn a_spawn_failure_is_shown_in_the_panel_not_crashed() {
 
     let driver = Driver::new(shells(1), || FailingPty, 80, 24);
     assert!(!driver.is_running());
-    let panel = driver.snapshot("checkout", &[]).panel;
+    let panel = driver.snapshot("checkout", &[], "ctrl+o").panel;
     assert!(
         panel.lines.join("\n").contains("could not start shell"),
         "was: {:?}",

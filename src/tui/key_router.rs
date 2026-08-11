@@ -8,8 +8,9 @@
 //! # Modes
 //!
 //! - [`Mode::Focus`] — the default. The selected shell's PTY owns every
-//!   keystroke; raw bytes flow straight through. Only the prefix key
-//!   (`Ctrl+B`) is intercepted and switches to [`Mode::Nav`].
+//!   keystroke; raw bytes flow straight through. Only the prefix key is
+//!   intercepted and switches to [`Mode::Nav`]; which chord that is comes
+//!   from the host loop, so it can be configured.
 //! - [`Mode::Nav`] — navigate the sidebar: `j`/`k` (or the arrows) move the
 //!   selection, `Enter` focuses the selected repo's shell, `[` opens
 //!   [`Mode::Scroll`], `q` (or `Ctrl+C`) quits.
@@ -56,8 +57,9 @@ pub enum Key {
     Ctrl(char),
     /// `Alt` + this character.
     Alt(char),
-    /// The prefix key (`Ctrl+B`): the one key Focus forwards nowhere.
-    CtrlB,
+    /// The prefix key: the one key Focus forwards nowhere. Which physical
+    /// chord produces it is the host loop's business, not the reducer's.
+    Prefix,
     PgUp,
     PgDn,
 }
@@ -99,7 +101,7 @@ pub enum Action {
 pub fn reduce(mode: Mode, key: Key) -> (Mode, Action) {
     match mode {
         Mode::Focus => match key {
-            Key::CtrlB => (Mode::Nav, Action::EnterNav),
+            Key::Prefix => (Mode::Nav, Action::EnterNav),
             // Everything else reaches the shell verbatim. Ctrl+C included:
             // it is a real signal the shell owns, and quitting is Nav's `q`.
             Key::Ctrl(c) => (mode, Action::WriteBytes(control_bytes(c))),
@@ -135,7 +137,7 @@ pub fn reduce(mode: Mode, key: Key) -> (Mode, Action) {
             Key::Up | Key::Char('k') => (mode, Action::Up),
             Key::Down | Key::Char('j') => (mode, Action::Down),
             Key::Enter | Key::Esc => (Mode::Focus, Action::FocusShell),
-            // The second half of the `Ctrl+B [` sequence.
+            // The second half of the `<prefix> [` sequence.
             Key::Char('[') => (Mode::Scroll, Action::EnterScroll),
             Key::Char('q') | Key::Ctrl('c') => (mode, Action::Quit),
             // Anything else is a swallowed prefix key.

@@ -367,7 +367,8 @@ fn run_tui(
 
     let feature_names = collect_features(layout);
     let rows = feature_rows(layout, &feature_names);
-    let snapshot = driver.snapshot(layout.root().as_str(), &rows);
+    let prefix = tui::master_detail::Prefix::from_env();
+    let snapshot = driver.snapshot(layout.root().as_str(), &rows, prefix.label());
     let _ = terminal.draw(|frame| tui::widget::render(&snapshot, frame.area(), frame.buffer_mut()));
 
     Ok(())

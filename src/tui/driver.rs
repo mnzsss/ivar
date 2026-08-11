@@ -242,9 +242,10 @@ impl<P: Pty, F: FnMut() -> P> Driver<P, F> {
 
     /// The [`Snapshot`] the widget should render right now, built from the
     /// driver's state and the host-pushed `rows`.
-    pub fn snapshot(&self, title: &str, rows: &[Row]) -> Snapshot {
+    pub fn snapshot(&self, title: &str, rows: &[Row], prefix: &str) -> Snapshot {
         Snapshot {
             title: title.to_owned(),
+            prefix: prefix.to_owned(),
             rows: rows.to_vec(),
             selected: self.selected,
             mode: self.mode,

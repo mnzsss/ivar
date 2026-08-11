@@ -2,7 +2,7 @@
 
 use super::*;
 
-// -- Focus: keys reach the shell, Ctrl+B opens Nav ------------------------
+// -- Focus: keys reach the shell, the prefix opens Nav --------------------
 
 #[test]
 fn focus_forwards_characters_and_enter_as_bytes() {
@@ -43,7 +43,7 @@ fn focus_forwards_ctrl_c_to_the_shell() {
 #[test]
 fn ctrl_b_is_the_prefix_into_nav() {
     assert_eq!(
-        reduce(Mode::Focus, Key::CtrlB),
+        reduce(Mode::Focus, Key::Prefix),
         (Mode::Nav, Action::EnterNav)
     );
 }

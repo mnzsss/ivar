@@ -38,13 +38,92 @@ pub struct FeatureView {
 /// alternate screen) runs even when the loop errors.
 pub fn run(view: FeatureView) -> Result<(), Failure> {
     let (width, height) = crossterm::terminal::size().unwrap_or((80, 24));
+    let prefix = Prefix::from_env();
     // `ratatui::init` enables raw mode and the alternate screen and installs
     // a panic hook that restores both; `restore` undoes them. Keeping the
     // pair here makes the restore unconditional.
     let mut terminal = ratatui::init();
-    let result = run_loop(&mut terminal, view, width, height);
+    let result = run_loop(&mut terminal, view, width, height, &prefix);
     ratatui::restore();
     result
+}
+
+/// The chord that opens navigation.
+///
+/// `Ctrl+B` is what `tmux` uses, and what Orca binds — a view running inside
+/// either never sees it. So the prefix is configuration, read once from
+/// `IVAR_TUI_PREFIX` (`ctrl+<letter>` or `f<number>`, case-insensitive).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Prefix {
+    code: KeyCode,
+    modifiers: KeyModifiers,
+    label: String,
+}
+
+/// The prefix used when `IVAR_TUI_PREFIX` says nothing. `Ctrl+O` is close to
+/// unbound in an interactive shell (readline's `operate-and-get-next`), which
+/// is the point: the prefix is stolen from the shell for as long as the view
+/// runs.
+const DEFAULT_PREFIX: char = 'o';
+
+impl Prefix {
+    /// The configured prefix, or [`DEFAULT_PREFIX`] when the variable is
+    /// unset or unparseable — a typo in an env var must not cost the user a
+    /// way out of the TUI.
+    #[must_use]
+    pub fn from_env() -> Self {
+        std::env::var("IVAR_TUI_PREFIX")
+            .ok()
+            .as_deref()
+            .and_then(Self::parse)
+            .unwrap_or_else(Self::default_prefix)
+    }
+
+    /// `Ctrl+O`.
+    #[must_use]
+    pub fn default_prefix() -> Self {
+        Self {
+            code: KeyCode::Char(DEFAULT_PREFIX),
+            modifiers: KeyModifiers::CONTROL,
+            label: format!("ctrl+{DEFAULT_PREFIX}"),
+        }
+    }
+
+    /// Parse `ctrl+<letter>` or `f<number>`. `None` for anything else.
+    #[must_use]
+    pub fn parse(spec: &str) -> Option<Self> {
+        let spec = spec.trim().to_ascii_lowercase();
+        if let Some(rest) = spec.strip_prefix("ctrl+") {
+            let mut chars = rest.chars();
+            let letter = chars.next().filter(char::is_ascii_alphanumeric)?;
+            if chars.next().is_some() {
+                return None;
+            }
+            return Some(Self {
+                code: KeyCode::Char(letter),
+                modifiers: KeyModifiers::CONTROL,
+                label: format!("ctrl+{letter}"),
+            });
+        }
+        let number: u8 = spec.strip_prefix('f')?.parse().ok()?;
+        (1..=12).contains(&number).then(|| Self {
+            code: KeyCode::F(number),
+            modifiers: KeyModifiers::NONE,
+            label: format!("f{number}"),
+        })
+    }
+
+    /// Whether `key` is this prefix.
+    #[must_use]
+    pub fn matches(&self, key: KeyEvent) -> bool {
+        key.code == self.code && key.modifiers.contains(self.modifiers)
+    }
+
+    /// How the hints spell this key.
+    #[must_use]
+    pub fn label(&self) -> &str {
+        &self.label
+    }
 }
 
 /// The event loop: poll for keys (with a timeout so shell output is pumped
@@ -55,6 +134,7 @@ fn run_loop(
     view: FeatureView,
     width: u16,
     height: u16,
+    prefix: &Prefix,
 ) -> Result<(), Failure> {
     let mut driver = Driver::new(view.shells, PtsPty::new, width, height);
     let mut dirty = true;
@@ -67,7 +147,7 @@ fn run_loop(
                 .map_err(|source| io_failure("feature.tui_read_failed", source))?;
             match event {
                 Event::Key(key) if key.kind == KeyEventKind::Press => {
-                    if let Some(key) = map_key(key) {
+                    if let Some(key) = map_key(key, prefix) {
                         if driver.apply_event(key) {
                             break;
                         }
@@ -93,7 +173,7 @@ fn run_loop(
         }
 
         if dirty {
-            let snapshot = driver.snapshot(&view.title, &view.rows);
+            let snapshot = driver.snapshot(&view.title, &view.rows, prefix.label());
             terminal
                 .draw(|frame| render(&snapshot, frame.area(), frame.buffer_mut()))
                 .map_err(|source| io_failure("feature.tui_render_failed", source))?;
@@ -105,16 +185,21 @@ fn run_loop(
 }
 
 /// Map a crossterm key press onto the [`Key`]s the router understands.
-/// `Ctrl+B` is the prefix key. Everything else is carried through as
-/// faithfully as the router can express it — in Focus mode this is the entire
-/// keyboard the shell will ever see, so a key that is not mapped here is a key
-/// that does not work in the view.
+///
+/// `prefix` is the configured chord that opens navigation. Everything else
+/// is carried through as faithfully as the router can express it — in Focus
+/// mode this is the entire keyboard the shell will ever see, so a key that
+/// is not mapped here is a key that does not work in the view.
 #[must_use]
-pub fn map_key(key: KeyEvent) -> Option<Key> {
+pub fn map_key(key: KeyEvent, prefix: &Prefix) -> Option<Key> {
+    // The prefix is matched first: it is the one key the shell never gets,
+    // so a prefix of `ctrl+c` would mean the shell never gets `ctrl+c`.
+    if prefix.matches(key) {
+        return Some(Key::Prefix);
+    }
     let control = key.modifiers.contains(KeyModifiers::CONTROL);
     let alt = key.modifiers.contains(KeyModifiers::ALT);
     match key.code {
-        KeyCode::Char('b') if control => Some(Key::CtrlB),
         KeyCode::Char(c) if control => Some(Key::Ctrl(c)),
         KeyCode::Char(c) if alt => Some(Key::Alt(c)),
         KeyCode::Char(c) => Some(Key::Char(c)),

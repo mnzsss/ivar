@@ -3,8 +3,12 @@
 //!
 //! One shell per promoted repo, each running in its repo's feature worktree
 //! (`.ivar/repos/<repo>/<branch>/`). The TUI is a sidebar of repos with a
-//! focused shell on the right: `Ctrl+B` opens navigation (`j`/`k` move,
-//! `Enter` focuses a repo's shell, `q` quits), `Ctrl+B [` opens scrollback.
+//! focused shell on the right: the prefix key opens navigation (`j`/`k`
+//! move, `Enter` focuses a repo's shell, `q` quits), and `<prefix> [` opens
+//! scrollback. The prefix is `Ctrl+O` by default and configurable with
+//! `IVAR_TUI_PREFIX` (`ctrl+<letter>` or `f<number>`) — `Ctrl+B` is taken by
+//! `tmux` and by Orca, so a view running inside either would never see it.
+//! The panel's title bar always names the current prefix.
 //! Shells spawn lazily — a repo's shell starts the first time it is focused,
 //! and keeps running (and accumulating scrollback) while another repo is on
 //! screen.

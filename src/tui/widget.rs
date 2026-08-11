@@ -68,6 +68,8 @@ impl Panel {
 pub struct Snapshot {
     /// The title — the feature name (or hall root, for a session).
     pub title: String,
+    /// How the configured prefix key is spelled in the hints, e.g. `ctrl+o`.
+    pub prefix: String,
     /// The sidebar rows — promoted repos (or features, for a session).
     pub rows: Vec<Row>,
     /// Which row is selected.
@@ -138,10 +140,11 @@ pub fn window(panel: &Panel, available: usize) -> Vec<String> {
 }
 
 fn render_sidebar(snapshot: &Snapshot, area: Rect, buf: &mut Buffer) {
+    let prefix = &snapshot.prefix;
     let hint = match snapshot.mode {
-        Mode::Focus => "focus — ctrl+b nav",
-        Mode::Nav => "nav — j/k move, enter focus, q quit",
-        Mode::Scroll => "scroll — pgup/pgdn, q/esc focus",
+        Mode::Focus => format!("focus — {prefix} nav"),
+        Mode::Nav => "nav — j/k move, enter focus, q quit".to_owned(),
+        Mode::Scroll => "scroll — pgup/pgdn, q/esc focus".to_owned(),
     };
     let title = format!(" {} — {hint} ", snapshot.title);
     let block = Block::default().borders(Borders::ALL).title(title);

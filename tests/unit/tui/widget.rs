@@ -13,6 +13,7 @@ use super::*;
 fn snapshot() -> Snapshot {
     Snapshot {
         title: "checkout".to_owned(),
+        prefix: "ctrl+o".to_owned(),
         rows: vec![
             Row {
                 label: "api".to_owned(),
