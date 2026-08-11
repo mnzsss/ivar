@@ -172,6 +172,17 @@ pub trait Git {
     /// design.
     fn diff_worktree(&self, path: &Utf8Path) -> Result<String, Error>;
 
+    /// Every path in the worktree at `path` that diverges from its last
+    /// commit, worktree-relative — tracked edits *and* untracked files.
+    ///
+    /// [`Self::worktree_dirty`] answers whether anything changed and
+    /// [`Self::diff_worktree`] answers how the tracked content changed; this
+    /// answers *which files*, which is the question the write-contract audit
+    /// asks. Untracked files are included because a file created outside a
+    /// contract is exactly the violation worth catching, and `git diff` cannot
+    /// see one.
+    fn changed_paths(&self, path: &Utf8Path) -> Result<Vec<Utf8PathBuf>, Error>;
+
     /// How many commits `branch` has that `base` does not, in the repository
     /// at `git_dir` — `git rev-list --count <base>..<branch>`.
     fn commits_ahead(&self, git_dir: &Utf8Path, base: &str, branch: &str) -> Result<u64, Error>;
@@ -267,6 +278,10 @@ impl Git for System {
 
     fn diff_worktree(&self, path: &Utf8Path) -> Result<String, Error> {
         exec::diff_worktree(path)
+    }
+
+    fn changed_paths(&self, path: &Utf8Path) -> Result<Vec<Utf8PathBuf>, Error> {
+        exec::changed_paths(path)
     }
 
     fn commits_ahead(&self, git_dir: &Utf8Path, base: &str, branch: &str) -> Result<u64, Error> {

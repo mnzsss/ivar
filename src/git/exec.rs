@@ -26,7 +26,7 @@
 //! matters (no silent prompt); the rest is the user's network, and taking their
 //! ssh configuration away to shorten a timeout is a bad trade.
 
-use camino::Utf8Path;
+use camino::{Utf8Path, Utf8PathBuf};
 
 use crate::infra::proc;
 
@@ -207,6 +207,68 @@ pub(crate) fn worktree_dirty(path: &Utf8Path) -> Result<bool, Error> {
         });
     }
     Ok(!output.stdout.is_empty())
+}
+
+/// `git -C <worktree> status --porcelain -z --untracked-files=all` — every
+/// path in the worktree that diverges from its last commit, as
+/// worktree-relative paths. Tracked edits and untracked files alike, which is
+/// the difference that matters to the caller: a file an executor *created*
+/// outside its write contract is untracked, and invisible to `git diff`.
+///
+/// `-z` rather than the default line format because the default *quotes* any
+/// path holding a space or a non-ASCII byte, and a quoted path is one the
+/// caller would have to unquote correctly before deciding whether a write
+/// contract covers it. Whether a write is refused must not hinge on getting
+/// an escaping dialect right; NUL-separated records need no quoting at all.
+///
+/// `--untracked-files=all` rather than the default `normal`, which collapses
+/// a new directory into the directory name alone — one entry standing for any
+/// number of files, none of them named.
+///
+/// A rename emits two records, the new path then the original. Both are
+/// returned: both are writes, since the file at the old path is gone.
+pub(crate) fn changed_paths(path: &Utf8Path) -> Result<Vec<Utf8PathBuf>, Error> {
+    let command = git()
+        .cwd(path)
+        .arg("status")
+        .arg("--porcelain")
+        .arg("-z")
+        .arg("--untracked-files=all");
+    let output = proc::capture(&command)?;
+    if !output.success() {
+        return Err(Error::Refused {
+            command: command.display(),
+            detail: output.diagnostic(),
+        });
+    }
+    Ok(parse_status_z(&output.stdout))
+}
+
+/// The paths named by `git status --porcelain -z` output.
+///
+/// Each record is `XY<space><path>`: two status columns, then the path. A
+/// record whose first column is `R` or `C` (rename, copy) is followed by a
+/// second record carrying the origin path, which is taken as well.
+fn parse_status_z(stdout: &str) -> Vec<Utf8PathBuf> {
+    let mut paths = Vec::new();
+    let mut records = stdout.split('\0').filter(|record| !record.is_empty());
+    while let Some(record) = records.next() {
+        let mut columns = record.chars();
+        let (Some(index_status), Some(_worktree_status)) = (columns.next(), columns.next()) else {
+            continue;
+        };
+        let entry = columns.as_str().trim_start();
+        if entry.is_empty() {
+            continue;
+        }
+        paths.push(Utf8PathBuf::from(entry));
+        if matches!(index_status, 'R' | 'C')
+            && let Some(origin) = records.next()
+        {
+            paths.push(Utf8PathBuf::from(origin));
+        }
+    }
+    paths
 }
 
 /// `git -C <worktree> diff HEAD` — the worktree's uncommitted divergence from

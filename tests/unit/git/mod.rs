@@ -284,6 +284,88 @@ fn worktree_dirty_sees_untracked_files_as_dirty() {
     assert!(System.worktree_dirty(&worktree).unwrap());
 }
 
+// -- changed_paths ---------------------------------------------------------
+
+/// A worktree on `main`, cloned from a seeded origin — the four tests below
+/// differ only in what they then write into it, so the setup is stated once.
+fn worktree_on_main() -> (tempfile::TempDir, Utf8PathBuf) {
+    let (guard, dir) = utf8_temp_dir();
+    let origin = seeded_repo(&dir.join("origin"), "main");
+    let bare = dir.join("api.bare");
+    System.clone_bare(origin.as_str(), &bare).unwrap();
+    let worktree = dir.join("api-main");
+    System.add_worktree(&bare, &worktree, "main").unwrap();
+    (guard, worktree)
+}
+
+/// The write-contract audit asks *which files*, not *whether any*. A tracked
+/// edit and a file the executor created are both writes; only the first is
+/// visible to `git diff`, which is why this reads `status` and asks for
+/// untracked files explicitly.
+#[test]
+fn changed_paths_names_tracked_edits_and_untracked_files_alike() {
+    let (_guard, worktree) = worktree_on_main();
+
+    std::fs::write(worktree.join("README.md"), "edited\n").unwrap();
+    std::fs::create_dir_all(worktree.join("src/deep")).unwrap();
+    std::fs::write(worktree.join("src/deep/new.rs"), "fn main() {}\n").unwrap();
+
+    let changed = System.changed_paths(&worktree).unwrap();
+
+    assert!(
+        changed.iter().any(|path| path == "README.md"),
+        "{changed:?}"
+    );
+    assert!(
+        changed.iter().any(|path| path == "src/deep/new.rs"),
+        "an untracked file inside a new directory must be named, not collapsed \
+         into the directory: {changed:?}"
+    );
+}
+
+#[test]
+fn changed_paths_is_empty_for_a_clean_worktree() {
+    let (_guard, worktree) = worktree_on_main();
+
+    assert!(System.changed_paths(&worktree).unwrap().is_empty());
+}
+
+/// A path with a space in it is exactly the path the default porcelain format
+/// quotes, and a quoted path is one the audit would compare against a contract
+/// with the quotes still on it — always allowed, always wrong.
+#[test]
+fn changed_paths_does_not_quote_a_path_with_a_space_in_it() {
+    let (_guard, worktree) = worktree_on_main();
+
+    std::fs::write(worktree.join("release notes.md"), "hi\n").unwrap();
+
+    let changed = System.changed_paths(&worktree).unwrap();
+
+    assert!(
+        changed.iter().any(|path| path == "release notes.md"),
+        "{changed:?}"
+    );
+}
+
+/// Both ends of a rename are writes: the file at the old path is gone.
+#[test]
+fn changed_paths_names_both_ends_of_a_rename() {
+    let (_guard, worktree) = worktree_on_main();
+
+    git(&worktree, &["mv", "README.md", "READYOU.md"]);
+
+    let changed = System.changed_paths(&worktree).unwrap();
+
+    assert!(
+        changed.iter().any(|path| path == "READYOU.md"),
+        "{changed:?}"
+    );
+    assert!(
+        changed.iter().any(|path| path == "README.md"),
+        "{changed:?}"
+    );
+}
+
 // -- commits_ahead ---------------------------------------------------------
 
 /// A feature branch created off `main` with one new commit is one ahead of
