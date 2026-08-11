@@ -340,7 +340,7 @@ fn enabled_absent_alias_becomes_a_relative_symlink_to_hall() {
         assert_eq!(entry.change, Change::Created, "{provider}");
         assert_eq!(
             fs::read_symlink(&alias_path).unwrap(),
-            fs::SymlinkTarget::Target(Utf8PathBuf::from(ALIAS_TARGET)),
+            fs::SymlinkTarget::Target(Utf8PathBuf::from(CANONICAL_FILE)),
             "{provider} alias must be a relative symlink to HALL.md"
         );
     }
@@ -398,7 +398,7 @@ fn enabled_broken_or_wrong_target_alias_is_replaced() {
         assert_eq!(entry.change, Change::Updated, "{provider} broken");
         assert_eq!(
             fs::read_symlink(&alias_path).unwrap(),
-            fs::SymlinkTarget::Target(Utf8PathBuf::from(ALIAS_TARGET)),
+            fs::SymlinkTarget::Target(Utf8PathBuf::from(CANONICAL_FILE)),
             "{provider} broken alias must be repaired"
         );
 
@@ -425,7 +425,7 @@ fn enabled_broken_or_wrong_target_alias_is_replaced() {
         assert_eq!(entry.change, Change::Updated, "{provider} wrong target");
         assert_eq!(
             fs::read_symlink(&alias_path).unwrap(),
-            fs::SymlinkTarget::Target(Utf8PathBuf::from(ALIAS_TARGET)),
+            fs::SymlinkTarget::Target(Utf8PathBuf::from(CANONICAL_FILE)),
             "{provider} wrong-target alias must be repaired"
         );
     }
@@ -500,7 +500,7 @@ fn disabled_alias_entries_are_removed_symlink_or_regular() {
         let block = build_block(&hall(), &[]);
         reconcile(&canonical, &block, &[]).unwrap();
         let alias_path = root.join(provider.instruction_file());
-        fs::create_symlink(Utf8Path::new(ALIAS_TARGET), &alias_path).unwrap();
+        fs::create_symlink(Utf8Path::new(CANONICAL_FILE), &alias_path).unwrap();
 
         let entries = reconcile(
             &canonical,

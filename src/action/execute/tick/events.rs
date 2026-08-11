@@ -7,17 +7,25 @@ use std::collections::BTreeMap;
 
 use crate::domain::feature::{ExecutionBoard, ExecutionStatus, JournalEntry, WorkstreamStatus};
 use crate::domain::name::FeatureName;
-use crate::error::Failure;
+use crate::error::{Failure, Warning};
 use crate::harness::stream::ExecutorEvent;
 use crate::store::layout::Layout;
 
 /// One [`ExecutorEvent`] from one worker, tagged with which workstream and
 /// session it belongs to — the vocabulary the calling thread folds into the
 /// board.
-pub(super) struct TickEvent {
+pub(super) struct ExecutorTickEvent {
     pub(super) workstream_id: String,
     pub(super) session_id: String,
     pub(super) event: ExecutorEvent,
+}
+
+/// Everything a launch worker reports to the calling thread. The caller owns
+/// both the execution board and the final action report, so warnings cross the
+/// same channel as provider events instead of being discarded in the worker.
+pub(super) enum TickEvent {
+    Executor(ExecutorTickEvent),
+    Warning(Warning),
 }
 
 /// Fold one worker's [`TickEvent`] into the board. The calling thread is the
@@ -30,9 +38,9 @@ pub(super) fn apply_event(
     layout: &Layout,
     feature: &FeatureName,
     command_displays: &BTreeMap<String, String>,
-    tick_event: TickEvent,
+    tick_event: ExecutorTickEvent,
 ) -> Result<(), Failure> {
-    let TickEvent {
+    let ExecutorTickEvent {
         workstream_id,
         session_id,
         event,

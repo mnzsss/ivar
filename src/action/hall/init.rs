@@ -174,10 +174,10 @@ pub fn init(ctx: &Ctx, input: InitInput) -> Outcome<InitOutcome> {
     // The canonical instructions and the first provider alias, through the
     // same reconciler `ivar sync` runs. A conflict (say, a pre-existing
     // regular CLAUDE.md) warns without rolling the hall back.
-    if let Err(warning) = sync::materialise_instructions(&layout, &manifest) {
+    for warning in sync::materialise_instructions(&layout, &manifest) {
         report.warn(warning);
     }
-    if let Err(warning) = sync::materialise_commands(&layout, provider) {
+    if let Some(warning) = sync::materialise_commands(&layout, provider) {
         report.warn(warning);
     }
     Ok(report)

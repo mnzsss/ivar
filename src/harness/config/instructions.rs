@@ -61,8 +61,9 @@ pub const MANAGED_START: &str = "<!-- ivar:managed:start -->";
 /// Closes the region of the canonical instruction file `ivar` owns.
 pub const MANAGED_END: &str = "<!-- ivar:managed:end -->";
 
-/// The relative target every enabled provider's root alias must point at.
-pub const ALIAS_TARGET: &str = "HALL.md";
+/// The canonical root instruction filename and the relative target every
+/// enabled provider alias must point at.
+pub const CANONICAL_FILE: &str = "HALL.md";
 
 /// What [`reconcile`] did to one root instruction entry.
 ///
@@ -282,24 +283,20 @@ pub fn inspect(
 
 /// Reconcile `HALL.md` itself. See [`reconcile`] for the placement rules.
 fn reconcile_canonical(path: &Utf8Path, block: &str) -> Result<Entry, Error> {
-    match fs::read_symlink(path).map_err(|source| io_error(path, source))? {
+    match entry_kind(path)? {
         // A symlink or any non-regular entry at the canonical path is a typed
         // conflict: rewriting through it — or over it — could clobber a
         // directory or another file the user pointed at.
-        fs::SymlinkTarget::Target(_) => Ok(conflict(
+        EntryKind::Symlink(_) => Ok(conflict(
             path,
             "`HALL.md` is a symlink; the canonical instructions must be a \
              regular file — replace it with one, then run `ivar sync`",
         )),
-        fs::SymlinkTarget::NotASymlink
-            if !fs::is_file(path).map_err(|source| io_error(path, source))? =>
-        {
-            Ok(conflict(
-                path,
-                "`HALL.md` exists but is not a regular file; make it a regular \
+        EntryKind::NonRegular => Ok(conflict(
+            path,
+            "`HALL.md` exists but is not a regular file; make it a regular \
                  file, then run `ivar sync`",
-            ))
-        }
+        )),
         _ => {
             let change = materialise(path, block)?;
             Ok(Entry {
@@ -316,10 +313,10 @@ fn reconcile_canonical(path: &Utf8Path, block: &str) -> Result<Entry, Error> {
 fn reconcile_alias(alias: &Alias) -> Result<Entry, Error> {
     let path = &alias.path;
     let name = path.file_name().unwrap_or("alias").to_owned();
-    let target = Utf8Path::new(ALIAS_TARGET);
+    let target = Utf8Path::new(CANONICAL_FILE);
 
-    match fs::read_symlink(path).map_err(|source| io_error(path, source))? {
-        fs::SymlinkTarget::Absent if alias.enabled => {
+    match (entry_kind(path)?, alias.enabled) {
+        (EntryKind::Absent, true) => {
             fs::create_symlink(target, path).map_err(|source| io_error(path, source))?;
             Ok(Entry {
                 path: path.clone(),
@@ -327,12 +324,12 @@ fn reconcile_alias(alias: &Alias) -> Result<Entry, Error> {
                 detail: None,
             })
         }
-        fs::SymlinkTarget::Absent => Ok(Entry {
+        (EntryKind::Absent, false) => Ok(Entry {
             path: path.clone(),
             change: Change::Unchanged,
             detail: None,
         }),
-        fs::SymlinkTarget::NotASymlink if alias.enabled => Ok(conflict(
+        (EntryKind::Regular | EntryKind::NonRegular, true) => Ok(conflict(
             path,
             &format!(
                 "`{name}` is a regular file and was preserved; consolidate its \
@@ -340,9 +337,9 @@ fn reconcile_alias(alias: &Alias) -> Result<Entry, Error> {
                  review the git diff"
             ),
         )),
-        fs::SymlinkTarget::NotASymlink => remove_alias_entry(alias),
-        fs::SymlinkTarget::Target(current) if alias.enabled => {
-            if current.as_str() == ALIAS_TARGET {
+        (EntryKind::Regular | EntryKind::NonRegular, false) => remove_alias_entry(alias),
+        (EntryKind::Symlink(current), true) => {
+            if current.as_str() == CANONICAL_FILE {
                 Ok(Entry {
                     path: path.clone(),
                     change: Change::Unchanged,
@@ -360,7 +357,7 @@ fn reconcile_alias(alias: &Alias) -> Result<Entry, Error> {
                 })
             }
         }
-        fs::SymlinkTarget::Target(_) => remove_alias_entry(alias),
+        (EntryKind::Symlink(_), false) => remove_alias_entry(alias),
     }
 }
 
@@ -383,15 +380,10 @@ fn remove_alias_entry(alias: &Alias) -> Result<Entry, Error> {
 /// Inspect the canonical file. `Current` means a regular file whose managed
 /// block matches `block` exactly.
 fn inspect_canonical(path: &Utf8Path, block: &str) -> Result<Inspection, Error> {
-    let integrity = match fs::read_symlink(path).map_err(|source| io_error(path, source))? {
-        fs::SymlinkTarget::Absent => Integrity::Missing,
-        fs::SymlinkTarget::Target(_) => Integrity::NotRegular,
-        fs::SymlinkTarget::NotASymlink
-            if !fs::is_file(path).map_err(|source| io_error(path, source))? =>
-        {
-            Integrity::NotRegular
-        }
-        fs::SymlinkTarget::NotASymlink => match read(path)? {
+    let integrity = match entry_kind(path)? {
+        EntryKind::Absent => Integrity::Missing,
+        EntryKind::Symlink(_) | EntryKind::NonRegular => Integrity::NotRegular,
+        EntryKind::Regular => match read(path)? {
             None => Integrity::Missing,
             Some(content) => match locate(&content) {
                 None => Integrity::ManagedBlockMissing,
@@ -416,13 +408,13 @@ fn inspect_canonical(path: &Utf8Path, block: &str) -> Result<Inspection, Error> 
 /// whatever it is — is [`Integrity::DisabledAliasPresent`].
 fn inspect_alias(alias: &Alias) -> Result<Inspection, Error> {
     let path = &alias.path;
-    let integrity = match fs::read_symlink(path).map_err(|source| io_error(path, source))? {
-        fs::SymlinkTarget::Absent if alias.enabled => Integrity::Missing,
-        fs::SymlinkTarget::Absent => Integrity::Current,
-        fs::SymlinkTarget::NotASymlink if alias.enabled => Integrity::AliasIsRegular,
-        fs::SymlinkTarget::NotASymlink => Integrity::DisabledAliasPresent,
-        fs::SymlinkTarget::Target(current) if alias.enabled => {
-            if current.as_str() == ALIAS_TARGET {
+    let integrity = match (entry_kind(path)?, alias.enabled) {
+        (EntryKind::Absent, true) => Integrity::Missing,
+        (EntryKind::Absent, false) => Integrity::Current,
+        (EntryKind::Regular | EntryKind::NonRegular, true) => Integrity::AliasIsRegular,
+        (EntryKind::Regular | EntryKind::NonRegular, false) => Integrity::DisabledAliasPresent,
+        (EntryKind::Symlink(current), true) => {
+            if current.as_str() == CANONICAL_FILE {
                 Integrity::Current
             } else {
                 // Broken vs wrong target: does the target resolve to anything?
@@ -436,7 +428,7 @@ fn inspect_alias(alias: &Alias) -> Result<Inspection, Error> {
                 }
             }
         }
-        fs::SymlinkTarget::Target(_) => Integrity::DisabledAliasPresent,
+        (EntryKind::Symlink(_), false) => Integrity::DisabledAliasPresent,
     };
     Ok(Inspection {
         path: path.clone(),
@@ -450,6 +442,30 @@ fn conflict(path: &Utf8Path, detail: &str) -> Entry {
         path: path.to_path_buf(),
         change: Change::Conflict,
         detail: Some(detail.to_owned()),
+    }
+}
+
+/// The filesystem shape each reconciliation branch needs to distinguish. This
+/// centralises the `read_symlink`/regular-file interpretation so reconciliation
+/// and inspection share one definition of a root instruction entry.
+enum EntryKind {
+    Absent,
+    Symlink(Utf8PathBuf),
+    Regular,
+    NonRegular,
+}
+
+fn entry_kind(path: &Utf8Path) -> Result<EntryKind, Error> {
+    match fs::read_symlink(path).map_err(|source| io_error(path, source))? {
+        fs::SymlinkTarget::Absent => Ok(EntryKind::Absent),
+        fs::SymlinkTarget::Target(target) => Ok(EntryKind::Symlink(target)),
+        fs::SymlinkTarget::NotASymlink => {
+            if fs::is_file(path).map_err(|source| io_error(path, source))? {
+                Ok(EntryKind::Regular)
+            } else {
+                Ok(EntryKind::NonRegular)
+            }
+        }
     }
 }
 

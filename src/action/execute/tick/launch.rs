@@ -21,7 +21,7 @@ use crate::store::layout::Layout;
 use crate::store::manifest::Manifest;
 
 use super::super::super::session::view;
-use super::events::TickEvent;
+use super::events::{ExecutorTickEvent, TickEvent};
 
 #[cfg(test)]
 use super::TEST_STUB_BIN_DIR;
@@ -102,24 +102,34 @@ pub(super) fn run_launch(
     tx: &mpsc::Sender<TickEvent>,
 ) {
     let send = |event: ExecutorEvent| {
-        let _ = tx.send(TickEvent {
+        let _ = tx.send(TickEvent::Executor(ExecutorTickEvent {
             workstream_id: job.workstream_id.clone(),
             session_id: job.session_id.to_string(),
             event,
-        });
+        }));
+    };
+    let send_warning = |warning| {
+        let _ = tx.send(TickEvent::Warning(warning));
     };
 
-    if let Err(failure) = view::materialise(
+    match view::materialise(
         &layout,
         &manifest,
         Some(&feature_record),
         job.provider,
         &job.view_dir,
     ) {
-        send(ExecutorEvent::Failed {
-            error: failure.to_string(),
-        });
-        return;
+        Ok(report) => {
+            for warning in report.warnings {
+                send_warning(warning);
+            }
+        }
+        Err(failure) => {
+            send(ExecutorEvent::Failed {
+                error: failure.to_string(),
+            });
+            return;
+        }
     }
 
     let started_at = rfc3339_now();

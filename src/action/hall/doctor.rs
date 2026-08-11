@@ -220,7 +220,7 @@ fn instruction_diagnosis(inspection: &instructions::Inspection) -> Option<Diagno
     match inspection.integrity {
         instructions::Integrity::Current => None,
         instructions::Integrity::Missing => Some(Diagnosis {
-            code: if name == "HALL.md" {
+            code: if name == instructions::CANONICAL_FILE {
                 "instructions.canonical_missing"
             } else {
                 "instructions.alias_missing"

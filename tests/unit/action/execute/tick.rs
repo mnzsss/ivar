@@ -168,6 +168,28 @@ fn tick_launches_workstreams_with_met_dependencies() {
 }
 
 #[test]
+fn tick_warns_when_executor_cannot_materialise_canonical_instructions() {
+    let (_guard, root) = approved_board();
+    let ctx = Ctx::new(root.clone());
+    fs::remove_file(&root.join("HALL.md")).unwrap();
+
+    let _stub = PathStub::install("claude", "exit 0");
+    let report = tick(
+        &ctx,
+        TickInput {
+            feature: "checkout".to_owned(),
+        },
+    )
+    .unwrap();
+
+    assert_eq!(report.warnings.len(), 1);
+    assert_eq!(
+        report.warnings[0].code,
+        "instructions.canonical_unavailable"
+    );
+}
+
+#[test]
 fn tick_blocks_when_plan_diverges() {
     let (_guard, root) = approved_board();
     let ctx = Ctx::new(root.clone());

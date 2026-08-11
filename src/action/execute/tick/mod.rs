@@ -463,7 +463,12 @@ pub fn tick(ctx: &Ctx, input: TickInput) -> Outcome<TickOutcome> {
     // finished — so this loop is also what makes `tick` block until every
     // launched workstream reaches a terminal state.
     for event in rx {
-        events::apply_event(&mut board, &layout, &feature, &command_displays, event)?;
+        match event {
+            events::TickEvent::Executor(event) => {
+                events::apply_event(&mut board, &layout, &feature, &command_displays, event)?;
+            }
+            events::TickEvent::Warning(warning) => warnings.push(warning),
+        }
     }
     for handle in handles {
         let _ = handle.join();

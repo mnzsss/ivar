@@ -45,9 +45,9 @@ pub(crate) fn sync_instructions(
                 record_instruction_entry(&change, entries, warnings);
             }
         }
-        Err(warning) => {
+        Err(error) => {
             entries.push(Entry::new("hall", "HALL.md", Change::Failed));
-            warnings.push(warning);
+            warnings.push(not_materialised_warning(error));
         }
     }
 }
@@ -55,21 +55,14 @@ pub(crate) fn sync_instructions(
 /// Best-effort instruction bootstrap for `init` and `provider add`: the
 /// reconciler runs once; any conflict or failure becomes a warning and never
 /// rolls the command back. `ivar sync` is the repair.
-pub(crate) fn materialise_instructions(
-    layout: &Layout,
-    manifest: &Manifest,
-) -> Result<(), Warning> {
+pub(crate) fn materialise_instructions(layout: &Layout, manifest: &Manifest) -> Vec<Warning> {
     match reconcile_instructions(layout, manifest) {
-        Ok(changes) => {
-            if let Some(conflict) = changes
-                .into_iter()
-                .find(|entry| entry.change == instructions::Change::Conflict)
-            {
-                return Err(adoption_warning(&conflict));
-            }
-            Ok(())
-        }
-        Err(warning) => Err(warning),
+        Ok(changes) => changes
+            .into_iter()
+            .filter(|entry| entry.change == instructions::Change::Conflict)
+            .map(|entry| adoption_warning(&entry))
+            .collect(),
+        Err(error) => vec![not_materialised_warning(error)],
     }
 }
 
@@ -79,22 +72,25 @@ pub(crate) fn materialise_instructions(
 fn reconcile_instructions(
     layout: &Layout,
     manifest: &Manifest,
-) -> Result<Vec<instructions::Entry>, Warning> {
+) -> Result<Vec<instructions::Entry>, instructions::Error> {
     let aliases = Provider::ALL.map(|provider| instructions::Alias {
         provider,
         path: layout.instruction_alias(&provider),
         enabled: manifest.providers().available().contains(&provider),
     });
     let block = config::build_block(manifest.name(), &repo_names(manifest));
-    instructions::reconcile(&layout.hall_instructions(), &block, &aliases).map_err(|error| {
-        Warning::new(
-            "instructions.not_materialised",
-            "hall",
-            format!(
-                "hall instructions could not be materialised: {error}; run `ivar sync` to repair"
-            ),
-        )
-    })
+    instructions::reconcile(&layout.hall_instructions(), &block, &aliases)
+}
+
+/// The warning for an instruction reconciliation that could not run at all.
+/// The error stays internal until this action boundary, where it becomes data
+/// in the returned report alongside every successful operation.
+fn not_materialised_warning(error: instructions::Error) -> Warning {
+    Warning::new(
+        "instructions.not_materialised",
+        "hall",
+        format!("hall instructions could not be materialised: {error}; run `ivar sync` to repair"),
+    )
 }
 
 /// One reconciler entry as a sync report line. A conflict is a `Failed` entry
@@ -197,10 +193,10 @@ pub(crate) fn sync_commands(
     }
 }
 
-pub(crate) fn materialise_commands(layout: &Layout, provider: Provider) -> Result<(), Warning> {
+pub(crate) fn materialise_commands(layout: &Layout, provider: Provider) -> Option<Warning> {
     commands::materialise(&layout.commands_dir(&provider))
-        .map(|_| ())
-        .map_err(|error| {
+        .err()
+        .map(|error| {
             Warning::new(
                 "provider.commands_not_materialised",
                 provider.id(),

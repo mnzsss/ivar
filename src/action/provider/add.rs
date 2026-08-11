@@ -115,10 +115,10 @@ pub fn add(ctx: &Ctx, input: AddInput) -> Outcome<AddOutcome> {
         available,
         default,
     });
-    if let Err(warning) = sync::materialise_instructions(&layout, &updated) {
+    for warning in sync::materialise_instructions(&layout, &updated) {
         report.warn(warning);
     }
-    if let Err(warning) = sync::materialise_commands(&layout, provider) {
+    if let Some(warning) = sync::materialise_commands(&layout, provider) {
         report.warn(warning);
     }
     Ok(report)
