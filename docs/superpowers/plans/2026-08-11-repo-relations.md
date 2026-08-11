@@ -60,7 +60,7 @@
 - Modify: `src/store/layout.rs`
 - Modify: `tests/unit/store/layout.rs`
 
-- [ ] **Step 1: Write failing accessor tests**
+- [x] **Step 1: Write failing accessor tests**
 
 Add tests beside the existing provider path coverage:
 
@@ -84,7 +84,7 @@ fn hall_instructions_and_provider_aliases_are_distinct() {
 }
 ```
 
-- [ ] **Step 2: Run the focused test and verify failure**
+- [x] **Step 2: Run the focused test and verify failure**
 
 Run:
 
@@ -94,7 +94,7 @@ cargo test --lib store::layout::tests::hall_instructions_and_provider_aliases_ar
 
 Expected: compile failure because the two new accessors do not exist.
 
-- [ ] **Step 3: Add exact accessors and remove the ambiguous API**
+- [x] **Step 3: Add exact accessors and remove the ambiguous API**
 
 Add beside `commands_dir`:
 
@@ -115,14 +115,14 @@ pub fn instruction_alias(&self, provider: &Provider) -> Utf8PathBuf {
 Remove `instruction_file`. Let compilation failures enumerate every caller; do
 not retain a compatibility alias that preserves the source/alias ambiguity.
 
-- [ ] **Step 4: Run layout tests**
+- [x] **Step 4: Run layout tests**
 
 Run: `cargo test --lib store::layout`
 
 Expected: accessor tests pass; remaining compile errors name production callers
 that Tasks 2 and 4 deliberately update.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/store/layout.rs tests/unit/store/layout.rs
@@ -136,7 +136,7 @@ git commit -m "refactor(layout): distinguish hall instructions from aliases"
 - Create: `tests/unit/harness/config/instructions.rs`
 - Modify: `src/harness/config/mod.rs`
 
-- [ ] **Step 1: Write failing canonical-content tests**
+- [x] **Step 1: Write failing canonical-content tests**
 
 Cover these exact cases with a temporary hall root:
 
@@ -149,7 +149,7 @@ Cover these exact cases with a temporary hall root:
 Use the existing `build_block` output as the expected bytes; do not duplicate the
 block text in the test.
 
-- [ ] **Step 2: Write failing alias topology tests**
+- [x] **Step 2: Write failing alias topology tests**
 
 For each provider, assert:
 
@@ -165,14 +165,14 @@ disabled + regular file          -> Removed
 
 Also assert that no result removes or rewrites `HALL.md`.
 
-- [ ] **Step 3: Run tests and verify failure**
+- [x] **Step 3: Run tests and verify failure**
 
 Run: `cargo test --lib harness::config::instructions::tests`
 
 Expected: compile failure because `instructions` and its result types do not
 exist.
 
-- [ ] **Step 4: Define the focused API**
+- [x] **Step 4: Define the focused API**
 
 Move the managed-block content functions out of `config/mod.rs` and define:
 
@@ -234,13 +234,13 @@ pub fn inspect(
 regular aliases, and call the existing filesystem removal primitive for every
 disabled alias entry regardless of type.
 
-- [ ] **Step 5: Keep module responsibilities explicit**
+- [x] **Step 5: Keep module responsibilities explicit**
 
 In `config/mod.rs`, expose `pub mod instructions;`, keep `mcp` and `session` in
 their current files, and re-export only names already relied on broadly. Root
 alias filesystem behavior must live only in `instructions.rs`.
 
-- [ ] **Step 6: Run focused tests**
+- [x] **Step 6: Run focused tests**
 
 Run:
 
@@ -252,7 +252,7 @@ cargo test --lib harness::config
 Expected: all managed-content and topology cases pass, including destructive
 disabled-provider cleanup and enabled regular-file preservation.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add src/harness/config/mod.rs src/harness/config/instructions.rs tests/unit/harness/config/instructions.rs
@@ -270,7 +270,7 @@ git commit -m "feat(config): reconcile canonical hall instructions"
 - Modify: `tests/unit/action/sync.rs`
 - Modify: `tests/unit/action/provider/add.rs`
 
-- [ ] **Step 1: Add failing init and provider-add tests**
+- [x] **Step 1: Add failing init and provider-add tests**
 
 Add assertions that:
 
@@ -280,7 +280,7 @@ Add assertions that:
 - adding OpenCode immediately creates `AGENTS.md` through the shared reconciler;
 - provider-add conflict warns and keeps the provider persisted.
 
-- [ ] **Step 2: Add failing sync matrix tests**
+- [x] **Step 2: Add failing sync matrix tests**
 
 Prove in separate tests:
 
@@ -291,7 +291,7 @@ Prove in separate tests:
    regular `AGENTS.md`;
 5. repeated healthy sync reports unchanged and leaves file mtimes unchanged.
 
-- [ ] **Step 3: Add failing doctor tests**
+- [x] **Step 3: Add failing doctor tests**
 
 Assert stable findings for canonical absence/non-regular state, stale block,
 enabled alias absence/regular/broken/wrong target, and disabled alias presence.
@@ -311,7 +311,7 @@ instructions.alias_wrong_target
 instructions.disabled_alias_present
 ```
 
-- [ ] **Step 4: Run tests and verify failure**
+- [x] **Step 4: Run tests and verify failure**
 
 Run:
 
@@ -323,7 +323,7 @@ cargo test --lib action::provider::add
 
 Expected: instruction artifacts and findings are absent.
 
-- [ ] **Step 5: Add one action-level warning adapter**
+- [x] **Step 5: Add one action-level warning adapter**
 
 Create a small `pub(crate)` adapter beside provider sync orchestration that calls
 `instructions::reconcile`, converts conflicts/errors to existing sync entries and
@@ -340,7 +340,7 @@ instructions.adoption_required
 The adoption warning must name the regular alias and instruct the user to
 consolidate it into `HALL.md`, remove it, rerun `ivar sync`, and inspect Git diff.
 
-- [ ] **Step 6: Wire actions without duplicating reconciliation**
+- [x] **Step 6: Wire actions without duplicating reconciliation**
 
 - `init`: invoke after durable manifest/skeleton creation; warn, never rollback.
 - `sync`: invoke once before or after the per-provider MCP/command loop; a
@@ -349,7 +349,7 @@ consolidate it into `HALL.md`, remove it, rerun `ivar sync`, and inspect Git dif
 - `doctor`: call `instructions::inspect` and map each non-current result to one
   diagnosis. Disabled alias findings explicitly say sync removes regular files.
 
-- [ ] **Step 7: Run focused tests**
+- [x] **Step 7: Run focused tests**
 
 Run:
 
@@ -362,7 +362,7 @@ cargo test --lib action::provider::add
 Expected: all lifecycle, warning, destructive cleanup, and multi-finding tests
 pass.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add src/action/hall src/action/sync src/action/provider tests/unit/action
@@ -380,7 +380,7 @@ git commit -m "feat(actions): maintain hall instruction topology"
 - Modify: `tests/unit/action/session/relay.rs`
 - Modify: `tests/unit/harness/config/session.rs`
 
-- [ ] **Step 1: Write failing session materialization tests**
+- [x] **Step 1: Write failing session materialization tests**
 
 Cover:
 
@@ -393,14 +393,14 @@ Cover:
 7. missing `HALL.md` lets discovery open with a warning and no shared content;
 8. missing `HALL.md` lets feature open with bootstrap only and the same warning.
 
-- [ ] **Step 2: Run and verify failure**
+- [x] **Step 2: Run and verify failure**
 
 Run: `cargo test --lib action::session::view`
 
 Expected: discovery has no instruction file and production still reads the
 provider alias.
 
-- [ ] **Step 3: Make materialization report warnings**
+- [x] **Step 3: Make materialization report warnings**
 
 Change the shared view materializer's return to carry warnings without failing
 the session:
@@ -423,7 +423,7 @@ Use warning code `instructions.canonical_unavailable`. Thread the report through
 start, connect, conversion, relay, and executor callers into their existing
 `Report` warning surface. Do not add fallback reads.
 
-- [ ] **Step 4: Replace provider-alias reads**
+- [x] **Step 4: Replace provider-alias reads**
 
 Read `layout.hall_instructions()` once. For discovery, write those bytes to the
 provider-native view path. For feature, write
@@ -431,7 +431,7 @@ provider-native view path. For feature, write
 feature writes only the bootstrap and discovery writes no shared content.
 Compare bytes before every write.
 
-- [ ] **Step 5: Run all session and execute-launch tests**
+- [x] **Step 5: Run all session and execute-launch tests**
 
 Run:
 
@@ -443,7 +443,7 @@ cargo test --lib action::execute
 Expected: all entry points use the same materializer, warnings are surfaced, and
 reconnection remains idempotent.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/action/session src/action/execute src/harness/config/session.rs tests/unit/action/session tests/unit/action/execute tests/unit/harness/config/session.rs
@@ -460,7 +460,7 @@ git commit -m "feat(session): derive instructions from HALL.md"
 - Modify: `src/harness/commands.rs`
 - Modify: `tests/unit/harness/commands.rs`
 
-- [ ] **Step 1: Write failing repo-add outcome tests**
+- [x] **Step 1: Write failing repo-add outcome tests**
 
 Assert serialized and human surfaces share the same action:
 
@@ -472,7 +472,7 @@ assert!(human.contains("Next: run `/ivar-relations api`"));
 Also assert the successful report has no warning or fix action and the manifest
 schema remains version 1.
 
-- [ ] **Step 2: Add the exact outcome field**
+- [x] **Step 2: Add the exact outcome field**
 
 Extend `AddOutcome`:
 
@@ -485,12 +485,12 @@ Set it only on successful completion with
 `format!("/ivar-relations {name}")`. Render it from the outcome; do not compute a
 second command string in `WriteHuman`.
 
-- [ ] **Step 3: Write failing command-catalog tests**
+- [x] **Step 3: Write failing command-catalog tests**
 
 Change catalog expectations from 14 to 15, require unique `relations`, and assert
 it has no legacy fingerprint while every prior entry retains its exact hash.
 
-- [ ] **Step 4: Make legacy fingerprints optional**
+- [x] **Step 4: Make legacy fingerprints optional**
 
 Change the type and all entries consistently:
 
@@ -507,7 +507,7 @@ Wrap all fourteen existing hashes in `Some(...)`; define `relations` with
 `if let Some(expected) = command.legacy_sha256`. Do not use an empty-string
 sentinel.
 
-- [ ] **Step 5: Author `relations.md` from the specification**
+- [x] **Step 5: Author `relations.md` from the specification**
 
 The file must include:
 
@@ -524,7 +524,7 @@ deterministic ordering, optional topic numbering, orphan handling, concurrent
 re-read, and the prohibition on editing aliases/session files. The command must
 say Rust does not validate the region and rejected proposals are not persisted.
 
-- [ ] **Step 6: Run focused tests**
+- [x] **Step 6: Run focused tests**
 
 Run:
 
@@ -536,7 +536,7 @@ cargo test --lib harness::commands
 Expected: repo-add output includes the next action; all fifteen commands
 materialize; legacy cleanup behavior for the original fourteen is unchanged.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add src/action/repo/add.rs src/harness/commands tests/unit/action/repo tests/unit/harness/commands
@@ -551,7 +551,7 @@ git commit -m "feat(relations): add guided repository context workflow"
 - Modify: `src/harness/commands/deliver.md`
 - Modify: `tests/unit/harness/commands.rs`
 
-- [ ] **Step 1: Add failing content-contract tests**
+- [x] **Step 1: Add failing content-contract tests**
 
 Assert each embedded command contains its checkpoint and the common safeguards:
 
@@ -564,32 +564,32 @@ all      -> cited evidence; offer /ivar-relations; never block or write directly
 
 Also assert plan/execute/deliver Rust outcomes and schemas are unchanged.
 
-- [ ] **Step 2: Run and verify failure**
+- [x] **Step 2: Run and verify failure**
 
 Run: `cargo test --lib harness::commands`
 
 Expected: checkpoint phrases are absent.
 
-- [ ] **Step 3: Update `plan.md`**
+- [x] **Step 3: Update `plan.md`**
 
 At Analysis start, require reading `HALL.md`, selecting entries for potentially
 affected repos, following only linked topics, and recording relevant context in
 `analysis.md`. Offer `/ivar-relations` only when cited code evidence contradicts,
 extends, or obsoletes the prose. Deferral cannot block approval.
 
-- [ ] **Step 4: Update `execute.md`**
+- [x] **Step 4: Update `execute.md`**
 
 After the existing terminal-state rule, inspect journal and produced changes once
 after every workstream is succeeded or failed. Offer only with evidence; state
 that relation review does not change board completion and is not replan/reconcile.
 
-- [ ] **Step 5: Update `deliver.md`**
+- [x] **Step 5: Update `deliver.md`**
 
 Between preview and apply, focus on preview repos and compare HALL context with
 Analysis and final journal. Offer only for unreflected evidence; state that
 deferral neither blocks apply nor invalidates the fingerprint.
 
-- [ ] **Step 6: Run command tests and commit**
+- [x] **Step 6: Run command tests and commit**
 
 Run: `cargo test --lib harness::commands`
 
@@ -611,14 +611,14 @@ git commit -m "feat(workflows): keep relation context alive"
 - Modify: `docs/guides/day-to-day.md`
 - Modify: `docs/guides/planning-and-execution.md`
 
-- [ ] **Step 1: Update the module map and on-disk layout**
+- [x] **Step 1: Update the module map and on-disk layout**
 
 Document `harness/config/instructions.rs`, regular committed `HALL.md`, relative
 committed aliases for enabled providers, the destructive disabled-provider rule,
 and real ephemeral session-native files. Replace claims that root provider files
 are independent sources.
 
-- [ ] **Step 2: Update the domain glossary**
+- [x] **Step 2: Update the domain glossary**
 
 Ensure the **Repo relation** entry says:
 
@@ -630,20 +630,20 @@ build order, merge order, or automatic promotion. The workflow keeps at most one
 sentence per ordered pair; Rust does not parse or validate it.
 ```
 
-- [ ] **Step 3: Update user journeys**
+- [x] **Step 3: Update user journeys**
 
 State that init creates canonical instructions and its first alias, provider add
 creates its alias, sync repairs topology, and enabled regular aliases require
 human consolidation. Put the destructive disabled-provider behavior next to the
 manifest-editing instructions, not in a footnote.
 
-- [ ] **Step 4: Update command and session references**
+- [x] **Step 4: Update command and session references**
 
 Document `/ivar-relations`, discovery/feature session derivation, and the warning
 when canonical content is unavailable. Keep the statement that sessions still
 open.
 
-- [ ] **Step 5: Run documentation integrity tests**
+- [x] **Step 5: Run documentation integrity tests**
 
 Run:
 
@@ -655,7 +655,7 @@ cargo test --test architecture
 Expected: generated command references and architecture assertions pass; no docs
 describe `CLAUDE.md` or `AGENTS.md` as editable sources.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add ARCHITECTURE.md docs
@@ -668,7 +668,7 @@ git commit -m "docs(relations): document canonical hall context"
 - Create: `tests/repo_relations.rs`
 - Modify: none expected; failures outside `tests/repo_relations.rs` must be reported as follow-up work rather than patched opportunistically
 
-- [ ] **Step 1: Write the compiled-binary lifecycle test**
+- [x] **Step 1: Write the compiled-binary lifecycle test**
 
 Using existing integration helpers and a temporary Git hall, prove:
 
@@ -682,13 +682,13 @@ Using existing integration helpers and a temporary Git hall, prove:
 8. missing HALL warns but session materialization succeeds;
 9. all fifteen workflow commands materialize for both providers.
 
-- [ ] **Step 2: Run the new integration target**
+- [x] **Step 2: Run the new integration target**
 
 Run: `cargo test --test repo_relations`
 
 Expected: every lifecycle assertion passes against the compiled binary.
 
-- [ ] **Step 3: Format and inspect only intended changes**
+- [x] **Step 3: Format and inspect only intended changes**
 
 Run:
 
@@ -701,7 +701,7 @@ git diff --check
 Expected: formatting and whitespace checks pass; the diff contains only this
 feature's files and no unrelated working-tree changes.
 
-- [ ] **Step 4: Run the full quality gate**
+- [x] **Step 4: Run the full quality gate**
 
 Run:
 
@@ -714,7 +714,7 @@ cargo build --release
 Expected: all tests pass, clippy is clean, and release build embeds all fifteen
 Markdown workflows.
 
-- [ ] **Step 5: Perform a disposable smoke test**
+- [x] **Step 5: Perform a disposable smoke test**
 
 In a temporary directory, initialize a hall, add two local bare remotes, add both
 providers, run sync and doctor, inspect relative symlinks, then materialize one
@@ -722,7 +722,7 @@ discovery and one feature session. Expected: doctor is clean, aliases target
 `HALL.md`, session files contain canonical bytes, and repo add advertises the
 relations journey.
 
-- [ ] **Step 6: Commit final test corrections if any**
+- [x] **Step 6: Commit final test corrections if any**
 
 ```bash
 git add tests/repo_relations.rs src tests ARCHITECTURE.md docs
