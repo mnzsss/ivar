@@ -33,6 +33,13 @@
 //! operation — an agent handed such a prompt would implement nothing for
 //! that id and no one would notice until review.
 //!
+//! A third miss is checked because it once got through: an entry that exists
+//! and says nothing. Requiring only that `**<id>**` *appear* is a gate that
+//! passes `**OP-A**` followed by a blank line, and the prompt it lets out
+//! reads `**OP-A** — **OP-A**` — the operation's name where its description
+//! should be. The presence of the marker was never the thing worth checking;
+//! the presence of the *text* is. See [`operation_text`].
+//!
 //! # Replies from a human
 //!
 //! A workstream that blocked on a question is relaunched from scratch by the
@@ -48,6 +55,8 @@
 //! caller that already read the plan and already holds the workstream (e.g.
 //! from a loaded [`crate::domain::feature::ExecutionBoard`]) renders without
 //! touching the filesystem again.
+
+use std::collections::BTreeSet;
 
 use crate::domain::feature::WorkstreamDef;
 use crate::error::{Failure, FixAction};
@@ -72,6 +81,13 @@ pub fn render(
     let owned = plan_workstreams
         .iter()
         .find(|entry| entry.id == workstream.id);
+    // Every operation id the plan declares, whoever owns it: the only text
+    // that reliably marks where one entry in Operation details ends and the
+    // next begins. See [`operation_text`]'s "Where an entry ends".
+    let declared: BTreeSet<&str> = plan_workstreams
+        .iter()
+        .flat_map(|entry| entry.operations.iter().map(String::as_str))
+        .collect();
 
     let mut details = Vec::with_capacity(workstream.operations.len());
     for id in &workstream.operations {
@@ -86,13 +102,16 @@ pub fn render(
                 ),
             ));
         }
-        let text = operation_text(plan_text, id).ok_or_else(|| {
+        let text = operation_text(plan_text, id, &declared).ok_or_else(|| {
             missing_operation(
                 workstream,
                 id,
                 format!("no `**{id}**` entry in the plan's Operation details"),
             )
         })?;
+        if text.is_empty() {
+            return Err(empty_operation(workstream, id));
+        }
         details.push((id.as_str(), text));
     }
 
@@ -116,20 +135,101 @@ fn missing_operation(workstream: &WorkstreamDef, id: &str, actual: impl Into<Str
     ))
 }
 
-/// Find `id`'s verbatim paragraph in the plan's `## Operation details`
-/// section: a line starting with `**<id>**`, followed by any immediately
-/// continuing (non-blank) lines, joined back into one line the way Markdown
-/// reflows a wrapped paragraph.
-fn operation_text(plan_text: &str, id: &str) -> Option<String> {
+/// The "operation entry with nothing in it" refusal — the marker is there,
+/// the description is not.
+fn empty_operation(workstream: &WorkstreamDef, id: &str) -> Failure {
+    Failure::blocked(
+        "execute.operation_text_empty",
+        format!(
+            "the plan's `**{id}**` entry has no text, so workstream `{}` cannot be told what `{id}` is",
+            workstream.id
+        ),
+    )
+    .expected("every `**OP-***` entry in the plan's Operation details to be followed by the text describing it, beside the marker or in the paragraph under it")
+    .actual(format!(
+        "`**{id}**` is followed by the next entry or the next heading — an executor handed this prompt would read `**{id}** — {id}` and nothing else"
+    ))
+    .fix(FixAction::safe(
+        "execute.fix_plan_or_graph",
+        format!("Write the description of `{id}` under its `**{id}**` entry in the plan's Operation details."),
+    ))
+}
+
+/// Find `id`'s text in the plan's `## Operation details` section.
+///
+/// `None` means the plan has no `**<id>**` line at all. `Some(text)` means the
+/// entry exists and `text` is what it says — **possibly empty**, which the
+/// caller refuses; see [`empty_operation`]. The two are kept apart because
+/// they are different authoring mistakes and deserve different refusals.
+///
+/// # Both shapes of an entry
+///
+/// Markdown gives an author two ways to write one, and the plans this renders
+/// use both:
+///
+/// ```text
+/// **OP-A** — beside the marker, wrapping
+/// onto as many lines as it likes.
+///
+/// **OP-B**
+///
+/// Under the marker, after the blank line
+/// that separates the two.
+/// ```
+///
+/// Reading only the first shape is not a partial parse, it is a silent one:
+/// the second shape yields the marker line alone, which renders as
+/// `**OP-B** — **OP-B**` — an operation with a name and no description, which
+/// is exactly what three workstreams were once launched with. So the blank
+/// line under a bare marker is crossed, not treated as the end of the entry.
+///
+/// # Where an entry ends
+///
+/// At a blank line (the paragraph is over), at a Markdown heading, or at the
+/// marker of another operation **the plan declares** — `declared` carries
+/// every id from the plan's own Operations section, whoever owns it.
+///
+/// Asking the plan which ids exist, rather than reading the shape of the
+/// text, is the whole point. The blunt rule that came first — any line opening
+/// with `**token**` starts a new entry — truncated a description at `**410**`,
+/// the HTTP status the operation existed to specify. Bold text mid-paragraph
+/// is prose: a status code, a constant, an emphasised word. Only a declared id
+/// is a boundary.
+///
+/// The one exception is the line immediately after a blank one, where anything
+/// entry-shaped is an entry (see [`begins_an_entry`]) — that is what stops a
+/// bare `**OP-A**` from swallowing the entry below it, including one the plan
+/// forgot to declare.
+///
+/// The marker itself is stripped, along with whatever separator the author
+/// put after it. [`render_body`] writes `**<id>** — <text>`, so leaving the
+/// marker in returns it twice.
+fn operation_text(plan_text: &str, id: &str, declared: &BTreeSet<&str>) -> Option<String> {
     let marker = format!("**{id}**");
     let mut lines = plan_text.lines().peekable();
     while let Some(line) = lines.next() {
-        if !line.trim_start().starts_with(&marker) {
+        let Some(rest) = line.trim().strip_prefix(marker.as_str()) else {
             continue;
+        };
+        let mut paragraph = Vec::new();
+        let beside_the_marker = strip_separator(rest);
+        if beside_the_marker.is_empty() {
+            // Nothing beside the marker: the text is under it, past the blank
+            // line Markdown puts between a lead-in and its paragraph. What
+            // sits immediately after that blank line is the one place a bold
+            // token is an entry on sight — so an entry the plan never declared
+            // still ends this one rather than being swallowed into it.
+            while lines.peek().is_some_and(|next| next.trim().is_empty()) {
+                lines.next();
+            }
+            if lines.peek().is_some_and(|next| begins_an_entry(next)) {
+                return Some(String::new());
+            }
+        } else {
+            paragraph.push(beside_the_marker.to_owned());
         }
-        let mut paragraph = vec![line.trim().to_owned()];
         while let Some(next) = lines.peek() {
-            if next.trim().is_empty() {
+            if next.trim().is_empty() || interrupts_the_entry(next, declared) {
                 break;
             }
             paragraph.push(next.trim().to_owned());
@@ -138,6 +238,54 @@ fn operation_text(plan_text: &str, id: &str) -> Option<String> {
         return Some(paragraph.join(" "));
     }
     None
+}
+
+/// Drop the separator an author writes between a marker and its text on the
+/// same line, so [`render_body`] can put back exactly one.
+fn strip_separator(text: &str) -> &str {
+    let text = text.trim();
+    for separator in ["—", "–", ":", "-"] {
+        if let Some(rest) = text.strip_prefix(separator) {
+            return rest.trim();
+        }
+    }
+    text
+}
+
+/// Does `line` look like the beginning of an entry — a heading, or a line
+/// opening with `**token**`?
+///
+/// Only ever asked of the line immediately after a blank one, where anything
+/// of that shape is an entry and nothing else can be. Asking it of a line
+/// *inside* a paragraph is what truncated a description at `**410**`; that
+/// question is [`interrupts_the_entry`]'s, and it has a stricter answer.
+fn begins_an_entry(line: &str) -> bool {
+    let trimmed = line.trim();
+    trimmed.starts_with('#') || bold_token(trimmed).is_some()
+}
+
+/// Does `line`, reached mid-paragraph with no blank line before it, end the
+/// entry being read?
+///
+/// Only two things do: a Markdown heading, and the marker of an operation the
+/// plan actually **declares**. Every other bold token is prose — a status
+/// code, a constant, an emphasised word — and treating it as a boundary drops
+/// the rest of the description on the floor. The plan's own Operations section
+/// is the authority on which ids exist, so this asks it instead of guessing
+/// from the shape of the text.
+fn interrupts_the_entry(line: &str, declared: &BTreeSet<&str>) -> bool {
+    let trimmed = line.trim();
+    if trimmed.starts_with('#') {
+        return true;
+    }
+    bold_token(trimmed).is_some_and(|token| declared.contains(token))
+}
+
+/// The `token` in a line opening with `**token**`, when there is one and it
+/// holds no whitespace — the shape every operation marker has.
+fn bold_token(trimmed: &str) -> Option<&str> {
+    let (token, _) = trimmed.strip_prefix("**")?.split_once("**")?;
+    (!token.is_empty() && !token.contains(char::is_whitespace)).then_some(token)
 }
 
 /// Assemble the prompt body once every operation has been checked and its

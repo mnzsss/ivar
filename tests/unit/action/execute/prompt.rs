@@ -118,6 +118,14 @@ fn render_composes_owned_operations_verbatim_text_and_write_contract() {
         "**OP-A** — Do the first thing, carefully, across two files that must stay in sync with each other."
     ));
     assert!(prompt.contains("**OP-B** — Do the second thing."));
+    // The marker is written once by the renderer. Returning it attached to the
+    // text as well produced `**OP-A** — **OP-A** — Do the first thing…`, which
+    // a `contains` assertion cannot see because it matches the tail.
+    assert_eq!(
+        prompt.matches("**OP-A**").count(),
+        1,
+        "the operation marker was rendered twice: {prompt}"
+    );
     assert!(prompt.contains("src/action/execute/plan_ops.rs"));
     assert!(prompt.contains("src/action/execute/prompt.rs"));
     assert!(prompt.contains("one of several workstreams"));
@@ -212,4 +220,178 @@ fn a_workstream_with_no_replies_renders_no_answers_section() {
     let prompt = render(PLAN_TEXT, &workstream, &[]).unwrap();
 
     assert!(!prompt.contains("Answers from the human"));
+}
+
+// -- Operation details: the body under the marker ------------------------
+
+/// The plan shape that flew three workstreams blind: the marker alone on its
+/// line, the body in the paragraph *under* it. The parser stopped at the
+/// blank line between them and handed the executor `**OP-A** — **OP-A**` —
+/// the operation's name and nothing else.
+#[test]
+fn an_operation_whose_body_sits_under_its_marker_is_rendered() {
+    const PLAN: &str = "# Plan\n\
+        \n\
+        ## Operation details\n\
+        \n\
+        **OP-A**\n\
+        \n\
+        Delete the backend that is gone, and every wire that fed it,\n\
+        including the two callers in the TUI.\n\
+        \n\
+        ## Operations\n\
+        \n\
+        ### prompt-render\n\
+        - OP-A\n\
+        write_contract:\n\
+        - src/action/execute/prompt.rs\n";
+    let workstream = seeded_workstream(
+        "prompt-render",
+        &["OP-A"],
+        &["src/action/execute/prompt.rs"],
+    );
+
+    let prompt = render(PLAN, &workstream, &[]).unwrap();
+
+    assert!(
+        prompt.contains(
+            "**OP-A** — Delete the backend that is gone, and every wire that fed it, including the two callers in the TUI."
+        ),
+        "body under the marker was dropped: {prompt}"
+    );
+    assert!(
+        !prompt.contains("**OP-A** — **OP-A**"),
+        "the operation rendered as its own name: {prompt}"
+    );
+}
+
+/// An entry that exists but says nothing must be refused, not rendered. The
+/// gate that only checked the marker's *presence* is the gate that passed a
+/// nameless prompt through twice.
+#[test]
+fn an_operation_entry_with_no_text_is_blocked() {
+    const PLAN: &str = "# Plan\n\
+        \n\
+        ## Operation details\n\
+        \n\
+        **OP-A**\n\
+        \n\
+        **OP-B** — Do the second thing.\n\
+        \n\
+        ## Operations\n\
+        \n\
+        ### prompt-render\n\
+        - OP-A\n\
+        write_contract:\n\
+        - src/action/execute/prompt.rs\n";
+    let workstream = seeded_workstream(
+        "prompt-render",
+        &["OP-A"],
+        &["src/action/execute/prompt.rs"],
+    );
+
+    let failure = render(PLAN, &workstream, &[]).unwrap_err();
+
+    assert_eq!(failure.status, Status::Blocked);
+    assert!(failure.what.contains("OP-A"));
+    assert!(
+        !format!("{failure:?}").contains("Do the second thing"),
+        "an empty entry borrowed the next operation's text: {failure:?}"
+    );
+}
+
+/// The same emptiness at the end of the section: nothing follows the marker
+/// but the next heading, so there is no text to hand anyone.
+#[test]
+fn an_operation_entry_with_nothing_but_a_heading_after_it_is_blocked() {
+    const PLAN: &str = "# Plan\n\
+        \n\
+        ## Operation details\n\
+        \n\
+        **OP-A**\n\
+        \n\
+        ## Operations\n\
+        \n\
+        ### prompt-render\n\
+        - OP-A\n\
+        write_contract:\n\
+        - src/action/execute/prompt.rs\n";
+    let workstream = seeded_workstream(
+        "prompt-render",
+        &["OP-A"],
+        &["src/action/execute/prompt.rs"],
+    );
+
+    let failure = render(PLAN, &workstream, &[]).unwrap_err();
+
+    assert_eq!(failure.status, Status::Blocked);
+    assert!(failure.what.contains("OP-A"));
+}
+
+/// A description that leans on a bold token mid-paragraph — an HTTP status, a
+/// constant, an emphasised word — is not the next entry. Reading it as one
+/// truncated `OP-BACKEND-GONE` at "passa a responder", cutting the exact
+/// discriminator the operation existed to state.
+#[test]
+fn a_bold_token_inside_a_description_does_not_truncate_it() {
+    const PLAN: &str = "# Plan\n\
+        \n\
+        ## Operation details\n\
+        \n\
+        **OP-A**\n\
+        \n\
+        Delete the backend. The route passa a responder\n\
+        **410** com o corpo do gone-comment, e nada mais.\n\
+        \n\
+        ## Operations\n\
+        \n\
+        ### prompt-render\n\
+        - OP-A\n\
+        write_contract:\n\
+        - src/action/execute/prompt.rs\n";
+    let workstream = seeded_workstream(
+        "prompt-render",
+        &["OP-A"],
+        &["src/action/execute/prompt.rs"],
+    );
+
+    let prompt = render(PLAN, &workstream, &[]).unwrap();
+
+    assert!(
+        prompt.contains(
+            "**OP-A** — Delete the backend. The route passa a responder **410** com o corpo do gone-comment, e nada mais."
+        ),
+        "the description was truncated at a bold token: {prompt}"
+    );
+}
+
+/// The entry that *is* next still ends the one before it, even when the plan
+/// declares it — the boundary that matters is a declared operation id, not
+/// any bold text.
+#[test]
+fn the_next_declared_operation_still_ends_the_entry_before_it() {
+    const PLAN: &str = "# Plan\n\
+        \n\
+        ## Operation details\n\
+        \n\
+        **OP-A** — Do the first thing.\n\
+        **OP-B** — Do the second thing.\n\
+        \n\
+        ## Operations\n\
+        \n\
+        ### prompt-render\n\
+        - OP-A\n\
+        - OP-B\n\
+        write_contract:\n\
+        - src/action/execute/prompt.rs\n";
+    let workstream = seeded_workstream(
+        "prompt-render",
+        &["OP-A", "OP-B"],
+        &["src/action/execute/prompt.rs"],
+    );
+
+    let prompt = render(PLAN, &workstream, &[]).unwrap();
+
+    assert!(prompt.contains("**OP-A** — Do the first thing.\n"));
+    assert!(prompt.contains("**OP-B** — Do the second thing.\n"));
 }
