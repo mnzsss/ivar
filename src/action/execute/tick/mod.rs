@@ -65,15 +65,27 @@
 //!
 //! [`WorkstreamStatus`] has no `Failed` variant — only `Waiting`, `Active`,
 //! `Done`, `Blocked`, `Paused`. A clean exit maps to `Done`; a non-zero exit,
-//! a signal death, a spawn failure, or an `AskUserQuestion` tool call all map
-//! to `Blocked` (with `board.blocked_by` naming the workstream and the board
-//! following it to [`ExecutionStatus::Blocked`]) — the closest existing
+//! a signal death, a spawn failure, or an `AskUserQuestion` tool call (Claude
+//! Code only — see "A harness that cannot ask") all map to `Blocked` (with
+//! `board.blocked_by` naming the workstream and the board following it to
+//! [`ExecutionStatus::Blocked`]) — the closest existing
 //! status to "stopped, needs a human", mirroring exactly what `reply`
 //! reverses. Either way the workstream leaves `Active` for good: it can never
 //! stay active after its process is gone, and a later `tick` can make
 //! progress on the rest of the graph. Adding a dedicated
 //! `WorkstreamStatus::Failed` is outside this module's write contract
 //! (`domain::feature.rs`); flagged rather than done silently.
+//!
+//! # A harness that cannot ask
+//!
+//! Not every harness can ask a question — OpenCode cannot, headlessly, for the
+//! reasons [`crate::harness::stream`] sets out. A workstream on one can only
+//! finish or fail; it never reaches `Blocked` waiting for `reply`. That is
+//! declared rather than discovered: this module reads
+//! [`crate::harness::Capabilities::supports_questions`] and writes one
+//! `harness.no_questions` journal entry per such launch, before any child
+//! spawns, so a run that never pauses for a human reads as intended behaviour
+//! rather than as a question that went missing.
 //!
 //! # The native session id
 //!
@@ -307,6 +319,7 @@ pub fn tick(ctx: &Ctx, input: TickInput) -> Outcome<TickOutcome> {
     // succeeding and the rest silently never starting.
     let mut jobs = Vec::with_capacity(to_launch.len());
     let mut command_displays = BTreeMap::new();
+    let mut cannot_ask = Vec::new();
     for ws in &board.graph.workstreams {
         if !to_launch.contains(&ws.id) {
             continue;
@@ -315,6 +328,9 @@ pub fn tick(ctx: &Ctx, input: TickInput) -> Outcome<TickOutcome> {
             .provider
             .unwrap_or_else(|| manifest.providers().default_provider());
         let harness = Harness::for_provider(provider)?;
+        if !harness.capabilities().supports_questions {
+            cannot_ask.push((ws.id.clone(), harness.binary()));
+        }
         let prompt_text = prompt::render(&plan_text, ws)?;
         let session_id = SessionId::new(uuid::Uuid::new_v4().to_string())?;
         let view_dir = layout.feature_session(&feature, &session_id);
@@ -335,6 +351,17 @@ pub fn tick(ctx: &Ctx, input: TickInput) -> Outcome<TickOutcome> {
             view_dir,
             command,
         });
+    }
+
+    // See "A harness that cannot ask": journalled before any child spawns.
+    for (workstream_id, binary) in cannot_ask {
+        board.push_journal(JournalEntry::new(
+            workstream_id,
+            "harness.no_questions",
+            format!(
+                "`{binary}` cannot ask a question in headless execute mode; this workstream will finish or fail, never block for `ivar feature execute reply`"
+            ),
+        ));
     }
 
     // Register every session and flip its workstream to `Active`
