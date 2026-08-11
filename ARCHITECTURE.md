@@ -9,7 +9,7 @@ dependency was chosen, see [ADR-0001](docs/adr/0001-stack-and-tooling.md).
 **Repos** as bare clones; a **Feature** is one branch across the repos it has
 **Promoted**; a **Session** materialises a **View Dir** of symlinks into exactly
 those worktrees and opens a harness in it. The repos a feature has not promoted
-are held read-only by the kernel.
+have their worktree root held read-only by the kernel.
 
 Two properties fall out of that and constrain every module below.
 
@@ -19,8 +19,9 @@ conversation and nothing else. So: no state may exist only in a running process,
 and no verb may require a live session to be useful.
 
 **Read-only is a filesystem guarantee, not a harness one.** Non-promoted worktrees
-have their write bits cleared (`mode & ~0o222`). Harness hooks are the *error
-message* that names the way out — `ivar feature promote` — never the barrier. So:
+have their write bits cleared (`mode & ~0o222`) on the worktree root — one path,
+never the tree below it, for a reason `docs/reference/limitations.md` spells out.
+Harness hooks are the *error message* that names the way out — `ivar feature promote` — never the barrier. So:
 supporting a new harness is never blocked on whether it exposes a pre-tool hook.
 
 ## Module map

@@ -64,13 +64,35 @@ Before filing this against `ivar`, check the harness's own permission settings.
 `ivar doctor` reports what it materialised; if `doctor` is clean and the agent
 still cannot act, the refusal is upstream of `ivar`.
 
-## Read-only is a filesystem guarantee, and that is all it is
+## Read-only is a filesystem guarantee, and it covers the worktree root
 
-A repo you have not promoted has its write bits cleared. That is the kernel
-refusing, not a policy an agent can talk its way past — which is the point.
+A repo you have not promoted has its write bits cleared **on the worktree
+directory itself** — `mode & ~0o222` on that one path, not on the tree beneath
+it. That is the kernel refusing, not a policy an agent can talk its way past,
+and it is what stops a non-promoted repo from gaining, losing, or renaming a
+top-level entry.
+
+It does not make the files below read-only, and it should not be read as if it
+did. Write permission on a directory governs its *entries*, not their contents:
+`packages/api/index.ts` in a non-promoted repo is still mode 644, and an agent
+that opens it for writing still succeeds.
+
+The obvious hardening — clear the bits recursively — is not available. Package
+managers that hardlink out of a content-addressed store (pnpm, bun) leave a
+worktree full of files whose inode is shared with the store and with every other
+checkout on the machine, and `chmod` acts on the inode, not on the link.
+Guarding one worktree recursively would change permissions inside that store and
+inside unrelated projects. A per-file guarantee needs a sandbox — Landlock, a
+mount namespace — and `ivar` does not run one, which is the sentence the
+write-contract section below also ends on.
+
+So the guard is a hard floor at the root; writes to files that already exist are
+covered by the two layers below it, not by the kernel.
 
 What it does **not** stop:
 
+- Writing a file that already exists in a non-promoted repo — the guard is the
+  worktree root, not the tree under it.
 - A tool running as you with `sudo`, or anything that chmods the bits back.
 - Reading. Non-promoted repos are fully readable; that is what they are for.
 - An agent editing a promoted repo it should have left alone. Promotion is

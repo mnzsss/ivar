@@ -9,7 +9,7 @@
 //!
 //! More importantly: **every one of these ends up in a path**, and this tool
 //! creates directories and worktrees from them. `RepoName("../../etc")` is a
-//! directory traversal in a program that runs `chmod` recursively and removes
+//! directory traversal in a program that chmods worktree roots and removes
 //! trees. Validating at construction means the check happens once, at the edge,
 //! instead of being remembered at each of the hundred places a name is joined
 //! onto a path.
