@@ -9,6 +9,7 @@ use super::*;
 use crate::action::feature::create::{self as feature_create, CreateInput};
 use crate::action::feature::promote::{self as feature_promote, PromoteInput};
 use crate::action::hall::{self, InitInput};
+use crate::action::plan::create::{self as plan_create, CreateInput as PlanCreateInput};
 use crate::domain::name::{BranchName, HallName, RepoName};
 use crate::domain::provider::Provider;
 use crate::store::manifest::{Manifest, Providers, Repo};
@@ -83,7 +84,8 @@ fn discovery_view_dir(layout: &Layout) -> Utf8PathBuf {
     let session_id = SessionId::new(DISCOVERY_ID).unwrap();
     let view_dir = layout.discovery_session(&session_id);
     let manifest = Manifest::read(layout).unwrap().unwrap();
-    materialise_view_dir(layout, &manifest, None, &view_dir).unwrap();
+    crate::action::session::view::materialise(layout, &manifest, None, Provider::ClaudeCode, &view_dir)
+        .unwrap();
     let state = SessionState::new(Provider::ClaudeCode, STARTED_AT);
     state.write(&view_dir).unwrap();
     view_dir
@@ -154,6 +156,58 @@ fn convert_moves_the_view_dir_and_rebuilds_symlinks() {
 
     // The transition marker is gone.
     assert!(!fs::exists(&transition_path(&layout, &feature_name())).unwrap());
+    unguard_worktrees(&root);
+}
+
+/// Conversion binds the discovery session to the feature, and the rematerialised
+/// View Dir gains what a feature session carries: the projected plan and the
+/// bootstrap instructions. The plan was *not* reachable from the discovery
+/// view dir before the conversion.
+#[test]
+fn convert_projects_the_plan_and_writes_bootstrap_instructions() {
+    let (_guard, root) = hall_with_discovery_session();
+    let ctx = Ctx::new(root.clone());
+    let layout = Layout::at(root.clone());
+    plan_create::create(
+        &ctx,
+        PlanCreateInput {
+            feature: "checkout".to_owned(),
+        },
+    )
+    .unwrap();
+
+    let old_dir = discovery_view_dir(&layout);
+    assert_eq!(
+        fs::read_symlink(&old_dir.join("plans")).unwrap(),
+        fs::SymlinkTarget::Absent,
+        "a discovery session carries no plan projection"
+    );
+    assert_eq!(
+        fs::read_text(&old_dir.join("CLAUDE.md")).unwrap(),
+        None,
+        "a discovery session carries no bootstrap instructions"
+    );
+
+    convert(
+        &ctx,
+        ConvertInput {
+            session_id: DISCOVERY_ID.to_owned(),
+            feature: "checkout".to_owned(),
+        },
+    )
+    .unwrap();
+
+    let session_id = SessionId::new(DISCOVERY_ID).unwrap();
+    let new_dir = layout.feature_session(&feature_name(), &session_id);
+    assert!(
+        fs::is_file(&new_dir.join("plans/checkout/requirements.md")).unwrap(),
+        "the converted view dir must project the feature's plan"
+    );
+    let instructions = fs::read_text(&new_dir.join("CLAUDE.md")).unwrap().unwrap();
+    assert!(
+        instructions.contains("ivar session — feature `checkout`"),
+        "the converted view dir must carry the bootstrap instructions: {instructions}"
+    );
     unguard_worktrees(&root);
 }
 
@@ -232,7 +286,14 @@ fn convert_refuses_a_feature_session() {
     let feature_dir = layout.feature_session(&feature_name(), &feature_session_id);
     let manifest = Manifest::read(&layout).unwrap().unwrap();
     let feature = Feature::read(&layout, &feature_name()).unwrap().unwrap();
-    materialise_view_dir(&layout, &manifest, Some(&feature), &feature_dir).unwrap();
+    crate::action::session::view::materialise(
+        &layout,
+        &manifest,
+        Some(&feature),
+        Provider::ClaudeCode,
+        &feature_dir,
+    )
+    .unwrap();
     let mut state = SessionState::new(Provider::ClaudeCode, STARTED_AT);
     state.bind(feature_name(), STARTED_AT);
     state.write(&feature_dir).unwrap();

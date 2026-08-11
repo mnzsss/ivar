@@ -9,6 +9,7 @@ use super::*;
 use crate::action::feature::create::{self as feature_create, CreateInput};
 use crate::action::feature::promote::{self as feature_promote, PromoteInput};
 use crate::action::hall::{self, InitInput};
+use crate::action::plan::create::{self as plan_create, CreateInput as PlanCreateInput};
 use crate::action::session::start::{self as session_start, StartInput};
 use crate::domain::name::{BranchName, HallName, RepoName};
 use crate::domain::provider::Provider;
@@ -330,7 +331,14 @@ fn connect_resolves_a_discovery_session() {
         crate::domain::name::SessionId::new("2c6e6f1e-2d8a-4b3a-9c2a-6a7f6f9a1b2c".to_owned())
             .unwrap();
     let view_dir = layout.discovery_session(&session_id);
-    materialise_view_dir(&layout, &manifest, None, &view_dir).unwrap();
+    crate::action::session::view::materialise(
+        &layout,
+        &manifest,
+        None,
+        Provider::ClaudeCode,
+        &view_dir,
+    )
+    .unwrap();
     let state = crate::domain::session::SessionState::new(
         Provider::ClaudeCode,
         "2026-01-01T00:00:00.000000000Z",
@@ -367,6 +375,63 @@ fn connect_with_no_filter_is_blocked() {
     .unwrap_err();
 
     assert_eq!(failure.code, "session.lookup_needs_filter");
+    unguard_worktrees(&root);
+}
+
+/// Connect re-materialises the whole view dir, so a session created before
+/// plan projection and bootstrap instructions existed — or whose entries were
+/// deleted behind ivar's back — is repaired: the plan link, the provider's
+/// commands symlink and the session instruction file all come back.
+#[test]
+fn connect_repairs_the_projected_plan_commands_and_instructions() {
+    let (_guard, root) = hall_with_detached_session();
+    let ctx = Ctx::new(root.clone());
+    let layout = Layout::at(root.clone());
+
+    // Scaffold the plan so the projected path resolves to real artifacts.
+    plan_create::create(
+        &ctx,
+        PlanCreateInput {
+            feature: "checkout".to_owned(),
+        },
+    )
+    .unwrap();
+    let id = session_id_of(&root);
+    let session_id = crate::domain::name::SessionId::new(id.clone()).unwrap();
+    let view_dir = layout.feature_session(&FeatureName::new("checkout").unwrap(), &session_id);
+
+    // Drift: the whole projected plan, the commands symlink and the session
+    // instruction file disappear.
+    fs::remove_path(&view_dir.join("plans")).unwrap();
+    fs::remove_file(&view_dir.join(".claude/commands")).unwrap();
+    fs::remove_file(&view_dir.join("CLAUDE.md")).unwrap();
+    assert!(!fs::exists(&view_dir.join("CLAUDE.md")).unwrap());
+
+    connect(
+        &ctx,
+        ConnectInput {
+            session_id: Some(id),
+            feature: None,
+        },
+    )
+    .unwrap();
+
+    // The projected plan is back and resolves to the hall's plan directory.
+    assert!(
+        fs::is_file(&view_dir.join("plans/checkout/requirements.md")).unwrap(),
+        "connect must restore the projected plan"
+    );
+    // The provider's commands reach the agent again.
+    assert!(
+        fs::is_file(&view_dir.join(".claude/commands/ivar-execute.md")).unwrap(),
+        "connect must restore the provider's commands symlink"
+    );
+    // The session instruction file is back, with the bootstrap block.
+    let instructions = fs::read_text(&view_dir.join("CLAUDE.md")).unwrap().unwrap();
+    assert!(
+        instructions.contains("ivar session — feature `checkout`"),
+        "connect must restore the bootstrap instructions: {instructions}"
+    );
     unguard_worktrees(&root);
 }
 

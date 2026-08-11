@@ -73,6 +73,7 @@ use crate::error::{Failure, FixAction};
 use crate::infra::{fs, json};
 
 mod mcp;
+pub(crate) mod session;
 
 pub use mcp::{materialise_mcp, remove_mcp};
 

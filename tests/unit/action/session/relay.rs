@@ -290,6 +290,14 @@ fn api_link_target(root: &camino::Utf8Path, session_id: &str) -> String {
     }
 }
 
+/// The symlink target `link` points at, panicking on anything else.
+fn read_link_target(link: &camino::Utf8Path) -> camino::Utf8PathBuf {
+    match fs::read_symlink(link).unwrap() {
+        fs::SymlinkTarget::Target(target) => target,
+        other => panic!("expected a symlink, got {other:?}"),
+    }
+}
+
 #[test]
 fn relay_without_a_previous_session_is_blocked() {
     let (_guard, root) = hall_root();
@@ -391,6 +399,78 @@ fn relay_output_when_no_board_exists_shows_zero_of_zero() {
     assert!(
         text.contains("0 of 0 steps done"),
         "no board → zero of zero, was: {text}"
+    );
+    unguard_worktrees(&root);
+}
+
+/// The relay's View Dir is materialised for the **relayed** provider, not the
+/// hall's default: a Claude → OpenCode relay must land on `.opencode/` (with
+/// OpenCode's commands) and `AGENTS.md`, even though the hall's default — and
+/// the session being relayed from — is claude-code. This is the fix for the
+/// relay leaving the new session with the previous provider's harness
+/// materialised.
+#[test]
+fn relay_materialises_the_relayed_providers_config() {
+    let (_guard, root) = hall_with_provider_session();
+    let ctx = Ctx::new(root.clone());
+    let layout = Layout::at(root.clone());
+
+    let report = relay(
+        &ctx,
+        RelayInput {
+            feature: "checkout".to_owned(),
+            provider: "opencode".to_owned(),
+        },
+    )
+    .unwrap();
+    let view_dir = layout.feature_session(
+        &report.value.feature,
+        &crate::domain::name::SessionId::new(report.value.session_id.clone()).unwrap(),
+    );
+
+    // The relayed session's own provider materialises its config dir…
+    assert!(
+        fs::is_dir(&view_dir.join(".opencode")).unwrap(),
+        "the relayed session must materialise .opencode, not .claude"
+    );
+    assert_eq!(
+        fs::read_symlink(&view_dir.join(".opencode")).unwrap(),
+        fs::SymlinkTarget::NotASymlink,
+        "the config dir must be a real directory, not a symlink"
+    );
+    // …with OpenCode's commands reachable through the symlink…
+    let commands = read_link_target(&view_dir.join(".opencode/commands"));
+    assert_eq!(
+        commands,
+        layout.commands_dir(&Provider::OpenCode),
+        "commands must resolve to the hall's opencode commands dir"
+    );
+    // …and the previous provider's config must not appear.
+    assert_eq!(
+        fs::read_symlink(&view_dir.join(".claude")).unwrap(),
+        fs::SymlinkTarget::Absent,
+        "the relayed session must not carry the previous provider's config"
+    );
+
+    // The provider-native instruction file exists and carries the session
+    // bootstrap: this is the continuation contract the relay exists to
+    // deliver.
+    let agents = fs::read_text(&view_dir.join("AGENTS.md")).unwrap().unwrap();
+    assert!(
+        agents.contains("ivar session — feature `checkout`"),
+        "AGENTS.md must carry the session bootstrap block: {agents}"
+    );
+    assert!(
+        agents.contains("ivar plan status plans/checkout/plan.md"),
+        "AGENTS.md must tell the agent how to re-derive the SPDD stage: {agents}"
+    );
+
+    // The active plan is projected into the view dir.
+    let plan_link = read_link_target(&view_dir.join("plans/checkout"));
+    assert_eq!(
+        plan_link,
+        layout.plan_dir(&report.value.feature),
+        "plans/checkout must resolve to the hall's committed plan directory"
     );
     unguard_worktrees(&root);
 }

@@ -15,3 +15,4 @@ pub mod prune;
 pub mod relay;
 pub mod start;
 pub mod stop;
+pub(crate) mod view;
