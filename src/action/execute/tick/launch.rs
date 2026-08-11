@@ -20,7 +20,7 @@ use crate::infra::{fs, proc};
 use crate::store::layout::Layout;
 use crate::store::manifest::Manifest;
 
-use super::super::super::session::start;
+use super::super::super::session::view;
 use super::events::TickEvent;
 
 #[cfg(test)]
@@ -110,7 +110,7 @@ pub(super) fn run_launch(
     };
 
     if let Err(failure) =
-        start::materialise_view_dir(&layout, &manifest, Some(&feature_record), &job.view_dir)
+        view::materialise(&layout, &manifest, Some(&feature_record), job.provider, &job.view_dir)
     {
         send(ExecutorEvent::Failed {
             error: failure.to_string(),

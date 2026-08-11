@@ -35,7 +35,7 @@ use crate::store::manifest::Manifest;
 
 use super::super::{discover_hall, read_manifest};
 use super::lookup;
-use super::start::materialise_view_dir;
+use super::view;
 use crate::action::Ctx;
 
 /// What `ivar session convert` needs.
@@ -276,9 +276,25 @@ fn run_conversion(
     }
 
     // Step 3 — rebuild the View Dir for the target feature, and clear the
-    // transition: the conversion is complete.
+    // transition: the conversion is complete. The provider comes from the
+    // session's own record, which the move carried along untouched — a
+    // discovery session keeps the provider it started under.
     if transition.step == Step::Rematerialize {
-        materialise_view_dir(layout, manifest, Some(feature), &dest)?;
+        let provider = SessionState::read(&dest)?
+            .ok_or_else(|| {
+                Failure::blocked(
+                    "session.state_missing",
+                    format!("session `{}` has no session record", transition.session_id),
+                )
+                .expected("a session with a `state.json` in its view dir")
+                .actual("the view dir exists but no state.json does")
+                .fix(FixAction::safe(
+                    "session.start_fresh",
+                    "Start a fresh session instead — conversion needs the session's record.",
+                ))
+            })?
+            .provider();
+        view::materialise(layout, manifest, Some(feature), provider, &dest)?;
         fs::remove_file(&transition_path(layout, feature_name))?;
     }
 

@@ -14,12 +14,13 @@
 //! a **real directory**, not a symlink to the hall's — only its `commands/`
 //! subdirectory is symlinked back to the hall, so the hall's shipped
 //! `/ivar-*` commands reach the agent without a session's config writes
-//! landing in the hall. See [`materialise_view_dir`] for why.
+//! landing in the hall. See [`super::view`] for why.
 //!
 //! # What this slice wires
 //!
 //! - The view dir (symlinks per promoted repo; a real harness config dir with
-//!   `commands/` symlinked in from the hall).
+//!   `commands/` symlinked in from the hall; the active plan projected in; the
+//!   bootstrap instructions — see [`super::view`]).
 //! - The harness spawn through [`crate::harness`] with real `portable-pty`.
 //! - The TUI loop, driven by the [`crate::tui`] modules.
 //!
@@ -54,7 +55,7 @@ use crate::tui;
 use crate::tui::driver::{Driver, PtsPty, Pty, ShellSpec};
 
 use super::super::{discover_hall, read_manifest};
-use super::{hook, lookup};
+use super::{hook, lookup, view};
 
 /// What `ivar session start` needs.
 #[derive(Debug, Clone)]
@@ -151,7 +152,7 @@ pub fn start(ctx: &Ctx, input: StartInput) -> Outcome<StartOutcome> {
         Some(feature) => layout.feature_session(&feature.name, &session_id),
         None => layout.discovery_session(&session_id),
     };
-    materialise_view_dir(&layout, &manifest, feature.as_ref(), &view_dir)?;
+    view::materialise(&layout, &manifest, feature.as_ref(), provider, &view_dir)?;
     let started_at = rfc3339_now();
     let mut state = SessionState::new(provider, &started_at);
     if let Some(feature) = &feature {
@@ -323,100 +324,6 @@ fn smart_fetch(git: &impl git::Git, layout: &Layout, manifest: &Manifest) -> Vec
         }
     }
     warnings
-}
-
-/// Materialise `view_dir`: one symlink per registered repo, plus a real
-/// per-session harness config dir (`.claude/` for claude-code, `.opencode/`
-/// for opencode, via [`Provider::config_dir`]) with the hall's `commands/`
-/// symlinked back in.
-///
-/// For a **feature session** (`feature: Some`), a promoted repo is symlinked
-/// to its feature worktree (writable); every other repo is symlinked to its
-/// default-branch worktree and that worktree is held read-only by the kernel
-/// (write bits cleared). For a **discovery session** (`feature: None`), every
-/// repo is a read-only default-branch worktree. This is the idempotent core
-/// `session start`, `session connect`, and `session convert` all run — connect
-/// "repairs" drifted symlinks and guards by running the same materialisation
-/// again, which is a no-op when nothing drifted.
-///
-/// A repo whose worktree is missing is skipped with the rest still linked —
-/// the session should still open for the repos that are there.
-///
-/// # The harness config dir is real, never a symlink
-///
-/// A later per-session write — the execute guard's `settings.json` — lands
-/// inside `<view_dir>/<config_dir>/`. This function used to symlink that
-/// whole directory in from the hall, under the name `.config`: wrong on two
-/// counts. Claude Code reads `.claude/`, never `.config/`, and nothing in
-/// this crate sets `CLAUDE_CONFIG_DIR`, so the hall's standing config —
-/// including the shipped `/ivar-*` commands — never reached a session's
-/// agent at all. And even fixed to the right name, a symlinked directory
-/// would send the guard's per-session `settings.json` into `hall/.claude`
-/// itself, applying one workstream's write guard to every session sharing
-/// the hall.
-///
-/// A real directory keeps per-session state per-session. Only `commands/`
-/// inside it is symlinked back to the hall — via [`Layout::commands_dir`],
-/// not a hardcoded path, so the mapping from provider to dotdir stays in one
-/// place — so the hall's shipped commands still reach the agent. That
-/// symlink follows the same [`fs::replace_symlink_if_changed`] discipline as
-/// the repo links above: re-materialised on every `session connect`, and
-/// left alone when nothing changed, to avoid the transient resolution race
-/// documented on that function. Creating the config dir itself
-/// ([`fs::ensure_dir`]) is unconditional and already idempotent — a
-/// directory that exists is left as is.
-pub(crate) fn materialise_view_dir(
-    layout: &Layout,
-    manifest: &Manifest,
-    feature: Option<&Feature>,
-    view_dir: &camino::Utf8Path,
-) -> Result<(), Failure> {
-    fs::ensure_dir(view_dir)?;
-
-    for repo in manifest.repos() {
-        let worktree = match feature {
-            Some(feature) if feature.is_promoted(repo.name()) => {
-                layout.repo_worktree(repo.name(), &feature.branch)
-            }
-            _ => layout.repo_worktree(repo.name(), repo.default_branch()),
-        };
-        if !fs::is_dir(&worktree)? {
-            continue;
-        }
-        let link = view_dir.join(repo.name().as_str());
-        // Replace only when the target changed: the view dir is re-materialised
-        // on every connect, and an unchanged link must not be renamed (each
-        // rename opens a transient resolution race — see `infra::fs`).
-        fs::replace_symlink_if_changed(&worktree, &link)?;
-        // A repo the session does not promote is held read-only by the kernel:
-        // clear (or re-clear) the write bits on its default-branch worktree.
-        if feature.is_none_or(|feature| !feature.is_promoted(repo.name())) {
-            fs::clear_write_bits(&worktree)?;
-        }
-    }
-
-    // The harness config dir — `.claude/` for claude-code, `.opencode/` for
-    // opencode — is a real directory inside the view dir, never a symlink to
-    // the hall's own (see the doc comment above for why). Only `commands/`
-    // is symlinked back in, so the hall's shipped `/ivar-*` commands reach
-    // the agent.
-    let provider = feature_config_provider(manifest);
-    let config_dir = view_dir.join(provider.config_dir());
-    fs::ensure_dir(&config_dir)?;
-    let hall_commands = layout.commands_dir(&provider);
-    if fs::is_dir(&hall_commands)? {
-        let commands_link = config_dir.join("commands");
-        fs::replace_symlink_if_changed(&hall_commands, &commands_link)?;
-    }
-
-    Ok(())
-}
-
-/// The provider whose config dir materialises in the view dir. Sessions run
-/// the hall's default provider unless told otherwise; the config dir follows
-/// the same rule so it does not depend on a session flag.
-fn feature_config_provider(manifest: &Manifest) -> Provider {
-    manifest.providers().default_provider()
 }
 
 /// Run the TUI over the agent's PTY: pump its output, render one frame, and

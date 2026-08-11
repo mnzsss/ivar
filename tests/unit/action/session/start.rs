@@ -8,6 +8,7 @@ use super::*;
 use crate::action::feature::create::{self as feature_create, CreateInput};
 use crate::action::feature::promote::{self as feature_promote, PromoteInput};
 use crate::action::hall::{self, InitInput};
+use crate::action::plan::create::{self as plan_create, CreateInput as PlanCreateInput};
 use crate::action::session::conversion::{self, ConvertInput};
 use crate::domain::name::{BranchName, HallName, RepoName};
 use crate::domain::provider::Provider;
@@ -76,7 +77,14 @@ fn materialise_view_dir_symlinks_promoted_repos() {
         &crate::domain::name::SessionId::new("2c6e6f1e-2d8a-4b3a-9c2a-6a7f6f9a1b2c").unwrap(),
     );
 
-    materialise_view_dir(&layout, &manifest, Some(&feature), &view_dir).unwrap();
+    crate::action::session::view::materialise(
+        &layout,
+        &manifest,
+        Some(&feature),
+        Provider::ClaudeCode,
+        &view_dir,
+    )
+    .unwrap();
 
     let link = view_dir.join("api");
     assert!(
@@ -111,7 +119,14 @@ fn materialise_view_dir_makes_the_config_dir_real_not_a_symlink() {
         &crate::domain::name::SessionId::new(uuid::Uuid::new_v4().to_string()).unwrap(),
     );
 
-    materialise_view_dir(&layout, &manifest, Some(&feature), &view_dir).unwrap();
+    crate::action::session::view::materialise(
+        &layout,
+        &manifest,
+        Some(&feature),
+        Provider::ClaudeCode,
+        &view_dir,
+    )
+    .unwrap();
 
     let config_dir = view_dir.join(Provider::ClaudeCode.config_dir());
     assert!(
@@ -140,7 +155,14 @@ fn materialise_view_dir_symlinks_hall_commands_into_the_config_dir() {
         &crate::domain::name::SessionId::new(uuid::Uuid::new_v4().to_string()).unwrap(),
     );
 
-    materialise_view_dir(&layout, &manifest, Some(&feature), &view_dir).unwrap();
+    crate::action::session::view::materialise(
+        &layout,
+        &manifest,
+        Some(&feature),
+        Provider::ClaudeCode,
+        &view_dir,
+    )
+    .unwrap();
 
     let commands_link = view_dir
         .join(Provider::ClaudeCode.config_dir())
@@ -173,14 +195,28 @@ fn materialise_view_dir_is_stable_across_repeated_materialisation() {
         &crate::domain::name::SessionId::new(uuid::Uuid::new_v4().to_string()).unwrap(),
     );
 
-    materialise_view_dir(&layout, &manifest, Some(&feature), &view_dir).unwrap();
+    crate::action::session::view::materialise(
+        &layout,
+        &manifest,
+        Some(&feature),
+        Provider::ClaudeCode,
+        &view_dir,
+    )
+    .unwrap();
     let commands_link = view_dir
         .join(Provider::ClaudeCode.config_dir())
         .join("commands");
     let first_target = read_link_target(&commands_link);
 
     // Re-materialise, exactly as `session connect` would.
-    materialise_view_dir(&layout, &manifest, Some(&feature), &view_dir).unwrap();
+    crate::action::session::view::materialise(
+        &layout,
+        &manifest,
+        Some(&feature),
+        Provider::ClaudeCode,
+        &view_dir,
+    )
+    .unwrap();
 
     assert!(
         fs::is_dir(&view_dir.join(Provider::ClaudeCode.config_dir())).unwrap(),
@@ -586,4 +622,233 @@ fn read_link_target(link: &camino::Utf8Path) -> Utf8PathBuf {
         fs::SymlinkTarget::Target(target) => target,
         other => panic!("expected a symlink, got {other:?}"),
     }
+}
+
+/// Undo the read-only guards materialisation applied, so the TempDir can
+/// clean up after the test.
+fn unguard_worktrees(root: &camino::Utf8Path) {
+    let repos = root.join(".ivar/repos");
+    if !fs::is_dir(&repos).unwrap() {
+        return;
+    }
+    for repo in fs::read_dir(&repos).unwrap() {
+        for worktree in fs::read_dir(&repo).unwrap() {
+            let _ = fs::restore_write_bits(&worktree);
+        }
+    }
+}
+
+// -- plan projection and bootstrap instructions ----------------------------
+
+/// A feature session projects **only the active feature's plan** into the
+/// view dir: `plans/<feature>/` resolves to the hall's committed plan
+/// directory, and plans of other features are never reachable.
+#[test]
+fn a_feature_session_projects_only_the_active_plan() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let ctx = Ctx::new(root.clone());
+    let layout = Layout::at(root.clone());
+
+    // Scaffold the plan so the projected path resolves to real artifacts.
+    plan_create::create(
+        &ctx,
+        PlanCreateInput {
+            feature: "checkout".to_owned(),
+        },
+    )
+    .unwrap();
+    // A second feature whose plan must stay out of the session.
+    feature_create::create(
+        &ctx,
+        CreateInput {
+            name: "web".to_owned(),
+            branch: None,
+        },
+    )
+    .unwrap();
+
+    let feature = Feature::read(&layout, &FeatureName::new("checkout").unwrap())
+        .unwrap()
+        .unwrap();
+    let view_dir = layout.feature_session(
+        &FeatureName::new("checkout").unwrap(),
+        &crate::domain::name::SessionId::new(uuid::Uuid::new_v4().to_string()).unwrap(),
+    );
+    crate::action::session::view::materialise(
+        &layout,
+        &manifest_of(&root),
+        Some(&feature),
+        Provider::ClaudeCode,
+        &view_dir,
+    )
+    .unwrap();
+
+    // The active plan resolves through the view dir…
+    assert!(
+        fs::is_file(&view_dir.join("plans/checkout/requirements.md")).unwrap(),
+        "plans/checkout must resolve to the hall's plan directory"
+    );
+    // …and a sibling feature's plan is not projected.
+    assert_eq!(
+        fs::read_symlink(&view_dir.join("plans/web")).unwrap(),
+        fs::SymlinkTarget::Absent,
+        "a feature session must never project another feature's plan"
+    );
+    unguard_worktrees(&root);
+}
+
+/// A discovery session (no feature bound) gets no `plans/` projection at all.
+#[test]
+fn a_discovery_session_projects_no_plans() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root.clone());
+    let view_dir = layout.discovery_session(
+        &crate::domain::name::SessionId::new("2c6e6f1e-2d8a-4b3a-9c2a-6a7f6f9a1b2c".to_owned())
+            .unwrap(),
+    );
+
+    crate::action::session::view::materialise(
+        &layout,
+        &manifest_of(&root),
+        None,
+        Provider::ClaudeCode,
+        &view_dir,
+    )
+    .unwrap();
+
+    assert_eq!(
+        fs::read_symlink(&view_dir.join("plans")).unwrap(),
+        fs::SymlinkTarget::Absent,
+        "a discovery session must not project any plan"
+    );
+    unguard_worktrees(&root);
+}
+
+/// Writing through the projected plan path lands in the hall's committed plan
+/// directory — the projection is a view of the real artifact, not a copy.
+#[test]
+fn writing_through_the_projected_plan_lands_in_the_hall() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let ctx = Ctx::new(root.clone());
+    let layout = Layout::at(root.clone());
+    plan_create::create(
+        &ctx,
+        PlanCreateInput {
+            feature: "checkout".to_owned(),
+        },
+    )
+    .unwrap();
+
+    let feature = Feature::read(&layout, &FeatureName::new("checkout").unwrap())
+        .unwrap()
+        .unwrap();
+    let view_dir = layout.feature_session(
+        &FeatureName::new("checkout").unwrap(),
+        &crate::domain::name::SessionId::new(uuid::Uuid::new_v4().to_string()).unwrap(),
+    );
+    crate::action::session::view::materialise(
+        &layout,
+        &manifest_of(&root),
+        Some(&feature),
+        Provider::ClaudeCode,
+        &view_dir,
+    )
+    .unwrap();
+
+    fs::write_text(
+        &view_dir.join("plans/checkout/requirements.md"),
+        "# Requirements\n\n- [x] edited through the session\n",
+    )
+    .unwrap();
+
+    assert_eq!(
+        fs::read_text(&layout.plan_dir(&feature.name).join("requirements.md"))
+            .unwrap()
+            .unwrap(),
+        "# Requirements\n\n- [x] edited through the session\n",
+        "the edit must land in the hall's committed plan directory"
+    );
+    unguard_worktrees(&root);
+}
+
+/// The feature session's instruction file carries the hall's standing
+/// instructions plus the session bootstrap block — without ever modifying the
+/// hall's own file.
+#[test]
+fn a_feature_session_instruction_file_combines_hall_and_bootstrap() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root.clone());
+
+    // `sync` wrote the hall's managed block into CLAUDE.md.
+    let hall_file = layout.instruction_file(&Provider::ClaudeCode);
+    let hall_before = fs::read_text(&hall_file).unwrap().unwrap();
+    assert!(
+        hall_before.contains("managed:start"),
+        "precondition: the hall instruction file carries the managed block"
+    );
+
+    let feature = Feature::read(&layout, &FeatureName::new("checkout").unwrap())
+        .unwrap()
+        .unwrap();
+    let view_dir = layout.feature_session(
+        &FeatureName::new("checkout").unwrap(),
+        &crate::domain::name::SessionId::new(uuid::Uuid::new_v4().to_string()).unwrap(),
+    );
+    crate::action::session::view::materialise(
+        &layout,
+        &manifest_of(&root),
+        Some(&feature),
+        Provider::ClaudeCode,
+        &view_dir,
+    )
+    .unwrap();
+
+    let view_instructions = fs::read_text(&view_dir.join("CLAUDE.md")).unwrap().unwrap();
+    assert!(
+        view_instructions.contains("ivar session — feature `checkout`"),
+        "the view instruction file must carry the session bootstrap block: {view_instructions}"
+    );
+    assert!(
+        view_instructions.contains("ivar plan status plans/checkout/plan.md"),
+        "the bootstrap block must say how to re-derive the SPDD stage: {view_instructions}"
+    );
+    assert!(
+        view_instructions.contains("managed:start"),
+        "the hall's standing instructions must survive into the view file"
+    );
+
+    // The hall's own file is untouched.
+    assert_eq!(
+        fs::read_text(&hall_file).unwrap().unwrap(),
+        hall_before,
+        "the hall's instruction file must never be modified by materialisation"
+    );
+
+    // Discovery sessions get no instruction file of their own (the agent
+    // reaches the hall's by walk-up, as before).
+    let discovery = layout.discovery_session(
+        &crate::domain::name::SessionId::new(
+            "3d7f7f2e-3e9b-4c4a-8d3b-7b8f8f0a2c3d".to_owned(),
+        )
+        .unwrap(),
+    );
+    crate::action::session::view::materialise(
+        &layout,
+        &manifest_of(&root),
+        None,
+        Provider::ClaudeCode,
+        &discovery,
+    )
+    .unwrap();
+    assert_eq!(
+        fs::read_text(&discovery.join("CLAUDE.md")).unwrap(),
+        None,
+        "a discovery session gets no session instruction file"
+    );
+    unguard_worktrees(&root);
+}
+
+/// The manifest of the hall at `root`.
+fn manifest_of(root: &camino::Utf8Path) -> Manifest {
+    Manifest::read(&Layout::at(root.to_path_buf())).unwrap().unwrap()
 }

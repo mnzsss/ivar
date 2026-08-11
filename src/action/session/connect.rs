@@ -14,11 +14,12 @@ use serde::Serialize;
 
 use crate::domain::feature::Feature;
 use crate::domain::name::FeatureName;
+use crate::domain::session::SessionState;
 use crate::error::{Failure, FixAction, Outcome, Report, WriteHuman};
 
 use super::super::{discover_hall, read_manifest};
 use super::lookup;
-use super::start::materialise_view_dir;
+use super::view;
 use crate::action::Ctx;
 
 /// What `ivar session connect` needs. At least one of the two must be given.
@@ -101,9 +102,18 @@ pub fn connect(ctx: &Ctx, input: ConnectInput) -> Outcome<ConnectOutcome> {
         None => None,
     };
 
-    // Re-materialise: repair drifted symlinks and read-only guards. A no-op
-    // when nothing drifted.
-    materialise_view_dir(&layout, &manifest, feature.as_ref(), &session.view_dir)?;
+    // Re-materialise: repair drifted symlinks, the read-only guards, the
+    // projected plan and the bootstrap instructions. A no-op when nothing
+    // drifted. The provider is the session's own (its record's, or the hall's
+    // default for a legacy session that predates session records) — a session
+    // opened under OpenCode is re-materialised as an OpenCode session, never
+    // as the hall's default provider.
+    let provider = session
+        .state
+        .as_ref()
+        .map(SessionState::provider)
+        .unwrap_or_else(|| manifest.providers().default_provider());
+    view::materialise(&layout, &manifest, feature.as_ref(), provider, &session.view_dir)?;
 
     // The provider's listening ports — a dev server the session's agent may
     // have opened. Best-effort: empty when none are found (ticket 22). A
