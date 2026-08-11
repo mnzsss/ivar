@@ -58,6 +58,9 @@ pub struct AddOutcome {
     pub default_branch: BranchName,
     /// Whether an existing bare clone was reused rather than re-cloned.
     pub bare_clone_reused: bool,
+    /// Provider-neutral guided follow-up for describing this repo in its
+    /// hall. Set only on success; never a warning, failure, or fix action.
+    pub next_action: String,
 }
 
 impl WriteHuman for AddOutcome {
@@ -71,7 +74,8 @@ impl WriteHuman for AddOutcome {
             w,
             "Added repo `{}` at {} ← {}{reused}",
             self.name, self.root, self.url,
-        )
+        )?;
+        writeln!(w, "Next: run `{}`", self.next_action)
     }
 }
 
@@ -190,10 +194,11 @@ pub fn add(ctx: &Ctx, input: AddInput) -> Outcome<AddOutcome> {
 
     Ok(Report::new(AddOutcome {
         root: layout.root().to_path_buf(),
-        name,
+        name: name.clone(),
         url: input.url,
         default_branch,
         bare_clone_reused,
+        next_action: format!("/ivar-relations {name}"),
     }))
 }
 

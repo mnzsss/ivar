@@ -47,18 +47,25 @@ artifacts.
 
 ## Phase 2: Analysis
 
-1. With approved Requirements as context, analyze the codebase to determine:
+1. Read `HALL.md` before analyzing. Select the relations involving potentially
+   affected Repos, follow only the linked topics, and record the relevant
+   context in `analysis.md`. Offer `/ivar-relations` only when cited code
+   evidence contradicts, extends, or obsoletes the prose — and deferring that
+   review never blocks approval of this artifact. This checkpoint never edits
+   `HALL.md`; `/ivar-relations` is the only writer of the relation region.
+
+2. With approved Requirements as context, analyze the codebase to determine:
    - Affected modules (repo + path + impact level)
    - Trade-offs between approaches
    - Risks and mitigations
    - Recommendations
 
-2. Write the Analysis artifact to `plans/<feature>/analysis.md`.
+3. Write the Analysis artifact to `plans/<feature>/analysis.md`.
 
-3. **Pause for human approval.** Show the analysis to the user. Only proceed
+4. **Pause for human approval.** Show the analysis to the user. Only proceed
    after they approve.
 
-4. Call `ivar plan approve <feature> analysis`.
+5. Call `ivar plan approve <feature> analysis`.
 
 ## Phase 3: Plan
 

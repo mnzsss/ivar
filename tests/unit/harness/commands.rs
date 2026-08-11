@@ -12,7 +12,7 @@ use std::collections::BTreeSet;
 #[test]
 fn catalog_is_complete_unique_and_current() {
     let commands = catalog();
-    assert_eq!(commands.len(), 14);
+    assert_eq!(commands.len(), 15);
 
     let ids = commands
         .iter()
@@ -38,21 +38,56 @@ fn catalog_is_complete_unique_and_current() {
     }
 }
 
+/// The relations command is the fifteenth: it has no Bifrost-era predecessor,
+/// so it carries no legacy fingerprint — and every other command keeps its
+/// exact digest, which is what legacy cleanup still recognises.
+#[test]
+fn relations_is_the_fifteenth_command_without_a_legacy_fingerprint() {
+    let commands = catalog();
+
+    let relations = commands
+        .iter()
+        .find(|command| command.id == "relations")
+        .expect("relations is in the catalog");
+    assert_eq!(relations.legacy_sha256, None);
+    assert_eq!(relations.file_name(), "ivar-relations.md");
+    assert_eq!(relations.legacy_file_name(), "relations.md");
+
+    assert_eq!(
+        commands
+            .iter()
+            .filter(|command| command.id != "relations")
+            .count(),
+        14,
+        "the original fourteen commands must all remain"
+    );
+    for command in commands.iter().filter(|command| command.id != "relations") {
+        assert!(
+            command.legacy_sha256.is_some(),
+            "{} must keep its legacy fingerprint",
+            command.id
+        );
+    }
+}
+
 /// Every catalog legacy fingerprint is a real SHA-256 of the artifact it
 /// claims to recognise — a typo would make the digest match nothing and
-/// legacy cleanup would silently never fire.
+/// legacy cleanup would silently never fire. `relations`, which supersedes
+/// nothing, carries `None` and is skipped.
 #[test]
 fn legacy_fingerprints_are_well_formed_hex_sha256() {
     for command in catalog() {
-        assert_eq!(command.legacy_sha256.len(), 64, "{}", command.id);
+        let Some(fingerprint) = command.legacy_sha256 else {
+            continue;
+        };
+        assert_eq!(fingerprint.len(), 64, "{}", command.id);
         assert!(
-            command
-                .legacy_sha256
+            fingerprint
                 .chars()
                 .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()),
             "{}: `{}` is not lowercase hex",
             command.id,
-            command.legacy_sha256
+            fingerprint
         );
     }
 }
@@ -82,7 +117,10 @@ fn the_legacy_fixture_digests_to_its_catalog_constant() {
         .iter()
         .find(|c| c.id == "repo-list")
         .expect("repo-list is in the catalog");
-    assert_eq!(hash::text(LEGACY_REPO_LIST), command.legacy_sha256);
+    assert_eq!(
+        hash::text(LEGACY_REPO_LIST),
+        command.legacy_sha256.unwrap()
+    );
 }
 
 #[test]
@@ -126,7 +164,7 @@ fn materialise_creates_repairs_and_then_becomes_idempotent() {
     let (_guard, dir) = commands_dir();
 
     let first = materialise(&dir).unwrap();
-    assert_eq!(first.len(), 14);
+    assert_eq!(first.len(), 15);
     assert!(first.iter().all(|change| change.change == Change::Created));
 
     fs::write_text(&dir.join("ivar-plan.md"), "changed").unwrap();
@@ -138,7 +176,7 @@ fn materialise_creates_repairs_and_then_becomes_idempotent() {
     );
 
     let third = materialise(&dir).unwrap();
-    assert_eq!(third.len(), 14);
+    assert_eq!(third.len(), 15);
     assert!(
         third
             .iter()
@@ -186,7 +224,7 @@ fn remove_deletes_only_reserved_ivar_commands() {
 
     let changes = remove(&dir).unwrap();
 
-    assert_eq!(changes.len(), 14);
+    assert_eq!(changes.len(), 15);
     assert!(
         changes
             .iter()
@@ -256,7 +294,7 @@ fn inspect_sees_a_healthy_directory_as_current() {
 
     let inspections = inspect(&dir, true).unwrap();
 
-    assert_eq!(inspections.len(), 14);
+    assert_eq!(inspections.len(), 15);
     assert!(
         inspections
             .iter()
@@ -292,11 +330,99 @@ fn inspect_marks_leftover_files_stale_for_a_disabled_provider() {
 
     let inspections = inspect(&dir, false).unwrap();
 
-    assert_eq!(inspections.len(), 14);
+    assert_eq!(inspections.len(), 15);
     assert!(
         inspections
             .iter()
             .all(|inspection| inspection.integrity == Integrity::Stale),
         "a disabled provider's leftovers are all stale: {inspections:?}"
     );
+}
+
+// -- living-context checkpoints -------------------------------------------
+
+/// The embedded source of the shipped command `id`, with line-wrap
+/// whitespace collapsed so a phrase that happens to straddle a wrap still
+/// matches.
+fn embedded(id: &str) -> String {
+    let content = catalog()
+        .iter()
+        .find(|command| command.id == id)
+        .unwrap_or_else(|| panic!("no `{id}` in the catalog"))
+        .content;
+    content.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// The plan checkpoint sits at the beginning of Analysis: read `HALL.md` and
+/// the linked topics of potentially affected Repos, record the context, and
+/// never let a deferred review block approval.
+#[test]
+fn plan_checks_relation_context_at_the_start_of_analysis() {
+    let content = embedded("plan");
+    let analysis = content
+        .find("## Phase 2: Analysis")
+        .expect("plan has an Analysis phase");
+    let after = &content[analysis..];
+    let lower = after.to_lowercase();
+
+    assert!(lower.contains("read `hall.md`"), "was: {after}");
+    assert!(after.contains("linked topics"), "was: {after}");
+    assert!(after.contains("`analysis.md`"), "was: {after}");
+    assert!(after.contains("evidence"), "was: {after}");
+    assert!(after.contains("/ivar-relations"), "was: {after}");
+    assert!(after.contains("never blocks"), "was: {after}");
+}
+
+/// The execute checkpoint runs only after every workstream is terminal, and
+/// the offer is neither replan nor reconcile.
+#[test]
+fn execute_checks_relation_context_after_every_workstream_is_terminal() {
+    let content = embedded("execute");
+
+    assert!(
+        content.contains("every workstream is terminal"),
+        "was: {content}"
+    );
+    assert!(content.contains("journal"), "was: {content}");
+    assert!(content.contains("evidence"), "was: {content}");
+    assert!(content.contains("/ivar-relations"), "was: {content}");
+    assert!(
+        content.contains("does not alter execution completion"),
+        "was: {content}"
+    );
+    assert!(
+        content.contains("not a replan or reconcile"),
+        "was: {content}"
+    );
+}
+
+/// The deliver checkpoint sits between preview and apply, and deferring it
+/// neither blocks apply nor invalidates the fingerprint.
+#[test]
+fn deliver_checks_relation_context_between_preview_and_apply() {
+    let content = embedded("deliver");
+
+    assert!(content.contains("preview"), "was: {content}");
+    assert!(content.contains("apply"), "was: {content}");
+    assert!(content.contains("HALL.md"), "was: {content}");
+    assert!(content.contains("evidence"), "was: {content}");
+    assert!(content.contains("/ivar-relations"), "was: {content}");
+    assert!(content.contains("fingerprint"), "was: {content}");
+    assert!(content.contains("does not block apply"), "was: {content}");
+}
+
+/// Every checkpoint is evidence-driven, offers `/ivar-relations`, and never
+/// blocks the flow or writes `HALL.md` directly.
+#[test]
+fn every_checkpoint_is_evidence_driven_non_blocking_and_never_writes_directly() {
+    for id in ["plan", "execute", "deliver"] {
+        let content = embedded(id);
+        assert!(content.contains("evidence"), "{id}");
+        assert!(content.contains("/ivar-relations"), "{id}");
+        assert!(content.contains("never"), "{id} must state what it never does");
+        assert!(
+            content.contains("only"),
+            "{id} must bound the offer to evidence"
+        );
+    }
 }

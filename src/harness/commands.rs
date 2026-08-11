@@ -3,12 +3,13 @@
 //!
 //! # What lives here
 //!
-//! A **catalog** of 14 official workflow commands, embedded into the binary at
+//! A **catalog** of 15 official workflow commands, embedded into the binary at
 //! compile time with `include_str!` — there is no runtime asset directory, no
 //! `build.rs`, and no directory scan. Each entry pairs the current provider-
 //! neutral source with the SHA-256 of the legacy command file it supersedes,
 //! so `ivar sync` can safely clean up the old, unprefixed command a previous
-//! product wrote.
+//! product wrote. A command with no legacy predecessor carries `None` and its
+//! unprefixed file is never touched.
 //!
 //! The catalog is the *source*; the filesystem lives on the other side of
 //! [`materialise`], [`remove`] and [`inspect`]. Paths never appear here —
@@ -197,21 +198,26 @@ pub fn materialise(commands_dir: &Utf8Path) -> Result<Vec<CommandChange>, Error>
             });
         } else if let Some(command) = legacy_command(&file_name) {
             // The fingerprint gate: delete a legacy file only when its digest
-            // proves it is the official artifact, never a user's file.
-            let digest = hash::file(&entry).map_err(|source| Error::Hash {
-                path: entry.clone(),
-                source,
-            })?;
-            if digest == command.legacy_sha256 {
-                fs::remove_file(&entry).map_err(|source| Error::Fs {
+            // proves it is the official artifact, never a user's file. A
+            // command with no legacy predecessor (`legacy_sha256: None`) has
+            // no unprefixed artifact to recognise, so its legacy file — if
+            // any — is a user's file and is preserved.
+            if let Some(expected) = command.legacy_sha256 {
+                let digest = hash::file(&entry).map_err(|source| Error::Hash {
                     path: entry.clone(),
                     source,
                 })?;
-                changes.push(CommandChange {
-                    id: command.id.to_owned(),
-                    file_name,
-                    change: Change::Removed,
-                });
+                if digest == expected {
+                    fs::remove_file(&entry).map_err(|source| Error::Fs {
+                        path: entry.clone(),
+                        source,
+                    })?;
+                    changes.push(CommandChange {
+                        id: command.id.to_owned(),
+                        file_name,
+                        change: Change::Removed,
+                    });
+                }
             }
         }
     }
@@ -341,7 +347,8 @@ pub fn inspect(commands_dir: &Utf8Path, enabled: bool) -> Result<Vec<Inspection>
             });
         } else if enabled
             && let Some(command) = legacy_command(name)
-            && hash::bytes(bytes) != command.legacy_sha256
+            && let Some(expected) = command.legacy_sha256
+            && hash::bytes(bytes) != expected
         {
             inspections.push(Inspection {
                 id: command.id.to_owned(),

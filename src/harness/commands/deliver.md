@@ -49,3 +49,8 @@ Run `ivar feature deliver <feature> --help` for the full flag surface.
 - Never auto-merges — `ivar` only observes merged state.
 - A stale preview fingerprint (state changed since generation) is rejected —
   generate a fresh preview.
+- Between preview and apply, focus on the preview Repos and compare `HALL.md`'s
+  relation context with the Analysis and the final journal. Offer
+  `/ivar-relations` only for concrete, unreflected evidence. Deferring it does
+  not block apply and does not invalidate the delivery fingerprint — and this
+  checkpoint never writes `HALL.md` directly.

@@ -23,7 +23,7 @@ use common::{hall_root, ivar};
 use predicates::prelude::*;
 
 /// Every shipped command id, as `/ivar-<id>`.
-const SHIPPED_IDS: [&str; 14] = [
+const SHIPPED_IDS: [&str; 15] = [
     "deliver",
     "discovery",
     "execute",
@@ -31,6 +31,7 @@ const SHIPPED_IDS: [&str; 14] = [
     "feature-status",
     "plan",
     "promote",
+    "relations",
     "repo-list",
     "repo-setup",
     "review",

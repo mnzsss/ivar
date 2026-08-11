@@ -110,5 +110,10 @@ argument-hint: <plan-path>
   revision via `ivar feature execute ack-revision <feature> --workstream <id>`.
   Execution resumes only after all affected workstreams acknowledge.
 - When all workstreams have succeeded or failed, the execution is complete.
+- When every workstream is terminal, inspect the execution journal and the
+  produced changes once. Offer `/ivar-relations` only with cited evidence of a
+  new, changed, or removed relation. The choice does not alter execution
+  completion and is not a replan or reconcile — and this checkpoint never
+  writes `HALL.md` directly.
 - **Exclusive operations**: Each operation from the plan must belong to exactly
   one workstream. The graph validator enforces this.
