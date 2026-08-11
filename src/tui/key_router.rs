@@ -42,8 +42,20 @@ pub enum Key {
     Right,
     Enter,
     Esc,
+    Backspace,
+    Delete,
+    Tab,
+    BackTab,
+    Home,
+    End,
+    Insert,
+    /// A character, as typed — including non-ASCII ones, which is why this
+    /// carries a `char` and the encoding happens at the last moment.
     Char(char),
-    CtrlC,
+    /// `Ctrl` + this character.
+    Ctrl(char),
+    /// `Alt` + this character.
+    Alt(char),
     /// The prefix key (`Ctrl+B`): the one key Focus forwards nowhere.
     CtrlB,
     PgUp,
@@ -88,16 +100,34 @@ pub fn reduce(mode: Mode, key: Key) -> (Mode, Action) {
     match mode {
         Mode::Focus => match key {
             Key::CtrlB => (Mode::Nav, Action::EnterNav),
-            // Everything else reaches the shell. Ctrl+C is a real signal the
-            // shell owns; quitting is Nav's `q`.
-            Key::CtrlC => (mode, Action::WriteBytes(vec![0x03])),
-            Key::Char(c) => (mode, Action::WriteBytes(vec![c as u8])),
+            // Everything else reaches the shell verbatim. Ctrl+C included:
+            // it is a real signal the shell owns, and quitting is Nav's `q`.
+            Key::Ctrl(c) => (mode, Action::WriteBytes(control_bytes(c))),
+            // Alt is the ESC prefix — how a terminal has always sent it, and
+            // what makes alt+b / alt+f move by word in a shell.
+            Key::Alt(c) => {
+                let mut bytes = vec![0x1b];
+                bytes.extend_from_slice(encode(c).as_slice());
+                (mode, Action::WriteBytes(bytes))
+            }
+            // Encoded as UTF-8, not cast to a byte: `c as u8` silently
+            // mangles every accented character.
+            Key::Char(c) => (mode, Action::WriteBytes(encode(c))),
+            // A PTY in canonical mode expects DEL for backspace; BS (0x08)
+            // is a different key that most shells do not treat as erase.
+            Key::Backspace => (mode, Action::WriteBytes(vec![0x7f])),
+            Key::Tab => (mode, Action::WriteBytes(vec![b'\t'])),
+            Key::BackTab => (mode, Action::WriteBytes(b"\x1b[Z".to_vec())),
             Key::Enter => (mode, Action::WriteBytes(vec![b'\n'])),
             Key::Esc => (mode, Action::WriteBytes(b"\x1b".to_vec())),
             Key::Up => (mode, Action::WriteBytes(b"\x1b[A".to_vec())),
             Key::Down => (mode, Action::WriteBytes(b"\x1b[B".to_vec())),
             Key::Left => (mode, Action::WriteBytes(b"\x1b[D".to_vec())),
             Key::Right => (mode, Action::WriteBytes(b"\x1b[C".to_vec())),
+            Key::Home => (mode, Action::WriteBytes(b"\x1b[H".to_vec())),
+            Key::End => (mode, Action::WriteBytes(b"\x1b[F".to_vec())),
+            Key::Insert => (mode, Action::WriteBytes(b"\x1b[2~".to_vec())),
+            Key::Delete => (mode, Action::WriteBytes(b"\x1b[3~".to_vec())),
             Key::PgUp => (mode, Action::WriteBytes(b"\x1b[5~".to_vec())),
             Key::PgDn => (mode, Action::WriteBytes(b"\x1b[6~".to_vec())),
         },
@@ -107,8 +137,7 @@ pub fn reduce(mode: Mode, key: Key) -> (Mode, Action) {
             Key::Enter | Key::Esc => (Mode::Focus, Action::FocusShell),
             // The second half of the `Ctrl+B [` sequence.
             Key::Char('[') => (Mode::Scroll, Action::EnterScroll),
-            Key::Char('q') => (mode, Action::Quit),
-            Key::CtrlC => (mode, Action::Quit),
+            Key::Char('q') | Key::Ctrl('c') => (mode, Action::Quit),
             // Anything else is a swallowed prefix key.
             _ => (mode, Action::None),
         },
@@ -116,9 +145,28 @@ pub fn reduce(mode: Mode, key: Key) -> (Mode, Action) {
             Key::PgUp => (mode, Action::ScrollUp),
             Key::PgDn => (mode, Action::ScrollDown),
             Key::Char('q') | Key::Esc => (Mode::Focus, Action::ExitScroll),
-            Key::CtrlC => (mode, Action::Quit),
+            Key::Ctrl('c') => (mode, Action::Quit),
             _ => (mode, Action::None),
         },
+    }
+}
+
+/// A character as the bytes a terminal sends for it.
+fn encode(c: char) -> Vec<u8> {
+    let mut buf = [0u8; 4];
+    c.encode_utf8(&mut buf).as_bytes().to_vec()
+}
+
+/// The control byte for `Ctrl` + `c`: the ASCII rule of masking off all but
+/// the low five bits, so `ctrl+c` is `0x03` and `ctrl+d` is `0x04`.
+///
+/// A non-ASCII character has no control byte; it is sent as itself rather
+/// than dropped.
+fn control_bytes(c: char) -> Vec<u8> {
+    if c.is_ascii() {
+        vec![(c.to_ascii_uppercase() as u8) & 0x1f]
+    } else {
+        encode(c)
     }
 }
 

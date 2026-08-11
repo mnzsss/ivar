@@ -125,3 +125,36 @@ fn the_drivers_steps_never_block_on_a_real_shell() {
         .expect("the driver's steps blocked — the TUI would freeze");
     assert!(panel.contains('h'), "the typed key never reached the panel");
 }
+
+/// Backspace, end to end: the byte the router sends must be the one the
+/// terminal's line discipline treats as erase. `cat` echoes the line it
+/// receives, so what it echoes is proof of what the erase did.
+#[test]
+fn backspace_erases_a_character_in_a_real_shell() {
+    let mut pty = PtsPty::new();
+    pty.spawn(&Command::new("cat"), cwd(), 80, 24)
+        .expect("spawn cat");
+
+    pty.write(b"ab").expect("type ab");
+    // DEL, which is what `Key::Backspace` reduces to.
+    pty.write(&[0x7f]).expect("backspace");
+    pty.write(b"c\n").expect("type c and enter");
+
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    let mut seen = Vec::new();
+    while std::time::Instant::now() < deadline {
+        if let Some(bytes) = pty.try_read().expect("try_read") {
+            seen.extend_from_slice(&bytes);
+            let text = String::from_utf8_lossy(&seen);
+            // `cat` echoes the line it actually received.
+            if text.contains("ac") {
+                return;
+            }
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
+    panic!(
+        "the `b` was never erased; saw {:?}",
+        String::from_utf8_lossy(&seen)
+    );
+}

@@ -35,7 +35,7 @@ fn focus_forwards_arrows_and_page_keys_as_escape_sequences() {
 #[test]
 fn focus_forwards_ctrl_c_to_the_shell() {
     assert_eq!(
-        reduce(Mode::Focus, Key::CtrlC),
+        reduce(Mode::Focus, Key::Ctrl('c')),
         (Mode::Focus, Action::WriteBytes(vec![0x03]))
     );
 }
@@ -81,7 +81,7 @@ fn nav_open_bracket_enters_scroll_mode() {
 #[test]
 fn q_and_ctrl_c_quit_from_nav() {
     assert_eq!(reduce(Mode::Nav, Key::Char('q')), (Mode::Nav, Action::Quit));
-    assert_eq!(reduce(Mode::Nav, Key::CtrlC), (Mode::Nav, Action::Quit));
+    assert_eq!(reduce(Mode::Nav, Key::Ctrl('c')), (Mode::Nav, Action::Quit));
 }
 
 #[test]
@@ -114,7 +114,7 @@ fn scroll_page_keys_scroll_and_q_or_esc_return_to_focus() {
 #[test]
 fn scroll_ctrl_c_quits() {
     assert_eq!(
-        reduce(Mode::Scroll, Key::CtrlC),
+        reduce(Mode::Scroll, Key::Ctrl('c')),
         (Mode::Scroll, Action::Quit)
     );
 }
@@ -128,4 +128,73 @@ fn selection_moves_are_clamped() {
     assert_eq!(move_selection(2, Direction::Down, 5), 3);
     assert_eq!(move_selection(2, Direction::Up, 5), 1);
     assert_eq!(move_selection(0, Direction::Up, 0), 0);
+}
+
+/// The keys a shell needs that the router used to drop on the floor. Every
+/// one of these is a key the user pressed and nothing happened.
+#[test]
+fn focus_forwards_the_editing_keys_a_shell_needs() {
+    // Backspace is DEL, not BS: this is the key that "did not erase".
+    assert_eq!(
+        reduce(Mode::Focus, Key::Backspace),
+        (Mode::Focus, Action::WriteBytes(vec![0x7f]))
+    );
+    assert_eq!(
+        reduce(Mode::Focus, Key::Tab),
+        (Mode::Focus, Action::WriteBytes(vec![b'\t']))
+    );
+    assert_eq!(
+        reduce(Mode::Focus, Key::Delete),
+        (Mode::Focus, Action::WriteBytes(b"\x1b[3~".to_vec()))
+    );
+    assert_eq!(
+        reduce(Mode::Focus, Key::Home),
+        (Mode::Focus, Action::WriteBytes(b"\x1b[H".to_vec()))
+    );
+    assert_eq!(
+        reduce(Mode::Focus, Key::End),
+        (Mode::Focus, Action::WriteBytes(b"\x1b[F".to_vec()))
+    );
+}
+
+/// `Ctrl` + a letter is a control byte, not the letter. Sending the letter
+/// means `ctrl+d` types a `d` instead of ending input.
+#[test]
+fn focus_forwards_control_chords_as_control_bytes() {
+    assert_eq!(
+        reduce(Mode::Focus, Key::Ctrl('d')),
+        (Mode::Focus, Action::WriteBytes(vec![0x04]))
+    );
+    assert_eq!(
+        reduce(Mode::Focus, Key::Ctrl('u')),
+        (Mode::Focus, Action::WriteBytes(vec![0x15]))
+    );
+    assert_eq!(
+        reduce(Mode::Focus, Key::Ctrl('c')),
+        (Mode::Focus, Action::WriteBytes(vec![0x03]))
+    );
+}
+
+/// `alt` is the ESC prefix — what makes `alt+b` move back a word.
+#[test]
+fn focus_forwards_alt_chords_with_an_escape_prefix() {
+    assert_eq!(
+        reduce(Mode::Focus, Key::Alt('b')),
+        (Mode::Focus, Action::WriteBytes(vec![0x1b, b'b']))
+    );
+}
+
+/// A `char` is encoded, not cast: `c as u8` turns every accented character
+/// into a different byte, which is a real problem for anyone typing a
+/// language with accents.
+#[test]
+fn focus_encodes_non_ascii_characters_as_utf8() {
+    assert_eq!(
+        reduce(Mode::Focus, Key::Char('ç')),
+        (Mode::Focus, Action::WriteBytes("ç".as_bytes().to_vec()))
+    );
+    assert_eq!(
+        reduce(Mode::Focus, Key::Char('á')),
+        (Mode::Focus, Action::WriteBytes("á".as_bytes().to_vec()))
+    );
 }

@@ -105,20 +105,34 @@ fn run_loop(
 }
 
 /// Map a crossterm key press onto the [`Key`]s the router understands.
-/// `Ctrl+B` is the prefix key; `Ctrl+C` is its own key so Focus can forward
-/// it to the shell. Anything else is `None` and ignored.
+/// `Ctrl+B` is the prefix key. Everything else is carried through as
+/// faithfully as the router can express it — in Focus mode this is the entire
+/// keyboard the shell will ever see, so a key that is not mapped here is a key
+/// that does not work in the view.
 #[must_use]
 pub fn map_key(key: KeyEvent) -> Option<Key> {
+    let control = key.modifiers.contains(KeyModifiers::CONTROL);
+    let alt = key.modifiers.contains(KeyModifiers::ALT);
     match key.code {
-        KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => Some(Key::CtrlC),
-        KeyCode::Char('b') if key.modifiers.contains(KeyModifiers::CONTROL) => Some(Key::CtrlB),
+        KeyCode::Char('b') if control => Some(Key::CtrlB),
+        KeyCode::Char(c) if control => Some(Key::Ctrl(c)),
+        KeyCode::Char(c) if alt => Some(Key::Alt(c)),
         KeyCode::Char(c) => Some(Key::Char(c)),
+        // Erasing is not optional: without this, nothing typed can be
+        // corrected.
+        KeyCode::Backspace => Some(Key::Backspace),
+        KeyCode::Delete => Some(Key::Delete),
+        KeyCode::Tab => Some(Key::Tab),
+        KeyCode::BackTab => Some(Key::BackTab),
         KeyCode::Enter => Some(Key::Enter),
         KeyCode::Esc => Some(Key::Esc),
         KeyCode::Up => Some(Key::Up),
         KeyCode::Down => Some(Key::Down),
         KeyCode::Left => Some(Key::Left),
         KeyCode::Right => Some(Key::Right),
+        KeyCode::Home => Some(Key::Home),
+        KeyCode::End => Some(Key::End),
+        KeyCode::Insert => Some(Key::Insert),
         KeyCode::PageUp => Some(Key::PgUp),
         KeyCode::PageDown => Some(Key::PgDn),
         _ => None,
