@@ -840,7 +840,9 @@ fn a_feature_session_instruction_file_combines_hall_and_bootstrap() {
     )
     .unwrap();
     assert_eq!(
-        fs::read_text(&discovery.join("CLAUDE.md")).unwrap().unwrap(),
+        fs::read_text(&discovery.join("CLAUDE.md"))
+            .unwrap()
+            .unwrap(),
         fs::read_text(&root.join("HALL.md")).unwrap().unwrap(),
         "a discovery session's instruction file must equal HALL.md"
     );
@@ -875,14 +877,8 @@ fn discovery_sessions_materialise_the_canonical_file_for_both_providers() {
         let view_dir = layout.discovery_session(
             &crate::domain::name::SessionId::new(uuid::Uuid::new_v4().to_string()).unwrap(),
         );
-        crate::action::session::view::materialise(
-            &layout,
-            &manifest,
-            None,
-            provider,
-            &view_dir,
-        )
-        .unwrap();
+        crate::action::session::view::materialise(&layout, &manifest, None, provider, &view_dir)
+            .unwrap();
         assert_eq!(
             fs::read_text(&view_dir.join(provider.instruction_file()))
                 .unwrap()
@@ -1016,7 +1012,9 @@ fn an_unchanged_session_instruction_file_is_not_rewritten() {
         &view_dir,
     )
     .unwrap();
-    let before = fs::read_bytes(&view_dir.join("CLAUDE.md")).unwrap().unwrap();
+    let before = fs::read_bytes(&view_dir.join("CLAUDE.md"))
+        .unwrap()
+        .unwrap();
     let before_mtime = std::fs::metadata(view_dir.join("CLAUDE.md").as_std_path())
         .ok()
         .and_then(|metadata| metadata.modified().ok());
@@ -1031,13 +1029,18 @@ fn an_unchanged_session_instruction_file_is_not_rewritten() {
     .unwrap();
 
     assert_eq!(
-        fs::read_bytes(&view_dir.join("CLAUDE.md")).unwrap().unwrap(),
+        fs::read_bytes(&view_dir.join("CLAUDE.md"))
+            .unwrap()
+            .unwrap(),
         before
     );
     let mtime = std::fs::metadata(view_dir.join("CLAUDE.md").as_std_path())
         .ok()
         .and_then(|metadata| metadata.modified().ok());
-    assert_eq!(mtime, before_mtime, "an unchanged file must not be rewritten");
+    assert_eq!(
+        mtime, before_mtime,
+        "an unchanged file must not be rewritten"
+    );
     unguard_worktrees(&root);
 }
 
@@ -1062,7 +1065,10 @@ fn missing_canonical_content_warns_but_lets_the_session_open() {
     )
     .unwrap();
     assert_eq!(report.warnings.len(), 1);
-    assert_eq!(report.warnings[0].code, "instructions.canonical_unavailable");
+    assert_eq!(
+        report.warnings[0].code,
+        "instructions.canonical_unavailable"
+    );
     assert_eq!(
         fs::read_text(&discovery.join("CLAUDE.md")).unwrap(),
         None,
@@ -1083,8 +1089,13 @@ fn missing_canonical_content_warns_but_lets_the_session_open() {
     )
     .unwrap();
     assert_eq!(report.warnings.len(), 1);
-    assert_eq!(report.warnings[0].code, "instructions.canonical_unavailable");
-    let content = fs::read_text(&feature_view.join("CLAUDE.md")).unwrap().unwrap();
+    assert_eq!(
+        report.warnings[0].code,
+        "instructions.canonical_unavailable"
+    );
+    let content = fs::read_text(&feature_view.join("CLAUDE.md"))
+        .unwrap()
+        .unwrap();
     assert!(
         content.contains("ivar session — feature `checkout`"),
         "the bootstrap must still land: {content}"

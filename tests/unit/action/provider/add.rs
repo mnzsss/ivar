@@ -114,10 +114,7 @@ fn provider_add_conflict_warns_and_keeps_the_provider_persisted() {
 
     let report = add(&ctx, add_input("opencode")).unwrap();
 
-    assert!(
-        !report.is_clean(),
-        "a conflict must not be a clean run"
-    );
+    assert!(!report.is_clean(), "a conflict must not be a clean run");
     assert!(
         report
             .warnings

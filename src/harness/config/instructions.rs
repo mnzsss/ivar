@@ -291,7 +291,9 @@ fn reconcile_canonical(path: &Utf8Path, block: &str) -> Result<Entry, Error> {
             "`HALL.md` is a symlink; the canonical instructions must be a \
              regular file — replace it with one, then run `ivar sync`",
         )),
-        fs::SymlinkTarget::NotASymlink if !fs::is_file(path).map_err(|source| io_error(path, source))? => {
+        fs::SymlinkTarget::NotASymlink
+            if !fs::is_file(path).map_err(|source| io_error(path, source))? =>
+        {
             Ok(conflict(
                 path,
                 "`HALL.md` exists but is not a regular file; make it a regular \
@@ -389,22 +391,20 @@ fn inspect_canonical(path: &Utf8Path, block: &str) -> Result<Inspection, Error> 
         {
             Integrity::NotRegular
         }
-        fs::SymlinkTarget::NotASymlink => {
-            match read(path)? {
-                None => Integrity::Missing,
-                Some(content) => match locate(&content) {
-                    None => Integrity::ManagedBlockMissing,
-                    Some(span) => {
-                        let current = content.get(span).unwrap_or_default();
-                        if current == block {
-                            Integrity::Current
-                        } else {
-                            Integrity::ManagedBlockStale
-                        }
+        fs::SymlinkTarget::NotASymlink => match read(path)? {
+            None => Integrity::Missing,
+            Some(content) => match locate(&content) {
+                None => Integrity::ManagedBlockMissing,
+                Some(span) => {
+                    let current = content.get(span).unwrap_or_default();
+                    if current == block {
+                        Integrity::Current
+                    } else {
+                        Integrity::ManagedBlockStale
                     }
-                },
-            }
-        }
+                }
+            },
+        },
     };
     Ok(Inspection {
         path: path.to_path_buf(),

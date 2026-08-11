@@ -295,7 +295,8 @@ fn run_conversion(
                 ))
             })?
             .provider();
-        let materialise_report = view::materialise(layout, manifest, Some(feature), provider, &dest)?;
+        let materialise_report =
+            view::materialise(layout, manifest, Some(feature), provider, &dest)?;
         warnings.extend(materialise_report.warnings);
         fs::remove_file(&transition_path(layout, feature_name))?;
     }

@@ -117,10 +117,7 @@ fn the_legacy_fixture_digests_to_its_catalog_constant() {
         .iter()
         .find(|c| c.id == "repo-list")
         .expect("repo-list is in the catalog");
-    assert_eq!(
-        hash::text(LEGACY_REPO_LIST),
-        command.legacy_sha256.unwrap()
-    );
+    assert_eq!(hash::text(LEGACY_REPO_LIST), command.legacy_sha256.unwrap());
 }
 
 #[test]
@@ -419,7 +416,10 @@ fn every_checkpoint_is_evidence_driven_non_blocking_and_never_writes_directly() 
         let content = embedded(id);
         assert!(content.contains("evidence"), "{id}");
         assert!(content.contains("/ivar-relations"), "{id}");
-        assert!(content.contains("never"), "{id} must state what it never does");
+        assert!(
+            content.contains("never"),
+            "{id} must state what it never does"
+        );
         assert!(
             content.contains("only"),
             "{id} must bound the offer to evidence"

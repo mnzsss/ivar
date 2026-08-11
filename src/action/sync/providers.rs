@@ -55,7 +55,10 @@ pub(crate) fn sync_instructions(
 /// Best-effort instruction bootstrap for `init` and `provider add`: the
 /// reconciler runs once; any conflict or failure becomes a warning and never
 /// rolls the command back. `ivar sync` is the repair.
-pub(crate) fn materialise_instructions(layout: &Layout, manifest: &Manifest) -> Result<(), Warning> {
+pub(crate) fn materialise_instructions(
+    layout: &Layout,
+    manifest: &Manifest,
+) -> Result<(), Warning> {
     match reconcile_instructions(layout, manifest) {
         Ok(changes) => {
             if let Some(conflict) = changes

@@ -671,10 +671,7 @@ fn init_warns_but_stays_valid_when_the_alias_path_is_occupied() {
     let report = init(&ctx, fresh_input()).unwrap();
 
     assert!(!report.is_clean());
-    assert_eq!(
-        report.warnings[0].code,
-        "instructions.adoption_required"
-    );
+    assert_eq!(report.warnings[0].code, "instructions.adoption_required");
     assert_eq!(
         fs::read_text(&root.join("CLAUDE.md")).unwrap().unwrap(),
         "legacy, precious\n",
@@ -713,11 +710,7 @@ fn doctor_names_a_non_regular_canonical_file() {
     let report = doctor(&ctx).unwrap();
 
     let finding = finding(&report.value, "instructions.canonical_not_regular");
-    assert!(
-        finding.fix.contains("regular file"),
-        "was: {}",
-        finding.fix
-    );
+    assert!(finding.fix.contains("regular file"), "was: {}", finding.fix);
 }
 
 #[test]
@@ -813,7 +806,11 @@ fn doctor_names_a_broken_alias() {
     let ctx = Ctx::new(root.clone());
     init(&ctx, fresh_input()).unwrap();
     fs::remove_file(&root.join("CLAUDE.md")).unwrap();
-    fs::create_symlink(camino::Utf8Path::new("vanished.md"), &root.join("CLAUDE.md")).unwrap();
+    fs::create_symlink(
+        camino::Utf8Path::new("vanished.md"),
+        &root.join("CLAUDE.md"),
+    )
+    .unwrap();
 
     let report = doctor(&ctx).unwrap();
 
@@ -833,11 +830,7 @@ fn doctor_names_a_wrong_target_alias() {
     let report = doctor(&ctx).unwrap();
 
     let finding = finding(&report.value, "instructions.alias_wrong_target");
-    assert!(
-        finding.fix.contains("HALL.md"),
-        "was: {}",
-        finding.fix
-    );
+    assert!(finding.fix.contains("HALL.md"), "was: {}", finding.fix);
 }
 
 #[test]
@@ -912,7 +905,11 @@ fn doctor_returns_every_applicable_instruction_finding_in_one_run() {
     // CLAUDE.md: an enabled regular alias. AGENTS.md: a broken symlink.
     fs::remove_file(&root.join("CLAUDE.md")).unwrap();
     fs::write_text(&root.join("CLAUDE.md"), "legacy, precious\n").unwrap();
-    fs::create_symlink(camino::Utf8Path::new("vanished.md"), &root.join("AGENTS.md")).unwrap();
+    fs::create_symlink(
+        camino::Utf8Path::new("vanished.md"),
+        &root.join("AGENTS.md"),
+    )
+    .unwrap();
 
     let report = doctor(&ctx).unwrap();
 

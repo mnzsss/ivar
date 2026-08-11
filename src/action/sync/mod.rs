@@ -67,9 +67,7 @@ mod providers;
 mod repo;
 mod setup;
 
-pub(crate) use providers::{
-    materialise_commands, materialise_instructions, sync_providers,
-};
+pub(crate) use providers::{materialise_commands, materialise_instructions, sync_providers};
 pub(crate) use setup::run_setup_script;
 
 use repo::sync_repo;

@@ -188,9 +188,7 @@ fn convert_projects_the_plan_and_writes_bootstrap_instructions() {
         fs::SymlinkTarget::Absent,
         "a discovery session carries no plan projection"
     );
-    let discovery_instructions = fs::read_text(&old_dir.join("CLAUDE.md"))
-        .unwrap()
-        .unwrap();
+    let discovery_instructions = fs::read_text(&old_dir.join("CLAUDE.md")).unwrap().unwrap();
     assert!(
         !discovery_instructions.contains("ivar session — feature"),
         "a discovery session carries no bootstrap instructions"

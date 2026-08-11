@@ -227,7 +227,10 @@ fn accessors_compute_the_documented_paths() {
         layout.instruction_alias(&Provider::OpenCode),
         Utf8PathBuf::from("/hall/AGENTS.md")
     );
-    assert_eq!(layout.hall_instructions(), Utf8PathBuf::from("/hall/HALL.md"));
+    assert_eq!(
+        layout.hall_instructions(),
+        Utf8PathBuf::from("/hall/HALL.md")
+    );
     assert_eq!(
         layout.mcp_config(&Provider::ClaudeCode),
         Utf8PathBuf::from("/hall/.mcp.json")

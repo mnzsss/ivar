@@ -291,7 +291,10 @@ fn a_directory_at_the_hall_file_path_is_a_conflict_and_is_not_touched() {
 
     assert_eq!(entries[0].change, Change::Conflict);
     assert!(entries[0].detail.is_some());
-    assert!(fs::is_dir(&canonical).unwrap(), "the directory must be left alone");
+    assert!(
+        fs::is_dir(&canonical).unwrap(),
+        "the directory must be left alone"
+    );
     assert!(
         fs::read_dir(&canonical).unwrap().is_empty(),
         "nothing may be written into the directory"
@@ -333,10 +336,17 @@ fn enabled_absent_alias_becomes_a_relative_symlink_to_hall() {
         reconcile(&canonical, &block, &[]).unwrap();
         let alias_path = root.join(provider.instruction_file());
 
-        let entries = reconcile(&canonical, &block, &[alias(provider, alias_path.clone(), true)])
-            .unwrap();
+        let entries = reconcile(
+            &canonical,
+            &block,
+            &[alias(provider, alias_path.clone(), true)],
+        )
+        .unwrap();
 
-        let entry = entries.iter().find(|entry| entry.path == alias_path).unwrap();
+        let entry = entries
+            .iter()
+            .find(|entry| entry.path == alias_path)
+            .unwrap();
         assert_eq!(entry.change, Change::Created, "{provider}");
         assert_eq!(
             fs::read_symlink(&alias_path).unwrap(),
@@ -357,10 +367,17 @@ fn enabled_correct_alias_is_unchanged() {
         fs::create_symlink(canonical.file_name().unwrap().as_ref(), &alias_path).unwrap();
         let before = fs::read_symlink(&alias_path).unwrap();
 
-        let entries = reconcile(&canonical, &block, &[alias(provider, alias_path.clone(), true)])
-            .unwrap();
+        let entries = reconcile(
+            &canonical,
+            &block,
+            &[alias(provider, alias_path.clone(), true)],
+        )
+        .unwrap();
 
-        let entry = entries.iter().find(|entry| entry.path == alias_path).unwrap();
+        let entry = entries
+            .iter()
+            .find(|entry| entry.path == alias_path)
+            .unwrap();
         assert_eq!(entry.change, Change::Unchanged, "{provider}");
         assert_eq!(fs::read_symlink(&alias_path).unwrap(), before, "{provider}");
     }
@@ -377,10 +394,17 @@ fn enabled_broken_or_wrong_target_alias_is_replaced() {
         let alias_path = root.join(provider.instruction_file());
         fs::create_symlink(Utf8Path::new("vanished.md"), &alias_path).unwrap();
 
-        let entries = reconcile(&canonical, &block, &[alias(provider, alias_path.clone(), true)])
-            .unwrap();
+        let entries = reconcile(
+            &canonical,
+            &block,
+            &[alias(provider, alias_path.clone(), true)],
+        )
+        .unwrap();
 
-        let entry = entries.iter().find(|entry| entry.path == alias_path).unwrap();
+        let entry = entries
+            .iter()
+            .find(|entry| entry.path == alias_path)
+            .unwrap();
         assert_eq!(entry.change, Change::Updated, "{provider} broken");
         assert_eq!(
             fs::read_symlink(&alias_path).unwrap(),
@@ -397,10 +421,17 @@ fn enabled_broken_or_wrong_target_alias_is_replaced() {
         fs::write_text(&other, "x").unwrap();
         fs::create_symlink(Utf8Path::new("other.md"), &alias_path).unwrap();
 
-        let entries = reconcile(&canonical, &block, &[alias(provider, alias_path.clone(), true)])
-            .unwrap();
+        let entries = reconcile(
+            &canonical,
+            &block,
+            &[alias(provider, alias_path.clone(), true)],
+        )
+        .unwrap();
 
-        let entry = entries.iter().find(|entry| entry.path == alias_path).unwrap();
+        let entry = entries
+            .iter()
+            .find(|entry| entry.path == alias_path)
+            .unwrap();
         assert_eq!(entry.change, Change::Updated, "{provider} wrong target");
         assert_eq!(
             fs::read_symlink(&alias_path).unwrap(),
@@ -420,10 +451,17 @@ fn enabled_regular_alias_is_a_conflict_and_preserved_byte_for_byte() {
         let alias_path = root.join(provider.instruction_file());
         fs::write_text(&alias_path, "legacy instructions, precious\n").unwrap();
 
-        let entries = reconcile(&canonical, &block, &[alias(provider, alias_path.clone(), true)])
-            .unwrap();
+        let entries = reconcile(
+            &canonical,
+            &block,
+            &[alias(provider, alias_path.clone(), true)],
+        )
+        .unwrap();
 
-        let entry = entries.iter().find(|entry| entry.path == alias_path).unwrap();
+        let entry = entries
+            .iter()
+            .find(|entry| entry.path == alias_path)
+            .unwrap();
         assert_eq!(entry.change, Change::Conflict, "{provider}");
         assert!(
             entry.detail.as_deref().unwrap().contains("HALL.md"),
@@ -447,10 +485,17 @@ fn disabled_absent_alias_is_unchanged() {
         reconcile(&canonical, &block, &[]).unwrap();
         let alias_path = root.join(provider.instruction_file());
 
-        let entries = reconcile(&canonical, &block, &[alias(provider, alias_path.clone(), false)])
-            .unwrap();
+        let entries = reconcile(
+            &canonical,
+            &block,
+            &[alias(provider, alias_path.clone(), false)],
+        )
+        .unwrap();
 
-        let entry = entries.iter().find(|entry| entry.path == alias_path).unwrap();
+        let entry = entries
+            .iter()
+            .find(|entry| entry.path == alias_path)
+            .unwrap();
         assert_eq!(entry.change, Change::Unchanged, "{provider}");
         assert!(!fs::exists(&alias_path).unwrap(), "{provider}");
     }
@@ -467,10 +512,17 @@ fn disabled_alias_entries_are_removed_symlink_or_regular() {
         let alias_path = root.join(provider.instruction_file());
         fs::create_symlink(Utf8Path::new(ALIAS_TARGET), &alias_path).unwrap();
 
-        let entries = reconcile(&canonical, &block, &[alias(provider, alias_path.clone(), false)])
-            .unwrap();
+        let entries = reconcile(
+            &canonical,
+            &block,
+            &[alias(provider, alias_path.clone(), false)],
+        )
+        .unwrap();
 
-        let entry = entries.iter().find(|entry| entry.path == alias_path).unwrap();
+        let entry = entries
+            .iter()
+            .find(|entry| entry.path == alias_path)
+            .unwrap();
         assert_eq!(entry.change, Change::Removed, "{provider} symlink");
         assert!(!fs::exists(&alias_path).unwrap(), "{provider} symlink");
 
@@ -481,10 +533,17 @@ fn disabled_alias_entries_are_removed_symlink_or_regular() {
         let alias_path = root.join(provider.instruction_file());
         fs::write_text(&alias_path, "a dropped provider's alias\n").unwrap();
 
-        let entries = reconcile(&canonical, &block, &[alias(provider, alias_path.clone(), false)])
-            .unwrap();
+        let entries = reconcile(
+            &canonical,
+            &block,
+            &[alias(provider, alias_path.clone(), false)],
+        )
+        .unwrap();
 
-        let entry = entries.iter().find(|entry| entry.path == alias_path).unwrap();
+        let entry = entries
+            .iter()
+            .find(|entry| entry.path == alias_path)
+            .unwrap();
         assert_eq!(entry.change, Change::Removed, "{provider} regular");
         assert!(!fs::exists(&alias_path).unwrap(), "{provider} regular");
     }
@@ -525,7 +584,11 @@ fn inspect_sees_a_reconciled_hall_as_current() {
     let inspections = inspect(&canonical, &block, &aliases).unwrap();
 
     assert!(inspections.len() == 2);
-    assert!(inspections.iter().all(|i| i.integrity == Integrity::Current));
+    assert!(
+        inspections
+            .iter()
+            .all(|i| i.integrity == Integrity::Current)
+    );
 }
 
 #[test]
