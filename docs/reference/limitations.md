@@ -180,6 +180,24 @@ characters, scrollback and alternate screen all render correctly.
 This is a known gap in a dependency with a narrow blast radius, not a design
 choice. It is behind a seam and will move when the fix is cheaper than the churn.
 
+## The feature view captures the mouse
+
+A terminal showing the alternate screen sends the **wheel as arrow keys** unless
+the application asks for mouse reports. Those arrows are indistinguishable from
+typed ones, so without capture every wheel notch is typed into the focused shell:
+history recalled at the prompt, or `^[[A` echoed back as text by whatever is
+running. `ivar feature view` therefore captures the mouse, and scrolls the panel
+with the wheel instead.
+
+Two consequences, both of them the usual ones for a terminal application that
+does this:
+
+- **Selecting text needs `shift` held** — the same key `tmux` and `vim` users
+  already reach for.
+- **The wheel does not reach programs running inside the shell.** A `less` or a
+  `vim` with its own mouse handling will not see it; the panel scrolls instead.
+  Their own keys (`ctrl+f`, `j`/`k`, `space`) work as always.
+
 ## Things that are out of scope, permanently
 
 - **Anything that needs a server.** `ivar` is local-only and has no network client
