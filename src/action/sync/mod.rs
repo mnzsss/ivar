@@ -142,6 +142,11 @@ impl From<config::Change> for Change {
             config::Change::Updated => Self::Updated,
             config::Change::Unchanged => Self::Unchanged,
             config::Change::Removed => Self::Removed,
+            // The reconciler's conflict case — an entry `ivar` must not
+            // touch. MCP materialisation never produces it; the instruction
+            // adapter reports it explicitly, so this arm exists only to keep
+            // the conversion total.
+            config::Change::Conflict => Self::Failed,
         }
     }
 }
