@@ -33,12 +33,64 @@
 //! block — including plain `text` blocks — is either a `ToolUsed` or
 //! nothing.
 //!
+//! # OpenCode: one envelope, one part
+//!
+//! `opencode run --format json` is an envelope protocol too, just a
+//! shallower one. Every line is
+//! `{ "type": <t>, "timestamp": <ms>, "sessionID": "ses_…", …payload }`, and
+//! the payload for everything that matters is a single `part` object. The
+//! whole set of `t` is `step_start`, `step_finish`, `text`, `reasoning`
+//! (emitted only under `--thinking`), `tool_use` and `error`.
+//!
+//! A `tool_use` line looks like:
+//!
+//! ```text
+//! {"type":"tool_use","timestamp":…,"sessionID":"ses_…","part":{
+//!   "type":"tool","tool":"read","callID":"call_…","id":"prt_…",
+//!   "state":{"status":"completed","input":{"filePath":"a.txt","limit":1},
+//!            "output":"…","metadata":{…},"title":"…","time":{…}}}}
+//! ```
+//!
+//! So the tool's name is `part.tool` and its arguments are
+//! `part.state.input` — **not** `name` and `file_path` at the top level,
+//! which is what an earlier draft of this module matched against and which
+//! matches nothing. The path key is `filePath`, camelCase, on every OpenCode
+//! tool that names a file (`read`, `edit`, `write`, `patch`).
+//!
+//! OpenCode emits `tool_use` only once the call has settled — `state.status`
+//! is `completed` or `error`, never `running` — so a tool call appears once,
+//! after the fact. The `error` case is kept rather than filtered: a denied
+//! write (this hall's own execution guard refusing one) is a thing that
+//! happened, and the journal should say so.
+//!
+//! # OpenCode cannot ask
+//!
+//! OpenCode *has* a `question` tool and a `question.asked` server event, and
+//! neither is reachable from `opencode run`. The `run` subcommand creates its
+//! session with `{permission: "question", action: "deny", pattern: "*"}` (plus
+//! the same for `plan_enter`/`plan_exit`), so the tool's permission assertion
+//! fails before it executes; and `run`'s JSON writer only ever emits the six
+//! types listed above, so even `permission.asked` — which it handles inline,
+//! auto-rejecting — never reaches stdout as JSON.
+//!
+//! The consequence is that [`ExecutorEvent::QuestionAsked`] is unreachable for
+//! OpenCode, and [`parse_opencode_line`] never constructs one. A question the
+//! model wants to ask comes out as ordinary prose in a `text` part, which the
+//! "Assistant prose is not a question" rule above already says must stay
+//! non-blocking. This is declared, not inferred: `Capabilities`'
+//! `supports_questions` is false for OpenCode, and `tick` records it on the
+//! journal at launch so a run that never blocks is explained rather than
+//! merely quiet.
+//!
 //! # The native session id
 //!
-//! The id `--resume` accepts is the provider's own, not ivar's session id.
-//! Claude Code announces it once, on the `system`/`init` envelope's
-//! `session_id` field. [`parse_claude_line`] surfaces it as
-//! [`ExecutorEvent::NativeSession`] the moment it appears.
+//! The id `--resume` (or `--session`) accepts is the provider's own, not
+//! ivar's session id. Claude Code announces it once, on the `system`/`init`
+//! envelope's `session_id` field. OpenCode instead stamps `sessionID` on
+//! *every* line, so [`parse_opencode_line`] emits
+//! [`ExecutorEvent::NativeSession`] for every line it parses and the drain
+//! loop in `tick`'s `launch` keeps only the first — the parser stays a pure
+//! function of one line, which is the property that makes it testable.
 //!
 //! # Unparseable is skipped, not fatal
 //!
@@ -106,11 +158,51 @@ fn string_field<'a>(object: &'a serde_json::Map<String, Value>, key: &str) -> Op
 }
 
 /// Best-effort file path for a tool call, across the tools that carry one.
+///
+/// Both providers' spellings live in one list because the two vocabularies do
+/// not collide: Claude Code writes `file_path` / `notebook_path`, OpenCode
+/// writes `filePath`, and `path` is a fallback either might use.
 fn tool_path(input: &serde_json::Map<String, Value>) -> Option<String> {
     string_field(input, "file_path")
+        .or_else(|| string_field(input, "filePath"))
         .or_else(|| string_field(input, "notebook_path"))
         .or_else(|| string_field(input, "path"))
         .map(str::to_owned)
+}
+
+/// The human-readable half of an OpenCode `error` envelope.
+///
+/// The payload is `{"error": {"name": …, "data": {"message": …}}}` — a named
+/// error, with the sentence a human wants one level in. `name` is the fallback
+/// for a variant carrying no `data`; anything else yields nothing, and the
+/// child's own non-zero exit reports the failure instead.
+fn opencode_error_message(object: &serde_json::Map<String, Value>) -> Option<String> {
+    let error = object.get("error").and_then(Value::as_object)?;
+    error
+        .get("data")
+        .and_then(Value::as_object)
+        .and_then(|data| string_field(data, "message"))
+        .or_else(|| string_field(error, "name"))
+        .map(str::to_owned)
+}
+
+/// The [`ExecutorEvent::ToolUsed`] a `tool_use` envelope describes: the tool's
+/// name at `part.tool`, the file it touched at `part.state.input`. `None` for
+/// an envelope missing either the part or the name.
+fn opencode_tool_used(object: &serde_json::Map<String, Value>) -> Option<ExecutorEvent> {
+    let part = object.get("part").and_then(Value::as_object)?;
+    let tool = string_field(part, "tool")?;
+    let path = part
+        .get("state")
+        .and_then(Value::as_object)
+        .and_then(|state| state.get("input"))
+        .and_then(Value::as_object)
+        .and_then(tool_path);
+
+    Some(ExecutorEvent::ToolUsed {
+        tool: tool.to_owned(),
+        path,
+    })
 }
 
 /// Pull the human-facing text out of an `AskUserQuestion` tool call's input.
@@ -220,12 +312,22 @@ pub fn parse_claude_line(line: &str) -> Vec<ExecutorEvent> {
     events
 }
 
-/// Reduce one line of OpenCode's `run` event protocol to zero or one
-/// [`ExecutorEvent`].
+/// Reduce one line of `opencode run --format json`'s event protocol to zero
+/// or more [`ExecutorEvent`]s.
 ///
-/// OpenCode's protocol is flatter than Claude Code's — no envelope/content
-/// split — so a line maps to at most one event. A line that fails to parse,
-/// or names a shape this module does not recognise, yields no events.
+/// See the module doc's "OpenCode: one envelope, one part" for the shape this
+/// walks. Three things follow from it, and each is load-bearing:
+///
+/// - Every line carries `sessionID`, so every parsed line yields a
+///   [`ExecutorEvent::NativeSession`]; the caller keeps the first.
+/// - A tool call is `part.tool` plus `part.state.input`, one level down —
+///   never `name`/`file_path` at the top level.
+/// - No line is ever a [`ExecutorEvent::QuestionAsked`]. `opencode run`
+///   cannot ask; see "OpenCode cannot ask".
+///
+/// A line that fails to parse, or that names a type this module does not
+/// recognise (`step_start`, `step_finish`, `text`, `reasoning`), yields
+/// nothing beyond the session id — it is skipped, not fatal.
 #[must_use]
 pub fn parse_opencode_line(line: &str) -> Vec<ExecutorEvent> {
     let trimmed = line.trim();
@@ -237,19 +339,20 @@ pub fn parse_opencode_line(line: &str) -> Vec<ExecutorEvent> {
         return Vec::new();
     };
 
-    match object.get("type").and_then(Value::as_str) {
-        Some("tool_use") if object.get("name").and_then(Value::as_str) == Some("edit") => {
-            vec![ExecutorEvent::ToolUsed {
-                tool: "edit".to_owned(),
-                path: string_field(&object, "file_path").map(str::to_owned),
-            }]
-        }
-        Some("question") => {
-            let prompt = string_field(&object, "text").unwrap_or_default().to_owned();
-            vec![ExecutorEvent::QuestionAsked { prompt }]
-        }
-        _ => Vec::new(),
+    let mut events = Vec::new();
+
+    if let Some(id) = string_field(&object, "sessionID") {
+        events.push(ExecutorEvent::NativeSession { id: id.to_owned() });
     }
+
+    match object.get("type").and_then(Value::as_str) {
+        Some("tool_use") => events.extend(opencode_tool_used(&object)),
+        Some("error") => events
+            .extend(opencode_error_message(&object).map(|error| ExecutorEvent::Failed { error })),
+        _ => {}
+    }
+
+    events
 }
 
 #[cfg(test)]

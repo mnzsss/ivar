@@ -152,8 +152,20 @@ pub(super) fn run_launch(
         Provider::OpenCode => parse_opencode_line,
     };
 
+    // OpenCode stamps `sessionID` on every JSON line, so its parser emits a
+    // `NativeSession` per line by design (see `harness::stream`'s "The native
+    // session id"). The id is announced once here instead — one journal entry,
+    // not one per line — and Claude Code, which announces it once anyway, is
+    // unaffected.
+    let mut native_session_announced = false;
     while let Ok(Some(line)) = child.read_line() {
         for event in parse_line(&line) {
+            if matches!(event, ExecutorEvent::NativeSession { .. }) {
+                if native_session_announced {
+                    continue;
+                }
+                native_session_announced = true;
+            }
             send(event);
         }
     }

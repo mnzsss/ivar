@@ -148,40 +148,191 @@ fn a_user_envelope_produces_no_events() {
 }
 
 // -- opencode ---------------------------------------------------------------
+//
+// Every line below is a verbatim capture from `opencode run --format json` on
+// opencode 1.18.16, trimmed only of payload fields this module never reads.
 
+/// The shape that matters: the tool's name is `part.tool` and its arguments
+/// are `part.state.input`, with the path spelled `filePath`. Nothing lives at
+/// the top level but the envelope.
 #[test]
-fn opencode_edit_tool_use_becomes_tool_used() {
-    let line = r#"{"type":"tool_use","name":"edit","file_path":"src/main.rs"}"#;
+fn an_opencode_tool_use_is_read_out_of_its_part() {
+    let line = r#"{"type":"tool_use","timestamp":1786406192677,"sessionID":"ses_011e4dff",
+        "part":{"type":"tool","tool":"read","callID":"call_t45nbY","id":"prt_fee1b4464",
+        "sessionID":"ses_011e4dff","state":{"status":"completed",
+        "input":{"filePath":"/tmp/ocprobe/a.txt","limit":1},"output":"1: hello ivar",
+        "title":"a.txt","time":{"start":1786406192663,"end":1786406192673}}}}"#;
 
     assert_eq!(
         parse_opencode_line(line),
-        vec![ExecutorEvent::ToolUsed {
-            tool: "edit".to_owned(),
-            path: Some("src/main.rs".to_owned()),
-        }]
+        vec![
+            ExecutorEvent::NativeSession {
+                id: "ses_011e4dff".to_owned(),
+            },
+            ExecutorEvent::ToolUsed {
+                tool: "read".to_owned(),
+                path: Some("/tmp/ocprobe/a.txt".to_owned()),
+            },
+        ]
     );
 }
 
+/// The bug this rewrite undoes: the old parser matched `name` and `file_path`
+/// at the top level, and only for `edit`. OpenCode emits neither key, so that
+/// shape must now match nothing.
 #[test]
-fn opencode_ignores_tool_use_calls_that_are_not_edit() {
-    let line = r#"{"type":"tool_use","name":"bash","command":"ls"}"#;
+fn the_old_top_level_opencode_tool_shape_matches_nothing() {
+    let line = r#"{"type":"tool_use","name":"edit","file_path":"src/main.rs"}"#;
 
     assert_eq!(parse_opencode_line(line), Vec::new());
 }
 
+/// Every tool is journalled, not just `edit` — and a tool that names no file
+/// still counts as activity.
 #[test]
-fn opencode_question_becomes_question_asked() {
-    let line = r#"{"type":"question","text":"Which port?"}"#;
+fn an_opencode_tool_without_a_path_is_still_a_tool_use() {
+    let line = r#"{"type":"tool_use","timestamp":1,"sessionID":"ses_a",
+        "part":{"type":"tool","tool":"bash","state":{"status":"completed",
+        "input":{"command":"ls"}}}}"#;
 
     assert_eq!(
         parse_opencode_line(line),
-        vec![ExecutorEvent::QuestionAsked {
-            prompt: "Which port?".to_owned(),
+        vec![
+            ExecutorEvent::NativeSession {
+                id: "ses_a".to_owned(),
+            },
+            ExecutorEvent::ToolUsed {
+                tool: "bash".to_owned(),
+                path: None,
+            },
+        ]
+    );
+}
+
+/// A failed call — this hall's own execution guard refusing a write, say — is
+/// something that happened, so it is journalled rather than filtered. The
+/// error branch replaces `state` wholesale, so there is no `input` to read a
+/// path out of.
+#[test]
+fn an_errored_opencode_tool_call_is_still_reported() {
+    let line = r#"{"type":"tool_use","timestamp":1,"sessionID":"ses_a",
+        "part":{"type":"tool","tool":"edit","state":{"status":"error",
+        "error":"ivar denied write to /etc/passwd"}}}"#;
+
+    assert_eq!(
+        parse_opencode_line(line),
+        vec![
+            ExecutorEvent::NativeSession {
+                id: "ses_a".to_owned(),
+            },
+            ExecutorEvent::ToolUsed {
+                tool: "edit".to_owned(),
+                path: None,
+            },
+        ]
+    );
+}
+
+/// `opencode run` denies the `question` permission at session creation and its
+/// JSON writer has no question envelope, so a question the model wants to ask
+/// arrives as ordinary prose in a `text` part. Blocking on that would stall
+/// every run on its first sentence — see "Assistant prose is not a question".
+#[test]
+fn opencode_prose_is_never_a_question() {
+    let line = r#"{"type":"text","timestamp":1786406195392,"sessionID":"ses_011e3481",
+        "part":{"id":"prt_fee1b4faf","messageID":"msg_fee1b4683","sessionID":"ses_011e3481",
+        "type":"text","text":"Which colour do you prefer, red or blue?",
+        "time":{"start":1786406195119,"end":1786406195389}}}"#;
+
+    assert_eq!(
+        parse_opencode_line(line),
+        vec![ExecutorEvent::NativeSession {
+            id: "ses_011e3481".to_owned(),
         }]
+    );
+}
+
+/// The shape the old parser invented. OpenCode 1.18.16 emits no such
+/// envelope, and no line of any shape may produce a `QuestionAsked`.
+#[test]
+fn no_opencode_line_produces_a_question_asked() {
+    let lines = [
+        r#"{"type":"question","text":"Which port?"}"#,
+        r#"{"type":"permission.asked","sessionID":"ses_a","permission":"question"}"#,
+        r#"{"type":"tool_use","sessionID":"ses_a","part":{"type":"tool","tool":"question",
+            "state":{"status":"error","error":"Permission denied: question"}}}"#,
+    ];
+
+    for line in lines {
+        assert!(
+            !parse_opencode_line(line)
+                .iter()
+                .any(|event| matches!(event, ExecutorEvent::QuestionAsked { .. })),
+            "was: {line}"
+        );
+    }
+}
+
+// -- opencode: the native session id ----------------------------------------
+
+/// OpenCode stamps `sessionID` on every line rather than announcing it once,
+/// so every parsed line carries it and the drain loop keeps the first.
+#[test]
+fn every_opencode_line_carries_the_native_session_id() {
+    let line = r#"{"type":"step_start","timestamp":1786406190723,"sessionID":"ses_011e4dff",
+        "part":{"id":"prt_fee1b3e7e","messageID":"msg_fee1b24ed","sessionID":"ses_011e4dff",
+        "type":"step-start"}}"#;
+
+    assert_eq!(
+        parse_opencode_line(line),
+        vec![ExecutorEvent::NativeSession {
+            id: "ses_011e4dff".to_owned(),
+        }]
+    );
+}
+
+// -- opencode: errors and malformed lines -----------------------------------
+
+/// In `--format json` nothing is written to stderr, so `exited 1` on its own
+/// would be the whole story. The `error` envelope carries the reason.
+#[test]
+fn an_opencode_error_envelope_becomes_a_failure() {
+    let line = r#"{"type":"error","timestamp":1,"sessionID":"ses_a",
+        "error":{"name":"ProviderAuthError","data":{"message":"missing credentials"}}}"#;
+
+    assert_eq!(
+        parse_opencode_line(line),
+        vec![
+            ExecutorEvent::NativeSession {
+                id: "ses_a".to_owned(),
+            },
+            ExecutorEvent::Failed {
+                error: "missing credentials".to_owned(),
+            },
+        ]
+    );
+}
+
+#[test]
+fn an_opencode_error_falls_back_to_its_name() {
+    let line = r#"{"type":"error","sessionID":"ses_a","error":{"name":"UnknownError"}}"#;
+
+    assert_eq!(
+        parse_opencode_line(line),
+        vec![
+            ExecutorEvent::NativeSession {
+                id: "ses_a".to_owned(),
+            },
+            ExecutorEvent::Failed {
+                error: "UnknownError".to_owned(),
+            },
+        ]
     );
 }
 
 #[test]
 fn an_opencode_malformed_line_is_skipped() {
     assert_eq!(parse_opencode_line("{not json"), Vec::new());
+    assert_eq!(parse_opencode_line(""), Vec::new());
+    assert_eq!(parse_opencode_line("   "), Vec::new());
 }
