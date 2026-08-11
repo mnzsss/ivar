@@ -406,6 +406,77 @@ fn status_transitions_from_pending_through_running_to_completed() {
     assert_eq!(board.status, ExecutionStatus::Completed);
 }
 
+/// A board of `n` workstreams, one per status given, so a settle case reads
+/// as the statuses it is about and nothing else.
+fn board_with(statuses: &[WorkstreamStatus]) -> ExecutionBoard {
+    let workstreams = statuses
+        .iter()
+        .enumerate()
+        .map(|(index, status)| WorkstreamDef {
+            id: format!("ws{index}"),
+            title: format!("WS {index}"),
+            operations: vec!["op".to_owned()],
+            depends_on: Vec::new(),
+            write_contract: vec!["src/".to_owned()],
+            status: *status,
+            provider: None,
+            model: None,
+            agent: None,
+        })
+        .collect();
+    ExecutionBoard::new(ExecutionGraph {
+        plan_fingerprint: "abc123".to_owned(),
+        workstreams,
+    })
+}
+
+/// Board status is a summary of the workstreams, and every command that
+/// moves one derives it here instead of asserting its own local view — the
+/// three that used to guess each left the board somewhere no command would
+/// accept it back from.
+#[test]
+fn settle_derives_board_status_from_its_workstreams() {
+    use WorkstreamStatus::{Active, Blocked, Done, Paused, Waiting};
+
+    let cases = [
+        // A blocked workstream needs a human, even while siblings run.
+        (vec![Blocked, Active], ExecutionStatus::Blocked),
+        (vec![Active, Waiting], ExecutionStatus::Running),
+        (vec![Done, Done], ExecutionStatus::Completed),
+        // Work left to launch: `approved` is where `tick` launches from.
+        (vec![Done, Waiting], ExecutionStatus::Approved),
+        // Only pauses left — `ack-revision`'s turn.
+        (vec![Done, Paused], ExecutionStatus::Paused),
+    ];
+
+    for (statuses, expected) in cases {
+        let mut board = board_with(&statuses);
+        board.settle();
+        assert_eq!(board.status, expected, "for workstreams {statuses:?}");
+    }
+}
+
+/// While a board stays blocked, it keeps naming the workstream that actually
+/// blocked it — recomputing would rename the blocker to whichever one comes
+/// first in the graph. Once that one is unblocked, the next blocker takes
+/// over, and with none left the field clears.
+#[test]
+fn settle_keeps_naming_the_workstream_that_blocked_the_board() {
+    let mut board = board_with(&[WorkstreamStatus::Blocked, WorkstreamStatus::Blocked]);
+    board.blocked_by = Some("ws1".to_owned());
+    board.settle();
+    assert_eq!(board.blocked_by.as_deref(), Some("ws1"));
+
+    board.graph.workstreams[1].status = WorkstreamStatus::Waiting;
+    board.settle();
+    assert_eq!(board.blocked_by.as_deref(), Some("ws0"));
+
+    board.graph.workstreams[0].status = WorkstreamStatus::Waiting;
+    board.settle();
+    assert_eq!(board.status, ExecutionStatus::Approved);
+    assert!(board.blocked_by.is_none());
+}
+
 #[test]
 fn journal_entries_append_in_order_and_never_rewrite() {
     let mut board = execution_board();

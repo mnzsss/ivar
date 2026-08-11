@@ -72,6 +72,75 @@ impl ExecutionBoard {
     pub fn push_journal(&mut self, entry: JournalEntry) {
         self.journal.push(entry);
     }
+
+    /// Recompute the board's status from its workstreams, and with it
+    /// [`Self::blocked_by`].
+    ///
+    /// Board status is a summary of the workstreams, but every command used
+    /// to set it by hand, from its own local point of view — and a command
+    /// that finished its work while leaving the board `Running` left it
+    /// unmovable, because `tick` only accepts `Approved`, `approve` only
+    /// `AwaitingApproval` and `reply` only `Blocked`. So the summary is
+    /// derived here, once, and every command that mutates workstream status
+    /// calls this instead of guessing:
+    ///
+    /// - a `Blocked` workstream needs a human, so the board is `Blocked` —
+    ///   even while siblings still run, because the block does not resolve
+    ///   itself;
+    /// - otherwise anything `Active` means children are alive: `Running`;
+    /// - otherwise every workstream `Done` is `Completed`;
+    /// - otherwise anything `Waiting` is the next wave, and `Approved` is the
+    ///   status `tick` launches it from — the approval gate is not reopened,
+    ///   the human approved this graph and nothing about it changed;
+    /// - otherwise only `Paused` workstreams remain, waiting on
+    ///   `ack-revision`: `Paused`.
+    ///
+    /// `Pending` and `AwaitingApproval` are not produced here: they are
+    /// pre-approval states about the board itself, not about its workstreams,
+    /// and only `prepare`/`approve` own them.
+    pub fn settle(&mut self) {
+        let workstreams = &self.graph.workstreams;
+        let status = if workstreams
+            .iter()
+            .any(|ws| ws.status == WorkstreamStatus::Blocked)
+        {
+            ExecutionStatus::Blocked
+        } else if workstreams
+            .iter()
+            .any(|ws| ws.status == WorkstreamStatus::Active)
+        {
+            ExecutionStatus::Running
+        } else if workstreams
+            .iter()
+            .all(|ws| ws.status == WorkstreamStatus::Done)
+        {
+            ExecutionStatus::Completed
+        } else if workstreams
+            .iter()
+            .any(|ws| ws.status == WorkstreamStatus::Waiting)
+        {
+            ExecutionStatus::Approved
+        } else {
+            ExecutionStatus::Paused
+        };
+
+        // Keep naming the workstream that actually blocked the board while it
+        // is still blocked — recomputing would silently rename the blocker to
+        // whichever one comes first in the graph.
+        let still_blocked = self.blocked_by.as_ref().is_some_and(|id| {
+            workstreams
+                .iter()
+                .any(|ws| ws.id == *id && ws.status == WorkstreamStatus::Blocked)
+        });
+        if !still_blocked {
+            self.blocked_by = workstreams
+                .iter()
+                .find(|ws| ws.status == WorkstreamStatus::Blocked)
+                .map(|ws| ws.id.clone());
+        }
+
+        self.status = status;
+    }
 }
 
 /// The overall state of an execution board.
