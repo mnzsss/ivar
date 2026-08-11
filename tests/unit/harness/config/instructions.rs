@@ -193,16 +193,6 @@ fn removing_when_there_is_nothing_to_remove_is_unchanged() {
 
 // -- reconcile: the canonical file ----------------------------------------
 
-/// A fresh temp dir with a canonical `HALL.md` holding the block for a hall
-/// with one repo, plus the reconciler's canonical entry.
-fn canonical_root() -> (tempfile::TempDir, Utf8PathBuf) {
-    let (_guard, root) = utf8_temp_dir();
-    let canonical = root.join("HALL.md");
-    let block = build_block(&hall(), &[repo("api")]);
-    reconcile(&canonical, &block, &[]).unwrap();
-    (_guard, root)
-}
-
 #[test]
 fn an_absent_hall_file_is_created_holding_only_the_managed_block() {
     let (_guard, root) = utf8_temp_dir();

@@ -1066,7 +1066,7 @@ fn missing_canonical_content_warns_but_lets_the_session_open() {
     .unwrap();
     assert_eq!(report.warnings.len(), 1);
     assert_eq!(
-        report.warnings[0].code,
+        report.warnings.first().unwrap().code,
         "instructions.canonical_unavailable"
     );
     assert_eq!(
@@ -1090,7 +1090,7 @@ fn missing_canonical_content_warns_but_lets_the_session_open() {
     .unwrap();
     assert_eq!(report.warnings.len(), 1);
     assert_eq!(
-        report.warnings[0].code,
+        report.warnings.first().unwrap().code,
         "instructions.canonical_unavailable"
     );
     let content = fs::read_text(&feature_view.join("CLAUDE.md"))

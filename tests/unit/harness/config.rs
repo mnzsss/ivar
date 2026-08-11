@@ -8,6 +8,7 @@
 use super::*;
 use crate::domain::mcp::McpServerDef;
 use crate::domain::provider::Provider;
+use crate::infra::fs;
 use crate::test_support::utf8_temp_dir;
 
 // -- materialise_mcp: Claude Code ----------------------------------------

@@ -217,10 +217,8 @@ fn materialise_session_instructions(
         report.warnings.push(Warning::new(
             "instructions.canonical_unavailable",
             "hall",
-            format!(
-                "`HALL.md` is missing or not a regular file; the session opens without the \
-                 hall's shared instructions"
-            ),
+            "`HALL.md` is missing or not a regular file; the session opens without the hall's \
+             shared instructions",
         ));
     }
 

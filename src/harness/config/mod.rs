@@ -46,7 +46,7 @@
 //! cites.
 
 use crate::error::{Failure, FixAction};
-use crate::infra::{fs, json};
+use crate::infra::json;
 
 mod mcp;
 pub(crate) mod session;

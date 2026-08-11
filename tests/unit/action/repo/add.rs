@@ -69,7 +69,7 @@ fn the_next_action_is_shared_by_json_and_human_surfaces() {
     let report = add(&ctx, input(&url)).unwrap();
 
     assert!(report.is_clean());
-    let json = serde_json::to_value(&Report::new(report.value.clone())).unwrap();
+    let json = serde_json::to_value(Report::new(report.value.clone())).unwrap();
     assert_eq!(json["next_action"], "/ivar-relations api");
 
     let mut out = Vec::new();
