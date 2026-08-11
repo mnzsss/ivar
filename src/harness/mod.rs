@@ -54,6 +54,15 @@ pub struct Capabilities {
     pub supports_resume: bool,
     /// Whether the harness accepts review-style subcommands.
     pub supports_review: bool,
+    /// Whether the harness can ask the human a question mid-run, in the
+    /// headless mode [`Self::execute_command`](Harness::execute_command)
+    /// builds.
+    ///
+    /// False for OpenCode, which refuses the `question` tool and emits no
+    /// question envelope — see [`stream`]'s "OpenCode cannot ask" for why. A
+    /// workstream on such a harness never reaches `blocked` waiting for `ivar
+    /// feature execute reply`: it finishes, or it fails.
+    pub supports_questions: bool,
     /// Whether the harness runs a long-lived interactive process (needs a
     /// PTY) or a one-shot command.
     pub interactive: bool,
@@ -63,11 +72,13 @@ impl Capabilities {
     const CLAUDE_CODE: Self = Self {
         supports_resume: true,
         supports_review: true,
+        supports_questions: true,
         interactive: true,
     };
     const OPENCODE: Self = Self {
         supports_resume: true,
         supports_review: false,
+        supports_questions: false,
         interactive: true,
     };
 }
@@ -149,7 +160,27 @@ impl Harness {
     /// `--cwd` flag — the working directory is set on the spawn (via
     /// [`proc::Command::cwd`]), not the argv.
     ///
-    /// OpenCode: `opencode run -p <prompt>`.
+    /// OpenCode: `opencode run --format json [flags]`, with the prompt fed on
+    /// **stdin** rather than argv. Three things about that line are not
+    /// interchangeable with Claude Code's, and each was got wrong before:
+    ///
+    /// - **`-p` is not the prompt.** On the `opencode` CLI `-p` is the short
+    ///   form of `--password` (HTTP basic auth for `--attach`), and `run`'s
+    ///   message is a positional array. `opencode run -p <prompt>` therefore
+    ///   leaves the message empty and exits 1 with "You must provide a message
+    ///   or a command" — never reaching the model at all.
+    /// - **`--format json` is required.** The default format is `default`,
+    ///   which prints prose for a human. [`stream::parse_opencode_line`]
+    ///   parses JSON events, so without this flag every line it sees is noise
+    ///   and the whole run produces no events.
+    /// - **The prompt goes on stdin, not argv.** `run` reads stdin to EOF when
+    ///   it is not a TTY and uses it as the message when argv carries none —
+    ///   verbatim. The positional path does not: `run` re-renders its argv
+    ///   message by wrapping any element containing a space in literal double
+    ///   quotes and backslash-escaping the quotes inside it, so a rendered plan
+    ///   prompt would reach the model dressed in punctuation ivar never wrote.
+    ///   Stdin is also the channel that cannot be mistaken for a flag, which
+    ///   the argv path would need a `--` separator to guarantee.
     ///
     /// `model` and `agent` are appended only when the caller supplies them,
     /// and each is its own flag on both CLIs: `--model` selects the model,
@@ -171,7 +202,7 @@ impl Harness {
                 .arg("--output-format")
                 .arg("stream-json")
                 .arg("--verbose"),
-            Self::OpenCode => command.arg("run").arg("-p").arg(prompt),
+            Self::OpenCode => command.arg("run").arg("--format").arg("json").stdin(prompt),
         };
         let command = match model {
             Some(model) => command.arg("--model").arg(model),

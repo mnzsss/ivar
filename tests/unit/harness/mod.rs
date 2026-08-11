@@ -51,8 +51,18 @@ fn capabilities_are_explicit_not_inferred() {
     let caps = Harness::ClaudeCode.capabilities();
     assert!(caps.supports_resume);
     assert!(caps.interactive);
+    assert!(caps.supports_questions);
     let opencode = Harness::OpenCode.capabilities();
     assert!(!opencode.supports_review);
+}
+
+/// `opencode run` bakes `{permission: "question", action: "deny"}` into every
+/// session it creates, so the `question` tool never executes and the JSON
+/// stream has no question envelope. The flag says so rather than leaving
+/// `tick` to wait for a block that cannot arrive.
+#[test]
+fn opencode_cannot_ask_questions_headlessly() {
+    assert!(!Harness::OpenCode.capabilities().supports_questions);
 }
 
 // -- execute_command --------------------------------------------------
@@ -74,12 +84,63 @@ fn claude_code_execute_command_is_headless_and_streamed() {
     );
 }
 
+/// `-p` on the `opencode` CLI is `--password`, not the prompt, and without
+/// `--format json` the output is prose for a human that `parse_opencode_line`
+/// cannot read at all.
 #[test]
-fn opencode_execute_command_is_run_dash_p() {
+fn opencode_execute_command_is_run_format_json() {
     let command = Harness::OpenCode.execute_command("do the thing", None, None);
 
     assert_eq!(command.program(), "opencode");
-    assert_eq!(command.arguments(), ["run", "-p", "do the thing"]);
+    assert_eq!(command.arguments(), ["run", "--format", "json"]);
+}
+
+/// `opencode run` re-renders an argv message — wrapping anything containing a
+/// space in literal quotes and escaping the quotes inside it — and reads stdin
+/// verbatim. So the prompt goes on stdin and appears nowhere in the argv.
+#[test]
+fn the_opencode_prompt_travels_on_stdin_not_argv() {
+    let command = Harness::OpenCode.execute_command("do the thing", None, None);
+
+    assert_eq!(command.stdin_text(), Some("do the thing"));
+    assert!(
+        !command.arguments().iter().any(|a| a.contains("do the")),
+        "prompt leaked into argv: {:?}",
+        command.arguments()
+    );
+    assert!(!command.display().contains("-p "), "{}", command.display());
+}
+
+/// Nothing about a prompt's own text can turn it into a flag once it travels
+/// on stdin — not a leading dash, not a newline, not a quote.
+#[test]
+fn an_opencode_prompt_that_looks_like_a_flag_is_still_just_the_prompt() {
+    let command = Harness::OpenCode.execute_command(
+        "--not-a-flag\nwith \"quotes\"",
+        Some("opus"),
+        Some("build"),
+    );
+
+    assert_eq!(
+        command.arguments(),
+        [
+            "run", "--format", "json", "--model", "opus", "--agent", "build"
+        ]
+    );
+    assert_eq!(command.stdin_text(), Some("--not-a-flag\nwith \"quotes\""));
+}
+
+/// Claude Code takes its prompt as `-p`'s value and is fed nothing on stdin —
+/// the two harnesses use different channels, and only one of them is written
+/// to.
+#[test]
+fn claude_code_is_never_fed_on_stdin() {
+    assert_eq!(
+        Harness::ClaudeCode
+            .execute_command("do the thing", None, None)
+            .stdin_text(),
+        None
+    );
 }
 
 #[test]
