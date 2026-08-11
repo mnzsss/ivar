@@ -7,6 +7,7 @@
 
 use super::*;
 use crate::action::execute::replan::{self, ReplanInput};
+use crate::domain::feature::ExecutionStatus;
 use crate::error::Status;
 use crate::infra::fs;
 use crate::store::layout::Layout;
@@ -151,7 +152,12 @@ fn ack_unpauses_the_workstream_and_resumes_when_the_last_acknowledges() {
 
     assert!(report.value.resumed);
     let on_disk = persisted(&root);
-    assert_eq!(on_disk.status, ExecutionStatus::Running);
+    assert_eq!(
+        on_disk.status,
+        ExecutionStatus::Approved,
+        "a resumed board must be tickable — nothing is running, the unpaused \
+         workstreams are waiting to be launched"
+    );
     assert!(
         on_disk
             .graph

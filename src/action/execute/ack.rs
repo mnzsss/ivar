@@ -7,8 +7,15 @@
 //! gated: it must not resume until a human acknowledges the revised plan it
 //! was paused for. `ack_revision` is that acknowledgment — it unpauses the
 //! workstream (back to `Waiting`), records a `replan-acked` journal entry, and
-//! when the last paused workstream has acknowledged, resumes the whole board
-//! by advancing its status to `Running`.
+//! when the last paused workstream has acknowledged, resumes the whole board.
+//!
+//! Resuming means `Approved`, not `Running`: nothing is running: the unpaused
+//! workstreams are `Waiting`, and `Approved` is the only status `tick` will
+//! launch them from. A board resumed to `Running` was a board no command
+//! could move — `tick` refuses anything but `approved`. The status is derived
+//! from the workstreams by [`ExecutionBoard::settle`] rather than asserted
+//! here, so a board with a blocked workstream stays blocked even once every
+//! pause is acknowledged.
 //!
 //! Acknowledging a workstream that is not paused is refused: there is nothing
 //! to acknowledge. The gate is the `Paused` status itself, so "every affected
@@ -19,7 +26,7 @@ use std::io;
 use camino::Utf8PathBuf;
 use serde::Serialize;
 
-use crate::domain::feature::{ExecutionBoard, ExecutionStatus, JournalEntry, WorkstreamStatus};
+use crate::domain::feature::{ExecutionBoard, JournalEntry, WorkstreamStatus};
 use crate::domain::name::FeatureName;
 use crate::error::{Failure, FixAction, Outcome, Report, WriteHuman};
 
@@ -73,7 +80,9 @@ impl WriteHuman for AckOutcome {
 ///
 /// Blocked when the feature has no board, the workstream is unknown, or the
 /// workstream is not paused — nothing to acknowledge. Unpausing is persisted
-/// with its journal entry before the outcome is returned.
+/// with its journal entry before the outcome is returned, and the board's
+/// status is re-derived from its workstreams: `approved` once the last pause
+/// is acknowledged and nothing else holds the board.
 pub fn ack_revision(ctx: &Ctx, input: AckInput) -> Outcome<AckOutcome> {
     let layout = discover_hall(ctx)?;
     let feature = FeatureName::new(input.feature)?;
@@ -118,9 +127,7 @@ pub fn ack_revision(ctx: &Ctx, input: AckInput) -> Outcome<AckOutcome> {
         .workstreams
         .iter()
         .all(|workstream| workstream.status != WorkstreamStatus::Paused);
-    if resumed {
-        board.set_status(ExecutionStatus::Running);
-    }
+    board.settle();
     board.write(&layout, &feature)?;
 
     Ok(Report::new(AckOutcome {

@@ -4,10 +4,23 @@
 //! # What it does
 //!
 //! When the board is [`ExecutionStatus::Blocked`](crate::domain::feature::ExecutionStatus),
-//! records a `human.replied` journal entry and appends the message line to the
-//! workstream's inbox JSONL file, then returns the board to
-//! [`Running`](crate::domain::feature::ExecutionStatus) /
-//! [`Active`](crate::domain::feature::WorkstreamStatus).
+//! records a `human.replied` journal entry, appends the message line to the
+//! workstream's inbox JSONL file, and returns the workstream to
+//! [`Waiting`](crate::domain::feature::WorkstreamStatus) — where `tick` can
+//! pick it up again, carrying the inbox into its prompt.
+//!
+//! # Why `Waiting`, not `Active`
+//!
+//! The blocked workstream's child process is gone: it asked its question and
+//! exited, or died. `Active` would claim a process that does not exist, and
+//! nothing would ever launch a replacement — `tick` only launches `Waiting`
+//! workstreams, and only from an `Approved` board. A reply that left the
+//! board `Running`/`Active` therefore answered the question and stranded the
+//! workstream in the same breath. The board's own status is derived, not
+//! guessed: [`ExecutionBoard::settle`](crate::domain::feature::ExecutionBoard::settle)
+//! makes it `Approved` when this was the
+//! last blocker, and leaves it `Blocked` — naming the next blocker — when a
+//! sibling is still waiting on a human.
 //!
 //! Replying twice with the same content is idempotent: if an entry with the
 //! same `event_id` already exists in the journal, nothing is duplicated.
@@ -22,11 +35,9 @@ use crate::action::Ctx;
 use crate::domain::feature::{ExecutionStatus, JournalEntry, WorkstreamStatus};
 use crate::domain::name::FeatureName;
 use crate::error::{Failure, FixAction, Outcome, Report, WriteHuman};
-use crate::infra::fs;
-use crate::store::layout::Layout;
 
 use super::super::discover_hall;
-use super::{require_board, workstream_not_found};
+use super::{inbox, require_board, workstream_not_found};
 
 /// What `ivar feature execute reply` needs.
 #[derive(Debug, Clone)]
@@ -64,8 +75,10 @@ impl WriteHuman for ReplyOutcome {
 /// Reply to a blocked workstream identified by `input.session`.
 ///
 /// Blocked when the board is not in [`ExecutionStatus::Blocked`] state or no
-/// session/workstream mapping exists. On success the board transitions back to
-/// Running/Active and the message lands in the workstream's inbox.
+/// session/workstream mapping exists. On success the message lands in the
+/// workstream's inbox, the workstream returns to `Waiting`, and the board
+/// settles to whatever its workstreams now say — `Approved` when this was the
+/// last blocker, so the next `tick` relaunches it with the reply in hand.
 pub fn reply(ctx: &Ctx, input: ReplyInput) -> Outcome<ReplyOutcome> {
     // Validate arguments before touching the hall — a missing argument is a
     // caller error, not a hall problem.
@@ -155,19 +168,19 @@ pub fn reply(ctx: &Ctx, input: ReplyInput) -> Outcome<ReplyOutcome> {
     };
     board.push_journal(entry);
 
-    // Append the reply line to the workstream's inbox JSONL.
-    append_inbox_line(&layout, &feature_name, &workstream_id, &input.message)?;
+    // Append the reply line to the workstream's inbox JSONL — the channel
+    // `tick` reads back into the prompt when it relaunches the workstream.
+    inbox::append(&layout, &feature_name, &workstream_id, &input.message)?;
 
-    // Clear blocked_by and transition states.
-    board.blocked_by = None;
-    board.set_status(ExecutionStatus::Running);
-
-    // Unblock the workstream: set its status to Active.
+    // Unblock the workstream by returning it to `Waiting` — see "Why
+    // `Waiting`, not `Active`". The board's status follows from that rather
+    // than being asserted here.
     for ws in &mut board.graph.workstreams {
         if ws.id == workstream_id && ws.status == WorkstreamStatus::Blocked {
-            ws.status = WorkstreamStatus::Active;
+            ws.status = WorkstreamStatus::Waiting;
         }
     }
+    board.settle();
 
     // Persist the updated board.
     board.write(&layout, &feature_name)?;
@@ -217,56 +230,6 @@ fn epoch_seconds() -> String {
         .duration_since(SystemTime::UNIX_EPOCH)
         .map(|d| d.as_secs().to_string())
         .unwrap_or_default()
-}
-
-/// Append a single JSONL line to the workstream's inbox file. Creates the
-/// inbox directory if needed. Append-only — never rewrites.
-fn append_inbox_line(
-    layout: &Layout,
-    feature: &FeatureName,
-    workstream: &str,
-    message: &str,
-) -> Result<(), Failure> {
-    let inbox_path = layout.execution_inbox(feature, workstream);
-
-    // Ensure the inbox directory exists.
-    if let Some(parent) = inbox_path.parent() {
-        fs::ensure_dir(parent).map_err(Failure::from)?;
-    }
-
-    // Append one line: a JSON object with the message and a timestamp.
-    let line = serde_json::json!({
-        "kind": "inbox",
-        "timestamp": epoch_seconds(),
-        "message": message,
-    });
-    let line_str = format!("{line}\n");
-
-    // OpenAppend mode: creates if absent, appends if present.
-    use std::fs::OpenOptions;
-    use std::io::Write;
-
-    let mut file = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(inbox_path.as_std_path())
-        .map_err(|source| {
-            Failure::failed(
-                "execute.inbox_write_failed",
-                format!("could not append to `{inbox_path}`"),
-            )
-            .actual(source.to_string())
-        })?;
-
-    file.write_all(line_str.as_bytes()).map_err(|source| {
-        Failure::failed(
-            "execute.inbox_write_failed",
-            format!("could not append to `{inbox_path}`"),
-        )
-        .actual(source.to_string())
-    })?;
-
-    Ok(())
 }
 
 #[cfg(test)]

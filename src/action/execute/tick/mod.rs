@@ -19,7 +19,8 @@
 //!    [`WorkstreamStatus::Active`].
 //!
 //! The board's overall status advances from [`ExecutionStatus::Approved`] to
-//! [`ExecutionStatus::Running`] once at least one workstream is launched.
+//! [`ExecutionStatus::Running`] once at least one workstream is launched, and
+//! settles again once the wave is over — see "Settling the wave" below.
 //!
 //! `tick` **blocks** until every workstream it launched has reached a
 //! terminal state — `Done` on a clean exit, `Blocked` on a failure or a
@@ -60,6 +61,32 @@
 //! in-memory journal; the final flush after every worker has joined catches
 //! up on whatever accumulated, so a crash mid-tick can only lose trailing
 //! activity noise, never a status.
+//!
+//! # Settling the wave
+//!
+//! `tick` launches one wave and blocks until every workstream in it is
+//! terminal, so by the time the fold loop ends the board is no longer
+//! running anything — and a board left at [`ExecutionStatus::Running`] can
+//! never be ticked again, because `tick` only accepts
+//! [`ExecutionStatus::Approved`]. That stranded every wave after the first:
+//! `tick` refused (not approved), `approve` refused (not awaiting approval)
+//! and `reply` refused (not blocked), leaving no command able to move the
+//! board. So the last thing `tick` does is settle it:
+//!
+//! - a board that a workstream took to [`ExecutionStatus::Blocked`] stays
+//!   blocked — it needs `reply`, not another tick;
+//! - a board whose every workstream is [`WorkstreamStatus::Done`] becomes
+//!   [`ExecutionStatus::Completed`];
+//! - otherwise work remains — workstreams still `Waiting`, typically on the
+//!   dependencies this wave just satisfied — and the board returns to
+//!   `Approved`, which is where the next `tick` launches the next wave from.
+//!   The approval gate is not reopened: the human approved *this* graph and
+//!   nothing about it changed.
+//!
+//! The rule itself lives on [`ExecutionBoard::settle`], because `reply` and
+//! `ack-revision` end in exactly the same place — workstreams moved, board
+//! status now stale — and three commands deriving the same summary three
+//! ways is how the board got stuck in the first place.
 //!
 //! # Terminal status
 //!
@@ -120,6 +147,7 @@ use crate::infra::{fs, hash};
 use crate::store::feature;
 
 use super::super::{discover_hall, read_manifest};
+use super::inbox;
 use super::prompt;
 use crate::action::Ctx;
 use crate::action::repo::pull;
@@ -331,7 +359,11 @@ pub fn tick(ctx: &Ctx, input: TickInput) -> Outcome<TickOutcome> {
         if !harness.capabilities().supports_questions {
             cannot_ask.push((ws.id.clone(), harness.binary()));
         }
-        let prompt_text = prompt::render(&plan_text, ws)?;
+        // Answers a human already gave this workstream, if it blocked on a
+        // question before: the relaunch is a fresh child, and a prompt
+        // without them is the same prompt that produced the question.
+        let replies = inbox::read(&layout, &feature, &ws.id)?;
+        let prompt_text = prompt::render(&plan_text, ws, &replies)?;
         let session_id = SessionId::new(uuid::Uuid::new_v4().to_string())?;
         let view_dir = layout.feature_session(&feature, &session_id);
         let command = launch::build_spawn_command(
@@ -424,10 +456,14 @@ pub fn tick(ctx: &Ctx, input: TickInput) -> Outcome<TickOutcome> {
         let _ = handle.join();
     }
 
+    // Every workstream this tick launched is terminal now — see "Settling
+    // the wave".
+    settle(&mut board);
+
     // Final flush: catches whatever `tool.used` entries accumulated since the
-    // last state-transition flush. Every transition already forced its own
-    // flush, so this can only add trailing activity, never change an answer
-    // already on disk.
+    // last state-transition flush, and the settled status. Every transition
+    // already forced its own flush, so this can only add trailing activity,
+    // never change an answer already on disk.
     board.write(&layout, &feature)?;
 
     let board_path = feature::board_path(&layout, &feature);
@@ -441,6 +477,32 @@ pub fn tick(ctx: &Ctx, input: TickInput) -> Outcome<TickOutcome> {
         },
         warnings,
     ))
+}
+
+/// Settle the board once the wave is over and journal what that decided.
+/// [`ExecutionBoard::settle`] owns the rule (see the module doc's "Settling
+/// the wave"); this adds the entry that makes the transition legible in the
+/// journal, and only when the status actually moved — a board still `Blocked`
+/// on the workstream that blocked it says nothing new.
+fn settle(board: &mut ExecutionBoard) {
+    let before = board.status;
+    board.settle();
+    if board.status == before {
+        return;
+    }
+    let (kind, message) = match board.status {
+        ExecutionStatus::Completed => ("board.completed", "Every workstream is done".to_owned()),
+        ExecutionStatus::Approved => (
+            "wave.completed",
+            "Wave finished; board back to `approved` — tick again to launch what is now ready"
+                .to_owned(),
+        ),
+        other => (
+            "board.settled",
+            format!("Wave finished; board is `{other}`"),
+        ),
+    };
+    board.push_journal(JournalEntry::new("board", kind, message));
 }
 
 /// A feature with an approved board but no `feature.json` — a race between

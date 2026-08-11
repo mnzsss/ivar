@@ -12,6 +12,7 @@
 use super::*;
 use crate::action::execute::approve::{self as approve_action, ApproveInput};
 use crate::action::execute::prepare::{self as prepare_action, PrepareInput};
+use crate::action::execute::reply::{self as reply_action, ReplyInput};
 use crate::action::feature::create::{self as feature_create, CreateInput as FeatureCreateInput};
 use crate::action::hall::{self, InitInput};
 use crate::action::plan::create::{self as plan_create, CreateInput as PlanCreateInput};
@@ -152,7 +153,7 @@ fn tick_launches_workstreams_with_met_dependencies() {
 
     assert!(report.is_clean());
     assert_eq!(report.value.launched, vec!["ws-b"]);
-    assert_eq!(persisted(&root).status, ExecutionStatus::Running);
+    assert_eq!(persisted(&root).status, ExecutionStatus::Completed);
 
     // Session→workstream link recorded.
     let on_disk = persisted(&root);
@@ -559,5 +560,158 @@ fn tick_actually_spawns_the_provider() {
     assert!(
         fs::is_file(&sentinel).unwrap(),
         "tick must actually spawn `claude`, not just record a fake session"
+    );
+}
+
+// -- wave handoff --------------------------------------------------------
+
+/// A tick launches one wave and blocks until it finishes. The board it
+/// leaves behind has to be tickable again, or every wave after the first is
+/// stranded: `tick` demands `approved`, and a board parked at `running`
+/// refuses every command that could move it — `tick` (not approved),
+/// `approve` (not awaiting approval) and `reply` (not blocked) alike.
+#[test]
+fn a_finished_wave_returns_the_board_to_approved_so_the_next_can_launch() {
+    let (_guard, root) = approved_board();
+    let ctx = Ctx::new(root.clone());
+
+    let _stub = PathStub::install("claude", "exit 0");
+
+    let first = tick(
+        &ctx,
+        TickInput {
+            feature: "checkout".to_owned(),
+        },
+    )
+    .unwrap();
+    assert_eq!(first.value.launched, vec!["ws-a"]);
+
+    let after_first = persisted(&root);
+    assert_eq!(
+        after_first.status,
+        ExecutionStatus::Approved,
+        "a wave that finished with work still waiting must leave the board tickable"
+    );
+    assert!(
+        after_first
+            .journal
+            .iter()
+            .any(|entry| entry.kind == "wave.completed"),
+        "the handoff back to `approved` must be journalled: {:?}",
+        after_first.journal
+    );
+
+    // The next wave launches from that same board — no re-approval, no
+    // re-prepare.
+    let second = tick(
+        &ctx,
+        TickInput {
+            feature: "checkout".to_owned(),
+        },
+    )
+    .unwrap();
+    assert_eq!(second.value.launched, vec!["ws-b"]);
+
+    let after_second = persisted(&root);
+    assert_eq!(
+        after_second.status,
+        ExecutionStatus::Completed,
+        "a board whose every workstream is done is completed, not running"
+    );
+    assert!(
+        after_second
+            .journal
+            .iter()
+            .any(|entry| entry.kind == "board.completed"),
+        "the completion must be journalled: {:?}",
+        after_second.journal
+    );
+}
+
+/// A blocked wave stays blocked: settling after the fold loop must not
+/// launder a board that needs a human back into `approved`.
+#[test]
+fn a_blocked_wave_stays_blocked_after_the_tick_settles() {
+    let (_guard, root) = approved_board();
+    let ctx = Ctx::new(root.clone());
+
+    let _stub = PathStub::install("claude", "exit 7");
+
+    tick(
+        &ctx,
+        TickInput {
+            feature: "checkout".to_owned(),
+        },
+    )
+    .unwrap();
+
+    let on_disk = persisted(&root);
+    assert_eq!(on_disk.status, ExecutionStatus::Blocked);
+    assert_eq!(on_disk.blocked_by.as_deref(), Some("ws-a"));
+}
+
+/// The whole recovery loop, end to end: a workstream blocks, a human
+/// replies, and the next tick relaunches it — with the answer in its prompt.
+/// A relaunch that dropped the answer would hand the agent the exact prompt
+/// that produced the question and get the same question back, forever.
+#[test]
+fn a_replied_workstream_relaunches_with_the_answer_in_its_prompt() {
+    let (_guard, root) = approved_board();
+    let ctx = Ctx::new(root.clone());
+
+    // Wave 1: the child dies, so the board blocks on `ws-a`.
+    {
+        let _stub = PathStub::install("claude", "exit 3");
+        tick(
+            &ctx,
+            TickInput {
+                feature: "checkout".to_owned(),
+            },
+        )
+        .unwrap();
+    }
+    let blocked = persisted(&root);
+    assert_eq!(blocked.status, ExecutionStatus::Blocked);
+    let session = blocked
+        .sessions
+        .iter()
+        .find(|(_, workstream)| workstream.as_str() == "ws-a")
+        .map(|(id, _)| id.clone())
+        .unwrap();
+
+    reply_action::reply(
+        &ctx,
+        ReplyInput {
+            feature: Some("checkout".to_owned()),
+            session: Some(session),
+            message: "use the v2 endpoint".to_owned(),
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        persisted(&root).status,
+        ExecutionStatus::Approved,
+        "a reply must leave the board tickable"
+    );
+
+    // Wave 2: capture the prompt the relaunched child is handed. `claude`
+    // takes it as the argument to `-p`, so `$2` is the prompt itself.
+    let (_sentinel_guard, sentinel_dir) = crate::test_support::utf8_temp_dir();
+    let sentinel = sentinel_dir.join("prompt.txt");
+    let _stub = PathStub::install("claude", &format!("printf '%s' \"$2\" > '{sentinel}'"));
+
+    let report = tick(
+        &ctx,
+        TickInput {
+            feature: "checkout".to_owned(),
+        },
+    )
+    .unwrap();
+    assert_eq!(report.value.launched, vec!["ws-a"]);
+
+    let prompt_text = fs::read_text(&sentinel).unwrap().unwrap();
+    assert!(
+        prompt_text.contains("use the v2 endpoint"),
+        "the relaunched prompt must carry the human's answer: {prompt_text}"
     );
 }

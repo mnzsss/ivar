@@ -33,12 +33,21 @@
 //! operation — an agent handed such a prompt would implement nothing for
 //! that id and no one would notice until review.
 //!
+//! # Replies from a human
+//!
+//! A workstream that blocked on a question is relaunched from scratch by the
+//! next `tick` — the child that asked is long gone. So the answers a human
+//! gave it, kept in [`super::inbox`], are rendered into the prompt: without
+//! them the relaunch is bit-for-bit the prompt that produced the question,
+//! and the workstream asks it again, forever.
+//!
 //! # Signature
 //!
-//! [`render`] takes the plan text and a borrowed [`WorkstreamDef`] — nothing
-//! else. A caller that already read the plan and already holds the
-//! workstream (e.g. from a loaded [`crate::domain::feature::ExecutionBoard`])
-//! renders without touching the filesystem again.
+//! [`render`] takes the plan text, a borrowed [`WorkstreamDef`], and the
+//! replies already addressed to it — nothing else, and no filesystem. A
+//! caller that already read the plan and already holds the workstream (e.g.
+//! from a loaded [`crate::domain::feature::ExecutionBoard`]) renders without
+//! touching the filesystem again.
 
 use crate::domain::feature::WorkstreamDef;
 use crate::error::{Failure, FixAction};
@@ -46,13 +55,19 @@ use crate::error::{Failure, FixAction};
 use super::plan_ops::operations_from_plan;
 
 /// Render the executor prompt for `workstream`, using `plan_text` as the
-/// source of truth for operation ownership and operation text.
+/// source of truth for operation ownership and operation text, and `replies`
+/// as the answers a human has already given this workstream (oldest first —
+/// empty for the common case of a workstream that never blocked).
 ///
 /// Blocked when `workstream` claims an operation id that the plan does not
 /// back: either the id is absent from this workstream's own heading in the
 /// plan's `## Operations` section, or it has no `**<id>**` entry in
 /// `## Operation details`.
-pub fn render(plan_text: &str, workstream: &WorkstreamDef) -> Result<String, Failure> {
+pub fn render(
+    plan_text: &str,
+    workstream: &WorkstreamDef,
+    replies: &[String],
+) -> Result<String, Failure> {
     let plan_workstreams = operations_from_plan(plan_text);
     let owned = plan_workstreams
         .iter()
@@ -81,7 +96,7 @@ pub fn render(plan_text: &str, workstream: &WorkstreamDef) -> Result<String, Fai
         details.push((id.as_str(), text));
     }
 
-    Ok(render_body(workstream, &details))
+    Ok(render_body(workstream, &details, replies))
 }
 
 /// The "operation the plan does not back" refusal.
@@ -127,7 +142,11 @@ fn operation_text(plan_text: &str, id: &str) -> Option<String> {
 
 /// Assemble the prompt body once every operation has been checked and its
 /// text resolved.
-fn render_body(workstream: &WorkstreamDef, details: &[(&str, String)]) -> String {
+fn render_body(
+    workstream: &WorkstreamDef,
+    details: &[(&str, String)],
+    replies: &[String],
+) -> String {
     let mut out = String::new();
 
     out.push_str(&format!(
@@ -160,6 +179,18 @@ fn render_body(workstream: &WorkstreamDef, details: &[(&str, String)]) -> String
     );
     for path in &workstream.write_contract {
         out.push_str(&format!("- {path}\n"));
+    }
+
+    if !replies.is_empty() {
+        out.push_str("\n## Answers from the human\n\n");
+        out.push_str(
+            "An earlier run of this workstream stopped to ask, and a human answered. \
+             These answers are part of your instructions: read them before you start, \
+             act on them, and do not ask the same question again.\n\n",
+        );
+        for (index, reply) in replies.iter().enumerate() {
+            out.push_str(&format!("{}. {reply}\n", index + 1));
+        }
     }
 
     out

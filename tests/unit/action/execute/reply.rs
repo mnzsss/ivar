@@ -12,6 +12,7 @@ use crate::action::hall::{self, InitInput};
 use crate::action::plan::create::{self as plan_create, CreateInput as PlanCreateInput};
 use crate::domain::feature::ExecutionBoard;
 use crate::error::Status;
+use crate::infra::fs;
 use crate::store::layout::Layout;
 use crate::test_support::hall_root;
 
@@ -151,8 +152,8 @@ fn reply_records_journal_entry_and_clears_blocked_by() {
     let feature = FeatureName::new("checkout").unwrap();
     let board = ExecutionBoard::read(&layout, &feature).unwrap().unwrap();
 
-    // Board is back to Running.
-    assert_eq!(board.status, ExecutionStatus::Running);
+    // The board is tickable again.
+    assert_eq!(board.status, ExecutionStatus::Approved);
     // blocked_by is cleared.
     assert!(board.blocked_by.is_none());
 
@@ -196,8 +197,13 @@ fn reply_lands_the_message_in_the_workstream_inbox() {
     assert_eq!(entry["message"], "inbox test line");
 }
 
+/// A reply has to hand the workstream back to something that can act on it.
+/// It used to leave it `Active` on a `Running` board — a state no command
+/// accepts: `tick` demands `approved` and only launches `Waiting`, `approve`
+/// demands `awaiting_approval`, `reply` demands `blocked`. The question got
+/// answered and the workstream was stranded in the same breath.
 #[test]
-fn reply_transitions_workstream_to_active() {
+fn reply_returns_the_workstream_to_waiting_for_the_next_tick() {
     let (_guard, root) = seeded_blocked_board();
     let ctx = Ctx::new(root.clone());
 
@@ -221,7 +227,7 @@ fn reply_transitions_workstream_to_active() {
         .iter()
         .find(|ws| ws.id == "ws-src")
         .unwrap();
-    assert_eq!(ws.status, WorkstreamStatus::Active);
+    assert_eq!(ws.status, WorkstreamStatus::Waiting);
 
     // The other workstream should be unchanged.
     let docs = board
@@ -338,4 +344,45 @@ fn missing_session_argument_returns_blocked() {
 
     assert_eq!(failure.status, Status::Blocked);
     assert_eq!(failure.code, "execute.reply.missing_session");
+}
+
+/// One reply does not unblock a board two workstreams are blocking. The
+/// board stays `Blocked`, now naming the one that is still waiting on a
+/// human.
+#[test]
+fn a_board_with_another_blocked_workstream_stays_blocked() {
+    let (_guard, root) = seeded_blocked_board();
+    let ctx = Ctx::new(root.clone());
+
+    let layout = Layout::at(root.clone());
+    let feature = FeatureName::new("checkout").unwrap();
+    {
+        let mut board = ExecutionBoard::read(&layout, &feature).unwrap().unwrap();
+        board
+            .graph
+            .workstreams
+            .iter_mut()
+            .find(|ws| ws.id == "ws-docs")
+            .unwrap()
+            .status = WorkstreamStatus::Blocked;
+        board.write(&layout, &feature).unwrap();
+    }
+
+    reply(
+        &ctx,
+        ReplyInput {
+            feature: Some("checkout".to_owned()),
+            session: Some("sess-src".to_owned()),
+            message: "src answered".to_owned(),
+        },
+    )
+    .unwrap();
+
+    let board = ExecutionBoard::read(&layout, &feature).unwrap().unwrap();
+    assert_eq!(board.status, ExecutionStatus::Blocked);
+    assert_eq!(
+        board.blocked_by.as_deref(),
+        Some("ws-docs"),
+        "the board must name the workstream still waiting on a human"
+    );
 }

@@ -109,7 +109,7 @@ fn render_composes_owned_operations_verbatim_text_and_write_contract() {
         ],
     );
 
-    let prompt = render(PLAN_TEXT, &workstream).unwrap();
+    let prompt = render(PLAN_TEXT, &workstream, &[]).unwrap();
 
     assert!(prompt.contains("workstream `prompt-render`"));
     assert!(prompt.contains("- OP-A"));
@@ -133,7 +133,7 @@ fn render_is_blocked_when_the_workstream_s_own_heading_lacks_the_operation() {
         &["src/action/execute/prompt.rs"],
     );
 
-    let failure = render(PLAN_TEXT, &workstream).unwrap_err();
+    let failure = render(PLAN_TEXT, &workstream, &[]).unwrap_err();
 
     assert_eq!(failure.status, Status::Blocked);
     assert_eq!(failure.code, "execute.operation_missing_from_plan");
@@ -163,7 +163,7 @@ fn render_is_blocked_when_operation_details_has_no_entry_for_the_id() {
         &["src/action/execute/prompt.rs"],
     );
 
-    let failure = render(plan_missing_details, &workstream).unwrap_err();
+    let failure = render(plan_missing_details, &workstream, &[]).unwrap_err();
 
     assert_eq!(failure.status, Status::Blocked);
     assert_eq!(failure.code, "execute.operation_missing_from_plan");
@@ -178,8 +178,38 @@ fn render_is_blocked_when_the_workstream_has_no_heading_in_the_plan_at_all() {
         &["src/action/execute/prompt.rs"],
     );
 
-    let failure = render(PLAN_TEXT, &workstream).unwrap_err();
+    let failure = render(PLAN_TEXT, &workstream, &[]).unwrap_err();
 
     assert_eq!(failure.status, Status::Blocked);
     assert_eq!(failure.code, "execute.operation_missing_from_plan");
+}
+
+/// A workstream that blocked on a question is relaunched from scratch, so
+/// the answers it already got have to travel with it — otherwise the
+/// relaunch is the same prompt that produced the question.
+#[test]
+fn answers_from_the_human_are_rendered_into_the_prompt() {
+    let workstream = seeded_workstream("prompt-render", &["OP-A"], &["src/a"]);
+
+    let replies = vec![
+        "use the v2 endpoint".to_owned(),
+        "and keep the old one behind a flag".to_owned(),
+    ];
+    let prompt = render(PLAN_TEXT, &workstream, &replies).unwrap();
+
+    assert!(prompt.contains("## Answers from the human"));
+    assert!(prompt.contains("1. use the v2 endpoint"));
+    assert!(prompt.contains("2. and keep the old one behind a flag"));
+    assert!(prompt.contains("do not ask the same question again"));
+}
+
+/// The common case — a workstream that never blocked — must not carry an
+/// empty section that reads as "a human said nothing".
+#[test]
+fn a_workstream_with_no_replies_renders_no_answers_section() {
+    let workstream = seeded_workstream("prompt-render", &["OP-A"], &["src/a"]);
+
+    let prompt = render(PLAN_TEXT, &workstream, &[]).unwrap();
+
+    assert!(!prompt.contains("Answers from the human"));
 }
