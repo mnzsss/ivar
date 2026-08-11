@@ -40,15 +40,24 @@
 //! usable immediately. Plans of *other* features are never projected, and a
 //! discovery session (no feature bound) gets no `plans/` at all.
 //!
-//! # Bootstrap instructions
+//! # Instruction files are derived from `HALL.md`, never from an alias
 //!
-//! A feature session also receives the provider-native instruction file
-//! (`CLAUDE.md` / `AGENTS.md`) at the View Dir root: the hall's standing
-//! instructions plus a session bootstrap block that tells the agent how to
-//! re-derive where the feature is in the SPDD cycle. The file is ephemeral —
-//! it dies with the View Dir — and regenerated on every materialisation, so
-//! `session connect` repairs it for sessions created before this existed. The
-//! hall's own instruction file is never modified.
+//! Every view dir receives the provider-native instruction file
+//! (`CLAUDE.md` / `AGENTS.md`) at its root, derived from the hall's
+//! canonical `HALL.md` — never from the root alias, whose bytes and target
+//! are irrelevant here:
+//!
+//! - a discovery session's file is exactly the `HALL.md` content;
+//! - a feature session's file is the session bootstrap block, two newlines,
+//!   then the `HALL.md` content.
+//!
+//! The file is ephemeral — it dies with the View Dir — and regenerated on
+//! every materialisation, so `session connect` repairs it. The hall's own
+//! `HALL.md` is never modified. When `HALL.md` is absent or not a regular
+//! file, the session still opens with a warning
+//! (`instructions.canonical_unavailable`): a feature session receives only
+//! its bootstrap, a discovery session receives no shared content. There is
+//! no deliberate fallback to a legacy alias.
 //!
 //! # Idempotent, by comparison not by bookkeeping
 //!
@@ -62,16 +71,25 @@ use camino::Utf8Path;
 
 use crate::domain::feature::Feature;
 use crate::domain::provider::Provider;
-use crate::error::Failure;
+use crate::error::{Failure, Warning};
 use crate::harness::config;
 use crate::infra::fs;
 use crate::store::layout::Layout;
 use crate::store::manifest::Manifest;
 
+/// What view-dir materialisation found worth reporting without failing the
+/// session: the canonical `HALL.md` being unavailable, for example.
+#[derive(Debug, Default)]
+pub(crate) struct MaterialiseReport {
+    /// Anything that needs attention but must not stop the session opening.
+    pub warnings: Vec<Warning>,
+}
+
 /// Materialise `view_dir` for `feature`/`provider`: one symlink per registered
 /// repo, a real per-session harness config dir with the hall's `commands/`
-/// symlinked back in, and — for a feature session — the active plan projected
-/// in and the bootstrap instructions written.
+/// symlinked back in, the provider-native instruction file derived from
+/// `HALL.md`, and — for a feature session — the active plan projected in and
+/// the bootstrap instructions written.
 ///
 /// For a **feature session** (`feature: Some`), a promoted repo is symlinked
 /// to its feature worktree (writable); every other repo is symlinked to its
@@ -91,7 +109,7 @@ pub(crate) fn materialise(
     feature: Option<&Feature>,
     provider: Provider,
     view_dir: &Utf8Path,
-) -> Result<(), Failure> {
+) -> Result<MaterialiseReport, Failure> {
     fs::ensure_dir(view_dir)?;
 
     for repo in manifest.repos() {
@@ -130,14 +148,16 @@ pub(crate) fn materialise(
         fs::replace_symlink_if_changed(&hall_commands, &commands_link)?;
     }
 
-    // Feature sessions: project the active plan and write the bootstrap
-    // instructions. Discovery sessions get neither.
+    // Feature sessions: project the active plan. Discovery sessions get no
+    // plan — but both get the instruction file below.
     if let Some(feature) = feature {
         project_plan(layout, feature, view_dir)?;
-        materialise_session_instructions(layout, provider, feature, view_dir)?;
     }
 
-    Ok(())
+    let mut report = MaterialiseReport::default();
+    materialise_session_instructions(layout, provider, feature, view_dir, &mut report)?;
+
+    Ok(report)
 }
 
 /// Project the session's feature plan into the view dir: a real `plans/`
@@ -157,29 +177,73 @@ fn project_plan(layout: &Layout, feature: &Feature, view_dir: &Utf8Path) -> Resu
 }
 
 /// Write the provider-native instruction file (`CLAUDE.md` / `AGENTS.md`) at
-/// the View Dir root: the session bootstrap block followed by the hall's
-/// standing instructions, if any.
+/// the View Dir root, derived from the canonical `HALL.md`.
+///
+/// A discovery session's file is exactly the canonical content; a feature
+/// session's file is the session bootstrap block followed by it. The
+/// canonical file is read directly — never the root alias — and when it is
+/// missing or not a regular file, the session still opens with a warning:
+/// the feature session receives only its bootstrap, the discovery session
+/// receives no shared content.
 ///
 /// The file is ephemeral per-session state — it dies with the View Dir and is
 /// regenerated on every materialisation, so `connect` repairs it — and the
-/// hall's own instruction file is never modified. Bytes are compared before
-/// writing, so an unchanged file is not rewritten.
+/// hall's own file is never modified. Bytes are compared before writing, so
+/// an unchanged file is not rewritten.
 fn materialise_session_instructions(
     layout: &Layout,
     provider: Provider,
-    feature: &Feature,
+    feature: Option<&Feature>,
     view_dir: &Utf8Path,
+    report: &mut MaterialiseReport,
 ) -> Result<(), Failure> {
-    let plan_rel = format!("plans/{}/plan.md", feature.name);
-    let block = config::session::build_session_block(&feature.name, &plan_rel);
+    let target = view_dir.join(provider.instruction_file());
 
-    let hall_file = layout.instruction_alias(&provider);
-    let content = match fs::read_text(&hall_file)? {
-        Some(hall) => format!("{block}\n\n{hall}"),
-        None => block,
+    // Only a regular `HALL.md` counts: a symlink or directory is not the
+    // canonical state, and there is no fallback to a legacy alias.
+    let canonical = layout.hall_instructions();
+    let hall = match fs::read_symlink(&canonical)? {
+        fs::SymlinkTarget::NotASymlink => {
+            if fs::is_file(&canonical)? {
+                fs::read_text(&canonical)?.unwrap_or_default()
+            } else {
+                String::new()
+            }
+        }
+        _ => String::new(),
     };
 
-    let target = view_dir.join(provider.instruction_file());
+    if hall.is_empty() {
+        report.warnings.push(Warning::new(
+            "instructions.canonical_unavailable",
+            "hall",
+            format!(
+                "`HALL.md` is missing or not a regular file; the session opens without the \
+                 hall's shared instructions"
+            ),
+        ));
+    }
+
+    let content = match feature {
+        Some(feature) => {
+            let plan_rel = format!("plans/{}/plan.md", feature.name);
+            let block = config::session::build_session_block(&feature.name, &plan_rel);
+            if hall.is_empty() {
+                block
+            } else {
+                format!("{block}\n\n{hall}")
+            }
+        }
+        None => hall,
+    };
+
+    if content.is_empty() {
+        // Discovery with no canonical content: no shared instructions. A
+        // stale file from an earlier materialisation is cleared.
+        fs::remove_file(&target)?;
+        return Ok(());
+    }
+
     let needs_write = match fs::read_text(&target)? {
         Some(existing) => existing != content,
         None => true,

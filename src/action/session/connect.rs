@@ -113,7 +113,7 @@ pub fn connect(ctx: &Ctx, input: ConnectInput) -> Outcome<ConnectOutcome> {
         .as_ref()
         .map(SessionState::provider)
         .unwrap_or_else(|| manifest.providers().default_provider());
-    view::materialise(
+    let materialise_report = view::materialise(
         &layout,
         &manifest,
         feature.as_ref(),
@@ -132,12 +132,15 @@ pub fn connect(ctx: &Ctx, input: ConnectInput) -> Outcome<ConnectOutcome> {
         None => Vec::new(),
     };
 
-    Ok(Report::new(ConnectOutcome {
-        session_id: session.id.to_string(),
-        feature: session.feature.clone(),
-        view_dir: session.view_dir.clone(),
-        ports,
-    }))
+    Ok(Report::with_warnings(
+        ConnectOutcome {
+            session_id: session.id.to_string(),
+            feature: session.feature.clone(),
+            view_dir: session.view_dir.clone(),
+            ports,
+        },
+        materialise_report.warnings,
+    ))
 }
 
 #[cfg(test)]

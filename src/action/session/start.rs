@@ -152,7 +152,10 @@ pub fn start(ctx: &Ctx, input: StartInput) -> Outcome<StartOutcome> {
         Some(feature) => layout.feature_session(&feature.name, &session_id),
         None => layout.discovery_session(&session_id),
     };
-    view::materialise(&layout, &manifest, feature.as_ref(), provider, &view_dir)?;
+    view::materialise(&layout, &manifest, feature.as_ref(), provider, &view_dir)?
+        .warnings
+        .into_iter()
+        .for_each(|warning| warnings.push(warning));
     let started_at = rfc3339_now();
     let mut state = SessionState::new(provider, &started_at);
     if let Some(feature) = &feature {

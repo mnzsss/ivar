@@ -279,6 +279,7 @@ fn run_conversion(
     // transition: the conversion is complete. The provider comes from the
     // session's own record, which the move carried along untouched — a
     // discovery session keeps the provider it started under.
+    let mut warnings = Vec::new();
     if transition.step == Step::Rematerialize {
         let provider = SessionState::read(&dest)?
             .ok_or_else(|| {
@@ -294,15 +295,19 @@ fn run_conversion(
                 ))
             })?
             .provider();
-        view::materialise(layout, manifest, Some(feature), provider, &dest)?;
+        let materialise_report = view::materialise(layout, manifest, Some(feature), provider, &dest)?;
+        warnings.extend(materialise_report.warnings);
         fs::remove_file(&transition_path(layout, feature_name))?;
     }
 
-    Ok(Report::new(ConvertOutcome {
-        session_id: transition.session_id.to_string(),
-        feature: feature_name.clone(),
-        view_dir: dest,
-    }))
+    Ok(Report::with_warnings(
+        ConvertOutcome {
+            session_id: transition.session_id.to_string(),
+            feature: feature_name.clone(),
+            view_dir: dest,
+        },
+        warnings,
+    ))
 }
 
 /// `.features/<feature>/.converting` — the transition marker for that feature.
