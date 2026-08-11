@@ -227,7 +227,8 @@ fn stream_captures_stderr_for_explaining_a_failure() {
 
 /// Mirrors `an_empty_env_value_is_set_rather_than_unset`'s sibling
 /// concern for `capture`: a process nobody can see must never block
-/// waiting on a prompt.
+/// waiting on a prompt. Still the default — only a caller that supplied text
+/// with `Command::stdin` gets a pipe.
 #[test]
 fn stream_stdin_is_null_so_a_read_does_not_block() {
     let mut child_stream =
@@ -235,6 +236,93 @@ fn stream_stdin_is_null_so_a_read_does_not_block() {
 
     assert_eq!(child_stream.read_line().unwrap().as_deref(), Some("done"));
     assert_eq!(child_stream.wait().unwrap(), Some(0));
+}
+
+// -- stream: feeding the child --------------------------------------------
+
+#[test]
+fn supplied_stdin_reaches_the_child_verbatim() {
+    let mut child_stream = stream(&Command::new("cat").stdin("hello ivar")).unwrap();
+
+    assert_eq!(
+        child_stream.read_line().unwrap().as_deref(),
+        Some("hello ivar")
+    );
+    assert_eq!(child_stream.read_line().unwrap(), None);
+    assert_eq!(child_stream.wait().unwrap(), Some(0));
+}
+
+/// The reason the prompt travels this way at all: text that argv would mangle
+/// or mistake for a flag arrives byte for byte, newlines and quotes included.
+#[test]
+fn supplied_stdin_carries_newlines_quotes_and_leading_dashes_untouched() {
+    let mut child_stream =
+        stream(&Command::new("cat").stdin("--not-a-flag\nwith \"quotes\" and  spaces\n")).unwrap();
+
+    assert_eq!(
+        child_stream.read_line().unwrap().as_deref(),
+        Some("--not-a-flag")
+    );
+    assert_eq!(
+        child_stream.read_line().unwrap().as_deref(),
+        Some("with \"quotes\" and  spaces")
+    );
+    assert_eq!(child_stream.read_line().unwrap(), None);
+    assert_eq!(child_stream.wait().unwrap(), Some(0));
+}
+
+/// The child must see EOF, not a pipe held open: `cat` only exits once its
+/// input ends, and `wc -c` only answers once it has counted everything.
+#[test]
+fn supplied_stdin_is_closed_so_the_child_sees_eof() {
+    let big = "x".repeat(512 * 1024);
+    let mut child_stream = stream(&Command::new("wc").arg("-c").stdin(big)).unwrap();
+
+    let counted: usize = child_stream
+        .read_line()
+        .unwrap()
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap();
+
+    assert_eq!(counted, 512 * 1024);
+    assert_eq!(child_stream.wait().unwrap(), Some(0));
+}
+
+/// A child that exits without reading breaks the writer's pipe. That is the
+/// child's own exit code to explain, so the write is dropped rather than
+/// reported as a second, competing failure.
+#[test]
+fn a_child_that_never_reads_its_stdin_is_not_a_write_failure() {
+    let mut child_stream = stream(
+        &Command::new("sh")
+            .arg("-c")
+            .arg("echo ignored; exit 3")
+            .stdin("x".repeat(512 * 1024)),
+    )
+    .unwrap();
+
+    assert_eq!(
+        child_stream.read_line().unwrap().as_deref(),
+        Some("ignored")
+    );
+    assert_eq!(child_stream.wait().unwrap(), Some(3));
+}
+
+#[test]
+fn stdin_text_is_absent_unless_a_caller_supplies_it() {
+    assert_eq!(Command::new("cat").stdin_text(), None);
+    assert_eq!(Command::new("cat").stdin("in").stdin_text(), Some("in"));
+}
+
+/// `display` names the invocation for a human reading a failure. Supplied
+/// stdin is input, often enormous, and belongs nowhere near that line.
+#[test]
+fn supplied_stdin_never_shows_up_in_display() {
+    let display = Command::new("cat").stdin("a very long prompt").display();
+
+    assert_eq!(display, "cat");
 }
 
 #[test]

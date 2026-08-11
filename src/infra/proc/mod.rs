@@ -13,11 +13,13 @@
 //!   line, which is the failure the predecessor's own setup runner was written
 //!   to avoid — it inherits the terminal on purpose. So they [`inherit`].
 //! - **a provider process speaking a line-oriented protocol** — `claude -p
-//!   --output-format stream-json`, `opencode run`. Nobody is watching it and
-//!   there is no final answer to capture: the whole point is the lines that
-//!   arrive *while it runs*, so a caller can parse and react to them as they
-//!   come rather than discovering the transcript only once the process is
-//!   already dead. So they [`stream`].
+//!   --output-format stream-json`, `opencode run --format json`. Nobody is
+//!   watching it and there is no final answer to capture: the whole point is
+//!   the lines that arrive *while it runs*, so a caller can parse and react to
+//!   them as they come rather than discovering the transcript only once the
+//!   process is already dead. So they [`stream`]. This is also the only runner
+//!   that will *write* to its child, via [`Command::stdin`] — a prompt is
+//!   input, and one CLI here wants it there rather than on argv.
 //!
 //! All three block the calling thread for as long as they're asked to wait.
 //! There is no async runtime in this crate, and adding one is an
@@ -45,7 +47,7 @@
 //! would replace a readable error with an unreadable one.
 
 use std::ffi::OsStr;
-use std::io::{self, BufRead, BufReader, Read};
+use std::io::{self, BufRead, BufReader, Read, Write};
 use std::process::{Child, ChildStderr, ChildStdout, Command as StdCommand, Stdio};
 
 use camino::Utf8PathBuf;
@@ -71,6 +73,7 @@ pub struct Command {
     args: Vec<String>,
     cwd: Option<Utf8PathBuf>,
     env: Vec<(String, String)>,
+    stdin: Option<String>,
 }
 
 impl Command {
@@ -82,6 +85,7 @@ impl Command {
             args: Vec::new(),
             cwd: None,
             env: Vec::new(),
+            stdin: None,
         }
     }
 
@@ -125,6 +129,24 @@ impl Command {
         self
     }
 
+    /// Feed `text` to the program on standard input, then close it.
+    ///
+    /// For an argument that is really *input* rather than a flag: a prompt
+    /// long enough, or punctuated enough, that argv is the wrong channel for
+    /// it. `opencode run` is the case this exists for — it reads stdin to EOF
+    /// and uses it as the message, verbatim, where the same text passed as a
+    /// positional argument comes back wrapped in the CLI's own quoting.
+    ///
+    /// Honoured by [`stream`] only. [`capture`] keeps stdin on `/dev/null`
+    /// and [`inherit`] keeps it on the terminal, deliberately — neither runs a
+    /// program this crate has input to give, and neither will notice this
+    /// field being set.
+    #[must_use]
+    pub fn stdin(mut self, text: impl Into<String>) -> Self {
+        self.stdin = Some(text.into());
+        self
+    }
+
     /// The invocation as a human reads it back, for error messages.
     ///
     /// Deliberately not shell-quoted: it names the program and its arguments
@@ -165,6 +187,14 @@ impl Command {
     #[must_use]
     pub fn working_dir(&self) -> Option<&Utf8PathBuf> {
         self.cwd.as_ref()
+    }
+
+    /// The text to feed the program on standard input, if any. Never part of
+    /// [`Self::display`]: the whole reason a caller uses it is that the text
+    /// is too big, or too punctuated, to read back on one line.
+    #[must_use]
+    pub fn stdin_text(&self) -> Option<&str> {
+        self.stdin.as_deref()
     }
 
     /// Everything both runners configure identically.
@@ -270,17 +300,35 @@ pub fn inherit(command: &Command) -> Result<Option<i32>, Error> {
 /// and this doesn't: a PTY interleaves and reflows what it displays, which
 /// destroys line boundaries in a protocol that depends on them.
 ///
-/// Stdin is `/dev/null`, for the same reason [`capture`] sets it: a child
-/// nobody is watching interactively must never sit blocked on a prompt only a
-/// human could answer.
+/// Stdin is `/dev/null` unless the caller supplied text with
+/// [`Command::stdin`], for the same reason [`capture`] sets it: a child nobody
+/// is watching interactively must never sit blocked on a prompt only a human
+/// could answer. Supplied text is written on its own thread and the handle
+/// closed, so the child sees EOF; writing it inline would deadlock the moment
+/// a prompt outgrew the pipe buffer while the child was filling its own stdout
+/// pipe that this thread has not started reading yet.
 pub fn stream(command: &Command) -> Result<Stream, Error> {
+    let stdin = match command.stdin_text() {
+        Some(_) => Stdio::piped(),
+        None => Stdio::null(),
+    };
     let mut child = command
         .to_std()
-        .stdin(Stdio::null())
+        .stdin(stdin)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|source| spawn_error(command, source))?;
+
+    if let (Some(text), Some(mut handle)) = (command.stdin_text(), child.stdin.take()) {
+        let text = text.to_owned();
+        // Detached, and its errors dropped on purpose: a child that exits
+        // before reading its input gives this thread a broken pipe, which is
+        // that child's exit code to explain, not a second failure to report.
+        std::thread::spawn(move || {
+            let _ = handle.write_all(text.as_bytes());
+        });
+    }
 
     let (stdout, stderr) = match (child.stdout.take(), child.stderr.take()) {
         (Some(stdout), Some(stderr)) => (stdout, stderr),
