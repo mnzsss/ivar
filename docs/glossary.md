@@ -18,6 +18,12 @@ one.
 branch. Cloned bare into `.ivar/repos/<name>/.bare/`; every checkout, including
 the default branch, is a worktree off that bare clone.
 
+**Repo relation** — a human-authored directed sentence from one registered Repo
+to another, maintained by `/ivar-relations` in `HALL.md`. It expresses
+co-belonging — the same intent as **`part of`** — not dependency, permission,
+build order, merge order, or automatic promotion. The workflow keeps at most one
+sentence per ordered pair; Rust does not parse or validate it.
+
 **Feature** — a unit of work spanning one or more repos, bound to a branch. The
 branch is the feature's name. Survives sessions, agents and reboots, because it
 is a file plus branches rather than a conversation.

@@ -24,6 +24,9 @@ half-understood state file is worse than no state file.
 ```
 <hall>/
   ivar.json                     committed    the hall's identity and its repos
+  HALL.md                       committed    the canonical standing instructions
+  CLAUDE.md AGENTS.md           committed    provider root aliases — relative
+                                             symlinks to HALL.md
   plans/<feature>/*.md          committed    requirements, analysis, plan
   .ivar/skills/                 committed    skills the team shares
   .ivar/setups/<repo>.sh        committed    per-repo worktree bootstrap
@@ -40,6 +43,30 @@ half-understood state file is worse than no state file.
 "Committed" means it belongs in your hall's git history and your teammates get it
 on `git pull`. "Local" means it is gitignored, belongs to one machine, and is
 reproducible — deleting it costs you a re-clone, never work.
+
+### `HALL.md` and the provider aliases
+
+`HALL.md` is the **only editable, committed source** of the hall's standing
+instructions. It belongs to the user; `ivar` owns exactly the bytes between its
+`<!-- ivar:managed:start -->` and `<!-- ivar:managed:end -->` markers, plus the
+`/ivar-relations` region's own markers (managed by that workflow, never by
+Rust). Each enabled provider's root alias — `CLAUDE.md` for Claude Code,
+`AGENTS.md` for OpenCode — is a committed **relative symlink to `HALL.md`**.
+Aliases are never sources and never workflow edit targets.
+
+- `ivar init` creates `HALL.md` and the first provider's alias; `ivar provider
+  add` creates the new provider's alias; `ivar sync` repairs the topology.
+- An enabled provider whose alias is a **regular file** is never overwritten —
+  `ivar sync` reports an adoption warning and preserves it byte for byte until
+  a human consolidates its instructions into `HALL.md` and removes it.
+- A provider **absent** from `providers.available` has its alias path entirely
+  managed by `ivar`: the next `sync` removes whatever is there, including a
+  regular file. This is deliberately destructive — never remove `HALL.md`.
+
+Session view dirs also carry a provider-native instruction file, but that file
+is **derived** from `HALL.md` (canonical content, plus the session bootstrap
+for feature sessions), lives in the ephemeral view dir, and is never
+committed.
 
 The `ivar-*.md` workflow commands under each provider's command directory are
 local derived state in the same sense: `ivar init`, `ivar provider add`, and

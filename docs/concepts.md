@@ -92,7 +92,8 @@ other team's repo sits next to yours:
   web  -> ../../../../repos/web/checkout        (promoted: writable)
   docs -> ../../../../repos/docs/main           (read-only)
   plans/checkout -> ../../../plans/checkout     (the feature's plan, committed)
-  CLAUDE.md / AGENTS.md                         (hall instructions + session bootstrap)
+  CLAUDE.md / AGENTS.md                         (derived from HALL.md: canonical
+                                                instructions + session bootstrap)
 ```
 
 `cd api`, change the contract, `cd ../web`, regenerate the client. Same
@@ -100,11 +101,17 @@ branch, same session, no handoff, nothing pushed in between.
 
 The feature's plan is projected into the view dir so an agent confined to the
 session can read and edit the SPDD artifacts — edits land in the hall's
-committed `plans/<feature>/`. The session's instruction file carries the
-hall's standing instructions plus a bootstrap block telling the agent to
+committed `plans/<feature>/`. The hall's standing instructions live in a
+single committed `HALL.md`; every view dir — discovery included — receives its
+own provider-native instruction file derived from it. A feature session's file
+carries the canonical content plus a bootstrap block telling the agent to
 re-derive where the feature is with `ivar plan status plans/checkout/plan.md`
-and continue from the first gate that is `pending` or `needs-revision`; that
-is what lets a relay from one provider to another pick the work back up.
+and continue from the first gate that is `pending` or `needs-revision`; a
+discovery session's file is exactly the canonical content. The provider root
+aliases (`CLAUDE.md` / `AGENTS.md` at the hall root) are relative symlinks to
+`HALL.md`, never sources. When `HALL.md` is missing, a session still opens,
+with a warning and no shared content. The bootstrap block is what lets a
+relay from one provider to another pick the work back up.
 
 A session is **live** while its view dir exists — liveness is not a process. Kill
 the agent, lose the conversation; the branch, the worktrees and the plan are on

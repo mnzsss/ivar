@@ -61,8 +61,9 @@ ivar session connect --feature checkout           # re-bind after a restart
 
 `session connect` prints the bindings to evaluate in your shell, and repairs the
 view dir on the way — symlinks, read-only guards, the provider's config, the
-projected plan link and the session's bootstrap instructions, all left stale by
-a promote in another session or by an older `ivar`:
+projected plan link and the session's instruction file (derived from the
+canonical `HALL.md`), all left stale by a promote in another session or by an
+older `ivar`:
 
 ```sh
 eval "$(ivar session connect --feature checkout)"
@@ -76,9 +77,10 @@ ivar session relay checkout --provider opencode
 ```
 
 The relayed session is materialised for the **new** provider (OpenCode's
-config, commands and `AGENTS.md` — never the old provider's), projects the
-feature's plan into its view dir, and its bootstrap instructions tell the new
-agent to re-derive where the feature is in the SPDD cycle with
+config and commands — never the old provider's), projects the feature's plan
+into its view dir, and derives its instruction file from the hall's canonical
+`HALL.md`: the canonical content plus a bootstrap block telling the new agent
+to re-derive where the feature is in the SPDD cycle with
 `ivar plan status plans/checkout/plan.md` and continue from the first gate
 that is `pending` or `needs-revision`. Start the provider in that session's
 view dir to pick the work back up.

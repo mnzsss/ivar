@@ -87,7 +87,9 @@ src/
     manifest/      ivar.json — committed, NEVER auto-migrates. model.rs owns
                    the data and invariants, persistence.rs the read/write/plan/
                    migrate, error.rs the Error and its Failure conversion.
-    layout.rs      every path under a hall is computed here, nowhere else
+    layout.rs      every path under a hall is computed here, nowhere else —
+                   including the canonical `HALL.md` and each provider's
+                   root alias (`CLAUDE.md` / `AGENTS.md`)
     gitignore.rs   the hall's .gitignore: append the needed lines, never clobber
     setup_receipt.rs  what a worktree's setup script did last time. The one file
                    NOT under layout: it lives in git's admin dir, so it dies
@@ -109,9 +111,11 @@ src/
                    Claude Code and OpenCode are variants here, not files —
                    they differ by data (config path, argv, capabilities), and a
                    file each would have held a match arm and nothing more.
-    config/        per-harness config materialisation (CLAUDE.md, AGENTS.md, MCP).
-                   mod.rs owns the managed-block behaviour; mcp.rs owns the MCP
-                   document construction and the Claude/OpenCode translation.
+    config/        per-harness config materialisation: instructions.rs owns
+                   the canonical `HALL.md` managed block and the provider
+                   root aliases (relative symlinks to `HALL.md`); mcp.rs owns
+                   the MCP document construction and the Claude/OpenCode
+                   translation; session.rs builds the session bootstrap block.
     commands/      the shipped workflow catalog and reconciliation: catalog.rs
                    owns ShippedCommand + the COMMANDS data, commands.rs owns
                    materialise/remove/inspect. The *.md sources live here and
@@ -425,6 +429,11 @@ One dotdir, one manifest, one name everywhere.
 <hall>/
   ivar.json               the manifest. Committed — it is the identity file and
                           must be visible in review.
+  HALL.md                 the canonical standing instructions. Committed, and
+                          the sole editable source; the managed block is the
+                          only part `ivar` owns.
+  CLAUDE.md AGENTS.md     provider root aliases. Committed relative symlinks
+                          to `HALL.md` — never sources, never edit targets.
   .ivar/                  everything the tool manages
     state.json            local hall state (gitignored)
     repos/<name>/.bare/   the bare clone; every checkout is a worktree off it
@@ -448,10 +457,13 @@ real harness config dir for the session's own provider (`.claude/` or
 `.opencode/`, with `commands/` symlinked back to the hall), the feature's plan
 projected in (`plans/<feature>/` → `<hall>/plans/<feature>/`, so the agent
 confined to the view dir can read and edit the artifacts), and the provider's
-instruction file (`CLAUDE.md` / `AGENTS.md`) holding the hall's standing
-instructions plus an ephemeral session bootstrap block. The plan link and the
-instruction file are per-session views, never copies — they die with the view
-dir, and plan edits land in the hall.
+instruction file (`CLAUDE.md` / `AGENTS.md`) **derived from the canonical
+`HALL.md`** — the session bootstrap block followed by the hall's standing
+instructions, or the canonical content alone for a discovery session. The
+plan link and the instruction file are per-session views, never copies — they
+die with the view dir, and plan edits land in the hall. Every view dir
+receives the instruction file, whether or not it is feature-bound, and the
+file never comes from the root alias.
 
 Two traps, both learned the hard way:
 

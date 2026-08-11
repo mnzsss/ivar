@@ -80,10 +80,13 @@ ivar init --name acme
 
 That writes three things: `ivar.json` (committed — the hall's identity), `.ivar/`
 (local, gitignored — clones, worktrees, state), and the `.gitignore` lines that
-keep the second out of the first. It also installs the selected provider's
-`/ivar-*` workflow commands into its native command directory — adding a
-provider later with `ivar provider add` installs that provider's commands in
-the same run.
+keep the second out of the first. It also creates the hall's canonical
+instructions (`HALL.md`, committed) and the selected provider's root alias — a
+relative symlink (`CLAUDE.md` for Claude Code, `AGENTS.md` for OpenCode) — and
+installs the selected provider's `/ivar-*` workflow commands into its native
+command directory. Adding a provider later with `ivar provider add` creates
+that provider's alias and installs its commands in the same run; `ivar sync`
+repairs the whole topology.
 
 Add the repos the team's work spans:
 
@@ -94,7 +97,8 @@ ivar repo add docs https://github.com/acme/docs
 ```
 
 Each one is declared in `ivar.json`, cloned bare, and given a default-branch
-worktree.
+worktree — and its output invites you to run `/ivar-relations <repo>` to record
+how it belongs with the other repos in the hall.
 
 If a repo needs bootstrapping that git does not carry — a worktree shares history
 but not untracked files, so it has no `.env` and no `node_modules` — give it a
@@ -111,9 +115,16 @@ sync` produce a working checkout instead of a bare one.
 Then commit and push the hall:
 
 ```sh
-git add ivar.json .gitignore .ivar/setups && git commit -m "hall: api, web, docs"
+git add ivar.json .gitignore HALL.md CLAUDE.md AGENTS.md .ivar/setups && git commit -m "hall: api, web, docs"
 git push
 ```
+
+`HALL.md` and the alias symlinks are committed with the hall — a teammate's
+`ivar sync` repairs them from there. If a provider's alias ever exists as a
+regular file (a legacy hall), `sync` preserves it and asks you to consolidate
+its instructions into `HALL.md`; a provider *removed* from `providers.available`
+by hand has its alias path deleted on the next sync, even if it is a regular
+file.
 
 Everyone else now runs the two commands in [Joining a hall](#joining-a-hall).
 

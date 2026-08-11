@@ -150,3 +150,16 @@ workstreams over a type signature.
 board; `ivar feature execute tick` is what launches work. Two commands, because
 "I approve this design" and "start eight agents now" are different decisions and
 should not share a keystroke.
+
+## Repository context
+
+The hall's standing instructions live in the committed `HALL.md`, which also
+carries a **Repository relationships** region maintained by `/ivar-relations`:
+human-confirmed sentences describing which registered repos belong together.
+The planning workflow reads `HALL.md` at the start of Analysis and follows the
+linked topics of potentially affected repos; execution and delivery re-check
+the context at their own checkpoints. All three checkpoints are evidence-driven
+and non-blocking — they only *offer* `/ivar-relations`, they never edit
+`HALL.md` themselves, and deferring a review never blocks approval, completion,
+or delivery. Rust never parses the relation region; it is prose for humans and
+agents.
