@@ -180,9 +180,12 @@ fn materialise_session_instructions(
     };
 
     let target = view_dir.join(provider.instruction_file());
-    match fs::read_text(&target)? {
-        Some(existing) if existing == content => {}
-        _ => fs::write_text(&target, &content)?,
+    let needs_write = match fs::read_text(&target)? {
+        Some(existing) => existing != content,
+        None => true,
+    };
+    if needs_write {
+        fs::write_text(&target, &content)?;
     }
     Ok(())
 }
