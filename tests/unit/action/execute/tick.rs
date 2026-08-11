@@ -19,6 +19,7 @@ use crate::action::feature::create::{self as feature_create, CreateInput as Feat
 use crate::action::hall::{self, InitInput};
 use crate::action::plan::create::{self as plan_create, CreateInput as PlanCreateInput};
 use crate::domain::feature::WriteContract;
+use crate::domain::name::RepoName;
 use crate::error::Status;
 use crate::infra::fs;
 use crate::store::layout::Layout;
@@ -728,13 +729,15 @@ fn a_replied_workstream_relaunches_with_the_answer_in_its_prompt() {
 #[test]
 fn a_path_outside_every_contract_in_the_wave_is_a_violation() {
     // A contract names directories with a trailing `/` and files by name —
-    // the shapes `WriteContract::allows` arbitrates.
+    // the shapes `WriteContract::allows` arbitrates. The paths are
+    // `<repo>/<path>`, which is what `launch::audit_path` builds and what a
+    // contract is written against.
     let contract = WriteContract::new(vec!["src/a/".to_owned(), "src/b/".to_owned()]);
     let baseline = BTreeSet::new();
     let after: BTreeSet<Utf8PathBuf> = [
-        Utf8PathBuf::from("/hall/repos/api-main/src/a/one.rs"),
-        Utf8PathBuf::from("/hall/repos/api-main/src/b/two.rs"),
-        Utf8PathBuf::from("/hall/repos/api-main/src/elsewhere/three.rs"),
+        Utf8PathBuf::from("api-main/src/a/one.rs"),
+        Utf8PathBuf::from("api-main/src/b/two.rs"),
+        Utf8PathBuf::from("api-main/src/elsewhere/three.rs"),
     ]
     .into_iter()
     .collect();
@@ -743,9 +746,7 @@ fn a_path_outside_every_contract_in_the_wave_is_a_violation() {
 
     assert_eq!(
         violations,
-        vec![Utf8PathBuf::from(
-            "/hall/repos/api-main/src/elsewhere/three.rs"
-        )]
+        vec![Utf8PathBuf::from("api-main/src/elsewhere/three.rs")]
     );
 }
 
@@ -758,7 +759,7 @@ fn a_sibling_workstream_s_own_files_are_not_reported_as_violations() {
     // The union `tick` builds: `ws-a` owns `src/a`, `ws-b` owns `src/b`.
     let wave = WriteContract::new(vec!["src/a/".to_owned(), "src/b/".to_owned()]);
     let baseline = BTreeSet::new();
-    let after: BTreeSet<Utf8PathBuf> = [Utf8PathBuf::from("/hall/repos/api-main/src/b/two.rs")]
+    let after: BTreeSet<Utf8PathBuf> = [Utf8PathBuf::from("api-main/src/b/two.rs")]
         .into_iter()
         .collect();
 
@@ -771,7 +772,7 @@ fn a_sibling_workstream_s_own_files_are_not_reported_as_violations() {
 #[test]
 fn what_was_already_dirty_before_the_run_is_not_a_violation() {
     let contract = WriteContract::new(vec!["src/a/".to_owned()]);
-    let inherited = Utf8PathBuf::from("/hall/repos/api-main/notes.md");
+    let inherited = Utf8PathBuf::from("api-main/notes.md");
     let baseline: BTreeSet<Utf8PathBuf> = [inherited.clone()].into_iter().collect();
     let after: BTreeSet<Utf8PathBuf> = [inherited].into_iter().collect();
 
@@ -784,12 +785,36 @@ fn what_was_already_dirty_before_the_run_is_not_a_violation() {
 fn an_empty_contract_allows_nothing() {
     let contract = WriteContract::new(Vec::new());
     let baseline = BTreeSet::new();
-    let after: BTreeSet<Utf8PathBuf> = [Utf8PathBuf::from("/hall/repos/api-main/src/a/one.rs")]
+    let after: BTreeSet<Utf8PathBuf> = [Utf8PathBuf::from("api-main/src/a/one.rs")]
         .into_iter()
         .collect();
 
     assert_eq!(
         launch::contract_violations(&contract, &baseline, &after).len(),
         1
+    );
+}
+
+/// A real write contract names its files `<repo>/<path>`, the shape of a
+/// session view dir. Matching that against a path built from a worktree root
+/// wedges the branch segment in the middle, `ends_with` never fires, and every
+/// new write in every repo is reported as a violation.
+///
+/// The `src/a/` contracts the tests above use match at any depth, so none of
+/// them can see this.
+#[test]
+fn a_path_the_contract_names_by_repo_is_matched_against_the_repo_s_own_shape() {
+    let repo = RepoName::new("gaio-backend").unwrap();
+    let relative = Utf8PathBuf::from("packages/console/src/workflows/repositories/workflow.ts");
+
+    let contract = WriteContract::new(vec![
+        "gaio-backend/packages/console/src/workflows/repositories/workflow.ts".to_owned(),
+    ]);
+    let baseline = BTreeSet::new();
+    let after: BTreeSet<Utf8PathBuf> = [launch::audit_path(&repo, &relative)].into_iter().collect();
+
+    assert!(
+        launch::contract_violations(&contract, &baseline, &after).is_empty(),
+        "the workstream's own contracted file must not be reported as a violation"
     );
 }

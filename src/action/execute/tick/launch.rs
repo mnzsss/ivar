@@ -221,8 +221,9 @@ pub(super) fn run_launch(
 // -- Auditing what the guard cannot see ---------------------------------
 
 /// The promoted worktrees a feature spans, each paired with the repo it came
-/// from so a violation can be named `<repo>/<path>` rather than by an absolute
-/// path nobody recognises.
+/// from. The repo name is not decoration: a contract names its files
+/// `<repo>/<path>`, so the audit needs it to build a path the contract can
+/// match at all — see [`audit_path`].
 type FeatureWorktrees = Vec<(RepoName, Utf8PathBuf)>;
 
 /// The worktrees this workstream can reach, and what already diverged in them
@@ -271,12 +272,28 @@ fn feature_worktrees(
 fn changed_now(worktrees: &FeatureWorktrees) -> Result<BTreeSet<Utf8PathBuf>, Failure> {
     let git = git::System;
     let mut changed = BTreeSet::new();
-    for (_, worktree) in worktrees {
+    for (repo, worktree) in worktrees {
         for relative in git.changed_paths(worktree)? {
-            changed.insert(worktree.join(relative));
+            changed.insert(audit_path(repo, &relative));
         }
     }
     Ok(changed)
+}
+
+/// One changed path in the shape a contract is written in: `<repo>/<path
+/// within the repo>`.
+///
+/// This is why the audit carries repo names at all. A contract names its
+/// files under the repo because that is the shape of a session view dir, and
+/// the view dir is what the guard arbitrates at the tool boundary. A worktree
+/// is laid out `<repo>/<branch>/<path>`, so a path joined onto its worktree
+/// root carries a branch segment no contract mentions, and
+/// [`WriteContract::allows`] — which anchors a relative glob with `ends_with`
+/// — then matches nothing at all. Not "misses a violation": reports every new
+/// write as one, in every repo, including the writes the workstream was
+/// launched to make.
+pub(super) fn audit_path(repo: &RepoName, relative: &Utf8Path) -> Utf8PathBuf {
+    Utf8PathBuf::from(repo.as_str()).join(relative)
 }
 
 /// What this run wrote that no contract in the wave allows, as a ready-made
@@ -329,7 +346,7 @@ fn audit_write_contract(
     if violations.is_empty() {
         return Ok(None);
     }
-    Ok(Some(violation_message(worktrees, &violations)))
+    Ok(Some(violation_message(&violations)))
 }
 
 /// The paths in `after` that `baseline` did not already hold and that
@@ -353,11 +370,14 @@ const VIOLATIONS_NAMED: usize = 20;
 
 /// The failure a violating run reports, naming what it wrote and why that is
 /// being reported at the end rather than refused at the time.
-fn violation_message(worktrees: &FeatureWorktrees, violations: &[Utf8PathBuf]) -> String {
+///
+/// Every violation is already `<repo>/<path>` — see [`audit_path`] — which is
+/// both what the contract was compared against and what a reader recognises.
+fn violation_message(violations: &[Utf8PathBuf]) -> String {
     let named: Vec<String> = violations
         .iter()
         .take(VIOLATIONS_NAMED)
-        .map(|path| display_path(worktrees, path))
+        .map(Utf8PathBuf::to_string)
         .collect();
     let rest = violations.len().saturating_sub(named.len());
     let tail = if rest == 0 {
@@ -372,16 +392,4 @@ fn violation_message(worktrees: &FeatureWorktrees, violations: &[Utf8PathBuf]) -
         violations.len(),
         named.join(", "),
     )
-}
-
-/// `<repo>/<path within the worktree>` when `path` is inside one of
-/// `worktrees`, and the absolute path when it is not — a violation outside
-/// every worktree is worth showing in full.
-fn display_path(worktrees: &FeatureWorktrees, path: &Utf8Path) -> String {
-    for (repo, worktree) in worktrees {
-        if let Ok(relative) = path.strip_prefix(worktree) {
-            return format!("{repo}/{relative}");
-        }
-    }
-    path.to_string()
 }
