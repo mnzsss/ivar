@@ -114,3 +114,26 @@ fn unmapped_keys_are_none() {
     assert_eq!(map(KeyCode::F(1), KeyModifiers::NONE), None);
     assert_eq!(map(KeyCode::CapsLock, KeyModifiers::NONE), None);
 }
+
+/// The wheel is the whole reason the mouse is captured: without a mouse
+/// report the terminal sends the wheel as arrow keys, and the view types
+/// them into the shell.
+#[test]
+fn the_wheel_is_a_scroll_and_nothing_else_is() {
+    use crossterm::event::{MouseButton, MouseEventKind};
+
+    assert_eq!(
+        wheel_direction(MouseEventKind::ScrollUp),
+        Some(Direction::Up)
+    );
+    assert_eq!(
+        wheel_direction(MouseEventKind::ScrollDown),
+        Some(Direction::Down)
+    );
+    assert_eq!(
+        wheel_direction(MouseEventKind::Down(MouseButton::Left)),
+        None
+    );
+    assert_eq!(wheel_direction(MouseEventKind::Moved), None);
+    assert_eq!(wheel_direction(MouseEventKind::ScrollLeft), None);
+}

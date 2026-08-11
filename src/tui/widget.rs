@@ -215,7 +215,12 @@ fn render_panel(snapshot: &Snapshot, area: Rect, buf: &mut Buffer) {
         PanelState::Scrolling => "scroll",
         PanelState::Exited => "exited",
     };
-    let title = format!(" {selected} — {state} ");
+    // A dead shell is the one panel state with nothing to type into, so it
+    // is the one that has to say what the keys do instead.
+    let title = match snapshot.panel.state {
+        PanelState::Exited => format!(" {selected} — {state} — enter restarts, q quits "),
+        _ => format!(" {selected} — {state} "),
+    };
     let block = Block::default().borders(Borders::ALL).title(title);
 
     let inner = block.inner(area);

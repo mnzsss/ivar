@@ -17,6 +17,20 @@
 //! - [`Mode::Scroll`] — read the focused shell's scrollback: `PgUp`/`PgDn`
 //!   scroll, `q` or `Esc` returns to [`Mode::Focus`].
 //!
+//! # The wheel, and a shell that has exited
+//!
+//! Two inputs are not `(mode, key)`, and each gets its own entry point so
+//! the mapping still lives in exactly one place:
+//!
+//! - [`reduce_wheel`] — a mouse wheel notch. It changes no mode: scrolling
+//!   is something the user does *to* the panel, whatever the keyboard is
+//!   doing. Without it the terminal turns the wheel into arrow keys (that is
+//!   what it sends while the alternate screen is up) and scrolling would
+//!   type `\x1b[A` into the shell.
+//! - [`reduce_exited`] — the focused shell's process is gone. Its keys have
+//!   nowhere to go, so Focus rebinds them to the two things left to do:
+//!   restart the shell, or leave.
+//!
 //! # Actions
 //!
 //! [`Action`] is intent, not I/O. The driver decides *how* to perform it
@@ -83,6 +97,11 @@ pub enum Action {
     ScrollUp,
     /// Scroll the focused shell's scrollback down one page.
     ScrollDown,
+    /// Scroll the focused shell's scrollback by a number of lines — what a
+    /// wheel notch means, as opposed to a page.
+    ScrollLines(Direction, usize),
+    /// Spawn a fresh process for a shell whose own has exited.
+    Restart,
     /// Quit the TUI.
     Quit,
     /// Bytes to write into the focused shell's PTY, verbatim.
@@ -150,6 +169,42 @@ pub fn reduce(mode: Mode, key: Key) -> (Mode, Action) {
             Key::Ctrl('c') => (mode, Action::Quit),
             _ => (mode, Action::None),
         },
+    }
+}
+
+/// How many lines one wheel notch scrolls. Three is what a terminal
+/// conventionally scrolls per notch — enough to feel like movement, small
+/// enough that a flick does not overshoot the whole buffer.
+const WHEEL_LINES: usize = 3;
+
+/// Reduce one mouse wheel notch: `(mode, direction) -> (mode, action)`.
+///
+/// The mode never changes. A wheel notch is not a mode switch — the user can
+/// glance up the scrollback and keep typing, and the driver returns the panel
+/// to the live bottom as soon as they do.
+#[must_use]
+pub fn reduce_wheel(mode: Mode, direction: Direction) -> (Mode, Action) {
+    (mode, Action::ScrollLines(direction, WHEEL_LINES))
+}
+
+/// Reduce one keystroke while the focused shell's process is gone.
+///
+/// [`Mode::Focus`] forwards keys to a PTY; when there is no longer one, every
+/// key is swallowed — including the ones a user reaches for to get out. So a
+/// dead shell rebinds Focus to the only two things left: `enter` (or `r`)
+/// restarts it, `q` / `ctrl+c` / `ctrl+d` quits the view. The prefix still
+/// opens nav, and the other modes are unchanged — they never talked to the
+/// PTY in the first place.
+#[must_use]
+pub fn reduce_exited(mode: Mode, key: Key) -> (Mode, Action) {
+    let Mode::Focus = mode else {
+        return reduce(mode, key);
+    };
+    match key {
+        Key::Prefix => (Mode::Nav, Action::EnterNav),
+        Key::Enter | Key::Char('r') => (mode, Action::Restart),
+        Key::Char('q') | Key::Ctrl('c') | Key::Ctrl('d') => (mode, Action::Quit),
+        _ => (mode, Action::None),
     }
 }
 

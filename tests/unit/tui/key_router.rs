@@ -198,3 +198,57 @@ fn focus_encodes_non_ascii_characters_as_utf8() {
         (Mode::Focus, Action::WriteBytes("á".as_bytes().to_vec()))
     );
 }
+
+/// A wheel notch scrolls whatever the mode is, and changes none of them:
+/// the user can glance up the scrollback and keep typing.
+#[test]
+fn a_wheel_notch_scrolls_without_switching_modes() {
+    for mode in [Mode::Focus, Mode::Nav, Mode::Scroll] {
+        assert_eq!(
+            reduce_wheel(mode, Direction::Up),
+            (mode, Action::ScrollLines(Direction::Up, 3))
+        );
+        assert_eq!(
+            reduce_wheel(mode, Direction::Down),
+            (mode, Action::ScrollLines(Direction::Down, 3))
+        );
+    }
+}
+
+/// With the shell's process gone, Focus keys have nowhere to go — so they
+/// stop being shell keys and become the two things left to do.
+#[test]
+fn an_exited_shell_rebinds_focus_to_restart_and_quit() {
+    assert_eq!(
+        reduce_exited(Mode::Focus, Key::Enter),
+        (Mode::Focus, Action::Restart)
+    );
+    assert_eq!(
+        reduce_exited(Mode::Focus, Key::Char('r')),
+        (Mode::Focus, Action::Restart)
+    );
+    for key in [Key::Char('q'), Key::Ctrl('c'), Key::Ctrl('d')] {
+        assert_eq!(reduce_exited(Mode::Focus, key), (Mode::Focus, Action::Quit));
+    }
+    assert_eq!(
+        reduce_exited(Mode::Focus, Key::Prefix),
+        (Mode::Nav, Action::EnterNav),
+        "the way out through nav still works"
+    );
+    assert_eq!(
+        reduce_exited(Mode::Focus, Key::Char('x')),
+        (Mode::Focus, Action::None),
+        "and nothing else is written into a PTY that is gone"
+    );
+}
+
+/// Nav and Scroll never talked to the PTY, so a dead shell changes nothing
+/// about them.
+#[test]
+fn the_other_modes_are_unchanged_by_a_dead_shell() {
+    for mode in [Mode::Nav, Mode::Scroll] {
+        for key in [Key::Char('q'), Key::Esc, Key::PgUp, Key::Up] {
+            assert_eq!(reduce_exited(mode, key), reduce(mode, key));
+        }
+    }
+}

@@ -367,3 +367,156 @@ fn an_exited_shell_is_marked_in_the_panel() {
     assert_eq!(panel.state, PanelState::Exited);
     assert!(!driver.is_running());
 }
+
+/// The bug: a wheel notch in the terminal reaches the view as an arrow key
+/// (that is what a terminal sends for the wheel while the alternate screen
+/// is up), so scrolling typed `\x1b[A` into the shell instead of moving the
+/// panel. The wheel must scroll the scrollback and never reach the PTY.
+#[test]
+fn the_wheel_scrolls_the_panel_instead_of_typing_into_the_shell() {
+    let (mut driver, log) = driver_with(1);
+
+    let lines: Vec<u8> = (0..40)
+        .flat_map(|n| format!("line {n}\n").into_bytes())
+        .collect();
+    injected_output(&log, 0).send(lines).unwrap();
+    driver.pump().unwrap();
+
+    driver.scroll_wheel(Direction::Up);
+    let panel = driver.snapshot("checkout", &[], "ctrl+o").panel;
+    assert!(panel.scroll_offset > 0, "the wheel scrolls the scrollback");
+    assert!(
+        written(&log, 0).try_recv().is_err(),
+        "a wheel notch must never reach the shell"
+    );
+
+    // And it works from Focus, without a mode switch: scrolling is not a
+    // mode, it is something done to the panel.
+    assert_eq!(driver.mode(), Mode::Focus);
+
+    driver.scroll_wheel(Direction::Down);
+    driver.scroll_wheel(Direction::Down);
+    assert_eq!(
+        driver
+            .snapshot("checkout", &[], "ctrl+o")
+            .panel
+            .scroll_offset,
+        0,
+        "scrolling back down returns to the live bottom"
+    );
+}
+
+/// Typing is a jump back to the live bottom: the output a key produces is at
+/// the bottom, and a panel left scrolled back would hide it.
+#[test]
+fn typing_returns_the_panel_to_the_live_bottom() {
+    let (mut driver, log) = driver_with(1);
+
+    let lines: Vec<u8> = (0..40)
+        .flat_map(|n| format!("line {n}\n").into_bytes())
+        .collect();
+    injected_output(&log, 0).send(lines).unwrap();
+    driver.pump().unwrap();
+    driver.scroll_wheel(Direction::Up);
+
+    driver.apply_event(Key::Char('x'));
+
+    assert_eq!(
+        driver
+            .snapshot("checkout", &[], "ctrl+o")
+            .panel
+            .scroll_offset,
+        0
+    );
+    assert_eq!(written(&log, 0).try_recv().unwrap(), vec![b'x']);
+}
+
+/// The bug: scrollback is documented as a plain-text approximation, but it
+/// kept the raw bytes — so scrolling back showed the shell's escape
+/// sequences as text (`[32m`, `[A`) instead of the output they styled.
+#[test]
+fn scrollback_is_plain_text_not_raw_escape_sequences() {
+    let (mut driver, log) = driver_with(1);
+
+    injected_output(&log, 0)
+        .send(b"\x1b[32mgreen\x1b[0m line\r\n\x1b[Aand up\r\n".to_vec())
+        .unwrap();
+    driver.pump().unwrap();
+
+    driver.apply_event(Key::Prefix);
+    driver.apply_event(Key::Char('['));
+    driver.apply_event(Key::PgUp);
+
+    let text = panel_text(&driver.snapshot("checkout", &[], "ctrl+o").panel);
+    assert!(text.contains("green line"), "was: {text:?}");
+    assert!(text.contains("and up"), "was: {text:?}");
+    assert!(
+        !text.contains("[32m") && !text.contains("[0m") && !text.contains("[A"),
+        "escape sequences must not survive into the scrollback: {text:?}"
+    );
+    assert!(!text.contains('\r'), "carriage returns too: {text:?}");
+}
+
+/// The bug: once the shell exited, every key was written into a PTY that was
+/// gone — including the ones the user reaches for to get out. A dead shell
+/// has nowhere to put keys, so Focus rebinds them: `enter` restarts, `q`
+/// (and `ctrl+c`, and `ctrl+d`) quits.
+#[test]
+fn keys_get_the_user_out_of_a_shell_that_has_exited() {
+    let (mut driver, log) = driver_with(1);
+    stop(&log, 0);
+
+    assert!(
+        !driver.apply_event(Key::Char('x')),
+        "a stray key does nothing"
+    );
+    assert!(
+        written(&log, 0).try_recv().is_err(),
+        "nothing is written into a dead shell"
+    );
+    assert!(driver.apply_event(Key::Char('q')), "q quits a dead shell");
+
+    let (mut driver, log) = driver_with(1);
+    stop(&log, 0);
+    assert!(driver.apply_event(Key::Ctrl('c')), "so does ctrl+c");
+
+    let (mut driver, log) = driver_with(1);
+    stop(&log, 0);
+    assert!(driver.apply_event(Key::Ctrl('d')), "and ctrl+d");
+}
+
+/// A dead shell can be brought back where it died: same repo, same worktree,
+/// a fresh process.
+#[test]
+fn enter_restarts_a_shell_that_has_exited() {
+    let (mut driver, log) = driver_with(1);
+    stop(&log, 0);
+    assert!(!driver.is_running());
+
+    assert!(
+        !driver.apply_event(Key::Enter),
+        "enter restarts, it does not quit"
+    );
+    assert_eq!(log.0.borrow().len(), 2, "a fresh PTY was spawned");
+    assert!(driver.is_running());
+    assert_eq!(
+        driver.snapshot("checkout", &[], "ctrl+o").panel.state,
+        PanelState::Live
+    );
+
+    // And the restarted shell takes the keys again.
+    driver.apply_event(Key::Char('x'));
+    assert_eq!(written(&log, 1).try_recv().unwrap(), vec![b'x']);
+}
+
+/// The prefix still works with a dead shell — it is the one key Focus never
+/// forwards, and nav is where quitting has always lived.
+#[test]
+fn the_prefix_still_opens_nav_from_a_dead_shell() {
+    let (mut driver, log) = driver_with(1);
+    stop(&log, 0);
+
+    driver.apply_event(Key::Prefix);
+    assert_eq!(driver.mode(), Mode::Nav);
+    assert!(driver.apply_event(Key::Char('q')));
+}

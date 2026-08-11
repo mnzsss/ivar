@@ -7,6 +7,16 @@
 //! loop (`poll` keys, pump every shell's output, render one frame), and
 //! restores the terminal on the way out, whatever the exit path.
 //!
+//! # Why the mouse is captured
+//!
+//! A terminal showing the alternate screen turns the wheel into arrow keys
+//! unless the application asks for mouse reports. Those arrows are
+//! indistinguishable from typed ones, so every wheel notch used to be typed
+//! into the focused shell — `\x1b[A` at the prompt, history recalled, or the
+//! sequence echoed back as text. Capturing the mouse is what makes a notch a
+//! notch: the loop scrolls the panel with it and the shell never sees it.
+//! The cost is the terminal's own selection, which now needs `shift` held.
+//!
 //! It holds **no `store` and no `action` state** — the layering table says
 //! `tui` may not reach them, so the caller pushes in a ready-made
 //! [`FeatureView`] (shells to spawn, rows to list) and reads nothing back.
@@ -14,13 +24,16 @@
 use std::io;
 use std::time::Duration;
 
-use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use crossterm::event::{
+    DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers,
+    MouseEventKind,
+};
 use ratatui::DefaultTerminal;
 use ratatui::layout::Rect;
 
 use crate::error::Failure;
 use crate::tui::driver::{Driver, PtsPty, ShellSpec};
-use crate::tui::key_router::Key;
+use crate::tui::key_router::{Direction, Key};
 use crate::tui::widget::{Row, panel_size, render};
 
 /// Everything the feature-view host loop needs, pushed in by the action.
@@ -44,9 +57,33 @@ pub fn run(view: FeatureView) -> Result<(), Failure> {
     // a panic hook that restores both; `restore` undoes them. Keeping the
     // pair here makes the restore unconditional.
     let mut terminal = ratatui::init();
+    let mouse = MouseCapture::enable();
     let result = run_loop(&mut terminal, view, Rect::new(0, 0, width, height), &prefix);
+    drop(mouse);
     ratatui::restore();
     result
+}
+
+/// Mouse reporting, on for as long as this guard lives.
+///
+/// A `Drop` rather than a pair of calls: a panic unwinding out of the loop
+/// would otherwise leave the user's terminal reporting every click to a
+/// shell that is not listening.
+struct MouseCapture;
+
+impl MouseCapture {
+    /// Ask the terminal for mouse reports. A terminal that refuses simply
+    /// keeps sending arrow keys for the wheel — worth no error path.
+    fn enable() -> Self {
+        let _ = crossterm::execute!(io::stdout(), EnableMouseCapture);
+        Self
+    }
+}
+
+impl Drop for MouseCapture {
+    fn drop(&mut self) {
+        let _ = crossterm::execute!(io::stdout(), DisableMouseCapture);
+    }
 }
 
 /// The chord that opens navigation.
@@ -158,6 +195,12 @@ fn run_loop(
                         dirty = true;
                     }
                 }
+                Event::Mouse(mouse) => {
+                    if let Some(direction) = wheel_direction(mouse.kind) {
+                        driver.scroll_wheel(direction);
+                        dirty = true;
+                    }
+                }
                 Event::Resize(width, height) => {
                     let area = Rect::new(0, 0, width, height);
                     let (panel_width, panel_height) = panel_size(area);
@@ -226,6 +269,17 @@ pub fn map_key(key: KeyEvent, prefix: &Prefix) -> Option<Key> {
         KeyCode::Insert => Some(Key::Insert),
         KeyCode::PageUp => Some(Key::PgUp),
         KeyCode::PageDown => Some(Key::PgDn),
+        _ => None,
+    }
+}
+
+/// Which way a mouse event scrolls, or `None` for the clicks and drags the
+/// view has no use for.
+#[must_use]
+pub fn wheel_direction(kind: MouseEventKind) -> Option<Direction> {
+    match kind {
+        MouseEventKind::ScrollUp => Some(Direction::Up),
+        MouseEventKind::ScrollDown => Some(Direction::Down),
         _ => None,
     }
 }
