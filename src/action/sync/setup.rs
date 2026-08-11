@@ -1,8 +1,6 @@
 //! The setup-script half of `ivar sync`: run each repo's `.ivar/setups/<repo>.sh`
 //! when it needs running, streamed, with the `IVAR_*` environment contract.
 
-/// denied", which names the wrong problem. The script's own shebang is
-/// advisory; this is what actually runs it.
 use camino::Utf8Path;
 
 use crate::error::{Failure, FixAction};
@@ -14,6 +12,13 @@ use crate::store::setup_receipt::Receipt;
 
 use super::{Change, Entry};
 
+/// The interpreter a setup script runs under.
+///
+/// Named explicitly rather than executing the script directly, so a script does
+/// not need its executable bit set — a `.sh` file arriving through a `git
+/// clone` on a filesystem that drops modes would otherwise fail with "permission
+/// denied", which names the wrong problem. The script's own shebang is
+/// advisory; this is what actually runs it.
 const SETUP_INTERPRETER: &str = "bash";
 
 pub(crate) fn run_setup_script(
@@ -43,7 +48,26 @@ pub(crate) fn run_setup_script(
     }
     let first_run = receipt.is_none();
 
-    let code = proc::inherit(&setup_command(layout, repo, worktree, &script))?;
+    // A default worktree a session has read-only-guarded is still the worktree
+    // the script has to write into — bootstrapping this checkout is its whole
+    // job. Lift the guard for the run and put it back after, the way a git
+    // mutation does (`action::repo::pull::refresh_default`). Nothing to lift on
+    // a feature worktree: promotion is what makes it writable in the first
+    // place.
+    let guarded = fs::unix_mode(worktree)?.is_some_and(|mode| mode & 0o222 == 0);
+    if guarded {
+        fs::restore_write_bits(worktree)?;
+    }
+
+    let run = proc::inherit(&setup_command(layout, repo, worktree, &script));
+
+    // Re-guarded before the run is judged: a worktree must not be left writable
+    // because the script failed, or because spawning it did. Best-effort, like
+    // the pull path — the run's result stands even if the chmod does not.
+    if guarded {
+        let _ = fs::clear_write_bits(worktree);
+    }
+    let code = run?;
 
     // Recorded before the exit code is judged, so a failed run is remembered as
     // failed — which is what makes the next sync retry it instead of skipping.

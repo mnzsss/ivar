@@ -151,6 +151,36 @@ fn setup_reruns_a_script_whose_content_changed() {
     );
 }
 
+/// A session holds every repo it has not promoted read-only, and setup runs
+/// against that same default worktree — writing into it is the script's whole
+/// job. The guard is lifted for the run and put back after, the way a git
+/// mutation lifts it.
+#[test]
+fn setup_runs_under_the_read_only_guard_and_re_applies_it() {
+    let (_guard, root) = hall_with_repo();
+    let ctx = Ctx::new(root.clone());
+    write_setup_script(&root);
+    let worktree = root.join(".ivar/repos/api/main");
+    fs::clear_write_bits(&worktree).unwrap();
+
+    let report = setup(&ctx, setup_input("api")).unwrap();
+
+    assert!(report.is_clean());
+    assert_eq!(report.value.change, Some(Change::Created));
+    assert!(
+        worktree.join("setup-ran").exists(),
+        "the guard must be lifted for the run — the script cannot write otherwise"
+    );
+    assert_eq!(
+        fs::unix_mode(&worktree).unwrap().unwrap() & 0o222,
+        0,
+        "the guard must be back once the script has run"
+    );
+
+    // Restore so TempDir can clean up.
+    fs::restore_write_bits(&worktree).unwrap();
+}
+
 #[test]
 fn setup_of_a_repo_without_a_script_is_an_explained_no_op() {
     let (_guard, root) = hall_with_repo();
