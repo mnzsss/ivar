@@ -203,12 +203,8 @@ fn materialise_session_instructions(
     // canonical state, and there is no fallback to a legacy alias.
     let canonical = layout.hall_instructions();
     let hall = match fs::read_symlink(&canonical)? {
-        fs::SymlinkTarget::NotASymlink => {
-            if fs::is_file(&canonical)? {
-                fs::read_text(&canonical)?.unwrap_or_default()
-            } else {
-                String::new()
-            }
+        fs::SymlinkTarget::NotASymlink if fs::is_file(&canonical)? => {
+            fs::read_text(&canonical)?.unwrap_or_default()
         }
         _ => String::new(),
     };

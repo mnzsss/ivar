@@ -46,7 +46,7 @@ pub(crate) fn sync_instructions(
             }
         }
         Err(warning) => {
-            entries.push(Entry::new("hall", "hall instructions", Change::Failed));
+            entries.push(Entry::new("hall", "HALL.md", Change::Failed));
             warnings.push(warning);
         }
     }
