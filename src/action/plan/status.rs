@@ -272,11 +272,12 @@ fn canonicalize_lenient_depth(path: &Utf8Path, depth: u32) -> Result<Utf8PathBuf
     })?;
 
     // `suffix` holds the components below the existing ancestor, leaf-first
-    // (the climb pushed from the leaf up). Append them back root-ward to
-    // leaf-ward — iterate from the back — resolving each through `readlink`.
-    let mut rest: Vec<String> = suffix;
-    while let Some(name) = rest.pop() {
-        let candidate = canonical.join(&name);
+    // (the climb pushed from the leaf up). Flip it so components run root-ward
+    // to leaf-ward, then append each, resolving symlinks through `readlink`.
+    let mut components: Vec<String> = suffix;
+    components.reverse();
+    for (index, name) in components.iter().enumerate() {
+        let candidate = canonical.join(name);
         if let fs::SymlinkTarget::Target(target) = fs::read_symlink(&candidate)? {
             // The target is relative to the symlink's parent; everything
             // still to come is re-appended after it. Then re-derive from the
@@ -287,7 +288,7 @@ fn canonicalize_lenient_depth(path: &Utf8Path, depth: u32) -> Result<Utf8PathBuf
             } else {
                 canonical.join(&target)
             };
-            for remaining in rest.iter().rev() {
+            for remaining in components.iter().skip(index + 1) {
                 combined.push(remaining);
             }
             return canonicalize_lenient_depth(&combined, depth + 1);
