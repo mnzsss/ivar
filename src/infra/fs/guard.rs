@@ -45,19 +45,27 @@ pub fn clear_write_bits(path: &Utf8Path) -> Result<(), Error> {
     Ok(())
 }
 
-/// Restore write bits on `path`, undoing [`clear_write_bits`].
+/// Restore the owner's write bit on `path`, undoing [`clear_write_bits`].
 ///
-/// This is how a git mutation temporarily lifts a read-only guard: git cannot
-/// create files in a write-bit-cleared directory, and a checkout that fails
-/// mid-merge would leave the branch advanced but the files missing. Idempotent:
-/// a path that already has write bits is left untouched.
+/// This is how a git mutation or a setup run temporarily lifts a read-only
+/// guard: neither git nor a setup script can create files in a
+/// write-bit-cleared directory, and a checkout that fails mid-merge would leave
+/// the branch advanced but the files missing. Idempotent: a path that already
+/// has write bits is left untouched.
+///
+/// Only `u+w` comes back. Restoring `mode | 0o222` would hand a 755 worktree
+/// back as **777** — a lift widening what it was asked to restore, and leaving
+/// it world-writable if the process died before the re-guard. The guard does
+/// not record the bits it cleared, so a group-writable path returns
+/// owner-writable; that is the direction to err in, and `ivar` runs as the
+/// owner either way.
 #[cfg(unix)]
 pub fn restore_write_bits(path: &Utf8Path) -> Result<(), Error> {
     let Some(mode) = unix_mode(path)? else {
         return Ok(());
     };
     if mode & 0o222 == 0 {
-        chmod(path, mode | 0o222)?;
+        chmod(path, mode | 0o200)?;
     }
     Ok(())
 }

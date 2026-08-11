@@ -347,6 +347,34 @@ fn clear_write_bits_removes_them_and_is_idempotent() {
     chmod(&path, original).unwrap();
 }
 
+/// A lift that restored `mode | 0o222` handed a 755 worktree back as 777 —
+/// world-writable, and left that way if the process died mid-lift. Only the
+/// owner's bit comes back, which is the one ivar runs as.
+#[test]
+fn restore_write_bits_never_widens_past_the_owner() {
+    let (_dir, root) = utf8_temp_dir();
+    let dir = root.join("worktree");
+    ensure_dir(&dir).unwrap();
+    chmod(&dir, 0o755).unwrap();
+
+    clear_write_bits(&dir).unwrap();
+    assert_eq!(unix_mode(&dir).unwrap().unwrap() & 0o777, 0o555);
+    restore_write_bits(&dir).unwrap();
+
+    assert_eq!(
+        unix_mode(&dir).unwrap().unwrap() & 0o777,
+        0o755,
+        "the lift must not hand back group or other write"
+    );
+
+    // A group-writable path comes back owner-writable: the guard does not
+    // record what it cleared, and widening is the worse of the two errors.
+    chmod(&dir, 0o664).unwrap();
+    clear_write_bits(&dir).unwrap();
+    restore_write_bits(&dir).unwrap();
+    assert_eq!(unix_mode(&dir).unwrap().unwrap() & 0o777, 0o644);
+}
+
 #[test]
 fn restore_write_bits_undoes_the_guard_and_is_idempotent() {
     use std::os::unix::fs::MetadataExt;
@@ -354,10 +382,16 @@ fn restore_write_bits_undoes_the_guard_and_is_idempotent() {
     let (_dir, root) = utf8_temp_dir();
     let path = root.join("f.txt");
     write_text(&path, "x").unwrap();
+    chmod(&path, 0o644).unwrap();
+    let original = unix_mode(&path).unwrap().unwrap();
 
     clear_write_bits(&path).unwrap();
     restore_write_bits(&path).unwrap();
-    assert_ne!(unix_mode(&path).unwrap().unwrap() & 0o222, 0);
+    assert_eq!(
+        unix_mode(&path).unwrap().unwrap(),
+        original,
+        "a lift must hand back the mode the guard took, bit for bit"
+    );
 
     let ino = fs_err::symlink_metadata(path.as_std_path()).unwrap().ino();
     restore_write_bits(&path).unwrap();
