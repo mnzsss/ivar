@@ -79,9 +79,32 @@ fn claude_code_execute_command_is_headless_and_streamed() {
             "do the thing",
             "--output-format",
             "stream-json",
-            "--verbose"
+            "--verbose",
+            "--permission-mode",
+            "bypassPermissions"
         ]
     );
+}
+
+/// A headless `claude -p` has nobody to answer a permission prompt, so every
+/// question it would have asked is denied where it stands — and an executor
+/// launched without a permission mode cannot write the files its own write
+/// contract grants it, nor read the plan to find out what it was asked to do.
+/// The arbiter of writes is ivar's execution guard, which runs as a
+/// `PreToolUse` hook and is unaffected by this mode; the harness prompt is a
+/// second gate with nobody behind it.
+#[test]
+fn claude_code_execute_command_leaves_no_permission_prompt_to_answer() {
+    let command = Harness::ClaudeCode.execute_command("do the thing", None, None);
+    let args = command.arguments();
+
+    let mode = args
+        .iter()
+        .position(|arg| arg == "--permission-mode")
+        .and_then(|index| args.get(index + 1))
+        .expect("the headless invocation must set a permission mode");
+
+    assert_eq!(mode, "bypassPermissions");
 }
 
 /// `-p` on the `opencode` CLI is `--password`, not the prompt, and without

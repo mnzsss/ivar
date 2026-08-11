@@ -155,10 +155,29 @@ impl Harness {
     /// `prompt` — what `ivar feature execute tick` spawns, as opposed to the
     /// interactive session [`Self::start_command`] builds.
     ///
-    /// Claude Code: `claude -p <prompt> --output-format stream-json
-    /// --verbose`. Stream-json output *requires* `--verbose`, and there is no
-    /// `--cwd` flag — the working directory is set on the spawn (via
-    /// [`proc::Command::cwd`]), not the argv.
+    /// Claude Code: `claude -p <prompt> --output-format stream-json --verbose
+    /// --permission-mode bypassPermissions`. Stream-json output *requires*
+    /// `--verbose`, and there is no `--cwd` flag — the working directory is
+    /// set on the spawn (via [`proc::Command::cwd`]), not the argv.
+    ///
+    /// **The permission mode is not optional.** Left unset, the child runs in
+    /// the interactive default, where a tool call outside the pre-approved set
+    /// raises a permission prompt — and `-p` has nobody to answer it, so the
+    /// prompt is denied where it stands. An executor launched that way cannot
+    /// write the files its own write contract grants it, and cannot even
+    /// `Read` the plan to recover what its prompt failed to tell it. Three
+    /// workstreams once ran to completion that way, two of them writing
+    /// nothing at all.
+    ///
+    /// `bypassPermissions` is chosen over `acceptEdits` because an executor
+    /// has to run its repo's tests, and `acceptEdits` still prompts (and so
+    /// still denies) every `Bash` call. Bypassing the *harness's* permission
+    /// layer does not leave the child unarbitrated: writes are arbitrated by
+    /// ivar's own execution guard ([`guard`]), a `PreToolUse` hook that runs
+    /// regardless of permission mode and refuses anything outside the
+    /// workstream's write contract. The harness prompt was never the gate
+    /// here — it was a gate with nobody behind it, in front of the gate that
+    /// does the work.
     ///
     /// OpenCode: `opencode run --format json [flags]`, with the prompt fed on
     /// **stdin** rather than argv. Three things about that line are not
@@ -201,7 +220,9 @@ impl Harness {
                 .arg(prompt)
                 .arg("--output-format")
                 .arg("stream-json")
-                .arg("--verbose"),
+                .arg("--verbose")
+                .arg("--permission-mode")
+                .arg("bypassPermissions"),
             Self::OpenCode => command.arg("run").arg("--format").arg("json").stdin(prompt),
         };
         let command = match model {
