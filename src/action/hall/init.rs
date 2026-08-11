@@ -163,14 +163,20 @@ pub fn init(ctx: &Ctx, input: InitInput) -> Outcome<InitOutcome> {
     create_ivar_dir(&layout)?;
     gitignore::ensure(&layout)?;
 
-    // The manifest and skeleton are on disk before the commands are attempted,
-    // and a failed attempt is a warning, never a failure: the hall is valid
-    // and `ivar sync` repairs the commands.
+    // The manifest and skeleton are on disk before the convenience files are
+    // attempted, and a failed attempt is a warning, never a failure: the hall
+    // is valid and `ivar sync` repairs the rest.
     let mut report = Report::new(InitOutcome {
         root,
         name,
         provider,
     });
+    // The canonical instructions and the first provider alias, through the
+    // same reconciler `ivar sync` runs. A conflict (say, a pre-existing
+    // regular CLAUDE.md) warns without rolling the hall back.
+    if let Err(warning) = sync::materialise_instructions(&layout, &manifest) {
+        report.warn(warning);
+    }
     if let Err(warning) = sync::materialise_commands(&layout, provider) {
         report.warn(warning);
     }

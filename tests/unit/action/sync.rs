@@ -74,6 +74,11 @@ fn entry<'a>(outcome: &'a SyncOutcome, surface: &str, label: &str) -> &'a Entry 
 #[test]
 fn syncing_a_hall_with_no_repos_sets_up_the_skeleton_and_the_managed_block() {
     let (_guard, root) = hall_with(&[]);
+    // Simulate a hall whose instructions were never materialised (or were
+    // deleted by hand): `sync` is what creates the canonical file and the
+    // first alias.
+    fs::remove_file(&root.join("HALL.md")).unwrap();
+    fs::remove_file(&root.join("CLAUDE.md")).unwrap();
     let ctx = Ctx::new(root.clone());
 
     let report = sync(&ctx, SyncInput::default()).unwrap();
@@ -81,11 +86,20 @@ fn syncing_a_hall_with_no_repos_sets_up_the_skeleton_and_the_managed_block() {
     assert!(report.is_clean());
     assert!(fs::is_dir(&root.join(".ivar/repos")).unwrap());
     assert_eq!(
-        entry(&report.value, "claude-code", "CLAUDE.md managed block").change,
+        entry(&report.value, "hall", "HALL.md").change,
         Change::Created
     );
-    let block = fs::read_text(&root.join("CLAUDE.md")).unwrap().unwrap();
+    assert_eq!(
+        entry(&report.value, "claude-code", "CLAUDE.md alias").change,
+        Change::Created
+    );
+    let block = fs::read_text(&root.join("HALL.md")).unwrap().unwrap();
     assert!(block.contains("# acme"));
+    assert_eq!(
+        fs::read_symlink(&root.join("CLAUDE.md")).unwrap(),
+        fs::SymlinkTarget::Target(Utf8PathBuf::from("HALL.md")),
+        "the enabled provider's alias must be a relative symlink to HALL.md"
+    );
 }
 
 /// `sync` runs after every `git pull`. The second run must touch nothing,
@@ -95,7 +109,7 @@ fn a_second_sync_changes_nothing() {
     let (_guard, root) = hall_with(&[("api", "main")]);
     let ctx = Ctx::new(root.clone());
     sync(&ctx, SyncInput::default()).unwrap();
-    let before = fs::read_bytes(&root.join("CLAUDE.md")).unwrap().unwrap();
+    let before = fs::read_bytes(&root.join("HALL.md")).unwrap().unwrap();
 
     let report = sync(&ctx, SyncInput::default()).unwrap();
 
@@ -110,7 +124,7 @@ fn a_second_sync_changes_nothing() {
         report.value.entries
     );
     assert_eq!(
-        fs::read_bytes(&root.join("CLAUDE.md")).unwrap().unwrap(),
+        fs::read_bytes(&root.join("HALL.md")).unwrap().unwrap(),
         before
     );
 }
@@ -147,7 +161,7 @@ fn the_managed_block_lists_every_declared_repo() {
 
     sync(&ctx, SyncInput::default()).unwrap();
 
-    let block = fs::read_text(&root.join("CLAUDE.md")).unwrap().unwrap();
+    let block = fs::read_text(&root.join("HALL.md")).unwrap().unwrap();
     assert!(block.contains("`api`"));
     assert!(block.contains("`web`"));
 }
@@ -470,13 +484,14 @@ fn a_repo_with_no_setup_script_produces_no_setup_entry() {
 // -- providers -------------------------------------------------------------
 
 #[test]
-fn a_provider_the_hall_does_not_list_has_its_block_stripped() {
+fn a_disabled_providers_alias_entry_is_removed_entirely() {
     let (_guard, root) = hall_with(&[]);
     let ctx = Ctx::new(root.clone());
-    // A stale block from when the hall did list OpenCode.
-    let agents = root.join("AGENTS.md");
+    // A stale regular AGENTS.md from when the hall did list OpenCode — with
+    // the user's own text inside it. The disabled-provider rule removes the
+    // whole entry, including a regular file; it never removes HALL.md.
     fs::write_text(
-        &agents,
+        &root.join("AGENTS.md"),
         &format!(
             "{}\nstale\n{}\n\n# House rules\n",
             config::MANAGED_START,
@@ -488,14 +503,14 @@ fn a_provider_the_hall_does_not_list_has_its_block_stripped() {
     let report = sync(&ctx, SyncInput::default()).unwrap();
 
     assert_eq!(
-        entry(&report.value, "opencode", "AGENTS.md managed block").change,
+        entry(&report.value, "opencode", "AGENTS.md alias").change,
         Change::Removed
     );
-    assert_eq!(
-        fs::read_text(&agents).unwrap().unwrap(),
-        "# House rules\n",
-        "the user's own text must survive"
+    assert!(
+        !fs::exists(&root.join("AGENTS.md")).unwrap(),
+        "a disabled provider's alias path is entirely ivar-managed"
     );
+    assert!(fs::is_file(&root.join("HALL.md")).unwrap());
 }
 
 #[test]
@@ -506,7 +521,7 @@ fn a_provider_the_hall_does_not_list_and_never_did_is_unchanged() {
     let report = sync(&ctx, SyncInput::default()).unwrap();
 
     assert_eq!(
-        entry(&report.value, "opencode", "AGENTS.md managed block").change,
+        entry(&report.value, "opencode", "AGENTS.md alias").change,
         Change::Unchanged
     );
     assert!(!fs::exists(&root.join("AGENTS.md")).unwrap());
@@ -820,6 +835,169 @@ fn command_write_failure_warns_and_other_provider_steps_continue() {
     // OpenCode's own non-command config still landed.
     assert!(fs::is_file(&root.join("AGENTS.md")).unwrap());
     assert!(fs::is_file(&root.join("opencode.json")).unwrap());
+}
+
+// -- root instruction topology --------------------------------------------
+
+#[test]
+fn sync_repairs_absent_and_wrong_enabled_symlinks() {
+    let (_guard, root) = hall_with_both_providers();
+    // Break both aliases: remove CLAUDE.md, point AGENTS.md elsewhere.
+    fs::remove_file(&root.join("CLAUDE.md")).unwrap();
+    fs::write_text(&root.join("other.md"), "x").unwrap();
+    fs::create_symlink(Utf8Path::new("other.md"), &root.join("AGENTS.md")).unwrap();
+    let ctx = Ctx::new(root.clone());
+
+    let report = sync(&ctx, SyncInput::default()).unwrap();
+
+    assert!(report.is_clean());
+    assert_eq!(
+        entry(&report.value, "claude-code", "CLAUDE.md alias").change,
+        Change::Created
+    );
+    assert_eq!(
+        entry(&report.value, "opencode", "AGENTS.md alias").change,
+        Change::Updated
+    );
+    assert_eq!(
+        fs::read_symlink(&root.join("CLAUDE.md")).unwrap(),
+        fs::SymlinkTarget::Target(Utf8PathBuf::from("HALL.md"))
+    );
+    assert_eq!(
+        fs::read_symlink(&root.join("AGENTS.md")).unwrap(),
+        fs::SymlinkTarget::Target(Utf8PathBuf::from("HALL.md"))
+    );
+}
+
+#[test]
+fn sync_preserves_an_enabled_regular_alias_and_reports_conflict() {
+    let (_guard, root) = hall_with_both_providers();
+    fs::write_text(&root.join("AGENTS.md"), "legacy, precious\n").unwrap();
+    let ctx = Ctx::new(root.clone());
+
+    let report = sync(&ctx, SyncInput::default()).unwrap();
+
+    assert!(!report.is_clean());
+    assert_eq!(
+        entry(&report.value, "opencode", "AGENTS.md alias").change,
+        Change::Failed
+    );
+    assert!(
+        report
+            .warnings
+            .iter()
+            .any(|w| w.code == "instructions.adoption_required"),
+        "warnings: {:?}",
+        report.warnings
+    );
+    assert_eq!(
+        fs::read_text(&root.join("AGENTS.md")).unwrap().unwrap(),
+        "legacy, precious\n",
+        "an enabled regular alias must be preserved byte for byte"
+    );
+}
+
+#[test]
+fn a_conflict_does_not_abort_repo_mcp_or_command_reconciliation() {
+    let (_guard, root) = hall_with(&[("api", "main")]);
+    let layout = Layout::at(root.clone());
+    let manifest = Manifest::new(
+        HallName::new("acme").unwrap(),
+        Providers::new(
+            vec![Provider::ClaudeCode, Provider::OpenCode],
+            Provider::ClaudeCode,
+        ),
+        Manifest::read(&layout).unwrap().unwrap().repos().to_vec(),
+        None,
+    )
+    .unwrap();
+    Manifest::write(&layout, &manifest).unwrap();
+    fs::write_text(&root.join("AGENTS.md"), "legacy, precious\n").unwrap();
+    let ctx = Ctx::new(root.clone());
+
+    let report = sync(&ctx, SyncInput::default()).unwrap();
+
+    assert!(!report.is_clean());
+    assert_eq!(
+        entry(&report.value, "opencode", "AGENTS.md alias").change,
+        Change::Failed
+    );
+    // The repo, the MCP config, and the commands still land.
+    assert_eq!(
+        entry(&report.value, "repo api", "bare clone").change,
+        Change::Created
+    );
+    assert!(fs::is_file(&root.join(".mcp.json")).unwrap());
+    assert!(fs::is_file(&root.join(".opencode/commands/ivar-plan.md")).unwrap());
+    assert!(fs::is_file(&root.join("CLAUDE.md")).unwrap());
+    assert!(fs::is_file(&root.join("HALL.md")).unwrap());
+}
+
+#[test]
+fn removing_a_provider_by_hand_makes_sync_delete_its_regular_alias() {
+    let (_guard, root) = hall_with_both_providers();
+    let ctx = Ctx::new(root.clone());
+    sync(&ctx, SyncInput::default()).unwrap();
+
+    // Drop OpenCode from the manifest by hand — the destructive
+    // disabled-provider rule now authorises deleting its alias entry.
+    let layout = Layout::at(root.clone());
+    let manifest = Manifest::new(
+        HallName::new("acme").unwrap(),
+        Providers::new(vec![Provider::ClaudeCode], Provider::ClaudeCode),
+        vec![],
+        None,
+    )
+    .unwrap();
+    Manifest::write(&layout, &manifest).unwrap();
+    fs::remove_file(&root.join("AGENTS.md")).unwrap();
+    fs::write_text(&root.join("AGENTS.md"), "regular file\n").unwrap();
+
+    let report = sync(&ctx, SyncInput::default()).unwrap();
+
+    assert_eq!(
+        entry(&report.value, "opencode", "AGENTS.md alias").change,
+        Change::Removed
+    );
+    assert!(!fs::exists(&root.join("AGENTS.md")).unwrap());
+    assert!(
+        fs::is_file(&root.join("HALL.md")).unwrap(),
+        "the canonical file must always survive"
+    );
+}
+
+/// `sync` runs after every `git pull`; a healthy second run must leave file
+/// mtimes untouched, or every run dirties `git status`.
+#[test]
+fn repeated_healthy_sync_leaves_file_mtimes_unchanged() {
+    let (_guard, root) = hall_with_both_providers();
+    let ctx = Ctx::new(root.clone());
+    sync(&ctx, SyncInput::default()).unwrap();
+
+    let paths = [
+        root.join("HALL.md"),
+        root.join("CLAUDE.md"),
+        root.join("AGENTS.md"),
+    ];
+    let before: Vec<(Utf8PathBuf, Option<std::time::SystemTime>)> = paths
+        .iter()
+        .map(|path| {
+            let mtime = std::fs::metadata(path.as_std_path())
+                .ok()
+                .and_then(|metadata| metadata.modified().ok());
+            (path.clone(), mtime)
+        })
+        .collect();
+
+    let report = sync(&ctx, SyncInput::default()).unwrap();
+
+    assert!(report.is_clean());
+    for (path, before_mtime) in &before {
+        let mtime = std::fs::metadata(path.as_std_path())
+            .ok()
+            .and_then(|metadata| metadata.modified().ok());
+        assert_eq!(&mtime, before_mtime, "{path} must not be rewritten");
+    }
 }
 
 // -- not in a hall ---------------------------------------------------------

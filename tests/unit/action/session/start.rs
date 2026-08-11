@@ -824,8 +824,9 @@ fn a_feature_session_instruction_file_combines_hall_and_bootstrap() {
         "the hall's instruction file must never be modified by materialisation"
     );
 
-    // Discovery sessions get no instruction file of their own (the agent
-    // reaches the hall's by walk-up, as before).
+    // Discovery sessions receive the canonical content as their own
+    // provider-native file — equal to HALL.md, derived from the canonical
+    // source rather than the alias.
     let discovery = layout.discovery_session(
         &crate::domain::name::SessionId::new("3d7f7f2e-3e9b-4c4a-8d3b-7b8f8f0a2c3d".to_owned())
             .unwrap(),
@@ -839,9 +840,9 @@ fn a_feature_session_instruction_file_combines_hall_and_bootstrap() {
     )
     .unwrap();
     assert_eq!(
-        fs::read_text(&discovery.join("CLAUDE.md")).unwrap(),
-        None,
-        "a discovery session gets no session instruction file"
+        fs::read_text(&discovery.join("CLAUDE.md")).unwrap().unwrap(),
+        fs::read_text(&root.join("HALL.md")).unwrap().unwrap(),
+        "a discovery session's instruction file must equal HALL.md"
     );
     unguard_worktrees(&root);
 }
@@ -851,4 +852,246 @@ fn manifest_of(root: &camino::Utf8Path) -> Manifest {
     Manifest::read(&Layout::at(root.to_path_buf()))
         .unwrap()
         .unwrap()
+}
+
+// -- instruction materialisation from HALL.md -----------------------------
+
+/// The feature record every materialisation test binds, from the promoted
+/// hall's `checkout` feature.
+fn checkout_feature(layout: &Layout) -> Feature {
+    Feature::read(layout, &FeatureName::new("checkout").unwrap())
+        .unwrap()
+        .unwrap()
+}
+
+#[test]
+fn discovery_sessions_materialise_the_canonical_file_for_both_providers() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root.clone());
+    let manifest = manifest_of(&root);
+    let hall = fs::read_text(&root.join("HALL.md")).unwrap().unwrap();
+
+    for provider in Provider::ALL {
+        let view_dir = layout.discovery_session(
+            &crate::domain::name::SessionId::new(uuid::Uuid::new_v4().to_string()).unwrap(),
+        );
+        crate::action::session::view::materialise(
+            &layout,
+            &manifest,
+            None,
+            provider,
+            &view_dir,
+        )
+        .unwrap();
+        assert_eq!(
+            fs::read_text(&view_dir.join(provider.instruction_file()))
+                .unwrap()
+                .unwrap(),
+            hall,
+            "{provider}: a discovery session's instruction file must equal HALL.md"
+        );
+    }
+    unguard_worktrees(&root);
+}
+
+#[test]
+fn feature_sessions_prepend_the_bootstrap_then_the_canonical_content() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root.clone());
+    let manifest = manifest_of(&root);
+    let hall = fs::read_text(&root.join("HALL.md")).unwrap().unwrap();
+    let feature = checkout_feature(&layout);
+    let view_dir = layout.feature_session(
+        &feature.name,
+        &crate::domain::name::SessionId::new(uuid::Uuid::new_v4().to_string()).unwrap(),
+    );
+
+    crate::action::session::view::materialise(
+        &layout,
+        &manifest,
+        Some(&feature),
+        Provider::ClaudeCode,
+        &view_dir,
+    )
+    .unwrap();
+
+    let bootstrap = crate::harness::config::session::build_session_block(
+        &feature.name,
+        "plans/checkout/plan.md",
+    );
+    assert_eq!(
+        fs::read_text(&view_dir.join("CLAUDE.md")).unwrap().unwrap(),
+        format!("{bootstrap}\n\n{hall}"),
+        "a feature session's file must be exactly bootstrap, two newlines, then the canonical content"
+    );
+    unguard_worktrees(&root);
+}
+
+#[test]
+fn the_root_alias_is_irrelevant_to_session_materialisation() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root.clone());
+    let manifest = manifest_of(&root);
+    let hall = fs::read_text(&root.join("HALL.md")).unwrap().unwrap();
+    // Break the alias so any read through it would differ from HALL.md.
+    fs::remove_file(&root.join("CLAUDE.md")).unwrap();
+    fs::write_text(&root.join("CLAUDE.md"), "alias bytes that must not leak\n").unwrap();
+    let view_dir = layout.discovery_session(
+        &crate::domain::name::SessionId::new(uuid::Uuid::new_v4().to_string()).unwrap(),
+    );
+
+    crate::action::session::view::materialise(
+        &layout,
+        &manifest,
+        None,
+        Provider::ClaudeCode,
+        &view_dir,
+    )
+    .unwrap();
+
+    assert_eq!(
+        fs::read_text(&view_dir.join("CLAUDE.md")).unwrap().unwrap(),
+        hall,
+        "the view file must come from HALL.md, never from the root alias"
+    );
+    unguard_worktrees(&root);
+}
+
+#[test]
+fn rematerialisation_repairs_a_modified_session_instruction_file() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root.clone());
+    let manifest = manifest_of(&root);
+    let feature = checkout_feature(&layout);
+    let view_dir = layout.feature_session(
+        &feature.name,
+        &crate::domain::name::SessionId::new(uuid::Uuid::new_v4().to_string()).unwrap(),
+    );
+    crate::action::session::view::materialise(
+        &layout,
+        &manifest,
+        Some(&feature),
+        Provider::ClaudeCode,
+        &view_dir,
+    )
+    .unwrap();
+    fs::write_text(&view_dir.join("CLAUDE.md"), "tampered\n").unwrap();
+
+    crate::action::session::view::materialise(
+        &layout,
+        &manifest,
+        Some(&feature),
+        Provider::ClaudeCode,
+        &view_dir,
+    )
+    .unwrap();
+
+    let restored = fs::read_text(&view_dir.join("CLAUDE.md")).unwrap().unwrap();
+    assert!(
+        restored.contains("ivar session — feature `checkout`"),
+        "the bootstrap must be restored: {restored}"
+    );
+    assert!(
+        restored.contains("managed:start"),
+        "the canonical content must be restored: {restored}"
+    );
+    unguard_worktrees(&root);
+}
+
+#[test]
+fn an_unchanged_session_instruction_file_is_not_rewritten() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root.clone());
+    let manifest = manifest_of(&root);
+    let feature = checkout_feature(&layout);
+    let view_dir = layout.feature_session(
+        &feature.name,
+        &crate::domain::name::SessionId::new(uuid::Uuid::new_v4().to_string()).unwrap(),
+    );
+    crate::action::session::view::materialise(
+        &layout,
+        &manifest,
+        Some(&feature),
+        Provider::ClaudeCode,
+        &view_dir,
+    )
+    .unwrap();
+    let before = fs::read_bytes(&view_dir.join("CLAUDE.md")).unwrap().unwrap();
+    let before_mtime = std::fs::metadata(view_dir.join("CLAUDE.md").as_std_path())
+        .ok()
+        .and_then(|metadata| metadata.modified().ok());
+
+    crate::action::session::view::materialise(
+        &layout,
+        &manifest,
+        Some(&feature),
+        Provider::ClaudeCode,
+        &view_dir,
+    )
+    .unwrap();
+
+    assert_eq!(
+        fs::read_bytes(&view_dir.join("CLAUDE.md")).unwrap().unwrap(),
+        before
+    );
+    let mtime = std::fs::metadata(view_dir.join("CLAUDE.md").as_std_path())
+        .ok()
+        .and_then(|metadata| metadata.modified().ok());
+    assert_eq!(mtime, before_mtime, "an unchanged file must not be rewritten");
+    unguard_worktrees(&root);
+}
+
+#[test]
+fn missing_canonical_content_warns_but_lets_the_session_open() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root.clone());
+    let manifest = manifest_of(&root);
+    let feature = checkout_feature(&layout);
+    fs::remove_file(&root.join("HALL.md")).unwrap();
+
+    // Discovery: no shared content, one warning.
+    let discovery = layout.discovery_session(
+        &crate::domain::name::SessionId::new(uuid::Uuid::new_v4().to_string()).unwrap(),
+    );
+    let report = crate::action::session::view::materialise(
+        &layout,
+        &manifest,
+        None,
+        Provider::ClaudeCode,
+        &discovery,
+    )
+    .unwrap();
+    assert_eq!(report.warnings.len(), 1);
+    assert_eq!(report.warnings[0].code, "instructions.canonical_unavailable");
+    assert_eq!(
+        fs::read_text(&discovery.join("CLAUDE.md")).unwrap(),
+        None,
+        "a discovery session with no canonical content writes nothing"
+    );
+
+    // Feature: bootstrap only, the same warning.
+    let feature_view = layout.feature_session(
+        &feature.name,
+        &crate::domain::name::SessionId::new(uuid::Uuid::new_v4().to_string()).unwrap(),
+    );
+    let report = crate::action::session::view::materialise(
+        &layout,
+        &manifest,
+        Some(&feature),
+        Provider::ClaudeCode,
+        &feature_view,
+    )
+    .unwrap();
+    assert_eq!(report.warnings.len(), 1);
+    assert_eq!(report.warnings[0].code, "instructions.canonical_unavailable");
+    let content = fs::read_text(&feature_view.join("CLAUDE.md")).unwrap().unwrap();
+    assert!(
+        content.contains("ivar session — feature `checkout`"),
+        "the bootstrap must still land: {content}"
+    );
+    assert!(
+        !content.contains("managed:start"),
+        "without HALL.md there is no canonical content: {content}"
+    );
+    unguard_worktrees(&root);
 }

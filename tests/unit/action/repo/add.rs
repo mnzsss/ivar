@@ -45,6 +45,7 @@ fn add_clones_the_repo_and_declares_it_in_ivar_json() {
 
     assert!(report.is_clean());
     assert!(!report.value.bare_clone_reused);
+    assert_eq!(report.value.next_action, "/ivar-relations api");
     assert!(root.join(".ivar/repos/api/.bare/HEAD").is_file());
     assert_eq!(
         std::fs::read_to_string(root.join(".ivar/repos/api/main/README.md")).unwrap(),
@@ -55,6 +56,33 @@ fn add_clones_the_repo_and_declares_it_in_ivar_json() {
     let manifest = Manifest::read(&layout).unwrap().unwrap();
     assert_eq!(manifest.repos().len(), 1);
     assert_eq!(manifest.repos()[0].name().as_str(), "api");
+}
+
+/// The invitation is part of the successful outcome — rendered by the same
+/// value, never a second independently computed string — and the report
+/// carries no warning or fix action. The manifest schema stays version 1.
+#[test]
+fn the_next_action_is_shared_by_json_and_human_surfaces() {
+    let (_guard, root, url) = seeded_hall();
+    let ctx = Ctx::new(root.clone());
+
+    let report = add(&ctx, input(&url)).unwrap();
+
+    assert!(report.is_clean());
+    let json = serde_json::to_value(&Report::new(report.value.clone())).unwrap();
+    assert_eq!(json["next_action"], "/ivar-relations api");
+
+    let mut out = Vec::new();
+    report.value.write_human(&mut out).unwrap();
+    let human = String::from_utf8(out).unwrap();
+    assert!(
+        human.contains("Next: run `/ivar-relations api`"),
+        "was: {human}"
+    );
+
+    let layout = Layout::at(root);
+    let manifest = Manifest::read(&layout).unwrap().unwrap();
+    assert_eq!(manifest.version(), 1);
 }
 
 #[test]
@@ -228,6 +256,7 @@ fn the_human_surface_names_the_repo_and_whether_it_was_reused() {
         url: "git@example.com:acme/api.git".to_owned(),
         default_branch: BranchName::new("main").unwrap(),
         bare_clone_reused: true,
+        next_action: "/ivar-relations api".to_owned(),
     };
 
     let mut out = Vec::new();
@@ -235,6 +264,7 @@ fn the_human_surface_names_the_repo_and_whether_it_was_reused() {
 
     assert_eq!(
         String::from_utf8(out).unwrap(),
-        "Added repo `api` at /hall ← git@example.com:acme/api.git (reused existing clone)\n"
+        "Added repo `api` at /hall ← git@example.com:acme/api.git (reused existing clone)\n\
+         Next: run `/ivar-relations api`\n"
     );
 }

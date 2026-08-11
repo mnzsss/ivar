@@ -104,15 +104,20 @@ pub fn add(ctx: &Ctx, input: AddInput) -> Outcome<AddOutcome> {
     .with_mcp_servers(manifest.mcp_servers().to_vec())?;
     Manifest::write(&layout, &updated)?;
 
-    // The provider is registered and its commands are bootstrapped in the same
-    // run — no follow-up sync needed for them. A write failure is a warning
-    // (the manifest keeps the provider; sync is the repair), never a rollback.
+    // The provider is registered and its config is bootstrapped in the same
+    // run — no follow-up sync needed. The new provider's root alias and
+    // shipped workflow commands are materialised immediately; a conflict or
+    // write failure is a warning (the manifest keeps the provider; sync is
+    // the repair), never a rollback.
     let mut report = Report::new(AddOutcome {
         root: layout.root().to_path_buf(),
         provider,
         available,
         default,
     });
+    if let Err(warning) = sync::materialise_instructions(&layout, &updated) {
+        report.warn(warning);
+    }
     if let Err(warning) = sync::materialise_commands(&layout, provider) {
         report.warn(warning);
     }

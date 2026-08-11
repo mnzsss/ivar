@@ -188,10 +188,17 @@ fn convert_projects_the_plan_and_writes_bootstrap_instructions() {
         fs::SymlinkTarget::Absent,
         "a discovery session carries no plan projection"
     );
-    assert_eq!(
-        fs::read_text(&old_dir.join("CLAUDE.md")).unwrap(),
-        None,
+    let discovery_instructions = fs::read_text(&old_dir.join("CLAUDE.md"))
+        .unwrap()
+        .unwrap();
+    assert!(
+        !discovery_instructions.contains("ivar session — feature"),
         "a discovery session carries no bootstrap instructions"
+    );
+    assert_eq!(
+        discovery_instructions,
+        fs::read_text(&root.join("HALL.md")).unwrap().unwrap(),
+        "a discovery session's instruction file is the canonical content"
     );
 
     convert(

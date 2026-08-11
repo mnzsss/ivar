@@ -13,6 +13,7 @@ use crate::domain::provider::Provider;
 use crate::error::{Outcome, Report, WriteHuman};
 use crate::git::{self, Git, TargetState};
 use crate::harness::commands::{self, Inspection, Integrity};
+use crate::harness::config::{build_block, instructions};
 
 use super::Ctx;
 use super::{discover_hall, read_manifest};
@@ -119,6 +120,38 @@ pub fn doctor(ctx: &Ctx) -> Outcome<DoctorOutcome> {
         }
     }
 
+    // Root instruction topology: `HALL.md` and every provider alias. Each
+    // non-current state is one finding — every applicable one in a single
+    // run. `ivar sync` repairs the automatic cases; an enabled regular alias
+    // is preserved by design, so its fix is the human adoption checklist.
+    let aliases = Provider::ALL.map(|provider| instructions::Alias {
+        provider,
+        path: layout.instruction_alias(&provider),
+        enabled: manifest.providers().available().contains(&provider),
+    });
+    let block = build_block(
+        manifest.name(),
+        &manifest
+            .repos()
+            .iter()
+            .map(|repo| repo.name().clone())
+            .collect::<Vec<_>>(),
+    );
+    match instructions::inspect(&layout.hall_instructions(), &block, &aliases) {
+        Ok(inspections) => {
+            for inspection in inspections {
+                if let Some(diagnosis) = instruction_diagnosis(&inspection) {
+                    findings.push(diagnosis);
+                }
+            }
+        }
+        Err(error) => findings.push(Diagnosis {
+            code: "instructions.inspect_failed",
+            what: format!("could not inspect the hall instructions: {error}"),
+            fix: "Run `ivar sync` to reconcile them.".to_owned(),
+        }),
+    }
+
     Ok(Report::new(DoctorOutcome {
         root: layout.root().to_path_buf(),
         findings,
@@ -170,6 +203,66 @@ fn command_diagnosis(
                 format!("{provider} is no longer listed, but its `{file_name}` command remains")
             },
             fix: "Run `ivar sync` to remove it.".to_owned(),
+        }),
+    }
+}
+
+/// One diagnosis for a root instruction entry that is not in its target
+/// state.
+///
+/// Automatic cases all say `ivar sync` repairs them. An enabled provider's
+/// regular alias is the exception — sync preserves it by design, so the way
+/// out is the human adoption checklist. A disabled provider's leftover entry
+/// is removed by sync, and the finding says so explicitly, including the
+/// regular-file case.
+fn instruction_diagnosis(inspection: &instructions::Inspection) -> Option<Diagnosis> {
+    let name = inspection.path.file_name().unwrap_or("instructions");
+    match inspection.integrity {
+        instructions::Integrity::Current => None,
+        instructions::Integrity::Missing => Some(Diagnosis {
+            code: if name == "HALL.md" {
+                "instructions.canonical_missing"
+            } else {
+                "instructions.alias_missing"
+            },
+            what: format!("`{name}` is missing"),
+            fix: "Run `ivar sync` to create it.".to_owned(),
+        }),
+        instructions::Integrity::NotRegular => Some(Diagnosis {
+            code: "instructions.canonical_not_regular",
+            what: format!("`{name}` exists but is not a regular file"),
+            fix: "Replace it with a regular file, then run `ivar sync`.".to_owned(),
+        }),
+        instructions::Integrity::ManagedBlockMissing => Some(Diagnosis {
+            code: "instructions.managed_block_missing",
+            what: format!("`{name}` has no ivar-managed block"),
+            fix: "Run `ivar sync` to add it.".to_owned(),
+        }),
+        instructions::Integrity::ManagedBlockStale => Some(Diagnosis {
+            code: "instructions.managed_block_stale",
+            what: format!("`{name}`'s managed block does not match ivar.json"),
+            fix: "Run `ivar sync` to update it.".to_owned(),
+        }),
+        instructions::Integrity::AliasIsRegular => Some(Diagnosis {
+            code: "instructions.alias_regular",
+            what: format!("`{name}` is a regular file; ivar preserves it by design"),
+            fix: "Consolidate its instructions into `HALL.md`, remove it, run `ivar sync`, and review the git diff."
+                .to_owned(),
+        }),
+        instructions::Integrity::AliasBroken => Some(Diagnosis {
+            code: "instructions.alias_broken",
+            what: format!("`{name}` is a symlink whose target is missing"),
+            fix: "Run `ivar sync` to point it at `HALL.md`.".to_owned(),
+        }),
+        instructions::Integrity::AliasWrongTarget => Some(Diagnosis {
+            code: "instructions.alias_wrong_target",
+            what: format!("`{name}` points somewhere other than `HALL.md`"),
+            fix: "Run `ivar sync` to point it at `HALL.md`.".to_owned(),
+        }),
+        instructions::Integrity::DisabledAliasPresent => Some(Diagnosis {
+            code: "instructions.disabled_alias_present",
+            what: format!("`{name}` remains but its provider is no longer available"),
+            fix: "Run `ivar sync` — it removes the entry, including a regular file.".to_owned(),
         }),
     }
 }

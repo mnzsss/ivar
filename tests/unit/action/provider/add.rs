@@ -86,6 +86,58 @@ fn provider_add_materialises_the_new_providers_commands() {
 }
 
 #[test]
+fn provider_add_creates_the_new_aliases_through_the_shared_reconciler() {
+    let (_guard, root) = seeded_hall();
+    let ctx = Ctx::new(root.clone());
+
+    let report = add(&ctx, add_input("opencode")).unwrap();
+
+    assert!(report.is_clean());
+    assert_eq!(
+        fs::read_symlink(&root.join("AGENTS.md")).unwrap(),
+        fs::SymlinkTarget::Target(Utf8PathBuf::from("HALL.md")),
+        "adding OpenCode must immediately create its relative alias"
+    );
+    // The existing Claude alias is untouched.
+    assert_eq!(
+        fs::read_symlink(&root.join("CLAUDE.md")).unwrap(),
+        fs::SymlinkTarget::Target(Utf8PathBuf::from("HALL.md"))
+    );
+}
+
+#[test]
+fn provider_add_conflict_warns_and_keeps_the_provider_persisted() {
+    let (_guard, root) = seeded_hall();
+    // An occupied AGENTS.md the reconciler must preserve byte for byte.
+    fs::write_text(&root.join("AGENTS.md"), "legacy, precious\n").unwrap();
+    let ctx = Ctx::new(root.clone());
+
+    let report = add(&ctx, add_input("opencode")).unwrap();
+
+    assert!(
+        !report.is_clean(),
+        "a conflict must not be a clean run"
+    );
+    assert!(
+        report
+            .warnings
+            .iter()
+            .any(|w| w.code == "instructions.adoption_required"),
+        "warnings: {:?}",
+        report.warnings
+    );
+    assert_eq!(
+        fs::read_text(&root.join("AGENTS.md")).unwrap().unwrap(),
+        "legacy, precious\n"
+    );
+    assert_eq!(
+        persisted_available(&root),
+        vec![Provider::ClaudeCode, Provider::OpenCode],
+        "the provider must stay registered even when its alias conflicted"
+    );
+}
+
+#[test]
 fn provider_add_returns_warning_when_commands_cannot_be_written() {
     let (_guard, root) = seeded_hall();
     // Occupy OpenCode's command-directory parent with a regular file, so

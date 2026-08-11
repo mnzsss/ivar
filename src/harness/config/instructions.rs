@@ -288,12 +288,14 @@ fn reconcile_canonical(path: &Utf8Path, block: &str) -> Result<Entry, Error> {
         // directory or another file the user pointed at.
         fs::SymlinkTarget::Target(_) => Ok(conflict(
             path,
-            "`HALL.md` is a symlink; the canonical instructions must be a regular file",
+            "`HALL.md` is a symlink; the canonical instructions must be a \
+             regular file — replace it with one, then run `ivar sync`",
         )),
         fs::SymlinkTarget::NotASymlink if !fs::is_file(path).map_err(|source| io_error(path, source))? => {
             Ok(conflict(
                 path,
-                "`HALL.md` exists but is not a regular file",
+                "`HALL.md` exists but is not a regular file; make it a regular \
+                 file, then run `ivar sync`",
             ))
         }
         _ => {

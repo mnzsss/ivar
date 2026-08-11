@@ -45,8 +45,6 @@
 //! [`Provider::mcp_config_path`](crate::domain::provider::Provider::mcp_config_path)
 //! cites.
 
-use camino::Utf8Path;
-
 use crate::error::{Failure, FixAction};
 use crate::infra::{fs, json};
 

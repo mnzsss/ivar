@@ -504,9 +504,8 @@ fn doctor_names_a_missing_bare_clone_and_its_fix() {
 
     let report = doctor(&ctx).unwrap();
 
-    assert_eq!(report.value.findings.len(), 1);
-    assert_eq!(report.value.findings[0].code, "repo.bare_missing");
-    assert!(report.value.findings[0].fix.contains("ivar sync"));
+    let finding = finding(&report.value, "repo.bare_missing");
+    assert!(finding.fix.contains("ivar sync"));
 }
 
 // -- doctor: shipped workflow commands ------------------------------------
@@ -621,6 +620,315 @@ fn doctor_says_nothing_about_healthy_commands() {
         "healthy commands must produce no command findings: {:?}",
         report.value.findings
     );
+}
+
+// -- init: canonical instructions and the first alias ---------------------
+
+#[test]
+fn init_creates_hall_md_and_the_selected_providers_relative_alias() {
+    // Claude (the default): HALL.md and a relative CLAUDE.md symlink.
+    let (_guard, root) = utf8_temp_dir();
+    let ctx = Ctx::new(root.clone());
+    let report = init(&ctx, fresh_input()).unwrap();
+
+    assert!(report.is_clean());
+    assert!(fs::is_file(&root.join("HALL.md")).unwrap());
+    assert_eq!(
+        fs::read_symlink(&root.join("CLAUDE.md")).unwrap(),
+        fs::SymlinkTarget::Target(Utf8PathBuf::from("HALL.md")),
+        "the first alias must be a relative symlink to HALL.md"
+    );
+    assert!(!fs::exists(&root.join("AGENTS.md")).unwrap());
+
+    // OpenCode: AGENTS.md, and no CLAUDE.md anywhere.
+    let (_guard, root) = utf8_temp_dir();
+    let ctx = Ctx::new(root.clone());
+    let report = init(
+        &ctx,
+        InitInput {
+            path: Utf8PathBuf::from("."),
+            name: Some("acme".to_owned()),
+            provider: Some("opencode".to_owned()),
+        },
+    )
+    .unwrap();
+
+    assert!(report.is_clean());
+    assert!(fs::is_file(&root.join("HALL.md")).unwrap());
+    assert_eq!(
+        fs::read_symlink(&root.join("AGENTS.md")).unwrap(),
+        fs::SymlinkTarget::Target(Utf8PathBuf::from("HALL.md"))
+    );
+    assert!(!fs::exists(&root.join("CLAUDE.md")).unwrap());
+}
+
+#[test]
+fn init_warns_but_stays_valid_when_the_alias_path_is_occupied() {
+    let (_guard, root) = utf8_temp_dir();
+    fs::write_text(&root.join("CLAUDE.md"), "legacy, precious\n").unwrap();
+    let ctx = Ctx::new(root.clone());
+
+    let report = init(&ctx, fresh_input()).unwrap();
+
+    assert!(!report.is_clean());
+    assert_eq!(
+        report.warnings[0].code,
+        "instructions.adoption_required"
+    );
+    assert_eq!(
+        fs::read_text(&root.join("CLAUDE.md")).unwrap().unwrap(),
+        "legacy, precious\n",
+        "an occupied enabled alias must never be overwritten"
+    );
+    // The manifest is still valid, and the canonical file still landed.
+    let layout = Layout::at(root.clone());
+    assert!(Manifest::read(&layout).unwrap().is_some());
+    assert!(fs::is_file(&root.join("HALL.md")).unwrap());
+}
+
+// -- doctor: root instruction topology ------------------------------------
+
+#[test]
+fn doctor_names_missing_canonical_instructions() {
+    let (_guard, root) = utf8_temp_dir();
+    let ctx = Ctx::new(root.clone());
+    init(&ctx, fresh_input()).unwrap();
+    fs::remove_file(&root.join("HALL.md")).unwrap();
+
+    let report = doctor(&ctx).unwrap();
+
+    let finding = finding(&report.value, "instructions.canonical_missing");
+    assert!(finding.what.contains("HALL.md"), "was: {}", finding.what);
+    assert!(finding.fix.contains("ivar sync"));
+}
+
+#[test]
+fn doctor_names_a_non_regular_canonical_file() {
+    let (_guard, root) = utf8_temp_dir();
+    let ctx = Ctx::new(root.clone());
+    init(&ctx, fresh_input()).unwrap();
+    fs::remove_file(&root.join("HALL.md")).unwrap();
+    fs::ensure_dir(&root.join("HALL.md")).unwrap();
+
+    let report = doctor(&ctx).unwrap();
+
+    let finding = finding(&report.value, "instructions.canonical_not_regular");
+    assert!(
+        finding.fix.contains("regular file"),
+        "was: {}",
+        finding.fix
+    );
+}
+
+#[test]
+fn doctor_names_a_missing_managed_block() {
+    let (_guard, root) = utf8_temp_dir();
+    let ctx = Ctx::new(root.clone());
+    init(&ctx, fresh_input()).unwrap();
+    fs::write_text(&root.join("HALL.md"), "# House rules\n").unwrap();
+
+    let report = doctor(&ctx).unwrap();
+
+    let finding = finding(&report.value, "instructions.managed_block_missing");
+    assert!(finding.fix.contains("ivar sync"));
+}
+
+#[test]
+fn doctor_names_a_stale_managed_block() {
+    let (_guard, root) = utf8_temp_dir();
+    let ctx = Ctx::new(root.clone());
+    init(&ctx, fresh_input()).unwrap();
+    // Declare a repo after init: the on-disk block was built with none.
+    let layout = Layout::at(root.clone());
+    let origin = crate::test_support::seeded_repo(
+        &root.parent().unwrap().join("origins").join("api"),
+        "main",
+    );
+    let manifest = Manifest::new(
+        HallName::new("acme").unwrap(),
+        Providers::new(vec![Provider::ClaudeCode], Provider::ClaudeCode),
+        vec![crate::store::manifest::Repo::new(
+            crate::domain::name::RepoName::new("api").unwrap(),
+            origin.as_str(),
+            crate::domain::name::BranchName::new("main").unwrap(),
+        )],
+        None,
+    )
+    .unwrap();
+    Manifest::write(&layout, &manifest).unwrap();
+
+    let report = doctor(&ctx).unwrap();
+
+    let finding = finding(&report.value, "instructions.managed_block_stale");
+    assert!(finding.fix.contains("ivar sync"));
+}
+
+#[test]
+fn doctor_names_a_missing_enabled_alias() {
+    let (_guard, root) = utf8_temp_dir();
+    let ctx = Ctx::new(root.clone());
+    init(&ctx, fresh_input()).unwrap();
+    // Enable OpenCode without ever syncing: its alias is absent.
+    let layout = Layout::at(root.clone());
+    let manifest = Manifest::new(
+        HallName::new("acme").unwrap(),
+        Providers::new(
+            vec![Provider::ClaudeCode, Provider::OpenCode],
+            Provider::ClaudeCode,
+        ),
+        vec![],
+        None,
+    )
+    .unwrap();
+    Manifest::write(&layout, &manifest).unwrap();
+
+    let report = doctor(&ctx).unwrap();
+
+    let finding = finding(&report.value, "instructions.alias_missing");
+    assert!(finding.what.contains("AGENTS.md"), "was: {}", finding.what);
+    assert!(finding.fix.contains("ivar sync"));
+}
+
+#[test]
+fn doctor_names_an_enabled_regular_alias_with_the_adoption_checklist() {
+    let (_guard, root) = utf8_temp_dir();
+    let ctx = Ctx::new(root.clone());
+    init(&ctx, fresh_input()).unwrap();
+    fs::remove_file(&root.join("CLAUDE.md")).unwrap();
+    fs::write_text(&root.join("CLAUDE.md"), "legacy, precious\n").unwrap();
+
+    let report = doctor(&ctx).unwrap();
+
+    let finding = finding(&report.value, "instructions.alias_regular");
+    assert!(
+        finding.fix.contains("HALL.md") && finding.fix.contains("ivar sync"),
+        "the adoption checklist must name HALL.md and sync: {}",
+        finding.fix
+    );
+}
+
+#[test]
+fn doctor_names_a_broken_alias() {
+    let (_guard, root) = utf8_temp_dir();
+    let ctx = Ctx::new(root.clone());
+    init(&ctx, fresh_input()).unwrap();
+    fs::remove_file(&root.join("CLAUDE.md")).unwrap();
+    fs::create_symlink(camino::Utf8Path::new("vanished.md"), &root.join("CLAUDE.md")).unwrap();
+
+    let report = doctor(&ctx).unwrap();
+
+    let finding = finding(&report.value, "instructions.alias_broken");
+    assert!(finding.fix.contains("ivar sync"));
+}
+
+#[test]
+fn doctor_names_a_wrong_target_alias() {
+    let (_guard, root) = utf8_temp_dir();
+    let ctx = Ctx::new(root.clone());
+    init(&ctx, fresh_input()).unwrap();
+    fs::write_text(&root.join("other.md"), "x").unwrap();
+    fs::remove_file(&root.join("CLAUDE.md")).unwrap();
+    fs::create_symlink(camino::Utf8Path::new("other.md"), &root.join("CLAUDE.md")).unwrap();
+
+    let report = doctor(&ctx).unwrap();
+
+    let finding = finding(&report.value, "instructions.alias_wrong_target");
+    assert!(
+        finding.fix.contains("HALL.md"),
+        "was: {}",
+        finding.fix
+    );
+}
+
+#[test]
+fn doctor_names_a_disabled_providers_leftover_alias() {
+    let (_guard, root) = utf8_temp_dir();
+    let ctx = Ctx::new(root.clone());
+    init(&ctx, fresh_input()).unwrap();
+    let layout = Layout::at(root.clone());
+    let both = Manifest::new(
+        HallName::new("acme").unwrap(),
+        Providers::new(
+            vec![Provider::ClaudeCode, Provider::OpenCode],
+            Provider::ClaudeCode,
+        ),
+        vec![],
+        None,
+    )
+    .unwrap();
+    Manifest::write(&layout, &both).unwrap();
+    crate::action::sync::sync(&ctx, Default::default()).unwrap();
+    let claude_only = Manifest::new(
+        HallName::new("acme").unwrap(),
+        Providers::new(vec![Provider::ClaudeCode], Provider::ClaudeCode),
+        vec![],
+        None,
+    )
+    .unwrap();
+    Manifest::write(&layout, &claude_only).unwrap();
+    // Replace the leftover symlink with a regular file — the worst case.
+    fs::remove_file(&root.join("AGENTS.md")).unwrap();
+    fs::write_text(&root.join("AGENTS.md"), "regular file\n").unwrap();
+
+    let report = doctor(&ctx).unwrap();
+
+    let finding = finding(&report.value, "instructions.disabled_alias_present");
+    assert!(
+        finding.fix.contains("regular file"),
+        "the finding must say sync removes regular files: {}",
+        finding.fix
+    );
+}
+
+/// Every applicable drift in one run: a stale canonical block, an enabled
+/// regular alias, and a broken enabled alias — one `doctor` call reports all
+/// of them.
+#[test]
+fn doctor_returns_every_applicable_instruction_finding_in_one_run() {
+    let (_guard, root) = utf8_temp_dir();
+    let ctx = Ctx::new(root.clone());
+    init(&ctx, fresh_input()).unwrap();
+    // Stale block: declare a repo the on-disk block does not list.
+    let layout = Layout::at(root.clone());
+    let origin = crate::test_support::seeded_repo(
+        &root.parent().unwrap().join("origins").join("api"),
+        "main",
+    );
+    let both = Manifest::new(
+        HallName::new("acme").unwrap(),
+        Providers::new(
+            vec![Provider::ClaudeCode, Provider::OpenCode],
+            Provider::ClaudeCode,
+        ),
+        vec![crate::store::manifest::Repo::new(
+            crate::domain::name::RepoName::new("api").unwrap(),
+            origin.as_str(),
+            crate::domain::name::BranchName::new("main").unwrap(),
+        )],
+        None,
+    )
+    .unwrap();
+    Manifest::write(&layout, &both).unwrap();
+    // CLAUDE.md: an enabled regular alias. AGENTS.md: a broken symlink.
+    fs::remove_file(&root.join("CLAUDE.md")).unwrap();
+    fs::write_text(&root.join("CLAUDE.md"), "legacy, precious\n").unwrap();
+    fs::create_symlink(camino::Utf8Path::new("vanished.md"), &root.join("AGENTS.md")).unwrap();
+
+    let report = doctor(&ctx).unwrap();
+
+    let codes: Vec<&str> = report
+        .value
+        .findings
+        .iter()
+        .map(|finding| finding.code)
+        .collect();
+    for expected in [
+        "instructions.managed_block_stale",
+        "instructions.alias_regular",
+        "instructions.alias_broken",
+    ] {
+        assert!(codes.contains(&expected), "missing {expected} in {codes:?}");
+    }
 }
 
 // -- cleanup --------------------------------------------------------------
