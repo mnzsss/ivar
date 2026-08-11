@@ -109,9 +109,13 @@ pub(super) fn run_launch(
         });
     };
 
-    if let Err(failure) =
-        view::materialise(&layout, &manifest, Some(&feature_record), job.provider, &job.view_dir)
-    {
+    if let Err(failure) = view::materialise(
+        &layout,
+        &manifest,
+        Some(&feature_record),
+        job.provider,
+        &job.view_dir,
+    ) {
         send(ExecutorEvent::Failed {
             error: failure.to_string(),
         });

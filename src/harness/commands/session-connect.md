@@ -6,7 +6,10 @@ argument-hint: [session-id-prefix]
 # Session Connect
 
 `/ivar-session-connect` reconnects to an active ivar session instead of creating
-a new one.
+a new one. Connect re-materialises the session's view dir, repairing anything
+that drifted or predates the current `ivar`: repo symlinks, read-only guards,
+the provider's config dir and commands, the projected plan link, and the
+session's bootstrap instructions.
 
 ## Steps
 
@@ -43,7 +46,9 @@ a new one.
    **Promoted repos (editable):** <list of promoted repo names>
    **Read-only repos (do NOT edit or load context from):** <list of read-only repo names>
 
-   All file operations must use paths relative to $IVAR_SESSION_PATH/repos/<repo>/.
+   All file operations must use paths relative to $IVAR_SESSION_PATH. Repos are
+   mounted directly at the view dir's root (`$IVAR_SESSION_PATH/<repo>/`); the
+   feature's plan is at `$IVAR_SESSION_PATH/plans/<feature>/`.
    Never read or write files outside the session path.
    When reading files from read-only repos, prefer to search only in promoted repos first.
    ```
@@ -52,7 +57,21 @@ a new one.
    operate inside `$IVAR_SESSION_PATH`**. When running shell commands,
    `cd $IVAR_SESSION_PATH` first.
 8. When the agent needs to read context (CLAUDE.md, AGENTS.md), prefer the
-   session directory's AGENTS.md over hall-root files.
+   session directory's file over hall-root files — it carries the hall's
+   standing instructions plus the session bootstrap block.
+
+## Continuing the feature's work
+
+A connected feature session carries its plan at
+`$IVAR_SESSION_PATH/plans/<feature>/` and its bootstrap instructions in the
+session's `CLAUDE.md` / `AGENTS.md`. At the start of every conversation,
+re-derive where the feature is in the SPDD cycle:
+
+1. Run `ivar plan status plans/<feature>/plan.md`.
+2. Read the plan artifacts that exist under `plans/<feature>/`.
+3. Continue from the first approval gate that is `pending` or
+   `needs-revision`, and consider the execution board if the status reports
+   one.
 
 ## When to use
 
@@ -67,5 +86,8 @@ a new one.
   this command instead.
 - Both `session start` and `session connect` emit the same three binding keys
   (`IVAR_SESSION_ID`, `IVAR_FEATURE`, `IVAR_SESSION_PATH`).
+- Connect re-materialises the view dir for the **session's own provider** (the
+  one recorded in the session, or the hall's default for a legacy session),
+  so a session relayed to OpenCode reconnects as an OpenCode session.
 - If the session dir no longer exists (stale), run `ivar session prune` to
   clean up, then `/ivar-session-start`.

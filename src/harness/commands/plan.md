@@ -23,8 +23,12 @@ The SPDD planning lifecycle has three artifacts with four approval gates:
 Requirements → [approve requirements] → Analysis → [approve analysis] → Plan → [approve plan] → Graph → [approve graph] → Execution
 ```
 
-Each artifact lives committed under `<hall>/plans/<feature>/`. Once an artifact
-is approved, changing it cascades invalidation to downstream artifacts.
+Each artifact lives committed under `<hall>/plans/<feature>/`. Inside a
+feature session the same directory is projected into the view dir, so the
+artifacts are reachable at `plans/<feature>/` relative to
+`$IVAR_SESSION_PATH` — edits there land in the hall's committed directory.
+Once an artifact is approved, changing it cascades invalidation to downstream
+artifacts.
 
 ## Phase 1: Requirements
 

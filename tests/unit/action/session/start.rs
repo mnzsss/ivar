@@ -827,10 +827,8 @@ fn a_feature_session_instruction_file_combines_hall_and_bootstrap() {
     // Discovery sessions get no instruction file of their own (the agent
     // reaches the hall's by walk-up, as before).
     let discovery = layout.discovery_session(
-        &crate::domain::name::SessionId::new(
-            "3d7f7f2e-3e9b-4c4a-8d3b-7b8f8f0a2c3d".to_owned(),
-        )
-        .unwrap(),
+        &crate::domain::name::SessionId::new("3d7f7f2e-3e9b-4c4a-8d3b-7b8f8f0a2c3d".to_owned())
+            .unwrap(),
     );
     crate::action::session::view::materialise(
         &layout,
@@ -850,5 +848,7 @@ fn a_feature_session_instruction_file_combines_hall_and_bootstrap() {
 
 /// The manifest of the hall at `root`.
 fn manifest_of(root: &camino::Utf8Path) -> Manifest {
-    Manifest::read(&Layout::at(root.to_path_buf())).unwrap().unwrap()
+    Manifest::read(&Layout::at(root.to_path_buf()))
+        .unwrap()
+        .unwrap()
 }

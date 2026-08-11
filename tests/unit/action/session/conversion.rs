@@ -84,8 +84,14 @@ fn discovery_view_dir(layout: &Layout) -> Utf8PathBuf {
     let session_id = SessionId::new(DISCOVERY_ID).unwrap();
     let view_dir = layout.discovery_session(&session_id);
     let manifest = Manifest::read(layout).unwrap().unwrap();
-    crate::action::session::view::materialise(layout, &manifest, None, Provider::ClaudeCode, &view_dir)
-        .unwrap();
+    crate::action::session::view::materialise(
+        layout,
+        &manifest,
+        None,
+        Provider::ClaudeCode,
+        &view_dir,
+    )
+    .unwrap();
     let state = SessionState::new(Provider::ClaudeCode, STARTED_AT);
     state.write(&view_dir).unwrap();
     view_dir

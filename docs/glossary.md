@@ -39,9 +39,15 @@ its view dir exists — liveness is not a process.
 
 **View dir** — the per-session directory of symlinks, one per repo, pointing at
 the right worktree: the feature branch for promoted repos, the shared read-only
-default branch for the rest. At
+default branch for the rest. A feature session additionally projects the
+feature's plan (`plans/<feature>/` → the hall's committed plan directory) and
+carries a provider-native instruction file (`CLAUDE.md` / `AGENTS.md`) with the
+hall's standing instructions plus a session bootstrap block telling the agent
+how to re-derive where the feature is in the SPDD cycle. At
 `.ivar/features/<name>/sessions/<uuid>/` for feature sessions,
-`.ivar/sessions/<uuid>/` for discovery sessions.
+`.ivar/sessions/<uuid>/` for discovery sessions. The plan link and the
+instruction file are per-session views, never copies: they die with the view
+dir, and the plan edits land in the hall.
 
 **Provider** — the agent harness that runs inside a session: Claude Code or
 OpenCode. Chosen at `ivar init`, added later with `ivar provider add`, selected
@@ -64,14 +70,20 @@ writable.
 **Session relay** — starting a fresh session on an existing feature under a
 *different* provider, because the previous one ended before the work did
 (typically token exhaustion). **A relay passes the work, never the thread**: the
-branch, worktrees and plan live on disk, the conversation does not. The opposite
-axis to conversion — a conversion keeps the provider and changes the binding; a
-relay keeps the binding and changes the provider.
+branch, worktrees and plan live on disk, the conversation does not. The
+relayed session is materialised for the new provider (its config, commands and
+instruction file), projects the feature's plan into its view dir, and its
+bootstrap instructions tell the agent to re-derive the SPDD stage with
+`ivar plan status` and continue from the first gate that is `pending` or
+`needs-revision`. The opposite axis to conversion — a conversion keeps the
+provider and changes the binding; a relay keeps the binding and changes the
+provider.
 
 **Connect** — re-binding your shell or agent to an existing live session without
 creating one. Finds it by id-prefix and/or feature, re-materialises its view dir
-(idempotent, and it repairs symlinks and read-only guards left stale by a promote
-elsewhere), and emits `IVAR_SESSION_ID`, `IVAR_FEATURE` and `IVAR_SESSION_PATH`.
+(idempotent, and it repairs symlinks, read-only guards, the provider's config,
+the projected plan link and the session's bootstrap instructions), and emits
+`IVAR_SESSION_ID`, `IVAR_FEATURE` and `IVAR_SESSION_PATH`.
 
 **Detached session** — one created without launching a provider, so an
 already-running agent can bind to it. Persists until an explicit `session stop`,

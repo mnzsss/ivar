@@ -27,7 +27,9 @@ fn the_block_names_the_feature_and_how_to_re_derive_the_stage() {
         "the block must tell the agent to run plan status: {block}"
     );
     assert!(
-        block.contains("requirements.md") && block.contains("analysis.md") && block.contains("plan.md"),
+        block.contains("requirements.md")
+            && block.contains("analysis.md")
+            && block.contains("plan.md"),
         "the block must name the plan artifacts: {block}"
     );
     assert!(
