@@ -52,10 +52,12 @@ src/
                    fingerprint, push, and pull-request phases split across
                    mod.rs, repos.rs, preview.rs, and pull_requests.rs.
     execute/       feature execute: prepare · replan · ack · reconcile ·
-                   approve · guard_check · reply, plus tick/ — the launch
-                   orchestration in mod.rs, the per-workstream worker thread
-                   (session materialisation + spawn + stream drain) in
-                   launch.rs, and the event-folding onto the board in events.rs
+                   approve · guard_check · reply, plus inbox (both ends of the
+                   human-reply channel, written by reply and read back into
+                   the prompt by tick) and tick/ — the launch orchestration in
+                   mod.rs, the per-workstream worker thread (session
+                   materialisation + spawn + stream drain) in launch.rs, and
+                   the event-folding onto the board in events.rs
     session/       start · connect · conversion · stop · prune · relay, plus
                    lookup (shared id-prefix resolution)
     plan/          create · list · show · approve · status

@@ -78,14 +78,23 @@ ivar feature execute approve checkout    # awaiting-approval → approved
 ivar feature execute tick checkout       # launch whatever is ready
 ```
 
-`tick` finds workstreams whose dependencies are satisfied and launches them. Call
-it again as work completes.
+`tick` finds workstreams whose dependencies are satisfied and launches them, then
+blocks until that wave is over. A wave that leaves work still waiting returns the
+board to `approved` — call `tick` again to launch what the wave just unblocked.
+When the last workstream finishes the board is `completed`; when one blocks on a
+question the board is `blocked` and waits for `reply`.
 
 When a workstream blocks on a question:
 
 ```sh
 ivar feature execute reply checkout --session <id> --message "use the v2 endpoint"
+ivar feature execute tick checkout       # relaunches it with the answer in hand
 ```
+
+The reply lands in the workstream's inbox and returns it to `waiting`, with the
+board back to `approved`. The child that asked the question is gone, so the next
+`tick` starts a fresh one — and renders every answer the workstream has been
+given into its prompt.
 
 The write contract is enforceable, and a harness can check it before writing:
 
