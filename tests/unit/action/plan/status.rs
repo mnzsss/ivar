@@ -282,6 +282,86 @@ fn status_is_blocked_for_a_path_that_is_not_a_plan() {
     assert_eq!(failure.code, "plan.status_not_a_plan");
 }
 
+/// A plan path projected through a session view dir — `plans/<feature>/...`
+/// where `plans/<feature>` is a symlink to the hall's plan directory — is
+/// accepted, because it resolves to the hall's real plan directory. This is
+/// the path the bootstrap instructions tell an agent inside a session to run.
+#[test]
+fn status_accepts_a_plan_path_through_a_view_dir_symlink() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root.clone());
+    let feature = FeatureName::new("checkout").unwrap();
+
+    // A minimal feature-session view dir: plans/checkout -> hall plans/checkout.
+    let view_dir = root.join("view");
+    fs::ensure_dir(&view_dir.join("plans")).unwrap();
+    fs::create_symlink(&layout.plan_dir(&feature), &view_dir.join("plans/checkout")).unwrap();
+
+    let ctx = Ctx::new(view_dir);
+    let report = status(&ctx, status_input("plans/checkout/plan.md")).unwrap();
+
+    assert_eq!(report.value.feature.as_str(), "checkout");
+    assert_eq!(report.value.gates.len(), 4);
+}
+
+/// The projected path is accepted even when the plan directory does not exist
+/// yet — the symlink dangles, and status still answers (all gates pending)
+/// rather than refusing the path.
+#[test]
+fn status_accepts_a_dangling_plan_projection() {
+    let (_guard, root) = hall_root();
+    let ctx = Ctx::new(root.clone());
+    hall::init(
+        &ctx,
+        InitInput {
+            path: Utf8PathBuf::from("."),
+            name: Some("acme".to_owned()),
+            provider: None,
+        },
+    )
+    .unwrap();
+    feature_create::create(
+        &ctx,
+        FeatureCreateInput {
+            name: "checkout".to_owned(),
+            branch: None,
+        },
+    )
+    .unwrap();
+
+    // No `plan create` was ever run: plans/checkout is a dangling symlink.
+    let layout = Layout::at(root.clone());
+    let feature = FeatureName::new("checkout").unwrap();
+    let view_dir = root.join("view");
+    fs::ensure_dir(&view_dir.join("plans")).unwrap();
+    fs::create_symlink(&layout.plan_dir(&feature), &view_dir.join("plans/checkout")).unwrap();
+
+    let ctx = Ctx::new(view_dir);
+    let report = status(&ctx, status_input("plans/checkout/plan.md")).unwrap();
+
+    assert_eq!(report.value.feature.as_str(), "checkout");
+    assert!(report.value.gates.iter().all(|gate| gate.state == GateState::Pending));
+}
+
+/// A symlink under `plans/` that escapes to a directory outside the hall is
+/// refused — canonicalisation lands on the external directory, not on a plan
+/// of this hall.
+#[test]
+fn status_refuses_a_plan_symlink_that_escapes_the_hall() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root.clone());
+
+    let outside = root.parent().unwrap().join("outside");
+    fs::ensure_dir(&outside).unwrap();
+    fs::create_symlink(&outside, &layout.root().join("plans/evil")).unwrap();
+
+    let ctx = Ctx::new(root.clone());
+    let failure = status(&ctx, status_input("plans/evil/plan.md")).unwrap_err();
+
+    assert_eq!(failure.status, Status::Blocked);
+    assert_eq!(failure.code, "plan.status_not_a_plan");
+}
+
 #[test]
 fn the_human_surface_lists_gates_and_their_invalidation() {
     let outcome = StatusOutcome {

@@ -187,24 +187,33 @@ pub fn status(ctx: &Ctx, input: StatusInput) -> Outcome<StatusOutcome> {
 }
 
 /// Resolve `plan_path` to the feature it names: a file or directory under
-/// `<hall>/plans/<feature>/`. Anything else is blocked, so a typo cannot
+/// `<hall>/plans/<feature>`. Anything else is blocked, so a typo cannot
 /// silently read another feature's gates.
+///
+/// The path is canonicalised first — through the deepest existing ancestor,
+/// see [`canonicalize_lenient`] — so a plan path projected through a session
+/// view dir's `plans/<feature>` symlink is accepted: the agent inside a
+/// session runs `ivar plan status plans/<feature>/plan.md` against the
+/// session's own view dir, and the path resolves to the hall's real plan
+/// directory. The same canonicalisation is what keeps a symlink that escapes
+/// the hall's plan directory refused.
 fn derive_feature(
     ctx: &Ctx,
     layout: &Layout,
     plan_path: &str,
 ) -> Result<(FeatureName, Utf8PathBuf), Failure> {
     let resolved = ctx.resolve(Utf8Path::new(plan_path));
-    let dir = if fs::is_dir(&resolved)? {
-        resolved.clone()
+    let canonical = canonicalize_lenient(&resolved)?;
+    let dir = if fs::is_dir(&canonical)? {
+        canonical.clone()
     } else {
-        resolved
+        canonical
             .parent()
             .map(Utf8Path::to_path_buf)
             .ok_or_else(|| not_a_plan(&resolved, layout))?
     };
 
-    let plans_dir = layout.root().join("plans");
+    let plans_dir = canonicalize_lenient(&layout.root().join("plans"))?;
     if dir.parent() != Some(plans_dir.as_path()) {
         return Err(not_a_plan(&resolved, layout));
     }
@@ -214,6 +223,78 @@ fn derive_feature(
     let feature = FeatureName::new(raw_name).map_err(|_| not_a_plan(&resolved, layout))?;
 
     Ok((feature, resolved))
+}
+
+/// The canonical, symlink-free form of `path`, tolerating a nonexistent tail.
+///
+/// `std::fs::canonicalize` refuses any path with a missing component. Plan
+/// status must still work on a plan file that was never written, and on a
+/// plan directory whose artifacts do not exist yet — and it must accept a
+/// plan path projected through a view dir's `plans/<feature>` symlink whose
+/// target directory may itself not exist. So the deepest *existing* ancestor
+/// is canonicalised, then the remaining components are appended back —
+/// resolving each through `readlink`, so a dangling symlink lands on the
+/// directory it points at rather than staying unresolved.
+fn canonicalize_lenient(path: &Utf8Path) -> Result<Utf8PathBuf, Failure> {
+    canonicalize_lenient_depth(path, 0)
+}
+
+/// The depth-limited worker behind [`canonicalize_lenient`]. `depth` bounds
+/// how many symlink hops one call may take, so a symlink cycle fails instead
+/// of recursing forever.
+fn canonicalize_lenient_depth(path: &Utf8Path, depth: u32) -> Result<Utf8PathBuf, Failure> {
+    if depth > 16 {
+        return Err(Failure::failed(
+            "fs.symlink_loop",
+            format!("too many symlink hops while resolving `{path}`"),
+        ));
+    }
+
+    // The deepest ancestor that exists, and the components below it.
+    let mut suffix: Vec<String> = Vec::new();
+    let mut current = path;
+    while !fs::exists(current)? {
+        let Some(name) = current.file_name() else {
+            return Ok(current.to_path_buf());
+        };
+        let Some(parent) = current.parent() else {
+            return Ok(current.to_path_buf());
+        };
+        suffix.push(name.to_owned());
+        current = parent;
+    }
+
+    let mut canonical = current.canonicalize_utf8().map_err(|source| {
+        Failure::failed(
+            "fs.canonicalize_failed",
+            format!("could not resolve `{current}`: {source}"),
+        )
+    })?;
+
+    // `suffix` holds the components below the existing ancestor, leaf-first
+    // (the climb pushed from the leaf up). Append them back root-ward to
+    // leaf-ward — iterate from the back — resolving each through `readlink`.
+    let mut rest: Vec<String> = suffix;
+    while let Some(name) = rest.pop() {
+        let candidate = canonical.join(&name);
+        if let fs::SymlinkTarget::Target(target) = fs::read_symlink(&candidate)? {
+            // The target is relative to the symlink's parent; everything
+            // still to come is re-appended after it. Then re-derive from the
+            // target: its own ancestors may be symlinks too, and it may not
+            // exist yet either.
+            let mut combined = if target.is_absolute() {
+                target
+            } else {
+                canonical.join(&target)
+            };
+            for remaining in rest.iter().rev() {
+                combined.push(remaining);
+            }
+            return canonicalize_lenient_depth(&combined, depth + 1);
+        }
+        canonical = candidate;
+    }
+    Ok(canonical)
 }
 
 /// The blocked failure for a plan path that is not a plan of this hall.
