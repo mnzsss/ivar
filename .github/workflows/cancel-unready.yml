@@ -1,0 +1,25 @@
+# This workflow's job never runs — its only purpose is to declare a
+# `concurrency` block that shares the `ci-${{ ... }}` group key with
+# ci.yml. GitHub Actions evaluates concurrency before it evaluates `if`,
+# so a PR being closed or converted to draft cancels any in-progress CI
+# run for that same group at zero cost: no runner is ever claimed, so
+# there is no minute billed and no job to keep green. Deleting this file
+# turns cancellation off silently — CI itself keeps working exactly as
+# before, and no test will catch the regression.
+name: cancel-unready
+
+on:
+  pull_request:
+    types: [closed, converted_to_draft]
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  noop:
+    name: noop
+    if: false
+    runs-on: ubuntu-latest
+    steps:
+      - run: "true"

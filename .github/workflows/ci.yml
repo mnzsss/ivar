@@ -17,6 +17,13 @@ on:
 permissions:
   contents: read
 
+# Only PR runs cancel in-progress: release-plz.yml fires on push to main and
+# publishes to crates.io with no CI gate in front of it, so cancelling a main
+# run would widen the window where a published commit has no green CI.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: -D warnings
