@@ -368,13 +368,15 @@ fn main() -> ExitCode {
         },
         // Git's credential protocol is raw on stdin/stdout — it must not pass
         // through `respond`, which would render a `Report` on top of it.
-        Command::GitCredential => match ivar::git::credential::run() {
-            Ok(()) => ExitCode::SUCCESS,
-            Err(e) => {
-                let _ = writeln!(io::stderr().lock(), "ivar: git-credential: {e}");
-                ExitCode::from(2)
+        Command::GitCredential(args) => {
+            match ivar::git::credential::run(args.operation.as_deref()) {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(e) => {
+                    let _ = writeln!(io::stderr().lock(), "ivar: git-credential: {e}");
+                    ExitCode::from(2)
+                }
             }
-        },
+        }
     }
 }
 

@@ -105,7 +105,22 @@ pub enum Command {
     /// `credential.https://github.com.helper = !ivar git-credential` so a
     /// token never lands in `.git/config`.
     #[command(hide = true)]
-    GitCredential,
+    GitCredential(GitCredentialArgs),
+}
+
+/// The operation git appends when it invokes a credential helper.
+#[derive(Debug, Args)]
+pub struct GitCredentialArgs {
+    /// What git is asking for: `get`, `store`, or `erase`.
+    ///
+    /// A free string rather than a value enum on purpose. gitcredentials(7)
+    /// requires a helper to *ignore* an operation it does not implement, and a
+    /// helper cannot ignore what clap rejected before it ran — a git release
+    /// that names a new operation would otherwise print a usage error in the
+    /// middle of every push. Optional for the same reason a bare invocation is
+    /// read as `get`: only a human runs this without an operation.
+    #[arg(value_name = "OPERATION")]
+    pub operation: Option<String>,
 }
 
 /// The `ivar repo` surface: what a repo is, who owns it, and how the hall's
