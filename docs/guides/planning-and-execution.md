@@ -86,6 +86,12 @@ ivar feature execute approve checkout    # awaiting-approval → approved
 ivar feature execute tick checkout       # launch whatever is ready
 ```
 
+`prepare` pins each workstream's `provider`, `model` and `agent` from the graph
+and is one-shot — a feature that already has a board is refused, because
+re-writing it would destroy the journal. Retargeting a workstream therefore means
+deleting `board.json` and preparing again from an edited graph, so it is worth
+settling who runs what before the board exists rather than after.
+
 `tick` finds workstreams whose dependencies are satisfied and launches them, then
 blocks until that wave is over. A wave that leaves work still waiting returns the
 board to `approved` — call `tick` again to launch what the wave just unblocked.

@@ -37,7 +37,9 @@ argument-hint: <plan-path>
    - `provider` (`claude-code` or `opencode`), `model` and `agent` are all
      optional. `model` picks the model the provider runs with; `agent` picks
      which agent definition it runs as — the two are distinct, not
-     interchangeable names for the same thing.
+     interchangeable names for the same thing. Omitting a field means the
+     provider's own default, which is a fine choice — but it is still a
+     choice the user gets to make, in step 3.
    - **Operation ownership**: Each plan operation must be assigned to exactly
      one workstream. No two workstreams may claim the same operation.
    - Write the candidate graph to a temporary JSON file following this shape:
@@ -71,25 +73,42 @@ argument-hint: <plan-path>
    prompt to author. The executor's prompt is rendered from the plan itself,
    the workstream's operations and its write contract.
 
-3. Call `ivar feature execute prepare <feature> --graph-json <path-to-candidate>`.
+3. **Stop and confirm who runs what.** Before preparing anything, show the
+   candidate graph's targeting — one line per workstream with its `provider`,
+   `model` and `agent`, writing `—` where the field is unset so the provider
+   default is visible rather than implied:
+
+   ```
+   api-contract  provider=opencode     model=—              agent=—
+   frontend      provider=—            model=—              agent=—
+   ```
+
+   Then ask the user whether they want to change the provider, model or agent
+   of any workstream. Ask every time, even when every field is defaulted —
+   this is the cheap moment. `prepare` is one-shot: once the board exists,
+   retargeting a workstream means deleting `board.json` and re-authoring the
+   graph, so a question skipped here costs the user the whole setup later.
+   Apply their answer to the candidate JSON before continuing.
+
+4. Call `ivar feature execute prepare <feature> --graph-json <path-to-candidate>`.
    This computes the plan fingerprint and validates the graph.
 
-4. **Stop for human approval.** When the board is `AwaitingApproval`, show the
-   generated graph to the user and ask them to review. Do not proceed until
-   they approve.
+5. **Stop for human approval.** When the board is `AwaitingApproval`, show the
+   generated graph to the user — including each workstream's provider, model
+   and agent — and ask them to review. Do not proceed until they approve.
 
-5. After approval, call `ivar feature execute approve <feature>`.
+6. After approval, call `ivar feature execute approve <feature>`.
 
-6. Call `ivar feature execute tick <feature>` to launch every ready
+7. Call `ivar feature execute tick <feature>` to launch every ready
    workstream. `tick` blocks until all of the workstreams it launched have
    terminated — there is nothing to poll while it runs; the call itself is
    the wait.
 
-7. When `tick` returns, check the board status and journal to see how that
+8. When `tick` returns, check the board status and journal to see how that
    wave landed. If it left other workstreams newly ready (their dependencies
    just succeeded), call `tick` again to launch the next wave.
 
-8. When a workstream asks a question (blocked), surface the question to the
+9. When a workstream asks a question (blocked), surface the question to the
    user, get their answer, and call `ivar feature execute reply <answer>
    --feature <feature> --session <session>`.
 
@@ -97,6 +116,10 @@ argument-hint: <plan-path>
 
 - **Never hand-edit** `graph.json`, `status.json`, or the journal. Always use
   the CLI commands.
+- **Targeting is pinned at prepare.** There is no command that changes a
+  prepared workstream's provider, model or agent — the board would have to be
+  deleted and rebuilt. That is why step 3 asks before preparing, and why the
+  answer belongs in the candidate JSON rather than in a later correction.
 - The `tick` command is idempotent — run it multiple times. It only launches
   workstreams that are pending and whose dependencies have all succeeded, and
   each call blocks until the workstreams it launched have terminated before
