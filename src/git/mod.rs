@@ -199,12 +199,21 @@ pub trait Git {
     /// at `git_dir` — `git rev-list --count <base>..<branch>`.
     fn commits_ahead(&self, git_dir: &Utf8Path, base: &str, branch: &str) -> Result<u64, Error>;
 
-    /// Whether `branch` has an upstream configured in the repository at
-    /// `git_dir` — whether `branch@{upstream}` resolves.
+    /// The commit `remote` holds `branch` at — `git ls-remote <remote>
+    /// refs/heads/<branch>` — or `None` when the remote does not have it.
     ///
-    /// `Ok(false)` covers both "no upstream" and git refusing for any other
-    /// reason, so callers must ensure `git_dir` is a repository before asking.
-    fn has_upstream(&self, git_dir: &Utf8Path, branch: &str) -> Result<bool, Error>;
+    /// The only honest answer to "has this been pushed?". An upstream or a
+    /// remote-tracking ref would be a local proxy for it, and a wrong one:
+    /// [`Self::push`] pushes to a URL, which git records nothing about.
+    ///
+    /// Reaching the remote can fail; that is [`Error::Refused`] and means the
+    /// question is unanswered, never that the branch is absent.
+    fn remote_branch_tip(
+        &self,
+        git_dir: &Utf8Path,
+        remote: &str,
+        branch: &str,
+    ) -> Result<Option<String>, Error>;
 
     /// Push `from` to `to` on `remote`, from the repository at `git_dir`.
     ///
@@ -304,8 +313,13 @@ impl Git for System {
         exec::commits_ahead(git_dir, base, branch)
     }
 
-    fn has_upstream(&self, git_dir: &Utf8Path, branch: &str) -> Result<bool, Error> {
-        exec::has_upstream(git_dir, branch)
+    fn remote_branch_tip(
+        &self,
+        git_dir: &Utf8Path,
+        remote: &str,
+        branch: &str,
+    ) -> Result<Option<String>, Error> {
+        exec::remote_branch_tip(git_dir, remote, branch)
     }
 
     fn push(&self, git_dir: &Utf8Path, remote: &str, from: &str, to: &str) -> Result<(), Error> {

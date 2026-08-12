@@ -399,21 +399,59 @@ fn commits_ahead_is_zero_for_a_branch_at_the_base() {
     assert_eq!(System.commits_ahead(&bare, "main", "feat/x").unwrap(), 0);
 }
 
-// -- has_upstream ----------------------------------------------------------
+// -- remote_branch_tip -----------------------------------------------------
 
+/// The branch the remote has never seen is absent; the same branch after a
+/// push reads back at its tip.
+///
+/// This asks the remote even though a push now records itself locally, and it
+/// has to: a tracking ref is only ever what *ivar* last sent, and anyone else
+/// may have pushed since.
 #[test]
-fn has_upstream_is_false_until_an_upstream_is_configured() {
+fn remote_branch_tip_is_none_until_the_branch_is_pushed() {
     let (_guard, dir) = utf8_temp_dir();
     let origin = seeded_repo(&dir.join("origin"), "main");
     let bare = dir.join("api.bare");
     System.clone_bare(origin.as_str(), &bare).unwrap();
     git(&bare, &["branch", "feat/x"]);
 
-    assert!(!System.has_upstream(&bare, "feat/x").unwrap());
+    assert_eq!(
+        System
+            .remote_branch_tip(&bare, origin.as_str(), "feat/x")
+            .unwrap(),
+        None
+    );
 
-    git(&bare, &["branch", "--set-upstream-to=main", "feat/x"]);
+    System
+        .push(&bare, origin.as_str(), "feat/x", "refs/heads/feat/x")
+        .unwrap();
 
-    assert!(System.has_upstream(&bare, "feat/x").unwrap());
+    let tip = System
+        .remote_branch_tip(&bare, origin.as_str(), "feat/x")
+        .unwrap()
+        .expect("the remote holds the branch it was just pushed");
+    let local = {
+        let output = std::process::Command::new("git")
+            .args(["--git-dir", bare.as_str(), "rev-parse", "feat/x"])
+            .output()
+            .unwrap();
+        String::from_utf8_lossy(&output.stdout).trim().to_owned()
+    };
+    assert_eq!(tip, local);
+}
+
+#[test]
+fn remote_branch_tip_of_a_remote_that_does_not_exist_is_refused() {
+    let (_guard, dir) = utf8_temp_dir();
+    let origin = seeded_repo(&dir.join("origin"), "main");
+    let bare = dir.join("api.bare");
+    System.clone_bare(origin.as_str(), &bare).unwrap();
+
+    let error = System
+        .remote_branch_tip(&bare, dir.join("no-such-remote").as_str(), "feat/x")
+        .expect_err("there is no remote to ask");
+
+    assert!(matches!(error, Error::Refused { .. }));
 }
 
 // -- push ------------------------------------------------------------------

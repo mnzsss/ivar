@@ -74,9 +74,13 @@ fn run(command: proc::Command) -> Result<String, Error> {
 /// * `git push --force-with-lease` with no explicit expectation leases against
 ///   `refs/remotes/origin/<branch>`; a ref that does not exist reads as
 ///   "stale info", and the only way out is passing the SHA by hand.
-/// * `<branch>@{upstream}` does not resolve, so [`has_upstream`] answers `false`
-///   for a branch that has been pushed — and `feature deliver` reports commits
-///   as unpushed because of it.
+/// * `<branch>@{upstream}` does not resolve and `git status` reports no
+///   ahead/behind — in a worktree a human works in every day.
+///
+/// What the refspec does *not* fix is a push made to a URL rather than to a
+/// named remote: git records nothing local about it. That is why "already
+/// pushed" is asked of the remote by [`remote_branch_tip`] and never of the
+/// local config.
 ///
 /// Fetching into `refs/remotes/*` rather than `refs/heads/*` is also what makes
 /// the refspec safe here: git refuses to fetch into a branch that is checked
@@ -374,25 +378,30 @@ pub(crate) fn commits_ahead(git_dir: &Utf8Path, base: &str, branch: &str) -> Res
     Ok(count)
 }
 
-/// `git --git-dir <git_dir> rev-parse --abbrev-ref --symbolic-full-name
-/// <branch>@{upstream}` — whether `branch` has an upstream configured.
+/// `git --git-dir <git_dir> ls-remote <remote> refs/heads/<branch>` — the
+/// commit `remote` holds `branch` at, or `None` when it does not have it.
 ///
-/// A non-zero exit *is* the answer here — "no upstream configured for branch
-/// 'x'" is git's refusal, and the most useful sentence about why. That is why
-/// this does not go through [`run`], which turns every refusal into an error:
-/// the caller wants a `bool`. Callers must ensure `git_dir` is a repository
-/// first — a non-repository also exits non-zero, and would be read as "no
-/// upstream".
-pub(crate) fn has_upstream(git_dir: &Utf8Path, branch: &str) -> Result<bool, Error> {
-    let command = git()
+/// This is what "already pushed" is made of, and it is asked of the remote
+/// because every local stand-in for it lies about a push ivar made: [`push`]
+/// goes to a URL, not to a named remote, and git writes neither an upstream
+/// nor a remote-tracking ref for such a push. A branch ivar pushed itself
+/// would read as unpushed forever if this asked the config instead.
+///
+/// `--git-dir` is what makes it work against a private repo: the credential
+/// helper lives in that repository's config (see [`clone_bare`]), and a bare
+/// `git ls-remote <url>` outside it would have no token to offer.
+pub(crate) fn remote_branch_tip(
+    git_dir: &Utf8Path,
+    remote: &str,
+    branch: &str,
+) -> Result<Option<String>, Error> {
+    let stdout = run(git()
         .arg("--git-dir")
         .arg(git_dir.as_str())
-        .arg("rev-parse")
-        .arg("--abbrev-ref")
-        .arg("--symbolic-full-name")
-        .arg(format!("{branch}@{{upstream}}"));
-    let output = proc::capture(&command)?;
-    Ok(output.success())
+        .arg("ls-remote")
+        .arg(remote)
+        .arg(format!("refs/heads/{branch}")))?;
+    Ok(stdout.split_whitespace().next().map(str::to_owned))
 }
 
 /// `git --git-dir <git_dir> push <remote> <from>:<to>`.

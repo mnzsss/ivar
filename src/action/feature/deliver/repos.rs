@@ -73,19 +73,44 @@ pub(crate) fn build_repos(
             blockers.push("branch not materialised; promote the repo first".to_owned());
         }
 
-        // The "unpushed commits" signal, computed locally: commits beyond the
-        // feature's base with no upstream configured. ivar never configures
-        // upstreams, so every branch with work carries this blocker — which is
-        // the truth about a branch nothing has pushed yet.
+        // Whether work is unpushed is a fact about the remote, so it is asked
+        // of the remote. Every local stand-in for it is wrong here: `deliver`
+        // pushes to the manifest URL rather than to a named remote, so git
+        // records neither an upstream nor a remote-tracking ref for a push
+        // ivar made — and a branch ivar created and delivered, which is the
+        // ordinary shape of a new feature, would read as unpushed forever.
+        //
+        // `ls-remote` is a read, so the preview stays side-effect-free, which
+        // is the property that matters; it already reaches the network for the
+        // PR action just below.
         if branch_exists {
             let ahead = git.commits_ahead(
                 &bare,
                 declared.default_branch().as_str(),
                 feature.branch.as_str(),
             )?;
-            let upstream = git.has_upstream(&bare, feature.branch.as_str())?;
-            if ahead > 0 && !upstream {
-                blockers.push(format!("{ahead} commit(s) not pushed (no upstream branch)"));
+            if ahead > 0 {
+                match git.remote_branch_tip(&bare, declared.url(), feature.branch.as_str()) {
+                    // Only what the remote does not carry is pending. Its tip
+                    // is unreadable here when the remote moved on without us,
+                    // and then everything beyond the base is the honest count.
+                    Ok(Some(tip)) => {
+                        let unpushed = git
+                            .commits_ahead(&bare, &tip, feature.branch.as_str())
+                            .unwrap_or(ahead);
+                        if unpushed > 0 {
+                            blockers.push(format!("{unpushed} commit(s) not pushed"));
+                        }
+                    }
+                    Ok(None) => blockers.push(format!("{ahead} commit(s) not pushed")),
+                    // What the remote holds is unknown, so the doubt is the
+                    // report. git's own sentence is left out on purpose: this
+                    // text is part of the fingerprint apply is gated on, and
+                    // must not vary with the wording of a network error.
+                    Err(_) => blockers.push(format!(
+                        "{ahead} commit(s) of unconfirmed delivery — the remote did not answer"
+                    )),
+                }
             }
         }
 

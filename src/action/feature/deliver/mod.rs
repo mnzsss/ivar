@@ -12,9 +12,13 @@
 //! `ivar feature deliver <name> --preview` reads the world and prints a
 //! [`DeliveryPreview`] — one entry per promoted repo plus a **fingerprint**:
 //! SHA-256 of the serialized preview summary. It pushes nothing, so it is
-//! side-effect-free by construction; even the "unpushed commits" blocker is
-//! computed locally (the branch's commits beyond its base, with no upstream
-//! configured), never by reaching for the remote.
+//! side-effect-free by construction — which is a claim about writes, not about
+//! the network. The preview reads the remote twice: for the PR action, and for
+//! the "unpushed commits" blocker, which counts the branch's commits the
+//! remote does not already hold. Asking git's local config instead would be
+//! cheaper and wrong: `deliver` pushes to a URL, and git records no upstream
+//! for such a push, so a branch `deliver` itself pushed would read as unpushed
+//! forever.
 //!
 //! `ivar feature deliver <name> --fingerprint <fp>` recomputes the same
 //! preview and refuses with [`Failure::blocked`] when the fingerprint differs

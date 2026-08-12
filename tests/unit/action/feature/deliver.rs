@@ -322,6 +322,33 @@ fn deliver_pushes_the_feature_branch_to_the_remote() {
 }
 
 #[test]
+fn a_branch_the_remote_already_carries_is_not_reported_as_unpushed() {
+    let (_guard, root) = hall_with_promoted(&["api"]);
+    approve_through_plan(&root);
+    let ctx = Ctx::new(root.clone());
+    let approved = deliver(&ctx, preview_input("checkout")).unwrap();
+    deliver(
+        &ctx,
+        apply_input("checkout", &approved.value.preview.fingerprint),
+    )
+    .unwrap();
+
+    // `deliver` pushed; local and remote now hold the same commit. Previewing
+    // again must not claim there is work waiting to be pushed.
+    let report = deliver(&ctx, preview_input("checkout")).unwrap();
+
+    let repo = &report.value.preview.repos[0];
+    assert!(
+        !repo
+            .blockers
+            .iter()
+            .any(|blocker| blocker.contains("not pushed")),
+        "was: {:?}",
+        repo.blockers
+    );
+}
+
+#[test]
 fn a_failed_push_is_a_warning_and_does_not_block_the_others() {
     let (_guard, root) = hall_with_promoted(&["api", "web"]);
     approve_through_plan(&root);
