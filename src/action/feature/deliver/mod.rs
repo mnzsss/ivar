@@ -287,13 +287,13 @@ pub fn deliver(ctx: &Ctx, input: DeliverInput) -> Outcome<DeliverOutcome> {
 
     // Record PR URLs on the preview repos so they round-trip through JSON.
     for repo in &mut preview.repos {
-        if let Some(url) = pr_url_map.remove(&repo.repo) {
-            repo.pr_url = Some(url);
+        if let Some(url) = pr_url_map.get(&repo.repo) {
+            repo.pr_url = Some(url.clone());
         }
     }
 
     // -- Phase 3: link sibling PRs (second pass — URLs only known after phase 2)
-    let pr_urls: Vec<String> = pr_url_map.values().cloned().collect();
+    let pr_urls: Vec<String> = pr_url_map.into_values().collect();
     if !pr_urls.is_empty() {
         link_sibling_prs(&pr_urls);
     }

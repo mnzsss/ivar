@@ -776,3 +776,52 @@ fn delivering_again_updates_the_existing_pull_request_instead_of_failing() {
         "a second `gh pr create` for a branch that already has a PR is the bug"
     );
 }
+
+/// Two promoted repos, both with something to deliver, so the batch has
+/// siblings to link.
+fn setup_two_repo_hall(root: &Utf8PathBuf) {
+    ivar().current_dir(root).arg("init").assert().success();
+    let origins = root.parent().unwrap().join("origins");
+    let api = seeded_repo(&origins.join("api"), "main");
+    let web = seeded_repo(&origins.join("web"), "main");
+    declare_repos(root, &[("api", &api, "main"), ("web", &web, "main")]);
+    ivar().current_dir(root).arg("sync").assert().success();
+    ivar()
+        .current_dir(root)
+        .args(["feature", "create", "checkout"])
+        .assert()
+        .success();
+
+    for repo in ["api", "web"] {
+        ivar()
+            .current_dir(root)
+            .args(["feature", "promote", "checkout", repo])
+            .assert()
+            .success();
+        let worktree = root.join(format!(".ivar/repos/{repo}/checkout"));
+        std::fs::write(worktree.join("work.md"), "work\n").unwrap();
+        git(&worktree, &["add", "work.md"]);
+        git(&worktree, &["commit", "-m", "work"]);
+    }
+}
+
+#[test]
+fn sibling_pull_requests_are_linked_to_each_other() {
+    let (_guard, root) = hall_root();
+    setup_two_repo_hall(&root);
+    approve_through_plan(&root, "checkout");
+    let fake = FakeGh::install(&root);
+    let rewrites = as_github_remotes(&root);
+
+    deliver_on_github(&root, &fake, &rewrites, "checkout");
+
+    let log = fake.log();
+    assert!(
+        log.contains("pr comment https://github.com/acme/pull/1"),
+        "the first PR was never told about its sibling: {log}"
+    );
+    assert!(
+        log.contains("pr comment https://github.com/acme/pull/2"),
+        "the second PR was never told about its sibling: {log}"
+    );
+}
