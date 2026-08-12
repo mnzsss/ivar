@@ -268,3 +268,44 @@ fn the_human_surface_names_the_repo_and_whether_it_was_reused() {
          Next: run `/ivar-relations api`\n"
     );
 }
+
+/// A bare adopted with `--reuse` may predate the remote-tracking refspec, or
+/// have been cloned by hand without one. `add` normalises it either way — the
+/// worktree it hands back has to support a `--force-with-lease` like any other.
+#[test]
+fn reuse_configures_the_remote_tracking_refspec_on_the_adopted_bare() {
+    let (_guard, root, url) = seeded_hall();
+    let ctx = Ctx::new(root.clone());
+    add(&ctx, input(&url)).unwrap();
+    let layout = Layout::at(root.clone());
+    let bare = root.join(".ivar/repos/api/.bare");
+    // Put the bare back the way a build without the refspec left it.
+    crate::test_support::git(&bare, &["config", "--unset", "remote.origin.fetch"]);
+    let mut manifest = Manifest::read(&layout).unwrap().unwrap();
+    manifest = manifest
+        .with_repo_removed(&RepoName::new("api").unwrap())
+        .unwrap();
+    Manifest::write(&layout, &manifest).unwrap();
+
+    let report = add(
+        &ctx,
+        AddInput {
+            name: "api".to_owned(),
+            url,
+            default_branch: None,
+            reuse_existing: Some(true),
+        },
+    )
+    .unwrap();
+
+    assert!(report.value.bare_clone_reused);
+    let configured = std::process::Command::new("git")
+        .args(["--git-dir", bare.as_str()])
+        .args(["config", "--get", "remote.origin.fetch"])
+        .output()
+        .unwrap();
+    assert_eq!(
+        String::from_utf8_lossy(&configured.stdout).trim(),
+        "+refs/heads/*:refs/remotes/origin/*"
+    );
+}

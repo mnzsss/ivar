@@ -106,6 +106,19 @@ pub trait Git {
     /// that.
     fn clone_bare(&self, url: &str, dest: &Utf8Path) -> Result<(), Error>;
 
+    /// Configure the bare repository at `git_dir` to keep remote-tracking refs
+    /// under `refs/remotes/origin/*`.
+    ///
+    /// [`Self::clone_bare`] already does this for a repo it created; this is
+    /// the repair for the ones cloned before it did. Idempotent, so `sync` can
+    /// call it on every run without asking whether it is needed.
+    ///
+    /// A bare clone with no fetch refspec — git's own default — has an empty
+    /// `refs/remotes/`, and that is what makes `git push --force-with-lease`
+    /// answer "stale info" in a hall and nowhere else: with no tracking ref
+    /// there is nothing to lease against.
+    fn ensure_remote_tracking(&self, git_dir: &Utf8Path) -> Result<(), Error>;
+
     /// Add a worktree at `dest`, checked out on the existing `branch`, off the
     /// bare repository at `git_dir`.
     fn add_worktree(&self, git_dir: &Utf8Path, dest: &Utf8Path, branch: &str) -> Result<(), Error>;
@@ -139,11 +152,10 @@ pub trait Git {
     /// half of a default-branch refresh (`repo pull`).
     ///
     /// Runs *inside* the worktree (`git -C`), which is what makes it safe in
-    /// this architecture: a bare clone here has no `remote.origin.fetch`
-    /// refspec, and fetching straight into the shared `refs/heads/*` is
-    /// refused by git while the branch is checked out in a worktree. A
-    /// worktree-local fetch lands in `FETCH_HEAD` and moves no branch ref, so
-    /// a feature worktree's branch — sharing this bare's refs — is untouched.
+    /// this architecture: the fetch lands in `FETCH_HEAD` and moves no branch
+    /// ref, so a feature worktree's branch — sharing this bare's refs — is
+    /// untouched. Remote-tracking refs are updated alongside it, so a lease
+    /// taken after a `repo pull` is current.
     fn fetch_branch(&self, worktree: &Utf8Path, branch: &str) -> Result<(), Error>;
 
     /// Fast-forward the worktree at `path` to the tip its preceding
@@ -236,6 +248,10 @@ impl Git for System {
 
     fn clone_bare(&self, url: &str, dest: &Utf8Path) -> Result<(), Error> {
         exec::clone_bare(url, dest)
+    }
+
+    fn ensure_remote_tracking(&self, git_dir: &Utf8Path) -> Result<(), Error> {
+        exec::ensure_remote_tracking(git_dir)
     }
 
     fn add_worktree(&self, git_dir: &Utf8Path, dest: &Utf8Path, branch: &str) -> Result<(), Error> {

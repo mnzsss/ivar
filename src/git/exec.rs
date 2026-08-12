@@ -64,14 +64,47 @@ fn run(command: proc::Command) -> Result<String, Error> {
     })
 }
 
+/// The fetch refspec every hall bare clone gets.
+///
+/// `git clone --bare` configures *no* `remote.origin.fetch` at all, so a bare
+/// clone left as git makes it has an empty `refs/remotes/`. That is invisible
+/// until something asks for a remote-tracking ref, and then it fails in a hall
+/// and nowhere else:
+///
+/// * `git push --force-with-lease` with no explicit expectation leases against
+///   `refs/remotes/origin/<branch>`; a ref that does not exist reads as
+///   "stale info", and the only way out is passing the SHA by hand.
+/// * `<branch>@{upstream}` does not resolve, so [`has_upstream`] answers `false`
+///   for a branch that has been pushed — and `feature deliver` reports commits
+///   as unpushed because of it.
+///
+/// Fetching into `refs/remotes/*` rather than `refs/heads/*` is also what makes
+/// the refspec safe here: git refuses to fetch into a branch that is checked
+/// out in a worktree, and in a hall every branch is.
+const REMOTE_TRACKING_REFSPEC: &str = "+refs/heads/*:refs/remotes/origin/*";
+
 /// `git clone --bare <url> <dest>`.
 ///
-/// For GitHub HTTPS URLs the ivar credential helper is attached to *this
-/// invocation only* (`-c credential.helper`), so a private repo clones
-/// through `gh`/`$GITHUB_TOKEN` without the token ever being written to
-/// `.git/config` — the helper answers on demand and disappears.
+/// Both `-c` settings sit *after* `clone`, which is the persisting form: git
+/// writes them into the new repository's config rather than applying them to
+/// this invocation. That is deliberate for each.
+///
+/// The refspec has to persist — see [`REMOTE_TRACKING_REFSPEC`] for what breaks
+/// without it, all of it long after the clone returned.
+///
+/// For GitHub HTTPS URLs the credential helper persists too, because the clone
+/// is not the last time this repo talks to the remote: every later fetch and
+/// every push a human makes from a worktree needs the same token. What is
+/// written to `.git/config` is the *command*, never its answer — the token is
+/// re-derived from `gh`/`$GITHUB_TOKEN` on each call and never lands on disk,
+/// which is the property that matters and the reason a helper is registered
+/// instead of a credential stored.
 pub(crate) fn clone_bare(url: &str, dest: &Utf8Path) -> Result<(), Error> {
-    let mut command = git().arg("clone").arg("--bare");
+    let mut command = git()
+        .arg("clone")
+        .arg("--bare")
+        .arg("-c")
+        .arg(format!("remote.origin.fetch={REMOTE_TRACKING_REFSPEC}"));
     if crate::infra::github::is_github_https(url) {
         // The helper is invoked by git only when it needs a credential; for a
         // public repo it is never called, so the `-c` has no observable cost.
@@ -81,6 +114,29 @@ pub(crate) fn clone_bare(url: &str, dest: &Utf8Path) -> Result<(), Error> {
     }
     command = command.arg(url).arg(dest.as_str());
     run(command)?;
+    Ok(())
+}
+
+/// Point `git_dir`'s origin at [`REMOTE_TRACKING_REFSPEC`], whatever it was
+/// set to before.
+///
+/// The repair path for halls cloned by a build that did not configure it.
+/// Re-cloning is not an option once feature branches live in the bare, so
+/// `sync` sets it in place on every run; the refs themselves appear at the
+/// next fetch.
+///
+/// `--replace-all` rather than plain set: a key with several values makes
+/// `git config` refuse outright, and this is the one refspec the bare is
+/// supposed to have — collapsing to it is the point, and the bare under
+/// `.ivar/repos/` is ivar's to normalise.
+pub(crate) fn ensure_remote_tracking(git_dir: &Utf8Path) -> Result<(), Error> {
+    run(git()
+        .arg("--git-dir")
+        .arg(git_dir.as_str())
+        .arg("config")
+        .arg("--replace-all")
+        .arg("remote.origin.fetch")
+        .arg(REMOTE_TRACKING_REFSPEC))?;
     Ok(())
 }
 
@@ -107,6 +163,10 @@ pub(crate) fn add_worktree(git_dir: &Utf8Path, dest: &Utf8Path, branch: &str) ->
 /// summary would be noise in every report. A no-op fetch (already up to date)
 /// exits zero just like a fetch that pulled commits; with `--quiet` there is
 /// no way to tell them apart, and the caller does not need to.
+///
+/// What it moves is `refs/remotes/origin/*`, via [`REMOTE_TRACKING_REFSPEC`].
+/// No branch a worktree has checked out is touched, and `--prune` drops
+/// tracking refs for branches the remote deleted — never a local branch.
 pub(crate) fn fetch(git_dir: &Utf8Path) -> Result<(), Error> {
     run(git()
         .arg("--git-dir")
@@ -143,11 +203,15 @@ pub(crate) fn create_branch_and_worktree(
 
 /// `git -C <worktree> fetch --prune --quiet origin <branch>`.
 ///
-/// Runs *inside* the worktree, not against the bare: a bare clone here has no
-/// `remote.origin.fetch` refspec, and fetching straight into the shared
-/// `refs/heads/*` is refused by git while the branch is checked out in a
-/// worktree. A worktree-local fetch lands in `FETCH_HEAD` and moves nothing —
-/// the fast-forward is the separate, deliberate next step.
+/// Runs *inside* the worktree, not against the bare, so what it fetches lands
+/// in `FETCH_HEAD` and no branch ref moves — the fast-forward is the separate,
+/// deliberate next step, and a feature worktree sharing this bare's refs is
+/// untouched by a default-branch refresh.
+///
+/// [`REMOTE_TRACKING_REFSPEC`] still applies: git updates
+/// `refs/remotes/origin/<branch>` opportunistically alongside `FETCH_HEAD`, so
+/// a `--force-with-lease` from this worktree has something to lease against
+/// after a `repo pull`.
 pub(crate) fn fetch_branch(worktree: &Utf8Path, branch: &str) -> Result<(), Error> {
     run(git()
         .cwd(worktree)

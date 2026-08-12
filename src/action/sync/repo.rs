@@ -55,7 +55,16 @@ pub(crate) fn ensure_bare(
     bare: &Utf8Path,
 ) -> Result<Change, Failure> {
     match git.target_state(bare)? {
-        TargetState::Repository => Ok(Change::Unchanged),
+        TargetState::Repository => {
+            // Halls cloned before the remote-tracking refspec existed have an
+            // empty `refs/remotes/`, and a `--force-with-lease` in them refuses
+            // with "stale info". Setting it is idempotent and touches no ref,
+            // so it is not a change worth reporting — but it has to happen on
+            // an existing bare, because re-cloning is not an option once the
+            // hall's feature branches live there.
+            git.ensure_remote_tracking(bare)?;
+            Ok(Change::Unchanged)
+        }
         TargetState::Occupied => Err(occupied(
             bare,
             "sync.bare_not_a_repository",

@@ -148,7 +148,15 @@ pub fn add(ctx: &Ctx, input: AddInput) -> Outcome<AddOutcome> {
     // Collision 3: a bare clone already on disk — reuse, replace, or block.
     let bare_clone_reused = match git.target_state(&bare)? {
         TargetState::Repository => match input.reuse_existing {
-            Some(true) => true,
+            Some(true) => {
+                // An adopted bare is not one this build cloned: it may have
+                // been made by hand, or by a version that configured no
+                // remote-tracking refspec. Without one `refs/remotes/` stays
+                // empty, and a `--force-with-lease` in the worktree this hands
+                // back refuses with "stale info".
+                git.ensure_remote_tracking(&bare)?;
+                true
+            }
             Some(false) => {
                 // `--fresh` means "clone it anew": the bare clone goes, and
                 // with it the worktree that pointed at it — a worktree whose
