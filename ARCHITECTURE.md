@@ -149,7 +149,11 @@ src/
     proc/          subprocess spawn, capture, exit codes in mod.rs; the Linux
                    /proc port attribution lives in ports.rs.
     github.rs      the GitHub trait: gh -> token -> clean failure. Faked in tests.
-    term.rs        colour, NO_COLOR, is-a-tty. Decides *whether* to colour.
+    term.rs        colour, NO_COLOR, is-a-tty, width. Decides *whether* to
+                   colour.
+    progress.rs    the transient stderr line a long verb reports through.
+                   Silent by default; bin/ivar.rs is the only thing that
+                   builds a live one. Never part of an Outcome.
 
   error.rs         Failure · Status · FixAction · Warning · Report · Palette.
                    Palette lives here because the layout of a failure does, and
@@ -287,6 +291,15 @@ fn promote(ctx: &Ctx, input: PromoteInput) -> Result<Report<PromoteOutcome>, Fai
 `Outcome` types are `Serialize`. `--json` prints the outcome; the human surface
 formats the *same value*; the TUI renders the *same value*. There is no second
 code path that computes what to show, so the surfaces cannot drift.
+
+The one thing an action emits that is *not* in its outcome is a progress line,
+and the shape is what keeps that from becoming a second output path: it is
+written through a `Progress` sink carried on `Ctx`, it is transient (erased
+before the outcome is rendered), it never appears under `--json`, and it
+defaults to `Silent` — which is what every test sees, so an action is still
+observed only through what it returns. A verb that costs a network round trip
+per repo (`repo pull`, and the Smart Fetch inside `session start` and `execute
+tick`) says which one it is on; nothing else does.
 
 `Report<T>` carries `Vec<Warning>` alongside the value. A verb crossing eight
 repos where one has uncommitted changes returns seven successes and one warning —
