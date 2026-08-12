@@ -5,11 +5,15 @@
     clippy::indexing_slicing
 )]
 
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
+
 use super::*;
 use crate::action::hall::{self, InitInput};
 use crate::domain::name::{BranchName, HallName};
 use crate::domain::provider::Provider;
 use crate::error::Status;
+use crate::infra::progress::Progress;
 use crate::store::manifest::Providers;
 use crate::test_support::{git, hall_root, seeded_repo};
 fn hall_with(repos: &[(&str, &str)]) -> (tempfile::TempDir, Utf8PathBuf) {
@@ -333,4 +337,103 @@ fn the_json_surface_carries_the_status_per_repo() {
         json,
         r#"{"root":"/hall","repos":[{"repo":"api","status":"refreshed"}]}"#
     );
+}
+
+/// A progress sink that remembers what it was told, so a test can assert the
+/// run says which repo it is waiting on instead of sitting silent through a
+/// fetch per repo.
+#[derive(Debug, Default)]
+struct Recording {
+    steps: Mutex<Vec<String>>,
+    clears: AtomicUsize,
+}
+
+impl Recording {
+    fn steps(&self) -> Vec<String> {
+        self.steps.lock().unwrap().clone()
+    }
+}
+
+impl Progress for Recording {
+    fn step(&self, message: &str) {
+        self.steps.lock().unwrap().push(message.to_owned());
+    }
+
+    fn clear(&self) {
+        self.clears.fetch_add(1, Ordering::Relaxed);
+    }
+}
+
+#[test]
+fn pull_reports_which_repo_it_is_fetching_before_each_round_trip() {
+    let (_guard, root) = hall_with(&[("api", "main"), ("web", "trunk")]);
+    let ctx = Ctx::new(root.clone());
+    crate::action::sync::sync(&ctx, Default::default()).unwrap();
+
+    let recording = Arc::new(Recording::default());
+    let ctx = ctx.with_progress(recording.clone());
+
+    let report = pull(&ctx, PullInput::default()).unwrap();
+
+    assert!(report.is_clean());
+    assert_eq!(
+        recording.steps(),
+        vec![
+            "[1/2] api: fetching main…".to_owned(),
+            "[2/2] web: fetching trunk…".to_owned(),
+        ],
+        "each repo is announced before its fetch, in manifest order"
+    );
+}
+
+/// The line is transient. Leaving it on screen would collide with the
+/// `WriteHuman` summary `bin/ivar.rs` renders next.
+#[test]
+fn pull_clears_the_progress_line_before_returning() {
+    let (_guard, root) = hall_with(&[("api", "main")]);
+    let ctx = Ctx::new(root.clone());
+    crate::action::sync::sync(&ctx, Default::default()).unwrap();
+
+    let recording = Arc::new(Recording::default());
+    let ctx = ctx.with_progress(recording.clone());
+
+    pull(&ctx, PullInput::default()).unwrap();
+
+    assert_eq!(recording.clears.load(Ordering::Relaxed), 1);
+}
+
+/// A named repo is one round trip, and the counter says so rather than
+/// counting the whole manifest.
+#[test]
+fn pull_of_a_named_repo_counts_only_that_repo() {
+    let (_guard, root) = hall_with(&[("api", "main"), ("web", "main")]);
+    let ctx = Ctx::new(root.clone());
+    crate::action::sync::sync(&ctx, Default::default()).unwrap();
+
+    let recording = Arc::new(Recording::default());
+    let ctx = ctx.with_progress(recording.clone());
+
+    pull(
+        &ctx,
+        PullInput {
+            repo: Some("web".to_owned()),
+        },
+    )
+    .unwrap();
+
+    assert_eq!(recording.steps(), vec!["[1/1] web: fetching main…"]);
+}
+
+#[test]
+fn pull_with_no_repos_reports_no_steps() {
+    let (_guard, root) = hall_with(&[]);
+    let ctx = Ctx::new(root);
+
+    let recording = Arc::new(Recording::default());
+    let ctx = ctx.with_progress(recording.clone());
+
+    pull(&ctx, PullInput::default()).unwrap();
+
+    assert!(recording.steps().is_empty());
+    assert_eq!(recording.clears.load(Ordering::Relaxed), 1);
 }

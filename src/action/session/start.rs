@@ -49,6 +49,7 @@ use crate::error::{Failure, FixAction, Outcome, Report, Warning, WriteHuman};
 use crate::git;
 use crate::harness::{self, Harness};
 use crate::infra::fs;
+use crate::infra::progress::Progress;
 use crate::store::layout::Layout;
 use crate::store::manifest::Manifest;
 use crate::tui;
@@ -143,7 +144,7 @@ pub fn start(ctx: &Ctx, input: StartInput) -> Outcome<StartOutcome> {
     //    worktree — never a promoted repo's feature worktree — and a fetch
     //    that lands new files needs a writable target, so this runs before
     //    the guard-applying materialisation below.
-    let mut warnings = smart_fetch(&git::System, &layout, &manifest);
+    let mut warnings = smart_fetch(&git::System, &layout, &manifest, ctx.progress());
 
     // 2. The view dir and the session record. A discovery session lives in
     //    the hall's own session tree, and its record stays unbound.
@@ -309,9 +310,20 @@ fn check_relay(
 /// still starts. Runs through the same fetch-and-fast-forward as `repo pull`
 /// (that is what `repo.pull::refresh_default` is), which never touches a
 /// promoted repo's feature worktree.
-fn smart_fetch(git: &impl git::Git, layout: &Layout, manifest: &Manifest) -> Vec<Warning> {
+///
+/// `progress` is the same transient stderr line `repo pull` uses: this runs
+/// before anything is printed and costs one network round trip per repo, which
+/// is the longest a `session start` sits silent.
+fn smart_fetch(
+    git: &impl git::Git,
+    layout: &Layout,
+    manifest: &Manifest,
+    progress: &dyn Progress,
+) -> Vec<Warning> {
     let mut warnings = Vec::new();
-    for repo in manifest.repos() {
+    let total = manifest.repos().len();
+    for (index, repo) in manifest.repos().iter().enumerate() {
+        progress.step(&pull::fetch_step(index, total, repo));
         match pull::refresh_default(git, layout, repo) {
             pull::PullStatus::Refreshed => {}
             pull::PullStatus::Failed { reason } => warnings.push(Warning::new(
@@ -326,6 +338,7 @@ fn smart_fetch(git: &impl git::Git, layout: &Layout, manifest: &Manifest) -> Vec
             )),
         }
     }
+    progress.clear();
     warnings
 }
 

@@ -10,6 +10,13 @@
 //! cannot fast-forward) is reported and skipped, never aborting the batch.
 //! The run ends with a refreshed/failed/skipped summary, and any failure
 //! exits `1` (through the [`Warning`] channel) rather than `2`.
+//!
+//! Because every repo costs a network round trip, the run reports which one it
+//! is on through [`Ctx::progress`] — one transient stderr line, erased before
+//! the summary is written, absent under `--json` and off a terminal. The
+//! granularity is per repo, not per phase inside [`refresh_default`]: the
+//! fetch is the part that waits on a remote, and the two local steps around it
+//! would flash past unread.
 
 use std::io;
 
@@ -123,7 +130,9 @@ pub fn pull(ctx: &Ctx, input: PullInput) -> Outcome<PullOutcome> {
     let mut repos = Vec::new();
     let mut warnings = Vec::new();
 
-    for repo in targets {
+    let total = targets.len();
+    for (index, repo) in targets.iter().enumerate() {
+        ctx.progress().step(&fetch_step(index, total, repo));
         let status = refresh_default(&git, &layout, repo);
         if let PullStatus::Failed { reason } = &status {
             warnings.push(Warning::new(
@@ -143,6 +152,7 @@ pub fn pull(ctx: &Ctx, input: PullInput) -> Outcome<PullOutcome> {
             status,
         });
     }
+    ctx.progress().clear();
 
     Ok(Report::with_warnings(
         PullOutcome {
@@ -151,6 +161,20 @@ pub fn pull(ctx: &Ctx, input: PullInput) -> Outcome<PullOutcome> {
         },
         warnings,
     ))
+}
+
+/// The transient line announcing repo `index` (0-based) of `total`.
+///
+/// Shared with the Smart Fetch in `session::start` and `execute::tick`, which
+/// run this same [`refresh_default`] loop: three verbs waiting on the same
+/// round trip say so the same way, and a change to the wording is one edit.
+pub(crate) fn fetch_step(index: usize, total: usize, repo: &Repo) -> String {
+    format!(
+        "[{}/{total}] {}: fetching {}…",
+        index + 1,
+        repo.name(),
+        repo.default_branch()
+    )
 }
 
 /// Fetch-and-fast-forward one repo's default-branch worktree.

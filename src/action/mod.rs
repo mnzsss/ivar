@@ -27,11 +27,13 @@ pub mod skill;
 pub mod sync;
 
 use std::io;
+use std::sync::Arc;
 
 use camino::{Utf8Path, Utf8PathBuf};
 use serde::Serialize;
 
 use crate::error::{Failure, FixAction, WriteHuman};
+use crate::infra::progress::{self, Progress};
 
 /// The outcome of a verb that has nothing to report — it simply completed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -52,17 +54,50 @@ use crate::store::manifest::Manifest;
 /// calls `std::env::current_dir()` itself — routing "where am I running
 /// from" through `Ctx` is what lets a test point it at a tempdir without
 /// touching the test process's real working directory.
+///
+/// The progress sink rides here for the same reason: an action must not
+/// decide whether anyone is watching, and threading a reporter through ~60
+/// dispatch arms would put that decision in every one of them. It defaults to
+/// [`progress::Silent`], so a verb that never asks for one — and every test —
+/// behaves exactly as it did before there was a sink at all.
 #[derive(Debug, Clone)]
 pub struct Ctx {
     /// The directory `ivar` is running from.
     pub cwd: Utf8PathBuf,
+    /// Where a long-running verb says what it is doing right now. Private:
+    /// it is reached through [`Ctx::progress`], which hands out a `&dyn` so
+    /// no action can hold on to the `Arc` past the call.
+    progress: Arc<dyn Progress>,
 }
 
 impl Ctx {
-    /// Build a `Ctx` rooted at `cwd`.
+    /// Build a `Ctx` rooted at `cwd`, reporting no progress.
     #[must_use]
     pub fn new(cwd: impl Into<Utf8PathBuf>) -> Self {
-        Self { cwd: cwd.into() }
+        Self {
+            cwd: cwd.into(),
+            progress: Arc::new(progress::Silent),
+        }
+    }
+
+    /// The same context, reporting progress to `progress`.
+    ///
+    /// `bin/ivar.rs` is the only caller in the binary — it is the layer that
+    /// knows whether `--json` was passed and whether stderr is a terminal, see
+    /// [`progress::reporter`]. A test uses it to pass a recording sink.
+    #[must_use]
+    pub fn with_progress(mut self, progress: Arc<dyn Progress>) -> Self {
+        self.progress = progress;
+        self
+    }
+
+    /// Where to report what is happening right now.
+    ///
+    /// Nothing written here reaches the outcome — see [`progress`] for why a
+    /// transient line does not violate "an action returns data, it never
+    /// prints".
+    pub(crate) fn progress(&self) -> &dyn Progress {
+        self.progress.as_ref()
     }
 
     /// Resolve `path` against this context: an absolute path passes through

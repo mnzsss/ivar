@@ -56,6 +56,7 @@ use ivar::cli::root::{
     SessionCommand, SkillCommand,
 };
 use ivar::error::{Failure, Outcome, Palette, Report, WriteHuman};
+use ivar::infra::progress;
 use ivar::infra::term;
 
 fn main() -> ExitCode {
@@ -73,7 +74,10 @@ fn main() -> ExitCode {
     let _ = term::colour_for(term::Stream::Stdout, cli.color.as_override());
     let _ = term::colour_for(term::Stream::Stderr, cli.color.as_override());
 
-    let ctx = Ctx::new(current_dir());
+    // The progress sink, decided once for the same reason the colour caches are
+    // primed above: `--json` is a machine-shaped run and wants no redraw line
+    // even on stderr. `progress::reporter` asks the is-it-a-tty half.
+    let ctx = Ctx::new(current_dir()).with_progress(progress::reporter(!json));
 
     let mut stdout = io::stdout().lock();
     let mut stderr = io::stderr().lock();
