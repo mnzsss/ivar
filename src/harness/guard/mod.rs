@@ -67,6 +67,16 @@
 //! bytes are on disk by the time it looks — but it cannot be talked past,
 //! because it reads the filesystem rather than the agent's stated intent.
 //!
+//! `Bash` is also how an agent reaches *git*, and that took a second pass to
+//! close. The audit's first oracle was `git status`, which reports divergence
+//! from the current commit — so a run that committed emptied it, and the audit
+//! read a run that had written anything at all as a run that had written
+//! nothing. Committing is not an exotic way past the guard, either: it is the
+//! expected end state, since `feature deliver` counts a dirty worktree as a
+//! blocker. The audit now diffs the worktree against the commit it was on when
+//! the run started, so what the run committed is as visible as what it left
+//! uncommitted.
+//!
 //! # Why the hall path is baked in, not discovered
 //!
 //! [`crate::action::discover_hall`] finds a hall by walking up from the

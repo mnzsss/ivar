@@ -840,3 +840,399 @@ fn a_path_the_contract_names_by_repo_is_matched_against_the_repo_s_own_shape() {
         "the workstream's own contracted file must not be reported as a violation"
     );
 }
+
+// -- what the audit's oracle cannot see ----------------------------------
+//
+// Both tests below need a *real* promoted worktree. Without one,
+// `launch::feature_worktrees` yields nothing and the whole post-run audit is
+// a no-op — which is why every audit test above it is a pure unit test on
+// `contract_violations` and none of them can see either bug.
+
+/// A hall with a real seeded repo promoted into the feature, plus the plan and
+/// the prepared+approved board `approved_board` builds.
+///
+/// The contract is `src/a/` (trailing slash) rather than `src/a`: a bare
+/// relative name only matches a path *ending* in it, so `api/src/a/one.rs`
+/// would not match and the test would be measuring the matcher, not the audit.
+fn approved_board_with_worktree() -> (tempfile::TempDir, Utf8PathBuf) {
+    use crate::action::feature::promote::{self, PromoteInput};
+    use crate::domain::name::{BranchName, HallName};
+    use crate::domain::provider::Provider;
+    use crate::store::manifest::{Manifest, Providers, Repo};
+    use crate::test_support::seeded_repo;
+
+    const WORKTREE_GRAPH_JSON: &str = r#"{
+        "workstreams": [
+            {
+                "id": "ws-a",
+                "title": "A",
+                "operations": ["op-a"],
+                "depends_on": [],
+                "write_contract": ["src/a/"]
+            }
+        ]
+    }"#;
+
+    const WORKTREE_PLAN_TEXT: &str = "# Plan\n\
+        \n\
+        ## Operation details\n\
+        \n\
+        **op-a** — Do the first thing.\n\
+        \n\
+        ## Operations\n\
+        \n\
+        ### ws-a\n\
+        - op-a\n";
+
+    let (guard, root) = hall_root();
+    let ctx = Ctx::new(root.clone());
+    hall::init(
+        &ctx,
+        InitInput {
+            path: Utf8PathBuf::from("."),
+            name: Some("acme".to_owned()),
+            provider: None,
+        },
+    )
+    .unwrap();
+
+    let origin = seeded_repo(&root.join("origins").join("api"), "main");
+    let layout = Layout::at(root.clone());
+    let manifest = Manifest::new(
+        HallName::new("acme").unwrap(),
+        Providers::new(vec![Provider::ClaudeCode], Provider::ClaudeCode),
+        vec![Repo::new(
+            RepoName::new("api").unwrap(),
+            origin.as_str(),
+            BranchName::new("main").unwrap(),
+        )],
+        None,
+    )
+    .unwrap();
+    Manifest::write(&layout, &manifest).unwrap();
+
+    feature_create::create(
+        &ctx,
+        FeatureCreateInput {
+            name: "checkout".to_owned(),
+            branch: None,
+        },
+    )
+    .unwrap();
+    plan_create::create(
+        &ctx,
+        PlanCreateInput {
+            feature: "checkout".to_owned(),
+        },
+    )
+    .unwrap();
+    crate::action::sync::sync(&ctx, Default::default()).unwrap();
+    promote::promote(
+        &ctx,
+        PromoteInput {
+            feature: "checkout".to_owned(),
+            repo: "api".to_owned(),
+        },
+    )
+    .unwrap();
+
+    fs::write_text(&root.join("plans/checkout/plan.md"), WORKTREE_PLAN_TEXT).unwrap();
+    let graph = root.join("graph.json");
+    fs::write_text(&graph, WORKTREE_GRAPH_JSON).unwrap();
+    prepare_action::prepare(
+        &ctx,
+        PrepareInput {
+            feature: "checkout".to_owned(),
+            graph_json: graph.to_string(),
+        },
+    )
+    .unwrap();
+    approve_action::approve(
+        &ctx,
+        ApproveInput {
+            feature: "checkout".to_owned(),
+        },
+    )
+    .unwrap();
+    (guard, root)
+}
+
+/// The worktree this feature's one promoted repo materialised into.
+fn feature_worktree(root: &Utf8PathBuf) -> Utf8PathBuf {
+    root.join(".ivar/repos/api/checkout")
+}
+
+/// A `git` invocation with a fixed identity, as a shell fragment a stub
+/// executor can run — a machine with no global `user.email` cannot commit at
+/// all, and that failure is opaque.
+fn stub_git(worktree: &Utf8PathBuf) -> String {
+    format!(
+        "git -C '{worktree}' -c user.name='stub' -c user.email='stub@ivar.invalid' \
+         -c commit.gpgsign=false"
+    )
+}
+
+/// The audit's oracle is `git status --porcelain`: what diverges from the
+/// index right now. An executor that commits — which is what the rest of the
+/// pipeline needs it to do, since `deliver` counts a dirty worktree as a
+/// blocker — empties that oracle. The stray file is on the branch, in a
+/// commit, and the audit reports a clean run.
+#[test]
+fn a_run_that_commits_its_stray_writes_is_still_a_violation() {
+    let (_guard, root) = approved_board_with_worktree();
+    let ctx = Ctx::new(root.clone());
+    let worktree = feature_worktree(&root);
+    let git = stub_git(&worktree);
+
+    let _stub = PathStub::install(
+        "claude",
+        &format!(
+            "mkdir -p '{worktree}/src/a'\n\
+             printf 'contracted\\n' > '{worktree}/src/a/one.rs'\n\
+             printf 'stray\\n' > '{worktree}/elsewhere.rs'\n\
+             {git} add -A >/dev/null 2>&1\n\
+             {git} commit -m 'work' >/dev/null 2>&1\n\
+             exit 0\n"
+        ),
+    );
+
+    tick(
+        &ctx,
+        TickInput {
+            feature: "checkout".to_owned(),
+        },
+    )
+    .unwrap();
+
+    let board = persisted(&root);
+    let ws = &board.graph.workstreams[0];
+    assert_ne!(
+        ws.status,
+        WorkstreamStatus::Done,
+        "a run that wrote `elsewhere.rs` — which no contract in the wave allows — \
+         must not reach Done just because it committed the evidence"
+    );
+    assert!(
+        board
+            .journal
+            .iter()
+            .any(|entry| entry.message.contains("write contract violated")),
+        "the audit must report the committed stray write; journal: {:?}",
+        board
+            .journal
+            .iter()
+            .map(|entry| entry.message.as_str())
+            .collect::<Vec<_>>()
+    );
+}
+
+/// The control for the two tests above: the *same* stray write, left
+/// uncommitted, is caught. What defeats the audit is not the write, the
+/// worktree or the contract — it is the `git commit` in between.
+#[test]
+fn an_uncommitted_stray_write_is_caught() {
+    let (_guard, root) = approved_board_with_worktree();
+    let ctx = Ctx::new(root.clone());
+    let worktree = feature_worktree(&root);
+
+    let _stub = PathStub::install(
+        "claude",
+        &format!(
+            "mkdir -p '{worktree}/src/a'\n\
+             printf 'contracted\\n' > '{worktree}/src/a/one.rs'\n\
+             printf 'stray\\n' > '{worktree}/elsewhere.rs'\n\
+             exit 0\n"
+        ),
+    );
+
+    tick(
+        &ctx,
+        TickInput {
+            feature: "checkout".to_owned(),
+        },
+    )
+    .unwrap();
+
+    let board = persisted(&root);
+    assert_eq!(board.graph.workstreams[0].status, WorkstreamStatus::Blocked);
+    assert!(
+        board
+            .journal
+            .iter()
+            .any(|entry| entry.message.contains("write contract violated"))
+    );
+}
+
+// -- reverting what the run inherited ------------------------------------
+
+/// A run does not only add paths. `git checkout -- .`, `git reset --hard` and
+/// `git stash` all *remove* divergence, and an audit that only ever asks what
+/// grew reads the destruction of a human's uncommitted edit as a run that
+/// stayed inside the lines.
+#[test]
+fn reverting_an_inherited_edit_outside_the_contract_is_a_violation() {
+    let (_guard, root) = approved_board_with_worktree();
+    let ctx = Ctx::new(root.clone());
+    let worktree = feature_worktree(&root);
+    let git = stub_git(&worktree);
+
+    // An uncommitted human edit the run inherits, outside every contract in
+    // the wave (`src/a/`).
+    fs::write_text(&worktree.join("README.md"), "a human was working here\n").unwrap();
+
+    let _stub = PathStub::install(
+        "claude",
+        &format!(
+            "mkdir -p '{worktree}/src/a'\n\
+             printf 'work\\n' > '{worktree}/src/a/one.rs'\n\
+             {git} checkout -- README.md >/dev/null 2>&1\n\
+             exit 0\n"
+        ),
+    );
+
+    tick(
+        &ctx,
+        TickInput {
+            feature: "checkout".to_owned(),
+        },
+    )
+    .unwrap();
+
+    let board = persisted(&root);
+    assert_eq!(
+        board.graph.workstreams[0].status,
+        WorkstreamStatus::Blocked,
+        "the run threw away an edit no contract in the wave covers"
+    );
+    let reported = board
+        .journal
+        .iter()
+        .find(|entry| {
+            entry
+                .message
+                .contains("diverged before this run and no longer do")
+        })
+        .map(|entry| entry.message.clone())
+        .unwrap_or_else(|| {
+            panic!(
+                "the audit must report the reverted path; journal: {:?}",
+                board
+                    .journal
+                    .iter()
+                    .map(|entry| entry.message.as_str())
+                    .collect::<Vec<_>>()
+            )
+        });
+    assert!(
+        reported.contains("api/README.md"),
+        "the entry must name what was thrown away: {reported}"
+    );
+}
+
+/// The false positive this must not have: committing an inherited edit also
+/// takes it out of `git status`, and a run that commits is a run doing what
+/// the pipeline asked. The commit half of the change set is what tells the
+/// two apart.
+#[test]
+fn committing_an_inherited_edit_is_not_a_revert() {
+    let (_guard, root) = approved_board_with_worktree();
+    let ctx = Ctx::new(root.clone());
+    let worktree = feature_worktree(&root);
+    let git = stub_git(&worktree);
+
+    fs::write_text(&worktree.join("README.md"), "a human was working here\n").unwrap();
+
+    let _stub = PathStub::install(
+        "claude",
+        &format!(
+            "mkdir -p '{worktree}/src/a'\n\
+             printf 'work\\n' > '{worktree}/src/a/one.rs'\n\
+             {git} add -A >/dev/null 2>&1\n\
+             {git} commit -m 'work' >/dev/null 2>&1\n\
+             exit 0\n"
+        ),
+    );
+
+    tick(
+        &ctx,
+        TickInput {
+            feature: "checkout".to_owned(),
+        },
+    )
+    .unwrap();
+
+    let board = persisted(&root);
+    assert_eq!(
+        board.graph.workstreams[0].status,
+        WorkstreamStatus::Done,
+        "committing an inherited edit preserves it; journal: {:?}",
+        board
+            .journal
+            .iter()
+            .map(|entry| entry.message.as_str())
+            .collect::<Vec<_>>()
+    );
+}
+
+/// The limit of the revert check, pinned so nobody tightens it into a false
+/// positive: a path *inside* the wave's contracts may legitimately be reverted
+/// by the workstream that owns it, and git records that a file stopped
+/// diverging, never who made it stop. Attribution needs an author the
+/// filesystem does not have — exactly the reason the addition half measures
+/// against the wave's union too.
+#[test]
+fn reverting_a_path_inside_the_wave_contract_is_not_a_violation() {
+    let (_guard, root) = approved_board_with_worktree();
+    let ctx = Ctx::new(root.clone());
+    let worktree = feature_worktree(&root);
+    let git = stub_git(&worktree);
+
+    // An inherited edit *inside* the contract, committed so it can be reverted
+    // by path — and committed before the run, so it is not what this run did.
+    std::fs::create_dir_all(worktree.join("src/a")).unwrap();
+    fs::write_text(&worktree.join("src/a/inherited.rs"), "first pass\n").unwrap();
+    for args in [
+        format!("{git} add -A"),
+        format!("{git} commit -m inherited"),
+    ] {
+        assert!(
+            std::process::Command::new("sh")
+                .arg("-c")
+                .arg(&args)
+                .status()
+                .unwrap()
+                .success()
+        );
+    }
+    fs::write_text(&worktree.join("src/a/inherited.rs"), "second pass\n").unwrap();
+
+    let _stub = PathStub::install(
+        "claude",
+        &format!(
+            "printf 'work\\n' > '{worktree}/src/a/one.rs'\n\
+             {git} checkout -- src/a/inherited.rs >/dev/null 2>&1\n\
+             exit 0\n"
+        ),
+    );
+
+    tick(
+        &ctx,
+        TickInput {
+            feature: "checkout".to_owned(),
+        },
+    )
+    .unwrap();
+
+    let board = persisted(&root);
+    assert_eq!(
+        board.graph.workstreams[0].status,
+        WorkstreamStatus::Done,
+        "a revert inside the wave's own contracts is not attributable and is not \
+         reported; journal: {:?}",
+        board
+            .journal
+            .iter()
+            .map(|entry| entry.message.as_str())
+            .collect::<Vec<_>>()
+    );
+}

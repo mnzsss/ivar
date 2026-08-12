@@ -3,7 +3,7 @@
 //! child's stream. Never touches the board — see `mod.rs`'s "Who spawns, who
 //! owns the board".
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::mpsc;
 
 use camino::{Utf8Path, Utf8PathBuf};
@@ -35,9 +35,8 @@ pub(super) struct LaunchJob {
     pub(super) view_dir: Utf8PathBuf,
     pub(super) command: proc::Command,
     /// Every write contract in this wave, unioned — what the post-run audit
-    /// measures the worktrees against. See "Auditing what the guard cannot
-    /// see" below for why this is the wave's contract and not this
-    /// workstream's own.
+    /// measures against. See "Auditing what the guard cannot see" below for
+    /// why this is the wave's contract and not this workstream's own.
     pub(super) wave_contract: WriteContract,
 }
 
@@ -240,9 +239,27 @@ pub(super) fn run_launch(
 /// match at all — see [`audit_path`].
 type FeatureWorktrees = Vec<(RepoName, Utf8PathBuf)>;
 
-/// The worktrees this workstream can reach, and what already diverged in them
-/// before it started — the audit measures what *this* run added, not what it
-/// inherited from an earlier tick or an uncommitted human edit.
+/// What a run started from: the commit each worktree was on, and every path
+/// already diverging from it.
+///
+/// Both halves are needed because a run's changes can land in either place.
+/// `dirty` alone — which is all this used to be — is the working tree's
+/// divergence from *its own current* commit, and a `git commit` sets that to
+/// empty: the writes are still on the branch, and the audit that reads only
+/// the working tree sees a clean run. `heads` is the fixed point that keeps
+/// the committed half visible; see [`changed_since`].
+pub(super) struct AuditBaseline {
+    /// Where each worktree's branch was before the child started, keyed by
+    /// worktree path.
+    heads: BTreeMap<Utf8PathBuf, String>,
+    /// Paths already diverging at launch, as `<repo>/<path>` — what the run
+    /// inherited from an earlier tick or an uncommitted human edit, and must
+    /// not be blamed for.
+    dirty: BTreeSet<Utf8PathBuf>,
+}
+
+/// The worktrees this workstream can reach, and what it inherited in them —
+/// the audit measures what *this* run changed, not what was already there.
 ///
 /// Read before the child exists, so nothing the child writes can land in its
 /// own baseline. A failure here stops the launch rather than the run: a
@@ -250,10 +267,18 @@ type FeatureWorktrees = Vec<(RepoName, Utf8PathBuf)>;
 fn audit_baseline(
     layout: &Layout,
     feature_record: &Feature,
-) -> Result<(FeatureWorktrees, BTreeSet<Utf8PathBuf>), Failure> {
+) -> Result<(FeatureWorktrees, AuditBaseline), Failure> {
     let worktrees = feature_worktrees(layout, feature_record)?;
-    let baseline = changed_now(&worktrees)?;
-    Ok((worktrees, baseline))
+    let git = git::System;
+    let mut heads = BTreeMap::new();
+    for (_, worktree) in &worktrees {
+        heads.insert(worktree.clone(), git.head_commit(worktree)?);
+    }
+    // Taken with the heads just recorded, so `dirty` is exactly what
+    // `changed_since` would report for a run that did nothing — the two sets
+    // are then differenced against each other on equal terms.
+    let dirty = changed_since(&worktrees, &heads)?;
+    Ok((worktrees, AuditBaseline { heads, dirty }))
 }
 
 /// The promoted worktrees this feature spans, as `(repo name, worktree
@@ -277,18 +302,56 @@ fn feature_worktrees(
     Ok(worktrees)
 }
 
-/// Every path across `worktrees` that currently diverges from its last commit,
-/// absolute. Absolute because that is the shape
+/// Every path across `worktrees` that now differs from what `heads` recorded —
+/// the run's uncommitted divergence *and* whatever it committed on top of the
+/// commit it started from.
+///
+/// # Why both halves
+///
+/// `git status` is a question about the working tree, and the audit needs to
+/// ask a question about a *run*. The two coincide only for as long as the run
+/// never touches git. They come apart the moment it commits — which is not an
+/// edge case but the expected end state, since `deliver` counts a dirty
+/// worktree as a blocker, so somebody has to commit and the executor is the
+/// one holding the shell. A run that did exactly what the pipeline wanted
+/// therefore left the working tree clean, and an audit reading only the
+/// working tree passed it for that reason rather than in spite of it: every
+/// stray write the run committed alongside its real work went unreported.
+///
+/// Diffing `<head at launch>..HEAD` closes that, and closes it for the other
+/// git actions too, because it compares two *trees* rather than walking the
+/// commits between them. Ten commits, an amend, a rebase, a `reset --hard`
+/// onto another commit, a `switch` to another branch — each leaves HEAD
+/// somewhere with a diff from where the run began, and none of them need the
+/// reflog reasoning a commit walk would.
+///
+/// A run that *reverts* what it inherited lands back at the baseline, so its
+/// change set is not larger but smaller. That is not this function's problem
+/// to solve — it reports the set, and [`audit_write_contract`] takes the difference in
+/// both directions.
+///
+/// Paths come back as `<repo>/<path>`, the shape
 /// [`WriteContract::allows`](crate::domain::feature::WriteContract::allows)
 /// already arbitrates for the guard — a relative glob matches at any depth, so
 /// the same contract decides the same way here as it does at the tool
 /// boundary.
-fn changed_now(worktrees: &FeatureWorktrees) -> Result<BTreeSet<Utf8PathBuf>, Failure> {
+fn changed_since(
+    worktrees: &FeatureWorktrees,
+    heads: &BTreeMap<Utf8PathBuf, String>,
+) -> Result<BTreeSet<Utf8PathBuf>, Failure> {
     let git = git::System;
     let mut changed = BTreeSet::new();
     for (repo, worktree) in worktrees {
         for relative in git.changed_paths(worktree)? {
             changed.insert(audit_path(repo, &relative));
+        }
+        // A worktree with no recorded head is one that appeared after the
+        // baseline was taken; there is no fixed point to diff it against, and
+        // its uncommitted half above is all this can honestly report.
+        if let Some(head) = heads.get(worktree) {
+            for relative in git.paths_committed_since(worktree, head)? {
+                changed.insert(audit_path(repo, &relative));
+            }
         }
     }
     Ok(changed)
@@ -353,18 +416,30 @@ pub(super) fn audit_path(repo: &RepoName, relative: &Utf8Path) -> Utf8PathBuf {
 fn audit_write_contract(
     worktrees: &FeatureWorktrees,
     wave_contract: &WriteContract,
-    baseline: &BTreeSet<Utf8PathBuf>,
+    baseline: &AuditBaseline,
 ) -> Result<Option<String>, Failure> {
-    let after = changed_now(worktrees)?;
-    let violations = contract_violations(wave_contract, baseline, &after);
-    if violations.is_empty() {
-        return Ok(None);
-    }
-    Ok(Some(violation_message(&violations)))
+    let after = changed_since(worktrees, &baseline.heads)?;
+
+    // The same difference, taken both ways. A run changes the set of diverging
+    // paths in two directions, and only one of them is an added file: `git
+    // checkout -- .`, `git reset --hard` and `git stash` all make divergence
+    // *disappear*, and an audit that only asks what grew reads the destruction
+    // of an inherited edit as a run that stayed inside the lines.
+    let written = contract_violations(wave_contract, &baseline.dirty, &after);
+    let reverted = contract_violations(wave_contract, &after, &baseline.dirty);
+
+    Ok(violation_report(&written, &reverted))
 }
 
 /// The paths in `after` that `baseline` did not already hold and that
 /// `wave_contract` does not allow.
+///
+/// Called both ways round by [`audit_write_contract`]: with `(baseline, after)` it names
+/// what the run wrote where it may not, and with the two swapped it names what
+/// the run *stopped* diverging that it may not have touched — a revert. The
+/// question is the same one in both directions ("which side of this difference
+/// does no contract cover"), so it is asked with the same function rather than
+/// a near-copy that could drift from it.
 pub(super) fn contract_violations(
     wave_contract: &WriteContract,
     baseline: &BTreeSet<Utf8PathBuf>,
@@ -382,28 +457,71 @@ pub(super) fn contract_violations(
 /// of them is one nobody reads.
 const VIOLATIONS_NAMED: usize = 20;
 
+/// The failure a violating run reports, or `None` when it violated nothing in
+/// either direction.
+///
+/// Both halves are reported when both happened: a run that wrote where it may
+/// not *and* threw away an inherited edit did two things, and naming one would
+/// leave the reader to discover the other.
+fn violation_report(written: &[Utf8PathBuf], reverted: &[Utf8PathBuf]) -> Option<String> {
+    let mut parts = Vec::new();
+    if !written.is_empty() {
+        parts.push(violation_message(written));
+    }
+    if !reverted.is_empty() {
+        parts.push(revert_message(reverted));
+    }
+    (!parts.is_empty()).then(|| parts.join(" "))
+}
+
 /// The failure a violating run reports, naming what it wrote and why that is
 /// being reported at the end rather than refused at the time.
 ///
 /// Every violation is already `<repo>/<path>` — see [`audit_path`] — which is
 /// both what the contract was compared against and what a reader recognises.
 fn violation_message(violations: &[Utf8PathBuf]) -> String {
-    let named: Vec<String> = violations
+    format!(
+        "write contract violated: {} path(s) changed that no workstream in this wave may write — {}. \
+         The execution guard arbitrates Write, Edit, MultiEdit and NotebookEdit; a shell command carries no \
+         path for it to check and writes past it, so this audit is what sees that. Nothing was reverted by ivar.",
+        violations.len(),
+        named_paths(violations),
+    )
+}
+
+/// The failure a run that *un*wrote something reports.
+///
+/// Worth its own sentence rather than being folded into
+/// [`violation_message`]: the paths named here are ones that diverged before
+/// the run and do not any more, so what a reader has to go looking for is
+/// content that no longer exists on disk — a different recovery from an
+/// unwanted file that does.
+///
+/// Only the run's own commits can restore it, and it may have none: an
+/// uncommitted edit reverted with `git checkout --` is gone from the
+/// repository entirely.
+fn revert_message(reverted: &[Utf8PathBuf]) -> String {
+    format!(
+        "write contract violated: {} path(s) diverged before this run and no longer do, and no workstream in \
+         this wave may write them — {}. Something the run did (`git checkout --`, `git reset --hard`, `git \
+         stash`) threw away changes it inherited rather than producing its own. Content that was never \
+         committed is not recoverable from this repository.",
+        reverted.len(),
+        named_paths(reverted),
+    )
+}
+
+/// Up to [`VIOLATIONS_NAMED`] paths, with a count of whatever is left over.
+fn named_paths(paths: &[Utf8PathBuf]) -> String {
+    let named: Vec<String> = paths
         .iter()
         .take(VIOLATIONS_NAMED)
         .map(Utf8PathBuf::to_string)
         .collect();
-    let rest = violations.len().saturating_sub(named.len());
-    let tail = if rest == 0 {
-        String::new()
+    let rest = paths.len().saturating_sub(named.len());
+    if rest == 0 {
+        named.join(", ")
     } else {
-        format!(" (and {rest} more)")
-    };
-    format!(
-        "write contract violated: {} path(s) changed that no workstream in this wave may write — {}{tail}. \
-         The execution guard arbitrates Write, Edit, MultiEdit and NotebookEdit; a shell command carries no \
-         path for it to check and writes past it, so this audit is what sees that. Nothing was reverted.",
-        violations.len(),
-        named.join(", "),
-    )
+        format!("{} (and {rest} more)", named.join(", "))
+    }
 }

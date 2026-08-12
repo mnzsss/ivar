@@ -120,13 +120,29 @@ workstream when a path changed that no contract covers. That is **detection,
 not prevention** — the bytes are already written when it runs, and nothing is
 reverted. The failure and the paths land in the board's journal.
 
+The comparison is against the commit each worktree was on when the run
+started, not against its working tree, so an executor's own git actions do not
+hide it. What the run committed, amended, rebased or reset onto counts exactly
+like what it left uncommitted. This matters more than it sounds: committing is
+the *expected* end state — `feature deliver` counts a dirty worktree as a
+blocker — so an audit that read only the working tree passed every run that
+did what the pipeline asked, stray writes and all.
+
+It reads the difference in both directions. A run does not only add paths:
+`git checkout -- .`, `git reset --hard` and `git stash` make divergence
+*disappear*, so a run that throws away an uncommitted edit it inherited leaves
+a change set that is smaller rather than larger. A path that diverged before
+the run, no longer does, and that no contract in the wave covers is reported
+the same way a stray write is. Content that was never committed is not
+recoverable from the repository, so this is a report, not a repair.
+
 Two things it deliberately does not do:
 
 - **Attribute.** A tick runs a wave of workstreams against the same worktrees,
-  and `git status` records that a file changed, not who changed it. So the
-  audit measures against the union of the wave's contracts. One workstream
-  writing inside *another's* contract is invisible to it; the hook still
-  refuses that for the tools it covers.
+  and git records that a file changed, not who changed it. So the audit
+  measures against the union of the wave's contracts, in both directions. One
+  workstream writing inside — or reverting — *another's* contract is invisible
+  to it; the hook still refuses the writes for the tools it covers.
 - **Revert.** An audit that deleted an agent's work on suspicion would be a
   worse failure than the one it guards against.
 

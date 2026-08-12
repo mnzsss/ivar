@@ -124,9 +124,16 @@ argument-hint: <plan-path>
   workstreams that are pending and whose dependencies have all succeeded, and
   each call blocks until the workstreams it launched have terminated before
   returning.
-- Write contracts are enforced by provider guards. If a workstream tries to
-  write outside its `write_contract`, the guard blocks it. Let the user know
-  if this happens.
+- Write contracts are enforced at two layers. The provider guard refuses a
+  `Write`/`Edit` outside the contract as it happens; a post-run audit compares
+  the worktrees against the wave's contracts afterwards, which is what catches
+  the writes a shell command made without the guard being asked. The audit
+  compares against the commit the run started from, so committing does not
+  hide a stray write, and it reads the difference both ways — a run that threw
+  away an uncommitted edit it inherited (`git checkout --`, `git reset --hard`,
+  `git stash`) is reported too. Either way the workstream is blocked — let the
+  user know, and say plainly when reverted content was never committed, since
+  it cannot be recovered from the repository.
 - **Plan fingerprint**: Every graph is pinned to a specific plan revision. If
   the plan changes (behavior-changing), the next `tick` detects the drift and
   pauses affected workstreams. Each paused workstream acknowledges the new
