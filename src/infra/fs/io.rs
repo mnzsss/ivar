@@ -191,3 +191,34 @@ pub fn remove_path(path: &Utf8Path) -> Result<(), Error> {
         }),
     }
 }
+
+/// Remove the empty parent directories `path` left behind, walking up until
+/// `boundary` (exclusive) or the first directory that is not empty.
+///
+/// A nested name — a worktree on branch `feat/login` under
+/// `.ivar/repos/<repo>/` — creates the intermediate directories on the way
+/// down, but removing the leaf takes only the leaf. Without this, `feat/`
+/// survives as an empty orphan that nothing owns and nothing will reclaim.
+///
+/// Best-effort by design: `remove_dir` refusing is the stop condition — the
+/// directory still holds a sibling worktree — and a directory left standing
+/// is cosmetic, never a reason to fail the teardown that called this. A
+/// `path` outside `boundary` prunes nothing.
+pub fn prune_empty_parents(path: &Utf8Path, boundary: &Utf8Path) {
+    if !path.starts_with(boundary) {
+        return;
+    }
+    let mut cursor = path.parent();
+    while let Some(dir) = cursor {
+        if dir == boundary || !dir.starts_with(boundary) {
+            return;
+        }
+        // Non-recursive: only an already-empty directory goes, so a sibling
+        // worktree under the same prefix stops the walk rather than being
+        // swept up with it.
+        if fs_err::remove_dir(dir.as_std_path()).is_err() {
+            return;
+        }
+        cursor = dir.parent();
+    }
+}

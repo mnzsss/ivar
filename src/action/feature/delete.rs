@@ -175,11 +175,18 @@ pub fn delete(ctx: &Ctx, input: DeleteInput) -> Outcome<DeleteOutcome> {
             continue;
         }
         match git.remove_worktree(&layout.repo_bare(repo), &worktree) {
-            Ok(()) => worktrees.push(WorktreeRemoval {
-                repo: repo.clone(),
-                removed: true,
-                detail: None,
-            }),
+            Ok(()) => {
+                // A branch holding a `/` — `feat/login` — nests the worktree
+                // under a prefix directory that git does not know about and
+                // will not take with it. Reclaim it, stopping at the repo dir
+                // and at the first prefix another worktree still occupies.
+                fs::prune_empty_parents(&worktree, &layout.repo_dir(repo));
+                worktrees.push(WorktreeRemoval {
+                    repo: repo.clone(),
+                    removed: true,
+                    detail: None,
+                });
+            }
             Err(error) => {
                 all_worktrees_removed = false;
                 let detail = error.to_string();

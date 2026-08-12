@@ -22,6 +22,13 @@ use crate::test_support::{hall_root, seeded_repo};
 /// A hall with one seeded repo declared, a feature created, and the repo
 /// promoted (so a real worktree exists to tear down).
 fn hall_with_promoted_feature() -> (tempfile::TempDir, Utf8PathBuf) {
+    hall_with_promoted_feature_on(None)
+}
+
+/// The same hall, with the feature on an explicit branch. A branch holding a
+/// `/` — `feat/checkout` — nests the worktree one directory deeper, which is
+/// what the orphan-parent teardown has to cope with.
+fn hall_with_promoted_feature_on(branch: Option<&str>) -> (tempfile::TempDir, Utf8PathBuf) {
     let (guard, root) = hall_root();
     let ctx = Ctx::new(root.clone());
     hall::init(
@@ -53,7 +60,7 @@ fn hall_with_promoted_feature() -> (tempfile::TempDir, Utf8PathBuf) {
         &ctx,
         CreateInput {
             name: "checkout".to_owned(),
-            branch: None,
+            branch: branch.map(str::to_owned),
         },
     )
     .unwrap();
@@ -95,6 +102,27 @@ fn delete_removes_worktrees_the_feature_dir_and_plans() {
     assert!(!fs::exists(&root.join(".ivar/features/checkout")).unwrap());
     assert!(!fs::exists(&root.join("plans/checkout")).unwrap());
     assert!(!fs::exists(&root.join(".ivar/repos/api/checkout")).unwrap());
+}
+
+#[test]
+fn delete_leaves_no_empty_parent_behind_a_slashed_branch() {
+    let (_guard, root) = hall_with_promoted_feature_on(Some("feat/checkout"));
+    let ctx = Ctx::new(root.clone());
+    assert!(fs::is_dir(&root.join(".ivar/repos/api/feat/checkout")).unwrap());
+
+    let report = delete(&ctx, delete_input("checkout")).unwrap();
+
+    assert!(report.is_clean());
+    assert!(report.value.worktrees[0].removed);
+    assert!(!fs::exists(&root.join(".ivar/repos/api/feat/checkout")).unwrap());
+    // `feat/` only ever existed to hold that worktree: it goes with it.
+    assert!(
+        !fs::exists(&root.join(".ivar/repos/api/feat")).unwrap(),
+        "the branch prefix directory was left behind as an empty orphan"
+    );
+    // The repo dir itself is the floor — pruning stops there.
+    assert!(fs::is_dir(&root.join(".ivar/repos/api")).unwrap());
+    assert!(fs::is_dir(&root.join(".ivar/repos/api/.bare")).unwrap());
 }
 
 #[test]

@@ -278,6 +278,51 @@ fn remove_path_is_idempotent_and_recursive() {
 }
 
 #[test]
+fn prune_empty_parents_reclaims_a_nested_prefix_up_to_the_boundary() {
+    let (_dir, root) = utf8_temp_dir();
+    let leaf = root.join("repo").join("feat").join("login");
+    ensure_dir(&leaf).unwrap();
+
+    remove_path(&leaf).unwrap();
+    prune_empty_parents(&leaf, &root.join("repo"));
+
+    assert!(!exists(&root.join("repo/feat")).unwrap());
+    // The boundary itself is never removed, empty or not.
+    assert!(is_dir(&root.join("repo")).unwrap());
+}
+
+#[test]
+fn prune_empty_parents_stops_at_a_prefix_a_sibling_still_occupies() {
+    let (_dir, root) = utf8_temp_dir();
+    let boundary = root.join("repo");
+    let leaf = boundary.join("feat").join("login");
+    let sibling = boundary.join("feat").join("signup");
+    ensure_dir(&leaf).unwrap();
+    ensure_dir(&sibling).unwrap();
+
+    remove_path(&leaf).unwrap();
+    prune_empty_parents(&leaf, &boundary);
+
+    assert!(is_dir(&sibling).unwrap());
+    assert!(is_dir(&boundary.join("feat")).unwrap());
+}
+
+#[test]
+fn prune_empty_parents_never_walks_outside_the_boundary() {
+    let (_dir, root) = utf8_temp_dir();
+    let outside = root.join("elsewhere").join("leaf");
+    ensure_dir(&outside).unwrap();
+    let boundary = root.join("repo");
+    ensure_dir(&boundary).unwrap();
+
+    remove_path(&outside).unwrap();
+    prune_empty_parents(&outside, &boundary);
+
+    // `outside` is not under `boundary`, so nothing was pruned.
+    assert!(is_dir(&root.join("elsewhere")).unwrap());
+}
+
+#[test]
 fn remove_path_unlinks_a_symlink_without_following_it() {
     let (_dir, root) = utf8_temp_dir();
     let real_dir = root.join("real");
