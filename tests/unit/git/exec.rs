@@ -152,6 +152,80 @@ fn force_with_lease_from_a_worktree_is_not_stale() {
     );
 }
 
+/// A push goes to a URL, which git records nothing about — so the push
+/// records it itself. The tracking ref is then what ivar last sent, which is
+/// exactly what a lease wants to know.
+#[test]
+fn a_push_records_what_it_sent_in_the_tracking_ref() {
+    let (_guard, dir) = utf8_temp_dir();
+    let origin = seeded_repo(&dir.join("origin"), "main");
+    let bare = dir.join("api.bare");
+    clone_bare(origin.as_str(), &bare).unwrap();
+    crate::test_support::git(&bare, &["branch", "feat/x", "main"]);
+    let worktree = dir.join("api/feat-x");
+    add_worktree(&bare, &worktree, "feat/x").unwrap();
+    std::fs::write(worktree.join("work.md"), "work\n").unwrap();
+    crate::test_support::git(&worktree, &["add", "work.md"]);
+    crate::test_support::git(&worktree, &["commit", "-m", "work"]);
+
+    push(&bare, origin.as_str(), "feat/x", "refs/heads/feat/x").unwrap();
+
+    assert_eq!(
+        ref_value(&bare, "refs/remotes/origin/feat/x"),
+        ref_value(&bare, "refs/heads/feat/x"),
+        "the push landed but left no record of itself"
+    );
+}
+
+/// The regression the recording exists for. `deliver` pushes from the bare by
+/// URL; the human then rewrites the commit in their worktree and leases the
+/// force-push. Nothing fetches in between — nothing ever does — so the lease
+/// has only what the push recorded to check against.
+#[test]
+fn force_with_lease_after_a_push_by_url_is_not_stale() {
+    let (_guard, dir) = utf8_temp_dir();
+    let origin = seeded_repo(&dir.join("origin"), "main");
+    crate::test_support::git(&origin, &["config", "receive.denyCurrentBranch", "ignore"]);
+    let bare = dir.join("api.bare");
+    clone_bare(origin.as_str(), &bare).unwrap();
+    let worktree = dir.join("api/main");
+    add_worktree(&bare, &worktree, "main").unwrap();
+    std::fs::write(worktree.join("README.md"), "changed\n").unwrap();
+    crate::test_support::git(&worktree, &["commit", "-am", "change"]);
+
+    push(&bare, origin.as_str(), "main", "refs/heads/main").unwrap();
+    crate::test_support::git(&worktree, &["commit", "--amend", "-m", "changed again"]);
+
+    let pushed = std::process::Command::new("git")
+        .args(["push", "--force-with-lease", "origin", "main"])
+        .current_dir(&worktree)
+        .output()
+        .unwrap();
+
+    assert!(
+        pushed.status.success(),
+        "push refused: {}",
+        String::from_utf8_lossy(&pushed.stderr)
+    );
+}
+
+/// A push aimed somewhere other than origin says nothing about origin, so it
+/// records nothing. Guessing here would put a commit the remote does not have
+/// behind a ref that claims it does.
+#[test]
+fn a_push_to_a_url_that_is_not_origin_records_nothing() {
+    let (_guard, dir) = utf8_temp_dir();
+    let origin = seeded_repo(&dir.join("origin"), "main");
+    let elsewhere = seeded_repo(&dir.join("elsewhere"), "main");
+    let bare = dir.join("api.bare");
+    clone_bare(origin.as_str(), &bare).unwrap();
+    crate::test_support::git(&bare, &["branch", "feat/x", "main"]);
+
+    push(&bare, elsewhere.as_str(), "feat/x", "refs/heads/feat/x").unwrap();
+
+    assert!(!ref_exists(&bare, "refs/remotes/origin/feat/x"));
+}
+
 /// Halls cloned before the refspec existed must be repairable in place —
 /// re-cloning is not an option once feature branches live in the bare.
 #[test]
@@ -207,6 +281,17 @@ fn config_value(git_dir: &Utf8Path, key: &str) -> Option<String> {
         .status
         .success()
         .then(|| String::from_utf8_lossy(&output.stdout).trim().to_owned())
+}
+
+/// The commit a ref points at, or `None` when the ref is not there.
+fn ref_value(git_dir: &Utf8Path, refname: &str) -> Option<String> {
+    let output = std::process::Command::new("git")
+        .args(["--git-dir", git_dir.as_str()])
+        .args(["rev-parse", "--verify", "--quiet", refname])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+    (output.status.success() && !stdout.is_empty()).then_some(stdout)
 }
 
 fn ref_exists(git_dir: &Utf8Path, refname: &str) -> bool {

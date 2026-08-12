@@ -401,6 +401,10 @@ pub(crate) fn has_upstream(git_dir: &Utf8Path, branch: &str) -> Result<bool, Err
 /// branch's tip lives there whether or not a worktree is checked out. `remote`
 /// is the URL from the manifest, so preview and apply agree on what "the
 /// remote" means; `to` is the full ref the branch lands at.
+///
+/// Naming a URL rather than a remote is what makes that agreement possible and
+/// is also why [`record_push`] exists: git moves a remote-tracking ref only
+/// for a push that named a remote, and writes nothing at all for this one.
 pub(crate) fn push(git_dir: &Utf8Path, remote: &str, from: &str, to: &str) -> Result<(), Error> {
     run(git()
         .arg("--git-dir")
@@ -408,7 +412,52 @@ pub(crate) fn push(git_dir: &Utf8Path, remote: &str, from: &str, to: &str) -> Re
         .arg("push")
         .arg(remote)
         .arg(format!("{from}:{to}")))?;
+    record_push(git_dir, remote, from, to);
     Ok(())
+}
+
+/// Move the remote-tracking ref git would have moved itself, had [`push`]
+/// named a remote instead of a URL.
+///
+/// Without this the bare's `refs/remotes/origin/<branch>` never learns about a
+/// push ivar made. That ref is what `git push --force-with-lease` leases
+/// against, so a human who rewrites a commit `deliver` already pushed is
+/// refused for "stale info" — and nothing repairs it, because nothing fetches
+/// between a delivery and the next thing a human does in their worktree.
+///
+/// Two things this deliberately does not do. It does not record a push aimed
+/// anywhere but origin's own URL — a ref named `origin` must not be made to
+/// claim a commit origin has never seen. And it does not report failure: the
+/// push has already landed, and a bookkeeping write that did not stick cannot
+/// be allowed to turn a delivered branch into a failed one.
+fn record_push(git_dir: &Utf8Path, remote: &str, from: &str, to: &str) {
+    let Some(branch) = to.strip_prefix("refs/heads/") else {
+        return;
+    };
+    if origin_url(git_dir).as_deref() != Some(remote) {
+        return;
+    }
+    let _ = run(git()
+        .arg("--git-dir")
+        .arg(git_dir.as_str())
+        .arg("update-ref")
+        .arg(format!("refs/remotes/origin/{branch}"))
+        .arg(from));
+}
+
+/// `remote.origin.url`, or `None` when origin has none — which includes
+/// `git_dir` not being a repository at all.
+fn origin_url(git_dir: &Utf8Path) -> Option<String> {
+    let output = proc::capture(
+        &git()
+            .arg("--git-dir")
+            .arg(git_dir.as_str())
+            .arg("config")
+            .arg("--get")
+            .arg("remote.origin.url"),
+    )
+    .ok()?;
+    output.success().then(|| output.stdout.trim().to_owned())
 }
 
 /// `git -C <worktree> rebase <branch>` — replay the worktree's checked-out
