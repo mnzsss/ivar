@@ -1,0 +1,23 @@
+name: spike-long
+
+# SPIKE — throwaway. Delete before this branch carries any real change.
+# The victim run: long enough to still be in flight when the PR leaves ready.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+concurrency:
+  group: spike-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  sleep:
+    runs-on: ubuntu-latest
+    steps:
+      - name: identity
+        run: |
+          echo "action=${{ github.event.action }}"
+          echo "ref=${{ github.ref }}"
+          echo "group=spike-${{ github.event.pull_request.number || github.ref }}"
+      - name: hold
+        run: sleep 420

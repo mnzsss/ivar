@@ -1,0 +1,20 @@
+name: spike-probe
+
+# SPIKE — throwaway. Delete before this branch carries any real change.
+# No concurrency group on purpose: this only records what each event sees,
+# so the group strings can be compared across events after the fact.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, converted_to_draft, closed]
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          echo "action=${{ github.event.action }}"
+          echo "ref=${{ github.ref }}"
+          echo "pr_number=${{ github.event.pull_request.number }}"
+          echo "merged=${{ github.event.pull_request.merged }}"
+          echo "draft=${{ github.event.pull_request.draft }}"
+          echo "group=spike-${{ github.event.pull_request.number || github.ref }}"

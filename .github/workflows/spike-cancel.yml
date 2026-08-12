@@ -1,0 +1,20 @@
+name: spike-cancel
+
+# SPIKE — throwaway. Delete before this branch carries any real change.
+# The zero-cost canceller under test: same concurrency group as spike-long,
+# but every job is skipped. If the group is claimed at queue time, this
+# supersedes the in-flight spike-long run without billing a runner minute.
+on:
+  pull_request:
+    types: [closed, converted_to_draft]
+
+concurrency:
+  group: spike-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  noop:
+    if: false
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "unreachable"
