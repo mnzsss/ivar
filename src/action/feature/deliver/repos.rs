@@ -13,7 +13,7 @@ use crate::git::{self, TargetState};
 use crate::store::layout::Layout;
 use crate::store::manifest::Manifest;
 
-use super::pull_requests::has_existing_pr;
+use super::pull_requests::existing_pr_url;
 
 pub(crate) fn build_repos(
     git: &impl git::Git,
@@ -104,7 +104,7 @@ pub(crate) fn build_repos(
         // create one.
         let action = if !crate::infra::github::is_github_https(declared.url()) {
             DeliveryAction::PushOnly
-        } else if has_existing_pr(&bare, feature.branch.as_str()).unwrap_or(false) {
+        } else if existing_pr_url(&bare, feature.branch.as_str()).is_some() {
             DeliveryAction::UpdatePr
         } else {
             DeliveryAction::NewPr

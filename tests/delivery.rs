@@ -550,3 +550,229 @@ fn the_whole_path_from_an_empty_directory_to_a_pushed_branch_runs_on_cli_verbs_o
         String::from_utf8_lossy(&output.stderr)
     );
 }
+
+// -- apply: pull requests -----------------------------------------------------
+//
+// A GitHub remote is what makes `deliver` reach for `gh` at all, and no test
+// may reach the network. Both halves are faked at the process boundary: a fake
+// `gh` on `PATH` that answers exactly what the real CLI answers, and git's
+// `insteadOf` (set on the child's environment) pointing the `https://github.com`
+// URL back at the local origin the rest of the file already builds.
+
+/// A fake `gh` on `PATH`, implementing the contract delivery relies on:
+/// `pr list --head … --json url`, `pr create`, and `pr comment`. Open PRs are
+/// keyed by (working directory, head branch), so two repos sharing a feature
+/// branch name do not collide.
+///
+/// It refuses `--json` on `pr create` because the real `gh` does — that flag
+/// exists on `pr list`/`pr view` and nowhere else — and it refuses to create a
+/// second PR for a branch that already has one, also like the real `gh`.
+struct FakeGh {
+    dir: Utf8PathBuf,
+    state: Utf8PathBuf,
+    log: Utf8PathBuf,
+}
+
+const FAKE_GH: &str = r#"#!/bin/sh
+printf '%s\n' "$*" >> "$GH_FAKE_LOG"
+
+sub="$1 $2"
+shift 2
+
+head=""
+base=""
+json=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --head) head="$2"; shift 2 ;;
+    --base) base="$2"; shift 2 ;;
+    --json) json=1; shift 2 ;;
+    *) shift ;;
+  esac
+done
+
+key="$(pwd) $head"
+url=$(grep -F "$key " "$GH_FAKE_STATE" | head -n 1 | awk '{print $NF}')
+
+case "$sub" in
+  "pr list")
+    if [ -n "$url" ]; then printf '[{"url":"%s"}]\n' "$url"; else printf '[]\n'; fi
+    ;;
+  "pr create")
+    if [ "$json" -eq 1 ]; then
+      printf 'unknown flag: --json\n' >&2
+      exit 1
+    fi
+    if [ -n "$url" ]; then
+      printf 'a pull request for branch "%s" into branch "%s" already exists:\n%s\n' \
+        "$head" "$base" "$url" >&2
+      exit 1
+    fi
+    number=$(( $(wc -l < "$GH_FAKE_STATE") + 1 ))
+    url="https://github.com/acme/pull/$number"
+    printf '%s %s\n' "$key" "$url" >> "$GH_FAKE_STATE"
+    printf '%s\n' "$url"
+    ;;
+  "pr comment")
+    ;;
+  *)
+    printf 'unknown command: %s\n' "$sub" >&2
+    exit 1
+    ;;
+esac
+exit 0
+"#;
+
+impl FakeGh {
+    fn install(root: &Utf8Path) -> Self {
+        let dir = root.parent().unwrap().join("fake-bin");
+        std::fs::create_dir_all(&dir).unwrap();
+        let gh = dir.join("gh");
+        std::fs::write(&gh, FAKE_GH).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&gh, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let state = dir.join("prs");
+        let log = dir.join("log");
+        std::fs::write(&state, "").unwrap();
+        std::fs::write(&log, "").unwrap();
+        Self { dir, state, log }
+    }
+
+    fn log(&self) -> String {
+        std::fs::read_to_string(&self.log).unwrap()
+    }
+}
+
+/// Point every declared repo at a `https://github.com/…` URL — the only kind
+/// that gets a PR — while keeping the real origin reachable through git's
+/// `insteadOf`. Returns the config pairs the child process needs.
+fn as_github_remotes(root: &Utf8Path) -> Vec<(String, String)> {
+    let path = root.join("ivar.json");
+    let mut value: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    let mut rewrites = Vec::new();
+    for repo in value["repos"].as_array_mut().unwrap() {
+        let name = repo["name"].as_str().unwrap().to_owned();
+        let origin = repo["url"].as_str().unwrap().to_owned();
+        let url = format!("https://github.com/acme/{name}.git");
+        rewrites.push((format!("url.{origin}.insteadOf"), url.clone()));
+        repo["url"] = serde_json::Value::String(url);
+    }
+    std::fs::write(&path, serde_json::to_string(&value).unwrap()).unwrap();
+    rewrites
+}
+
+/// `ivar`, with the fake `gh` first on `PATH` and the remote rewrites in place.
+fn ivar_on_github(fake: &FakeGh, rewrites: &[(String, String)]) -> assert_cmd::Command {
+    let mut command = ivar();
+    let path = std::env::var("PATH").unwrap_or_default();
+    command
+        .env("PATH", format!("{}:{path}", fake.dir))
+        .env("GH_FAKE_STATE", fake.state.as_str())
+        .env("GH_FAKE_LOG", fake.log.as_str())
+        .env("GIT_CONFIG_COUNT", rewrites.len().to_string());
+    for (index, (key, value)) in rewrites.iter().enumerate() {
+        command
+            .env(format!("GIT_CONFIG_KEY_{index}"), key)
+            .env(format!("GIT_CONFIG_VALUE_{index}"), value);
+    }
+    command
+}
+
+/// Preview `feature` through the fake `gh`, returning the whole JSON document
+/// so a caller can read both the predicted action and the fingerprint.
+fn preview_on_github(
+    root: &Utf8PathBuf,
+    fake: &FakeGh,
+    rewrites: &[(String, String)],
+    feature: &str,
+) -> serde_json::Value {
+    let output = ivar_on_github(fake, rewrites)
+        .current_dir(root)
+        .args(["feature", "deliver", feature, "--preview", "--json"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    serde_json::from_slice(&output).expect("valid json")
+}
+
+/// Deliver `feature` through the fake `gh`, taking the fingerprint from a fresh
+/// preview. Returns the apply document.
+fn deliver_on_github(
+    root: &Utf8PathBuf,
+    fake: &FakeGh,
+    rewrites: &[(String, String)],
+    feature: &str,
+) -> serde_json::Value {
+    let fingerprint = preview_on_github(root, fake, rewrites, feature)["preview"]["fingerprint"]
+        .as_str()
+        .expect("fingerprint is a string")
+        .to_owned();
+
+    let output = ivar_on_github(fake, rewrites)
+        .current_dir(root)
+        .args([
+            "feature",
+            "deliver",
+            feature,
+            "--fingerprint",
+            &fingerprint,
+            "--json",
+        ])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    serde_json::from_slice(&output).expect("valid json")
+}
+
+#[test]
+fn delivering_a_github_repo_opens_a_pull_request_and_records_its_url() {
+    let (_guard, root) = hall_root();
+    setup_deliver_hall(&root);
+    approve_through_plan(&root, "checkout");
+    let fake = FakeGh::install(&root);
+    let rewrites = as_github_remotes(&root);
+
+    let preview = preview_on_github(&root, &fake, &rewrites, "checkout");
+    assert_eq!(preview["preview"]["repos"][0]["action"], "new_pr");
+
+    let applied = deliver_on_github(&root, &fake, &rewrites, "checkout");
+    assert_eq!(
+        applied["preview"]["repos"][0]["pr_url"], "https://github.com/acme/pull/1",
+        "the PR URL `gh` printed has to land on the repo"
+    );
+}
+
+#[test]
+fn delivering_again_updates_the_existing_pull_request_instead_of_failing() {
+    let (_guard, root) = hall_root();
+    setup_deliver_hall(&root);
+    approve_through_plan(&root, "checkout");
+    let fake = FakeGh::install(&root);
+    let rewrites = as_github_remotes(&root);
+
+    deliver_on_github(&root, &fake, &rewrites, "checkout");
+
+    // Second run: the branch already has a PR, so the action flips to
+    // `update_pr` — pushing updates it in place, and nothing is recreated.
+    let preview = preview_on_github(&root, &fake, &rewrites, "checkout");
+    assert_eq!(preview["preview"]["repos"][0]["action"], "update_pr");
+
+    let applied = deliver_on_github(&root, &fake, &rewrites, "checkout");
+    assert_eq!(
+        applied["preview"]["repos"][0]["pr_url"], "https://github.com/acme/pull/1",
+        "an update keeps reporting the PR it updated"
+    );
+    assert_eq!(
+        fake.log().matches("pr create").count(),
+        1,
+        "a second `gh pr create` for a branch that already has a PR is the bug"
+    );
+}

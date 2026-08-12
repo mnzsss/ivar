@@ -25,9 +25,10 @@
 //! # Pull requests
 //!
 //! After all repos are pushed, `deliver` creates pull requests for repos whose
-//! action is [`DeliveryAction::NewPr`] or [`DeliveryAction::UpdatePr`]. A PR
-//! that already exists (detected via `gh pr list --head`) is not recreated —
-//! the branch is updated in place.
+//! action is [`DeliveryAction::NewPr`]. A PR that already exists (detected via
+//! `gh pr list --head`) is not recreated — the push above already updated it,
+//! and `gh pr create` refuses a duplicate — so `deliver` only reads its URL
+//! back, and reports it exactly as it reports a freshly created one.
 //!
 //! Sibling PRs (one per promoted repo) are linked together with a comment on
 //! each PR noting the others — always with "part of" language, never "depends
@@ -55,7 +56,7 @@ mod pull_requests;
 mod repos;
 
 use preview::{fingerprint_for, plan_gate_state, plan_not_approved, preview_required};
-use pull_requests::{create_pr, link_sibling_prs};
+use pull_requests::{create_pr, existing_pr_url, link_sibling_prs};
 use repos::{build_repos, order_by_dependencies, push_repo};
 
 /// What `ivar feature deliver` needs.
@@ -254,7 +255,17 @@ pub fn deliver(ctx: &Ctx, input: DeliverInput) -> Outcome<DeliverOutcome> {
         }
 
         let bare = layout.repo_bare(&repo.repo);
-        let result = create_pr(&bare, &repo.local_branch, &repo.base_branch, &feature_name);
+        // A branch that already has a PR was updated by the push above — `gh pr
+        // create` would only refuse it as a duplicate. Its URL is still part of
+        // the report, and `gh pr list` is the only place it comes from.
+        let result = match repo.action {
+            DeliveryAction::UpdatePr => existing_pr_url(&bare, repo.local_branch.as_str())
+                .map_or_else(
+                    || create_pr(&bare, &repo.local_branch, &repo.base_branch, &feature_name),
+                    Ok,
+                ),
+            _ => create_pr(&bare, &repo.local_branch, &repo.base_branch, &feature_name),
+        };
         pr_results.push((repo.repo.clone(), result));
     }
 
