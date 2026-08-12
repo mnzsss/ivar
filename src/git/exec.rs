@@ -339,6 +339,68 @@ fn parse_status_z(stdout: &str) -> Vec<Utf8PathBuf> {
     paths
 }
 
+/// `git -C <worktree> rev-parse HEAD` — the commit the worktree's branch is
+/// on right now.
+///
+/// The fixed point the write-contract audit takes its post-run diff against.
+/// The audit's other oracle, [`changed_paths`], reports divergence from the
+/// *current* commit, so a `git commit` empties it — the run's writes are
+/// still on the branch, but nothing diverges from HEAD any more. Recording
+/// where HEAD was before the child started is what makes the committed half
+/// of a run visible at all; see [`paths_committed_since`].
+pub(crate) fn head_commit(path: &Utf8Path) -> Result<String, Error> {
+    let command = git().cwd(path).arg("rev-parse").arg("HEAD");
+    let stdout = run(command)?;
+    let sha = stdout.trim();
+    if sha.is_empty() {
+        return Err(Error::Refused {
+            command: format!("git -C {path} rev-parse HEAD"),
+            detail: "expected a commit id, got nothing".to_owned(),
+        });
+    }
+    Ok(sha.to_owned())
+}
+
+/// `git -C <worktree> diff --name-only -z <since> HEAD` — every path whose
+/// content differs between the commit `since` and the worktree's current
+/// commit.
+///
+/// A *tree* comparison, not a walk of the commits between them, which is the
+/// property that matters: it answers the same way whether the run committed
+/// once, committed ten times, amended, rebased, reset, or switched the
+/// worktree onto another branch entirely. Any of those leave `since` and
+/// `HEAD` as two commits with a diff, and none of them are reachable through
+/// the reflog reasoning a commit walk would need.
+///
+/// `-z` for the same reason [`changed_paths`] uses it: the default format
+/// quotes any path holding a space or a non-ASCII byte, and whether a write
+/// contract covers a path must not hinge on unquoting it correctly.
+pub(crate) fn paths_committed_since(
+    path: &Utf8Path,
+    since: &str,
+) -> Result<Vec<Utf8PathBuf>, Error> {
+    let command = git()
+        .cwd(path)
+        .arg("diff")
+        .arg("--name-only")
+        .arg("-z")
+        .arg(since)
+        .arg("HEAD");
+    let output = proc::capture(&command)?;
+    if !output.success() {
+        return Err(Error::Refused {
+            command: command.display(),
+            detail: output.diagnostic(),
+        });
+    }
+    Ok(output
+        .stdout
+        .split('\0')
+        .filter(|record| !record.is_empty())
+        .map(Utf8PathBuf::from)
+        .collect())
+}
+
 /// `git -C <worktree> diff HEAD` — the worktree's uncommitted divergence from
 /// its last commit, staged and unstaged.
 ///

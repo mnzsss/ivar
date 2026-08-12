@@ -195,6 +195,29 @@ pub trait Git {
     /// see one.
     fn changed_paths(&self, path: &Utf8Path) -> Result<Vec<Utf8PathBuf>, Error>;
 
+    /// The commit the worktree at `path` is on — `git rev-parse HEAD`.
+    ///
+    /// [`Self::changed_paths`] answers "what diverges from HEAD *now*", which
+    /// a `git commit` empties: the writes are still on the branch, but HEAD
+    /// moved to include them. Recording HEAD before a run is what lets
+    /// [`Self::paths_committed_since`] see the half of a run that got
+    /// committed.
+    fn head_commit(&self, path: &Utf8Path) -> Result<String, Error>;
+
+    /// Every path whose content differs between commit `since` and the
+    /// worktree at `path`'s current commit — `git diff --name-only <since>
+    /// HEAD`, worktree-relative.
+    ///
+    /// Together with [`Self::changed_paths`] this is the whole of what a run
+    /// changed: what it committed, plus what it left uncommitted. Neither
+    /// alone is enough, and `changed_paths` alone is the one that reads a run
+    /// which committed its work as a run that did nothing.
+    fn paths_committed_since(
+        &self,
+        path: &Utf8Path,
+        since: &str,
+    ) -> Result<Vec<Utf8PathBuf>, Error>;
+
     /// How many commits `branch` has that `base` does not, in the repository
     /// at `git_dir` — `git rev-list --count <base>..<branch>`.
     fn commits_ahead(&self, git_dir: &Utf8Path, base: &str, branch: &str) -> Result<u64, Error>;
@@ -307,6 +330,18 @@ impl Git for System {
 
     fn changed_paths(&self, path: &Utf8Path) -> Result<Vec<Utf8PathBuf>, Error> {
         exec::changed_paths(path)
+    }
+
+    fn head_commit(&self, path: &Utf8Path) -> Result<String, Error> {
+        exec::head_commit(path)
+    }
+
+    fn paths_committed_since(
+        &self,
+        path: &Utf8Path,
+        since: &str,
+    ) -> Result<Vec<Utf8PathBuf>, Error> {
+        exec::paths_committed_since(path, since)
     }
 
     fn commits_ahead(&self, git_dir: &Utf8Path, base: &str, branch: &str) -> Result<u64, Error> {
