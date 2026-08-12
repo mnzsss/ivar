@@ -139,13 +139,34 @@ pub fn colour_for(stream: Stream, override_: Option<bool>) -> bool {
     }
 }
 
-/// Terminal columns, or [`DEFAULT_WIDTH`] when there is no tty to ask (a pipe,
-/// a redirect, or the query otherwise failing).
+/// Terminal columns, or [`DEFAULT_WIDTH`] when there is no usable answer: no
+/// tty to ask (a pipe, a redirect), the query failing, or the query
+/// *succeeding with zero*.
+///
+/// The zero case is not hypothetical. A pty whose window size was never set —
+/// `script -qec … | cat`, and several CI runners — answers `Ok((0, 0))` rather
+/// than failing, so `unwrap_or` never fires and every caller ends up laying
+/// out against a zero-column terminal. A width of zero is not a narrow
+/// terminal; it is a missing answer, and it belongs in the same arm as the
+/// error.
 #[must_use]
 pub fn width() -> u16 {
-    crossterm::terminal::size()
-        .map(|(columns, _rows)| columns)
-        .unwrap_or(DEFAULT_WIDTH)
+    decide_width(
+        crossterm::terminal::size()
+            .map(|(columns, _rows)| columns)
+            .ok(),
+    )
+}
+
+/// The width rule as a pure function of what the query answered — `None` for a
+/// failure, `Some(0)` for the unset-winsize pty above. Split out for the same
+/// reason [`decide_colour`] is: it is exhaustively testable without a terminal.
+#[must_use]
+fn decide_width(queried: Option<u16>) -> u16 {
+    match queried {
+        Some(columns) if columns > 0 => columns,
+        _ => DEFAULT_WIDTH,
+    }
 }
 
 /// Whether `stream` is a real terminal.

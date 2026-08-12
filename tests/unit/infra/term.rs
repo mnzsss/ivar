@@ -44,6 +44,21 @@ fn width_never_panics_and_has_a_positive_fallback() {
 }
 
 #[test]
+fn a_real_answer_is_taken_as_the_width() {
+    assert_eq!(decide_width(Some(120)), 120);
+    assert_eq!(decide_width(Some(1)), 1);
+}
+
+/// A pty with no window size set answers `Ok((0, 0))` instead of failing.
+/// Zero columns is a missing answer, not a narrow terminal — a caller laying
+/// out against it produces nothing at all.
+#[test]
+fn zero_columns_falls_back_like_a_failed_query() {
+    assert_eq!(decide_width(Some(0)), DEFAULT_WIDTH);
+    assert_eq!(decide_width(None), DEFAULT_WIDTH);
+}
+
+#[test]
 fn colour_does_not_panic_and_is_stable_across_calls() {
     let first = colour(None);
     let second = colour(None);
