@@ -139,8 +139,32 @@ pub enum ExecutorEvent {
         /// The provider-native session identifier.
         id: String,
     },
+    /// The run changed at least one path its own write contract allows — the
+    /// positive evidence a workstream needs to claim it did anything.
+    ///
+    /// Emitted by the post-run audit, never parsed from a provider's stream:
+    /// a tool call is a statement of intent, and what this reports is an
+    /// effect read back off the filesystem. See
+    /// `action::execute::tick::launch`'s `audit_run`.
+    Produced {
+        /// The contracted paths the run changed, `<repo>/<path>`.
+        paths: Vec<String>,
+    },
     /// The process exited zero.
-    Completed,
+    Completed {
+        /// Whether the post-run audit had anything to observe — `false` when
+        /// the feature has no promoted worktree, so nothing the run did could
+        /// be read back off disk either way.
+        ///
+        /// It is the difference between "this workstream produced nothing"
+        /// and "there was no place for it to produce anything", which look
+        /// identical from the change set alone. Refusing a workstream on the
+        /// second would be refusing it for the absence of an oracle rather
+        /// than for evidence, which is the inverse of the default-deny
+        /// discipline the guard states: deny on what you *saw*, never on what
+        /// you could not look at.
+        audited: bool,
+    },
     /// The process exited non-zero, or otherwise failed to run to
     /// completion.
     Failed {

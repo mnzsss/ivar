@@ -146,6 +146,26 @@ Two things it deliberately does not do:
 - **Revert.** An audit that deleted an agent's work on suspicion would be a
   worse failure than the one it guards against.
 
+## A workstream must have something to show for itself
+
+A clean exit is the executor's claim that it finished, not evidence that it did
+anything: a session that misread its prompt, was denied every write, or simply
+idled exits zero exactly like one that did the work.
+
+So the same audit asks a second question — did anything change under *this*
+workstream's own contract? — and a workstream that has never produced anything
+is left `blocked` with a `session.unproductive` journal entry rather than
+`done`. Nothing downstream then launches against work that does not exist.
+
+"Never" is the operative word, and it is read from the journal. A workstream
+that blocked on a question is relaunched from scratch against a baseline that
+already holds what its first run wrote, so its second run can legitimately
+change nothing new; the earlier run's `produced` entry is what lets it finish.
+
+A feature with **no promoted repo** is exempt: there is no worktree to read, so
+"produced nothing" and "nowhere to produce anything" are the same picture, and
+a workstream is never refused for the absence of an oracle.
+
 If you need writes outside the contract to be impossible rather than reported,
 that is a filesystem sandbox, and `ivar` does not run one.
 

@@ -1026,6 +1026,36 @@ fn a_run_that_commits_its_stray_writes_is_still_a_violation() {
     );
 }
 
+/// `Done` is derived from the child's exit code and nothing else, so a session
+/// that ran, wrote not one byte and exited cleanly is indistinguishable on the
+/// board from one that did the whole job. The audit already computes what the
+/// run changed; it just never asks whether any of it was inside the contract.
+#[test]
+fn a_run_that_produced_nothing_does_not_reach_done() {
+    let (_guard, root) = approved_board_with_worktree();
+    let ctx = Ctx::new(root.clone());
+
+    let _stub = PathStub::install("claude", "exit 0");
+
+    tick(
+        &ctx,
+        TickInput {
+            feature: "checkout".to_owned(),
+        },
+    )
+    .unwrap();
+
+    let board = persisted(&root);
+    let ws = &board.graph.workstreams[0];
+    assert_ne!(
+        ws.status,
+        WorkstreamStatus::Done,
+        "a session that changed nothing under its write contract produced nothing — \
+         `Done` claims work that does not exist, and every workstream depending on \
+         this one then launches against it"
+    );
+}
+
 /// The control for the two tests above: the *same* stray write, left
 /// uncommitted, is caught. What defeats the audit is not the write, the
 /// worktree or the contract — it is the `git commit` in between.
@@ -1060,6 +1090,216 @@ fn an_uncommitted_stray_write_is_caught() {
             .journal
             .iter()
             .any(|entry| entry.message.contains("write contract violated"))
+    );
+}
+
+/// The escape the per-run production check needs to survive a relaunch.
+///
+/// A workstream that blocked on a question is relaunched from scratch, from a
+/// baseline that already contains what its first run wrote. Judged per run,
+/// the second run changed nothing new and would block again — then be replied
+/// to, relaunched, and block again, forever. The journal is what breaks that
+/// loop: the first run's `produced` entry is still on the board.
+#[test]
+fn a_relaunch_of_a_workstream_that_already_produced_reaches_done() {
+    let (_guard, root) = approved_board_with_worktree();
+    let ctx = Ctx::new(root.clone());
+    let worktree = feature_worktree(&root);
+
+    // Wave 1: writes its contracted file, then dies — blocked, but productive.
+    {
+        let _stub = PathStub::install(
+            "claude",
+            &format!(
+                "mkdir -p '{worktree}/src/a'\n\
+                 printf 'work\\n' > '{worktree}/src/a/one.rs'\n\
+                 exit 3\n"
+            ),
+        );
+        tick(
+            &ctx,
+            TickInput {
+                feature: "checkout".to_owned(),
+            },
+        )
+        .unwrap();
+    }
+
+    let blocked = persisted(&root);
+    assert_eq!(blocked.status, ExecutionStatus::Blocked);
+    assert!(
+        blocked
+            .journal
+            .iter()
+            .any(|entry| entry.kind == "produced" && entry.workstream == "ws-a"),
+        "a run that wrote its contracted file must record that it produced, \
+         even though the child then failed"
+    );
+    let session = blocked
+        .sessions
+        .iter()
+        .find(|(_, workstream)| workstream.as_str() == "ws-a")
+        .map(|(id, _)| id.clone())
+        .unwrap();
+
+    reply_action::reply(
+        &ctx,
+        ReplyInput {
+            feature: Some("checkout".to_owned()),
+            session: Some(session),
+            message: "carry on".to_owned(),
+        },
+    )
+    .unwrap();
+
+    // Wave 2: nothing left to do, so it changes nothing and exits cleanly.
+    let _stub = PathStub::install("claude", "exit 0");
+    tick(
+        &ctx,
+        TickInput {
+            feature: "checkout".to_owned(),
+        },
+    )
+    .unwrap();
+
+    let board = persisted(&root);
+    assert_eq!(
+        board.graph.workstreams[0].status,
+        WorkstreamStatus::Done,
+        "the workstream produced in its first run; a relaunch with nothing left \
+         to do must not block it again"
+    );
+}
+
+/// The other side of the same rule: a workstream that has never produced does
+/// not earn a `done` by being relaunched. The escape is the *journal entry*,
+/// not the relaunch.
+#[test]
+fn a_relaunch_of_a_workstream_that_never_produced_still_blocks() {
+    let (_guard, root) = approved_board_with_worktree();
+    let ctx = Ctx::new(root.clone());
+
+    {
+        let _stub = PathStub::install("claude", "exit 3");
+        tick(
+            &ctx,
+            TickInput {
+                feature: "checkout".to_owned(),
+            },
+        )
+        .unwrap();
+    }
+    let session = persisted(&root)
+        .sessions
+        .iter()
+        .find(|(_, workstream)| workstream.as_str() == "ws-a")
+        .map(|(id, _)| id.clone())
+        .unwrap();
+    reply_action::reply(
+        &ctx,
+        ReplyInput {
+            feature: Some("checkout".to_owned()),
+            session: Some(session),
+            message: "carry on".to_owned(),
+        },
+    )
+    .unwrap();
+
+    let _stub = PathStub::install("claude", "exit 0");
+    tick(
+        &ctx,
+        TickInput {
+            feature: "checkout".to_owned(),
+        },
+    )
+    .unwrap();
+
+    let board = persisted(&root);
+    assert_eq!(board.graph.workstreams[0].status, WorkstreamStatus::Blocked);
+    assert!(
+        board
+            .journal
+            .iter()
+            .any(|entry| entry.kind == "session.unproductive")
+    );
+}
+
+/// A run that does the job reaches `Done` and says what it produced — the
+/// positive case the two refusals above are measured against.
+#[test]
+fn a_run_that_writes_its_contracted_files_reaches_done_and_records_them() {
+    let (_guard, root) = approved_board_with_worktree();
+    let ctx = Ctx::new(root.clone());
+    let worktree = feature_worktree(&root);
+
+    let _stub = PathStub::install(
+        "claude",
+        &format!(
+            "mkdir -p '{worktree}/src/a'\n\
+             printf 'work\\n' > '{worktree}/src/a/one.rs'\n\
+             exit 0\n"
+        ),
+    );
+    tick(
+        &ctx,
+        TickInput {
+            feature: "checkout".to_owned(),
+        },
+    )
+    .unwrap();
+
+    let board = persisted(&root);
+    assert_eq!(board.graph.workstreams[0].status, WorkstreamStatus::Done);
+    let produced = board
+        .journal
+        .iter()
+        .find(|entry| entry.kind == "produced")
+        .expect("a productive run records what it produced");
+    assert!(
+        produced.message.contains("api/src/a/one.rs"),
+        "the entry must name the contracted path: {}",
+        produced.message
+    );
+}
+
+/// Committing is the expected end state — `deliver` counts a dirty worktree as
+/// a blocker — so the production half of the audit has to survive it too. A
+/// run whose only trace is a commit still produced.
+#[test]
+fn a_run_that_commits_its_contracted_work_still_counts_as_producing() {
+    let (_guard, root) = approved_board_with_worktree();
+    let ctx = Ctx::new(root.clone());
+    let worktree = feature_worktree(&root);
+    let git = stub_git(&worktree);
+
+    let _stub = PathStub::install(
+        "claude",
+        &format!(
+            "mkdir -p '{worktree}/src/a'\n\
+             printf 'work\\n' > '{worktree}/src/a/one.rs'\n\
+             {git} add -A >/dev/null 2>&1\n\
+             {git} commit -m 'work' >/dev/null 2>&1\n\
+             exit 0\n"
+        ),
+    );
+    tick(
+        &ctx,
+        TickInput {
+            feature: "checkout".to_owned(),
+        },
+    )
+    .unwrap();
+
+    let board = persisted(&root);
+    assert_eq!(
+        board.graph.workstreams[0].status,
+        WorkstreamStatus::Done,
+        "work that was committed is still work; journal: {:?}",
+        board
+            .journal
+            .iter()
+            .map(|entry| entry.message.as_str())
+            .collect::<Vec<_>>()
     );
 }
 

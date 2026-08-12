@@ -91,7 +91,9 @@
 //! # Terminal status
 //!
 //! [`WorkstreamStatus`] has no `Failed` variant — only `Waiting`, `Active`,
-//! `Done`, `Blocked`, `Paused`. A clean exit maps to `Done`; a non-zero exit,
+//! `Done`, `Blocked`, `Paused`. A clean exit maps to `Done` **only when the
+//! workstream has something to show for itself** — see "Done is earned, not
+//! inherited" below; a non-zero exit,
 //! a signal death, a spawn failure, or an `AskUserQuestion` tool call (Claude
 //! Code only — see "A harness that cannot ask") all map to `Blocked` (with
 //! `board.blocked_by` naming the workstream and the board following it to
@@ -102,6 +104,36 @@
 //! progress on the rest of the graph. Adding a dedicated
 //! `WorkstreamStatus::Failed` is outside this module's write contract
 //! (`domain::feature.rs`); flagged rather than done silently.
+//!
+//! # Done is earned, not inherited
+//!
+//! A clean exit is the child's claim that it finished, not evidence that it
+//! did anything: a session that was denied every write, or misread its prompt,
+//! or simply idled, exits zero exactly like one that did the work. `Done` read
+//! straight off the exit code therefore asserted work that did not exist — and
+//! every workstream depending on it then launched against that assertion.
+//!
+//! So the post-run audit answers a second question from the same change set it
+//! already computes for violations: did anything change under *this*
+//! workstream's own contract (see `launch::AuditOutcome`)? When it did, the
+//! run is journalled `produced`, naming the paths. A clean exit with no
+//! `produced` entry — this run or any earlier one — is journalled
+//! `session.unproductive` and blocks instead, because there is no work behind
+//! the `done` it was about to claim.
+//!
+//! Two things keep that from firing on honest runs:
+//!
+//! - **The relaunch escape.** A workstream that blocked on a question is
+//!   relaunched from scratch against a baseline that already holds what its
+//!   first run wrote, so its second run legitimately changes nothing new.
+//!   The question asked is therefore "has this workstream ever produced",
+//!   answered from the append-only journal, not "did this run produce". See
+//!   `events::has_ever_produced`.
+//! - **No oracle, no refusal.** A feature with no promoted worktree has no
+//!   filesystem to read, and "produced nothing" and "nowhere to produce" look
+//!   identical from an empty change set. The audit reports which of the two it
+//!   saw (`ExecutorEvent::Completed`'s `audited`), and a workstream is never
+//!   refused for the absence of an oracle.
 //!
 //! # A harness that cannot ask
 //!
@@ -354,7 +386,7 @@ pub fn tick(ctx: &Ctx, input: TickInput) -> Outcome<TickOutcome> {
     // Every contract in the wave, unioned once: what the post-run audit
     // measures the worktrees against. The wave shares its worktrees, so a
     // sibling's legitimate write is indistinguishable from this workstream's
-    // stray one — see `launch::audit_write_contract`'s "Why the wave's
+    // stray one — see `launch::AuditOutcome`'s "Two questions,
     // contract, not this workstream's".
     let wave_contract: Vec<String> = board
         .graph
@@ -398,6 +430,7 @@ pub fn tick(ctx: &Ctx, input: TickInput) -> Outcome<TickOutcome> {
             view_dir,
             command,
             wave_contract: WriteContract::new(wave_contract.clone()),
+            contract: WriteContract::new(ws.write_contract.clone()),
         });
     }
 

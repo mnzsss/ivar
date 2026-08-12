@@ -35,9 +35,14 @@ pub(super) struct LaunchJob {
     pub(super) view_dir: Utf8PathBuf,
     pub(super) command: proc::Command,
     /// Every write contract in this wave, unioned — what the post-run audit
-    /// measures against. See "Auditing what the guard cannot see" below for
-    /// why this is the wave's contract and not this workstream's own.
+    /// measures *violations* against. See "Auditing what the guard cannot
+    /// see" below for why a violation is judged against the wave and not this
+    /// workstream's own contract.
     pub(super) wave_contract: WriteContract,
+    /// This workstream's own contract — what the audit measures *production*
+    /// against. The two questions need different contracts and for opposite
+    /// reasons; see [`audit_run`].
+    pub(super) contract: WriteContract,
 }
 
 /// Build the invocation for `harness`'s headless execute mode, with the
@@ -202,10 +207,43 @@ pub(super) fn run_launch(
         }
     }
 
-    match child.wait() {
-        Ok(Some(0)) => match audit_write_contract(&worktrees, &job.wave_contract, &baseline) {
-            Ok(None) => send(ExecutorEvent::Completed),
-            Ok(Some(violation)) => send(ExecutorEvent::Failed { error: violation }),
+    let exit = child.wait();
+    let audit = audit_run(&worktrees, &job.wave_contract, &job.contract, &baseline);
+
+    // The production half is reported on *every* terminal path, not only a
+    // clean exit. A run that wrote its files and then asked a question, or
+    // died, still produced — and the next `tick` relaunches it from scratch
+    // against a baseline that already holds that work, so a second run with
+    // nothing left to do changes nothing. If the first run's production went
+    // unrecorded because it did not exit zero, the relaunch reads as
+    // unproductive and blocks, is replied to, relaunches, and blocks again.
+    // Recording it here is what keeps that loop from existing.
+    if let Ok(outcome) = &audit
+        && !outcome.produced.is_empty()
+    {
+        send(ExecutorEvent::Produced {
+            paths: outcome
+                .produced
+                .iter()
+                .map(Utf8PathBuf::to_string)
+                .collect(),
+        });
+    }
+
+    match exit {
+        Ok(Some(0)) => match audit {
+            Ok(outcome) => match outcome.violation {
+                Some(violation) => send(ExecutorEvent::Failed { error: violation }),
+                // Whether "changed nothing under its own contract" is a
+                // workstream that produced nothing at all, or a relaunch of
+                // one that already produced in an earlier run, is a question
+                // about the *board* — which this thread does not own and
+                // cannot read. The fold answers it; see
+                // `events::apply_event`.
+                None => send(ExecutorEvent::Completed {
+                    audited: outcome.audited,
+                }),
+            },
             Err(failure) => send(ExecutorEvent::Failed {
                 error: format!("the write-contract audit could not run: {failure}"),
             }),
@@ -327,7 +365,7 @@ fn feature_worktrees(
 ///
 /// A run that *reverts* what it inherited lands back at the baseline, so its
 /// change set is not larger but smaller. That is not this function's problem
-/// to solve — it reports the set, and [`audit_write_contract`] takes the difference in
+/// to solve — it reports the set, and [`audit_run`] takes the difference in
 /// both directions.
 ///
 /// Paths come back as `<repo>/<path>`, the shape
@@ -413,11 +451,24 @@ pub(super) fn audit_path(repo: &RepoName, relative: &Utf8Path) -> Utf8PathBuf {
 /// deliberately does not catch is one workstream writing inside *another's*
 /// contract; attributing that needs an author, which the filesystem does not
 /// record. The guard still refuses it for the tools it covers.
-fn audit_write_contract(
+fn audit_run(
     worktrees: &FeatureWorktrees,
     wave_contract: &WriteContract,
+    contract: &WriteContract,
     baseline: &AuditBaseline,
-) -> Result<Option<String>, Failure> {
+) -> Result<AuditOutcome, Failure> {
+    // No promoted worktree: there is no filesystem for this audit to read, so
+    // it can neither find a violation nor find production. Reporting that as
+    // an ordinary empty result would be indistinguishable from a workstream
+    // that idled, which is the one confusion `audited` exists to prevent.
+    if worktrees.is_empty() {
+        return Ok(AuditOutcome {
+            audited: false,
+            violation: None,
+            produced: Vec::new(),
+        });
+    }
+
     let after = changed_since(worktrees, &baseline.heads)?;
 
     // The same difference, taken both ways. A run changes the set of diverging
@@ -428,13 +479,56 @@ fn audit_write_contract(
     let written = contract_violations(wave_contract, &baseline.dirty, &after);
     let reverted = contract_violations(wave_contract, &after, &baseline.dirty);
 
-    Ok(violation_report(&written, &reverted))
+    let produced = after
+        .difference(&baseline.dirty)
+        .filter(|path| contract.allows(path))
+        .cloned()
+        .collect();
+
+    Ok(AuditOutcome {
+        audited: true,
+        violation: violation_report(&written, &reverted),
+        produced,
+    })
+}
+
+/// What one run's post-mortem found, from the single set of paths it changed.
+///
+/// # Two questions, two contracts
+///
+/// The audit asks both from the same change set, and they are asymmetric on
+/// purpose:
+///
+/// - **Did it write what it may not?** Judged against the *wave's* union. A
+///   wave shares its worktrees and `git status` records that a file changed,
+///   never who changed it, so measuring against this workstream's own contract
+///   alone would blame it for every sibling's legitimate work.
+/// - **Did it write anything it may?** Judged against this workstream's *own*
+///   contract. The union would credit a workstream for a sibling's output,
+///   which is precisely the claim — `done`, with nothing behind it — that
+///   question exists to refuse.
+///
+/// Both are reported, never one instead of the other: a run that produced its
+/// own work *and* trampled something else has done both, and collapsing that
+/// into a single verdict loses whichever half the collapse discards.
+pub(super) struct AuditOutcome {
+    /// Whether there was anything to observe. `false` when the feature has no
+    /// promoted worktree — an empty result then means "nothing to look at",
+    /// not "the run did nothing", and a caller that confuses the two refuses a
+    /// workstream for the absence of an oracle.
+    audited: bool,
+    /// Paths changed that no contract in the wave allows, as a ready-made
+    /// failure message.
+    violation: Option<String>,
+    /// The paths the run changed under *this workstream's own* contract — the
+    /// positive evidence that it did something.
+    produced: Vec<Utf8PathBuf>,
 }
 
 /// The paths in `after` that `baseline` did not already hold and that
 /// `wave_contract` does not allow.
 ///
-/// Called both ways round by [`audit_write_contract`]: with `(baseline, after)` it names
+/// Called both ways round by [`audit_run`]: with `(baseline, after)` it names
 /// what the run wrote where it may not, and with the two swapped it names what
 /// the run *stopped* diverging that it may not have touched — a revert. The
 /// question is the same one in both directions ("which side of this difference

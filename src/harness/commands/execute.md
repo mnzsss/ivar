@@ -134,6 +134,13 @@ argument-hint: <plan-path>
   `git stash`) is reported too. Either way the workstream is blocked — let the
   user know, and say plainly when reverted content was never committed, since
   it cannot be recovered from the repository.
+- A workstream that exits cleanly having changed nothing under its own write
+  contract is blocked with a `session.unproductive` journal entry, not marked
+  done: there is no work behind it. Surface it to the user rather than
+  re-ticking — a second identical run produces the same nothing. The usual
+  causes are a prompt the executor could not act on, a `write_contract` that
+  does not cover the files the operation actually needs, or a plan operation
+  with nothing to implement.
 - **Plan fingerprint**: Every graph is pinned to a specific plan revision. If
   the plan changes (behavior-changing), the next `tick` detects the drift and
   pauses affected workstreams. Each paused workstream acknowledges the new

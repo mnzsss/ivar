@@ -62,10 +62,10 @@
 //!
 //! So the hole is closed a layer down instead, where intentions have become
 //! effects: `tick` audits the feature's worktrees against the write contract
-//! after each run (see `action::execute::tick::launch`'s
-//! `audit_write_contract`). That audit detects rather than prevents — the
-//! bytes are on disk by the time it looks — but it cannot be talked past,
-//! because it reads the filesystem rather than the agent's stated intent.
+//! after each run (see `action::execute::tick::launch`'s `audit_run`). That
+//! audit detects rather than prevents — the bytes are on disk by the time it
+//! looks — but it cannot be talked past, because it reads the filesystem
+//! rather than the agent's stated intent.
 //!
 //! `Bash` is also how an agent reaches *git*, and that took a second pass to
 //! close. The audit's first oracle was `git status`, which reports divergence
