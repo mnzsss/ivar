@@ -8,7 +8,10 @@
 //! each:
 //!
 //! 1. Validates the plan fingerprint against the board; if diverged, marks the
-//!    workstream [`WorkstreamStatus::Blocked`] and does NOT launch.
+//!    workstream [`WorkstreamStatus::Blocked`] and does NOT launch. Reported
+//!    as a warning (`execute.plan_diverged`) carrying a [`PlanDivergence`],
+//!    never as a clean run — otherwise a tick that stopped everything it found
+//!    and one that found nothing are the same exit code and the same sentence.
 //! 2. Renders its prompt from the plan (see [`super::prompt`]), materialises a
 //!    real session — view dir, session record, execution guard — and spawns
 //!    the resolved [`Harness`]'s headless execute command via
@@ -194,6 +197,21 @@ pub struct TickInput {
     pub feature: String,
 }
 
+/// The plan moved out from under the board: `plan.md` no longer hashes to the
+/// fingerprint the graph was approved against.
+///
+/// Carried on the outcome rather than left to the journal: it is the reason
+/// nothing launched, and the caller decides what to do next on that reason.
+#[derive(Debug, Clone, Serialize)]
+pub struct PlanDivergence {
+    /// The fingerprint the board was approved against.
+    pub approved: String,
+    /// What `plan.md` hashes to now.
+    pub current: String,
+    /// The workstreams this divergence took from `Waiting` to `Blocked`.
+    pub blocked: Vec<String>,
+}
+
 /// What `ivar feature execute tick` did.
 #[derive(Debug, Clone, Serialize)]
 pub struct TickOutcome {
@@ -207,11 +225,36 @@ pub struct TickOutcome {
     pub board: ExecutionBoard,
     /// Where the board was written.
     pub board_path: Utf8PathBuf,
+    /// Set when the tick launched nothing *because* the plan diverged — the
+    /// difference between "nothing was ready" and "everything was stopped".
+    /// `None` on every ordinary tick.
+    pub diverged: Option<PlanDivergence>,
 }
 
 impl WriteHuman for TickOutcome {
     fn write_human(&self, w: &mut impl io::Write) -> io::Result<()> {
-        if self.launched.is_empty() {
+        if let Some(divergence) = &self.diverged {
+            writeln!(
+                w,
+                "Tick: plan diverged for `{}` — nothing launched, {} {} blocked",
+                self.feature,
+                divergence.blocked.len(),
+                if divergence.blocked.len() == 1 {
+                    "workstream"
+                } else {
+                    "workstreams"
+                }
+            )?;
+            for ws in &divergence.blocked {
+                writeln!(w, "  - {ws}")?;
+            }
+            writeln!(
+                w,
+                "plan.md diverged from the graph's fingerprint\n  \
+                 approved: {}\n  current:  {}",
+                divergence.approved, divergence.current
+            )?;
+        } else if self.launched.is_empty() {
             writeln!(
                 w,
                 "Tick: nothing ready for `{}` — no workstreams to launch",
@@ -291,9 +334,11 @@ pub fn tick(ctx: &Ctx, input: TickInput) -> Outcome<TickOutcome> {
         && fp != &board_fingerprint
     {
         // Divergent plan — block all waiting workstreams.
+        let mut blocked = Vec::new();
         for ws in &mut board.graph.workstreams {
             if ws.status == WorkstreamStatus::Waiting {
                 ws.status = WorkstreamStatus::Blocked;
+                blocked.push(ws.id.clone());
             }
         }
         board.push_journal(JournalEntry::new(
@@ -307,13 +352,40 @@ pub fn tick(ctx: &Ctx, input: TickInput) -> Outcome<TickOutcome> {
         board.write(&layout, &feature)?;
 
         let board_path = feature::board_path(&layout, &feature);
-        return Ok(Report::new(TickOutcome {
-            root: layout.root().to_path_buf(),
-            feature,
-            launched: Vec::new(),
-            board,
-            board_path,
-        }));
+        // A warning, not a clean report: reported clean this exits `0` and
+        // prints "nothing ready", which is indistinguishable from a board with
+        // no work to do — and is how a diverged board sits untouched while
+        // every run over it looks fine.
+        let warning = Warning::new(
+            "execute.plan_diverged",
+            feature.to_string(),
+            format!(
+                "plan.md no longer matches the graph the board was approved against; \
+                 {} {} blocked. Re-approve the board (`ivar feature execute prepare` then \
+                 `approve`) or restore plan.md to the approved revision.",
+                blocked.len(),
+                if blocked.len() == 1 {
+                    "workstream"
+                } else {
+                    "workstreams"
+                }
+            ),
+        );
+        return Ok(Report::with_warnings(
+            TickOutcome {
+                root: layout.root().to_path_buf(),
+                feature,
+                launched: Vec::new(),
+                board,
+                board_path,
+                diverged: Some(PlanDivergence {
+                    approved: board_fingerprint,
+                    current: fp.clone(),
+                    blocked,
+                }),
+            },
+            vec![warning],
+        ));
     }
 
     // Which workstreams are ready: `Waiting` with every dependency `Done`.
@@ -343,6 +415,7 @@ pub fn tick(ctx: &Ctx, input: TickInput) -> Outcome<TickOutcome> {
             launched: Vec::new(),
             board,
             board_path,
+            diverged: None,
         }));
     }
 
@@ -528,6 +601,7 @@ pub fn tick(ctx: &Ctx, input: TickInput) -> Outcome<TickOutcome> {
             launched,
             board,
             board_path,
+            diverged: None,
         },
         warnings,
     ))

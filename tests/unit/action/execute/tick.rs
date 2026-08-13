@@ -209,7 +209,6 @@ fn tick_blocks_when_plan_diverges() {
     )
     .unwrap();
 
-    assert!(report.is_clean());
     assert!(
         report.value.launched.is_empty(),
         "divergent plan must block"
@@ -1474,5 +1473,54 @@ fn reverting_a_path_inside_the_wave_contract_is_not_a_violation() {
             .iter()
             .map(|entry| entry.message.as_str())
             .collect::<Vec<_>>()
+    );
+}
+
+/// A tick that blocked every waiting workstream must not report a clean no-op.
+///
+/// The divergence path marks each `Waiting` workstream `Blocked` and journals
+/// it, but it used to return a warning-free `Report` — which `exit_code_for`
+/// renders as `0` and `write_human` rendered as "nothing ready ... no
+/// workstreams to launch". Both were false: something was ready, the plan moved
+/// under it, and a human has to re-approve before anything launches again. A
+/// caller driving `tick` on its exit code read success and moved on, which is
+/// how a board sat blocked while every run over it looked fine.
+#[test]
+fn tick_that_blocks_a_diverged_plan_does_not_report_success() {
+    let (_guard, root) = approved_board();
+    let ctx = Ctx::new(root.clone());
+
+    fs::write_text(
+        &root.join("plans/checkout/plan.md"),
+        "# Plan\n\n- changed content\n",
+    )
+    .unwrap();
+
+    let report = tick(
+        &ctx,
+        TickInput {
+            feature: "checkout".to_owned(),
+        },
+    )
+    .unwrap();
+
+    assert!(
+        !report.is_clean(),
+        "a tick that blocked every waiting workstream must not exit clean"
+    );
+    assert_eq!(report.warnings.len(), 1);
+    assert_eq!(report.warnings[0].code, "execute.plan_diverged");
+
+    // And the human surface must say what happened, not "nothing ready".
+    let mut rendered = Vec::new();
+    report.value.write_human(&mut rendered).unwrap();
+    let rendered = String::from_utf8(rendered).unwrap();
+    assert!(
+        rendered.contains("diverged"),
+        "the human output must name the divergence, got: {rendered}"
+    );
+    assert!(
+        !rendered.contains("nothing ready"),
+        "the human output must not claim nothing was ready, got: {rendered}"
     );
 }
