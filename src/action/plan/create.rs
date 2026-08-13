@@ -27,11 +27,57 @@ const ARTIFACTS: [(&str, &str); 3] = [
         "analysis.md",
         "# Analysis\n\nHow the requirements will be met, and what was considered and rejected.\n\n",
     ),
-    (
-        "plan.md",
-        "# Plan\n\nStep-by-step implementation plan. Bite-sized tasks, in order.\n\n",
-    ),
+    ("plan.md", PLAN_TEMPLATE),
 ];
+
+/// The plan scaffold, longer than its two siblings because `## Operations` and
+/// `## Operation details` are parsed, not read: they are what `tick` turns into
+/// executor prompts (see [`crate::action::execute::plan_ops`]). Handing over
+/// the headings the parser needs is cheaper than refusing the plan later.
+const PLAN_TEMPLATE: &str = "\
+# Plan
+
+The REASONS canvas. Design sections are prose; `Operations` and `Operation
+details` are parsed — see `/ivar-plan` for the rules.
+
+## Entities
+
+Domain model, delta only.
+
+## Approach
+
+The chosen design, and what was rejected.
+
+## Structure
+
+File and module organization.
+
+## Operations
+
+Each `###` heading is a workstream id from the execution graph, byte for byte —
+never a phase or a cluster. Its bullets are operation ids and nothing else.
+
+### <workstream-id>
+- OP-<SLUG>
+write_contract:
+- path/it/may/write.rs
+
+## Operation details
+
+One entry per operation id. The text is handed to the executor verbatim and
+ends at the first blank line, so keep everything it must act on — tests, done
+condition — inside that one paragraph.
+
+**OP-<SLUG>** — What it changes, how it is tested, and when it is done.
+
+## Norms
+
+Conventions this feature follows.
+
+## Safeguards
+
+What to watch out for.
+";
 
 /// What `ivar plan create` needs.
 #[derive(Debug, Clone)]

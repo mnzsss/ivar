@@ -69,25 +69,82 @@ artifacts.
 
 ## Phase 3: Plan
 
-1. Synthesize the Requirements and Analysis into a structured plan. Include:
-   - **Requirements** section referencing the artifact
+1. Synthesize the Requirements and Analysis into the REASONS canvas:
+   - **Requirements** — referencing the artifact
    - **Entities** — domain model (delta only)
    - **Approach** — the chosen design approach
    - **Structure** — file/module organization
-   - **Operations** — concrete, testable steps with OP-* IDs:
-     - Each operation has: id, title, description, dependsOn, touches, tests,
-       doneWhen
-     - Operation IDs follow the format `OP-<SLUG>` (e.g. `OP-API-CONTRACT`)
-     - Touch sets are file paths identifying what files are affected
+   - **Operations** — which workstream owns which operation ids
+   - **Operation details** — what each operation id means
    - **Norms** — coding conventions to follow
    - **Safeguards** — things to watch out for
 
-2. Write the Plan artifact to `plans/<feature>/plan.md`.
+2. Write the Plan artifact to `plans/<feature>/plan.md`. Give `Operations`
+   and `Operation details` the exact shape below — they are parsed, not read.
 
 3. **Pause for human approval.** Show the plan to the user. Only proceed after
    they approve.
 
 4. Call `ivar plan approve <feature> plan`.
+
+### Operations and Operation details are parsed, not read
+
+Every other section is prose for a human. These two are the input `ivar
+feature execute tick` parses to build each executor's prompt: the graph names
+the `OP-*` ids a workstream owns, and the plan is where the executor is told
+what those ids mean. Get their shape wrong and the tick refuses with
+`execute.operation_missing_from_plan` — after the graph has already been
+approved, with nothing launched.
+
+Write them exactly like this:
+
+<!-- BEGIN PLAN FORMAT EXAMPLE -->
+```markdown
+## Operations
+
+### checkout-api
+- OP-API-CONTRACT
+- OP-API-HANDLER
+write_contract:
+- src/api/checkout.rs
+- src/api/checkout_test.rs
+
+## Operation details
+
+**OP-API-CONTRACT** — Define the request and response types for `POST
+/checkout`, including the `410` a closed cart answers with. Tests: a closed
+cart answers `410` and an open one `200`. Done when the contract compiles and
+both tests pass.
+
+**OP-API-HANDLER** — Implement the handler against that contract, rejecting a
+cart the session does not own before any pricing runs. Depends on
+`OP-API-CONTRACT`. Tests: a foreign cart is rejected before pricing; an owned
+cart prices once. Done when a foreign cart can no longer reach the pricer.
+```
+<!-- END PLAN FORMAT EXAMPLE -->
+
+The rules behind that shape:
+
+- `### <id>` under `## Operations` is a **workstream id**, and it must match a
+  workstream id in the execution graph byte for byte. It is not a phase, a
+  cluster, or a title. Grouping operations under `### Fase 1` or `### Cluster
+  2 — Report` produces workstreams no graph refers to, and every operation the
+  graph claims is then absent from the plan.
+- The bullets under it are **operation ids and nothing else** — `- OP-SLUG`,
+  one per line, following `OP-<SLUG>` (e.g. `OP-API-CONTRACT`).
+- `write_contract:` switches the bullets that follow to the paths that
+  workstream may write. `ivar feature execute replan` compares this list to
+  decide which workstreams a revision affects, so it is load-bearing.
+- Every id needs a `**OP-SLUG**` entry under `## Operation details`. That
+  entry's text is handed to the executor verbatim, and it **ends at the first
+  blank line**. An entry written as a lead paragraph followed by a bulleted
+  `dependsOn` / `touches` / `tests` / `doneWhen` block hands the executor the
+  lead paragraph and drops the rest silently — so keep everything the executor
+  must act on inside that one paragraph.
+- `## Operations` is parsed to the end of the file: every later heading opens
+  another workstream named after it. Harmless for `## Norms` and
+  `## Safeguards`, but a workstream id must never collide with a section
+  heading.
 
 ## Phase 4: Execution Graph
 

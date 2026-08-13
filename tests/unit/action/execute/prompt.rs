@@ -395,3 +395,144 @@ fn the_next_declared_operation_still_ends_the_entry_before_it() {
     assert!(prompt.contains("**OP-A** — Do the first thing.\n"));
     assert!(prompt.contains("**OP-B** — Do the second thing.\n"));
 }
+
+/// The shipped `/ivar-plan` command must teach the exact plan shape this
+/// module parses.
+///
+/// The parser here is the only definition of that shape, and it lived only in
+/// code: `plan.md` asked for "Operations — concrete, testable steps with OP-*
+/// IDs ... id, title, description, dependsOn, touches, tests, doneWhen", which
+/// says nothing about `### <workstream-id>` headings, `- OP-*` bullets,
+/// `write_contract:`, or a separate `## Operation details` section. A plan
+/// authored by following that command faithfully parses to workstreams named
+/// after prose headings, owning bullets that are not operation ids — and every
+/// `tick` over it blocks on `execute.operation_missing_from_plan`.
+///
+/// So the command carries a worked example between two markers, and this test
+/// runs that example through the real renderer — doc and parser fail together
+/// or not at all.
+#[test]
+fn shipped_plan_command_documents_the_format_the_executor_parses() {
+    let plan_command = crate::harness::commands::catalog()
+        .iter()
+        .find(|command| command.id == "plan")
+        .expect("the catalog ships a `plan` command");
+
+    let example = plan_format_example(plan_command.content);
+
+    let parsed = operations_from_plan(&example);
+
+    // The example must parse to a workstream with its ids and its write
+    // contract — the three things `prepare`'s graph has to agree with.
+    let ws_entry = parsed
+        .iter()
+        .find(|entry| entry.id == "checkout-api")
+        .unwrap_or_else(|| panic!("the documented example must parse `checkout-api`: {parsed:#?}"));
+    assert_eq!(
+        ws_entry.operations,
+        vec!["OP-API-CONTRACT".to_owned(), "OP-API-HANDLER".to_owned()]
+    );
+    assert!(
+        !ws_entry.write_contract.is_empty(),
+        "the documented example must show a write_contract"
+    );
+
+    // The sharp edge the command documents: the Operations section never ends,
+    // so `## Operation details` opens another workstream named after itself.
+    // Harmless only while such a heading owns no operations — which is why a
+    // workstream id must never collide with a section heading.
+    for entry in parsed.iter().filter(|entry| entry.id != "checkout-api") {
+        assert!(
+            entry.operations.is_empty(),
+            "a section heading after `## Operations` must not own operations, got {entry:#?}"
+        );
+    }
+
+    // And it must render — every id backed by a non-empty entry in the
+    // example's own Operation details.
+    let ws = seeded_workstream(
+        &ws_entry.id,
+        &ws_entry
+            .operations
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>(),
+        &ws_entry
+            .write_contract
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>(),
+    );
+    let prompt = render(&example, &ws, &[])
+        .expect("the plan format the shipped command documents must render a prompt");
+    for id in &ws_entry.operations {
+        assert!(
+            prompt.contains(&format!("**{id}** — ")),
+            "the rendered prompt must carry `{id}`'s description"
+        );
+    }
+}
+
+/// The fenced block the shipped `plan` command marks as the plan format
+/// example. Panics with what it found, because a missing marker means the
+/// command stopped documenting the format at all.
+fn plan_format_example(command: &str) -> String {
+    const BEGIN: &str = "<!-- BEGIN PLAN FORMAT EXAMPLE -->";
+    const END: &str = "<!-- END PLAN FORMAT EXAMPLE -->";
+
+    let start = command
+        .find(BEGIN)
+        .unwrap_or_else(|| panic!("the shipped `plan` command must carry `{BEGIN}`"));
+    let end = command
+        .find(END)
+        .unwrap_or_else(|| panic!("the shipped `plan` command must carry `{END}`"));
+    let between = &command[start + BEGIN.len()..end];
+
+    // Strip the fence lines; what is inside them is plan text verbatim.
+    between
+        .lines()
+        .skip_while(|line| !line.trim_start().starts_with("```"))
+        .skip(1)
+        .take_while(|line| !line.trim_start().starts_with("```"))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// An entry ends at its first blank line, so a bulleted metadata block under
+/// the lead paragraph never reaches the executor.
+///
+/// This is [`operation_text`]'s deliberate rule — "at a blank line (the
+/// paragraph is over)" — and it is characterised here because it is the one
+/// sharp edge that fails *silently*: the prompt renders, the tick launches,
+/// and the `tests` and `doneWhen` the author wrote are simply not in the
+/// executor's hands. The shipped `/ivar-plan` command tells authors to keep
+/// everything actionable in the one paragraph; this test is why that sentence
+/// is in there, and it fails if the rule ever changes underneath it.
+#[test]
+fn an_entry_ends_at_its_first_blank_line_and_the_rest_is_dropped() {
+    let plan = "# Plan\n\
+        \n\
+        ## Operations\n\
+        \n\
+        ### metadata-drop\n\
+        - OP-META\n\
+        write_contract:\n\
+        - src/a.rs\n\
+        \n\
+        ## Operation details\n\
+        \n\
+        **OP-META** — The lead paragraph, which is what the executor is\n\
+        handed.\n\
+        \n\
+        - `tests`: this bullet is past the blank line\n\
+        - `doneWhen`: so is this one\n";
+
+    let ws = seeded_workstream("metadata-drop", &["OP-META"], &["src/a.rs"]);
+    let prompt = render(plan, &ws, &[]).unwrap();
+
+    assert!(prompt.contains("The lead paragraph, which is what the executor is handed."));
+    assert!(
+        !prompt.contains("doneWhen"),
+        "everything past the entry's first blank line is dropped — the prompt was: {prompt}"
+    );
+}
