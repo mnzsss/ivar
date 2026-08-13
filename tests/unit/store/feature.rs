@@ -89,7 +89,7 @@ fn the_written_shape_is_canonical_and_version_stamped() {
         .unwrap()
         .unwrap();
     assert!(
-        text.contains("\"version\": 1"),
+        text.contains("\"version\": 2"),
         "the store must stamp the version: {text}"
     );
     assert!(text.contains("\"branch\": \"feat/checkout\""));
