@@ -140,6 +140,17 @@ pub(crate) fn is_ancestor(
     let ancestor_id = resolve(&repository, git_dir, ancestor)?;
     let descendant_id = resolve(&repository, git_dir, descendant)?;
 
+    // `graph_descendant_of` does not consider a commit its own descendant,
+    // but `git merge-base --is-ancestor` — the command this function's own
+    // doc says it is — does: a commit is an ancestor of itself, exit 0. A
+    // branch sitting exactly at its base's tip, with no commits of its own
+    // (or freshly `rebase --onto`d there), hits this path, and reporting it
+    // as "not an ancestor" would be a false "base moved" for a legitimate
+    // state.
+    if ancestor_id == descendant_id {
+        return Ok(true);
+    }
+
     repository
         .graph_descendant_of(descendant_id, ancestor_id)
         .map_err(|source| Error::Refused {

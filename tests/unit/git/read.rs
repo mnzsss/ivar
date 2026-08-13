@@ -135,16 +135,17 @@ fn is_ancestor_false_for_sibling_branches() {
     assert!(!is_ancestor(&repo, "main", "feature").unwrap());
 }
 
-/// `git2::Repository::graph_descendant_of` does not consider a commit its
-/// own descendant, unlike the `git merge-base --is-ancestor` CLI it mirrors
-/// otherwise — this pins that behaviour so a future switch to a different
-/// git2 call surfaces the change instead of passing silently.
+/// `git merge-base --is-ancestor` — the command `is_ancestor` mirrors —
+/// considers a commit its own ancestor, exit 0. A branch sitting exactly at
+/// its base's tip, with no commits of its own, resolves both sides to the
+/// same commit; this pins that case to `true` so it is never mistaken for a
+/// moved base.
 #[test]
-fn is_ancestor_false_for_the_same_commit_on_both_sides() {
+fn is_ancestor_true_for_the_same_commit_on_both_sides() {
     let (_guard, dir) = utf8_temp_dir();
     let repo = seeded_repo(&dir.join("repo"), "main");
 
-    assert!(!is_ancestor(&repo, "HEAD", "HEAD").unwrap());
+    assert!(is_ancestor(&repo, "HEAD", "HEAD").unwrap());
 }
 
 #[test]
