@@ -123,6 +123,50 @@ pub(crate) fn list_branches(git_dir: &Utf8Path) -> Result<Vec<String>, Error> {
     Ok(branches)
 }
 
+/// Whether `ancestor` is an ancestor of `descendant` in the repository at
+/// `git_dir` — `git merge-base --is-ancestor <ancestor> <descendant>`, through
+/// `git2::Repository::graph_descendant_of`.
+///
+/// Both revisions must exist; a missing one is git's own refusal, surfaced as
+/// [`Error::Refused`] with git's own sentence — never `Ok(false)`, which would
+/// read as "not an ancestor" and hide that the revision was never there.
+pub(crate) fn is_ancestor(
+    git_dir: &Utf8Path,
+    ancestor: &str,
+    descendant: &str,
+) -> Result<bool, Error> {
+    let repository = open(git_dir)?;
+
+    let ancestor_id = resolve(&repository, git_dir, ancestor)?;
+    let descendant_id = resolve(&repository, git_dir, descendant)?;
+
+    repository
+        .graph_descendant_of(descendant_id, ancestor_id)
+        .map_err(|source| Error::Refused {
+            command: format!(
+                "git -C {git_dir} merge-base --is-ancestor {ancestor} {descendant}"
+            ),
+            detail: source.message().to_owned(),
+        })
+}
+
+/// Resolve `rev` to a commit id in `repository`, or say why it could not be —
+/// git's own sentence for a revision that does not exist.
+fn resolve(
+    repository: &git2::Repository,
+    git_dir: &Utf8Path,
+    rev: &str,
+) -> Result<git2::Oid, Error> {
+    repository
+        .revparse_single(rev)
+        .and_then(|object| object.peel_to_commit())
+        .map(|commit| commit.id())
+        .map_err(|source| Error::Refused {
+            command: format!("git -C {git_dir} rev-parse {rev}"),
+            detail: source.message().to_owned(),
+        })
+}
+
 /// Open `path` as a repository, or say clearly that it is not one.
 fn open(path: &Utf8Path) -> Result<git2::Repository, Error> {
     git2::Repository::open(path).map_err(|source| Error::NotARepository {

@@ -29,7 +29,7 @@ use crate::store::versioned::{Migration, Policy, Store};
 
 /// `feature.json`'s schema version. Matches [`Feature`]'s own constant —
 /// the type owns the number, this module just wires it into the store.
-const CURRENT_VERSION: u32 = 1;
+const CURRENT_VERSION: u32 = 2;
 
 /// `approvals.json`'s schema version.
 const APPROVALS_VERSION: u32 = 1;
@@ -119,6 +119,25 @@ pub fn board_path(layout: &Layout, name: &FeatureName) -> Utf8PathBuf {
     layout.execution_dir(name).join(BOARD_FILE)
 }
 
+/// Migrate a feature.json from v0 → v1. Like `board.json`'s own `v0_to_v1`
+/// step below, `feature.json` has shipped with `version: 1` stamped since it
+/// first existed — this step exists only to keep the chain contiguous from
+/// 0, which [`Store::new`] requires once any migration is registered.
+fn feature_v0_to_v1(value: serde_json::Value) -> Result<serde_json::Value, String> {
+    Ok(value)
+}
+
+/// Migrate a feature.json from v1 → v2. v2 adds `base: Option<BranchName>`
+/// to `Feature` and `Promotion`, both `#[serde(default)]` — a v1 file has no
+/// `base` field and deserialises it as `None` without this step's help. The
+/// step is a version stamp only, filling nothing: `store` cannot import
+/// `action`, and the feature's effective base (the declared branch, or the
+/// repo's `default_branch`) is computed from the manifest, which this
+/// module has no access to.
+fn feature_v1_to_v2(value: serde_json::Value) -> Result<serde_json::Value, String> {
+    Ok(value)
+}
+
 /// Migrate a board.json from v0 → v1. The board has never had a v0 shape:
 /// it has been written with `version: 1` since the day it shipped, like
 /// `ivar.json` itself. The step exists to keep the chain contiguous — a file
@@ -186,7 +205,10 @@ fn v1_to_v2(mut value: serde_json::Value) -> Result<serde_json::Value, String> {
 fn store(layout: &Layout, name: &FeatureName) -> Store<Feature> {
     Store::new(
         layout.feature_dir(name).join(FEATURE_FILE),
-        Vec::new(),
+        vec![
+            Migration::new(0, 1, feature_v0_to_v1),
+            Migration::new(1, 2, feature_v1_to_v2),
+        ],
         CURRENT_VERSION,
         Policy::Local,
     )

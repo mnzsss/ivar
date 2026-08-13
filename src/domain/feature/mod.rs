@@ -30,12 +30,14 @@
 //! share the name of the directory that contains it.
 
 mod approval;
+mod base;
 mod delivery;
 mod execution;
 #[path = "feature.rs"]
 mod promotion;
 
 pub use approval::{ApprovalState, Gate, GateRecord, GateState, UnknownGate};
+pub use base::effective_base;
 pub use delivery::{DeliveryAction, DeliveryPreview, DeliveryRepo, Guard};
 pub use execution::{
     ExecutionBoard, ExecutionGraph, ExecutionStatus, JournalEntry, WorkstreamDef, WorkstreamStatus,

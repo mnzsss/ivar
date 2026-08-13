@@ -7,7 +7,7 @@
 
 use super::*;
 use crate::git::exec;
-use crate::test_support::{empty_repo, seeded_repo, utf8_temp_dir};
+use crate::test_support::{empty_repo, git, seeded_repo, utf8_temp_dir};
 
 #[test]
 fn target_state_recognises_a_worktree_repo_and_a_bare_one() {
@@ -98,4 +98,66 @@ fn worktree_git_dir_of_a_linked_worktree_is_under_the_bare_repository() {
     let bare = bare.canonicalize_utf8().unwrap();
     assert!(git_dir.starts_with(&bare), "{git_dir} is not under {bare}");
     assert!(git_dir.as_str().contains("worktrees"), "was: {git_dir}");
+}
+
+#[test]
+fn is_ancestor_true_for_a_direct_parent() {
+    let (_guard, dir) = utf8_temp_dir();
+    let repo = seeded_repo(&dir.join("repo"), "main");
+    git(&repo, &["commit", "--allow-empty", "-m", "child"]);
+
+    assert!(is_ancestor(&repo, "HEAD~1", "HEAD").unwrap());
+}
+
+#[test]
+fn is_ancestor_true_for_a_distant_ancestor() {
+    let (_guard, dir) = utf8_temp_dir();
+    let repo = seeded_repo(&dir.join("repo"), "main");
+    for message in ["second", "third", "fourth", "fifth"] {
+        git(&repo, &["commit", "--allow-empty", "-m", message]);
+    }
+
+    assert!(is_ancestor(&repo, "HEAD~4", "HEAD").unwrap());
+}
+
+/// Two branches that share a root but diverged afterward: neither is
+/// reachable from the other by following parent links.
+#[test]
+fn is_ancestor_false_for_sibling_branches() {
+    let (_guard, dir) = utf8_temp_dir();
+    let repo = seeded_repo(&dir.join("repo"), "main");
+    git(&repo, &["checkout", "-b", "feature"]);
+    git(&repo, &["commit", "--allow-empty", "-m", "on feature"]);
+    git(&repo, &["checkout", "main"]);
+    git(&repo, &["commit", "--allow-empty", "-m", "on main"]);
+
+    assert!(!is_ancestor(&repo, "feature", "main").unwrap());
+    assert!(!is_ancestor(&repo, "main", "feature").unwrap());
+}
+
+/// `git2::Repository::graph_descendant_of` does not consider a commit its
+/// own descendant, unlike the `git merge-base --is-ancestor` CLI it mirrors
+/// otherwise — this pins that behaviour so a future switch to a different
+/// git2 call surfaces the change instead of passing silently.
+#[test]
+fn is_ancestor_false_for_the_same_commit_on_both_sides() {
+    let (_guard, dir) = utf8_temp_dir();
+    let repo = seeded_repo(&dir.join("repo"), "main");
+
+    assert!(!is_ancestor(&repo, "HEAD", "HEAD").unwrap());
+}
+
+#[test]
+fn is_ancestor_on_a_revision_that_does_not_exist_is_refused() {
+    let (_guard, dir) = utf8_temp_dir();
+    let repo = seeded_repo(&dir.join("repo"), "main");
+
+    let error = is_ancestor(&repo, "does-not-exist", "HEAD").expect_err("no such revision");
+
+    match error {
+        Error::Refused { detail, .. } => {
+            assert!(!detail.is_empty(), "git said nothing about why");
+        }
+        other => panic!("expected Refused, got {other:?}"),
+    }
 }
