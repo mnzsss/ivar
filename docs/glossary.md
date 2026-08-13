@@ -145,9 +145,16 @@ actually looks like, and the trade-offs. Plan: the design and the concrete
 operations that implement it.
 
 **REASONS canvas** — the structure `plan.md` is written in: Requirements,
-Entities, Approach, Structure, Operations, Norms, Safeguards. The design sections
-reference the standing sources and record only this feature's delta rather than
-restating them. *Canvas* names the format, not the artifact.
+Entities, Approach, Structure, Operations, Operation details, Norms, Safeguards.
+The design sections reference the standing sources and record only this feature's
+delta rather than restating them. *Canvas* names the format, not the artifact.
+
+Operations and Operation details are the two the machine reads: `Operations`
+maps each execution-graph workstream id (`### <id>`) to the operation ids it
+owns and the paths it may write, and `Operation details` gives each `**OP-***`
+id the text an executor is handed verbatim. `ivar feature execute tick` parses
+both to render executor prompts, and refuses to launch a workstream claiming an
+operation the plan does not back. `/ivar-plan` carries the exact shape.
 
 **Approval gate** — an explicit human decision that moves a feature through the
 lifecycle. Four exist: requirements, analysis, plan, execution graph. Each
