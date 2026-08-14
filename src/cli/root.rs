@@ -365,6 +365,10 @@ pub struct FeatureExecuteArgs {
     /// `id`/`title`/`operations`/`depends_on`/`write_contract`.
     #[arg(long)]
     pub graph_json: String,
+    /// The current Ivar session whose provider supplies defaults for
+    /// untargeted workstreams.
+    #[arg(long)]
+    pub session: Option<String>,
 }
 
 /// The `ivar feature execute` surface: verbs that create or advance a
@@ -970,10 +974,12 @@ impl From<FeatureExecuteArgs> for prepare::PrepareInput {
         let FeatureExecuteArgs {
             feature,
             graph_json,
+            session,
         } = args;
         Self {
             feature,
             graph_json,
+            session,
         }
     }
 }

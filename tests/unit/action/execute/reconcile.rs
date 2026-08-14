@@ -25,7 +25,8 @@ const GRAPH_JSON: &str = r#"{
             "title": "Implement",
             "operations": ["write-code"],
             "depends_on": [],
-            "write_contract": ["src/"]
+            "write_contract": ["src/"],
+            "provider": "claude-code"
         }
     ]
 }"#;
@@ -115,6 +116,7 @@ fn hall_with_promoted_worktree() -> (tempfile::TempDir, Utf8PathBuf) {
         PrepareInput {
             feature: "checkout".to_owned(),
             graph_json: graph.to_string(),
+            session: None,
         },
     )
     .unwrap();
@@ -213,6 +215,7 @@ fn reconcile_records_a_divergence_without_promoted_worktrees() {
         PrepareInput {
             feature: "checkout".to_owned(),
             graph_json: graph.to_string(),
+            session: None,
         },
     )
     .unwrap();

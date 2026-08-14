@@ -25,14 +25,16 @@ const GRAPH_JSON: &str = r#"{
             "title": "A",
             "operations": ["op-a1", "op-a2"],
             "depends_on": [],
-            "write_contract": ["src/a"]
+            "write_contract": ["src/a"],
+            "provider": "claude-code"
         },
         {
             "id": "ws-b",
             "title": "B",
             "operations": ["op-b1"],
             "depends_on": ["ws-a"],
-            "write_contract": ["src/b"]
+            "write_contract": ["src/b"],
+            "provider": "claude-code"
         }
     ]
 }"#;
@@ -123,6 +125,7 @@ fn paused_board() -> (tempfile::TempDir, Utf8PathBuf) {
         PrepareInput {
             feature: "checkout".to_owned(),
             graph_json: graph.to_string(),
+            session: None,
         },
     )
     .unwrap();

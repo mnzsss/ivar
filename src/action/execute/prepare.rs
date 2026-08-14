@@ -40,6 +40,7 @@ use crate::store::feature;
 use crate::store::layout::Layout;
 
 use super::super::discover_hall;
+use super::targeting;
 use crate::action::Ctx;
 
 /// What `ivar feature execute` needs.
@@ -51,6 +52,10 @@ pub struct PrepareInput {
     /// `id`/`title`/`operations`/`depends_on`/`write_contract`. Resolved
     /// against the current directory.
     pub graph_json: String,
+    /// The current Ivar session whose provider supplies defaults for
+    /// untargeted workstreams. `None` is fine when the graph targets every
+    /// workstream explicitly.
+    pub session: Option<String>,
 }
 
 /// What `ivar feature execute` did.
@@ -143,9 +148,18 @@ impl From<GraphWorkstream> for WorkstreamDef {
 ///
 /// Blocked when the feature does not exist, the feature's plan has not been
 /// written, the graph file is missing or unparseable, a board already exists
-/// — an existing board carries a journal that overwriting would destroy — or
-/// the plan does not document an operation a workstream claims (see
-/// [`require_plan_backs_the_graph`]).
+/// — an existing board carries a journal that overwriting would destroy —
+/// the child has already closed as `integrated`, a workstream's write
+/// contract reaches a locked promotion, a workstream's provider cannot be
+/// resolved (no explicit target and no caller session), the graph and the
+/// plan disagree about targeting, or the plan does not document an operation
+/// a workstream claims (see [`require_plan_backs_the_graph`]).
+///
+/// Targeting is resolved **before** the plan fingerprint is computed: the
+/// resolved `provider`/`model`/`agent` lines are written into `plan.md`, the
+/// fingerprint covers that persisted form, and the board is created from the
+/// same resolved workstreams — so the plan and the board cannot disagree
+/// about who runs what, and `tick` never re-decides it.
 pub fn prepare(ctx: &Ctx, input: PrepareInput) -> Outcome<PrepareOutcome> {
     let layout = discover_hall(ctx)?;
     let feature = FeatureName::new(input.feature)?;
@@ -166,18 +180,35 @@ pub fn prepare(ctx: &Ctx, input: PrepareInput) -> Outcome<PrepareOutcome> {
         })?;
     crate::action::feature::ensure_not_fully_integrated(&layout, &feature_record)?;
 
-    let plan_fingerprint = plan_fingerprint(&layout, &feature)?;
-    let workstreams = read_workstreams(&graph_path)?;
-    require_plan_backs_the_graph(&layout, &feature, &workstreams)?;
+    let authored = read_workstreams(&graph_path)?;
+    // The contract check runs on the *authored* graph, before the resolved
+    // plan is persisted: targeting never touches `write_contract`, so the
+    // answer is the same either way, and a blocked prepare must not leave a
+    // rewritten `plan.md` behind.
     crate::action::feature::ensure_contracts_avoid_locked_promotions(
         &layout,
         &feature_record,
-        &workstreams,
+        &authored,
     )?;
+
+    let plan_path = layout.plan_dir(&feature).join("plan.md");
+    let plan_text = fs::read_text(&plan_path)?.ok_or_else(|| plan_missing(&feature))?;
+    let resolved = targeting::resolve(
+        &layout,
+        &feature,
+        input.session.as_deref(),
+        &plan_text,
+        authored,
+    )?;
+    // Persist the resolved targeting before fingerprinting: the fingerprint
+    // must cover exactly what the board was derived from.
+    fs::write_text(&plan_path, &resolved.plan_text)?;
+    let plan_fingerprint = hash::file(&plan_path)?;
+    require_plan_backs_the_graph(&resolved.plan_text, &resolved.workstreams)?;
 
     let mut board = ExecutionBoard::new(ExecutionGraph {
         plan_fingerprint,
-        workstreams,
+        workstreams: resolved.workstreams,
     });
     // A freshly prepared board awaits human approval before any workstream
     // can tick.
@@ -248,35 +279,34 @@ fn require_no_board(layout: &Layout, feature: &FeatureName) -> Result<(), Failur
 /// the smart fetch, with the board already live — and the plan gate upstream
 /// is closed by then, so the fix is a replan. Here the board does not exist
 /// yet, nothing has been approved, and the answer is to edit `plan.md`.
+///
+/// `plan_text` is the already-resolved text (targeting lines included), not a
+/// re-read from disk: the caller persists it first and fingerprints the
+/// persisted form, so the check must run against the same content the board
+/// is derived from.
 fn require_plan_backs_the_graph(
-    layout: &Layout,
-    feature: &FeatureName,
+    plan_text: &str,
     workstreams: &[WorkstreamDef],
 ) -> Result<(), Failure> {
-    let plan = layout.plan_dir(feature).join("plan.md");
-    let plan_text = fs::read_text(&plan)?.unwrap_or_default();
     for workstream in workstreams {
-        super::prompt::render(&plan_text, workstream, &[])?;
+        super::prompt::render(plan_text, workstream, &[])?;
     }
     Ok(())
 }
 
-/// SHA-256 of `plans/<feature>/plan.md` — the fingerprint that ties the
-/// graph to the plan revision it was derived from.
-fn plan_fingerprint(layout: &Layout, feature: &FeatureName) -> Result<String, Failure> {
-    let plan = layout.plan_dir(feature).join("plan.md");
-    if !fs::is_file(&plan)? {
-        return Err(
-            Failure::blocked("execute.plan_missing", format!("`{}` does not exist", plan))
-                .expected("the feature's plan to have been written")
-                .actual("no plan.md under the feature's plan directory")
-                .fix(FixAction::safe(
-                    "plan.create_first",
-                    format!("Scaffold the plan first: `ivar plan create {feature}`."),
-                )),
-        );
-    }
-    Ok(hash::file(&plan)?)
+/// The "no plan.md under the feature's plan directory" refusal, shared by
+/// every path that needs the plan's text.
+fn plan_missing(feature: &FeatureName) -> Failure {
+    Failure::blocked(
+        "execute.plan_missing",
+        format!("the plan for `{feature}` does not exist"),
+    )
+    .expected("the feature's plan to have been written")
+    .actual("no plan.md under the feature's plan directory")
+    .fix(FixAction::safe(
+        "plan.create_first",
+        format!("Scaffold the plan first: `ivar plan create {feature}`."),
+    ))
 }
 
 /// Parse the graph JSON at `path` into the graph's workstreams. A missing

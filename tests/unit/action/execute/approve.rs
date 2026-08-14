@@ -23,14 +23,16 @@ const GRAPH_JSON: &str = r#"{
             "title": "Approval gates",
             "operations": ["add-gate-types", "wire-approve"],
             "depends_on": [],
-            "write_contract": ["src/domain/feature.rs"]
+            "write_contract": ["src/domain/feature.rs"],
+            "provider": "claude-code"
         },
         {
             "id": "ws-board",
             "title": "Execution board",
             "operations": ["add-board-types", "store-board"],
             "depends_on": ["ws-gates"],
-            "write_contract": ["src/action/execute"]
+            "write_contract": ["src/action/execute"],
+            "provider": "claude-code"
         }
     ]
 }"#;
@@ -105,6 +107,7 @@ fn seeded_board() -> (tempfile::TempDir, Utf8PathBuf) {
         PrepareInput {
             feature: "checkout".to_owned(),
             graph_json: graph.to_string(),
+            session: None,
         },
     )
     .unwrap();

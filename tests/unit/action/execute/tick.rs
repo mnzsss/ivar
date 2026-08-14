@@ -32,14 +32,16 @@ const GRAPH_JSON: &str = r#"{
             "title": "A",
             "operations": ["op-a"],
             "depends_on": [],
-            "write_contract": ["src/a"]
+            "write_contract": ["src/a"],
+            "provider": "claude-code"
         },
         {
             "id": "ws-b",
             "title": "B",
             "operations": ["op-b"],
             "depends_on": ["ws-a"],
-            "write_contract": ["src/b"]
+            "write_contract": ["src/b"],
+            "provider": "claude-code"
         }
     ]
 }"#;
@@ -112,6 +114,7 @@ fn approved_board() -> (tempfile::TempDir, Utf8PathBuf) {
         PrepareInput {
             feature: "checkout".to_owned(),
             graph_json: graph.to_string(),
+            session: None,
         },
     )
     .unwrap();
@@ -924,7 +927,8 @@ fn approved_board_with_worktree() -> (tempfile::TempDir, Utf8PathBuf) {
                 "title": "A",
                 "operations": ["op-a"],
                 "depends_on": [],
-                "write_contract": ["src/a/"]
+                "write_contract": ["src/a/"],
+                "provider": "claude-code"
             }
         ]
     }"#;
@@ -1005,6 +1009,7 @@ fn approved_board_with_worktree() -> (tempfile::TempDir, Utf8PathBuf) {
         PrepareInput {
             feature: "checkout".to_owned(),
             graph_json: graph.to_string(),
+            session: None,
         },
     )
     .unwrap();
