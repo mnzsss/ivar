@@ -83,18 +83,29 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-# A PR is keyed by (cwd, head). Its record: cwd|head|url|base|state|queue
-key="$(pwd)|$head"
-record=$(grep -F "$key|" "$GH_FAKE_STATE" | head -n 1)
+# A PR record is `cwd|head|url|base|state|queue|created_oid`. It is keyed by
+# (cwd, head); commands that carry only a URL (`pr merge`, `pr checks`,
+# `pr view`) look the record up by URL instead.
+cwd_now="$(pwd)"
+if [ -n "$head" ]; then
+  record=$(grep -F "$cwd_now|$head|" "$GH_FAKE_STATE" | head -n 1)
+else
+  record=$(grep -F "|$url|" "$GH_FAKE_STATE" | head -n 1)
+fi
 pr_url=$(printf '%s' "$record" | awk -F'|' '{print $3}')
 pr_base=$(printf '%s' "$record" | awk -F'|' '{print $4}')
 pr_state=$(printf '%s' "$record" | awk -F'|' '{print $5}')
 pr_queue=$(printf '%s' "$record" | awk -F'|' '{print $6}')
 
-# The head OID, resolved live so head movement is visible to the fake.
+# The head OID, resolved live so head movement is visible to the fake. A
+# URL-only command derives the head from the record it just looked up.
 head_oid=""
-if [ -n "$head" ] && git rev-parse --verify -q "refs/heads/$head" >/dev/null 2>&1; then
-  head_oid=$(git rev-parse "refs/heads/$head")
+lookup_head="$head"
+if [ -z "$lookup_head" ] && [ -n "$pr_url" ]; then
+  lookup_head=$(printf '%s' "$record" | awk -F'|' '{print $2}')
+fi
+if [ -n "$lookup_head" ] && git rev-parse --verify -q "refs/heads/$lookup_head" >/dev/null 2>&1; then
+  head_oid=$(git rev-parse "refs/heads/$lookup_head")
 fi
 
 # The origin the insteadOf rewrite points at — where a fake merge really lands.
@@ -128,8 +139,8 @@ case "$sub" in
     # request — the model of a merge queue processing between polls.
     if [ "$pr_state" = "QUEUED" ]; then
       pr_state="MERGED"
-      awk -F'|' -v OFS='|' -v k="$key" -v n="$pr_state" \
-        '$1"|"$2 == k { $5 = n } { print }' "$GH_FAKE_STATE" > "$GH_FAKE_STATE.tmp"
+      awk -F'|' -v OFS='|' -v u="$pr_url" -v n="$pr_state" \
+        '$3 == u { $5 = n } { print }' "$GH_FAKE_STATE" > "$GH_FAKE_STATE.tmp"
       mv "$GH_FAKE_STATE.tmp" "$GH_FAKE_STATE"
     fi
     printf '%s\n' "$(emit_pr)"
@@ -142,7 +153,10 @@ case "$sub" in
     fi
     number=$(( $(wc -l < "$GH_FAKE_STATE") + 1 ))
     pr_url="https://github.com/acme/pull/$number"
-    printf '%s|%s|%s|%s|OPEN|\n' "$key" "$pr_url" "$base" >> "$GH_FAKE_STATE"
+    # Field 7 records the head oid at creation — `--match-head-commit`
+    # compares against this, so a head that moves after the PR is opened is
+    # refused, exactly like the real `gh`.
+    printf '%s|%s|%s|%s|%s|%s|%s\n' "$cwd_now" "$head" "$pr_url" "$base" "OPEN" "" "$head_oid" >> "$GH_FAKE_STATE"
     printf '%s\n' "$pr_url"
     ;;
   "pr checks")
@@ -160,31 +174,33 @@ case "$sub" in
       printf 'no pull request found\n' >&2
       exit 1
     fi
-    if [ -n "$match_sha" ] && [ "$match_sha" != "$head_oid" ]; then
-      printf 'commit %s does not match head of branch "%s"\n' "$match_sha" "$head" >&2
+    created_oid=$(printf '%s' "$record" | awk -F'|' '{print $7}')
+    if [ -n "$match_sha" ] && [ "$match_sha" != "$created_oid" ]; then
+      printf 'commit %s does not match head of branch "%s" (created at %s)\n' "$match_sha" "$lookup_head" "$created_oid" >&2
       exit 1
     fi
     # A real merge lands in the origin, so the merged result SHA genuinely
-    # exists in the base branch's history.
+    # exists in the base branch's history. Identity is forced because the
+    # origin repo has none configured.
     git -C "$origin" checkout -q "$pr_base" 2>/dev/null || git -C "$origin" checkout -q -b "$pr_base" main
     case "$strategy" in
       --squash)
-        git -C "$origin" merge -q --squash "$head"
-        git -C "$origin" commit -q -m "fake squash merge of $head"
+        git -C "$origin" merge -q --squash "$lookup_head"
+        git -C "$origin" -c user.name="ivar fake" -c user.email="fake@ivar.invalid" commit -q -m "fake squash merge of $lookup_head"
         ;;
       --rebase)
-        git -C "$origin" rebase -q "$pr_base" "$head"
-        git -C "$origin" merge -q --ff-only "$head"
+        git -C "$origin" -c user.name="ivar fake" -c user.email="fake@ivar.invalid" rebase -q "$pr_base" "$lookup_head"
+        git -C "$origin" merge -q --ff-only "$lookup_head"
         ;;
       *)
-        git -C "$origin" merge -q --no-ff "$head" -m "fake merge of $head"
+        git -C "$origin" -c user.name="ivar fake" -c user.email="fake@ivar.invalid" merge -q --no-ff "$lookup_head" -m "fake merge of $lookup_head"
         ;;
     esac
     # Queued-then-merged: a merge request through a queue lands QUEUED, and
     # the next `pr view` observes MERGED.
     new_state="QUEUED"
-    awk -F'|' -v OFS='|' -v k="$key" -v n="$new_state" \
-      '$1"|"$2 == k { $5 = n } { print }' "$GH_FAKE_STATE" > "$GH_FAKE_STATE.tmp"
+    awk -F'|' -v OFS='|' -v u="$pr_url" -v n="$new_state" \
+      '$3 == u { $5 = n } { print }' "$GH_FAKE_STATE" > "$GH_FAKE_STATE.tmp"
     mv "$GH_FAKE_STATE.tmp" "$GH_FAKE_STATE"
     ;;
   "pr comment")
@@ -230,12 +246,18 @@ impl FakeGh {
     }
 
     /// Declare a required check on `url`: `(name, bucket, state, link)`.
+    /// Replaces any previous declaration for the same url.
     pub(crate) fn set_check(&self, url: &str, name: &str, bucket: &str, state: &str) {
+        let text = std::fs::read_to_string(&self.checks).unwrap_or_default();
+        let filtered = text
+            .lines()
+            .filter(|line| !line.starts_with(&format!("{url}|")))
+            .collect::<Vec<_>>()
+            .join("\n");
         std::fs::write(
             &self.checks,
             format!(
-                "{}\n{url}|{name}|{bucket}|{state}|https://github.com/acme/checks/{name}",
-                std::fs::read_to_string(&self.checks).unwrap()
+                "{filtered}\n{url}|{name}|{bucket}|{state}|https://github.com/acme/checks/{name}"
             ),
         )
         .unwrap();

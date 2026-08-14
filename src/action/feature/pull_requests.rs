@@ -46,9 +46,9 @@ struct GhPrRecord {
     url: String,
     #[serde(default)]
     state: String,
-    #[serde(default)]
+    #[serde(default, rename = "mergeCommit")]
     merge_commit: Option<GhOid>,
-    #[serde(default)]
+    #[serde(default, rename = "headRefOid")]
     head_ref_oid: Option<String>,
 }
 
@@ -232,7 +232,6 @@ pub(crate) fn request_merge(
     let _ = output;
     Ok(())
 }
-
 /// Observe the PR at `url` until it merges: poll `gh pr view` every
 /// [`OBSERVE_POLL_INTERVAL`] for at most [`OBSERVE_TIMEOUT`]. `MERGED`
 /// returns the PR (whose `merge_commit` is the result); `CLOSED` fails;
@@ -350,7 +349,8 @@ pub(crate) fn link_sibling_prs(pr_urls: &[String]) {
 }
 
 /// Run a `gh` command, turning a non-zero exit (or spawn failure) into a
-/// strict [`Failure`] naming the operation.
+/// strict [`Failure`] naming the operation and carrying git/gh's own
+/// diagnostic.
 fn capture(command: proc::Command, operation: &str) -> Result<String, Failure> {
     let output = proc::capture(&command)?;
     if output.success() {
@@ -358,7 +358,7 @@ fn capture(command: proc::Command, operation: &str) -> Result<String, Failure> {
     }
     Err(Failure::failed(
         "pull_requests.command_failed",
-        format!("`gh {operation}` failed"),
+        format!("`gh {operation}` failed: {}", output.diagnostic()),
     )
     .expected("gh to be installed, authenticated, and the repository reachable")
     .actual(output.diagnostic())

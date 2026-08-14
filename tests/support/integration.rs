@@ -23,6 +23,11 @@ mod shared;
 
 pub(crate) use shared::*;
 
+#[path = "fake_gh.rs"]
+mod fake_gh;
+
+pub(crate) use fake_gh::FakeGh;
+
 use assert_cmd::Command;
 use camino::Utf8Path;
 
