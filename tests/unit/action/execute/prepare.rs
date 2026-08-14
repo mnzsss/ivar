@@ -487,10 +487,18 @@ fn prepare_is_blocked_when_the_plan_does_not_document_a_claimed_operation() {
     assert_eq!(failure.code, "execute.operation_missing_from_plan");
     assert!(failure.what.contains("wire-reject"));
 
-    // And no board was written — a refused prepare leaves nothing behind.
+    // And nothing was written — a refused prepare leaves no board and no
+    // mutated plan behind (`Blocked` means nothing happened).
     let layout = Layout::at(root.clone());
     let feature = FeatureName::new("checkout").unwrap();
     assert!(ExecutionBoard::read(&layout, &feature).unwrap().is_none());
+    let plan = fs::read_text(&root.join("plans/checkout/plan.md"))
+        .unwrap()
+        .unwrap();
+    assert!(
+        !plan.contains("provider:"),
+        "a refused prepare must not have rewritten plan.md: {plan}"
+    );
 }
 
 /// The same refusal for an id the plan lists but never describes: the
@@ -685,4 +693,42 @@ fn prepare_refuses_provider_drift_between_plan_and_graph() {
     assert!(failure.what.contains("ws-gates"));
     assert!(failure.what.contains("opencode"));
     assert!(failure.what.contains("claude-code"));
+}
+
+/// Selectors authored only in the plan — `model` and `agent` with no graph
+/// counterpart — are resolved and persisted to the board beside the provider,
+/// so the board and the plan cannot disagree about who runs what and how.
+#[test]
+fn plan_authored_model_and_agent_are_persisted_to_the_board() {
+    let (_guard, root) = seeded_hall();
+    let plan_path = root.join("plans/checkout/plan.md");
+    let plan = fs::read_text(&plan_path).unwrap().unwrap().replacen(
+        "### ws-gates\n",
+        "### ws-gates\nprovider: opencode\nmodel: deepseek-chat\nagent: implementer-deepseek\n",
+        1,
+    );
+    fs::write_text(&plan_path, &plan).unwrap();
+    let graph = graph_file(&root);
+    let session = feature_session(&root, Provider::OpenCode);
+
+    let report = prepare(
+        &Ctx::new(root.clone()),
+        PrepareInput {
+            feature: "checkout".to_owned(),
+            graph_json: graph.to_string(),
+            session: Some(session),
+        },
+    )
+    .unwrap();
+
+    let board = report.value.board;
+    let gates = board
+        .graph
+        .workstreams
+        .iter()
+        .find(|ws| ws.id == "ws-gates")
+        .unwrap();
+    assert_eq!(gates.provider, Some(Provider::OpenCode));
+    assert_eq!(gates.model.as_deref(), Some("deepseek-chat"));
+    assert_eq!(gates.agent.as_deref(), Some("implementer-deepseek"));
 }
