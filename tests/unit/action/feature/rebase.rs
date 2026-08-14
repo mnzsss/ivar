@@ -331,6 +331,40 @@ fn rebase_onto_collapses_the_base_and_rebases_onto_the_new_target() {
     );
 }
 
+/// A repo `--onto` could not actually rebase keeps its old declared base —
+/// recording a target its worktree was never moved onto would leave the
+/// next rebase or delivery trusting a base the worktree does not agree with.
+#[test]
+fn rebase_onto_does_not_collapse_the_base_for_a_repo_it_could_not_rebase() {
+    let (_guard, root) = hall_with_promoted_feature_based_on(Some("develop"));
+    let ctx = Ctx::new(root.clone());
+    advance_main(&root);
+    let feature_wt = root.join(".ivar/repos/api/checkout");
+    // Uncommitted work — the repo must be skipped, not rebased.
+    std::fs::write(feature_wt.join("notes.md"), "mine\n").unwrap();
+
+    let report = rebase(
+        &ctx,
+        RebaseInput {
+            name: "checkout".to_owned(),
+            onto: Some("main".to_owned()),
+        },
+    )
+    .unwrap();
+
+    assert_eq!(report.value.repos[0].status, RebaseStatus::Skipped);
+    assert!(!report.is_clean());
+
+    let feature = Feature::read(&Layout::at(root), &FeatureName::new("checkout").unwrap())
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        feature.promotions[&RepoName::new("api").unwrap()].base,
+        Some(BranchName::new("develop").unwrap()),
+        "the declared base must stay `develop` — the worktree was never rebased onto `main`"
+    );
+}
+
 #[test]
 fn the_human_surface_lists_per_repo_status() {
     let outcome = RebaseOutcome {

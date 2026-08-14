@@ -370,7 +370,7 @@ Rebase every promoted repo's worktree onto its effective base. A dirty worktree 
 
 | flag | value | default | description |
 | --- | --- | --- | --- |
-| `--onto` | `<ONTO>` |  | Collapse the base: rewrite every promoted repo's declared base to this branch, then rebase each worktree onto it. The verb for once a feature's own base has landed |
+| `--onto` | `<ONTO>` |  | Collapse the base: rebase every promoted repo onto this branch, and record it as the declared base for each repo that lands there. The verb for once a feature's own base has landed |
 
 
 ##### `ivar feature review`

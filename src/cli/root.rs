@@ -443,9 +443,9 @@ pub struct FeatureDeleteArgs {
 pub struct FeatureRebaseArgs {
     /// The feature to rebase.
     pub name: String,
-    /// Collapse the base: rewrite every promoted repo's declared base to
-    /// this branch, then rebase each worktree onto it. The verb for once a
-    /// feature's own base has landed.
+    /// Collapse the base: rebase every promoted repo onto this branch, and
+    /// record it as the declared base for each repo that lands there. The
+    /// verb for once a feature's own base has landed.
     #[arg(long)]
     pub onto: Option<String>,
 }
