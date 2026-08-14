@@ -41,7 +41,7 @@ mod promotion;
 
 pub use approval::{ApprovalState, Gate, GateRecord, GateState, UnknownGate};
 pub use base::effective_base;
-pub use delivery::{DeliveryAction, DeliveryPreview, DeliveryRepo, Guard};
+pub use delivery::{DeliveryAction, DeliveryPreview, DeliveryRepo, DeliveryTreeBlocker, Guard};
 pub use execution::{
     ExecutionBoard, ExecutionGraph, ExecutionStatus, JournalEntry, WorkstreamDef, WorkstreamStatus,
     WriteContract,
