@@ -506,9 +506,26 @@ pub fn tick(ctx: &Ctx, input: TickInput) -> Outcome<TickOutcome> {
         if !to_launch.contains(&ws.id) {
             continue;
         }
-        let provider = ws
-            .provider
-            .unwrap_or_else(|| manifest.providers().default_provider());
+        // Newly prepared boards carry an explicit provider for every
+        // workstream (resolved from the graph/plan/caller session at prepare
+        // time). A board with `None` predates that — a legacy board — and the
+        // hall-default fallback is warned about, never silent, so a workstream
+        // nobody targeted never quietly runs on the wrong harness.
+        let provider = match ws.provider {
+            Some(provider) => provider,
+            None => {
+                warnings.push(Warning::new(
+                    "execute.legacy_provider_fallback",
+                    ws.id.clone(),
+                    format!(
+                        "workstream `{}` comes from a legacy board with no recorded provider; using hall default `{}`. Re-prepare the board to persist targeting in plan.md and board.json.",
+                        ws.id,
+                        manifest.providers().default_provider(),
+                    ),
+                ));
+                manifest.providers().default_provider()
+            }
+        };
         let harness = Harness::for_provider(provider)?;
         if !harness.capabilities().supports_questions {
             cannot_ask.push((ws.id.clone(), harness.binary()));

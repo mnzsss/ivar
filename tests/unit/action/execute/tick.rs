@@ -20,6 +20,8 @@ use crate::action::hall::{self, InitInput};
 use crate::action::plan::create::{self as plan_create, CreateInput as PlanCreateInput};
 use crate::domain::feature::WriteContract;
 use crate::domain::name::RepoName;
+use crate::domain::provider::Provider;
+use crate::domain::session::SessionState;
 use crate::error::Status;
 use crate::infra::fs;
 use crate::store::layout::Layout;
@@ -133,6 +135,212 @@ fn persisted(root: &Utf8PathBuf) -> ExecutionBoard {
     let layout = Layout::at(root.clone());
     let feature = FeatureName::new("checkout").unwrap();
     ExecutionBoard::read(&layout, &feature).unwrap().unwrap()
+}
+
+// -- session provider targeting -------------------------------------------
+
+/// A provider-less graph for the session-targeting regression: one workstream
+/// with no dependencies, so the first tick launches it.
+const SESSION_GRAPH_JSON: &str = r#"{
+    "workstreams": [
+        {
+            "id": "ws-a",
+            "title": "A",
+            "operations": ["op-a"],
+            "depends_on": [],
+            "write_contract": ["src/a"]
+        }
+    ]
+}"#;
+
+/// The plan backing `SESSION_GRAPH_JSON`, with the operation details `tick`
+/// renders prompts from.
+const SESSION_PLAN_TEXT: &str = "# Plan\n\
+    \n\
+    ## Operation details\n\
+    \n\
+    **op-a** — Do the first thing.\n\
+    \n\
+    ## Operations\n\
+    \n\
+    ### ws-a\n\
+    - op-a\n\
+    write_contract:\n\
+    - src/a\n";
+
+/// A hall whose default provider is Claude Code, with a feature, a plan, and
+/// a provider-less graph — the setup the session-targeting regression test
+/// prepares from an OpenCode session.
+fn board_ready_for_session_targeting() -> (tempfile::TempDir, Utf8PathBuf) {
+    let (guard, root) = hall_root();
+    let ctx = Ctx::new(root.clone());
+    hall::init(
+        &ctx,
+        InitInput {
+            path: Utf8PathBuf::from("."),
+            name: Some("acme".to_owned()),
+            provider: None,
+        },
+    )
+    .unwrap();
+    feature_create::create(
+        &ctx,
+        FeatureCreateInput {
+            name: "checkout".to_owned(),
+            branch: None,
+            base: None,
+            parent: None,
+            via: None,
+            strategy: None,
+        },
+    )
+    .unwrap();
+    plan_create::create(
+        &ctx,
+        PlanCreateInput {
+            feature: "checkout".to_owned(),
+        },
+    )
+    .unwrap();
+    fs::write_text(&root.join("plans/checkout/plan.md"), SESSION_PLAN_TEXT).unwrap();
+    let graph = root.join("graph.json");
+    fs::write_text(&graph, SESSION_GRAPH_JSON).unwrap();
+    (guard, root)
+}
+
+/// Create a real feature-session record without spawning a provider: a view
+/// dir under the feature with a written `state.json`. Returns the session id.
+fn feature_session(root: &Utf8PathBuf, provider: Provider) -> String {
+    let layout = Layout::at(root.clone());
+    let feature = FeatureName::new("checkout").unwrap();
+    let id = SessionId::new(uuid::Uuid::new_v4().to_string()).unwrap();
+    let view_dir = layout.feature_session(&feature, &id);
+    fs::ensure_dir(&view_dir).unwrap();
+
+    let mut state = SessionState::new(provider, "2026-08-14T00:00:00.000000000Z");
+    state.bind(feature, "2026-08-14T00:00:00.000000000Z");
+    state.write(&view_dir).unwrap();
+    id.to_string()
+}
+
+/// The root-cause path, end to end: a hall whose default is Claude Code
+/// prepares from an OpenCode session with a provider-less graph, and `tick`
+/// launches the workstream through `opencode` — never the hall default. Only
+/// an `opencode` stub is on PATH; a regression to the hall default would
+/// spawn `claude` instead and the sentinel would never appear.
+#[test]
+fn tick_uses_the_provider_persisted_from_the_prepare_session() {
+    let (_guard, root) = board_ready_for_session_targeting();
+    let ctx = Ctx::new(root.clone());
+    let session = feature_session(&root, Provider::OpenCode);
+
+    prepare_action::prepare(
+        &ctx,
+        PrepareInput {
+            feature: "checkout".to_owned(),
+            graph_json: root.join("graph.json").to_string(),
+            session: Some(session),
+        },
+    )
+    .unwrap();
+    approve_action::approve(
+        &ctx,
+        ApproveInput {
+            feature: "checkout".to_owned(),
+        },
+    )
+    .unwrap();
+
+    let (_sentinel_guard, sentinel_dir) = crate::test_support::utf8_temp_dir();
+    let sentinel = sentinel_dir.join("opencode-ran");
+    // `cat >/dev/null` consumes stdin: OpenCode prompts are delivered there.
+    let _stub = PathStub::install("opencode", &format!(
+        "cat >/dev/null\ntouch '{sentinel}'\n"
+    ));
+
+    tick(
+        &ctx,
+        TickInput {
+            feature: "checkout".to_owned(),
+        },
+    )
+    .unwrap();
+
+    assert!(fs::is_file(&sentinel).unwrap());
+    let board = persisted(&root);
+    assert_eq!(board.graph.workstreams[0].provider, Some(Provider::OpenCode));
+    let session_id = board.sessions.keys().next().unwrap();
+    let view = Layout::at(root.clone()).feature_session(
+        &FeatureName::new("checkout").unwrap(),
+        &SessionId::new(session_id.as_str()).unwrap(),
+    );
+    assert_eq!(
+        SessionState::read(&view).unwrap().unwrap().provider(),
+        Provider::OpenCode
+    );
+}
+
+/// A legacy board — one whose workstreams carry no recorded provider — still
+/// runs, but the hall-default fallback is warned about, never silent.
+#[test]
+fn tick_warns_when_a_legacy_board_falls_back_to_the_hall_default() {
+    let (_guard, root) = approved_board();
+    let ctx = Ctx::new(root.clone());
+    // Clear the recorded providers behind ivar's back — a board prepared
+    // before provider targeting existed.
+    {
+        let layout = Layout::at(root.clone());
+        let feature = FeatureName::new("checkout").unwrap();
+        let mut board = ExecutionBoard::read(&layout, &feature).unwrap().unwrap();
+        for ws in &mut board.graph.workstreams {
+            ws.provider = None;
+        }
+        board.write(&layout, &feature).unwrap();
+    }
+
+    let _stub = PathStub::install("claude", "exit 0");
+    let report = tick(
+        &ctx,
+        TickInput {
+            feature: "checkout".to_owned(),
+        },
+    )
+    .unwrap();
+
+    assert!(
+        report
+            .warnings
+            .iter()
+            .any(|warning| warning.code == "execute.legacy_provider_fallback"),
+        "expected a legacy fallback warning, got {:?}",
+        report.warnings
+    );
+}
+
+/// A freshly prepared board carries an explicit provider for every
+/// workstream, so a tick emits no legacy fallback warning.
+#[test]
+fn a_newly_prepared_board_emits_no_legacy_fallback_warning() {
+    let (_guard, root) = approved_board();
+    let ctx = Ctx::new(root.clone());
+
+    let _stub = PathStub::install("claude", "exit 0");
+    let report = tick(
+        &ctx,
+        TickInput {
+            feature: "checkout".to_owned(),
+        },
+    )
+    .unwrap();
+
+    assert!(
+        !report
+            .warnings
+            .iter()
+            .any(|warning| warning.code == "execute.legacy_provider_fallback"),
+        "a newly prepared board must not warn about a legacy fallback: {:?}",
+        report.warnings
+    );
 }
 
 #[test]
