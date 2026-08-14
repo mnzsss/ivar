@@ -187,9 +187,9 @@ pub(crate) struct ResolvedTarget {
 pub(crate) fn write_targets(text: &str, targets: &[ResolvedTarget]) -> Result<String, Failure> {
     let mut out: Vec<String> = Vec::new();
     let mut in_operations = false;
-    // The id of the block whose targeting lines are being replaced, while the
-    // block is open.
-    let mut rewriting: Option<&str> = None;
+    // Whether the current workstream block is being rewritten, so its own
+    // targeting lines are dropped in favour of the resolved ones.
+    let mut rewriting = false;
     let mut written: Vec<&str> = Vec::with_capacity(targets.len());
 
     for line in text.lines() {
@@ -198,7 +198,7 @@ pub(crate) fn write_targets(text: &str, targets: &[ResolvedTarget]) -> Result<St
             let title = heading.trim_start_matches('#').trim();
             if title.eq_ignore_ascii_case("operations") {
                 in_operations = true;
-                rewriting = None;
+                rewriting = false;
                 out.push(line.to_owned());
                 continue;
             }
@@ -207,15 +207,15 @@ pub(crate) fn write_targets(text: &str, targets: &[ResolvedTarget]) -> Result<St
                 out.push(line.to_owned());
                 push_target_lines(&mut out, target);
                 written.push(target.id.as_str());
-                rewriting = Some(target.id.as_str());
+                rewriting = true;
                 continue;
             }
-            rewriting = None;
+            rewriting = false;
             out.push(line.to_owned());
             continue;
         }
 
-        if rewriting.is_some()
+        if rewriting
             && (trimmed.starts_with("provider:")
                 || trimmed.starts_with("model:")
                 || trimmed.starts_with("agent:"))
