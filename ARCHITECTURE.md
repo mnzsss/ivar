@@ -66,7 +66,10 @@ src/
                    the prompt by tick) and tick/ — the launch orchestration in
                    mod.rs, the per-workstream worker thread (session
                    materialisation + spawn + stream drain) in launch.rs, and
-                   the event-folding onto the board in events.rs
+                   the event-folding onto the board in events.rs. Shared
+                   internals: plan_ops (the Operations parser both prompt and
+                   replan use) and targeting (session-provider resolution at
+                   prepare)
     session/       start · connect · conversion · stop · prune · relay, plus
                    view (the shared View Dir materialisation: repo symlinks,
                    per-session harness config, the projected plan, the

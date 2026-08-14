@@ -177,8 +177,11 @@ pub(crate) struct ResolvedTarget {
 
 /// Rewrite targeting metadata into `text`'s `## Operations` section.
 ///
-/// For every target, the matching `### <id>` heading is followed by the
-/// resolved lines in stable order — `provider`, `model`, `agent` — and any
+/// Only a level-two `## Operations` heading opens the section, and only a
+/// level-three `### <id>` heading whose text matches a target exactly is a
+/// workstream block — prose headings of other levels are never rewritten.
+/// For every target, the matching heading is followed by the resolved lines
+/// in stable order — `provider`, `model`, `agent` — and any
 /// `provider:`/`model:`/`agent:` lines already in that block are removed, so
 /// the resolved value is the only one that survives. Everything else in the
 /// plan is preserved byte for byte, and the file's final newline state is
@@ -194,25 +197,28 @@ pub(crate) fn write_targets(text: &str, targets: &[ResolvedTarget]) -> Result<St
 
     for line in text.lines() {
         let trimmed = line.trim();
-        if let Some(heading) = trimmed.strip_prefix('#') {
-            let title = heading.trim_start_matches('#').trim();
-            if title.eq_ignore_ascii_case("operations") {
-                in_operations = true;
-                rewriting = false;
-                out.push(line.to_owned());
-                continue;
-            }
-            if in_operations && let Some(target) = targets.iter().find(|target| target.id == title)
-            {
-                out.push(line.to_owned());
-                push_target_lines(&mut out, target);
-                written.push(target.id.as_str());
-                rewriting = true;
-                continue;
-            }
+        if let Some(title) = trimmed.strip_prefix("## ")
+            && title.trim().eq_ignore_ascii_case("operations")
+        {
+            in_operations = true;
             rewriting = false;
             out.push(line.to_owned());
             continue;
+        }
+        if in_operations
+            && let Some(title) = trimmed.strip_prefix("### ")
+            && let Some(target) = targets.iter().find(|target| target.id == title.trim())
+        {
+            out.push(line.to_owned());
+            push_target_lines(&mut out, target);
+            written.push(target.id.as_str());
+            rewriting = true;
+            continue;
+        }
+        if trimmed.starts_with('#') {
+            // Any other heading — including a `##` sibling or a `###` block
+            // that is not a target — closes the current workstream block.
+            rewriting = false;
         }
 
         if rewriting

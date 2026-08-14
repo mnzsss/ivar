@@ -142,7 +142,7 @@ fn write_targets_replaces_existing_targeting_lines_in_the_block() {
     assert!(!rewritten.contains("old-model"));
 }
 
-/// A target with no matching `###` heading in the Operations section is a
+/// A target with no matching heading in the Operations section is a
 /// refusal, not a silent drop — the plan and the graph must name the same
 /// workstreams.
 #[test]
@@ -159,4 +159,38 @@ fn write_targets_refuses_a_target_with_no_matching_heading() {
 
     assert_eq!(failure.code, "execute.plan_workstream_missing");
     assert!(failure.what.contains("ws-ghost"));
+}
+
+/// Only a level-two `## Operations` heading opens the section — a heading of
+/// another level that merely mentions "Operations" must never be rewritten.
+#[test]
+fn write_targets_does_not_enter_a_wrong_level_operations_heading() {
+    let plan = "# Plan\n\n# Operations\n\n### ws-a\n- op-a\n";
+    let targets = vec![ResolvedTarget {
+        id: "ws-a".to_owned(),
+        provider: Provider::OpenCode,
+        model: None,
+        agent: None,
+    }];
+
+    let failure = write_targets(plan, &targets).unwrap_err();
+
+    assert_eq!(failure.code, "execute.plan_workstream_missing");
+}
+
+/// Only a level-three `### <id>` heading matches a target — a deeper or
+/// shallower heading of the same text is not the workstream block.
+#[test]
+fn write_targets_requires_an_exact_level_three_workstream_heading() {
+    let plan = "# Plan\n\n## Operations\n\n#### ws-a\n- op-a\n";
+    let targets = vec![ResolvedTarget {
+        id: "ws-a".to_owned(),
+        provider: Provider::OpenCode,
+        model: None,
+        agent: None,
+    }];
+
+    let failure = write_targets(plan, &targets).unwrap_err();
+
+    assert_eq!(failure.code, "execute.plan_workstream_missing");
 }
