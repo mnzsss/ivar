@@ -273,7 +273,7 @@ fn replan_is_blocked_when_the_plan_path_does_not_exist() {
 
 #[test]
 fn operations_from_plan_parses_ids_operations_and_write_contracts() {
-    let parsed = operations_from_plan(REVISED_PLAN);
+    let parsed = operations_from_plan(REVISED_PLAN).unwrap();
 
     assert_eq!(parsed.len(), 2);
     assert_eq!(parsed[0].id, "ws-gates");
@@ -290,5 +290,7 @@ fn operations_from_plan_parses_ids_operations_and_write_contracts() {
 
     // A plan with no Operations section parses to nothing — and every
     // board workstream therefore counts as affected.
-    assert!(operations_from_plan("# Plan\n\nprose only\n").is_empty());
+    assert!(operations_from_plan("# Plan\n\nprose only\n")
+        .unwrap()
+        .is_empty());
 }

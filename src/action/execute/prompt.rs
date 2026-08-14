@@ -77,7 +77,7 @@ pub fn render(
     workstream: &WorkstreamDef,
     replies: &[String],
 ) -> Result<String, Failure> {
-    let plan_workstreams = operations_from_plan(plan_text);
+    let plan_workstreams = operations_from_plan(plan_text)?;
     let owned = plan_workstreams
         .iter()
         .find(|entry| entry.id == workstream.id);

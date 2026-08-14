@@ -399,7 +399,7 @@ fn shipped_plan_command_documents_the_format_the_executor_parses() {
 
     let example = plan_format_example(plan_command.content);
 
-    let parsed = operations_from_plan(&example);
+    let parsed = operations_from_plan(&example).unwrap();
 
     // The example must parse to a workstream with its ids and its write
     // contract — the three things `prepare`'s graph has to agree with.
