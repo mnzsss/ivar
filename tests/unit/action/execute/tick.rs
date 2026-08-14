@@ -254,9 +254,7 @@ fn tick_uses_the_provider_persisted_from_the_prepare_session() {
     let (_sentinel_guard, sentinel_dir) = crate::test_support::utf8_temp_dir();
     let sentinel = sentinel_dir.join("opencode-ran");
     // `cat >/dev/null` consumes stdin: OpenCode prompts are delivered there.
-    let _stub = PathStub::install("opencode", &format!(
-        "cat >/dev/null\ntouch '{sentinel}'\n"
-    ));
+    let _stub = PathStub::install("opencode", &format!("cat >/dev/null\ntouch '{sentinel}'\n"));
 
     tick(
         &ctx,
@@ -268,7 +266,10 @@ fn tick_uses_the_provider_persisted_from_the_prepare_session() {
 
     assert!(fs::is_file(&sentinel).unwrap());
     let board = persisted(&root);
-    assert_eq!(board.graph.workstreams[0].provider, Some(Provider::OpenCode));
+    assert_eq!(
+        board.graph.workstreams[0].provider,
+        Some(Provider::OpenCode)
+    );
     let session_id = board.sessions.keys().next().unwrap();
     let view = Layout::at(root.clone()).feature_session(
         &FeatureName::new("checkout").unwrap(),

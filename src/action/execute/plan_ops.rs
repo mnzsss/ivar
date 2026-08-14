@@ -153,7 +153,9 @@ fn non_empty_target(field: &str, workstream: &str, value: &str) -> Result<Option
             "execute.plan_target_empty",
             format!("workstream `{workstream}` has an empty `{field}:` value"),
         )
-        .expected(format!("a non-empty {field} selector, or no `{field}:` line"))
+        .expected(format!(
+            "a non-empty {field} selector, or no `{field}:` line"
+        ))
         .actual("an empty value"));
     }
     Ok(Some(value.to_owned()))
@@ -200,14 +202,13 @@ pub(crate) fn write_targets(text: &str, targets: &[ResolvedTarget]) -> Result<St
                 out.push(line.to_owned());
                 continue;
             }
-            if in_operations {
-                if let Some(target) = targets.iter().find(|target| target.id == title) {
-                    out.push(line.to_owned());
-                    push_target_lines(&mut out, target);
-                    written.push(target.id.as_str());
-                    rewriting = Some(target.id.as_str());
-                    continue;
-                }
+            if in_operations && let Some(target) = targets.iter().find(|target| target.id == title)
+            {
+                out.push(line.to_owned());
+                push_target_lines(&mut out, target);
+                written.push(target.id.as_str());
+                rewriting = Some(target.id.as_str());
+                continue;
             }
             rewriting = None;
             out.push(line.to_owned());
@@ -226,7 +227,10 @@ pub(crate) fn write_targets(text: &str, targets: &[ResolvedTarget]) -> Result<St
         out.push(line.to_owned());
     }
 
-    if let Some(missing) = targets.iter().find(|target| !written.contains(&target.id.as_str())) {
+    if let Some(missing) = targets
+        .iter()
+        .find(|target| !written.contains(&target.id.as_str()))
+    {
         return Err(Failure::blocked(
             "execute.plan_workstream_missing",
             format!(

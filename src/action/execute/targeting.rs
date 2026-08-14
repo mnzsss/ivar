@@ -35,8 +35,8 @@ use crate::domain::provider::Provider;
 use crate::error::{Failure, FixAction};
 use crate::store::layout::Layout;
 
-use super::plan_ops::{self, ResolvedTarget};
 use super::super::session::lookup;
+use super::plan_ops::{self, ResolvedTarget};
 
 /// The synchronized result of targeting resolution: workstreams every one of
 /// which carries an explicit `provider`, and the plan text with the same
@@ -64,7 +64,9 @@ pub(crate) fn resolve(
     let mut merged = Vec::with_capacity(workstreams.len());
     let mut needs_caller = false;
     for workstream in &workstreams {
-        let plan_entry = plan_workstreams.iter().find(|entry| entry.id == workstream.id);
+        let plan_entry = plan_workstreams
+            .iter()
+            .find(|entry| entry.id == workstream.id);
         let provider = merge_field(
             "provider",
             &workstream.id,
@@ -121,7 +123,12 @@ pub(crate) fn resolve(
 /// Merge one targeting field from the graph and the plan. Both carrying
 /// different values is a refusal — the two artifacts must not drift silently;
 /// otherwise the value that is present wins.
-fn merge_field<T>(field: &str, workstream: &str, graph: Option<T>, plan: Option<T>) -> Result<Option<T>, Failure>
+fn merge_field<T>(
+    field: &str,
+    workstream: &str,
+    graph: Option<T>,
+    plan: Option<T>,
+) -> Result<Option<T>, Failure>
 where
     T: PartialEq + std::fmt::Display,
 {

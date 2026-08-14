@@ -568,13 +568,15 @@ fn prepare_inherits_the_caller_sessions_provider_and_persists_it() {
     )
     .unwrap();
 
-    assert!(report
-        .value
-        .board
-        .graph
-        .workstreams
-        .iter()
-        .all(|ws| ws.provider == Some(Provider::OpenCode)));
+    assert!(
+        report
+            .value
+            .board
+            .graph
+            .workstreams
+            .iter()
+            .all(|ws| ws.provider == Some(Provider::OpenCode))
+    );
     let plan = fs::read_text(&root.join("plans/checkout/plan.md"))
         .unwrap()
         .unwrap();
@@ -623,7 +625,10 @@ fn an_explicit_workstream_provider_overrides_the_session_provider() {
         Some(Provider::ClaudeCode)
     );
     assert!(persisted_plan.contains("### ws-gates\nprovider: claude-code"));
-    assert_eq!(board.graph.workstreams[1].provider, Some(Provider::OpenCode));
+    assert_eq!(
+        board.graph.workstreams[1].provider,
+        Some(Provider::OpenCode)
+    );
 }
 
 /// A provider-less graph with no caller session is refused with a structured

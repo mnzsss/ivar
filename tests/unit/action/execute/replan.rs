@@ -293,7 +293,9 @@ fn operations_from_plan_parses_ids_operations_and_write_contracts() {
 
     // A plan with no Operations section parses to nothing — and every
     // board workstream therefore counts as affected.
-    assert!(operations_from_plan("# Plan\n\nprose only\n")
-        .unwrap()
-        .is_empty());
+    assert!(
+        operations_from_plan("# Plan\n\nprose only\n")
+            .unwrap()
+            .is_empty()
+    );
 }
