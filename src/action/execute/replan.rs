@@ -166,7 +166,7 @@ pub fn replan(ctx: &Ctx, input: ReplanInput) -> Outcome<ReplanOutcome> {
         }));
     }
 
-    let revised = operations_from_plan(&plan_text);
+    let revised = operations_from_plan(&plan_text)?;
     let affected: Vec<String> = board
         .graph
         .workstreams

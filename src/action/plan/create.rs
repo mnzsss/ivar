@@ -56,8 +56,14 @@ File and module organization.
 
 Each `###` heading is a workstream id from the execution graph, byte for byte —
 never a phase or a cluster. Its bullets are operation ids and nothing else.
+Targeting lines are optional while authoring: `provider` names the harness the
+workstream runs on and becomes explicit before approval, while `model` and
+`agent` may be omitted to use the provider's defaults.
 
 ### <workstream-id>
+provider: opencode
+model: provider/model
+agent: agent-name
 - OP-<SLUG>
 write_contract:
 - path/it/may/write.rs
