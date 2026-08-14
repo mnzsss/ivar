@@ -16,7 +16,8 @@ use crate::action::execute::{
     tick as execute_tick,
 };
 use crate::action::feature::{
-    close, create, delete, deliver, demote, promote, rebase, reparent, review, status, view,
+    close, create, delete, deliver, demote, integrate, promote, rebase, reparent, review, status,
+    view,
 };
 use crate::action::hall::InitInput;
 use crate::action::plan::approve as plan_approve;
@@ -225,6 +226,11 @@ pub enum FeatureCommand {
     /// Show one feature in detail: every promoted repo and its state, and —
     /// with `--recursive` — its whole subtree's health.
     Status(FeatureStatusArgs),
+    /// Integrate a child into its immediate parent, leaves first: each
+    /// promoted repo's work lands on the parent's branch, durably and
+    /// resumably. `--via`/`--strategy` override the resolved policy for the
+    /// run; after the first receipt the policy is frozen.
+    Integrate(FeatureIntegrateArgs),
     /// Move a still-pristine child under a different parent, updating its
     /// parent and derived base in one record write. Refused once any
     /// promotion, plan, execution, session, receipt, close record, or
@@ -286,6 +292,21 @@ pub struct FeatureCreateArgs {
     /// This feature's integration strategy override: `squash`, `merge`, or
     /// `rebase`. Omitted, the hall default (or the embedded `squash`)
     /// applies. Persisted at creation.
+    #[arg(long)]
+    pub strategy: Option<String>,
+}
+
+/// Arguments for `ivar feature integrate`.
+#[derive(Debug, Args)]
+pub struct FeatureIntegrateArgs {
+    /// The child feature to integrate.
+    pub feature: String,
+    /// The via override for this run: `pr` or `local`. Ignored once the
+    /// first receipt froze the policy.
+    #[arg(long)]
+    pub via: Option<String>,
+    /// The strategy override for this run: `squash`, `merge`, or `rebase`.
+    /// Ignored once the first receipt froze the policy.
     #[arg(long)]
     pub strategy: Option<String>,
 }
@@ -919,6 +940,21 @@ impl From<FeatureStatusArgs> for status::StatusInput {
     fn from(args: FeatureStatusArgs) -> Self {
         let FeatureStatusArgs { feature, recursive } = args;
         Self { feature, recursive }
+    }
+}
+
+impl From<FeatureIntegrateArgs> for integrate::IntegrateInput {
+    fn from(args: FeatureIntegrateArgs) -> Self {
+        let FeatureIntegrateArgs {
+            feature,
+            via,
+            strategy,
+        } = args;
+        Self {
+            feature,
+            via,
+            strategy,
+        }
     }
 }
 

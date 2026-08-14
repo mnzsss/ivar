@@ -198,6 +198,45 @@ fn feature_status_accepts_recursive() {
 }
 
 #[test]
+fn feature_integrate_accepts_via_and_strategy() {
+    let cli = Cli::try_parse_from([
+        "ivar",
+        "feature",
+        "integrate",
+        "child",
+        "--via",
+        "pr",
+        "--strategy",
+        "rebase",
+    ])
+    .unwrap();
+
+    match cli.command {
+        Command::Feature(FeatureCommand::Integrate(args)) => {
+            assert_eq!(args.feature, "child");
+            assert_eq!(args.via.as_deref(), Some("pr"));
+            assert_eq!(args.strategy.as_deref(), Some("rebase"));
+        }
+        other => panic!("expected Feature(Integrate), got {other:?}"),
+    }
+}
+
+#[test]
+fn feature_integrate_args_convert_into_integrate_input() {
+    let args = FeatureIntegrateArgs {
+        feature: "child".to_owned(),
+        via: Some("pr".to_owned()),
+        strategy: Some("merge".to_owned()),
+    };
+
+    let input: crate::action::feature::integrate::IntegrateInput = args.into();
+
+    assert_eq!(input.feature, "child");
+    assert_eq!(input.via.as_deref(), Some("pr"));
+    assert_eq!(input.strategy.as_deref(), Some("merge"));
+}
+
+#[test]
 fn feature_status_args_convert_into_status_input() {
     let args = FeatureStatusArgs {
         feature: "parent".to_owned(),

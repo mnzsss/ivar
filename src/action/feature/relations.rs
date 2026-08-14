@@ -35,7 +35,7 @@ use super::verification;
 /// shape (with `depth`) is what lets a script read the tree without a
 /// recursive JSON schema parser.
 #[derive(Debug, Clone, Serialize)]
-pub(crate) struct TreeEntry {
+pub struct TreeEntry {
     /// The feature.
     pub feature: FeatureName,
     /// Its parent, if it is a child.

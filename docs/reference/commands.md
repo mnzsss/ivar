@@ -230,6 +230,20 @@ Show one feature in detail: every promoted repo and its state, and — with `--r
 | `--recursive` |  |  | Render the feature's whole subtree — itself and every descendant, in deterministic pre-order — with each feature's derived state, repos, and blockers |
 
 
+##### `ivar feature integrate`
+
+Integrate a child into its immediate parent, leaves first: each promoted repo's work lands on the parent's branch, durably and resumably. `--via`/`--strategy` override the resolved policy for the run; after the first receipt the policy is frozen
+
+| argument | required | description |
+| --- | --- | --- |
+| `feature` | yes | The child feature to integrate |
+
+| flag | value | default | description |
+| --- | --- | --- | --- |
+| `--via` | `<VIA>` |  | The via override for this run: `pr` or `local`. Ignored once the first receipt froze the policy |
+| `--strategy` | `<STRATEGY>` |  | The strategy override for this run: `squash`, `merge`, or `rebase`. Ignored once the first receipt froze the policy |
+
+
 ##### `ivar feature reparent`
 
 Move a still-pristine child under a different parent, updating its parent and derived base in one record write. Refused once any promotion, plan, execution, session, receipt, close record, or descendant exists

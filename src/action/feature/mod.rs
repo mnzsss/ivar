@@ -19,6 +19,7 @@ pub mod create;
 pub mod delete;
 pub mod deliver;
 pub mod demote;
+pub mod integrate;
 mod lifecycle;
 pub mod list;
 mod mutation;
@@ -38,5 +39,5 @@ pub mod view;
 // reaching into this module's internals. See `mutation` for the scopes.
 pub(crate) use mutation::{
     ensure_contracts_avoid_locked_promotions, ensure_not_fully_integrated,
-    ensure_promotion_mutable, ensure_structure_mutable, ensure_unrestricted_session_allowed,
+    ensure_unrestricted_session_allowed,
 };

@@ -30,8 +30,8 @@ use ivar::action::execute::{
     tick as execute_tick,
 };
 use ivar::action::feature::{
-    close, create, delete, deliver, demote, list as feature_list, promote, prune as feature_prune,
-    rebase, reparent, review, status, view,
+    close, create, delete, deliver, demote, integrate, list as feature_list, promote,
+    prune as feature_prune, rebase, reparent, review, status, view,
 };
 use ivar::action::hall;
 use ivar::action::plan::approve::{self as plan_approve};
@@ -169,6 +169,12 @@ fn main() -> ExitCode {
             ),
             FeatureCommand::Reparent(args) => respond(
                 reparent::reparent(&ctx, args.into()),
+                json,
+                &mut stdout,
+                &mut stderr,
+            ),
+            FeatureCommand::Integrate(args) => respond(
+                integrate::integrate(&ctx, args.into()),
                 json,
                 &mut stdout,
                 &mut stderr,
