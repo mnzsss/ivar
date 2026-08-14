@@ -393,6 +393,25 @@ fn execute_checks_relation_context_after_every_workstream_is_terminal() {
     );
 }
 
+/// `/ivar-execute` runs only from an identifiable feature session: it reads
+/// the session's provider from `state.json`, persists the resolved targeting
+/// into `plan.md`, and passes the session id to `prepare` via `--session` so
+/// untargeted workstreams inherit the caller's provider.
+#[test]
+fn execute_requires_the_session_and_passes_it_to_prepare() {
+    let content = embedded("execute");
+
+    assert!(content.contains("IVAR_SESSION_ID"), "was: {content}");
+    assert!(content.contains("state.json"), "was: {content}");
+    assert!(content.contains("provider"), "was: {content}");
+    assert!(content.contains("--session"), "was: {content}");
+    assert!(content.contains("plan.md"), "was: {content}");
+    assert!(
+        !content.contains("provider's own default"),
+        "an omitted provider must never be described as falling back to the hall default: {content}"
+    );
+}
+
 /// The deliver checkpoint sits between preview and apply, and deferring it
 /// neither blocks apply nor invalidates the fingerprint.
 #[test]

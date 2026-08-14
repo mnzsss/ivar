@@ -273,6 +273,7 @@ Prepare a feature's execution board from its plan and execution graph
 | flag | value | default | description |
 | --- | --- | --- | --- |
 | `--graph-json` | `<GRAPH_JSON>` |  | Path to the execution graph JSON — workstreams with `id`/`title`/`operations`/`depends_on`/`write_contract` |
+| `--session` | `<SESSION>` |  | The current Ivar session whose provider supplies defaults for untargeted workstreams |
 
 
 ###### `ivar feature execute replan`
