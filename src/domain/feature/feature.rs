@@ -14,6 +14,7 @@ use crate::error::{Failure, FixAction};
 
 use super::super::name::{BranchName, FeatureName, RepoName};
 use super::delivery::Guard;
+use super::integration::{IntegrationOverride, IntegrationReceipt};
 
 /// The schema version of `feature.json`, stamped by `store::feature`.
 const CURRENT_VERSION: u32 = 2;
@@ -35,6 +36,18 @@ pub struct Feature {
     /// which predates this field, still deserialises.
     #[serde(default)]
     pub base: Option<BranchName>,
+    /// The feature's parent, if it is a subfeature. Children are **derived**
+    /// by scanning this field — no feature stores a child list. A parent-less
+    /// feature is a root. `#[serde(default)]` so a v2 `feature.json`, which
+    /// predates this field, still deserialises.
+    #[serde(default)]
+    pub parent: Option<FeatureName>,
+    /// The feature's own integration-policy override, if it declared one at
+    /// creation. Omitting a field leaves it inheritable (hall default then
+    /// embedded default). `#[serde(default)]` so a v2 `feature.json` still
+    /// deserialises.
+    #[serde(default)]
+    pub integration: IntegrationOverride,
 }
 
 impl Feature {
@@ -51,6 +64,8 @@ impl Feature {
             branch,
             promotions: BTreeMap::new(),
             base: None,
+            parent: None,
+            integration: IntegrationOverride::default(),
         }
     }
 
@@ -62,8 +77,48 @@ impl Feature {
             Promotion {
                 worktree: WorktreeState::Pending,
                 base: None,
+                integration_receipt: None,
             },
         );
+    }
+
+    /// Whether any promotion carries an integration receipt — the first
+    /// receipt of any kind freezes the feature's relationship/base/policy and
+    /// promotion membership.
+    #[must_use]
+    pub fn has_any_receipt(&self) -> bool {
+        self.promotions
+            .values()
+            .any(|promotion| promotion.integration_receipt.is_some())
+    }
+
+    /// Whether `repo`'s promotion carries a receipt with recorded *passing*
+    /// evidence. Based on the recorded evidence, not current freshness: a
+    /// source/check/history drift that makes the receipt stale never unlocks
+    /// an already-successful promotion.
+    #[must_use]
+    pub fn promotion_has_successful_receipt(&self, repo: &RepoName) -> bool {
+        self.promotions
+            .get(repo)
+            .and_then(|promotion| promotion.integration_receipt.as_ref())
+            .is_some_and(|receipt| receipt.verification.passed())
+    }
+
+    /// Whether every promoted repo carries a receipt with passing evidence.
+    /// The fully-integrated bar; an empty promotion map is deliberately not
+    /// "fully integrated".
+    #[must_use]
+    pub fn all_promotions_have_passing_receipts(&self) -> bool {
+        !self.promotions.is_empty()
+            && self
+                .promotions
+                .values()
+                .all(|promotion| {
+                    promotion
+                        .integration_receipt
+                        .as_ref()
+                        .is_some_and(|receipt| receipt.verification.passed())
+                })
     }
 
     /// Advance `repo`'s promotion to `state`, recording `Ready`/`Failed`
@@ -123,6 +178,12 @@ pub struct Promotion {
     /// `feature.json`, which predates this field, still deserialises.
     #[serde(default)]
     pub base: Option<BranchName>,
+    /// The durable receipt of this repo's integration into the feature's
+    /// immediate parent, once `ivar feature integrate` has applied it — on
+    /// success *and* on a post-parent failure, so partial multi-repo
+    /// integration is resumable. `None` until integration reaches this repo.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub integration_receipt: Option<IntegrationReceipt>,
 }
 
 /// The state of a feature's worktree for a promoted repo.

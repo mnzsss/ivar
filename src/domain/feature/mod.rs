@@ -12,8 +12,10 @@
 //! the four SPDD approval gates (Requirements, Analysis, Plan, Execution
 //! Graph) and their fingerprints. `delivery` — the guard checks and the
 //! delivery preview. `execution` — the plan-derived graph of workstreams plus
-//! its status and journal. All pure, no I/O — reading and writing these
-//! values is `store::feature`'s job.
+//! its status and journal. `integration` — the pure nested-integration
+//! vocabulary: via/strategy/override/policy, receipts and verification
+//! evidence, and the derived integration-state classifier. All pure, no I/O —
+//! reading and writing these values is `store::feature`'s job.
 //!
 //! # What a valid promotion is
 //!
@@ -33,6 +35,7 @@ mod approval;
 mod base;
 mod delivery;
 mod execution;
+mod integration;
 #[path = "feature.rs"]
 mod promotion;
 
@@ -42,6 +45,11 @@ pub use delivery::{DeliveryAction, DeliveryPreview, DeliveryRepo, Guard};
 pub use execution::{
     ExecutionBoard, ExecutionGraph, ExecutionStatus, JournalEntry, WorkstreamDef, WorkstreamStatus,
     WriteContract,
+};
+pub use integration::{
+    ClassificationFacts, FeatureIntegrationState, IntegrationOverride, IntegrationPolicy,
+    IntegrationReceipt, IntegrationStrategy, IntegrationVia, PrCheckResult, UnknownIntegrationVia,
+    UnknownIntegrationStrategy, VerificationEvidence, VerificationResult, classify,
 };
 pub use promotion::{
     Feature, FeatureBoard, Promotion, PromotionOutcome, UnknownOutcome, WorktreeState,
