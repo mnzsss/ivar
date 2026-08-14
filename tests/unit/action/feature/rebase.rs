@@ -55,6 +55,9 @@ fn hall_with_promoted_feature() -> (tempfile::TempDir, Utf8PathBuf) {
             name: "checkout".to_owned(),
             branch: None,
             base: None,
+            parent: None,
+            via: None,
+            strategy: None,
         },
     )
     .unwrap();
@@ -125,6 +128,9 @@ fn hall_with_promoted_feature_based_on(base: Option<&str>) -> (tempfile::TempDir
             name: "checkout".to_owned(),
             branch: None,
             base: base.map(str::to_owned),
+            parent: None,
+            via: None,
+            strategy: None,
         },
     )
     .unwrap();

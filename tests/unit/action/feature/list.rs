@@ -47,6 +47,9 @@ fn list_reports_created_features_sorted_by_name() {
             name: "zeta".to_owned(),
             branch: None,
             base: None,
+            parent: None,
+            via: None,
+            strategy: None,
         },
     )
     .unwrap();
@@ -56,6 +59,9 @@ fn list_reports_created_features_sorted_by_name() {
             name: "alpha".to_owned(),
             branch: None,
             base: None,
+            parent: None,
+            via: None,
+            strategy: None,
         },
     )
     .unwrap();
@@ -91,6 +97,11 @@ fn the_human_surface_lists_features_with_their_counts() {
             branch: "checkout".to_owned(),
             promoted_count: 2,
             ready_count: 1,
+            parent: None,
+            depth: 0,
+            state: crate::domain::feature::FeatureIntegrationState::Active,
+            blockers: Vec::new(),
+            repos: Vec::new(),
         }],
     };
 
@@ -99,6 +110,6 @@ fn the_human_surface_lists_features_with_their_counts() {
 
     assert_eq!(
         String::from_utf8(out).unwrap(),
-        "Features in /hall:\n  checkout  branch checkout  promoted 1/2\n"
+        "Features in /hall:\n  checkout  branch checkout  promoted 1/2  state active\n"
     );
 }

@@ -16,7 +16,7 @@ use crate::action::execute::{
     tick as execute_tick,
 };
 use crate::action::feature::{
-    close, create, delete, deliver, demote, promote, rebase, review, status, view,
+    close, create, delete, deliver, demote, promote, rebase, reparent, review, status, view,
 };
 use crate::action::hall::InitInput;
 use crate::action::plan::approve as plan_approve;
@@ -209,7 +209,10 @@ pub struct RepoUpstreamArgs {
 /// The `ivar feature` surface: one branch across the repos it has promoted.
 #[derive(Debug, Subcommand)]
 pub enum FeatureCommand {
-    /// Create a feature: name, branch, no repos promoted yet.
+    /// Create a feature: name, branch, no repos promoted yet. A subfeature
+    /// is created with `--parent <feature>`, which derives its base from the
+    /// parent's branch; `--via`/`--strategy` persist the feature's own
+    /// integration-policy override.
     Create(FeatureCreateArgs),
     /// List features and how far each got.
     List,
@@ -219,8 +222,14 @@ pub enum FeatureCommand {
     Promote(FeaturePromoteArgs),
     /// Remove a repo from a feature. Its worktree stays on disk.
     Demote(FeatureDemoteArgs),
-    /// Show one feature in detail: every promoted repo and its state.
+    /// Show one feature in detail: every promoted repo and its state, and —
+    /// with `--recursive` — its whole subtree's health.
     Status(FeatureStatusArgs),
+    /// Move a still-pristine child under a different parent, updating its
+    /// parent and derived base in one record write. Refused once any
+    /// promotion, plan, execution, session, receipt, close record, or
+    /// descendant exists.
+    Reparent(FeatureReparentArgs),
     /// Operate on a feature's execution board.
     #[command(subcommand)]
     Execute(ExecuteCommand),
@@ -261,9 +270,35 @@ pub struct FeatureCreateArgs {
     #[arg(long)]
     pub branch: Option<String>,
     /// The branch new promotions should start from, per repo. Defaults to
-    /// each repo's own default branch.
-    #[arg(long)]
+    /// each repo's own default branch. Conflicts with `--parent`: a child's
+    /// base is always derived from its immediate parent's branch.
+    #[arg(long, conflicts_with = "parent")]
     pub base: Option<String>,
+    /// The parent feature this subfeature integrates into. Conflicts with
+    /// `--base`: the child's base is derived from the parent's branch.
+    #[arg(long, conflicts_with = "base")]
+    pub parent: Option<String>,
+    /// This feature's integration via override: `pr` or `local`. Omitted,
+    /// the hall default (or the embedded `local`) applies. Persisted at
+    /// creation; there is no policy-configure command.
+    #[arg(long)]
+    pub via: Option<String>,
+    /// This feature's integration strategy override: `squash`, `merge`, or
+    /// `rebase`. Omitted, the hall default (or the embedded `squash`)
+    /// applies. Persisted at creation.
+    #[arg(long)]
+    pub strategy: Option<String>,
+}
+
+/// Arguments for `ivar feature reparent`.
+#[derive(Debug, Args)]
+pub struct FeatureReparentArgs {
+    /// The child feature to move.
+    pub child: String,
+    /// The new parent feature. The child's `base` is rewritten to the new
+    /// parent's branch in the same record write.
+    #[arg(long)]
+    pub parent: String,
 }
 
 /// Arguments for `ivar feature promote`.
@@ -293,6 +328,11 @@ pub struct FeatureDemoteArgs {
 pub struct FeatureStatusArgs {
     /// The feature to inspect.
     pub feature: String,
+    /// Render the feature's whole subtree — itself and every descendant, in
+    /// deterministic pre-order — with each feature's derived state, repos,
+    /// and blockers.
+    #[arg(long)]
+    pub recursive: bool,
 }
 
 /// Arguments for `ivar feature execute prepare`.
@@ -834,8 +874,22 @@ impl From<RepoUpstreamArgs> for repo_upstream::UpstreamInput {
 
 impl From<FeatureCreateArgs> for create::CreateInput {
     fn from(args: FeatureCreateArgs) -> Self {
-        let FeatureCreateArgs { name, branch, base } = args;
-        Self { name, branch, base }
+        let FeatureCreateArgs {
+            name,
+            branch,
+            base,
+            parent,
+            via,
+            strategy,
+        } = args;
+        Self {
+            name,
+            branch,
+            base,
+            parent,
+            via,
+            strategy,
+        }
     }
 }
 
@@ -863,8 +917,15 @@ impl From<FeatureDemoteArgs> for demote::DemoteInput {
 
 impl From<FeatureStatusArgs> for status::StatusInput {
     fn from(args: FeatureStatusArgs) -> Self {
-        let FeatureStatusArgs { feature } = args;
-        Self { feature }
+        let FeatureStatusArgs { feature, recursive } = args;
+        Self { feature, recursive }
+    }
+}
+
+impl From<FeatureReparentArgs> for reparent::ReparentInput {
+    fn from(args: FeatureReparentArgs) -> Self {
+        let FeatureReparentArgs { child, parent } = args;
+        Self { child, parent }
     }
 }
 

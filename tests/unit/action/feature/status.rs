@@ -51,6 +51,9 @@ fn hall_with_feature() -> (tempfile::TempDir, Utf8PathBuf) {
             name: "checkout".to_owned(),
             branch: None,
             base: None,
+            parent: None,
+            via: None,
+            strategy: None,
         },
     )
     .unwrap();
@@ -68,6 +71,7 @@ fn status_shows_a_fresh_feature_with_no_promotions() {
         &ctx,
         StatusInput {
             feature: "checkout".to_owned(),
+            recursive: false,
         },
     )
     .unwrap();
@@ -95,6 +99,7 @@ fn status_reports_a_promoted_repo_as_ready_with_its_worktree_present() {
         &ctx,
         StatusInput {
             feature: "checkout".to_owned(),
+            recursive: false,
         },
     )
     .unwrap();
@@ -116,6 +121,7 @@ fn status_is_rejected_for_a_missing_feature() {
         &ctx,
         StatusInput {
             feature: "ghost".to_owned(),
+            recursive: false,
         },
     )
     .unwrap_err();
@@ -137,6 +143,7 @@ fn the_human_surface_lists_repos_and_their_states() {
             base: Some(BranchName::new("main").unwrap()),
             base_diverged: false,
         }],
+        tree: None,
     };
 
     let mut out = Vec::new();
@@ -161,6 +168,7 @@ fn the_human_surface_marks_a_diverged_base() {
             base: Some(BranchName::new("main").unwrap()),
             base_diverged: true,
         }],
+        tree: None,
     };
 
     let mut out = Vec::new();
@@ -216,6 +224,9 @@ fn hall_with_two_branches(base: Option<&str>) -> (tempfile::TempDir, Utf8PathBuf
             name: "checkout".to_owned(),
             branch: None,
             base: base.map(str::to_owned),
+            parent: None,
+            via: None,
+            strategy: None,
         },
     )
     .unwrap();
@@ -245,6 +256,7 @@ fn status_shows_the_features_declared_base() {
         &ctx,
         StatusInput {
             feature: "checkout".to_owned(),
+            recursive: false,
         },
     )
     .unwrap();
@@ -275,6 +287,7 @@ fn status_marks_divergence_when_the_recorded_base_disagrees_with_the_declaration
         &ctx,
         StatusInput {
             feature: "checkout".to_owned(),
+            recursive: false,
         },
     )
     .unwrap();

@@ -37,6 +37,9 @@ fn create_makes_the_feature_directory_and_records_the_feature() {
             name: "checkout".to_owned(),
             branch: None,
             base: None,
+            parent: None,
+            via: None,
+            strategy: None,
         },
     )
     .unwrap();
@@ -57,6 +60,9 @@ fn create_rejects_a_feature_that_already_exists() {
             name: "checkout".to_owned(),
             branch: None,
             base: None,
+            parent: None,
+            via: None,
+            strategy: None,
         },
     )
     .unwrap();
@@ -67,6 +73,9 @@ fn create_rejects_a_feature_that_already_exists() {
             name: "checkout".to_owned(),
             branch: None,
             base: None,
+            parent: None,
+            via: None,
+            strategy: None,
         },
     )
     .unwrap_err();
@@ -86,6 +95,9 @@ fn create_outside_a_hall_is_blocked() {
             name: "checkout".to_owned(),
             branch: None,
             base: None,
+            parent: None,
+            via: None,
+            strategy: None,
         },
     )
     .unwrap_err();
@@ -104,6 +116,9 @@ fn create_rejects_an_invalid_name() {
             name: "../etc".to_owned(),
             branch: None,
             base: None,
+            parent: None,
+            via: None,
+            strategy: None,
         },
     )
     .unwrap_err();
@@ -125,6 +140,9 @@ fn an_explicit_branch_may_be_one_a_feature_name_could_not_spell() {
             name: "login".to_owned(),
             branch: Some("feat/login".to_owned()),
             base: None,
+            parent: None,
+            via: None,
+            strategy: None,
         },
     )
     .unwrap();
@@ -146,6 +164,9 @@ fn an_explicit_branch_is_still_validated() {
             name: "login".to_owned(),
             branch: Some("../etc".to_owned()),
             base: None,
+            parent: None,
+            via: None,
+            strategy: None,
         },
     )
     .unwrap_err();
@@ -160,6 +181,7 @@ fn the_human_surface_names_the_feature_branch_and_root() {
         name: FeatureName::new("checkout").unwrap(),
         branch: BranchName::new("checkout").unwrap(),
         base: None,
+        parent: None,
     };
 
     let mut out = Vec::new();
@@ -178,6 +200,7 @@ fn the_human_surface_names_the_base_when_declared() {
         name: FeatureName::new("checkout").unwrap(),
         branch: BranchName::new("checkout").unwrap(),
         base: Some(BranchName::new("develop").unwrap()),
+        parent: None,
     };
 
     let mut out = Vec::new();
@@ -202,6 +225,9 @@ fn create_records_the_declared_base() {
             name: "checkout".to_owned(),
             branch: None,
             base: Some("develop".to_owned()),
+            parent: None,
+            via: None,
+            strategy: None,
         },
     )
     .unwrap();
@@ -229,6 +255,9 @@ fn create_leaves_the_base_absent_without_the_flag() {
             name: "checkout".to_owned(),
             branch: None,
             base: None,
+            parent: None,
+            via: None,
+            strategy: None,
         },
     )
     .unwrap();
@@ -252,6 +281,9 @@ fn create_rejects_an_invalid_base() {
             name: "checkout".to_owned(),
             branch: None,
             base: Some("../etc".to_owned()),
+            parent: None,
+            via: None,
+            strategy: None,
         },
     )
     .unwrap_err();

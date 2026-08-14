@@ -173,7 +173,7 @@ Manage features
 
 ##### `ivar feature create`
 
-Create a feature: name, branch, no repos promoted yet
+Create a feature: name, branch, no repos promoted yet. A subfeature is created with `--parent <feature>`, which derives its base from the parent's branch; `--via`/`--strategy` persist the feature's own integration-policy override
 
 | argument | required | description |
 | --- | --- | --- |
@@ -182,7 +182,10 @@ Create a feature: name, branch, no repos promoted yet
 | flag | value | default | description |
 | --- | --- | --- | --- |
 | `--branch` | `<BRANCH>` |  | The branch to work on. Defaults to the feature's name. Use it to adopt a branch a feature name cannot spell, such as `feat/login` |
-| `--base` | `<BASE>` |  | The branch new promotions should start from, per repo. Defaults to each repo's own default branch |
+| `--base` | `<BASE>` |  | The branch new promotions should start from, per repo. Defaults to each repo's own default branch. Conflicts with `--parent`: a child's base is always derived from its immediate parent's branch |
+| `--parent` | `<PARENT>` |  | The parent feature this subfeature integrates into. Conflicts with `--base`: the child's base is derived from the parent's branch |
+| `--via` | `<VIA>` |  | This feature's integration via override: `pr` or `local`. Omitted, the hall default (or the embedded `local`) applies. Persisted at creation; there is no policy-configure command |
+| `--strategy` | `<STRATEGY>` |  | This feature's integration strategy override: `squash`, `merge`, or `rebase`. Omitted, the hall default (or the embedded `squash`) applies. Persisted at creation |
 
 
 ##### `ivar feature list`
@@ -216,11 +219,28 @@ Remove a repo from a feature. Its worktree stays on disk
 
 ##### `ivar feature status`
 
-Show one feature in detail: every promoted repo and its state
+Show one feature in detail: every promoted repo and its state, and — with `--recursive` — its whole subtree's health
 
 | argument | required | description |
 | --- | --- | --- |
 | `feature` | yes | The feature to inspect |
+
+| flag | value | default | description |
+| --- | --- | --- | --- |
+| `--recursive` |  |  | Render the feature's whole subtree — itself and every descendant, in deterministic pre-order — with each feature's derived state, repos, and blockers |
+
+
+##### `ivar feature reparent`
+
+Move a still-pristine child under a different parent, updating its parent and derived base in one record write. Refused once any promotion, plan, execution, session, receipt, close record, or descendant exists
+
+| argument | required | description |
+| --- | --- | --- |
+| `child` | yes | The child feature to move |
+
+| flag | value | default | description |
+| --- | --- | --- | --- |
+| `--parent` | `<PARENT>` |  | The new parent feature. The child's `base` is rewritten to the new parent's branch in the same record write |
 
 
 ##### `ivar feature execute`

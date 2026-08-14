@@ -34,6 +34,7 @@ use crate::git::{self, Git};
 use crate::infra::fs;
 
 use super::super::discover_hall;
+use super::relations;
 use crate::action::Ctx;
 
 /// What `ivar feature delete` needs.
@@ -132,6 +133,30 @@ pub fn delete(ctx: &Ctx, input: DeleteInput) -> Outcome<DeleteOutcome> {
             format!("Create it first with `ivar feature create {name}`."),
         ))
     })?;
+
+    // Descendants gate, before any permission preflight or teardown: a parent
+    // cannot be deleted while its subtree still exists — abandoned and
+    // integrated history count too. Descendants go leaves-first.
+    let descendants = relations::descendants(&layout, &name)?;
+    if !descendants.is_empty() {
+        let names = descendants
+            .iter()
+            .map(|descendant| descendant.name.to_string())
+            .collect::<Vec<_>>();
+        return Err(Failure::blocked(
+            "feature.has_descendants",
+            format!(
+                "cannot delete feature `{name}`: it has {} descendant(s)",
+                descendants.len()
+            ),
+        )
+        .expected("every descendant to be deleted first")
+        .actual(format!("descendants: {}", names.join(", ")))
+        .fix(FixAction::safe(
+            "feature.delete_leaves_first",
+            "Delete the descendants first, leaves first.",
+        )));
+    }
 
     // Preflight: every path under the feature directory must be removable.
     // Nothing is mutated while any blocker stands.

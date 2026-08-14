@@ -13,6 +13,7 @@ use crate::git::{self, Git, TargetState};
 
 use super::super::{discover_hall, read_manifest};
 use super::base;
+use super::relations::TreeEntry;
 use crate::action::Ctx;
 
 /// One promoted repo's status within a feature.
@@ -48,6 +49,11 @@ pub struct StatusOutcome {
     pub branch: String,
     /// One entry per promoted repo, in name order.
     pub repos: Vec<RepoDetail>,
+    /// The feature's whole subtree, in deterministic pre-order, when
+    /// `--recursive` was passed: the feature at depth 0, then every
+    /// descendant with its derived state, repos, and blockers.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tree: Option<Vec<TreeEntry>>,
 }
 
 impl WriteHuman for StatusOutcome {
@@ -73,6 +79,24 @@ impl WriteHuman for StatusOutcome {
                 state_word(detail.state),
                 base_word(detail),
             )?;
+        }
+        if let Some(tree) = &self.tree {
+            writeln!(w, "Subtree:")?;
+            for entry in tree {
+                let indent = "  ".repeat(entry.depth + 1);
+                let blockers = if entry.blockers.is_empty() {
+                    String::new()
+                } else {
+                    format!("  blocked by: {}", entry.blockers.join(", "))
+                };
+                writeln!(
+                    w,
+                    "{indent}{}  state {}  repos {}{blockers}",
+                    entry.feature,
+                    entry.state,
+                    entry.repos.len(),
+                )?;
+            }
         }
         Ok(())
     }
@@ -101,6 +125,9 @@ fn state_word(state: WorktreeState) -> &'static str {
 /// `worktree_present` is a live probe — the record may say `Ready` while the
 /// worktree was deleted behind `ivar`'s back, which is exactly the kind of
 /// drift `doctor` exists to catch and this command exists to surface.
+///
+/// With `--recursive`, the outcome additionally carries the whole subtree in
+/// deterministic pre-order, each entry with its derived state and blockers.
 pub fn status(ctx: &Ctx, input: StatusInput) -> Outcome<StatusOutcome> {
     let layout = discover_hall(ctx)?;
     let manifest = read_manifest(&layout)?;
@@ -155,11 +182,18 @@ pub fn status(ctx: &Ctx, input: StatusInput) -> Outcome<StatusOutcome> {
     }
     repos.sort_by(|a, b| a.repo.cmp(&b.repo));
 
+    let tree = if input.recursive {
+        Some(super::relations::subtree_status(&git, &layout, &manifest, &name)?)
+    } else {
+        None
+    };
+
     Ok(Report::new(StatusOutcome {
         root: layout.root().to_path_buf(),
         name,
         branch: feature.branch.to_string(),
         repos,
+        tree,
     }))
 }
 
@@ -168,6 +202,8 @@ pub fn status(ctx: &Ctx, input: StatusInput) -> Outcome<StatusOutcome> {
 pub struct StatusInput {
     /// The feature's name.
     pub feature: String,
+    /// Render the feature's whole subtree too.
+    pub recursive: bool,
 }
 
 #[cfg(test)]

@@ -62,6 +62,9 @@ fn hall_with_promoted_feature_on(branch: Option<&str>) -> (tempfile::TempDir, Ut
             name: "checkout".to_owned(),
             branch: branch.map(str::to_owned),
             base: None,
+            parent: None,
+            via: None,
+            strategy: None,
         },
     )
     .unwrap();

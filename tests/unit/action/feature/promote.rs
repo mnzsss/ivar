@@ -51,6 +51,9 @@ fn hall_with_feature() -> (tempfile::TempDir, Utf8PathBuf) {
             name: "checkout".to_owned(),
             branch: None,
             base: None,
+            parent: None,
+            via: None,
+            strategy: None,
         },
     )
     .unwrap();
@@ -329,6 +332,9 @@ fn hall_with_two_branches(base: Option<&str>) -> (tempfile::TempDir, Utf8PathBuf
             name: "checkout".to_owned(),
             branch: None,
             base: base.map(str::to_owned),
+            parent: None,
+            via: None,
+            strategy: None,
         },
     )
     .unwrap();

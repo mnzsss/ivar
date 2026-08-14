@@ -31,7 +31,7 @@ use ivar::action::execute::{
 };
 use ivar::action::feature::{
     close, create, delete, deliver, demote, list as feature_list, promote, prune as feature_prune,
-    rebase, review, status, view,
+    rebase, reparent, review, status, view,
 };
 use ivar::action::hall;
 use ivar::action::plan::approve::{self as plan_approve};
@@ -163,6 +163,12 @@ fn main() -> ExitCode {
             ),
             FeatureCommand::Status(args) => respond(
                 status::status(&ctx, args.into()),
+                json,
+                &mut stdout,
+                &mut stderr,
+            ),
+            FeatureCommand::Reparent(args) => respond(
+                reparent::reparent(&ctx, args.into()),
                 json,
                 &mut stdout,
                 &mut stderr,

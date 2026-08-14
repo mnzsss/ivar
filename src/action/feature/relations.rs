@@ -209,6 +209,40 @@ pub(crate) fn blocking_descendants(
     Ok(blockers)
 }
 
+/// The derived integration state of one feature, root or child. A root never
+/// has receipts to judge (integration is a child's act), so roots classify as
+/// active until closed.
+pub(crate) fn feature_state(
+    git: &impl Git,
+    layout: &Layout,
+    manifest: &Manifest,
+    feature: &Feature,
+) -> Result<FeatureIntegrationState, Failure> {
+    let parent_feature = parent(layout, feature)?;
+    state_of(git, layout, manifest, feature, parent_feature.as_ref())
+}
+
+/// The feature's depth in the tree: 0 for a root, 1 + the parent's depth
+/// otherwise.
+pub(crate) fn depth(layout: &Layout, feature: &Feature) -> Result<usize, Failure> {
+    let mut depth = 0;
+    let mut current = feature.clone();
+    let mut seen: HashSet<FeatureName> = HashSet::new();
+    while let Some(parent_feature) = parent(layout, &current)? {
+        if !seen.insert(parent_feature.name.clone()) {
+            return Err(Failure::blocked(
+                "feature.parent_cycle",
+                format!("feature `{}` is part of a parent cycle", feature.name),
+            )
+            .expected("every parent chain to end at a root")
+            .actual("walking parents revisited a feature"));
+        }
+        depth += 1;
+        current = parent_feature;
+    }
+    Ok(depth)
+}
+
 /// How one receipt measures against live git and manifest state. See
 /// [`ReceiptFreshness`]. A missing source revision is stale, never
 /// "not integrated".

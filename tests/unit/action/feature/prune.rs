@@ -52,6 +52,9 @@ fn hall_with_promoted_feature() -> (tempfile::TempDir, Utf8PathBuf) {
             name: "checkout".to_owned(),
             branch: None,
             base: None,
+            parent: None,
+            via: None,
+            strategy: None,
         },
     )
     .unwrap();
@@ -111,6 +114,9 @@ fn hall_with_promoted_feature_based_on_an_open_base() -> (tempfile::TempDir, Utf
             name: "checkout".to_owned(),
             branch: None,
             base: Some("develop".to_owned()),
+            parent: None,
+            via: None,
+            strategy: None,
         },
     )
     .unwrap();

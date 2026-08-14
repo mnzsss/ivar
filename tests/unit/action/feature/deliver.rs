@@ -85,6 +85,9 @@ fn hall_with_promoted(repos: &[&str]) -> (tempfile::TempDir, Utf8PathBuf) {
             name: "checkout".to_owned(),
             branch: None,
             base: None,
+            parent: None,
+            via: None,
+            strategy: None,
         },
     )
     .unwrap();
@@ -234,6 +237,9 @@ fn preview_shows_the_recorded_base_not_always_the_default_branch() {
             name: "checkout".to_owned(),
             branch: None,
             base: Some("develop".to_owned()),
+            parent: None,
+            via: None,
+            strategy: None,
         },
     )
     .unwrap();

@@ -1,6 +1,6 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use clap::{CommandFactory as _, Parser as _};
+use clap::{CommandFactory as _, Parser as _, Subcommand as _};
 
 use super::*;
 
@@ -68,12 +68,66 @@ fn feature_create_accepts_base() {
     }
 }
 
+/// A subfeature is created with `--parent`, which derives the base from the
+/// parent's branch; `--via`/`--strategy` persist the feature's own policy
+/// override.
+#[test]
+fn feature_create_accepts_parent_via_and_strategy() {
+    let cli = Cli::try_parse_from([
+        "ivar",
+        "feature",
+        "create",
+        "child",
+        "--parent",
+        "parent",
+        "--via",
+        "pr",
+        "--strategy",
+        "rebase",
+    ])
+    .unwrap();
+
+    match cli.command {
+        Command::Feature(FeatureCommand::Create(args)) => {
+            assert_eq!(args.parent.as_deref(), Some("parent"));
+            assert_eq!(args.via.as_deref(), Some("pr"));
+            assert_eq!(args.strategy.as_deref(), Some("rebase"));
+        }
+        other => panic!("expected Feature(Create), got {other:?}"),
+    }
+}
+
+/// `--base` and `--parent` are two answers to the same question — where the
+/// child's work starts from — and clap refuses both together.
+#[test]
+fn feature_create_refuses_base_alongside_parent() {
+    let error = Cli::try_parse_from([
+        "ivar",
+        "feature",
+        "create",
+        "child",
+        "--parent",
+        "parent",
+        "--base",
+        "main",
+    ])
+    .unwrap_err();
+
+    assert!(
+        error.to_string().contains("cannot be used with"),
+        "was: {error}"
+    );
+}
+
 #[test]
 fn feature_create_args_convert_into_create_input_without_change() {
     let args = FeatureCreateArgs {
         name: "checkout".to_owned(),
         branch: Some("feat/checkout".to_owned()),
         base: Some("develop".to_owned()),
+        parent: None,
+        via: None,
+        strategy: None,
     };
 
     let input: crate::action::feature::create::CreateInput = args.into();
@@ -81,6 +135,98 @@ fn feature_create_args_convert_into_create_input_without_change() {
     assert_eq!(input.name, "checkout");
     assert_eq!(input.branch, Some("feat/checkout".to_owned()));
     assert_eq!(input.base, Some("develop".to_owned()));
+    assert_eq!(input.parent, None);
+    assert_eq!(input.via, None);
+    assert_eq!(input.strategy, None);
+}
+
+#[test]
+fn feature_reparent_parses_a_child_and_parent() {
+    let cli = Cli::try_parse_from([
+        "ivar",
+        "feature",
+        "reparent",
+        "child",
+        "--parent",
+        "new-parent",
+    ])
+    .unwrap();
+
+    match cli.command {
+        Command::Feature(FeatureCommand::Reparent(args)) => {
+            assert_eq!(args.child, "child");
+            assert_eq!(args.parent, "new-parent");
+        }
+        other => panic!("expected Feature(Reparent), got {other:?}"),
+    }
+}
+
+/// Reparenting is meaningless without a target: `--parent` is required.
+#[test]
+fn feature_reparent_requires_a_parent() {
+    let error = Cli::try_parse_from(["ivar", "feature", "reparent", "child"]).unwrap_err();
+    assert!(
+        error.to_string().contains("required"),
+        "was: {error}"
+    );
+}
+
+#[test]
+fn feature_reparent_args_convert_into_reparent_input() {
+    let args = FeatureReparentArgs {
+        child: "child".to_owned(),
+        parent: "new-parent".to_owned(),
+    };
+
+    let input: crate::action::feature::reparent::ReparentInput = args.into();
+
+    assert_eq!(input.child, "child");
+    assert_eq!(input.parent, "new-parent");
+}
+
+#[test]
+fn feature_status_accepts_recursive() {
+    let cli = Cli::try_parse_from(["ivar", "feature", "status", "parent", "--recursive"])
+        .unwrap();
+
+    match cli.command {
+        Command::Feature(FeatureCommand::Status(args)) => {
+            assert!(args.recursive);
+        }
+        other => panic!("expected Feature(Status), got {other:?}"),
+    }
+}
+
+#[test]
+fn feature_status_args_convert_into_status_input() {
+    let args = FeatureStatusArgs {
+        feature: "parent".to_owned(),
+        recursive: true,
+    };
+
+    let input: crate::action::feature::status::StatusInput = args.into();
+
+    assert_eq!(input.feature, "parent");
+    assert!(input.recursive);
+}
+
+/// The policy is fixed at creation — there is deliberately no
+/// policy-configure subcommand.
+#[test]
+fn there_is_no_feature_policy_configure_subcommand() {
+    let names: Vec<String> = Cli::command()
+        .find_subcommand_mut("feature")
+        .expect("the feature subcommand exists")
+        .get_subcommands()
+        .map(|subcommand| subcommand.get_name().to_owned())
+        .collect();
+    for forbidden in ["configure", "policy", "set-policy"] {
+        assert!(
+            !names.iter().any(|name| name == forbidden),
+            "a policy-configure subcommand must not exist: {names:?}"
+        );
+    }
+    assert!(names.iter().any(|name| name == "reparent"));
 }
 
 /// `--onto` collapses the base for every promoted repo — see
