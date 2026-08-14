@@ -9,7 +9,10 @@ argument-hint: <plan-path>
 
 ## Prerequisites
 
-- You must be inside a **Feature Session** (`IVAR_FEATURE` must be set).
+- You must be inside a **Feature Session**: `IVAR_FEATURE` and
+  `IVAR_SESSION_ID` must both be set, and
+  `$IVAR_SESSION_PATH/state.json` must be readable — its `provider` is
+  the default every untargeted workstream inherits.
 - The feature must exist in the hall (`ivar feature list`).
 - The plan file must be accessible and its **approval gates** must be passed
   (Requirements → Analysis → Plan all approved).
@@ -35,11 +38,11 @@ argument-hint: <plan-path>
      never `repos/<repo>/src/**`; the latter matches nothing and the guard
      denies every write without saying why.
    - `provider` (`claude-code` or `opencode`), `model` and `agent` are all
-     optional. `model` picks the model the provider runs with; `agent` picks
-     which agent definition it runs as — the two are distinct, not
-     interchangeable names for the same thing. Omitting a field means the
-     provider's own default, which is a fine choice — but it is still a
-     choice the user gets to make, in step 3.
+     optional in the candidate. `model` picks the model the provider runs
+     with; `agent` picks which agent definition it runs as — the two are
+     distinct, not interchangeable names for the same thing. Omitting
+     `provider` means "inherit the current Ivar session provider" — the value
+     is made explicit before approval, never left to the hall default.
    - **Operation ownership**: Each plan operation must be assigned to exactly
      one workstream. No two workstreams may claim the same operation.
    - Write the candidate graph to a temporary JSON file following this shape:
@@ -73,14 +76,17 @@ argument-hint: <plan-path>
    prompt to author. The executor's prompt is rendered from the plan itself,
    the workstream's operations and its write contract.
 
-3. **Stop and confirm who runs what.** Before preparing anything, show the
-   candidate graph's targeting — one line per workstream with its `provider`,
-   `model` and `agent`, writing `—` where the field is unset so the provider
-   default is visible rather than implied:
+3. **Stop and confirm who runs what.** Read `provider` from the current
+   session's `$IVAR_SESSION_PATH/state.json`; it is the default for every
+   workstream without an explicit override. Before preparing anything, show
+   the candidate graph's targeting — one line per workstream with its
+   resolved `provider`, `model` and `agent`. Every workstream has a provider
+   by now (explicit in the graph, or inherited from the session), so never
+   show `provider=—`:
 
    ```
    api-contract  provider=opencode     model=—              agent=—
-   frontend      provider=—            model=—              agent=—
+   frontend      provider=opencode     model=—              agent=—
    ```
 
    Then ask the user whether they want to change the provider, model or agent
@@ -90,27 +96,34 @@ argument-hint: <plan-path>
    graph, so a question skipped here costs the user the whole setup later.
    Apply their answer to the candidate JSON before continuing.
 
-4. Call `ivar feature execute prepare <feature> --graph-json <path-to-candidate>`.
-   This computes the plan fingerprint and validates the graph.
+4. Write the resolved `provider`, `model` and `agent` values into each
+   corresponding `### <workstream>` block in `plan.md` (`plans/<feature>/plan.md`
+   in the hall), so the plan and the board agree on who runs what. Re-run
+   `ivar plan status $ARGUMENTS` if the workflow requires the changed plan to
+   pass its approval gate.
 
-5. **Stop for human approval.** When the board is `AwaitingApproval`, show the
+5. Call `ivar feature execute prepare <feature> --graph-json <path-to-candidate> --session "$IVAR_SESSION_ID"`.
+   This persists the resolved targeting into `plan.md`, computes the plan
+   fingerprint over that persisted form, and validates the graph.
+
+6. **Stop for human approval.** When the board is `AwaitingApproval`, show the
    generated graph to the user — including each workstream's provider, model
    and agent — and ask them to review. Do not proceed until they approve.
 
-6. After approval, call `ivar feature execute approve <feature>`.
+7. After approval, call `ivar feature execute approve <feature>`.
 
-7. Call `ivar feature execute tick <feature>` to launch every ready
+8. Call `ivar feature execute tick <feature>` to launch every ready
    workstream. `tick` blocks until all of the workstreams it launched have
    terminated — there is nothing to poll while it runs; the call itself is
    the wait.
 
-8. When `tick` returns, check the board status and journal to see how that
+9. When `tick` returns, check the board status and journal to see how that
    wave landed. If it left other workstreams newly ready (their dependencies
    just succeeded), call `tick` again to launch the next wave.
 
-9. When a workstream asks a question (blocked), surface the question to the
-   user, get their answer, and call `ivar feature execute reply <answer>
-   --feature <feature> --session <session>`.
+10. When a workstream asks a question (blocked), surface the question to the
+    user, get their answer, and call `ivar feature execute reply <answer>
+    --feature <feature> --session <session>`.
 
 ## Important
 
@@ -132,6 +145,10 @@ argument-hint: <plan-path>
   prepared workstream's provider, model or agent — the board would have to be
   deleted and rebuilt. That is why step 3 asks before preparing, and why the
   answer belongs in the candidate JSON rather than in a later correction.
+  Omitting provider in the initial candidate means "inherit the current Ivar
+  session provider." Before approval, the resolved provider is made explicit
+  in both plan.md and board.json. No approved workstream relies on the hall
+  default.
 - The `tick` command is idempotent — run it multiple times. It only launches
   workstreams that are pending and whose dependencies have all succeeded, and
   each call blocks until the workstreams it launched have terminated before
