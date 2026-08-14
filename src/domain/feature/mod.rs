@@ -48,8 +48,9 @@ pub use execution::{
 };
 pub use integration::{
     ClassificationFacts, FeatureIntegrationState, IntegrationOverride, IntegrationPolicy,
-    IntegrationReceipt, IntegrationStrategy, IntegrationVia, PrCheckResult, UnknownIntegrationVia,
-    UnknownIntegrationStrategy, VerificationEvidence, VerificationResult, classify,
+    IntegrationReceipt, IntegrationStrategy, IntegrationVia, PrCheckResult,
+    UnknownIntegrationStrategy, UnknownIntegrationVia, VerificationEvidence, VerificationResult,
+    classify,
 };
 pub use promotion::{
     Feature, FeatureBoard, Promotion, PromotionOutcome, UnknownOutcome, WorktreeState,

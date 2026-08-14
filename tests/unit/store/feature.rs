@@ -121,7 +121,10 @@ fn a_v1_feature_json_migrates_on_read_and_persists_as_v3() {
     assert_eq!(migrated.version(), 3);
     assert_eq!(migrated.base, None);
     assert_eq!(migrated.parent, None);
-    assert_eq!(migrated.integration, crate::domain::feature::IntegrationOverride::default());
+    assert_eq!(
+        migrated.integration,
+        crate::domain::feature::IntegrationOverride::default()
+    );
     assert_eq!(
         migrated
             .promotions

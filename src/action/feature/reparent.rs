@@ -109,9 +109,7 @@ pub fn reparent(ctx: &Ctx, input: ReparentInput) -> Outcome<ReparentOutcome> {
     if child.parent.as_ref() == Some(&new_parent_name) {
         return Err(Failure::blocked(
             "feature.reparent_same_parent",
-            format!(
-                "feature `{child_name}` is already a subfeature of `{new_parent_name}`"
-            ),
+            format!("feature `{child_name}` is already a subfeature of `{new_parent_name}`"),
         )
         .expected("a different parent than the child already has")
         .actual("the child's current parent was named again")

@@ -62,7 +62,10 @@ impl WriteHuman for ListOutcome {
             writeln!(
                 w,
                 "  {}  branch {}  promoted {}/{}  state {}",
-                feature.name, feature.branch, feature.ready_count, feature.promoted_count,
+                feature.name,
+                feature.branch,
+                feature.ready_count,
+                feature.promoted_count,
                 feature.state,
             )?;
         }
@@ -92,10 +95,10 @@ pub fn list(ctx: &Ctx) -> Outcome<ListOutcome> {
             let Some(feature_name) = FeatureName::new(name.to_owned()).ok() else {
                 continue;
             };
-            if let Ok(Some(feature)) = Feature::read(&layout, &feature_name) {
-                if let Some(summary) = summary_of(&git, &layout, &manifest, &feature) {
-                    features.push(summary);
-                }
+            if let Ok(Some(feature)) = Feature::read(&layout, &feature_name)
+                && let Some(summary) = summary_of(&git, &layout, &manifest, &feature)
+            {
+                features.push(summary);
             }
         }
     }

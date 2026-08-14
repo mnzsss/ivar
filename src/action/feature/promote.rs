@@ -54,8 +54,8 @@ use crate::store::layout::Layout;
 use crate::store::setup_receipt::Receipt;
 
 use super::super::{discover_hall, read_manifest};
-use crate::action::Ctx;
 use super::mutation;
+use crate::action::Ctx;
 
 /// The interpreter a setup script runs under — the same choice `sync` makes,
 /// and for the same reason: a `.sh` arriving through a clone may lack its

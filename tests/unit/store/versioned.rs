@@ -308,7 +308,11 @@ fn chain_may_start_at_earliest_supported_version() {
     );
     assert!(matches!(
         store.read().unwrap_err(),
-        Error::NoMigrationPath { found: 0, current: 2, .. }
+        Error::NoMigrationPath {
+            found: 0,
+            current: 2,
+            ..
+        }
     ));
     assert_eq!(
         fs::read_bytes(&path).unwrap().unwrap(),

@@ -181,7 +181,11 @@ pub struct VerificationResult {
 impl VerificationResult {
     /// A passing result.
     #[must_use]
-    pub fn passed(command: impl Into<String>, exit_code: Option<i32>, diagnostic: impl Into<String>) -> Self {
+    pub fn passed(
+        command: impl Into<String>,
+        exit_code: Option<i32>,
+        diagnostic: impl Into<String>,
+    ) -> Self {
         Self {
             command: command.into(),
             success: true,
@@ -192,7 +196,11 @@ impl VerificationResult {
 
     /// A failing result.
     #[must_use]
-    pub fn failed(command: impl Into<String>, exit_code: Option<i32>, diagnostic: impl Into<String>) -> Self {
+    pub fn failed(
+        command: impl Into<String>,
+        exit_code: Option<i32>,
+        diagnostic: impl Into<String>,
+    ) -> Self {
         Self {
             command: command.into(),
             success: false,

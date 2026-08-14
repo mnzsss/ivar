@@ -22,8 +22,8 @@ use camino::Utf8PathBuf;
 use clap::Parser;
 use serde::Serialize;
 
-use ivar::action::confirm;
 use ivar::action::Ctx;
+use ivar::action::confirm;
 use ivar::action::execute::{
     ack as execute_ack, approve as execute_approve, guard_check as execute_guard_check, prepare,
     reconcile as execute_reconcile, replan as execute_replan, reply as execute_reply,

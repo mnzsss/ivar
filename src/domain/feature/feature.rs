@@ -110,15 +110,12 @@ impl Feature {
     #[must_use]
     pub fn all_promotions_have_passing_receipts(&self) -> bool {
         !self.promotions.is_empty()
-            && self
-                .promotions
-                .values()
-                .all(|promotion| {
-                    promotion
-                        .integration_receipt
-                        .as_ref()
-                        .is_some_and(|receipt| receipt.verification.passed())
-                })
+            && self.promotions.values().all(|promotion| {
+                promotion
+                    .integration_receipt
+                    .as_ref()
+                    .is_some_and(|receipt| receipt.verification.passed())
+            })
     }
 
     /// Advance `repo`'s promotion to `state`, recording `Ready`/`Failed`

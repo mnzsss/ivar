@@ -25,9 +25,7 @@ use super::model::{CURRENT_VERSION, Manifest};
 /// older refuses the migrated file loudly rather than silently reading past
 /// the new keys.
 fn v1_to_v2(mut value: serde_json::Value) -> Result<serde_json::Value, String> {
-    let root = value
-        .as_object_mut()
-        .ok_or("manifest must be an object")?;
+    let root = value.as_object_mut().ok_or("manifest must be an object")?;
     root.entry("integration").or_insert_with(|| {
         serde_json::json!({
             "strategy": "squash",

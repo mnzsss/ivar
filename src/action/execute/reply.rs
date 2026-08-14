@@ -88,7 +88,8 @@ pub fn reply(ctx: &Ctx, input: ReplyInput) -> Outcome<ReplyOutcome> {
     let layout = discover_hall(ctx)?;
 
     let mut board = require_board(&layout, &feature_name)?;
-    let board_path = crate::store::feature::board_path(&layout, &feature_name);    let feature_record = crate::domain::feature::Feature::read(&layout, &feature_name)?
+    let board_path = crate::store::feature::board_path(&layout, &feature_name);
+    let feature_record = crate::domain::feature::Feature::read(&layout, &feature_name)?
         .ok_or_else(|| {
             Failure::blocked(
                 "execute.feature_vanished",
@@ -96,7 +97,6 @@ pub fn reply(ctx: &Ctx, input: ReplyInput) -> Outcome<ReplyOutcome> {
             )
         })?;
     crate::action::feature::ensure_not_fully_integrated(&layout, &feature_record)?;
-
 
     // Look up the session → workstream link.
     let workstream_id = match board.sessions.get(session) {

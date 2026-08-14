@@ -659,12 +659,10 @@ fn builders_configure_checks_and_hall_integration() {
         ["cargo fmt --check", "cargo test --all-features"]
     );
 
-    let manifest = sample_manifest().with_integration(
-        crate::domain::feature::IntegrationPolicy {
-            via: crate::domain::feature::IntegrationVia::Pr,
-            strategy: crate::domain::feature::IntegrationStrategy::Rebase,
-        },
-    );
+    let manifest = sample_manifest().with_integration(crate::domain::feature::IntegrationPolicy {
+        via: crate::domain::feature::IntegrationVia::Pr,
+        strategy: crate::domain::feature::IntegrationStrategy::Rebase,
+    });
     assert_eq!(
         manifest.integration(),
         crate::domain::feature::IntegrationPolicy {
@@ -676,38 +674,49 @@ fn builders_configure_checks_and_hall_integration() {
 
 #[test]
 fn repo_add_remove_provider_add_and_mcp_preserve_both_v2_fields() {
-    let manifest = sample_manifest()
-        .with_integration(crate::domain::feature::IntegrationPolicy {
-            via: crate::domain::feature::IntegrationVia::Pr,
-            strategy: crate::domain::feature::IntegrationStrategy::Merge,
-        });
-    let manifest = manifest.with_repo_added(
-        Repo::new(
-            RepoName::new("web").unwrap(),
-            "git@github.com:acme/web.git",
-            BranchName::new("main").unwrap(),
+    let manifest = sample_manifest().with_integration(crate::domain::feature::IntegrationPolicy {
+        via: crate::domain::feature::IntegrationVia::Pr,
+        strategy: crate::domain::feature::IntegrationStrategy::Merge,
+    });
+    let manifest = manifest
+        .with_repo_added(
+            Repo::new(
+                RepoName::new("web").unwrap(),
+                "git@github.com:acme/web.git",
+                BranchName::new("main").unwrap(),
+            )
+            .with_checks(vec!["npm test".to_owned()]),
         )
-        .with_checks(vec!["npm test".to_owned()]),
-    ).unwrap();
-    assert_eq!(manifest.integration().via, crate::domain::feature::IntegrationVia::Pr);
+        .unwrap();
+    assert_eq!(
+        manifest.integration().via,
+        crate::domain::feature::IntegrationVia::Pr
+    );
     assert_eq!(manifest.repos()[1].checks(), ["npm test"]);
 
     let manifest = manifest
         .with_repo_removed(&RepoName::new("api").unwrap())
         .unwrap();
     assert_eq!(manifest.repos().len(), 1);
-    assert_eq!(manifest.integration().strategy, crate::domain::feature::IntegrationStrategy::Merge);
+    assert_eq!(
+        manifest.integration().strategy,
+        crate::domain::feature::IntegrationStrategy::Merge
+    );
 
     let manifest = manifest
         .with_providers(Providers::new(vec![Provider::OpenCode], Provider::OpenCode))
         .unwrap();
-    assert_eq!(manifest.integration().via, crate::domain::feature::IntegrationVia::Pr);
+    assert_eq!(
+        manifest.integration().via,
+        crate::domain::feature::IntegrationVia::Pr
+    );
     assert_eq!(manifest.repos()[0].checks(), ["npm test"]);
 
-    let manifest = manifest
-        .with_mcp_servers(vec![mcp_server("docs")])
-        .unwrap();
-    assert_eq!(manifest.integration().strategy, crate::domain::feature::IntegrationStrategy::Merge);
+    let manifest = manifest.with_mcp_servers(vec![mcp_server("docs")]).unwrap();
+    assert_eq!(
+        manifest.integration().strategy,
+        crate::domain::feature::IntegrationStrategy::Merge
+    );
     assert_eq!(manifest.mcp_servers().len(), 1);
 }
 
@@ -716,12 +725,14 @@ fn a_blank_repo_check_is_refused_on_build() {
     let error = Manifest::new(
         HallName::new("acme").unwrap(),
         Providers::new(vec![Provider::ClaudeCode], Provider::ClaudeCode),
-        vec![Repo::new(
-            RepoName::new("api").unwrap(),
-            "git@github.com:acme/api.git",
-            BranchName::new("main").unwrap(),
-        )
-        .with_checks(vec!["   ".to_owned()])],
+        vec![
+            Repo::new(
+                RepoName::new("api").unwrap(),
+                "git@github.com:acme/api.git",
+                BranchName::new("main").unwrap(),
+            )
+            .with_checks(vec!["   ".to_owned()]),
+        ],
         None,
     )
     .unwrap_err();
@@ -776,10 +787,7 @@ fn migration_plan_available_for_v1_and_unreachable_for_v0() {
 
     fs::write_text(&layout.manifest(), v1_manifest_bytes()).unwrap();
     let plan = Manifest::plan(&layout).unwrap().unwrap();
-    assert_eq!(
-        plan,
-        MigrationPlan::Available { from: 1, to: 2 }
-    );
+    assert_eq!(plan, MigrationPlan::Available { from: 1, to: 2 });
 
     fs::write_text(
         &layout.manifest(),
@@ -787,10 +795,7 @@ fn migration_plan_available_for_v1_and_unreachable_for_v0() {
     )
     .unwrap();
     let plan = Manifest::plan(&layout).unwrap().unwrap();
-    assert_eq!(
-        plan,
-        MigrationPlan::Unreachable { from: 0, to: 2 }
-    );
+    assert_eq!(plan, MigrationPlan::Unreachable { from: 0, to: 2 });
 }
 
 #[test]

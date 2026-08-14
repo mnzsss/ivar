@@ -174,7 +174,8 @@ fn integrated_child_hall() -> (tempfile::TempDir, Utf8PathBuf) {
             verified_at: "2026-08-14T12:00:00Z".to_owned(),
         },
     };
-    child.promotions
+    child
+        .promotions
         .get_mut(&RepoName::new("api").unwrap())
         .unwrap()
         .integration_receipt = Some(receipt);

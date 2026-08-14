@@ -87,10 +87,7 @@ fn known_outcome_parses_known_names_and_is_none_for_foreign_ones() {
         outcome: "delivered".to_owned(),
         closed_at: "t".to_owned(),
     };
-    assert_eq!(
-        delivered.known_outcome(),
-        Some(PromotionOutcome::Delivered)
-    );
+    assert_eq!(delivered.known_outcome(), Some(PromotionOutcome::Delivered));
 
     let integrated = CloseRecord {
         outcome: "integrated".to_owned(),

@@ -151,7 +151,10 @@ pub(crate) fn create_pull_request(
 ///
 /// Pending is data, not an error — the caller treats it as a resumable
 /// blocked result. A hard `gh` failure is a strict error.
-pub(crate) fn required_checks(git_dir: &Utf8Path, url: &str) -> Result<Vec<PrCheckResult>, Failure> {
+pub(crate) fn required_checks(
+    git_dir: &Utf8Path,
+    url: &str,
+) -> Result<Vec<PrCheckResult>, Failure> {
     let output = proc::capture(
         &proc::Command::new("gh")
             .args([
@@ -218,14 +221,7 @@ pub(crate) fn request_merge(
     };
     let output = capture(
         proc::Command::new("gh")
-            .args([
-                "pr",
-                "merge",
-                url,
-                flag,
-                "--match-head-commit",
-                source_sha,
-            ])
+            .args(["pr", "merge", url, flag, "--match-head-commit", source_sha])
             .cwd(git_dir),
         "pr merge",
     )?;
@@ -288,7 +284,13 @@ fn observe_merge_with(
 fn view_pull_request(git_dir: &Utf8Path, url: &str) -> Result<PullRequest, Failure> {
     let output = capture(
         proc::Command::new("gh")
-            .args(["pr", "view", url, "--json", "url,state,mergeCommit,headRefOid"])
+            .args([
+                "pr",
+                "view",
+                url,
+                "--json",
+                "url,state,mergeCommit,headRefOid",
+            ])
             .cwd(git_dir),
         "pr view",
     )?;
@@ -344,7 +346,8 @@ pub(crate) fn link_sibling_prs(pr_urls: &[String]) {
             body.push('\n');
         }
 
-        let _ = proc::capture(&proc::Command::new("gh").args(["pr", "comment", url, "--body", &body]));
+        let _ =
+            proc::capture(&proc::Command::new("gh").args(["pr", "comment", url, "--body", &body]));
     }
 }
 

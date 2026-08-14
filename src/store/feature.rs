@@ -146,12 +146,9 @@ fn feature_v1_to_v2(value: serde_json::Value) -> Result<serde_json::Value, Strin
 /// empty shapes so the persisted v3 is the canonical form (and so a later
 /// tool reading the file sees the fields it expects, not their absence).
 fn feature_v2_to_v3(mut value: serde_json::Value) -> Result<serde_json::Value, String> {
-    let root = value
-        .as_object_mut()
-        .ok_or("feature must be an object")?;
+    let root = value.as_object_mut().ok_or("feature must be an object")?;
     root.entry("parent").or_insert(serde_json::Value::Null);
-    root.entry("integration")
-        .or_insert(serde_json::json!({}));
+    root.entry("integration").or_insert(serde_json::json!({}));
     let promotions = root
         .get_mut("promotions")
         .and_then(serde_json::Value::as_object_mut)

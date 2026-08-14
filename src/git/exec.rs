@@ -282,11 +282,7 @@ pub(crate) fn add_detached_worktree(
 /// an explicit revision in the bare repository. The temporary
 /// `ivar-integrate/<feature>/<repo>` branches integration uses are created
 /// here and deleted with [`delete_branch`] once their worktrees are gone.
-pub(crate) fn create_branch(
-    git_dir: &Utf8Path,
-    branch: &str,
-    revision: &str,
-) -> Result<(), Error> {
+pub(crate) fn create_branch(git_dir: &Utf8Path, branch: &str, revision: &str) -> Result<(), Error> {
     run(git()
         .arg("--git-dir")
         .arg(git_dir.as_str())
@@ -326,16 +322,8 @@ pub(crate) fn merge_no_ff(worktree: &Utf8Path, source: &str) -> Result<(), Error
 /// `git -C <worktree> merge --squash <source>` then `git -C <worktree>
 /// commit -m <message>` — the squash strategy's two steps, since `--squash`
 /// stages without committing.
-pub(crate) fn squash_merge(
-    worktree: &Utf8Path,
-    source: &str,
-    message: &str,
-) -> Result<(), Error> {
-    run(git()
-        .cwd(worktree)
-        .arg("merge")
-        .arg("--squash")
-        .arg(source))?;
+pub(crate) fn squash_merge(worktree: &Utf8Path, source: &str, message: &str) -> Result<(), Error> {
+    run(git().cwd(worktree).arg("merge").arg("--squash").arg(source))?;
     run(git().cwd(worktree).arg("commit").arg("-m").arg(message))?;
     Ok(())
 }

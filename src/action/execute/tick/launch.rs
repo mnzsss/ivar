@@ -578,14 +578,11 @@ pub(super) fn locked_violations(
     after
         .difference(baseline)
         .filter(|path| {
-            path.as_str()
-                .split('/')
-                .next()
-                .is_some_and(|repo| {
-                    RepoName::new(repo)
-                        .map(|repo| locked_repos.contains(&repo))
-                        .unwrap_or(false)
-                })
+            path.as_str().split('/').next().is_some_and(|repo| {
+                RepoName::new(repo)
+                    .map(|repo| locked_repos.contains(&repo))
+                    .unwrap_or(false)
+            })
         })
         .cloned()
         .collect()

@@ -456,24 +456,15 @@ fn feature_create_defines_automatic_nested_creation() {
 fn plan_defines_the_child_replan_reconcile_decision_split() {
     let content = embedded("plan");
 
-    assert!(
-        content.contains("isolatable"),
-        "was: {content}"
-    );
+    assert!(content.contains("isolatable"), "was: {content}");
     assert!(
         content.contains("`ivar feature create <child> --parent <current>`"),
         "was: {content}"
     );
     assert!(content.contains("replan"), "was: {content}");
     assert!(content.contains("reconcile"), "was: {content}");
-    assert!(
-        content.contains("Structural correction"),
-        "was: {content}"
-    );
-    assert!(
-        content.contains("Implementation-only"),
-        "was: {content}"
-    );
+    assert!(content.contains("Structural correction"), "was: {content}");
+    assert!(content.contains("Implementation-only"), "was: {content}");
 }
 
 /// The execute command identifies the invoking agent as the coordinator and
@@ -490,10 +481,7 @@ fn execute_defines_the_coordinator_and_the_same_decision_tree() {
     );
     assert!(content.contains("replan"), "was: {content}");
     assert!(content.contains("reconcile"), "was: {content}");
-    assert!(
-        content.contains("no permission question"),
-        "was: {content}"
-    );
+    assert!(content.contains("no permission question"), "was: {content}");
 }
 
 /// The executor boundary is in the shipped execute bytes: an executor never
@@ -503,7 +491,10 @@ fn execute_defines_the_coordinator_and_the_same_decision_tree() {
 fn execute_bounds_the_executor_against_mutating_feature_state() {
     let content = embedded("execute");
 
-    assert!(content.contains("The executor is not the coordinator"), "was: {content}");
+    assert!(
+        content.contains("The executor is not the coordinator"),
+        "was: {content}"
+    );
     assert!(content.contains("stops and reports"), "was: {content}");
     assert!(
         content.contains("never create, reparent, promote, integrate, close, delete, or otherwise mutate shared feature state"),

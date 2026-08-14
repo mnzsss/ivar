@@ -11,8 +11,8 @@
 )]
 
 use super::*;
-use crate::action::feature::create::{CreateInput, CreateOutcome};
 use crate::action::feature::create::create as create_action;
+use crate::action::feature::create::{CreateInput, CreateOutcome};
 use crate::action::feature::list::list as list_action;
 use crate::action::hall::{self, InitInput};
 use crate::domain::name::RepoName;
@@ -79,9 +79,13 @@ fn reparent_updates_parent_and_base_in_one_feature_write() {
     // The resulting canonical feature.json carries both the new parent and
     // the derived base — one record write, one shape.
     let layout = Layout::at(&root);
-    let on_disk = fs::read_text(&layout.feature_dir(&FeatureName::new("child").unwrap()).join("feature.json"))
-        .unwrap()
-        .unwrap();
+    let on_disk = fs::read_text(
+        &layout
+            .feature_dir(&FeatureName::new("child").unwrap())
+            .join("feature.json"),
+    )
+    .unwrap()
+    .unwrap();
     assert!(on_disk.contains("\"parent\": \"parent-b\""), "{on_disk}");
     assert!(on_disk.contains("\"base\": \"parent-b\""), "{on_disk}");
     assert!(!on_disk.contains("parent-a"), "{on_disk}");
@@ -146,7 +150,11 @@ fn reparent_refuses_once_any_work_fact_exists() {
     let before = bytes("promoted");
     let failure = reparent(&ctx, reparent_input("promoted", "target")).unwrap_err();
     assert_eq!(failure.code, "feature.reparent_work_started");
-    assert_eq!(bytes("promoted"), before, "refusal must not touch the record");
+    assert_eq!(
+        bytes("promoted"),
+        before,
+        "refusal must not touch the record"
+    );
 
     // A plan directory entry is work.
     create(&ctx, "planned", Some("root"));
@@ -161,7 +169,11 @@ fn reparent_refuses_once_any_work_fact_exists() {
     let before = bytes("planned");
     let failure = reparent(&ctx, reparent_input("planned", "target")).unwrap_err();
     assert_eq!(failure.code, "feature.reparent_work_started");
-    assert_eq!(bytes("planned"), before, "refusal must not touch the record");
+    assert_eq!(
+        bytes("planned"),
+        before,
+        "refusal must not touch the record"
+    );
 
     // An execution board is work.
     create(&ctx, "executed", Some("root"));
@@ -176,15 +188,28 @@ fn reparent_refuses_once_any_work_fact_exists() {
     let before = bytes("executed");
     let failure = reparent(&ctx, reparent_input("executed", "target")).unwrap_err();
     assert_eq!(failure.code, "feature.reparent_work_started");
-    assert_eq!(bytes("executed"), before, "refusal must not touch the record");
+    assert_eq!(
+        bytes("executed"),
+        before,
+        "refusal must not touch the record"
+    );
 
     // A live (or detached) session dir is work.
     create(&ctx, "sessioned", Some("root"));
-    fs::ensure_dir(&layout.feature_sessions_dir(&FeatureName::new("sessioned").unwrap()).join("sess-1")).unwrap();
+    fs::ensure_dir(
+        &layout
+            .feature_sessions_dir(&FeatureName::new("sessioned").unwrap())
+            .join("sess-1"),
+    )
+    .unwrap();
     let before = bytes("sessioned");
     let failure = reparent(&ctx, reparent_input("sessioned", "target")).unwrap_err();
     assert_eq!(failure.code, "feature.reparent_work_started");
-    assert_eq!(bytes("sessioned"), before, "refusal must not touch the record");
+    assert_eq!(
+        bytes("sessioned"),
+        before,
+        "refusal must not touch the record"
+    );
 
     // A close record is work.
     create(&ctx, "closed", Some("root"));
@@ -205,7 +230,11 @@ fn reparent_refuses_once_any_work_fact_exists() {
     let before = bytes("with-descendant");
     let failure = reparent(&ctx, reparent_input("with-descendant", "target")).unwrap_err();
     assert_eq!(failure.code, "feature.reparent_work_started");
-    assert_eq!(bytes("with-descendant"), before, "refusal must not touch the record");
+    assert_eq!(
+        bytes("with-descendant"),
+        before,
+        "refusal must not touch the record"
+    );
 }
 
 #[test]
@@ -245,7 +274,10 @@ fn list_exposes_parent_depth_and_state_after_reparenting() {
         .iter()
         .find(|summary| summary.name.as_str() == "child")
         .unwrap();
-    assert_eq!(child_summary.parent.as_ref().map(|n| n.as_str()), Some("root"));
+    assert_eq!(
+        child_summary.parent.as_ref().map(|n| n.as_str()),
+        Some("root")
+    );
     assert_eq!(child_summary.depth, 1);
     assert_eq!(child_summary.state.to_string(), "active");
 }

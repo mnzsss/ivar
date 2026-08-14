@@ -197,12 +197,14 @@ fn demote_refuses_a_promotion_locked_by_a_successful_receipt() {
         .unwrap()
         .unwrap();
     assert!(feature.is_promoted(&RepoName::new("api").unwrap()));
-    assert!(feature
-        .promotions
-        .get(&RepoName::new("api").unwrap())
-        .unwrap()
-        .integration_receipt
-        .is_some());
+    assert!(
+        feature
+            .promotions
+            .get(&RepoName::new("api").unwrap())
+            .unwrap()
+            .integration_receipt
+            .is_some()
+    );
 }
 
 #[test]

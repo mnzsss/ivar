@@ -102,14 +102,7 @@ fn feature_create_accepts_parent_via_and_strategy() {
 #[test]
 fn feature_create_refuses_base_alongside_parent() {
     let error = Cli::try_parse_from([
-        "ivar",
-        "feature",
-        "create",
-        "child",
-        "--parent",
-        "parent",
-        "--base",
-        "main",
+        "ivar", "feature", "create", "child", "--parent", "parent", "--base", "main",
     ])
     .unwrap_err();
 
@@ -165,10 +158,7 @@ fn feature_reparent_parses_a_child_and_parent() {
 #[test]
 fn feature_reparent_requires_a_parent() {
     let error = Cli::try_parse_from(["ivar", "feature", "reparent", "child"]).unwrap_err();
-    assert!(
-        error.to_string().contains("required"),
-        "was: {error}"
-    );
+    assert!(error.to_string().contains("required"), "was: {error}");
 }
 
 #[test]
@@ -186,8 +176,7 @@ fn feature_reparent_args_convert_into_reparent_input() {
 
 #[test]
 fn feature_status_accepts_recursive() {
-    let cli = Cli::try_parse_from(["ivar", "feature", "status", "parent", "--recursive"])
-        .unwrap();
+    let cli = Cli::try_parse_from(["ivar", "feature", "status", "parent", "--recursive"]).unwrap();
 
     match cli.command {
         Command::Feature(FeatureCommand::Status(args)) => {

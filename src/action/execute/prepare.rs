@@ -157,8 +157,8 @@ pub fn prepare(ctx: &Ctx, input: PrepareInput) -> Outcome<PrepareOutcome> {
     // Preparing persists a fresh board: blocked once the whole child closes
     // as `integrated`, and the graph's contracts must not reach a locked
     // promotion.
-    let feature_record = crate::domain::feature::Feature::read(&layout, &feature)?
-        .ok_or_else(|| {
+    let feature_record =
+        crate::domain::feature::Feature::read(&layout, &feature)?.ok_or_else(|| {
             Failure::blocked(
                 "execute.feature_vanished",
                 format!("feature `{feature}` has a directory but no feature.json"),

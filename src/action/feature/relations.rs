@@ -115,25 +115,26 @@ pub(crate) fn parent(layout: &Layout, feature: &Feature) -> Result<Option<Featur
     let Some(parent_name) = &feature.parent else {
         return Ok(None);
     };
-    Feature::read(layout, parent_name)?.ok_or_else(|| {
-        Failure::blocked(
-            "feature.parent_missing",
-            format!(
-                "feature `{}` names parent `{parent_name}`, which does not exist",
-                feature.name
-            ),
-        )
-        .expected("every parent reference to resolve to an existing feature")
-        .actual(format!("`{parent_name}` has no feature.json"))
-        .fix(FixAction::safe(
-            "feature.fix_parent_reference",
-            format!(
-                "Repair `{}`'s `parent` field, or create the missing `{parent_name}` feature.",
-                feature.name
-            ),
-        ))
-    })
-    .map(Some)
+    Feature::read(layout, parent_name)?
+        .ok_or_else(|| {
+            Failure::blocked(
+                "feature.parent_missing",
+                format!(
+                    "feature `{}` names parent `{parent_name}`, which does not exist",
+                    feature.name
+                ),
+            )
+            .expected("every parent reference to resolve to an existing feature")
+            .actual(format!("`{parent_name}` has no feature.json"))
+            .fix(FixAction::safe(
+                "feature.fix_parent_reference",
+                format!(
+                    "Repair `{}`'s `parent` field, or create the missing `{parent_name}` feature.",
+                    feature.name
+                ),
+            ))
+        })
+        .map(Some)
 }
 
 /// Every direct/recursive descendant of `name`, in deterministic pre-order
@@ -373,30 +374,36 @@ pub(crate) fn stale_receipt_failure(
     )
     .expected("the receipt to match live state (source tip, checks, result history)")
     .actual(reason)
-    .fix(FixAction::unsafe_(
-        "feature.restore_source",
-        "Restore the child branch to the recorded source, then retry.",
+    .fix(
+        FixAction::unsafe_(
+            "feature.restore_source",
+            "Restore the child branch to the recorded source, then retry.",
+        )
+        .command(format!(
+            "git -C {child_worktree} reset --hard {}",
+            receipt.source_sha
+        )),
     )
-    .command(format!(
-        "git -C {child_worktree} reset --hard {}",
-        receipt.source_sha
-    )))
-    .fix(FixAction::unsafe_(
-        "feature.restore_result",
-        "Restore the parent branch to the recorded result, then retry.",
+    .fix(
+        FixAction::unsafe_(
+            "feature.restore_result",
+            "Restore the parent branch to the recorded result, then retry.",
+        )
+        .command(format!(
+            "git -C {parent_worktree} merge --ff-only {}",
+            receipt.result_sha
+        )),
     )
-    .command(format!(
-        "git -C {parent_worktree} merge --ff-only {}",
-        receipt.result_sha
-    )))
-    .fix(FixAction::safe(
-        "feature.create_new_child",
-        "Create a fresh child feature instead of repairing the moved branches.",
+    .fix(
+        FixAction::safe(
+            "feature.create_new_child",
+            "Create a fresh child feature instead of repairing the moved branches.",
+        )
+        .command(format!(
+            "ivar feature create {}-redo --parent {}",
+            child.name, parent.name
+        )),
     )
-    .command(format!(
-        "ivar feature create {}-redo --parent {}",
-        child.name, parent.name
-    )))
 }
 
 /// Whether a derived state blocks its parent's integration.
@@ -554,7 +561,10 @@ fn validate_tree(features: &[Feature]) -> Result<(), Failure> {
                     format!("feature `{}` is part of a parent cycle", feature.name),
                 )
                 .expected("every parent chain to end at a root (a feature with no parent)")
-                .actual(format!("walking parents from `{}` revisited `{name}`", feature.name))
+                .actual(format!(
+                    "walking parents from `{}` revisited `{name}`",
+                    feature.name
+                ))
                 .fix(FixAction::safe(
                     "feature.fix_parent_reference",
                     "Repair the hand-edited `parent` fields so no feature is its own ancestor.",

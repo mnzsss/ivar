@@ -11,6 +11,7 @@
 )]
 
 use super::*;
+use crate::action::feature::verification;
 use crate::domain::feature::{
     FeatureIntegrationState, IntegrationReceipt, IntegrationStrategy, IntegrationVia,
     VerificationEvidence, VerificationResult,
@@ -19,7 +20,6 @@ use crate::domain::name::{BranchName, FeatureName, RepoName};
 use crate::infra::fs;
 use crate::store::layout::Layout;
 use crate::test_support::{git, hall_root, seeded_repo};
-use crate::action::feature::verification;
 
 /// Write a v2 manifest declaring one repo, `api`, pointing at `url`, with the
 /// given ordered checks.
@@ -54,7 +54,9 @@ fn seeded_relation_hall() -> (tempfile::TempDir, Layout) {
     write_manifest(&layout, origin.as_str(), &["true"]);
 
     let bare = layout.repo_bare(&RepoName::new("api").unwrap());
-    crate::git::System.clone_bare(origin.as_str(), &bare).unwrap();
+    crate::git::System
+        .clone_bare(origin.as_str(), &bare)
+        .unwrap();
     git(&bare, &["branch", "parent"]);
     git(&bare, &["branch", "child"]);
 
@@ -68,13 +70,17 @@ fn commit_on_child(layout: &Layout, branch: &str, file: &str, content: &str) -> 
     let bare = layout.repo_bare(&api);
     let branch_name = BranchName::new(branch).unwrap();
     let worktree = layout.repo_worktree(&api, &branch_name);
-    if crate::git::System.target_state(&worktree).unwrap() != crate::git::TargetState::Repository
-    {
-        crate::git::System.add_worktree(&bare, &worktree, branch).unwrap();
+    if crate::git::System.target_state(&worktree).unwrap() != crate::git::TargetState::Repository {
+        crate::git::System
+            .add_worktree(&bare, &worktree, branch)
+            .unwrap();
     }
     std::fs::write(worktree.join(file), content).unwrap();
     git(&worktree, &["add", file]);
-    git(&worktree, &["commit", "-m", format!("{file}: {content}").as_str()]);
+    git(
+        &worktree,
+        &["commit", "-m", format!("{file}: {content}").as_str()],
+    );
     crate::git::System.head_commit(&worktree).unwrap()
 }
 
@@ -137,7 +143,10 @@ fn children_are_inferred_and_the_parent_chain_is_unlimited() {
 
     // Only the child stores the edge; nobody stores a child list.
     assert_eq!(
-        feature(&layout, "child").parent.as_ref().map(|n| n.as_str()),
+        feature(&layout, "child")
+            .parent
+            .as_ref()
+            .map(|n| n.as_str()),
         Some("parent")
     );
     assert_eq!(feature(&layout, "root").parent, None);
@@ -150,9 +159,11 @@ fn children_are_inferred_and_the_parent_chain_is_unlimited() {
     let names: Vec<&str> = parent_descendants.iter().map(|f| f.name.as_str()).collect();
     assert_eq!(names, ["child", "leaf"]);
 
-    assert!(descendants(&layout, &FeatureName::new("leaf").unwrap())
-        .unwrap()
-        .is_empty());
+    assert!(
+        descendants(&layout, &FeatureName::new("leaf").unwrap())
+            .unwrap()
+            .is_empty()
+    );
 }
 
 #[test]
@@ -234,9 +245,13 @@ fn a_leaf_has_no_descendant_blockers() {
     write_feature(&layout, "parent", None, None);
     write_feature(&layout, "leaf", Some("parent"), None);
 
-    let blockers =
-        blocking_descendants(&crate::git::System, &layout, &manifest, &feature(&layout, "leaf"))
-            .unwrap();
+    let blockers = blocking_descendants(
+        &crate::git::System,
+        &layout,
+        &manifest,
+        &feature(&layout, "leaf"),
+    )
+    .unwrap();
     assert!(blockers.is_empty());
 }
 
@@ -255,7 +270,10 @@ fn a_child_is_blocked_by_an_active_leaf() {
         &feature(&layout, "child"),
     )
     .unwrap();
-    let names: Vec<&str> = blockers.iter().map(|entry| entry.feature.as_str()).collect();
+    let names: Vec<&str> = blockers
+        .iter()
+        .map(|entry| entry.feature.as_str())
+        .collect();
     assert_eq!(names, ["leaf"]);
     assert_eq!(blockers[0].depth, 1);
     assert_eq!(blockers[0].state, FeatureIntegrationState::Active);
@@ -277,7 +295,10 @@ fn a_root_is_blocked_by_descendants_at_any_depth() {
         &feature(&layout, "root"),
     )
     .unwrap();
-    let names: Vec<&str> = blockers.iter().map(|entry| entry.feature.as_str()).collect();
+    let names: Vec<&str> = blockers
+        .iter()
+        .map(|entry| entry.feature.as_str())
+        .collect();
     assert_eq!(names, ["parent", "child", "leaf"]);
 }
 
@@ -291,8 +312,12 @@ fn an_abandoned_node_does_not_block_but_its_active_child_does() {
 
     // Close the abandoned node as abandoned — history, not a blocker.
     let name = FeatureName::new("abandoned").unwrap();
-    crate::action::feature::lifecycle::write_close(&layout, &name, crate::domain::feature::PromotionOutcome::Abandoned)
-        .unwrap();
+    crate::action::feature::lifecycle::write_close(
+        &layout,
+        &name,
+        crate::domain::feature::PromotionOutcome::Abandoned,
+    )
+    .unwrap();
 
     let blockers = blocking_descendants(
         &crate::git::System,
@@ -301,9 +326,13 @@ fn an_abandoned_node_does_not_block_but_its_active_child_does() {
         &feature(&layout, "root"),
     )
     .unwrap();
-    let names: Vec<&str> = blockers.iter().map(|entry| entry.feature.as_str()).collect();
+    let names: Vec<&str> = blockers
+        .iter()
+        .map(|entry| entry.feature.as_str())
+        .collect();
     assert_eq!(
-        names, ["active"],
+        names,
+        ["active"],
         "abandoned history is ignored, but its active child still blocks"
     );
 }
@@ -385,8 +414,18 @@ fn subtree_status_renders_the_tree_in_pre_order_with_depth_and_state() {
         rendered,
         [
             ("root".to_owned(), None, 0, "active".to_owned()),
-            ("parent".to_owned(), Some("root".to_owned()), 1, "active".to_owned()),
-            ("leaf".to_owned(), Some("parent".to_owned()), 2, "active".to_owned()),
+            (
+                "parent".to_owned(),
+                Some("root".to_owned()),
+                1,
+                "active".to_owned()
+            ),
+            (
+                "leaf".to_owned(),
+                Some("parent".to_owned()),
+                2,
+                "active".to_owned()
+            ),
         ]
     );
     assert_eq!(entries[0].repos.len(), 1);
@@ -509,10 +548,7 @@ fn check_drift_and_result_loss_are_stale() {
         .unwrap();
 
     // Check drift: the manifest's checks changed since the receipt.
-    let origin_url = Manifest::read(&layout)
-        .unwrap()
-        .unwrap()
-        .repos()[0]
+    let origin_url = Manifest::read(&layout).unwrap().unwrap().repos()[0]
         .url()
         .to_owned();
     write_manifest(&layout, &origin_url, &["cargo test"]);
@@ -533,9 +569,7 @@ fn check_drift_and_result_loss_are_stale() {
     write_manifest(&layout, &origin_url, &["true"]);
     let manifest = Manifest::read(&layout).unwrap().unwrap();
     let parent_wt = layout.repo_worktree(&api, &BranchName::new("parent").unwrap());
-    if crate::git::System.target_state(&parent_wt).unwrap()
-        != crate::git::TargetState::Repository
-    {
+    if crate::git::System.target_state(&parent_wt).unwrap() != crate::git::TargetState::Repository {
         crate::git::System
             .add_worktree(&layout.repo_bare(&api), &parent_wt, "parent")
             .unwrap();
@@ -560,8 +594,7 @@ fn failed_evidence_is_failed_not_stale() {
     let manifest = Manifest::read(&layout).unwrap().unwrap();
     let source = commit_on_child(&layout, "child", "work.md", "first");
     let mut receipt = passing_receipt(&source, &source);
-    receipt.verification.child =
-        vec![VerificationResult::failed("true", Some(1), "boom")];
+    receipt.verification.child = vec![VerificationResult::failed("true", Some(1), "boom")];
     write_feature(&layout, "parent", None, None);
     write_feature(&layout, "child", Some("parent"), Some(receipt.clone()));
 

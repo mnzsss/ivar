@@ -140,8 +140,8 @@ pub fn replan(ctx: &Ctx, input: ReplanInput) -> Outcome<ReplanOutcome> {
     // Replan persists a board: blocked once the whole child closes as
     // `integrated`, and the revised wave's contracts must not reach a locked
     // promotion.
-    let feature_record = crate::domain::feature::Feature::read(&layout, &feature)?
-        .ok_or_else(|| {
+    let feature_record =
+        crate::domain::feature::Feature::read(&layout, &feature)?.ok_or_else(|| {
             Failure::blocked(
                 "execute.feature_vanished",
                 format!("feature `{feature}` has a board but no feature.json"),

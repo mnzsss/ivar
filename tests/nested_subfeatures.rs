@@ -226,7 +226,14 @@ fn the_cli_can_create_reparent_and_refuse_after_work_starts() {
             )
         })
         .collect();
-    assert_eq!(rendered, [("parent-b".to_owned(), 0), ("child".to_owned(), 1), ("leaf".to_owned(), 2)]);
+    assert_eq!(
+        rendered,
+        [
+            ("parent-b".to_owned(), 0),
+            ("child".to_owned(), 1),
+            ("leaf".to_owned(), 2)
+        ]
+    );
 }
 
 // -- leaves-first local integration ------------------------------------------
@@ -288,7 +295,13 @@ fn leaf_integrates_into_child_which_integrates_into_parent_for_all_strategies() 
         assert_eq!(receipt["target_branch"], "parent");
         assert!(!receipt["source_sha"].as_str().unwrap().is_empty());
         assert!(!receipt["result_sha"].as_str().unwrap().is_empty());
-        assert_eq!(receipt["verification"]["command_fingerprint"].as_str().unwrap().len(), 64);
+        assert_eq!(
+            receipt["verification"]["command_fingerprint"]
+                .as_str()
+                .unwrap()
+                .len(),
+            64
+        );
 
         // Refs are retained: the leaf's branch and worktree survive.
         let leaf_ref = std::process::Command::new("git")
@@ -301,7 +314,10 @@ fn leaf_integrates_into_child_which_integrates_into_parent_for_all_strategies() 
             ])
             .output()
             .unwrap();
-        assert!(leaf_ref.status.success(), "the leaf branch must be retained");
+        assert!(
+            leaf_ref.status.success(),
+            "the leaf branch must be retained"
+        );
         assert!(root.join(".ivar/repos/api/leaf").is_dir());
 
         // The root remains deliverable, not integrated.
@@ -319,10 +335,8 @@ fn github_hall(checks: &[&str]) -> (tempfile::TempDir, Utf8PathBuf, FakeGh) {
     let (guard, root) = hall_root();
     ivar().current_dir(&root).arg("init").assert().success();
     let origin = seeded_repo(&root.parent().unwrap().join("origins/api"), "main");
-    let mut value: serde_json::Value = serde_json::from_str(
-        &std::fs::read_to_string(root.join("ivar.json")).unwrap(),
-    )
-    .unwrap();
+    let mut value: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(root.join("ivar.json")).unwrap()).unwrap();
     let checks_json: Vec<serde_json::Value> = checks
         .iter()
         .map(|check| serde_json::json!(check))
@@ -387,8 +401,21 @@ fn a_pr_integration_checks_merges_and_observes_through_the_fake_gh() {
 
     // Integrate via PR: create, check, merge, observe. (The close notice is a
     // warning, so the run exits 1 — json_output tolerates that.)
-    let value = json_gh_output(&root, &fake, &["feature", "integrate", "child", "--via", "pr", "--strategy", "squash"]);
-    assert_eq!(value["closed_integrated"], true);    assert_eq!(value["closed_integrated"], true);
+    let value = json_gh_output(
+        &root,
+        &fake,
+        &[
+            "feature",
+            "integrate",
+            "child",
+            "--via",
+            "pr",
+            "--strategy",
+            "squash",
+        ],
+    );
+    assert_eq!(value["closed_integrated"], true);
+    assert_eq!(value["closed_integrated"], true);
     assert_eq!(value["policy"]["via"], "pr");
     let repo = &value["repos"][0];
     assert_eq!(repo["status"], "integrated");
@@ -406,7 +433,11 @@ fn a_pr_integration_checks_merges_and_observes_through_the_fake_gh() {
     assert!(parent_wt.join("work.md").is_file());
 
     // A rerun reuses the fresh receipt.
-    let value = json_gh_output(&root, &fake, &["feature", "integrate", "child", "--via", "pr"]);
+    let value = json_gh_output(
+        &root,
+        &fake,
+        &["feature", "integrate", "child", "--via", "pr"],
+    );
     assert_eq!(value["repos"][0]["status"], "reused");
     assert_eq!(value["closed_integrated"], false, "a rerun never reopens");
 }
@@ -422,7 +453,15 @@ fn a_head_movement_after_the_pr_blocks_the_merge_with_match_head_commit() {
     let first = json_gh_output(
         &root,
         &fake,
-        &["feature", "integrate", "child", "--via", "pr", "--strategy", "squash"],
+        &[
+            "feature",
+            "integrate",
+            "child",
+            "--via",
+            "pr",
+            "--strategy",
+            "squash",
+        ],
     );
     assert_eq!(first["repos"][0]["status"], "pending");
     assert_eq!(first["closed_integrated"], false);
@@ -442,7 +481,15 @@ fn a_head_movement_after_the_pr_blocks_the_merge_with_match_head_commit() {
     let rerun = json_gh_output(
         &root,
         &fake,
-        &["feature", "integrate", "child", "--via", "pr", "--strategy", "squash"],
+        &[
+            "feature",
+            "integrate",
+            "child",
+            "--via",
+            "pr",
+            "--strategy",
+            "squash",
+        ],
     );
     assert_eq!(rerun["repos"][0]["status"], "failed");
     assert!(
@@ -468,18 +515,6 @@ fn json_gh_output(root: &Utf8Path, fake: &FakeGh, args: &[&str]) -> serde_json::
     serde_json::from_slice(&output).expect("valid json")
 }
 
-/// `ivar` on the fake gh, expecting a hard failure.
-fn failure_gh_output(root: &Utf8Path, fake: &FakeGh, args: &[&str]) -> serde_json::Value {
-    let output = ivar_on_github(root, fake)
-        .args(args)
-        .arg("--json")
-        .assert()
-        .failure()
-        .get_output()
-        .stdout
-        .clone();
-    serde_json::from_slice(&output).expect("valid json")
-}
 
 // -- partial multi-repo resume ------------------------------------------------
 
@@ -560,10 +595,8 @@ fn a_partial_integration_is_resumable_and_never_atomic() {
 
     // Repair web's checks, then rerun: api is reused, web integrates, and the
     // child closes integrated.
-    let mut manifest: serde_json::Value = serde_json::from_str(
-        &std::fs::read_to_string(root.join("ivar.json")).unwrap(),
-    )
-    .unwrap();
+    let mut manifest: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(root.join("ivar.json")).unwrap()).unwrap();
     for repo in manifest["repos"].as_array_mut().unwrap() {
         if repo["name"] == "web" {
             repo["checks"] = serde_json::json!(["true"]);
@@ -643,11 +676,23 @@ fn parent_deletion_is_blocked_until_every_descendant_is_deleted() {
     assert_eq!(failure["code"], "feature.has_descendants");
 
     // Leaves first, then the parent goes.
-    ivar().current_dir(&root).args(["feature", "delete", "leaf"]).assert().success();
+    ivar()
+        .current_dir(&root)
+        .args(["feature", "delete", "leaf"])
+        .assert()
+        .success();
     let failure = failure_output(&root, &["feature", "delete", "parent"]);
     assert_eq!(failure["code"], "feature.has_descendants");
-    ivar().current_dir(&root).args(["feature", "delete", "child"]).assert().success();
-    ivar().current_dir(&root).args(["feature", "delete", "parent"]).assert().success();
+    ivar()
+        .current_dir(&root)
+        .args(["feature", "delete", "child"])
+        .assert()
+        .success();
+    ivar()
+        .current_dir(&root)
+        .args(["feature", "delete", "parent"])
+        .assert()
+        .success();
     assert!(!root.join(".ivar/features/parent").exists());
 }
 

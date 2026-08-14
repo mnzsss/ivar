@@ -615,12 +615,19 @@ fn rev_parse(git_dir: &Utf8Path, rev: &str) -> String {
 /// commit, 2 for a merge commit.
 fn parent_count(git_dir: &Utf8Path, rev: &str) -> usize {
     let output = std::process::Command::new("git")
-        .args(["--git-dir", git_dir.as_str(), "rev-list", "--parents", "-n", "1", rev])
+        .args([
+            "--git-dir",
+            git_dir.as_str(),
+            "rev-list",
+            "--parents",
+            "-n",
+            "1",
+            rev,
+        ])
         .output()
         .unwrap();
     assert!(output.status.success());
     String::from_utf8_lossy(&output.stdout)
-        .trim()
         .split_whitespace()
         .count()
         - 1
@@ -683,7 +690,11 @@ fn merge_no_ff_produces_a_two_parent_merge_commit() {
     assert_ne!(parent_after, parent_before);
     assert_eq!(parent_count(&bare, "parent"), 2);
     assert!(parent_wt.join("work.md").is_file());
-    assert_eq!(child_tip, rev_parse(&bare, "child"), "the child never moves");
+    assert_eq!(
+        child_tip,
+        rev_parse(&bare, "child"),
+        "the child never moves"
+    );
 }
 
 #[test]

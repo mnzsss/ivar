@@ -187,8 +187,7 @@ pub trait Git {
 
     /// Create `branch` at `revision` in the repository at `git_dir`. Used for
     /// the temporary `ivar-integrate/<feature>/<repo>` branches only.
-    fn create_branch(&self, git_dir: &Utf8Path, branch: &str, revision: &str)
-    -> Result<(), Error>;
+    fn create_branch(&self, git_dir: &Utf8Path, branch: &str, revision: &str) -> Result<(), Error>;
 
     /// Delete `branch` in the repository at `git_dir`. Used for the temporary
     /// `ivar-integrate/...` branches only, after their worktrees are gone.
@@ -201,12 +200,7 @@ pub trait Git {
 
     /// `git -C <worktree> merge --squash <source>` followed by
     /// `git commit -m <message>` — the squash strategy's two steps.
-    fn squash_merge(
-        &self,
-        worktree: &Utf8Path,
-        source: &str,
-        message: &str,
-    ) -> Result<(), Error>;
+    fn squash_merge(&self, worktree: &Utf8Path, source: &str, message: &str) -> Result<(), Error>;
 
     /// `git -C <worktree> merge --ff-only <revision>` — advance the
     /// checked-out branch and its files to `revision`. Refuses when the

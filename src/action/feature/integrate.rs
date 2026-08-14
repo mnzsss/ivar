@@ -280,14 +280,7 @@ pub fn integrate(ctx: &Ctx, input: IntegrateInput) -> Outcome<IntegrateOutcome> 
     let mut warnings = Vec::new();
     for repo in child.promotions.keys().cloned().collect::<Vec<_>>() {
         match integrate_repo(
-            ctx,
-            &layout,
-            &manifest,
-            &git,
-            &child,
-            &parent,
-            &repo,
-            policy,
+            ctx, &layout, &manifest, &git, &child, &parent, &repo, policy,
         ) {
             Ok(entry) => repos_out.push(entry),
             Err(failure) => {
@@ -344,6 +337,7 @@ pub fn integrate(ctx: &Ctx, input: IntegrateInput) -> Outcome<IntegrateOutcome> 
 /// The whole-run preflight for one repo: every refusal that must happen
 /// before anything is persisted or exposed. A stale receipt, a missing
 /// parent promotion, or a dirty worktree refuses the entire run.
+#[allow(clippy::too_many_arguments)]
 fn preflight_repo(
     ctx: &Ctx,
     layout: &Layout,
@@ -434,6 +428,7 @@ fn dirty_failure(code: &'static str, worktree: &camino::Utf8Path, reason: &str) 
 
 /// One repo's integration: reuse a fresh receipt, re-verify an unchanged
 /// failed one, or resume an unreceipted one.
+#[allow(clippy::too_many_arguments)]
 fn integrate_repo(
     ctx: &Ctx,
     layout: &Layout,
@@ -452,7 +447,17 @@ fn integrate_repo(
         .get(repo)
         .and_then(|promotion| promotion.integration_receipt.as_ref())
     else {
-        return resume_repo(ctx, layout, manifest, git, child, parent, repo, policy, &source_sha);
+        return resume_repo(
+            ctx,
+            layout,
+            manifest,
+            git,
+            child,
+            parent,
+            repo,
+            policy,
+            &source_sha,
+        );
     };
 
     if receipt.verification.passed() {
@@ -478,11 +483,9 @@ fn integrate_repo(
                 pr_url: receipt.pr_url.clone(),
                 detail: Some("recorded evidence failed".to_owned()),
             }),
-            relations::ReceiptFreshness::Stale { reason } => {
-                Err(relations::stale_receipt_failure(
-                    layout, child, parent, repo, receipt, &reason,
-                ))
-            }
+            relations::ReceiptFreshness::Stale { reason } => Err(relations::stale_receipt_failure(
+                layout, child, parent, repo, receipt, &reason,
+            )),
         };
     }
 
@@ -514,10 +517,7 @@ fn integrate_repo(
         .unwrap_or_default();
     let parent_worktree = layout.repo_worktree(repo, &parent.branch);
     let verification_run = verification::run(&parent_checks, &parent_worktree)?;
-    let passed = verification_run
-        .results
-        .iter()
-        .all(|result| result.success);
+    let passed = verification_run.results.iter().all(|result| result.success);
     let mut updated = receipt.clone();
     updated.verification = VerificationEvidence {
         command_fingerprint: verification_run.command_fingerprint,
@@ -548,6 +548,7 @@ fn integrate_repo(
 }
 
 /// Resume an unreceipted repo: the full local or PR integration.
+#[allow(clippy::too_many_arguments)]
 fn resume_repo(
     ctx: &Ctx,
     layout: &Layout,
@@ -588,7 +589,15 @@ fn resume_repo(
     let child_results = child_run.results;
     match policy.via {
         IntegrationVia::Local => integrate_local(
-            layout, manifest, git, child, parent, repo, policy.strategy, source_sha, child_results,
+            layout,
+            manifest,
+            git,
+            child,
+            parent,
+            repo,
+            policy.strategy,
+            source_sha,
+            child_results,
         ),
         IntegrationVia::Pr => integrate_pr(
             ctx,
@@ -607,6 +616,7 @@ fn resume_repo(
 
 /// The local candidate path: build and check on a throwaway worktree, and
 /// only a passing candidate may move the parent.
+#[allow(clippy::too_many_arguments)]
 fn integrate_local(
     layout: &Layout,
     manifest: &Manifest,
@@ -639,7 +649,15 @@ fn integrate_local(
         git.add_worktree(&bare, &source_wt, &temp_branch)?;
         git.rebase_branch(&source_wt, parent.branch.as_str())?;
         if !parent_checks_pass(&source_wt, &checks)? {
-            cleanup_staging(layout, git, &child.name, repo, &candidate, &source_wt, &temp_branch)?;
+            cleanup_staging(
+                layout,
+                git,
+                &child.name,
+                repo,
+                &candidate,
+                &source_wt,
+                &temp_branch,
+            )?;
             // (candidate unused in the rebase path; kept for a uniform call)
             return Ok(RepoIntegration {
                 repo: repo.clone(),
@@ -655,9 +673,11 @@ fn integrate_local(
     } else {
         git.add_detached_worktree(&bare, &candidate, &parent_sha)?;
         match strategy {
-            IntegrationStrategy::Squash => {
-                git.squash_merge(&candidate, child.branch.as_str(), &squash_message(child, repo))?
-            }
+            IntegrationStrategy::Squash => git.squash_merge(
+                &candidate,
+                child.branch.as_str(),
+                &squash_message(child, repo),
+            )?,
             IntegrationStrategy::Merge => git.merge_no_ff(&candidate, child.branch.as_str())?,
             IntegrationStrategy::Rebase => unreachable!("handled above"),
         }
@@ -685,10 +705,21 @@ fn integrate_local(
             .as_ref()
             .map(|(_, b)| b.clone())
             .unwrap_or_default();
-        cleanup_staging(layout, git, &child.name, repo, &candidate, &source_wt, &temp_branch)?;
+        cleanup_staging(
+            layout,
+            git,
+            &child.name,
+            repo,
+            &candidate,
+            &source_wt,
+            &temp_branch,
+        )?;
         return Err(Failure::blocked(
             "integration.parent_moved",
-            format!("the parent branch `{}` moved while the candidate was being checked", parent.branch),
+            format!(
+                "the parent branch `{}` moved while the candidate was being checked",
+                parent.branch
+            ),
         )
         .expected("the parent to be untouched while the candidate is checked")
         .actual("the parent SHA changed under the integration")
@@ -701,11 +732,19 @@ fn integrate_local(
     // Apply to the real parent, then check the real parent again.
     match strategy {
         IntegrationStrategy::Rebase => {
-            git.fast_forward_to(&parent_worktree, temporary.as_ref().unwrap().1.as_str())?
+            let temp_branch = temporary.as_ref().map(|(_, branch)| branch).ok_or_else(|| {
+                Failure::failed(
+                    "integration.rebase_staging_missing",
+                    "the rebase staging branch vanished before the parent could be advanced",
+                )
+            })?;
+            git.fast_forward_to(&parent_worktree, temp_branch)?
         }
-        IntegrationStrategy::Squash => {
-            git.squash_merge(&parent_worktree, child.branch.as_str(), &squash_message(child, repo))?
-        }
+        IntegrationStrategy::Squash => git.squash_merge(
+            &parent_worktree,
+            child.branch.as_str(),
+            &squash_message(child, repo),
+        )?,
         IntegrationStrategy::Merge => git.merge_no_ff(&parent_worktree, child.branch.as_str())?,
     }
     let result_sha = git.revision_commit(&bare, parent.branch.as_str())?;
@@ -743,7 +782,15 @@ fn integrate_local(
         .as_ref()
         .map(|(_, b)| b.clone())
         .unwrap_or_default();
-    cleanup_staging(layout, git, &child.name, repo, &candidate, &source_wt, &temp_branch)?;
+    cleanup_staging(
+        layout,
+        git,
+        &child.name,
+        repo,
+        &candidate,
+        &source_wt,
+        &temp_branch,
+    )?;
 
     Ok(RepoIntegration {
         repo: repo.clone(),
@@ -766,6 +813,7 @@ fn integrate_local(
 
 /// The PR path: push, reuse/create the PR against the parent's branch, check,
 /// merge, observe, fetch the parent, and record the evidence.
+#[allow(clippy::too_many_arguments)]
 fn integrate_pr(
     _ctx: &Ctx,
     layout: &Layout,
@@ -919,10 +967,7 @@ fn integrate_pr(
 }
 
 /// Whether the ordered parent checks pass in `worktree`.
-fn parent_checks_pass(
-    worktree: &camino::Utf8Path,
-    checks: &[String],
-) -> Result<bool, Failure> {
+fn parent_checks_pass(worktree: &camino::Utf8Path, checks: &[String]) -> Result<bool, Failure> {
     Ok(verification::run(checks, worktree)?
         .results
         .iter()
@@ -941,7 +986,10 @@ fn ensure_parent_promotion(
         "Feature `{}` does not promote `{repo}`, but `{repo}`'s work will land on its branch. Promote `{repo}` into `{}`?",
         parent.name, parent.name
     );
-    if !ctx.confirm(&question, Some("This promotes the repo into the parent feature."))? {
+    if !ctx.confirm(
+        &question,
+        Some("This promotes the repo into the parent feature."),
+    )? {
         return Err(parent_promotion_required(child, parent, repo));
     }
     promote::promote(
@@ -965,7 +1013,10 @@ fn ensure_parent_promotion(
         .fix(
             FixAction::safe(
                 "integration.promote_manually",
-                format!("Run `ivar feature promote {} {repo}`, then integrate again.", parent.name),
+                format!(
+                    "Run `ivar feature promote {} {repo}`, then integrate again.",
+                    parent.name
+                ),
             )
             .command(format!("ivar feature promote {} {repo}", parent.name)),
         )
@@ -984,11 +1035,16 @@ fn parent_promotion_required(child: &Feature, parent: &Feature, repo: &RepoName)
     )
     .expected("the parent to promote every repo the child promotes")
     .actual(format!("`{repo}` is missing from `{}`", parent.name))
-    .fix(FixAction::safe(
-        "integration.promote_parent",
-        format!("Promote `{repo}` into `{}`, then integrate again.", parent.name),
+    .fix(
+        FixAction::safe(
+            "integration.promote_parent",
+            format!(
+                "Promote `{repo}` into `{}`, then integrate again.",
+                parent.name
+            ),
+        )
+        .command(format!("ivar feature promote {} {repo}", parent.name)),
     )
-    .command(format!("ivar feature promote {} {repo}", parent.name)))
 }
 
 /// The resolved policy for this run: the first receipt freezes it; otherwise

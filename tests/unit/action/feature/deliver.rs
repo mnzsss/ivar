@@ -571,7 +571,7 @@ fn deliver_preview_reports_tree_blockers_and_apply_refuses_before_push() {
     approve_through_plan(&root);
     // An active leaf under the root blocks its delivery.
     child_of_checkout(&root, "child");
-    let layout = Layout::at(&root.clone());
+    let layout = Layout::at(root.clone());
     let mut leaf = crate::domain::feature::Feature::new(
         crate::domain::name::FeatureName::new("leaf").unwrap(),
         BranchName::new("leaf").unwrap(),
@@ -605,7 +605,7 @@ fn deliver_ignores_abandoned_descendants_but_sees_active_grandchildren() {
     let ctx = Ctx::new(root.clone());
     approve_through_plan(&root);
     child_of_checkout(&root, "abandoned");
-    let layout = Layout::at(&root.clone());
+    let layout = Layout::at(&root);
     let mut grandchild = crate::domain::feature::Feature::new(
         crate::domain::name::FeatureName::new("active").unwrap(),
         BranchName::new("active").unwrap(),
@@ -628,7 +628,8 @@ fn deliver_ignores_abandoned_descendants_but_sees_active_grandchildren() {
         .map(|blocker| blocker.feature.as_str())
         .collect();
     assert_eq!(
-        names, ["active"],
+        names,
+        ["active"],
         "abandoned history does not block, but its active grandchild does"
     );
 }

@@ -60,7 +60,6 @@ use crate::store::layout::Layout;
 use super::super::discover_hall;
 use crate::action::Ctx;
 
-
 /// What `ivar plan approve` needs.
 #[derive(Debug, Clone)]
 pub struct ApproveInput {
@@ -163,8 +162,8 @@ pub fn approve(ctx: &Ctx, input: ApproveInput) -> Outcome<ApproveOutcome> {
 
     require_feature(&layout, &feature)?;
 
-    let feature_record = crate::domain::feature::Feature::read(&layout, &feature)?
-        .ok_or_else(|| {
+    let feature_record =
+        crate::domain::feature::Feature::read(&layout, &feature)?.ok_or_else(|| {
             Failure::blocked(
                 "plan.feature_vanished",
                 format!("feature `{feature}` has a directory but no feature.json"),
@@ -243,8 +242,8 @@ pub fn invalidate(ctx: &Ctx, input: InvalidateInput) -> Outcome<InvalidateOutcom
 
     require_feature(&layout, &feature)?;
 
-    let feature_record = crate::domain::feature::Feature::read(&layout, &feature)?
-        .ok_or_else(|| {
+    let feature_record =
+        crate::domain::feature::Feature::read(&layout, &feature)?.ok_or_else(|| {
             Failure::blocked(
                 "plan.feature_vanished",
                 format!("feature `{feature}` has a directory but no feature.json"),

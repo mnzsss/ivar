@@ -203,7 +203,10 @@ fn contracts_must_name_literal_promoted_repos_once_a_success_receipt_exists() {
         (&["web/**"], "ok"),
         (&["web/"], "ok"),
         // A literal path under the successful repo A is refused.
-        (&["api/src/lib.rs"], "feature.promotion_integration_immutable"),
+        (
+            &["api/src/lib.rs"],
+            "feature.promotion_integration_immutable",
+        ),
         // Ambiguous first components refuse the whole wave.
         (&["*/src/lib.rs"], "feature.partial_contract_ambiguous"),
         (&["**/*.rs"], "feature.partial_contract_ambiguous"),
@@ -215,7 +218,10 @@ fn contracts_must_name_literal_promoted_repos_once_a_success_receipt_exists() {
         let streams = vec![workstream(contract)];
         let result = ensure_contracts_avoid_locked_promotions(&layout, &child, &streams);
         match *expected {
-            "ok" => assert!(result.is_ok(), "contract {contract:?} should pass: {result:?}"),
+            "ok" => assert!(
+                result.is_ok(),
+                "contract {contract:?} should pass: {result:?}"
+            ),
             code => {
                 let failure = result.unwrap_err();
                 assert_eq!(failure.code, code, "contract {contract:?}");

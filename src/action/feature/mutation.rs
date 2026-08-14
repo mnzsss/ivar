@@ -47,10 +47,7 @@ pub(crate) fn ensure_not_fully_integrated(
 
 /// Refuse when the feature is fully integrated *or* carries any receipt —
 /// relationship/base/policy and promotion membership are feature-wide facts.
-pub(crate) fn ensure_structure_mutable(
-    layout: &Layout,
-    feature: &Feature,
-) -> Result<(), Failure> {
+pub(crate) fn ensure_structure_mutable(layout: &Layout, feature: &Feature) -> Result<(), Failure> {
     if is_fully_integrated(layout, feature)? {
         return Err(integration_immutable(feature));
     }
@@ -147,16 +144,24 @@ fn check_contract_entry(
         || first.contains('[')
         || first.contains(']')
     {
-        return Err(partial_contract_ambiguous(feature, workstream, entry, first));
+        return Err(partial_contract_ambiguous(
+            feature, workstream, entry, first,
+        ));
     }
     let Ok(repo) = RepoName::new(first) else {
-        return Err(partial_contract_ambiguous(feature, workstream, entry, first));
+        return Err(partial_contract_ambiguous(
+            feature, workstream, entry, first,
+        ));
     };
     if !feature.is_promoted(&repo) {
-        return Err(partial_contract_ambiguous(feature, workstream, entry, first));
+        return Err(partial_contract_ambiguous(
+            feature, workstream, entry, first,
+        ));
     }
     if feature.promotion_has_successful_receipt(&repo) {
-        return Err(promotion_immutable_contract(feature, workstream, entry, &repo));
+        return Err(promotion_immutable_contract(
+            feature, workstream, entry, &repo,
+        ));
     }
     Ok(())
 }
@@ -168,19 +173,18 @@ fn integration_immutable(feature: &Feature) -> Failure {
     let pinned = pinned_receipts(feature);
     Failure::blocked(
         "feature.integration_immutable",
-        format!("feature `{}` is fully integrated and cannot be mutated", feature.name),
+        format!(
+            "feature `{}` is fully integrated and cannot be mutated",
+            feature.name
+        ),
     )
     .expected("a feature that has not closed as `integrated`")
     .actual("the close record says `integrated`, which is final — there is no reopen command")
     .details(serde_json::json!({ "pinned": pinned }))
-    .fix(FixAction::safe(
-        "feature.status",
-        "Inspect the feature's tree health.",
+    .fix(
+        FixAction::safe("feature.status", "Inspect the feature's tree health.")
+            .command(format!("ivar feature status {} --recursive", feature.name)),
     )
-    .command(format!(
-        "ivar feature status {} --recursive",
-        feature.name
-    )))
 }
 
 /// The failure for a feature-wide structure mutation after any receipt:

@@ -63,8 +63,8 @@ use crate::action::Ctx;
 mod preview;
 mod repos;
 
-use preview::{fingerprint_for, plan_gate_state, plan_not_approved, preview_required};
 use super::pull_requests::{create_pull_request, existing_pr_url, link_sibling_prs};
+use preview::{fingerprint_for, plan_gate_state, plan_not_approved, preview_required};
 use repos::{build_repos, order_by_dependencies, push_repo};
 
 /// What `ivar feature deliver` needs.
@@ -190,13 +190,13 @@ pub fn deliver(ctx: &Ctx, input: DeliverInput) -> Outcome<DeliverOutcome> {
 
     // Only a root delivers. A child's work belongs to its parent — the exact
     // fix names the verb that moves it there.
-    if feature.parent.is_some() {
+    if let Some(parent_name) = &feature.parent {
         return Err(Failure::blocked(
             "deliver.child_requires_integration",
             format!("feature `{feature_name}` is a child; it delivers into its parent, not to the remote"),
         )
         .expected("a root feature (one with no parent) to deliver")
-        .actual(format!("`{feature_name}` is a subfeature of `{}`", feature.parent.as_ref().unwrap()))
+        .actual(format!("`{feature_name}` is a subfeature of `{parent_name}`"))
         .fix(
             FixAction::safe(
                 "deliver.integrate_child",
@@ -418,8 +418,13 @@ pub fn deliver(ctx: &Ctx, input: DeliverInput) -> Outcome<DeliverOutcome> {
             DeliveryAction::UpdatePr => existing_pr_url(&bare, repo.local_branch.as_str())
                 .map_or_else(
                     || {
-                        create_pull_request(&bare, &repo.local_branch, &repo.base_branch, &feature_name)
-                            .map(|pr| pr.url)
+                        create_pull_request(
+                            &bare,
+                            &repo.local_branch,
+                            &repo.base_branch,
+                            &feature_name,
+                        )
+                        .map(|pr| pr.url)
                     },
                     Ok,
                 ),

@@ -143,7 +143,10 @@ pub fn create(ctx: &Ctx, input: CreateInput) -> Outcome<CreateOutcome> {
     // The feature's own integration-policy override, parsed independently per
     // field — an omitted field stays inheritable.
     let integration = IntegrationOverride {
-        via: input.via.map(|raw| IntegrationVia::parse(&raw)).transpose()?,
+        via: input
+            .via
+            .map(|raw| IntegrationVia::parse(&raw))
+            .transpose()?,
         strategy: input
             .strategy
             .map(|raw| IntegrationStrategy::parse(&raw))

@@ -153,8 +153,8 @@ pub fn approve(ctx: &Ctx, input: ApproveInput) -> Outcome<ApproveOutcome> {
     // Graph approval persists a board: blocked once the whole child closes as
     // `integrated`, and the approved wave's contracts must not reach a locked
     // promotion.
-    let feature_record = crate::domain::feature::Feature::read(&layout, &feature)?
-        .ok_or_else(|| {
+    let feature_record =
+        crate::domain::feature::Feature::read(&layout, &feature)?.ok_or_else(|| {
             Failure::blocked(
                 "execute.feature_vanished",
                 format!("feature `{feature}` has a board but no feature.json"),

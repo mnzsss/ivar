@@ -183,7 +183,9 @@ pub fn status(ctx: &Ctx, input: StatusInput) -> Outcome<StatusOutcome> {
     repos.sort_by(|a, b| a.repo.cmp(&b.repo));
 
     let tree = if input.recursive {
-        Some(super::relations::subtree_status(&git, &layout, &manifest, &name)?)
+        Some(super::relations::subtree_status(
+            &git, &layout, &manifest, &name,
+        )?)
     } else {
         None
     };

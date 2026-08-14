@@ -80,17 +80,22 @@ fn a_v1_promotion_with_no_base_field_still_deserialises() {
 fn a_new_feature_has_no_parent_and_no_integration_override() {
     let feature = feature();
     assert_eq!(feature.parent, None);
-    assert_eq!(feature.integration, crate::domain::feature::IntegrationOverride::default());
+    assert_eq!(
+        feature.integration,
+        crate::domain::feature::IntegrationOverride::default()
+    );
 }
 
 #[test]
 fn a_new_promotion_has_no_integration_receipt() {
     let mut feature = feature();
     feature.promote(RepoName::new("api").unwrap());
-    assert!(feature
-        .promotions
-        .values()
-        .all(|promotion| promotion.integration_receipt.is_none()));
+    assert!(
+        feature
+            .promotions
+            .values()
+            .all(|promotion| promotion.integration_receipt.is_none())
+    );
 }
 
 #[test]
@@ -125,7 +130,11 @@ fn receipt_facts_answer_has_any_and_passing() {
             verified_at: "2026-08-14T12:00:00Z".to_owned(),
         },
     };
-    feature.promotions.get_mut(&api).unwrap().integration_receipt = Some(failed.clone());
+    feature
+        .promotions
+        .get_mut(&api)
+        .unwrap()
+        .integration_receipt = Some(failed.clone());
 
     assert!(feature.has_any_receipt());
     assert!(!feature.promotion_has_successful_receipt(&api));
@@ -135,7 +144,11 @@ fn receipt_facts_answer_has_any_and_passing() {
     // other repo still receipted? no — only api receipted, web is not.
     let mut passing = failed;
     passing.verification.child = Vec::new();
-    feature.promotions.get_mut(&api).unwrap().integration_receipt = Some(passing);
+    feature
+        .promotions
+        .get_mut(&api)
+        .unwrap()
+        .integration_receipt = Some(passing);
 
     assert!(feature.promotion_has_successful_receipt(&api));
     assert!(!feature.all_promotions_have_passing_receipts());
@@ -160,10 +173,7 @@ fn parent_and_integration_round_trip_through_serde_when_set() {
     let parsed: Feature = serde_json::from_str(&rendered).unwrap();
 
     assert_eq!(parsed, feature);
-    assert_eq!(
-        parsed.parent,
-        Some(FeatureName::new("parent").unwrap())
-    );
+    assert_eq!(parsed.parent, Some(FeatureName::new("parent").unwrap()));
     assert_eq!(
         parsed.integration.via,
         Some(crate::domain::feature::IntegrationVia::Pr)
@@ -177,5 +187,8 @@ fn a_v2_feature_json_with_no_parent_or_integration_field_still_deserialises() {
     let parsed: Feature = serde_json::from_str(raw).unwrap();
 
     assert_eq!(parsed.parent, None);
-    assert_eq!(parsed.integration, crate::domain::feature::IntegrationOverride::default());
+    assert_eq!(
+        parsed.integration,
+        crate::domain::feature::IntegrationOverride::default()
+    );
 }

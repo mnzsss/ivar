@@ -46,12 +46,14 @@ fn seeded_child_hall(checks: &[&str]) -> (tempfile::TempDir, Utf8PathBuf) {
     let manifest = Manifest::new(
         HallName::new("acme").unwrap(),
         Providers::new(vec![Provider::ClaudeCode], Provider::ClaudeCode),
-        vec![Repo::new(
-            RepoName::new("api").unwrap(),
-            origin.as_str(),
-            BranchName::new("main").unwrap(),
-        )
-        .with_checks(checks.iter().map(|c| c.to_string()).collect())],
+        vec![
+            Repo::new(
+                RepoName::new("api").unwrap(),
+                origin.as_str(),
+                BranchName::new("main").unwrap(),
+            )
+            .with_checks(checks.iter().map(|c| c.to_string()).collect()),
+        ],
         None,
     )
     .unwrap();
@@ -219,7 +221,10 @@ fn local_squash_integrates_the_child_and_closes_it_integrated() {
     assert_eq!(report.value.policy.via.to_string(), "local");
     assert_eq!(report.value.policy.strategy.to_string(), "squash");
     assert_eq!(report.value.repos.len(), 1);
-    assert_eq!(report.value.repos[0].status, RepoIntegrationStatus::Integrated);
+    assert_eq!(
+        report.value.repos[0].status,
+        RepoIntegrationStatus::Integrated
+    );
 
     // The parent worktree now carries the child's work.
     let parent_wt = layout.repo_worktree(&api(), &BranchName::new("parent").unwrap());
@@ -232,7 +237,10 @@ fn local_squash_integrates_the_child_and_closes_it_integrated() {
     let child = Feature::read(&layout, &FeatureName::new("child").unwrap())
         .unwrap()
         .unwrap();
-    let receipt = child.promotions[&api()].integration_receipt.clone().unwrap();
+    let receipt = child.promotions[&api()]
+        .integration_receipt
+        .clone()
+        .unwrap();
     assert_eq!(receipt.target_branch.as_str(), "parent");
     assert_eq!(receipt.strategy, IntegrationStrategy::Squash);
     assert!(receipt.verification.passed());
@@ -242,7 +250,9 @@ fn local_squash_integrates_the_child_and_closes_it_integrated() {
     // The child's branch and worktree are retained.
     let child_tip = crate::git::System.revision_commit(&bare, "child").unwrap();
     assert_eq!(receipt.source_sha, child_tip);
-    assert!(std::fs::exists(layout.repo_worktree(&api(), &BranchName::new("child").unwrap())).unwrap());
+    assert!(
+        std::fs::exists(layout.repo_worktree(&api(), &BranchName::new("child").unwrap())).unwrap()
+    );
 
     // The close record says integrated.
     let record = read_close(&layout, &FeatureName::new("child").unwrap())
@@ -318,7 +328,13 @@ fn a_check_failure_before_the_candidate_leaves_the_parent_untouched_and_records_
 
     assert!(!report.value.closed_integrated);
     assert_eq!(report.value.repos[0].status, RepoIntegrationStatus::Failed);
-    assert!(report.value.repos[0].detail.as_deref().unwrap().contains("checks"));
+    assert!(
+        report.value.repos[0]
+            .detail
+            .as_deref()
+            .unwrap()
+            .contains("checks")
+    );
 
     // Parent untouched; no receipt recorded; no staging directory left.
     assert_eq!(
@@ -329,7 +345,14 @@ fn a_check_failure_before_the_candidate_leaves_the_parent_untouched_and_records_
         .unwrap()
         .unwrap();
     assert!(child.promotions[&api()].integration_receipt.is_none());
-    assert!(!std::fs::exists(layout.feature_dir(&FeatureName::new("child").unwrap()).join("integration")).unwrap());
+    assert!(
+        !std::fs::exists(
+            layout
+                .feature_dir(&FeatureName::new("child").unwrap())
+                .join("integration")
+        )
+        .unwrap()
+    );
 }
 
 // -- staleness orientation ---------------------------------------------------
@@ -351,10 +374,10 @@ fn a_moved_source_after_integration_is_stale_and_blocks_with_orientation() {
     let failure = integrate(&ctx, integrate_input("child")).unwrap_err();
     assert_eq!(failure.code, "feature.receipt_stale");
     assert!(
-        failure
-            .fix_actions
-            .iter()
-            .any(|fix| fix.command.as_deref().is_some_and(|c| c.contains("reset --hard"))),
+        failure.fix_actions.iter().any(|fix| fix
+            .command
+            .as_deref()
+            .is_some_and(|c| c.contains("reset --hard"))),
         "the unsafe recorded-source restoration must be offered"
     );
 }
@@ -517,8 +540,12 @@ fn a_live_session_blocks_the_first_successful_receipt() {
 
     // A session view dir makes the child's session live.
     let layout = Layout::at(&root);
-    fs::ensure_dir(&layout.feature_sessions_dir(&FeatureName::new("child").unwrap()).join("sess-1"))
-        .unwrap();
+    fs::ensure_dir(
+        &layout
+            .feature_sessions_dir(&FeatureName::new("child").unwrap())
+            .join("sess-1"),
+    )
+    .unwrap();
 
     let failure = integrate(&ctx, integrate_input("child")).unwrap_err();
     assert_eq!(failure.code, "integration.session_live");
@@ -762,26 +789,22 @@ fn a_failed_repo_is_resumable_while_a_successful_repo_stays_locked() {
         .unwrap()
         .unwrap();
     assert!(child.promotion_has_successful_receipt(&RepoName::new("api").unwrap()));
-    assert!(child.promotions[&RepoName::new("web").unwrap()]
-        .integration_receipt
-        .is_none());
+    assert!(
+        child.promotions[&RepoName::new("web").unwrap()]
+            .integration_receipt
+            .is_none()
+    );
 
     // Repair web: rewrite the manifest so web's checks pass, then rerun —
     // api is reused byte-for-byte, web integrates, and the child closes.
-    let mut value: serde_json::Value = serde_json::from_str(
-        &std::fs::read_to_string(layout.manifest()).unwrap(),
-    )
-    .unwrap();
+    let mut value: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(layout.manifest()).unwrap()).unwrap();
     for repo in value["repos"].as_array_mut().unwrap() {
         if repo["name"] == "web" {
             repo["checks"] = serde_json::json!(["true"]);
         }
     }
-    std::fs::write(
-        layout.manifest(),
-        serde_json::to_string(&value).unwrap(),
-    )
-    .unwrap();
+    std::fs::write(layout.manifest(), serde_json::to_string(&value).unwrap()).unwrap();
 
     let api_before = crate::git::System
         .revision_commit(&layout.repo_bare(&RepoName::new("api").unwrap()), "parent")

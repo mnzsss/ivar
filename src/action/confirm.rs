@@ -74,14 +74,12 @@ impl Confirm for Interactive {
         })?;
 
         let mut answer = String::new();
-        std::io::stdin()
-            .read_line(&mut answer)
-            .map_err(|source| {
-                Failure::failed(
-                    "confirm.read_answer",
-                    format!("could not read your answer: {source}"),
-                )
-            })?;
+        std::io::stdin().read_line(&mut answer).map_err(|source| {
+            Failure::failed(
+                "confirm.read_answer",
+                format!("could not read your answer: {source}"),
+            )
+        })?;
         Ok(answer.trim().eq_ignore_ascii_case("y"))
     }
 }
