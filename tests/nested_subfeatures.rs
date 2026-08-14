@@ -515,7 +515,6 @@ fn json_gh_output(root: &Utf8Path, fake: &FakeGh, args: &[&str]) -> serde_json::
     serde_json::from_slice(&output).expect("valid json")
 }
 
-
 // -- partial multi-repo resume ------------------------------------------------
 
 /// A hall with api (checks pass) and web (checks fail), child promoting both,

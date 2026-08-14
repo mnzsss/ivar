@@ -732,12 +732,15 @@ fn integrate_local(
     // Apply to the real parent, then check the real parent again.
     match strategy {
         IntegrationStrategy::Rebase => {
-            let temp_branch = temporary.as_ref().map(|(_, branch)| branch).ok_or_else(|| {
-                Failure::failed(
-                    "integration.rebase_staging_missing",
-                    "the rebase staging branch vanished before the parent could be advanced",
-                )
-            })?;
+            let temp_branch = temporary
+                .as_ref()
+                .map(|(_, branch)| branch)
+                .ok_or_else(|| {
+                    Failure::failed(
+                        "integration.rebase_staging_missing",
+                        "the rebase staging branch vanished before the parent could be advanced",
+                    )
+                })?;
             git.fast_forward_to(&parent_worktree, temp_branch)?
         }
         IntegrationStrategy::Squash => git.squash_merge(
