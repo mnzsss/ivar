@@ -67,7 +67,11 @@ fn a_v1_promotion_with_no_base_field_still_deserialises() {
     let parsed: Feature = serde_json::from_str(raw).unwrap();
 
     assert_eq!(
-        parsed.promotions.get(&RepoName::new("api").unwrap()).unwrap().base,
+        parsed
+            .promotions
+            .get(&RepoName::new("api").unwrap())
+            .unwrap()
+            .base,
         None
     );
 }

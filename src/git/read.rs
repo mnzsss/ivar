@@ -154,9 +154,7 @@ pub(crate) fn is_ancestor(
     repository
         .graph_descendant_of(descendant_id, ancestor_id)
         .map_err(|source| Error::Refused {
-            command: format!(
-                "git -C {git_dir} merge-base --is-ancestor {ancestor} {descendant}"
-            ),
+            command: format!("git -C {git_dir} merge-base --is-ancestor {ancestor} {descendant}"),
             detail: source.message().to_owned(),
         })
 }
