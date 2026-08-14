@@ -45,8 +45,9 @@ fn write_then_read_round_trips_and_writes_canonical_bytes() {
     Manifest::write(&layout, &manifest).unwrap();
 
     let expected = json::to_canonical_string(&serde_json::json!({
-        "version": 1,
+        "version": 2,
         "name": "acme",
+        "integration": { "strategy": "squash", "via": "local" },
         "providers": { "available": ["claude-code", "opencode"], "default": "claude-code" },
         "repos": [
             { "name": "api", "url": "git@github.com:acme/api.git", "default_branch": "main" }
@@ -252,7 +253,7 @@ fn version_newer_than_current_is_refused_and_the_file_is_untouched() {
     match &error {
         Error::Store(versioned::Error::TooNew { found, highest, .. }) => {
             assert_eq!(*found, 99);
-            assert_eq!(*highest, 1);
+            assert_eq!(*highest, 2);
         }
         other => panic!("expected TooNew, got {other:?}"),
     }
@@ -349,7 +350,7 @@ fn new_rejects_duplicate_repo_names() {
 #[test]
 fn new_accepts_a_well_formed_manifest() {
     let manifest = sample_manifest();
-    assert_eq!(manifest.version(), 1);
+    assert_eq!(manifest.version(), 2);
     assert_eq!(manifest.name().as_str(), "acme");
     assert_eq!(
         manifest.providers().available(),
@@ -616,4 +617,212 @@ fn duplicate_mcp_server_failure_names_the_offending_name() {
     assert_eq!(failure.code, "manifest.duplicate_mcp_server_name");
     assert!(failure.what.contains("docs"));
     assert!(failure.fix_actions[0].safe);
+}
+
+// -- v2: hall integration defaults and ordered repo checks ------------------
+
+#[test]
+fn the_v1_constructor_calls_keep_their_compatibility_defaults() {
+    let repo = Repo::new(
+        RepoName::new("api").unwrap(),
+        "git@github.com:acme/api.git",
+        BranchName::new("main").unwrap(),
+    );
+    assert!(repo.checks().is_empty());
+
+    let manifest = Manifest::new(
+        HallName::new("acme").unwrap(),
+        Providers::new(vec![Provider::ClaudeCode], Provider::ClaudeCode),
+        vec![repo],
+        None,
+    )
+    .unwrap();
+    assert_eq!(
+        manifest.integration(),
+        crate::domain::feature::IntegrationPolicy::default()
+    );
+}
+
+#[test]
+fn builders_configure_checks_and_hall_integration() {
+    let repo = Repo::new(
+        RepoName::new("api").unwrap(),
+        "git@github.com:acme/api.git",
+        BranchName::new("main").unwrap(),
+    )
+    .with_checks(vec![
+        "cargo fmt --check".to_owned(),
+        "cargo test --all-features".to_owned(),
+    ]);
+    assert_eq!(
+        repo.checks(),
+        ["cargo fmt --check", "cargo test --all-features"]
+    );
+
+    let manifest = sample_manifest().with_integration(
+        crate::domain::feature::IntegrationPolicy {
+            via: crate::domain::feature::IntegrationVia::Pr,
+            strategy: crate::domain::feature::IntegrationStrategy::Rebase,
+        },
+    );
+    assert_eq!(
+        manifest.integration(),
+        crate::domain::feature::IntegrationPolicy {
+            via: crate::domain::feature::IntegrationVia::Pr,
+            strategy: crate::domain::feature::IntegrationStrategy::Rebase,
+        }
+    );
+}
+
+#[test]
+fn repo_add_remove_provider_add_and_mcp_preserve_both_v2_fields() {
+    let manifest = sample_manifest()
+        .with_integration(crate::domain::feature::IntegrationPolicy {
+            via: crate::domain::feature::IntegrationVia::Pr,
+            strategy: crate::domain::feature::IntegrationStrategy::Merge,
+        });
+    let manifest = manifest.with_repo_added(
+        Repo::new(
+            RepoName::new("web").unwrap(),
+            "git@github.com:acme/web.git",
+            BranchName::new("main").unwrap(),
+        )
+        .with_checks(vec!["npm test".to_owned()]),
+    ).unwrap();
+    assert_eq!(manifest.integration().via, crate::domain::feature::IntegrationVia::Pr);
+    assert_eq!(manifest.repos()[1].checks(), ["npm test"]);
+
+    let manifest = manifest
+        .with_repo_removed(&RepoName::new("api").unwrap())
+        .unwrap();
+    assert_eq!(manifest.repos().len(), 1);
+    assert_eq!(manifest.integration().strategy, crate::domain::feature::IntegrationStrategy::Merge);
+
+    let manifest = manifest
+        .with_providers(Providers::new(vec![Provider::OpenCode], Provider::OpenCode))
+        .unwrap();
+    assert_eq!(manifest.integration().via, crate::domain::feature::IntegrationVia::Pr);
+    assert_eq!(manifest.repos()[0].checks(), ["npm test"]);
+
+    let manifest = manifest
+        .with_mcp_servers(vec![mcp_server("docs")])
+        .unwrap();
+    assert_eq!(manifest.integration().strategy, crate::domain::feature::IntegrationStrategy::Merge);
+    assert_eq!(manifest.mcp_servers().len(), 1);
+}
+
+#[test]
+fn a_blank_repo_check_is_refused_on_build() {
+    let error = Manifest::new(
+        HallName::new("acme").unwrap(),
+        Providers::new(vec![Provider::ClaudeCode], Provider::ClaudeCode),
+        vec![Repo::new(
+            RepoName::new("api").unwrap(),
+            "git@github.com:acme/api.git",
+            BranchName::new("main").unwrap(),
+        )
+        .with_checks(vec!["   ".to_owned()])],
+        None,
+    )
+    .unwrap_err();
+    match error {
+        Error::EmptyRepoCheck { name, index } => {
+            assert_eq!(name.as_str(), "api");
+            assert_eq!(index, 0);
+        }
+        other => panic!("expected EmptyRepoCheck, got {other:?}"),
+    }
+}
+
+// -- v1 -> v2 committed migration -------------------------------------------
+
+/// The exact v1 shape ivar wrote before the v2 bump: no `integration` at the
+/// top level, no `checks` on any repo.
+fn v1_manifest_bytes() -> &'static str {
+    r#"{"version":1,"name":"acme","providers":{"available":["claude-code","opencode"],"default":"claude-code"},"repos":[{"name":"api","url":"git@github.com:acme/api.git","default_branch":"main"},{"name":"web","url":"git@github.com:acme/web.git","default_branch":"main"}]}"#
+}
+
+#[test]
+fn a_v1_manifest_reads_in_memory_as_v2_without_rewriting_the_file() {
+    let (_dir, root) = utf8_temp_dir();
+    let layout = Layout::at(root);
+    let original = v1_manifest_bytes();
+    fs::write_text(&layout.manifest(), original).unwrap();
+
+    let manifest = Manifest::read(&layout).unwrap().unwrap();
+
+    assert_eq!(manifest.version(), 2);
+    assert_eq!(
+        manifest.integration(),
+        crate::domain::feature::IntegrationPolicy::default()
+    );
+    assert_eq!(manifest.repos().len(), 2);
+    for repo in manifest.repos() {
+        assert!(repo.checks().is_empty());
+    }
+
+    let bytes_after = fs::read_bytes(&layout.manifest()).unwrap().unwrap();
+    assert_eq!(
+        bytes_after,
+        original.as_bytes(),
+        "a committed read must never rewrite the file"
+    );
+}
+
+#[test]
+fn migration_plan_available_for_v1_and_unreachable_for_v0() {
+    let (_dir, root) = utf8_temp_dir();
+    let layout = Layout::at(root);
+
+    fs::write_text(&layout.manifest(), v1_manifest_bytes()).unwrap();
+    let plan = Manifest::plan(&layout).unwrap().unwrap();
+    assert_eq!(
+        plan,
+        MigrationPlan::Available { from: 1, to: 2 }
+    );
+
+    fs::write_text(
+        &layout.manifest(),
+        r#"{"name":"acme","providers":{"available":["claude-code"],"default":"claude-code"},"repos":[]}"#,
+    )
+    .unwrap();
+    let plan = Manifest::plan(&layout).unwrap().unwrap();
+    assert_eq!(
+        plan,
+        MigrationPlan::Unreachable { from: 0, to: 2 }
+    );
+}
+
+#[test]
+fn a_plain_write_refuses_a_v1_file_and_explicit_migrate_writes_canonical_v2() {
+    let (_dir, root) = utf8_temp_dir();
+    let layout = Layout::at(root);
+    let original = v1_manifest_bytes();
+    fs::write_text(&layout.manifest(), original).unwrap();
+
+    // A plain write refuses while the on-disk file is older than current.
+    let error = Manifest::write(&layout, &sample_manifest()).unwrap_err();
+    assert!(matches!(
+        error,
+        Error::Store(versioned::Error::CommittedRefusesImplicitUpgrade { .. })
+    ));
+
+    // The explicit migrate advances the committed file to canonical v2.
+    let migrated = Manifest::migrate(&layout).unwrap().unwrap();
+    assert_eq!(migrated.version(), 2);
+    assert_eq!(migrated.repos().len(), 2);
+
+    let on_disk = fs::read_text(&layout.manifest()).unwrap().unwrap();
+    let expected = json::to_canonical_string(&serde_json::json!({
+        "version": 2,
+        "name": "acme",
+        "integration": { "strategy": "squash", "via": "local" },
+        "providers": { "available": ["claude-code", "opencode"], "default": "claude-code" },
+        "repos": [
+            { "name": "api", "url": "git@github.com:acme/api.git", "default_branch": "main" },
+            { "name": "web", "url": "git@github.com:acme/web.git", "default_branch": "main" }
+        ],
+    }))
+    .unwrap();
+    assert_eq!(on_disk, expected);
 }

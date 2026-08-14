@@ -60,7 +60,7 @@ fn add_clones_the_repo_and_declares_it_in_ivar_json() {
 
 /// The invitation is part of the successful outcome — rendered by the same
 /// value, never a second independently computed string — and the report
-/// carries no warning or fix action. The manifest schema stays version 1.
+/// carries no warning or fix action. The manifest schema stays current.
 #[test]
 fn the_next_action_is_shared_by_json_and_human_surfaces() {
     let (_guard, root, url) = seeded_hall();
@@ -82,7 +82,7 @@ fn the_next_action_is_shared_by_json_and_human_surfaces() {
 
     let layout = Layout::at(root);
     let manifest = Manifest::read(&layout).unwrap().unwrap();
-    assert_eq!(manifest.version(), 1);
+    assert_eq!(manifest.version(), 2);
 }
 
 #[test]

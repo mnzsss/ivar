@@ -93,15 +93,10 @@ pub fn add(ctx: &Ctx, input: AddInput) -> Outcome<AddOutcome> {
     available.push(provider);
     available.sort();
 
-    // Rebuild the manifest through its constructors so the MCP servers are
-    // preserved — `Manifest::new` alone would drop them.
-    let updated = Manifest::new(
-        manifest.name().clone(),
-        Providers::new(available.clone(), default),
-        manifest.repos().to_vec(),
-        manifest.skills().cloned(),
-    )?
-    .with_mcp_servers(manifest.mcp_servers().to_vec())?;
+    // Rebuild the manifest through the manifest's own `with_providers`, which
+    // preserves the hall integration defaults, skills, MCP servers, and repos
+    // — no field a mutation is not about is ever dropped.
+    let updated = manifest.with_providers(Providers::new(available.clone(), default))?;
     Manifest::write(&layout, &updated)?;
 
     // The provider is registered and its config is bootstrapped in the same

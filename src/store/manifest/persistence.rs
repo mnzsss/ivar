@@ -10,10 +10,42 @@
 use serde::Serialize;
 
 use crate::store::layout::Layout;
-use crate::store::versioned::{self, Inspection, Policy, Store};
+use crate::store::versioned::{self, Inspection, Migration, Policy, Store};
 
 use super::error::Error;
 use super::model::{CURRENT_VERSION, Manifest};
+
+/// Migrate a manifest from v1 → v2.
+///
+/// v2 adds the hall integration defaults (`integration`, with the embedded
+/// `local`/`squash` values) and each repo's ordered `checks` list (empty by
+/// default). Both fields are `#[serde(default)]`, so a v1 file would
+/// deserialise without this step's help; the step still fills the explicit
+/// shapes so the persisted v2 is canonical, and so a teammate whose binary is
+/// older refuses the migrated file loudly rather than silently reading past
+/// the new keys.
+fn v1_to_v2(mut value: serde_json::Value) -> Result<serde_json::Value, String> {
+    let root = value
+        .as_object_mut()
+        .ok_or("manifest must be an object")?;
+    root.entry("integration").or_insert_with(|| {
+        serde_json::json!({
+            "strategy": "squash",
+            "via": "local"
+        })
+    });
+    let repos = root
+        .get_mut("repos")
+        .and_then(serde_json::Value::as_array_mut)
+        .ok_or("manifest is missing repos")?;
+    for repo in repos {
+        repo.as_object_mut()
+            .ok_or("repo must be an object")?
+            .entry("checks")
+            .or_insert_with(|| serde_json::json!([]));
+    }
+    Ok(value)
+}
 
 /// What migrating `ivar.json` would do. Produced by [`Manifest::plan`], which
 /// never touches the file.
@@ -142,10 +174,16 @@ impl Manifest {
 
     /// The [`Store`] this module reads and writes `ivar.json` through. Built
     /// fresh on every call — cheap, and keeps this module stateless.
+    ///
+    /// The migration chain begins at v1, the format's first public version.
+    /// Through the store's baseline semantics, a v1 file migrates in memory on
+    /// read (and, on an explicit migrate, on disk); a v0 (unversioned) file
+    /// has no migration path and is refused — mapped to [`Error::MissingVersion`]
+    /// by [`Self::read`].
     fn open(layout: &Layout) -> Store<Self> {
         Store::new(
             layout.manifest(),
-            Vec::new(),
+            vec![Migration::new(1, 2, v1_to_v2)],
             CURRENT_VERSION,
             Policy::Committed,
         )

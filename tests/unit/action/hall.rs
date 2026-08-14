@@ -61,7 +61,7 @@ fn migrate_on_a_current_hall_reports_nothing_to_do_and_writes_nothing() {
 
     let report = migrate(&ctx).unwrap();
 
-    assert_eq!(report.value.plan, MigrationPlan::Current { version: 1 });
+    assert_eq!(report.value.plan, MigrationPlan::Current { version: 2 });
     assert!(!report.value.migrated);
     assert!(report.is_clean());
     assert!(human(&report.value).contains("Nothing to do"));
@@ -96,13 +96,13 @@ fn migrate_refuses_a_file_newer_than_this_build_without_touching_it() {
         report.value.plan,
         MigrationPlan::TooNew {
             found: 99,
-            highest: 1
+            highest: 2
         }
     );
     assert!(!report.value.migrated);
     // The whole point of `plan` over `read`: a too-new hall gets described,
     // not refused into silence.
-    assert!(human(&report.value).contains("understands up to 1"));
+    assert!(human(&report.value).contains("understands up to 2"));
     // ...but describing it must not report success. A warning is what
     // makes `bin/ivar.rs` exit 1 instead of 0.
     assert!(!report.is_clean(), "a too-new hall must not exit clean");
@@ -123,15 +123,15 @@ fn migrate_reports_an_unversioned_file_as_unreachable_rather_than_adopting_it() 
 
     let report = migrate(&ctx).unwrap();
 
-    // `ivar.json`'s chain is empty and its first public version is 1, so
-    // there is no v0 to migrate from. Relabelling it as current would adopt
-    // a foreign file as ours — the format contract forbids exactly that.
+    // `ivar.json`'s first public version is 1, so there is no v0 to migrate
+    // from. Relabelling it as current would adopt a foreign file as ours —
+    // the format contract forbids exactly that.
     assert_eq!(
         report.value.plan,
-        MigrationPlan::Unreachable { from: 0, to: 1 }
+        MigrationPlan::Unreachable { from: 0, to: 2 }
     );
     assert!(!report.value.migrated);
-    assert!(human(&report.value).contains("no migration to reach version 1"));
+    assert!(human(&report.value).contains("no migration to reach version 2"));
     assert!(
         !report.is_clean(),
         "an unreachable hall must not exit clean"

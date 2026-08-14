@@ -16,16 +16,16 @@ use std::collections::HashSet;
 
 use serde::{Deserialize, Serialize};
 
+use crate::domain::feature::IntegrationPolicy;
 use crate::domain::mcp::McpServerDef;
 use crate::domain::name::{BranchName, HallName, RepoName};
 use crate::domain::provider::Provider;
 
 use super::error::Error;
 
-/// `ivar.json`'s schema version. See the "Why v1 and not v2" section of the
-/// module doc: this is the first public version, with no v0 predecessor to
-/// migrate from.
-pub(super) const CURRENT_VERSION: u32 = 1;
+/// `ivar.json`'s schema version. v1 was the first public version; v2 adds the
+/// hall integration defaults and each repo's ordered verification checks.
+pub(super) const CURRENT_VERSION: u32 = 2;
 
 /// The hall's identity, committed and team-shared. See the module doc comment
 /// for the full JSON shape, the contract, and how the invariants are
@@ -37,6 +37,9 @@ pub struct Manifest {
     name: HallName,
     providers: Providers,
     repos: Vec<Repo>,
+    /// The hall's integration defaults: the via/strategy a feature inherits
+    /// when neither the CLI nor the feature itself overrides a field.
+    integration: IntegrationPolicy,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     skills: Option<Skills>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -48,6 +51,11 @@ impl Manifest {
     /// refuses — see the module doc comment for why this is the one type-level
     /// guarantee this module makes: any `Manifest` built through this
     /// constructor already satisfies every invariant.
+    ///
+    /// The v1 call shape is preserved: a manifest built through this
+    /// constructor carries the embedded integration defaults
+    /// ([`IntegrationPolicy::default`], `local`/`squash`) and repos with no
+    /// checks.
     pub fn new(
         name: HallName,
         providers: Providers,
@@ -59,6 +67,7 @@ impl Manifest {
             name,
             providers,
             repos,
+            integration: IntegrationPolicy::default(),
             skills,
             mcp: None,
         };
@@ -71,6 +80,13 @@ impl Manifest {
     #[must_use]
     pub fn version(&self) -> u32 {
         self.version
+    }
+
+    /// The hall's integration defaults — the via/strategy a feature inherits
+    /// when neither the CLI nor the feature's own override sets a field.
+    #[must_use]
+    pub fn integration(&self) -> IntegrationPolicy {
+        self.integration
     }
 
     /// The hall's name.
@@ -117,12 +133,7 @@ impl Manifest {
     /// with no MCP servers round-trips byte-identical to one that never had
     /// the key.
     pub fn with_mcp_servers(&self, servers: Vec<McpServerDef>) -> Result<Self, Error> {
-        let mut manifest = Self::new(
-            self.name.clone(),
-            self.providers.clone(),
-            self.repos.clone(),
-            self.skills.clone(),
-        )?;
+        let mut manifest = self.rebuild(self.providers.clone(), self.repos.clone())?;
         manifest.mcp = if servers.is_empty() {
             None
         } else {
@@ -145,12 +156,7 @@ impl Manifest {
         }
         let mut repos = self.repos.clone();
         repos.push(repo);
-        Self::new(
-            self.name.clone(),
-            self.providers.clone(),
-            repos,
-            self.skills.clone(),
-        )
+        self.rebuild(self.providers.clone(), repos)
     }
 
     /// Return a new `Manifest` without the repo named `name`.
@@ -169,12 +175,42 @@ impl Manifest {
         if repos.len() == self.repos.len() {
             return Err(Error::RepoNotFound { name: name.clone() });
         }
-        Self::new(
-            self.name.clone(),
-            self.providers.clone(),
+        self.rebuild(self.providers.clone(), repos)
+    }
+
+    /// Return a new `Manifest` carrying `providers` in place of the current
+    /// provider configuration. Infallible beyond the usual manifest
+    /// invariants — see [`Self::rebuild`].
+    pub fn with_providers(&self, providers: Providers) -> Result<Self, Error> {
+        self.rebuild(providers, self.repos.clone())
+    }
+
+    /// Return a new `Manifest` carrying `policy` as its hall integration
+    /// defaults. Infallible: an [`IntegrationPolicy`] is a closed value, so
+    /// nothing to validate beyond what the original already satisfied.
+    #[must_use]
+    pub fn with_integration(&self, policy: IntegrationPolicy) -> Self {
+        let mut manifest = self.clone();
+        manifest.integration = policy;
+        manifest
+    }
+
+    /// The common rebuild every `with_*` ends at: the same name, integration,
+    /// skills, and MCP definitions as `self`, with `providers` and `repos`
+    /// replaced — so no mutation can silently drop a field it is not about.
+    /// Validates, because the new combination may violate an invariant.
+    fn rebuild(&self, providers: Providers, repos: Vec<Repo>) -> Result<Self, Error> {
+        let manifest = Self {
+            version: CURRENT_VERSION,
+            name: self.name.clone(),
+            providers,
             repos,
-            self.skills.clone(),
-        )
+            integration: self.integration,
+            skills: self.skills.clone(),
+            mcp: self.mcp.clone(),
+        };
+        manifest.validate()?;
+        Ok(manifest)
     }
 
     /// The value invariants named in the module doc comment. See
@@ -202,6 +238,14 @@ impl Manifest {
                 return Err(Error::EmptyRepoUrl {
                     name: repo.name.clone(),
                 });
+            }
+            for (index, check) in repo.checks.iter().enumerate() {
+                if check.trim().is_empty() {
+                    return Err(Error::EmptyRepoCheck {
+                        name: repo.name.clone(),
+                        index,
+                    });
+                }
             }
         }
 
@@ -265,6 +309,12 @@ pub struct Repo {
     name: RepoName,
     url: String,
     default_branch: BranchName,
+    /// The repo's ordered verification checks, run via `bash -lc` in the
+    /// relevant worktree when this repo is integrated or delivered. Empty
+    /// means "no checks" — the v1 common case, and deliberately omitted from
+    /// the on-disk shape. `#[serde(default)]` so a v1 repo still deserialises.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    checks: Vec<String>,
 }
 
 impl Repo {
@@ -278,12 +328,16 @@ impl Repo {
     /// this file is hand-edited. An empty `url` is the difference between a
     /// `Failure` naming the offending repo and a bare `git clone` error the
     /// first time someone runs `ivar sync`.
+    ///
+    /// The v1 call shape is preserved: a repo built through this constructor
+    /// carries no checks.
     #[must_use]
     pub fn new(name: RepoName, url: impl Into<String>, default_branch: BranchName) -> Self {
         Self {
             name,
             url: url.into(),
             default_branch,
+            checks: Vec::new(),
         }
     }
 
@@ -304,6 +358,21 @@ impl Repo {
     #[must_use]
     pub fn default_branch(&self) -> &BranchName {
         &self.default_branch
+    }
+
+    /// The repo's ordered verification checks, in execution order. Empty when
+    /// the hall declared none for this repo.
+    #[must_use]
+    pub fn checks(&self) -> &[String] {
+        &self.checks
+    }
+
+    /// Return this repo with `checks` as its verification commands, replacing
+    /// whatever it carried before. The original is untouched.
+    #[must_use]
+    pub fn with_checks(mut self, checks: Vec<String>) -> Self {
+        self.checks = checks;
+        self
     }
 }
 

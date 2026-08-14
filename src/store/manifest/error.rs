@@ -53,6 +53,13 @@ pub enum Error {
     #[error("repo `{name}` has an empty `url`")]
     EmptyRepoUrl { name: RepoName },
 
+    /// A repo's `checks` list contains a blank command. A blank entry would
+    /// run nothing and be recorded as a silent pass — the difference between
+    /// naming the offending entry and believing an integration was verified
+    /// when no command actually ran.
+    #[error("repo `{name}` has an empty check at index {index}")]
+    EmptyRepoCheck { name: RepoName, index: usize },
+
     /// A repo named `name` is not in `self.repos` — `ivar repo remove` was
     /// asked to remove something the hall does not know about.
     #[error("repo `{name}` is not in ivar.json")]
@@ -113,6 +120,17 @@ impl From<Error> for Failure {
                 "manifest.set_repo_url",
                 format!("Set `url` on the `{name}` entry in `repos` to its git remote, or remove the entry."),
             )),
+            Error::EmptyRepoCheck { name, index } => {
+                Failure::blocked("manifest.empty_repo_check", what)
+                .expected("an executable command in every `checks` entry")
+                .actual(format!("`{name}`'s `checks[{index}]` is blank"))
+                .fix(FixAction::safe(
+                    "manifest.fix_repo_check",
+                    format!(
+                        "Remove the blank entry from `{name}`'s `checks` list, or give it an executable command."
+                    ),
+                ))
+            }
             Error::RepoNotFound { name } => Failure::blocked("manifest.repo_not_found", what)
             .expected(format!("`{name}` to be listed in `repos`"))
             .actual(format!("`{name}` does not appear in ivar.json"))
