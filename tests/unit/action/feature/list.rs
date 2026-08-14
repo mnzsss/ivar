@@ -46,6 +46,7 @@ fn list_reports_created_features_sorted_by_name() {
         CreateInput {
             name: "zeta".to_owned(),
             branch: None,
+            base: None,
         },
     )
     .unwrap();
@@ -54,6 +55,7 @@ fn list_reports_created_features_sorted_by_name() {
         CreateInput {
             name: "alpha".to_owned(),
             branch: None,
+            base: None,
         },
     )
     .unwrap();

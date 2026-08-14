@@ -84,6 +84,7 @@ fn hall_with_promoted(repos: &[&str]) -> (tempfile::TempDir, Utf8PathBuf) {
         CreateInput {
             name: "checkout".to_owned(),
             branch: None,
+            base: None,
         },
     )
     .unwrap();
@@ -96,6 +97,7 @@ fn hall_with_promoted(repos: &[&str]) -> (tempfile::TempDir, Utf8PathBuf) {
             PromoteInput {
                 feature: "checkout".to_owned(),
                 repo: (*name).to_owned(),
+                base: None,
             },
         )
         .unwrap();
@@ -187,6 +189,71 @@ fn preview_lists_every_promoted_repo_with_its_delivery_facts() {
     );
     // Preview is side-effect-free: the remote has no branch yet.
     assert!(remote_ref(&origin_of(&root, "api"), "checkout").is_none());
+}
+
+/// `base_branch` in the preview is the base `promote` actually recorded —
+/// the feature's declared base, not always the repo's default branch.
+#[test]
+fn preview_shows_the_recorded_base_not_always_the_default_branch() {
+    let (_guard, root) = hall_root();
+    let ctx = Ctx::new(root.clone());
+    hall::init(
+        &ctx,
+        InitInput {
+            path: Utf8PathBuf::from("."),
+            name: Some("acme".to_owned()),
+            provider: None,
+        },
+    )
+    .unwrap();
+
+    let origin = seeded_repo(&root.parent().unwrap().join("origins").join("api"), "main");
+    git(&origin, &["checkout", "-b", "develop"]);
+    std::fs::write(origin.join("develop-only.txt"), "develop\n").unwrap();
+    git(&origin, &["add", "develop-only.txt"]);
+    git(&origin, &["commit", "-m", "develop work"]);
+    git(&origin, &["checkout", "main"]);
+
+    let layout = Layout::at(root.clone());
+    let manifest = Manifest::new(
+        HallName::new("acme").unwrap(),
+        Providers::new(vec![Provider::ClaudeCode], Provider::ClaudeCode),
+        vec![Repo::new(
+            RepoName::new("api").unwrap(),
+            origin.as_str(),
+            BranchName::new("main").unwrap(),
+        )],
+        None,
+    )
+    .unwrap();
+    Manifest::write(&layout, &manifest).unwrap();
+
+    create_action(
+        &ctx,
+        CreateInput {
+            name: "checkout".to_owned(),
+            branch: None,
+            base: Some("develop".to_owned()),
+        },
+    )
+    .unwrap();
+    crate::action::sync::sync(&ctx, Default::default()).unwrap();
+    promote::promote(
+        &ctx,
+        PromoteInput {
+            feature: "checkout".to_owned(),
+            repo: "api".to_owned(),
+            base: None,
+        },
+    )
+    .unwrap();
+
+    let report = deliver(&ctx, preview_input("checkout")).unwrap();
+
+    assert_eq!(
+        report.value.preview.repos[0].base_branch.as_str(),
+        "develop"
+    );
 }
 
 #[test]

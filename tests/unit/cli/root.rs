@@ -53,6 +53,51 @@ fn git_credential_accepts_the_operation_git_appends() {
     }
 }
 
+/// `--base` names the branch new promotions should start from; omitted, it
+/// stays `None` and each repo's own default branch stands in.
+#[test]
+fn feature_create_accepts_base() {
+    let cli = Cli::try_parse_from(["ivar", "feature", "create", "checkout", "--base", "develop"])
+        .unwrap();
+
+    match cli.command {
+        Command::Feature(FeatureCommand::Create(args)) => {
+            assert_eq!(args.base.as_deref(), Some("develop"));
+        }
+        other => panic!("expected Feature(Create), got {other:?}"),
+    }
+}
+
+#[test]
+fn feature_create_args_convert_into_create_input_without_change() {
+    let args = FeatureCreateArgs {
+        name: "checkout".to_owned(),
+        branch: Some("feat/checkout".to_owned()),
+        base: Some("develop".to_owned()),
+    };
+
+    let input: crate::action::feature::create::CreateInput = args.into();
+
+    assert_eq!(input.name, "checkout");
+    assert_eq!(input.branch, Some("feat/checkout".to_owned()));
+    assert_eq!(input.base, Some("develop".to_owned()));
+}
+
+/// `--onto` collapses the base for every promoted repo — see
+/// `action::feature::rebase`.
+#[test]
+fn feature_rebase_accepts_onto() {
+    let cli =
+        Cli::try_parse_from(["ivar", "feature", "rebase", "checkout", "--onto", "main"]).unwrap();
+
+    match cli.command {
+        Command::Feature(FeatureCommand::Rebase(args)) => {
+            assert_eq!(args.onto.as_deref(), Some("main"));
+        }
+        other => panic!("expected Feature(Rebase), got {other:?}"),
+    }
+}
+
 /// A future git may name an operation this build has never heard of. Parsing
 /// must still succeed — gitcredentials(7) requires the helper to ignore what
 /// it does not implement, and it cannot ignore what clap rejected first.

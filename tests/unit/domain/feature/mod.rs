@@ -74,7 +74,7 @@ fn feature_round_trips_through_serde_without_unknown_fields() {
     let parsed: Feature = serde_json::from_str(&rendered).unwrap();
 
     assert_eq!(parsed, feature);
-    assert_eq!(parsed.version(), 1);
+    assert_eq!(parsed.version(), 2);
 }
 
 #[test]

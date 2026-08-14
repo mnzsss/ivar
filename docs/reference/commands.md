@@ -182,6 +182,7 @@ Create a feature: name, branch, no repos promoted yet
 | flag | value | default | description |
 | --- | --- | --- | --- |
 | `--branch` | `<BRANCH>` |  | The branch to work on. Defaults to the feature's name. Use it to adopt a branch a feature name cannot spell, such as `feat/login` |
+| `--base` | `<BASE>` |  | The branch new promotions should start from, per repo. Defaults to each repo's own default branch |
 
 
 ##### `ivar feature list`
@@ -191,12 +192,16 @@ List features and how far each got
 
 ##### `ivar feature promote`
 
-Promote a repo onto a feature's branch and materialise its worktree. A branch that already exists is adopted as-is; one that does not is created off the repo's default branch
+Promote a repo onto a feature's branch and materialise its worktree. A branch that already exists is adopted as-is; one that does not is created off the repo's effective base
 
 | argument | required | description |
 | --- | --- | --- |
 | `feature` | yes | The feature to promote into |
 | `repo` | yes | The repo to promote onto the feature's branch |
+
+| flag | value | default | description |
+| --- | --- | --- | --- |
+| `--base` | `<BASE>` |  | Override the branch a new worktree starts from, for this repo only. Defaults to the feature's declared base, or the repo's default branch |
 
 
 ##### `ivar feature demote`
@@ -357,11 +362,15 @@ Delete a feature: its worktrees, its directory under `.ivar/`, and its plans. Re
 
 ##### `ivar feature rebase`
 
-Rebase every promoted repo's worktree onto its default branch. A dirty worktree is skipped; a conflict is aborted and reported
+Rebase every promoted repo's worktree onto its effective base. A dirty worktree is skipped; a conflict is aborted and reported
 
 | argument | required | description |
 | --- | --- | --- |
 | `name` | yes | The feature to rebase |
+
+| flag | value | default | description |
+| --- | --- | --- | --- |
+| `--onto` | `<ONTO>` |  | Collapse the base: rebase every promoted repo onto this branch, and record it as the declared base for each repo that lands there. The verb for once a feature's own base has landed |
 
 
 ##### `ivar feature review`

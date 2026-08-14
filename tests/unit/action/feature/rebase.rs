@@ -54,6 +54,7 @@ fn hall_with_promoted_feature() -> (tempfile::TempDir, Utf8PathBuf) {
         CreateInput {
             name: "checkout".to_owned(),
             branch: None,
+            base: None,
         },
     )
     .unwrap();
@@ -63,6 +64,77 @@ fn hall_with_promoted_feature() -> (tempfile::TempDir, Utf8PathBuf) {
         PromoteInput {
             feature: "checkout".to_owned(),
             repo: "api".to_owned(),
+            base: None,
+        },
+    )
+    .unwrap();
+
+    git(
+        &root.join(".ivar/repos/api/.bare"),
+        &["config", "user.name", "ivar tests"],
+    );
+    git(
+        &root.join(".ivar/repos/api/.bare"),
+        &["config", "user.email", "tests@ivar.invalid"],
+    );
+
+    (guard, root)
+}
+
+/// A hall with two branches in the seeded repo — `main`, and `develop`,
+/// which carries a commit `main` does not have — a feature created with
+/// `base` as given, and the repo promoted onto it. Committer identity is set
+/// on the bare clone as in [`hall_with_promoted_feature`].
+fn hall_with_promoted_feature_based_on(base: Option<&str>) -> (tempfile::TempDir, Utf8PathBuf) {
+    let (guard, root) = hall_root();
+    let ctx = Ctx::new(root.clone());
+    hall::init(
+        &ctx,
+        InitInput {
+            path: Utf8PathBuf::from("."),
+            name: Some("acme".to_owned()),
+            provider: None,
+        },
+    )
+    .unwrap();
+
+    let origin = seeded_repo(&root.parent().unwrap().join("origins").join("api"), "main");
+    git(&origin, &["checkout", "-b", "develop"]);
+    std::fs::write(origin.join("develop-only.txt"), "develop\n").unwrap();
+    git(&origin, &["add", "develop-only.txt"]);
+    git(&origin, &["commit", "-m", "develop work"]);
+    git(&origin, &["checkout", "main"]);
+
+    let layout = Layout::at(root.clone());
+    let manifest = Manifest::new(
+        HallName::new("acme").unwrap(),
+        Providers::new(vec![Provider::ClaudeCode], Provider::ClaudeCode),
+        vec![Repo::new(
+            RepoName::new("api").unwrap(),
+            origin.as_str(),
+            BranchName::new("main").unwrap(),
+        )],
+        None,
+    )
+    .unwrap();
+    Manifest::write(&layout, &manifest).unwrap();
+
+    create_action(
+        &ctx,
+        CreateInput {
+            name: "checkout".to_owned(),
+            branch: None,
+            base: base.map(str::to_owned),
+        },
+    )
+    .unwrap();
+    crate::action::sync::sync(&ctx, Default::default()).unwrap();
+    promote::promote(
+        &ctx,
+        PromoteInput {
+            feature: "checkout".to_owned(),
+            repo: "api".to_owned(),
+            base: None,
         },
     )
     .unwrap();
@@ -82,6 +154,7 @@ fn hall_with_promoted_feature() -> (tempfile::TempDir, Utf8PathBuf) {
 fn rebase_input(name: &str) -> RebaseInput {
     RebaseInput {
         name: name.to_owned(),
+        onto: None,
     }
 }
 
@@ -199,6 +272,97 @@ fn rebase_is_rejected_for_a_missing_feature() {
 
     assert_eq!(failure.status, Status::Blocked);
     assert_eq!(failure.code, "feature.not_found");
+}
+
+/// The declared base — not the repo's `default_branch` — is what a rebase
+/// replays onto. Work that landed only on `main` must not appear.
+#[test]
+fn rebase_replays_onto_the_declared_base_not_the_default_branch() {
+    let (_guard, root) = hall_with_promoted_feature_based_on(Some("develop"));
+    let ctx = Ctx::new(root.clone());
+    advance_main(&root);
+
+    let report = rebase(&ctx, rebase_input("checkout")).unwrap();
+
+    assert!(report.is_clean());
+    assert_eq!(report.value.repos[0].status, RebaseStatus::Rebased);
+    let feature_wt = root.join(".ivar/repos/api/checkout");
+    assert!(
+        fs::is_file(&feature_wt.join("develop-only.txt")).unwrap(),
+        "the branch's own develop-derived content must survive"
+    );
+}
+
+/// `--onto` rewrites every promoted repo's declared base and rebases onto
+/// it — the verb for once a feature's own base has landed.
+#[test]
+fn rebase_onto_collapses_the_base_and_rebases_onto_the_new_target() {
+    let (_guard, root) = hall_with_promoted_feature_based_on(Some("develop"));
+    let ctx = Ctx::new(root.clone());
+    advance_main(&root);
+
+    let report = rebase(
+        &ctx,
+        RebaseInput {
+            name: "checkout".to_owned(),
+            onto: Some("main".to_owned()),
+        },
+    )
+    .unwrap();
+
+    assert!(report.is_clean());
+    assert_eq!(report.value.repos[0].status, RebaseStatus::Rebased);
+    let feature_wt = root.join(".ivar/repos/api/checkout");
+    let history = std::process::Command::new("git")
+        .args(["-C", feature_wt.as_str(), "log", "--format=%s"])
+        .output()
+        .unwrap();
+    assert!(
+        String::from_utf8_lossy(&history.stdout).contains("main work"),
+        "rebased onto `main`, so its commit must be in the branch's history"
+    );
+
+    let feature = Feature::read(&Layout::at(root), &FeatureName::new("checkout").unwrap())
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        feature.promotions[&RepoName::new("api").unwrap()].base,
+        Some(BranchName::new("main").unwrap())
+    );
+}
+
+/// A repo `--onto` could not actually rebase keeps its old declared base —
+/// recording a target its worktree was never moved onto would leave the
+/// next rebase or delivery trusting a base the worktree does not agree with.
+#[test]
+fn rebase_onto_does_not_collapse_the_base_for_a_repo_it_could_not_rebase() {
+    let (_guard, root) = hall_with_promoted_feature_based_on(Some("develop"));
+    let ctx = Ctx::new(root.clone());
+    advance_main(&root);
+    let feature_wt = root.join(".ivar/repos/api/checkout");
+    // Uncommitted work — the repo must be skipped, not rebased.
+    std::fs::write(feature_wt.join("notes.md"), "mine\n").unwrap();
+
+    let report = rebase(
+        &ctx,
+        RebaseInput {
+            name: "checkout".to_owned(),
+            onto: Some("main".to_owned()),
+        },
+    )
+    .unwrap();
+
+    assert_eq!(report.value.repos[0].status, RebaseStatus::Skipped);
+    assert!(!report.is_clean());
+
+    let feature = Feature::read(&Layout::at(root), &FeatureName::new("checkout").unwrap())
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        feature.promotions[&RepoName::new("api").unwrap()].base,
+        Some(BranchName::new("develop").unwrap()),
+        "the declared base must stay `develop` — the worktree was never rebased onto `main`"
+    );
 }
 
 #[test]

@@ -222,6 +222,25 @@ pub trait Git {
     /// at `git_dir` — `git rev-list --count <base>..<branch>`.
     fn commits_ahead(&self, git_dir: &Utf8Path, base: &str, branch: &str) -> Result<u64, Error>;
 
+    /// Whether `ancestor` is an ancestor of `descendant` — reachable from it by
+    /// following parent links — in the repository at `git_dir`.
+    ///
+    /// A pure, local read (`git merge-base --is-ancestor`, through
+    /// `git2::Repository::graph_descendant_of`), so it goes through [`read`]
+    /// rather than the shell — ADR-0001 §3.
+    ///
+    /// Either revision can fail to exist, and that is git's own refusal —
+    /// [`Error::Refused`] carrying its sentence, never `Ok(false)`. Collapsing
+    /// "no such revision" into "not an ancestor" would tell a caller a branch
+    /// never merged when the honest answer is that it was asked about a commit
+    /// that was never there.
+    fn is_ancestor(
+        &self,
+        git_dir: &Utf8Path,
+        ancestor: &str,
+        descendant: &str,
+    ) -> Result<bool, Error>;
+
     /// The commit `remote` holds `branch` at — `git ls-remote <remote>
     /// refs/heads/<branch>` — or `None` when the remote does not have it.
     ///
@@ -346,6 +365,15 @@ impl Git for System {
 
     fn commits_ahead(&self, git_dir: &Utf8Path, base: &str, branch: &str) -> Result<u64, Error> {
         exec::commits_ahead(git_dir, base, branch)
+    }
+
+    fn is_ancestor(
+        &self,
+        git_dir: &Utf8Path,
+        ancestor: &str,
+        descendant: &str,
+    ) -> Result<bool, Error> {
+        read::is_ancestor(git_dir, ancestor, descendant)
     }
 
     fn remote_branch_tip(

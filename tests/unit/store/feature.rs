@@ -89,10 +89,50 @@ fn the_written_shape_is_canonical_and_version_stamped() {
         .unwrap()
         .unwrap();
     assert!(
-        text.contains("\"version\": 1"),
+        text.contains("\"version\": 2"),
         "the store must stamp the version: {text}"
     );
     assert!(text.contains("\"branch\": \"feat/checkout\""));
+}
+
+// -- v1 -> v2 migration (base field) ---------------------------------------
+
+#[test]
+fn a_v1_feature_json_migrates_on_read_and_persists_as_v2() {
+    let (_guard, layout) = layout_with_hall();
+    let name = FeatureName::new("checkout").unwrap();
+
+    // Hand-crafted v1 feature.json — the shape ivar actually wrote before
+    // the v2 bump: no `base` field anywhere.
+    let path = layout.feature_dir(&name).join("feature.json");
+    fs::ensure_dir(path.parent().unwrap()).unwrap();
+    fs::write_text(
+        &path,
+        r#"{"version":1,"name":"checkout","branch":"feat/checkout","promotions":{"api":{"worktree":"pending"}}}"#,
+    )
+    .unwrap();
+
+    let migrated = Feature::read(&layout, &name)
+        .unwrap()
+        .expect("migration must succeed");
+
+    // The migration is a version stamp only — it fills no field.
+    assert_eq!(migrated.version(), 2);
+    assert_eq!(migrated.base, None);
+    assert_eq!(
+        migrated
+            .promotions
+            .get(&RepoName::new("api").unwrap())
+            .unwrap()
+            .base,
+        None
+    );
+
+    let text = fs::read_text(&path).unwrap().unwrap();
+    assert!(
+        text.contains("\"version\": 2"),
+        "disk must hold v2 after migration: {text}"
+    );
 }
 
 // -- approvals ------------------------------------------------------------

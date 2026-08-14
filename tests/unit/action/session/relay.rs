@@ -61,6 +61,7 @@ fn hall_with_provider_session() -> (tempfile::TempDir, Utf8PathBuf) {
         CreateInput {
             name: "checkout".to_owned(),
             branch: None,
+            base: None,
         },
     )
     .unwrap();
@@ -70,6 +71,7 @@ fn hall_with_provider_session() -> (tempfile::TempDir, Utf8PathBuf) {
         PromoteInput {
             feature: "checkout".to_owned(),
             repo: "api".to_owned(),
+            base: None,
         },
     )
     .unwrap();
@@ -333,6 +335,7 @@ fn relay_without_a_previous_session_is_blocked() {
         CreateInput {
             name: "checkout".to_owned(),
             branch: None,
+            base: None,
         },
     )
     .unwrap();
@@ -342,6 +345,7 @@ fn relay_without_a_previous_session_is_blocked() {
         PromoteInput {
             feature: "checkout".to_owned(),
             repo: "api".to_owned(),
+            base: None,
         },
     )
     .unwrap();

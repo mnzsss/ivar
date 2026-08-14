@@ -62,6 +62,7 @@ fn hall_with_detached_session() -> (tempfile::TempDir, Utf8PathBuf) {
         CreateInput {
             name: "checkout".to_owned(),
             branch: None,
+            base: None,
         },
     )
     .unwrap();
@@ -71,6 +72,7 @@ fn hall_with_detached_session() -> (tempfile::TempDir, Utf8PathBuf) {
         PromoteInput {
             feature: "checkout".to_owned(),
             repo: "api".to_owned(),
+            base: None,
         },
     )
     .unwrap();

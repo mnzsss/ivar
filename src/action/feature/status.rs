@@ -6,12 +6,13 @@ use std::io;
 use camino::Utf8PathBuf;
 use serde::Serialize;
 
-use crate::domain::feature::{Feature, WorktreeState};
-use crate::domain::name::{FeatureName, RepoName};
+use crate::domain::feature::{Feature, WorktreeState, effective_base};
+use crate::domain::name::{BranchName, FeatureName, RepoName};
 use crate::error::{Failure, FixAction, Outcome, Report, WriteHuman};
 use crate::git::{self, Git, TargetState};
 
-use super::super::discover_hall;
+use super::super::{discover_hall, read_manifest};
+use super::base;
 use crate::action::Ctx;
 
 /// One promoted repo's status within a feature.
@@ -23,6 +24,17 @@ pub struct RepoDetail {
     pub state: WorktreeState,
     /// Whether the worktree actually exists on disk right now.
     pub worktree_present: bool,
+    /// The effective base this promotion was cut from — `promote`'s recorded
+    /// fact, or, for a promotion recorded before that field existed, what
+    /// [`effective_base`] computes fresh. `None` only when the repo has left
+    /// `ivar.json` and no base was ever recorded, so there is nothing to
+    /// compute from.
+    pub base: Option<BranchName>,
+    /// Whether the recorded base disagrees with what the feature's current
+    /// declaration would compute today — the case `promote`'s
+    /// `feature.base_absent` warning covers, surfaced here where it does not
+    /// scroll off screen.
+    pub base_diverged: bool,
 }
 
 /// What `ivar feature status` found.
@@ -56,12 +68,23 @@ impl WriteHuman for StatusOutcome {
             };
             writeln!(
                 w,
-                "  {}  {}  worktree {present}",
+                "  {}  {}  worktree {present}  base: {}",
                 detail.repo,
                 state_word(detail.state),
+                base_word(detail),
             )?;
         }
         Ok(())
+    }
+}
+
+fn base_word(detail: &RepoDetail) -> String {
+    match &detail.base {
+        Some(base) if detail.base_diverged => {
+            format!("{base} (diverged from the feature's declared base)")
+        }
+        Some(base) => base.to_string(),
+        None => "unknown".to_owned(),
     }
 }
 
@@ -80,6 +103,7 @@ fn state_word(state: WorktreeState) -> &'static str {
 /// drift `doctor` exists to catch and this command exists to surface.
 pub fn status(ctx: &Ctx, input: StatusInput) -> Outcome<StatusOutcome> {
     let layout = discover_hall(ctx)?;
+    let manifest = read_manifest(&layout)?;
     let git = git::System;
     let name = FeatureName::new(input.feature)?;
 
@@ -103,10 +127,30 @@ pub fn status(ctx: &Ctx, input: StatusInput) -> Outcome<StatusOutcome> {
             git.target_state(&worktree).unwrap_or(TargetState::Absent),
             TargetState::Repository
         );
+
+        let manifest_repo = manifest.repos().iter().find(|r| r.name() == repo);
+        let (base, base_diverged) = match manifest_repo {
+            Some(manifest_repo) => {
+                let default_branch = manifest_repo.default_branch();
+                let expected_now = effective_base(feature.base.as_ref(), default_branch);
+                let diverged = promotion
+                    .base
+                    .as_ref()
+                    .is_some_and(|recorded| recorded != &expected_now);
+                (
+                    Some(base::resolve(&feature, promotion, default_branch)),
+                    diverged,
+                )
+            }
+            None => (promotion.base.clone(), false),
+        };
+
         repos.push(RepoDetail {
             repo: repo.clone(),
             state: promotion.worktree,
             worktree_present: present,
+            base,
+            base_diverged,
         });
     }
     repos.sort_by(|a, b| a.repo.cmp(&b.repo));

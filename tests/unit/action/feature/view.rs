@@ -51,6 +51,7 @@ fn hall_with_feature() -> (tempfile::TempDir, Utf8PathBuf) {
         CreateInput {
             name: "checkout".to_owned(),
             branch: None,
+            base: None,
         },
     )
     .unwrap();
@@ -69,6 +70,7 @@ fn view_reports_the_promoted_repos_and_worktrees_without_a_tty() {
         PromoteInput {
             feature: "checkout".to_owned(),
             repo: "api".to_owned(),
+            base: None,
         },
     )
     .unwrap();
@@ -97,6 +99,7 @@ fn view_collects_one_shell_per_promoted_repo_in_worktree_order() {
         PromoteInput {
             feature: "checkout".to_owned(),
             repo: "api".to_owned(),
+            base: None,
         },
     )
     .unwrap();

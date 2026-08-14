@@ -215,7 +215,7 @@ pub enum FeatureCommand {
     List,
     /// Promote a repo onto a feature's branch and materialise its worktree.
     /// A branch that already exists is adopted as-is; one that does not is
-    /// created off the repo's default branch.
+    /// created off the repo's effective base.
     Promote(FeaturePromoteArgs),
     /// Remove a repo from a feature. Its worktree stays on disk.
     Demote(FeatureDemoteArgs),
@@ -237,7 +237,7 @@ pub enum FeatureCommand {
     /// removable, and preserves the feature record for retry if a teardown
     /// step fails.
     Delete(FeatureDeleteArgs),
-    /// Rebase every promoted repo's worktree onto its default branch. A dirty
+    /// Rebase every promoted repo's worktree onto its effective base. A dirty
     /// worktree is skipped; a conflict is aborted and reported.
     Rebase(FeatureRebaseArgs),
     /// Write a VSCode workspace opening the feature: promoted repos on the
@@ -260,6 +260,10 @@ pub struct FeatureCreateArgs {
     /// adopt a branch a feature name cannot spell, such as `feat/login`.
     #[arg(long)]
     pub branch: Option<String>,
+    /// The branch new promotions should start from, per repo. Defaults to
+    /// each repo's own default branch.
+    #[arg(long)]
+    pub base: Option<String>,
 }
 
 /// Arguments for `ivar feature promote`.
@@ -269,6 +273,10 @@ pub struct FeaturePromoteArgs {
     pub feature: String,
     /// The repo to promote onto the feature's branch.
     pub repo: String,
+    /// Override the branch a new worktree starts from, for this repo only.
+    /// Defaults to the feature's declared base, or the repo's default branch.
+    #[arg(long)]
+    pub base: Option<String>,
 }
 
 /// Arguments for `ivar feature demote`.
@@ -435,6 +443,11 @@ pub struct FeatureDeleteArgs {
 pub struct FeatureRebaseArgs {
     /// The feature to rebase.
     pub name: String,
+    /// Collapse the base: rebase every promoted repo onto this branch, and
+    /// record it as the declared base for each repo that lands there. The
+    /// verb for once a feature's own base has landed.
+    #[arg(long)]
+    pub onto: Option<String>,
 }
 
 /// Arguments for `ivar feature review`.
@@ -821,15 +834,23 @@ impl From<RepoUpstreamArgs> for repo_upstream::UpstreamInput {
 
 impl From<FeatureCreateArgs> for create::CreateInput {
     fn from(args: FeatureCreateArgs) -> Self {
-        let FeatureCreateArgs { name, branch } = args;
-        Self { name, branch }
+        let FeatureCreateArgs { name, branch, base } = args;
+        Self { name, branch, base }
     }
 }
 
 impl From<FeaturePromoteArgs> for promote::PromoteInput {
     fn from(args: FeaturePromoteArgs) -> Self {
-        let FeaturePromoteArgs { feature, repo } = args;
-        Self { feature, repo }
+        let FeaturePromoteArgs {
+            feature,
+            repo,
+            base,
+        } = args;
+        Self {
+            feature,
+            repo,
+            base,
+        }
     }
 }
 
@@ -970,8 +991,8 @@ impl From<FeatureDeleteArgs> for delete::DeleteInput {
 
 impl From<FeatureRebaseArgs> for rebase::RebaseInput {
     fn from(args: FeatureRebaseArgs) -> Self {
-        let FeatureRebaseArgs { name } = args;
-        Self { name }
+        let FeatureRebaseArgs { name, onto } = args;
+        Self { name, onto }
     }
 }
 

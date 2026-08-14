@@ -101,6 +101,7 @@ fn paused_board() -> (tempfile::TempDir, Utf8PathBuf) {
         FeatureCreateInput {
             name: "checkout".to_owned(),
             branch: None,
+            base: None,
         },
     )
     .unwrap();

@@ -16,7 +16,7 @@ use super::super::name::{BranchName, FeatureName, RepoName};
 use super::delivery::Guard;
 
 /// The schema version of `feature.json`, stamped by `store::feature`.
-const CURRENT_VERSION: u32 = 1;
+const CURRENT_VERSION: u32 = 2;
 
 /// One feature: a branch name and the set of repos promoted onto it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -29,6 +29,12 @@ pub struct Feature {
     pub branch: BranchName,
     /// Repo name → how far that repo's promotion got.
     pub promotions: BTreeMap<RepoName, Promotion>,
+    /// The branch new promotions should be based on, if the feature declared
+    /// one explicitly. `None` means "use the repo's `default_branch`" — see
+    /// [`super::effective_base`]. `#[serde(default)]` so a v1 `feature.json`,
+    /// which predates this field, still deserialises.
+    #[serde(default)]
+    pub base: Option<BranchName>,
 }
 
 impl Feature {
@@ -44,6 +50,7 @@ impl Feature {
             name,
             branch,
             promotions: BTreeMap::new(),
+            base: None,
         }
     }
 
@@ -54,6 +61,7 @@ impl Feature {
             repo,
             Promotion {
                 worktree: WorktreeState::Pending,
+                base: None,
             },
         );
     }
@@ -108,6 +116,13 @@ impl Feature {
 pub struct Promotion {
     /// How far the worktree materialisation got.
     pub worktree: WorktreeState,
+    /// The base branch this promotion's worktree was cut from, if it
+    /// differs from what [`super::effective_base`] would compute today.
+    /// `None` means "computed from the feature/repo default, nothing
+    /// promotion-specific recorded". `#[serde(default)]` so a v1
+    /// `feature.json`, which predates this field, still deserialises.
+    #[serde(default)]
+    pub base: Option<BranchName>,
 }
 
 /// The state of a feature's worktree for a promoted repo.
@@ -201,3 +216,7 @@ impl Default for FeatureBoard {
         Self::new()
     }
 }
+
+#[cfg(test)]
+#[path = "../../../tests/unit/domain/feature/feature.rs"]
+mod tests;

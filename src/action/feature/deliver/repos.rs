@@ -13,6 +13,7 @@ use crate::git::{self, TargetState};
 use crate::store::layout::Layout;
 use crate::store::manifest::Manifest;
 
+use super::super::base;
 use super::pull_requests::existing_pr_url;
 
 pub(crate) fn build_repos(
@@ -23,7 +24,7 @@ pub(crate) fn build_repos(
 ) -> Result<Vec<DeliveryRepo>, Failure> {
     let mut repos = Vec::new();
 
-    for repo_name in feature.promotions.keys() {
+    for (repo_name, promotion) in &feature.promotions {
         let declared = manifest
             .repos()
             .iter()
@@ -141,7 +142,7 @@ pub(crate) fn build_repos(
             remote: declared.url().to_owned(),
             push_refspec: format!("{}:refs/heads/{}", feature.branch, feature.branch),
             action,
-            base_branch: declared.default_branch().clone(),
+            base_branch: base::resolve(feature, promotion, declared.default_branch()),
             dependencies: Vec::new(),
             blockers,
             pr_url: None,

@@ -1,10 +1,15 @@
 //! `ivar feature prune` — delete features whose branches are fully merged.
 //!
 //! A feature is prunable when **every** promoted repo's feature branch is
-//! fully merged into that repo's default branch (no commits ahead), or when
-//! no repo is promoted at all. It is never prunable while it has a **live
-//! session** — a feature with an open session view dir is off-limits no
-//! matter how merged its branches are, because the session is using it.
+//! fully merged into that repo's effective base (no commits ahead) — the
+//! base `promote` recorded for that repo, or, absent a recorded base, the
+//! repo's default branch — or when no repo is promoted at all. A feature
+//! merged into its base is prunable even while that base itself is still
+//! open: mergedness is measured against what the feature actually branched
+//! from, not against whichever default branch a repo happens to declare. It
+//! is never prunable while it has a **live session** — a feature with an
+//! open session view dir is off-limits no matter how merged its branches
+//! are, because the session is using it.
 //!
 //! Pruning is best-effort per feature, like every batch verb here: a feature
 //! that cannot be checked (its clone is missing, its repo left the manifest)
@@ -26,6 +31,7 @@ use crate::store::layout::Layout;
 use crate::store::manifest::Manifest;
 
 use super::super::{discover_hall, read_manifest};
+use super::base;
 use super::delete::{self as feature_delete, DeleteInput};
 use crate::action::Ctx;
 use crate::action::session::lookup as session_lookup;
@@ -151,22 +157,22 @@ fn classify(
         return Verdict::Prune;
     }
 
-    for repo in feature.promotions.keys() {
+    for (repo, promotion) in &feature.promotions {
         let Some(manifest_repo) = manifest.repos().iter().find(|r| r.name() == repo) else {
             return Verdict::Keep(format!("repo `{repo}` is no longer in ivar.json"));
         };
-        let default_branch = manifest_repo.default_branch();
+        let effective_base = base::resolve(feature, promotion, manifest_repo.default_branch());
         let bare = layout.repo_bare(repo);
         if !matches!(git.target_state(&bare), Ok(TargetState::Repository)) {
             return Verdict::Keep(format!(
                 "cannot check `{repo}` — its clone is missing (run `ivar sync`)"
             ));
         }
-        match git.commits_ahead(&bare, default_branch.as_str(), feature.branch.as_str()) {
+        match git.commits_ahead(&bare, effective_base.as_str(), feature.branch.as_str()) {
             Ok(0) => {}
             Ok(ahead) => {
                 return Verdict::Keep(format!(
-                    "`{repo}` has {ahead} commit(s) not merged into `{default_branch}`"
+                    "`{repo}` has {ahead} commit(s) not merged into `{effective_base}`"
                 ));
             }
             Err(error) => {

@@ -1,13 +1,22 @@
 //! `ivar feature promote <repo>` — materialise a repo onto a feature branch.
 //!
-//! # The branch-from-default-branch rule
+//! # The branch-from-base rule
 //!
 //! A feature's branch that does not yet exist is always created from the
-//! repo's `default_branch` as declared in `ivar.json`. Not from whatever the
-//! default worktree happens to be on, and not from a user-chosen base:
-//! `ivar.json` is the one team-shared statement of where a repo's work begins,
-//! so promotion never depends on the local state of a worktree that a teammate
-//! may not have.
+//! **base** — the feature's declared `base` (or a `--base` override for this
+//! one repo), and, absent either, the repo's `default_branch` from
+//! `ivar.json`. Not from whatever the default worktree happens to be on:
+//! `ivar.json` (or the feature's own declaration) is the one team-shared
+//! statement of where a repo's work begins, so promotion never depends on the
+//! local state of a worktree that a teammate may not have.
+//!
+//! The base is recorded on the promotion (`Promotion::base`) as a plain fact
+//! about where the branch started, never re-derived by probing ancestry —
+//! base is a statement about the future, not a measurement of the past. When
+//! the declared base names a branch this repo does not have, promotion still
+//! proceeds: it falls back to `default_branch`, records that as the fact, and
+//! warns (`feature.base_absent`) naming the repo, the base that was asked
+//! for, and the one that was used instead.
 //!
 //! # Adopting a branch that already exists
 //!
@@ -36,9 +45,9 @@ use std::io;
 use camino::Utf8PathBuf;
 use serde::Serialize;
 
-use crate::domain::feature::{Feature, WorktreeState};
+use crate::domain::feature::{Feature, WorktreeState, effective_base};
 use crate::domain::name::{BranchName, FeatureName, RepoName};
-use crate::error::{Failure, FixAction, Outcome, Report, WriteHuman};
+use crate::error::{Failure, FixAction, Outcome, Report, Warning, WriteHuman};
 use crate::git::{self, Git, TargetState};
 use crate::infra::{fs, hash, proc};
 use crate::store::layout::Layout;
@@ -59,6 +68,10 @@ pub struct PromoteInput {
     pub feature: String,
     /// The repo to promote onto the feature's branch.
     pub repo: String,
+    /// Override the branch this promotion starts from, unvalidated. `None`
+    /// falls back to the feature's declared base, then the repo's default
+    /// branch — see [`crate::domain::feature::effective_base`].
+    pub base: Option<String>,
 }
 
 /// What `ivar feature promote` did.
@@ -161,7 +174,10 @@ pub fn promote(ctx: &Ctx, input: PromoteInput) -> Outcome<PromoteOutcome> {
 
     let bare = layout.repo_bare(&repo_name);
     let worktree = layout.repo_worktree(&repo_name, &feature.branch);
-    let from_branch = repo.default_branch();
+    let default_branch = repo.default_branch();
+    let base_override = input.base.map(BranchName::new).transpose()?;
+    let declared_base = base_override.as_ref().or(feature.base.as_ref());
+    let candidate_base = effective_base(declared_base, default_branch);
 
     // Promotion works on the bare clone `ivar sync` materialised; it never
     // clones on its own (that would be network access inside a local verb).
@@ -203,28 +219,50 @@ pub fn promote(ctx: &Ctx, input: PromoteInput) -> Outcome<PromoteOutcome> {
     // knows, and that branch is usually the work the user is promoting *for* —
     // pushed by a teammate, left by a deleted-and-recreated feature, or carried
     // in from whatever they used before `ivar`.
-    let adopted_branch = git
-        .list_branches(&bare)?
+    let existing_branches = git.list_branches(&bare)?;
+    let adopted_branch = existing_branches
         .iter()
         .any(|existing| existing == feature.branch.as_str());
+
+    // The base is recorded as a fact about where the branch starts, never
+    // re-derived by probing ancestry. When it was declared explicitly but
+    // names a branch this repo does not have, promotion still proceeds —
+    // falling back to `default_branch` and warning, rather than refusing —
+    // because the declaration is usually right about *some* repo in the hall
+    // and simply does not apply to this one.
+    let mut warnings = Vec::new();
+    let base = if declared_base.is_some()
+        && !existing_branches
+            .iter()
+            .any(|existing| existing == candidate_base.as_str())
+    {
+        warnings.push(Warning::new(
+            "feature.base_absent",
+            repo_name.as_str(),
+            format!(
+                "declared base `{candidate_base}` does not exist in `{repo_name}`; used `{default_branch}` instead"
+            ),
+        ));
+        default_branch.clone()
+    } else {
+        candidate_base
+    };
 
     if adopted_branch {
         // Checked out as-is. No rebase, no reset: those commits are someone's
         // work, and `ivar feature rebase` is the verb that moves them.
         git.add_worktree(&bare, &worktree, feature.branch.as_str())?;
     } else {
-        git.create_branch_and_worktree(
-            &bare,
-            feature.branch.as_str(),
-            from_branch.as_str(),
-            &worktree,
-        )?;
+        git.create_branch_and_worktree(&bare, feature.branch.as_str(), base.as_str(), &worktree)?;
     }
 
     // The worktree exists. Record the promotion before running the setup
     // script, so a script failure leaves the record at `Failed` (retried on
     // the next promote/sync) rather than absent.
     feature.promote(repo_name.clone());
+    if let Some(promotion) = feature.promotions.get_mut(&repo_name) {
+        promotion.base = Some(base);
+    }
     feature.set_worktree_state(&repo_name, WorktreeState::Ready);
     feature.write(&layout)?;
 
@@ -237,14 +275,17 @@ pub fn promote(ctx: &Ctx, input: PromoteInput) -> Outcome<PromoteOutcome> {
         &feature.name,
     )?;
 
-    Ok(Report::new(PromoteOutcome {
-        root: layout.root().to_path_buf(),
-        feature: feature_name,
-        repo: repo_name,
-        branch: feature.branch.to_string(),
-        adopted_branch,
-        setup_ran,
-    }))
+    Ok(Report::with_warnings(
+        PromoteOutcome {
+            root: layout.root().to_path_buf(),
+            feature: feature_name,
+            repo: repo_name,
+            branch: feature.branch.to_string(),
+            adopted_branch,
+            setup_ran,
+        },
+        warnings,
+    ))
 }
 
 /// Run the repo's setup script in the feature worktree, if there is one.

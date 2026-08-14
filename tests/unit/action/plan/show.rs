@@ -24,6 +24,7 @@ fn seeded_hall() -> (tempfile::TempDir, Utf8PathBuf) {
         FeatureCreateInput {
             name: "checkout".to_owned(),
             branch: None,
+            base: None,
         },
     )
     .unwrap();
