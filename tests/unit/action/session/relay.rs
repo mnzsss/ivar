@@ -62,6 +62,9 @@ fn hall_with_provider_session() -> (tempfile::TempDir, Utf8PathBuf) {
             name: "checkout".to_owned(),
             branch: None,
             base: None,
+            parent: None,
+            via: None,
+            strategy: None,
         },
     )
     .unwrap();
@@ -336,6 +339,9 @@ fn relay_without_a_previous_session_is_blocked() {
             name: "checkout".to_owned(),
             branch: None,
             base: None,
+            parent: None,
+            via: None,
+            strategy: None,
         },
     )
     .unwrap();

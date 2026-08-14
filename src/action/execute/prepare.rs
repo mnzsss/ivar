@@ -154,9 +154,26 @@ pub fn prepare(ctx: &Ctx, input: PrepareInput) -> Outcome<PrepareOutcome> {
     require_feature(&layout, &feature)?;
     require_no_board(&layout, &feature)?;
 
+    // Preparing persists a fresh board: blocked once the whole child closes
+    // as `integrated`, and the graph's contracts must not reach a locked
+    // promotion.
+    let feature_record = crate::domain::feature::Feature::read(&layout, &feature)?
+        .ok_or_else(|| {
+            Failure::blocked(
+                "execute.feature_vanished",
+                format!("feature `{feature}` has a directory but no feature.json"),
+            )
+        })?;
+    crate::action::feature::ensure_not_fully_integrated(&layout, &feature_record)?;
+
     let plan_fingerprint = plan_fingerprint(&layout, &feature)?;
     let workstreams = read_workstreams(&graph_path)?;
     require_plan_backs_the_graph(&layout, &feature, &workstreams)?;
+    crate::action::feature::ensure_contracts_avoid_locked_promotions(
+        &layout,
+        &feature_record,
+        &workstreams,
+    )?;
 
     let mut board = ExecutionBoard::new(ExecutionGraph {
         plan_fingerprint,

@@ -174,7 +174,7 @@ use serde::Serialize;
 use crate::domain::feature::{
     ExecutionBoard, ExecutionStatus, Feature, JournalEntry, WorkstreamStatus, WriteContract,
 };
-use crate::domain::name::{FeatureName, SessionId};
+use crate::domain::name::{FeatureName, RepoName, SessionId};
 use crate::error::{Failure, FixAction, Outcome, Report, Warning, WriteHuman};
 use crate::git;
 use crate::harness::Harness;
@@ -434,6 +434,30 @@ pub fn tick(ctx: &Ctx, input: TickInput) -> Outcome<TickOutcome> {
         Feature::read(&layout, &feature)?.ok_or_else(|| feature_vanished(&feature))?;
     let plan_text = fs::read_text(&plan_path)?.ok_or_else(|| plan_vanished(&feature))?;
 
+    // The mutation boundaries, rechecked here — immediately before any view,
+    // guard, session, or spawn — even though prepare/approve checked them
+    // earlier: a receipt can land between approval and this tick, and a
+    // successful partial state must never be exposed to an executor wave.
+    // The whole child closing `integrated` refuses everything; otherwise the
+    // wave's contracts are judged against the locked promotions.
+    crate::action::feature::ensure_not_fully_integrated(&layout, &feature_record)?;
+    crate::action::feature::ensure_contracts_avoid_locked_promotions(
+        &layout,
+        &feature_record,
+        &board.graph.workstreams,
+    )?;
+    let locked_repos: std::collections::BTreeSet<RepoName> = feature_record
+        .promotions
+        .iter()
+        .filter(|(_, promotion)| {
+            promotion
+                .integration_receipt
+                .as_ref()
+                .is_some_and(|receipt| receipt.verification.passed())
+        })
+        .map(|(repo, _)| repo.clone())
+        .collect();
+
     // The network refresh runs once per tick, before the
     // fan-out, and only when something is actually ready to launch — never
     // once per workstream. Mirrors `session::start`'s Smart Fetch: best-effort
@@ -514,6 +538,7 @@ pub fn tick(ctx: &Ctx, input: TickInput) -> Outcome<TickOutcome> {
             command,
             wave_contract: WriteContract::new(wave_contract.clone()),
             contract: WriteContract::new(ws.write_contract.clone()),
+            locked_repos: locked_repos.clone(),
         });
     }
 

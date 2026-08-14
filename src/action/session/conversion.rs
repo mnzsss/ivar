@@ -170,6 +170,11 @@ pub fn convert(ctx: &Ctx, input: ConvertInput) -> Outcome<ConvertOutcome> {
         ))
     })?;
 
+    // Converting a discovery session into an unrestricted feature session
+    // must not hand it a locked promotion; refused before the transition
+    // marker or any view move.
+    crate::action::feature::ensure_unrestricted_session_allowed(&layout, &feature)?;
+
     // 4. Record the transition, then run the (idempotent, resumable) steps.
     let transition = Transition {
         session_id: session.id.clone(),

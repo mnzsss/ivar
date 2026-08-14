@@ -137,6 +137,23 @@ pub fn replan(ctx: &Ctx, input: ReplanInput) -> Outcome<ReplanOutcome> {
     let fingerprint = hash::text(&plan_text);
     let board_path = feature::board_path(&layout, &feature);
 
+    // Replan persists a board: blocked once the whole child closes as
+    // `integrated`, and the revised wave's contracts must not reach a locked
+    // promotion.
+    let feature_record = crate::domain::feature::Feature::read(&layout, &feature)?
+        .ok_or_else(|| {
+            Failure::blocked(
+                "execute.feature_vanished",
+                format!("feature `{feature}` has a board but no feature.json"),
+            )
+        })?;
+    crate::action::feature::ensure_not_fully_integrated(&layout, &feature_record)?;
+    crate::action::feature::ensure_contracts_avoid_locked_promotions(
+        &layout,
+        &feature_record,
+        &board.graph.workstreams,
+    )?;
+
     if fingerprint == board.graph.plan_fingerprint {
         return Ok(Report::new(ReplanOutcome {
             root: layout.root().to_path_buf(),

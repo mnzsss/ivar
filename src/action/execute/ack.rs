@@ -88,7 +88,15 @@ pub fn ack_revision(ctx: &Ctx, input: AckInput) -> Outcome<AckOutcome> {
     let feature = FeatureName::new(input.feature)?;
 
     let mut board = require_board(&layout, &feature)?;
-    let board_path = feature::board_path(&layout, &feature);
+    let board_path = feature::board_path(&layout, &feature);    let feature_record = crate::domain::feature::Feature::read(&layout, &feature)?
+        .ok_or_else(|| {
+            Failure::blocked(
+                "execute.feature_vanished",
+                format!("feature `{feature}` has a board but no feature.json"),
+            )
+        })?;
+    crate::action::feature::ensure_not_fully_integrated(&layout, &feature_record)?;
+
     let workstream = board
         .graph
         .workstreams

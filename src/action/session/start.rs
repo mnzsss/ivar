@@ -128,6 +128,14 @@ pub fn start(ctx: &Ctx, input: StartInput) -> Outcome<StartOutcome> {
         None => None,
     };
 
+    // An unrestricted session cannot coexist with a successful partial
+    // integration: a session with no write contract could move a locked
+    // promotion. Refused before the smart fetch, the view dir, the hooks, or
+    // any spawn.
+    if let Some(feature) = &feature {
+        crate::action::feature::ensure_unrestricted_session_allowed(&layout, feature)?;
+    }
+
     let provider = resolve_provider(&manifest, input.provider.as_deref())?;
     let harness = Harness::for_provider(provider)?;
     if input.resume {

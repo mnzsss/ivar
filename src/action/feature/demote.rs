@@ -69,6 +69,11 @@ pub fn demote(ctx: &Ctx, input: DemoteInput) -> Outcome<DemoteOutcome> {
             ))
         })?;
 
+    // Removing a repo is a membership change — frozen once this promotion
+    // carries a successful receipt, and by the whole-child `integrated`
+    // close.
+    super::mutation::ensure_promotion_mutable(&layout, &feature, &repo_name)?;
+
     if !feature.demote(&repo_name) {
         return Err(Failure::blocked(
             "feature.not_promoted",

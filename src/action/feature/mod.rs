@@ -21,6 +21,7 @@ pub mod deliver;
 pub mod demote;
 mod lifecycle;
 pub mod list;
+mod mutation;
 pub mod promote;
 pub mod prune;
 mod relations;
@@ -30,3 +31,11 @@ pub mod review;
 pub mod status;
 mod verification;
 pub mod view;
+
+// The scoped mutation guards, exposed `pub(crate)` so the plan, execute, and
+// session mutations can enforce the partial-integration boundaries without
+// reaching into this module's internals. See `mutation` for the scopes.
+pub(crate) use mutation::{
+    ensure_contracts_avoid_locked_promotions, ensure_not_fully_integrated,
+    ensure_promotion_mutable, ensure_structure_mutable, ensure_unrestricted_session_allowed,
+};

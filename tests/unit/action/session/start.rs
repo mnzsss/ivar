@@ -49,6 +49,9 @@ fn hall_with_promoted_feature() -> (tempfile::TempDir, Utf8PathBuf) {
             name: "checkout".to_owned(),
             branch: None,
             base: None,
+            parent: None,
+            via: None,
+            strategy: None,
         },
     )
     .unwrap();
@@ -666,6 +669,9 @@ fn a_feature_session_projects_only_the_active_plan() {
             name: "web".to_owned(),
             branch: None,
             base: None,
+            parent: None,
+            via: None,
+            strategy: None,
         },
     )
     .unwrap();

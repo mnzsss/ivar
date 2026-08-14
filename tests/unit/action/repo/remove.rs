@@ -62,6 +62,9 @@ fn create_feature(ctx: &Ctx, name: &str) {
             name: name.to_owned(),
             branch: None,
             base: None,
+            parent: None,
+            via: None,
+            strategy: None,
         },
     )
     .unwrap();

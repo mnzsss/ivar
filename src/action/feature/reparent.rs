@@ -24,6 +24,7 @@ use crate::infra::fs;
 
 use super::super::discover_hall;
 use super::lifecycle::read_close;
+use super::mutation;
 use super::relations;
 use crate::action::Ctx;
 use crate::store::layout::Layout;
@@ -85,6 +86,12 @@ pub fn reparent(ctx: &Ctx, input: ReparentInput) -> Outcome<ReparentOutcome> {
     // refuses before this verb considers mutating anything.
     relations::read_all(&layout)?;
     let child = relations::read_feature(&layout, &child_name)?;
+
+    // Structure is feature-wide: frozen by the whole-child `integrated`
+    // close and by the first receipt of any kind. The pristine gate below is
+    // the stronger, more specific check; this guard keeps the failure
+    // vocabulary consistent for the closed cases.
+    mutation::ensure_structure_mutable(&layout, &child)?;
 
     let old_parent = child.parent.clone();
     if child_name == new_parent_name {

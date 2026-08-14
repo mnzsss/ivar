@@ -135,6 +135,17 @@ pub fn create(ctx: &Ctx, input: CreateInput) -> Outcome<CreateOutcome> {
         )));
     }
 
+    // Planning may continue during a partial integration, but not after the
+    // whole child closes as `integrated`.
+    let feature_record = crate::domain::feature::Feature::read(&layout, &feature)?
+        .ok_or_else(|| {
+            Failure::blocked(
+                "plan.feature_vanished",
+                format!("feature `{feature}` has a directory but no feature.json"),
+            )
+        })?;
+    crate::action::feature::ensure_not_fully_integrated(&layout, &feature_record)?;
+
     let plan_dir = layout.plan_dir(&feature);
     if has_any_artifact(&plan_dir)? {
         return Err(Failure::blocked(

@@ -43,6 +43,11 @@ pub(super) struct LaunchJob {
     /// against. The two questions need different contracts and for opposite
     /// reasons; see [`audit_run`].
     pub(super) contract: WriteContract,
+    /// The promotions locked by a successful integration receipt. The
+    /// post-run audit treats every change under one of these as a violation,
+    /// even if a shell bypassed the tool hook — a locked promotion must stay
+    /// byte-for-byte immovable.
+    pub(super) locked_repos: std::collections::BTreeSet<RepoName>,
 }
 
 /// Build the invocation for `harness`'s headless execute mode, with the
@@ -208,7 +213,13 @@ pub(super) fn run_launch(
     }
 
     let exit = child.wait();
-    let audit = audit_run(&worktrees, &job.wave_contract, &job.contract, &baseline);
+    let audit = audit_run(
+        &worktrees,
+        &job.wave_contract,
+        &job.contract,
+        &baseline,
+        &job.locked_repos,
+    );
 
     // The production half is reported on *every* terminal path, not only a
     // clean exit. A run that wrote its files and then asked a question, or
@@ -456,6 +467,7 @@ fn audit_run(
     wave_contract: &WriteContract,
     contract: &WriteContract,
     baseline: &AuditBaseline,
+    locked_repos: &std::collections::BTreeSet<RepoName>,
 ) -> Result<AuditOutcome, Failure> {
     // No promoted worktree: there is no filesystem for this audit to read, so
     // it can neither find a violation nor find production. Reporting that as
@@ -476,8 +488,16 @@ fn audit_run(
     // checkout -- .`, `git reset --hard` and `git stash` all make divergence
     // *disappear*, and an audit that only asks what grew reads the destruction
     // of an inherited edit as a run that stayed inside the lines.
-    let written = contract_violations(wave_contract, &baseline.dirty, &after);
-    let reverted = contract_violations(wave_contract, &after, &baseline.dirty);
+    let mut written = contract_violations(wave_contract, &baseline.dirty, &after);
+    let mut reverted = contract_violations(wave_contract, &after, &baseline.dirty);
+
+    // A locked promotion must stay immovable even if a shell bypassed the
+    // tool hook: any change under one of these repos is a violation no
+    // contract could have licensed, because no contract may name it.
+    written.extend(locked_violations(locked_repos, &baseline.dirty, &after));
+    reverted.extend(locked_violations(locked_repos, &after, &baseline.dirty));
+    written.sort();
+    reverted.sort();
 
     let produced = after
         .difference(&baseline.dirty)
@@ -542,6 +562,31 @@ pub(super) fn contract_violations(
     after
         .difference(baseline)
         .filter(|path| !wave_contract.allows(path))
+        .cloned()
+        .collect()
+}
+
+/// The paths in `after` that `baseline` did not already hold and whose first
+/// path component names a locked promotion. Called both ways round, like
+/// [`contract_violations`], so both writing and reverting under a locked repo
+/// are reported.
+pub(super) fn locked_violations(
+    locked_repos: &std::collections::BTreeSet<RepoName>,
+    baseline: &BTreeSet<Utf8PathBuf>,
+    after: &BTreeSet<Utf8PathBuf>,
+) -> Vec<Utf8PathBuf> {
+    after
+        .difference(baseline)
+        .filter(|path| {
+            path.as_str()
+                .split('/')
+                .next()
+                .is_some_and(|repo| {
+                    RepoName::new(repo)
+                        .map(|repo| locked_repos.contains(&repo))
+                        .unwrap_or(false)
+                })
+        })
         .cloned()
         .collect()
 }

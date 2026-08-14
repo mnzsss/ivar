@@ -102,6 +102,13 @@ pub fn connect(ctx: &Ctx, input: ConnectInput) -> Outcome<ConnectOutcome> {
         None => None,
     };
 
+    // Re-binding an unrestricted session to a successful partial state would
+    // hand it a locked promotion with no write contract; refused before the
+    // view is re-materialised.
+    if let Some(feature) = &feature {
+        crate::action::feature::ensure_unrestricted_session_allowed(&layout, feature)?;
+    }
+
     // Re-materialise: repair drifted symlinks, the read-only guards, the
     // projected plan and the bootstrap instructions. A no-op when nothing
     // drifted. The provider is the session's own (its record's, or the hall's

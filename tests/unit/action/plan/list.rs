@@ -42,6 +42,9 @@ fn list_reports_created_plans_with_their_artifacts() {
             name: "checkout".to_owned(),
             branch: None,
             base: None,
+            parent: None,
+            via: None,
+            strategy: None,
         },
     )
     .unwrap();

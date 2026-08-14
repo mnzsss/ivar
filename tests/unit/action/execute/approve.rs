@@ -84,6 +84,9 @@ fn seeded_board() -> (tempfile::TempDir, Utf8PathBuf) {
             name: "checkout".to_owned(),
             branch: None,
             base: None,
+            parent: None,
+            via: None,
+            strategy: None,
         },
     )
     .unwrap();

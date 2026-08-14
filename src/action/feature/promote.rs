@@ -55,6 +55,7 @@ use crate::store::setup_receipt::Receipt;
 
 use super::super::{discover_hall, read_manifest};
 use crate::action::Ctx;
+use super::mutation;
 
 /// The interpreter a setup script runs under — the same choice `sync` makes,
 /// and for the same reason: a `.sh` arriving through a clone may lack its
@@ -141,6 +142,10 @@ pub fn promote(ctx: &Ctx, input: PromoteInput) -> Outcome<PromoteOutcome> {
             format!("Create it first with `ivar feature create {feature_name}`."),
         ))
     })?;
+
+    // Promotion membership is a feature-wide fact: frozen by the first
+    // integration receipt of any kind.
+    mutation::ensure_structure_mutable(&layout, &feature)?;
 
     let repo = manifest
         .repos()

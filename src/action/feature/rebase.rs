@@ -141,6 +141,15 @@ pub fn rebase(ctx: &Ctx, input: RebaseInput) -> Outcome<RebaseOutcome> {
         ))
     })?;
 
+    // A feature-wide rebase touches every promoted repo, so it preflights the
+    // whole set first: no mutation happens if any target is locked. A
+    // successful receipt pins its promotion individually (and the whole child
+    // once closed `integrated`); a failed-evidence receipt does not lock its
+    // repo.
+    for repo in feature.promotions.keys() {
+        super::mutation::ensure_promotion_mutable(&layout, &feature, repo)?;
+    }
+
     let onto = match input.onto {
         Some(raw) => Some(BranchName::new(raw)?),
         None => None,
