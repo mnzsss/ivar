@@ -226,32 +226,22 @@ fn tick_blocks_when_plan_diverges() {
     assert_eq!(last_entry.kind, "diverged");
 }
 
+/// A graph whose dependencies can never be satisfied is not a quiet no-op.
+///
+/// Both workstreams below wait on each other, so no tick will ever launch
+/// either — and the board is not finished. Reported clean, that is exit `0`
+/// and "nothing ready", the same answer a completed board gives, and the cycle
+/// can only be found by reading the graph by hand.
 #[test]
-fn tick_with_nothing_ready_is_a_no_op() {
+fn a_tick_that_can_never_launch_anything_says_so() {
     let (_guard, root) = approved_board();
     let ctx = Ctx::new(root.clone());
 
-    // No workstream is Done, so ws-b's dependency is unmet.
-    // ws-a has no dependencies but... actually ws-a HAS no deps and IS
-    // Waiting, so it should launch. Let me check: depends_on is empty
-    // for ws-a, so deps_met is true, meaning ws-a WILL launch.
-    // To test "nothing ready", I need to set up a scenario where no
-    // workstream can launch. Let me modify the setup.
-
-    // Actually, with the current graph, ws-a has no deps and will always
-    // launch. Let me create a board where ws-a depends on itself (circular)
-    // or just accept that ws-a launches and test differently.
-
-    // For "nothing ready" test, let me manually set up a board where
-    // ws-a depends on ws-b which depends on ws-a (circular deps).
     let layout = Layout::at(root.clone());
     let feature = FeatureName::new("checkout").unwrap();
     let mut board = ExecutionBoard::read(&layout, &feature).unwrap().unwrap();
-
-    // Make both depend on each other — circular, neither can launch.
     board.graph.workstreams[0].depends_on = vec!["ws-b".to_owned()];
     board.graph.workstreams[1].depends_on = vec!["ws-a".to_owned()];
-
     board.write(&layout, &feature).unwrap();
 
     let report = tick(
@@ -262,11 +252,74 @@ fn tick_with_nothing_ready_is_a_no_op() {
     )
     .unwrap();
 
-    assert!(report.is_clean());
     assert!(
         report.value.launched.is_empty(),
         "circular deps: nothing should launch"
     );
+    assert_eq!(report.warnings.len(), 1);
+    assert_eq!(
+        report.warnings[0].code,
+        "execute.dependencies_unsatisfiable"
+    );
+    assert!(report.warnings[0].what.contains("ws-a waits on ws-b"));
+    assert!(report.warnings[0].what.contains("ws-b waits on ws-a"));
+}
+
+/// The one board that is genuinely nothing to do: every workstream `Done`.
+/// This is the case the warnings above must not fire on, or every finished
+/// board reports a problem forever.
+#[test]
+fn a_tick_on_a_finished_board_is_clean() {
+    let (_guard, root) = approved_board();
+    let ctx = Ctx::new(root.clone());
+
+    let layout = Layout::at(root.clone());
+    let feature = FeatureName::new("checkout").unwrap();
+    let mut board = ExecutionBoard::read(&layout, &feature).unwrap().unwrap();
+    for ws in &mut board.graph.workstreams {
+        ws.status = WorkstreamStatus::Done;
+    }
+    board.write(&layout, &feature).unwrap();
+
+    let report = tick(
+        &ctx,
+        TickInput {
+            feature: "checkout".to_owned(),
+        },
+    )
+    .unwrap();
+
+    assert!(report.is_clean(), "a finished board must not warn");
+    assert!(report.value.launched.is_empty());
+}
+
+/// A board stopped on a question needs an answer, not another tick. Saying
+/// "nothing ready" on exit `0` is what let a blocked board be ticked in a loop
+/// that could never move it.
+#[test]
+fn a_tick_on_a_board_waiting_for_a_human_says_which_workstream() {
+    let (_guard, root) = approved_board();
+    let ctx = Ctx::new(root.clone());
+
+    let layout = Layout::at(root.clone());
+    let feature = FeatureName::new("checkout").unwrap();
+    let mut board = ExecutionBoard::read(&layout, &feature).unwrap().unwrap();
+    board.graph.workstreams[0].status = WorkstreamStatus::Blocked;
+    board.graph.workstreams[1].status = WorkstreamStatus::Blocked;
+    board.write(&layout, &feature).unwrap();
+
+    let report = tick(
+        &ctx,
+        TickInput {
+            feature: "checkout".to_owned(),
+        },
+    )
+    .unwrap();
+
+    assert_eq!(report.warnings.len(), 1);
+    assert_eq!(report.warnings[0].code, "execute.awaiting_reply");
+    assert!(report.warnings[0].what.contains("ws-a"));
+    assert!(report.warnings[0].what.contains("reply"));
 }
 
 #[test]

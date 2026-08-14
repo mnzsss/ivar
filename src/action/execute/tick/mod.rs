@@ -409,14 +409,24 @@ pub fn tick(ctx: &Ctx, input: TickInput) -> Outcome<TickOutcome> {
     if to_launch.is_empty() {
         board.write(&layout, &feature)?;
         let board_path = feature::board_path(&layout, &feature);
-        return Ok(Report::new(TickOutcome {
+        // "Nothing was ready" is true here, unlike the divergence above — but
+        // it is only the whole truth when the board is finished. A board that
+        // still has work and cannot start any of it needs a human, and saying
+        // so on exit `0` with the same sentence a completed board prints is
+        // how a stalled board gets ticked forever.
+        let stall = stalled_reason(&board, &feature);
+        let outcome = TickOutcome {
             root: layout.root().to_path_buf(),
             feature,
             launched: Vec::new(),
             board,
             board_path,
             diverged: None,
-        }));
+        };
+        return Ok(match stall {
+            Some(warning) => Report::with_warnings(outcome, vec![warning]),
+            None => Report::new(outcome),
+        });
     }
 
     let manifest = read_manifest(&layout)?;
@@ -645,6 +655,96 @@ fn feature_vanished(feature: &FeatureName) -> Failure {
     .fix(FixAction::safe(
         "execute.check_feature",
         format!("Check that `{feature}` still exists: `ivar feature status {feature}`."),
+    ))
+}
+
+/// Why a tick that launched nothing is not simply finished.
+///
+/// `None` for the one board that has nothing left to do — every workstream
+/// `Done`. Otherwise work remains and none of it could start, which is always
+/// a human's move, and the warning names which one. Ordered by what the human
+/// would have to do first: an answer unblocks a workstream, an acknowledgement
+/// resumes a paused one, and only when neither is outstanding is an unmet
+/// dependency the thing left to explain.
+fn stalled_reason(board: &ExecutionBoard, feature: &FeatureName) -> Option<Warning> {
+    let ids = |status: WorkstreamStatus| -> Vec<&str> {
+        board
+            .graph
+            .workstreams
+            .iter()
+            .filter(|ws| ws.status == status)
+            .map(|ws| ws.id.as_str())
+            .collect()
+    };
+
+    if board
+        .graph
+        .workstreams
+        .iter()
+        .all(|ws| ws.status == WorkstreamStatus::Done)
+    {
+        return None;
+    }
+
+    let blocked = ids(WorkstreamStatus::Blocked);
+    if !blocked.is_empty() {
+        return Some(Warning::new(
+            "execute.awaiting_reply",
+            feature.to_string(),
+            format!(
+                "nothing launched: {} stopped for a human. Answer with \
+                 `ivar feature execute reply`.",
+                blocked.join(", ")
+            ),
+        ));
+    }
+
+    let paused = ids(WorkstreamStatus::Paused);
+    if !paused.is_empty() {
+        return Some(Warning::new(
+            "execute.awaiting_ack",
+            feature.to_string(),
+            format!(
+                "nothing launched: {} paused by a revision. Acknowledge with \
+                 `ivar feature execute ack-revision --workstream <id>`.",
+                paused.join(", ")
+            ),
+        ));
+    }
+
+    // Waiting, but nothing to wait for that will ever arrive: the
+    // dependencies are neither `Done` nor reachable from anything running.
+    // A cycle in the graph is the usual cause, and it can only be edited out.
+    let stuck: Vec<String> = board
+        .graph
+        .workstreams
+        .iter()
+        .filter(|ws| ws.status == WorkstreamStatus::Waiting)
+        .map(|ws| {
+            let unmet: Vec<&str> =
+                ws.depends_on
+                    .iter()
+                    .filter(|dep| {
+                        !board.graph.workstreams.iter().any(|other| {
+                            other.id == **dep && other.status == WorkstreamStatus::Done
+                        })
+                    })
+                    .map(String::as_str)
+                    .collect();
+            format!("{} waits on {}", ws.id, unmet.join(", "))
+        })
+        .collect();
+    if stuck.is_empty() {
+        return None;
+    }
+    Some(Warning::new(
+        "execute.dependencies_unsatisfiable",
+        feature.to_string(),
+        format!(
+            "nothing launched and nothing can: {}. No workstream is running to \
+             satisfy them — check the graph for a dependency cycle.",
+            stuck.join("; ")
+        ),
     ))
 }
 
