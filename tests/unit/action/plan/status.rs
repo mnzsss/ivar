@@ -17,7 +17,8 @@ const GRAPH_JSON: &str = r#"{
             "title": "Approval gates",
             "operations": ["add-gate-types", "wire-approve"],
             "depends_on": [],
-            "write_contract": ["src/domain/feature.rs"]
+            "write_contract": ["src/domain/feature.rs"],
+            "provider": "claude-code"
         }
     ]
 }"#;
@@ -218,6 +219,7 @@ fn status_shows_the_board_with_the_gate_and_they_never_diverge() {
         execute_prepare::PrepareInput {
             feature: "checkout".to_owned(),
             graph_json: graph.to_string(),
+            session: None,
         },
     )
     .unwrap();
@@ -254,6 +256,7 @@ fn status_flags_a_board_gate_divergence() {
         execute_prepare::PrepareInput {
             feature: "checkout".to_owned(),
             graph_json: graph.to_string(),
+            session: None,
         },
     )
     .unwrap();

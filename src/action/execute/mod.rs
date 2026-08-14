@@ -17,6 +17,7 @@ pub mod prompt;
 pub mod reconcile;
 pub mod replan;
 pub mod reply;
+mod targeting;
 pub mod tick;
 
 use crate::domain::feature::{ExecutionBoard, WorkstreamDef};

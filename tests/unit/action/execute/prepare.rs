@@ -14,6 +14,8 @@ use crate::action::feature::create::{self as feature_create, CreateInput as Feat
 use crate::action::hall::{self, InitInput};
 use crate::action::plan::create::{self as plan_create, CreateInput as PlanCreateInput};
 use crate::domain::feature::ExecutionStatus;
+use crate::domain::name::SessionId;
+use crate::domain::session::SessionState;
 use crate::error::Status;
 use crate::test_support::{hall_root, utf8_temp_dir};
 
@@ -108,6 +110,39 @@ fn graph_file(root: &Utf8PathBuf) -> Utf8PathBuf {
     path
 }
 
+/// Write the graph JSON with every workstream explicitly targeting
+/// `claude-code` — the form fixtures that test something other than provider
+/// resolution use, so `prepare` succeeds with `session: None`.
+fn graph_file_targeted(root: &Utf8PathBuf) -> Utf8PathBuf {
+    let path = root.join("graph.json");
+    let targeted = GRAPH_JSON
+        .replace(
+            "\"depends_on\": [],",
+            "\"depends_on\": [],\n            \"provider\": \"claude-code\",",
+        )
+        .replace(
+            "\"depends_on\": [\"ws-gates\"],",
+            "\"depends_on\": [\"ws-gates\"],\n            \"provider\": \"claude-code\",",
+        );
+    fs::write_text(&path, &targeted).unwrap();
+    path
+}
+
+/// Create a real feature-session record without spawning a provider: a view
+/// dir under the feature with a written `state.json`. Returns the session id.
+fn feature_session(root: &Utf8PathBuf, provider: Provider) -> String {
+    let layout = Layout::at(root.clone());
+    let feature = FeatureName::new("checkout").unwrap();
+    let id = SessionId::new(uuid::Uuid::new_v4().to_string()).unwrap();
+    let view_dir = layout.feature_session(&feature, &id);
+    fs::ensure_dir(&view_dir).unwrap();
+
+    let mut state = SessionState::new(provider, "2026-08-14T00:00:00.000000000Z");
+    state.bind(feature, "2026-08-14T00:00:00.000000000Z");
+    state.write(&view_dir).unwrap();
+    id.to_string()
+}
+
 /// The board read back off disk — the real file, not the in-memory value
 /// the action returned.
 fn persisted(root: &Utf8PathBuf) -> ExecutionBoard {
@@ -120,13 +155,14 @@ fn persisted(root: &Utf8PathBuf) -> ExecutionBoard {
 fn prepare_creates_a_board_from_the_graph_json() {
     let (_guard, root) = seeded_hall();
     let ctx = Ctx::new(root.clone());
-    let graph = graph_file(&root);
+    let graph = graph_file_targeted(&root);
 
     let report = prepare(
         &ctx,
         PrepareInput {
             feature: "checkout".to_owned(),
             graph_json: graph.to_string(),
+            session: None,
         },
     )
     .unwrap();
@@ -167,13 +203,14 @@ fn prepare_creates_a_board_from_the_graph_json() {
 fn prepare_is_blocked_for_a_missing_feature() {
     let (_guard, root) = seeded_hall();
     let ctx = Ctx::new(root.clone());
-    let graph = graph_file(&root);
+    let graph = graph_file_targeted(&root);
 
     let failure = prepare(
         &ctx,
         PrepareInput {
             feature: "ghost".to_owned(),
             graph_json: graph.to_string(),
+            session: None,
         },
     )
     .unwrap_err();
@@ -186,7 +223,7 @@ fn prepare_is_blocked_for_a_missing_feature() {
 fn prepare_is_blocked_when_the_plan_is_missing() {
     let (_guard, root) = seeded_hall();
     let ctx = Ctx::new(root.clone());
-    let graph = graph_file(&root);
+    let graph = graph_file_targeted(&root);
     fs::remove_path(&root.join("plans/checkout/plan.md")).unwrap();
 
     let failure = prepare(
@@ -194,6 +231,7 @@ fn prepare_is_blocked_when_the_plan_is_missing() {
         PrepareInput {
             feature: "checkout".to_owned(),
             graph_json: graph.to_string(),
+            session: None,
         },
     )
     .unwrap_err();
@@ -212,6 +250,7 @@ fn prepare_is_blocked_for_a_missing_graph_file() {
         PrepareInput {
             feature: "checkout".to_owned(),
             graph_json: "does-not-exist.json".to_owned(),
+            session: None,
         },
     )
     .unwrap_err();
@@ -232,6 +271,7 @@ fn prepare_is_blocked_for_unparseable_graph_json() {
         PrepareInput {
             feature: "checkout".to_owned(),
             graph_json: path.to_string(),
+            session: None,
         },
     )
     .unwrap_err();
@@ -244,12 +284,13 @@ fn prepare_is_blocked_for_unparseable_graph_json() {
 fn prepare_is_blocked_when_a_board_already_exists() {
     let (_guard, root) = seeded_hall();
     let ctx = Ctx::new(root.clone());
-    let graph = graph_file(&root);
+    let graph = graph_file_targeted(&root);
     prepare(
         &ctx,
         PrepareInput {
             feature: "checkout".to_owned(),
             graph_json: graph.to_string(),
+            session: None,
         },
     )
     .unwrap();
@@ -259,6 +300,7 @@ fn prepare_is_blocked_when_a_board_already_exists() {
         PrepareInput {
             feature: "checkout".to_owned(),
             graph_json: graph.to_string(),
+            session: None,
         },
     )
     .unwrap_err();
@@ -423,7 +465,8 @@ fn prepare_is_blocked_when_the_plan_does_not_document_a_claimed_operation() {
                     "title": "Approval gates",
                     "operations": ["add-gate-types", "wire-reject"],
                     "depends_on": [],
-                    "write_contract": ["src/domain/feature.rs"]
+                    "write_contract": ["src/domain/feature.rs"],
+                    "provider": "claude-code"
                 }
             ]
         }"#,
@@ -435,6 +478,7 @@ fn prepare_is_blocked_when_the_plan_does_not_document_a_claimed_operation() {
         PrepareInput {
             feature: "checkout".to_owned(),
             graph_json: path.to_string(),
+            session: None,
         },
     )
     .unwrap_err();
@@ -481,7 +525,8 @@ fn prepare_is_blocked_when_an_operation_has_no_entry_to_describe_it() {
                     "title": "Approval gates",
                     "operations": ["add-gate-types"],
                     "depends_on": [],
-                    "write_contract": ["src/domain/feature.rs"]
+                    "write_contract": ["src/domain/feature.rs"],
+                    "provider": "claude-code"
                 }
             ]
         }"#,
@@ -493,10 +538,146 @@ fn prepare_is_blocked_when_an_operation_has_no_entry_to_describe_it() {
         PrepareInput {
             feature: "checkout".to_owned(),
             graph_json: path.to_string(),
+            session: None,
         },
     )
     .unwrap_err();
 
     assert_eq!(failure.status, Status::Blocked);
     assert!(failure.what.contains("add-gate-types"));
+}
+
+// --- provider resolution from the caller session -------------------------
+
+/// A workstream with no explicit provider inherits the caller session's
+/// provider, and that resolved provider is persisted into `plan.md` *before*
+/// the fingerprint is computed — the board and the plan cannot disagree.
+#[test]
+fn prepare_inherits_the_caller_sessions_provider_and_persists_it() {
+    let (_guard, root) = seeded_hall();
+    let graph = graph_file(&root);
+    let session = feature_session(&root, Provider::OpenCode);
+
+    let report = prepare(
+        &Ctx::new(root.clone()),
+        PrepareInput {
+            feature: "checkout".to_owned(),
+            graph_json: graph.to_string(),
+            session: Some(session),
+        },
+    )
+    .unwrap();
+
+    assert!(report
+        .value
+        .board
+        .graph
+        .workstreams
+        .iter()
+        .all(|ws| ws.provider == Some(Provider::OpenCode)));
+    let plan = fs::read_text(&root.join("plans/checkout/plan.md"))
+        .unwrap()
+        .unwrap();
+    assert!(plan.contains("provider: opencode"));
+    assert_eq!(
+        report.value.board.graph.plan_fingerprint,
+        hash::file(&root.join("plans/checkout/plan.md")).unwrap()
+    );
+}
+
+/// An explicit per-workstream provider overrides the session provider, and
+/// the session provider fills in only the workstreams that left it unset.
+#[test]
+fn an_explicit_workstream_provider_overrides_the_session_provider() {
+    let (_guard, root) = seeded_hall();
+    let plan_path = root.join("plans/checkout/plan.md");
+    let plan = fs::read_text(&plan_path).unwrap().unwrap().replacen(
+        "### ws-gates\n",
+        "### ws-gates\nprovider: claude-code\n",
+        1,
+    );
+    fs::write_text(&plan_path, &plan).unwrap();
+    let graph = root.join("graph.json");
+    let graph_text = GRAPH_JSON.replacen(
+        "\"write_contract\": [\"src/domain/feature.rs\"]",
+        "\"write_contract\": [\"src/domain/feature.rs\"],\n            \"provider\": \"claude-code\"",
+        1,
+    );
+    fs::write_text(&graph, &graph_text).unwrap();
+    let session = feature_session(&root, Provider::OpenCode);
+
+    let report = prepare(
+        &Ctx::new(root.clone()),
+        PrepareInput {
+            feature: "checkout".to_owned(),
+            graph_json: graph.to_string(),
+            session: Some(session),
+        },
+    )
+    .unwrap();
+
+    let board = report.value.board;
+    let persisted_plan = fs::read_text(&plan_path).unwrap().unwrap();
+    assert_eq!(
+        board.graph.workstreams[0].provider,
+        Some(Provider::ClaudeCode)
+    );
+    assert!(persisted_plan.contains("### ws-gates\nprovider: claude-code"));
+    assert_eq!(board.graph.workstreams[1].provider, Some(Provider::OpenCode));
+}
+
+/// A provider-less graph with no caller session is refused with a structured
+/// recovery message — `prepare` never falls back silently to the hall default.
+#[test]
+fn prepare_refuses_an_unresolved_provider_without_a_caller_session() {
+    let (_guard, root) = seeded_hall();
+    let graph = graph_file(&root);
+    let failure = prepare(
+        &Ctx::new(root.clone()),
+        PrepareInput {
+            feature: "checkout".to_owned(),
+            graph_json: graph.to_string(),
+            session: None,
+        },
+    )
+    .unwrap_err();
+
+    assert_eq!(failure.code, "execute.provider_context_missing");
+    assert!(failure.what.contains("caller session"));
+}
+
+/// The graph and the plan naming different providers for the same workstream
+/// is a refusal — the two artifacts must not drift silently.
+#[test]
+fn prepare_refuses_provider_drift_between_plan_and_graph() {
+    let (_guard, root) = seeded_hall();
+    let plan_path = root.join("plans/checkout/plan.md");
+    let plan = fs::read_text(&plan_path).unwrap().unwrap().replacen(
+        "### ws-gates\n",
+        "### ws-gates\nprovider: opencode\n",
+        1,
+    );
+    fs::write_text(&plan_path, &plan).unwrap();
+    let graph = root.join("graph.json");
+    let graph_text = GRAPH_JSON.replacen(
+        "\"write_contract\": [\"src/domain/feature.rs\"]",
+        "\"write_contract\": [\"src/domain/feature.rs\"],\n            \"provider\": \"claude-code\"",
+        1,
+    );
+    fs::write_text(&graph, &graph_text).unwrap();
+    let session = feature_session(&root, Provider::OpenCode);
+
+    let failure = prepare(
+        &Ctx::new(root),
+        PrepareInput {
+            feature: "checkout".to_owned(),
+            graph_json: graph.to_string(),
+            session: Some(session),
+        },
+    )
+    .unwrap_err();
+    assert_eq!(failure.code, "execute.targeting_conflict");
+    assert!(failure.what.contains("ws-gates"));
+    assert!(failure.what.contains("opencode"));
+    assert!(failure.what.contains("claude-code"));
 }

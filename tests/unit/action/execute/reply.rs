@@ -23,14 +23,16 @@ const GRAPH_JSON: &str = r#"{
             "title": "Source files",
             "operations": ["write-code"],
             "depends_on": [],
-            "write_contract": ["src/"]
+            "write_contract": ["src/"],
+            "provider": "claude-code"
         },
         {
             "id": "ws-docs",
             "title": "Docs",
             "operations": ["write-docs"],
             "depends_on": [],
-            "write_contract": ["docs/"]
+            "write_contract": ["docs/"],
+            "provider": "claude-code"
         }
     ]
 }"#;
@@ -102,6 +104,7 @@ fn seeded_blocked_board() -> (tempfile::TempDir, Utf8PathBuf) {
         PrepareActionInput {
             feature: "checkout".to_owned(),
             graph_json: graph.to_string(),
+            session: None,
         },
     )
     .unwrap();
