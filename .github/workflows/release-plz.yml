@@ -1,4 +1,4 @@
-name: release-plz
+name: release
 
 on:
   workflow_run:
