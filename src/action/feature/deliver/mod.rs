@@ -49,7 +49,7 @@ use serde::Serialize;
 use crate::domain::feature::{DeliveryAction, DeliveryPreview, Feature, GateState};
 use crate::domain::name::{FeatureName, RepoName};
 use crate::error::{Failure, FixAction, Outcome, Report, Warning, WriteHuman};
-use crate::git::{self};
+use crate::git::{self, Git};
 use crate::store::layout::Layout;
 
 use super::super::{discover_hall, read_manifest};
@@ -259,6 +259,42 @@ pub fn deliver(ctx: &Ctx, input: DeliverInput) -> Outcome<DeliverOutcome> {
         }
 
         let bare = layout.repo_bare(&repo.repo);
+
+        // The base must still support delivering onto it before a PR is
+        // opened or updated against it: a base gone from the remote, or one
+        // this branch has drifted off of, would make the PR's diff wrong.
+        // Refused per repo — the rest of the batch is unaffected — and never
+        // added to `blockers`, which is informational only.
+        let default_branch = manifest
+            .repos()
+            .iter()
+            .find(|manifest_repo| manifest_repo.name() == &repo.repo)
+            .map(|manifest_repo| manifest_repo.default_branch().clone());
+        if let Some(default_branch) = default_branch {
+            let remote_tip = git
+                .remote_branch_tip(&bare, &repo.remote, repo.base_branch.as_str())
+                .map_err(|_| ());
+            let secondary = match &remote_tip {
+                // Ignored by `check_base` when the remote did not answer —
+                // no point spending a local read on it.
+                Err(()) => Ok(false),
+                Ok(None) => git
+                    .is_ancestor(&bare, repo.base_branch.as_str(), default_branch.as_str())
+                    .map_err(|_| ()),
+                Ok(Some(_)) => git
+                    .is_ancestor(&bare, repo.base_branch.as_str(), repo.local_branch.as_str())
+                    .map_err(|_| ()),
+            };
+            if let Some(failure) = repo.check_base(remote_tip, secondary, &default_branch) {
+                warnings.push(Warning::new(
+                    failure.code,
+                    repo.repo.as_str(),
+                    failure.what.clone(),
+                ));
+                continue;
+            }
+        }
+
         // A branch that already has a PR was updated by the push above — `gh pr
         // create` would only refuse it as a duplicate. Its URL is still part of
         // the report, and `gh pr list` is the only place it comes from.

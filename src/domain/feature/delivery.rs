@@ -1,14 +1,18 @@
-//! The delivery surface: the `Guard` checks on a feature's approval board and
+//! The delivery surface: the `Guard` checks on a feature's approval board,
 //! the side-effect-free `DeliveryPreview` / `DeliveryRepo` / `DeliveryAction`
-//! summary `feature deliver --preview` produces.
+//! summary `feature deliver --preview` produces, and the verdict on whether a
+//! repo's base still supports delivering onto it.
 //!
-//! Pure data, no I/O — building a preview reads the world, but these values
-//! are what the preview prints and what apply gates on.
+//! Pure data and pure classification, no I/O — building a preview reads the
+//! world, and so does gathering the facts [`DeliveryRepo::check_base`]
+//! classifies, but neither this module nor that method ever performs a read
+//! itself.
 
 use serde::{Deserialize, Serialize};
 
 use super::super::name::{BranchName, FeatureName, RepoName};
 use super::approval::GateState;
+use crate::error::{Failure, FixAction};
 
 /// One named guard check on a feature's execution board.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -69,8 +73,8 @@ pub struct DeliveryRepo {
     /// existing one, or push only (the branch already exists on the remote but
     /// has no PR).
     pub action: DeliveryAction,
-    /// The branch this feature's work started from — the repo's default
-    /// branch.
+    /// The branch this feature's work started from — this repo's effective
+    /// base, per [`super::effective_base`] and what `promote` recorded.
     pub base_branch: BranchName,
     /// Repos that must be delivered before this one. `ivar`'s feature model
     /// declares no cross-repo dependencies, so this is empty for every repo;
@@ -102,3 +106,139 @@ pub enum DeliveryAction {
     /// Just push the branch to the remote.
     PushOnly,
 }
+
+/// Whether a repo's declared base still supports delivering onto it.
+///
+/// Computed from facts the caller has already gathered from git — this type
+/// never reaches for git itself. [`classify_base`] is the pure function that
+/// builds one; [`DeliveryRepo::check_base`] is the boundary `action` calls
+/// through, so a caller outside this module never needs to name the variants.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BaseVerdict {
+    /// The base is present on the remote, and this repo's branch is still
+    /// built on it. Delivery proceeds.
+    Ok,
+    /// The base is gone from the remote, and locally it looks merged into
+    /// the repo's default branch — it was delivered, and its own PR's merge
+    /// deleted it.
+    BaseMergedAndDeleted,
+    /// The base is gone from the remote, and nothing confirms it was ever
+    /// merged — it looks like it was never delivered.
+    BaseNeverDelivered,
+    /// The remote did not answer whether the base exists. The question is
+    /// unanswered, never "absent" — those are different facts and call for
+    /// different fixes.
+    BaseUnconfirmed,
+    /// The base exists, but this repo's branch is no longer built on its
+    /// current tip — the base moved on without a rebase.
+    BaseMoved,
+}
+
+/// Classify a base from facts the caller already gathered.
+///
+/// `remote_tip` is `remote_branch_tip(base)`'s result, with the network error
+/// collapsed to `Err(())` — the caller knows *why* the remote did not
+/// answer, and this classification only needs *that* it did not.
+///
+/// `secondary` is one `is_ancestor` call, whichever `remote_tip` calls for:
+/// against the repo's default branch when the base is absent (was it merged
+/// before its ref was deleted?), or against this repo's own branch when the
+/// base is present (does the branch still build on it?). Its error case
+/// (a local ref genuinely missing) reads the same as "no" — refusing is
+/// always the safe default when the question cannot be answered.
+fn classify_base(
+    remote_tip: Result<Option<String>, ()>,
+    secondary: Result<bool, ()>,
+) -> BaseVerdict {
+    match remote_tip {
+        Err(()) => BaseVerdict::BaseUnconfirmed,
+        Ok(None) => match secondary {
+            Ok(true) => BaseVerdict::BaseMergedAndDeleted,
+            _ => BaseVerdict::BaseNeverDelivered,
+        },
+        Ok(Some(_)) => match secondary {
+            Ok(true) => BaseVerdict::Ok,
+            _ => BaseVerdict::BaseMoved,
+        },
+    }
+}
+
+impl BaseVerdict {
+    /// The refusal this verdict delivers, or `None` when delivery may
+    /// proceed. `repo` and `base` name what refused; `default_branch` only
+    /// matters for the merged-and-deleted fix hint.
+    fn into_failure(
+        self,
+        repo: &RepoName,
+        base: &BranchName,
+        default_branch: &BranchName,
+    ) -> Option<Failure> {
+        let (code, what, fix_code, fix_what) = match self {
+            BaseVerdict::Ok => return None,
+            BaseVerdict::BaseMergedAndDeleted => (
+                "feature.base_merged_and_deleted",
+                format!(
+                    "`{repo}`'s base `{base}` is gone from the remote, and looks merged into `{default_branch}`"
+                ),
+                "feature.rebase_onto_default",
+                format!(
+                    "Run `ivar feature rebase <feature> --onto {default_branch}` — `{base}` shipped, so this feature's base collapses onto `{default_branch}`."
+                ),
+            ),
+            BaseVerdict::BaseNeverDelivered => (
+                "feature.base_never_delivered",
+                format!(
+                    "`{repo}`'s base `{base}` is gone from the remote, and nothing confirms it was ever delivered"
+                ),
+                "feature.deliver_parent_first",
+                format!("Deliver the feature that owns `{base}` first, then deliver this one."),
+            ),
+            BaseVerdict::BaseUnconfirmed => (
+                "feature.base_unconfirmed",
+                format!(
+                    "`{repo}`'s base `{base}` could not be confirmed on the remote — the remote did not answer"
+                ),
+                "feature.retry_deliver",
+                "The remote did not answer; retry the delivery.".to_owned(),
+            ),
+            BaseVerdict::BaseMoved => (
+                "feature.base_moved",
+                format!("`{repo}`'s branch is no longer built on `{base}`'s current tip"),
+                "feature.rebase_feature",
+                "Run `ivar feature rebase <feature>` to bring the branch back onto its base."
+                    .to_owned(),
+            ),
+        };
+        Some(Failure::blocked(code, what).fix(FixAction::unsafe_(fix_code, fix_what)))
+    }
+}
+
+impl DeliveryRepo {
+    /// Refuse delivering this repo when its base no longer supports it, or
+    /// `None` when it does.
+    ///
+    /// `remote_tip` and `secondary` are facts the caller already gathered —
+    /// see [`classify_base`] for what each means and which one to compute.
+    /// `default_branch` is the repo's own default branch, from `ivar.json`,
+    /// used only to word the merged-and-deleted fix hint.
+    ///
+    /// This refusal is per repo and blocks apply for that repo alone — it is
+    /// not a [`Self::blockers`] entry, which is informational only.
+    #[must_use]
+    pub fn check_base(
+        &self,
+        remote_tip: Result<Option<String>, ()>,
+        secondary: Result<bool, ()>,
+        default_branch: &BranchName,
+    ) -> Option<Failure> {
+        classify_base(remote_tip, secondary).into_failure(
+            &self.repo,
+            &self.base_branch,
+            default_branch,
+        )
+    }
+}
+
+#[cfg(test)]
+#[path = "../../../tests/unit/domain/feature/delivery.rs"]
+mod tests;

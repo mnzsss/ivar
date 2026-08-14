@@ -805,6 +805,222 @@ fn setup_two_repo_hall(root: &Utf8PathBuf) {
     }
 }
 
+// -- apply: the base verdict ---------------------------------------------------
+//
+// `feature deliver` refuses to open or update a PR against a base that no
+// longer supports it — merged and deleted, never delivered, moved on without
+// a rebase, or simply unreachable. Each refusal is per repo (the push still
+// lands) and never touches the network beyond what `remote_branch_tip`
+// already reaches for; see `domain::feature::delivery` for the pure
+// classification these tests exercise end to end.
+
+/// A hall with one promoted repo whose feature declares `develop` as its
+/// base: `main`, plus `develop` carrying its own commit, merged into `main`
+/// first when `merge_develop_into_main` is set — so the clone captures
+/// whichever ancestry the caller needs before `develop` is (maybe) deleted
+/// or advanced later in the test. Returns the origin path.
+fn setup_deliver_hall_with_base(root: &Utf8PathBuf, merge_develop_into_main: bool) -> Utf8PathBuf {
+    ivar().current_dir(root).arg("init").assert().success();
+    let origin = seeded_repo(&root.parent().unwrap().join("origins/api"), "main");
+    git(&origin, &["checkout", "-b", "develop"]);
+    std::fs::write(origin.join("develop-only.txt"), "develop\n").unwrap();
+    git(&origin, &["add", "develop-only.txt"]);
+    git(&origin, &["commit", "-m", "develop work"]);
+    git(&origin, &["checkout", "main"]);
+    if merge_develop_into_main {
+        git(
+            &origin,
+            &["merge", "--no-ff", "-m", "merge develop", "develop"],
+        );
+    }
+
+    declare_repos(root, &[("api", &origin, "main")]);
+    ivar().current_dir(root).arg("sync").assert().success();
+
+    ivar()
+        .current_dir(root)
+        .args(["feature", "create", "checkout", "--base", "develop"])
+        .assert()
+        .success();
+    ivar()
+        .current_dir(root)
+        .args(["feature", "promote", "checkout", "api"])
+        .assert()
+        .success();
+
+    let worktree = root.join(".ivar/repos/api/checkout");
+    std::fs::write(worktree.join("work.md"), "work\n").unwrap();
+    git(&worktree, &["add", "work.md"]);
+    git(&worktree, &["commit", "-m", "work"]);
+
+    origin
+}
+
+/// Point the declared repo's URL at `https://github.com/…` but redirect it,
+/// via git's own `insteadOf`, to a path that does not exist — an immediate
+/// local failure, so this never touches the network. Used to simulate the
+/// remote not answering.
+fn as_unreachable_github_remote(root: &Utf8Path) -> Vec<(String, String)> {
+    let path = root.join("ivar.json");
+    let mut value: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    let mut rewrites = Vec::new();
+    for repo in value["repos"].as_array_mut().unwrap() {
+        let name = repo["name"].as_str().unwrap().to_owned();
+        let url = format!("https://github.com/acme/{name}.git");
+        let broken = root.join("no-such-origin");
+        rewrites.push((format!("url.{broken}.insteadOf"), url.clone()));
+        repo["url"] = serde_json::Value::String(url);
+    }
+    std::fs::write(&path, serde_json::to_string(&value).unwrap()).unwrap();
+    rewrites
+}
+
+/// Deliver `feature` through the fake `gh`, expecting warnings (exit `1`)
+/// rather than a clean run. Returns the apply document.
+fn deliver_on_github_expecting_warnings(
+    root: &Utf8PathBuf,
+    fake: &FakeGh,
+    rewrites: &[(String, String)],
+    feature: &str,
+) -> serde_json::Value {
+    let fingerprint = preview_on_github(root, fake, rewrites, feature)["preview"]["fingerprint"]
+        .as_str()
+        .expect("fingerprint is a string")
+        .to_owned();
+
+    let output = ivar_on_github(fake, rewrites)
+        .current_dir(root)
+        .args([
+            "feature",
+            "deliver",
+            feature,
+            "--fingerprint",
+            &fingerprint,
+            "--json",
+        ])
+        .assert()
+        .code(1)
+        .get_output()
+        .stdout
+        .clone();
+    serde_json::from_slice(&output).expect("valid json")
+}
+
+#[test]
+fn delivering_with_an_unreachable_remote_reports_the_base_as_unconfirmed_never_absent() {
+    let (_guard, root) = hall_root();
+    setup_deliver_hall(&root);
+    approve_through_plan(&root, "checkout");
+    let fake = FakeGh::install(&root);
+    let rewrites = as_unreachable_github_remote(&root);
+
+    let applied = deliver_on_github_expecting_warnings(&root, &fake, &rewrites, "checkout");
+
+    let warnings = applied["warnings"].as_array().expect("warnings array");
+    let warning = warnings
+        .iter()
+        .find(|w| w["code"] == "feature.base_unconfirmed")
+        .unwrap_or_else(|| panic!("no base_unconfirmed warning; warnings were: {warnings:?}"));
+    let what = warning["what"].as_str().unwrap().to_lowercase();
+    assert!(
+        !what.contains("absent"),
+        "an unanswered remote must never be reported as an absent base: {what}"
+    );
+    assert!(applied["preview"]["repos"][0]["pr_url"].is_null());
+    assert_eq!(
+        fake.log().matches("pr create").count(),
+        0,
+        "no PR may be attempted against an unconfirmed base"
+    );
+}
+
+#[test]
+fn delivering_with_a_base_that_moved_refuses_the_pr_but_still_pushes() {
+    let (_guard, root) = hall_root();
+    setup_deliver_hall_with_base(&root, false);
+    approve_through_plan(&root, "checkout");
+    let fake = FakeGh::install(&root);
+    let rewrites = as_github_remotes(&root);
+
+    // Advance `develop` past what `checkout` was cut from, and pull that
+    // straight into the bare clone's own `develop` ref — simulating that
+    // ivar's local knowledge of the base has moved on, since `ivar sync`
+    // itself only ever keeps the default branch's worktree current.
+    let origin = root.parent().unwrap().join("origins/api");
+    git(&origin, &["checkout", "develop"]);
+    std::fs::write(origin.join("develop-later.txt"), "later\n").unwrap();
+    git(&origin, &["add", "develop-later.txt"]);
+    git(&origin, &["commit", "-m", "later develop work"]);
+    git(&origin, &["checkout", "main"]);
+    let bare = root.join(".ivar/repos/api/.bare");
+    git(&bare, &["fetch", origin.as_str(), "develop:develop"]);
+
+    let applied = deliver_on_github_expecting_warnings(&root, &fake, &rewrites, "checkout");
+
+    assert_eq!(
+        applied["pushes"][0]["ok"], true,
+        "pushing raw commits does not depend on the base"
+    );
+    let warnings = applied["warnings"].as_array().expect("warnings array");
+    assert!(
+        warnings.iter().any(|w| w["code"] == "feature.base_moved"),
+        "warnings were: {warnings:?}"
+    );
+    assert!(applied["preview"]["repos"][0]["pr_url"].is_null());
+    assert_eq!(fake.log().matches("pr create").count(), 0);
+}
+
+#[test]
+fn delivering_with_a_merged_and_deleted_base_refuses_the_pr_with_a_rebase_onto_default_fix() {
+    let (_guard, root) = hall_root();
+    let origin = setup_deliver_hall_with_base(&root, true);
+    approve_through_plan(&root, "checkout");
+    let fake = FakeGh::install(&root);
+    let rewrites = as_github_remotes(&root);
+
+    // The base shipped and its branch was deleted — GitHub's usual
+    // auto-delete-on-merge. ivar's bare clone keeps its own, now stale,
+    // local `develop` ref, exactly as a developer's clone would.
+    git(&origin, &["branch", "-D", "develop"]);
+
+    let applied = deliver_on_github_expecting_warnings(&root, &fake, &rewrites, "checkout");
+
+    assert_eq!(applied["pushes"][0]["ok"], true);
+    let warnings = applied["warnings"].as_array().expect("warnings array");
+    let warning = warnings
+        .iter()
+        .find(|w| w["code"] == "feature.base_merged_and_deleted")
+        .unwrap_or_else(|| panic!("warnings were: {warnings:?}"));
+    assert!(warning["what"].as_str().unwrap().contains("develop"));
+    assert!(applied["preview"]["repos"][0]["pr_url"].is_null());
+}
+
+#[test]
+fn delivering_with_a_never_delivered_base_refuses_the_pr_with_a_deliver_parent_first_fix() {
+    let (_guard, root) = hall_root();
+    let origin = setup_deliver_hall_with_base(&root, false);
+    approve_through_plan(&root, "checkout");
+    let fake = FakeGh::install(&root);
+    let rewrites = as_github_remotes(&root);
+
+    // The base's branch is gone, and — unlike the merged-and-deleted case —
+    // it was never merged into `main` first: nothing confirms it shipped.
+    git(&origin, &["branch", "-D", "develop"]);
+
+    let applied = deliver_on_github_expecting_warnings(&root, &fake, &rewrites, "checkout");
+
+    assert_eq!(applied["pushes"][0]["ok"], true);
+    let warnings = applied["warnings"].as_array().expect("warnings array");
+    assert!(
+        warnings
+            .iter()
+            .any(|w| w["code"] == "feature.base_never_delivered"),
+        "warnings were: {warnings:?}"
+    );
+    assert!(applied["preview"]["repos"][0]["pr_url"].is_null());
+}
+
 #[test]
 fn sibling_pull_requests_are_linked_to_each_other() {
     let (_guard, root) = hall_root();
