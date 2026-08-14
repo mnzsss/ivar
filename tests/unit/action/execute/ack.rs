@@ -37,6 +37,33 @@ const GRAPH_JSON: &str = r#"{
     ]
 }"#;
 
+/// A plan that backs `GRAPH_JSON`. `prepare` refuses a graph whose
+/// operations the plan does not document, so the scaffolded plan
+/// `plan create` writes is not enough to seed a board with.
+const PLAN_TEXT: &str = r#"# Plan
+
+## Operations
+
+### ws-a
+- op-a1
+- op-a2
+write_contract:
+- src/a
+
+### ws-b
+- op-b1
+write_contract:
+- src/b
+
+## Operation details
+
+**op-a1** — Implement op-a1.
+
+**op-a2** — Implement op-a2.
+
+**op-b1** — Implement op-b1.
+"#;
+
 /// A revision that changes both workstreams' Operations.
 const REVISED_PLAN: &str = "# Plan\n\
     \n\
@@ -84,6 +111,7 @@ fn paused_board() -> (tempfile::TempDir, Utf8PathBuf) {
         },
     )
     .unwrap();
+    fs::write_text(&root.join("plans/checkout/plan.md"), PLAN_TEXT).unwrap();
     let graph = root.join("graph.json");
     fs::write_text(&graph, GRAPH_JSON).unwrap();
     prepare_action::prepare(

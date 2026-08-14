@@ -30,6 +30,23 @@ const GRAPH_JSON: &str = r#"{
     ]
 }"#;
 
+/// A plan that backs `GRAPH_JSON`. `prepare` refuses a graph whose
+/// operations the plan does not document, so the scaffolded plan
+/// `plan create` writes is not enough to seed a board with.
+const PLAN_TEXT: &str = r#"# Plan
+
+## Operations
+
+### ws-impl
+- write-code
+write_contract:
+- src/
+
+## Operation details
+
+**write-code** — Implement write-code.
+"#;
+
 /// A hall with a seeded repo promoted into the feature, a plan, and a
 /// prepared board.
 fn hall_with_promoted_worktree() -> (tempfile::TempDir, Utf8PathBuf) {
@@ -75,6 +92,7 @@ fn hall_with_promoted_worktree() -> (tempfile::TempDir, Utf8PathBuf) {
         },
     )
     .unwrap();
+    fs::write_text(&root.join("plans/checkout/plan.md"), PLAN_TEXT).unwrap();
     crate::action::sync::sync(&ctx, Default::default()).unwrap();
     promote::promote(
         &ctx,
@@ -178,6 +196,7 @@ fn reconcile_records_a_divergence_without_promoted_worktrees() {
         },
     )
     .unwrap();
+    fs::write_text(&root.join("plans/checkout/plan.md"), PLAN_TEXT).unwrap();
     let graph = root.join("graph.json");
     fs::write_text(&graph, GRAPH_JSON).unwrap();
     prepare_action::prepare(

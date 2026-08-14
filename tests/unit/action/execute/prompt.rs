@@ -10,14 +10,9 @@
 )]
 
 use super::*;
-use crate::action::Ctx;
-use crate::action::execute::prepare::{self as prepare_action, PrepareInput};
-use crate::action::feature::create::{self as feature_create, CreateInput as FeatureCreateInput};
-use crate::action::hall::{self, InitInput};
-use crate::action::plan::create::{self as plan_create, CreateInput as PlanCreateInput};
+use crate::action::execute::prepare::read_workstreams;
 use crate::error::Status;
 use crate::infra::fs;
-use camino::Utf8PathBuf;
 
 const PLAN_TEXT: &str = "# Plan\n\
     \n\
@@ -37,36 +32,16 @@ const PLAN_TEXT: &str = "# Plan\n\
     - src/action/execute/plan_ops.rs\n\
     - src/action/execute/prompt.rs\n";
 
-/// A `WorkstreamDef` built the same way `prepare` builds one — through the
-/// graph JSON, not a hand-written struct literal — so this test tracks
+/// A `WorkstreamDef` built the way the execution graph builds one — parsed
+/// from graph JSON, not a hand-written struct literal — so these tests track
 /// whatever fields `WorkstreamDef` actually carries.
+///
+/// It parses the graph rather than running `prepare`, which now refuses a
+/// graph the plan does not back. Half of these tests exist to feed `render` a
+/// workstream the plan does *not* back, so seeding them through `prepare`
+/// would refuse before the test could start.
 fn seeded_workstream(id: &str, operations: &[&str], write_contract: &[&str]) -> WorkstreamDef {
-    let (_guard, root) = crate::test_support::hall_root();
-    let ctx = Ctx::new(root.clone());
-    hall::init(
-        &ctx,
-        InitInput {
-            path: Utf8PathBuf::from("."),
-            name: Some("acme".to_owned()),
-            provider: None,
-        },
-    )
-    .unwrap();
-    feature_create::create(
-        &ctx,
-        FeatureCreateInput {
-            name: "checkout".to_owned(),
-            branch: None,
-        },
-    )
-    .unwrap();
-    plan_create::create(
-        &ctx,
-        PlanCreateInput {
-            feature: "checkout".to_owned(),
-        },
-    )
-    .unwrap();
+    let (_guard, root) = crate::test_support::utf8_temp_dir();
     let graph_json = format!(
         r#"{{"workstreams": [{{
             "id": "{id}",
@@ -80,19 +55,8 @@ fn seeded_workstream(id: &str, operations: &[&str], write_contract: &[&str]) -> 
     );
     let graph = root.join("graph.json");
     fs::write_text(&graph, &graph_json).unwrap();
-    let outcome = prepare_action::prepare(
-        &ctx,
-        PrepareInput {
-            feature: "checkout".to_owned(),
-            graph_json: graph.to_string(),
-        },
-    )
-    .unwrap();
-    outcome
-        .value
-        .board
-        .graph
-        .workstreams
+    read_workstreams(&graph)
+        .unwrap()
         .into_iter()
         .find(|workstream| workstream.id == id)
         .unwrap()

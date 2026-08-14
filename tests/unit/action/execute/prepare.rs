@@ -36,6 +36,36 @@ const GRAPH_JSON: &str = r#"{
     ]
 }"#;
 
+/// A plan that backs `GRAPH_JSON` — every workstream id under `## Operations`
+/// with the operations it owns, and an entry for each under
+/// `## Operation details`. `prepare` refuses a graph the plan cannot back, so
+/// the scaffolded plan `plan create` writes is no longer enough to seed with.
+const PLAN_TEXT: &str = "# Plan\n\
+    \n\
+    ## Operations\n\
+    \n\
+    ### ws-gates\n\
+    - add-gate-types\n\
+    - wire-approve\n\
+    write_contract:\n\
+    - src/domain/feature.rs\n\
+    \n\
+    ### ws-board\n\
+    - add-board-types\n\
+    - store-board\n\
+    write_contract:\n\
+    - src/action/execute\n\
+    \n\
+    ## Operation details\n\
+    \n\
+    **add-gate-types** — Add the approval gate types.\n\
+    \n\
+    **wire-approve** — Wire the approve verb to the gates.\n\
+    \n\
+    **add-board-types** — Add the execution board types.\n\
+    \n\
+    **store-board** — Persist the board under the feature.\n";
+
 fn seeded_hall() -> (tempfile::TempDir, Utf8PathBuf) {
     let (guard, root) = hall_root();
     let ctx = Ctx::new(root.clone());
@@ -63,6 +93,7 @@ fn seeded_hall() -> (tempfile::TempDir, Utf8PathBuf) {
         },
     )
     .unwrap();
+    fs::write_text(&root.join("plans/checkout/plan.md"), PLAN_TEXT).unwrap();
     (guard, root)
 }
 
@@ -364,4 +395,104 @@ fn a_graph_naming_an_unknown_provider_is_refused_clearly() {
         "must name the valid options: {}",
         failure.what
     );
+}
+
+/// A graph claiming an operation the plan does not document is refused here,
+/// not three commands later.
+///
+/// `tick` already refused it, but `tick` runs after a human approved the
+/// graph, after the smart fetch, against a live board — and by then the plan
+/// gate is closed, so correcting the plan means a replan. Refused at
+/// `prepare`, no board exists yet and the fix is to edit `plan.md`.
+#[test]
+fn prepare_is_blocked_when_the_plan_does_not_document_a_claimed_operation() {
+    let (_guard, root) = seeded_hall();
+    let ctx = Ctx::new(root.clone());
+    // The plan documents `wire-approve`; the graph below claims `wire-reject`.
+    let path = root.join("graph.json");
+    fs::write_text(
+        &path,
+        r#"{
+            "workstreams": [
+                {
+                    "id": "ws-gates",
+                    "title": "Approval gates",
+                    "operations": ["add-gate-types", "wire-reject"],
+                    "depends_on": [],
+                    "write_contract": ["src/domain/feature.rs"]
+                }
+            ]
+        }"#,
+    )
+    .unwrap();
+
+    let failure = prepare(
+        &ctx,
+        PrepareInput {
+            feature: "checkout".to_owned(),
+            graph_json: path.to_string(),
+        },
+    )
+    .unwrap_err();
+
+    assert_eq!(failure.status, Status::Blocked);
+    assert_eq!(failure.code, "execute.operation_missing_from_plan");
+    assert!(failure.what.contains("wire-reject"));
+
+    // And no board was written — a refused prepare leaves nothing behind.
+    let layout = Layout::at(root.clone());
+    let feature = FeatureName::new("checkout").unwrap();
+    assert!(ExecutionBoard::read(&layout, &feature).unwrap().is_none());
+}
+
+/// The same refusal for an id the plan lists but never describes: the
+/// workstream heading names it, `Operation details` does not.
+#[test]
+fn prepare_is_blocked_when_an_operation_has_no_entry_to_describe_it() {
+    let (_guard, root) = seeded_hall();
+    let ctx = Ctx::new(root.clone());
+    fs::write_text(
+        &root.join("plans/checkout/plan.md"),
+        "# Plan\n\
+         \n\
+         ## Operations\n\
+         \n\
+         ### ws-gates\n\
+         - add-gate-types\n\
+         write_contract:\n\
+         - src/domain/feature.rs\n\
+         \n\
+         ## Operation details\n\
+         \n\
+         Nothing describes add-gate-types.\n",
+    )
+    .unwrap();
+    let path = root.join("graph.json");
+    fs::write_text(
+        &path,
+        r#"{
+            "workstreams": [
+                {
+                    "id": "ws-gates",
+                    "title": "Approval gates",
+                    "operations": ["add-gate-types"],
+                    "depends_on": [],
+                    "write_contract": ["src/domain/feature.rs"]
+                }
+            ]
+        }"#,
+    )
+    .unwrap();
+
+    let failure = prepare(
+        &ctx,
+        PrepareInput {
+            feature: "checkout".to_owned(),
+            graph_json: path.to_string(),
+        },
+    )
+    .unwrap_err();
+
+    assert_eq!(failure.status, Status::Blocked);
+    assert!(failure.what.contains("add-gate-types"));
 }

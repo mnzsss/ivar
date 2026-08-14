@@ -33,6 +33,36 @@ const GRAPH_JSON: &str = r#"{
     ]
 }"#;
 
+/// A plan that backs `GRAPH_JSON`. `prepare` refuses a graph whose
+/// operations the plan does not document, so the scaffolded plan
+/// `plan create` writes is not enough to seed a board with.
+const PLAN_TEXT: &str = r#"# Plan
+
+## Operations
+
+### ws-gates
+- add-gate-types
+- wire-approve
+write_contract:
+- src/domain/feature.rs
+
+### ws-board
+- add-board-types
+- store-board
+write_contract:
+- src/action/execute
+
+## Operation details
+
+**add-gate-types** — Implement add-gate-types.
+
+**wire-approve** — Implement wire-approve.
+
+**add-board-types** — Implement add-board-types.
+
+**store-board** — Implement store-board.
+"#;
+
 /// The revised plan: `ws-board` gains an operation, `ws-gates` is
 /// unchanged.
 const REVISED_PLAN: &str = "# Plan\n\
@@ -80,6 +110,7 @@ fn seeded_board() -> (tempfile::TempDir, Utf8PathBuf) {
         },
     )
     .unwrap();
+    fs::write_text(&root.join("plans/checkout/plan.md"), PLAN_TEXT).unwrap();
     let graph = root.join("graph.json");
     fs::write_text(&graph, GRAPH_JSON).unwrap();
     prepare_action::prepare(
@@ -205,6 +236,7 @@ fn replan_is_blocked_without_a_board() {
         },
     )
     .unwrap();
+    fs::write_text(&root.join("plans/checkout/plan.md"), PLAN_TEXT).unwrap();
     let input = replan_input(&root, REVISED_PLAN);
 
     let failure = replan(&ctx, input).unwrap_err();

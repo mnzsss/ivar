@@ -35,6 +35,36 @@ const GRAPH_JSON: &str = r#"{
     ]
 }"#;
 
+/// A plan that backs `GRAPH_JSON`. `prepare` refuses a graph whose
+/// operations the plan does not document, so the scaffolded plan
+/// `plan create` writes is not enough to seed a board with.
+const PLAN_TEXT: &str = r#"# Plan
+
+## Operations
+
+### ws-gates
+- add-gate-types
+- wire-approve
+write_contract:
+- src/domain/feature.rs
+
+### ws-board
+- add-board-types
+- store-board
+write_contract:
+- src/action/execute
+
+## Operation details
+
+**add-gate-types** — Implement add-gate-types.
+
+**wire-approve** — Implement wire-approve.
+
+**add-board-types** — Implement add-board-types.
+
+**store-board** — Implement store-board.
+"#;
+
 /// A hall with a feature, a plan, and a prepared board.
 fn seeded_board() -> (tempfile::TempDir, Utf8PathBuf) {
     let (guard, root) = hall_root();
@@ -63,6 +93,7 @@ fn seeded_board() -> (tempfile::TempDir, Utf8PathBuf) {
         },
     )
     .unwrap();
+    fs::write_text(&root.join("plans/checkout/plan.md"), PLAN_TEXT).unwrap();
     let graph = root.join("graph.json");
     fs::write_text(&graph, GRAPH_JSON).unwrap();
     prepare_action::prepare(

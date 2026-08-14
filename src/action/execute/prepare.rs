@@ -142,9 +142,10 @@ impl From<GraphWorkstream> for WorkstreamDef {
 /// Prepare an execution board for `input.feature`.
 ///
 /// Blocked when the feature does not exist, the feature's plan has not been
-/// written, the graph file is missing or unparseable, or a board already
-/// exists — an existing board carries a journal that overwriting would
-/// destroy.
+/// written, the graph file is missing or unparseable, a board already exists
+/// — an existing board carries a journal that overwriting would destroy — or
+/// the plan does not document an operation a workstream claims (see
+/// [`require_plan_backs_the_graph`]).
 pub fn prepare(ctx: &Ctx, input: PrepareInput) -> Outcome<PrepareOutcome> {
     let layout = discover_hall(ctx)?;
     let feature = FeatureName::new(input.feature)?;
@@ -155,6 +156,7 @@ pub fn prepare(ctx: &Ctx, input: PrepareInput) -> Outcome<PrepareOutcome> {
 
     let plan_fingerprint = plan_fingerprint(&layout, &feature)?;
     let workstreams = read_workstreams(&graph_path)?;
+    require_plan_backs_the_graph(&layout, &feature, &workstreams)?;
 
     let mut board = ExecutionBoard::new(ExecutionGraph {
         plan_fingerprint,
@@ -217,6 +219,31 @@ fn require_no_board(layout: &Layout, feature: &FeatureName) -> Result<(), Failur
     )))
 }
 
+/// Refuse a graph whose workstreams the plan does not back.
+///
+/// The check is [`super::prompt::render`] itself, run over every workstream
+/// and its output thrown away, because the question is exactly "will `tick`
+/// be able to hand this workstream a prompt?" — and any re-implementation of
+/// it here would be a second opinion free to drift from the first.
+///
+/// It belongs at `prepare` rather than only at `tick`. Both refuse the same
+/// plan, but `tick` refuses it *after* a human has approved the graph, after
+/// the smart fetch, with the board already live — and the plan gate upstream
+/// is closed by then, so the fix is a replan. Here the board does not exist
+/// yet, nothing has been approved, and the answer is to edit `plan.md`.
+fn require_plan_backs_the_graph(
+    layout: &Layout,
+    feature: &FeatureName,
+    workstreams: &[WorkstreamDef],
+) -> Result<(), Failure> {
+    let plan = layout.plan_dir(feature).join("plan.md");
+    let plan_text = fs::read_text(&plan)?.unwrap_or_default();
+    for workstream in workstreams {
+        super::prompt::render(&plan_text, workstream, &[])?;
+    }
+    Ok(())
+}
+
 /// SHA-256 of `plans/<feature>/plan.md` — the fingerprint that ties the
 /// graph to the plan revision it was derived from.
 fn plan_fingerprint(layout: &Layout, feature: &FeatureName) -> Result<String, Failure> {
@@ -238,7 +265,7 @@ fn plan_fingerprint(layout: &Layout, feature: &FeatureName) -> Result<String, Fa
 /// Parse the graph JSON at `path` into the graph's workstreams. A missing
 /// file is blocked; unparseable JSON fails with the path and parse position
 /// from `infra::json`.
-fn read_workstreams(path: &Utf8Path) -> Result<Vec<WorkstreamDef>, Failure> {
+pub(crate) fn read_workstreams(path: &Utf8Path) -> Result<Vec<WorkstreamDef>, Failure> {
     let file: GraphFile = json::read(path)?.ok_or_else(|| {
         Failure::blocked("execute.graph_missing", format!("`{path}` does not exist"))
             .expected("an execution graph JSON file at the given path")
