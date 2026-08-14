@@ -15,7 +15,7 @@ use crate::error::{Failure, FixAction, Outcome, Report, Warning, WriteHuman};
 use crate::store::manifest::{Manifest, MigrationPlan};
 
 use super::Ctx;
-use super::{ask, discover_hall};
+use super::discover_hall;
 
 fn untouched(manifest: Utf8PathBuf, plan: MigrationPlan) -> MigrateOutcome {
     MigrateOutcome {
@@ -151,10 +151,8 @@ pub fn migrate(ctx: &Ctx) -> Outcome<MigrateOutcome> {
     };
 
     let question = format!("Migrate `{manifest_path}` from version {from} to {to}?");
-    if !ask(
+    if !ctx.confirm(
         &question,
-        "migrate.write_prompt",
-        "migrate.read_answer",
         Some(
             "This rewrites a committed file. Commit the result — a teammate on an older ivar will refuse it until they upgrade.",
         ),

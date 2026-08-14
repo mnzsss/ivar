@@ -57,7 +57,7 @@ impl CloseRecord {
     /// The recorded outcome as a known [`PromotionOutcome`], or `None` when
     /// the string is not one of ours (still a close, just not classifiable).
     #[must_use]
-    pub fn known_outcome(&self) -> Option<PromotionOutcome> {
+    pub(crate) fn known_outcome(&self) -> Option<PromotionOutcome> {
         PromotionOutcome::parse(&self.outcome).ok()
     }
 }
@@ -116,6 +116,10 @@ pub(crate) fn write_close(
 /// passing but that has not been closed is not yet "fully integrated" in the
 /// lifecycle sense (receipt-freshness policy is the mutation module's job,
 /// not a blanket guard here).
+///
+/// Consumed by the mutation guards (Task 8) and the integration close path
+/// (Task 11); until those land it has no caller in the tree.
+#[allow(dead_code)]
 pub(crate) fn is_fully_integrated(layout: &Layout, feature: &Feature) -> Result<bool, Failure> {
     Ok(read_close(layout, &feature.name)?
         .and_then(|record| record.known_outcome())

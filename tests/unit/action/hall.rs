@@ -144,12 +144,34 @@ fn migrate_reports_an_unversioned_file_as_unreachable_rather_than_adopting_it() 
 }
 
 #[test]
-fn a_non_tty_run_never_answers_yes() {
-    // The safety property both `cleanup` and `migrate` rest on: with no
-    // terminal there is nobody to read the question, and a pipe is not
-    // consent. The test suite itself is the non-tty case.
-    assert!(!ask("Delete everything?", "t.write", "t.read", None).unwrap());
-    assert!(!ask("Rewrite it?", "t.write", "t.read", Some("careful")).unwrap());
+fn a_non_prompting_run_never_answers_yes() {
+    // The safety property both `cleanup` and `migrate` rest on: a Ctx built
+    // without an explicit confirmer (the test-suite case, and the `--json`,
+    // `$CI`, and non-tty cases in the binary) never consents. A pipe is not
+    // consent.
+    let (_tmp, root) = utf8_temp_dir();
+    let ctx = Ctx::new(root);
+    assert!(!ctx.confirm("Delete everything?", None).unwrap());
+    assert!(!ctx.confirm("Rewrite it?", Some("careful")).unwrap());
+}
+
+#[test]
+fn cleanup_removes_when_the_confirmation_seam_says_yes() {
+    // The seam, not the terminal, decides: a test that installs a fixed yes
+    // gets the deletion half of the prompt deterministically.
+    let (_guard, root) = utf8_temp_dir();
+    let mut ctx = Ctx::new(root.clone());
+    ctx = ctx.with_confirm(crate::action::confirm::fixed(true));
+    init(&ctx, fresh_input()).unwrap();
+
+    // A stale repo directory — not in the manifest.
+    fs::ensure_dir(&root.join(".ivar/repos/stale")).unwrap();
+
+    let report = cleanup(&ctx).unwrap();
+
+    assert_eq!(report.value.removed.len(), 1);
+    assert!(report.value.removed[0].contains("stale"));
+    assert!(!fs::exists(&root.join(".ivar/repos/stale")).unwrap());
 }
 
 #[test]

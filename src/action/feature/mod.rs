@@ -26,4 +26,5 @@ pub mod prune;
 pub mod rebase;
 pub mod review;
 pub mod status;
+mod verification;
 pub mod view;

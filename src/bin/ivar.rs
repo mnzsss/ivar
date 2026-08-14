@@ -22,6 +22,7 @@ use camino::Utf8PathBuf;
 use clap::Parser;
 use serde::Serialize;
 
+use ivar::action::confirm;
 use ivar::action::Ctx;
 use ivar::action::execute::{
     ack as execute_ack, approve as execute_approve, guard_check as execute_guard_check, prepare,
@@ -77,7 +78,16 @@ fn main() -> ExitCode {
     // The progress sink, decided once for the same reason the colour caches are
     // primed above: `--json` is a machine-shaped run and wants no redraw line
     // even on stderr. `progress::reporter` asks the is-it-a-tty half.
-    let ctx = Ctx::new(current_dir()).with_progress(progress::reporter(!json));
+    //
+    // The confirmation seam is decided by the same rule: a `--json` run, a
+    // `$CI` run, or a run with nobody on stderr may not prompt — a pipe is not
+    // consent. Everything that must ask before it acts (`cleanup`, `migrate`,
+    // and later integration's parent-promotion prompt) reads this one decision.
+    let ctx = Ctx::new(current_dir())
+        .with_progress(progress::reporter(!json))
+        .with_confirm(confirm::reporter(
+            !json && std::env::var_os("CI").is_none() && term::is_tty(term::Stream::Stderr),
+        ));
 
     let mut stdout = io::stdout().lock();
     let mut stderr = io::stderr().lock();

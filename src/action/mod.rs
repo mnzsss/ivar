@@ -16,6 +16,7 @@
 //! `harness`, `tui`, `infra`) but never `cli` — see `tests/architecture.rs`,
 //! which enforces this lexically over every file in this directory.
 
+pub mod confirm;
 pub mod execute;
 pub mod feature;
 pub mod hall;
@@ -34,6 +35,8 @@ use serde::Serialize;
 
 use crate::error::{Failure, FixAction, WriteHuman};
 use crate::infra::progress::{self, Progress};
+
+use self::confirm::Confirm;
 
 /// The outcome of a verb that has nothing to report — it simply completed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -68,15 +71,22 @@ pub struct Ctx {
     /// it is reached through [`Ctx::progress`], which hands out a `&dyn` so
     /// no action can hold on to the `Arc` past the call.
     progress: Arc<dyn Progress>,
+    /// The confirmation seam for verbs that must ask before they act.
+    /// Private: it is reached through [`Ctx::confirm`]. Defaults to
+    /// [`confirm::reporter`]`(false)` — never consenting — which is also
+    /// every test's case.
+    confirm: Arc<dyn Confirm>,
 }
 
 impl Ctx {
-    /// Build a `Ctx` rooted at `cwd`, reporting no progress.
+    /// Build a `Ctx` rooted at `cwd`, reporting no progress and never
+    /// consenting to a prompt.
     #[must_use]
     pub fn new(cwd: impl Into<Utf8PathBuf>) -> Self {
         Self {
             cwd: cwd.into(),
             progress: Arc::new(progress::Silent),
+            confirm: confirm::reporter(false),
         }
     }
 
@@ -91,6 +101,16 @@ impl Ctx {
         self
     }
 
+    /// The same context, confirming through `confirm`.
+    ///
+    /// `bin/ivar.rs` decides once whether this run may prompt (`--json`,
+    /// `$CI`, and non-tty runs may not); a test installs a fixed answer.
+    #[must_use]
+    pub fn with_confirm(mut self, confirm: Arc<dyn Confirm>) -> Self {
+        self.confirm = confirm;
+        self
+    }
+
     /// Where to report what is happening right now.
     ///
     /// Nothing written here reaches the outcome — see [`progress`] for why a
@@ -98,6 +118,12 @@ impl Ctx {
     /// prints".
     pub(crate) fn progress(&self) -> &dyn Progress {
         self.progress.as_ref()
+    }
+
+    /// Ask the confirmation seam. `bin/ivar.rs` decided whether the seam may
+    /// actually prompt; an action only ever asks.
+    pub(crate) fn confirm(&self, question: &str, caveat: Option<&str>) -> Result<bool, Failure> {
+        self.confirm.confirm(question, caveat)
     }
 
     /// Resolve `path` against this context: an absolute path passes through

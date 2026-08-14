@@ -10,7 +10,7 @@ use crate::error::{Failure, Outcome, Report, WriteHuman};
 use crate::infra::fs;
 
 use super::super::Ctx;
-use super::{ask, discover_hall, read_manifest};
+use super::{discover_hall, read_manifest};
 
 /// What `ivar cleanup` would remove, or removed.
 #[derive(Debug, Clone, Serialize)]
@@ -72,7 +72,7 @@ pub fn cleanup(ctx: &Ctx) -> Outcome<CleanupOutcome> {
                 continue;
             }
             let repo_dir = repos_dir.join(name);
-            if ask_remove(&repo_dir)? {
+            if ask_remove(ctx, &repo_dir)? {
                 fs::remove_path(&repo_dir)?;
                 removed.push(repo_dir.to_string());
             } else {
@@ -90,13 +90,9 @@ pub fn cleanup(ctx: &Ctx) -> Outcome<CleanupOutcome> {
 
 /// Ask before removing `path`. Returns `true` to remove, `false` to keep.
 ///
-/// Non-tty runs answer `false` — cleanup must never delete without a human
-/// looking at the question.
-fn ask_remove(path: &Utf8Path) -> Result<bool, Failure> {
-    ask(
-        &format!("Remove `{path}`?"),
-        "cleanup.write_prompt",
-        "cleanup.read_answer",
-        None,
-    )
+/// The seam answers `false` whenever this run may not prompt — non-tty, `$CI`,
+/// or `--json` — so cleanup never deletes without a human looking at the
+/// question.
+fn ask_remove(ctx: &Ctx, path: &Utf8Path) -> Result<bool, Failure> {
+    ctx.confirm(&format!("Remove `{path}`?"), None)
 }
