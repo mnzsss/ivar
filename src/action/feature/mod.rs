@@ -23,6 +23,7 @@ mod lifecycle;
 pub mod list;
 pub mod promote;
 pub mod prune;
+mod relations;
 pub mod rebase;
 pub mod review;
 pub mod status;

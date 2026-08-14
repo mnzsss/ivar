@@ -176,6 +176,18 @@ fn resolve(
         })
 }
 
+/// The commit id `revision` names in the repository at `git_dir` —
+/// `git rev-parse <revision>`, through git2.
+///
+/// A revision that does not exist is [`Error::Refused`] with git's own
+/// sentence, never `Ok` — receipt freshness reads the child branch's tip and
+/// must distinguish "branch moved" from "branch never existed".
+pub(crate) fn revision_commit(git_dir: &Utf8Path, revision: &str) -> Result<String, Error> {
+    let repository = open(git_dir)?;
+    let id = resolve(&repository, git_dir, revision)?;
+    Ok(id.to_string())
+}
+
 /// Open `path` as a repository, or say clearly that it is not one.
 fn open(path: &Utf8Path) -> Result<git2::Repository, Error> {
     git2::Repository::open(path).map_err(|source| Error::NotARepository {

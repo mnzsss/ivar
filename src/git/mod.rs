@@ -241,6 +241,14 @@ pub trait Git {
         descendant: &str,
     ) -> Result<bool, Error>;
 
+    /// The commit id `revision` names in the repository at `git_dir` —
+    /// `git rev-parse <revision>`, through git2.
+    ///
+    /// A revision that does not exist is [`Error::Refused`] with git's own
+    /// sentence, never `Ok` — receipt freshness reads the child branch's tip
+    /// and must distinguish "branch moved" from "branch never existed".
+    fn revision_commit(&self, git_dir: &Utf8Path, revision: &str) -> Result<String, Error>;
+
     /// The commit `remote` holds `branch` at — `git ls-remote <remote>
     /// refs/heads/<branch>` — or `None` when the remote does not have it.
     ///
@@ -374,6 +382,10 @@ impl Git for System {
         descendant: &str,
     ) -> Result<bool, Error> {
         read::is_ancestor(git_dir, ancestor, descendant)
+    }
+
+    fn revision_commit(&self, git_dir: &Utf8Path, revision: &str) -> Result<String, Error> {
+        read::revision_commit(git_dir, revision)
     }
 
     fn remote_branch_tip(
