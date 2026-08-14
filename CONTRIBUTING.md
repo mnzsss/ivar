@@ -35,14 +35,7 @@ instead — GitHub access goes through a trait, and the fake is what tests see.
 Coverage is reported, not enforced. Do not let a coverage number push you into
 writing a test you do not believe in.
 
-## Sign your commits (DCO)
-
-Every commit must carry a `Signed-off-by` line certifying the
-[Developer Certificate of Origin](https://developercertificate.org/):
-
-```sh
-git commit -s
-```
+## Licensing
 
 There is no CLA. Your contribution is licensed under the same dual
 `MIT OR Apache-2.0` as the project, and nothing here asks you to assign
