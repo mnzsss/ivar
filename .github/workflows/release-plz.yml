@@ -28,6 +28,13 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      - name: Attach validated commit to its branch
+        run: |
+          git checkout -B "$BRANCH"
+          git branch --set-upstream-to="origin/$BRANCH" "$BRANCH"
+        env:
+          BRANCH: ${{ github.event.workflow_run.head_branch }}
+
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
@@ -62,6 +69,13 @@ jobs:
           ref: ${{ github.event.workflow_run.head_sha }}
           fetch-depth: 0
           persist-credentials: false
+
+      - name: Attach validated commit to its branch
+        run: |
+          git checkout -B "$BRANCH"
+          git branch --set-upstream-to="origin/$BRANCH" "$BRANCH"
+        env:
+          BRANCH: ${{ github.event.workflow_run.head_branch }}
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
