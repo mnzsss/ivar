@@ -182,3 +182,16 @@ At any point, check approval gate status:
   implementation, record the deviation in the execution journal with
   `ivar feature execute reconcile <feature> --workstream <id> --description
   <text>`.
+
+## The decision split
+
+When a request arrives while a feature is mid-flight, choose exactly one path:
+
+- **Outside the approved scope + isolatable** → create a child automatically:
+  run `ivar feature create <child> --parent <current>`, announce the new
+  child, and do not ask permission. The executor reports such requests; the
+  coordinator creates.
+- **Structural correction to the approved plan** → `ivar feature execute
+  replan <feature> --plan <plan-path>`.
+- **Implementation-only local divergence** → `ivar feature execute reconcile
+  <feature> --workstream <id> --description <text>`.

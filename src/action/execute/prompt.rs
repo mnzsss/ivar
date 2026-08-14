@@ -367,6 +367,13 @@ fn render_body(
         workstream.id, workstream.title
     ));
     out.push_str(
+        "You are an executor, not the feature coordinator. If you discover an \
+         isolatable request outside the approved operations, stop and report \
+         it. Do not create, reparent, promote, integrate, close, delete, or \
+         otherwise mutate hall feature state; the coordinator creates the \
+         child feature and announces it.\n\n",
+    );
+    out.push_str(
         "You are one of several workstreams this plan's execution board runs in \
          parallel. Other workstreams are editing their own files in this repository \
          at the same time. Coordinate only through the operations and write contract \

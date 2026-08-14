@@ -95,6 +95,21 @@ fn render_composes_owned_operations_verbatim_text_and_write_contract() {
     assert!(prompt.contains("one of several workstreams"));
 }
 
+/// Every rendered executor prompt carries the stop/report rule: an executor
+/// is not the coordinator, and must not mutate shared feature state.
+#[test]
+fn every_executor_prompt_carries_the_stop_and_report_rule() {
+    let workstream = seeded_workstream("prompt-render", &["OP-A"], &["src/"]);
+    let prompt = render(PLAN_TEXT, &workstream, &[]).unwrap();
+
+    assert!(prompt.contains("You are an executor, not the feature coordinator"));
+    assert!(prompt.contains("stop and report"));
+    assert!(prompt.contains(
+        "Do not create, reparent, promote, integrate, close, delete, or otherwise mutate hall feature state"
+    ));
+    assert!(prompt.contains("the coordinator creates the child feature and announces it"));
+}
+
 #[test]
 fn render_is_blocked_when_the_workstream_s_own_heading_lacks_the_operation() {
     // The graph claims OP-C, but the plan's `### prompt-render` heading

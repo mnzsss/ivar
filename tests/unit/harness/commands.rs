@@ -426,3 +426,87 @@ fn every_checkpoint_is_evidence_driven_non_blocking_and_never_writes_directly() 
         );
     }
 }
+
+// -- nested subfeature coordination -----------------------------------------
+
+/// The feature-create command defines automatic nested creation: a
+/// coordinator creates an isolatable child itself and announces it, without
+/// asking permission.
+#[test]
+fn feature_create_defines_automatic_nested_creation() {
+    let content = embedded("feature-create");
+
+    assert!(
+        content.contains("`ivar feature create <child> --parent <current>`"),
+        "was: {content}"
+    );
+    assert!(content.contains("announce"), "was: {content}");
+    assert!(content.contains("do not ask"), "was: {content}");
+    assert!(
+        content.contains("outside the approved plan"),
+        "was: {content}"
+    );
+}
+
+/// The plan command carries the decision split: isolatable work outside the
+/// approved plan becomes a child automatically; a structural correction to
+/// the approved plan is a replan; an implementation-only local divergence is
+/// a reconcile.
+#[test]
+fn plan_defines_the_child_replan_reconcile_decision_split() {
+    let content = embedded("plan");
+
+    assert!(
+        content.contains("isolatable"),
+        "was: {content}"
+    );
+    assert!(
+        content.contains("`ivar feature create <child> --parent <current>`"),
+        "was: {content}"
+    );
+    assert!(content.contains("replan"), "was: {content}");
+    assert!(content.contains("reconcile"), "was: {content}");
+    assert!(
+        content.contains("Structural correction"),
+        "was: {content}"
+    );
+    assert!(
+        content.contains("Implementation-only"),
+        "was: {content}"
+    );
+}
+
+/// The execute command identifies the invoking agent as the coordinator and
+/// repeats the same decision tree; it never asks permission before creating a
+/// child.
+#[test]
+fn execute_defines_the_coordinator_and_the_same_decision_tree() {
+    let content = embedded("execute");
+
+    assert!(content.contains("coordinator"), "was: {content}");
+    assert!(
+        content.contains("`ivar feature create <child> --parent <current>`"),
+        "was: {content}"
+    );
+    assert!(content.contains("replan"), "was: {content}");
+    assert!(content.contains("reconcile"), "was: {content}");
+    assert!(
+        content.contains("no permission question"),
+        "was: {content}"
+    );
+}
+
+/// The executor boundary is in the shipped execute bytes: an executor never
+/// creates, reparents, promotes, integrates, closes, deletes, or otherwise
+/// mutates shared feature state, and stops to report instead.
+#[test]
+fn execute_bounds_the_executor_against_mutating_feature_state() {
+    let content = embedded("execute");
+
+    assert!(content.contains("The executor is not the coordinator"), "was: {content}");
+    assert!(content.contains("stops and reports"), "was: {content}");
+    assert!(
+        content.contains("never create, reparent, promote, integrate, close, delete, or otherwise mutate shared feature state"),
+        "was: {content}"
+    );
+}

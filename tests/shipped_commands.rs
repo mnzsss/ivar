@@ -185,6 +185,45 @@ fn init_materialises_the_selected_providers_commands() {
     );
 }
 
+/// The shipped bytes encode the nested-subfeature coordination decisions:
+/// the coordinator auto-creates an isolatable child and announces it, the
+/// plan carries the child/replan/reconcile split, and the executor prompt
+/// stops and reports instead of mutating feature state.
+#[test]
+fn shipped_commands_encode_automatic_child_creation_and_executor_boundaries() {
+    let (_guard, root) = hall_root();
+    ivar()
+        .current_dir(&root)
+        .args(["init", "--provider", "claude-code"])
+        .assert()
+        .success();
+
+    let read = |id: &str| {
+        std::fs::read_to_string(root.join(".claude/commands").join(format!("ivar-{id}.md")))
+            .unwrap_or_default()
+    };
+    let collapsed = |text: String| text.split_whitespace().collect::<Vec<_>>().join(" ");
+
+    let feature_create = collapsed(read("feature-create"));
+    assert!(feature_create.contains("`ivar feature create <child> --parent <current>`"));
+    assert!(feature_create.contains("announce"));
+    assert!(feature_create.contains("do not ask permission"));
+
+    let plan = collapsed(read("plan"));
+    assert!(plan.contains("Outside the approved scope + isolatable"));
+    assert!(plan.contains("`ivar feature create <child> --parent <current>`"));
+    assert!(plan.contains("Structural correction to the approved plan"));
+    assert!(plan.contains("Implementation-only local divergence"));
+
+    let execute = collapsed(read("execute"));
+    assert!(execute.contains("You are the coordinator"));
+    assert!(execute.contains("no permission question"));
+    assert!(execute.contains("The executor is not the coordinator"));
+    assert!(execute.contains("stops and reports"));
+    assert!(execute.contains("never create, reparent, promote, integrate, close, delete"));
+    assert!(execute.contains("you create the child"));
+}
+
 /// `ivar provider add` materialises the new provider's commands immediately —
 /// no follow-up sync.
 #[test]

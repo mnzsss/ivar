@@ -114,6 +114,18 @@ argument-hint: <plan-path>
 
 ## Important
 
+- **You are the coordinator.** This command is invoked by the coordinator —
+  the agent that owns the feature and its tree. When a request arrives that
+  falls **outside the approved plan** and is **isolatable**, create the child
+  yourself with `ivar feature create <child> --parent <current>`, announce
+  it, and do not ask permission. There is **no permission question** before
+  child creation. Structural corrections to the approved plan use
+  `ivar feature execute replan`; implementation-only local divergence uses
+  `ivar feature execute reconcile` — never a silent feature mutation.
+- **The executor is not the coordinator.** The executor prompt tells each
+  workstream it must never create, reparent, promote, integrate, close,
+  delete, or otherwise mutate shared feature state; it stops and reports an
+  isolatable request, and you create the child.
 - **Never hand-edit** `graph.json`, `status.json`, or the journal. Always use
   the CLI commands.
 - **Targeting is pinned at prepare.** There is no command that changes a
