@@ -392,8 +392,7 @@ pub fn classify(
     match outcome {
         Some(PromotionOutcome::Delivered) => FeatureIntegrationState::Delivered,
         Some(PromotionOutcome::Abandoned) => FeatureIntegrationState::Abandoned,
-        // Task 2 adds PromotionOutcome::Integrated, which classifies as
-        // Integrated here.
+        Some(PromotionOutcome::Integrated) => FeatureIntegrationState::Integrated,
         None => {
             if !facts.fully_receipted {
                 FeatureIntegrationState::Active
