@@ -121,6 +121,11 @@ There is no lifecycle field to set — the gate *is* the state. See
 [Planning and execution](planning-and-execution.md) for the gate chain, and
 `ARCHITECTURE.md` seam 7 for why it is derived rather than stored.
 
+**Only a root delivers.** A child integrates into its parent instead — see
+[Nested subfeatures](../concepts.md#nested-subfeatures) for the leaves-first
+flow — and a root with an active, failed, stale, or unintegrated descendant is
+blocked until the tree below it is healthy.
+
 Always preview first:
 
 ```sh
@@ -129,7 +134,9 @@ ivar feature deliver checkout --preview
 
 This is side-effect-free. Per promoted repo it shows the branch, the remote, the
 refspec, whether a PR would be created or updated, the base branch, and any
-blockers — plus the plan gate's state and the fingerprint.
+blockers — plus the plan gate's state, the tree blockers, and the fingerprint.
+Applying runs each repo's ordered checks first; a repo whose checks fail is not
+pushed while the rest of the batch continues.
 
 Then apply, passing the fingerprint the preview printed:
 

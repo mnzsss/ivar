@@ -113,10 +113,71 @@ migrates without telling you because there is nothing useful to say.
 
 | file | version |
 | --- | --- |
-| `ivar.json` | 1 |
+| `ivar.json` | 2 |
+| `.ivar/features/<feature>/feature.json` | 3 |
 
 `ivar.json` starts at 1. There is no version 0 to migrate from: a file with no
-`version` field is not an `ivar.json`, and is rejected rather than adopted.
+`version` field is not an `ivar.json`, and is rejected rather than adopted. A
+migration chain may begin at its format's earliest supported version — `ivar.json`'s
+chain is `[1→2]` — and v0 stays unreachable.
+
+### `ivar.json` v2
+
+v2 adds two things, both with embedded defaults so v1 files migrate cleanly:
+
+```json
+{
+  "version": 2,
+  "integration": { "via": "local", "strategy": "squash" },
+  "repos": [
+    { "name": "api", "url": "git@github.com:acme/api.git",
+      "default_branch": "main", "checks": ["cargo fmt --check", "cargo test"] }
+  ]
+}
+```
+
+`integration` is the hall's per-field default (CLI > feature > hall > embedded)
+and `checks` are the repo's ordered verification commands. Migrating `ivar.json`
+from v1 is explicit — `ivar migrate` — because the file is committed.
+
+### `feature.json` v3
+
+v3 adds the nested-subfeature fields. Only the child side of the lineage is
+stored — `parent` — and children are derived by scanning:
+
+```json
+{
+  "version": 3,
+  "name": "checkout-tax",
+  "branch": "checkout-tax",
+  "parent": "checkout-v2",
+  "base": "checkout-v2",
+  "integration": { "via": "pr" },
+  "promotions": {
+    "api": {
+      "worktree": "ready",
+      "base": "checkout-v2",
+      "integration_receipt": {
+        "source_sha": "…", "target_branch": "checkout-v2", "result_sha": "…",
+        "via": "pr", "strategy": "squash", "pr_url": "https://github.com/…/pull/7",
+        "verification": {
+          "command_fingerprint": "…",
+          "child": [ { "command": "cargo test", "success": true, "exit_code": 0, "diagnostic": "" } ],
+          "parent": [],
+          "pr_checks": [ { "name": "ci", "bucket": "pass" } ],
+          "verified_at": "2026-08-14T12:00:00Z"
+        }
+      }
+    }
+  }
+}
+```
+
+`parent` and `integration` default to absent, and `integration_receipt` to null,
+so v2 files migrate in place — local state migrates silently on read. No feature
+stores a child list, and no lifecycle field is persisted: the integration state
+is derived from the close record plus receipt freshness. Child branches and
+worktrees are retained after integration so receipt validation stays exact.
 
 ## Strictness
 

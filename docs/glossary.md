@@ -199,9 +199,43 @@ about merge order. Added in a second pass, because a PR's URL does not exist
 before it is created.
 
 **Close** — a feature's normal terminal transition. Stops executor sessions,
-removes derived board and session state, records `outcome` (`delivered` or
-`abandoned`) and `closedAt` in `plan.md`'s frontmatter, and keeps the three plan
-files. The hall's git history is the record; there is no separate journal.
+removes derived board and session state, records `outcome` (`delivered`,
+`integrated`, or `abandoned`) and `closedAt` in `plan.md`'s frontmatter, and
+keeps the three plan files. The hall's git history is the record; there is no
+separate journal. `integrated` is the child's close: it requires a passing
+receipt on every promotion and freezes the whole child with no reopen.
+
+**Parent feature / Child / Subfeature / Leaf** — a feature with a `parent` is a
+child; one with none is a root; a child with no children is a leaf. Children are
+derived by scanning every feature's single `parent` field — no feature stores a
+child list.
+
+**Pristine / reparentable** — a child with no promotion, receipt, plan,
+execution, or session state, no close record, and no descendants. Only a
+pristine child may be reparented (`ivar feature reparent <child> --parent
+<new-parent>`), which rewrites `parent` and the derived `base` in one write;
+after any work starts the parent is immutable.
+
+**Integration Via / Strategy** — `via` is `pr` or `local` (never `github`); the
+`gh` executable is an implementation detail of `pr`. `strategy` is `squash`,
+`merge`, or `rebase`. Precedence per field: CLI override > feature override >
+hall default > embedded default (`local`/`squash`).
+
+**Verification Check / Evidence** — a repo's ordered `checks` from `ivar.json`,
+run via `bash -lc` in the relevant worktree, stopping at the first failure.
+Their results and a fingerprint of the command list are the receipt's evidence.
+
+**Receipt** — the durable record of one repo's integration into its immediate
+parent: source SHA, target branch, result SHA, via/strategy, optional PR URL,
+and verification evidence. **Fresh** receipts still match live state; **stale**
+ones have a moved source, drifted checks, or a result that left the parent's
+history; **failed** ones carry failed evidence. Stale or failed receipts block.
+
+**Successful-receipt promotion lock** — a promotion whose receipt records
+passing evidence is individually immutable, even when freshness later drifts;
+an unreceipted or failed-evidence promotion stays repairable and resumable. The
+first receipt of any kind freezes the child's relationship, base, policy, and
+promotion membership; `integrated` freezes the whole child.
 
 **Feature deletion** — the destructive teardown: worktrees, state, plans. A batch
 preflight checks write access across every directory in the cleanup tree and

@@ -48,10 +48,18 @@ src/
                    repo.rs, provider/config reconciliation in providers.rs,
                    and setup-script execution in setup.rs.
     repo/          add · list · remove · pull · setup · upstream
-    feature/       create · list · promote · demote · status · close · delete ·
-                   rebase · review · view · prune, plus deliver/ — the preview
-                   fingerprint, push, and pull-request phases split across
-                   mod.rs, repos.rs, preview.rs, and pull_requests.rs.
+    feature/       create · list · promote · demote · status · reparent ·
+                   integrate · close · delete · rebase · review · view · prune,
+                   plus deliver/ — the preview fingerprint, push, and
+                   pull-request phases split across mod.rs, repos.rs, and
+                   preview.rs. The nested-subfeature machinery lives in private
+                   focused modules: relations.rs (the child-derived tree,
+                   receipt freshness, and descendant blockers), lifecycle.rs
+                   (the shared plan-frontmatter close seam), mutation.rs (the
+                   scoped whole-child/per-promotion mutation guards),
+                   verification.rs (the ordered executable checks),
+                   reparent.rs, integrate.rs, and pull_requests.rs (the shared
+                   PR operations delivery and integration both use).
     execute/       feature execute: prepare · replan · ack · reconcile ·
                    approve · guard_check · reply, plus inbox (both ends of the
                    human-reply channel, written by reply and read back into
@@ -71,10 +79,16 @@ src/
 
   domain/          pure types and invariants. No I/O, no git, no clap.
     name.rs        validated newtypes: HallName, RepoName, FeatureName, BranchName…
-    feature/       a facade over four focused files: feature.rs (the promotion
+    feature/       a facade over five focused files: feature.rs (the promotion
                    record and FeatureBoard), delivery.rs (guards and the
-                   delivery preview), approval.rs (the SPDD gates), and
-                   execution.rs (the execution board and workstream graph)
+                   delivery preview), approval.rs (the SPDD gates),
+                   execution.rs (the execution board and workstream graph), and
+                   integration.rs (the pure nested-integration vocabulary:
+                   via/strategy/policy resolution, receipts and verification
+                   evidence, and the derived integration-state classifier).
+                   Children are derived by scanning `Feature.parent` — no
+                   feature stores a child list, and no lifecycle field is
+                   persisted.
     session.rs     session state and identity
     provider.rs    which harnesses exist, and their capability flags
     health.rs      hall health derivation (uninitialized/operational/stale/degraded)
@@ -148,7 +162,12 @@ src/
     hash.rs        sha256 of a file, and of a tree
     proc/          subprocess spawn, capture, exit codes in mod.rs; the Linux
                    /proc port attribution lives in ports.rs.
-    github.rs      the GitHub trait: gh -> token -> clean failure. Faked in tests.
+    github.rs      GitHub token lookup (and the credential-helper wiring that
+                   derives it from `gh`/`$GITHUB_TOKEN` on each call). PR
+                   operations themselves are not a trait seam: tests fake the
+                   `gh` executable on PATH (see tests/support/fake_gh.rs), and
+                   the one `gh` construction site is
+                   `action/feature/pull_requests.rs`.
     term.rs        colour, NO_COLOR, is-a-tty, width. Decides *whether* to
                    colour.
     progress.rs    the transient stderr line a long verb reports through.
@@ -331,6 +350,17 @@ The published promise is exactly one sentence: *there will never be a hall you
 cannot open.* Not "we won't break the format" — at `0.x` we will. It is that every
 format change ships its migration and the chain is never pruned.
 
+A chain begins at the *earliest version its format supports*, not necessarily at
+v0: `ivar.json`'s first public version is 1, so its chain is `[1→2]` and a v0
+(unversioned) file is refused as unreachable rather than adopted. The generic
+store's `has_migration_path` is the single answer to "can this file reach the
+current version?".
+
+`feature.json` is local state and migrates itself on read (now v3, adding
+`parent`, the feature's `integration` override, and per-promotion
+`integration_receipt`); `ivar.json` is committed and explicit (now v2, adding
+hall `integration` defaults and each repo's ordered `checks`).
+
 ### 3. `infra::json::write_canonical` — the single writer
 
 Sorted keys, two-space indent, LF, trailing newline. Nothing else writes JSON to
@@ -411,6 +441,41 @@ What this costs, stated plainly:
 checked beside it, so crossing the gate after a preview reads as drift like any
 other change. A preview taken before approval cannot be applied after it — the
 human approves one state, and that state includes whether the plan was approved.
+
+### 7b. Nested subfeatures: derived trees, immediate parents, and durable receipts
+
+A child stores exactly one fact about the lineage — `parent` — in its
+`feature.json`. Everything else is derived by `action::feature::relations`
+scanning every feature record: children, depth, the derived integration state,
+and the descendants that block a parent's integration or delivery. The tree is
+validated on every read (a missing parent or a cycle is a hard, non-mutating
+refusal), and no parent ever stores a child list.
+
+The direction of integration is always **up to the immediate parent's branch**:
+`feature integrate <child>` refuses roots, refuses anything with a blocking
+descendant (leaves first), and moves each promoted repo onto the parent's branch
+via `local` (a detached candidate is built and checked before the parent moves)
+or `pr` (push, create/reuse a PR against the parent's branch, required checks,
+explicit merge with `--match-head-commit`, observed to `MERGED`). The one `gh`
+construction site is `action/feature/pull_requests.rs`; tests fake the `gh`
+executable, never a trait.
+
+Multi-repo integration is **partial, durable, and resumable**: each repo's
+result is persisted as an `integration_receipt` the moment it lands — success and
+failed post-parent evidence alike — and a rerun reuses fresh receipts,
+re-verifies unchanged failed ones, and resumes the rest. The first receipt of any
+kind freezes the child's relationship/base/policy and promotion membership;
+a successful receipt freezes its promotion individually (even when it later goes
+stale). The scoped guards in `action::feature::mutation` enforce these
+boundaries — plan/board mutations stay legal during a partial integration, an
+unrestricted session cannot coexist with a successful receipt, and a fully
+`integrated` close freezes the whole child with no reopen.
+
+Pristine lineage changes (before any promotion, plan, execution, session,
+receipt, close record, or descendant) go through the one explicit
+`feature reparent` action, which rewrites `parent` and the derived `base`
+together in a single canonical write. Child refs and worktrees are retained
+after integration so receipt validation stays exact; cleanup remains explicit.
 
 ### 8. `cli` converts by destructuring, so a dropped flag will not compile
 

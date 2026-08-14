@@ -117,6 +117,36 @@ A session is **live** while its view dir exists — liveness is not a process. K
 the agent, lose the conversation; the branch, the worktrees and the plan are on
 disk and in git. That is the property the whole design is arranged around.
 
+## Nested subfeatures
+
+A feature may have a **parent**: create it with `--parent`, and its base is
+derived from the parent's branch. Children are unlimited in depth, and a child
+always integrates **into its immediate parent's branch** — never an ancestor,
+never a default branch — leaves first:
+
+```sh
+ivar feature create checkout
+ivar feature create checkout-v2
+ivar feature create checkout-tax --parent checkout
+ivar feature reparent checkout-tax --parent checkout-v2
+ivar feature create checkout-tax-ui --parent checkout-tax --via pr
+ivar feature integrate checkout-tax-ui
+ivar feature integrate checkout-tax
+ivar feature deliver checkout-v2 --preview
+```
+
+Each repo's integration is recorded in a **receipt** — source SHA, parent
+branch, result SHA, policy, PR URL, and the verification evidence — the moment
+it lands. Multi-repo integration is partial and resumable, never atomic: a
+successful receipt locks that promotion byte-for-byte, while a failed or
+unreceipted one stays repairable. The first receipt of any kind freezes the
+child's parent, base, policy, and promotion membership; the fully-integrated
+`close` outcome `integrated` freezes the whole child, with no reopen.
+
+Only a **root** delivers. Delivery of a root is blocked by any active, failed,
+stale, or unintegrated descendant — abandoned history does not block, but a
+descendant beneath an abandoned node still does.
+
 ## How they fit
 
 ```
