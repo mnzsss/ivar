@@ -533,6 +533,106 @@ fn ordering_preserves_name_order_between_unrelated_repos() {
     assert_eq!(order, vec!["b", "a", "c"], "no dependencies, no reordering");
 }
 
+// -- roots only, and a healthy tree below them ------------------------------
+
+/// A child of `checkout`, created directly (create --parent is covered by the
+/// create tests).
+fn child_of_checkout(root: &Utf8PathBuf, name: &str) {
+    let layout = Layout::at(root.clone());
+    let mut child = crate::domain::feature::Feature::new(
+        crate::domain::name::FeatureName::new(name).unwrap(),
+        BranchName::new(name).unwrap(),
+    );
+    child.parent = Some(crate::domain::name::FeatureName::new("checkout").unwrap());
+    child.write(&layout).unwrap();
+}
+
+#[test]
+fn deliver_refuses_a_child_with_the_integrate_command() {
+    let (_guard, root) = hall_with_promoted(&["api"]);
+    let ctx = Ctx::new(root.clone());
+    child_of_checkout(&root, "child");
+
+    // Preview and apply refuse identically.
+    let failure = deliver(&ctx, preview_input("child")).unwrap_err();
+    assert_eq!(failure.code, "deliver.child_requires_integration");
+    assert_eq!(
+        failure.fix_actions[0].command.as_deref(),
+        Some("ivar feature integrate child")
+    );
+    let failure = deliver(&ctx, apply_input("child", "whatever")).unwrap_err();
+    assert_eq!(failure.code, "deliver.child_requires_integration");
+}
+
+#[test]
+fn deliver_preview_reports_tree_blockers_and_apply_refuses_before_push() {
+    let (_guard, root) = hall_with_promoted(&["api"]);
+    let ctx = Ctx::new(root.clone());
+    approve_through_plan(&root);
+    // An active leaf under the root blocks its delivery.
+    child_of_checkout(&root, "child");
+    let layout = Layout::at(&root.clone());
+    let mut leaf = crate::domain::feature::Feature::new(
+        crate::domain::name::FeatureName::new("leaf").unwrap(),
+        BranchName::new("leaf").unwrap(),
+    );
+    leaf.parent = Some(crate::domain::name::FeatureName::new("child").unwrap());
+    leaf.write(&layout).unwrap();
+
+    // The preview fingerprints the blockers and reports them.
+    let report = deliver(&ctx, preview_input("checkout")).unwrap();
+    assert_eq!(report.value.preview.tree_blockers.len(), 2);
+    let names: Vec<&str> = report
+        .value
+        .preview
+        .tree_blockers
+        .iter()
+        .map(|blocker| blocker.feature.as_str())
+        .collect();
+    assert_eq!(names, ["child", "leaf"]);
+    assert_eq!(report.value.preview.tree_blockers[0].depth, 1);
+
+    // Apply refuses before any push.
+    let fingerprint = report.value.preview.fingerprint.clone();
+    let failure = deliver(&ctx, apply_input("checkout", &fingerprint)).unwrap_err();
+    assert_eq!(failure.code, "deliver.descendants_block");
+    assert!(failure.actual.as_deref().unwrap().contains("child"));
+}
+
+#[test]
+fn deliver_ignores_abandoned_descendants_but_sees_active_grandchildren() {
+    let (_guard, root) = hall_with_promoted(&["api"]);
+    let ctx = Ctx::new(root.clone());
+    approve_through_plan(&root);
+    child_of_checkout(&root, "abandoned");
+    let layout = Layout::at(&root.clone());
+    let mut grandchild = crate::domain::feature::Feature::new(
+        crate::domain::name::FeatureName::new("active").unwrap(),
+        BranchName::new("active").unwrap(),
+    );
+    grandchild.parent = Some(crate::domain::name::FeatureName::new("abandoned").unwrap());
+    grandchild.write(&layout).unwrap();
+    crate::action::feature::lifecycle::write_close(
+        &layout,
+        &crate::domain::name::FeatureName::new("abandoned").unwrap(),
+        crate::domain::feature::PromotionOutcome::Abandoned,
+    )
+    .unwrap();
+
+    let report = deliver(&ctx, preview_input("checkout")).unwrap();
+    let names: Vec<&str> = report
+        .value
+        .preview
+        .tree_blockers
+        .iter()
+        .map(|blocker| blocker.feature.as_str())
+        .collect();
+    assert_eq!(
+        names, ["active"],
+        "abandoned history does not block, but its active grandchild does"
+    );
+}
+
 // -- rendering ------------------------------------------------------------
 
 #[test]
@@ -543,9 +643,11 @@ fn the_human_preview_surface_lists_each_repo_and_the_fingerprint() {
             feature: FeatureName::new("checkout").unwrap(),
             plan_gate: GateState::Approved,
             repos: vec![delivery_repo("api", vec![])],
+            tree_blockers: Vec::new(),
             fingerprint: "abc123".to_owned(),
         },
         pushes: Vec::new(),
+        checks: Vec::new(),
     };
 
     let mut out = Vec::new();
@@ -569,6 +671,7 @@ fn the_human_apply_surface_reports_each_push() {
             feature: FeatureName::new("checkout").unwrap(),
             plan_gate: GateState::Approved,
             repos: vec![delivery_repo("api", vec![])],
+            tree_blockers: Vec::new(),
             fingerprint: "abc123".to_owned(),
         },
         pushes: vec![
@@ -583,6 +686,7 @@ fn the_human_apply_surface_reports_each_push() {
                 detail: Some("remote did not answer".to_owned()),
             },
         ],
+        checks: Vec::new(),
     };
 
     let mut out = Vec::new();

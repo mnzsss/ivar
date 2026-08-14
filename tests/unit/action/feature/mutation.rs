@@ -272,7 +272,7 @@ fn unrestricted_sessions_are_refused_once_a_successful_receipt_exists() {
 #[test]
 fn unrestricted_sessions_pass_for_fresh_and_failed_evidence_only_children() {
     let layout = layout();
-    let mut fresh = feature_with(Some("parent"), "fresh");
+    let fresh = feature_with(Some("parent"), "fresh");
     fresh.write(&layout).unwrap();
     let fresh = Feature::read(&layout, &FeatureName::new("fresh").unwrap())
         .unwrap()

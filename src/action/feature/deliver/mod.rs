@@ -46,13 +46,18 @@ use std::io;
 use camino::Utf8PathBuf;
 use serde::Serialize;
 
-use crate::domain::feature::{DeliveryAction, DeliveryPreview, Feature, GateState};
+use crate::domain::feature::{
+    DeliveryAction, DeliveryPreview, DeliveryTreeBlocker, Feature, FeatureIntegrationState,
+    GateState, VerificationResult,
+};
 use crate::domain::name::{FeatureName, RepoName};
 use crate::error::{Failure, FixAction, Outcome, Report, Warning, WriteHuman};
 use crate::git::{self, Git};
 use crate::store::layout::Layout;
 
 use super::super::{discover_hall, read_manifest};
+use super::relations;
+use super::verification;
 use crate::action::Ctx;
 
 mod preview;
@@ -87,6 +92,17 @@ pub struct PushResult {
     pub detail: Option<String>,
 }
 
+/// One root repo's ordered checks, run in its worktree before the push.
+#[derive(Debug, Clone, Serialize)]
+pub struct RepoCheckResult {
+    /// The repo whose checks ran.
+    pub repo: RepoName,
+    /// Whether every check passed.
+    pub passed: bool,
+    /// The ordered results, in execution order.
+    pub results: Vec<VerificationResult>,
+}
+
 /// What `ivar feature deliver` produced.
 ///
 /// One value for both modes, so `--json` and the human surface cannot drift:
@@ -102,6 +118,10 @@ pub struct DeliverOutcome {
     /// Per-repo push results; present only in apply mode.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub pushes: Vec<PushResult>,
+    /// Per-repo ordered check results; present only in apply mode, so the
+    /// actual execution is machine-visible.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub checks: Vec<RepoCheckResult>,
 }
 
 impl WriteHuman for DeliverOutcome {
@@ -168,17 +188,50 @@ pub fn deliver(ctx: &Ctx, input: DeliverInput) -> Outcome<DeliverOutcome> {
     let feature_name = FeatureName::new(input.feature)?;
     let feature = read_feature(&layout, &feature_name)?;
 
+    // Only a root delivers. A child's work belongs to its parent — the exact
+    // fix names the verb that moves it there.
+    if feature.parent.is_some() {
+        return Err(Failure::blocked(
+            "deliver.child_requires_integration",
+            format!("feature `{feature_name}` is a child; it delivers into its parent, not to the remote"),
+        )
+        .expected("a root feature (one with no parent) to deliver")
+        .actual(format!("`{feature_name}` is a subfeature of `{}`", feature.parent.as_ref().unwrap()))
+        .fix(
+            FixAction::safe(
+                "deliver.integrate_child",
+                format!("Integrate the child into its parent: `ivar feature integrate {feature_name}`."),
+            )
+            .command(format!("ivar feature integrate {feature_name}")),
+        ));
+    }
+
+    // The tree is read as a whole: a corrupt lineage refuses loudly, and the
+    // root's blocking descendants are derived from it.
+    relations::read_all(&layout)?;
+    let blockers = relations::blocking_descendants(&git, &layout, &manifest, &feature)?;
+    let tree_blockers: Vec<DeliveryTreeBlocker> = blockers
+        .iter()
+        .map(|entry| DeliveryTreeBlocker {
+            feature: entry.feature.clone(),
+            depth: entry.depth,
+            state: entry.state,
+            reason: blocker_reason(entry.state),
+        })
+        .collect();
+
     let plan_gate = plan_gate_state(&layout, &feature_name)?;
 
     let mut repos = build_repos(&git, &layout, &manifest, &feature)?;
     repos.sort_by(|a, b| a.repo.cmp(&b.repo));
     order_by_dependencies(&mut repos);
-    let fingerprint = fingerprint_for(&feature_name, plan_gate, &repos)?;
+    let fingerprint = fingerprint_for(&feature_name, plan_gate, &tree_blockers, &repos)?;
 
     let mut preview = DeliveryPreview {
         feature: feature_name.clone(),
         plan_gate,
         repos,
+        tree_blockers,
         fingerprint,
     };
 
@@ -187,7 +240,32 @@ pub fn deliver(ctx: &Ctx, input: DeliverInput) -> Outcome<DeliverOutcome> {
             root: layout.root().to_path_buf(),
             preview,
             pushes: Vec::new(),
+            checks: Vec::new(),
         }));
+    }
+
+    // A root with blocking descendants cannot deliver: the tree must be
+    // healthy below it first, leaves first. Refused before any push or PR.
+    if !preview.tree_blockers.is_empty() {
+        let names = preview
+            .tree_blockers
+            .iter()
+            .map(|blocker| format!("{} ({})", blocker.feature, blocker.state))
+            .collect::<Vec<_>>()
+            .join(", ");
+        return Err(Failure::blocked(
+            "deliver.descendants_block",
+            format!(
+                "cannot deliver `{feature_name}`: {} descendant(s) still block",
+                preview.tree_blockers.len()
+            ),
+        )
+        .expected("every descendant to be integrated, verified, or abandoned")
+        .actual(names)
+        .fix(FixAction::safe(
+            "deliver.integrate_leaves_first",
+            "Integrate the blocking descendants first, leaves first.",
+        )));
     }
 
     // The approval gate comes before the drift gate. Both refuse, but only one
@@ -222,10 +300,43 @@ pub fn deliver(ctx: &Ctx, input: DeliverInput) -> Outcome<DeliverOutcome> {
     }
 
     let mut pushes = Vec::new();
+    let mut checks = Vec::new();
     let mut warnings = Vec::new();
 
-    // -- Phase 1: push every repo best-effort ---------------------------------
+    // -- Phase 1: run each root repo's ordered checks, then push best-effort --
+    // A repo whose checks fail is not pushed — its work did not verify — while
+    // the rest of the batch continues. The results are machine-visible on the
+    // outcome.
     for repo in &preview.repos {
+        let worktree = layout.repo_worktree(&repo.repo, &feature.branch);
+        let manifest_repo = manifest
+            .repos()
+            .iter()
+            .find(|candidate| candidate.name() == &repo.repo);
+        let repo_checks: Vec<String> = manifest_repo
+            .map(|candidate| candidate.checks().to_vec())
+            .unwrap_or_default();
+        let run = verification::run(&repo_checks, &worktree)?;
+        let passed = run.results.iter().all(|result| result.success);
+        checks.push(RepoCheckResult {
+            repo: repo.repo.clone(),
+            passed,
+            results: run.results,
+        });
+        if !passed {
+            warnings.push(Warning::new(
+                "deliver.checks_failed",
+                repo.repo.as_str(),
+                "root checks failed; this repo was not pushed",
+            ));
+            pushes.push(PushResult {
+                repo: repo.repo.clone(),
+                ok: false,
+                detail: Some("root checks failed".to_owned()),
+            });
+            continue;
+        }
+
         let bare = layout.repo_bare(&repo.repo);
         match push_repo(&git, &bare, repo) {
             Ok(()) => pushes.push(PushResult {
@@ -352,9 +463,21 @@ pub fn deliver(ctx: &Ctx, input: DeliverInput) -> Outcome<DeliverOutcome> {
             root: layout.root().to_path_buf(),
             preview,
             pushes,
+            checks,
         },
         warnings,
     ))
+}
+
+/// One sentence for why a descendant's state blocks delivery.
+fn blocker_reason(state: FeatureIntegrationState) -> String {
+    match state {
+        FeatureIntegrationState::Active => "work is still in progress".to_owned(),
+        FeatureIntegrationState::Failed => "carries failed integration evidence".to_owned(),
+        FeatureIntegrationState::Stale => "its receipt no longer matches live state".to_owned(),
+        // Unreachable: blocking descendants are only ever these three.
+        other => format!("its state is `{other}`"),
+    }
 }
 
 /// Read the feature, or a `Blocked` failure naming the way out.

@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 
 use super::super::name::{BranchName, FeatureName, RepoName};
 use super::approval::GateState;
+use super::integration::FeatureIntegrationState;
 use crate::error::{Failure, FixAction};
 
 /// One named guard check on a feature's execution board.
@@ -51,8 +52,32 @@ pub struct DeliveryPreview {
     pub plan_gate: GateState,
     /// One entry per promoted repo, in push order.
     pub repos: Vec<DeliveryRepo>,
+    /// The descendants that block this root's delivery — active, failed,
+    /// stale, or unintegrated, at any depth. Empty for a healthy root; a
+    /// child's delivery is refused outright, never reported here. Part of the
+    /// fingerprinted summary, so a descendant crossing a gate after the
+    /// preview reads as drift.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tree_blockers: Vec<DeliveryTreeBlocker>,
     /// Content hash of the preview summary, for apply gating.
     pub fingerprint: String,
+}
+
+/// One descendant that blocks a root's delivery.
+///
+/// Abandoned descendants do not block and are not listed; a descendant
+/// *beneath* an abandoned node still is, and still blocks.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DeliveryTreeBlocker {
+    /// The blocking descendant.
+    pub feature: FeatureName,
+    /// Its depth in the tree.
+    pub depth: usize,
+    /// Its derived integration state.
+    pub state: FeatureIntegrationState,
+    /// Why it blocks — one sentence.
+    pub reason: String,
 }
 
 /// What delivering one promoted repo will do (or did), as far as the preview

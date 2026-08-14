@@ -106,6 +106,7 @@ fn a_delivery_preview_round_trips_through_serde() {
         feature: FeatureName::new("checkout").unwrap(),
         plan_gate: GateState::Approved,
         repos: vec![delivery_repo("api")],
+        tree_blockers: Vec::new(),
         fingerprint: "abc123".to_owned(),
     };
 
