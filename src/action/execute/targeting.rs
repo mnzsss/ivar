@@ -103,7 +103,12 @@ pub(crate) fn resolve(
             Some(provider) => provider,
             None => caller.ok_or_else(provider_context_missing)?,
         };
+        // The board carries the resolved selectors, not just the graph's
+        // authored ones — a `model`/`agent` the plan pins is as binding as
+        // one the graph does, so plan and board cannot disagree.
         workstream.provider = Some(provider);
+        workstream.model = model.clone();
+        workstream.agent = agent.clone();
         targets.push(ResolvedTarget {
             id: workstream.id.clone(),
             provider,

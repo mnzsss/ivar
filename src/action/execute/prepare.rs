@@ -200,11 +200,14 @@ pub fn prepare(ctx: &Ctx, input: PrepareInput) -> Outcome<PrepareOutcome> {
         &plan_text,
         authored,
     )?;
+    // Validate before persisting: `Blocked` means nothing was mutated, so a
+    // plan that does not back the graph must be refused before `plan.md` is
+    // rewritten with the resolved targeting.
+    require_plan_backs_the_graph(&resolved.plan_text, &resolved.workstreams)?;
     // Persist the resolved targeting before fingerprinting: the fingerprint
     // must cover exactly what the board was derived from.
     fs::write_text(&plan_path, &resolved.plan_text)?;
     let plan_fingerprint = hash::file(&plan_path)?;
-    require_plan_backs_the_graph(&resolved.plan_text, &resolved.workstreams)?;
 
     let mut board = ExecutionBoard::new(ExecutionGraph {
         plan_fingerprint,
