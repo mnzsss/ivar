@@ -74,7 +74,7 @@ fn feature_round_trips_through_serde_without_unknown_fields() {
     let parsed: Feature = serde_json::from_str(&rendered).unwrap();
 
     assert_eq!(parsed, feature);
-    assert_eq!(parsed.version(), 2);
+    assert_eq!(parsed.version(), 3);
 }
 
 #[test]
@@ -144,7 +144,7 @@ fn an_unknown_field_in_a_delivery_repo_is_refused() {
 // -- close outcome ---------------------------------------------------------
 
 #[test]
-fn outcome_parse_accepts_both_cli_names_and_rejects_unknowns() {
+fn outcome_parse_accepts_all_cli_names_and_rejects_unknowns() {
     assert_eq!(
         PromotionOutcome::parse("delivered"),
         Ok(PromotionOutcome::Delivered)
@@ -152,6 +152,10 @@ fn outcome_parse_accepts_both_cli_names_and_rejects_unknowns() {
     assert_eq!(
         PromotionOutcome::parse("abandoned"),
         Ok(PromotionOutcome::Abandoned)
+    );
+    assert_eq!(
+        PromotionOutcome::parse("integrated"),
+        Ok(PromotionOutcome::Integrated)
     );
     assert!(matches!(
         PromotionOutcome::parse("bogus"),
@@ -163,6 +167,7 @@ fn outcome_parse_accepts_both_cli_names_and_rejects_unknowns() {
 fn outcome_display_and_serde_agree_on_the_cli_names() {
     assert_eq!(PromotionOutcome::Delivered.to_string(), "delivered");
     assert_eq!(PromotionOutcome::Abandoned.to_string(), "abandoned");
+    assert_eq!(PromotionOutcome::Integrated.to_string(), "integrated");
     assert_eq!(
         serde_json::to_value(PromotionOutcome::Delivered).unwrap(),
         serde_json::json!("delivered")
@@ -171,11 +176,19 @@ fn outcome_display_and_serde_agree_on_the_cli_names() {
         serde_json::to_value(PromotionOutcome::Abandoned).unwrap(),
         serde_json::json!("abandoned")
     );
+    assert_eq!(
+        serde_json::to_value(PromotionOutcome::Integrated).unwrap(),
+        serde_json::json!("integrated")
+    );
 }
 
 #[test]
 fn outcome_round_trips_through_serde() {
-    for outcome in [PromotionOutcome::Delivered, PromotionOutcome::Abandoned] {
+    for outcome in [
+        PromotionOutcome::Delivered,
+        PromotionOutcome::Abandoned,
+        PromotionOutcome::Integrated,
+    ] {
         let rendered = serde_json::to_string(&outcome).unwrap();
         let parsed: PromotionOutcome = serde_json::from_str(&rendered).unwrap();
         assert_eq!(parsed, outcome);

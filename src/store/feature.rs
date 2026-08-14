@@ -29,7 +29,7 @@ use crate::store::versioned::{Migration, Policy, Store};
 
 /// `feature.json`'s schema version. Matches [`Feature`]'s own constant —
 /// the type owns the number, this module just wires it into the store.
-const CURRENT_VERSION: u32 = 2;
+const CURRENT_VERSION: u32 = 3;
 
 /// `approvals.json`'s schema version.
 const APPROVALS_VERSION: u32 = 1;
@@ -138,6 +138,34 @@ fn feature_v1_to_v2(value: serde_json::Value) -> Result<serde_json::Value, Strin
     Ok(value)
 }
 
+/// Migrate a feature.json from v2 → v3. v3 adds the nested-integration
+/// fields: `parent: Option<FeatureName>` and `integration: IntegrationOverride`
+/// on `Feature`, and `integration_receipt: Option<IntegrationReceipt>` under
+/// each promotion. All three are `#[serde(default)]`, so a v2 file would
+/// deserialise without this step's help; the step still fills the explicit
+/// empty shapes so the persisted v3 is the canonical form (and so a later
+/// tool reading the file sees the fields it expects, not their absence).
+fn feature_v2_to_v3(mut value: serde_json::Value) -> Result<serde_json::Value, String> {
+    let root = value
+        .as_object_mut()
+        .ok_or("feature must be an object")?;
+    root.entry("parent").or_insert(serde_json::Value::Null);
+    root.entry("integration")
+        .or_insert(serde_json::json!({}));
+    let promotions = root
+        .get_mut("promotions")
+        .and_then(serde_json::Value::as_object_mut)
+        .ok_or("feature is missing promotions")?;
+    for promotion in promotions.values_mut() {
+        promotion
+            .as_object_mut()
+            .ok_or("promotion must be an object")?
+            .entry("integration_receipt")
+            .or_insert(serde_json::Value::Null);
+    }
+    Ok(value)
+}
+
 /// Migrate a board.json from v0 → v1. The board has never had a v0 shape:
 /// it has been written with `version: 1` since the day it shipped, like
 /// `ivar.json` itself. The step exists to keep the chain contiguous — a file
@@ -208,6 +236,7 @@ fn store(layout: &Layout, name: &FeatureName) -> Store<Feature> {
         vec![
             Migration::new(0, 1, feature_v0_to_v1),
             Migration::new(1, 2, feature_v1_to_v2),
+            Migration::new(2, 3, feature_v2_to_v3),
         ],
         CURRENT_VERSION,
         Policy::Local,

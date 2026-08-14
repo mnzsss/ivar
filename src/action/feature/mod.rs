@@ -19,6 +19,7 @@ pub mod create;
 pub mod delete;
 pub mod deliver;
 pub mod demote;
+mod lifecycle;
 pub mod list;
 pub mod promote;
 pub mod prune;

@@ -17,7 +17,7 @@ use super::delivery::Guard;
 use super::integration::{IntegrationOverride, IntegrationReceipt};
 
 /// The schema version of `feature.json`, stamped by `store::feature`.
-const CURRENT_VERSION: u32 = 2;
+const CURRENT_VERSION: u32 = 3;
 
 /// One feature: a branch name and the set of repos promoted onto it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -205,16 +205,19 @@ pub enum WorktreeState {
 pub enum PromotionOutcome {
     /// The feature's work shipped.
     Delivered,
+    /// The feature's work landed in its immediate parent, verified.
+    Integrated,
     /// The feature was closed without shipping.
     Abandoned,
 }
 
 impl PromotionOutcome {
-    /// Parse the CLI spelling of an outcome — `delivered` or `abandoned`.
-    /// [`fmt::Display`] emits the same names.
+    /// Parse the CLI spelling of an outcome — `delivered`, `integrated`, or
+    /// `abandoned`. [`fmt::Display`] emits the same names.
     pub fn parse(value: &str) -> Result<Self, UnknownOutcome> {
         match value {
             "delivered" => Ok(PromotionOutcome::Delivered),
+            "integrated" => Ok(PromotionOutcome::Integrated),
             "abandoned" => Ok(PromotionOutcome::Abandoned),
             other => Err(UnknownOutcome(other.to_owned())),
         }
@@ -225,6 +228,7 @@ impl fmt::Display for PromotionOutcome {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let name = match self {
             PromotionOutcome::Delivered => "delivered",
+            PromotionOutcome::Integrated => "integrated",
             PromotionOutcome::Abandoned => "abandoned",
         };
         f.pad(name)
@@ -235,14 +239,14 @@ impl fmt::Display for PromotionOutcome {
 /// passes the raw string through to the action, which parses it here — `cli`
 /// cannot import `domain`.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-#[error("unknown outcome `{0}` — expected one of: delivered, abandoned")]
+#[error("unknown outcome `{0}` — expected one of: delivered, integrated, abandoned")]
 pub struct UnknownOutcome(pub String);
 
 impl From<UnknownOutcome> for Failure {
     fn from(error: UnknownOutcome) -> Self {
         Failure::blocked("feature.unknown_outcome", error.to_string()).fix(FixAction::safe(
             "feature.valid_outcome",
-            "Use one of: delivered, abandoned.",
+            "Use one of: delivered, integrated, abandoned.",
         ))
     }
 }

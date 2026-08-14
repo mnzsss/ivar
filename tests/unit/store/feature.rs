@@ -89,16 +89,16 @@ fn the_written_shape_is_canonical_and_version_stamped() {
         .unwrap()
         .unwrap();
     assert!(
-        text.contains("\"version\": 2"),
+        text.contains("\"version\": 3"),
         "the store must stamp the version: {text}"
     );
     assert!(text.contains("\"branch\": \"feat/checkout\""));
 }
 
-// -- v1 -> v2 migration (base field) ---------------------------------------
+// -- v1 -> v3 migration (base field, then nested-integration fields) -------
 
 #[test]
-fn a_v1_feature_json_migrates_on_read_and_persists_as_v2() {
+fn a_v1_feature_json_migrates_on_read_and_persists_as_v3() {
     let (_guard, layout) = layout_with_hall();
     let name = FeatureName::new("checkout").unwrap();
 
@@ -116,9 +116,12 @@ fn a_v1_feature_json_migrates_on_read_and_persists_as_v2() {
         .unwrap()
         .expect("migration must succeed");
 
-    // The migration is a version stamp only — it fills no field.
-    assert_eq!(migrated.version(), 2);
+    // The v1→v2 step is a version stamp only; the v2→v3 step fills the
+    // nested-integration fields with their empty shapes.
+    assert_eq!(migrated.version(), 3);
     assert_eq!(migrated.base, None);
+    assert_eq!(migrated.parent, None);
+    assert_eq!(migrated.integration, crate::domain::feature::IntegrationOverride::default());
     assert_eq!(
         migrated
             .promotions
@@ -127,11 +130,64 @@ fn a_v1_feature_json_migrates_on_read_and_persists_as_v2() {
             .base,
         None
     );
+    assert_eq!(
+        migrated
+            .promotions
+            .get(&RepoName::new("api").unwrap())
+            .unwrap()
+            .integration_receipt,
+        None
+    );
 
     let text = fs::read_text(&path).unwrap().unwrap();
     assert!(
-        text.contains("\"version\": 2"),
-        "disk must hold v2 after migration: {text}"
+        text.contains("\"version\": 3"),
+        "disk must hold v3 after migration: {text}"
+    );
+}
+
+#[test]
+fn a_v2_feature_json_migrates_on_read_and_persists_as_v3() {
+    let (_guard, layout) = layout_with_hall();
+    let name = FeatureName::new("checkout").unwrap();
+
+    // Hand-crafted v2 feature.json — the shape ivar actually wrote before
+    // the v3 bump: `base` present, but no `parent`, no `integration`
+    // override, and no `integration_receipt` on any promotion.
+    let path = layout.feature_dir(&name).join("feature.json");
+    fs::ensure_dir(path.parent().unwrap()).unwrap();
+    fs::write_text(
+        &path,
+        r#"{"version":2,"name":"checkout","branch":"feat/checkout","promotions":{"api":{"worktree":"ready","base":"main"}},"base":null}"#,
+    )
+    .unwrap();
+
+    let migrated = Feature::read(&layout, &name)
+        .unwrap()
+        .expect("migration must succeed");
+
+    assert_eq!(migrated.version(), 3);
+    assert_eq!(migrated.parent, None);
+    assert_eq!(
+        migrated.integration,
+        crate::domain::feature::IntegrationOverride::default()
+    );
+    let api = RepoName::new("api").unwrap();
+    assert_eq!(migrated.promotions[&api].integration_receipt, None);
+    // v2 data is preserved through the step.
+    assert_eq!(
+        migrated.promotions[&api].worktree,
+        crate::domain::feature::WorktreeState::Ready
+    );
+    assert_eq!(
+        migrated.promotions[&api].base,
+        Some(BranchName::new("main").unwrap())
+    );
+
+    let text = fs::read_text(&path).unwrap().unwrap();
+    assert!(
+        text.contains("\"version\": 3"),
+        "disk must hold v3 after migration: {text}"
     );
 }
 

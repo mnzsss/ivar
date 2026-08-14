@@ -1,4 +1,5 @@
-//! `ivar feature close <name> --outcome delivered|abandoned` — close a feature.
+//! `ivar feature close <name> --outcome delivered|integrated|abandoned` —
+//! close a feature.
 //!
 //! Closing stops the feature's live executor sessions (their view dirs under
 //! `features/<name>/sessions/`), removes its execution board
@@ -13,19 +14,26 @@
 //! A feature whose `plan.md` frontmatter already carries an `outcome` is
 //! already closed; a second `close` is a no-op report, never an overwrite of
 //! the recorded outcome or another pass at the session dirs.
+//!
+//! # The `integrated` outcome
+//!
+//! Only a child with a fresh passing receipt on every promotion may close as
+//! `integrated` — a direct close must not fabricate integration evidence.
+//! The frontmatter read/write itself lives in [`super::lifecycle`], shared
+//! with tree classification.
 
 use std::io;
 
 use camino::Utf8PathBuf;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 use crate::domain::feature::{Feature, PromotionOutcome};
 use crate::domain::name::FeatureName;
-use crate::domain::session::rfc3339_now;
 use crate::error::{Failure, FixAction, Outcome, Report, WriteHuman};
-use crate::infra::{frontmatter, fs};
+use crate::infra::fs;
 
 use super::super::discover_hall;
+use super::lifecycle::{read_close, write_close};
 use crate::action::Ctx;
 
 /// What `ivar feature close` needs.
@@ -70,25 +78,13 @@ impl WriteHuman for CloseOutcome {
     }
 }
 
-/// The slice of `plan.md`'s frontmatter `close` reads and writes.
-///
-/// `outcome` and `closed_at` are plain strings here — the frontmatter module's
-/// own test shape — so a `plan.md` closed by any tool (or a hand-written
-/// `outcome: shipped`) still reads back as "already closed" instead of failing
-/// the parse. The validated [`PromotionOutcome`] is what `close` serializes.
-#[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
-struct PlanFrontmatter {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    outcome: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    closed_at: Option<String>,
-}
-
 /// Close `input.name` with `input.outcome`.
 ///
-/// Blocked when the feature does not exist, or when `input.outcome` is not one
-/// of the two known outcomes — each names its way out before anything is
-/// touched. Already-closed features are a no-op report.
+/// Blocked when the feature does not exist, when `input.outcome` is not one
+/// of the three known outcomes, or — for `integrated` — when the feature is
+/// not a child carrying a passing receipt on every promotion. Each names its
+/// way out before anything is touched. Already-closed features are a no-op
+/// report that never overwrites the recorded outcome.
 pub fn close(ctx: &Ctx, input: CloseInput) -> Outcome<CloseOutcome> {
     let layout = discover_hall(ctx)?;
     let name = FeatureName::new(input.name)?;
@@ -96,7 +92,7 @@ pub fn close(ctx: &Ctx, input: CloseInput) -> Outcome<CloseOutcome> {
 
     // Closing is a lifecycle act on an existing feature; a feature that was
     // never created has nothing to close.
-    Feature::read(&layout, &name)?.ok_or_else(|| {
+    let feature = Feature::read(&layout, &name)?.ok_or_else(|| {
         Failure::blocked(
             "feature.not_found",
             format!("feature `{name}` does not exist"),
@@ -109,20 +105,50 @@ pub fn close(ctx: &Ctx, input: CloseInput) -> Outcome<CloseOutcome> {
         ))
     })?;
 
-    let plan_path = layout.plan_dir(&name).join("plan.md");
-    let plan_source = fs::read_text(&plan_path)?.unwrap_or_default();
-
     // Idempotency gate: an outcome already recorded means the feature is
-    // already closed, so the rest of this verb must not run again.
-    let frontmatter = frontmatter::parse::<PlanFrontmatter>(&plan_source)?;
-    if frontmatter.outcome.is_some() {
+    // already closed, so the rest of this verb must not run again. The
+    // recorded outcome (not the requested one) is what gets reported.
+    if let Some(record) = read_close(&layout, &name)? {
         return Ok(Report::new(CloseOutcome {
             root: layout.root().to_path_buf(),
             name,
-            outcome,
-            closed_at: frontmatter.closed_at.unwrap_or_default(),
+            outcome: record
+                .known_outcome()
+                .unwrap_or(PromotionOutcome::Abandoned),
+            closed_at: record.closed_at,
             already_closed: true,
         }));
+    }
+
+    // A direct close may not fabricate integration evidence: `integrated`
+    // requires a child whose every promotion carries a passing receipt.
+    if outcome == PromotionOutcome::Integrated {
+        if feature.parent.is_none() {
+            return Err(Failure::blocked(
+                "feature.close_integrated_child_required",
+                format!("feature `{name}` is not a child, so it cannot close as `integrated`"),
+            )
+            .expected("a child feature (one with a parent) to close as integrated")
+            .actual("this feature has no parent")
+            .fix(FixAction::safe(
+                "feature.close_delivered_or_abandoned",
+                "A root closes as `delivered` (or `abandoned`). A child closes as `integrated` only through `ivar feature integrate`.",
+            )));
+        }
+        if !feature.all_promotions_have_passing_receipts() {
+            return Err(Failure::blocked(
+                "feature.close_integrated_receipts_required",
+                format!(
+                    "feature `{name}` has no passing integration receipt on every promotion, so it cannot close as `integrated`"
+                ),
+            )
+            .expected("a fresh passing receipt for every promoted repo")
+            .actual("at least one promotion is unreceipted or carries failed evidence")
+            .fix(FixAction::safe(
+                "feature.integrate_first",
+                format!("Integrate the child first with `ivar feature integrate {name}`."),
+            )));
+        }
     }
 
     // Stop live executor sessions and drop the execution board. Removing the
@@ -132,20 +158,13 @@ pub fn close(ctx: &Ctx, input: CloseInput) -> Outcome<CloseOutcome> {
     fs::remove_path(&layout.execution_dir(&name))?;
 
     // Record the outcome, keeping the plan body byte-for-byte.
-    let closed_at = rfc3339_now();
-    let updated = PlanFrontmatter {
-        outcome: Some(outcome.to_string()),
-        closed_at: Some(closed_at.clone()),
-    };
-    let rendered = frontmatter::replace(&plan_source, &updated)?;
-    fs::ensure_dir(&layout.plan_dir(&name))?;
-    fs::write_text(&plan_path, &rendered)?;
+    let record = write_close(&layout, &name, outcome)?;
 
     Ok(Report::new(CloseOutcome {
         root: layout.root().to_path_buf(),
         name,
         outcome,
-        closed_at,
+        closed_at: record.closed_at,
         already_closed: false,
     }))
 }

@@ -35,8 +35,8 @@ fn a_new_promotion_has_no_declared_base() {
 }
 
 #[test]
-fn a_feature_is_stamped_at_version_two() {
-    assert_eq!(feature().version(), 2);
+fn a_feature_is_stamped_at_version_three() {
+    assert_eq!(feature().version(), 3);
 }
 
 #[test]
