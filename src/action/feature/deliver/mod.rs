@@ -281,8 +281,14 @@ pub fn deliver(ctx: &Ctx, input: DeliverInput) -> Outcome<DeliverOutcome> {
                 Ok(None) => git
                     .is_ancestor(&bare, repo.base_branch.as_str(), default_branch.as_str())
                     .map_err(|_| ()),
-                Ok(Some(_)) => git
-                    .is_ancestor(&bare, repo.base_branch.as_str(), repo.local_branch.as_str())
+                // Against the remote's own tip, not the local branch name:
+                // `ivar sync` never re-fetches a non-default branch, so a
+                // local `base_branch` ref can be stale — still an ancestor
+                // of the local branch even though the remote has moved on.
+                // A tip this bare clone never fetched is itself the answer
+                // (`is_ancestor` refuses, `check_base` reads that as moved).
+                Ok(Some(tip)) => git
+                    .is_ancestor(&bare, tip, repo.local_branch.as_str())
                     .map_err(|_| ()),
             };
             if let Some(failure) = repo.check_base(remote_tip, secondary, &default_branch) {

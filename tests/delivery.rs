@@ -971,6 +971,41 @@ fn delivering_with_a_base_that_moved_refuses_the_pr_but_still_pushes() {
     assert_eq!(fake.log().matches("pr create").count(), 0);
 }
 
+/// The bare clone's own `develop` ref is never re-fetched by anything this
+/// test runs — `ivar sync` only ever keeps the default branch's worktree
+/// current — so this is the ordinary case: the remote has moved on and
+/// nothing local knows it yet. The check must ask the remote's own tip, not
+/// trust a local ref that still (trivially) looks like an ancestor.
+#[test]
+fn delivering_with_a_base_that_moved_only_on_the_remote_still_refuses_the_pr() {
+    let (_guard, root) = hall_root();
+    setup_deliver_hall_with_base(&root, false);
+    approve_through_plan(&root, "checkout");
+    let fake = FakeGh::install(&root);
+    let rewrites = as_github_remotes(&root);
+
+    // Advance `develop` on the remote only — no fetch follows, so the bare
+    // clone's local `develop` ref stays exactly where it was at promote
+    // time, still (trivially) an ancestor of `checkout`.
+    let origin = root.parent().unwrap().join("origins/api");
+    git(&origin, &["checkout", "develop"]);
+    std::fs::write(origin.join("develop-later.txt"), "later\n").unwrap();
+    git(&origin, &["add", "develop-later.txt"]);
+    git(&origin, &["commit", "-m", "later develop work"]);
+    git(&origin, &["checkout", "main"]);
+
+    let applied = deliver_on_github_expecting_warnings(&root, &fake, &rewrites, "checkout");
+
+    assert_eq!(applied["pushes"][0]["ok"], true);
+    let warnings = applied["warnings"].as_array().expect("warnings array");
+    assert!(
+        warnings.iter().any(|w| w["code"] == "feature.base_moved"),
+        "a base advanced only on the remote must still refuse — warnings were: {warnings:?}"
+    );
+    assert!(applied["preview"]["repos"][0]["pr_url"].is_null());
+    assert_eq!(fake.log().matches("pr create").count(), 0);
+}
+
 #[test]
 fn delivering_with_a_merged_and_deleted_base_refuses_the_pr_with_a_rebase_onto_default_fix() {
     let (_guard, root) = hall_root();
