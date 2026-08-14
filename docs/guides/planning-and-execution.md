@@ -86,11 +86,22 @@ ivar feature execute approve checkout    # awaiting-approval → approved
 ivar feature execute tick checkout       # launch whatever is ready
 ```
 
-`prepare` pins each workstream's `provider`, `model` and `agent` from the graph
-and is one-shot — a feature that already has a board is refused, because
+`prepare` pins each workstream's `provider`, `model` and `agent` and is
+one-shot — a feature that already has a board is refused, because
 re-writing it would destroy the journal. Retargeting a workstream therefore means
 deleting `board.json` and preparing again from an edited graph, so it is worth
 settling who runs what before the board exists rather than after.
+
+A workstream the graph does not target inherits the **caller session's
+provider**: `prepare` reads `state.json` from the session named by `--session`
+(`/ivar-execute` passes the current one) and resolves that inheritance **before
+approval**, so the resolved value is explicit in both `plan.md` and `board.json`
+before the board is approved. An explicit per-workstream provider overrides the
+session inheritance. `model` and `agent` are separate selectors — they never
+choose the provider, only how the chosen provider runs. A board prepared before
+provider targeting existed still runs, but `tick` warns
+(`execute.legacy_provider_fallback`) that it is falling back to the hall
+default rather than hiding the fallback.
 
 `tick` finds workstreams whose dependencies are satisfied and launches them, then
 blocks until that wave is over. A wave that leaves work still waiting returns the

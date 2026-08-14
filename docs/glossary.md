@@ -41,7 +41,9 @@ worktree stays on disk, so nothing is lost.
 **Session** — a view dir with an agent running in it, optionally bound to one
 feature. Cannot switch features mid-session; open another instead. Multiple
 sessions may bind the same feature at once and share its worktrees. **Live** while
-its view dir exists — liveness is not a process.
+its view dir exists — liveness is not a process. The session's `state.json`
+records the provider that launched it — the authoritative default `feature
+execute prepare` inherits for untargeted workstreams.
 
 **View dir** — the per-session directory of symlinks, one per repo, pointing at
 the right worktree: the feature branch for promoted repos, the shared read-only
@@ -58,7 +60,10 @@ dir, and the plan edits land in the hall.
 **Provider** — the agent harness that runs inside a session: Claude Code or
 OpenCode. Chosen at `ivar init`, added later with `ivar provider add`, selected
 per session with `--provider`. Each discovers config differently, so hall config
-and view dir contents are generated per provider.
+and view dir contents are generated per provider. At execution, each
+workstream's provider is pinned at `prepare` — explicit in the graph or plan,
+or inherited from the caller session — and recorded in both `plan.md` and
+`board.json` before approval; `tick` then launches the recorded harness.
 
 ## Sessions
 
@@ -167,7 +172,17 @@ not `plan approve`.
 `.ivar/features/<feature>/execution/`, surviving sessions. Holds the execution
 graph, global status, an append-only journal, directed inboxes, executor cursors,
 outboxes, handoffs, blockers and write contracts. Global state is
-coordinator-owned; executor artifacts are scoped to their workstream.
+coordinator-owned; executor artifacts are scoped to their workstream. After
+approval the board is authoritative for who runs what: every workstream carries
+the provider resolved at prepare, so `tick` launches the recorded harness
+instead of re-deciding it.
+
+**Workstream** — one named unit of work on the execution board: a `### <id>`
+block in the plan's Operations section matched to a graph entry carrying its
+operations, dependencies and write contract. The workstream's `provider`,
+`model` and `agent` are pinned at `prepare` — explicit in the graph or plan, or
+inherited from the caller session — and recorded in both `plan.md` and
+`board.json` before the board is approved.
 
 **Write contract** — the set of paths a workstream is allowed to write.
 Checkable before a write with `ivar feature execute guard-check`.
