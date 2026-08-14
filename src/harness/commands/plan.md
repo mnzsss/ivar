@@ -112,14 +112,18 @@ write_contract:
 ## Operation details
 
 **OP-API-CONTRACT** — Define the request and response types for `POST
-/checkout`, including the `410` a closed cart answers with. Tests: a closed
-cart answers `410` and an open one `200`. Done when the contract compiles and
-both tests pass.
+/checkout`, including the `410` a closed cart answers with.
+
+- `touches`: src/api/checkout.rs
+- `tests`: a closed cart answers `410`; an open one answers `200`
+- `doneWhen`: the contract compiles and both tests pass
 
 **OP-API-HANDLER** — Implement the handler against that contract, rejecting a
-cart the session does not own before any pricing runs. Depends on
-`OP-API-CONTRACT`. Tests: a foreign cart is rejected before pricing; an owned
-cart prices once. Done when a foreign cart can no longer reach the pricer.
+cart the session does not own before any pricing runs.
+
+- `dependsOn`: OP-API-CONTRACT
+- `tests`: a foreign cart is rejected before pricing; an owned cart prices once
+- `doneWhen`: a foreign cart can no longer reach the pricer
 ```
 <!-- END PLAN FORMAT EXAMPLE -->
 
@@ -135,12 +139,12 @@ The rules behind that shape:
 - `write_contract:` switches the bullets that follow to the paths that
   workstream may write. `ivar feature execute replan` compares this list to
   decide which workstreams a revision affects, so it is load-bearing.
-- Every id needs a `**OP-SLUG**` entry under `## Operation details`. That
-  entry's text is handed to the executor verbatim, and it **ends at the first
-  blank line**. An entry written as a lead paragraph followed by a bulleted
-  `dependsOn` / `touches` / `tests` / `doneWhen` block hands the executor the
-  lead paragraph and drops the rest silently — so keep everything the executor
-  must act on inside that one paragraph.
+- Every id needs a `**OP-SLUG**` entry under `## Operation details`. The
+  entry's text is handed to the executor verbatim and runs until the next
+  declared `**OP-***` marker or the next heading, so a lead paragraph followed
+  by a bulleted `dependsOn` / `touches` / `tests` / `doneWhen` block arrives
+  whole. A blank line is a paragraph break inside the entry, not its end — the
+  heading after the last entry is what ends that one.
 - `## Operations` is parsed to the end of the file: every later heading opens
   another workstream named after it. Harmless for `## Norms` and
   `## Safeguards`, but a workstream id must never collide with a section

@@ -64,11 +64,15 @@ write_contract:
 
 ## Operation details
 
-One entry per operation id. The text is handed to the executor verbatim and
-ends at the first blank line, so keep everything it must act on — tests, done
-condition — inside that one paragraph.
+One entry per operation id, running until the next `**OP-*` marker or the next
+heading. The text reaches the executor verbatim, bulleted metadata included.
 
-**OP-<SLUG>** — What it changes, how it is tested, and when it is done.
+**OP-<SLUG>** — What it changes.
+
+- `dependsOn`: other operation ids, or nothing
+- `touches`: the files it changes
+- `tests`: what proves it
+- `doneWhen`: the condition that closes it
 
 ## Norms
 

@@ -185,9 +185,18 @@ fn empty_operation(workstream: &WorkstreamDef, id: &str) -> Failure {
 ///
 /// # Where an entry ends
 ///
-/// At a blank line (the paragraph is over), at a Markdown heading, or at the
-/// marker of another operation **the plan declares** — `declared` carries
-/// every id from the plan's own Operations section, whoever owns it.
+/// At a Markdown heading, or at the marker of another operation **the plan
+/// declares** — `declared` carries every id from the plan's own Operations
+/// section, whoever owns it.
+///
+/// A blank line does *not* end it. It used to, and the drop was silent: plans
+/// write an operation as a lead paragraph followed by a bulleted `dependsOn` /
+/// `touches` / `tests` / `doneWhen` block, and the executor was handed the lead
+/// paragraph alone — the acceptance criteria the operation existed to state
+/// never reached the agent expected to meet them. Nothing refused, because a
+/// non-empty lead paragraph is a valid entry; the run simply proceeded against
+/// half its instructions. So an entry now runs to the next thing that is
+/// unambiguously not part of it.
 ///
 /// Asking the plan which ids exist, rather than reading the shape of the
 /// text, is the whole point. The blunt rule that came first — any line opening
@@ -204,6 +213,15 @@ fn empty_operation(workstream: &WorkstreamDef, id: &str) -> Failure {
 /// The marker itself is stripped, along with whatever separator the author
 /// put after it. [`render_body`] writes `**<id>** — <text>`, so leaving the
 /// marker in returns it twice.
+///
+/// # What the text keeps
+///
+/// [`assemble`] rebuilds the entry the way the author wrote it: a wrapped
+/// paragraph is unwrapped onto one line, a blank line stays a paragraph break,
+/// and a list item keeps its own line. Joining every line with a space — which
+/// is what unwrapping alone does — turns a `tests` / `doneWhen` block into one
+/// run-on sentence, so carrying the block and flattening it would trade a
+/// silent drop for an unreadable prompt.
 fn operation_text(plan_text: &str, id: &str, declared: &BTreeSet<&str>) -> Option<String> {
     let marker = format!("**{id}**");
     let mut lines = plan_text.lines().peekable();
@@ -211,33 +229,80 @@ fn operation_text(plan_text: &str, id: &str, declared: &BTreeSet<&str>) -> Optio
         let Some(rest) = line.trim().strip_prefix(marker.as_str()) else {
             continue;
         };
-        let mut paragraph = Vec::new();
+        let mut body = Vec::new();
         let beside_the_marker = strip_separator(rest);
-        if beside_the_marker.is_empty() {
-            // Nothing beside the marker: the text is under it, past the blank
-            // line Markdown puts between a lead-in and its paragraph. What
-            // sits immediately after that blank line is the one place a bold
-            // token is an entry on sight — so an entry the plan never declared
-            // still ends this one rather than being swallowed into it.
-            while lines.peek().is_some_and(|next| next.trim().is_empty()) {
-                lines.next();
-            }
-            if lines.peek().is_some_and(|next| begins_an_entry(next)) {
-                return Some(String::new());
-            }
-        } else {
-            paragraph.push(beside_the_marker.to_owned());
+        // Nothing beside the marker means the text is under it, past the blank
+        // line Markdown puts between a lead-in and its paragraph — so the
+        // entry opens as if a blank line had just been crossed.
+        let mut after_blank = beside_the_marker.is_empty();
+        if !after_blank {
+            body.push(beside_the_marker.to_owned());
         }
         while let Some(next) = lines.peek() {
-            if next.trim().is_empty() || interrupts_the_entry(next, declared) {
+            let trimmed = next.trim();
+            if trimmed.is_empty() {
+                after_blank = true;
+                body.push(String::new());
+                lines.next();
+                continue;
+            }
+            // The line after a blank one is the one place a bold token is an
+            // entry on sight, so an entry the plan never declared still ends
+            // this one rather than being swallowed into it. Mid-paragraph the
+            // question is stricter — see [`interrupts_the_entry`].
+            let ends = if after_blank {
+                begins_an_entry(next)
+            } else {
+                interrupts_the_entry(next, declared)
+            };
+            if ends {
                 break;
             }
-            paragraph.push(next.trim().to_owned());
+            after_blank = false;
+            body.push(trimmed.to_owned());
             lines.next();
         }
-        return Some(paragraph.join(" "));
+        return Some(assemble(&body));
     }
     None
+}
+
+/// Rebuild an entry's collected lines into the text an executor is handed.
+///
+/// Consecutive prose lines are unwrapped onto one line, a blank line becomes a
+/// paragraph break, and a list item opens a line of its own. Leading and
+/// trailing blanks fall away, so an entry that collected nothing but blanks
+/// comes back empty — which is what [`empty_operation`] refuses.
+fn assemble(body: &[String]) -> String {
+    let mut out = String::new();
+    let mut blank_pending = false;
+    for line in body {
+        if line.is_empty() {
+            blank_pending = !out.is_empty();
+            continue;
+        }
+        if out.is_empty() {
+            out.push_str(line);
+            continue;
+        }
+        out.push_str(if blank_pending {
+            "\n\n"
+        } else if opens_a_list_item(line) {
+            "\n"
+        } else {
+            " "
+        });
+        out.push_str(line);
+        blank_pending = false;
+    }
+    out
+}
+
+/// Does `line` open a Markdown list item — the one shape that must not be
+/// unwrapped into the line above it? The bullet markers are the two
+/// [`super::plan_ops`] reads, so the two parsers agree on what a bullet is.
+fn opens_a_list_item(line: &str) -> bool {
+    line.starts_with("- ") || line.starts_with("* ")
 }
 
 /// Drop the separator an author writes between a marker and its text on the

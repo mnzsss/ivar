@@ -402,18 +402,22 @@ fn shipped_plan_command_documents_the_format_the_executor_parses() {
     );
 
     // The sharp edge the command documents: the Operations section never ends,
-    // so `## Operation details` opens another workstream named after itself.
-    // Harmless only while such a heading owns no operations — which is why a
-    // workstream id must never collide with a section heading.
-    for entry in parsed.iter().filter(|entry| entry.id != "checkout-api") {
-        assert!(
-            entry.operations.is_empty(),
-            "a section heading after `## Operations` must not own operations, got {entry:#?}"
-        );
-    }
+    // so every later heading opens another workstream named after itself and
+    // collects whatever bullets sit under it — an entry's `tests` block
+    // included. That is harmless because lookup is by id, and a workstream id
+    // never collides with a section heading; what it must not do is produce a
+    // second `checkout-api`.
+    assert_eq!(
+        parsed
+            .iter()
+            .filter(|entry| entry.id == "checkout-api")
+            .count(),
+        1,
+        "the example must declare `checkout-api` once: {parsed:#?}"
+    );
 
     // And it must render — every id backed by a non-empty entry in the
-    // example's own Operation details.
+    // example's own Operation details, despite that pollution.
     let ws = seeded_workstream(
         &ws_entry.id,
         &ws_entry
@@ -462,41 +466,53 @@ fn plan_format_example(command: &str) -> String {
         .join("\n")
 }
 
-/// An entry ends at its first blank line, so a bulleted metadata block under
-/// the lead paragraph never reaches the executor.
+/// An entry carries the metadata block under its lead paragraph.
 ///
-/// This is [`operation_text`]'s deliberate rule — "at a blank line (the
-/// paragraph is over)" — and it is characterised here because it is the one
-/// sharp edge that fails *silently*: the prompt renders, the tick launches,
-/// and the `tests` and `doneWhen` the author wrote are simply not in the
-/// executor's hands. The shipped `/ivar-plan` command tells authors to keep
-/// everything actionable in the one paragraph; this test is why that sentence
-/// is in there, and it fails if the rule ever changes underneath it.
+/// This is the drop that made the parser change: plans write an operation as a
+/// paragraph followed by a bulleted `tests` / `doneWhen` block, and the entry
+/// used to end at the blank line between them. The executor got the paragraph,
+/// nothing refused, and the acceptance criteria the operation existed to state
+/// never reached the agent expected to meet them.
+///
+/// The structure has to survive too — flattening the block into the paragraph
+/// with spaces would carry the words and lose the list.
 #[test]
-fn an_entry_ends_at_its_first_blank_line_and_the_rest_is_dropped() {
+fn an_entry_carries_the_metadata_block_under_its_lead_paragraph() {
     let plan = "# Plan\n\
         \n\
         ## Operations\n\
         \n\
-        ### metadata-drop\n\
+        ### metadata-keep\n\
         - OP-META\n\
         write_contract:\n\
         - src/a.rs\n\
         \n\
         ## Operation details\n\
         \n\
-        **OP-META** — The lead paragraph, which is what the executor is\n\
-        handed.\n\
+        **OP-META** — The lead paragraph, which wraps across\n\
+        two lines.\n\
         \n\
-        - `tests`: this bullet is past the blank line\n\
-        - `doneWhen`: so is this one\n";
+        - `tests`: the bullet past the blank line\n\
+        - `doneWhen`: and the one after it\n\
+        \n\
+        ## Norms\n\
+        \n\
+        - never reached by the entry above\n";
 
-    let ws = seeded_workstream("metadata-drop", &["OP-META"], &["src/a.rs"]);
+    let ws = seeded_workstream("metadata-keep", &["OP-META"], &["src/a.rs"]);
     let prompt = render(plan, &ws, &[]).unwrap();
 
-    assert!(prompt.contains("The lead paragraph, which is what the executor is handed."));
     assert!(
-        !prompt.contains("doneWhen"),
-        "everything past the entry's first blank line is dropped — the prompt was: {prompt}"
+        prompt.contains(
+            "**OP-META** — The lead paragraph, which wraps across two lines.\n\n\
+             - `tests`: the bullet past the blank line\n\
+             - `doneWhen`: and the one after it"
+        ),
+        "the entry lost its metadata block or its structure: {prompt}"
+    );
+    // The heading ends the entry, so the next section never bleeds into it.
+    assert!(
+        !prompt.contains("never reached by the entry above"),
+        "the entry ran past the heading that ends it: {prompt}"
     );
 }
