@@ -20,8 +20,9 @@
 //!
 //! Exactly one sentence: *there will never be a hall you cannot open.* Not "we do
 //! not break the format" — at `0.x` we will. It is that every format change ships
-//! its migration, **and the chain is never pruned**: it always starts at v0, so a
-//! hall from any past version still opens.
+//! its migration, **and the chain is never pruned**: it starts at the earliest
+//! schema this format supports, so a hall from any past supported version still
+//! opens.
 //!
 //! # Contract
 //!
@@ -54,16 +55,20 @@
 //!
 //! # Invariants the constructor asserts
 //!
-//! The chain starts at 0, is contiguous (no gaps, no overlaps), and its last
-//! step lands exactly on `current` — when the chain is non-empty. An **empty**
-//! chain at a nonzero `current` is legitimate and deliberately not rejected: it
-//! is `ivar.json`'s own case (see `store::manifest`) — a file whose first public
+//! The chain is contiguous (every step advances — no gaps, no overlaps — and
+//! no step goes backwards) and its last step lands exactly on `current` — when
+//! the chain is non-empty. The chain's *start* is deliberately not fixed at 0:
+//! a format's first public version may be 1 (as with `ivar.json`), in which
+//! case the chain begins at 1 and a v0 (unversioned) file is refused as
+//! unreachable rather than adopted. An **empty** chain at a nonzero `current`
+//! is legitimate and deliberately not rejected: it is `ivar.json`'s own
+//! pre-migration case (see `store::manifest`) — a file whose first public
 //! version is 1, with no v0 predecessor to migrate from, so there is no v0 → v1
-//! migration to write. A v0 (unversioned) file handed to a store like that is not
-//! a versioned-store error either; nothing transforms it, and it is deserialized
-//! as-is, so it fails or succeeds purely on whether its shape matches `T` — "a
-//! caller may still reject it on schema grounds", not because this module says
-//! so.
+//! migration to write. A v0 (unversioned) file handed to a store like that is
+//! not a versioned-store error either; nothing transforms it, and it is
+//! deserialized as-is, so it fails or succeeds purely on whether its shape
+//! matches `T` — "a caller may still reject it on schema grounds", not because
+//! this module says so.
 //!
 //! These are programmer errors: a gap or a mismatched terminus is wrong the
 //! moment the binary that shipped it was built, not something a user's hall can
@@ -147,8 +152,8 @@ pub struct Migration {
 }
 
 impl Migration {
-    /// A migration step. Chain-level invariants (starts at 0, contiguous, ends
-    /// at the store's `current`) are checked by [`Store::new`], not here — a
+    /// A migration step. Chain-level invariants (contiguous, ends at the
+    /// store's `current`) are checked by [`Store::new`], not here — a
     /// single `Migration` has nothing to check in isolation beyond what its
     /// type already guarantees.
     #[must_use]
@@ -209,20 +214,24 @@ fn stamp_version(value: &mut serde_json::Value, version: u32) {
 }
 
 /// Panics — this is a programmer error, not a runtime one — unless `migrations`
-/// starts at version 0, is contiguous, and its last step lands exactly on
-/// `current`. An empty chain never violates any of this; see the module doc
-/// comment on why that is `ivar.json`'s own case, not an oversight.
+/// is contiguous (every step advances, no gaps, no overlaps) and its last step
+/// lands exactly on `current`. An empty chain never violates any of this; see
+/// the module doc comment on why that is `ivar.json`'s own case, not an
+/// oversight.
+///
+/// The chain's *start* is deliberately not fixed at v0: a format's first
+/// public version may be 1 (like `ivar.json`), and then the chain begins at
+/// its earliest supported version and v0 is simply unreachable — a file with
+/// no `version` field is refused by [`Store::has_migration_path`], not
+/// adopted.
 fn assert_chain_valid(migrations: &[Migration], current: u32) {
-    let Some(first) = migrations.first() else {
-        return;
-    };
-    assert_eq!(
-        first.from_version, 0,
-        "migration chain must start at version 0, but the first migration starts at v{}",
-        first.from_version
-    );
-
     for (previous, next) in migrations.iter().zip(migrations.iter().skip(1)) {
+        assert!(
+            previous.from_version < previous.to_version,
+            "migration step does not advance: v{} → v{}",
+            previous.from_version,
+            previous.to_version
+        );
         assert_eq!(
             next.from_version, previous.to_version,
             "migration chain has a gap or overlap: v{} does not connect to v{}",
@@ -231,6 +240,12 @@ fn assert_chain_valid(migrations: &[Migration], current: u32) {
     }
 
     if let Some(last) = migrations.last() {
+        assert!(
+            last.from_version < last.to_version,
+            "migration step does not advance: v{} → v{}",
+            last.from_version,
+            last.to_version
+        );
         assert_eq!(
             last.to_version, current,
             "migration chain ends at v{}, but the store's current version is v{current}",
@@ -271,9 +286,10 @@ impl<T> Store<T> {
     ///
     /// # Panics
     ///
-    /// If `migrations` is non-empty and does not start at version 0, is not
-    /// contiguous, or does not end at `current`. See the module doc comment —
-    /// these are programmer errors, caught here rather than on a user's disk.
+    /// If `migrations` is non-empty and is not contiguous (a step that does
+    /// not advance, a gap, or an overlap) or does not end at `current`. See
+    /// the module doc comment — these are programmer errors, caught here
+    /// rather than on a user's disk.
     #[must_use]
     pub fn new(
         path: impl Into<Utf8PathBuf>,
@@ -448,12 +464,19 @@ where
     /// preview, so the reachability question is answerable without attempting
     /// the write.
     ///
-    /// The chain invariants asserted in [`Store::new`] mean a non-empty chain
-    /// always spans 0..=`current`, so the only way to have no path is an empty
-    /// chain.
+    /// Reachability is exactly: already current (or newer — those are
+    /// [`Error::TooNew`]'s problem, never a missing path), or older than the
+    /// chain's earliest supported version. A chain may begin above 0 — a
+    /// format whose first public version is 1 — and then a v0 (unversioned)
+    /// file is unreachable and refused.
     #[must_use]
     pub fn has_migration_path(&self, detected: u32) -> bool {
-        detected >= self.current || !self.migrations.is_empty()
+        if detected >= self.current {
+            return true;
+        }
+        self.migrations
+            .first()
+            .is_some_and(|first| detected >= first.from_version)
     }
 
     /// Refuse data older than `current` that no migration can reach.

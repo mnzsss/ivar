@@ -251,17 +251,6 @@ fn inspect_reports_current_when_already_at_current() {
 // -- behaviour 3: the chain is validated at construction -----------------
 
 #[test]
-#[should_panic(expected = "must start at version 0")]
-fn chain_not_starting_at_zero_panics_at_construction() {
-    let _ = Store::<Widget>::new(
-        "irrelevant.json",
-        vec![Migration::new(1, 2, v0_to_v1)],
-        2,
-        Policy::Local,
-    );
-}
-
-#[test]
 #[should_panic(expected = "gap or overlap")]
 fn chain_with_a_gap_panics_at_construction() {
     let _ = Store::<Widget>::new(
@@ -284,6 +273,67 @@ fn chain_not_ending_at_current_panics_at_construction() {
         2,
         Policy::Local,
     );
+}
+
+#[test]
+fn chain_may_start_at_earliest_supported_version() {
+    // The manifest's own case after Task 4: a committed chain of only
+    // v1→v2, where v1 is the first public version and v0 (an unversioned
+    // file) is not an ivar.json at all. This used to be a constructor panic.
+    let (_dir, root) = utf8_temp_dir();
+    let path = root.join("ivar.json");
+    fs::write_text(&path, r#"{"version":1,"label":"original"}"#).unwrap();
+
+    let store = Store::<Widget>::new(
+        path.clone(),
+        vec![Migration::new(1, 2, v1_to_v2_rename_label_to_name)],
+        2,
+        Policy::Committed,
+    );
+
+    // A v1 file is reachable and migrates in memory.
+    assert!(store.has_migration_path(1));
+    assert!(!store.has_migration_path(0));
+    let widget = store.read().unwrap().unwrap();
+    assert_eq!(widget.name, "original");
+    assert_eq!(widget.version, 2);
+
+    // v0 is refused as unreachable, and the file is untouched.
+    fs::write_text(&path, r#"{"nothing_widget_understands": true}"#).unwrap();
+    let store = Store::<Widget>::new(
+        path.clone(),
+        vec![Migration::new(1, 2, v1_to_v2_rename_label_to_name)],
+        2,
+        Policy::Committed,
+    );
+    assert!(matches!(
+        store.read().unwrap_err(),
+        Error::NoMigrationPath { found: 0, current: 2, .. }
+    ));
+    assert_eq!(
+        fs::read_bytes(&path).unwrap().unwrap(),
+        br#"{"nothing_widget_understands": true}"#
+    );
+
+    // inspect reports "older" and has_migration_path settles the preview as
+    // unreachable — the same shape Manifest::plan turns into Unreachable.
+    let inspection = store.inspect().unwrap().unwrap();
+    assert_eq!(
+        inspection,
+        Inspection::NeedsMigration {
+            detected: 0,
+            current: 2
+        }
+    );
+    assert!(!store.has_migration_path(0));
+
+    // An explicit migrate advances a reachable v1 file.
+    fs::write_text(&path, r#"{"version":1,"label":"original"}"#).unwrap();
+    let migrated = store.migrate().unwrap().unwrap();
+    assert_eq!(migrated.name, "original");
+    assert_eq!(migrated.version, 2);
+    let on_disk: serde_json::Value = json::read(&path).unwrap().unwrap();
+    assert_eq!(on_disk.get("version"), Some(&serde_json::json!(2)));
 }
 
 #[test]
