@@ -2,6 +2,7 @@
 # release-plz owns versioning: it reads conventional commits, computes the bump,
 # generates the CHANGELOG, opens a release PR, tags and publishes on merge.
 # Merging the release PR is the act of publishing.
+release_always = false
 changelog_update = true
 git_release_enable = true
 git_tag_enable = true
