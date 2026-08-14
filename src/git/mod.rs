@@ -174,6 +174,45 @@ pub trait Git {
     /// already decided to override before it calls here.
     fn remove_worktree(&self, git_dir: &Utf8Path, dest: &Utf8Path) -> Result<(), Error>;
 
+    /// Add a throwaway worktree at `dest`, detached at `revision` — no branch
+    /// is created or moved. The temporary candidate worktrees local
+    /// integration builds are materialised here, so the parent's branch is
+    /// untouched while the candidate is checked.
+    fn add_detached_worktree(
+        &self,
+        git_dir: &Utf8Path,
+        dest: &Utf8Path,
+        revision: &str,
+    ) -> Result<(), Error>;
+
+    /// Create `branch` at `revision` in the repository at `git_dir`. Used for
+    /// the temporary `ivar-integrate/<feature>/<repo>` branches only.
+    fn create_branch(&self, git_dir: &Utf8Path, branch: &str, revision: &str)
+    -> Result<(), Error>;
+
+    /// Delete `branch` in the repository at `git_dir`. Used for the temporary
+    /// `ivar-integrate/...` branches only, after their worktrees are gone.
+    fn delete_branch(&self, git_dir: &Utf8Path, branch: &str) -> Result<(), Error>;
+
+    /// `git -C <worktree> merge --no-ff --no-edit <source>` — a merge commit
+    /// that is never a fast-forward, with git's default message (so no editor
+    /// opens).
+    fn merge_no_ff(&self, worktree: &Utf8Path, source: &str) -> Result<(), Error>;
+
+    /// `git -C <worktree> merge --squash <source>` followed by
+    /// `git commit -m <message>` — the squash strategy's two steps.
+    fn squash_merge(
+        &self,
+        worktree: &Utf8Path,
+        source: &str,
+        message: &str,
+    ) -> Result<(), Error>;
+
+    /// `git -C <worktree> merge --ff-only <revision>` — advance the
+    /// checked-out branch and its files to `revision`. Refuses when the
+    /// branch diverged.
+    fn fast_forward_to(&self, worktree: &Utf8Path, revision: &str) -> Result<(), Error>;
+
     /// Whether the worktree at `path` has uncommitted changes — tracked or
     /// untracked. Empty `git status --porcelain` output means clean.
     fn worktree_dirty(&self, path: &Utf8Path) -> Result<bool, Error>;
@@ -345,6 +384,35 @@ impl Git for System {
 
     fn remove_worktree(&self, git_dir: &Utf8Path, dest: &Utf8Path) -> Result<(), Error> {
         exec::remove_worktree(git_dir, dest)
+    }
+
+    fn add_detached_worktree(
+        &self,
+        git_dir: &Utf8Path,
+        dest: &Utf8Path,
+        revision: &str,
+    ) -> Result<(), Error> {
+        exec::add_detached_worktree(git_dir, dest, revision)
+    }
+
+    fn create_branch(&self, git_dir: &Utf8Path, branch: &str, revision: &str) -> Result<(), Error> {
+        exec::create_branch(git_dir, branch, revision)
+    }
+
+    fn delete_branch(&self, git_dir: &Utf8Path, branch: &str) -> Result<(), Error> {
+        exec::delete_branch(git_dir, branch)
+    }
+
+    fn merge_no_ff(&self, worktree: &Utf8Path, source: &str) -> Result<(), Error> {
+        exec::merge_no_ff(worktree, source)
+    }
+
+    fn squash_merge(&self, worktree: &Utf8Path, source: &str, message: &str) -> Result<(), Error> {
+        exec::squash_merge(worktree, source, message)
+    }
+
+    fn fast_forward_to(&self, worktree: &Utf8Path, revision: &str) -> Result<(), Error> {
+        exec::fast_forward_to(worktree, revision)
     }
 
     fn worktree_dirty(&self, path: &Utf8Path) -> Result<bool, Error> {

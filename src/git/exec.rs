@@ -258,6 +258,100 @@ pub(crate) fn remove_worktree(git_dir: &Utf8Path, dest: &Utf8Path) -> Result<(),
     Ok(())
 }
 
+/// `git --git-dir <git_dir> worktree add --detach <dest> <revision>` — a
+/// throwaway worktree on no branch, for staging a candidate integration
+/// without moving any branch. The candidate can be built and checked there
+/// while the parent's branch stays untouched.
+pub(crate) fn add_detached_worktree(
+    git_dir: &Utf8Path,
+    dest: &Utf8Path,
+    revision: &str,
+) -> Result<(), Error> {
+    run(git()
+        .arg("--git-dir")
+        .arg(git_dir.as_str())
+        .arg("worktree")
+        .arg("add")
+        .arg("--detach")
+        .arg(dest.as_str())
+        .arg(revision))?;
+    Ok(())
+}
+
+/// `git --git-dir <git_dir> branch <branch> <revision>` — create a branch at
+/// an explicit revision in the bare repository. The temporary
+/// `ivar-integrate/<feature>/<repo>` branches integration uses are created
+/// here and deleted with [`delete_branch`] once their worktrees are gone.
+pub(crate) fn create_branch(
+    git_dir: &Utf8Path,
+    branch: &str,
+    revision: &str,
+) -> Result<(), Error> {
+    run(git()
+        .arg("--git-dir")
+        .arg(git_dir.as_str())
+        .arg("branch")
+        .arg(branch)
+        .arg(revision))?;
+    Ok(())
+}
+
+/// `git --git-dir <git_dir> branch -D <branch>` — delete a branch. Used only
+/// for the temporary `ivar-integrate/...` branches, after their worktrees
+/// have been removed (git refuses to delete a checked-out branch, which is
+/// the order's guardrail).
+pub(crate) fn delete_branch(git_dir: &Utf8Path, branch: &str) -> Result<(), Error> {
+    run(git()
+        .arg("--git-dir")
+        .arg(git_dir.as_str())
+        .arg("branch")
+        .arg("-D")
+        .arg(branch))?;
+    Ok(())
+}
+
+/// `git -C <worktree> merge --no-ff --no-edit <source>` — a merge commit
+/// with the default message, never a fast-forward. `--no-edit` is what keeps
+/// git from opening an editor for the auto-generated message.
+pub(crate) fn merge_no_ff(worktree: &Utf8Path, source: &str) -> Result<(), Error> {
+    run(git()
+        .cwd(worktree)
+        .arg("merge")
+        .arg("--no-ff")
+        .arg("--no-edit")
+        .arg(source))?;
+    Ok(())
+}
+
+/// `git -C <worktree> merge --squash <source>` then `git -C <worktree>
+/// commit -m <message>` — the squash strategy's two steps, since `--squash`
+/// stages without committing.
+pub(crate) fn squash_merge(
+    worktree: &Utf8Path,
+    source: &str,
+    message: &str,
+) -> Result<(), Error> {
+    run(git()
+        .cwd(worktree)
+        .arg("merge")
+        .arg("--squash")
+        .arg(source))?;
+    run(git().cwd(worktree).arg("commit").arg("-m").arg(message))?;
+    Ok(())
+}
+
+/// `git -C <worktree> merge --ff-only <revision>` — advance the checked-out
+/// branch (and its files) to `revision`. Refuses when the branch diverged
+/// and cannot fast-forward.
+pub(crate) fn fast_forward_to(worktree: &Utf8Path, revision: &str) -> Result<(), Error> {
+    run(git()
+        .cwd(worktree)
+        .arg("merge")
+        .arg("--ff-only")
+        .arg(revision))?;
+    Ok(())
+}
+
 /// `git -C <worktree> status --porcelain` — whether the worktree holds
 /// uncommitted changes.
 ///

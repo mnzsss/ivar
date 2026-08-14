@@ -19,6 +19,8 @@
 //!     features/<feature>/              promotion records
 //!     features/<feature>/planning/     approval-gate state (approvals.json)
 //!     features/<feature>/execution/    the feature execution board
+//!     features/<feature>/integration/  throwaway local-integration staging
+//!                                      worktrees (candidate/source per repo)
 //!     features/<feature>/sessions/<id>/  feature-session view dirs
 //!     sessions/<id>/                   discovery-session view dirs
 //!     secrets/                         per-repo secret material, hand-maintained
@@ -215,6 +217,32 @@ impl Layout {
     pub fn execution_inbox(&self, feature: &FeatureName, workstream: &str) -> Utf8PathBuf {
         self.execution_inbox_dir(feature)
             .join(format!("{workstream}.jsonl"))
+    }
+
+    /// `<hall>/.ivar/features/<feature>/integration/<repo>/` — the staging
+    /// area for one repo's local integration: a detached candidate worktree
+    /// and a temporary source worktree, both throwaway.
+    #[must_use]
+    pub fn integration_dir(&self, feature: &FeatureName, repo: &RepoName) -> Utf8PathBuf {
+        self.feature_dir(feature)
+            .join("integration")
+            .join(repo.as_str())
+    }
+
+    /// `<hall>/.ivar/features/<feature>/integration/<repo>/candidate` — the
+    /// detached worktree a local integration builds and checks before the
+    /// parent's branch is touched.
+    #[must_use]
+    pub fn integration_candidate(&self, feature: &FeatureName, repo: &RepoName) -> Utf8PathBuf {
+        self.integration_dir(feature, repo).join("candidate")
+    }
+
+    /// `<hall>/.ivar/features/<feature>/integration/<repo>/source` — the
+    /// temporary worktree the rebase strategy replays the child's source onto
+    /// the parent in, before the parent fast-forwards to the result.
+    #[must_use]
+    pub fn integration_source(&self, feature: &FeatureName, repo: &RepoName) -> Utf8PathBuf {
+        self.integration_dir(feature, repo).join("source")
     }
 
     /// `<hall>/.ivar/features/<feature>/planning/` — the feature's approval

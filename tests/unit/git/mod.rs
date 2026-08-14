@@ -580,3 +580,225 @@ fn a_spawn_error_delegates_its_failure_conversion() {
 
     assert_eq!(failure.code, "proc.spawn_failed");
 }
+
+// -- temporary local-integration primitives --------------------------------
+
+/// A bare clone with `parent` and `child` branches, and a worktree on each —
+/// the shape local integration stages against.
+fn integration_repo() -> (tempfile::TempDir, Utf8PathBuf, Utf8PathBuf) {
+    let (guard, dir) = utf8_temp_dir();
+    let origin = seeded_repo(&dir.join("origin"), "main");
+    let bare = dir.join("api.bare");
+    System.clone_bare(origin.as_str(), &bare).unwrap();
+    git(&bare, &["branch", "parent"]);
+    git(&bare, &["branch", "child"]);
+    let parent_wt = dir.join("parent");
+    System.add_worktree(&bare, &parent_wt, "parent").unwrap();
+    let child_wt = dir.join("child");
+    System.add_worktree(&bare, &child_wt, "child").unwrap();
+    std::fs::write(child_wt.join("work.md"), "child work\n").unwrap();
+    git(&child_wt, &["add", "work.md"]);
+    git(&child_wt, &["commit", "-m", "child work"]);
+    (guard, bare, parent_wt)
+}
+
+fn rev_parse(git_dir: &Utf8Path, rev: &str) -> String {
+    let output = std::process::Command::new("git")
+        .args(["--git-dir", git_dir.as_str(), "rev-parse", rev])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    String::from_utf8_lossy(&output.stdout).trim().to_owned()
+}
+
+/// The number of parent commits of `rev` — 0 for a root, 1 for an ordinary
+/// commit, 2 for a merge commit.
+fn parent_count(git_dir: &Utf8Path, rev: &str) -> usize {
+    let output = std::process::Command::new("git")
+        .args(["--git-dir", git_dir.as_str(), "rev-list", "--parents", "-n", "1", rev])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    String::from_utf8_lossy(&output.stdout)
+        .trim()
+        .split_whitespace()
+        .count()
+        - 1
+}
+
+#[test]
+fn revision_commit_resolves_a_branch_to_its_tip() {
+    let (guard, bare, _) = integration_repo();
+    let _ = guard;
+    let tip = rev_parse(&bare, "child");
+    assert_eq!(System.revision_commit(&bare, "child").unwrap(), tip);
+    assert!(System.revision_commit(&bare, "no-such-branch").is_err());
+}
+
+#[test]
+fn add_detached_worktree_checks_out_the_revision_on_no_branch() {
+    let (guard, bare, parent_wt) = integration_repo();
+    let _ = guard;
+    let child_tip = rev_parse(&bare, "child");
+
+    let candidate = parent_wt.join("candidate");
+    System
+        .add_detached_worktree(&bare, &candidate, &child_tip)
+        .unwrap();
+
+    assert!(candidate.join("work.md").is_file());
+    assert_eq!(System.head_commit(&candidate).unwrap(), child_tip);
+    // Detached: no branch is checked out.
+    let output = std::process::Command::new("git")
+        .args(["-C", candidate.as_str(), "branch", "--show-current"])
+        .output()
+        .unwrap();
+    assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "");
+}
+
+#[test]
+fn create_and_delete_branch_are_a_temporary_lifecycle() {
+    let (guard, bare, _) = integration_repo();
+    let _ = guard;
+    let child_tip = rev_parse(&bare, "child");
+    let temp = "ivar-integrate/child/api";
+
+    System.create_branch(&bare, temp, &child_tip).unwrap();
+    assert_eq!(rev_parse(&bare, temp), child_tip);
+
+    System.delete_branch(&bare, temp).unwrap();
+    assert!(System.revision_commit(&bare, temp).is_err());
+}
+
+#[test]
+fn merge_no_ff_produces_a_two_parent_merge_commit() {
+    let (guard, bare, parent_wt) = integration_repo();
+    let _ = guard;
+    let parent_before = rev_parse(&bare, "parent");
+    let child_tip = rev_parse(&bare, "child");
+
+    System.merge_no_ff(&parent_wt, "child").unwrap();
+
+    let parent_after = rev_parse(&bare, "parent");
+    assert_ne!(parent_after, parent_before);
+    assert_eq!(parent_count(&bare, "parent"), 2);
+    assert!(parent_wt.join("work.md").is_file());
+    assert_eq!(child_tip, rev_parse(&bare, "child"), "the child never moves");
+}
+
+#[test]
+fn squash_merge_produces_a_single_parent_commit() {
+    let (guard, bare, parent_wt) = integration_repo();
+    let _ = guard;
+    let parent_before = rev_parse(&bare, "parent");
+
+    System
+        .squash_merge(&parent_wt, "child", "Squashed child work")
+        .unwrap();
+
+    let parent_after = rev_parse(&bare, "parent");
+    assert_ne!(parent_after, parent_before);
+    assert_eq!(parent_count(&bare, "parent"), 1);
+    assert!(parent_wt.join("work.md").is_file());
+    // The squash commit carries the message.
+    let output = std::process::Command::new("git")
+        .args(["-C", parent_wt.as_str(), "log", "-1", "--format=%s"])
+        .output()
+        .unwrap();
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout).trim(),
+        "Squashed child work"
+    );
+}
+
+#[test]
+fn fast_forward_to_advances_the_checked_out_branch() {
+    let (guard, bare, parent_wt) = integration_repo();
+    let _ = guard;
+    let child_tip = rev_parse(&bare, "child");
+    let parent_before = rev_parse(&bare, "parent");
+
+    System.fast_forward_to(&parent_wt, &child_tip).unwrap();
+
+    let parent_after = rev_parse(&bare, "parent");
+    assert_eq!(parent_after, child_tip);
+    assert_ne!(parent_after, parent_before);
+    assert!(parent_wt.join("work.md").is_file());
+}
+
+#[test]
+fn fast_forward_to_refuses_a_diverged_target() {
+    let (guard, bare, parent_wt) = integration_repo();
+    let _ = guard;
+    // Parent diverges: its own commit lands while child sits elsewhere.
+    std::fs::write(parent_wt.join("parent-only.md"), "mine\n").unwrap();
+    git(&parent_wt, &["add", "parent-only.md"]);
+    git(&parent_wt, &["commit", "-m", "parent drift"]);
+
+    let child_tip = rev_parse(&bare, "child");
+    let error = System
+        .fast_forward_to(&parent_wt, &child_tip)
+        .expect_err("diverged — cannot fast-forward");
+
+    assert!(matches!(error, Error::Refused { .. }));
+}
+
+/// The local-integration contract: nothing about the parent changes while a
+/// candidate is being built and checked, no matter which strategy the
+/// candidate uses. Only an explicit `fast_forward_to` (rebase) or the actual
+/// merge (merge/squash) moves it.
+#[test]
+fn the_parent_is_untouched_until_the_merge_is_explicitly_invoked() {
+    let (guard, bare, parent_wt) = integration_repo();
+    let _ = guard;
+    let child_tip = rev_parse(&bare, "child");
+    let parent_before = rev_parse(&bare, "parent");
+    let parent_files: Vec<Utf8PathBuf> = std::fs::read_dir(&parent_wt)
+        .unwrap()
+        .map(|entry| Utf8PathBuf::from_path_buf(entry.unwrap().path()).unwrap())
+        .collect();
+
+    // A detached candidate per strategy: each stages the child's work, and
+    // none of them touches the parent's branch or files. The rebase candidate
+    // starts at the parent's tip and fast-forwards to the child's — the
+    // "rebase then ff" topology — while merge/squash start at the child's tip
+    // and fold the child's commits in.
+    let merge: &dyn Fn(&Utf8Path) -> Result<(), Error> = &|wt| System.merge_no_ff(wt, "child");
+    let squash: &dyn Fn(&Utf8Path) -> Result<(), Error> =
+        &|wt| System.squash_merge(wt, "child", "squash");
+    let rebase: &dyn Fn(&Utf8Path) -> Result<(), Error> =
+        &|wt| System.fast_forward_to(wt, &child_tip);
+    for (name, revision, stage) in [
+        ("merge", &parent_before, merge),
+        ("squash", &parent_before, squash),
+        ("rebase", &parent_before, rebase),
+    ] {
+        // Candidates live beside the parent worktree, never inside it — a
+        // nested worktree would pollute the parent's own file listing.
+        let candidate = parent_wt
+            .parent()
+            .unwrap()
+            .join(format!("candidate-{name}"));
+        System
+            .add_detached_worktree(&bare, &candidate, revision)
+            .unwrap();
+        stage(&candidate).unwrap();
+        assert!(candidate.join("work.md").is_file());
+    }
+
+    // The parent is byte/ref identical throughout.
+    assert_eq!(rev_parse(&bare, "parent"), parent_before);
+    let parent_files_after: Vec<Utf8PathBuf> = std::fs::read_dir(&parent_wt)
+        .unwrap()
+        .map(|entry| Utf8PathBuf::from_path_buf(entry.unwrap().path()).unwrap())
+        .collect();
+    assert_eq!(parent_files_after, parent_files);
+    assert!(
+        !parent_wt.join("work.md").exists(),
+        "the candidate's work must not leak into the parent worktree"
+    );
+
+    // The explicit merge moves the parent.
+    System.merge_no_ff(&parent_wt, "child").unwrap();
+    assert_ne!(rev_parse(&bare, "parent"), parent_before);
+}

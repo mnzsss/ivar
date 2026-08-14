@@ -177,6 +177,14 @@ fn accessors_compute_the_documented_paths() {
         Utf8PathBuf::from("/hall/.ivar/features/checkout/execution")
     );
     assert_eq!(
+        layout.integration_candidate(&feature, &repo),
+        Utf8PathBuf::from("/hall/.ivar/features/checkout/integration/api/candidate")
+    );
+    assert_eq!(
+        layout.integration_source(&feature, &repo),
+        Utf8PathBuf::from("/hall/.ivar/features/checkout/integration/api/source")
+    );
+    assert_eq!(
         layout.planning_dir(&feature),
         Utf8PathBuf::from("/hall/.ivar/features/checkout/planning")
     );
