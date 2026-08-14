@@ -14,7 +14,7 @@ use crate::store::layout::Layout;
 use crate::store::manifest::Manifest;
 
 use super::super::base;
-use super::pull_requests::existing_pr_url;
+use super::super::pull_requests::existing_pr_url;
 
 pub(crate) fn build_repos(
     git: &impl git::Git,

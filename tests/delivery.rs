@@ -21,7 +21,7 @@
 mod common;
 
 use camino::{Utf8Path, Utf8PathBuf};
-use common::{declare_repos, hall_root, ivar, seeded_repo};
+use common::{FakeGh, declare_repos, hall_root, ivar, seeded_repo};
 use predicates::prelude::*;
 
 /// Run git in `cwd` with a fixed identity.
@@ -558,93 +558,6 @@ fn the_whole_path_from_an_empty_directory_to_a_pushed_branch_runs_on_cli_verbs_o
 // `gh` on `PATH` that answers exactly what the real CLI answers, and git's
 // `insteadOf` (set on the child's environment) pointing the `https://github.com`
 // URL back at the local origin the rest of the file already builds.
-
-/// A fake `gh` on `PATH`, implementing the contract delivery relies on:
-/// `pr list --head … --json url`, `pr create`, and `pr comment`. Open PRs are
-/// keyed by (working directory, head branch), so two repos sharing a feature
-/// branch name do not collide.
-///
-/// It refuses `--json` on `pr create` because the real `gh` does — that flag
-/// exists on `pr list`/`pr view` and nowhere else — and it refuses to create a
-/// second PR for a branch that already has one, also like the real `gh`.
-struct FakeGh {
-    dir: Utf8PathBuf,
-    state: Utf8PathBuf,
-    log: Utf8PathBuf,
-}
-
-const FAKE_GH: &str = r#"#!/bin/sh
-printf '%s\n' "$*" >> "$GH_FAKE_LOG"
-
-sub="$1 $2"
-shift 2
-
-head=""
-base=""
-json=0
-while [ $# -gt 0 ]; do
-  case "$1" in
-    --head) head="$2"; shift 2 ;;
-    --base) base="$2"; shift 2 ;;
-    --json) json=1; shift 2 ;;
-    *) shift ;;
-  esac
-done
-
-key="$(pwd) $head"
-url=$(grep -F "$key " "$GH_FAKE_STATE" | head -n 1 | awk '{print $NF}')
-
-case "$sub" in
-  "pr list")
-    if [ -n "$url" ]; then printf '[{"url":"%s"}]\n' "$url"; else printf '[]\n'; fi
-    ;;
-  "pr create")
-    if [ "$json" -eq 1 ]; then
-      printf 'unknown flag: --json\n' >&2
-      exit 1
-    fi
-    if [ -n "$url" ]; then
-      printf 'a pull request for branch "%s" into branch "%s" already exists:\n%s\n' \
-        "$head" "$base" "$url" >&2
-      exit 1
-    fi
-    number=$(( $(wc -l < "$GH_FAKE_STATE") + 1 ))
-    url="https://github.com/acme/pull/$number"
-    printf '%s %s\n' "$key" "$url" >> "$GH_FAKE_STATE"
-    printf '%s\n' "$url"
-    ;;
-  "pr comment")
-    ;;
-  *)
-    printf 'unknown command: %s\n' "$sub" >&2
-    exit 1
-    ;;
-esac
-exit 0
-"#;
-
-impl FakeGh {
-    fn install(root: &Utf8Path) -> Self {
-        let dir = root.parent().unwrap().join("fake-bin");
-        std::fs::create_dir_all(&dir).unwrap();
-        let gh = dir.join("gh");
-        std::fs::write(&gh, FAKE_GH).unwrap();
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&gh, std::fs::Permissions::from_mode(0o755)).unwrap();
-        }
-        let state = dir.join("prs");
-        let log = dir.join("log");
-        std::fs::write(&state, "").unwrap();
-        std::fs::write(&log, "").unwrap();
-        Self { dir, state, log }
-    }
-
-    fn log(&self) -> String {
-        std::fs::read_to_string(&self.log).unwrap()
-    }
-}
 
 /// Point every declared repo at a `https://github.com/…` URL — the only kind
 /// that gets a PR — while keeping the real origin reachable through git's

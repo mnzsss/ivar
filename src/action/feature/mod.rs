@@ -22,6 +22,7 @@ pub mod demote;
 mod lifecycle;
 pub mod list;
 mod mutation;
+mod pull_requests;
 pub mod promote;
 pub mod prune;
 mod relations;

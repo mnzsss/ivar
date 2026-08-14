@@ -56,11 +56,10 @@ use super::super::{discover_hall, read_manifest};
 use crate::action::Ctx;
 
 mod preview;
-mod pull_requests;
 mod repos;
 
 use preview::{fingerprint_for, plan_gate_state, plan_not_approved, preview_required};
-use pull_requests::{create_pr, existing_pr_url, link_sibling_prs};
+use super::pull_requests::{create_pull_request, existing_pr_url, link_sibling_prs};
 use repos::{build_repos, order_by_dependencies, push_repo};
 
 /// What `ivar feature deliver` needs.
@@ -307,10 +306,14 @@ pub fn deliver(ctx: &Ctx, input: DeliverInput) -> Outcome<DeliverOutcome> {
         let result = match repo.action {
             DeliveryAction::UpdatePr => existing_pr_url(&bare, repo.local_branch.as_str())
                 .map_or_else(
-                    || create_pr(&bare, &repo.local_branch, &repo.base_branch, &feature_name),
+                    || {
+                        create_pull_request(&bare, &repo.local_branch, &repo.base_branch, &feature_name)
+                            .map(|pr| pr.url)
+                    },
                     Ok,
                 ),
-            _ => create_pr(&bare, &repo.local_branch, &repo.base_branch, &feature_name),
+            _ => create_pull_request(&bare, &repo.local_branch, &repo.base_branch, &feature_name)
+                .map(|pr| pr.url),
         };
         pr_results.push((repo.repo.clone(), result));
     }
