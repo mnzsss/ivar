@@ -30,6 +30,10 @@ pub struct CreateInput {
     /// is an ordinary branch. Without this, such a branch is unreachable —
     /// `promote` can adopt it, but no feature could ever name it.
     pub branch: Option<String>,
+    /// The branch new promotions should start from, unvalidated. `None`
+    /// leaves the feature's base undeclared — each repo's own default branch
+    /// stands in, per [`crate::domain::feature::effective_base`].
+    pub base: Option<String>,
 }
 
 /// What `ivar feature create` did.
@@ -41,15 +45,25 @@ pub struct CreateOutcome {
     pub name: FeatureName,
     /// The branch every promoted repo's worktree will be checked out on.
     pub branch: BranchName,
+    /// The branch new promotions will start from, if declared.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub base: Option<BranchName>,
 }
 
 impl WriteHuman for CreateOutcome {
     fn write_human(&self, w: &mut impl io::Write) -> io::Result<()> {
-        writeln!(
-            w,
-            "Created feature `{}` (branch: {}) in {}",
-            self.name, self.branch, self.root
-        )
+        match &self.base {
+            Some(base) => writeln!(
+                w,
+                "Created feature `{}` (branch: {}, base: {base}) in {}",
+                self.name, self.branch, self.root
+            ),
+            None => writeln!(
+                w,
+                "Created feature `{}` (branch: {}) in {}",
+                self.name, self.branch, self.root
+            ),
+        }
     }
 }
 
@@ -67,6 +81,7 @@ pub fn create(ctx: &Ctx, input: CreateInput) -> Outcome<CreateOutcome> {
     let layout = discover_hall(ctx)?;
     let name = FeatureName::new(input.name.clone())?;
     let branch = BranchName::new(input.branch.unwrap_or(input.name))?;
+    let base = input.base.map(BranchName::new).transpose()?;
 
     let dir = layout.feature_dir(&name);
     if fs::is_dir(&dir)? {
@@ -82,13 +97,15 @@ pub fn create(ctx: &Ctx, input: CreateInput) -> Outcome<CreateOutcome> {
         )));
     }
 
-    let feature = Feature::new(name.clone(), branch.clone());
+    let mut feature = Feature::new(name.clone(), branch.clone());
+    feature.base = base.clone();
     feature.write(&layout)?;
 
     Ok(Report::new(CreateOutcome {
         root: layout.root().to_path_buf(),
         name,
         branch,
+        base,
     }))
 }
 

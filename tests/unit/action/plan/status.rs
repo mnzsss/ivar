@@ -59,6 +59,7 @@ fn seeded_hall() -> (tempfile::TempDir, Utf8PathBuf) {
         FeatureCreateInput {
             name: "checkout".to_owned(),
             branch: None,
+            base: None,
         },
     )
     .unwrap();
@@ -346,6 +347,7 @@ fn status_accepts_a_dangling_plan_projection() {
         FeatureCreateInput {
             name: "checkout".to_owned(),
             branch: None,
+            base: None,
         },
     )
     .unwrap();

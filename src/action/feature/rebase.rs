@@ -1,10 +1,25 @@
 //! `ivar feature rebase <name>` — rebase every promoted repo's feature-branch
-//! worktree onto its default branch.
+//! worktree onto its base.
 //!
 //! The point of a rebase here is to bring a feature's work up to date with the
-//! work that landed on the default branches since the feature branched. Each
-//! promoted repo's worktree (on the feature branch) is replayed on top of that
-//! repo's `default_branch` from `ivar.json`.
+//! work that landed on its base since the feature branched. Each promoted
+//! repo's worktree (on the feature branch) is replayed on top of that repo's
+//! effective base — [`crate::action::feature::base::resolve`]: the base
+//! `promote` recorded for that repo, or, for a promotion recorded before that
+//! field existed, the feature's declared base against `default_branch` from
+//! `ivar.json`.
+//!
+//! # `--onto`: collapsing the base
+//!
+//! `--onto <branch>` is the verb for once a feature's own base — typically
+//! another feature, now delivered — has landed. It rewrites `Promotion::base`
+//! to `<branch>` for **every** promoted repo before anything is rebased, then
+//! rebases each worktree onto that same new target: the declaration and the
+//! worktree move together. Without it, each repo rebases onto its own
+//! individually-resolved base, same as today.
+//!
+//! No network call is introduced either way: `rebase` is the one destructive
+//! verb that runs offline with confidence, and stays that way.
 //!
 //! # Per-repo, never a batch abort
 //!
@@ -20,12 +35,13 @@ use camino::Utf8PathBuf;
 use serde::Serialize;
 
 use crate::domain::feature::Feature;
-use crate::domain::name::{FeatureName, RepoName};
+use crate::domain::name::{BranchName, FeatureName, RepoName};
 use crate::error::{Failure, FixAction, Outcome, Report, Warning, WriteHuman};
 use crate::git::{self, Git};
 use crate::infra::fs;
 
 use super::super::{discover_hall, read_manifest};
+use super::base;
 use crate::action::Ctx;
 
 /// What `ivar feature rebase` needs.
@@ -33,6 +49,9 @@ use crate::action::Ctx;
 pub struct RebaseInput {
     /// The feature's name.
     pub name: String,
+    /// Collapse the base: rewrite every promoted repo's declared base to
+    /// this branch, unvalidated, before rebasing anything onto it.
+    pub onto: Option<String>,
 }
 
 /// What happened to one promoted repo's worktree.
@@ -107,7 +126,7 @@ pub fn rebase(ctx: &Ctx, input: RebaseInput) -> Outcome<RebaseOutcome> {
     let git = git::System;
 
     let name = FeatureName::new(input.name)?;
-    let feature = Feature::read(&layout, &name)?.ok_or_else(|| {
+    let mut feature = Feature::read(&layout, &name)?.ok_or_else(|| {
         Failure::blocked(
             "feature.not_found",
             format!("feature `{name}` does not exist"),
@@ -120,17 +139,30 @@ pub fn rebase(ctx: &Ctx, input: RebaseInput) -> Outcome<RebaseOutcome> {
         ))
     })?;
 
+    // `--onto` collapses the base: every promoted repo's declared base
+    // becomes the new target, recorded before any worktree is touched — the
+    // same "statement about the future" `promote` itself makes. The rebase
+    // loop below then needs no special case for it: it always rebases onto
+    // each repo's effective base, which this has just made `onto` for all of
+    // them.
+    if let Some(onto) = input.onto {
+        let onto = BranchName::new(onto)?;
+        for promotion in feature.promotions.values_mut() {
+            promotion.base = Some(onto.clone());
+        }
+        feature.write(&layout)?;
+    }
+
     let mut repos = Vec::new();
     let mut warnings = Vec::new();
-    for repo_name in feature.promotions.keys() {
+    for (repo_name, promotion) in &feature.promotions {
         let worktree = layout.repo_worktree(repo_name, &feature.branch);
-        let default_branch = manifest
+        let manifest_repo = manifest
             .repos()
             .iter()
-            .find(|repo| repo.name() == repo_name)
-            .map(|repo| repo.default_branch().to_string());
+            .find(|repo| repo.name() == repo_name);
 
-        let Some(default_branch) = default_branch else {
+        let Some(manifest_repo) = manifest_repo else {
             repos.push(RepoRebase {
                 repo: repo_name.clone(),
                 status: RebaseStatus::Skipped,
@@ -142,6 +174,7 @@ pub fn rebase(ctx: &Ctx, input: RebaseInput) -> Outcome<RebaseOutcome> {
             ));
             continue;
         };
+        let target = base::resolve(&feature, promotion, manifest_repo.default_branch());
 
         if !fs::is_dir(&worktree)? {
             repos.push(RepoRebase {
@@ -171,7 +204,7 @@ pub fn rebase(ctx: &Ctx, input: RebaseInput) -> Outcome<RebaseOutcome> {
             continue;
         }
 
-        match git.rebase_branch(&worktree, &default_branch) {
+        match git.rebase_branch(&worktree, target.as_str()) {
             Ok(()) => repos.push(RepoRebase {
                 repo: repo_name.clone(),
                 status: RebaseStatus::Rebased,

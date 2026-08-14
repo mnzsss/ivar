@@ -8,6 +8,7 @@
 use super::*;
 use crate::action::hall::{self, InitInput};
 use crate::error::Status;
+use crate::store::layout::Layout;
 use crate::test_support::hall_root;
 
 fn seeded_hall() -> (tempfile::TempDir, Utf8PathBuf) {
@@ -35,6 +36,7 @@ fn create_makes_the_feature_directory_and_records_the_feature() {
         CreateInput {
             name: "checkout".to_owned(),
             branch: None,
+            base: None,
         },
     )
     .unwrap();
@@ -54,6 +56,7 @@ fn create_rejects_a_feature_that_already_exists() {
         CreateInput {
             name: "checkout".to_owned(),
             branch: None,
+            base: None,
         },
     )
     .unwrap();
@@ -63,6 +66,7 @@ fn create_rejects_a_feature_that_already_exists() {
         CreateInput {
             name: "checkout".to_owned(),
             branch: None,
+            base: None,
         },
     )
     .unwrap_err();
@@ -81,6 +85,7 @@ fn create_outside_a_hall_is_blocked() {
         CreateInput {
             name: "checkout".to_owned(),
             branch: None,
+            base: None,
         },
     )
     .unwrap_err();
@@ -98,6 +103,7 @@ fn create_rejects_an_invalid_name() {
         CreateInput {
             name: "../etc".to_owned(),
             branch: None,
+            base: None,
         },
     )
     .unwrap_err();
@@ -118,6 +124,7 @@ fn an_explicit_branch_may_be_one_a_feature_name_could_not_spell() {
         CreateInput {
             name: "login".to_owned(),
             branch: Some("feat/login".to_owned()),
+            base: None,
         },
     )
     .unwrap();
@@ -138,6 +145,7 @@ fn an_explicit_branch_is_still_validated() {
         CreateInput {
             name: "login".to_owned(),
             branch: Some("../etc".to_owned()),
+            base: None,
         },
     )
     .unwrap_err();
@@ -151,6 +159,7 @@ fn the_human_surface_names_the_feature_branch_and_root() {
         root: Utf8PathBuf::from("/hall"),
         name: FeatureName::new("checkout").unwrap(),
         branch: BranchName::new("checkout").unwrap(),
+        base: None,
     };
 
     let mut out = Vec::new();
@@ -160,4 +169,92 @@ fn the_human_surface_names_the_feature_branch_and_root() {
         String::from_utf8(out).unwrap(),
         "Created feature `checkout` (branch: checkout) in /hall\n"
     );
+}
+
+#[test]
+fn the_human_surface_names_the_base_when_declared() {
+    let outcome = CreateOutcome {
+        root: Utf8PathBuf::from("/hall"),
+        name: FeatureName::new("checkout").unwrap(),
+        branch: BranchName::new("checkout").unwrap(),
+        base: Some(BranchName::new("develop").unwrap()),
+    };
+
+    let mut out = Vec::new();
+    outcome.write_human(&mut out).unwrap();
+
+    assert_eq!(
+        String::from_utf8(out).unwrap(),
+        "Created feature `checkout` (branch: checkout, base: develop) in /hall\n"
+    );
+}
+
+/// `--base` declares the branch new promotions should start from — recorded
+/// on the feature so `promote` can read it back.
+#[test]
+fn create_records_the_declared_base() {
+    let (_guard, root) = seeded_hall();
+    let ctx = Ctx::new(root.clone());
+
+    let report = create(
+        &ctx,
+        CreateInput {
+            name: "checkout".to_owned(),
+            branch: None,
+            base: Some("develop".to_owned()),
+        },
+    )
+    .unwrap();
+
+    assert_eq!(report.value.base, Some(BranchName::new("develop").unwrap()));
+    let feature = Feature::read(
+        &Layout::at(root.clone()),
+        &FeatureName::new("checkout").unwrap(),
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(feature.base, Some(BranchName::new("develop").unwrap()));
+}
+
+/// Without `--base` the field stays absent — a feature's base is undeclared
+/// by default, and each repo's own default branch stands in.
+#[test]
+fn create_leaves_the_base_absent_without_the_flag() {
+    let (_guard, root) = seeded_hall();
+    let ctx = Ctx::new(root.clone());
+
+    let report = create(
+        &ctx,
+        CreateInput {
+            name: "checkout".to_owned(),
+            branch: None,
+            base: None,
+        },
+    )
+    .unwrap();
+
+    assert_eq!(report.value.base, None);
+    let feature = Feature::read(&Layout::at(root), &FeatureName::new("checkout").unwrap())
+        .unwrap()
+        .unwrap();
+    assert_eq!(feature.base, None);
+}
+
+/// `--base` is still validated — it is not a hole in the naming rules.
+#[test]
+fn create_rejects_an_invalid_base() {
+    let (_guard, root) = seeded_hall();
+    let ctx = Ctx::new(root);
+
+    let failure = create(
+        &ctx,
+        CreateInput {
+            name: "checkout".to_owned(),
+            branch: None,
+            base: Some("../etc".to_owned()),
+        },
+    )
+    .unwrap_err();
+
+    assert_eq!(failure.status, Status::Blocked);
 }

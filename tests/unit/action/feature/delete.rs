@@ -61,6 +61,7 @@ fn hall_with_promoted_feature_on(branch: Option<&str>) -> (tempfile::TempDir, Ut
         CreateInput {
             name: "checkout".to_owned(),
             branch: branch.map(str::to_owned),
+            base: None,
         },
     )
     .unwrap();
@@ -70,6 +71,7 @@ fn hall_with_promoted_feature_on(branch: Option<&str>) -> (tempfile::TempDir, Ut
         PromoteInput {
             feature: "checkout".to_owned(),
             repo: "api".to_owned(),
+            base: None,
         },
     )
     .unwrap();

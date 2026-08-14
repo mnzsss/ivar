@@ -86,6 +86,7 @@ fn approved_board() -> (tempfile::TempDir, Utf8PathBuf) {
         FeatureCreateInput {
             name: "checkout".to_owned(),
             branch: None,
+            base: None,
         },
     )
     .unwrap();
@@ -968,6 +969,7 @@ fn approved_board_with_worktree() -> (tempfile::TempDir, Utf8PathBuf) {
         FeatureCreateInput {
             name: "checkout".to_owned(),
             branch: None,
+            base: None,
         },
     )
     .unwrap();
@@ -984,6 +986,7 @@ fn approved_board_with_worktree() -> (tempfile::TempDir, Utf8PathBuf) {
         PromoteInput {
             feature: "checkout".to_owned(),
             repo: "api".to_owned(),
+            base: None,
         },
     )
     .unwrap();

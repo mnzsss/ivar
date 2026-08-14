@@ -51,6 +51,7 @@ fn hall_with_promoted_feature() -> (tempfile::TempDir, Utf8PathBuf) {
         CreateInput {
             name: "checkout".to_owned(),
             branch: None,
+            base: None,
         },
     )
     .unwrap();
@@ -60,6 +61,66 @@ fn hall_with_promoted_feature() -> (tempfile::TempDir, Utf8PathBuf) {
         PromoteInput {
             feature: "checkout".to_owned(),
             repo: "api".to_owned(),
+            base: None,
+        },
+    )
+    .unwrap();
+    (guard, root)
+}
+
+/// A hall with two branches — `main`, and `develop`, which carries a commit
+/// `main` does not have (standing in for an undelivered parent feature) —
+/// and `checkout` promoted onto `develop` as its declared base.
+fn hall_with_promoted_feature_based_on_an_open_base() -> (tempfile::TempDir, Utf8PathBuf) {
+    let (guard, root) = hall_root();
+    let ctx = Ctx::new(root.clone());
+    hall::init(
+        &ctx,
+        InitInput {
+            path: Utf8PathBuf::from("."),
+            name: Some("acme".to_owned()),
+            provider: None,
+        },
+    )
+    .unwrap();
+
+    let origin = seeded_repo(&root.parent().unwrap().join("origins").join("api"), "main");
+    git(&origin, &["checkout", "-b", "develop"]);
+    std::fs::write(origin.join("develop-only.txt"), "develop\n").unwrap();
+    git(&origin, &["add", "develop-only.txt"]);
+    git(&origin, &["commit", "-m", "develop work"]);
+    git(&origin, &["checkout", "main"]);
+
+    let layout = Layout::at(root.clone());
+    let manifest = Manifest::new(
+        HallName::new("acme").unwrap(),
+        Providers::new(vec![Provider::ClaudeCode], Provider::ClaudeCode),
+        vec![Repo::new(
+            RepoName::new("api").unwrap(),
+            origin.as_str(),
+            BranchName::new("main").unwrap(),
+        )],
+        None,
+    )
+    .unwrap();
+    Manifest::write(&layout, &manifest).unwrap();
+
+    create_action(
+        &ctx,
+        CreateInput {
+            name: "checkout".to_owned(),
+            branch: None,
+            base: Some("develop".to_owned()),
+        },
+    )
+    .unwrap();
+    crate::action::sync::sync(&ctx, Default::default()).unwrap();
+    promote::promote(
+        &ctx,
+        PromoteInput {
+            feature: "checkout".to_owned(),
+            repo: "api".to_owned(),
+            base: None,
         },
     )
     .unwrap();
@@ -163,6 +224,24 @@ fn prune_keeps_a_feature_whose_clone_is_missing() {
         report.value.kept[0].reason
     );
     assert!(feature_dir(&root).join("feature.json").exists());
+}
+
+/// Mergedness is measured against what the feature actually branched from —
+/// so a feature merged into its declared base is prunable even while that
+/// base itself is still open (not merged into the repo's default branch).
+#[test]
+fn prune_deletes_a_feature_merged_into_its_still_open_base() {
+    let (_guard, root) = hall_with_promoted_feature_based_on_an_open_base();
+    let ctx = Ctx::new(root.clone());
+
+    let report = prune(&ctx).unwrap();
+
+    assert!(report.is_clean());
+    assert_eq!(
+        report.value.pruned,
+        vec![FeatureName::new("checkout").unwrap()]
+    );
+    assert!(report.value.kept.is_empty());
 }
 
 #[test]

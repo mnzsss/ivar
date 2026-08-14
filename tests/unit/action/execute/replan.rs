@@ -100,6 +100,7 @@ fn seeded_board() -> (tempfile::TempDir, Utf8PathBuf) {
         FeatureCreateInput {
             name: "checkout".to_owned(),
             branch: None,
+            base: None,
         },
     )
     .unwrap();
@@ -226,6 +227,7 @@ fn replan_is_blocked_without_a_board() {
         FeatureCreateInput {
             name: "checkout".to_owned(),
             branch: None,
+            base: None,
         },
     )
     .unwrap();

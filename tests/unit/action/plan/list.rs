@@ -41,6 +41,7 @@ fn list_reports_created_plans_with_their_artifacts() {
         FeatureCreateInput {
             name: "checkout".to_owned(),
             branch: None,
+            base: None,
         },
     )
     .unwrap();

@@ -82,6 +82,7 @@ fn hall_with_promoted_worktree() -> (tempfile::TempDir, Utf8PathBuf) {
         FeatureCreateInput {
             name: "checkout".to_owned(),
             branch: None,
+            base: None,
         },
     )
     .unwrap();
@@ -99,6 +100,7 @@ fn hall_with_promoted_worktree() -> (tempfile::TempDir, Utf8PathBuf) {
         PromoteInput {
             feature: "checkout".to_owned(),
             repo: "api".to_owned(),
+            base: None,
         },
     )
     .unwrap();
@@ -186,6 +188,7 @@ fn reconcile_records_a_divergence_without_promoted_worktrees() {
         FeatureCreateInput {
             name: "checkout".to_owned(),
             branch: None,
+            base: None,
         },
     )
     .unwrap();
@@ -243,6 +246,7 @@ fn reconcile_is_blocked_without_a_board() {
         FeatureCreateInput {
             name: "checkout".to_owned(),
             branch: None,
+            base: None,
         },
     )
     .unwrap();

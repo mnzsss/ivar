@@ -52,6 +52,7 @@ fn hall_with_feature() -> (tempfile::TempDir, Utf8PathBuf) {
         CreateInput {
             name: "checkout".to_owned(),
             branch: None,
+            base: None,
         },
     )
     .unwrap();
@@ -71,6 +72,7 @@ fn demote_removes_the_promotion_record_and_keeps_the_worktree() {
         PromoteInput {
             feature: "checkout".to_owned(),
             repo: "api".to_owned(),
+            base: None,
         },
     )
     .unwrap();

@@ -84,6 +84,7 @@ fn hall_with_promoted(repos: &[&str]) -> (tempfile::TempDir, Utf8PathBuf) {
         CreateInput {
             name: "checkout".to_owned(),
             branch: None,
+            base: None,
         },
     )
     .unwrap();
@@ -96,6 +97,7 @@ fn hall_with_promoted(repos: &[&str]) -> (tempfile::TempDir, Utf8PathBuf) {
             PromoteInput {
                 feature: "checkout".to_owned(),
                 repo: (*name).to_owned(),
+                base: None,
             },
         )
         .unwrap();

@@ -61,6 +61,7 @@ fn create_feature(ctx: &Ctx, name: &str) {
         CreateInput {
             name: name.to_owned(),
             branch: None,
+            base: None,
         },
     )
     .unwrap();
@@ -72,6 +73,7 @@ fn promote(ctx: &Ctx, feature: &str, repo: &str) {
         PromoteInput {
             feature: feature.to_owned(),
             repo: repo.to_owned(),
+            base: None,
         },
     )
     .unwrap();

@@ -50,6 +50,7 @@ fn hall_with_feature() -> (tempfile::TempDir, Utf8PathBuf) {
         CreateInput {
             name: "checkout".to_owned(),
             branch: None,
+            base: None,
         },
     )
     .unwrap();
@@ -65,6 +66,7 @@ fn promote_input(feature: &str, repo: &str) -> PromoteInput {
     PromoteInput {
         feature: feature.to_owned(),
         repo: repo.to_owned(),
+        base: None,
     }
 }
 
@@ -281,6 +283,167 @@ fn promote_still_creates_a_branch_that_does_not_exist() {
     assert_eq!(
         head_branch(&root.join(".ivar/repos/api/checkout")),
         "checkout"
+    );
+}
+
+/// A hall with two branches in the seeded repo — `main`, and `develop`,
+/// which carries a commit `main` does not have — and a feature created with
+/// `base` as given. No repo promoted yet.
+fn hall_with_two_branches(base: Option<&str>) -> (tempfile::TempDir, Utf8PathBuf) {
+    let (guard, root) = hall_root();
+    let ctx = Ctx::new(root.clone());
+    hall::init(
+        &ctx,
+        InitInput {
+            path: Utf8PathBuf::from("."),
+            name: Some("acme".to_owned()),
+            provider: None,
+        },
+    )
+    .unwrap();
+
+    let origin = seeded_repo(&root.parent().unwrap().join("origins").join("api"), "main");
+    git(&origin, &["checkout", "-b", "develop"]);
+    std::fs::write(origin.join("develop-only.txt"), "develop\n").unwrap();
+    git(&origin, &["add", "develop-only.txt"]);
+    git(&origin, &["commit", "-m", "develop work"]);
+    git(&origin, &["checkout", "main"]);
+
+    let layout = Layout::at(root.clone());
+    let manifest = Manifest::new(
+        HallName::new("acme").unwrap(),
+        Providers::new(vec![Provider::ClaudeCode], Provider::ClaudeCode),
+        vec![Repo::new(
+            RepoName::new("api").unwrap(),
+            origin.as_str(),
+            BranchName::new("main").unwrap(),
+        )],
+        None,
+    )
+    .unwrap();
+    Manifest::write(&layout, &manifest).unwrap();
+
+    create_action(
+        &ctx,
+        CreateInput {
+            name: "checkout".to_owned(),
+            branch: None,
+            base: base.map(str::to_owned),
+        },
+    )
+    .unwrap();
+
+    crate::action::sync::sync(&ctx, Default::default()).unwrap();
+
+    (guard, root)
+}
+
+/// The new-branch case: the base a feature declares — not the repo's
+/// `default_branch` — is where a new promotion's branch starts.
+#[test]
+fn promote_creates_the_branch_from_the_declared_base_not_the_default_branch() {
+    let (_guard, root) = hall_with_two_branches(Some("develop"));
+    let ctx = Ctx::new(root.clone());
+
+    promote(&ctx, promote_input("checkout", "api")).unwrap();
+
+    let worktree = root.join(".ivar/repos/api/checkout");
+    assert!(fs::is_file(&worktree.join("develop-only.txt")).unwrap());
+}
+
+/// The base is recorded on the promotion as a plain fact, for `status`,
+/// `rebase`, `prune` and `deliver` to read back.
+#[test]
+fn promote_records_the_declared_base_on_the_promotion() {
+    let (_guard, root) = hall_with_two_branches(Some("develop"));
+    let ctx = Ctx::new(root.clone());
+
+    promote(&ctx, promote_input("checkout", "api")).unwrap();
+
+    let feature = Feature::read(&Layout::at(root), &FeatureName::new("checkout").unwrap())
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        feature.promotions[&RepoName::new("api").unwrap()].base,
+        Some(BranchName::new("develop").unwrap())
+    );
+}
+
+/// `--base` overrides the feature's declared base for this one repo.
+#[test]
+fn promote_base_override_wins_over_the_feature_declared_base() {
+    let (_guard, root) = hall_with_two_branches(Some("main"));
+    let ctx = Ctx::new(root.clone());
+
+    promote(
+        &ctx,
+        PromoteInput {
+            feature: "checkout".to_owned(),
+            repo: "api".to_owned(),
+            base: Some("develop".to_owned()),
+        },
+    )
+    .unwrap();
+
+    let worktree = root.join(".ivar/repos/api/checkout");
+    assert!(fs::is_file(&worktree.join("develop-only.txt")).unwrap());
+    let feature = Feature::read(&Layout::at(root), &FeatureName::new("checkout").unwrap())
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        feature.promotions[&RepoName::new("api").unwrap()].base,
+        Some(BranchName::new("develop").unwrap())
+    );
+}
+
+/// A declared base this repo does not have never refuses promotion — it
+/// falls back to `default_branch`, records that as the fact, and warns.
+#[test]
+fn promote_falls_back_and_warns_when_the_declared_base_is_absent() {
+    let (_guard, root) = hall_with_two_branches(Some("ghost-branch"));
+    let ctx = Ctx::new(root.clone());
+
+    let report = promote(&ctx, promote_input("checkout", "api")).unwrap();
+
+    assert!(!report.is_clean());
+    assert!(
+        report
+            .warnings
+            .iter()
+            .any(|warning| warning.code == "feature.base_absent")
+    );
+    let worktree = root.join(".ivar/repos/api/checkout");
+    assert!(!fs::is_file(&worktree.join("develop-only.txt")).unwrap());
+    let feature = Feature::read(&Layout::at(root), &FeatureName::new("checkout").unwrap())
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        feature.promotions[&RepoName::new("api").unwrap()].base,
+        Some(BranchName::new("main").unwrap())
+    );
+}
+
+/// Adoption records the declared base as a stated fact and never probes
+/// whether the adopted branch's history actually agrees with it — base is a
+/// statement about the future, not a measurement of the past.
+#[test]
+fn promote_records_the_base_on_an_adopted_branch_without_checking_ancestry() {
+    let (_guard, root) = hall_with_two_branches(Some("develop"));
+    let bare = Layout::at(root.clone()).repo_bare(&RepoName::new("api").unwrap());
+    // `checkout` already exists, branched off `main` — unrelated to `develop`.
+    git(&bare, &["branch", "checkout", "main"]);
+    let ctx = Ctx::new(root.clone());
+
+    let report = promote(&ctx, promote_input("checkout", "api")).unwrap();
+
+    assert!(report.value.adopted_branch);
+    assert!(report.is_clean());
+    let feature = Feature::read(&Layout::at(root), &FeatureName::new("checkout").unwrap())
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        feature.promotions[&RepoName::new("api").unwrap()].base,
+        Some(BranchName::new("develop").unwrap())
     );
 }
 
