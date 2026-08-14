@@ -2,7 +2,12 @@
 //!
 //! Physically located here but compiled inside the library crate via `#[path]`
 //! so `use super::*` reaches private parent items.
-#![allow(clippy::indexing_slicing)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing
+)]
 
 use super::*;
 
@@ -46,9 +51,11 @@ fn operations_from_plan_parses_ids_operations_and_write_contracts() {
 
     // A plan with no Operations section parses to nothing — and every
     // board workstream therefore counts as affected.
-    assert!(operations_from_plan("# Plan\n\nprose only\n")
-        .unwrap()
-        .is_empty());
+    assert!(
+        operations_from_plan("# Plan\n\nprose only\n")
+            .unwrap()
+            .is_empty()
+    );
 }
 
 /// Scalar targeting lines (`provider:`, `model:`, `agent:`) parse alongside
@@ -119,7 +126,8 @@ fn write_targets_persists_resolved_targeting_without_changing_operations() {
 /// duplicated — the resolved value is the only one that survives.
 #[test]
 fn write_targets_replaces_existing_targeting_lines_in_the_block() {
-    let plan = "# Plan\n\n## Operations\n\n### ws-a\nprovider: claude-code\nmodel: old-model\n- op-a\n";
+    let plan =
+        "# Plan\n\n## Operations\n\n### ws-a\nprovider: claude-code\nmodel: old-model\n- op-a\n";
     let targets = vec![ResolvedTarget {
         id: "ws-a".to_owned(),
         provider: Provider::OpenCode,
