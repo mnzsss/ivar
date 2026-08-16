@@ -915,7 +915,7 @@ fn integrate_pr(
     let result_sha = merged.merge_commit.clone().ok_or_else(|| {
         Failure::failed(
             "integration.merge_result_missing",
-            format!("the merged PR {url} reported no merge commit"),
+            format!("the merged PR {} reported no merge commit", pr.url),
         )
     })?;
 
