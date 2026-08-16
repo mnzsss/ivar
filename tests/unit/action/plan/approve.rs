@@ -10,6 +10,7 @@ use crate::action::feature::create::{self as feature_create, CreateInput as Feat
 use crate::action::hall::{self, InitInput};
 use crate::action::plan::create::{self as plan_create, CreateInput as PlanCreateInput};
 use crate::error::Status;
+use crate::infra::hash;
 use crate::test_support::hall_root;
 
 fn seeded_hall() -> (tempfile::TempDir, Utf8PathBuf) {

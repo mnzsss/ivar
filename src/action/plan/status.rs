@@ -153,7 +153,7 @@ pub fn status(ctx: &Ctx, input: StatusInput) -> Outcome<StatusOutcome> {
     let layout = discover_hall(ctx)?;
     let (feature, plan_path) = derive_feature(ctx, &layout, &input.plan_path)?;
 
-    let approvals = load_approvals(&layout, &feature)?;
+    let approvals = super::load_approvals(&layout, &feature)?;
     let gates = compute_gates(&approvals, &layout, &feature)?;
 
     let board = match ExecutionBoard::read(&layout, &feature)? {
@@ -315,14 +315,6 @@ fn not_a_plan(resolved: &Utf8Path, layout: &Layout) -> Failure {
     ))
 }
 
-/// The feature's approval state, or a fresh one with all four gates pending,
-/// normalised to lifecycle order.
-fn load_approvals(layout: &Layout, feature: &FeatureName) -> Result<ApprovalState, Failure> {
-    let mut approvals = ApprovalState::read(layout, feature)?.unwrap_or_else(ApprovalState::fresh);
-    approvals.normalize();
-    Ok(approvals)
-}
-
 /// The gates, drift-checked against their artifacts, with what invalidated
 /// each. Read-only: the stored state is never rewritten, only reported.
 fn compute_gates(
@@ -335,7 +327,8 @@ fn compute_gates(
     let mut drift_roots = Vec::new();
     for record in &approvals.gates {
         if record.state == GateState::Approved
-            && artifact_fingerprint(layout, feature, record.gate)? != record.artifact_fingerprint
+            && super::artifact_fingerprint(layout, feature, record.gate)?
+                != record.artifact_fingerprint
         {
             drift_roots.push(record.gate);
         }
@@ -400,34 +393,9 @@ fn plan_matches(
     Ok(hash::file(&plan)? == board.graph.plan_fingerprint)
 }
 
-/// The artifact a gate fingerprints. Requirements, Analysis, and Plan each
-/// own their Markdown file; the Execution Graph is derived from `plan.md`, so
-/// it fingerprints that too — the same content the board's graph fingerprints.
-fn artifact_path(layout: &Layout, feature: &FeatureName, gate: Gate) -> Utf8PathBuf {
-    match gate {
-        Gate::Requirements => layout.plan_dir(feature).join("requirements.md"),
-        Gate::Analysis => layout.plan_dir(feature).join("analysis.md"),
-        Gate::Plan | Gate::ExecutionGraph => layout.plan_dir(feature).join("plan.md"),
-    }
-}
-
-/// SHA-256 of the gate's artifact content. `Ok(None)` when the artifact does
-/// not exist — a vanished artifact is drift, not an error.
-fn artifact_fingerprint(
-    layout: &Layout,
-    feature: &FeatureName,
-    gate: Gate,
-) -> Result<Option<String>, Failure> {
-    let path = artifact_path(layout, feature, gate);
-    if !fs::is_file(&path)? {
-        return Ok(None);
-    }
-    Ok(Some(hash::file(&path)?))
-}
-
 /// The artifact's path relative to the hall root, for a human reason string.
 fn artifact_name(layout: &Layout, feature: &FeatureName, gate: Gate) -> String {
-    let path = artifact_path(layout, feature, gate);
+    let path = super::artifact_path(layout, feature, gate);
     path.strip_prefix(layout.root())
         .map(|relative| relative.to_string())
         .unwrap_or_else(|_| path.to_string())
