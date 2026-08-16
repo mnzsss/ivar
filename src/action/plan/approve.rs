@@ -54,7 +54,7 @@ use serde::Serialize;
 use crate::domain::feature::{ApprovalState, Gate, GateState};
 use crate::domain::name::FeatureName;
 use crate::error::{Failure, FixAction, Outcome, Report, WriteHuman};
-use crate::infra::{fs, hash};
+use crate::infra::fs;
 use crate::store::layout::Layout;
 
 use super::super::discover_hall;
@@ -171,7 +171,7 @@ pub fn approve(ctx: &Ctx, input: ApproveInput) -> Outcome<ApproveOutcome> {
         })?;
     crate::action::feature::ensure_not_fully_integrated(&layout, &feature_record)?;
 
-    let mut approvals = load_approvals(&layout, &feature)?;
+    let mut approvals = super::load_approvals(&layout, &feature)?;
 
     // Drift first — and persist it before any refusal below: an approval must
     // never stand on content that has moved, and a refused approval still has
@@ -181,8 +181,8 @@ pub fn approve(ctx: &Ctx, input: ApproveInput) -> Outcome<ApproveOutcome> {
         approvals.write(&layout, &feature)?;
     }
 
-    let fingerprint = artifact_fingerprint(&layout, &feature, gate)?.ok_or_else(|| {
-        let path = artifact_path(&layout, &feature, gate);
+    let fingerprint = super::artifact_fingerprint(&layout, &feature, gate)?.ok_or_else(|| {
+        let path = super::artifact_path(&layout, &feature, gate);
         Failure::blocked(
             "plan.artifact_missing",
             format!("`{}` does not exist", path),
@@ -251,7 +251,7 @@ pub fn invalidate(ctx: &Ctx, input: InvalidateInput) -> Outcome<InvalidateOutcom
         })?;
     crate::action::feature::ensure_not_fully_integrated(&layout, &feature_record)?;
 
-    let mut approvals = load_approvals(&layout, &feature)?;
+    let mut approvals = super::load_approvals(&layout, &feature)?;
 
     let already_needs_revision: Vec<Gate> = approvals
         .gates
@@ -278,14 +278,6 @@ pub fn invalidate(ctx: &Ctx, input: InvalidateInput) -> Outcome<InvalidateOutcom
         cascaded,
         approvals,
     }))
-}
-
-/// Load the feature's approval state, or a fresh one if none was ever
-/// written, with all four gates present and in lifecycle order.
-fn load_approvals(layout: &Layout, feature: &FeatureName) -> Result<ApprovalState, Failure> {
-    let mut approvals = ApprovalState::read(layout, feature)?.unwrap_or_else(ApprovalState::fresh);
-    approvals.normalize();
-    Ok(approvals)
 }
 
 /// Block when the feature does not exist — approvals belong to features.
@@ -321,7 +313,7 @@ fn reconcile(
         if record.state != GateState::Approved {
             continue;
         }
-        let current = artifact_fingerprint(layout, feature, record.gate)?;
+        let current = super::artifact_fingerprint(layout, feature, record.gate)?;
         if current != record.artifact_fingerprint {
             drifted.push(record.gate);
         }
@@ -330,32 +322,6 @@ fn reconcile(
         approvals.invalidate_from(*gate);
     }
     Ok(!drifted.is_empty())
-}
-
-/// The artifact a gate fingerprints. Requirements, Analysis, and Plan each
-/// own their Markdown file; the Execution Graph is derived from `plan.md`, so
-/// it fingerprints that too.
-fn artifact_path(layout: &Layout, feature: &FeatureName, gate: Gate) -> Utf8PathBuf {
-    match gate {
-        Gate::Requirements => layout.plan_dir(feature).join("requirements.md"),
-        Gate::Analysis => layout.plan_dir(feature).join("analysis.md"),
-        Gate::Plan | Gate::ExecutionGraph => layout.plan_dir(feature).join("plan.md"),
-    }
-}
-
-/// SHA-256 of the gate's artifact content. `Ok(None)` when the artifact does
-/// not exist — a vanished artifact is drift, not an error, until a human
-/// either restores it or re-approves.
-fn artifact_fingerprint(
-    layout: &Layout,
-    feature: &FeatureName,
-    gate: Gate,
-) -> Result<Option<String>, Failure> {
-    let path = artifact_path(layout, feature, gate);
-    if !fs::is_file(&path)? {
-        return Ok(None);
-    }
-    Ok(Some(hash::file(&path)?))
 }
 
 /// The one gate-state rendering, shared by both outcomes: one line per gate,
