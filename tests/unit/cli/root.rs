@@ -303,7 +303,7 @@ fn execute_prepare_accepts_session() {
 /// unchanged — the action never reads the environment itself.
 #[test]
 fn execute_prepare_maps_session_into_prepare_input() {
-    let args = FeatureExecuteArgs {
+    let args = ExecutePrepareArgs {
         feature: "checkout".to_owned(),
         graph_json: "/tmp/graph.json".to_owned(),
         session: Some("session-123".to_owned()),
