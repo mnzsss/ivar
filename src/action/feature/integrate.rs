@@ -505,12 +505,7 @@ fn integrate_repo(
         ));
     }
 
-    let parent_checks = manifest
-        .repos()
-        .iter()
-        .find(|candidate| candidate.name() == repo)
-        .map(|candidate| candidate.checks().to_vec())
-        .unwrap_or_default();
+    let parent_checks = verification::checks_for(manifest, repo);
     let parent_worktree = layout.repo_worktree(repo, &parent.branch);
     let verification_run = verification::run(&parent_checks, &parent_worktree)?;
     let passed = verification_run.results.iter().all(|result| result.success);
@@ -560,12 +555,7 @@ fn resume_repo(
 
     // 9. The child's own ordered checks run before anything moves.
     let child_worktree = layout.repo_worktree(repo, &child.branch);
-    let checks = manifest
-        .repos()
-        .iter()
-        .find(|candidate| candidate.name() == repo)
-        .map(|candidate| candidate.checks().to_vec())
-        .unwrap_or_default();
+    let checks = verification::checks_for(manifest, repo);
     let child_run = verification::run(&checks, &child_worktree)?;
     if !child_run.results.iter().all(|result| result.success) {
         return Ok(RepoIntegration {
@@ -625,12 +615,7 @@ fn integrate_local(
     let bare = layout.repo_bare(repo);
     let parent_sha = git.revision_commit(&bare, parent.branch.as_str())?;
     let parent_worktree = layout.repo_worktree(repo, &parent.branch);
-    let checks = manifest
-        .repos()
-        .iter()
-        .find(|candidate| candidate.name() == repo)
-        .map(|candidate| candidate.checks().to_vec())
-        .unwrap_or_default();
+    let checks = verification::checks_for(manifest, repo);
     let candidate = layout.integration_candidate(&child.name, repo);
 
     // The rebase strategy stages in a temporary source worktree and
@@ -893,12 +878,7 @@ fn integrate_pr(
     git.fast_forward(&parent_worktree)?;
 
     // The parent's checks run after the observed merge.
-    let checks = manifest
-        .repos()
-        .iter()
-        .find(|candidate| candidate.name() == repo)
-        .map(|candidate| candidate.checks().to_vec())
-        .unwrap_or_default();
+    let checks = verification::checks_for(manifest, repo);
     let parent_run = verification::run(&checks, &parent_worktree)?;
     let passed = parent_run.results.iter().all(|result| result.success);
 

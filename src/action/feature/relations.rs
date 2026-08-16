@@ -187,27 +187,7 @@ pub(crate) fn blocking_descendants(
     feature: &Feature,
 ) -> Result<Vec<TreeEntry>, Failure> {
     let all = read_all(layout)?;
-    let map = feature_map(&all);
-    let mut blockers = Vec::new();
-    for (depth, descendant) in descendants_from(&all, &feature.name) {
-        let parent_feature = descendant
-            .parent
-            .as_ref()
-            .and_then(|name| map.get(name))
-            .copied();
-        let state = state_of(git, layout, manifest, descendant, parent_feature)?;
-        if blocks(&state) {
-            blockers.push(TreeEntry {
-                feature: descendant.name.clone(),
-                parent: descendant.parent.clone(),
-                depth,
-                state,
-                repos: descendant.promotions.keys().cloned().collect(),
-                blockers: Vec::new(),
-            });
-        }
-    }
-    Ok(blockers)
+    blocking_entries(git, layout, manifest, &feature_map(&all), feature)
 }
 
 /// The derived integration state of one feature, root or child. A root never
@@ -289,12 +269,7 @@ pub(crate) fn receipt_freshness(
 
     // Check fingerprint: the current manifest checks must match the ones the
     // evidence was produced under.
-    let checks = manifest
-        .repos()
-        .iter()
-        .find(|candidate| candidate.name() == repo)
-        .map(|candidate| candidate.checks().to_vec())
-        .unwrap_or_default();
+    let checks = verification::checks_for(manifest, repo);
     let current_fingerprint = verification::fingerprint(&checks)?;
     if current_fingerprint != receipt.verification.command_fingerprint {
         return Ok(ReceiptFreshness::Stale {

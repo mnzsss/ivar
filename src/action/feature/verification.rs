@@ -13,8 +13,10 @@
 use camino::Utf8Path;
 
 use crate::domain::feature::VerificationResult;
+use crate::domain::name::RepoName;
 use crate::error::Failure;
 use crate::infra::{hash, json, proc};
+use crate::store::manifest::Manifest;
 
 /// One ordered verification pass: the fingerprint of the command list plus
 /// the results that actually ran.
@@ -34,6 +36,17 @@ pub(crate) struct VerificationRun {
 pub(crate) fn fingerprint(commands: &[String]) -> Result<String, Failure> {
     let rendered = json::to_canonical_string(&commands.to_vec()).map_err(Failure::from)?;
     Ok(hash::text(&rendered))
+}
+
+/// `repo`'s configured checks in `manifest`, in order, or empty if the repo
+/// is not (or no longer) listed there.
+pub(crate) fn checks_for(manifest: &Manifest, repo: &RepoName) -> Vec<String> {
+    manifest
+        .repos()
+        .iter()
+        .find(|candidate| candidate.name() == repo)
+        .map(|candidate| candidate.checks().to_vec())
+        .unwrap_or_default()
 }
 
 /// Run `commands` via `bash -lc <command>` in `cwd`, in order, stopping at

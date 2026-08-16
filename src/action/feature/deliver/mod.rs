@@ -309,13 +309,7 @@ pub fn deliver(ctx: &Ctx, input: DeliverInput) -> Outcome<DeliverOutcome> {
     // outcome.
     for repo in &preview.repos {
         let worktree = layout.repo_worktree(&repo.repo, &feature.branch);
-        let manifest_repo = manifest
-            .repos()
-            .iter()
-            .find(|candidate| candidate.name() == &repo.repo);
-        let repo_checks: Vec<String> = manifest_repo
-            .map(|candidate| candidate.checks().to_vec())
-            .unwrap_or_default();
+        let repo_checks = verification::checks_for(&manifest, &repo.repo);
         let run = verification::run(&repo_checks, &worktree)?;
         let passed = run.results.iter().all(|result| result.success);
         checks.push(RepoCheckResult {
