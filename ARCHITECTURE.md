@@ -49,17 +49,21 @@ src/
                    and setup-script execution in setup.rs.
     repo/          add · list · remove · pull · setup · upstream
     feature/       create · list · promote · demote · status · reparent ·
-                   integrate · close · delete · rebase · review · view · prune,
-                   plus deliver/ — the preview fingerprint, push, and
-                   pull-request phases split across mod.rs, repos.rs, and
-                   preview.rs. The nested-subfeature machinery lives in private
-                   focused modules: relations.rs (the child-derived tree,
-                   receipt freshness, and descendant blockers), lifecycle.rs
-                   (the shared plan-frontmatter close seam), mutation.rs (the
+                   close · delete · rebase · review · view · prune, plus
+                   deliver/ — the preview fingerprint, push, and pull-request
+                   phases split across mod.rs, repos.rs, and preview.rs — and
+                   integrate/ — the receipt-driven orchestration (preflight,
+                   reuse/re-verify/resume, close-on-integrated) in mod.rs,
+                   with the git-and-forge plumbing (local candidate staging,
+                   the PR path, and receipt persistence) in apply.rs. The
+                   nested-subfeature machinery lives in private focused
+                   modules: relations.rs (the child-derived tree, receipt
+                   freshness, and descendant blockers), lifecycle.rs (the
+                   shared plan-frontmatter close seam), mutation.rs (the
                    scoped whole-child/per-promotion mutation guards),
                    verification.rs (the ordered executable checks),
-                   reparent.rs, integrate.rs, and pull_requests.rs (the shared
-                   PR operations delivery and integration both use).
+                   reparent.rs, and pull_requests.rs (the shared PR operations
+                   delivery and integration both use).
     execute/       feature execute: prepare · replan · ack · reconcile ·
                    approve · guard_check · reply, plus inbox (both ends of the
                    human-reply channel, written by reply and read back into
