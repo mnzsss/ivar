@@ -2,24 +2,8 @@
 
 use super::*;
 use crate::action::feature::create::{self as feature_create, CreateInput as FeatureCreateInput};
-use crate::action::hall::{self, InitInput};
 use crate::action::plan::create::{self as plan_create, CreateInput};
-use crate::test_support::hall_root;
-
-fn seeded_hall() -> (tempfile::TempDir, Utf8PathBuf) {
-    let (guard, root) = hall_root();
-    let ctx = Ctx::new(root.clone());
-    hall::init(
-        &ctx,
-        InitInput {
-            path: Utf8PathBuf::from("."),
-            name: Some("acme".to_owned()),
-            provider: None,
-        },
-    )
-    .unwrap();
-    (guard, root)
-}
+use crate::test_support::seeded_hall;
 
 #[test]
 fn list_reports_no_plans_in_a_fresh_hall() {

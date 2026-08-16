@@ -200,3 +200,7 @@ fn provider_context_missing() -> Failure {
         "Run prepare from `/ivar-execute`, or pass the current IVAR_SESSION_ID with `--session`.",
     ))
 }
+
+#[cfg(test)]
+#[path = "../../../tests/unit/action/execute/targeting.rs"]
+mod tests;

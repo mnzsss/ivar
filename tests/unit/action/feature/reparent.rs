@@ -14,25 +14,9 @@ use super::*;
 use crate::action::feature::create::create as create_action;
 use crate::action::feature::create::{CreateInput, CreateOutcome};
 use crate::action::feature::list::list as list_action;
-use crate::action::hall::{self, InitInput};
 use crate::domain::name::RepoName;
 use crate::error::Status;
-use crate::test_support::hall_root;
-
-fn seeded_hall() -> (tempfile::TempDir, Utf8PathBuf) {
-    let (guard, root) = hall_root();
-    let ctx = Ctx::new(root.clone());
-    hall::init(
-        &ctx,
-        InitInput {
-            path: Utf8PathBuf::from("."),
-            name: Some("acme".to_owned()),
-            provider: None,
-        },
-    )
-    .unwrap();
-    (guard, root)
-}
+use crate::test_support::seeded_hall;
 
 fn create(ctx: &Ctx, name: &str, parent: Option<&str>) -> CreateOutcome {
     create_action(

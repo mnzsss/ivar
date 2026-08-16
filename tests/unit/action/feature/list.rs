@@ -8,23 +8,7 @@
 use super::*;
 use crate::action::feature::create::CreateInput;
 use crate::action::feature::create::create as create_action;
-use crate::action::hall::{self, InitInput};
-use crate::test_support::hall_root;
-
-fn seeded_hall() -> (tempfile::TempDir, Utf8PathBuf) {
-    let (guard, root) = hall_root();
-    let ctx = Ctx::new(root.clone());
-    hall::init(
-        &ctx,
-        InitInput {
-            path: Utf8PathBuf::from("."),
-            name: Some("acme".to_owned()),
-            provider: None,
-        },
-    )
-    .unwrap();
-    (guard, root)
-}
+use crate::test_support::{hall_root, seeded_hall};
 
 #[test]
 fn list_reports_an_empty_hall_as_empty() {

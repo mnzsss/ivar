@@ -25,7 +25,7 @@ use crate::domain::session::SessionState;
 use crate::error::Status;
 use crate::infra::fs;
 use crate::store::layout::Layout;
-use crate::test_support::hall_root;
+use crate::test_support::{feature_session, hall_root};
 
 const GRAPH_JSON: &str = r#"{
     "workstreams": [
@@ -206,21 +206,6 @@ fn board_ready_for_session_targeting() -> (tempfile::TempDir, Utf8PathBuf) {
     let graph = root.join("graph.json");
     fs::write_text(&graph, SESSION_GRAPH_JSON).unwrap();
     (guard, root)
-}
-
-/// Create a real feature-session record without spawning a provider: a view
-/// dir under the feature with a written `state.json`. Returns the session id.
-fn feature_session(root: &Utf8PathBuf, provider: Provider) -> String {
-    let layout = Layout::at(root.clone());
-    let feature = FeatureName::new("checkout").unwrap();
-    let id = SessionId::new(uuid::Uuid::new_v4().to_string()).unwrap();
-    let view_dir = layout.feature_session(&feature, &id);
-    fs::ensure_dir(&view_dir).unwrap();
-
-    let mut state = SessionState::new(provider, "2026-08-14T00:00:00.000000000Z");
-    state.bind(feature, "2026-08-14T00:00:00.000000000Z");
-    state.write(&view_dir).unwrap();
-    id.to_string()
 }
 
 /// The root-cause path, end to end: a hall whose default is Claude Code
