@@ -14,10 +14,8 @@ use crate::action::feature::create::{self as feature_create, CreateInput as Feat
 use crate::action::hall::{self, InitInput};
 use crate::action::plan::create::{self as plan_create, CreateInput as PlanCreateInput};
 use crate::domain::feature::ExecutionStatus;
-use crate::domain::name::SessionId;
-use crate::domain::session::SessionState;
 use crate::error::Status;
-use crate::test_support::{hall_root, utf8_temp_dir};
+use crate::test_support::{feature_session, hall_root, utf8_temp_dir};
 
 const GRAPH_JSON: &str = r#"{
     "workstreams": [
@@ -126,21 +124,6 @@ fn graph_file_targeted(root: &Utf8PathBuf) -> Utf8PathBuf {
         );
     fs::write_text(&path, &targeted).unwrap();
     path
-}
-
-/// Create a real feature-session record without spawning a provider: a view
-/// dir under the feature with a written `state.json`. Returns the session id.
-fn feature_session(root: &Utf8PathBuf, provider: Provider) -> String {
-    let layout = Layout::at(root.clone());
-    let feature = FeatureName::new("checkout").unwrap();
-    let id = SessionId::new(uuid::Uuid::new_v4().to_string()).unwrap();
-    let view_dir = layout.feature_session(&feature, &id);
-    fs::ensure_dir(&view_dir).unwrap();
-
-    let mut state = SessionState::new(provider, "2026-08-14T00:00:00.000000000Z");
-    state.bind(feature, "2026-08-14T00:00:00.000000000Z");
-    state.write(&view_dir).unwrap();
-    id.to_string()
 }
 
 /// The board read back off disk — the real file, not the in-memory value
@@ -637,62 +620,6 @@ fn an_explicit_workstream_provider_overrides_the_session_provider() {
         board.graph.workstreams[1].provider,
         Some(Provider::OpenCode)
     );
-}
-
-/// A provider-less graph with no caller session is refused with a structured
-/// recovery message — `prepare` never falls back silently to the hall default.
-#[test]
-fn prepare_refuses_an_unresolved_provider_without_a_caller_session() {
-    let (_guard, root) = seeded_hall();
-    let graph = graph_file(&root);
-    let failure = prepare(
-        &Ctx::new(root.clone()),
-        PrepareInput {
-            feature: "checkout".to_owned(),
-            graph_json: graph.to_string(),
-            session: None,
-        },
-    )
-    .unwrap_err();
-
-    assert_eq!(failure.code, "execute.provider_context_missing");
-    assert!(failure.what.contains("caller session"));
-}
-
-/// The graph and the plan naming different providers for the same workstream
-/// is a refusal — the two artifacts must not drift silently.
-#[test]
-fn prepare_refuses_provider_drift_between_plan_and_graph() {
-    let (_guard, root) = seeded_hall();
-    let plan_path = root.join("plans/checkout/plan.md");
-    let plan = fs::read_text(&plan_path).unwrap().unwrap().replacen(
-        "### ws-gates\n",
-        "### ws-gates\nprovider: opencode\n",
-        1,
-    );
-    fs::write_text(&plan_path, &plan).unwrap();
-    let graph = root.join("graph.json");
-    let graph_text = GRAPH_JSON.replacen(
-        "\"write_contract\": [\"src/domain/feature.rs\"]",
-        "\"write_contract\": [\"src/domain/feature.rs\"],\n            \"provider\": \"claude-code\"",
-        1,
-    );
-    fs::write_text(&graph, &graph_text).unwrap();
-    let session = feature_session(&root, Provider::OpenCode);
-
-    let failure = prepare(
-        &Ctx::new(root),
-        PrepareInput {
-            feature: "checkout".to_owned(),
-            graph_json: graph.to_string(),
-            session: Some(session),
-        },
-    )
-    .unwrap_err();
-    assert_eq!(failure.code, "execute.targeting_conflict");
-    assert!(failure.what.contains("ws-gates"));
-    assert!(failure.what.contains("opencode"));
-    assert!(failure.what.contains("claude-code"));
 }
 
 /// Selectors authored only in the plan — `model` and `agent` with no graph

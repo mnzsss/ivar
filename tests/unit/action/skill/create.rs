@@ -1,25 +1,9 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use super::*;
-use crate::action::hall::{self, InitInput};
 use crate::error::Status;
 use crate::infra::frontmatter;
-use crate::test_support::hall_root;
-
-fn seeded_hall() -> (tempfile::TempDir, Utf8PathBuf) {
-    let (guard, root) = hall_root();
-    let ctx = Ctx::new(root.clone());
-    hall::init(
-        &ctx,
-        InitInput {
-            path: Utf8PathBuf::from("."),
-            name: Some("acme".to_owned()),
-            provider: None,
-        },
-    )
-    .unwrap();
-    (guard, root)
-}
+use crate::test_support::seeded_hall;
 
 #[test]
 fn create_writes_sk_md_with_name_and_description_frontmatter() {
