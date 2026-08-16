@@ -27,6 +27,7 @@ use crate::domain::name::RepoName;
 use crate::error::{Failure, FixAction, Outcome, Report, Warning, WriteHuman};
 use crate::git::{self, Git, TargetState};
 use crate::infra::fs;
+use crate::infra::progress::Progress;
 use crate::store::layout::Layout;
 use crate::store::manifest::{Manifest, Repo};
 
@@ -165,10 +166,11 @@ pub fn pull(ctx: &Ctx, input: PullInput) -> Outcome<PullOutcome> {
 
 /// The transient line announcing repo `index` (0-based) of `total`.
 ///
-/// Shared with the Smart Fetch in `session::start` and `execute::tick`, which
-/// run this same [`refresh_default`] loop: three verbs waiting on the same
-/// round trip say so the same way, and a change to the wording is one edit.
-pub(crate) fn fetch_step(index: usize, total: usize, repo: &Repo) -> String {
+/// Shared between [`pull`] and [`refresh_all`] — the latter is the Smart
+/// Fetch sweep `session::start` and `execute::tick` both call: three verbs
+/// waiting on the same round trip say so the same way, and a change to the
+/// wording is one edit.
+fn fetch_step(index: usize, total: usize, repo: &Repo) -> String {
     format!(
         "[{}/{total}] {}: fetching {}…",
         index + 1,
@@ -189,8 +191,9 @@ pub(crate) fn fetch_step(index: usize, total: usize, repo: &Repo) -> String {
 /// cannot create files in a write-bit-cleared directory, and a checkout that
 /// fails mid-merge would leave the branch advanced but the files missing.
 ///
-/// `pub(crate)` because Smart Fetch on session start is this same operation —
-/// the plan's "use the existing pull logic" is literally this function.
+/// `pub(crate)` because [`refresh_all`] — the Smart Fetch sweep — is a loop
+/// around this same operation; the plan's "use the existing pull logic" is
+/// literally this function.
 pub(crate) fn refresh_default(git: &impl Git, layout: &Layout, repo: &Repo) -> PullStatus {
     let worktree = layout.repo_worktree(repo.name(), repo.default_branch());
 
@@ -244,6 +247,32 @@ pub(crate) fn refresh_default(git: &impl Git, layout: &Layout, repo: &Repo) -> P
         let _ = fs::clear_write_bits(&worktree);
     }
     status
+}
+
+/// Fetch-and-fast-forward every registered repo — the **Smart Fetch** sweep
+/// `session start` runs before a session's view dir exists and `execute
+/// tick` runs once per tick before its fan-out.
+///
+/// Returns a status per repo, in manifest order, instead of warnings: the
+/// warning codes differ per caller (`session.smart_fetch_*` vs
+/// `execute.tick_smart_fetch_*`), so turning a [`PullStatus`] into a
+/// [`Warning`] is the caller's job, not this function's — passing warning
+/// codes in here would make `pull` know about verbs it does not own.
+pub(crate) fn refresh_all(
+    git: &impl Git,
+    layout: &Layout,
+    manifest: &Manifest,
+    progress: &dyn Progress,
+) -> Vec<(RepoName, PullStatus)> {
+    let mut results = Vec::new();
+    let total = manifest.repos().len();
+    for (index, repo) in manifest.repos().iter().enumerate() {
+        progress.step(&fetch_step(index, total, repo));
+        let status = refresh_default(git, layout, repo);
+        results.push((repo.name().clone(), status));
+    }
+    progress.clear();
+    results
 }
 
 /// The repos to refresh: the one named, or every repo in the manifest.

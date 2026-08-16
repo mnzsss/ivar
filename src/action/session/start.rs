@@ -49,7 +49,6 @@ use crate::error::{Failure, FixAction, Outcome, Report, Warning, WriteHuman};
 use crate::git;
 use crate::harness::{self, Harness};
 use crate::infra::fs;
-use crate::infra::progress::Progress;
 use crate::store::layout::Layout;
 use crate::store::manifest::Manifest;
 use crate::tui;
@@ -153,7 +152,23 @@ pub fn start(ctx: &Ctx, input: StartInput) -> Outcome<StartOutcome> {
     //    worktree — never a promoted repo's feature worktree — and a fetch
     //    that lands new files needs a writable target, so this runs before
     //    the guard-applying materialisation below.
-    let mut warnings = smart_fetch(&git::System, &layout, &manifest, ctx.progress());
+    let mut warnings: Vec<Warning> =
+        pull::refresh_all(&git::System, &layout, &manifest, ctx.progress())
+            .into_iter()
+            .filter_map(|(repo, status)| match status {
+                pull::PullStatus::Refreshed => None,
+                pull::PullStatus::Failed { reason } => Some(Warning::new(
+                    "session.smart_fetch_failed",
+                    repo.to_string(),
+                    reason,
+                )),
+                pull::PullStatus::Skipped { reason } => Some(Warning::new(
+                    "session.smart_fetch_skipped",
+                    repo.to_string(),
+                    reason,
+                )),
+            })
+            .collect();
 
     // 2. The view dir and the session record. A discovery session lives in
     //    the hall's own session tree, and its record stays unbound.
@@ -312,43 +327,6 @@ fn check_relay(
     }
 
     Ok(())
-}
-
-/// Best-effort default-branch refresh for every registered repo — valhalla's
-/// **Smart Fetch**. One unreachable remote warns and is skipped; the session
-/// still starts. Runs through the same fetch-and-fast-forward as `repo pull`
-/// (that is what `repo.pull::refresh_default` is), which never touches a
-/// promoted repo's feature worktree.
-///
-/// `progress` is the same transient stderr line `repo pull` uses: this runs
-/// before anything is printed and costs one network round trip per repo, which
-/// is the longest a `session start` sits silent.
-fn smart_fetch(
-    git: &impl git::Git,
-    layout: &Layout,
-    manifest: &Manifest,
-    progress: &dyn Progress,
-) -> Vec<Warning> {
-    let mut warnings = Vec::new();
-    let total = manifest.repos().len();
-    for (index, repo) in manifest.repos().iter().enumerate() {
-        progress.step(&pull::fetch_step(index, total, repo));
-        match pull::refresh_default(git, layout, repo) {
-            pull::PullStatus::Refreshed => {}
-            pull::PullStatus::Failed { reason } => warnings.push(Warning::new(
-                "session.smart_fetch_failed",
-                repo.name().to_string(),
-                reason,
-            )),
-            pull::PullStatus::Skipped { reason } => warnings.push(Warning::new(
-                "session.smart_fetch_skipped",
-                repo.name().to_string(),
-                reason,
-            )),
-        }
-    }
-    progress.clear();
-    warnings
 }
 
 /// Run the TUI over the agent's PTY: pump its output, render one frame, and
