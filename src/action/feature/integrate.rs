@@ -279,9 +279,7 @@ pub fn integrate(ctx: &Ctx, input: IntegrateInput) -> Outcome<IntegrateOutcome> 
     let mut repos_out = Vec::new();
     let mut warnings = Vec::new();
     for repo in child.promotions.keys().cloned().collect::<Vec<_>>() {
-        match integrate_repo(
-            ctx, &layout, &manifest, &git, &child, &parent, &repo, policy,
-        ) {
+        match integrate_repo(&layout, &manifest, &git, &child, &parent, &repo, policy) {
             Ok(entry) => repos_out.push(entry),
             Err(failure) => {
                 // A repo that breaks mid-run (checks failed, candidate failed,
@@ -430,7 +428,6 @@ fn dirty_failure(code: &'static str, worktree: &camino::Utf8Path, reason: &str) 
 /// failed one, or resume an unreceipted one.
 #[allow(clippy::too_many_arguments)]
 fn integrate_repo(
-    ctx: &Ctx,
     layout: &Layout,
     manifest: &Manifest,
     git: &impl Git,
@@ -448,7 +445,6 @@ fn integrate_repo(
         .and_then(|promotion| promotion.integration_receipt.as_ref())
     else {
         return resume_repo(
-            ctx,
             layout,
             manifest,
             git,
@@ -550,7 +546,6 @@ fn integrate_repo(
 /// Resume an unreceipted repo: the full local or PR integration.
 #[allow(clippy::too_many_arguments)]
 fn resume_repo(
-    ctx: &Ctx,
     layout: &Layout,
     manifest: &Manifest,
     git: &impl Git,
@@ -600,7 +595,6 @@ fn resume_repo(
             child_results,
         ),
         IntegrationVia::Pr => integrate_pr(
-            ctx,
             layout,
             manifest,
             git,
@@ -649,15 +643,7 @@ fn integrate_local(
         git.add_worktree(&bare, &source_wt, &temp_branch)?;
         git.rebase_branch(&source_wt, parent.branch.as_str())?;
         if !parent_checks_pass(&source_wt, &checks)? {
-            cleanup_staging(
-                layout,
-                git,
-                &child.name,
-                repo,
-                &candidate,
-                &source_wt,
-                &temp_branch,
-            )?;
+            cleanup_staging(layout, git, repo, &candidate, &source_wt, &temp_branch)?;
             // (candidate unused in the rebase path; kept for a uniform call)
             return Ok(RepoIntegration {
                 repo: repo.clone(),
@@ -682,7 +668,7 @@ fn integrate_local(
             IntegrationStrategy::Rebase => unreachable!("handled above"),
         }
         if !parent_checks_pass(&candidate, &checks)? {
-            cleanup_staging(layout, git, &child.name, repo, &candidate, &candidate, "")?;
+            cleanup_staging(layout, git, repo, &candidate, &candidate, "")?;
             return Ok(RepoIntegration {
                 repo: repo.clone(),
                 source_sha: source_sha.to_owned(),
@@ -705,15 +691,7 @@ fn integrate_local(
             .as_ref()
             .map(|(_, b)| b.clone())
             .unwrap_or_default();
-        cleanup_staging(
-            layout,
-            git,
-            &child.name,
-            repo,
-            &candidate,
-            &source_wt,
-            &temp_branch,
-        )?;
+        cleanup_staging(layout, git, repo, &candidate, &source_wt, &temp_branch)?;
         return Err(Failure::blocked(
             "integration.parent_moved",
             format!(
@@ -785,15 +763,7 @@ fn integrate_local(
         .as_ref()
         .map(|(_, b)| b.clone())
         .unwrap_or_default();
-    cleanup_staging(
-        layout,
-        git,
-        &child.name,
-        repo,
-        &candidate,
-        &source_wt,
-        &temp_branch,
-    )?;
+    cleanup_staging(layout, git, repo, &candidate, &source_wt, &temp_branch)?;
 
     Ok(RepoIntegration {
         repo: repo.clone(),
@@ -818,7 +788,6 @@ fn integrate_local(
 /// merge, observe, fetch the parent, and record the evidence.
 #[allow(clippy::too_many_arguments)]
 fn integrate_pr(
-    _ctx: &Ctx,
     layout: &Layout,
     manifest: &Manifest,
     git: &impl Git,
@@ -1098,12 +1067,9 @@ fn persist_receipt(
 
 /// Remove the temporary staging worktrees (and the rebase temp branch), never
 /// the child's own branch or worktree.
-/// Remove the temporary staging worktrees and the rebase temp branch — never
-/// the child's own branch or worktree.
 fn cleanup_staging(
     layout: &Layout,
     git: &impl Git,
-    _child: &FeatureName,
     repo: &RepoName,
     candidate: &camino::Utf8PathBuf,
     source_wt: &camino::Utf8PathBuf,
