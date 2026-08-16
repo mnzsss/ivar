@@ -444,3 +444,7 @@ impl From<UnknownIntegrationStrategy> for Failure {
         )
     }
 }
+
+#[cfg(test)]
+#[path = "../../../tests/unit/domain/feature/integration.rs"]
+mod tests;

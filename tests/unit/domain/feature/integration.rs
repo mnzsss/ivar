@@ -12,6 +12,8 @@
     clippy::indexing_slicing
 )]
 
+use rstest::rstest;
+
 use super::*;
 use crate::domain::name::BranchName;
 
@@ -57,7 +59,10 @@ fn display_names_are_the_cli_surface() {
 
 #[test]
 fn serde_names_are_snake_case_and_never_github() {
-    assert_eq!(serde_json::to_value(IntegrationVia::Pr).unwrap(), serde_json::json!("pr"));
+    assert_eq!(
+        serde_json::to_value(IntegrationVia::Pr).unwrap(),
+        serde_json::json!("pr")
+    );
     assert_eq!(
         serde_json::to_value(IntegrationStrategy::Rebase).unwrap(),
         serde_json::json!("rebase")
@@ -122,7 +127,7 @@ fn override_round_trips_through_serde_omitting_unset_fields() {
         via: Some(IntegrationVia::Pr),
         strategy: None,
     };
-    let rendered = serde_json::to_value(&override_value).unwrap();
+    let rendered = serde_json::to_value(override_value).unwrap();
     assert_eq!(rendered, serde_json::json!({ "via": "pr" }));
     assert_eq!(
         serde_json::from_value::<IntegrationOverride>(rendered).unwrap(),
@@ -249,7 +254,10 @@ fn failed_outranks_stale_and_stale_outranks_integrated() {
         any_failed_evidence: true,
         any_stale: true,
     };
-    assert_eq!(classify(None, failed_and_stale), FeatureIntegrationState::Failed);
+    assert_eq!(
+        classify(None, failed_and_stale),
+        FeatureIntegrationState::Failed
+    );
 
     let stale_only = ClassificationFacts {
         fully_receipted: true,
