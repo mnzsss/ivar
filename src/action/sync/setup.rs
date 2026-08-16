@@ -3,6 +3,7 @@
 
 use camino::Utf8Path;
 
+use crate::action::{SETUP_INTERPRETER, worktree_env};
 use crate::error::{Failure, FixAction};
 use crate::git::{self};
 use crate::infra::{fs, hash, proc};
@@ -11,15 +12,6 @@ use crate::store::manifest::Repo;
 use crate::store::setup_receipt::Receipt;
 
 use super::{Change, Entry};
-
-/// The interpreter a setup script runs under.
-///
-/// Named explicitly rather than executing the script directly, so a script does
-/// not need its executable bit set — a `.sh` file arriving through a `git
-/// clone` on a filesystem that drops modes would otherwise fail with "permission
-/// denied", which names the wrong problem. The script's own shebang is
-/// advisory; this is what actually runs it.
-const SETUP_INTERPRETER: &str = "bash";
 
 pub(crate) fn run_setup_script(
     git: &impl git::Git,
@@ -94,17 +86,18 @@ pub(crate) fn setup_command(
     worktree: &Utf8Path,
     script: &Utf8Path,
 ) -> proc::Command {
-    proc::Command::new(SETUP_INTERPRETER)
-        .arg(script.as_str())
-        .cwd(worktree)
-        .env("IVAR_HALL", layout.root().as_str())
-        .env("IVAR_REPO", repo.name().as_str())
-        .env("IVAR_BRANCH", repo.default_branch().as_str())
-        .env("IVAR_WORKTREE", worktree.as_str())
-        .env("IVAR_SECRETS_DIR", layout.secrets_dir().as_str())
-        // `default`, never `feature`: this is the hall's own checkout of the
-        // repo's default branch. Feature worktrees get theirs on promote.
-        .env("IVAR_WORKTREE_KIND", "default")
+    worktree_env(
+        proc::Command::new(SETUP_INTERPRETER)
+            .arg(script.as_str())
+            .cwd(worktree),
+        layout,
+        repo.name().as_str(),
+        repo.default_branch().as_str(),
+        worktree,
+    )
+    // `default`, never `feature`: this is the hall's own checkout of the
+    // repo's default branch. Feature worktrees get theirs on promote.
+    .env("IVAR_WORKTREE_KIND", "default")
     // `IVAR_FEATURE` is deliberately absent: there is no feature here. The
     // promote path sets it, and a script that reads it unguarded should fail
     // loudly on the default worktree rather than silently bootstrap the wrong

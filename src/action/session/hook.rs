@@ -42,6 +42,7 @@
 //! `ARCHITECTURE.md` lists both in the environment contract. This is the file
 //! that makes that true for a script.
 
+use crate::action::worktree_env;
 use crate::domain::feature::Feature;
 use crate::domain::name::{RepoName, SessionId};
 use crate::error::Warning;
@@ -122,18 +123,19 @@ fn run_hook(
         }
     }
 
-    let command = proc::Command::new(HOOK_INTERPRETER)
-        .arg(hook.as_str())
-        .cwd(&worktree)
-        .env("IVAR_HALL", layout.root().as_str())
-        .env("IVAR_REPO", repo.as_str())
-        .env("IVAR_BRANCH", feature.branch.as_str())
-        .env("IVAR_WORKTREE", worktree.as_str())
-        .env("IVAR_WORKTREE_KIND", "feature")
-        .env("IVAR_FEATURE", feature.name.as_str())
-        .env("IVAR_SECRETS_DIR", layout.secrets_dir().as_str())
-        .env("IVAR_SESSION_ID", session.as_str())
-        .env("IVAR_SESSION_PATH", view_dir.as_str());
+    let command = worktree_env(
+        proc::Command::new(HOOK_INTERPRETER)
+            .arg(hook.as_str())
+            .cwd(&worktree),
+        layout,
+        repo.as_str(),
+        feature.branch.as_str(),
+        &worktree,
+    )
+    .env("IVAR_WORKTREE_KIND", "feature")
+    .env("IVAR_FEATURE", feature.name.as_str())
+    .env("IVAR_SESSION_ID", session.as_str())
+    .env("IVAR_SESSION_PATH", view_dir.as_str());
 
     // Streamed, not captured, for the same reason the setup script is: a
     // `docker compose up` pulling an image is minutes of output, and a frozen
