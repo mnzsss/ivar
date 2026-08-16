@@ -8,7 +8,8 @@
 //! split exists at all.
 
 use std::io::{self, BufRead, BufReader, Read, Write};
-use std::process::{Child, ChildStderr, ChildStdout, Stdio};
+use std::process::{Child, ChildStdout, Stdio};
+use std::thread::JoinHandle;
 
 use super::{Command, Error, decode, spawn_error};
 
@@ -69,11 +70,24 @@ pub fn stream(command: &Command) -> Result<Stream, Error> {
         }
     };
 
+    // Drained on its own thread from the moment of spawn, for the same reason
+    // the stdin text above is written on one: a pipe nobody is reading fills,
+    // and a child blocked on a full stderr pipe never reaches the stdout write
+    // that `read_line` is waiting for. Draining in `wait` instead would only
+    // be reached once stdout had already ended, which is precisely the thing
+    // the flooded child cannot do.
+    let stderr_drain = std::thread::spawn(move || {
+        let mut raw = Vec::new();
+        let mut stderr = stderr;
+        let _ = stderr.read_to_end(&mut raw);
+        raw
+    });
+
     Ok(Stream {
         command: command.clone(),
         child,
         stdout: BufReader::new(stdout),
-        stderr,
+        stderr: Some(stderr_drain),
         captured_stderr: String::new(),
     })
 }
@@ -99,7 +113,10 @@ pub struct Stream {
     /// keeps that test whole instead of splitting it into a second file.
     pub(super) child: Child,
     stdout: BufReader<ChildStdout>,
-    stderr: ChildStderr,
+    /// The drain thread started by [`stream`], not the pipe itself. Taken by
+    /// the first [`Self::wait`], which joins it for the bytes it collected;
+    /// later calls find `None` and keep the text already decoded.
+    stderr: Option<JoinHandle<Vec<u8>>>,
     captured_stderr: String,
 }
 
@@ -131,18 +148,22 @@ impl Stream {
     /// signal death — the same shape [`inherit`](super::inherit) returns,
     /// because both answer exactly one question: how did the process end.
     ///
-    /// Also drains whatever the child wrote to stderr and decodes it lossily,
-    /// like [`capture`](super::capture), so [`Self::stderr`] has something to
-    /// explain a failure with. Safe to call more than once, like the
-    /// underlying [`Child::wait`].
+    /// Also collects whatever the child wrote to stderr and decodes it
+    /// lossily, like [`capture`](super::capture), so [`Self::stderr`] has
+    /// something to explain a failure with. Safe to call more than once, like
+    /// the underlying [`Child::wait`].
+    ///
+    /// The bytes were being read all along by the drain thread [`stream`]
+    /// starts; this only joins it. A child still holding stderr open blocks
+    /// that join, which is the known limitation the plan's safeguards accept:
+    /// a hung child hangs the caller, visibly rather than silently.
     pub fn wait(&mut self) -> Result<Option<i32>, Error> {
-        let mut raw_stderr = Vec::new();
-        // A child that closed stderr (the normal case at exit) makes this
-        // return `Ok(0)` rather than block; one still open would block here,
-        // which is the known limitation the plan's safeguards accept: a hung
-        // child hangs the caller, visibly rather than silently.
-        let _ = self.stderr.read_to_end(&mut raw_stderr);
-        self.captured_stderr = decode(&raw_stderr);
+        if let Some(drain) = self.stderr.take() {
+            // A drain thread that panicked is not a second failure to report:
+            // the child's own exit code is the answer, and stderr exists only
+            // to explain it.
+            self.captured_stderr = decode(&drain.join().unwrap_or_default());
+        }
 
         let status = self
             .child
