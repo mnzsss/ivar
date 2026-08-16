@@ -86,17 +86,23 @@ src/
 
   domain/          pure types and invariants. No I/O, no git, no clap.
     name.rs        validated newtypes: HallName, RepoName, FeatureName, BranchName…
-    feature/       a facade over six focused files: feature.rs (the promotion
-                   record and FeatureBoard), delivery.rs (guards and the
-                   delivery preview), approval.rs (the SPDD gates),
-                   execution.rs (the execution board and workstream graph),
-                   write_contract.rs (the glob-matching write contract each
-                   workstream must respect), and integration.rs (the pure
-                   nested-integration vocabulary: via/strategy/policy
-                   resolution, receipts and verification evidence, and the
-                   derived integration-state classifier). Children are
-                   derived by scanning `Feature.parent` — no feature stores a
-                   child list, and no lifecycle field is persisted.
+    feature/       a facade over seven focused files: feature.rs (the
+                   promotion record and FeatureBoard — declared here as
+                   `promotion`, via `#[path]`, because a module cannot share
+                   the name of the directory that contains it), delivery.rs
+                   (guards and the delivery preview), approval.rs (the SPDD
+                   gates), execution.rs (the execution board and workstream
+                   graph), write_contract.rs (the glob-matching write
+                   contract each workstream must respect, split out of
+                   execution.rs because it touches no board, status or
+                   journal), integration.rs (the pure nested-integration
+                   vocabulary: via/strategy/policy resolution, receipts and
+                   verification evidence, and the derived integration-state
+                   classifier), and base.rs (effective_base, the
+                   declared-base-or-default-branch fallback a promotion
+                   resolves against). Children are derived by scanning
+                   `Feature.parent` — no feature stores a child list, and no
+                   lifecycle field is persisted.
     session.rs     session state and identity
     provider.rs    which harnesses exist, and their capability flags
     health.rs      hall health derivation (uninitialized/operational/stale/degraded)
@@ -125,7 +131,15 @@ src/
     error.rs       git::Error and its Failure conversion
     read.rs        git2: refs, HEAD, worktree list, ahead/behind, status, blobs
     exec.rs        the git binary: clone --bare, worktree add/rm, branch, fetch,
-                   push, rebase, checkout
+                   push, rebase, checkout — plus six pure local reads
+                   (worktree_dirty, changed_paths, head_commit,
+                   paths_committed_since, diff_worktree, commits_ahead) that
+                   stay here rather than in read.rs. The ADR-0001 §3 split
+                   ("reads go through git2, writes and network go through the
+                   binary") is a rule with this one named exception: each of
+                   these six parses `git`'s porcelain -z output, which is far
+                   cheaper than the equivalent git2 walk for a plain local
+                   read, and none of them touches a remote.
     credential.rs  git credential-helper protocol, for the token fallback
 
   harness/         provider adapters
@@ -133,22 +147,27 @@ src/
                    Claude Code and OpenCode are variants here, not files —
                    they differ by data (config path, argv, capabilities), and a
                    file each would have held a match arm and nothing more.
+    commands.rs    the shipped-command reconciliation: materialise/remove/
+                   inspect against a session's harness config directory. It
+                   is the module file *for* `commands/` — a sibling of the
+                   directory, not a file inside it — where `commands/catalog.rs`
+                   owns ShippedCommand + the COMMANDS data and the *.md
+                   sources live, compiled in with include_str!. No command
+                   content or file reconciliation lives in `bin/ivar.rs` or
+                   `action`.
     config/        per-harness config materialisation: instructions.rs owns
                    the canonical `HALL.md` managed block and the provider
                    root aliases (relative symlinks to `HALL.md`); mcp.rs owns
                    the MCP document construction and the Claude/OpenCode
                    translation; session.rs builds the session bootstrap block.
-    commands/      the shipped workflow catalog and reconciliation: catalog.rs
-                   owns ShippedCommand + the COMMANDS data, commands.rs owns
-                   materialise/remove/inspect. The *.md sources live here and
-                   are compiled in with include_str!.
-    commands/*.md  provider-neutral workflow sources, compiled into the binary
-                   with include_str!. No command content or file reconciliation
-                   lives in `bin/ivar.rs` or `action`.
     guard/         the per-session execution guard materialisation: the
                    dispatch and shared constants in mod.rs, the Claude Code
                    hook script + settings.json merge in claude.rs, and the
                    OpenCode plugin in opencode.rs
+    stream.rs      provider-shaped JSON in, ExecutorEvent out: the one place
+                   a `claude -p --output-format stream-json` or `opencode
+                   run` line is parsed, so a provider's envelope shape can
+                   change without anything above this file noticing.
 
   tui/             ratatui. Sync render, explicit drive.
     screen.rs      the Screen seam over vt100 — the emulator swap point
@@ -171,8 +190,10 @@ src/
     json.rs        write_canonical — the ONLY on-disk JSON writer
     frontmatter.rs split + parse + emit YAML frontmatter. The YAML swap point.
     hash.rs        sha256 of a file, and of a tree
-    proc/          subprocess spawn, capture, exit codes in mod.rs; the Linux
-                   /proc port attribution lives in ports.rs.
+    proc/          subprocess spawn: `capture` and `inherit` in mod.rs, the
+                   incremental line-protocol runner (`stream`/`Stream`) a
+                   provider process needs in streaming.rs, and the Linux
+                   /proc port attribution in ports.rs.
     github.rs      GitHub token lookup (and the credential-helper wiring that
                    derives it from `gh`/`$GITHUB_TOKEN` on each call). PR
                    operations themselves are not a trait seam: tests fake the
@@ -206,7 +227,10 @@ tests/
     unit.rs                 linked from src/lib.rs as crate::test_support
     integration.rs          linked from each integration target as `common`,
                             adding the assert_cmd binary and manifest helpers
-  unit/                     the unit-test tree, mirrored one-to-one against src/
+  unit/                     the unit-test tree, mirrored against the module
+                            that owns each #[path] link — not wall-to-wall
+                            against src/, since a facade's children may
+                            share the facade's linked test file
 ```
 
 A production file keeps only a path-linked declaration; the body lives in the
@@ -222,10 +246,35 @@ The `#[path]` link means the module is still compiled as a child of its owning
 production module inside the library test crate — `use super::*` and access to
 private parent items keep working, so relocating a test never widens production
 visibility. Physical location and compilation home are deliberately different
-things, and `tests/architecture.rs` enforces both: the layering scan walks
-`tests/unit/<module>/` with the same allowed imports as `src/<module>/`, and a
+things, and `tests/architecture.rs` enforces all three: the layering scan walks
+`tests/unit/<module>/` with the same allowed imports as `src/<module>/`, a
 second rule refuses any `#[test]`, `#[rstest]`, or inline `mod tests { … }`
-body under `src/`.
+body under `src/`, and a third walks the physical `tests/unit/` tree and every
+`#[path = "…tests/unit/…"]` link in `src/` and asserts the two sets match
+exactly. An orphaned test file — physically present, linked from nowhere —
+compiles into nothing, and its assertions silently never run; that gap is what
+the third rule exists to catch.
+
+The mirror is against the *linked* module, not the physical src/ tree, and
+that difference is deliberate in roughly twenty places, not drift: a facade's
+own verb is tested where the facade's link says it is, and a focused child
+with no independent surface is exercised alongside it rather than carrying an
+empty file of its own. `action/sync/`'s `repo.rs`, `providers.rs`, and
+`setup.rs`; `action/feature/deliver/`'s `preview.rs` and `repos.rs`;
+`action/feature/integrate/`'s `apply.rs`; `action/execute/tick/`'s `launch.rs`
+and `events.rs`; `harness/commands/catalog.rs`; `harness/config/mcp.rs`;
+`harness/guard/claude.rs` and `opencode.rs`; `infra/fs/`'s `io.rs`,
+`symlink.rs`, and `guard.rs`; `infra/proc/`'s `ports.rs` and `streaming.rs`;
+and `tui/scrollback.rs` are all tested through the linked file of the module
+that declares them (`sync/mod.rs`, `deliver/mod.rs`, `integrate/mod.rs`,
+`tick/mod.rs`, `commands.rs`, `config/mod.rs`, `guard/mod.rs`, `fs/mod.rs`,
+`proc/mod.rs`, `driver.rs`). `action/hall/`'s five verb files predate this
+pattern and share one file, `tests/unit/action/hall.rs`, for a different
+reason: the facade there holds the shared discovery/read/prompt helpers, not
+a re-export shell, so no per-verb split ever happened. A plain `mod.rs` that
+is only `mod x; pub use x::*;` — most of the crate's — carries no test file at
+all, because it has nothing in it that its children's tests do not already
+cover.
 
 `tests/unit/` is not a Cargo integration target: Cargo only auto-discovers
 top-level `tests/*.rs` files, and there is deliberately no top-level
@@ -242,28 +291,77 @@ exceptions:
 - `store/versioned/mod.rs` — the single documented versioning machine with its
   two policies (its Error was extracted to `error.rs`).
 - `store/layout.rs` — every managed path is computed in one place.
+- `store/manifest/model.rs` — the manifest's data types and every value
+  invariant (`Manifest::validate`); reading/writing and error conversion were
+  already split out to `persistence.rs` and `error.rs`.
 - `bin/ivar.rs` — parse, dispatch, render, exit code; no domain logic.
 - `error.rs` — the single output/error envelope (`Failure`, `Status`,
   `FixAction`, `Warning`, `Report`, `Palette`).
 - `domain/name.rs` — one validation vocabulary with a common error model.
+- `domain/feature/execution.rs` — the execution board's status/journal
+  invariants and the plan-derived workstream graph. It has no child modules
+  and no `pub use`, so — unlike the facades below — it is not a facade; it is
+  simply a coherent file that stayed over the trigger after `write_contract.rs`
+  was carved out of it.
+- `domain/feature/integration.rs` — the pure nested-integration vocabulary in
+  one place: via/strategy/policy resolution, receipts, and the evidence a
+  receipt's trust rests on.
 - `action/session/start.rs` — the session-start orchestration, kept one file by
   an explicit planning decision.
 - `harness/commands.rs` and `harness/config/instructions.rs` — the reconciliation
-  halves of their pairs; their declarative halves (catalog.rs, mcp.rs) were
-  extracted.
-- `action/sync/mod.rs`, `action/feature/deliver/mod.rs`,
-  `domain/feature/execution.rs` — module facades whose capabilities live in
-  focused child files.
+  halves of their pairs; their declarative halves (`commands/catalog.rs`,
+  `config/mcp.rs`) were extracted.
+- `action/sync/mod.rs` — the public verb and report types, dispatching into
+  `repo.rs`/`providers.rs`/`setup.rs`, which each stayed well under the
+  trigger — a module facade whose capabilities genuinely live in focused
+  child files.
+- `action/feature/deliver/mod.rs` — restated honestly rather than filed under
+  the facade above: `deliver()` itself (the preview/push/PR pipeline) stays
+  inline here; `preview.rs` and `repos.rs` hold only the fingerprinted preview
+  and repo-materialisation pieces it calls into. That inline apply pipeline is
+  known debt, not a facade — splitting it further was not attempted in this
+  pass.
+- `action/feature/integrate/mod.rs` and `apply.rs` — a facade split, but an
+  honest one: unlike `deliver/`, both halves stayed over the trigger, because
+  the orchestration state machine (preflight, reuse/re-verify/resume,
+  close-on-integrated) and the git-and-forge plumbing it calls (the local and
+  PR apply paths, and receipt persistence) are each real weight, not a thin
+  dispatcher over thin children.
+- `action/feature/relations.rs` — the derived child-feature tree: parent-cycle
+  validation, receipt freshness against live git, and the descendant blockers
+  — one scan, not a helper reimplemented at each call site.
+- `action/feature/pull_requests.rs` — the one `gh` construction site delivery
+  and nested integration both call; splitting it would risk a second PR
+  command shape drifting from this one.
+- `action/feature/mutation.rs` — the three scoped mutation guards (whole-child,
+  structure, per-promotion) that keep a partial integration's plan and board
+  mutable without freezing more than the receipt actually froze.
 - `action/plan/status.rs`, `action/plan/approve.rs`,
   `action/repo/remove.rs`, `action/session/conversion.rs`,
-  `action/feature/delete.rs`, `action/execute/replan.rs` — coherent command-level
-  behaviors only modestly over the trigger.
+  `action/feature/delete.rs`, `action/feature/promote.rs` — coherent
+  command-level behaviors only modestly over the trigger.
 - `action/execute/tick/mod.rs` — the tick orchestration: the module doc's
   concurrency contract, the public inputs/outcomes, and the single `tick()`
   that fans out and folds; its worker and event-folding halves were extracted
   to launch.rs and events.rs.
+- `action/execute/tick/launch.rs` — the worker half `tick()` fans out to: one
+  workstream's session materialisation, spawn, and stream drain, kept whole
+  because a worker thread's steps do not compose usefully split across files.
+- `action/execute/plan_ops.rs` — the one `## Operations` parser `prompt` and
+  `replan` both call; a copy in each would let the two forks drift on what
+  counts as a heading, a bullet, or the write-contract marker.
+- `git/mod.rs` — the `Git` trait and the real implementation dispatching
+  across `read.rs`/`exec.rs`; one file so a caller sees one seam and never
+  which backend answered.
 - `git/exec.rs` — the single home for all mutations performed through the Git
-  executable.
+  executable, plus six pure local reads kept here rather than in `read.rs`
+  (named in the git/ module map above).
+- `infra/proc/mod.rs` — the subprocess boundary's shared reasoning and its two
+  stateless calls, `capture` and `inherit`; the one stateful, resumable call
+  was carved out to `streaming.rs`.
+- `tui/driver.rs` — seam 6: every byte of PTY/event I/O behind explicit step
+  methods, spawning no executor of its own; the scrollback decoder was carved
+  out to `scrollback.rs`.
 
 There is no permanent lint for 300 lines. Adding one would make generated,
 declarative, and inherently cohesive files optimise for counting.
@@ -301,6 +399,16 @@ Two of these earn their strictness:
 promotion is, how hall health is derived, which branch a repo resolves to. Being
 pure is what makes those testable without a temp directory, and what stops the
 rules from scattering into the verbs.
+
+Two clocks are the named exception: `domain::feature::execution` and
+`domain::session` each call `std::time::SystemTime::now()` directly, because
+`JournalEntry::timestamp` (and its session equivalent) is a plain `String` for
+exactly this reason — the value is written once, at construction, and nothing
+in `domain` reads it back as a clock, so routing it through `store` and back
+would cost a conversion at both ends for no invariant gained. `tests/architecture.rs`'s
+layering scan only walks `use` statements, so a fully-qualified
+`std::time::SystemTime::now()` call is invisible to it; this exception is
+enforced by review, not by the test.
 
 **`tui` cannot reach `action` or `store`.** State is pushed *into* the driver by
 the host loop; the driver never fetches. This is what makes `widget.rs` a
