@@ -311,6 +311,11 @@ exceptions:
 - `harness/commands.rs` and `harness/config/instructions.rs` — the reconciliation
   halves of their pairs; their declarative halves (`commands/catalog.rs`,
   `config/mcp.rs`) were extracted.
+- `harness/stream.rs` — the provider line protocol: one `ExecutorEvent`
+  vocabulary and the two parsers that produce it. Roughly a third of the file
+  is the protocol reference itself, and splitting the parsers into
+  `stream/claude.rs` and `stream/opencode.rs` would separate two functions that
+  share their field extractors and are read against each other.
 - `action/sync/mod.rs` — the public verb and report types, dispatching into
   `repo.rs`/`providers.rs`/`setup.rs`, which each stayed well under the
   trigger — a module facade whose capabilities genuinely live in focused
@@ -338,8 +343,13 @@ exceptions:
   mutable without freezing more than the receipt actually froze.
 - `action/plan/status.rs`, `action/plan/approve.rs`,
   `action/repo/remove.rs`, `action/session/conversion.rs`,
-  `action/feature/delete.rs`, `action/feature/promote.rs` — coherent
-  command-level behaviors only modestly over the trigger.
+  `action/feature/delete.rs`, `action/feature/promote.rs`,
+  `action/execute/prepare.rs` — coherent command-level behaviors only modestly
+  over the trigger.
+- `action/repo/pull.rs` — the one place a repo's refresh policy lives: the
+  per-repo fetch step, the default-branch refresh, and the `refresh_all` sweep
+  that `session start` and `execute tick` both call. It crossed the trigger
+  when that sweep replaced the copy each of those two verbs used to carry.
 - `action/execute/tick/mod.rs` — the tick orchestration: the module doc's
   concurrency contract, the public inputs/outcomes, and the single `tick()`
   that fans out and folds; its worker and event-folding halves were extracted
