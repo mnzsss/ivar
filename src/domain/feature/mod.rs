@@ -12,10 +12,13 @@
 //! the four SPDD approval gates (Requirements, Analysis, Plan, Execution
 //! Graph) and their fingerprints. `delivery` — the guard checks and the
 //! delivery preview. `execution` — the plan-derived graph of workstreams plus
-//! its status and journal. `integration` — the pure nested-integration
-//! vocabulary: via/strategy/override/policy, receipts and verification
-//! evidence, and the derived integration-state classifier. All pure, no I/O —
-//! reading and writing these values is `store::feature`'s job.
+//! its status and journal. `write_contract` — the glob-matching write
+//! contract each workstream must respect, split out of `execution` because
+//! it touches no board, status or journal. `integration` — the pure
+//! nested-integration vocabulary: via/strategy/override/policy, receipts and
+//! verification evidence, and the derived integration-state classifier. All
+//! pure, no I/O — reading and writing these values is `store::feature`'s
+//! job.
 //!
 //! # What a valid promotion is
 //!
@@ -38,13 +41,13 @@ mod execution;
 mod integration;
 #[path = "feature.rs"]
 mod promotion;
+mod write_contract;
 
 pub use approval::{ApprovalState, Gate, GateRecord, GateState, UnknownGate};
 pub use base::effective_base;
 pub use delivery::{DeliveryAction, DeliveryPreview, DeliveryRepo, DeliveryTreeBlocker, Guard};
 pub use execution::{
     ExecutionBoard, ExecutionGraph, ExecutionStatus, JournalEntry, WorkstreamDef, WorkstreamStatus,
-    WriteContract,
 };
 pub use integration::{
     ClassificationFacts, FeatureIntegrationState, IntegrationOverride, IntegrationPolicy,
@@ -55,6 +58,7 @@ pub use integration::{
 pub use promotion::{
     Feature, FeatureBoard, Promotion, PromotionOutcome, UnknownOutcome, WorktreeState,
 };
+pub use write_contract::WriteContract;
 
 #[cfg(test)]
 #[path = "../../../tests/unit/domain/feature/mod.rs"]

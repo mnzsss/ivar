@@ -82,16 +82,17 @@ src/
 
   domain/          pure types and invariants. No I/O, no git, no clap.
     name.rs        validated newtypes: HallName, RepoName, FeatureName, BranchName…
-    feature/       a facade over five focused files: feature.rs (the promotion
+    feature/       a facade over six focused files: feature.rs (the promotion
                    record and FeatureBoard), delivery.rs (guards and the
                    delivery preview), approval.rs (the SPDD gates),
-                   execution.rs (the execution board and workstream graph), and
-                   integration.rs (the pure nested-integration vocabulary:
-                   via/strategy/policy resolution, receipts and verification
-                   evidence, and the derived integration-state classifier).
-                   Children are derived by scanning `Feature.parent` — no
-                   feature stores a child list, and no lifecycle field is
-                   persisted.
+                   execution.rs (the execution board and workstream graph),
+                   write_contract.rs (the glob-matching write contract each
+                   workstream must respect), and integration.rs (the pure
+                   nested-integration vocabulary: via/strategy/policy
+                   resolution, receipts and verification evidence, and the
+                   derived integration-state classifier). Children are
+                   derived by scanning `Feature.parent` — no feature stores a
+                   child list, and no lifecycle field is persisted.
     session.rs     session state and identity
     provider.rs    which harnesses exist, and their capability flags
     health.rs      hall health derivation (uninitialized/operational/stale/degraded)

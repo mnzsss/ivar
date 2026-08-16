@@ -6,7 +6,7 @@
 //!
 //! Reads the execution board for `input.feature`, looks up `session` in the
 //! `sessions` map to find the owning workstream, and checks whether
-//! `path` is covered by that workstream's [`WriteContract`](crate::domain::feature::WriteContract).
+//! `path` is covered by that workstream's [`WriteContract`].
 //!
 //! The default is DENY: unknown session, missing board, unreadable board — all
 //! refuse. A path inside the contract passes; outside is refused naming the

@@ -380,8 +380,7 @@ fn feature_worktrees(
 /// both directions.
 ///
 /// Paths come back as `<repo>/<path>`, the shape
-/// [`WriteContract::allows`](crate::domain::feature::WriteContract::allows)
-/// already arbitrates for the guard — a relative glob matches at any depth, so
+/// [`WriteContract::allows`] already arbitrates for the guard — a relative glob matches at any depth, so
 /// the same contract decides the same way here as it does at the tool
 /// boundary.
 fn changed_since(

@@ -1,7 +1,8 @@
 //! The execution board: the plan-derived `ExecutionGraph` of `WorkstreamDef`s,
 //! the board's overall `ExecutionStatus`, per-workstream `WorkstreamStatus`,
-//! the `WriteContract` each workstream must respect, and the append-only
-//! `JournalEntry` record.
+//! and the append-only `JournalEntry` record. Each workstream's write
+//! contract is [`WriteContract`](crate::domain::feature::WriteContract),
+//! which lives in its own module — it touches no board, status or journal.
 //!
 //! Pure data, no I/O — persisted at `features/<feature>/execution/board.json`
 //! (schema v2, `Policy::Local`) by `store::feature`.
@@ -9,7 +10,6 @@
 use std::collections::BTreeMap;
 use std::fmt;
 
-use camino::Utf8Path;
 use serde::{Deserialize, Serialize};
 
 use super::super::provider::Provider;
@@ -22,13 +22,13 @@ const BOARD_CURRENT_VERSION: u32 = 2;
 /// to it.
 ///
 /// Persisted per feature at `features/<feature>/execution/board.json`
-/// (schema v1, `Policy::Local`) by `store::feature`. Created by
-/// `feature execute prepare` from the plan and its execution graph; later
-/// slices (tick, reply) advance `status` and append to [`Self::journal`].
+/// (schema v2, `Policy::Local`) by `store::feature`. Created by
+/// `feature execute prepare` from the plan and its execution graph; tick and
+/// reply advance `status` and append to [`Self::journal`].
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ExecutionBoard {
-    /// The schema version — always 1 for a value built through [`Self::new`]
+    /// The schema version — always 2 for a value built through [`Self::new`]
     /// or read by `store::feature`.
     pub version: u32,
     /// The board's overall execution status.
@@ -61,8 +61,14 @@ impl ExecutionBoard {
         }
     }
 
-    /// Advance the board's status. v1's only mutation beside the journal —
-    /// nothing in v1 drives these transitions yet; tick/reply (v2) will.
+    /// Set the board's status directly, bypassing [`Self::settle`].
+    /// `prepare` and `approve` use this to move through the pre-approval
+    /// states ([`ExecutionStatus::AwaitingApproval`],
+    /// [`ExecutionStatus::Approved`]) that `settle` deliberately never
+    /// derives; `tick` and its event handlers use it to force `Running` or
+    /// `Blocked` outside of a settle pass. Every other transition should go
+    /// through [`Self::settle`], which recomputes status from the
+    /// workstreams instead of trusting the caller.
     pub fn set_status(&mut self, status: ExecutionStatus) {
         self.status = status;
     }
@@ -225,81 +231,6 @@ pub struct WorkstreamDef {
     pub agent: Option<String>,
 }
 
-/// The write contract of a workstream: the globs its operations may touch.
-///
-/// Pure — no filesystem. Matching is done against an in-memory list of globs,
-/// with `..` never allowed to escape the hall view dir.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct WriteContract(Vec<String>);
-
-impl WriteContract {
-    /// Build a contract from the raw glob list.
-    #[must_use]
-    pub fn new(globs: Vec<String>) -> Self {
-        Self(globs)
-    }
-
-    /// Whether `path` is allowed by the contract. The default is to deny:
-    /// an empty contract allows nothing.
-    ///
-    /// A glob may be relative to the hall view dir (the common case, e.g.
-    /// `src/`) or absolute. A relative glob matches `path` at any depth —
-    /// `/hall/src/main.rs` and `src/main.rs` both match `src/` — because the
-    /// workstream never knows where the hall lives.
-    #[must_use]
-    pub fn allows(&self, path: &Utf8Path) -> bool {
-        let path_str = path.as_str();
-        // `..` never escapes the hall view dir.
-        if path_str.split('/').any(|seg| seg == "..") {
-            return false;
-        }
-        self.0.iter().any(|glob| {
-            let absolute = glob.starts_with('/');
-            if let Some(prefix) = glob.strip_suffix('/') {
-                // A trailing `/` matches the directory and everything under it.
-                let prefix = prefix.to_owned();
-                if absolute {
-                    path_str == prefix
-                        || path_str.starts_with(&prefix)
-                            && path_str[prefix.len()..].starts_with('/')
-                } else {
-                    // Relative: match the prefix at any depth.
-                    let needle_dir = format!("/{prefix}/");
-                    path_str == prefix
-                        || path_str.ends_with(&format!("/{prefix}"))
-                        || path_str.contains(&needle_dir)
-                        || path_str.starts_with(&format!("{prefix}/"))
-                }
-            } else if glob.contains('*') {
-                if absolute {
-                    glob_match(glob, path_str)
-                } else {
-                    // Try the glob against every suffix so a relative glob
-                    // matches at any depth.
-                    let mut slice = path_str;
-                    loop {
-                        if glob_match(glob, slice) {
-                            return true;
-                        }
-                        match slice.find('/') {
-                            Some(idx) => slice = &slice[idx + 1..],
-                            None => return false,
-                        }
-                    }
-                }
-            } else if absolute {
-                path_str == glob
-                    || path_str.starts_with(glob) && path_str[glob.len()..].starts_with('/')
-            } else {
-                // A bare relative name matches a path that ends with it.
-                path_str == glob
-                    || path_str.ends_with(&format!("/{glob}"))
-                    || path_str.ends_with(&format!("/{glob}/"))
-            }
-        })
-    }
-}
-
 /// The execution state of one workstream on a board.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -381,26 +312,4 @@ fn now_epoch_seconds() -> String {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|elapsed| elapsed.as_secs().to_string())
         .unwrap_or_default()
-}
-
-/// Whether `path` matches a simple glob: `*` matches any run of characters,
-/// and a trailing `/` matches the directory and everything under it.
-fn glob_match(glob: &str, path: &str) -> bool {
-    let glob = glob.trim_end_matches('/');
-    if glob.is_empty() {
-        return false;
-    }
-    // Split on the first `*` and match the literal head/tail around it.
-    let Some(star) = glob.find('*') else {
-        return path == glob;
-    };
-    let head = &glob[..star];
-    let tail = &glob[star + 1..];
-    if !path.starts_with(head) {
-        return false;
-    }
-    if tail.is_empty() {
-        return true;
-    }
-    path[head.len()..].contains(tail)
 }
