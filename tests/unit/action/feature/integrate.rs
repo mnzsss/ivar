@@ -530,6 +530,37 @@ fn a_declined_parent_promotion_blocks_without_mutation() {
     assert!(child.promotions[&api()].integration_receipt.is_none());
 }
 
+#[test]
+fn a_later_repo_failing_preflight_leaves_no_promotion_from_an_earlier_one() {
+    // `api` (alphabetically first) needs a parent promotion and the run is
+    // confirming; `web` is already promoted into the parent but has a dirty
+    // parent worktree and refuses. The whole run must refuse as a unit: the
+    // preflight promise is "nothing is persisted, nothing is exposed" until
+    // every repo has passed — so `api` must not end up promoted into the
+    // parent just because it was preflighted before `web` failed.
+    let (_guard, root) = parent_missing_repo_hall();
+    let mut ctx = Ctx::new(root.clone());
+    ctx = ctx.with_confirm(crate::action::confirm::fixed(true));
+    let layout = Layout::at(&root);
+
+    let web_parent_wt = layout.repo_worktree(
+        &RepoName::new("web").unwrap(),
+        &BranchName::new("parent").unwrap(),
+    );
+    std::fs::write(web_parent_wt.join("dirty.txt"), "oops\n").unwrap();
+
+    let failure = integrate(&ctx, integrate_input("child")).unwrap_err();
+
+    assert_eq!(failure.status, Status::Blocked);
+    let parent = Feature::read(&layout, &FeatureName::new("parent").unwrap())
+        .unwrap()
+        .unwrap();
+    assert!(
+        !parent.is_promoted(&api()),
+        "the whole run refused; api must not have been promoted into the parent"
+    );
+}
+
 // -- live sessions -----------------------------------------------------------
 
 #[test]

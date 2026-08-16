@@ -264,13 +264,25 @@ pub fn integrate(ctx: &Ctx, input: IntegrateInput) -> Outcome<IntegrateOutcome> 
         input.strategy.as_deref(),
     )?;
 
-    // 6. Preflight every repo before anything moves: a stale receipt, a
-    // missing parent promotion (with nobody to ask), or a dirty worktree is a
-    // hard refusal of the whole run — nothing is persisted, nothing is
-    // exposed. Only the *work* of a resume (checks, candidate, merge) is a
-    // per-repo warning that lets the batch continue.
+    // 6. Preflight every repo in two passes, so a later repo's refusal can
+    // never leave an earlier repo's parent promotion behind. Pass 1 is pure
+    // validation — no mutation, no question asked: a stale receipt, an
+    // unresumable failed receipt, or a dirty worktree is a hard refusal of
+    // the whole run, and an unreceipted repo the parent does not yet promote
+    // is only *recorded* as needing one. Only once every repo has cleared
+    // pass 1 does pass 2 ask (or refuse, non-interactively) about each
+    // recorded promotion, in the same order — nothing is persisted, nothing
+    // is exposed, until the whole run is known clean. Only the *work* of a
+    // resume (checks, candidate, merge) is a per-repo warning that lets the
+    // batch continue.
+    let mut needs_parent_promotion = Vec::new();
     for repo in child.promotions.keys() {
-        preflight_repo(ctx, &layout, &manifest, &git, &child, &parent, repo)?;
+        if preflight_repo(&layout, &manifest, &git, &child, &parent, repo)? {
+            needs_parent_promotion.push(repo.clone());
+        }
+    }
+    for repo in &needs_parent_promotion {
+        ensure_parent_promotion(ctx, &child, &parent, repo)?;
     }
 
     // 7. Per-repo, in name order: reuse, re-verify, or resume. Each result is
@@ -334,32 +346,32 @@ pub fn integrate(ctx: &Ctx, input: IntegrateInput) -> Outcome<IntegrateOutcome> 
     ))
 }
 
-/// The whole-run preflight for one repo: every refusal that must happen
-/// before anything is persisted or exposed. A stale receipt, a missing
-/// parent promotion, or a dirty worktree refuses the entire run.
-#[allow(clippy::too_many_arguments)]
+/// Pass 1 of the whole-run preflight for one repo: every refusal that does
+/// not require a parent promotion to already exist — a stale receipt, an
+/// unresumable failed receipt, or a dirty worktree refuses the entire run.
+/// Returns whether `repo` still needs pass 2's parent-promotion question:
+/// recorded here rather than asked, so a later repo's refusal in this same
+/// pass can never leave an earlier repo's parent promotion behind.
 fn preflight_repo(
-    ctx: &Ctx,
     layout: &Layout,
     manifest: &Manifest,
     git: &impl Git,
     child: &Feature,
     parent: &Feature,
     repo: &RepoName,
-) -> Result<(), Failure> {
+) -> Result<bool, Failure> {
     let bare = layout.repo_bare(repo);
     let Some(receipt) = child
         .promotions
         .get(repo)
         .and_then(|promotion| promotion.integration_receipt.as_ref())
     else {
-        // Unreceipted: the parent must promote the repo (interactive, or the
-        // exact command), and both worktrees must be clean.
-        if !parent.is_promoted(repo) {
-            ensure_parent_promotion(ctx, child, parent, repo)?;
-        }
+        // Unreceipted: the child worktree must be clean regardless. When the
+        // parent already promotes the repo, its worktree exists too and must
+        // be clean; when it doesn't, pass 2 will create it fresh from the
+        // base branch — clean by construction — so there is nothing to check
+        // yet, and the promotion itself is deferred to pass 2.
         let child_worktree = layout.repo_worktree(repo, &child.branch);
-        let parent_worktree = layout.repo_worktree(repo, &parent.branch);
         if git.worktree_dirty(&child_worktree)? {
             return Err(dirty_failure(
                 "integration.child_dirty",
@@ -367,6 +379,10 @@ fn preflight_repo(
                 "the child worktree has uncommitted changes",
             ));
         }
+        if !parent.is_promoted(repo) {
+            return Ok(true);
+        }
+        let parent_worktree = layout.repo_worktree(repo, &parent.branch);
         if git.worktree_dirty(&parent_worktree)? {
             return Err(dirty_failure(
                 "integration.parent_dirty",
@@ -374,7 +390,7 @@ fn preflight_repo(
                 "the parent worktree has uncommitted changes",
             ));
         }
-        return Ok(());
+        return Ok(false);
     };
 
     if receipt.verification.passed() {
@@ -388,7 +404,7 @@ fn preflight_repo(
                 layout, child, parent, repo, receipt, &reason,
             ));
         }
-        return Ok(());
+        return Ok(false);
     }
 
     // Failed evidence: resumable only while its source and result are
@@ -409,7 +425,7 @@ fn preflight_repo(
             "the failed receipt's source or result has moved",
         ));
     }
-    Ok(())
+    Ok(false)
 }
 
 /// The dirty-worktree refusal, shared by the child and parent preflights.
