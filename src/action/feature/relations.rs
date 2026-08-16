@@ -324,10 +324,6 @@ pub(crate) fn receipt_freshness(
 
 /// The failure for an integration blocked by descendants: names every
 /// blocker, and points at leaves-first integration.
-///
-/// Consumed by the integrate and deliver actions (Tasks 11 and 12); until
-/// those land it has no caller in the tree.
-#[allow(dead_code)]
 pub(crate) fn tree_block_failure(feature: &FeatureName, blockers: &[TreeEntry]) -> Failure {
     let names = blockers
         .iter()
@@ -354,7 +350,6 @@ pub(crate) fn tree_block_failure(feature: &FeatureName, blockers: &[TreeEntry]) 
 /// The failure for a stale or failed receipt, with the recorded-ref
 /// restoration commands (unsafe — they rewrite branches) and the safe
 /// new-child route. Never executed automatically.
-#[allow(dead_code)]
 pub(crate) fn stale_receipt_failure(
     layout: &Layout,
     child: &Feature,

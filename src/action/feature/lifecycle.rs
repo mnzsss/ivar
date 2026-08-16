@@ -10,8 +10,8 @@
 //!   no-op, never an overwrite);
 //! - tree classification (`action::feature::relations`), where a close
 //!   record's outcome classifies the feature's derived integration state;
-//! - the fully-integrated guard (`is_fully_integrated`), which Task 8's
-//!   mutation module and the integration close path both consult.
+//! - the fully-integrated guard (`is_fully_integrated`), which the mutation
+//!   module and the integration close path both consult.
 //!
 //! The read shape keeps `outcome` as a plain string on purpose: a `plan.md`
 //! closed by any tool — or hand-written — still reads back as "already
@@ -116,10 +116,6 @@ pub(crate) fn write_close(
 /// passing but that has not been closed is not yet "fully integrated" in the
 /// lifecycle sense (receipt-freshness policy is the mutation module's job,
 /// not a blanket guard here).
-///
-/// Consumed by the mutation guards (Task 8) and the integration close path
-/// (Task 11); until those land it has no caller in the tree.
-#[allow(dead_code)]
 pub(crate) fn is_fully_integrated(layout: &Layout, feature: &Feature) -> Result<bool, Failure> {
     Ok(read_close(layout, &feature.name)?
         .and_then(|record| record.known_outcome())
