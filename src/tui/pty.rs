@@ -30,7 +30,7 @@ use super::driver::Pty;
 /// How much of the master is read in one go by the reader thread.
 const READ_CHUNK: usize = 4096;
 
-pub struct PtsPty {
+pub(crate) struct PtsPty {
     /// The master side, kept alive for the PTY's lifetime — dropping it pulls
     /// the terminal out from under the child.
     master: Option<Box<dyn portable_pty::MasterPty + Send>>,
@@ -56,7 +56,7 @@ impl std::fmt::Debug for PtsPty {
 impl PtsPty {
     /// A fresh, unspawned PTY.
     #[must_use]
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             master: None,
             writer: None,
