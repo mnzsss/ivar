@@ -1,3 +1,7 @@
+//! Unit tests for `crate::store::manifest::model`.
+//!
+//! Physically located here but compiled inside the library crate via `#[path]`
+//! so `use super::*` reaches private parent items.
 #![allow(
     clippy::unwrap_used,
     clippy::expect_used,
@@ -5,16 +9,10 @@
     clippy::indexing_slicing
 )]
 
-use camino::Utf8PathBuf;
-
 use super::*;
-use crate::domain::mcp::McpServerDef;
-use crate::domain::name::{BranchName, HallName, RepoName};
-use crate::domain::provider::Provider;
 use crate::error::{Failure, Status};
-use crate::infra::{fs, json};
+use crate::infra::fs;
 use crate::store::layout::Layout;
-use crate::store::versioned;
 use crate::test_support::utf8_temp_dir;
 
 fn sample_manifest() -> Manifest {
@@ -32,93 +30,6 @@ fn sample_manifest() -> Manifest {
         Some(Skills::new(Targets::new(true, true))),
     )
     .unwrap()
-}
-
-// -- round-trip: write, read back, exact bytes on disk -------------------
-
-#[test]
-fn write_then_read_round_trips_and_writes_canonical_bytes() {
-    let (_dir, root) = utf8_temp_dir();
-    let layout = Layout::at(root);
-    let manifest = sample_manifest();
-
-    Manifest::write(&layout, &manifest).unwrap();
-
-    let expected = json::to_canonical_string(&serde_json::json!({
-        "version": 2,
-        "name": "acme",
-        "integration": { "strategy": "squash", "via": "local" },
-        "providers": { "available": ["claude-code", "opencode"], "default": "claude-code" },
-        "repos": [
-            { "name": "api", "url": "git@github.com:acme/api.git", "default_branch": "main" }
-        ],
-        "skills": { "targets": { "claude": true, "opencode": true } },
-    }))
-    .unwrap();
-    let on_disk = fs::read_text(&layout.manifest()).unwrap().unwrap();
-    assert_eq!(
-        on_disk, expected,
-        "write must produce the canonical byte format"
-    );
-
-    let read_back = Manifest::read(&layout).unwrap().unwrap();
-    assert_eq!(read_back, manifest);
-}
-
-#[test]
-fn manifest_without_skills_omits_the_key_and_still_round_trips() {
-    let (_dir, root) = utf8_temp_dir();
-    let layout = Layout::at(root);
-    let manifest = Manifest::new(
-        HallName::new("acme").unwrap(),
-        Providers::new(vec![Provider::ClaudeCode], Provider::ClaudeCode),
-        vec![],
-        None,
-    )
-    .unwrap();
-
-    Manifest::write(&layout, &manifest).unwrap();
-
-    let on_disk = fs::read_text(&layout.manifest()).unwrap().unwrap();
-    assert!(!on_disk.contains("skills"));
-    assert_eq!(Manifest::read(&layout).unwrap(), Some(manifest));
-}
-
-// -- absent is Ok(None); unparseable is a hard error ----------------------
-
-#[test]
-fn absent_file_reads_as_ok_none() {
-    let (_dir, root) = utf8_temp_dir();
-    let layout = Layout::at(root);
-
-    assert_eq!(Manifest::read(&layout).unwrap(), None);
-}
-
-#[test]
-fn present_but_unparseable_file_is_a_hard_error() {
-    let (_dir, root) = utf8_temp_dir();
-    let layout = Layout::at(root);
-    fs::write_text(&layout.manifest(), "{ not json").unwrap();
-
-    let error = Manifest::read(&layout).unwrap_err();
-    assert!(matches!(error, Error::Store(versioned::Error::Json(_))));
-}
-
-// -- unknown key is a hard error naming the key ---------------------------
-
-#[test]
-fn unknown_key_is_rejected_naming_the_key() {
-    let (_dir, root) = utf8_temp_dir();
-    let layout = Layout::at(root);
-    fs::write_text(
-            &layout.manifest(),
-            r#"{"version":1,"name":"acme","providers":{"available":["claude-code"],"default":"claude-code"},"repos":[],"nickname":"oops"}"#,
-        )
-        .unwrap();
-
-    let error = Manifest::read(&layout).unwrap_err();
-    let message = error.to_string();
-    assert!(message.contains("nickname"), "message was: {message}");
 }
 
 // -- the invariants, violated, rejected on read ---------------------------
@@ -197,109 +108,6 @@ fn an_empty_repo_url_is_rejected_on_read() {
         Error::EmptyRepoUrl { name } => assert_eq!(name.as_str(), "api"),
         other => panic!("expected EmptyRepoUrl, got {other:?}"),
     }
-}
-
-// -- a hand-edited traversal in a repo name is rejected at deserialize ----
-
-#[test]
-fn repo_name_traversal_is_rejected_when_deserialized() {
-    let (_dir, root) = utf8_temp_dir();
-    let layout = Layout::at(root);
-    fs::write_text(
-            &layout.manifest(),
-            r#"{"version":1,"name":"acme","providers":{"available":["claude-code"],"default":"claude-code"},"repos":[
-                {"name":"../etc","url":"a","default_branch":"main"}
-            ]}"#,
-        )
-        .unwrap();
-
-    let error = Manifest::read(&layout).unwrap_err();
-    assert!(matches!(
-        error,
-        Error::Store(versioned::Error::Deserialize { .. })
-    ));
-}
-
-// -- no version field is rejected, not adopted as v0 ----------------------
-
-#[test]
-fn missing_version_field_is_rejected_not_adopted_as_v0() {
-    let (_dir, root) = utf8_temp_dir();
-    let layout = Layout::at(root);
-    let original = r#"{"name":"acme","providers":{"available":["claude-code"],"default":"claude-code"},"repos":[]}"#;
-    fs::write_text(&layout.manifest(), original).unwrap();
-
-    let error = Manifest::read(&layout).unwrap_err();
-    assert!(matches!(error, Error::MissingVersion { .. }));
-
-    let bytes_after = fs::read_bytes(&layout.manifest()).unwrap().unwrap();
-    assert_eq!(
-        bytes_after,
-        original.as_bytes(),
-        "refusing an unversioned file must not touch it"
-    );
-}
-
-// -- a version newer than current is refused, file untouched -------------
-
-#[test]
-fn version_newer_than_current_is_refused_and_the_file_is_untouched() {
-    let (_dir, root) = utf8_temp_dir();
-    let layout = Layout::at(root);
-    let original = r#"{"version":99,"name":"from-the-future","providers":{"available":["claude-code"],"default":"claude-code"},"repos":[]}"#;
-    fs::write_text(&layout.manifest(), original).unwrap();
-
-    let error = Manifest::read(&layout).unwrap_err();
-    match &error {
-        Error::Store(versioned::Error::TooNew { found, highest, .. }) => {
-            assert_eq!(*found, 99);
-            assert_eq!(*highest, 2);
-        }
-        other => panic!("expected TooNew, got {other:?}"),
-    }
-
-    let bytes_after = fs::read_bytes(&layout.manifest()).unwrap().unwrap();
-    assert_eq!(bytes_after, original.as_bytes());
-}
-
-// -- Policy::Committed: a plain read never rewrites the file -------------
-
-#[test]
-fn committed_policy_read_never_rewrites_the_file() {
-    let (_dir, root) = utf8_temp_dir();
-    let layout = Layout::at(root);
-    // Valid v1 data, deliberately not in canonical form (unsorted keys, no
-    // trailing newline). A plain `read` must never rewrite this to
-    // canonical form on its own — only an explicit `write` does that.
-    let original = r#"{"repos":[],"name":"acme","version":1,"providers":{"default":"claude-code","available":["claude-code"]}}"#;
-    fs::write_text(&layout.manifest(), original).unwrap();
-
-    let manifest = Manifest::read(&layout).unwrap().unwrap();
-    assert_eq!(manifest.name().as_str(), "acme");
-
-    let bytes_after = fs::read_bytes(&layout.manifest()).unwrap().unwrap();
-    assert_eq!(
-        bytes_after,
-        original.as_bytes(),
-        "read must never rewrite a committed file"
-    );
-}
-
-#[test]
-fn write_refuses_when_on_disk_is_older_than_current_and_leaves_it_untouched() {
-    let (_dir, root) = utf8_temp_dir();
-    let layout = Layout::at(root);
-    let original = r#"{"name":"acme","providers":{"available":["claude-code"],"default":"claude-code"},"repos":[]}"#;
-    fs::write_text(&layout.manifest(), original).unwrap();
-
-    let error = Manifest::write(&layout, &sample_manifest()).unwrap_err();
-    assert!(matches!(
-        error,
-        Error::Store(versioned::Error::CommittedRefusesImplicitUpgrade { .. })
-    ));
-
-    let bytes_after = fs::read_bytes(&layout.manifest()).unwrap().unwrap();
-    assert_eq!(bytes_after, original.as_bytes());
 }
 
 // -- Manifest::new validates by construction ------------------------------
@@ -475,63 +283,6 @@ fn skills_accessor_returns_the_constructed_targets() {
     let skills = Skills::new(Targets::new(true, true));
     assert!(skills.targets().claude());
     assert!(skills.targets().opencode());
-}
-
-// -- Error -> Failure: every variant has its own code and fix action -----
-
-#[test]
-fn missing_version_failure_names_the_path_and_a_safe_fix() {
-    let failure: Failure = Error::MissingVersion {
-        path: Utf8PathBuf::from("/hall/ivar.json"),
-    }
-    .into();
-    assert_eq!(failure.status, Status::Blocked);
-    assert_eq!(failure.code, "manifest.missing_version");
-    assert_eq!(failure.fix_actions.len(), 1);
-    assert!(failure.fix_actions[0].safe);
-}
-
-#[test]
-fn default_provider_not_available_failure_names_the_offending_value() {
-    let failure: Failure = Error::DefaultProviderNotAvailable {
-        default: Provider::OpenCode,
-        available: vec![Provider::ClaudeCode],
-    }
-    .into();
-    assert_eq!(failure.status, Status::Blocked);
-    assert_eq!(failure.code, "manifest.default_provider_not_available");
-    assert!(failure.what.contains("opencode"));
-    assert!(failure.actual.as_deref().unwrap().contains("opencode"));
-    assert!(failure.fix_actions[0].what.contains("claude-code"));
-}
-
-#[test]
-fn no_available_providers_failure_has_a_safe_fix() {
-    let failure: Failure = Error::NoAvailableProviders.into();
-    assert_eq!(failure.code, "manifest.no_available_providers");
-    assert!(failure.fix_actions[0].safe);
-}
-
-#[test]
-fn duplicate_repo_name_failure_names_the_offending_repo() {
-    let failure: Failure = Error::DuplicateRepoName {
-        name: RepoName::new("api").unwrap(),
-    }
-    .into();
-    assert_eq!(failure.code, "manifest.duplicate_repo_name");
-    assert!(failure.what.contains("api"));
-    assert!(failure.fix_actions[0].what.contains("api"));
-}
-
-#[test]
-fn store_error_delegates_its_failure_conversion() {
-    let failure: Failure = Error::Store(versioned::Error::TooNew {
-        path: Utf8PathBuf::from("/hall/ivar.json"),
-        found: 2,
-        highest: 1,
-    })
-    .into();
-    assert_eq!(failure.code, "store.version_too_new");
 }
 
 // -- MCP server definitions ----------------------------------------------
@@ -743,91 +494,4 @@ fn a_blank_repo_check_is_refused_on_build() {
         }
         other => panic!("expected EmptyRepoCheck, got {other:?}"),
     }
-}
-
-// -- v1 -> v2 committed migration -------------------------------------------
-
-/// The exact v1 shape ivar wrote before the v2 bump: no `integration` at the
-/// top level, no `checks` on any repo.
-fn v1_manifest_bytes() -> &'static str {
-    r#"{"version":1,"name":"acme","providers":{"available":["claude-code","opencode"],"default":"claude-code"},"repos":[{"name":"api","url":"git@github.com:acme/api.git","default_branch":"main"},{"name":"web","url":"git@github.com:acme/web.git","default_branch":"main"}]}"#
-}
-
-#[test]
-fn a_v1_manifest_reads_in_memory_as_v2_without_rewriting_the_file() {
-    let (_dir, root) = utf8_temp_dir();
-    let layout = Layout::at(root);
-    let original = v1_manifest_bytes();
-    fs::write_text(&layout.manifest(), original).unwrap();
-
-    let manifest = Manifest::read(&layout).unwrap().unwrap();
-
-    assert_eq!(manifest.version(), 2);
-    assert_eq!(
-        manifest.integration(),
-        crate::domain::feature::IntegrationPolicy::default()
-    );
-    assert_eq!(manifest.repos().len(), 2);
-    for repo in manifest.repos() {
-        assert!(repo.checks().is_empty());
-    }
-
-    let bytes_after = fs::read_bytes(&layout.manifest()).unwrap().unwrap();
-    assert_eq!(
-        bytes_after,
-        original.as_bytes(),
-        "a committed read must never rewrite the file"
-    );
-}
-
-#[test]
-fn migration_plan_available_for_v1_and_unreachable_for_v0() {
-    let (_dir, root) = utf8_temp_dir();
-    let layout = Layout::at(root);
-
-    fs::write_text(&layout.manifest(), v1_manifest_bytes()).unwrap();
-    let plan = Manifest::plan(&layout).unwrap().unwrap();
-    assert_eq!(plan, MigrationPlan::Available { from: 1, to: 2 });
-
-    fs::write_text(
-        &layout.manifest(),
-        r#"{"name":"acme","providers":{"available":["claude-code"],"default":"claude-code"},"repos":[]}"#,
-    )
-    .unwrap();
-    let plan = Manifest::plan(&layout).unwrap().unwrap();
-    assert_eq!(plan, MigrationPlan::Unreachable { from: 0, to: 2 });
-}
-
-#[test]
-fn a_plain_write_refuses_a_v1_file_and_explicit_migrate_writes_canonical_v2() {
-    let (_dir, root) = utf8_temp_dir();
-    let layout = Layout::at(root);
-    let original = v1_manifest_bytes();
-    fs::write_text(&layout.manifest(), original).unwrap();
-
-    // A plain write refuses while the on-disk file is older than current.
-    let error = Manifest::write(&layout, &sample_manifest()).unwrap_err();
-    assert!(matches!(
-        error,
-        Error::Store(versioned::Error::CommittedRefusesImplicitUpgrade { .. })
-    ));
-
-    // The explicit migrate advances the committed file to canonical v2.
-    let migrated = Manifest::migrate(&layout).unwrap().unwrap();
-    assert_eq!(migrated.version(), 2);
-    assert_eq!(migrated.repos().len(), 2);
-
-    let on_disk = fs::read_text(&layout.manifest()).unwrap().unwrap();
-    let expected = json::to_canonical_string(&serde_json::json!({
-        "version": 2,
-        "name": "acme",
-        "integration": { "strategy": "squash", "via": "local" },
-        "providers": { "available": ["claude-code", "opencode"], "default": "claude-code" },
-        "repos": [
-            { "name": "api", "url": "git@github.com:acme/api.git", "default_branch": "main" },
-            { "name": "web", "url": "git@github.com:acme/web.git", "default_branch": "main" }
-        ],
-    }))
-    .unwrap();
-    assert_eq!(on_disk, expected);
 }

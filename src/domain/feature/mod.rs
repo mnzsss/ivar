@@ -59,7 +59,3 @@ pub use promotion::{
     Feature, FeatureBoard, Promotion, PromotionOutcome, UnknownOutcome, WorktreeState,
 };
 pub use write_contract::WriteContract;
-
-#[cfg(test)]
-#[path = "../../../tests/unit/domain/feature/mod.rs"]
-mod tests;

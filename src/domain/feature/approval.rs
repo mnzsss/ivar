@@ -267,3 +267,7 @@ pub struct GateRecord {
     /// gate has never been approved, or its approval was invalidated.
     pub artifact_fingerprint: Option<String>,
 }
+
+#[cfg(test)]
+#[path = "../../../tests/unit/domain/feature/approval.rs"]
+mod tests;

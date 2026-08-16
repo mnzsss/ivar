@@ -150,3 +150,7 @@ impl From<Error> for Failure {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "../../../tests/unit/store/manifest/error.rs"]
+mod tests;

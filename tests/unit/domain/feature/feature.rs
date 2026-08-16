@@ -192,3 +192,126 @@ fn a_v2_feature_json_with_no_parent_or_integration_field_still_deserialises() {
         crate::domain::feature::IntegrationOverride::default()
     );
 }
+
+#[test]
+fn a_new_feature_has_no_promotions_and_is_unapproved() {
+    let feature = feature();
+    assert!(feature.promotions.is_empty());
+    assert!(!FeatureBoard::new().approved);
+}
+
+#[test]
+fn promote_adds_a_pending_record_and_is_promoted_answers() {
+    let mut feature = feature();
+    let repo = RepoName::new("api").unwrap();
+
+    feature.promote(repo.clone());
+
+    assert!(feature.is_promoted(&repo));
+    assert_eq!(feature.worktree_state(&repo), Some(WorktreeState::Pending));
+}
+
+#[test]
+fn set_worktree_state_advances_only_a_promoted_repo() {
+    let mut feature = feature();
+    let repo = RepoName::new("api").unwrap();
+    feature.promote(repo.clone());
+    let stranger = RepoName::new("web").unwrap();
+
+    feature.set_worktree_state(&repo, WorktreeState::Ready);
+    feature.set_worktree_state(&stranger, WorktreeState::Ready);
+
+    assert_eq!(feature.worktree_state(&repo), Some(WorktreeState::Ready));
+    assert_eq!(feature.worktree_state(&stranger), None);
+}
+
+#[test]
+fn demote_removes_the_record_and_reports_whether_it_was_there() {
+    let mut feature = feature();
+    let repo = RepoName::new("api").unwrap();
+    feature.promote(repo.clone());
+
+    assert!(feature.demote(&repo));
+    assert!(!feature.is_promoted(&repo));
+    assert!(!feature.demote(&repo));
+}
+
+#[test]
+fn feature_round_trips_through_serde_without_unknown_fields() {
+    let mut feature = feature();
+    feature.promote(RepoName::new("api").unwrap());
+    let rendered = serde_json::to_string(&feature).unwrap();
+
+    let parsed: Feature = serde_json::from_str(&rendered).unwrap();
+
+    assert_eq!(parsed, feature);
+    assert_eq!(parsed.version(), 3);
+}
+
+#[test]
+fn an_unknown_field_in_feature_json_is_refused() {
+    let raw =
+        r#"{"version":1,"name":"checkout","branch":"feat/checkout","promotions":{},"bogus":true}"#;
+    assert!(serde_json::from_str::<Feature>(raw).is_err());
+}
+
+// -- close outcome ---------------------------------------------------------
+
+#[test]
+fn outcome_parse_accepts_all_cli_names_and_rejects_unknowns() {
+    assert_eq!(
+        PromotionOutcome::parse("delivered"),
+        Ok(PromotionOutcome::Delivered)
+    );
+    assert_eq!(
+        PromotionOutcome::parse("abandoned"),
+        Ok(PromotionOutcome::Abandoned)
+    );
+    assert_eq!(
+        PromotionOutcome::parse("integrated"),
+        Ok(PromotionOutcome::Integrated)
+    );
+    assert!(matches!(
+        PromotionOutcome::parse("bogus"),
+        Err(UnknownOutcome(_))
+    ));
+}
+
+#[test]
+fn outcome_display_and_serde_agree_on_the_cli_names() {
+    assert_eq!(PromotionOutcome::Delivered.to_string(), "delivered");
+    assert_eq!(PromotionOutcome::Abandoned.to_string(), "abandoned");
+    assert_eq!(PromotionOutcome::Integrated.to_string(), "integrated");
+    assert_eq!(
+        serde_json::to_value(PromotionOutcome::Delivered).unwrap(),
+        serde_json::json!("delivered")
+    );
+    assert_eq!(
+        serde_json::to_value(PromotionOutcome::Abandoned).unwrap(),
+        serde_json::json!("abandoned")
+    );
+    assert_eq!(
+        serde_json::to_value(PromotionOutcome::Integrated).unwrap(),
+        serde_json::json!("integrated")
+    );
+}
+
+#[test]
+fn outcome_round_trips_through_serde() {
+    for outcome in [
+        PromotionOutcome::Delivered,
+        PromotionOutcome::Abandoned,
+        PromotionOutcome::Integrated,
+    ] {
+        let rendered = serde_json::to_string(&outcome).unwrap();
+        let parsed: PromotionOutcome = serde_json::from_str(&rendered).unwrap();
+        assert_eq!(parsed, outcome);
+    }
+}
+
+#[test]
+fn an_unknown_outcome_converts_to_a_blocked_failure() {
+    let failure: Failure = UnknownOutcome("shipped".to_owned()).into();
+    assert_eq!(failure.status, crate::error::Status::Blocked);
+    assert_eq!(failure.code, "feature.unknown_outcome");
+}

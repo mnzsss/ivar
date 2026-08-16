@@ -25,6 +25,64 @@ fn main_branch() -> BranchName {
     BranchName::new("main").unwrap()
 }
 
+// -- delivery preview ----------------------------------------------------
+
+fn delivery_repo(repo: &str) -> DeliveryRepo {
+    DeliveryRepo {
+        repo: RepoName::new(repo).unwrap(),
+        local_branch: BranchName::new("checkout").unwrap(),
+        remote: "git@example.com:acme/api.git".to_owned(),
+        push_refspec: "checkout:refs/heads/checkout".to_owned(),
+        action: DeliveryAction::PushOnly,
+        base_branch: BranchName::new("main").unwrap(),
+        dependencies: Vec::new(),
+        blockers: Vec::new(),
+        pr_url: None,
+    }
+}
+
+#[test]
+fn a_delivery_preview_round_trips_through_serde() {
+    let preview = DeliveryPreview {
+        feature: FeatureName::new("checkout").unwrap(),
+        plan_gate: GateState::Approved,
+        repos: vec![delivery_repo("api")],
+        tree_blockers: Vec::new(),
+        fingerprint: "abc123".to_owned(),
+    };
+
+    let parsed: DeliveryPreview =
+        serde_json::from_value(serde_json::to_value(&preview).unwrap()).unwrap();
+
+    assert_eq!(parsed, preview);
+}
+
+#[test]
+fn delivery_action_serialises_as_snake_case() {
+    assert_eq!(
+        serde_json::to_string(&DeliveryAction::PushOnly).unwrap(),
+        r#""push_only""#
+    );
+    assert_eq!(
+        serde_json::to_string(&DeliveryAction::NewPr).unwrap(),
+        r#""new_pr""#
+    );
+    assert_eq!(
+        serde_json::to_string(&DeliveryAction::UpdatePr).unwrap(),
+        r#""update_pr""#
+    );
+}
+
+#[test]
+fn an_unknown_field_in_a_delivery_repo_is_refused() {
+    let repo = delivery_repo("api");
+    let rendered = serde_json::to_value(&repo).unwrap();
+    let mut with_bogus = rendered.as_object().unwrap().clone();
+    with_bogus.insert("bogus".to_owned(), serde_json::json!(true));
+
+    assert!(serde_json::from_value::<DeliveryRepo>(serde_json::Value::Object(with_bogus)).is_err());
+}
+
 #[test]
 fn classify_base_is_ok_when_the_base_is_present_and_still_an_ancestor() {
     assert_eq!(
