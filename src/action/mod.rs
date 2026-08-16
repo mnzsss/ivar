@@ -34,9 +34,19 @@ use camino::{Utf8Path, Utf8PathBuf};
 use serde::Serialize;
 
 use crate::error::{Failure, FixAction, WriteHuman};
+use crate::infra::proc;
 use crate::infra::progress::{self, Progress};
 
 use self::confirm::Confirm;
+
+/// The interpreter a setup script or session hook runs under.
+///
+/// Named explicitly rather than executing the script directly, so a script does
+/// not need its executable bit set — a `.sh` file arriving through a `git
+/// clone` on a filesystem that drops modes would otherwise fail with "permission
+/// denied", which names the wrong problem. The script's own shebang is
+/// advisory; this is what actually runs it.
+pub(crate) const SETUP_INTERPRETER: &str = "bash";
 
 /// The outcome of a verb that has nothing to report — it simply completed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -150,6 +160,29 @@ pub(crate) fn discover_hall(ctx: &Ctx) -> Result<Layout, Failure> {
         .actual("no ivar.json found walking up to the filesystem root")
         .fix(FixAction::safe("hall.init", "Create a hall here first.").command("ivar init"))
     })
+}
+
+/// The `IVAR_*` environment core every worktree-scoped command shares: the
+/// five variables ARCHITECTURE.md's "Environment contract" table checks in
+/// both the setup-script and session-hook columns.
+///
+/// `sync`, `feature promote`, and the session hook each add their own
+/// remaining variables (`IVAR_WORKTREE_KIND`, and where it applies
+/// `IVAR_FEATURE`, `IVAR_SESSION_ID`, `IVAR_SESSION_PATH`) on top of what this
+/// returns — those differ by site for reasons each site's own comment
+/// explains, so they are not folded in here.
+pub(crate) fn worktree_env(
+    cmd: proc::Command,
+    layout: &Layout,
+    repo: &str,
+    branch: &str,
+    worktree: &Utf8Path,
+) -> proc::Command {
+    cmd.env("IVAR_HALL", layout.root().as_str())
+        .env("IVAR_REPO", repo)
+        .env("IVAR_BRANCH", branch)
+        .env("IVAR_WORKTREE", worktree.as_str())
+        .env("IVAR_SECRETS_DIR", layout.secrets_dir().as_str())
 }
 
 /// Read the manifest [`discover_hall`] just proved exists.

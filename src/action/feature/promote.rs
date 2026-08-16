@@ -55,12 +55,7 @@ use crate::store::setup_receipt::Receipt;
 
 use super::super::{discover_hall, read_manifest};
 use super::mutation;
-use crate::action::Ctx;
-
-/// The interpreter a setup script runs under — the same choice `sync` makes,
-/// and for the same reason: a `.sh` arriving through a clone may lack its
-/// executable bit.
-const SETUP_INTERPRETER: &str = "bash";
+use crate::action::{Ctx, SETUP_INTERPRETER, worktree_env};
 
 /// What `ivar feature promote` needs.
 #[derive(Debug, Clone)]
@@ -364,20 +359,21 @@ fn setup_command(
     branch: &BranchName,
     feature: &FeatureName,
 ) -> proc::Command {
-    proc::Command::new(SETUP_INTERPRETER)
-        .arg(script.as_str())
-        .cwd(worktree)
-        .env("IVAR_HALL", layout.root().as_str())
-        .env("IVAR_REPO", repo.as_str())
-        .env("IVAR_BRANCH", branch.as_str())
-        .env("IVAR_WORKTREE", worktree.as_str())
-        .env("IVAR_SECRETS_DIR", layout.secrets_dir().as_str())
-        .env("IVAR_WORKTREE_KIND", "feature")
-        // Set here and nowhere else in this file's sibling path: `sync` runs
-        // the same script against the default worktree, where there is no
-        // feature to name. `IVAR_WORKTREE_KIND` is what a script branches on
-        // to know whether this is set.
-        .env("IVAR_FEATURE", feature.as_str())
+    worktree_env(
+        proc::Command::new(SETUP_INTERPRETER)
+            .arg(script.as_str())
+            .cwd(worktree),
+        layout,
+        repo.as_str(),
+        branch.as_str(),
+        worktree,
+    )
+    .env("IVAR_WORKTREE_KIND", "feature")
+    // Set here and nowhere else in this file's sibling path: `sync` runs
+    // the same script against the default worktree, where there is no
+    // feature to name. `IVAR_WORKTREE_KIND` is what a script branches on
+    // to know whether this is set.
+    .env("IVAR_FEATURE", feature.as_str())
 }
 
 #[cfg(test)]
