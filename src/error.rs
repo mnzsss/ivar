@@ -358,9 +358,7 @@ impl Warning {
             what: what.into(),
         }
     }
-}
 
-impl Warning {
     /// The one layout for a warning. As with [`Failure::write_painted`], only
     /// the label is painted — subject and text are values.
     pub fn write_painted(&self, w: &mut impl io::Write, palette: &Palette) -> io::Result<()> {

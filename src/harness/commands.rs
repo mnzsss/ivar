@@ -44,6 +44,10 @@ use camino::{Utf8Path, Utf8PathBuf};
 use crate::error::Failure;
 use crate::infra::{fs, hash};
 
+mod catalog;
+
+pub use catalog::{ShippedCommand, catalog};
+
 /// What happened to one command file during reconciliation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Change {
@@ -317,7 +321,7 @@ pub fn inspect(commands_dir: &Utf8Path, enabled: bool) -> Result<Vec<Inspection>
     for command in catalog() {
         let file_name = command.file_name();
         let integrity = match present.iter().find(|(name, _, _)| name == &file_name) {
-            Some((_, path, bytes)) if !enabled => Some((path, Integrity::Stale)),
+            Some((_, path, _)) if !enabled => Some((path, Integrity::Stale)),
             Some((_, path, bytes)) if bytes == command.content.as_bytes() => {
                 Some((path, Integrity::Current))
             }
@@ -409,10 +413,6 @@ fn legacy_command(file_name: &str) -> Option<&ShippedCommand> {
         .iter()
         .find(|command| command.legacy_file_name() == file_name)
 }
-
-mod catalog;
-
-pub use catalog::{ShippedCommand, catalog};
 
 #[cfg(test)]
 #[path = "../../tests/unit/harness/commands.rs"]

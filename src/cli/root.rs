@@ -356,27 +356,12 @@ pub struct FeatureStatusArgs {
     pub recursive: bool,
 }
 
-/// Arguments for `ivar feature execute prepare`.
-#[derive(Debug, Args)]
-pub struct FeatureExecuteArgs {
-    /// The feature to prepare an execution board for.
-    pub feature: String,
-    /// Path to the execution graph JSON — workstreams with
-    /// `id`/`title`/`operations`/`depends_on`/`write_contract`.
-    #[arg(long)]
-    pub graph_json: String,
-    /// The current Ivar session whose provider supplies defaults for
-    /// untargeted workstreams.
-    #[arg(long)]
-    pub session: Option<String>,
-}
-
 /// The `ivar feature execute` surface: verbs that create or advance a
 /// feature's execution board.
 #[derive(Debug, Subcommand)]
 pub enum ExecuteCommand {
     /// Prepare a feature's execution board from its plan and execution graph.
-    Prepare(FeatureExecuteArgs),
+    Prepare(ExecutePrepareArgs),
     /// Fold a revised plan into the board: advance the plan fingerprint and
     /// pause every workstream whose Operations changed until it acknowledges
     /// the new revision.
@@ -395,6 +380,21 @@ pub enum ExecuteCommand {
     GuardCheck(ExecuteGuardCheckArgs),
     /// Send a reply to a blocked workstream, unblocking it.
     Reply(ExecuteReplyArgs),
+}
+
+/// Arguments for `ivar feature execute prepare`.
+#[derive(Debug, Args)]
+pub struct ExecutePrepareArgs {
+    /// The feature to prepare an execution board for.
+    pub feature: String,
+    /// Path to the execution graph JSON — workstreams with
+    /// `id`/`title`/`operations`/`depends_on`/`write_contract`.
+    #[arg(long)]
+    pub graph_json: String,
+    /// The current Ivar session whose provider supplies defaults for
+    /// untargeted workstreams.
+    #[arg(long)]
+    pub session: Option<String>,
 }
 
 /// Arguments for `ivar feature execute replan`.
@@ -667,6 +667,13 @@ pub struct PlanInvalidateArgs {
     pub gate: String,
 }
 
+/// Arguments for `ivar plan status`.
+#[derive(Debug, Args)]
+pub struct PlanStatusArgs {
+    /// Path to the plan file (plan.md or similar).
+    pub plan_path: String,
+}
+
 /// The `ivar skill` surface: the hall's shared skills directory.
 #[derive(Debug, Subcommand)]
 pub enum SkillCommand {
@@ -742,13 +749,6 @@ pub struct SkillRemoveArgs {
 pub struct SkillDetachArgs {
     /// The external skill's id to convert into an authored skill.
     pub skill: String,
-}
-
-/// Arguments for `ivar plan status`.
-#[derive(Debug, Args)]
-pub struct PlanStatusArgs {
-    /// Path to the plan file (plan.md or similar).
-    pub plan_path: String,
 }
 
 /// Arguments for `ivar provider add`.
@@ -969,9 +969,9 @@ impl From<FeatureReparentArgs> for reparent::ReparentInput {
     }
 }
 
-impl From<FeatureExecuteArgs> for prepare::PrepareInput {
-    fn from(args: FeatureExecuteArgs) -> Self {
-        let FeatureExecuteArgs {
+impl From<ExecutePrepareArgs> for prepare::PrepareInput {
+    fn from(args: ExecutePrepareArgs) -> Self {
+        let ExecutePrepareArgs {
             feature,
             graph_json,
             session,
