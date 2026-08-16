@@ -201,6 +201,55 @@ fn stream_reads_multiple_lines_in_order_and_then_ends() {
     assert_eq!(child_stream.wait().unwrap(), Some(0));
 }
 
+/// A child that writes more to stderr than the pipe buffer holds, before it
+/// closes stdout, must not deadlock the reader.
+///
+/// The shape that hangs: `read_line` blocks waiting for stdout, the child
+/// blocks writing a full stderr pipe, and `wait` — the only thing that drains
+/// stderr — is never reached because the caller is still reading. A provider
+/// logging steadily to stderr during a long session is exactly this, and the
+/// symptom is `feature execute tick` hanging with no output, indistinguishable
+/// from a slow provider.
+///
+/// Run on a worker with a timeout rather than inline: a deadlocked assertion
+/// would hang the whole test binary instead of failing it.
+#[test]
+fn stream_does_not_deadlock_when_the_child_floods_stderr() {
+    // 256 KiB, four times the usual 64 KiB pipe buffer, all written before
+    // the single stdout line the reader is waiting for.
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mut child_stream = stream(
+            &Command::new("sh")
+                .arg("-c")
+                .arg("yes stderr-noise | head -c 262144 >&2; echo done"),
+        )
+        .unwrap();
+        let line = child_stream.read_line().unwrap();
+        let end = child_stream.read_line().unwrap();
+        let code = child_stream.wait().unwrap();
+        let _ = tx.send((line, end, code, child_stream.stderr().len()));
+    });
+
+    let Ok((line, end, code, stderr_len)) = rx.recv_timeout(std::time::Duration::from_secs(10))
+    else {
+        panic!(
+            "stream deadlocked: the child filled its stderr pipe before closing \
+             stdout, so read_line waited for a line the child was blocked from \
+             writing. stderr must be drained while stdout is being read."
+        );
+    };
+
+    assert_eq!(line.as_deref(), Some("done"));
+    assert_eq!(end, None);
+    assert_eq!(code, Some(0));
+    // Trimmed by `decode`, so assert the bulk arrived rather than an exact size.
+    assert!(
+        stderr_len > 260_000,
+        "stderr was truncated: got {stderr_len} bytes of the 262144 written"
+    );
+}
+
 #[test]
 fn stream_wait_returns_the_exit_code_like_inherit() {
     let mut child_stream = stream(&Command::new("sh").arg("-c").arg("exit 7")).unwrap();
