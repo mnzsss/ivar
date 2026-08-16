@@ -51,7 +51,8 @@ pub(super) fn artifact_path(layout: &Layout, feature: &FeatureName, gate: Gate) 
 }
 
 /// SHA-256 of the gate's artifact content. `Ok(None)` when the artifact does
-/// not exist — a vanished artifact is drift, not an error.
+/// not exist — a vanished artifact is drift, not an error, until a human
+/// either restores it or re-approves.
 pub(super) fn artifact_fingerprint(
     layout: &Layout,
     feature: &FeatureName,
