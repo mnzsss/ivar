@@ -19,7 +19,7 @@ use crate::action::feature::create::{self as feature_create, CreateInput as Feat
 use crate::action::hall::{self, InitInput};
 use crate::action::plan::create::{self as plan_create, CreateInput as PlanCreateInput};
 use crate::domain::feature::WriteContract;
-use crate::domain::name::RepoName;
+use crate::domain::name::{RepoName, SessionId};
 use crate::domain::provider::Provider;
 use crate::domain::session::SessionState;
 use crate::error::Status;
