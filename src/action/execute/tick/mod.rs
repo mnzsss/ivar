@@ -462,25 +462,23 @@ pub fn tick(ctx: &Ctx, input: TickInput) -> Outcome<TickOutcome> {
     // fan-out, and only when something is actually ready to launch — never
     // once per workstream. Mirrors `session::start`'s Smart Fetch: best-effort
     // per repo, a failure warns rather than blocking the tick.
-    let mut warnings = Vec::new();
-    let total = manifest.repos().len();
-    for (index, repo) in manifest.repos().iter().enumerate() {
-        ctx.progress().step(&pull::fetch_step(index, total, repo));
-        match pull::refresh_default(&git::System, &layout, repo) {
-            pull::PullStatus::Refreshed => {}
-            pull::PullStatus::Failed { reason } => warnings.push(Warning::new(
-                "execute.tick_smart_fetch_failed",
-                repo.name().to_string(),
-                reason,
-            )),
-            pull::PullStatus::Skipped { reason } => warnings.push(Warning::new(
-                "execute.tick_smart_fetch_skipped",
-                repo.name().to_string(),
-                reason,
-            )),
-        }
-    }
-    ctx.progress().clear();
+    let mut warnings: Vec<Warning> =
+        pull::refresh_all(&git::System, &layout, &manifest, ctx.progress())
+            .into_iter()
+            .filter_map(|(repo, status)| match status {
+                pull::PullStatus::Refreshed => None,
+                pull::PullStatus::Failed { reason } => Some(Warning::new(
+                    "execute.tick_smart_fetch_failed",
+                    repo.to_string(),
+                    reason,
+                )),
+                pull::PullStatus::Skipped { reason } => Some(Warning::new(
+                    "execute.tick_smart_fetch_skipped",
+                    repo.to_string(),
+                    reason,
+                )),
+            })
+            .collect();
 
     // Build every launch's command up front. Pure computation over data
     // already in hand (the plan text, the workstream) — no I/O — so a
