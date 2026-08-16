@@ -348,15 +348,8 @@ pub(crate) fn fast_forward_to(worktree: &Utf8Path, revision: &str) -> Result<(),
 /// as dirty — a push does not carry them, and the preview saying "clean" while
 /// `git status` disagrees would be a lie the human acts on.
 pub(crate) fn worktree_dirty(path: &Utf8Path) -> Result<bool, Error> {
-    let command = git().cwd(path).arg("status").arg("--porcelain");
-    let output = proc::capture(&command)?;
-    if !output.success() {
-        return Err(Error::Refused {
-            command: command.display(),
-            detail: output.diagnostic(),
-        });
-    }
-    Ok(!output.stdout.is_empty())
+    let stdout = run(git().cwd(path).arg("status").arg("--porcelain"))?;
+    Ok(!stdout.is_empty())
 }
 
 /// `git -C <worktree> status --porcelain -z --untracked-files=all` — every
@@ -378,20 +371,13 @@ pub(crate) fn worktree_dirty(path: &Utf8Path) -> Result<bool, Error> {
 /// A rename emits two records, the new path then the original. Both are
 /// returned: both are writes, since the file at the old path is gone.
 pub(crate) fn changed_paths(path: &Utf8Path) -> Result<Vec<Utf8PathBuf>, Error> {
-    let command = git()
+    let stdout = run(git()
         .cwd(path)
         .arg("status")
         .arg("--porcelain")
         .arg("-z")
-        .arg("--untracked-files=all");
-    let output = proc::capture(&command)?;
-    if !output.success() {
-        return Err(Error::Refused {
-            command: command.display(),
-            detail: output.diagnostic(),
-        });
-    }
-    Ok(parse_status_z(&output.stdout))
+        .arg("--untracked-files=all"))?;
+    Ok(parse_status_z(&stdout))
 }
 
 /// The paths named by `git status --porcelain -z` output.
@@ -461,22 +447,14 @@ pub(crate) fn paths_committed_since(
     path: &Utf8Path,
     since: &str,
 ) -> Result<Vec<Utf8PathBuf>, Error> {
-    let command = git()
+    let stdout = run(git()
         .cwd(path)
         .arg("diff")
         .arg("--name-only")
         .arg("-z")
         .arg(since)
-        .arg("HEAD");
-    let output = proc::capture(&command)?;
-    if !output.success() {
-        return Err(Error::Refused {
-            command: command.display(),
-            detail: output.diagnostic(),
-        });
-    }
-    Ok(output
-        .stdout
+        .arg("HEAD"))?;
+    Ok(stdout
         .split('\0')
         .filter(|record| !record.is_empty())
         .map(Utf8PathBuf::from)
@@ -491,15 +469,7 @@ pub(crate) fn paths_committed_since(
 /// caller (reconcile) wants the code divergence an executor left uncommitted,
 /// which is always a tracked edit.
 pub(crate) fn diff_worktree(path: &Utf8Path) -> Result<String, Error> {
-    let command = git().cwd(path).arg("diff").arg("HEAD");
-    let output = proc::capture(&command)?;
-    if !output.success() {
-        return Err(Error::Refused {
-            command: command.display(),
-            detail: output.diagnostic(),
-        });
-    }
-    Ok(output.stdout)
+    run(git().cwd(path).arg("diff").arg("HEAD"))
 }
 
 /// `git --git-dir <git_dir> rev-list --count <base>..<branch>` — how many
