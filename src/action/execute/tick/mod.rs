@@ -14,7 +14,7 @@
 //!    and one that found nothing are the same exit code and the same sentence.
 //! 2. Renders its prompt from the plan (see [`super::prompt`]), materialises a
 //!    real session — view dir, session record, execution guard — and spawns
-//!    the resolved [`Harness`]'s headless execute command via
+//!    the resolved [`Harness`](crate::harness::Harness)'s headless execute command via
 //!    [`crate::infra::proc::stream`], recording the session id in
 //!    [`ExecutionBoard::sessions`] so `guard-check --session <id>` resolves it
 //!    instead of answering "unknown session".
@@ -163,7 +163,6 @@
 //! `TEST_STUB_BIN_DIR` doc comment below for why that stub is a thread-local
 //! rather than a mutation of the process's own `PATH`.
 
-use std::collections::BTreeMap;
 use std::io;
 use std::sync::mpsc;
 use std::thread;
@@ -172,18 +171,15 @@ use camino::Utf8PathBuf;
 use serde::Serialize;
 
 use crate::domain::feature::{
-    ExecutionBoard, ExecutionStatus, Feature, JournalEntry, WorkstreamStatus, WriteContract,
+    ExecutionBoard, ExecutionStatus, Feature, JournalEntry, WorkstreamStatus,
 };
-use crate::domain::name::{FeatureName, RepoName, SessionId};
+use crate::domain::name::{FeatureName, RepoName};
 use crate::error::{Failure, FixAction, Outcome, Report, Warning, WriteHuman};
 use crate::git;
-use crate::harness::Harness;
 use crate::infra::{fs, hash};
 use crate::store::feature;
 
 use super::super::{discover_hall, read_manifest};
-use super::inbox;
-use super::prompt;
 use crate::action::Ctx;
 use crate::action::repo::pull;
 
@@ -480,82 +476,24 @@ pub fn tick(ctx: &Ctx, input: TickInput) -> Outcome<TickOutcome> {
             })
             .collect();
 
-    // Build every launch's command up front. Pure computation over data
-    // already in hand (the plan text, the workstream) — no I/O — so a
-    // workstream claiming an operation the plan does not back refuses the
-    // whole tick before anything spawns, rather than half the fan-out
-    // succeeding and the rest silently never starting.
-    let mut jobs = Vec::with_capacity(to_launch.len());
-    let mut command_displays = BTreeMap::new();
-    let mut cannot_ask = Vec::new();
-    // Every contract in the wave, unioned once: what the post-run audit
-    // measures the worktrees against. The wave shares its worktrees, so a
-    // sibling's legitimate write is indistinguishable from this workstream's
-    // stray one — see `launch::AuditOutcome`'s "Two questions,
-    // contract, not this workstream's".
-    let wave_contract: Vec<String> = board
-        .graph
-        .workstreams
-        .iter()
-        .filter(|ws| to_launch.contains(&ws.id))
-        .flat_map(|ws| ws.write_contract.iter().cloned())
-        .collect();
-    for ws in &board.graph.workstreams {
-        if !to_launch.contains(&ws.id) {
-            continue;
-        }
-        // Newly prepared boards carry an explicit provider for every
-        // workstream (resolved from the graph/plan/caller session at prepare
-        // time). A board with `None` predates that — a legacy board — and the
-        // hall-default fallback is warned about, never silent, so a workstream
-        // nobody targeted never quietly runs on the wrong harness.
-        let provider = match ws.provider {
-            Some(provider) => provider,
-            None => {
-                warnings.push(Warning::new(
-                    "execute.legacy_provider_fallback",
-                    ws.id.clone(),
-                    format!(
-                        "workstream `{}` comes from a legacy board with no recorded provider; using hall default `{}`. Re-prepare the board to persist targeting in plan.md and board.json.",
-                        ws.id,
-                        manifest.providers().default_provider(),
-                    ),
-                ));
-                manifest.providers().default_provider()
-            }
-        };
-        let harness = Harness::for_provider(provider)?;
-        if !harness.capabilities().supports_questions {
-            cannot_ask.push((ws.id.clone(), harness.binary()));
-        }
-        // Answers a human already gave this workstream, if it blocked on a
-        // question before: the relaunch is a fresh child, and a prompt
-        // without them is the same prompt that produced the question.
-        let replies = inbox::read(&layout, &feature, &ws.id)?;
-        let prompt_text = prompt::render(&plan_text, ws, &replies)?;
-        let session_id = SessionId::new(uuid::Uuid::new_v4().to_string())?;
-        let view_dir = layout.feature_session(&feature, &session_id);
-        let command = launch::build_spawn_command(
-            harness,
-            &prompt_text,
-            ws,
-            &view_dir,
-            &layout,
-            &feature,
-            &session_id,
-        );
-        command_displays.insert(session_id.to_string(), command.display());
-        jobs.push(launch::LaunchJob {
-            workstream_id: ws.id.clone(),
-            session_id,
-            provider,
-            view_dir,
-            command,
-            wave_contract: WriteContract::new(wave_contract.clone()),
-            contract: WriteContract::new(ws.write_contract.clone()),
-            locked_repos: locked_repos.clone(),
-        });
-    }
+    // Decide the whole wave up front — see `launch::plan_wave`'s doc for why
+    // this is pure computation plus small reads, no board mutation and no
+    // spawn.
+    let launch::WavePlan {
+        jobs,
+        command_displays,
+        cannot_ask,
+        warnings: plan_warnings,
+    } = launch::plan_wave(
+        &layout,
+        &feature,
+        &manifest,
+        &board,
+        &to_launch,
+        &plan_text,
+        &locked_repos,
+    )?;
+    warnings.extend(plan_warnings);
 
     // See "A harness that cannot ask": journalled before any child spawns.
     for (workstream_id, binary) in cannot_ask {

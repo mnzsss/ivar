@@ -8,11 +8,11 @@ use std::sync::mpsc;
 
 use camino::{Utf8Path, Utf8PathBuf};
 
-use crate::domain::feature::{Feature, WorkstreamDef, WriteContract};
+use crate::domain::feature::{ExecutionBoard, Feature, WorkstreamDef, WriteContract};
 use crate::domain::name::{FeatureName, RepoName, SessionId};
 use crate::domain::provider::Provider;
 use crate::domain::session::{SessionState, rfc3339_now};
-use crate::error::Failure;
+use crate::error::{Failure, Warning};
 use crate::git::{self, Git};
 use crate::harness::stream::{ExecutorEvent, parse_claude_line, parse_opencode_line};
 use crate::harness::{Harness, guard};
@@ -21,6 +21,7 @@ use crate::store::layout::Layout;
 use crate::store::manifest::Manifest;
 
 use super::super::super::session::view;
+use super::super::{inbox, prompt};
 use super::events::{ExecutorTickEvent, TickEvent};
 
 #[cfg(test)]
@@ -48,6 +49,127 @@ pub(super) struct LaunchJob {
     /// even if a shell bypassed the tool hook — a locked promotion must stay
     /// byte-for-byte immovable.
     pub(super) locked_repos: std::collections::BTreeSet<RepoName>,
+}
+
+/// Everything decided about a wave before any worker thread starts: the jobs
+/// to launch, what to show in each `started` journal entry, which
+/// workstreams cannot ask a question, and whatever warnings surfaced while
+/// deciding. Deciding is the calling thread's job — see `mod.rs`'s "Who
+/// spawns, who owns the board" — and this is exactly the deciding half: no
+/// board mutation, no spawn, happens in [`plan_wave`].
+pub(super) struct WavePlan {
+    pub(super) jobs: Vec<LaunchJob>,
+    pub(super) command_displays: BTreeMap<String, String>,
+    /// Workstreams whose resolved harness cannot ask a question in headless
+    /// execute mode, paired with the harness binary name. The caller
+    /// journals one `harness.no_questions` entry per pair, before any child
+    /// spawns — see the module doc's "A harness that cannot ask". Left to the
+    /// caller because writing the journal means writing the board, and only
+    /// the calling thread may do that.
+    pub(super) cannot_ask: Vec<(String, &'static str)>,
+    /// Warnings surfaced while planning the wave — currently only a legacy
+    /// board with no recorded provider, falling back to the hall default.
+    pub(super) warnings: Vec<Warning>,
+}
+
+/// Plan the wave: build every launch's command up front for the workstreams
+/// named in `to_launch`.
+///
+/// Pure computation over data already in hand (the plan text, the
+/// workstreams) plus the small amount of I/O — resolving each workstream's
+/// harness, reading its inbox — needed to build its spawn command; no I/O
+/// touches the board or a child process. A workstream claiming an operation
+/// the plan does not back therefore refuses the whole tick before anything
+/// spawns, rather than half the fan-out succeeding and the rest silently
+/// never starting.
+pub(super) fn plan_wave(
+    layout: &Layout,
+    feature: &FeatureName,
+    manifest: &Manifest,
+    board: &ExecutionBoard,
+    to_launch: &[String],
+    plan_text: &str,
+    locked_repos: &BTreeSet<RepoName>,
+) -> Result<WavePlan, Failure> {
+    let mut jobs = Vec::with_capacity(to_launch.len());
+    let mut command_displays = BTreeMap::new();
+    let mut cannot_ask = Vec::new();
+    let mut warnings = Vec::new();
+    // Every contract in the wave, unioned once: what the post-run audit
+    // measures the worktrees against. The wave shares its worktrees, so a
+    // sibling's legitimate write is indistinguishable from this workstream's
+    // stray one — see `launch::AuditOutcome`'s "Two questions,
+    // contract, not this workstream's".
+    let wave_contract: Vec<String> = board
+        .graph
+        .workstreams
+        .iter()
+        .filter(|ws| to_launch.contains(&ws.id))
+        .flat_map(|ws| ws.write_contract.iter().cloned())
+        .collect();
+    for ws in &board.graph.workstreams {
+        if !to_launch.contains(&ws.id) {
+            continue;
+        }
+        // Newly prepared boards carry an explicit provider for every
+        // workstream (resolved from the graph/plan/caller session at prepare
+        // time). A board with `None` predates that — a legacy board — and the
+        // hall-default fallback is warned about, never silent, so a workstream
+        // nobody targeted never quietly runs on the wrong harness.
+        let provider = match ws.provider {
+            Some(provider) => provider,
+            None => {
+                warnings.push(Warning::new(
+                    "execute.legacy_provider_fallback",
+                    ws.id.clone(),
+                    format!(
+                        "workstream `{}` comes from a legacy board with no recorded provider; using hall default `{}`. Re-prepare the board to persist targeting in plan.md and board.json.",
+                        ws.id,
+                        manifest.providers().default_provider(),
+                    ),
+                ));
+                manifest.providers().default_provider()
+            }
+        };
+        let harness = Harness::for_provider(provider)?;
+        if !harness.capabilities().supports_questions {
+            cannot_ask.push((ws.id.clone(), harness.binary()));
+        }
+        // Answers a human already gave this workstream, if it blocked on a
+        // question before: the relaunch is a fresh child, and a prompt
+        // without them is the same prompt that produced the question.
+        let replies = inbox::read(layout, feature, &ws.id)?;
+        let prompt_text = prompt::render(plan_text, ws, &replies)?;
+        let session_id = SessionId::new(uuid::Uuid::new_v4().to_string())?;
+        let view_dir = layout.feature_session(feature, &session_id);
+        let command = build_spawn_command(
+            harness,
+            &prompt_text,
+            ws,
+            &view_dir,
+            layout,
+            feature,
+            &session_id,
+        );
+        command_displays.insert(session_id.to_string(), command.display());
+        jobs.push(LaunchJob {
+            workstream_id: ws.id.clone(),
+            session_id,
+            provider,
+            view_dir,
+            command,
+            wave_contract: WriteContract::new(wave_contract.clone()),
+            contract: WriteContract::new(ws.write_contract.clone()),
+            locked_repos: locked_repos.clone(),
+        });
+    }
+
+    Ok(WavePlan {
+        jobs,
+        command_displays,
+        cannot_ask,
+        warnings,
+    })
 }
 
 /// Build the invocation for `harness`'s headless execute mode, with the
