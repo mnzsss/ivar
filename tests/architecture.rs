@@ -36,9 +36,20 @@
 //! - a second rule scans `src/` and refuses any `#[test]`, `#[rstest]`, or
 //!   inline `mod tests { … }` body there — only a path-linked semicolon
 //!   declaration may keep its test module in the production tree.
+//!
+//! Those two rules assume the mirror itself is intact — that every file
+//! under `tests/unit/` is actually reachable from a `#[path]` declaration in
+//! `src/`. Nothing enforced that assumption, and it broke: a 279-line file
+//! sat under `tests/unit/domain/feature/integration.rs` with no link
+//! pointing at it, so `cargo test` never compiled it and every case inside
+//! went unrun with no error from anyone. A third rule closes that gap by
+//! comparing the physical `tests/unit/` tree against every `#[path]` string
+//! in `src/`, in both directions — a file with no link, and a link to a file
+//! that does not exist, are both mirror drift.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
+use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -176,6 +187,84 @@ fn misplaced_test_bodies(text: &str) -> Vec<String> {
         }
     }
     found
+}
+
+/// The mirror invariant: every file under `tests/unit/` must be reachable
+/// from a `#[path]` declaration in `src/`, or it compiles nowhere and its
+/// tests never run — silently, since `cargo test` has no way to know the
+/// file was supposed to exist.
+///
+/// This walks `tests/unit/**/*.rs` for the files that physically exist,
+/// scans `src/**/*.rs` for every `#[path = "...tests/unit/..."]` string, and
+/// normalises each to the same repo-relative form the physical walk
+/// produces. The two sets must then be equal. `tests/support/` is not part
+/// of this walk: it holds the shared fixtures linked from `src/lib.rs`'s
+/// `mod test_support`, one file for the whole crate rather than a per-module
+/// mirror, so it is a different mechanism and out of scope here by
+/// construction — `rust_files` is only ever pointed at `tests/unit`.
+#[test]
+fn every_unit_test_file_is_linked_from_src() {
+    let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let unit = manifest.join("tests/unit");
+    let src = manifest.join("src");
+
+    let mirrored: BTreeSet<String> = rust_files(&unit)
+        .iter()
+        .map(|file| display_path(manifest, file))
+        .collect();
+
+    let mut linked = BTreeSet::new();
+    for file in rust_files(&src) {
+        let text = fs::read_to_string(&file).unwrap();
+        linked.extend(path_links_to_unit_tests(&text));
+    }
+
+    let orphans: Vec<&String> = mirrored.difference(&linked).collect();
+    let dangling: Vec<&String> = linked.difference(&mirrored).collect();
+
+    assert!(
+        orphans.is_empty() && dangling.is_empty(),
+        "the tests/unit/ mirror has drifted from src/'s #[path] links:\n  \
+         orphans, present under tests/unit/ but linked from nowhere so never \
+         compiled: {orphans:?}\n  \
+         dangling, linked by a #[path] whose target does not exist: {dangling:?}\n\n\
+         Every file under tests/unit/ needs a `#[cfg(test)] #[path = \"…\"] \
+         mod tests;` declaration in the src/ file it tests.",
+    );
+}
+
+/// Pulls every `#[path = "…tests/unit/…"]` string out of a `src/` file's
+/// text and normalises it to a repo-relative `tests/unit/…` path.
+///
+/// `#[path]` is resolved relative to the file that declares it, so the
+/// literal's `../` prefix grows with directory depth — `../../tests/unit/x.rs`
+/// two levels down, `../../../../tests/unit/x.rs` four levels down. There is
+/// no need to count the prefix: finding the fixed substring `tests/unit` and
+/// keeping the literal from there on lands on the same repo-relative form
+/// regardless of depth, which is the same trick [`display_path`] uses to
+/// turn an absolute filesystem path into one comparable across machines.
+fn path_links_to_unit_tests(text: &str) -> Vec<String> {
+    let mut links = Vec::new();
+    for line in text.lines() {
+        if line.trim_start().starts_with("//") {
+            continue;
+        }
+        let Some(after_attr) = line.find("#[path") else {
+            continue;
+        };
+        let rest = &line[after_attr..];
+        let Some(open) = rest.find('"') else {
+            continue;
+        };
+        let Some(close) = rest[open + 1..].find('"') else {
+            continue;
+        };
+        let literal = &rest[open + 1..open + 1 + close];
+        if let Some(index) = literal.find("tests/unit") {
+            links.push(literal[index..].to_owned());
+        }
+    }
+    links
 }
 
 /// The layering rule extends to relocated unit tests, so a test that imports
