@@ -433,3 +433,7 @@ pub(super) fn provider_ids(providers: &[Provider]) -> String {
         .collect::<Vec<_>>()
         .join(", ")
 }
+
+#[cfg(test)]
+#[path = "../../../tests/unit/store/manifest/model.rs"]
+mod tests;

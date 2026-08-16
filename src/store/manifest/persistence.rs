@@ -187,3 +187,7 @@ impl Manifest {
         )
     }
 }
+
+#[cfg(test)]
+#[path = "../../../tests/unit/store/manifest/persistence.rs"]
+mod tests;

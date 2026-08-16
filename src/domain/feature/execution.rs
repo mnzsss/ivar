@@ -313,3 +313,7 @@ fn now_epoch_seconds() -> String {
         .map(|elapsed| elapsed.as_secs().to_string())
         .unwrap_or_default()
 }
+
+#[cfg(test)]
+#[path = "../../../tests/unit/domain/feature/execution.rs"]
+mod tests;

@@ -104,7 +104,3 @@ mod persistence;
 pub use error::Error;
 pub use model::{Manifest, Providers, Repo, Skills, Targets};
 pub use persistence::MigrationPlan;
-
-#[cfg(test)]
-#[path = "../../../tests/unit/store/manifest/mod.rs"]
-mod tests;

@@ -110,3 +110,7 @@ fn glob_match(glob: &str, path: &str) -> bool {
     }
     path[head.len()..].contains(tail)
 }
+
+#[cfg(test)]
+#[path = "../../../tests/unit/domain/feature/write_contract.rs"]
+mod tests;
