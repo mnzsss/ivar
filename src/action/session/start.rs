@@ -53,7 +53,8 @@ use crate::infra::progress::Progress;
 use crate::store::layout::Layout;
 use crate::store::manifest::Manifest;
 use crate::tui;
-use crate::tui::driver::{Driver, PtsPty, Pty, ShellSpec};
+use crate::tui::driver::{Driver, Pty, ShellSpec};
+use crate::tui::pty::PtsPty;
 
 use super::super::{discover_hall, read_manifest};
 use super::{hook, lookup, view};
@@ -449,7 +450,7 @@ fn feature_rows(layout: &Layout, names: &[FeatureName]) -> Vec<tui::widget::Row>
         .collect()
 }
 
-/// The real PTY for a session is `tui::driver::PtsPty` — `portable-pty`
+/// The real PTY for a session is `tui::pty::PtsPty` — `portable-pty`
 /// behind the [`Pty`] seam, shared with `ivar feature view`.
 #[cfg(test)]
 #[path = "../../../tests/unit/action/session/start.rs"]

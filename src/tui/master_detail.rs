@@ -32,8 +32,9 @@ use ratatui::DefaultTerminal;
 use ratatui::layout::Rect;
 
 use crate::error::Failure;
-use crate::tui::driver::{Driver, PtsPty, ShellSpec};
+use crate::tui::driver::{Driver, ShellSpec};
 use crate::tui::key_router::{Direction, Key};
+use crate::tui::pty::PtsPty;
 use crate::tui::widget::{Row, panel_size, render};
 
 /// Everything the feature-view host loop needs, pushed in by the action.

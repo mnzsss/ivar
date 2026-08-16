@@ -149,6 +149,9 @@ src/
     screen.rs      the Screen seam over vt100 — the emulator swap point
     widget.rs      pure deterministic projection of a snapshot into a Buffer
     driver.rs      all I/O: pty reads, resize, event folding. Owns no executor.
+    scrollback.rs  the plain-text scrollback decoder driver.rs feeds: escape
+                   sequences stripped from PTY bytes, kept off the emulator
+                   seam so a vt100 swap never has to think about it
     pty.rs         the concrete PtsPty adapter over portable-pty, behind the
                    Pty trait the driver is generic over
     key_router.rs  pure reducer: (mode, key) -> (mode, action)
