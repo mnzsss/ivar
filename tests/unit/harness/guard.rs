@@ -299,3 +299,53 @@ fn a_corrupt_existing_settings_file_is_replaced_not_fatal() {
     .unwrap();
     assert!(settings["hooks"]["PreToolUse"].is_array());
 }
+
+/// The OpenCode hook fires for *every* tool, and its first argument is the
+/// call's identity — `{ tool, sessionID, callID }` — not its arguments. A
+/// hook that ignored it and went straight for a path denied `bash` (which
+/// has none) before a test could run, and sent `read` to `guard-check`,
+/// which answers for the *write* contract: an executor could then neither
+/// read the modules it was told to change nor prove its change worked, and
+/// ran itself out of turns analysing the few files it could open. The
+/// allowlist is what keeps the guard on the tools it is a guard for; the
+/// tools it lets past are covered by the post-run audit in `tick`.
+#[test]
+fn the_opencode_plugin_arbitrates_only_direct_mutation_tools() {
+    let (_hall_dir, hall_root) = utf8_temp_dir();
+
+    let plugin = render_opencode_guard_plugin(&hall_root, &feature(), &session());
+
+    assert!(
+        plugin.contains(
+            r#"const MUTATION_TOOLS = new Set(["write", "edit", "multiedit", "notebookedit"]);"#
+        ),
+        "the allowlist must name the mutation tools, lower-cased: {plugin}"
+    );
+
+    let gate = plugin
+        .find("MUTATION_TOOLS.has")
+        .expect("the hook must consult the allowlist");
+    let extraction = plugin
+        .find("args.filePath")
+        .expect("the hook must still extract a path");
+    assert!(
+        gate < extraction,
+        "a non-mutation tool must return before the pathless default-deny: {plugin}"
+    );
+
+    assert!(
+        plugin.contains("input: { tool: string"),
+        "the hook must read the documented input shape: {plugin}"
+    );
+    assert!(
+        !plugin.contains("_input: unknown"),
+        "the hook can no longer ignore which tool it was called for: {plugin}"
+    );
+
+    // Letting the other tools past narrows what the guard arbitrates; it
+    // does not soften the answer for what it still does.
+    assert!(
+        plugin.contains("no path in the tool call — denying by default"),
+        "a mutation without a path must still be denied: {plugin}"
+    );
+}

@@ -11,6 +11,7 @@ use crate::error::Failure;
 use crate::infra::fs;
 
 use super::OPENCODE_GUARD_PLUGIN;
+use super::claude::WRITE_TOOL_MATCHER;
 
 /// Materialise the OpenCode guard plugin into `view_dir`.
 ///
@@ -62,11 +63,23 @@ pub(crate) fn render_opencode_guard_plugin(
  * exit, or any answer other than an explicit `allowed: true` are all
  * refused — never allowed by omission.
  */
+const MUTATION_TOOLS = new Set(__MUTATION_TOOLS__);
+
 export const ivarExecutionGuard = async () => ({
   'tool.execute.before': async (
-    _input: unknown,
+    input: { tool: string; sessionID: string; callID: string },
     output: { args?: Record<string, unknown> },
   ) => {
+    // Only the tools that mutate a file on their own are this guard's
+    // business; `read`, `bash`, search and the rest go past it, and what
+    // a shell writes is caught by ivar's post-run audit instead. A tool
+    // name that is missing or not a string names nothing recognisable, so
+    // it falls through to the arbitration below rather than past it.
+    const tool = typeof input?.tool === 'string' ? input.tool.toLowerCase() : '';
+    if (tool && !MUTATION_TOOLS.has(tool)) {
+      return;
+    }
+
     const args = output?.args ?? {};
     const filePath =
       (typeof args.filePath === 'string' && args.filePath) ||
@@ -126,9 +139,23 @@ export const ivarExecutionGuard = async () => ({
 "#;
 
     TEMPLATE
+        .replace("__MUTATION_TOOLS__", &mutation_tools_literal())
         .replace("__FEATURE_NAME__", feature.as_str())
         .replace("__SESSION_NAME__", session_id.as_str())
         .replace("__HALL_JSON__", &js_string_literal(hall_root.as_str()))
         .replace("__FEATURE_JSON__", &js_string_literal(feature.as_str()))
         .replace("__SESSION_JSON__", &js_string_literal(session_id.as_str()))
+}
+
+/// Render the mutation-tool allowlist as a JS array literal, from the same
+/// tool list Claude Code's hook matcher is built from — OpenCode spells the
+/// names in lower case, so the two providers guard the same set of tools
+/// rather than two lists that drift apart.
+fn mutation_tools_literal() -> String {
+    let tools: Vec<String> = WRITE_TOOL_MATCHER
+        .split('|')
+        .map(|tool| js_string_literal(&tool.to_lowercase()))
+        .collect();
+
+    format!("[{}]", tools.join(", "))
 }

@@ -41,9 +41,17 @@
 //!
 //! # What the guard cannot see
 //!
-//! The matcher lists the tools whose call carries a path: `Write`, `Edit`,
-//! `MultiEdit`, `NotebookEdit`. `Bash` is deliberately not among them, and
-//! that is a hole, not an oversight — but not one this layer can close.
+//! Both artefacts arbitrate the same list of tools — the ones whose call
+//! carries a path and writes it: `Write`, `Edit`, `MultiEdit`,
+//! `NotebookEdit`, spelled as Claude Code's hook matcher and as OpenCode's
+//! lower-case allowlist from the one constant in [`claude`]. Every other
+//! tool goes past. That is not leniency but scope: `read`, search and the
+//! test runner are how a workstream learns what it was asked to change and
+//! proves it worked, and a guard that denied them left executors analysing
+//! the handful of files inside their *write* contract until they ran out of
+//! turns, delivering nothing. `Bash` is deliberately not among the
+//! arbitrated tools either, and that one is a hole rather than a scope
+//! decision — but not one this layer can close.
 //!
 //! A `Bash` call carries a *command*, not a path. Deciding which files
 //! `python3 - <<EOF` writes means deciding what the program does; a hook that
