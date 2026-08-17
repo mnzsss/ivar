@@ -547,6 +547,53 @@ fn a_refused_command_is_a_failed_failure_carrying_gits_own_diagnostic() {
     );
 }
 
+/// The one refusal whose way out is a specific pair of commands rather than
+/// "read git's message". Left as the generic `git.command_failed`, the
+/// envelope hands over a wall of git text and a fix action telling the user to
+/// run the command that just failed — which will fail again the same way.
+///
+/// Reached whenever `ivar` writes history on a machine with no identity
+/// configured: the squash commit and the no-ff merge in `exec.rs` deliberately
+/// do not force one, because a commit landing in a user's repository must
+/// carry that user's authorship.
+#[test]
+fn a_missing_git_identity_names_the_config_commands() {
+    let failure: Failure = Error::Refused {
+        command: "git commit -m Squashed child work".to_owned(),
+        detail: "Author identity unknown\n\n*** Please tell me who you are.\n\nRun\n\n  \
+                 git config --global user.email \"you@example.com\"\n  git config \
+                 --global user.name \"Your Name\"\n\nto set your account's default \
+                 identity.\nOmit --global to set the identity only in this \
+                 repository.\n\nfatal: empty ident name (for <runner@host>) not allowed"
+            .to_owned(),
+    }
+    .into();
+
+    assert_eq!(failure.code, "git.identity_missing");
+    assert_eq!(failure.status, Status::Blocked);
+    let fix = &failure.fix_actions[0];
+    assert!(
+        fix.command
+            .as_deref()
+            .is_some_and(|command| command.contains("user.email")),
+        "the fix must carry the command that sets an identity, got: {:?}",
+        fix.command
+    );
+}
+
+/// A refusal that merely mentions one config key is not the identity case —
+/// the generic conversion still owns everything git says no to.
+#[test]
+fn an_unrelated_refusal_stays_the_generic_command_failure() {
+    let failure: Failure = Error::Refused {
+        command: "git config --get user.email".to_owned(),
+        detail: "error: key does not contain a section: user".to_owned(),
+    }
+    .into();
+
+    assert_eq!(failure.code, "git.command_failed");
+}
+
 #[test]
 fn a_missing_repository_is_blocked_and_points_at_sync() {
     let failure: Failure = Error::NotARepository {
