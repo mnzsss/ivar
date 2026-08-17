@@ -16,6 +16,24 @@ tasks. Pick the one that describes you:
 If you have not read [Concepts](concepts.md), read it first. It is five terms and
 takes about three minutes, and both paths below assume them.
 
+## Before either path: install
+
+```sh
+curl -fsSL ivar.mnzs.dev/install | sh
+```
+
+Or `cargo install ivar` if you have a Rust toolchain and would rather build from
+source, or take a binary from a [release](https://github.com/mnzsss/ivar/releases)
+and put it on your `PATH` yourself.
+
+```sh
+ivar --version
+```
+
+**macOS and Linux.** Windows is not supported: the view dir is built entirely
+from symlinks, which need Developer Mode or admin rights there. WSL works and
+consumes the Linux build with no separate path.
+
 ## Before either path: authenticate
 
 `ivar` clones repos and opens pull requests as you. It never stores a credential

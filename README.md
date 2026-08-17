@@ -11,6 +11,17 @@ in `web`, same session, no handoff.
 curl -fsSL ivar.mnzs.dev/install | sh
 ```
 
+Or, if you would rather not pipe a script into a shell:
+
+```sh
+cargo install ivar                  # builds from source; needs a Rust toolchain
+```
+
+Or take a binary straight from a [release](https://github.com/mnzsss/ivar/releases).
+Every release carries a `tar.gz` per target — `x86_64`/`aarch64` for both macOS
+and Linux — each with a `.sha256` beside it. That is the same artifact the
+install script above fetches.
+
 > **`ivar` is local-only. It never talks to a server.** Anything that requires a
 > hosted service is out of scope. That is a property of the architecture, not a
 > policy — read the source and check.
@@ -28,9 +39,11 @@ curl -fsSL ivar.mnzs.dev/install | sh
 
 ## Status
 
-`0.0.1` — beta. The command surface is settled; the on-disk format may still
-move before `0.1.0`. Local state migrates itself; `ivar.json` never migrates
-without you asking.
+**Beta**, pre-`0.1.0` — the version you get is whatever the
+[latest release](https://github.com/mnzsss/ivar/releases/latest) says, and this
+line deliberately does not repeat it. The command surface is settled; the
+on-disk format may still move before `0.1.0`. Local state migrates itself;
+`ivar.json` never migrates without you asking.
 
 **macOS and Linux.** Windows is not supported: the view dir is built entirely
 from symlinks, which need Developer Mode or admin rights on Windows. Use WSL —
