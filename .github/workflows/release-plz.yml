@@ -20,6 +20,11 @@ jobs:
     permissions:
       contents: write
       pull-requests: read
+    # Consumed by the `binaries` job below. A release-plz run that only opened a
+    # PR publishes nothing and produces no tag, so `released` gates the build.
+    outputs:
+      released: ${{ steps.release.outputs.releases_created }}
+      tag: ${{ steps.tag.outputs.tag }}
     steps:
       - name: Checkout validated commit
         uses: actions/checkout@v5
@@ -39,12 +44,39 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Publish merged release PR
+        id: release
         uses: release-plz/action@v0.5
         with:
           command: release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+      # One crate in this workspace, so `.[0]` is it. `-e` makes an empty or
+      # malformed `releases` payload fail the step instead of handing the
+      # binaries job an empty tag, which would silently check out `main`.
+      - name: Read the tag release-plz created
+        id: tag
+        if: steps.release.outputs.releases_created == 'true'
+        env:
+          RELEASES: ${{ steps.release.outputs.releases }}
+        run: |
+          tag=$(printf '%s' "$RELEASES" | jq -er '.[0].tag')
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "released as $tag" >> "$GITHUB_STEP_SUMMARY"
+
+  # A `cargo install` needs a Rust toolchain; the install script does not, and
+  # has nothing to fetch unless the release carries binaries. This attaches
+  # them to the release the job above just created.
+  binaries:
+    name: binaries
+    needs: release-plz-release
+    if: needs.release-plz-release.outputs.released == 'true'
+    permissions:
+      contents: write
+    uses: ./.github/workflows/release-binaries.yml
+    with:
+      tag: ${{ needs.release-plz-release.outputs.tag }}
 
   release-plz-pr:
     name: release-plz PR

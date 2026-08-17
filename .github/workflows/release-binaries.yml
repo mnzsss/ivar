@@ -1,0 +1,80 @@
+name: release binaries
+
+# `release-plz` creates the tag, the GitHub Release and the crates.io publish.
+# It does not build binaries — this does, and attaches them to the release it
+# just made. That matters because `cargo install ivar` compiles from source and
+# needs a Rust toolchain; the install script does not, and has nothing to
+# download without this.
+#
+# Two entry points, and both take the tag explicitly rather than reading
+# `github.ref`, because neither is triggered by a tag push:
+#   - workflow_call     — the normal path, from release-plz.yml
+#   - workflow_dispatch — re-run the upload by hand when a target fails
+on:
+  workflow_call:
+    inputs:
+      tag:
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to build for and attach binaries to (e.g. v0.0.1)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  upload:
+    name: ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    permissions:
+      # Attaching assets to an existing release is a write to `contents`.
+      # Scoped to this job so the build steps above it cannot use it.
+      contents: write
+    strategy:
+      # One target failing must not cancel the other three. A partial release
+      # is recoverable by dispatching this workflow again for the tag; a
+      # cancelled one wastes the whole matrix.
+      fail-fast: false
+      matrix:
+        include:
+          # ubuntu-22.04, not -latest: a gnu target links against the builder's
+          # glibc, so the runner image *is* the compatibility floor we ship.
+          # Pinning it means an image bump cannot silently raise that floor.
+          - { target: x86_64-unknown-linux-gnu, os: ubuntu-22.04 }
+          - { target: aarch64-unknown-linux-gnu, os: ubuntu-22.04 }
+          - { target: x86_64-apple-darwin, os: macos-latest }
+          - { target: aarch64-apple-darwin, os: macos-latest }
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.tag }}
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      # Builds, archives as `ivar-<target>.tar.gz` with the licence files beside
+      # the binary, writes a `.sha256` next to it, and uploads both to the
+      # release named by `ref`. Cross-compiles aarch64 Linux with `cross`.
+      #
+      # A cross build here needs a C toolchain and nothing more: libgit2 is
+      # built from vendored C source, and `git2`'s `https`/`ssh` features are
+      # off in Cargo.toml, so there is no OpenSSL to cross-compile. TLS is
+      # rustls via `ureq`, which is pure Rust.
+      - uses: taiki-e/upload-rust-binary-action@v1
+        with:
+          bin: ivar
+          target: ${{ matrix.target }}
+          archive: $bin-$target
+          include: LICENSE,NOTICE,README.md
+          checksum: sha256
+          ref: refs/tags/${{ inputs.tag }}
+          token: ${{ secrets.GITHUB_TOKEN }}
