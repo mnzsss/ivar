@@ -11,11 +11,15 @@
 )]
 
 use super::*;
-use crate::test_support::utf8_temp_dir;
+use crate::test_support::{canonical_temp_dir, utf8_temp_dir};
 
+/// Canonicalised, unlike its siblings here, because this is the one test that
+/// compares a path against what the shell reports: on macOS `TempDir` hands
+/// back `/var/...` whose real name is `/private/var/...`, and `pwd` prints the
+/// resolved one.
 #[test]
 fn commands_run_in_order_in_the_exact_worktree() {
-    let (_guard, worktree) = utf8_temp_dir();
+    let (_guard, worktree) = canonical_temp_dir();
     let commands = vec![
         "printf one >> order".to_owned(),
         "printf two >> order".to_owned(),
