@@ -69,6 +69,27 @@ impl From<Error> for Failure {
             Error::Spawn(source) => source.into(),
             Error::Fs(source) => source.into(),
 
+            // Blocked, unlike the general refusal below: git looks for an
+            // identity before it writes anything, so the commit it declined to
+            // record does not exist and nothing was left half-done.
+            Error::Refused { detail, .. } if lacks_an_identity(&detail) => Failure::blocked(
+                "git.identity_missing",
+                "git has no author identity configured, so it cannot record a commit",
+            )
+            .expected("`user.name` and `user.email` to be set, globally or for this repository")
+            .actual(detail)
+            .fix(
+                FixAction::safe(
+                    "git.set_identity",
+                    "Tell git who you are — `ivar` deliberately does not supply a name of its \
+                     own, because a commit landing in your repository must carry your authorship.",
+                )
+                .command(
+                    "git config --global user.name \"Your Name\" && \
+                     git config --global user.email \"you@example.com\"",
+                ),
+            ),
+
             // Failed, not Blocked: git got as far as trying. A clone that dies
             // halfway leaves a partial directory behind, and telling the caller
             // "nothing happened" would be a lie they would act on.
@@ -110,4 +131,20 @@ impl From<Error> for Failure {
                 )),
         }
     }
+}
+
+/// Whether git refused because it has no identity to attribute a commit to.
+///
+/// Matched on the two config keys rather than on the English prose around
+/// them: `user.name` and `user.email` are literal config keys that no
+/// translation rewrites, whereas "Author identity unknown" is a translatable
+/// sentence. Both keys must appear, so a refusal that merely mentions one —
+/// `git config --get user.email` on a machine that has none — stays the
+/// generic command failure.
+///
+/// Best effort by construction. Anything this does not recognise keeps
+/// today's behaviour, which is git's own message and a fix action pointing at
+/// it; nothing is hidden by guessing wrong.
+fn lacks_an_identity(detail: &str) -> bool {
+    detail.contains("user.name") && detail.contains("user.email")
 }
