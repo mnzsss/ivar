@@ -7,3 +7,6 @@
 
 # macOS
 .DS_Store
+
+# local agent/editor state — never part of the hall's history
+.claude/settings.local.json
