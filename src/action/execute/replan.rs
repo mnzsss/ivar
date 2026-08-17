@@ -1,54 +1,43 @@
-//! `ivar feature execute replan <feature> --plan <path>` — fold a revised
-//! plan into an existing execution board.
+//! `ivar feature execute replan <feature> --plan <path> --graph-json <path>`
+//! — adopt a complete revised plan and graph into an existing execution
+//! board.
 //!
 //! # What it does
 //!
-//! Reads the feature's [`ExecutionBoard`], fingerprints the revised plan the
-//! caller points at (a new `plan.md`), and compares the two. When the
-//! fingerprint is unchanged there is nothing to do and the board is left
-//! untouched. When it changed, the board's `plan_fingerprint` advances to the
-//! new one, every workstream whose **Operations** changed is **paused** until
-//! a human acknowledges the new revision ([`crate::action::execute::ack`]),
-//! and the journal records the replan with the new fingerprint.
+//! Reads the feature's [`ExecutionBoard`], resolves the revised plan and
+//! graph the caller points at through the shared resolver
+//! ([`super::graph`]) — the same resolution `prepare` applies, so the two
+//! verbs cannot disagree about what a valid graph is — and replaces the
+//! board's graph with the resolved candidate, merging execution state by
+//! stable workstream id:
 //!
-//! Unaffected workstreams are untouched — their status is left exactly as it
-//! was, so they continue. A workstream paused by an *earlier* replan revision
-//! stays paused until it is acknowledged; pausing is the gate, and only
-//! `ack-revision` lifts it.
+//! - an **identical** definition (every authored field) retains its old
+//!   status;
+//! - a **changed** definition becomes `Paused`;
+//! - a **new** definition becomes `Paused`;
+//! - an **omitted** non-`Done` definition is removed;
+//! - an omitted `Done` definition blocks unless `--allow-remove-completed`
+//!   is supplied ([`ReplanInput::allow_remove_completed`]).
 //!
-//! Replanning never rewrites the board's workstream definitions. The graph
-//! keeps the operations it was prepared with, because that is the "old plan"
-//! every later replan diffs against; executors read the current Operations
-//! from `plan.md` itself.
+//! The board's `plan_fingerprint` and graph become the resolved candidate,
+//! the resolved plan is written to the feature's canonical `plan.md`, and a
+//! `replan` journal entry names the changed, added, removed, and protected
+//! workstreams. Removed workstreams remain visible through the journal
+//! entries that mention them — the journal is never rewritten.
 //!
-//! # The plan's Operations section
+//! # What it is not
 //!
-//! The revised `plan.md` carries the new Operations in a section this verb
-//! parses: a heading whose text is `Operations`, then one subheading per
-//! workstream named by its id, with `- ` bullets as its operations. A
-//! `write_contract:` line switches the bullets that follow to the write
-//! contract. Example:
-//!
-//! ```text
-//! ## Operations
-//!
-//! ### ws-board
-//! - add-board-types
-//! - store-board
-//! write_contract:
-//! - src/action/execute
-//! ```
-//!
-//! A workstream whose subheading is absent from the revised plan counts as
-//! affected — its Operations are gone, so its executor must review the change.
-//! The section runs to the end of the file; every heading inside it (besides
-//! the `Operations` heading itself) names a workstream.
+//! Replanning never rewrites or destroys journal history or sessions. It
+//! adopts a complete graph: a workstream omitted from the revised graph is
+//! gone from the board, but its history stays in the journal. A replanned
+//! board is a fresh complete representation of the current resolved graph,
+//! and every subsequent replan diffs against the immediately previous graph
+//! — not the one the board was originally prepared with.
 //!
 //! # v1 scope
 //!
-//! Affected detection is whole-workstream: any difference in `operations` or
-//! `write_contract` pauses the whole workstream. No per-operation inbox
-//! granularity yet.
+//! Whole-workstream merge: any difference in the authored fields pauses the
+//! whole workstream. No per-operation inbox granularity yet.
 
 use std::io;
 
@@ -61,7 +50,7 @@ use crate::error::{Failure, FixAction, Outcome, Report, WriteHuman};
 use crate::infra::{fs, hash};
 
 use super::super::discover_hall;
-use super::plan_ops::{PlanWorkstream, operations_from_plan};
+use super::graph;
 use super::require_board;
 use crate::action::Ctx;
 use crate::store::feature;
@@ -73,6 +62,13 @@ pub struct ReplanInput {
     pub feature: String,
     /// Path to the revised `plan.md`. Resolved against the current directory.
     pub plan: String,
+    /// Path to the revised execution graph JSON — the complete replacement
+    /// graph the board adopts. Resolved against the current directory.
+    pub graph_json: String,
+    /// Whether omitted `Done` workstreams may be removed. Defaults to
+    /// `false`: a completed workstream never disappears from the board
+    /// without this explicit authorization.
+    pub allow_remove_completed: bool,
 }
 
 /// What `ivar feature execute replan` did.
@@ -82,12 +78,20 @@ pub struct ReplanOutcome {
     pub root: Utf8PathBuf,
     /// The feature the board belongs to.
     pub feature: FeatureName,
-    /// SHA-256 of the revised plan — the board's new `plan_fingerprint`.
+    /// SHA-256 of the resolved plan — the board's new `plan_fingerprint`.
     pub fingerprint: String,
-    /// `false` when the plan was unchanged and nothing was written.
-    pub changed: bool,
-    /// The workstreams this replan paused, in board order.
-    pub affected: Vec<String>,
+    /// The workstreams this replan changed, in board order.
+    pub changed: Vec<String>,
+    /// The workstreams this replan added.
+    pub added: Vec<String>,
+    /// The workstreams this replan removed (that were not protected).
+    pub removed: Vec<String>,
+    /// The workstreams this replan kept unchanged.
+    pub retained: Vec<String>,
+    /// The workstreams that were protected from removal — omitted `Done`
+    /// workstreams when `allow_remove_completed` was not supplied. Empty
+    /// once the replan succeeds.
+    pub protected: Vec<String>,
     /// The board after the replan.
     pub board: ExecutionBoard,
     /// Where the board was written.
@@ -96,50 +100,58 @@ pub struct ReplanOutcome {
 
 impl WriteHuman for ReplanOutcome {
     fn write_human(&self, w: &mut impl io::Write) -> io::Result<()> {
-        if self.changed {
-            let noun = if self.affected.len() == 1 {
-                "workstream"
-            } else {
-                "workstreams"
-            };
-            writeln!(
-                w,
-                "Replanned `{}` to {} ({} affected {noun}) at {}",
-                self.feature,
-                self.fingerprint,
-                self.affected.len(),
-                self.board_path
-            )
-        } else {
-            writeln!(
-                w,
-                "Plan for `{}` unchanged ({}); nothing to replan",
-                self.feature, self.fingerprint
-            )
+        writeln!(
+            w,
+            "Replanned `{}` to {} at {}",
+            self.feature, self.fingerprint, self.board_path
+        )?;
+        fn list(w: &mut impl io::Write, name: &str, items: &[String]) -> io::Result<()> {
+            if items.is_empty() {
+                return Ok(());
+            }
+            writeln!(w, "  {name}: {}", items.join(", "))
         }
+        list(w, "changed", &self.changed)?;
+        list(w, "added", &self.added)?;
+        list(w, "removed", &self.removed)?;
+        list(w, "retained", &self.retained)?;
+        if !self.protected.is_empty() {
+            writeln!(
+                w,
+                "  protected from removal (completed): {}",
+                self.protected.join(", ")
+            )?;
+        }
+        Ok(())
     }
 }
 
-/// Fold the revised plan at `input.plan` into `input.feature`'s board.
+/// Fold the revised plan and graph at `input` into `input.feature`'s board.
 ///
 /// Blocked when the feature has no board yet — replanning advances an
-/// existing board; it does not create one. A plan whose fingerprint matches
-/// the board's is a no-op: no journal entry, no write. Otherwise the
-/// fingerprint advances, affected workstreams pause, and the replan is
-/// journaled before the board is persisted.
+/// existing board; it does not create one. Every validation runs through the
+/// shared resolver **before** anything is written: graph parsing, locked
+/// contracts, dependencies, targeting, and plan-backed operations all refuse
+/// a candidate that must not be adopted, leaving the persisted plan, board,
+/// and journal byte-identical. An omitted `Done` workstream is refused with
+/// `execute.completed_workstream_requires_authorization` unless
+/// `allow_remove_completed` is supplied.
+///
+/// After validation and authorization succeed, the resolved canonical plan is
+/// written to `plan.md`, the board's graph and fingerprint become the
+/// resolved candidate, and the replan is journaled before the board is
+/// persisted.
 pub fn replan(ctx: &Ctx, input: ReplanInput) -> Outcome<ReplanOutcome> {
     let layout = discover_hall(ctx)?;
     let feature = FeatureName::new(input.feature)?;
     let plan_path = ctx.resolve(Utf8Path::new(&input.plan));
+    let graph_path = ctx.resolve(Utf8Path::new(&input.graph_json));
 
-    let mut board = require_board(&layout, &feature)?;
-    let plan_text = read_plan(&plan_path)?;
-    let fingerprint = hash::text(&plan_text);
+    let board = require_board(&layout, &feature)?;
     let board_path = feature::board_path(&layout, &feature);
 
     // Replan persists a board: blocked once the whole child closes as
-    // `integrated`, and the revised wave's contracts must not reach a locked
-    // promotion.
+    // `integrated`.
     let feature_record =
         crate::domain::feature::Feature::read(&layout, &feature)?.ok_or_else(|| {
             Failure::blocked(
@@ -148,51 +160,33 @@ pub fn replan(ctx: &Ctx, input: ReplanInput) -> Outcome<ReplanOutcome> {
             )
         })?;
     crate::action::feature::ensure_not_fully_integrated(&layout, &feature_record)?;
-    crate::action::feature::ensure_contracts_avoid_locked_promotions(
+
+    // Resolve and validate the candidate before writing anything.
+    let canonical_plan_path = layout.plan_dir(&feature).join("plan.md");
+    let resolved = graph::resolve(
         &layout,
+        &feature,
         &feature_record,
-        &board.graph.workstreams,
+        None,
+        &graph_path,
+        &plan_path,
     )?;
 
-    if fingerprint == board.graph.plan_fingerprint {
-        return Ok(Report::new(ReplanOutcome {
-            root: layout.root().to_path_buf(),
-            feature,
-            fingerprint,
-            changed: false,
-            affected: Vec::new(),
-            board,
-            board_path,
-        }));
-    }
+    // Merge by stable workstream id. The decision about an omitted `Done`
+    // workstream happens here, before any write.
+    let (merged, merge) = merge(board, resolved.workstreams, input.allow_remove_completed)?;
 
-    let revised = operations_from_plan(&plan_text)?;
-    let affected: Vec<String> = board
-        .graph
-        .workstreams
-        .iter()
-        .filter(|workstream| is_affected(workstream, &revised))
-        .map(|workstream| workstream.id.clone())
-        .collect();
+    let mut board = merged;
+    let fingerprint = hash::text(&resolved.plan_text);
 
-    for workstream in &mut board.graph.workstreams {
-        if affected.contains(&workstream.id) {
-            workstream.status = WorkstreamStatus::Paused;
-        }
-    }
-
+    // Persist the resolved canonical plan, then the board: the fingerprint
+    // must cover exactly what the board was derived from.
+    fs::write_text(&canonical_plan_path, &resolved.plan_text)?;
     board.graph.plan_fingerprint = fingerprint.clone();
     board.push_journal(JournalEntry::new(
         "board",
         "replan",
-        format!(
-            "Plan revised to fingerprint {fingerprint}; affected workstreams: {}",
-            if affected.is_empty() {
-                "none".to_owned()
-            } else {
-                affected.join(", ")
-            }
-        ),
+        replan_message(&merge, &fingerprint),
     ));
     board.write(&layout, &feature)?;
 
@@ -200,39 +194,181 @@ pub fn replan(ctx: &Ctx, input: ReplanInput) -> Outcome<ReplanOutcome> {
         root: layout.root().to_path_buf(),
         feature,
         fingerprint,
-        changed: true,
-        affected,
+        changed: merge.changed,
+        added: merge.added,
+        removed: merge.removed,
+        retained: merge.retained,
+        protected: merge.protected,
         board,
         board_path,
     }))
 }
 
-/// Read the revised plan at `path`. Blocked when the file does not exist — a
-/// replan against a path that has nothing to read is a mistake, not an empty
-/// revision.
-fn read_plan(path: &Utf8Path) -> Result<String, Failure> {
-    fs::read_text(path)?.ok_or_else(|| {
-        Failure::blocked("execute.plan_missing", format!("`{}` does not exist", path))
-            .expected("the revised plan.md at the given path")
-            .actual("no such file")
-            .fix(FixAction::safe(
-                "execute.provide_plan",
-                "Point --plan at the revised plan.md.",
-            ))
-    })
+/// The merge classes for a replan.
+struct Merge {
+    changed: Vec<String>,
+    added: Vec<String>,
+    removed: Vec<String>,
+    retained: Vec<String>,
+    protected: Vec<String>,
 }
 
-/// Whether `workstream`'s Operations changed between the board (the old plan)
-/// and the revised plan: its `operations` or `write_contract` differ, or its
-/// subheading is absent from the revised Operations section entirely.
-fn is_affected(workstream: &WorkstreamDef, revised: &[PlanWorkstream]) -> bool {
-    match revised.iter().find(|entry| entry.id == workstream.id) {
-        Some(entry) => {
-            entry.operations != workstream.operations
-                || entry.write_contract != workstream.write_contract
+/// Merge `candidate` into `board` by workstream id, preserving the board's
+/// journal and sessions.
+///
+/// An omitted `Done` workstream blocks unless `allow_remove_completed` —
+/// the completed-work removal guard — is supplied. When it is not, the
+/// omitted `Done` workstreams are kept on the board (paused, so they are
+/// never silently launched) and reported as `protected`; the replan fails.
+///
+/// This runs before any write, so a blocked merge leaves plan/board/journal
+/// byte-identical.
+fn merge(
+    mut board: ExecutionBoard,
+    candidate: Vec<WorkstreamDef>,
+    allow_remove_completed: bool,
+) -> Result<(ExecutionBoard, Merge), Failure> {
+    // Classify each candidate workstream by whether a definition with the
+    // same id already exists and whether it is identical.
+    let mut changed = Vec::new();
+    let mut added = Vec::new();
+    let mut retained = Vec::new();
+    for candidate_workstream in &candidate {
+        match board
+            .graph
+            .workstreams
+            .iter()
+            .find(|existing| existing.id == candidate_workstream.id)
+        {
+            Some(existing) if identical(existing, candidate_workstream) => {
+                retained.push(candidate_workstream.id.clone());
+            }
+            Some(_) => {
+                changed.push(candidate_workstream.id.clone());
+            }
+            None => {
+                added.push(candidate_workstream.id.clone());
+            }
         }
-        None => true,
     }
+
+    // Workstreams on the board with no counterpart in the candidate are
+    // omitted. A `Done` omission is protected unless explicitly authorized.
+    let mut omitted_done = Vec::new();
+    let mut removed = Vec::new();
+    for workstream in &board.graph.workstreams {
+        if candidate
+            .iter()
+            .any(|candidate| candidate.id == workstream.id)
+        {
+            continue;
+        }
+        if workstream.status == WorkstreamStatus::Done && !allow_remove_completed {
+            omitted_done.push(workstream.id.clone());
+        } else {
+            removed.push(workstream.id.clone());
+        }
+    }
+
+    // An omitted `Done` workstream without authorization is a hard block:
+    // a completed workstream must never disappear accidentally. Report every
+    // merge class so the human can decide, but write nothing.
+    if !omitted_done.is_empty() {
+        return Err(completed_removal_blocked(&omitted_done, &removed));
+    }
+
+    // Rebuild the graph from the candidate, carrying each workstream's old
+    // status when it is retained unchanged, and pausing changed and added
+    // workstreams until their current revision is acknowledged.
+    let mut new_workstreams = Vec::with_capacity(candidate.len());
+    for mut candidate_workstream in candidate {
+        let status = if retained.contains(&candidate_workstream.id) {
+            board
+                .graph
+                .workstreams
+                .iter()
+                .find(|existing| existing.id == candidate_workstream.id)
+                .map(|existing| existing.status)
+                .unwrap_or(WorkstreamStatus::Paused)
+        } else {
+            WorkstreamStatus::Paused
+        };
+        candidate_workstream.status = status;
+        new_workstreams.push(candidate_workstream);
+    }
+    board.graph.workstreams = new_workstreams;
+
+    Ok((
+        board,
+        Merge {
+            changed,
+            added,
+            removed,
+            retained,
+            protected: Vec::new(),
+        },
+    ))
+}
+
+/// Whether `existing` and `candidate` are the same authored definition —
+/// identical on every field a replan can update. Execution status is not part
+/// of the authored definition and is deliberately ignored here.
+fn identical(existing: &WorkstreamDef, candidate: &WorkstreamDef) -> bool {
+    existing.title == candidate.title
+        && existing.operations == candidate.operations
+        && existing.depends_on == candidate.depends_on
+        && existing.write_contract == candidate.write_contract
+        && existing.provider == candidate.provider
+        && existing.model == candidate.model
+        && existing.agent == candidate.agent
+}
+
+/// The journal message for a successful replan, naming every merge class.
+fn replan_message(merge: &Merge, fingerprint: &str) -> String {
+    let mut parts = vec![format!("Plan revised to fingerprint {fingerprint}")];
+    let mut list = |name: &str, items: &[String]| {
+        if items.is_empty() {
+            return;
+        }
+        parts.push(format!("{name}: {}", items.join(", ")));
+    };
+    list("changed", &merge.changed);
+    list("added", &merge.added);
+    list("removed", &merge.removed);
+    list("retained", &merge.retained);
+    parts.join("; ")
+}
+
+/// The refusal for an omitted `Done` workstream when removal was not
+/// authorized. Names every merge class so the human sees the full scope of
+/// the replan before deciding.
+fn completed_removal_blocked(protected: &[String], removed: &[String]) -> Failure {
+    let noun = if protected.len() == 1 {
+        "workstream"
+    } else {
+        "workstreams"
+    };
+    Failure::blocked(
+        "execute.completed_workstream_requires_authorization",
+        format!(
+            "the revised graph omits completed {noun} {}; removing a completed workstream requires explicit authorization",
+            protected.join(", ")
+        ),
+    )
+    .expected("every `Done` workstream to stay on the board, or `--allow-remove-completed` to be supplied")
+    .actual(format!(
+        "omitted `Done` {noun}: {}; also removing: {}",
+        protected.join(", "),
+        if removed.is_empty() {
+            "none".to_owned()
+        } else {
+            removed.join(", ")
+        }
+    ))
+    .fix(FixAction::safe(
+        "execute.allow_completed_removal",
+        "Re-run replan with `--allow-remove-completed` to confirm removing the completed workstreams, or restore them to the revised graph.",
+    ))
 }
 
 #[cfg(test)]
