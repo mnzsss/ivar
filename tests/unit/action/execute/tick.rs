@@ -18,12 +18,14 @@ use crate::action::execute::reply::{self as reply_action, ReplyInput};
 use crate::action::feature::create::{self as feature_create, CreateInput as FeatureCreateInput};
 use crate::action::hall::{self, InitInput};
 use crate::action::plan::create::{self as plan_create, CreateInput as PlanCreateInput};
-use crate::domain::feature::WriteContract;
-use crate::domain::name::{RepoName, SessionId};
+use crate::domain::feature::{WorkstreamDef, WorkstreamStatus, WriteContract};
+use crate::domain::name::{FeatureName, RepoName, SessionId};
 use crate::domain::provider::Provider;
 use crate::domain::session::SessionState;
 use crate::error::Status;
+use crate::harness::Harness;
 use crate::infra::fs;
+use crate::infra::proc;
 use crate::store::layout::Layout;
 use crate::test_support::{feature_session, hall_root};
 
@@ -1783,5 +1785,87 @@ fn tick_that_blocks_a_diverged_plan_does_not_report_success() {
     assert!(
         !rendered.contains("nothing ready"),
         "the human output must not claim nothing was ready, got: {rendered}"
+    );
+}
+
+// -- the spawned executor is pinned to its own session view dir -----------
+
+/// A minimal workstream, enough for [`launch::build_spawn_command`].
+fn isolation_workstream() -> WorkstreamDef {
+    WorkstreamDef {
+        id: "ws-a".to_owned(),
+        title: "A".to_owned(),
+        operations: vec!["op-a".to_owned()],
+        depends_on: Vec::new(),
+        write_contract: vec!["src/a".to_owned()],
+        status: WorkstreamStatus::Waiting,
+        provider: Some(Provider::OpenCode),
+        model: None,
+        agent: Some("implementer".to_owned()),
+    }
+}
+
+/// What `tick` would spawn for `harness`, with the hall and the feature
+/// session view dir it would spawn into.
+fn spawned_executor(harness: Harness) -> (tempfile::TempDir, Layout, Utf8PathBuf, proc::Command) {
+    let (guard, root) = hall_root();
+    let layout = Layout::at(root);
+    let feature = FeatureName::new("checkout").unwrap();
+    let session_id = SessionId::new(uuid::Uuid::new_v4().to_string()).unwrap();
+    let view_dir = layout.feature_session(&feature, &session_id);
+
+    let command = launch::build_spawn_command(
+        harness,
+        "the prompt",
+        &isolation_workstream(),
+        &view_dir,
+        &layout,
+        &feature,
+        &session_id,
+    );
+    (guard, layout, view_dir, command)
+}
+
+/// The execution-level half of the isolation regression. `opencode run`
+/// takes its project directory from `$PWD`, and a spawned child inherits the
+/// parent's `PWD` unless told otherwise — so an executor launched from a
+/// hall-rooted `ivar` opened its session at the hall: the hall's config, the
+/// hall's plugins (no execution guard), and tool paths under
+/// `<hall>/.ivar/repos/<repo>/main` rather than the promoted worktree. What
+/// `tick` spawns now names the view dir in every channel it has.
+#[test]
+fn an_opencode_executor_is_spawned_pinned_to_its_session_view_dir() {
+    let (_guard, layout, view_dir, command) = spawned_executor(Harness::OpenCode);
+
+    assert_eq!(
+        command.working_dir().map(|dir| dir.as_str()),
+        Some(view_dir.as_str())
+    );
+
+    let args = command.arguments();
+    let dir = args
+        .iter()
+        .position(|arg| arg == "--dir")
+        .and_then(|index| args.get(index + 1))
+        .expect("the OpenCode executor must name its project directory");
+
+    assert_eq!(dir, view_dir.as_str());
+    assert_ne!(dir.as_str(), layout.root().as_str());
+}
+
+/// Claude Code reads its working directory from the spawn and has no `--dir`
+/// of its own; pinning it is the spawn's job alone.
+#[test]
+fn a_claude_code_executor_is_pinned_by_the_spawn_alone() {
+    let (_guard, _layout, view_dir, command) = spawned_executor(Harness::ClaudeCode);
+
+    assert_eq!(
+        command.working_dir().map(|dir| dir.as_str()),
+        Some(view_dir.as_str())
+    );
+    assert!(
+        !command.display().contains("--dir"),
+        "was: {}",
+        command.display()
     );
 }

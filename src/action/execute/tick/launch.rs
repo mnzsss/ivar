@@ -193,7 +193,7 @@ pub(super) fn build_spawn_command(
     session_id: &SessionId,
 ) -> proc::Command {
     let command = harness
-        .execute_command(prompt, ws.model.as_deref(), ws.agent.as_deref())
+        .execute_command(prompt, view_dir, ws.model.as_deref(), ws.agent.as_deref())
         .cwd(view_dir.to_path_buf())
         .env("IVAR_HALL", layout.root().as_str())
         .env("IVAR_FEATURE", feature.as_str())

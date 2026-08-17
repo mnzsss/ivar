@@ -38,6 +38,8 @@ pub mod config;
 pub mod guard;
 pub mod stream;
 
+use camino::Utf8Path;
+
 use crate::domain::provider::Provider;
 use crate::error::{Failure, FixAction};
 use crate::infra::proc;
@@ -201,6 +203,17 @@ impl Harness {
     ///   Stdin is also the channel that cannot be mistaken for a flag, which
     ///   the argv path would need a `--` separator to guarantee.
     ///
+    /// - **`--dir` is not the same as the spawn's working directory.** Without
+    ///   it, `opencode run` takes its project directory from `$PWD` rather
+    ///   than from `getcwd`. [`proc::Command`] now sets `PWD` with every
+    ///   `cwd`; this flag says the same thing again in the one channel a
+    ///   child cannot inherit stale. An executor that resolves elsewhere
+    ///   loads the *hall's* config and plugins — which is to say it runs with
+    ///   no execution guard, on paths the workstream never asked for.
+    ///
+    /// Claude Code has no equivalent flag and relies on the spawn's working
+    /// directory, so `view_dir` reaches its argv nowhere.
+    ///
     /// `model` and `agent` are appended only when the caller supplies them,
     /// and each is its own flag on both CLIs: `--model` selects the model,
     /// `--agent` selects the agent. They are never collapsed into one another
@@ -210,6 +223,7 @@ impl Harness {
     pub fn execute_command(
         self,
         prompt: &str,
+        view_dir: &Utf8Path,
         model: Option<&str>,
         agent: Option<&str>,
     ) -> proc::Command {
@@ -223,7 +237,13 @@ impl Harness {
                 .arg("--verbose")
                 .arg("--permission-mode")
                 .arg("bypassPermissions"),
-            Self::OpenCode => command.arg("run").arg("--format").arg("json").stdin(prompt),
+            Self::OpenCode => command
+                .arg("run")
+                .arg("--dir")
+                .arg(view_dir.as_str())
+                .arg("--format")
+                .arg("json")
+                .stdin(prompt),
         };
         let command = match model {
             Some(model) => command.arg("--model").arg(model),

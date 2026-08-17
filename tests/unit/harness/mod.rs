@@ -6,6 +6,12 @@
 
 use super::*;
 
+/// The Feature Session View Dir `tick` materialises and spawns in — what
+/// every `execute_command` call now has to carry.
+fn view_dir() -> &'static Utf8Path {
+    Utf8Path::new("/hall/.ivar/features/plan-issues/sessions/0d2a1b3c")
+}
+
 #[test]
 fn each_provider_maps_to_its_harness() {
     assert_eq!(
@@ -69,7 +75,7 @@ fn opencode_cannot_ask_questions_headlessly() {
 
 #[test]
 fn claude_code_execute_command_is_headless_and_streamed() {
-    let command = Harness::ClaudeCode.execute_command("do the thing", None, None);
+    let command = Harness::ClaudeCode.execute_command("do the thing", view_dir(), None, None);
 
     assert_eq!(command.program(), "claude");
     assert_eq!(
@@ -95,7 +101,7 @@ fn claude_code_execute_command_is_headless_and_streamed() {
 /// second gate with nobody behind it.
 #[test]
 fn claude_code_execute_command_leaves_no_permission_prompt_to_answer() {
-    let command = Harness::ClaudeCode.execute_command("do the thing", None, None);
+    let command = Harness::ClaudeCode.execute_command("do the thing", view_dir(), None, None);
     let args = command.arguments();
 
     let mode = args
@@ -112,10 +118,13 @@ fn claude_code_execute_command_leaves_no_permission_prompt_to_answer() {
 /// cannot read at all.
 #[test]
 fn opencode_execute_command_is_run_format_json() {
-    let command = Harness::OpenCode.execute_command("do the thing", None, None);
+    let command = Harness::OpenCode.execute_command("do the thing", view_dir(), None, None);
 
     assert_eq!(command.program(), "opencode");
-    assert_eq!(command.arguments(), ["run", "--format", "json"]);
+    assert_eq!(
+        command.arguments(),
+        ["run", "--dir", view_dir().as_str(), "--format", "json"]
+    );
 }
 
 /// `opencode run` re-renders an argv message — wrapping anything containing a
@@ -123,7 +132,7 @@ fn opencode_execute_command_is_run_format_json() {
 /// verbatim. So the prompt goes on stdin and appears nowhere in the argv.
 #[test]
 fn the_opencode_prompt_travels_on_stdin_not_argv() {
-    let command = Harness::OpenCode.execute_command("do the thing", None, None);
+    let command = Harness::OpenCode.execute_command("do the thing", view_dir(), None, None);
 
     assert_eq!(command.stdin_text(), Some("do the thing"));
     assert!(
@@ -140,6 +149,7 @@ fn the_opencode_prompt_travels_on_stdin_not_argv() {
 fn an_opencode_prompt_that_looks_like_a_flag_is_still_just_the_prompt() {
     let command = Harness::OpenCode.execute_command(
         "--not-a-flag\nwith \"quotes\"",
+        view_dir(),
         Some("opus"),
         Some("build"),
     );
@@ -147,7 +157,15 @@ fn an_opencode_prompt_that_looks_like_a_flag_is_still_just_the_prompt() {
     assert_eq!(
         command.arguments(),
         [
-            "run", "--format", "json", "--model", "opus", "--agent", "build"
+            "run",
+            "--dir",
+            view_dir().as_str(),
+            "--format",
+            "json",
+            "--model",
+            "opus",
+            "--agent",
+            "build",
         ]
     );
     assert_eq!(command.stdin_text(), Some("--not-a-flag\nwith \"quotes\""));
@@ -160,7 +178,7 @@ fn an_opencode_prompt_that_looks_like_a_flag_is_still_just_the_prompt() {
 fn claude_code_is_never_fed_on_stdin() {
     assert_eq!(
         Harness::ClaudeCode
-            .execute_command("do the thing", None, None)
+            .execute_command("do the thing", view_dir(), None, None)
             .stdin_text(),
         None
     );
@@ -168,19 +186,19 @@ fn claude_code_is_never_fed_on_stdin() {
 
 #[test]
 fn model_is_appended_only_when_supplied() {
-    let without = Harness::ClaudeCode.execute_command("p", None, None);
+    let without = Harness::ClaudeCode.execute_command("p", view_dir(), None, None);
     assert!(!without.display().contains("--model"));
 
-    let with = Harness::ClaudeCode.execute_command("p", Some("opus"), None);
+    let with = Harness::ClaudeCode.execute_command("p", view_dir(), Some("opus"), None);
     assert!(with.display().contains("--model opus"));
 }
 
 #[test]
 fn agent_is_appended_only_when_supplied() {
-    let without = Harness::OpenCode.execute_command("p", None, None);
+    let without = Harness::OpenCode.execute_command("p", view_dir(), None, None);
     assert!(!without.display().contains("--agent"));
 
-    let with = Harness::OpenCode.execute_command("p", None, Some("reviewer"));
+    let with = Harness::OpenCode.execute_command("p", view_dir(), None, Some("reviewer"));
     assert!(with.display().contains("--agent reviewer"));
 }
 
@@ -190,7 +208,7 @@ fn agent_is_appended_only_when_supplied() {
 #[test]
 fn model_and_agent_are_distinct_flags_not_conflated() {
     let display = Harness::ClaudeCode
-        .execute_command("p", Some("opus"), Some("reviewer"))
+        .execute_command("p", view_dir(), Some("opus"), Some("reviewer"))
         .display();
 
     assert!(display.contains("--model opus"), "was: {display}");
@@ -206,12 +224,48 @@ fn model_and_agent_are_distinct_flags_not_conflated() {
 }
 
 #[test]
-fn claude_code_execute_command_has_no_cwd_flag() {
-    // There is no --cwd flag on the claude CLI; the working directory is
-    // set on the spawn (`proc::Command::cwd`), never on the argv.
+fn claude_code_execute_command_has_no_directory_flag() {
+    // The claude CLI has neither --cwd nor --dir; its working directory is
+    // set on the spawn (`proc::Command::cwd`), never on the argv. Giving it
+    // one would put an unknown argument in front of a CLI that never reads
+    // it.
     let display = Harness::ClaudeCode
-        .execute_command("p", None, None)
+        .execute_command("p", view_dir(), None, None)
         .display();
 
     assert!(!display.contains("--cwd"), "was: {display}");
+    assert!(!display.contains("--dir"), "was: {display}");
+    assert!(
+        !display.contains(view_dir().as_str()),
+        "the view dir reached claude's argv: {display}"
+    );
+}
+
+/// The regression this flag exists for. `opencode run` reads its project
+/// directory from `$PWD`, not from `getcwd`, so an executor spawned in a
+/// session view dir by a process whose `PWD` still named the hall opened its
+/// session *at the hall*: the hall's config, the hall's plugins — no
+/// execution guard — and tool paths under the default-branch worktree
+/// instead of the promoted one. `--dir` states the directory in the one
+/// channel a child cannot inherit stale.
+///
+/// Asserted for two different paths, so the flag carries what the caller
+/// passed rather than anything baked in.
+#[test]
+fn an_opencode_executor_names_its_view_dir_on_the_argv() {
+    for dir in [
+        view_dir(),
+        Utf8Path::new("/hall/.ivar/features/other/sessions/9f"),
+    ] {
+        let command = Harness::OpenCode.execute_command("p", dir, None, None);
+        let args = command.arguments();
+
+        let named = args
+            .iter()
+            .position(|arg| arg == "--dir")
+            .and_then(|index| args.get(index + 1))
+            .expect("the OpenCode executor must name its project directory");
+
+        assert_eq!(named, dir.as_str());
+    }
 }
