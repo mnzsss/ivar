@@ -1486,7 +1486,361 @@ fn a_relaunch_of_a_workstream_that_never_produced_still_blocks() {
     );
 }
 
-/// A run that does the job reaches `Done` and says what it produced — the
+// -- revision-scoped completion -------------------------------------------
+//
+// The `produced` journal entry is stamped with the plan revision the board is
+// executing under. A clean no-op on a revised board must not be satisfied by
+// evidence recorded under an older fingerprint — nor by legacy evidence with
+// no revision at all. Only evidence matching the board's *current* fingerprint
+// clears a relaunch, and pre-existing contracted work is recorded as
+// `verified-existing` rather than blocking.
+
+/// Mutate `board` on disk: reset `ws-a` to `Waiting` so the next tick launches
+/// it again, and set the board back to `Approved` (the status `tick` accepts).
+/// The board's journal is left untouched, so whatever evidence it holds
+/// survives into the next wave — which is exactly what these tests are about.
+fn requeue_ws_a(root: &Utf8PathBuf, mut board: ExecutionBoard) {
+    let layout = Layout::at(root.clone());
+    let feature = FeatureName::new("checkout").unwrap();
+    for ws in &mut board.graph.workstreams {
+        if ws.id == "ws-a" {
+            ws.status = WorkstreamStatus::Waiting;
+        }
+    }
+    board.set_status(ExecutionStatus::Approved);
+    board.write(&layout, &feature).unwrap();
+}
+
+/// Production recorded under an older plan fingerprint must not satisfy a
+/// clean no-op after the board moves to a new revision. A replan changes
+/// `board.graph.plan_fingerprint` (and the plan it fingerprints); the old
+/// `produced` entry still names the old fingerprint, so the relaunched
+/// workstream has no *current* evidence and — with the worktree cleaned so
+/// there is no pre-existing work to verify — blocks as unproductive rather
+/// than claiming a `done` it cannot back.
+#[test]
+fn old_revision_production_cannot_satisfy_a_revised_no_op() {
+    let (_guard, root) = approved_board_with_worktree();
+    let ctx = Ctx::new(root.clone());
+    let worktree = feature_worktree(&root);
+
+    // Wave 1: a productive run records `produced` under the board's
+    // fingerprint and finishes `Done`.
+    {
+        let _stub = PathStub::install(
+            "claude",
+            &format!(
+                "mkdir -p '{worktree}/src/a'\n\
+                 printf 'work\\n' > '{worktree}/src/a/one.rs'\n\
+                 exit 0\n"
+            ),
+        );
+        tick(
+            &ctx,
+            TickInput {
+                feature: "checkout".to_owned(),
+            },
+        )
+        .unwrap();
+    }
+
+    let first_board = persisted(&root);
+    let produced = first_board
+        .journal
+        .iter()
+        .find(|entry| entry.kind == "produced")
+        .expect("a productive run records produced");
+    let original_fingerprint = first_board.graph.plan_fingerprint.clone();
+    assert_eq!(
+        produced.revision.as_deref(),
+        Some(original_fingerprint.as_str()),
+        "evidence is stamped with the board's current fingerprint"
+    );
+
+    // Simulate a replan: the plan on disk changes (so its fingerprint does
+    // too), the board adopts the new fingerprint, and the workstream is
+    // requeued. The old produced evidence stays in the journal but now names
+    // a revision the board no longer executes. The worktree is cleaned so the
+    // revised workstream has no pre-existing work under its contract.
+    let revised_plan = "# Plan\n\
+        \n\
+        ## Operation details\n\
+        \n\
+        **op-a** — Do the first thing, revised.\n\
+        \n\
+        ## Operations\n\
+        \n\
+        ### ws-a\n\
+        - op-a\n";
+    fs::write_text(&root.join("plans/checkout/plan.md"), revised_plan).unwrap();
+    let revised_fingerprint =
+        crate::infra::hash::file(&root.join("plans/checkout/plan.md")).unwrap();
+
+    let mut board = persisted(&root);
+    board.graph.plan_fingerprint = revised_fingerprint;
+    requeue_ws_a(&root, board);
+    // The wave-1 file is still on disk; a rebuilt worktree would not have it.
+    // Remove it so the existing-work snapshot sees nothing to verify.
+    std::fs::remove_file(worktree.join("src/a/one.rs")).unwrap();
+
+    // Wave 2: a clean no-op. The produced entry names the old fingerprint, so
+    // there is no current-revision evidence and no pre-existing work in the
+    // cleaned worktree — the run blocks as unproductive.
+    let _stub = PathStub::install("claude", "exit 0");
+    tick(
+        &ctx,
+        TickInput {
+            feature: "checkout".to_owned(),
+        },
+    )
+    .unwrap();
+
+    let board = persisted(&root);
+    assert_eq!(
+        board.graph.workstreams[0].status,
+        WorkstreamStatus::Blocked,
+        "old-revision production must not satisfy a revised no-op"
+    );
+    assert!(
+        board
+            .journal
+            .iter()
+            .any(|entry| entry.kind == "session.unproductive"),
+        "the revised no-op must block as unproductive; journal: {:?}",
+        board
+            .journal
+            .iter()
+            .map(|entry| entry.message.as_str())
+            .collect::<Vec<_>>()
+    );
+}
+
+/// The same rule for *legacy* evidence: a `produced` entry whose revision is
+/// `None` — written before the revision field existed, or migrated from a v2
+/// board — is history, never completion. A clean no-op on a current board with
+/// only legacy evidence blocks as unproductive.
+#[test]
+fn legacy_production_cannot_satisfy_a_current_no_op() {
+    let (_guard, root) = approved_board_with_worktree();
+    let ctx = Ctx::new(root.clone());
+    let worktree = feature_worktree(&root);
+
+    // Wave 1: a productive run, then scrub its revision to `None` — the shape
+    // a v2 board's `produced` entry has after migration.
+    {
+        let _stub = PathStub::install(
+            "claude",
+            &format!(
+                "mkdir -p '{worktree}/src/a'\n\
+                 printf 'work\\n' > '{worktree}/src/a/one.rs'\n\
+                 exit 0\n"
+            ),
+        );
+        tick(
+            &ctx,
+            TickInput {
+                feature: "checkout".to_owned(),
+            },
+        )
+        .unwrap();
+    }
+
+    let mut board = persisted(&root);
+    for entry in &mut board.journal {
+        if entry.kind == "produced" {
+            entry.revision = None;
+        }
+    }
+    requeue_ws_a(&root, board);
+    // The wave-1 file is still on disk; remove it so the existing-work
+    // snapshot finds nothing to verify. Otherwise the work itself — which
+    // exists regardless of what the journal says — would legitimately be
+    // verified as existing, which is a different question than whether
+    // *legacy evidence* satisfies completion.
+    std::fs::remove_file(worktree.join("src/a/one.rs")).unwrap();
+
+    let _stub = PathStub::install("claude", "exit 0");
+    tick(
+        &ctx,
+        TickInput {
+            feature: "checkout".to_owned(),
+        },
+    )
+    .unwrap();
+
+    let board = persisted(&root);
+    assert_eq!(
+        board.graph.workstreams[0].status,
+        WorkstreamStatus::Blocked,
+        "legacy evidence with no revision must not satisfy a current no-op"
+    );
+    assert!(
+        board
+            .journal
+            .iter()
+            .any(|entry| entry.kind == "session.unproductive")
+    );
+}
+
+/// Same-revision production still satisfies a relaunch: the workstream
+/// produced under the board's fingerprint, asked a question, and is relaunched
+/// with nothing left to do. Because its produced entry carries the *current*
+/// fingerprint, the clean no-op reaches `Done` — the existing relaunch escape,
+/// now revision-scoped. This pins the control for the two tests above.
+#[test]
+fn same_revision_production_still_satisfies_a_relaunch() {
+    let (_guard, root) = approved_board_with_worktree();
+    let ctx = Ctx::new(root.clone());
+    let worktree = feature_worktree(&root);
+
+    // Wave 1: productive, then fails (blocked, but the produced entry is on
+    // the board stamped with the current fingerprint).
+    {
+        let _stub = PathStub::install(
+            "claude",
+            &format!(
+                "mkdir -p '{worktree}/src/a'\n\
+                 printf 'work\\n' > '{worktree}/src/a/one.rs'\n\
+                 exit 3\n"
+            ),
+        );
+        tick(
+            &ctx,
+            TickInput {
+                feature: "checkout".to_owned(),
+            },
+        )
+        .unwrap();
+    }
+
+    let blocked = persisted(&root);
+    assert_eq!(blocked.status, ExecutionStatus::Blocked);
+    let produced = blocked
+        .journal
+        .iter()
+        .find(|entry| entry.kind == "produced" && entry.workstream == "ws-a")
+        .expect("a run that wrote its contracted file records produced");
+    assert_eq!(
+        produced.revision.as_deref(),
+        Some(blocked.graph.plan_fingerprint.as_str()),
+        "evidence must be stamped with the fingerprint it satisfies"
+    );
+    let session = blocked
+        .sessions
+        .iter()
+        .find(|(_, workstream)| workstream.as_str() == "ws-a")
+        .map(|(id, _)| id.clone())
+        .unwrap();
+
+    reply_action::reply(
+        &ctx,
+        ReplyInput {
+            feature: Some("checkout".to_owned()),
+            session: Some(session),
+            message: "carry on".to_owned(),
+        },
+    )
+    .unwrap();
+
+    // Wave 2: nothing left to do — clean no-op, same fingerprint.
+    let _stub = PathStub::install("claude", "exit 0");
+    tick(
+        &ctx,
+        TickInput {
+            feature: "checkout".to_owned(),
+        },
+    )
+    .unwrap();
+
+    let board = persisted(&root);
+    assert_eq!(
+        board.graph.workstreams[0].status,
+        WorkstreamStatus::Done,
+        "same-revision production must still satisfy the relaunch"
+    );
+}
+
+/// The successful existing-work path: a rebuilt board whose worktree already
+/// holds contracted work — dirty, before any wave launches — lets a clean
+/// no-op record `verified-existing` for the current fingerprint and finish
+/// `Done`, instead of blocking as unproductive.
+#[test]
+fn a_clean_no_op_with_existing_contracted_work_records_verified_existing_and_reaches_done() {
+    let (_guard, root) = approved_board_with_worktree();
+    let ctx = Ctx::new(root.clone());
+    let worktree = feature_worktree(&root);
+
+    // Pre-existing contracted work, on disk before the wave: an uncommitted
+    // file under `src/a/`, the workstream's own contract. The pre-spawn
+    // snapshot in `plan_wave` sees it and sets `has_existing_work`.
+    std::fs::create_dir_all(worktree.join("src/a")).unwrap();
+    fs::write_text(&worktree.join("src/a/one.rs"), "already here\n").unwrap();
+
+    // The run itself changes nothing new and exits cleanly.
+    let _stub = PathStub::install("claude", "exit 0");
+    tick(
+        &ctx,
+        TickInput {
+            feature: "checkout".to_owned(),
+        },
+    )
+    .unwrap();
+
+    let board = persisted(&root);
+    assert_eq!(
+        board.graph.workstreams[0].status,
+        WorkstreamStatus::Done,
+        "existing contracted work plus a clean inspection must finish done"
+    );
+    let verified = board
+        .journal
+        .iter()
+        .find(|entry| entry.kind == "verified-existing")
+        .expect("a successful existing-work no-op records verified-existing");
+    assert_eq!(
+        verified.revision.as_deref(),
+        Some(board.graph.plan_fingerprint.as_str()),
+        "verified-existing evidence is stamped with the current fingerprint"
+    );
+}
+
+/// The existing-work path must not credit pre-existing paths *outside* the
+/// workstream's own contract: a clean no-op on a worktree whose only prior
+/// work falls outside `src/a/` has nothing to verify and blocks as
+/// unproductive, exactly as an empty worktree does.
+#[test]
+fn a_clean_no_op_with_only_out_of_contract_work_still_blocks() {
+    let (_guard, root) = approved_board_with_worktree();
+    let ctx = Ctx::new(root.clone());
+    let worktree = feature_worktree(&root);
+
+    // Pre-existing work, but outside the workstream's contract (`src/a/`).
+    fs::write_text(&worktree.join("elsewhere.rs"), "not contracted\n").unwrap();
+
+    let _stub = PathStub::install("claude", "exit 0");
+    tick(
+        &ctx,
+        TickInput {
+            feature: "checkout".to_owned(),
+        },
+    )
+    .unwrap();
+
+    let board = persisted(&root);
+    assert_eq!(
+        board.graph.workstreams[0].status,
+        WorkstreamStatus::Blocked,
+        "out-of-contract pre-existing work is not verifiable evidence"
+    );
+    assert!(
+        board
+            .journal
+            .iter()
+            .any(|entry| entry.kind == "session.unproductive")
+    );
+}
+
+/// A run that writes its contracted files reaches `Done` and says what it produced — the
 /// positive case the two refusals above are measured against.
 #[test]
 fn a_run_that_writes_its_contracted_files_reaches_done_and_records_them() {

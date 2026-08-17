@@ -15,6 +15,7 @@ use crate::domain::feature::{
     WorkstreamDef, WorkstreamStatus,
 };
 use crate::domain::name::{BranchName, FeatureName, RepoName};
+use crate::domain::provider::Provider;
 use crate::infra::fs;
 use crate::test_support::hall_root;
 
@@ -326,17 +327,20 @@ fn the_board_is_canonical_and_version_stamped() {
         .unwrap()
         .unwrap();
     assert!(
-        text.contains("\"version\": 2"),
+        text.contains("\"version\": 3"),
         "the store must stamp the version: {text}"
     );
     assert!(text.contains("\"status\": \"pending\""));
     assert!(text.contains("\"plan_fingerprint\": \"abc123\""));
 }
 
-// -- v1 → v2 migration ---------------------------------------------------
+// -- v1 → v3 migration ---------------------------------------------------
+// A v1 board walks the whole contiguous chain v1 → v2 → v3: the v2 step
+// numbers the journal and fills provider/agent, then the v3 step gives every
+// entry an explicit `revision: null`.
 
 #[test]
-fn a_v1_board_migrates_on_read_and_persists_as_v2() {
+fn a_v1_board_migrates_on_read_and_persists_as_v3() {
     let (_guard, layout) = layout_with_hall();
     let name = FeatureName::new("checkout").unwrap();
 
@@ -413,10 +417,11 @@ fn a_v1_board_migrates_on_read_and_persists_as_v2() {
     assert!(migrated.blocked_by.is_none());
     assert!(migrated.sessions.is_empty());
 
-    // Journal entries gained seq and event_id.
+    // Journal entries gained seq and event_id, and the revision is unknown.
     let entry = &migrated.journal[0];
     assert_eq!(entry.seq, 1);
     assert!(!entry.event_id.is_empty());
+    assert_eq!(entry.revision, None, "legacy entries carry no revision");
 
     // provider / agent default to None (hall default path).
     for ws in &migrated.graph.workstreams {
@@ -424,12 +429,212 @@ fn a_v1_board_migrates_on_read_and_persists_as_v2() {
         assert!(ws.agent.is_none());
     }
 
-    // File persisted as v2 on disk.
+    // File persisted as v3 on disk.
     let text = fs::read_text(&layout.execution_dir(&name).join("board.json"))
         .unwrap()
         .unwrap();
     assert!(
-        text.contains("\"version\": 2"),
-        "disk must hold v2 after migration: {text}"
+        text.contains("\"version\": 3"),
+        "disk must hold v3 after migration: {text}"
     );
+}
+
+// -- v2 → v3 migration (revision on journal entries) ----------------------
+
+/// A representative v2 board — the shape ivar actually wrote before the v3
+/// bump: seq/event_id present on every journal entry, no `revision` field
+/// anywhere — migrates on local read with every existing field and the
+/// entry order unchanged, gains an explicit `revision: null` on each entry,
+/// and persists as v3.
+#[test]
+fn a_v2_board_migrates_on_read_and_persists_as_v3() {
+    let (_guard, layout) = layout_with_hall();
+    let name = FeatureName::new("checkout").unwrap();
+
+    let v2_board = serde_json::json!({
+        "version": 2,
+        "status": "running",
+        "graph": {
+            "workstreams": [
+                {
+                    "id": "ws1",
+                    "title": "WS one",
+                    "operations": ["op1"],
+                    "depends_on": [],
+                    "write_contract": ["src/"],
+                    "status": "active",
+                    "provider": null,
+                    "agent": null
+                }
+            ],
+            "plan_fingerprint": "v2-fp"
+        },
+        "journal": [
+            {
+                "seq": 1,
+                "event_id": "prepared.1",
+                "timestamp": "1700000000",
+                "workstream": "board",
+                "kind": "prepared",
+                "message": "board prepared"
+            },
+            {
+                "seq": 2,
+                "event_id": "started.2",
+                "timestamp": "1700000001",
+                "workstream": "ws1",
+                "kind": "started",
+                "message": "started ws1"
+            },
+            {
+                "seq": 3,
+                "event_id": "produced.3",
+                "timestamp": "1700000002",
+                "workstream": "ws1",
+                "kind": "produced",
+                "message": "changed things"
+            }
+        ],
+        "next_event_seq": 4,
+        "blocked_by": null,
+        "sessions": {}
+    });
+
+    fs::ensure_dir(&layout.execution_dir(&name)).unwrap();
+    fs::write_text(
+        &layout.execution_dir(&name).join("board.json"),
+        &serde_json::to_string(&v2_board).unwrap(),
+    )
+    .unwrap();
+
+    let migrated = ExecutionBoard::read(&layout, &name)
+        .unwrap()
+        .expect("v2 board must migrate");
+
+    // The v3 step fills `revision: null` and leaves everything else alone.
+    assert_eq!(migrated.version, 3);
+    assert_eq!(migrated.status, ExecutionStatus::Running);
+    assert_eq!(migrated.graph.plan_fingerprint, "v2-fp");
+    assert_eq!(migrated.next_event_seq, 4);
+    assert!(migrated.blocked_by.is_none());
+    assert!(migrated.sessions.is_empty());
+
+    // Every journal entry survived, in order, with its fields intact and an
+    // explicit null revision — legacy evidence with unknown revision.
+    let expected: Vec<(u64, &str, &str, &str)> = vec![
+        (1, "prepared.1", "board", "prepared"),
+        (2, "started.2", "ws1", "started"),
+        (3, "produced.3", "ws1", "produced"),
+    ];
+    assert_eq!(migrated.journal.len(), expected.len());
+    for (entry, (seq, event_id, workstream, kind)) in migrated.journal.iter().zip(expected.iter()) {
+        assert_eq!(entry.seq, *seq);
+        assert_eq!(entry.event_id.as_str(), *event_id);
+        assert_eq!(entry.workstream.as_str(), *workstream);
+        assert_eq!(entry.kind.as_str(), *kind);
+        assert_eq!(entry.revision, None, "migration adds a null revision");
+    }
+
+    // Persisted as v3 on disk.
+    let text = fs::read_text(&layout.execution_dir(&name).join("board.json"))
+        .unwrap()
+        .unwrap();
+    assert!(
+        text.contains("\"version\": 3"),
+        "disk must hold v3 after migration: {text}"
+    );
+    assert!(
+        text.contains("\"revision\": null"),
+        "the migrated journal entry must carry an explicit null revision: {text}"
+    );
+}
+
+/// A v2 board's migration is lossless in the strictest sense a migration can
+/// be: the raw JSON's non-version fields and the journal's order survive
+/// byte-for-byte once the version stamp and the added `revision: null` are
+/// set aside. This pins that the v2→v3 step rewrites nothing it did not add.
+#[test]
+fn the_v2_to_v3_migration_rewrites_no_existing_field() {
+    let (_guard, layout) = layout_with_hall();
+    let name = FeatureName::new("checkout").unwrap();
+
+    let v2_board = serde_json::json!({
+        "version": 2,
+        "status": "blocked",
+        "graph": {
+            "workstreams": [
+                {
+                    "id": "ws1",
+                    "title": "WS one",
+                    "operations": ["op1", "op2"],
+                    "depends_on": ["ws0"],
+                    "write_contract": ["src/a/", "src/b/"],
+                    "status": "paused",
+                    "provider": "claude-code",
+                    "agent": "implementer-x"
+                }
+            ],
+            "plan_fingerprint": "fp-9"
+        },
+        "journal": [
+            {
+                "seq": 5,
+                "event_id": "question.asked.2.5",
+                "timestamp": "1700000005",
+                "workstream": "ws1",
+                "kind": "question.asked",
+                "message": "which way?"
+            }
+        ],
+        "next_event_seq": 6,
+        "blocked_by": "ws1",
+        "sessions": { "sess-1": "ws1" }
+    });
+    let original = v2_board.to_string();
+
+    fs::ensure_dir(&layout.execution_dir(&name)).unwrap();
+    fs::write_text(&layout.execution_dir(&name).join("board.json"), &original).unwrap();
+
+    let migrated = ExecutionBoard::read(&layout, &name)
+        .unwrap()
+        .expect("v2 board must migrate");
+
+    // Fields the migration neither added nor stamped are byte-identical.
+    assert_eq!(migrated.status, ExecutionStatus::Blocked);
+    assert_eq!(migrated.graph.plan_fingerprint, "fp-9");
+    assert_eq!(migrated.graph.workstreams[0].operations, vec!["op1", "op2"]);
+    assert_eq!(migrated.graph.workstreams[0].depends_on, vec!["ws0"]);
+    assert_eq!(
+        migrated.graph.workstreams[0].write_contract,
+        vec!["src/a/", "src/b/"]
+    );
+    assert_eq!(
+        migrated.graph.workstreams[0].status,
+        WorkstreamStatus::Paused
+    );
+    assert_eq!(
+        migrated.graph.workstreams[0].provider,
+        Some(Provider::ClaudeCode)
+    );
+    assert_eq!(
+        migrated.graph.workstreams[0].agent.as_deref(),
+        Some("implementer-x")
+    );
+    assert_eq!(migrated.next_event_seq, 6);
+    assert_eq!(migrated.blocked_by.as_deref(), Some("ws1"));
+    assert_eq!(
+        migrated.sessions.get("sess-1").map(String::as_str),
+        Some("ws1")
+    );
+    assert_eq!(migrated.journal.len(), 1);
+    assert_eq!(migrated.journal[0].seq, 5);
+    assert_eq!(migrated.journal[0].kind, "question.asked");
+    assert_eq!(migrated.journal[0].revision, None);
+
+    // The only journal-level change is the added revision: the entry's other
+    // fields match what was written.
+    assert_eq!(migrated.journal[0].message, "which way?");
+    assert_eq!(migrated.journal[0].workstream, "ws1");
+    assert_eq!(migrated.journal[0].timestamp, "1700000005");
+    assert_eq!(migrated.journal[0].event_id, "question.asked.2.5");
 }

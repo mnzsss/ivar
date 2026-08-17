@@ -347,6 +347,53 @@ fn changed_paths_does_not_quote_a_path_with_a_space_in_it() {
     );
 }
 
+/// The same quoting hazard, one byte worse: a path holding a literal newline.
+/// NUL-separated records need no escaping, so the dirty half of the
+/// existing-work query must hand the path back verbatim for a contract to
+/// match.
+#[test]
+fn changed_paths_does_not_quote_a_path_with_a_newline_in_it() {
+    let (_guard, worktree) = worktree_on_main();
+
+    std::fs::write(worktree.join("notes\nwith a newline.md"), "hi\n").unwrap();
+
+    let changed = System.changed_paths(&worktree).unwrap();
+
+    assert!(
+        changed
+            .iter()
+            .any(|path| path.as_str() == "notes\nwith a newline.md"),
+        "{changed:?}"
+    );
+}
+
+/// The committed half of the existing-work query has the same NUL contract:
+/// `git diff --name-only` in its default form quotes a path holding a space
+/// or a newline, and a quoted path never matches a write contract. `-z`
+/// returns it raw.
+#[test]
+fn paths_committed_since_returns_paths_with_spaces_and_newlines_verbatim() {
+    let (_guard, dir) = utf8_temp_dir();
+    let origin = seeded_repo(&dir.join("origin"), "main");
+    let bare = dir.join("api.bare");
+    System.clone_bare(origin.as_str(), &bare).unwrap();
+    git(&bare, &["branch", "feat/x"]);
+    let worktree = dir.join("feat-x");
+    System.add_worktree(&bare, &worktree, "feat/x").unwrap();
+
+    let odd_name = "release notes\n2024.md";
+    std::fs::write(worktree.join(odd_name), "hi\n").unwrap();
+    git(&worktree, &["add", "-A"]);
+    git(&worktree, &["commit", "-m", "odd name"]);
+
+    let committed = System.paths_committed_since(&worktree, "main").unwrap();
+
+    assert!(
+        committed.iter().any(|path| path.as_str() == odd_name),
+        "the committed path must survive verbatim: {committed:?}"
+    );
+}
+
 /// Both ends of a rename are writes: the file at the old path is gone.
 #[test]
 fn changed_paths_names_both_ends_of_a_rename() {

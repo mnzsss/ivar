@@ -39,15 +39,16 @@ fn journal_entry(workstream: &str, kind: &str) -> JournalEntry {
         workstream: workstream.to_owned(),
         kind: kind.to_owned(),
         message: format!("{workstream}: {kind}"),
+        revision: None,
     }
 }
 
 #[test]
-fn a_new_board_is_pending_with_an_empty_journal_and_version_two() {
+fn a_new_board_is_pending_with_an_empty_journal_and_version_three() {
     let board = execution_board();
 
     assert_eq!(board.status, ExecutionStatus::Pending);
-    assert_eq!(board.version, 2);
+    assert_eq!(board.version, 3);
     assert!(board.journal.is_empty());
     assert_eq!(board.graph.workstreams.len(), 1);
 }
@@ -160,6 +161,59 @@ fn the_execution_board_round_trips_through_serde() {
 
     assert_eq!(parsed, board);
     assert_eq!(parsed.status, ExecutionStatus::Running);
+}
+
+// -- board v3: plan revision on journal entries ----------------------------
+
+/// Every journal entry carries an optional plan revision — the structured
+/// identity of which plan revision the entry satisfies, never encoded in an
+/// event id or a message. Evidence entries are stamped at fold time from
+/// `board.graph.plan_fingerprint`; everything else stays `None` unless it is
+/// known.
+#[test]
+fn a_journal_entry_carries_an_optional_plan_revision() {
+    let entry = JournalEntry::new("ws1", "produced", "changed things").with_revision("fp-1");
+
+    assert_eq!(entry.revision.as_deref(), Some("fp-1"));
+}
+
+/// The revision-aware constructor is additive: the plain [`JournalEntry::new`]
+/// still builds an entry with no revision, for the entries that are not
+/// execution evidence.
+#[test]
+fn the_plain_constructor_leaves_the_revision_unknown() {
+    let entry = JournalEntry::new("ws1", "started", "launched");
+
+    assert_eq!(entry.revision, None);
+}
+
+/// A journal entry written before the revision field existed — a v2 board —
+/// still deserialises: the missing field reads as `None`, never as an error.
+#[test]
+fn a_legacy_journal_entry_without_a_revision_deserialises_as_none() {
+    let json = serde_json::json!({
+        "seq": 1,
+        "event_id": "evt-1",
+        "timestamp": "1",
+        "workstream": "ws1",
+        "kind": "produced",
+        "message": "changed things"
+    });
+
+    let entry: JournalEntry = serde_json::from_value(json).unwrap();
+
+    assert_eq!(entry.revision, None);
+}
+
+/// A serialised entry carries the revision as structured data — the identity
+/// a future evidence lookup reads, never something parsed out of prose.
+#[test]
+fn a_revised_entry_serialises_with_its_revision() {
+    let entry = JournalEntry::new("ws1", "produced", "changed things").with_revision("fp-1");
+
+    let rendered = serde_json::to_value(&entry).unwrap();
+
+    assert_eq!(rendered["revision"], serde_json::json!("fp-1"));
 }
 
 #[test]
