@@ -37,9 +37,21 @@ writing a test you do not believe in.
 
 ## Licensing
 
-There is no CLA. Your contribution is licensed under the same dual
-`MIT OR Apache-2.0` as the project, and nothing here asks you to assign
-copyright.
+There is no CLA, and nothing here asks you to assign copyright. Your
+contribution is licensed under the same `Apache-2.0` as the project — which is
+what §5 of the license already says about anything you deliberately submit.
+
+What is asked instead is a sign-off. Every commit must carry a `Signed-off-by`
+line certifying the [Developer Certificate of Origin](https://developercertificate.org/)
+— that you wrote the change, or have the right to submit it:
+
+```sh
+git commit -s
+```
+
+That is one line in a commit message, not a document to sign, and `-s` writes it
+for you. A pull request whose commits lack it will be asked to
+`git rebase --signoff` before review.
 
 ## If you adapt someone else's code
 

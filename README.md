@@ -54,14 +54,11 @@ Commits must be signed off under the [DCO](https://developercertificate.org/):
 
 ## License
 
-Dual-licensed under either of
+Apache License, Version 2.0 — see [LICENSE](LICENSE) and [NOTICE](NOTICE).
 
-- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE))
-- MIT license ([LICENSE-MIT](LICENSE-MIT))
-
-at your option. Unless you explicitly state otherwise, any contribution you
-intentionally submit for inclusion in this work shall be dual-licensed as above,
-without any additional terms or conditions.
+Unless you explicitly state otherwise, any contribution you intentionally submit
+for inclusion in this work shall be licensed as above, without any additional
+terms or conditions.
 
 ---
 

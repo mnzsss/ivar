@@ -16,7 +16,7 @@ rust-version = "1.95.0" # MSRV. Public contract from the first publish; CI build
 # in one step — the `msrv` CI job reads this value and runs `cargo build`
 # against exactly it — so the way to move it is to lower it and read the gate,
 # not to reason about it here.
-license = "MIT OR Apache-2.0"
+license = "Apache-2.0"
 description = "Mount the repos a feature spans into one directory, on one branch, for one agent session."
 repository = "https://github.com/mnzsss/ivar"
 homepage = "https://ivar.mnzs.dev"

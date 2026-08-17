@@ -1,0 +1,18 @@
+ivar
+Copyright 2026 Gabriel Menezes
+
+This product includes software developed by Gabriel Menezes and the ivar
+contributors.
+
+Licensed under the Apache License, Version 2.0 (the "License"); you may not
+use this file except in compliance with the License. You may obtain a copy of
+the License in the LICENSE file at the root of this repository, or at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Third-party code adapted into this repository is listed below, with the file
+that carries it, the upstream source and its license. Adapted files also carry
+that attribution in a header, because a root NOTICE does not survive a
+copy-paste. See CONTRIBUTING.md.
+
+(no adapted third-party code at this time)
