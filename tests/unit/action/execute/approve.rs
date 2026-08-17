@@ -12,7 +12,7 @@ use crate::action::hall::{self, InitInput};
 use crate::action::plan::create::{self as plan_create, CreateInput as PlanCreateInput};
 use crate::domain::feature::ExecutionStatus;
 use crate::error::Status;
-use crate::infra::fs;
+use crate::infra::{fs, hash};
 use crate::store::layout::Layout;
 use crate::test_support::hall_root;
 
@@ -194,30 +194,91 @@ fn approve_twice_does_not_duplicate_the_journal_event() {
     let ctx = Ctx::new(root.clone());
 
     // First approve.
-    approve(
+    let report = approve(
         &ctx,
         ApproveInput {
             feature: "checkout".to_owned(),
         },
     )
     .unwrap();
+
+    assert!(report.value.changed);
 
     let journal_len_after_first = persisted(&root).journal.len();
 
     // Second approve — should be a no-op.
-    approve(
+    let report = approve(
         &ctx,
         ApproveInput {
             feature: "checkout".to_owned(),
         },
     )
     .unwrap();
+
+    assert!(!report.value.changed);
 
     let journal_len_after_second = persisted(&root).journal.len();
 
     assert_eq!(
         journal_len_after_first, journal_len_after_second,
         "second approve must not add a journal entry"
+    );
+}
+
+#[test]
+fn approve_repairs_an_invalidated_execution_graph_gate_for_the_current_plan_revision() {
+    let (_guard, root) = seeded_board();
+    let ctx = Ctx::new(root.clone());
+
+    approve(
+        &ctx,
+        ApproveInput {
+            feature: "checkout".to_owned(),
+        },
+    )
+    .unwrap();
+
+    let plan_path = root.join("plans/checkout/plan.md");
+    let revised_plan = format!("{PLAN_TEXT}\n# revised\n");
+    fs::write_text(&plan_path, &revised_plan).unwrap();
+    let expected_fingerprint = hash::file(&plan_path).unwrap();
+
+    let layout = Layout::at(root.clone());
+    let feature = FeatureName::new("checkout").unwrap();
+    let mut approvals = ApprovalState::read(&layout, &feature).unwrap().unwrap();
+    approvals.normalize();
+    approvals.invalidate_from(Gate::Plan);
+    approvals.write(&layout, &feature).unwrap();
+
+    let report = approve(
+        &ctx,
+        ApproveInput {
+            feature: "checkout".to_owned(),
+        },
+    )
+    .unwrap();
+
+    assert!(report.value.changed);
+    assert_eq!(report.value.board.status, ExecutionStatus::Approved);
+
+    let approvals = persisted_approvals(&root);
+    assert_eq!(
+        approvals.state(Gate::ExecutionGraph),
+        Some(GateState::Approved)
+    );
+    assert_eq!(
+        approvals
+            .record(Gate::ExecutionGraph)
+            .and_then(|record| record.artifact_fingerprint.as_deref()),
+        Some(expected_fingerprint.as_str())
+    );
+    assert_eq!(
+        persisted(&root)
+            .journal
+            .iter()
+            .filter(|entry| entry.kind == "graph.approved")
+            .count(),
+        2
     );
 }
 
@@ -253,6 +314,7 @@ fn after_execute_approve_the_execution_graph_gate_is_approved() {
 #[test]
 fn the_human_surface_lists_journal_entries() {
     let outcome = ApproveOutcome {
+        changed: true,
         root: Utf8PathBuf::from("/hall"),
         feature: FeatureName::new("checkout").unwrap(),
         board_path: Utf8PathBuf::from("/hall/board.json"),
