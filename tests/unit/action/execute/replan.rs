@@ -528,3 +528,132 @@ fn replan_diffs_a_second_time_against_the_immediately_previous_graph() {
         .collect();
     assert_eq!(replans.len(), 2);
 }
+
+// --- protected removal of completed workstreams ---------------------------
+
+/// A graph that omits `ws-gates` (the only workstream a test marks `Done`)
+/// while keeping `ws-board`.
+const DROP_GATES_GRAPH: &str = r#"{
+    "workstreams": [
+        {
+            "id": "ws-board",
+            "title": "Execution board",
+            "operations": ["add-board-types", "store-board"],
+            "depends_on": [],
+            "write_contract": ["src/action/execute"],
+            "provider": "claude-code"
+        }
+    ]
+}"#;
+
+/// The plan backing `DROP_GATES_GRAPH` — `ws-gates` is gone from the
+/// Operations section too, so the revised graph is plan-backed.
+const DROP_GATES_PLAN: &str = "# Plan\n\
+    \n\
+    ## Operations\n\
+    \n\
+    ### ws-board\n\
+    - add-board-types\n\
+    - store-board\n\
+    write_contract:\n\
+    - src/action/execute\n\
+    \n\
+    ## Operation details\n\
+    \n\
+    **add-board-types** — Implement add-board-types.\n\
+    \n\
+    **store-board** — Implement store-board.\n";
+
+/// A `Done` workstream omitted from the revised graph is refused without
+/// authorization, and the refusal leaves plan, board, and journal
+/// byte-identical — an atomic replan.
+#[test]
+fn replan_refuses_removing_a_done_workstream_without_authorization_and_writes_nothing() {
+    let (_guard, root) = seeded_board();
+    let ctx = Ctx::new(root.clone());
+    mark_all_done(&root);
+
+    // Snapshot the persisted plan, board and journal before the refused
+    // replan.
+    let layout = Layout::at(root.clone());
+    let feature = FeatureName::new("checkout").unwrap();
+    let plan_path = root.join("plans/checkout/plan.md");
+    let plan_before = fs::read_text(&plan_path).unwrap().unwrap();
+    let board_before = ExecutionBoard::read(&layout, &feature).unwrap().unwrap();
+
+    let input = replan_input(&root, DROP_GATES_PLAN, DROP_GATES_GRAPH);
+    let failure = replan(
+        &ctx,
+        ReplanInput {
+            allow_remove_completed: false,
+            ..input
+        },
+    )
+    .unwrap_err();
+
+    assert_eq!(failure.status, Status::Blocked);
+    assert_eq!(
+        failure.code,
+        "execute.completed_workstream_requires_authorization"
+    );
+    assert!(failure.what.contains("ws-gates"));
+    assert!(failure.what.contains("completed"));
+
+    // Nothing was written: plan, board and journal are byte-equivalent.
+    assert_eq!(fs::read_text(&plan_path).unwrap().unwrap(), plan_before);
+    let board_after = ExecutionBoard::read(&layout, &feature).unwrap().unwrap();
+    assert_eq!(board_after, board_before);
+}
+
+/// With `--allow-remove-completed`, an omitted `Done` workstream is removed
+/// while the journal entries that mention it stay.
+#[test]
+fn replan_with_authorization_removes_done_workstreams_and_preserves_journal_entries() {
+    let (_guard, root) = seeded_board();
+    let ctx = Ctx::new(root.clone());
+    mark_all_done(&root);
+
+    let input = replan_input(&root, DROP_GATES_PLAN, DROP_GATES_GRAPH);
+    let report = replan(
+        &ctx,
+        ReplanInput {
+            allow_remove_completed: true,
+            ..input
+        },
+    )
+    .unwrap();
+
+    assert_eq!(report.value.removed, vec!["ws-gates".to_owned()]);
+    assert!(report.value.protected.is_empty());
+
+    let on_disk = persisted(&root);
+    let ids: Vec<&str> = on_disk
+        .graph
+        .workstreams
+        .iter()
+        .map(|workstream| workstream.id.as_str())
+        .collect();
+    assert_eq!(ids, vec!["ws-board"]);
+    // The prepared entry (mentioning the original graph) and the replan entry
+    // both survive — history is never rewritten.
+    assert_eq!(on_disk.journal[0].kind, "prepared");
+    assert_eq!(on_disk.journal.last().unwrap().kind, "replan");
+}
+
+/// The outcome names every merge class — the diagnostic contract for a
+/// replan.
+#[test]
+fn replan_outcome_names_changed_added_removed_and_retained_workstreams() {
+    let (_guard, root) = seeded_board();
+    let ctx = Ctx::new(root.clone());
+    // ws-gates stays identical (retained), ws-board changes, ws-tick is
+    // added, and nothing is removed.
+    let input = replan_input(&root, REVISED_PLAN, REVISED_GRAPH);
+    let report = replan(&ctx, input).unwrap();
+
+    assert_eq!(report.value.retained, vec!["ws-gates".to_owned()]);
+    assert_eq!(report.value.changed, vec!["ws-board".to_owned()]);
+    assert_eq!(report.value.added, vec!["ws-tick".to_owned()]);
+    assert!(report.value.removed.is_empty());
+    assert!(report.value.protected.is_empty());
+}
