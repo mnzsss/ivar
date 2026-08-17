@@ -238,6 +238,23 @@ fn opencode_plugin_is_written_with_the_hall_feature_and_session_baked_in() {
     assert!(contents.contains(&js_string_literal(feature().as_str())));
     assert!(contents.contains(&js_string_literal(session().as_str())));
 
+    // OpenCode's loader calls the export and takes the hook table from what
+    // it returns. An export that *is* the table is refused with "Plugin
+    // export is not a function", and a guard refused at load time arbitrates
+    // nothing at all — silently, for the whole run.
+    assert!(
+        contents.contains("export const ivarExecutionGuard = async () => ("),
+        "the guard must export a function, was:\n{contents}"
+    );
+    assert!(
+        !contents.contains("export default {"),
+        "the guard exports the hook table itself, which the loader refuses"
+    );
+    assert!(
+        !contents.contains("hooks: {"),
+        "the hooks are returned by the function, not nested under a `hooks` key"
+    );
+
     // Not executable: it is loaded by OpenCode's plugin loader, never run
     // directly the way the Claude Code hook is.
     let mode = fs::stat(&plugin_path)

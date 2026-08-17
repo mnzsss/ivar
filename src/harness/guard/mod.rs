@@ -108,7 +108,12 @@
 //! into, and a session's guard must still materialise rather than be held
 //! hostage by an earlier malformed write. OpenCode needs no equivalent
 //! registration step — its plugin loader discovers everything under
-//! `.opencode/plugins/` on its own.
+//! `.opencode/plugins/` on its own. Discovering the file is not the same as
+//! accepting it: that loader requires every export to be a *function*
+//! returning the hook table, and refuses a module whose export is the table
+//! itself with `Plugin export is not a function`. A guard refused at load
+//! time is a guard that arbitrates nothing, silently, for the whole run — so
+//! the generated plugin exports a function, and a test asserts the shape.
 //!
 //! # Rejected: reusing `Harness` from `super`
 //!

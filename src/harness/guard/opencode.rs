@@ -62,70 +62,67 @@ pub(crate) fn render_opencode_guard_plugin(
  * exit, or any answer other than an explicit `allowed: true` are all
  * refused — never allowed by omission.
  */
-export default {
-  name: 'ivar-execution-guard',
-  hooks: {
-    'tool.execute.before': async (
-      _input: unknown,
-      output: { args?: Record<string, unknown> },
-    ) => {
-      const args = output?.args ?? {};
-      const filePath =
-        (typeof args.filePath === 'string' && args.filePath) ||
-        (typeof args.file_path === 'string' && args.file_path) ||
-        (typeof args.path === 'string' && args.path) ||
-        undefined;
+export const ivarExecutionGuard = async () => ({
+  'tool.execute.before': async (
+    _input: unknown,
+    output: { args?: Record<string, unknown> },
+  ) => {
+    const args = output?.args ?? {};
+    const filePath =
+      (typeof args.filePath === 'string' && args.filePath) ||
+      (typeof args.file_path === 'string' && args.file_path) ||
+      (typeof args.path === 'string' && args.path) ||
+      undefined;
 
-      if (!filePath) {
-        throw new Error('ivar execution guard: no path in the tool call — denying by default');
-      }
+    if (!filePath) {
+      throw new Error('ivar execution guard: no path in the tool call — denying by default');
+    }
 
-      const hallPath = __HALL_JSON__;
-      const feature = __FEATURE_JSON__;
-      const sessionId = __SESSION_JSON__;
+    const hallPath = __HALL_JSON__;
+    const feature = __FEATURE_JSON__;
+    const sessionId = __SESSION_JSON__;
 
-      let exitCode = 1;
-      let stdout = '';
-      let stderr = '';
+    let exitCode = 1;
+    let stdout = '';
+    let stderr = '';
+    try {
+      const proc = Bun.spawn(
+        [
+          'ivar',
+          'feature',
+          'execute',
+          'guard-check',
+          '--feature',
+          feature,
+          '--session',
+          sessionId,
+          '--path',
+          filePath,
+          '--json',
+        ],
+        { cwd: hallPath, stdout: 'pipe', stderr: 'pipe' },
+      );
+      exitCode = await proc.exited;
+      stdout = await new Response(proc.stdout).text();
+      stderr = await new Response(proc.stderr).text();
+    } catch (error) {
+      stderr = error instanceof Error ? error.message : String(error);
+    }
+
+    let allowed = false;
+    if (exitCode === 0) {
       try {
-        const proc = Bun.spawn(
-          [
-            'ivar',
-            'feature',
-            'execute',
-            'guard-check',
-            '--feature',
-            feature,
-            '--session',
-            sessionId,
-            '--path',
-            filePath,
-            '--json',
-          ],
-          { cwd: hallPath, stdout: 'pipe', stderr: 'pipe' },
-        );
-        exitCode = await proc.exited;
-        stdout = await new Response(proc.stdout).text();
-        stderr = await new Response(proc.stderr).text();
-      } catch (error) {
-        stderr = error instanceof Error ? error.message : String(error);
+        allowed = JSON.parse(stdout.trim()).allowed === true;
+      } catch {
+        allowed = false;
       }
+    }
 
-      let allowed = false;
-      if (exitCode === 0) {
-        try {
-          allowed = JSON.parse(stdout.trim()).allowed === true;
-        } catch {
-          allowed = false;
-        }
-      }
-
-      if (!allowed) {
-        throw new Error(`ivar denied write to ${filePath}: ${stderr.trim() || stdout.trim()}`);
-      }
-    },
+    if (!allowed) {
+      throw new Error(`ivar denied write to ${filePath}: ${stderr.trim() || stdout.trim()}`);
+    }
   },
-};
+});
 "#;
 
     TEMPLATE
