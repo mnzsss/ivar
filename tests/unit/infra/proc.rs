@@ -484,3 +484,57 @@ fn find_ports_for_program_returns_empty_for_a_ghost_program() {
     let ports = find_ports_for_program("no-such-program-xyz-12345");
     assert!(ports.is_empty());
 }
+
+// -- cwd and PWD are set together -----------------------------------------
+
+/// Reads back one variable from the child's own environment. `env` is used
+/// rather than a shell because a shell repairs a stale `PWD` at startup,
+/// which is exactly the lie under test.
+fn child_env(command: &Command, key: &str) -> Option<String> {
+    let output = capture(command).unwrap();
+    output
+        .stdout
+        .lines()
+        .find_map(|line| line.strip_prefix(&format!("{key}=")))
+        .map(ToOwned::to_owned)
+}
+
+/// `current_dir` does not touch `PWD`, so a child spawned by this crate used
+/// to inherit *this* process's `PWD` and read back a directory it was not in.
+/// An OpenCode executor did exactly that: spawned in a Feature Session View
+/// Dir, it took `$PWD` — the hall — as its project directory and ran the
+/// whole session there.
+#[test]
+fn a_child_reads_back_the_working_directory_it_was_given() {
+    let (_guard, dir) = utf8_temp_dir();
+
+    let pwd = child_env(&Command::new("env").cwd(dir.clone()), "PWD");
+
+    assert_eq!(pwd.as_deref(), Some(dir.as_str()));
+}
+
+/// The pairing is not a second guess at the caller's intent: a caller that
+/// sets `PWD` itself still wins, because the overrides are applied after.
+#[test]
+fn an_explicit_pwd_override_still_wins_over_the_working_directory() {
+    let (_guard, dir) = utf8_temp_dir();
+
+    let pwd = child_env(
+        &Command::new("env").cwd(dir).env("PWD", "/somewhere/else"),
+        "PWD",
+    );
+
+    assert_eq!(pwd.as_deref(), Some("/somewhere/else"));
+}
+
+/// A command with no working directory of its own says nothing about `PWD`
+/// either — it inherits the parent's, which is the whole environment it
+/// inherits.
+#[test]
+fn a_command_without_a_working_directory_does_not_invent_a_pwd() {
+    let inherited = std::env::var("PWD").ok();
+
+    let pwd = child_env(&Command::new("env"), "PWD");
+
+    assert_eq!(pwd, inherited);
+}

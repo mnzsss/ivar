@@ -99,6 +99,12 @@ impl Pty for PtsPty {
         for arg in command.arguments() {
             builder.arg(arg);
         }
+        // `cwd` alone leaves the child's `PWD` naming wherever *this* process
+        // was started, and a program that trusts `$PWD` over `getcwd` then
+        // works in the wrong tree — see `proc::Command::to_std`, where the
+        // headless path pairs the two for the same reason. Set first, so an
+        // explicit override from the caller still wins.
+        builder.env("PWD", cwd.as_str());
         for (key, value) in command.envs() {
             builder.env(key, value);
         }

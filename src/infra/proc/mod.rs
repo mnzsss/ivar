@@ -200,11 +200,23 @@ impl Command {
     }
 
     /// Everything both runners configure identically.
+    ///
+    /// Setting the working directory also rewrites `PWD`, because
+    /// [`StdCommand::current_dir`] does not: the child would otherwise inherit
+    /// this process's `PWD` and read back a directory it is not in. A shell
+    /// keeps the two in step on every `cd`; a spawned process has to be told.
+    /// Programs that trust `$PWD` over `getcwd` are not exotic — an OpenCode
+    /// executor spawned in a Feature Session View Dir with `PWD` still naming
+    /// the hall rooted its whole session at the hall: the hall's config, the
+    /// hall's plugins, and every path its tools resolved. Applied before the
+    /// explicit overrides, so a caller that really means to set `PWD` itself
+    /// still wins.
     fn to_std(&self) -> StdCommand {
         let mut command = StdCommand::new(&self.program);
         command.args(self.args.iter().map(OsStr::new));
         if let Some(dir) = &self.cwd {
             command.current_dir(dir);
+            command.env("PWD", dir);
         }
         for (key, value) in &self.env {
             command.env(key, value);
