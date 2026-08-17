@@ -217,12 +217,9 @@ struct Merge {
 /// journal and sessions.
 ///
 /// An omitted `Done` workstream blocks unless `allow_remove_completed` —
-/// the completed-work removal guard — is supplied. When it is not, the
-/// omitted `Done` workstreams are kept on the board (paused, so they are
-/// never silently launched) and reported as `protected`; the replan fails.
-///
-/// This runs before any write, so a blocked merge leaves plan/board/journal
-/// byte-identical.
+/// the completed-work removal guard — is supplied; the refusal names the
+/// protected workstreams so the human sees the full scope. This runs before
+/// any write, so a blocked merge leaves plan/board/journal byte-identical.
 fn merge(
     mut board: ExecutionBoard,
     candidate: Vec<WorkstreamDef>,
