@@ -9,6 +9,7 @@
 
 pub mod ack;
 pub mod approve;
+pub(crate) mod graph;
 pub mod guard_check;
 pub mod inbox;
 pub(crate) mod plan_ops;

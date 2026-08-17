@@ -15,6 +15,11 @@
 //! content the Execution Graph approval gate fingerprints). The board's
 //! journal opens with a `prepared` entry.
 //!
+//! Graph parsing, targeting resolution, and every validation — locked
+//! contracts, dependencies, and plan-backed operations — live in the shared
+//! resolver ([`super::graph`]); `prepare` owns only the one-shot board
+//! creation this verb is responsible for, and delegates the rest.
+//!
 //! Preparing is a one-shot: a feature that already has a board is refused,
 //! because re-writing it would destroy the journal. Delete `board.json`
 //! deliberately to re-prepare from a fresh graph.
@@ -27,21 +32,24 @@
 use std::io;
 
 use camino::{Utf8Path, Utf8PathBuf};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
-use crate::domain::feature::{
-    ExecutionBoard, ExecutionGraph, ExecutionStatus, JournalEntry, WorkstreamDef, WorkstreamStatus,
-};
+use crate::domain::feature::{ExecutionBoard, ExecutionGraph, ExecutionStatus, JournalEntry};
 use crate::domain::name::FeatureName;
-use crate::domain::provider::Provider;
 use crate::error::{Failure, FixAction, Outcome, Report, WriteHuman};
-use crate::infra::{fs, hash, json};
+use crate::infra::{fs, hash};
 use crate::store::feature;
 use crate::store::layout::Layout;
 
 use super::super::discover_hall;
-use super::targeting;
+use super::graph;
 use crate::action::Ctx;
+
+/// Parse the graph JSON at `path` — re-exported for the prompt test module,
+/// which reaches the parser through `prepare`; the implementation lives in
+/// the shared resolver ([`super::graph`]). Unused by `prepare`'s own code.
+#[allow(unused_imports)]
+pub(crate) use super::graph::read_workstreams;
 
 /// What `ivar feature execute` needs.
 #[derive(Debug, Clone)]
@@ -87,73 +95,15 @@ impl WriteHuman for PrepareOutcome {
     }
 }
 
-/// The shape of the graph JSON `--graph-json` points at: workstreams as
-/// authored, with no execution state. `status` is added when the board is
-/// prepared, and `plan_fingerprint` is derived from `plan.md`.
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct GraphFile {
-    workstreams: Vec<GraphWorkstream>,
-}
-
-/// One workstream as authored in the graph JSON.
-///
-/// `provider`, `model` and `agent` are all optional and default to `None` on
-/// a missing key — a graph authored before they existed carries only the
-/// original five fields and must keep parsing unchanged. `#[serde(
-/// deny_unknown_fields)]` stays: an unrecognised key is still refused, only a
-/// *known* absent key is tolerated.
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct GraphWorkstream {
-    id: String,
-    title: String,
-    operations: Vec<String>,
-    depends_on: Vec<String>,
-    write_contract: Vec<String>,
-    /// The provider to run this workstream on. Parses through
-    /// [`Provider`]'s own `Deserialize`, so an id outside the closed set
-    /// (`claude-code`, `opencode`) is refused with a message naming the
-    /// valid options — never silently coerced to `None`.
-    #[serde(default)]
-    provider: Option<Provider>,
-    /// The model to run this workstream with, e.g. `claude --model` or
-    /// `opencode -m`. Distinct from `agent` — see [`WorkstreamDef::model`].
-    #[serde(default)]
-    model: Option<String>,
-    /// The agent to run this workstream with, e.g. `claude --agent` or
-    /// `opencode --agent`. Distinct from `model` — see
-    /// [`WorkstreamDef::agent`].
-    #[serde(default)]
-    agent: Option<String>,
-}
-
-impl From<GraphWorkstream> for WorkstreamDef {
-    fn from(workstream: GraphWorkstream) -> Self {
-        Self {
-            id: workstream.id,
-            title: workstream.title,
-            operations: workstream.operations,
-            depends_on: workstream.depends_on,
-            write_contract: workstream.write_contract,
-            status: WorkstreamStatus::Waiting,
-            provider: workstream.provider,
-            model: workstream.model,
-            agent: workstream.agent,
-        }
-    }
-}
-
 /// Prepare an execution board for `input.feature`.
 ///
 /// Blocked when the feature does not exist, the feature's plan has not been
 /// written, the graph file is missing or unparseable, a board already exists
 /// — an existing board carries a journal that overwriting would destroy —
-/// the child has already closed as `integrated`, a workstream's write
-/// contract reaches a locked promotion, a workstream's provider cannot be
-/// resolved (no explicit target and no caller session), the graph and the
-/// plan disagree about targeting, or the plan does not document an operation
-/// a workstream claims (see [`require_plan_backs_the_graph`]).
+/// the child has already closed as `integrated`, or the shared resolver
+/// refuses the graph (locked promotions, unknown or cyclic dependencies, an
+/// unresolvable provider, targeting conflicts, or operations the plan does
+/// not document — see [`graph::resolve`]).
 ///
 /// Targeting is resolved **before** the plan fingerprint is computed: the
 /// resolved `provider`/`model`/`agent` lines are written into `plan.md`, the
@@ -169,8 +119,7 @@ pub fn prepare(ctx: &Ctx, input: PrepareInput) -> Outcome<PrepareOutcome> {
     require_no_board(&layout, &feature)?;
 
     // Preparing persists a fresh board: blocked once the whole child closes
-    // as `integrated`, and the graph's contracts must not reach a locked
-    // promotion.
+    // as `integrated`.
     let feature_record =
         crate::domain::feature::Feature::read(&layout, &feature)?.ok_or_else(|| {
             Failure::blocked(
@@ -180,30 +129,19 @@ pub fn prepare(ctx: &Ctx, input: PrepareInput) -> Outcome<PrepareOutcome> {
         })?;
     crate::action::feature::ensure_not_fully_integrated(&layout, &feature_record)?;
 
-    let authored = read_workstreams(&graph_path)?;
-    // The contract check runs on the *authored* graph, before the resolved
-    // plan is persisted: targeting never touches `write_contract`, so the
-    // answer is the same either way, and a blocked prepare must not leave a
-    // rewritten `plan.md` behind.
-    crate::action::feature::ensure_contracts_avoid_locked_promotions(
-        &layout,
-        &feature_record,
-        &authored,
-    )?;
-
+    // Resolve and validate before writing anything: graph parsing, locked
+    // contracts, dependencies, targeting, and plan-backed operations all run
+    // here, and a `Blocked` resolution means nothing was mutated.
     let plan_path = layout.plan_dir(&feature).join("plan.md");
-    let plan_text = fs::read_text(&plan_path)?.ok_or_else(|| plan_missing(&feature))?;
-    let resolved = targeting::resolve(
+    let resolved = graph::resolve(
         &layout,
         &feature,
+        &feature_record,
         input.session.as_deref(),
-        &plan_text,
-        authored,
+        &graph_path,
+        &plan_path,
     )?;
-    // Validate before persisting: `Blocked` means nothing was mutated, so a
-    // plan that does not back the graph must be refused before `plan.md` is
-    // rewritten with the resolved targeting.
-    require_plan_backs_the_graph(&resolved.plan_text, &resolved.workstreams)?;
+
     // Persist the resolved targeting before fingerprinting: the fingerprint
     // must cover exactly what the board was derived from.
     fs::write_text(&plan_path, &resolved.plan_text)?;
@@ -268,68 +206,6 @@ fn require_no_board(layout: &Layout, feature: &FeatureName) -> Result<(), Failur
         "execute.delete_board",
         format!("Delete `{path}` deliberately, then prepare again from a fresh graph."),
     )))
-}
-
-/// Refuse a graph whose workstreams the plan does not back.
-///
-/// The check is [`super::prompt::render`] itself, run over every workstream
-/// and its output thrown away, because the question is exactly "will `tick`
-/// be able to hand this workstream a prompt?" — and any re-implementation of
-/// it here would be a second opinion free to drift from the first.
-///
-/// It belongs at `prepare` rather than only at `tick`. Both refuse the same
-/// plan, but `tick` refuses it *after* a human has approved the graph, after
-/// the smart fetch, with the board already live — and the plan gate upstream
-/// is closed by then, so the fix is a replan. Here the board does not exist
-/// yet, nothing has been approved, and the answer is to edit `plan.md`.
-///
-/// `plan_text` is the already-resolved text (targeting lines included), not a
-/// re-read from disk: the caller persists it first and fingerprints the
-/// persisted form, so the check must run against the same content the board
-/// is derived from.
-fn require_plan_backs_the_graph(
-    plan_text: &str,
-    workstreams: &[WorkstreamDef],
-) -> Result<(), Failure> {
-    for workstream in workstreams {
-        super::prompt::render(plan_text, workstream, &[])?;
-    }
-    Ok(())
-}
-
-/// The "no plan.md under the feature's plan directory" refusal, shared by
-/// every path that needs the plan's text.
-fn plan_missing(feature: &FeatureName) -> Failure {
-    Failure::blocked(
-        "execute.plan_missing",
-        format!("the plan for `{feature}` does not exist"),
-    )
-    .expected("the feature's plan to have been written")
-    .actual("no plan.md under the feature's plan directory")
-    .fix(FixAction::safe(
-        "plan.create_first",
-        format!("Scaffold the plan first: `ivar plan create {feature}`."),
-    ))
-}
-
-/// Parse the graph JSON at `path` into the graph's workstreams. A missing
-/// file is blocked; unparseable JSON fails with the path and parse position
-/// from `infra::json`.
-pub(crate) fn read_workstreams(path: &Utf8Path) -> Result<Vec<WorkstreamDef>, Failure> {
-    let file: GraphFile = json::read(path)?.ok_or_else(|| {
-        Failure::blocked("execute.graph_missing", format!("`{path}` does not exist"))
-            .expected("an execution graph JSON file at the given path")
-            .actual("no such file")
-            .fix(FixAction::safe(
-                "execute.provide_graph",
-                "Point --graph-json at a file describing the plan's workstreams.",
-            ))
-    })?;
-    Ok(file
-        .workstreams
-        .into_iter()
-        .map(WorkstreamDef::from)
-        .collect())
 }
 
 #[cfg(test)]

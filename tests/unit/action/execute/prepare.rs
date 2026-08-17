@@ -13,7 +13,12 @@ use super::*;
 use crate::action::feature::create::{self as feature_create, CreateInput as FeatureCreateInput};
 use crate::action::hall::{self, InitInput};
 use crate::action::plan::create::{self as plan_create, CreateInput as PlanCreateInput};
-use crate::domain::feature::ExecutionStatus;
+use crate::domain::feature::{
+    ExecutionStatus, Feature, IntegrationReceipt, IntegrationStrategy, IntegrationVia,
+    VerificationEvidence, WorkstreamDef, WorkstreamStatus,
+};
+use crate::domain::name::{BranchName, RepoName};
+use crate::domain::provider::Provider;
 use crate::error::Status;
 use crate::test_support::{feature_session, hall_root, utf8_temp_dir};
 
@@ -536,6 +541,216 @@ fn prepare_is_blocked_when_an_operation_has_no_entry_to_describe_it() {
 
     assert_eq!(failure.status, Status::Blocked);
     assert!(failure.what.contains("add-gate-types"));
+}
+
+// --- the shared graph resolver -------------------------------------------
+
+/// The `checkout` feature's plan is valid for any graph claiming
+/// `add-gate-types`/`wire-approve` (under `ws-gates`) or
+/// `add-board-types`/`store-board` (under `ws-board`), so these graphs
+/// exercise the resolver's own checks — dependencies and locked contracts —
+/// not the plan-backing check.
+/// A graph whose `ws-gates` depends on a workstream that does not exist.
+const GRAPH_JSON_UNKNOWN_DEPENDENCY: &str = r#"{
+    "workstreams": [
+        {
+            "id": "ws-gates",
+            "title": "Approval gates",
+            "operations": ["add-gate-types", "wire-approve"],
+            "depends_on": ["ws-ghost"],
+            "write_contract": ["src/domain/feature.rs"],
+            "provider": "claude-code"
+        },
+        {
+            "id": "ws-board",
+            "title": "Execution board",
+            "operations": ["add-board-types", "store-board"],
+            "depends_on": [],
+            "write_contract": ["src/action/execute"],
+            "provider": "claude-code"
+        }
+    ]
+}"#;
+
+/// A graph whose two workstreams depend on each other.
+const GRAPH_JSON_CYCLE: &str = r#"{
+    "workstreams": [
+        {
+            "id": "ws-gates",
+            "title": "Approval gates",
+            "operations": ["add-gate-types", "wire-approve"],
+            "depends_on": ["ws-board"],
+            "write_contract": ["src/domain/feature.rs"],
+            "provider": "claude-code"
+        },
+        {
+            "id": "ws-board",
+            "title": "Execution board",
+            "operations": ["add-board-types", "store-board"],
+            "depends_on": ["ws-gates"],
+            "write_contract": ["src/action/execute"],
+            "provider": "claude-code"
+        }
+    ]
+}"#;
+
+/// A graph whose `ws-gates` write contract names a repo that carries a
+/// successful integration receipt — a locked promotion.
+const GRAPH_JSON_LOCKED_CONTRACT: &str = r#"{
+    "workstreams": [
+        {
+            "id": "ws-gates",
+            "title": "Approval gates",
+            "operations": ["add-gate-types", "wire-approve"],
+            "depends_on": [],
+            "write_contract": ["api/src"],
+            "provider": "claude-code"
+        }
+    ]
+}"#;
+
+/// A successful integration receipt for repo `api`, built the way the
+/// mutation tests build one — a passing `verification` with no failing
+/// checks is what locks a promotion.
+fn passing_receipt() -> IntegrationReceipt {
+    IntegrationReceipt {
+        source_sha: "111".to_owned(),
+        target_branch: BranchName::new("parent").unwrap(),
+        result_sha: "222".to_owned(),
+        via: IntegrationVia::Local,
+        strategy: IntegrationStrategy::Squash,
+        pr_url: None,
+        verification: VerificationEvidence {
+            command_fingerprint: "checks-v1".to_owned(),
+            child: Vec::new(),
+            parent: Vec::new(),
+            pr_checks: Vec::new(),
+            verified_at: "2026-08-14T12:00:00Z".to_owned(),
+        },
+    }
+}
+
+/// A `depends_on` naming a workstream that is not on the graph is refused
+/// before anything is persisted — the board could never tick, so it must
+/// never be prepared.
+#[test]
+fn prepare_is_blocked_when_a_dependency_names_an_unknown_workstream() {
+    let (_guard, root) = seeded_hall();
+    let ctx = Ctx::new(root.clone());
+    let path = root.join("graph.json");
+    fs::write_text(&path, GRAPH_JSON_UNKNOWN_DEPENDENCY).unwrap();
+
+    let failure = prepare(
+        &ctx,
+        PrepareInput {
+            feature: "checkout".to_owned(),
+            graph_json: path.to_string(),
+            session: None,
+        },
+    )
+    .unwrap_err();
+
+    assert_eq!(failure.status, Status::Blocked);
+    assert_eq!(failure.code, "execute.dependency_unknown");
+    assert!(failure.what.contains("ws-ghost"));
+
+    let layout = Layout::at(root.clone());
+    let feature = FeatureName::new("checkout").unwrap();
+    assert!(ExecutionBoard::read(&layout, &feature).unwrap().is_none());
+    let plan = fs::read_text(&root.join("plans/checkout/plan.md"))
+        .unwrap()
+        .unwrap();
+    assert!(
+        !plan.contains("provider:"),
+        "a refused prepare must not have rewritten plan.md: {plan}"
+    );
+}
+
+/// A dependency cycle is refused before anything is persisted — no workstream
+/// on a cycle can ever become ready, so the graph is un-tickable.
+#[test]
+fn prepare_is_blocked_when_the_graph_has_a_dependency_cycle() {
+    let (_guard, root) = seeded_hall();
+    let ctx = Ctx::new(root.clone());
+    let path = root.join("graph.json");
+    fs::write_text(&path, GRAPH_JSON_CYCLE).unwrap();
+
+    let failure = prepare(
+        &ctx,
+        PrepareInput {
+            feature: "checkout".to_owned(),
+            graph_json: path.to_string(),
+            session: None,
+        },
+    )
+    .unwrap_err();
+
+    assert_eq!(failure.status, Status::Blocked);
+    assert_eq!(failure.code, "execute.dependency_cycle");
+    assert!(failure.what.contains("ws-gates"));
+
+    let layout = Layout::at(root.clone());
+    let feature = FeatureName::new("checkout").unwrap();
+    assert!(ExecutionBoard::read(&layout, &feature).unwrap().is_none());
+    let plan = fs::read_text(&root.join("plans/checkout/plan.md"))
+        .unwrap()
+        .unwrap();
+    assert!(
+        !plan.contains("provider:"),
+        "a refused prepare must not have rewritten plan.md: {plan}"
+    );
+}
+
+/// A write contract reaching a locked promotion is refused before anything
+/// is persisted — the contract check runs on the authored graph, before the
+/// resolved plan is written, so a blocked prepare leaves `plan.md` byte
+/// untouched.
+#[test]
+fn prepare_is_blocked_when_a_contract_reaches_a_locked_promotion() {
+    let (_guard, root) = seeded_hall();
+    let ctx = Ctx::new(root.clone());
+    // Freeze a promotion with a successful receipt so any contract entry
+    // naming it is refused.
+    let layout = Layout::at(root.clone());
+    let mut feature = Feature::new(
+        FeatureName::new("checkout").unwrap(),
+        BranchName::new("checkout").unwrap(),
+    );
+    let api = RepoName::new("api").unwrap();
+    feature.promote(api.clone());
+    feature
+        .promotions
+        .get_mut(&api)
+        .unwrap()
+        .integration_receipt = Some(passing_receipt());
+    feature.write(&layout).unwrap();
+
+    let path = root.join("graph.json");
+    fs::write_text(&path, GRAPH_JSON_LOCKED_CONTRACT).unwrap();
+
+    let failure = prepare(
+        &ctx,
+        PrepareInput {
+            feature: "checkout".to_owned(),
+            graph_json: path.to_string(),
+            session: None,
+        },
+    )
+    .unwrap_err();
+
+    assert_eq!(failure.status, Status::Blocked);
+    assert_eq!(failure.code, "feature.promotion_integration_immutable");
+    assert!(failure.what.contains("api"));
+
+    let feature = FeatureName::new("checkout").unwrap();
+    assert!(ExecutionBoard::read(&layout, &feature).unwrap().is_none());
+    let plan = fs::read_text(&root.join("plans/checkout/plan.md"))
+        .unwrap()
+        .unwrap();
+    assert!(
+        !plan.contains("provider:"),
+        "a refused prepare must not have rewritten plan.md: {plan}"
+    );
 }
 
 // --- provider resolution from the caller session -------------------------
