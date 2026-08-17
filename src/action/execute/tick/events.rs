@@ -17,6 +17,11 @@ use crate::store::layout::Layout;
 pub(super) struct ExecutorTickEvent {
     pub(super) workstream_id: String,
     pub(super) session_id: String,
+    /// Whether the wave's pre-spawn snapshot found existing work under this
+    /// workstream's own contract — decided in `launch::plan_wave`, carried
+    /// through the launch untouched, so the fold never re-reads the
+    /// filesystem after children have started.
+    pub(super) has_existing_work: bool,
     pub(super) event: ExecutorEvent,
 }
 
@@ -43,6 +48,7 @@ pub(super) fn apply_event(
     let ExecutorTickEvent {
         workstream_id,
         session_id,
+        has_existing_work,
         event,
     } = tick_event;
     board.next_event_seq += 1;
@@ -62,6 +68,7 @@ pub(super) fn apply_event(
                 workstream: workstream_id,
                 kind: "started".to_owned(),
                 message: format!("Launched session {session_id} ({command_display})"),
+                revision: None,
             });
         }
         ExecutorEvent::ToolUsed { tool, path } => {
@@ -76,6 +83,7 @@ pub(super) fn apply_event(
                 workstream: workstream_id,
                 kind: "tool.used".to_owned(),
                 message,
+                revision: None,
             });
             flush = false;
         }
@@ -87,6 +95,7 @@ pub(super) fn apply_event(
                 workstream: workstream_id.clone(),
                 kind: "question.asked".to_owned(),
                 message: question,
+                revision: None,
             });
             block_on(board, &workstream_id);
         }
@@ -98,6 +107,7 @@ pub(super) fn apply_event(
                 workstream: workstream_id,
                 kind: "native_session".to_owned(),
                 message: format!("Native session id: {id}"),
+                revision: None,
             });
         }
         ExecutorEvent::Produced { paths } => {
@@ -108,6 +118,9 @@ pub(super) fn apply_event(
                 workstream: workstream_id,
                 kind: PRODUCED.to_owned(),
                 message: produced_message(&paths),
+                // Evidence is stamped with the plan revision it satisfies —
+                // the fingerprint the board is executing under right now.
+                revision: Some(board.graph.plan_fingerprint.clone()),
             });
         }
         ExecutorEvent::Completed { audited } => {
@@ -118,8 +131,37 @@ pub(super) fn apply_event(
                 workstream: workstream_id.clone(),
                 kind: "session.completed".to_owned(),
                 message: format!("Session {session_id} completed"),
+                revision: None,
             });
-            if !audited || has_ever_produced(board, &workstream_id) {
+            let current_revision = board.graph.plan_fingerprint.clone();
+            if !audited || has_current_revision_evidence(board, &workstream_id, &current_revision) {
+                for ws in &mut board.graph.workstreams {
+                    if ws.id == workstream_id {
+                        ws.status = WorkstreamStatus::Done;
+                    }
+                }
+            } else if has_existing_work {
+                // A clean audited run that changed nothing new, on a worktree
+                // that already held work this workstream's own contract allows
+                // when the wave was planned. That is positive evidence, not
+                // new production: recorded `verified-existing`, stamped with
+                // the revision it satisfies, and the workstream is done.
+                board.next_event_seq += 1;
+                let seq = board.next_event_seq;
+                board.push_journal(JournalEntry {
+                    seq,
+                    event_id: format!("verified_existing.{session_id}.{seq}"),
+                    timestamp: now_epoch_seconds(),
+                    workstream: workstream_id.clone(),
+                    kind: VERIFIED_EXISTING.to_owned(),
+                    message: format!(
+                        "Session {session_id} exited cleanly having changed nothing new under \
+                         workstream `{workstream_id}`'s write contract, but the worktree already \
+                         held contracted work when this wave launched — verified as existing, not \
+                         produced."
+                    ),
+                    revision: Some(current_revision),
+                });
                 for ws in &mut board.graph.workstreams {
                     if ws.id == workstream_id {
                         ws.status = WorkstreamStatus::Done;
@@ -137,9 +179,11 @@ pub(super) fn apply_event(
                     message: format!(
                         "Session {session_id} exited cleanly having changed nothing under \
                          workstream `{workstream_id}`'s write contract, and no earlier run of it \
-                         did either — so there is no work behind a `done`. Nothing was reverted; \
-                         inspect the worktrees and the session transcript."
+                         under this plan revision did either — so there is no work behind a \
+                         `done`. Nothing was reverted; inspect the worktrees and the session \
+                         transcript."
                     ),
+                    revision: None,
                 });
                 block_on(board, &workstream_id);
             }
@@ -152,6 +196,7 @@ pub(super) fn apply_event(
                 workstream: workstream_id.clone(),
                 kind: "session.failed".to_owned(),
                 message: error,
+                revision: None,
             });
             block_on(board, &workstream_id);
         }
@@ -165,8 +210,15 @@ pub(super) fn apply_event(
 
 /// The journal `kind` a run's production is recorded under. The journal is
 /// append-only and never pruned, which is what makes it usable as the record
-/// of whether a workstream has *ever* produced — see [`has_ever_produced`].
+/// of whether a workstream has produced — see [`has_current_revision_evidence`].
 const PRODUCED: &str = "produced";
+
+/// The journal `kind` a run's verified pre-existing work is recorded under —
+/// the successful existing-work path: a clean audited run with no new
+/// production whose worktree already held contracted work when the wave
+/// launched. Like [`PRODUCED`], it is positive completion evidence, and it is
+/// stamped with the plan revision it satisfies.
+const VERIFIED_EXISTING: &str = "verified-existing";
 
 /// How many produced paths one journal entry names before it stops counting,
 /// matching the ceiling the violation message uses for the same reason: an
@@ -193,8 +245,8 @@ fn produced_message(paths: &[String]) -> String {
     )
 }
 
-/// Has `workstream_id` produced anything under its own contract, in this run
-/// or any earlier one?
+/// Has `workstream_id` any evidence — produced or verified pre-existing work —
+/// for the *current* plan revision?
 ///
 /// # Why the journal answers this and not the run
 ///
@@ -207,16 +259,32 @@ fn produced_message(paths: &[String]) -> String {
 /// again, forever.
 ///
 /// The question that survives a relaunch is therefore not "did this run
-/// produce" but "has this workstream produced". The journal is already the
-/// append-only record of everything that happened to the board, it is not
-/// pruned, and it survives across ticks on disk — so the earlier run's
-/// [`PRODUCED`] entry is still there to be found, and no new persisted field
-/// (nor a `board.json` schema bump) is needed to ask.
-fn has_ever_produced(board: &ExecutionBoard, workstream_id: &str) -> bool {
-    board
-        .journal
-        .iter()
-        .any(|entry| entry.workstream == workstream_id && entry.kind == PRODUCED)
+/// produce" but "does this workstream hold evidence *under the plan revision
+/// it is executing*". Both halves matter:
+///
+/// - the evidence must be **current-revision** — [`JournalEntry::revision`]
+///   stamped from the board's fingerprint at fold time. A replan changes the
+///   fingerprint, so production recorded under the old revision cannot
+///   satisfy a revised no-op; legacy entries with no revision are history,
+///   never completion;
+/// - the evidence must be **structured** — a `kind` the fold itself writes
+///   (`produced` or `verified-existing`), never something parsed out of an
+///   event id or a message.
+///
+/// The journal is already the append-only record of everything that happened
+/// to the board, it is not pruned, and it survives across ticks on disk — so
+/// the earlier run's entry is still there to be found, and no new persisted
+/// field beyond the entry's own `revision` is needed to ask.
+fn has_current_revision_evidence(
+    board: &ExecutionBoard,
+    workstream_id: &str,
+    revision: &str,
+) -> bool {
+    board.journal.iter().any(|entry| {
+        entry.workstream == workstream_id
+            && matches!(entry.kind.as_str(), PRODUCED | VERIFIED_EXISTING)
+            && entry.revision.as_deref() == Some(revision)
+    })
 }
 
 /// A workstream that cannot proceed on its own — it asked a question, or its

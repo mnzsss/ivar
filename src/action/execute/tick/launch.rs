@@ -8,7 +8,9 @@ use std::sync::mpsc;
 
 use camino::{Utf8Path, Utf8PathBuf};
 
-use crate::domain::feature::{ExecutionBoard, Feature, WorkstreamDef, WriteContract};
+use crate::domain::feature::{
+    ExecutionBoard, Feature, WorkstreamDef, WriteContract, effective_base,
+};
 use crate::domain::name::{FeatureName, RepoName, SessionId};
 use crate::domain::provider::Provider;
 use crate::domain::session::{SessionState, rfc3339_now};
@@ -44,6 +46,14 @@ pub(super) struct LaunchJob {
     /// against. The two questions need different contracts and for opposite
     /// reasons; see [`audit_run`].
     pub(super) contract: WriteContract,
+    /// Whether the feature's promoted worktrees already hold work this
+    /// workstream's own contract allows — committed beyond the promotion
+    /// base, or dirty — at the moment the wave was planned. Decided once,
+    /// before any worker thread spawns a child, so a sibling's writes after
+    /// launch can never enter it. A clean audited run with no new production
+    /// and no prior current-revision evidence finishes `Done` through this
+    /// flag instead of blocking as unproductive.
+    pub(super) has_existing_work: bool,
     /// The promotions locked by a successful integration receipt. The
     /// post-run audit treats every change under one of these as a violation,
     /// even if a shell bypassed the tool hook — a locked promotion must stay
@@ -107,6 +117,19 @@ pub(super) fn plan_wave(
         .filter(|ws| to_launch.contains(&ws.id))
         .flat_map(|ws| ws.write_contract.iter().cloned())
         .collect();
+    // The existing-work snapshot: every path across the feature's promoted
+    // worktrees that pre-existed this wave, taken once, *before* any worker
+    // thread starts. A sibling that writes after launch cannot retroactively
+    // become this workstream's pre-existing work — see
+    // [`existing_work_snapshot`]. `plan_wave` reads the feature record itself
+    // because the snapshot is about the promotions on disk, not the board.
+    let feature_record = Feature::read(layout, feature)?.ok_or_else(|| {
+        Failure::blocked(
+            "execute.tick_feature_vanished",
+            format!("feature `{feature}` has an approved board but no feature.json"),
+        )
+    })?;
+    let existing_work = existing_work_snapshot(layout, &feature_record, manifest)?;
     for ws in &board.graph.workstreams {
         if !to_launch.contains(&ws.id) {
             continue;
@@ -152,6 +175,11 @@ pub(super) fn plan_wave(
             &session_id,
         );
         command_displays.insert(session_id.to_string(), command.display());
+        let contract = WriteContract::new(ws.write_contract.clone());
+        // Pre-existing work counts only under this workstream's *own*
+        // contract — never credit a path another workstream owns, even one
+        // already on disk before the wave.
+        let has_existing_work = existing_work.iter().any(|path| contract.allows(path));
         jobs.push(LaunchJob {
             workstream_id: ws.id.clone(),
             session_id,
@@ -159,7 +187,8 @@ pub(super) fn plan_wave(
             view_dir,
             command,
             wave_contract: WriteContract::new(wave_contract.clone()),
-            contract: WriteContract::new(ws.write_contract.clone()),
+            contract,
+            has_existing_work,
             locked_repos: locked_repos.clone(),
         });
     }
@@ -236,6 +265,7 @@ pub(super) fn run_launch(
         let _ = tx.send(TickEvent::Executor(ExecutorTickEvent {
             workstream_id: job.workstream_id.clone(),
             session_id: job.session_id.to_string(),
+            has_existing_work: job.has_existing_work,
             event,
         }));
     };
@@ -403,6 +433,63 @@ pub(super) fn run_launch(
 }
 
 // -- Auditing what the guard cannot see ---------------------------------
+
+/// Every path across the feature's promoted worktrees that pre-existed this
+/// wave, in the `<repo>/<path>` shape contracts are written in — what each
+/// worktree carries *committed* beyond its promotion's effective base,
+/// unioned with what is currently *dirty*.
+///
+/// Both halves come from the same instant: [`plan_wave`] runs this once,
+/// before any worker thread spawns a child, and the returned set is a value,
+/// not a live query. A sibling that writes after launch therefore cannot
+/// retroactively become this workstream's pre-existing work — the decision
+/// [`LaunchJob::has_existing_work`] is made from is stable for the whole
+/// wave, which is the point of snapshotting before the fan-out rather than
+/// reading `git status` per run.
+///
+/// The committed half uses the promotion's *effective* base — the recorded
+/// promotion base, else the feature's declared base, else the repo's default
+/// branch — the same resolution [`crate::domain::feature::effective_base`]
+/// gives every other verb that reads the base back, so the snapshot cannot
+/// disagree with what `promote` recorded.
+fn existing_work_snapshot(
+    layout: &Layout,
+    feature_record: &Feature,
+    manifest: &Manifest,
+) -> Result<BTreeSet<Utf8PathBuf>, Failure> {
+    let git = git::System;
+    let mut existing = BTreeSet::new();
+    for (repo, worktree) in feature_worktrees(layout, feature_record)? {
+        // The dirty half: what diverges from the worktree's own HEAD right
+        // now — an uncommitted human edit, or an earlier tick's work.
+        for relative in git.changed_paths(&worktree)? {
+            existing.insert(audit_path(&repo, &relative));
+        }
+        // The committed half: what the feature branch carries beyond its
+        // promotion base. A repo the manifest no longer names has no base to
+        // diff against; its committed work is left invisible rather than
+        // guessed, and the dirty half above still reports what is on disk.
+        let Some(default_branch) = manifest
+            .repos()
+            .iter()
+            .find(|repo_def| *repo_def.name() == repo)
+            .map(crate::store::manifest::Repo::default_branch)
+        else {
+            continue;
+        };
+        let Some(promotion) = feature_record.promotions.get(&repo) else {
+            continue;
+        };
+        let base = promotion
+            .base
+            .clone()
+            .unwrap_or_else(|| effective_base(feature_record.base.as_ref(), default_branch));
+        for relative in git.paths_committed_since(&worktree, base.as_str())? {
+            existing.insert(audit_path(&repo, &relative));
+        }
+    }
+    Ok(existing)
+}
 
 /// The promoted worktrees a feature spans, each paired with the repo it came
 /// from. The repo name is not decoration: a contract names its files

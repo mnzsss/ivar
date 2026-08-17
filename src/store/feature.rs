@@ -35,7 +35,7 @@ const CURRENT_VERSION: u32 = 3;
 const APPROVALS_VERSION: u32 = 1;
 
 /// `board.json`'s schema version.
-const BOARD_VERSION: u32 = 2;
+const BOARD_VERSION: u32 = 3;
 
 /// The filename every feature's promotion record lives in, under its
 /// feature directory. One file, not one-per-repo: promotions are a small
@@ -226,6 +226,30 @@ fn v1_to_v2(mut value: serde_json::Value) -> Result<serde_json::Value, String> {
     Ok(value)
 }
 
+/// Migrate a board.json from v2 → v3.
+///
+/// v3 adds `revision: Option<String>` to every journal entry — the plan
+/// fingerprint an entry satisfies (execution evidence only; `None` for
+/// legacy entries and everything else). The type already carries
+/// `#[serde(default)]`, so a v2 entry without the field would deserialise
+/// on its own; this step still fills the explicit `null` so the persisted
+/// v3 is the canonical shape and the field is present uniformly, while
+/// rewriting nothing else — every existing field and the entry order are
+/// left byte-for-byte untouched.
+fn v2_to_v3(mut value: serde_json::Value) -> Result<serde_json::Value, String> {
+    let root = value.as_object_mut().ok_or("board must be an object")?;
+    let mut fallback = Vec::new();
+    let journal = root
+        .get_mut("journal")
+        .and_then(|j| j.as_array_mut())
+        .unwrap_or(&mut fallback);
+    for entry in journal.iter_mut() {
+        let obj = entry.as_object_mut().ok_or("journal entry not an object")?;
+        obj.entry("revision").or_insert(serde_json::Value::Null);
+    }
+    Ok(value)
+}
+
 /// The versioned store over one feature's file.
 fn store(layout: &Layout, name: &FeatureName) -> Store<Feature> {
     Store::new(
@@ -257,6 +281,7 @@ fn board_store(layout: &Layout, name: &FeatureName) -> Store<ExecutionBoard> {
         vec![
             Migration::new(0, 1, v0_to_v1),
             Migration::new(1, 2, v1_to_v2),
+            Migration::new(2, 3, v2_to_v3),
         ],
         BOARD_VERSION,
         Policy::Local,

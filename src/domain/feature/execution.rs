@@ -5,7 +5,7 @@
 //! which lives in its own module — it touches no board, status or journal.
 //!
 //! Pure data, no I/O — persisted at `features/<feature>/execution/board.json`
-//! (schema v2, `Policy::Local`) by `store::feature`.
+//! (schema v3, `Policy::Local`) by `store::feature`.
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -15,20 +15,20 @@ use serde::{Deserialize, Serialize};
 use super::super::provider::Provider;
 
 /// The schema version of `board.json`, stamped by `store::feature`.
-const BOARD_CURRENT_VERSION: u32 = 2;
+const BOARD_CURRENT_VERSION: u32 = 3;
 
 /// The execution board for a feature: the plan-derived graph of workstreams,
 /// the board's overall status, and the append-only journal of what happened
 /// to it.
 ///
 /// Persisted per feature at `features/<feature>/execution/board.json`
-/// (schema v2, `Policy::Local`) by `store::feature`. Created by
+/// (schema v3, `Policy::Local`) by `store::feature`. Created by
 /// `feature execute prepare` from the plan and its execution graph; tick and
 /// reply advance `status` and append to [`Self::journal`].
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ExecutionBoard {
-    /// The schema version — always 2 for a value built through [`Self::new`]
+    /// The schema version — always 3 for a value built through [`Self::new`]
     /// or read by `store::feature`.
     pub version: u32,
     /// The board's overall execution status.
@@ -282,11 +282,20 @@ pub struct JournalEntry {
     pub kind: String,
     /// A human-readable sentence.
     pub message: String,
+    /// The plan revision this entry satisfies — the board's plan fingerprint
+    /// at fold time, for execution-evidence entries (`produced`,
+    /// `verified-existing`). Structured identity, never something parsed out
+    /// of an event id or a message. `None` for legacy entries and for
+    /// entries that are not evidence. `#[serde(default)]` so a v2 journal
+    /// entry without the field still deserialises.
+    #[serde(default)]
+    pub revision: Option<String>,
 }
 
 impl JournalEntry {
     /// A new entry stamped with the current time (UNIX epoch seconds, as a
-    /// string).
+    /// string). The plan revision is unknown — [`Self::with_revision`]
+    /// attaches it where it is.
     #[must_use]
     pub fn new(
         workstream: impl Into<String>,
@@ -300,7 +309,16 @@ impl JournalEntry {
             workstream: workstream.into(),
             kind: kind.into(),
             message: message.into(),
+            revision: None,
         }
+    }
+
+    /// Attach the plan revision this entry satisfies — the fingerprint the
+    /// fold stamps evidence with.
+    #[must_use]
+    pub fn with_revision(mut self, revision: impl Into<String>) -> Self {
+        self.revision = Some(revision.into());
+        self
     }
 }
 

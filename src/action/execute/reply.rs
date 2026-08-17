@@ -173,6 +173,7 @@ pub fn reply(ctx: &Ctx, input: ReplyInput) -> Outcome<ReplyOutcome> {
         workstream: workstream_id.clone(),
         kind: "human.replied".to_owned(),
         message: input.message.clone(),
+        revision: None,
     };
     board.push_journal(entry);
 
