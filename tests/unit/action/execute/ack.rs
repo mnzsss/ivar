@@ -82,7 +82,42 @@ const REVISED_PLAN: &str = "# Plan\n\
     - op-b1\n\
     - op-b2\n\
     write_contract:\n\
-    - src/b\n";
+    - src/b\n\
+    \n\
+    ## Operation details\n\
+    \n\
+    **op-a1** — Implement op-a1.\n\
+    \n\
+    **op-a2** — Implement op-a2.\n\
+    \n\
+    **op-a3** — Implement op-a3.\n\
+    \n\
+    **op-b1** — Implement op-b1.\n\
+    \n\
+    **op-b2** — Implement op-b2.\n";
+
+/// The revised graph that backs `REVISED_PLAN`: both workstreams gain an
+/// operation.
+const REVISED_GRAPH: &str = r#"{
+    "workstreams": [
+        {
+            "id": "ws-a",
+            "title": "A",
+            "operations": ["op-a1", "op-a2", "op-a3"],
+            "depends_on": [],
+            "write_contract": ["src/a"],
+            "provider": "claude-code"
+        },
+        {
+            "id": "ws-b",
+            "title": "B",
+            "operations": ["op-b1", "op-b2"],
+            "depends_on": ["ws-a"],
+            "write_contract": ["src/b"],
+            "provider": "claude-code"
+        }
+    ]
+}"#;
 
 /// A hall with a feature, a plan, and a prepared board of two workstreams,
 /// both paused by a replan.
@@ -131,11 +166,15 @@ fn paused_board() -> (tempfile::TempDir, Utf8PathBuf) {
     .unwrap();
     let plan = root.join("plan-revised.md");
     fs::write_text(&plan, REVISED_PLAN).unwrap();
+    let graph = root.join("graph-revised.json");
+    fs::write_text(&graph, REVISED_GRAPH).unwrap();
     replan::replan(
         &ctx,
         ReplanInput {
             feature: "checkout".to_owned(),
             plan: plan.to_string(),
+            graph_json: graph.to_string(),
+            allow_remove_completed: false,
         },
     )
     .unwrap();

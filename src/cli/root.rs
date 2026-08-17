@@ -405,6 +405,17 @@ pub struct ExecuteReplanArgs {
     /// Path to the revised plan.md — the new revision to fold in.
     #[arg(long)]
     pub plan: String,
+    /// Path to the revised execution graph JSON — the complete replacement
+    /// graph the board adopts.
+    #[arg(long)]
+    pub graph_json: String,
+    /// Allow the revised graph to omit workstreams that have completed
+    /// (`Done`). Replan refuses to remove a completed workstream without
+    /// this flag — it is the explicit authorization that completed work may
+    /// disappear from the board. Removed workstreams' history stays in the
+    /// journal.
+    #[arg(long, default_value_t = false)]
+    pub allow_remove_completed: bool,
 }
 
 /// Arguments for `ivar feature execute ack-revision`.
@@ -986,8 +997,18 @@ impl From<ExecutePrepareArgs> for prepare::PrepareInput {
 
 impl From<ExecuteReplanArgs> for execute_replan::ReplanInput {
     fn from(args: ExecuteReplanArgs) -> Self {
-        let ExecuteReplanArgs { feature, plan } = args;
-        Self { feature, plan }
+        let ExecuteReplanArgs {
+            feature,
+            plan,
+            graph_json,
+            allow_remove_completed,
+        } = args;
+        Self {
+            feature,
+            plan,
+            graph_json,
+            allow_remove_completed,
+        }
     }
 }
 
