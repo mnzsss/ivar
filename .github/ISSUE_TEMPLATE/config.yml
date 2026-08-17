@@ -1,0 +1,15 @@
+# Blank issues are off on purpose. CONTRIBUTING.md asks for an issue *before* a
+# pull request precisely so a change can be turned down in a comment instead of
+# after someone finished writing it — and that only works if the issue carries
+# enough to answer. The two forms below ask for exactly that and nothing more.
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/mnzsss/ivar/security/advisories/new
+    about: Report privately. Do not open a public issue for a vulnerability.
+  - name: Question about using ivar
+    url: https://github.com/mnzsss/ivar/discussions
+    about: Ask here first — the docs may already answer it, and an answer helps the next person.
+  - name: Documentation
+    url: https://github.com/mnzsss/ivar/tree/main/docs
+    about: Concepts, getting started, the command reference, and what ivar deliberately does not do.

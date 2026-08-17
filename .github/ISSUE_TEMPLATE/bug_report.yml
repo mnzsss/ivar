@@ -1,0 +1,72 @@
+name: Bug report
+description: Something ivar did that it should not have done.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        `ivar` writes to real git repos, so a bug report is most useful when it
+        says what state the repo was in. If you are unsure whether something is
+        a bug or a documented limitation, check
+        [Limitations](https://github.com/mnzsss/ivar/blob/main/docs/reference/limitations.md)
+        first — it exists so you find these there rather than by hitting them.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What ivar did, and what you expected instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: >
+        The commands in order, starting from a state you can describe. If it
+        only reproduces against a specific repo layout, say so — that is a
+        finding, not a failure to reproduce.
+      placeholder: |
+        1. ivar init --name acme
+        2. ivar repo add api https://github.com/acme/api
+        3. ivar feature create ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: output
+    attributes:
+      label: Output
+      description: >
+        Paste the failing command's output. `--json` is often more useful than
+        the human rendering — it is the same value, unabridged.
+      render: text
+
+  - type: input
+    id: version
+    attributes:
+      label: ivar version
+      description: The output of `ivar --version`.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: OS
+      description: Windows is not supported — the view dir is built from symlinks. Use WSL, which reports as Linux.
+      options:
+        - macOS (Apple Silicon)
+        - macOS (Intel)
+        - Linux
+        - WSL
+    validations:
+      required: true
+
+  - type: textarea
+    id: doctor
+    attributes:
+      label: ivar doctor
+      description: Optional, but it usually answers the first question a maintainer would ask.
+      render: text
