@@ -49,6 +49,18 @@ jobs:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
 
+      # Test fixtures force their own identity (`tests/support/shared.rs`), but
+      # `ivar`'s own invocations that write history — the squash commit and the
+      # no-ff merge in `git/exec.rs` — deliberately do not: a commit landing in
+      # a user's repository must carry that user's authorship, not the tool's.
+      # So those paths inherit the machine's config, which every developer has
+      # and a fresh runner does not. Without this, ten tests fail on `empty
+      # ident name` and nothing else in the gate is reached.
+      - name: git identity
+        run: |
+          git config --global user.name "ivar ci"
+          git config --global user.email "ci@ivar.invalid"
+
       - name: fmt
         run: cargo fmt --all --check
 
@@ -85,6 +97,11 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: taiki-e/install-action@cargo-llvm-cov
       - uses: Swatinem/rust-cache@v2
+      # Same reason as the gate's: this job runs the suite too.
+      - name: git identity
+        run: |
+          git config --global user.name "ivar ci"
+          git config --global user.email "ci@ivar.invalid"
       # Reports, never blocks. A per-file threshold is good discipline inside a
       # private monorepo and a hostile gate for a stranger whose ten-line PR
       # would fail on coverage of a file they did not touch.
