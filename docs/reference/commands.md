@@ -287,6 +287,8 @@ Fold a revised plan into the board: advance the plan fingerprint and pause every
 | flag | value | default | description |
 | --- | --- | --- | --- |
 | `--plan` | `<PLAN>` |  | Path to the revised plan.md — the new revision to fold in |
+| `--graph-json` | `<GRAPH_JSON>` |  | Path to the revised execution graph JSON — the complete replacement graph the board adopts |
+| `--allow-remove-completed` |  | `false` | Allow the revised graph to omit workstreams that have completed (`Done`). Replan refuses to remove a completed workstream without this flag — it is the explicit authorization that completed work may disappear from the board. Removed workstreams' history stays in the journal |
 
 
 ###### `ivar feature execute ack-revision`
