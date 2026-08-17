@@ -343,3 +343,34 @@ fn status_stays_operational_when_a_shipped_command_is_missing() {
         .success()
         .stdout(predicate::str::contains("operational"));
 }
+
+/// Replan's input contract: the revised graph is required, so omitting
+/// `--graph-json` is a Clap error, not a fallback to the plan alone.
+#[test]
+fn replan_requires_graph_json() {
+    let (_guard, root) = hall_root();
+    ivar()
+        .current_dir(&root)
+        .args(["feature", "execute", "replan", "acme", "--plan", "plan.md"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("--graph-json"));
+}
+
+/// The `--allow-remove-completed` help text explains its destructive scope —
+/// that completed work may disappear from the board — so a caller does not
+/// reach for it without understanding what it authorizes.
+#[test]
+fn replan_help_explains_the_completed_removal_flags_scope() {
+    let (_guard, root) = hall_root();
+    ivar()
+        .current_dir(&root)
+        .args(["feature", "execute", "replan", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("--allow-remove-completed"))
+        .stdout(predicate::str::contains(
+            "omit workstreams that have completed",
+        ))
+        .stdout(predicate::str::contains("explicit authorization"));
+}
