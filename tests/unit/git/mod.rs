@@ -705,6 +705,17 @@ fn rev_parse(git_dir: &Utf8Path, rev: &str) -> String {
     String::from_utf8_lossy(&output.stdout).trim().to_owned()
 }
 
+/// Resolve `rev` in a normal (worktree) repository via `-C`, unlike
+/// [`rev_parse`] which targets a bare `--git-dir`.
+fn rev_parse_cwd(cwd: &Utf8Path, rev: &str) -> String {
+    let output = std::process::Command::new("git")
+        .args(["-C", cwd.as_str(), "rev-parse", rev])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    String::from_utf8_lossy(&output.stdout).trim().to_owned()
+}
+
 /// The number of parent commits of `rev` — 0 for a root, 1 for an ordinary
 /// commit, 2 for a merge commit.
 fn parent_count(git_dir: &Utf8Path, rev: &str) -> usize {
@@ -906,4 +917,80 @@ fn the_parent_is_untouched_until_the_merge_is_explicitly_invoked() {
     // The explicit merge moves the parent.
     System.merge_no_ff(&parent_wt, "child").unwrap();
     assert_ne!(rev_parse(&bare, "parent"), parent_before);
+}
+
+// -- divergence resolution primitives ---------------------------------------
+
+/// `merge_base` finds the common ancestor two diverged branches share, which
+/// is where a "is the local work already upstream" comparison starts from.
+#[test]
+fn merge_base_finds_the_common_ancestor_of_diverged_branches() {
+    let (guard, dir) = utf8_temp_dir();
+    let _ = guard;
+    let repo = seeded_repo(&dir.join("repo"), "main");
+    git(&repo, &["checkout", "-b", "feature"]);
+    git(&repo, &["commit", "--allow-empty", "-m", "feature work"]);
+    git(&repo, &["checkout", "main"]);
+    git(&repo, &["commit", "--allow-empty", "-m", "main work"]);
+
+    let base = System.merge_base(&repo, "feature", "main").unwrap();
+    assert_eq!(base, rev_parse_cwd(&repo, "HEAD~1"));
+    assert_ne!(base, rev_parse_cwd(&repo, "HEAD"));
+}
+
+/// `commit_patch_id` and `diff_patch_id` fingerprint a change such that a
+/// commit re-landed upstream (squashed) matches the cumulative local diff —
+/// the signal `--resolve` uses to decide a reset is safe.
+#[test]
+fn patch_ids_recognise_a_commit_relanded_upstream_as_a_squash() {
+    let (guard, dir) = utf8_temp_dir();
+    let _ = guard;
+    let repo = seeded_repo(&dir.join("repo"), "main");
+    // Two local commits…
+    std::fs::write(repo.join("f.txt"), "line1\n").unwrap();
+    git(&repo, &["add", "f.txt"]);
+    git(&repo, &["commit", "-m", "local A"]);
+    std::fs::write(repo.join("f.txt"), "line1\nline2\n").unwrap();
+    git(&repo, &["add", "f.txt"]);
+    git(&repo, &["commit", "-m", "local B"]);
+    let local_tip = rev_parse_cwd(&repo, "HEAD");
+    let base = rev_parse_cwd(&repo, "HEAD~2");
+
+    // …re-landed as one squash on another branch.
+    git(&repo, &["checkout", "-b", "upstream", "HEAD~2"]);
+    std::fs::write(repo.join("f.txt"), "line1\nline2\n").unwrap();
+    git(&repo, &["add", "f.txt"]);
+    git(&repo, &["commit", "-m", "squash of A+B"]);
+    let squash_sha = rev_parse_cwd(&repo, "HEAD");
+
+    // The squash commit's patch-id equals the cumulative local diff's.
+    let squash_patch = System.commit_patch_id(&repo, &squash_sha).unwrap();
+    let cumulative = System.diff_patch_id(&repo, &base, &local_tip).unwrap();
+    assert_eq!(
+        squash_patch, cumulative,
+        "a squash re-landing must have the same patch-id as the cumulative local diff"
+    );
+}
+
+/// `reset_hard` moves a worktree's checked-out branch to a revision, dropping
+/// local commits — the mutation `--resolve` performs once it has proven them
+/// duplicates.
+#[test]
+fn reset_hard_moves_the_checked_out_branch_to_a_revision() {
+    let (guard, dir) = utf8_temp_dir();
+    let _ = guard;
+    let repo = seeded_repo(&dir.join("repo"), "main");
+    // The worktree gains a local commit beyond a saved tip.
+    let saved_tip = rev_parse_cwd(&repo, "HEAD");
+    std::fs::write(repo.join("f.txt"), "local\n").unwrap();
+    git(&repo, &["add", "f.txt"]);
+    git(&repo, &["commit", "-m", "local work"]);
+
+    System.reset_hard(&repo, &saved_tip).unwrap();
+
+    assert_eq!(rev_parse_cwd(&repo, "HEAD"), saved_tip);
+    assert!(
+        !repo.join("f.txt").exists(),
+        "the reset must discard the local commit's file"
+    );
 }

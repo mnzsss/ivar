@@ -141,6 +141,7 @@ Refresh one or all repos' default branches from their remotes
 | flag | value | default | description |
 | --- | --- | --- | --- |
 | `--diagnose` |  |  | When a repo cannot fast-forward, report the divergence in detail — the local and remote commits each side has. Read-only |
+| `--resolve` |  |  | Automatically reconcile a diverged default branch when it is safe: reset it to the remote tip when every local commit is a duplicate of work already upstream (same patch-id). Never touches a branch with genuine local work, and implies `--diagnose` for the repos it cannot resolve |
 
 
 ##### `ivar repo setup`

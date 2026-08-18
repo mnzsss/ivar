@@ -78,6 +78,11 @@ fn status_of<'a>(report: &'a Report<PullOutcome>, name: &str) -> &'a PullStatus 
         .status
 }
 
+/// The commit `path`'s HEAD points at, for asserting where a branch ended up.
+fn head_of(path: &Utf8Path) -> String {
+    git::System.head_commit(path).unwrap()
+}
+
 #[test]
 fn pull_refreshes_every_declared_repo_and_reports_refreshed() {
     let (_guard, root) = hall_with(&[("api", "main"), ("web", "main")]);
@@ -138,6 +143,7 @@ fn pull_accepts_a_named_repo() {
         PullInput {
             repo: Some("api".to_owned()),
             diagnose: false,
+            resolve: false,
         },
     )
     .unwrap();
@@ -157,6 +163,7 @@ fn pull_blocks_on_a_repo_that_is_not_in_the_manifest() {
         PullInput {
             repo: Some("ghost".to_owned()),
             diagnose: false,
+            resolve: false,
         },
     )
     .unwrap_err();
@@ -303,6 +310,7 @@ fn diagnose_reports_the_local_and_remote_commits_of_a_diverged_branch() {
         PullInput {
             repo: Some("api".to_owned()),
             diagnose: true,
+            resolve: false,
         },
     )
     .unwrap();
@@ -351,6 +359,210 @@ fn a_skip_without_diagnose_carries_no_divergence() {
     ));
 }
 
+/// `--resolve` resets a diverged default branch to the remote tip when every
+/// local commit is a duplicate of work already upstream — here, two local
+/// commits re-landed upstream as a single squash. Nothing local is lost.
+#[test]
+fn resolve_resets_a_branch_whose_local_commits_were_squashed_upstream() {
+    let (_guard, root) = hall_with(&[("api", "main")]);
+    let ctx = Ctx::new(root.clone());
+    crate::action::sync::sync(&ctx, Default::default()).unwrap();
+
+    // Two local commits…
+    let worktree = root.join(".ivar/repos/api/main");
+    std::fs::write(worktree.join("f.txt"), "line1\n").unwrap();
+    git(&worktree, &["add", "f.txt"]);
+    git(&worktree, &["commit", "-m", "local A"]);
+    std::fs::write(worktree.join("f.txt"), "line1\nline2\n").unwrap();
+    git(&worktree, &["add", "f.txt"]);
+    git(&worktree, &["commit", "-m", "local B"]);
+    let local_tip = head_of(&worktree);
+
+    // …re-landed upstream as a single squash, plus an unrelated remote commit.
+    let origin = origin_path(&root, "api");
+    std::fs::write(origin.join("f.txt"), "line1\nline2\n").unwrap();
+    git(&origin, &["add", "f.txt"]);
+    git(&origin, &["commit", "-m", "squash of A+B"]);
+    std::fs::write(origin.join("extra.txt"), "extra\n").unwrap();
+    git(&origin, &["add", "extra.txt"]);
+    git(&origin, &["commit", "-m", "unrelated upstream"]);
+    let remote_tip = head_of(&origin);
+
+    let report = pull(
+        &ctx,
+        PullInput {
+            repo: Some("api".to_owned()),
+            diagnose: false,
+            resolve: true,
+        },
+    )
+    .unwrap();
+
+    assert_eq!(status_of(&report, "api"), &PullStatus::Resolved);
+    assert!(
+        report.is_clean(),
+        "a resolved repo is a success, not a warning"
+    );
+    // The branch was reset to the remote tip — the duplicate local commits are
+    // gone but their content is preserved upstream.
+    assert_eq!(
+        head_of(&worktree),
+        remote_tip,
+        "the branch must sit at the remote tip"
+    );
+    assert_ne!(local_tip, remote_tip);
+    assert_eq!(
+        std::fs::read_to_string(worktree.join("f.txt")).unwrap(),
+        "line1\nline2\n",
+        "the duplicated content must still be present"
+    );
+}
+
+/// `--resolve` does not touch a branch with genuine local work — work that was
+/// never re-landed upstream. It is reported as skipped (with diagnosis, since
+/// resolve implies diagnose) and the commit is left intact.
+#[test]
+fn resolve_does_not_touch_a_branch_with_genuine_local_work() {
+    let (_guard, root) = hall_with(&[("api", "main")]);
+    let ctx = Ctx::new(root.clone());
+    crate::action::sync::sync(&ctx, Default::default()).unwrap();
+
+    let worktree = root.join(".ivar/repos/api/main");
+    std::fs::write(worktree.join("f.txt"), "genuine\n").unwrap();
+    git(&worktree, &["add", "f.txt"]);
+    git(&worktree, &["commit", "-m", "genuine local work"]);
+    let local_tip = head_of(&worktree);
+
+    let origin = origin_path(&root, "api");
+    std::fs::write(origin.join("r.txt"), "remote\n").unwrap();
+    git(&origin, &["add", "r.txt"]);
+    git(&origin, &["commit", "-m", "remote work"]);
+
+    let report = pull(
+        &ctx,
+        PullInput {
+            repo: Some("api".to_owned()),
+            diagnose: false,
+            resolve: true,
+        },
+    )
+    .unwrap();
+
+    assert!(matches!(
+        status_of(&report, "api"),
+        PullStatus::Skipped {
+            divergence: Some(_),
+            ..
+        }
+    ));
+    assert_eq!(
+        head_of(&worktree),
+        local_tip,
+        "genuine local work must never be reset away"
+    );
+    assert_eq!(
+        std::fs::read_to_string(worktree.join("f.txt")).unwrap(),
+        "genuine\n"
+    );
+}
+
+/// `--resolve` never resets a dirty worktree — the reset would discard
+/// uncommitted work that never reached the remote.
+#[test]
+fn resolve_does_not_reset_a_dirty_worktree() {
+    let (_guard, root) = hall_with(&[("api", "main")]);
+    let ctx = Ctx::new(root.clone());
+    crate::action::sync::sync(&ctx, Default::default()).unwrap();
+
+    let worktree = root.join(".ivar/repos/api/main");
+    std::fs::write(worktree.join("f.txt"), "line1\n").unwrap();
+    git(&worktree, &["add", "f.txt"]);
+    git(&worktree, &["commit", "-m", "local A"]);
+    // Uncommitted change makes the worktree dirty.
+    std::fs::write(worktree.join("f.txt"), "line1\nUNCOMMITTED\n").unwrap();
+
+    let origin = origin_path(&root, "api");
+    std::fs::write(origin.join("f.txt"), "line1\n").unwrap();
+    git(&origin, &["add", "f.txt"]);
+    git(&origin, &["commit", "-m", "squash of A"]);
+
+    let report = pull(
+        &ctx,
+        PullInput {
+            repo: Some("api".to_owned()),
+            diagnose: false,
+            resolve: true,
+        },
+    )
+    .unwrap();
+
+    assert!(matches!(
+        status_of(&report, "api"),
+        PullStatus::Skipped { .. }
+    ));
+    assert_eq!(
+        std::fs::read_to_string(worktree.join("f.txt")).unwrap(),
+        "line1\nUNCOMMITTED\n",
+        "the uncommitted change must survive"
+    );
+}
+
+/// A repo that is merely behind (fast-forwardable) refreshes under `--resolve`
+/// exactly as it would without it — resolve only kicks in on divergence.
+#[test]
+fn resolve_leaves_a_fast_forwardable_repo_refreshed() {
+    let (_guard, root) = hall_with(&[("api", "main")]);
+    let ctx = Ctx::new(root.clone());
+    crate::action::sync::sync(&ctx, Default::default()).unwrap();
+
+    let origin = origin_path(&root, "api");
+    std::fs::write(origin.join("CHANGELOG.md"), "v1\n").unwrap();
+    git(&origin, &["add", "CHANGELOG.md"]);
+    git(&origin, &["commit", "-m", "v1"]);
+
+    let report = pull(
+        &ctx,
+        PullInput {
+            repo: Some("api".to_owned()),
+            diagnose: false,
+            resolve: true,
+        },
+    )
+    .unwrap();
+
+    assert_eq!(status_of(&report, "api"), &PullStatus::Refreshed);
+}
+
+/// The human surface renders a resolved repo distinctly, and the summary
+/// counts it separately from refreshed.
+#[test]
+fn the_human_surface_renders_a_resolved_repo() {
+    let outcome = PullOutcome {
+        root: Utf8PathBuf::from("/hall"),
+        repos: vec![
+            RepoPull {
+                repo: RepoName::new("api").unwrap(),
+                status: PullStatus::Resolved,
+            },
+            RepoPull {
+                repo: RepoName::new("web").unwrap(),
+                status: PullStatus::Refreshed,
+            },
+        ],
+    };
+
+    let mut out = Vec::new();
+    outcome.write_human(&mut out).unwrap();
+
+    assert_eq!(
+        String::from_utf8(out).unwrap(),
+        "Pulled in /hall:\n\
+             \x20 api  resolved — local commits were duplicates already upstream; reset to the remote tip\n\
+             \x20 web  refreshed\n\
+             refreshed: 1  resolved: 1  failed: 0  skipped: 0\n"
+    );
+}
+
 /// The human surface renders a diagnosed skip with its commit lists under the
 /// "skipped" line.
 #[test]
@@ -387,7 +599,7 @@ fn the_human_surface_renders_a_diagnosed_skip() {
              \x20       abcdef12  local commit\n\
              \x20     api is 1 commit(s) behind — only upstream:\n\
              \x20       12345678  remote commit\n\
-             refreshed: 0  failed: 0  skipped: 1\n"
+             refreshed: 0  resolved: 0  failed: 0  skipped: 1\n"
     );
 }
 
@@ -432,7 +644,7 @@ fn the_human_surface_reports_per_repo_status_and_the_counts() {
     assert_eq!(
         String::from_utf8(out).unwrap(),
         "Pulled in /hall:\n  api  refreshed\n  web  FAILED — no worktree\n  app  skipped — diverged\n\
-             refreshed: 1  failed: 1  skipped: 1\n"
+             refreshed: 1  resolved: 0  failed: 1  skipped: 1\n"
     );
 }
 
@@ -533,6 +745,7 @@ fn pull_of_a_named_repo_counts_only_that_repo() {
         PullInput {
             repo: Some("web".to_owned()),
             diagnose: false,
+            resolve: false,
         },
     )
     .unwrap();

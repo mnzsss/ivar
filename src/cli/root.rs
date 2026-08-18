@@ -186,6 +186,13 @@ pub struct RepoPullArgs {
     /// the local and remote commits each side has. Read-only.
     #[arg(long)]
     pub diagnose: bool,
+    /// Automatically reconcile a diverged default branch when it is safe:
+    /// reset it to the remote tip when every local commit is a duplicate of
+    /// work already upstream (same patch-id). Never touches a branch with
+    /// genuine local work, and implies `--diagnose` for the repos it cannot
+    /// resolve.
+    #[arg(long)]
+    pub resolve: bool,
 }
 
 /// Arguments for `ivar repo setup`.
@@ -884,8 +891,16 @@ impl From<RepoRemoveArgs> for remove::RemoveInput {
 
 impl From<RepoPullArgs> for pull::PullInput {
     fn from(args: RepoPullArgs) -> Self {
-        let RepoPullArgs { repo, diagnose } = args;
-        Self { repo, diagnose }
+        let RepoPullArgs {
+            repo,
+            diagnose,
+            resolve,
+        } = args;
+        Self {
+            repo,
+            diagnose,
+            resolve,
+        }
     }
 }
 

@@ -463,6 +463,9 @@ pub fn tick(ctx: &Ctx, input: TickInput) -> Outcome<TickOutcome> {
             .into_iter()
             .filter_map(|(repo, status)| match status {
                 pull::PullStatus::Refreshed => None,
+                // The Smart Fetch sweep never resolves — that is a `repo pull
+                // --resolve` action, not a tick.
+                pull::PullStatus::Resolved => None,
                 pull::PullStatus::Failed { reason } => Some(Warning::new(
                     "execute.tick_smart_fetch_failed",
                     repo.to_string(),

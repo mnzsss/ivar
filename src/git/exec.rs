@@ -492,6 +492,54 @@ pub(crate) fn commits_ahead(git_dir: &Utf8Path, base: &str, branch: &str) -> Res
     Ok(count)
 }
 
+/// `git show <commit> --format= | git patch-id --stable` — the stable
+/// patch-id of one commit's diff.
+///
+/// Patch-id fingerprints "the same change" across authorship, message, and
+/// rebase, so it is how a commit re-landed upstream under a new identity is
+/// recognised. The `--format=` drops the commit header and keeps only the
+/// diff, which is what `patch-id` hashes.
+pub(crate) fn commit_patch_id(worktree: &Utf8Path, commit: &str) -> Result<String, Error> {
+    let diff = run(git().cwd(worktree).arg("show").arg("--format=").arg(commit))?;
+    patch_id_of(worktree, &diff)
+}
+
+/// `git diff <base> <tip> | git patch-id --stable` — the stable patch-id of
+/// the cumulative diff between two revisions.
+///
+/// The squash-shaped counterpart to [`commit_patch_id`]: it fingerprints a
+/// *range* of commits as one change, which is what a squash-merged re-landing
+/// of several local commits looks like upstream.
+pub(crate) fn diff_patch_id(worktree: &Utf8Path, base: &str, tip: &str) -> Result<String, Error> {
+    let diff = run(git().cwd(worktree).arg("diff").arg(base).arg(tip))?;
+    patch_id_of(worktree, &diff)
+}
+
+/// `git patch-id --stable`, fed `diff` on stdin — the hash in the first
+/// column of its output.
+fn patch_id_of(worktree: &Utf8Path, diff: &str) -> Result<String, Error> {
+    let stdout = run(git().arg("patch-id").arg("--stable").stdin(diff))?;
+    let id = stdout.split_whitespace().next().unwrap_or_default();
+    if id.is_empty() {
+        return Err(Error::Refused {
+            command: format!("git -C {worktree} patch-id --stable"),
+            detail: format!("expected a patch-id, got `{stdout}`"),
+        });
+    }
+    Ok(id.to_owned())
+}
+
+/// `git -C <worktree> reset --hard <revision>` — move the checked-out branch
+/// (and its files) to `revision`, discarding local commits beyond it.
+///
+/// Destructive by definition; the caller has verified the dropped commits are
+/// duplicates of work landed elsewhere and that the worktree is clean. Runs
+/// inside the worktree, like `fast_forward`.
+pub(crate) fn reset_hard(worktree: &Utf8Path, revision: &str) -> Result<(), Error> {
+    run(git().cwd(worktree).arg("reset").arg("--hard").arg(revision))?;
+    Ok(())
+}
+
 /// `git --git-dir <git_dir> ls-remote <remote> refs/heads/<branch>` — the
 /// commit `remote` holds `branch` at, or `None` when it does not have it.
 ///

@@ -19,6 +19,15 @@
 //! reconciliation is left to the human, because only they know whether the
 //! local commits are theirs.
 //!
+//! `--resolve` automates the one reconciliation that is provably safe: when
+//! every local-only commit is a duplicate of work already in the remote
+//! (same patch-id — re-landed as a squash, a rebase, or a cherry-pick), the
+//! branch is reset to the remote tip and reported `Resolved`. Nothing local is
+//! lost, because the content is upstream. It never touches a branch with
+//! genuine local work or a dirty worktree — those are reported (with the
+//! `--diagnose` detail, since resolve implies it) and left for the human.
+//! Resolve implies `--diagnose`; `--diagnose` alone never moves a branch.
+//!
 //! Because every repo costs a network round trip, the run reports which one it
 //! is on through [`Ctx::progress`] — one transient stderr line, erased before
 //! the summary is written, absent under `--json` and off a terminal. The
@@ -26,6 +35,7 @@
 //! fetch is the part that waits on a remote, and the two local steps around it
 //! would flash past unread.
 
+use std::collections::HashSet;
 use std::io;
 
 use camino::{Utf8Path, Utf8PathBuf};
@@ -51,6 +61,12 @@ pub struct PullInput {
     /// (the local and remote commits each side has) instead of only the
     /// "skipped" line. Read-only — it never moves a ref or a branch.
     pub diagnose: bool,
+    /// Automatically reconcile a diverged default branch when it is safe to:
+    /// reset it to the remote tip when every local commit is a duplicate of
+    /// work that already landed upstream (same patch-id). Never touches a
+    /// branch with genuine local work — that is reported and left to the
+    /// human. Implies [`Self::diagnose`] for the repos it cannot resolve.
+    pub resolve: bool,
 }
 
 /// What happened to one repo's default branch.
@@ -59,6 +75,10 @@ pub struct PullInput {
 pub enum PullStatus {
     /// Fetched and fast-forwarded.
     Refreshed,
+    /// Fetched and found to have diverged, but every local commit was a
+    /// duplicate of work already upstream, so the default branch was reset to
+    /// the remote tip. No local work was lost.
+    Resolved,
     /// The fetch failed — the remote is unreachable, or the repo was never
     /// materialised.
     Failed { reason: String },
@@ -93,20 +113,23 @@ pub struct PullOutcome {
 
 impl PullOutcome {
     /// How many repos ended in each [`PullStatus`] variant, as
-    /// `(refreshed, failed, skipped)` — the counts the summary line prints.
+    /// `(refreshed, resolved, failed, skipped)` — the counts the summary line
+    /// prints.
     #[must_use]
-    pub fn counts(&self) -> (usize, usize, usize) {
+    pub fn counts(&self) -> (usize, usize, usize, usize) {
         let mut refreshed = 0;
+        let mut resolved = 0;
         let mut failed = 0;
         let mut skipped = 0;
         for repo in &self.repos {
             match &repo.status {
                 PullStatus::Refreshed => refreshed += 1,
+                PullStatus::Resolved => resolved += 1,
                 PullStatus::Failed { .. } => failed += 1,
                 PullStatus::Skipped { .. } => skipped += 1,
             }
         }
-        (refreshed, failed, skipped)
+        (refreshed, resolved, failed, skipped)
     }
 }
 
@@ -119,6 +142,11 @@ impl WriteHuman for PullOutcome {
         for repo in &self.repos {
             match &repo.status {
                 PullStatus::Refreshed => writeln!(w, "  {}  refreshed", repo.repo)?,
+                PullStatus::Resolved => writeln!(
+                    w,
+                    "  {}  resolved — local commits were duplicates already upstream; reset to the remote tip",
+                    repo.repo
+                )?,
                 PullStatus::Failed { reason } => writeln!(w, "  {}  FAILED — {reason}", repo.repo)?,
                 PullStatus::Skipped { reason, divergence } => {
                     writeln!(w, "  {}  skipped — {reason}", repo.repo)?;
@@ -128,10 +156,10 @@ impl WriteHuman for PullOutcome {
                 }
             }
         }
-        let (refreshed, failed, skipped) = self.counts();
+        let (refreshed, resolved, failed, skipped) = self.counts();
         writeln!(
             w,
-            "refreshed: {refreshed}  failed: {failed}  skipped: {skipped}"
+            "refreshed: {refreshed}  resolved: {resolved}  failed: {failed}  skipped: {skipped}"
         )
     }
 }
@@ -205,7 +233,7 @@ pub fn pull(ctx: &Ctx, input: PullInput) -> Outcome<PullOutcome> {
     let total = targets.len();
     for (index, repo) in targets.iter().enumerate() {
         ctx.progress().step(&fetch_step(index, total, repo));
-        let status = refresh_default(&git, &layout, repo, input.diagnose);
+        let status = refresh_default(&git, &layout, repo, input.diagnose, input.resolve);
         if let PullStatus::Failed { reason } = &status {
             warnings.push(Warning::new(
                 "repo.pull_failed",
@@ -270,6 +298,7 @@ pub(crate) fn refresh_default(
     layout: &Layout,
     repo: &Repo,
     diagnose: bool,
+    resolve: bool,
 ) -> PullStatus {
     let worktree = layout.repo_worktree(repo.name(), repo.default_branch());
 
@@ -313,14 +342,25 @@ pub(crate) fn refresh_default(
         },
         Ok(()) => match git.fast_forward(&worktree) {
             Ok(()) => PullStatus::Refreshed,
-            Err(error) => PullStatus::Skipped {
-                reason: format!("cannot fast-forward the default branch: {error}"),
-                divergence: if diagnose {
+            Err(error) => {
+                let reason = format!("cannot fast-forward the default branch: {error}");
+                let divergence = if diagnose || resolve {
                     diagnose_divergence(git, &worktree, repo)
                 } else {
                     None
-                },
-            },
+                };
+                if resolve && safe_to_reset(git, &worktree, repo) {
+                    match git.reset_hard(&worktree, &remote_ref(repo)) {
+                        Ok(()) => PullStatus::Resolved,
+                        Err(reset_error) => PullStatus::Skipped {
+                            reason: format!("{reason}; and could not resolve: {reset_error}"),
+                            divergence,
+                        },
+                    }
+                } else {
+                    PullStatus::Skipped { reason, divergence }
+                }
+            }
         },
     };
 
@@ -328,6 +368,67 @@ pub(crate) fn refresh_default(
         let _ = fs::clear_write_bits(&worktree);
     }
     status
+}
+
+/// The remote-tracking ref `fetch_branch` keeps current — the reset target for
+/// a safely-resolved divergence.
+fn remote_ref(repo: &Repo) -> String {
+    format!("origin/{}", repo.default_branch())
+}
+
+/// Whether resetting the default branch to the remote tip is safe: every
+/// local-only commit is a duplicate of work already in the remote, and the
+/// worktree is clean (so nothing uncommitted is discarded).
+///
+/// Conservative by construction: any failure to confirm a duplicate — a
+/// patch-id that cannot be read, a dirty worktree, a missing ref — answers
+/// `false`, and the branch is left for the human. `--resolve` never touches a
+/// branch it cannot prove is a duplicate; false is the safe direction.
+fn safe_to_reset(git: &impl Git, worktree: &Utf8Path, repo: &Repo) -> bool {
+    let branch = repo.default_branch().as_str();
+    let remote = remote_ref(repo);
+
+    // A dirty worktree must not be reset — the reset would discard work that
+    // was never committed and so never reached the remote.
+    if git.worktree_dirty(worktree).unwrap_or(true) {
+        return false;
+    }
+
+    let Ok(divergence) = git.divergence(worktree, branch, &remote) else {
+        return false;
+    };
+    if divergence.local_only.is_empty() {
+        // Nothing local to lose would mean it did not diverge; be safe anyway.
+        return false;
+    }
+
+    let Some(remote_patch_ids) = divergence
+        .remote_only
+        .iter()
+        .map(|commit| git.commit_patch_id(worktree, &commit.sha).ok())
+        .collect::<Option<HashSet<String>>>()
+    else {
+        return false;
+    };
+
+    // Squash case: the whole local range, as one cumulative diff, matches a
+    // single remote commit — local commits re-landed as a squash.
+    let contained_as_squash = git
+        .merge_base(worktree, branch, &remote)
+        .ok()
+        .and_then(|base| git.diff_patch_id(worktree, &base, branch).ok())
+        .map(|local_cumulative| remote_patch_ids.contains(&local_cumulative))
+        .unwrap_or(false);
+
+    // Rebase / cherry-pick case: every local-only commit individually matches
+    // a remote commit.
+    let contained_per_commit = divergence.local_only.iter().all(|commit| {
+        git.commit_patch_id(worktree, &commit.sha)
+            .map(|id| remote_patch_ids.contains(&id))
+            .unwrap_or(false)
+    });
+
+    contained_as_squash || contained_per_commit
 }
 
 /// The local-vs-remote commit lists behind a "cannot fast-forward" report —
@@ -363,7 +464,7 @@ pub(crate) fn refresh_all(
     let total = manifest.repos().len();
     for (index, repo) in manifest.repos().iter().enumerate() {
         progress.step(&fetch_step(index, total, repo));
-        let status = refresh_default(git, layout, repo, false);
+        let status = refresh_default(git, layout, repo, false, false);
         results.push((repo.name().clone(), status));
     }
     progress.clear();

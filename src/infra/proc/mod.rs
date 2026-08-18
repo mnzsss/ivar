@@ -48,6 +48,7 @@
 
 use std::ffi::OsStr;
 use std::io;
+use std::io::Write;
 use std::process::{Command as StdCommand, Stdio};
 
 use camino::Utf8PathBuf;
@@ -267,15 +268,38 @@ impl Output {
 
 /// Run `command` to completion, capturing both streams.
 ///
-/// Stdin is `/dev/null`: a git invocation must never block on a credential
-/// prompt nobody can see. The caller owns the meaning of the exit code — see
-/// the module doc comment.
+/// Stdin defaults to `/dev/null`: a git invocation must never block on a
+/// credential prompt nobody can see. When [`Command::stdin`] was set the text
+/// is fed to the child instead, then the pipe is closed — the case that runner
+/// exists for is feeding a captured diff to `git patch-id`, which is local
+/// processing and so has no prompt to block on. The caller owns the meaning of
+/// the exit code — see the module doc comment.
 pub fn capture(command: &Command) -> Result<Output, Error> {
-    let output = command
-        .to_std()
-        .stdin(Stdio::null())
-        .output()
-        .map_err(|source| spawn_error(command, source))?;
+    let mut std_command = command.to_std();
+    let output = match &command.stdin {
+        Some(text) => {
+            std_command
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped());
+            let mut child = std_command
+                .spawn()
+                .map_err(|source| spawn_error(command, source))?;
+            if let Some(mut stdin) = child.stdin.take() {
+                let _ = stdin.write_all(text.as_bytes());
+                // `stdin` drops here, closing the pipe and signalling EOF.
+            }
+            child
+                .wait_with_output()
+                .map_err(|source| spawn_error(command, source))?
+        }
+        None => std_command
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()
+            .map_err(|source| spawn_error(command, source))?,
+    };
 
     Ok(Output {
         code: output.status.code(),

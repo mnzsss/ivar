@@ -102,6 +102,7 @@ to run test suites in three repos side by side.
 ```sh
 ivar repo pull                # fast-forward every repo's default branch
 ivar repo pull --diagnose     # …and, when a branch diverged, show what's on each side
+ivar repo pull --resolve      # …and reset branches whose local commits are duplicates upstream
 ivar feature rebase checkout  # rebase promoted worktrees onto their defaults
 ```
 
@@ -113,7 +114,11 @@ half-rebased across five repos.
 branch as skipped rather than guess. `--diagnose` gives you the local-only and
 remote-only commits, so you can tell a branch that simply fell behind from one
 with local work that needs reconciling by hand (or that was already re-landed
-upstream and is safe to fast-forward).
+upstream and is safe to fast-forward). `--resolve` automates that last case: when
+every local commit is a duplicate of work already upstream (same patch-id — a
+squash, rebase, or cherry-pick), it resets the branch to the remote tip, losing
+nothing. It never touches a branch with genuine local work or uncommitted
+changes; those are left for you.
 
 ## Deliver
 

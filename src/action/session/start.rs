@@ -157,6 +157,9 @@ pub fn start(ctx: &Ctx, input: StartInput) -> Outcome<StartOutcome> {
             .into_iter()
             .filter_map(|(repo, status)| match status {
                 pull::PullStatus::Refreshed => None,
+                // The Smart Fetch sweep never resolves — that is a `repo pull
+                // --resolve` action, not a session start.
+                pull::PullStatus::Resolved => None,
                 pull::PullStatus::Failed { reason } => Some(Warning::new(
                     "session.smart_fetch_failed",
                     repo.to_string(),

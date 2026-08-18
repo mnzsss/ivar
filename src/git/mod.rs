@@ -329,6 +329,40 @@ pub trait Git {
         remote: &str,
     ) -> Result<Divergence, Error>;
 
+    /// The commit both `a` and `b` descend from — `git merge-base <a> <b>`,
+    /// through git2.
+    ///
+    /// The starting point for "is the local work already upstream?": the
+    /// cumulative diff from the merge-base to the local tip is what the remote
+    /// would have had to re-land. Either revision must exist.
+    fn merge_base(&self, git_dir: &Utf8Path, a: &str, b: &str) -> Result<String, Error>;
+
+    /// The stable patch-id of one commit's diff — `git show <commit> --format=
+    /// | git patch-id --stable`, in the worktree at `worktree`.
+    ///
+    /// Patch-id is git's fingerprint for "the same change", stable across
+    /// authorship, message, and rebase: it is what recognises a commit that was
+    /// re-landed upstream under a new identity. Reads the commit locally, never
+    /// the remote.
+    fn commit_patch_id(&self, worktree: &Utf8Path, commit: &str) -> Result<String, Error>;
+
+    /// The stable patch-id of the cumulative diff between `base` and `tip` —
+    /// `git diff <base> <tip> | git patch-id --stable`, in `worktree`.
+    ///
+    /// The squash-shaped counterpart to [`Self::commit_patch_id`]: it
+    /// fingerprints a *range* of commits as one change, which is what a
+    /// squash-merged re-landing of several local commits looks like upstream.
+    fn diff_patch_id(&self, worktree: &Utf8Path, base: &str, tip: &str) -> Result<String, Error>;
+
+    /// `git -C <worktree> reset --hard <revision>` — move the checked-out
+    /// branch (and its files) to `revision`, discarding any local commits
+    /// beyond it.
+    ///
+    /// Destructive by definition: the caller has already verified the commits
+    /// being dropped are duplicates of work that landed elsewhere, and that the
+    /// worktree is clean. Runs inside the worktree, like [`Self::fast_forward`].
+    fn reset_hard(&self, worktree: &Utf8Path, revision: &str) -> Result<(), Error>;
+
     /// The commit id `revision` names in the repository at `git_dir` —
     /// `git rev-parse <revision>`, through git2.
     ///
@@ -508,6 +542,22 @@ impl Git for System {
         remote: &str,
     ) -> Result<Divergence, Error> {
         read::divergence(git_dir, local, remote)
+    }
+
+    fn merge_base(&self, git_dir: &Utf8Path, a: &str, b: &str) -> Result<String, Error> {
+        read::merge_base(git_dir, a, b)
+    }
+
+    fn commit_patch_id(&self, worktree: &Utf8Path, commit: &str) -> Result<String, Error> {
+        exec::commit_patch_id(worktree, commit)
+    }
+
+    fn diff_patch_id(&self, worktree: &Utf8Path, base: &str, tip: &str) -> Result<String, Error> {
+        exec::diff_patch_id(worktree, base, tip)
+    }
+
+    fn reset_hard(&self, worktree: &Utf8Path, revision: &str) -> Result<(), Error> {
+        exec::reset_hard(worktree, revision)
     }
 
     fn revision_commit(&self, git_dir: &Utf8Path, revision: &str) -> Result<String, Error> {

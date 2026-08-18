@@ -188,6 +188,25 @@ pub(crate) fn revision_commit(git_dir: &Utf8Path, revision: &str) -> Result<Stri
     Ok(id.to_string())
 }
 
+/// The commit both `a` and `b` descend from — `git merge-base <a> <b>`,
+/// through git2.
+///
+/// Either revision must exist; a missing one is [`Error::Refused`] with git's
+/// own sentence.
+pub(crate) fn merge_base(git_dir: &Utf8Path, a: &str, b: &str) -> Result<String, Error> {
+    let repository = open(git_dir)?;
+    let a_id = resolve(&repository, git_dir, a)?;
+    let b_id = resolve(&repository, git_dir, b)?;
+
+    let base = repository
+        .merge_base(a_id, b_id)
+        .map_err(|source| Error::Refused {
+            command: format!("git -C {git_dir} merge-base {a} {b}"),
+            detail: source.message().to_owned(),
+        })?;
+    Ok(base.to_string())
+}
+
 /// How `local` and `remote` diverge in the repository at `git_dir`.
 ///
 /// `local_only` is the commits reachable from `local` and not from `remote`;
