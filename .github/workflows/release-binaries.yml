@@ -7,11 +7,12 @@ name: release binaries
 # does not, and has nothing to download without this.
 #
 # The asset layout is dictated by that script, not chosen here. It fetches
-# `$IVAR_BASE_URL/ivar-<os>-<arch>` and `…​.sha256`, saves the first as `ivar`,
+# `$IVAR_BASE_URL/ivar-<os>-<arch>` and `….sha256`, saves the first as `ivar`,
 # and runs `sha256sum -c` against the second — so the assets are bare binaries
 # named for the platform, not archives named for the Rust target triple, and
 # the sidecar names `ivar` rather than the asset it sits beside. Changing any
-# of that breaks `curl -fsSL ivar.mnzs.dev/install | sh` silently.
+# of that breaks `curl -fsSL ivar.mnzs.dev/install | sh` silently, and takes
+# packaging/aur/PKGBUILD-bin with it.
 #
 # Two entry points, and both take the tag explicitly rather than reading
 # `github.ref`, because neither is triggered by a tag push:

@@ -84,6 +84,25 @@ jobs:
     with:
       tag: ${{ needs.release-plz-release.outputs.tag }}
 
+  # `ivar-bin` installs the very assets the `binaries` job just uploaded, so
+  # this runs after it rather than beside it. It is also the only publish step
+  # here that can be absent: without AUR_SSH_PRIVATE_KEY configured it warns
+  # and passes green instead of failing a fork's release. See release-aur.yml.
+  aur:
+    name: aur
+    needs: [release-plz-release, binaries]
+    if: needs.release-plz-release.outputs.released == 'true'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/release-aur.yml
+    with:
+      tag: ${{ needs.release-plz-release.outputs.tag }}
+    # Named, not `inherit`: this workflow holds a crates.io token, and the AUR
+    # job has no business being able to see it. An unset secret arrives as an
+    # empty string, which is exactly what release-aur.yml's gate reads.
+    secrets:
+      AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+
   release-plz-pr:
     name: release-plz PR
     needs: release-plz-release

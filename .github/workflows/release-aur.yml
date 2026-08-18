@@ -1,0 +1,248 @@
+name: release aur
+
+# Publishes `ivar` and `ivar-bin` to the Arch User Repository.
+#
+# packaging/aur/ is the source of truth. The two AUR git repos are publish
+# targets: this workflow rewrites `pkgver`, `pkgrel` and the `sha256sums`
+# arrays, regenerates `.SRCINFO`, and force-nothing — it commits and pushes a
+# normal change. Editing the AUR checkouts by hand puts them out of sync with
+# this repo and the next release silently reverts the edit.
+#
+# `ivar-bin` consumes the assets release-binaries.yml attaches to the release,
+# so this must run after that workflow, not beside it.
+#
+# Optional by design. Publishing activates only once AUR_SSH_PRIVATE_KEY is set
+# in repo Settings → Secrets and variables → Actions. Without it the workflow
+# emits a warning and passes green, so a fork — which can never be given the
+# secret — does not get a red run on every release.
+#
+# Two entry points, and both take the tag explicitly rather than reading
+# `github.ref`, because neither is triggered by a tag push:
+#   - workflow_call     — the normal path, from release-plz.yml
+#   - workflow_dispatch — republish by hand when an AUR push needs repair
+on:
+  workflow_call:
+    inputs:
+      tag:
+        required: true
+        type: string
+    secrets:
+      AUR_SSH_PRIVATE_KEY:
+        required: false
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to publish to the AUR (e.g. v0.1.0)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+# Pushing to the AUR is not idempotent against itself: two runs racing on the
+# same package repo produce a non-fast-forward and one of them dies half way.
+# Serialised, never cancelled.
+concurrency:
+  group: release-aur
+  cancel-in-progress: false
+
+jobs:
+  # A job-level `if` cannot read `secrets.*`, so the presence check has to be a
+  # job of its own whose output the publish job gates on.
+  check-secret:
+    name: check aur credentials
+    runs-on: ubuntu-latest
+    outputs:
+      enabled: ${{ steps.check.outputs.enabled }}
+    steps:
+      - id: check
+        env:
+          AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+        run: |
+          if [ -n "$AUR_SSH_PRIVATE_KEY" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::AUR_SSH_PRIVATE_KEY is not set — skipping the AUR publish. Add it in Settings → Secrets and variables → Actions (an SSH key registered on an AUR account with maintainer access to both ivar and ivar-bin) to enable it."
+          fi
+
+  publish:
+    name: publish
+    needs: check-secret
+    if: needs.check-secret.outputs.enabled == 'true'
+    runs-on: ubuntu-latest
+    # Pinned by digest, like every other action here. `makepkg` and
+    # `--printsrcinfo` are Arch tooling; there is no faithful way to produce a
+    # correct .SRCINFO off an Arch image.
+    container: archlinux@sha256:714acd1eef9ae997d95691b1c5220ada0076185b77857c1813f02de0fa83cf7b # base-devel, 2026-08-18
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ inputs.tag }}
+          persist-credentials: false
+
+      - name: install publish tools
+        run: pacman -Syu --noconfirm --needed base-devel curl git openssh
+
+      # Every checksum comes from the published artefact, never from a local
+      # build: the AUR must describe what a user will actually download.
+      #   - the source tarball is GitHub's own tag archive
+      #   - the binaries' sums are read from the .sha256 sidecars that
+      #     release-binaries.yml uploaded, which are the same bytes
+      #     scripts/install.sh verifies against
+      - name: compute source checksums
+        id: sums
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          version="${TAG#v}"
+          raw="https://raw.githubusercontent.com/mnzsss/ivar/${TAG}"
+          rel="https://github.com/mnzsss/ivar/releases/download/${TAG}"
+
+          # The sidecar reads `<sha256>  ivar` — the name is the install
+          # script's contract, so take the field, not the line.
+          sidecar_sum() {
+            curl -fsSL "$rel/$1.sha256" | awk 'NR == 1 { print $1 }'
+          }
+
+          {
+            echo "version=$version"
+            echo "source=$(curl -fsSL "https://github.com/mnzsss/ivar/archive/refs/tags/${TAG}.tar.gz" | sha256sum | awk '{print $1}')"
+            echo "license=$(curl -fsSL "$raw/LICENSE" | sha256sum | awk '{print $1}')"
+            echo "notice=$(curl -fsSL "$raw/NOTICE" | sha256sum | awk '{print $1}')"
+            echo "bin_x86_64=$(sidecar_sum ivar-linux-x86_64)"
+            echo "bin_aarch64=$(sidecar_sum ivar-linux-aarch64)"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: render PKGBUILDs
+        env:
+          VERSION: ${{ steps.sums.outputs.version }}
+          SOURCE_SHA: ${{ steps.sums.outputs.source }}
+          LICENSE_SHA: ${{ steps.sums.outputs.license }}
+          NOTICE_SHA: ${{ steps.sums.outputs.notice }}
+          BIN_X86_SHA: ${{ steps.sums.outputs.bin_x86_64 }}
+          BIN_ARM_SHA: ${{ steps.sums.outputs.bin_aarch64 }}
+        run: |
+          set -euo pipefail
+          mkdir -p rendered
+          cp packaging/aur/PKGBUILD rendered/PKGBUILD.source
+          cp packaging/aur/PKGBUILD-bin rendered/PKGBUILD.bin
+
+          # `pkgrel=1` unconditionally: every run of this workflow is a new
+          # upstream version. A pkgrel bump is a packaging-only rebuild, which
+          # is a manual act by definition (see packaging/aur/README.md).
+          sed -i \
+            -e "s/^pkgver=.*/pkgver=${VERSION}/" \
+            -e "s/^pkgrel=.*/pkgrel=1/" \
+            -e "s/^sha256sums=(.*)/sha256sums=('${SOURCE_SHA}')/" \
+            rendered/PKGBUILD.source
+
+          # `^sha256sums=` does not match `sha256sums_x86_64=` — the arch
+          # arrays get their own rules below.
+          sed -i \
+            -e "s/^pkgver=.*/pkgver=${VERSION}/" \
+            -e "s/^pkgrel=.*/pkgrel=1/" \
+            -e "s/^sha256sums=(.*)/sha256sums=('${LICENSE_SHA}' '${NOTICE_SHA}')/" \
+            -e "s/^sha256sums_x86_64=(.*)/sha256sums_x86_64=('${BIN_X86_SHA}')/" \
+            -e "s/^sha256sums_aarch64=(.*)/sha256sums_aarch64=('${BIN_ARM_SHA}')/" \
+            rendered/PKGBUILD.bin
+
+          # A `SKIP` that survives means a sed rule stopped matching — a
+          # renamed variable, a reformatted array. Publishing that would ship
+          # unverified sources to every AUR user, so it fails here instead.
+          if grep -n "SKIP" rendered/PKGBUILD.source rendered/PKGBUILD.bin; then
+            echo "::error::a sha256sums entry is still SKIP after rendering — the sed rules no longer match packaging/aur/" >&2
+            exit 1
+          fi
+
+      # makepkg refuses to run as root, and the container is root. Everything
+      # below — checksum verification, .SRCINFO generation, the git push —
+      # happens as an unprivileged user.
+      - name: publish to the AUR
+        env:
+          AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+          VERSION: ${{ steps.sums.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          useradd -m aurbuild
+          chown -R aurbuild:aurbuild "$GITHUB_WORKSPACE"
+
+          install -d -m 0700 -o aurbuild -g aurbuild /home/aurbuild/.ssh
+          printf '%s\n' "$AUR_SSH_PRIVATE_KEY" > /home/aurbuild/.ssh/aur
+          ssh-keyscan aur.archlinux.org > /home/aurbuild/.ssh/known_hosts
+          cat > /home/aurbuild/.ssh/config <<'SSHCONF'
+          Host aur.archlinux.org
+            HostName aur.archlinux.org
+            User aur
+            IdentityFile /home/aurbuild/.ssh/aur
+            IdentitiesOnly yes
+          SSHCONF
+          chmod 0600 /home/aurbuild/.ssh/aur /home/aurbuild/.ssh/config
+          chown aurbuild:aurbuild /home/aurbuild/.ssh/aur /home/aurbuild/.ssh/config /home/aurbuild/.ssh/known_hosts
+
+          # Prove the credential before anything else. The secret being *set*
+          # says nothing about the matching public key being registered on an
+          # AUR account — those are two halves configured in two places, months
+          # apart, and only the second one is checkable from here.
+          #
+          # Without this the first symptom is `git clone` dying on
+          # `Permission denied (publickey)` in the middle of a publish, after
+          # the release is already out. `help` is AUR's own no-op: it lists the
+          # commands the account may run, and exits 0 only if the key
+          # authenticated.
+          if ! runuser -u aurbuild -- env HOME=/home/aurbuild \
+                ssh -F /home/aurbuild/.ssh/config -o BatchMode=yes \
+                aur@aur.archlinux.org help >/dev/null 2>&1; then
+            echo "::error::AUR_SSH_PRIVATE_KEY did not authenticate to aur.archlinux.org. The secret holds a private key; the matching *public* key must be registered at https://aur.archlinux.org/account → My Account → SSH Public Key, on an account with maintainer access to ivar and ivar-bin."
+            exit 1
+          fi
+
+          runuser -u aurbuild -- env \
+            HOME=/home/aurbuild \
+            GIT_SSH_COMMAND='ssh -F /home/aurbuild/.ssh/config' \
+            bash -s -- "$VERSION" "$GITHUB_WORKSPACE" <<'AURSCRIPT'
+          set -euo pipefail
+
+          version="$1"
+          workspace="$2"
+          workdir="/tmp/ivar-aur-publish"
+
+          git config --global user.name "ivar release bot"
+          git config --global user.email "actions@github.com"
+
+          rm -rf "$workdir"
+          mkdir -p "$workdir"
+
+          publish_pkg() {
+            pkgbase="$1"
+            pkgbuild="$2"
+            repo="$workdir/$pkgbase"
+
+            git clone "ssh://aur@aur.archlinux.org/${pkgbase}.git" "$repo"
+            cp "$pkgbuild" "$repo/PKGBUILD"
+
+            # Downloads every source the PKGBUILD names and checks it against
+            # the sums just rendered. On x86_64 this covers the tag tarball for
+            # `ivar`, and the licence texts plus the x86_64 binary for
+            # `ivar-bin`; the aarch64 sum is not reachable from this host, and
+            # is taken verbatim from the sidecar release-binaries.yml published
+            # alongside the asset itself.
+            (cd "$repo" && makepkg --verifysource)
+            (cd "$repo" && makepkg --printsrcinfo > .SRCINFO)
+            (cd "$repo" && git add PKGBUILD .SRCINFO)
+
+            if (cd "$repo" && git diff --cached --quiet); then
+              echo "${pkgbase}: already at ${version}, nothing to publish"
+              return 0
+            fi
+
+            (cd "$repo" && git commit -m "Update to ${version}")
+            (cd "$repo" && git push)
+            echo "${pkgbase}: published ${version}"
+          }
+
+          publish_pkg ivar     "$workspace/rendered/PKGBUILD.source"
+          publish_pkg ivar-bin "$workspace/rendered/PKGBUILD.bin"
+          AURSCRIPT
