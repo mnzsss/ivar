@@ -95,12 +95,27 @@ jobs:
       group: release-plz-${{ github.event.workflow_run.head_branch }}
       cancel-in-progress: false
     steps:
+      # `persist-credentials` stays on here, unlike the release job above. This
+      # job does not just call the API: to keep the release PR on one branch,
+      # release-plz checks that branch out, `reset --hard`s away its own last
+      # commit and rebases it onto main, then force-pushes the result through
+      # the GitHub API. The rebase step is plain git, and without a credential
+      # it dies with `could not read Username for 'https://github.com'`.
+      #
+      # That failure is not fatal — it is worse. release-plz catches it, closes
+      # the release PR and opens a new one on a new branch, so every push to
+      # main used to leave another closed `chore: release` PR behind (#15, #17,
+      # #19, #20, #21, #22, #24 are all that). See `handle_opened_pr` in
+      # release_plz_core::command::release_pr.
+      #
+      # The token is GITHUB_TOKEN scoped to this job, and the checkout is
+      # always main's already-validated head — this workflow's own code, not a
+      # contributor's.
       - name: Checkout validated commit
         uses: actions/checkout@v5
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
           fetch-depth: 0
-          persist-credentials: false
 
       - name: Attach validated commit to its branch
         run: |
