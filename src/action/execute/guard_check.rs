@@ -12,13 +12,14 @@
 //! refuse. A path inside the contract passes; outside is refused naming the
 //! workstream.
 
-use camino::Utf8PathBuf;
+use camino::{Utf8Path, Utf8PathBuf};
 use serde::Serialize;
 
 use crate::action::Ctx;
-use crate::domain::feature::{ExecutionBoard, WriteContract};
+use crate::domain::feature::{ExecutionBoard, Feature, WriteContract};
 use crate::domain::name::FeatureName;
 use crate::error::{Failure, Outcome, Report, WriteHuman};
+use crate::store::layout::Layout;
 
 use super::super::discover_hall;
 use super::find_workstream;
@@ -111,10 +112,17 @@ pub fn guard_check(ctx: &Ctx, input: GuardCheckInput) -> Outcome<GuardCheckOutco
         }
     };
 
+    // The hook forwards whatever the executor's tool call reported, which is
+    // an absolute path (Claude and OpenCode both resolve tool file paths to
+    // the canonical location). A contract is written in the shape of a session
+    // view dir — `<repo>/<path>` — so an absolute path must be relativised
+    // before the glob can see that shape. A worktree path carries the branch
+    // segment a contract never names, so it is rewritten to `<repo>/<path>`
+    // first (the same normalisation `launch`'s audit applies); anything under
+    // the hall, including a view dir, is then made relative to the hall root.
     let contract = WriteContract::new(workstream.write_contract.clone());
     let resolved = ctx.resolve(&path);
-
-    let allowed = contract.allows(&resolved);
+    let allowed = contract.allows(&normalise_path(&layout, &feature_name, &resolved));
 
     Ok(Report::new(GuardCheckOutcome {
         allowed,
@@ -149,6 +157,50 @@ fn require_path(input: &GuardCheckInput) -> Result<Utf8PathBuf, Failure> {
             "--path is required".to_owned(),
         )
     })
+}
+
+/// Put `path` in the shape a write contract is written in — `<repo>/<path>`,
+/// relative to the hall root — regardless of the absolute location the hook
+/// forwarded.
+///
+/// An executor works in a session view dir, where each repo is a symlink at
+/// the top level, so a contract names a file `<repo>/<path>`. The hook,
+/// however, forwards the absolute canonical path, which can be either the
+/// path through the view dir or the symlink's worktree target:
+///
+/// - `<hall>/.ivar/features/<f>/sessions/<id>/<repo>/<path>` — relativising
+///   against the hall root keeps the `<repo>/<path>` tail the contract sees.
+/// - `<hall>/.ivar/repos/<repo>/<branch>/<path>` — the worktree target. The
+///   branch segment is not something a contract ever names, so it is dropped
+///   and the path is rewritten to `<repo>/<path>`, the same normalisation
+///   `launch`'s post-run audit applies. Without this, a relative glob
+///   anchored with `ends_with` matches nothing at all.
+///
+/// `path` is already resolved to an absolute path. The default is to leave it
+/// unchanged: an unknown layout, an absent feature record, or a path outside
+/// the hall all fall through to the contract's own (deny-by-default) answer.
+fn normalise_path(layout: &Layout, feature: &FeatureName, path: &Utf8Path) -> Utf8PathBuf {
+    let root = layout.root();
+    if let Some(feature_record) = read_feature_record(layout, feature) {
+        for repo in feature_record.promotions.keys() {
+            let worktree = layout.repo_worktree(repo, &feature_record.branch);
+            if let Ok(relative) = path.strip_prefix(&worktree)
+                && !relative.as_str().is_empty()
+            {
+                return Utf8PathBuf::from(repo.as_str()).join(relative);
+            }
+        }
+    }
+    path.strip_prefix(root)
+        .map(Utf8PathBuf::from)
+        .unwrap_or_else(|_| path.to_path_buf())
+}
+
+/// Read the feature record, or `None` when it is absent or unreadable — the
+/// record is only used to map worktree paths back to `<repo>/<path>`, and a
+/// view-dir path still matches without it.
+fn read_feature_record(layout: &Layout, feature: &FeatureName) -> Option<Feature> {
+    Feature::read(layout, feature).ok().flatten()
 }
 
 #[cfg(test)]
