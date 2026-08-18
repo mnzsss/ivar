@@ -58,18 +58,35 @@ jobs:
           # ubuntu-22.04, not -latest: a gnu target links against the builder's
           # glibc, so the runner image *is* the compatibility floor we ship.
           # Pinning it means an image bump cannot silently raise that floor.
+          #
+          # `native` says whether the runner can execute what it just built, so
+          # the smoke test below knows whether `--version` is a real check or a
+          # coin flip. Only two of the four are: ubuntu-22.04 is x86_64, and
+          # macos-latest is arm64. The aarch64 Linux build could run under the
+          # binfmt qemu that the cross-toolchain action happens to register,
+          # and the x86_64 macOS build could run under Rosetta if the image
+          # still ships it — "happens to" and "if" are not what a release gate
+          # is made of, so those two are checked by `arch_match` instead.
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-22.04
             asset: ivar-linux-x86_64
+            native: true
+            arch_match: 'ELF 64-bit LSB.*x86-64'
           - target: aarch64-unknown-linux-gnu
             os: ubuntu-22.04
             asset: ivar-linux-aarch64
+            native: false
+            arch_match: 'ELF 64-bit LSB.*ARM aarch64'
           - target: x86_64-apple-darwin
             os: macos-latest
             asset: ivar-darwin-x86_64
+            native: false
+            arch_match: 'Mach-O 64-bit.*x86_64'
           - target: aarch64-apple-darwin
             os: macos-latest
             asset: ivar-darwin-aarch64
+            native: true
+            arch_match: 'Mach-O 64-bit.*arm64'
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
@@ -123,6 +140,74 @@ jobs:
             sum=$(sha256sum "$ASSET" | cut -d' ' -f1)
           fi
           printf '%s  ivar\n' "$sum" > "$ASSET.sha256"
+
+      # Everything below runs before the upload, so a broken artefact never
+      # reaches the release. What it checks, and why each one is here:
+      #
+      #   - the asset is non-empty and executable — a `cp` from a build that
+      #     silently produced nothing is otherwise indistinguishable from
+      #     success until a user runs the install script.
+      #   - `file` says the architecture the target claims. This is the only
+      #     check the two cross-built legs get, and it is the one that catches
+      #     the failure they are actually exposed to: a `--target` that was
+      #     ignored and an x86_64 binary shipped under an aarch64 name.
+      #   - the sidecar is in `sha256sum -c` format *and names `ivar`*, which
+      #     is the contract with scripts/install.sh. A sidecar naming the asset
+      #     parses fine and then fails for every user.
+      #   - the sum actually verifies, run the same way the install script runs
+      #     it: the file copied to `ivar`, checked from the directory it sits in.
+      #   - `--version` reports the version being released. release-plz sets the
+      #     tag from Cargo.toml so these cannot normally disagree — but this is
+      #     also the entry point a human dispatches by hand with a typed tag,
+      #     and that is exactly when they can.
+      - name: smoke test
+        env:
+          ASSET: ${{ matrix.asset }}
+          NATIVE: ${{ matrix.native }}
+          ARCH_MATCH: ${{ matrix.arch_match }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -eu
+
+          test -s "$ASSET" || { echo "::error::$ASSET is empty or missing"; exit 1; }
+          test -x "$ASSET" || { echo "::error::$ASSET is not executable"; exit 1; }
+
+          described=$(file -b "$ASSET")
+          printf 'file: %s\n' "$described"
+          # grep -E, not a `case` glob: `arch_match` is a regex, and as a glob
+          # `LSB.*x86-64` would demand a literal dot that is never there.
+          #
+          # The Mach-O patterns are deliberately loose about word order: BSD
+          # `file` says "Mach-O 64-bit executable arm64" and GNU `file` says
+          # "Mach-O 64-bit arm64 executable". Pinning either phrasing makes the
+          # check a bet on which one the runner image ships.
+          printf '%s\n' "$described" | grep -Eq "$ARCH_MATCH" || {
+            echo "::error::$ASSET is '$described', expected to match '$ARCH_MATCH'"
+            exit 1
+          }
+
+          grep -Eq '^[0-9a-f]{64}  ivar$' "$ASSET.sha256" || {
+            echo "::error::$ASSET.sha256 is not '<sha256>  ivar' — scripts/install.sh will reject it"
+            exit 1
+          }
+
+          tmp=$(mktemp -d)
+          cp "$ASSET" "$tmp/ivar"
+          cp "$ASSET.sha256" "$tmp/ivar.sha256"
+          if [ "$RUNNER_OS" = macOS ]; then
+            (cd "$tmp" && shasum -a 256 -c ivar.sha256)
+          else
+            (cd "$tmp" && sha256sum -c ivar.sha256)
+          fi
+
+          if [ "$NATIVE" = true ]; then
+            reported=$("./$ASSET" --version)
+            expected="ivar ${TAG#v}"
+            [ "$reported" = "$expected" ] || {
+              echo "::error::$ASSET --version said '$reported', expected '$expected'"
+              exit 1
+            }
+          fi
 
       - name: upload
         env:
