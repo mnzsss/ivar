@@ -26,10 +26,13 @@ The script detects your platform, verifies the download's SHA-256 before making
 it executable, and installs into `$IVAR_INSTALL_DIR`, defaulting to
 `~/.local/bin`.
 
+On Arch, `yay -S ivar-bin` installs the same prebuilt binary through pacman, and
+`yay -S ivar` builds it from the release tag.
+
 Or `cargo install ivar` if you have a Rust toolchain and would rather build from
 source. Or take the binary for your platform from a
 [release](https://github.com/mnzsss/ivar/releases/latest), `chmod +x` it, and put
-it on your `PATH` yourself.
+it on your `PATH` yourself — every release page lists the SHA-256 of each asset.
 
 ```sh
 ivar --version

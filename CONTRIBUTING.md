@@ -105,11 +105,36 @@ holds the version bump and the generated changelog, and it is force-pushed in
 place as more commits land — one PR per release cycle, not one per merge.
 
 **Merging that PR is the act of publishing.** It tags the commit, creates the
-GitHub Release, publishes to crates.io, and builds the binaries the install
-script serves. Do not merge it to "keep it tidy".
+GitHub Release, and publishes to crates.io. Do not merge it to "keep it tidy".
 
-If the binary build fails after a release is already out, re-run it alone: the
-`release binaries` workflow takes the tag as a `workflow_dispatch` input.
+Three things then happen on that tag, in order:
+
+1. `release binaries` builds the four platform binaries the install script
+   serves. Each one is smoke-tested before it is uploaded — the right
+   architecture, a checksum sidecar in the format `scripts/install.sh` expects,
+   and, where the runner can execute what it built, a `--version` that reports
+   the version being released.
+2. The same workflow then appends an Install section and the SHA-256 of every
+   asset to the release body, below release-plz's changelog. It regenerates
+   that block rather than appending to it, so re-runs do not stack.
+3. `release aur` publishes `ivar` and `ivar-bin` to the Arch User Repository
+   from `packaging/aur/`. It is skipped with a warning, not a failure, when
+   `AUR_SSH_PRIVATE_KEY` is not configured — see
+   [`packaging/aur/README.md`](packaging/aur/README.md).
+
+Both take the tag as a `workflow_dispatch` input, so a step that fails after a
+release is already out is re-run alone rather than by cutting a new version:
+
+```sh
+gh workflow run release-binaries.yml -f tag=vX.Y.Z
+gh workflow run release-aur.yml      -f tag=vX.Y.Z
+```
+
+Every third-party action in `.github/workflows/` is pinned to a full commit
+SHA with the tag or branch it came from in a trailing comment. A tag is
+mutable; the SHA is what actually runs. Move one by resolving the new ref
+yourself (`gh api repos/<owner>/<repo>/commits/<ref> --jq .sha`) and updating
+the comment in the same edit — never by loosening the pin back to a tag.
 
 ## Code of Conduct
 
