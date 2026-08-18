@@ -3,8 +3,15 @@ name: release binaries
 # `release-plz` creates the tag, the GitHub Release and the crates.io publish.
 # It does not build binaries — this does, and attaches them to the release it
 # just made. That matters because `cargo install ivar` compiles from source and
-# needs a Rust toolchain; the install script does not, and has nothing to
-# download without this.
+# needs a Rust toolchain; the install script served at ivar.mnzs.dev/install
+# does not, and has nothing to download without this.
+#
+# The asset layout is dictated by that script, not chosen here. It fetches
+# `$IVAR_BASE_URL/ivar-<os>-<arch>` and `…​.sha256`, saves the first as `ivar`,
+# and runs `sha256sum -c` against the second — so the assets are bare binaries
+# named for the platform, not archives named for the Rust target triple, and
+# the sidecar names `ivar` rather than the asset it sits beside. Changing any
+# of that breaks `curl -fsSL ivar.mnzs.dev/install | sh` silently.
 #
 # Two entry points, and both take the tag explicitly rather than reading
 # `github.ref`, because neither is triggered by a tag push:
@@ -31,11 +38,10 @@ env:
 
 jobs:
   upload:
-    name: ${{ matrix.target }}
+    name: ${{ matrix.asset }}
     runs-on: ${{ matrix.os }}
     permissions:
-      # Attaching assets to an existing release is a write to `contents`.
-      # Scoped to this job so the build steps above it cannot use it.
+      # Uploading an asset to an existing release is a write to `contents`.
       contents: write
     strategy:
       # One target failing must not cancel the other three. A partial release
@@ -44,13 +50,26 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # `asset` is the name the install script asks for. It is spelled out
+          # rather than derived from `target` because the two namings share no
+          # rule — `uname` says linux/darwin and aarch64, Rust says
+          # unknown-linux-gnu and apple-darwin.
+          #
           # ubuntu-22.04, not -latest: a gnu target links against the builder's
           # glibc, so the runner image *is* the compatibility floor we ship.
           # Pinning it means an image bump cannot silently raise that floor.
-          - { target: x86_64-unknown-linux-gnu, os: ubuntu-22.04 }
-          - { target: aarch64-unknown-linux-gnu, os: ubuntu-22.04 }
-          - { target: x86_64-apple-darwin, os: macos-latest }
-          - { target: aarch64-apple-darwin, os: macos-latest }
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-22.04
+            asset: ivar-linux-x86_64
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-22.04
+            asset: ivar-linux-aarch64
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            asset: ivar-darwin-x86_64
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            asset: ivar-darwin-aarch64
     steps:
       - uses: actions/checkout@v5
         with:
@@ -61,20 +80,48 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
-      # Builds, archives as `ivar-<target>.tar.gz` with the licence files beside
-      # the binary, writes a `.sha256` next to it, and uploads both to the
-      # release named by `ref`. Cross-compiles aarch64 Linux with `cross`.
-      #
-      # A cross build here needs a C toolchain and nothing more: libgit2 is
-      # built from vendored C source, and `git2`'s `https`/`ssh` features are
-      # off in Cargo.toml, so there is no OpenSSL to cross-compile. TLS is
-      # rustls via `ureq`, which is pure Rust.
-      - uses: taiki-e/upload-rust-binary-action@v1
+      # aarch64 Linux is the only target that is not either native or covered
+      # by the macOS SDK. This sets the linker and `CC` so a plain `cargo build
+      # --target` cross-compiles, which is all that is needed: libgit2 is built
+      # from vendored C source, and `git2`'s https/ssh features are off in
+      # Cargo.toml, so there is no OpenSSL to cross-compile. TLS is rustls via
+      # `ureq`, which is pure Rust.
+      - if: matrix.target == 'aarch64-unknown-linux-gnu'
+        uses: taiki-e/setup-cross-toolchain-action@v1
         with:
-          bin: ivar
           target: ${{ matrix.target }}
-          archive: $bin-$target
-          include: LICENSE,NOTICE,README.md
-          checksum: sha256
-          ref: refs/tags/${{ inputs.tag }}
-          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: build
+        run: cargo build --release --locked --target ${{ matrix.target }}
+
+      # The binary is already stripped — `[profile.release] strip = true`.
+      #
+      # The sidecar names `ivar`, not the asset. That is not a mistake: the
+      # install script downloads the asset to a temp dir *as* `ivar` and then
+      # runs `sha256sum -c` beside it, so a sidecar naming the asset would
+      # fail to find its file and reject a perfectly good download.
+      - name: package
+        env:
+          TARGET: ${{ matrix.target }}
+          ASSET: ${{ matrix.asset }}
+        run: |
+          cp "target/$TARGET/release/ivar" "$ASSET"
+          if [ "$RUNNER_OS" = macOS ]; then
+            sum=$(shasum -a 256 "$ASSET" | cut -d' ' -f1)
+          else
+            sum=$(sha256sum "$ASSET" | cut -d' ' -f1)
+          fi
+          printf '%s  ivar\n' "$sum" > "$ASSET.sha256"
+
+      - name: upload
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ inputs.tag }}
+          ASSET: ${{ matrix.asset }}
+        # --clobber so a dispatched re-run replaces a half-uploaded asset
+        # instead of failing on the name already being taken.
+        run: gh release upload "$TAG" "$ASSET" "$ASSET.sha256" --clobber

@@ -17,10 +17,11 @@ Or, if you would rather not pipe a script into a shell:
 cargo install ivar                  # builds from source; needs a Rust toolchain
 ```
 
-Or take a binary straight from a [release](https://github.com/mnzsss/ivar/releases).
-Every release carries a `tar.gz` per target — `x86_64`/`aarch64` for both macOS
-and Linux — each with a `.sha256` beside it. That is the same artifact the
-install script above fetches.
+Or take a binary straight from a [release](https://github.com/mnzsss/ivar/releases/latest).
+Every release carries one per platform — `ivar-linux-x86_64`,
+`ivar-linux-aarch64`, `ivar-darwin-x86_64`, `ivar-darwin-aarch64` — each with a
+`.sha256` beside it. `chmod +x` it and put it on your `PATH`. These are the same
+artifacts the install script above fetches and checksums for you.
 
 > **`ivar` is local-only. It never talks to a server.** Anything that requires a
 > hosted service is out of scope. That is a property of the architecture, not a

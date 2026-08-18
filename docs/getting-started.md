@@ -22,9 +22,14 @@ takes about three minutes, and both paths below assume them.
 curl -fsSL ivar.mnzs.dev/install | sh
 ```
 
+The script detects your platform, verifies the download's SHA-256 before making
+it executable, and installs into `$IVAR_INSTALL_DIR`, defaulting to
+`~/.local/bin`.
+
 Or `cargo install ivar` if you have a Rust toolchain and would rather build from
-source, or take a binary from a [release](https://github.com/mnzsss/ivar/releases)
-and put it on your `PATH` yourself.
+source. Or take the binary for your platform from a
+[release](https://github.com/mnzsss/ivar/releases/latest), `chmod +x` it, and put
+it on your `PATH` yourself.
 
 ```sh
 ivar --version
