@@ -135,13 +135,20 @@ hash_file() {
 # ── tests ──────────────────────────────────────────────────────────────
 
 # The four supported platforms reach the placeholder guard (exit 1 with the
-# "not published yet" message) — never the OS/arch refusal. That proves the
-# pair was accepted without touching the network.
+# placeholder message) — never the OS/arch refusal. That proves the pair was
+# accepted without touching the network.
+#
+# The placeholder URL is pinned here rather than left to the default. It used
+# to be the default, and when the default was wired to the real releases these
+# four tests started running past the guard into the fake curl — a test that
+# depends on a production constant fails for reasons that have nothing to do
+# with what it is checking.
 for pair in "Darwin x86_64" "Darwin arm64" "Linux x86_64" "Linux aarch64"; do
     set -- $pair
-    run_installer FAKE_UNAME_S="$1" FAKE_UNAME_M="$2"
+    run_installer FAKE_UNAME_S="$1" FAKE_UNAME_M="$2" \
+        IVAR_BASE_URL="https://pinned-placeholder.invalid"
     if [ "$RUN_RC" -eq 1 ] \
-        && grep -q "not published yet" "$WORK/run.out" \
+        && grep -q "is a placeholder" "$WORK/run.out" \
         && ! grep -q "unsupported" "$WORK/run.out"; then
         ok "platform accepted: $1/$2 (placeholder error, no refusal)"
     else
@@ -181,7 +188,7 @@ run_installer FAKE_UNAME_S="Linux" FAKE_UNAME_M="x86_64" \
     IVAR_BASE_URL="https://releases.ivar.mnzs.dev.invalid" \
     IVAR_INSTALL_DIR="$DEST"
 if [ "$RUN_RC" -eq 1 ] \
-    && grep -q "not published yet" "$WORK/run.out" \
+    && grep -q "is a placeholder" "$WORK/run.out" \
     && [ ! -s "$CURL_LOG" ] \
     && [ ! -e "$DEST/ivar" ] \
     && [ -z "$(find "$FAKE_TMP" -mindepth 1 -name "tmp.*" 2>/dev/null)" ]; then
@@ -228,6 +235,30 @@ if [ "$RUN_RC" -eq 0 ] \
     ok "good checksum installs, temp cleaned, PATH hint printed"
 else
     bad "good checksum (rc=$RUN_RC: $(cat "$WORK/run.out"))"
+fi
+
+# The default base URL and the asset naming are a contract with
+# .github/workflows/release-binaries.yml, and they were once wrong in a way
+# nothing caught: the workflow published `ivar-<rust-target-triple>.tar.gz`
+# while this script asked for `ivar-<os>-<arch>`. Both sides were internally
+# consistent and the pair was broken. This asserts the exact URL, with no
+# IVAR_BASE_URL override, so the default is under test too.
+mkdir -p "$WORK/url-art"
+printf '#!/bin/sh\nprintf "fake-ivar\\n"\n' > "$WORK/url-art/ivar"
+chmod +x "$WORK/url-art/ivar"
+hash_file "$WORK/url-art/ivar" > "$WORK/url-art/ivar.sha256"
+
+run_installer FAKE_UNAME_S="Linux" FAKE_UNAME_M="x86_64" \
+    IVAR_INSTALL_DIR="$DEST" \
+    FAKE_BIN_FILE="$WORK/url-art/ivar" \
+    FAKE_SHA_FILE="$WORK/url-art/ivar.sha256"
+EXPECT_BIN="https://github.com/mnzsss/ivar/releases/latest/download/ivar-linux-x86_64"
+if [ "$RUN_RC" -eq 0 ] \
+    && grep -qF "$EXPECT_BIN " "$CURL_LOG" \
+    && grep -qF "$EXPECT_BIN.sha256 " "$CURL_LOG"; then
+    ok "default base URL and asset name match the release workflow"
+else
+    bad "default asset URL (rc=$RUN_RC, log: $(cat "$CURL_LOG"))"
 fi
 
 # ── summary ────────────────────────────────────────────────────────────

@@ -1,13 +1,9 @@
 [package]
 name = "ivar"
-# 0.0.0 is a placeholder, not a release. release-plz takes the first real
+# 0.0.0 is published and holds the name on crates.io. It is not a usable
+# release — the point of publishing it was to stop someone else taking `ivar`
+# while this repository was still private. release-plz takes the first real
 # release to 0.0.1.
-#
-# It does NOT reserve the name: as of this writing nothing has been published,
-# `crates.io/api/v1/crates/ivar` is a 404, and `ivar` is free for anyone to
-# take. A comment here once claimed the opposite. Reserving it takes one
-# `cargo publish` of this version and is the cheapest thing to do before the
-# repository goes public.
 version = "0.0.0"
 edition = "2024"
 rust-version = "1.95.0" # MSRV. Public contract from the first publish; CI builds against it.

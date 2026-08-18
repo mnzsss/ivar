@@ -6,15 +6,19 @@
 # the checksum before anything becomes executable, and installs into
 # ${IVAR_INSTALL_DIR:-$HOME/.local/bin}.
 #
-# Binaries are not published yet: the default base URL is a placeholder on
-# the reserved .invalid TLD (RFC 6761 — never resolves), and while it is in
-# place the script fails with an explicit message instead of fetching
-# anything. Wired up: a release URL contains no `.invalid`, so the guard is
-# exactly "replace the placeholder, and the real path comes alive".
+# The default base URL is GitHub's `releases/latest/download`, which always
+# resolves to the newest release's assets — so this script does not change per
+# release, and the asset names it builds below are a contract with
+# .github/workflows/release-binaries.yml.
+#
+# The .invalid guard below is kept rather than deleted. It no longer fires on
+# the default, but it is what an override pointing at a placeholder still
+# trips, and it is the difference between one clear line and a curl failure
+# inside a piped shell.
 
 set -eu
 
-IVAR_BASE_URL="${IVAR_BASE_URL:-https://releases.ivar.mnzs.dev.invalid}"
+IVAR_BASE_URL="${IVAR_BASE_URL:-https://github.com/mnzsss/ivar/releases/latest/download}"
 IVAR_INSTALL_DIR="${IVAR_INSTALL_DIR:-$HOME/.local/bin}"
 
 fail() {
@@ -65,11 +69,10 @@ main() {
     platform="$(detect_platform)"
 
     # The .invalid guard: fail loudly and early, before creating a directory,
-    # calling curl or making anything executable. This is the promised safe
-    # state until releases exist for all four platform pairs.
+    # calling curl or making anything executable.
     case "$IVAR_BASE_URL" in
         *.invalid)
-            printf '%s\n' "ivar binaries are not published yet; build from source with cargo install --path ." >&2
+            printf '%s\n' "IVAR_BASE_URL is a placeholder ($IVAR_BASE_URL); nothing can be fetched from it. Install with cargo install ivar, or unset IVAR_BASE_URL to use the published releases." >&2
             exit 1
             ;;
     esac

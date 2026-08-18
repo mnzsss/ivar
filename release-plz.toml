@@ -10,6 +10,5 @@ semver_check = true
 
 [[package]]
 name = "ivar"
-# crates.io, so `cargo install ivar` works. The name is not held yet — see the
-# note on `version` in Cargo.toml.
+# crates.io, so `cargo install ivar` works. The name is held as of 0.0.0.
 publish = true
