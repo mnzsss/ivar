@@ -8,7 +8,52 @@ git_release_enable = true
 git_tag_enable = true
 semver_check = true
 
+# There is one release PR at a time and it is force-pushed in place until it is
+# merged, so this label is a stable handle on it: `gh pr list --label release`,
+# a notification filter, or any future automation that needs to find it without
+# parsing the branch name.
+#
+# The branch name is not a handle. release-plz builds it as
+# `{pr_branch_prefix}{UTC timestamp}` in `release_plz_core::pr::release_branch`,
+# with the timestamp hardcoded, so it is unique per release cycle and cannot be
+# pinned to a fixed value.
+pr_labels = ["release"]
+
 [[package]]
 name = "ivar"
 # crates.io, so `cargo install ivar` works. The name is held as of 0.0.0.
 publish = true
+
+# The changelog is written for someone who installed the binary, not for someone
+# auditing the repository — git already does the second job. So the five commit
+# types that only describe the repo are omitted, and the section names follow
+# Keep a Changelog, which is the format CHANGELOG.md declares in its own header
+# and the one 0.0.0 already shipped with.
+[changelog]
+# A breaking change is never dropped, even when its type is one of the skipped
+# ones. Without this, `refactor!: …` would be silently omitted — the single most
+# expensive thing this file could get wrong. It covers the `BREAKING CHANGE:`
+# footer; the first parser below covers the `!` marker.
+protect_breaking_commits = true
+
+commit_parsers = [
+  # Matched in order, first hit wins — so `!` is tested before the type rules,
+  # and a breaking change lands under Changed whatever its type was.
+  { message = '^[a-z]+(\(.+\))?!:', group = "Changed" },
+
+  { message = "^feat", group = "Added" },
+  { message = "^fix", group = "Fixed" },
+  { message = "^perf", group = "Changed" },
+  # Docs stay: for anyone installing via the script, the docs are the product.
+  { message = "^docs", group = "Documentation" },
+
+  # Omitted — these describe the repository, not the released artifact.
+  # `chore` also covers release-plz's own `chore: release vX.Y.Z` commit, which
+  # would otherwise appear in the next release's changelog.
+  { message = "^(ci|test|chore|style|refactor)", skip = true },
+
+  # Anything that does not parse as a conventional commit still shows up, rather
+  # than vanishing. An entry under Other is a signal that a commit message was
+  # written wrong, and it should be visible.
+  { message = ".*", group = "Other" },
+]

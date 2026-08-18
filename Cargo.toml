@@ -2,9 +2,15 @@
 name = "ivar"
 # 0.0.0 is published and holds the name on crates.io. It is not a usable
 # release — the point of publishing it was to stop someone else taking `ivar`
-# while this repository was still private. release-plz takes the first real
-# release to 0.0.1.
-version = "0.0.0"
+# while this repository was still private.
+#
+# The first real release is 0.1.0, not 0.0.1, and the jump is deliberate: in
+# 0.0.x semver treats nothing as compatible with anything, so release-plz
+# collapses every bump — `feat` included — into a patch. That makes the version
+# number carry no information, which defeats the point of computing it from
+# conventional commits at all. From 0.1.0 on, `feat` moves the minor and `fix`
+# moves the patch.
+version = "0.1.0"
 edition = "2024"
 rust-version = "1.95.0" # MSRV. Public contract from the first publish; CI builds against it.
 # This number is NOT currently dep-driven. It was set by sysinfo 0.39 (which

@@ -71,6 +71,46 @@ for you. A pull request whose commits lack it will be asked to
 reads them to compute the version bump and write the changelog. A wrong prefix
 produces a wrong release.
 
+The prefix decides two things. First, the version bump: `feat` moves the minor,
+`fix` and `perf` move the patch, and a `!` after the type — or a
+`BREAKING CHANGE:` footer — moves the minor while the project is pre-1.0.
+Second, where the commit lands in `CHANGELOG.md`:
+
+| Prefix | Changelog section |
+| --- | --- |
+| `feat` | Added |
+| `fix` | Fixed |
+| `perf` | Changed |
+| `docs` | Documentation |
+| any type with `!` | Changed |
+| `ci`, `test`, `chore`, `style`, `refactor` | *omitted* |
+| anything else | Other |
+
+Those five are omitted because the changelog is read by someone who installed
+the binary, and they describe the repository rather than the released artifact.
+They are still in git, and they are still reviewed the same way — omission is
+not a lower bar. A breaking change is the exception that is never omitted, whatever
+its type.
+
+`Other` is not a category to aim for. A commit landing there means its message
+did not parse as a conventional commit.
+
+## How a release happens
+
+Nothing is published by hand, and no one pushes a tag.
+
+Every merge to `main` runs CI; when CI passes, `release-plz` opens or updates a
+single pull request labelled `release`, titled `chore: release vX.Y.Z`. That PR
+holds the version bump and the generated changelog, and it is force-pushed in
+place as more commits land — one PR per release cycle, not one per merge.
+
+**Merging that PR is the act of publishing.** It tags the commit, creates the
+GitHub Release, publishes to crates.io, and builds the binaries the install
+script serves. Do not merge it to "keep it tidy".
+
+If the binary build fails after a release is already out, re-run it alone: the
+`release binaries` workflow takes the tag as a `workflow_dispatch` input.
+
 ## Code of Conduct
 
 Participation is governed by the [Code of Conduct](CODE_OF_CONDUCT.md).
