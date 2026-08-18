@@ -185,7 +185,7 @@ fi
 
 # Placeholder URL: fails without curl, without mktemp, without a binary.
 run_installer FAKE_UNAME_S="Linux" FAKE_UNAME_M="x86_64" \
-    IVAR_BASE_URL="https://releases.ivar.mnzs.dev.invalid" \
+    IVAR_BASE_URL="https://releases.ivar.run.invalid" \
     IVAR_INSTALL_DIR="$DEST"
 if [ "$RUN_RC" -eq 1 ] \
     && grep -q "is a placeholder" "$WORK/run.out" \

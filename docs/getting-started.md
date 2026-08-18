@@ -19,7 +19,7 @@ takes about three minutes, and both paths below assume them.
 ## Before either path: install
 
 ```sh
-curl -fsSL ivar.mnzs.dev/install | sh
+curl -fsSL ivar.run/install | sh
 ```
 
 The script detects your platform, verifies the download's SHA-256 before making
