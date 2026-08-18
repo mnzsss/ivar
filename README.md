@@ -8,7 +8,7 @@ becomes a folder next to yours. Change a contract in `api`, regenerate the clien
 in `web`, same session, no handoff.
 
 ```sh
-curl -fsSL ivar.mnzs.dev/install | sh
+curl -fsSL ivar.run/install | sh
 ```
 
 Or, if you would rather not pipe a script into a shell:
@@ -52,7 +52,7 @@ it consumes the Linux build with no separate path.
 
 ## Documentation
 
-<https://ivar.mnzs.dev>
+<https://ivar.run>
 
 In this repo: [Concepts](docs/concepts.md) for the model,
 [Getting started](docs/getting-started.md) for the two ways in,
