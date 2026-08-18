@@ -162,3 +162,65 @@ fn is_ancestor_on_a_revision_that_does_not_exist_is_refused() {
         other => panic!("expected Refused, got {other:?}"),
     }
 }
+
+/// `divergence` reports the commits each side has that the other does not,
+/// newest-first, for two branches that share a root and diverged.
+#[test]
+fn divergence_lists_the_commits_each_side_has_that_the_other_does_not() {
+    let (_guard, dir) = utf8_temp_dir();
+    let repo = seeded_repo(&dir.join("repo"), "main");
+    git(&repo, &["checkout", "-b", "feature"]);
+    git(&repo, &["commit", "--allow-empty", "-m", "feature one"]);
+    git(&repo, &["commit", "--allow-empty", "-m", "feature two"]);
+    git(&repo, &["checkout", "main"]);
+    git(&repo, &["commit", "--allow-empty", "-m", "main one"]);
+
+    let divergence = divergence(&repo, "feature", "main").unwrap();
+
+    assert_eq!(divergence.ahead(), 2, "feature has two commits main lacks");
+    assert_eq!(divergence.behind(), 1, "main has one commit feature lacks");
+    let feature_subjects: Vec<_> = divergence
+        .local_only
+        .iter()
+        .map(|commit| commit.subject.as_str())
+        .collect();
+    assert_eq!(
+        feature_subjects,
+        vec!["feature two", "feature one"],
+        "local-only commits are newest-first"
+    );
+    assert_eq!(divergence.remote_only[0].subject, "main one");
+    // The shas are real commit ids, not empty.
+    for commit in divergence.local_only.iter().chain(&divergence.remote_only) {
+        assert!(!commit.sha.is_empty());
+    }
+}
+
+/// Two branches at the same tip have no divergence on either side.
+#[test]
+fn divergence_is_empty_when_both_sides_are_aligned() {
+    let (_guard, dir) = utf8_temp_dir();
+    let repo = seeded_repo(&dir.join("repo"), "main");
+
+    let divergence = divergence(&repo, "main", "HEAD").unwrap();
+
+    assert!(divergence.local_only.is_empty());
+    assert!(divergence.remote_only.is_empty());
+    assert_eq!(divergence.ahead(), 0);
+    assert_eq!(divergence.behind(), 0);
+}
+
+/// A revision that does not exist on either side is refused, not reported as
+/// an empty divergence.
+#[test]
+fn divergence_on_a_revision_that_does_not_exist_is_refused() {
+    let (_guard, dir) = utf8_temp_dir();
+    let repo = seeded_repo(&dir.join("repo"), "main");
+
+    let error = divergence(&repo, "does-not-exist", "HEAD").expect_err("no such revision");
+
+    match error {
+        Error::Refused { .. } => {}
+        other => panic!("expected Refused, got {other:?}"),
+    }
+}

@@ -63,6 +63,45 @@ pub enum TargetState {
     Occupied,
 }
 
+/// One commit's place in a branch-divergence report.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct CommitInfo {
+    /// The full commit id — rendered short where it is shown, but kept in full
+    /// in the value so the JSON surface is unambiguous.
+    pub sha: String,
+    /// The first line of the commit message, the sentence a human reads.
+    pub subject: String,
+}
+
+/// How a local branch and its remote counterpart relate when they cannot be
+/// fast-forwarded — the "diagnose" view of `ivar repo pull`.
+///
+/// Read-only by construction: it walks commits and counts them, and never
+/// moves a ref or touches the worktree.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct Divergence {
+    /// Commits the local branch has that the remote does not — the work that
+    /// exists only here. Empty when the branch is merely behind.
+    pub local_only: Vec<CommitInfo>,
+    /// Commits the remote has that the local branch does not — the work that
+    /// landed upstream but not here. Empty when the branch is merely ahead.
+    pub remote_only: Vec<CommitInfo>,
+}
+
+impl Divergence {
+    /// How many commits the local branch is ahead of the remote.
+    #[must_use]
+    pub fn ahead(&self) -> usize {
+        self.local_only.len()
+    }
+
+    /// How many commits the local branch is behind the remote.
+    #[must_use]
+    pub fn behind(&self) -> usize {
+        self.remote_only.len()
+    }
+}
+
 /// Everything `ivar` asks git to do.
 ///
 /// See the module doc comment for why this is a trait. [`System`] is the one
@@ -274,6 +313,22 @@ pub trait Git {
         descendant: &str,
     ) -> Result<bool, Error>;
 
+    /// How `local` and `remote` diverge in the repository at `git_dir` —
+    /// the commits each has that the other does not.
+    ///
+    /// A local, read-only question (git2), so it goes through [`read`]: it
+    /// answers the "cannot fast-forward" case of a default-branch refresh with
+    /// the exact commits on each side, so a human can tell a branch that merely
+    /// fell behind from one that genuinely diverged — and spot local commits
+    /// already re-landed upstream. Either revision must exist; a missing one is
+    /// [`Error::Refused`] with git's own sentence.
+    fn divergence(
+        &self,
+        git_dir: &Utf8Path,
+        local: &str,
+        remote: &str,
+    ) -> Result<Divergence, Error>;
+
     /// The commit id `revision` names in the repository at `git_dir` —
     /// `git rev-parse <revision>`, through git2.
     ///
@@ -444,6 +499,15 @@ impl Git for System {
         descendant: &str,
     ) -> Result<bool, Error> {
         read::is_ancestor(git_dir, ancestor, descendant)
+    }
+
+    fn divergence(
+        &self,
+        git_dir: &Utf8Path,
+        local: &str,
+        remote: &str,
+    ) -> Result<Divergence, Error> {
+        read::divergence(git_dir, local, remote)
     }
 
     fn revision_commit(&self, git_dir: &Utf8Path, revision: &str) -> Result<String, Error> {

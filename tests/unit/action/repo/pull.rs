@@ -137,6 +137,7 @@ fn pull_accepts_a_named_repo() {
         &ctx,
         PullInput {
             repo: Some("api".to_owned()),
+            diagnose: false,
         },
     )
     .unwrap();
@@ -155,6 +156,7 @@ fn pull_blocks_on_a_repo_that_is_not_in_the_manifest() {
         &ctx,
         PullInput {
             repo: Some("ghost".to_owned()),
+            diagnose: false,
         },
     )
     .unwrap_err();
@@ -266,7 +268,7 @@ fn a_non_fast_forward_branch_is_skipped_not_failed() {
     assert!(!report.is_clean());
     assert!(matches!(
         status_of(&report, "api"),
-        PullStatus::Skipped { reason } if !reason.is_empty()
+        PullStatus::Skipped { reason, .. } if !reason.is_empty()
     ));
     assert!(
         report
@@ -274,6 +276,118 @@ fn a_non_fast_forward_branch_is_skipped_not_failed() {
             .iter()
             .any(|warning| warning.subject == "api" && warning.code == "repo.pull_skipped"),
         "a skipped repo must surface as a warning"
+    );
+}
+
+/// `--diagnose` reports the local-only and remote-only commits of a skipped
+/// branch, read-only — the detail that tells a human whether the local
+/// commits are genuinely theirs or already re-landed upstream.
+#[test]
+fn diagnose_reports_the_local_and_remote_commits_of_a_diverged_branch() {
+    let (_guard, root) = hall_with(&[("api", "main")]);
+    let ctx = Ctx::new(root.clone());
+    crate::action::sync::sync(&ctx, Default::default()).unwrap();
+
+    // Local commits the remote does not have…
+    let worktree = root.join(".ivar/repos/api/main");
+    git(&worktree, &["commit", "--allow-empty", "-m", "local one"]);
+    git(&worktree, &["commit", "--allow-empty", "-m", "local two"]);
+    // …and remote commits the local does not have.
+    let origin = origin_path(&root, "api");
+    std::fs::write(origin.join("CHANGELOG.md"), "v1\n").unwrap();
+    git(&origin, &["add", "CHANGELOG.md"]);
+    git(&origin, &["commit", "-m", "remote one"]);
+
+    let report = pull(
+        &ctx,
+        PullInput {
+            repo: Some("api".to_owned()),
+            diagnose: true,
+        },
+    )
+    .unwrap();
+
+    let divergence = match status_of(&report, "api") {
+        PullStatus::Skipped {
+            divergence: Some(divergence),
+            ..
+        } => divergence,
+        other => panic!("expected a diagnosed skip, got {other:?}"),
+    };
+    assert_eq!(divergence.ahead(), 2, "two local-only commits");
+    assert_eq!(divergence.behind(), 1, "one remote-only commit");
+    let local_subjects: Vec<_> = divergence
+        .local_only
+        .iter()
+        .map(|commit| commit.subject.as_str())
+        .collect();
+    assert_eq!(local_subjects, vec!["local two", "local one"]);
+    assert_eq!(divergence.remote_only[0].subject, "remote one");
+}
+
+/// Without `--diagnose` the skip carries no divergence detail, keeping the
+/// default surface and JSON unchanged.
+#[test]
+fn a_skip_without_diagnose_carries_no_divergence() {
+    let (_guard, root) = hall_with(&[("api", "main")]);
+    let ctx = Ctx::new(root.clone());
+    crate::action::sync::sync(&ctx, Default::default()).unwrap();
+
+    let worktree = root.join(".ivar/repos/api/main");
+    git(&worktree, &["commit", "--allow-empty", "-m", "local drift"]);
+    let origin = origin_path(&root, "api");
+    std::fs::write(origin.join("CHANGELOG.md"), "v1\n").unwrap();
+    git(&origin, &["add", "CHANGELOG.md"]);
+    git(&origin, &["commit", "-m", "v1"]);
+
+    let report = pull(&ctx, PullInput::default()).unwrap();
+
+    assert!(matches!(
+        status_of(&report, "api"),
+        PullStatus::Skipped {
+            divergence: None,
+            ..
+        }
+    ));
+}
+
+/// The human surface renders a diagnosed skip with its commit lists under the
+/// "skipped" line.
+#[test]
+fn the_human_surface_renders_a_diagnosed_skip() {
+    use crate::git::CommitInfo;
+
+    let outcome = PullOutcome {
+        root: Utf8PathBuf::from("/hall"),
+        repos: vec![RepoPull {
+            repo: RepoName::new("api").unwrap(),
+            status: PullStatus::Skipped {
+                reason: "cannot fast-forward".to_owned(),
+                divergence: Some(crate::git::Divergence {
+                    local_only: vec![CommitInfo {
+                        sha: "abcdef1234567890".to_owned(),
+                        subject: "local commit".to_owned(),
+                    }],
+                    remote_only: vec![CommitInfo {
+                        sha: "1234567890abcdef".to_owned(),
+                        subject: "remote commit".to_owned(),
+                    }],
+                }),
+            },
+        }],
+    };
+
+    let mut out = Vec::new();
+    outcome.write_human(&mut out).unwrap();
+
+    assert_eq!(
+        String::from_utf8(out).unwrap(),
+        "Pulled in /hall:\n  api  skipped — cannot fast-forward\n\
+             \x20     api is 1 commit(s) ahead — only here:\n\
+             \x20       abcdef12  local commit\n\
+             \x20     api is 1 commit(s) behind — only upstream:\n\
+             \x20       12345678  remote commit\n\
+             refreshed: 0  failed: 0  skipped: 1\n"
     );
 }
 
@@ -306,6 +420,7 @@ fn the_human_surface_reports_per_repo_status_and_the_counts() {
                 repo: RepoName::new("app").unwrap(),
                 status: PullStatus::Skipped {
                     reason: "diverged".to_owned(),
+                    divergence: None,
                 },
             },
         ],
@@ -417,6 +532,7 @@ fn pull_of_a_named_repo_counts_only_that_repo() {
         &ctx,
         PullInput {
             repo: Some("web".to_owned()),
+            diagnose: false,
         },
     )
     .unwrap();

@@ -11,6 +11,14 @@
 //! The run ends with a refreshed/failed/skipped summary, and any failure
 //! exits `1` (through the [`Warning`] channel) rather than `2`.
 //!
+//! A skipped default branch — one that diverged and cannot fast-forward — is
+//! `ivar` refusing to guess. `--diagnose` turns that refusal into a report
+//! (read-only): the local-only and remote-only commits, so a human can tell a
+//! branch that merely fell behind from one that genuinely diverged, and spot
+//! local commits already re-landed upstream. The branch is never moved; the
+//! reconciliation is left to the human, because only they know whether the
+//! local commits are theirs.
+//!
 //! Because every repo costs a network round trip, the run reports which one it
 //! is on through [`Ctx::progress`] — one transient stderr line, erased before
 //! the summary is written, absent under `--json` and off a terminal. The
@@ -20,12 +28,12 @@
 
 use std::io;
 
-use camino::Utf8PathBuf;
+use camino::{Utf8Path, Utf8PathBuf};
 use serde::Serialize;
 
 use crate::domain::name::RepoName;
 use crate::error::{Failure, FixAction, Outcome, Report, Warning, WriteHuman};
-use crate::git::{self, Git, TargetState};
+use crate::git::{self, Divergence, Git, TargetState};
 use crate::infra::fs;
 use crate::infra::progress::Progress;
 use crate::store::layout::Layout;
@@ -39,6 +47,10 @@ use crate::action::Ctx;
 pub struct PullInput {
     /// The repo to refresh. `None` refreshes every repo in the manifest.
     pub repo: Option<String>,
+    /// When a repo cannot fast-forward, report the divergence in detail
+    /// (the local and remote commits each side has) instead of only the
+    /// "skipped" line. Read-only — it never moves a ref or a branch.
+    pub diagnose: bool,
 }
 
 /// What happened to one repo's default branch.
@@ -51,7 +63,13 @@ pub enum PullStatus {
     /// materialised.
     Failed { reason: String },
     /// The fetch worked but the default branch cannot fast-forward.
-    Skipped { reason: String },
+    Skipped {
+        reason: String,
+        /// The local-vs-remote divergence, when the run asked for a
+        /// diagnosis (`--diagnose`). Absent otherwise.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        divergence: Option<Divergence>,
+    },
 }
 
 /// One repo's place in a pull run.
@@ -102,8 +120,11 @@ impl WriteHuman for PullOutcome {
             match &repo.status {
                 PullStatus::Refreshed => writeln!(w, "  {}  refreshed", repo.repo)?,
                 PullStatus::Failed { reason } => writeln!(w, "  {}  FAILED — {reason}", repo.repo)?,
-                PullStatus::Skipped { reason } => {
-                    writeln!(w, "  {}  skipped — {reason}", repo.repo)?
+                PullStatus::Skipped { reason, divergence } => {
+                    writeln!(w, "  {}  skipped — {reason}", repo.repo)?;
+                    if let Some(divergence) = divergence {
+                        write_divergence(w, &repo.repo, divergence)?;
+                    }
                 }
             }
         }
@@ -113,6 +134,56 @@ impl WriteHuman for PullOutcome {
             "refreshed: {refreshed}  failed: {failed}  skipped: {skipped}"
         )
     }
+}
+
+/// The `--diagnose` detail under a skipped repo: the local-only and
+/// remote-only commits, so a human can tell a branch that fell behind from
+/// one that genuinely diverged — and spot local commits already re-landed
+/// upstream.
+fn write_divergence(
+    w: &mut impl io::Write,
+    repo: &RepoName,
+    divergence: &Divergence,
+) -> io::Result<()> {
+    let Divergence {
+        local_only,
+        remote_only,
+    } = divergence;
+
+    if !local_only.is_empty() {
+        writeln!(
+            w,
+            "      {repo} is {} commit(s) ahead — only here:",
+            local_only.len()
+        )?;
+        for commit in local_only {
+            writeln!(
+                w,
+                "        {sha:.8}  {subject}",
+                sha = commit.sha,
+                subject = commit.subject
+            )?;
+        }
+    }
+    if !remote_only.is_empty() {
+        writeln!(
+            w,
+            "      {repo} is {} commit(s) behind — only upstream:",
+            remote_only.len()
+        )?;
+        for commit in remote_only {
+            writeln!(
+                w,
+                "        {sha:.8}  {subject}",
+                sha = commit.sha,
+                subject = commit.subject
+            )?;
+        }
+    }
+    if local_only.is_empty() && remote_only.is_empty() {
+        writeln!(w, "      {repo} is neither ahead nor behind the remote")?;
+    }
+    Ok(())
 }
 
 /// Refresh one repo — or all, when `input.repo` is `None`.
@@ -134,14 +205,14 @@ pub fn pull(ctx: &Ctx, input: PullInput) -> Outcome<PullOutcome> {
     let total = targets.len();
     for (index, repo) in targets.iter().enumerate() {
         ctx.progress().step(&fetch_step(index, total, repo));
-        let status = refresh_default(&git, &layout, repo);
+        let status = refresh_default(&git, &layout, repo, input.diagnose);
         if let PullStatus::Failed { reason } = &status {
             warnings.push(Warning::new(
                 "repo.pull_failed",
                 repo.name().to_string(),
                 reason.clone(),
             ));
-        } else if let PullStatus::Skipped { reason } = &status {
+        } else if let PullStatus::Skipped { reason, .. } = &status {
             warnings.push(Warning::new(
                 "repo.pull_skipped",
                 repo.name().to_string(),
@@ -194,7 +265,12 @@ fn fetch_step(index: usize, total: usize, repo: &Repo) -> String {
 /// `pub(crate)` because [`refresh_all`] — the Smart Fetch sweep — is a loop
 /// around this same operation; the plan's "use the existing pull logic" is
 /// literally this function.
-pub(crate) fn refresh_default(git: &impl Git, layout: &Layout, repo: &Repo) -> PullStatus {
+pub(crate) fn refresh_default(
+    git: &impl Git,
+    layout: &Layout,
+    repo: &Repo,
+    diagnose: bool,
+) -> PullStatus {
     let worktree = layout.repo_worktree(repo.name(), repo.default_branch());
 
     match git.target_state(&worktree) {
@@ -239,6 +315,11 @@ pub(crate) fn refresh_default(git: &impl Git, layout: &Layout, repo: &Repo) -> P
             Ok(()) => PullStatus::Refreshed,
             Err(error) => PullStatus::Skipped {
                 reason: format!("cannot fast-forward the default branch: {error}"),
+                divergence: if diagnose {
+                    diagnose_divergence(git, &worktree, repo)
+                } else {
+                    None
+                },
             },
         },
     };
@@ -247,6 +328,20 @@ pub(crate) fn refresh_default(git: &impl Git, layout: &Layout, repo: &Repo) -> P
         let _ = fs::clear_write_bits(&worktree);
     }
     status
+}
+
+/// The local-vs-remote commit lists behind a "cannot fast-forward" report —
+/// the `--diagnose` view.
+///
+/// Reads the worktree's checked-out branch against its remote-tracking
+/// counterpart (`origin/<branch>`, the ref `fetch_branch` updates). Best-effort:
+/// if the refs cannot be read the diagnosis is `None`, so the pull's own
+/// "skipped" status still stands — a diagnosis failure must not turn a skipped
+/// repo into a failed one.
+fn diagnose_divergence(git: &impl Git, worktree: &Utf8Path, repo: &Repo) -> Option<Divergence> {
+    let branch = repo.default_branch().as_str();
+    git.divergence(worktree, branch, &format!("origin/{branch}"))
+        .ok()
 }
 
 /// Fetch-and-fast-forward every registered repo — the **Smart Fetch** sweep
@@ -268,7 +363,7 @@ pub(crate) fn refresh_all(
     let total = manifest.repos().len();
     for (index, repo) in manifest.repos().iter().enumerate() {
         progress.step(&fetch_step(index, total, repo));
-        let status = refresh_default(git, layout, repo);
+        let status = refresh_default(git, layout, repo, false);
         results.push((repo.name().clone(), status));
     }
     progress.clear();

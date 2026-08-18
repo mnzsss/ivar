@@ -182,6 +182,10 @@ pub struct RepoRemoveArgs {
 pub struct RepoPullArgs {
     /// The repo to fetch. Fetches every repo when omitted.
     pub repo: Option<String>,
+    /// When a repo cannot fast-forward, report the divergence in detail —
+    /// the local and remote commits each side has. Read-only.
+    #[arg(long)]
+    pub diagnose: bool,
 }
 
 /// Arguments for `ivar repo setup`.
@@ -880,8 +884,8 @@ impl From<RepoRemoveArgs> for remove::RemoveInput {
 
 impl From<RepoPullArgs> for pull::PullInput {
     fn from(args: RepoPullArgs) -> Self {
-        let RepoPullArgs { repo } = args;
-        Self { repo }
+        let RepoPullArgs { repo, diagnose } = args;
+        Self { repo, diagnose }
     }
 }
 

@@ -162,7 +162,7 @@ pub fn start(ctx: &Ctx, input: StartInput) -> Outcome<StartOutcome> {
                     repo.to_string(),
                     reason,
                 )),
-                pull::PullStatus::Skipped { reason } => Some(Warning::new(
+                pull::PullStatus::Skipped { reason, .. } => Some(Warning::new(
                     "session.smart_fetch_skipped",
                     repo.to_string(),
                     reason,

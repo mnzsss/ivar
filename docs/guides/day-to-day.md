@@ -101,12 +101,19 @@ to run test suites in three repos side by side.
 
 ```sh
 ivar repo pull                # fast-forward every repo's default branch
+ivar repo pull --diagnose     # …and, when a branch diverged, show what's on each side
 ivar feature rebase checkout  # rebase promoted worktrees onto their defaults
 ```
 
 `rebase` is best-effort per repo: a dirty worktree is skipped rather than
 autostashed, and a conflict aborts that repo and moves on. It will not leave you
 half-rebased across five repos.
+
+`repo pull` never rebases or resets a diverged default branch — it reports the
+branch as skipped rather than guess. `--diagnose` gives you the local-only and
+remote-only commits, so you can tell a branch that simply fell behind from one
+with local work that needs reconciling by hand (or that was already re-landed
+upstream and is safe to fast-forward).
 
 ## Deliver
 

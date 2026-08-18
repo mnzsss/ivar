@@ -138,6 +138,10 @@ Refresh one or all repos' default branches from their remotes
 | --- | --- | --- |
 | `repo` | no | The repo to fetch. Fetches every repo when omitted |
 
+| flag | value | default | description |
+| --- | --- | --- | --- |
+| `--diagnose` |  |  | When a repo cannot fast-forward, report the divergence in detail — the local and remote commits each side has. Read-only |
+
 
 ##### `ivar repo setup`
 

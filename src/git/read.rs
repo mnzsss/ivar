@@ -14,7 +14,7 @@ use camino::{Utf8Path, Utf8PathBuf};
 
 use crate::infra::fs;
 
-use super::{Error, TargetState};
+use super::{CommitInfo, Divergence, Error, TargetState};
 
 /// What is at `path`: a repository, something git does not recognise, or
 /// nothing.
@@ -186,6 +186,79 @@ pub(crate) fn revision_commit(git_dir: &Utf8Path, revision: &str) -> Result<Stri
     let repository = open(git_dir)?;
     let id = resolve(&repository, git_dir, revision)?;
     Ok(id.to_string())
+}
+
+/// How `local` and `remote` diverge in the repository at `git_dir`.
+///
+/// `local_only` is the commits reachable from `local` and not from `remote`;
+/// `remote_only` the mirror image. Both lists are newest-first, in git's own
+/// walk order.
+pub(crate) fn divergence(
+    git_dir: &Utf8Path,
+    local: &str,
+    remote: &str,
+) -> Result<Divergence, Error> {
+    let repository = open(git_dir)?;
+    let local_id = resolve(&repository, git_dir, local)?;
+    let remote_id = resolve(&repository, git_dir, remote)?;
+
+    let local_only = commits_in(&repository, git_dir, local_id, remote_id)?;
+    let remote_only = commits_in(&repository, git_dir, remote_id, local_id)?;
+
+    Ok(Divergence {
+        local_only,
+        remote_only,
+    })
+}
+
+/// Every commit reachable from `tip` and not from `base`, newest-first.
+fn commits_in(
+    repository: &git2::Repository,
+    git_dir: &Utf8Path,
+    tip: git2::Oid,
+    base: git2::Oid,
+) -> Result<Vec<CommitInfo>, Error> {
+    let mut walk = repository
+        .revwalk()
+        .map_err(|source| Error::NotARepository {
+            path: git_dir.to_path_buf(),
+            detail: source.message().to_owned(),
+        })?;
+    walk.push(tip).map_err(|source| Error::Refused {
+        command: format!("git -C {git_dir} rev-list --oneline {tip}.."),
+        detail: source.message().to_owned(),
+    })?;
+    walk.hide(base).map_err(|source| Error::Refused {
+        command: format!("git -C {git_dir} rev-list --oneline ..{base}"),
+        detail: source.message().to_owned(),
+    })?;
+
+    let mut commits = Vec::new();
+    for id in walk {
+        let id = id.map_err(|source| Error::Refused {
+            command: format!("git -C {git_dir} rev-list --oneline {tip}..{base}"),
+            detail: source.message().to_owned(),
+        })?;
+        let commit = repository
+            .find_commit(id)
+            .map_err(|source| Error::NotARepository {
+                path: git_dir.to_path_buf(),
+                detail: source.message().to_owned(),
+            })?;
+        let subject = commit
+            .summary()
+            .map_err(|source| Error::Refused {
+                command: format!("git -C {git_dir} log --format=%s {id}"),
+                detail: source.message().to_owned(),
+            })?
+            .unwrap_or("")
+            .to_owned();
+        commits.push(CommitInfo {
+            sha: id.to_string(),
+            subject,
+        });
+    }
+    Ok(commits)
 }
 
 /// Open `path` as a repository, or say clearly that it is not one.

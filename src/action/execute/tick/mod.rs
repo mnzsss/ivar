@@ -468,7 +468,7 @@ pub fn tick(ctx: &Ctx, input: TickInput) -> Outcome<TickOutcome> {
                     repo.to_string(),
                     reason,
                 )),
-                pull::PullStatus::Skipped { reason } => Some(Warning::new(
+                pull::PullStatus::Skipped { reason, .. } => Some(Warning::new(
                     "execute.tick_smart_fetch_skipped",
                     repo.to_string(),
                     reason,
