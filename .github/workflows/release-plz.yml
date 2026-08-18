@@ -20,6 +20,12 @@ jobs:
     permissions:
       contents: write
       pull-requests: read
+    # Publishing is not idempotent — a second run racing the first would try to
+    # push a tag and a crates.io version that already exist. Serialised, never
+    # cancelled: cancelling mid-publish is how a tag outlives its release.
+    concurrency:
+      group: release-plz-release-${{ github.event.workflow_run.head_branch }}
+      cancel-in-progress: false
     # Consumed by the `binaries` job below. A release-plz run that only opened a
     # PR publishes nothing and produces no tag, so `released` gates the build.
     outputs:
