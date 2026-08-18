@@ -76,9 +76,16 @@ jobs:
           ref: ${{ inputs.tag }}
           persist-credentials: false
 
+      # No toolchain input, and no `targets` input either — rust-toolchain.toml
+      # pins 1.97.1, and that is the toolchain cargo will use no matter what
+      # this step installs. Passing `targets` here adds the target to *stable*
+      # and leaves the pinned toolchain without it, which fails as `can't find
+      # crate for core` at the first cross build. Add it below instead, where
+      # rustup resolves the same toolchain cargo will.
       - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
+
+      - name: add the target to the pinned toolchain
+        run: rustup target add ${{ matrix.target }}
 
       # aarch64 Linux is the only target that is not either native or covered
       # by the macOS SDK. This sets the linker and `CC` so a plain `cargo build
