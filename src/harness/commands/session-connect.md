@@ -89,5 +89,8 @@ re-derive where the feature is in the SPDD cycle:
 - Connect re-materialises the view dir for the **session's own provider** (the
   one recorded in the session, or the hall's default for a legacy session),
   so a session relayed to OpenCode reconnects as an OpenCode session.
-- If the session dir no longer exists (stale), run `ivar session prune` to
-  clean up, then `/ivar-session-start`.
+- If connect refuses with `session.not_found`, the session's view dir is gone
+  and there is nothing to reconnect to — start a fresh one with
+  `/ivar-session-start`. `ivar session prune` is not the repair for that: it
+  removes view dirs that still **exist** but hold no readable `state.json`,
+  and a dir that is already gone is invisible to it.

@@ -10,12 +10,21 @@ explore read-only. A session bound to a feature carries everything a fresh
 agent needs to continue the feature's work: the promoted repos, the active
 plan, and instructions for re-deriving where the feature is in the SPDD cycle.
 
-## Health gate
+## Before it opens the session
 
-Session start is permitted when the hall is **operational** or **stale**. A
-stale hall shows a warning — run `ivar sync` to refresh. Structural degradation
-blocks session start with a diagnostic code and repair command. Run
-`ivar doctor` for details and `ivar sync` to repair.
+There is **no health gate**: `ivar session start` does not consult hall health
+and never refuses on it. The hall's health ladder
+(`uninitialized` / `operational` / `stale` / `degraded`) is what `ivar status`
+renders, and reading it is your call, not the command's. `ivar repo pull`
+catches up a stale hall; `ivar sync` rebuilds a degraded one; `ivar doctor`
+explains either.
+
+What session start *does* do first is a **Smart Fetch**: every registered
+repo's read-only default-branch worktree is fetched and fast-forwarded before
+the view dir is materialised. Promoted feature worktrees are never touched.
+The sweep is best-effort per repo — a repo it could not refresh warns
+(`session.smart_fetch_failed` / `session.smart_fetch_skipped`) and the session
+still opens.
 
 ## Steps
 
@@ -73,9 +82,11 @@ pick the feature's work back up.
 - **Always use the CLI commands.** Never create `.ivar/features/`,
   `.ivar/sessions/`, state files, or lock files manually. The schema is strict
   — wrong field names cause silent failures.
-- **Before creating a new session**, run `ivar status` to check for existing
-  sessions. If one already exists for the feature, use `/ivar-session-connect`
-  instead.
+- **Before creating a new session**, check whether one is already live:
+  `ivar session connect --feature <feature>` connects when exactly one is, and
+  names every candidate when more than one is. (No command lists sessions, and
+  `ivar status` reports repo health only.) If one already exists for the
+  feature, use `/ivar-session-connect` instead.
 - Multiple sessions may bind the same feature at once (e.g. one per provider);
   they share that feature's worktrees.
 - If a repo is read-only, you cannot write to it. Run `/ivar-promote <repo>`

@@ -24,12 +24,15 @@ ivar feature review <feature>
 
 ## What happens
 
-1. Generates a VSCode multi-root workspace file with promoted repos as
-   editable worktrees and non-promoted repos as read-only context.
+1. Writes `<hall>/<feature>.code-workspace` — a VSCode multi-root workspace
+   with one folder per repo in the hall: a promoted repo opens on its feature
+   worktree (editable), every other on its read-only default-branch worktree,
+   as context.
 2. You review the workspace, then decide whether the feature is ready to
    deliver.
 
 ## Requirements
 
-- The feature must exist and have at least one promoted repo.
-- The feature must be in the appropriate lifecycle state for the operation.
+- The feature must exist. That is the only precondition — there is no
+  lifecycle gate, and a feature with nothing promoted still opens (every
+  folder is simply read-only context).

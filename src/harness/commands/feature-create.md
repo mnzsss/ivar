@@ -22,7 +22,9 @@ ivar feature create <child> --parent <current>
 ## What happens
 
 1. Creates `.ivar/features/<name>/` with the feature's state.
-2. Sets the branch name (defaults to `feat/<name>`).
+2. Sets the branch name. It defaults to the feature name itself — `<name>`,
+   not `feat/<name>`. Use `--branch` for a branch a feature name cannot spell,
+   such as `feat/login`.
 3. No repos are promoted yet — use `ivar feature promote <feature> <repo>` to
    enable writes.
 4. With `--parent <feature>`, the child's `base` is the parent's branch, and

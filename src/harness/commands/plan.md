@@ -39,11 +39,10 @@ artifacts.
    - Non-functional requirements (performance, security)
    - Constraints
 
-3. Call `ivar plan approve <feature> requirements` only after the user has
-   reviewed the artifact.
-
-4. **Pause for human approval.** Show the requirements to the user. Only
+3. **Pause for human approval.** Show the requirements to the user. Only
    proceed after they approve.
+
+4. Call `ivar plan approve <feature> requirements`.
 
 ## Phase 2: Analysis
 
@@ -106,15 +105,15 @@ Write them exactly like this:
 - OP-API-CONTRACT
 - OP-API-HANDLER
 write_contract:
-- src/api/checkout.rs
-- src/api/checkout_test.rs
+- storefront/src/api/checkout.rs
+- storefront/src/api/checkout_test.rs
 
 ## Operation details
 
 **OP-API-CONTRACT** — Define the request and response types for `POST
 /checkout`, including the `410` a closed cart answers with.
 
-- `touches`: src/api/checkout.rs
+- `touches`: storefront/src/api/checkout.rs
 - `tests`: a closed cart answers `410`; an open one answers `200`
 - `doneWhen`: the contract compiles and both tests pass
 
@@ -137,8 +136,13 @@ The rules behind that shape:
 - The bullets under it are **operation ids and nothing else** — `- OP-SLUG`,
   one per line, following `OP-<SLUG>` (e.g. `OP-API-CONTRACT`).
 - `write_contract:` switches the bullets that follow to the paths that
-  workstream may write. `ivar feature execute replan` compares this list to
-  decide which workstreams a revision affects, so it is load-bearing.
+  workstream may write. **Every path starts with the repo name** —
+  `<repo>/<path>`, as in `storefront/src/api/checkout.rs`. Repos are mounted
+  at the view dir's own root, so a path written without its repo segment
+  (`src/api/checkout.rs`) matches nothing: the guard denies every write the
+  workstream attempts, and it denies them without explaining why. `ivar
+  feature execute replan` also compares this list to decide which workstreams
+  a revision affects, so it is load-bearing twice over.
 - Every id needs a `**OP-SLUG**` entry under `## Operation details`. The
   entry's text is handed to the executor verbatim and runs until the next
   declared `**OP-***` marker or the next heading, so a lead paragraph followed
@@ -154,7 +158,8 @@ The rules behind that shape:
 
 After the plan is approved, the execution graph must be approved separately:
 
-1. Call `ivar feature execute prepare <feature> --graph-json <path>`.
+1. Call `ivar feature execute prepare <feature> --graph-json <path>
+   --session "$IVAR_SESSION_ID"`.
 2. When the board awaits approval, show the generated graph to the user.
 3. After approval, call `ivar feature execute approve <feature>` — this crosses
    the execution-graph gate.
@@ -174,7 +179,8 @@ At any point, check approval gate status:
   re-approval of affected gates.
 - **Replan mode**: If execution is in-flight and the Plan needs structural
   changes, revise the plan and fold it into the board with
-  `ivar feature execute replan <feature> --plan <plan-path>`. Behavior-changing
+  `ivar feature execute replan <feature> --plan <plan-path> --graph-json
+  <graph-path>` — both flags are required. Behavior-changing
   revisions pause affected workstreams until each acknowledges via
   `ivar feature execute ack-revision <feature> --workstream <id>`. Execution
   resumes only after all affected workstreams acknowledge.
@@ -192,6 +198,6 @@ When a request arrives while a feature is mid-flight, choose exactly one path:
   child, and do not ask permission. The executor reports such requests; the
   coordinator creates.
 - **Structural correction to the approved plan** → `ivar feature execute
-  replan <feature> --plan <plan-path>`.
+  replan <feature> --plan <plan-path> --graph-json <graph-path>`.
 - **Implementation-only local divergence** → `ivar feature execute reconcile
   <feature> --workstream <id> --description <text>`.

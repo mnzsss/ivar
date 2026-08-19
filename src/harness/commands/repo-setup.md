@@ -11,9 +11,14 @@ run codegen). `ivar` runs this script:
 
 - During **`ivar sync`** — against each repo's default-branch worktree.
 - On the first **Promote** of that repo — against its new feature-branch
-  worktree. Setup failure at promote is **non-fatal**: the repo stays promoted
-  and a warning is printed; the script can be re-run with
-  `ivar repo setup <repo> --force-setup`.
+  worktree. Setup failure at promote is **non-fatal**: the repo stays promoted,
+  its promotion is recorded as `failed`, and a `feature.setup_script_failed`
+  warning names the worktree that was not bootstrapped.
+
+  Note that `ivar repo setup` re-runs the script against the repo's
+  **default-branch** worktree only, and so does `ivar sync`. Neither
+  re-bootstraps a feature worktree — finish that one by hand, in the worktree
+  the warning names.
 
 ## Usage
 
@@ -36,7 +41,8 @@ run it.
 ## Steps
 
 1. **Inspect the repo.** Read the repo's read-only default-branch checkout (or
-   its symlink in the current session's `repos/<repo>/`). Detect, in order:
+   its symlink at the current session path's own root, `<repo>/`). Detect, in
+   order:
    - **Package manager** from the lockfile: `pnpm-lock.yaml` → `pnpm install`,
      `bun.lockb` → `bun install`, `yarn.lock` → `yarn install`,
      `package-lock.json` → `npm ci`.
@@ -113,7 +119,8 @@ A failing hook warns and the session still opens.
 - **`.ivar/setups/` is committed and team-shared.** Whatever you write ships to
   every teammate who clones the hall. Keep it generic to the repo, not specific
   to one machine, and never embed secrets.
-- **Setup failure at promote is non-fatal** — the repo stays promoted and a
-  warning is printed. Keep the script safe to re-run.
+- **Setup failure at promote is non-fatal** — the repo stays promoted, the
+  promotion records `failed`, and a warning is printed. Keep the script safe to
+  re-run: nothing re-runs it for you in a feature worktree.
 - **Keep it lean.** Bootstrap what a worktree needs to be editable, not a full
   test/CI pipeline.

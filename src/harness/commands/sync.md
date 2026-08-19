@@ -36,6 +36,9 @@ directories belongs to you and is never touched. Don't hand-author
 - After editing `ivar.json` (adding or removing repos or providers).
 - After updating the `ivar` package (shipped commands added, removed, or
   changed).
-- When `ivar session start` warns that the config is stale.
-- When `ivar doctor` reports structural degradation — sync may repair it by
-  rematerialising config and repos.
+- When `ivar doctor` or `ivar status` reports the hall **degraded** — a repo
+  never cloned, a default worktree gone — since sync is what rematerialises
+  config and repos.
+
+A hall reported **stale** is a different problem: it means a repo is behind its
+remote, and `ivar repo pull` is what catches it up. Sync does not fetch.

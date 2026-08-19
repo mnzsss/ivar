@@ -21,7 +21,8 @@ to a Feature.
 ## Steps
 
 1. **Check active session**
-   - Run `ivar status` to see if a session exists.
+   - `$IVAR_SESSION_ID` is the signal: no command lists sessions, and
+     `ivar status` reports the hall's repo health, not its sessions.
    - If `$IVAR_SESSION_ID` is set and its session has no feature → continue the
      existing discovery.
    - If `$IVAR_SESSION_ID` is set and its session is feature-bound → refuse:
@@ -40,8 +41,9 @@ to a Feature.
 
 3. **Discover**
    - Ask one question at a time. Never ask multiple questions in a single turn.
-   - Read files, search the codebase (`repos/<name>/` inside the session path),
-     run read-only commands.
+   - Read files, search the codebase (each repo is mounted at the session
+     path's own root, as `<name>/` — there is no `repos/` level), run
+     read-only commands.
    - **Never write to repos during discovery.** All repos are read-only.
    - Build understanding of:
      - Problem or opportunity
