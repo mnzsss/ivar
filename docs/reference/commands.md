@@ -484,16 +484,16 @@ Bind a discovery session to a feature (one-way), moving its view dir into the fe
 
 ##### `ivar session stop`
 
-Stop a session — tear down its view dir and end any running harness
+Stop a session — tear down its view dir and end any running harness. Omitting the session stops *every* session in the hall
 
 | argument | required | description |
 | --- | --- | --- |
-| `session` | no | The session to stop — its id, or a unique prefix of one. Stops the most recent session on the current feature when omitted |
+| `session` | no | The session to stop — its id, or a unique prefix of one. Omitting it stops **every** session in the hall: every discovery session and every feature's sessions, not just this feature's and not just the most recent. Pass `$IVAR_SESSION_ID` to stop only your own. |
 
 
 ##### `ivar session prune`
 
-Remove stale sessions that are no longer bound to any feature
+Remove dead sessions: view dirs that exist but hold no readable `state.json`. A session with a readable record is never touched
 
 
 ##### `ivar session relay`
