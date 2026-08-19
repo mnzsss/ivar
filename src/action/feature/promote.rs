@@ -39,6 +39,30 @@
 //! The setup script (if the repo has one) runs in the new worktree, exactly
 //! as `sync` runs it in the default worktree — a fresh worktree shares
 //! history but not untracked files, so `node_modules`/`.env` need booting.
+//!
+//! A script that fails does **not** fail the promotion, and for the same
+//! reason `sync` treats its own setup failures as warnings: by the time the
+//! script runs, the branch, the worktree and the promotion record are already
+//! on disk. The repo *is* promoted. Raising here would exit non-zero over a
+//! state that stands, and leave the record claiming `ready` for a worktree
+//! that was never bootstrapped. Instead the promotion is recorded as
+//! [`WorktreeState::Failed`] and the failure is reported as the warning
+//! `feature.setup_script_failed`.
+//!
+//! # Live sessions are repointed
+//!
+//! A session's View Dir links each repo once, when the session opens: the
+//! feature worktree for a promoted repo, the read-only default-branch
+//! worktree for every other. Promotion moves a repo across that line, so
+//! every live session of the feature is re-materialised here — the same
+//! idempotent step `session connect` runs.
+//!
+//! Without it the promotion is invisible to the session that asked for it:
+//! the agent keeps editing through a symlink into the read-only default
+//! worktree, whose write bits the kernel has cleared. Re-materialising one
+//! session can fail without the promotion being wrong, so a session that
+//! cannot be repointed warns (`session.not_repointed`) and the rest are
+//! still repointed.
 
 use std::io;
 
@@ -47,14 +71,17 @@ use serde::Serialize;
 
 use crate::domain::feature::{Feature, WorktreeState, effective_base};
 use crate::domain::name::{BranchName, FeatureName, RepoName};
+use crate::domain::session::SessionState;
 use crate::error::{Failure, FixAction, Outcome, Report, Warning, WriteHuman};
 use crate::git::{self, Git, TargetState};
 use crate::infra::{fs, hash, proc};
 use crate::store::layout::Layout;
+use crate::store::manifest::Manifest;
 use crate::store::setup_receipt::Receipt;
 
 use super::super::{discover_hall, read_manifest};
 use super::mutation;
+use crate::action::session::{lookup, view};
 use crate::action::{Ctx, SETUP_INTERPRETER, worktree_env};
 
 /// What `ivar feature promote` needs.
@@ -86,7 +113,10 @@ pub struct PromoteOutcome {
     /// leave the worktree at very different commits, and only the user knows
     /// which one they meant.
     pub adopted_branch: bool,
-    /// Whether the repo's setup script ran in the new worktree.
+    /// Whether the repo's setup script ran to a clean exit in the new
+    /// worktree. `false` covers both "the repo has no script" and "the script
+    /// failed" — the two are told apart by the `feature.setup_script_failed`
+    /// warning, which only the second carries.
     pub setup_ran: bool,
 }
 
@@ -114,9 +144,12 @@ impl WriteHuman for PromoteOutcome {
 ///
 /// Fails (`Blocked`) when the feature does not exist, when the repo is not in
 /// `ivar.json`, or when the repo is already promoted — each names its way out.
-/// Fails (`Failed`) when git cannot create the branch or the setup script
-/// dies; the promotion record is written **after** the worktree lands, so a
-/// failed promote leaves no dangling "promoted" claim behind.
+/// Fails (`Failed`) when git cannot create the branch; the promotion record is
+/// written **after** the worktree lands, so a failed promote leaves no
+/// dangling "promoted" claim behind.
+///
+/// A failing setup script and a session that cannot be repointed are both
+/// warnings, not failures — see the module doc.
 pub fn promote(ctx: &Ctx, input: PromoteInput) -> Outcome<PromoteOutcome> {
     let layout = discover_hall(ctx)?;
     let manifest = read_manifest(&layout)?;
@@ -266,7 +299,7 @@ pub fn promote(ctx: &Ctx, input: PromoteInput) -> Outcome<PromoteOutcome> {
     feature.set_worktree_state(&repo_name, WorktreeState::Ready);
     feature.write(&layout)?;
 
-    let setup_ran = run_setup_script(
+    let (setup_ran, setup_failure) = run_setup_script(
         &git,
         &layout,
         &repo_name,
@@ -274,6 +307,17 @@ pub fn promote(ctx: &Ctx, input: PromoteInput) -> Outcome<PromoteOutcome> {
         &feature.branch,
         &feature.name,
     )?;
+    if let Some(warning) = setup_failure {
+        // The worktree exists but was never bootstrapped: say so on the
+        // record, so `feature status` does not report it as ready.
+        feature.set_worktree_state(&repo_name, WorktreeState::Failed);
+        feature.write(&layout)?;
+        warnings.push(warning);
+    }
+
+    // The repo has crossed from read-only to writable. Every session already
+    // open on this feature still links the old side of that line.
+    warnings.extend(repoint_live_sessions(&layout, &manifest, &feature)?);
 
     Ok(Report::with_warnings(
         PromoteOutcome {
@@ -290,12 +334,14 @@ pub fn promote(ctx: &Ctx, input: PromoteInput) -> Outcome<PromoteOutcome> {
 
 /// Run the repo's setup script in the feature worktree, if there is one.
 ///
-/// `Ok(false)` when the repo has no script. Output is streamed, not captured,
-/// the same as `sync` — a `pnpm install` is minutes long.
+/// Returns whether the script ran cleanly, and the warning to report when it
+/// did not. `(false, None)` means the repo has no script. Output is streamed,
+/// not captured, the same as `sync` — a `pnpm install` is minutes long.
 ///
-/// A script that fails is recorded as [`WorktreeState::Failed`] so the next
-/// promote/sync retries it, and the promotion record already on disk is
-/// updated before returning.
+/// A non-zero exit is data, not an error: the caller records
+/// [`WorktreeState::Failed`] and reports the warning. Only the steps that must
+/// succeed for the answer to mean anything — hashing the script, spawning it,
+/// writing the receipt — still raise.
 fn run_setup_script(
     git: &impl git::Git,
     layout: &Layout,
@@ -303,10 +349,10 @@ fn run_setup_script(
     worktree: &camino::Utf8Path,
     branch: &BranchName,
     feature: &FeatureName,
-) -> Result<bool, Failure> {
+) -> Result<(bool, Option<Warning>), Failure> {
     let script = layout.setup_script(repo);
     if !fs::is_file(&script)? {
-        return Ok(false);
+        return Ok((false, None));
     }
 
     let fingerprint = hash::file(&script)?;
@@ -318,7 +364,7 @@ fn run_setup_script(
     // ran here — impossible on a brand-new worktree, but `force`-style
     // re-promotes after a demote would hit it.
     if !Receipt::should_run(receipt.as_ref(), &fingerprint, false) {
-        return Ok(true);
+        return Ok((true, None));
     }
 
     let code = proc::inherit(&setup_command(
@@ -327,24 +373,64 @@ fn run_setup_script(
     Receipt::write(&git_dir, &Receipt::of_run(&fingerprint, code))?;
 
     if code != Some(0) {
-        // Record the failure so the next sync/promote retries.
         let ended = match code {
             Some(code) => format!("exited {code}"),
             None => "was killed by a signal".to_owned(),
         };
-        return Err(Failure::failed(
-            "feature.setup_script_failed",
-            format!("`{script}` {ended}"),
-        )
-        .expected("the setup script to exit 0")
-        .actual(ended)
-        .fix(FixAction::safe(
-            "feature.read_setup_output",
-            "Read the script's output above — it ran with its own stdout and stderr attached.",
-        )));
+        return Ok((
+            false,
+            Some(Warning::new(
+                "feature.setup_script_failed",
+                repo.as_str(),
+                format!(
+                    "`{script}` {ended}; `{repo}` is promoted but its worktree at `{worktree}` \
+                     is not bootstrapped — read the script's output above, then run the \
+                     remaining steps in that worktree yourself"
+                ),
+            )),
+        ));
     }
 
-    Ok(true)
+    Ok((true, None))
+}
+
+/// Re-materialise every live session of `feature`, so a session that opened
+/// before this promotion sees the feature worktree instead of the read-only
+/// default-branch one.
+///
+/// This is the same idempotent step `session connect` runs, against each
+/// session's **own** provider — a session opened under OpenCode is
+/// re-materialised as an OpenCode session, never as the hall's default.
+///
+/// A session that cannot be re-materialised is reported and skipped: the
+/// branch, the worktree and the promotion record are already on disk, so
+/// failing the promotion over one session's view dir would be the larger lie.
+fn repoint_live_sessions(
+    layout: &Layout,
+    manifest: &Manifest,
+    feature: &Feature,
+) -> Result<Vec<Warning>, Failure> {
+    let mut warnings = Vec::new();
+    for session in lookup::list_feature(layout, &feature.name)? {
+        let provider = session
+            .state
+            .as_ref()
+            .map(SessionState::provider)
+            .unwrap_or_else(|| manifest.providers().default_provider());
+        match view::materialise(layout, manifest, Some(feature), provider, &session.view_dir) {
+            Ok(report) => warnings.extend(report.warnings),
+            Err(failure) => warnings.push(Warning::new(
+                "session.not_repointed",
+                session.id.to_string(),
+                format!(
+                    "could not re-materialise this session's view dir ({}); reconnect it with \
+                     `ivar session connect {}`",
+                    failure.what, session.id
+                ),
+            )),
+        }
+    }
+    Ok(warnings)
 }
 
 /// The setup script's invocation, carrying the `IVAR_*` environment contract

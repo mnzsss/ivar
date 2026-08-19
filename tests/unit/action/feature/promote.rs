@@ -10,8 +10,9 @@ use crate::action::feature::create::CreateInput;
 use crate::action::feature::create::create as create_action;
 use crate::action::hall::{self, InitInput};
 use crate::domain::feature::Feature;
-use crate::domain::name::{BranchName, HallName};
+use crate::domain::name::{BranchName, HallName, SessionId};
 use crate::domain::provider::Provider;
+use crate::domain::session::SessionState;
 use crate::error::Status;
 use crate::store::manifest::{Manifest, Providers, Repo};
 use crate::test_support::{git, hall_root, seeded_repo};
@@ -468,4 +469,82 @@ fn rev_parse_args(path: &camino::Utf8Path, args: &[&str]) -> String {
         .output()
         .expect("git runs");
     String::from_utf8(output.stdout).unwrap().trim().to_owned()
+}
+
+#[test]
+fn a_failing_setup_script_leaves_the_repo_promoted_and_warns() {
+    let (_guard, root) = hall_with_feature();
+    let script = Layout::at(root.clone()).setup_script(&RepoName::new("api").unwrap());
+    fs::ensure_dir(script.parent().unwrap()).unwrap();
+    fs::write_text(&script, "#!/usr/bin/env bash\nexit 3\n").unwrap();
+    let ctx = Ctx::new(root.clone());
+
+    let report = promote(&ctx, promote_input("checkout", "api")).unwrap();
+
+    // Bootstrapping a worktree is a step *after* promoting it, and a step that
+    // fails does not un-promote the repo. It is reported, not raised.
+    assert!(root.join(".ivar/repos/api/checkout/README.md").exists());
+    assert!(!report.value.setup_ran);
+    assert!(
+        report
+            .warnings
+            .iter()
+            .any(|warning| warning.code == "feature.setup_script_failed"),
+        "expected a setup-script warning, got {:?}",
+        report.warnings
+    );
+
+    // The promotion carries the failure, so `feature status` says the worktree
+    // is not bootstrapped rather than claiming it is ready.
+    let feature = Feature::read(
+        &Layout::at(root.clone()),
+        &FeatureName::new("checkout").unwrap(),
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(
+        feature.worktree_state(&RepoName::new("api").unwrap()),
+        Some(WorktreeState::Failed)
+    );
+}
+
+#[test]
+fn promote_repoints_live_feature_sessions_at_the_feature_worktree() {
+    let (_guard, root) = hall_with_feature();
+    let ctx = Ctx::new(root.clone());
+    let layout = Layout::at(root.clone());
+    let feature_name = FeatureName::new("checkout").unwrap();
+
+    // A live feature session, materialised *before* the promotion — the
+    // ordinary case, since a session is what you promote from.
+    let session = SessionId::new("11111111-2222-3333-4444-555555555555").unwrap();
+    let view_dir = layout.feature_session(&feature_name, &session);
+    fs::ensure_dir(&view_dir).unwrap();
+    let mut state = SessionState::new(Provider::ClaudeCode, "2026-01-01T00:00:00Z");
+    state.bind(feature_name.clone(), "2026-01-01T00:00:00Z");
+    state.write(&view_dir).unwrap();
+
+    let manifest = crate::action::read_manifest(&layout).unwrap();
+    let feature = Feature::read(&layout, &feature_name).unwrap().unwrap();
+    crate::action::session::view::materialise(
+        &layout,
+        &manifest,
+        Some(&feature),
+        Provider::ClaudeCode,
+        &view_dir,
+    )
+    .unwrap();
+    assert_eq!(
+        std::fs::read_link(view_dir.join("api")).unwrap(),
+        std::path::Path::new(root.join(".ivar/repos/api/main").as_str()),
+        "before promotion the session sees the read-only default-branch worktree"
+    );
+
+    promote(&ctx, promote_input("checkout", "api")).unwrap();
+
+    assert_eq!(
+        std::fs::read_link(view_dir.join("api")).unwrap(),
+        std::path::Path::new(root.join(".ivar/repos/api/checkout").as_str()),
+        "promote must repoint every live session of the feature at the new worktree"
+    );
 }
