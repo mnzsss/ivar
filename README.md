@@ -69,6 +69,9 @@ Commits must be signed off under the [DCO](https://developercertificate.org/):
 ## License
 
 Apache License, Version 2.0 — see [LICENSE](LICENSE) and [NOTICE](NOTICE).
+The licence covers the code, not the name or the marks: see
+[TRADEMARK.md](TRADEMARK.md), which is deliberately permissive and lists what
+needs no permission at all.
 
 Unless you explicitly state otherwise, any contribution you intentionally submit
 for inclusion in this work shall be licensed as above, without any additional
