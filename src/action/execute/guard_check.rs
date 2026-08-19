@@ -184,7 +184,9 @@ fn contract_path_allows(
             candidates.push(Utf8PathBuf::from(repo.as_str()).join(relative));
         }
     }
-    candidates.iter().any(|candidate| contract.allows(candidate))
+    candidates
+        .iter()
+        .any(|candidate| contract.allows(candidate))
 }
 
 fn require_feature(input: &GuardCheckInput) -> Result<FeatureName, Failure> {
