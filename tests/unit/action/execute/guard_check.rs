@@ -290,3 +290,57 @@ fn absent_board_returns_denied_with_no_workstream() {
     assert!(!outcome.value.allowed);
     assert!(outcome.value.workstream.is_none());
 }
+
+// -- the path the hook forwards: an absolute worktree path --------------
+//
+// The guard hook forwards the path the executor handed its tool. OpenCode and
+// Claude Code resolve the view dir's per-repo symlink to the real worktree,
+// `<hall>/.ivar/repos/<repo>/<branch>/<path>`, while the write contract names
+// its files `<repo>/<path>` — the shape `tick::launch::audit_path` writes.
+// `contract_path_allows` must relativize the absolute worktree path back into
+// that shape, or every Write/Edit is denied.
+
+/// A contract names its file `<repo>/<path>`; the hook forwards the real
+/// worktree's absolute path with the branch segment in the middle. It must be
+/// allowed.
+#[test]
+fn an_absolute_worktree_path_is_allowed_in_the_repo_s_shape() {
+    let contract = WriteContract::new(vec![
+        "gaio-backend/packages/console/src/workflows/repositories/workflow.ts".to_owned(),
+    ]);
+    let repo = RepoName::new("gaio-backend").unwrap();
+    let worktree = Utf8PathBuf::from("/hall/.ivar/repos/gaio-backend/feat/auth");
+    let resolved = worktree.join("packages/console/src/workflows/repositories/workflow.ts");
+
+    let worktrees = [(repo, worktree.clone())];
+    assert!(
+        contract_path_allows(&contract, &resolved, &worktrees),
+        "a workstream's own contracted file, addressed by the worktree's absolute path, must be allowed"
+    );
+}
+
+/// The same absolute worktree path, but to a sibling file the repo-prefixed
+/// contract does not name, is denied.
+#[test]
+fn an_absolute_worktree_path_outside_the_contract_is_denied() {
+    let contract = WriteContract::new(vec![
+        "gaio-backend/packages/console/src/workflows/repositories/workflow.ts".to_owned(),
+    ]);
+    let repo = RepoName::new("gaio-backend").unwrap();
+    let worktree = Utf8PathBuf::from("/hall/.ivar/repos/gaio-backend/feat/auth");
+    let resolved = worktree.join("packages/console/src/workflows/controllers/controller.ts");
+
+    let worktrees = [(repo, worktree)];
+    assert!(!contract_path_allows(&contract, &resolved, &worktrees));
+}
+
+/// A path that is not under any promoted worktree — the session view dir's
+/// own symlink shape, or a bare relative path — is matched as resolved,
+/// exactly as the guard behaved before the relativization existed.
+#[test]
+fn a_path_not_under_any_worktree_is_matched_as_resolved() {
+    let contract = WriteContract::new(vec!["src/".to_owned()]);
+    let resolved = Utf8PathBuf::from("/hall/src/main.rs");
+
+    assert!(contract_path_allows(&contract, &resolved, &[]));
+}
