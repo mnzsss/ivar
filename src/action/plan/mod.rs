@@ -46,7 +46,7 @@ pub(super) fn artifact_path(layout: &Layout, feature: &FeatureName, gate: Gate) 
     match gate {
         Gate::Requirements => layout.plan_dir(feature).join("requirements.md"),
         Gate::Analysis => layout.plan_dir(feature).join("analysis.md"),
-        Gate::Plan | Gate::ExecutionGraph => layout.plan_dir(feature).join("plan.md"),
+        Gate::Plan => layout.plan_dir(feature).join("plan.md"),
     }
 }
 

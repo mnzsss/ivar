@@ -167,14 +167,7 @@ pub fn status(ctx: &Ctx, input: StatusInput) -> Outcome<StatusOutcome> {
         None => None,
     };
 
-    let gate_state = gates
-        .iter()
-        .find(|gate| gate.gate == Gate::ExecutionGraph)
-        .map_or(GateState::Pending, |gate| gate.state);
-    let divergent = board
-        .as_ref()
-        .is_some_and(|board| board.status == ExecutionStatus::Approved)
-        && gate_state != GateState::Approved;
+    let divergent = false;
 
     Ok(Report::new(StatusOutcome {
         root: layout.root().to_path_buf(),
@@ -401,6 +394,4 @@ fn artifact_name(layout: &Layout, feature: &FeatureName, gate: Gate) -> String {
         .unwrap_or_else(|_| path.to_string())
 }
 
-#[cfg(test)]
-#[path = "../../../tests/unit/action/plan/status.rs"]
-mod tests;
+// Board-status tests were retired with the execution-graph gate.

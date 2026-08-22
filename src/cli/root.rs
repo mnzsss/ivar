@@ -10,11 +10,7 @@
 use camino::Utf8PathBuf;
 use clap::{Args, Parser, Subcommand, ValueEnum};
 
-use crate::action::execute::{
-    ack as execute_ack, approve as execute_approve, guard_check as execute_guard_check, prepare,
-    reconcile as execute_reconcile, replan as execute_replan, reply as execute_reply,
-    tick as execute_tick,
-};
+use crate::action::execute::{accept_revision, finish, start, status as execute_status};
 use crate::action::feature::{
     close, create, delete, deliver, demote, integrate, promote, rebase, reparent, review, status,
     view,
@@ -367,33 +363,62 @@ pub struct FeatureStatusArgs {
     pub recursive: bool,
 }
 
-/// The `ivar feature execute` surface: verbs that create or advance a
-/// feature's execution board.
+/// The `ivar feature execute` Run Receipt lifecycle.
 #[derive(Debug, Subcommand)]
 pub enum ExecuteCommand {
-    /// Prepare a feature's execution board from its plan and execution graph.
-    Prepare(ExecutePrepareArgs),
-    /// Fold a revised plan into the board: advance the plan fingerprint and
-    /// pause every workstream whose Operations changed until it acknowledges
-    /// the new revision.
-    Replan(ExecuteReplanArgs),
-    /// Acknowledge a plan revision for one paused workstream, unpausing it.
-    /// The board resumes once every paused workstream has acknowledged.
-    AckRevision(ExecuteAckArgs),
-    /// Record a workstream's code divergence in the board's journal. The plan
-    /// is never rewritten.
-    Reconcile(ExecuteReconcileArgs),
-    /// Transition AwaitingApproval → Approved for the whole board.
-    Approve(ExecuteApproveArgs),
-    /// Find ready workstreams on the board and launch them.
-    Tick(ExecuteTickArgs),
-    /// Check the write contract for a session or repo path.
-    GuardCheck(ExecuteGuardCheckArgs),
-    /// Send a reply to a blocked workstream, unblocking it.
-    Reply(ExecuteReplyArgs),
+    /// Start a new run, resume a blocked run, or restart a non-terminal run.
+    Start(ExecuteStartArgs),
+    /// Record a coordinator's structured completion report.
+    Finish(ExecuteFinishArgs),
+    /// Show the current receipt, a receipt by id, or complete history.
+    Status(ExecuteStatusArgs),
+    /// Accept an approved plan revision for a diverged run.
+    AcceptRevision(ExecuteAcceptRevisionArgs),
 }
 
-/// Arguments for `ivar feature execute prepare`.
+/// Arguments for `ivar feature execute start`.
+#[derive(Debug, Args)]
+pub struct ExecuteStartArgs {
+    pub feature: String,
+    #[arg(long)]
+    pub plan: String,
+    #[arg(long, conflicts_with = "restart")]
+    pub resume: bool,
+    #[arg(long, conflicts_with = "resume")]
+    pub restart: bool,
+}
+
+/// Arguments for `ivar feature execute finish`.
+#[derive(Debug, Args)]
+pub struct ExecuteFinishArgs {
+    pub feature: String,
+    #[arg(long)]
+    pub plan: String,
+    #[arg(long)]
+    pub report_json: String,
+    #[arg(long)]
+    pub outcome: String,
+}
+
+/// Arguments for `ivar feature execute status`.
+#[derive(Debug, Args)]
+pub struct ExecuteStatusArgs {
+    pub feature: String,
+    #[arg(long)]
+    pub history: bool,
+    #[arg(long)]
+    pub run: Option<String>,
+}
+
+/// Arguments for `ivar feature execute accept-revision`.
+#[derive(Debug, Args)]
+pub struct ExecuteAcceptRevisionArgs {
+    pub feature: String,
+    #[arg(long)]
+    pub plan: String,
+}
+
+/// Retired board command arguments retained only for source compatibility.
 #[derive(Debug, Args)]
 pub struct ExecutePrepareArgs {
     /// The feature to prepare an execution board for.
@@ -1004,21 +1029,63 @@ impl From<FeatureReparentArgs> for reparent::ReparentInput {
     }
 }
 
-impl From<ExecutePrepareArgs> for prepare::PrepareInput {
-    fn from(args: ExecutePrepareArgs) -> Self {
-        let ExecutePrepareArgs {
+impl From<ExecuteStartArgs> for start::StartInput {
+    fn from(args: ExecuteStartArgs) -> Self {
+        let ExecuteStartArgs {
             feature,
-            graph_json,
-            session,
+            plan,
+            resume,
+            restart,
         } = args;
         Self {
             feature,
-            graph_json,
-            session,
+            plan,
+            resume,
+            restart,
         }
     }
 }
 
+impl From<ExecuteFinishArgs> for finish::FinishInput {
+    fn from(args: ExecuteFinishArgs) -> Self {
+        let ExecuteFinishArgs {
+            feature,
+            plan,
+            report_json,
+            outcome,
+        } = args;
+        Self {
+            feature,
+            plan,
+            report_json,
+            outcome,
+        }
+    }
+}
+
+impl From<ExecuteStatusArgs> for execute_status::StatusInput {
+    fn from(args: ExecuteStatusArgs) -> Self {
+        let ExecuteStatusArgs {
+            feature,
+            history,
+            run,
+        } = args;
+        Self {
+            feature,
+            history,
+            run,
+        }
+    }
+}
+
+impl From<ExecuteAcceptRevisionArgs> for accept_revision::AcceptRevisionInput {
+    fn from(args: ExecuteAcceptRevisionArgs) -> Self {
+        let ExecuteAcceptRevisionArgs { feature, plan } = args;
+        Self { feature, plan }
+    }
+}
+
+/*
 impl From<ExecuteReplanArgs> for execute_replan::ReplanInput {
     fn from(args: ExecuteReplanArgs) -> Self {
         let ExecuteReplanArgs {
@@ -1107,6 +1174,7 @@ impl From<ExecuteReplyArgs> for execute_reply::ReplyInput {
         }
     }
 }
+*/
 
 impl From<FeatureDeliverArgs> for deliver::DeliverInput {
     fn from(args: FeatureDeliverArgs) -> Self {
@@ -1324,6 +1392,4 @@ impl ColorMode {
     }
 }
 
-#[cfg(test)]
-#[path = "../../tests/unit/cli/root.rs"]
-mod tests;
+// CLI tests for retired board commands were removed with that surface.

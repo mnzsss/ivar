@@ -1,10 +1,10 @@
-//! `ivar plan approve <gate>` and `ivar plan invalidate <gate>` — the four
+//! `ivar plan approve <gate>` and `ivar plan invalidate <gate>` — the three
 //! approval gates.
 //!
 //! # The gates
 //!
-//! Each feature's SPDD lifecycle has four gates — Requirements, Analysis,
-//! Plan, and Execution Graph — crossed in that order. A gate is crossed by an
+//! Each feature's SPDD lifecycle has three gates — Requirements, Analysis,
+//! and Plan — crossed in that order. A gate is crossed by an
 //! explicit `plan approve`, which records a SHA-256 fingerprint of the
 //! artifact's content. Crossing a gate requires the gate immediately upstream
 //! to be approved first; Requirements is the root of the chain and is always
@@ -16,8 +16,8 @@
 //! fingerprint no longer matches the file. `approve` reconciles the stored
 //! state against the current files before doing anything else, and every
 //! drift it finds invalidates that gate **and everything downstream of it**:
-//! changing `requirements.md` sets Analysis, Plan, and Execution Graph to
-//! `NeedsRevision`. This is the CONTEXT.md contract — "a gate once crossed
+//! changing `requirements.md` sets Analysis and Plan to `NeedsRevision`. This
+//! is the CONTEXT.md contract — "a gate once crossed
 //! blocks edits to its artifact unless the gate is invalidated by a change to
 //! an upstream artifact". The gates cannot stop a human from editing Markdown;
 //! what they do is refuse to keep treating the artifact as approved once its
@@ -140,25 +140,6 @@ pub fn approve(ctx: &Ctx, input: ApproveInput) -> Outcome<ApproveOutcome> {
     let layout = discover_hall(ctx)?;
     let feature = FeatureName::new(input.feature)?;
     let gate = Gate::parse(&input.gate)?;
-
-    // The execution-graph gate has exactly one writer: `ivar feature execute
-    // approve`. `plan approve` refusing it here is what prevents the
-    // board/gate divergence the predecessor TS shipped — a gate with two
-    // approvers (one of which was unreachable) is precisely how that bug was
-    // born.
-    if gate == Gate::ExecutionGraph {
-        return Err(Failure::blocked(
-            "plan.approve_execution_graph_via_execute",
-            "the `execution-graph` gate is approved by `ivar feature execute approve`, not `plan approve`",
-        )
-        .expected("approving the execution graph through the execute path")
-        .actual("`plan approve` cannot write the execution-graph gate")
-        .fix(FixAction::safe(
-            "execute.approve",
-            "Run `ivar feature execute approve <feature>` to approve the execution graph.",
-        )
-        .command("ivar feature execute approve")));
-    }
 
     require_feature(&layout, &feature)?;
 
