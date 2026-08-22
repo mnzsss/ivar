@@ -378,15 +378,13 @@ promotion is, how hall health is derived, which branch a repo resolves to. Being
 pure is what makes those testable without a temp directory, and what stops the
 rules from scattering into the verbs.
 
-Two clocks are the named exception: `domain::feature::execution` and
-`domain::session` each call `std::time::SystemTime::now()` directly, because
-`JournalEntry::timestamp` (and its session equivalent) is a plain `String` for
-exactly this reason — the value is written once, at construction, and nothing
-in `domain` reads it back as a clock, so routing it through `store` and back
-would cost a conversion at both ends for no invariant gained. `tests/architecture.rs`'s
-layering scan only walks `use` statements, so a fully-qualified
-`std::time::SystemTime::now()` call is invisible to it; this exception is
-enforced by review, not by the test.
+`domain::session` is the named clock exception: it calls
+`std::time::SystemTime::now()` directly because its timestamp is a plain
+`String`, written once at construction and never read back as a clock. Routing
+it through `store` and back would add conversion without strengthening an
+invariant. `tests/architecture.rs`'s layering scan only walks `use` statements,
+so a fully-qualified `std::time::SystemTime::now()` call is invisible to it;
+this exception is enforced by review, not by the test.
 
 **`tui` cannot reach `action` or `store`.** State is pushed *into* the driver by
 the host loop; the driver never fetches. This is what makes `widget.rs` a
