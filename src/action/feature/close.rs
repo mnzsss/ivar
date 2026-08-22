@@ -2,12 +2,11 @@
 //! close a feature.
 //!
 //! Closing stops the feature's live executor sessions (their view dirs under
-//! `features/<name>/sessions/`), removes its execution board
-//! (`features/<name>/execution/`), and records the outcome on `plan.md`'s
-//! frontmatter — the one committed artifact that says the feature is done and
-//! how it ended. The promotion record (`feature.json`) is deliberately left
-//! alone: the feature's worktrees and branches stay on disk until a human
-//! removes them, exactly as `demote` keeps a worktree.
+//! `features/<name>/sessions/`) and records the outcome on `plan.md`'s
+//! frontmatter. Run receipts and their archive are durable execution evidence:
+//! close preserves them, and refuses while a receipt still holds the run lock.
+//! The promotion record (`feature.json`) is deliberately left alone: the
+//! feature's worktrees and branches stay on disk until a human removes them.
 //!
 //! # Idempotency
 //!
@@ -27,10 +26,11 @@ use std::io;
 use camino::Utf8PathBuf;
 use serde::Serialize;
 
-use crate::domain::feature::{Feature, PromotionOutcome};
+use crate::domain::feature::{Feature, PromotionOutcome, RunReceipt};
 use crate::domain::name::FeatureName;
 use crate::error::{Failure, FixAction, Outcome, Report, WriteHuman};
 use crate::infra::fs;
+use crate::store::feature::run;
 
 use super::super::discover_hall;
 use super::lifecycle::{read_close, write_close};
@@ -105,6 +105,32 @@ pub fn close(ctx: &Ctx, input: CloseInput) -> Outcome<CloseOutcome> {
         ))
     })?;
 
+    // Preserve legacy execution evidence before considering close state.
+    let _ = run::import(
+        &layout,
+        &name,
+        layout.plan_dir(&name).join("plan.md"),
+        crate::domain::feature::RunId::new(uuid::Uuid::new_v4().to_string())?,
+        &crate::domain::session::rfc3339_now(),
+    )?;
+    if let Some(receipt) = RunReceipt::read(&layout, &name)?
+        && receipt.holds_lock()
+    {
+        return Err(Failure::blocked(
+            "feature.close_run_active",
+            format!(
+                "feature `{name}` has a {} run (`{}`)",
+                receipt.status, receipt.id
+            ),
+        )
+        .expected("a terminal run receipt before closing the feature")
+        .actual("the current run is still resumable and holds the feature lock")
+        .fix(FixAction::safe(
+            "execute.finish_or_interrupt",
+            "Finish, accept the revision, or interrupt the run before closing the feature.",
+        )));
+    }
+
     // Idempotency gate: an outcome already recorded means the feature is
     // already closed, so the rest of this verb must not run again. The
     // recorded outcome (not the requested one) is what gets reported.
@@ -151,11 +177,9 @@ pub fn close(ctx: &Ctx, input: CloseInput) -> Outcome<CloseOutcome> {
         }
     }
 
-    // Stop live executor sessions and drop the execution board. Removing the
-    // sessions tree is what stops the sessions — liveness is a filesystem
-    // fact (a view dir exists), so removing it is the stop.
+    // Removing session views stops live sessions. Execution evidence remains
+    // intact for audit and history, even after a terminal run.
     fs::remove_path(&layout.feature_sessions_dir(&name))?;
-    fs::remove_path(&layout.execution_dir(&name))?;
 
     // Record the outcome, keeping the plan body byte-for-byte.
     let record = write_close(&layout, &name, outcome)?;

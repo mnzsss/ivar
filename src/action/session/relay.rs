@@ -2,28 +2,18 @@
 //! different provider.
 //!
 //! A thin alias over `session start --relay`: delegates to the same code path,
-//! then formats the outcome as four lines of human-readable output:
-//!
-//! ```text
-//! Session `<id>` for feature `<name>` relayed.
-//! Provider: <provider>
-//! plan preserved · N of M steps done
-//!
-//! ```
-//!
-//! The third line reads the execution board's workstream status: `N` is the
-//! count of completed workstreams, `M` is the total. When no board exists,
-//! it shows `0 of 0`.
+//! then reports the new session and, when present, the current run receipt.
+//! A receipt is audit evidence, not a scheduler: relay never infers progress
+//! or workstream counts.
 
 use std::io;
 
 use serde::Serialize;
 
 use crate::action::Ctx;
-use crate::domain::feature::ExecutionBoard;
+use crate::domain::feature::{RunReceipt, RunStatus};
 use crate::domain::name::FeatureName;
 use crate::error::{Outcome, Report, WriteHuman};
-use crate::store::layout::Layout;
 
 use super::super::discover_hall;
 use super::start;
@@ -38,7 +28,7 @@ pub struct RelayInput {
     pub provider: String,
 }
 
-/// Output of `ivar session relay`: four lines of human-readable text.
+/// Output of `ivar session relay`.
 #[derive(Debug, Clone, Serialize)]
 pub struct RelayOutcome {
     /// The new session's id.
@@ -47,9 +37,10 @@ pub struct RelayOutcome {
     pub feature: FeatureName,
     /// The provider that ran the relayed session.
     pub provider: crate::domain::provider::Provider,
-    /// Steps done / total from the execution board (only when a board exists).
-    pub steps_done: Option<u64>,
-    pub steps_total: Option<u64>,
+    /// The current run id, when this feature has an in-flight receipt.
+    pub run_id: Option<String>,
+    /// The current run status, when this feature has an in-flight receipt.
+    pub run_status: Option<RunStatus>,
 }
 
 impl WriteHuman for RelayOutcome {
@@ -60,13 +51,9 @@ impl WriteHuman for RelayOutcome {
             self.session_id, self.feature
         )?;
         writeln!(w, "Provider: {}", self.provider)?;
-        match (self.steps_done, self.steps_total) {
-            (Some(done), Some(total)) => {
-                writeln!(w, "plan preserved · {done} of {total} steps done")?;
-            }
-            _ => {
-                writeln!(w, "plan preserved · 0 of 0 steps done")?;
-            }
+        match (&self.run_id, self.run_status) {
+            (Some(id), Some(status)) => writeln!(w, "plan preserved · run {id} is {status}")?,
+            _ => writeln!(w, "plan preserved")?,
         }
         // Fourth line: blank separator.
         writeln!(w)
@@ -95,36 +82,18 @@ pub fn relay(ctx: &Ctx, input: RelayInput) -> Outcome<RelayOutcome> {
 
     let start_outcome = &report.value;
 
-    // Read the execution board for the step count.
-    let (steps_done, steps_total) = read_board_steps(&layout, &feature_name);
+    let receipt = RunReceipt::read(&layout, &feature_name)?;
 
     Ok(Report::with_warnings(
         RelayOutcome {
             session_id: start_outcome.session_id.clone(),
             feature: feature_name,
             provider: start_outcome.provider,
-            steps_done,
-            steps_total,
+            run_id: receipt.as_ref().map(|receipt| receipt.id.to_string()),
+            run_status: receipt.map(|receipt| receipt.status),
         },
         report.warnings.clone(),
     ))
-}
-
-/// Read the execution board and return (done, total) workstream counts.
-fn read_board_steps(layout: &Layout, feature_name: &FeatureName) -> (Option<u64>, Option<u64>) {
-    match ExecutionBoard::read(layout, feature_name) {
-        Ok(Some(board)) => {
-            let total = board.graph.workstreams.len() as u64;
-            let done = board
-                .graph
-                .workstreams
-                .iter()
-                .filter(|ws| ws.status == crate::domain::feature::WorkstreamStatus::Done)
-                .count() as u64;
-            (Some(done), Some(total))
-        }
-        Ok(None) | Err(_) => (None, None),
-    }
 }
 
 #[cfg(test)]

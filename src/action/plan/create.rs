@@ -30,15 +30,13 @@ const ARTIFACTS: [(&str, &str); 3] = [
     ("plan.md", PLAN_TEMPLATE),
 ];
 
-/// The plan scaffold, longer than its two siblings because `## Operations` and
-/// `## Operation details` are parsed, not read: they are what `tick` turns into
-/// executor prompts (see [`crate::action::execute::plan_ops`]). Handing over
-/// the headings the parser needs is cheaper than refusing the plan later.
+/// The plan scaffold records implementation intent and verification for a
+/// provider-native coordinator; it does not encode a local execution graph.
 const PLAN_TEMPLATE: &str = "\
 # Plan
 
-The REASONS canvas. Design sections are prose; `Operations` and `Operation
-details` are parsed — see `/ivar-plan` for the rules.
+The REASONS canvas: explain the implementation, its constraints, and how it
+will be verified.
 
 ## Entities
 
@@ -52,36 +50,14 @@ The chosen design, and what was rejected.
 
 File and module organization.
 
-## Operations
+## Changes
 
-Each `###` heading is a workstream id from the execution graph, byte for byte —
-never a phase or a cluster. Its bullets are operation ids and nothing else.
-Every `write_contract` path starts with the repo name, because repos are
-mounted at the session view dir's own root; a path without it matches nothing
-and the write guard denies the workstream silently.
-Targeting lines are optional while authoring: `provider` names the harness the
-workstream runs on and becomes explicit before approval, while `model` and
-`agent` may be omitted to use the provider's defaults.
+Describe the implementation in reviewable steps, including the files or
+interfaces each step affects.
 
-### <workstream-id>
-provider: opencode
-model: provider/model
-agent: agent-name
-- OP-<SLUG>
-write_contract:
-- <repo>/path/it/may/write.rs
+## Verification
 
-## Operation details
-
-One entry per operation id, running until the next `**OP-*` marker or the next
-heading. The text reaches the executor verbatim, bulleted metadata included.
-
-**OP-<SLUG>** — What it changes.
-
-- `dependsOn`: other operation ids, or nothing
-- `touches`: the files it changes
-- `tests`: what proves it
-- `doneWhen`: the condition that closes it
+List the checks that demonstrate the change is complete.
 
 ## Norms
 

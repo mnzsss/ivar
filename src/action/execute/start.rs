@@ -58,6 +58,7 @@ pub fn start(ctx: &Ctx, input: StartInput) -> Outcome<StartOutcome> {
             format!("feature `{feature}` does not exist"),
         )
     })?;
+    crate::action::feature::ensure_unrestricted_session_allowed(&layout, &feature_record)?;
     let approvals = ApprovalState::read(&layout, &feature)?.unwrap_or_else(ApprovalState::fresh);
     let fingerprint = hash::file(&plan)?;
     if approvals

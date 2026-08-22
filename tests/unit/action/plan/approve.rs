@@ -93,7 +93,7 @@ fn approve_requirements_transitions_the_gate_to_approved() {
 }
 
 #[test]
-fn approve_execution_graph_is_refused_naming_the_execute_path() {
+fn approve_execution_graph_is_an_unknown_gate() {
     let (_guard, root) = seeded_hall();
     let ctx = Ctx::new(root.clone());
 
@@ -107,14 +107,7 @@ fn approve_execution_graph_is_refused_naming_the_execute_path() {
     .unwrap_err();
 
     assert_eq!(failure.status, Status::Blocked);
-    assert_eq!(failure.code, "plan.approve_execution_graph_via_execute");
-    assert!(
-        failure
-            .fix_actions
-            .iter()
-            .any(|fix| fix.code == "execute.approve"),
-        "the fix must name `ivar feature execute approve`: {failure}"
-    );
+    assert_eq!(failure.code, "plan.unknown_gate");
 }
 
 #[test]
@@ -394,7 +387,7 @@ fn invalidate_marks_the_gate_and_downstream_needs_revision() {
     .unwrap();
 
     assert_eq!(report.value.gate, Gate::Requirements);
-    assert_eq!(report.value.cascaded.len(), 4);
+    assert_eq!(report.value.cascaded.len(), 3);
     for gate in Gate::ALL {
         assert_eq!(
             report.value.approvals.state(gate),
@@ -431,7 +424,7 @@ fn invalidate_is_idempotent() {
         },
     )
     .unwrap();
-    assert_eq!(first.value.cascaded.len(), 4);
+    assert_eq!(first.value.cascaded.len(), 3);
 
     let second = invalidate(
         &ctx,
@@ -483,8 +476,7 @@ fn the_approve_human_surface_lists_every_gate_state() {
         "Approved `requirements` for feature `checkout`\n\
          \x20 requirements     approved\n\
          \x20 analysis         pending\n\
-         \x20 plan             pending\n\
-         \x20 execution-graph  pending\n"
+         \x20 plan             pending\n"
     );
 }
 
@@ -510,7 +502,6 @@ fn the_invalidate_human_surface_lists_every_gate_state() {
         "Invalidated `requirements` for feature `checkout`\n\
          \x20 requirements     needs-revision\n\
          \x20 analysis         needs-revision\n\
-         \x20 plan             needs-revision\n\
-         \x20 execution-graph  needs-revision\n"
+         \x20 plan             needs-revision\n"
     );
 }

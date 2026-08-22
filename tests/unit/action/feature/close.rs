@@ -9,7 +9,9 @@ use super::*;
 use crate::action::feature::create::CreateInput;
 use crate::action::feature::create::create as create_action;
 use crate::action::hall::{self, InitInput};
-use crate::domain::name::{BranchName, RepoName};
+use crate::domain::feature::{RunBaseline, RunId, RunReceipt};
+use crate::domain::name::{BranchName, FeatureName, RepoName, SessionId};
+use crate::domain::provider::Provider;
 use crate::error::Status;
 use crate::store::layout::Layout;
 use crate::test_support::hall_root;
@@ -49,11 +51,11 @@ fn close_input(outcome: &str) -> CloseInput {
 }
 
 #[test]
-fn close_stops_sessions_drops_execution_and_records_the_outcome() {
+fn close_stops_sessions_preserves_execution_evidence_and_records_the_outcome() {
     let (_guard, root) = seeded_hall();
     let ctx = Ctx::new(root.clone());
 
-    // A live executor session view dir, and an execution board.
+    // A live executor session view dir and durable execution evidence.
     let sessions = root.join(".ivar/features/checkout/sessions/sess-1");
     fs::ensure_dir(&sessions).unwrap();
     fs::write_text(&sessions.join("state.json"), "{}").unwrap();
@@ -65,7 +67,7 @@ fn close_stops_sessions_drops_execution_and_records_the_outcome() {
     assert!(!report.value.already_closed);
     assert_eq!(report.value.outcome, PromotionOutcome::Delivered);
     assert!(!fs::exists(&sessions).unwrap());
-    assert!(!fs::exists(&root.join(".ivar/features/checkout/execution")).unwrap());
+    assert!(fs::exists(&root.join(".ivar/features/checkout/execution")).unwrap());
 
     // The outcome landed in plan.md's frontmatter, body preserved.
     let layout = Layout::at(&root);
@@ -74,6 +76,32 @@ fn close_stops_sessions_drops_execution_and_records_the_outcome() {
         .expect("a close record must exist");
     assert_eq!(record.outcome, "delivered");
     assert!(!record.closed_at.is_empty());
+}
+
+#[test]
+fn close_refuses_an_active_run_and_preserves_sessions() {
+    let (_guard, root) = seeded_hall();
+    let ctx = Ctx::new(root.clone());
+    let layout = Layout::at(root.clone());
+    let feature = FeatureName::new("checkout").unwrap();
+    let sessions = layout.feature_sessions_dir(&feature).join("sess-1");
+    fs::ensure_dir(&sessions).unwrap();
+    RunReceipt::start(
+        RunId::new("00000000-0000-0000-0000-000000000001").unwrap(),
+        feature.clone(),
+        "plans/checkout/plan.md",
+        "fingerprint",
+        RunBaseline::default(),
+        SessionId::new("00000000-0000-0000-0000-000000000002").unwrap(),
+        Provider::ClaudeCode,
+        "2026-01-01T00:00:00Z",
+    )
+    .write(&layout)
+    .unwrap();
+
+    let failure = close(&ctx, close_input("delivered")).unwrap_err();
+    assert_eq!(failure.code, "feature.close_run_active");
+    assert!(fs::exists(&sessions).unwrap());
 }
 
 #[test]
