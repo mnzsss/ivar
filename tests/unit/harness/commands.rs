@@ -370,46 +370,53 @@ fn plan_checks_relation_context_at_the_start_of_analysis() {
     assert!(after.contains("never blocks"), "was: {after}");
 }
 
-/// The execute checkpoint runs only after every workstream is terminal, and
-/// the offer is neither replan nor reconcile.
+/// `/ivar-execute` uses the Run Receipt lifecycle while the active provider
+/// coordinates native subagents without an Ivar execution board.
 #[test]
-fn execute_checks_relation_context_after_every_workstream_is_terminal() {
+fn execute_uses_receipt_lifecycle_and_native_coordination() {
     let content = embedded("execute");
 
-    assert!(
-        content.contains("every workstream is terminal"),
-        "was: {content}"
-    );
-    assert!(content.contains("journal"), "was: {content}");
-    assert!(content.contains("evidence"), "was: {content}");
-    assert!(content.contains("/ivar-relations"), "was: {content}");
-    assert!(
-        content.contains("does not alter execution completion"),
-        "was: {content}"
-    );
-    assert!(
-        content.contains("not a replan or reconcile"),
-        "was: {content}"
-    );
+    for required in [
+        "ivar plan status",
+        "ivar feature execute status",
+        "ivar feature execute start",
+        "--resume",
+        "--restart",
+        "ivar feature execute accept-revision",
+        "ivar feature execute finish",
+        "--report-json",
+        "native subagent",
+        "summary",
+        "tasks",
+        "verification",
+    ] {
+        assert!(
+            content.contains(required),
+            "missing `{required}`: {content}"
+        );
+    }
+
+    for removed in [
+        "workstream",
+        "write_contract",
+        "Execution Board",
+        "execution graph",
+        "execute tick",
+        "execute prepare",
+    ] {
+        assert!(!content.contains(removed), "stale `{removed}`: {content}");
+    }
 }
 
-/// `/ivar-execute` runs only from an identifiable feature session: it reads
-/// the session's provider from `state.json`, persists the resolved targeting
-/// into `plan.md`, and passes the session id to `prepare` via `--session` so
-/// untargeted workstreams inherit the caller's provider.
 #[test]
-fn execute_requires_the_session_and_passes_it_to_prepare() {
-    let content = embedded("execute");
+fn plan_has_three_approval_gates_and_hands_off_to_execute() {
+    let content = embedded("plan");
 
-    assert!(content.contains("IVAR_SESSION_ID"), "was: {content}");
-    assert!(content.contains("state.json"), "was: {content}");
-    assert!(content.contains("provider"), "was: {content}");
-    assert!(content.contains("--session"), "was: {content}");
-    assert!(content.contains("plan.md"), "was: {content}");
-    assert!(
-        !content.contains("provider's own default"),
-        "an omitted provider must never be described as falling back to the hall default: {content}"
-    );
+    assert!(content.contains("approve requirements"), "was: {content}");
+    assert!(content.contains("approve analysis"), "was: {content}");
+    assert!(content.contains("approve plan"), "was: {content}");
+    assert!(content.contains("/ivar-execute"), "was: {content}");
+    assert!(!content.contains("approve graph"), "was: {content}");
 }
 
 /// The deliver checkpoint sits between preview and apply, and deferring it
@@ -425,25 +432,6 @@ fn deliver_checks_relation_context_between_preview_and_apply() {
     assert!(content.contains("/ivar-relations"), "was: {content}");
     assert!(content.contains("fingerprint"), "was: {content}");
     assert!(content.contains("does not block apply"), "was: {content}");
-}
-
-/// Every checkpoint is evidence-driven, offers `/ivar-relations`, and never
-/// blocks the flow or writes `HALL.md` directly.
-#[test]
-fn every_checkpoint_is_evidence_driven_non_blocking_and_never_writes_directly() {
-    for id in ["plan", "execute", "deliver"] {
-        let content = embedded(id);
-        assert!(content.contains("evidence"), "{id}");
-        assert!(content.contains("/ivar-relations"), "{id}");
-        assert!(
-            content.contains("never"),
-            "{id} must state what it never does"
-        );
-        assert!(
-            content.contains("only"),
-            "{id} must bound the offer to evidence"
-        );
-    }
 }
 
 // -- nested subfeature coordination -----------------------------------------
@@ -467,56 +455,16 @@ fn feature_create_defines_automatic_nested_creation() {
     );
 }
 
-/// The plan command carries the decision split: isolatable work outside the
-/// approved plan becomes a child automatically; a structural correction to
-/// the approved plan is a replan; an implementation-only local divergence is
-/// a reconcile.
-#[test]
-fn plan_defines_the_child_replan_reconcile_decision_split() {
-    let content = embedded("plan");
-
-    assert!(content.contains("isolatable"), "was: {content}");
-    assert!(
-        content.contains("`ivar feature create <child> --parent <current>`"),
-        "was: {content}"
-    );
-    assert!(content.contains("replan"), "was: {content}");
-    assert!(content.contains("reconcile"), "was: {content}");
-    assert!(content.contains("Structural correction"), "was: {content}");
-    assert!(content.contains("Implementation-only"), "was: {content}");
-}
-
 /// The execute command identifies the invoking agent as the coordinator and
 /// repeats the same decision tree; it never asks permission before creating a
 /// child.
 #[test]
-fn execute_defines_the_coordinator_and_the_same_decision_tree() {
+fn execute_defines_provider_native_receipt_coordination() {
     let content = embedded("execute");
 
+    assert!(content.contains("provider-native"), "was: {content}");
     assert!(content.contains("coordinator"), "was: {content}");
-    assert!(
-        content.contains("`ivar feature create <child> --parent <current>`"),
-        "was: {content}"
-    );
-    assert!(content.contains("replan"), "was: {content}");
-    assert!(content.contains("reconcile"), "was: {content}");
-    assert!(content.contains("no permission question"), "was: {content}");
-}
-
-/// The executor boundary is in the shipped execute bytes: an executor never
-/// creates, reparents, promotes, integrates, closes, deletes, or otherwise
-/// mutates shared feature state, and stops to report instead.
-#[test]
-fn execute_bounds_the_executor_against_mutating_feature_state() {
-    let content = embedded("execute");
-
-    assert!(
-        content.contains("The executor is not the coordinator"),
-        "was: {content}"
-    );
-    assert!(content.contains("stops and reports"), "was: {content}");
-    assert!(
-        content.contains("never create, reparent, promote, integrate, close, delete, or otherwise mutate shared feature state"),
-        "was: {content}"
-    );
+    assert!(content.contains("child Feature"), "was: {content}");
+    assert!(content.contains("accept-revision"), "was: {content}");
+    assert!(content.contains("--report-json"), "was: {content}");
 }

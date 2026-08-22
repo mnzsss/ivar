@@ -18,7 +18,7 @@ description: Stop the current ivar session and clean up guards.
    > **Never run bare `ivar session stop` to end your own session.** With no
    > argument it stops *every* session in the hall — every discovery session
    > and every feature's sessions, including executor sessions another
-   > feature's `tick` is running. It is a hall-wide teardown, not "stop the
+   > feature has an active Run Receipt. It is a hall-wide teardown, not "stop the
    > current one". Reach for it only when tearing the whole hall down
    > deliberately.
 

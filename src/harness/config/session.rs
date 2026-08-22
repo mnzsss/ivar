@@ -9,11 +9,11 @@
 //!
 //! # Derived, never stored
 //!
-//! The block tells the agent to *compute* the feature's stage with
-//! `ivar plan status` and to read the plan artifacts. It does not record the
-//! stage itself: gates and the execution board remain the single source of
-//! truth (ARCHITECTURE.md, seam 7), and this file is a pure builder — no I/O,
-//! no clock — so identical inputs produce identical bytes.
+//! The block tells the agent to compute the planning and Run Receipt state with
+//! `ivar plan status` and `ivar feature execute status`. It does not record
+//! either state: those durable records remain the source of truth, and this
+//! file is a pure builder — no I/O, no clock — so identical inputs produce
+//! identical bytes.
 
 use crate::domain::name::FeatureName;
 
@@ -29,8 +29,7 @@ This View Dir is a session on feature `{feature}`. The work lives on disk —
 the plan, the branches, the promotion records; the conversation that started
 it is gone. A relay preserves the work, never the thread.
 
-Before proposing or editing anything, re-derive where the feature is in the
-SPDD cycle:
+Before proposing or editing anything, re-derive planning state:
 
 1. Run `ivar plan status {plan_rel_path}`.
 2. Read the plan artifacts that exist under `plans/{feature}/` —
@@ -39,9 +38,23 @@ SPDD cycle:
    `needs-revision`. A `needs-revision` gate means its artifact changed since
    it was approved: revise the artifact, then re-approve the gate with
    `ivar plan approve {feature} <gate>`.
-4. If the status reports an execution board, consider its state and the
-   board's journal before touching code.
-5. New human approval gates can appear at any time — pause and wait for them.
+4. New human approval gates can appear at any time — pause and wait for them.
+
+When the Plan gate is approved, inspect the current Run Receipt before acting:
+
+```sh
+ivar feature execute status {feature}
+```
+
+- No receipt or a terminal receipt: begin execution with
+  `ivar feature execute start {feature} --plan {plan_rel_path}`.
+- `active` or `blocked`: continue the logical run with
+  `ivar feature execute start {feature} --plan {plan_rel_path} --resume`.
+- `diverged`: inspect the approved revision; use
+  `ivar feature execute accept-revision {feature} --plan {plan_rel_path}`
+  before resuming, or use `--restart` when a fresh run is appropriate.
+- To abandon any non-terminal run and begin again, use
+  `ivar feature execute start {feature} --plan {plan_rel_path} --restart`.
 
 The plan files are real: edits under `plans/{feature}/` land in the hall's
 committed plan directory.
