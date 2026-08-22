@@ -249,14 +249,13 @@ own verb is tested where the facade's link says it is, and a focused child
 with no independent surface is exercised alongside it rather than carrying an
 empty file of its own. `action/sync/`'s `repo.rs`, `providers.rs`, and
 `setup.rs`; `action/feature/deliver/`'s `preview.rs` and `repos.rs`;
-`action/feature/integrate/`'s `apply.rs`; `action/execute/tick/`'s `launch.rs`
-and `events.rs`; `harness/commands/catalog.rs`; `harness/config/mcp.rs`;
-`harness/guard/claude.rs` and `opencode.rs`; `infra/fs/`'s `io.rs`,
-`symlink.rs`, and `guard.rs`; `infra/proc/`'s `ports.rs` and `streaming.rs`;
-and `tui/scrollback.rs` are all tested through the linked file of the module
-that declares them (`sync/mod.rs`, `deliver/mod.rs`, `integrate/mod.rs`,
-`tick/mod.rs`, `commands.rs`, `config/mod.rs`, `guard/mod.rs`, `fs/mod.rs`,
-`proc/mod.rs`, `driver.rs`). `action/hall/`'s five verb files predate this
+`action/feature/integrate/`'s `apply.rs`; `action/execute/`'s lifecycle files;
+`harness/commands/catalog.rs`; `harness/config/mcp.rs`; `infra/fs/`'s `io.rs`,
+`symlink.rs`, and `guard.rs`; `infra/proc/`'s `ports.rs`; and `tui/scrollback.rs`
+are all tested through the linked file of the module that declares them
+(`sync/mod.rs`, `deliver/mod.rs`, `integrate/mod.rs`, `execute/mod.rs`,
+`commands.rs`, `config/mod.rs`, `fs/mod.rs`, `proc/mod.rs`, `driver.rs`).
+`action/hall/`'s five verb files predate this
 pattern and share one file, `tests/unit/action/hall.rs`, for a different
 reason: the facade there holds the shared discovery/read/prompt helpers, not
 a re-export shell, so no per-verb split ever happened. A plain `mod.rs` that
@@ -296,11 +295,6 @@ exceptions:
 - `harness/commands.rs` and `harness/config/instructions.rs` — the reconciliation
   halves of their pairs; their declarative halves (`commands/catalog.rs`,
   `config/mcp.rs`) were extracted.
-- `harness/stream.rs` — the provider line protocol: one `ExecutorEvent`
-  vocabulary and the two parsers that produce it. Roughly a third of the file
-  is the protocol reference itself, and splitting the parsers into
-  `stream/claude.rs` and `stream/opencode.rs` would separate two functions that
-  share their field extractors and are read against each other.
 - `action/sync/mod.rs` — the public verb and report types, dispatching into
   `repo.rs`/`providers.rs`/`setup.rs`, which each stayed well under the
   trigger — a module facade whose capabilities genuinely live in focused
@@ -420,8 +414,8 @@ written through a `Progress` sink carried on `Ctx`, it is transient (erased
 before the outcome is rendered), it never appears under `--json`, and it
 defaults to `Silent` — which is what every test sees, so an action is still
 observed only through what it returns. A verb that costs a network round trip
-per repo (`repo pull`, and the Smart Fetch inside `session start` and `execute
-tick`) says which one it is on; nothing else does.
+per repo (`repo pull` and the Smart Fetch inside `session start`) says which one
+it is on; nothing else does.
 
 `Report<T>` carries `Vec<Warning>` alongside the value. A verb crossing eight
 repos where one has uncommitted changes returns seven successes and one warning —
@@ -545,7 +539,42 @@ checked beside it, so crossing the gate after a preview reads as drift like any
 other change. A preview taken before approval cannot be applied after it — the
 human approves one state, and that state includes whether the plan was approved.
 
-### 7b. Nested subfeatures: derived trees, immediate parents, and durable receipts
+The three gates — requirements, analysis, and plan — authorize execution in that
+order. An approved Plan's content fingerprint is the authorization that `execute
+start` pins into the Run Receipt; editing any approved artifact invalidates its
+downstream gates. This is planning state, not a fourth execution approval.
+
+### 7b. Run Receipts: local evidence, provider-native coordination
+
+`domain/feature/run.rs` is the provider-neutral Run Receipt aggregate; the
+`action/execute/` files validate and transition it, and `store/feature/run.rs`
+owns its paths, archive, and legacy import. This direction is intentional:
+domain types define state and invariants without I/O, actions combine those types
+with session, plan, and snapshot facts, and the store persists only the resulting
+receipt. No action joins execution filenames itself.
+
+A receipt pins an approved plan fingerprint and immutable baseline, then records
+coordinator session/provider lineage, checkpoints, structured report, and exact
+final snapshot evidence. `active`, `blocked`, and `diverged` hold the Feature's
+single-Run lock; `succeeded`, `failed`, and `interrupted` are terminal and move
+whole into the immutable archive. `feature close` refuses while that lock is
+held, but preserves all receipt history.
+
+The provider boundary is deliberately narrow. The interactive provider decides
+how to decompose the approved Plan and coordinate native subagents. Ivar neither
+spawns headless provider children nor parses their events, stores their
+transcripts, maintains their task graph, or enforces per-subagent write
+contracts. A later session may resume the same logical Run under another provider:
+the receipt records ordered lineage, not an invented continuity of an opaque
+provider conversation.
+
+Run Receipts are local state and migrate on read. The only retained board-shaped
+code is a private import DTO: it archives original legacy evidence, preserves a
+known completed outcome, and converts every legacy non-terminal record to
+`interrupted`. This compatibility path is historical input, not an active
+execution architecture.
+
+### 7c. Nested subfeatures: derived trees, immediate parents, and durable receipts
 
 A child stores exactly one fact about the lineage — `parent` — in its
 `feature.json`. Everything else is derived by `action::feature::relations`
@@ -620,7 +649,8 @@ One dotdir, one manifest, one name everywhere.
     state.json            local hall state (gitignored)
     repos/<name>/.bare/   the bare clone; every checkout is a worktree off it
     repos/<name>/<branch>/
-    features/<name>/      promotion records, Run Receipts, session view dirs
+    features/<name>/      promotion records, execution/run.json, immutable
+                          receipt and legacy-evidence archives, session view dirs
     sessions/<uuid>/      discovery session view dirs
     secrets/              hand-maintained secret material (gitignored)
     setups/<repo>.sh      per-repo setup scripts
@@ -757,6 +787,9 @@ legal).
 - **No async runtime, no daemon, no server, no socket, no telemetry.** The
   local-only claim is verifiable by `rg` over this repo, and it should stay that
   way.
+- **No Ivar-owned provider scheduler.** Provider-native subagents, dependency
+  coordination, transcripts, event folding, and per-subagent write contracts
+  belong to the active provider. Ivar keeps only the local Run Receipt boundary.
 - **No MCP surface yet.** Deferred with the cost named: the closest prior art
   shipped 67 MCP tools and had to cut to 15 after finding the agent spent its
   context orchestrating instead of reading code. Marking a verb costs an

@@ -160,14 +160,27 @@ lifecycle. Three exist: requirements, analysis, and plan. Each refuses until the
 one upstream is approved, and approving records a fingerprint of the artifact —
 so editing an approved artifact invalidates it and cascades downstream.
 
-**Run Receipt** — persistent execution evidence under
-`.ivar/features/<feature>/execution/`, surviving sessions. It records the
-approved plan fingerprint, baseline and finish diff, coordinators, checkpoints,
-and reported outcome. The provider coordinates execution; the receipt provides
-the audit boundary.
+**Run Receipt** — persistent, provider-neutral execution evidence under
+`.ivar/features/<feature>/execution/`, surviving sessions. It pins the approved
+plan fingerprint, immutable baseline, exact final snapshot evidence, coordinator
+lineage, checkpoints, structured report, and outcome. The provider coordinates
+execution and native subagents; the receipt is the local audit and recovery
+boundary, not a task scheduler or transcript store.
 
-**Accept revision** — adopts an approved plan revision for a diverged run,
-allowing its coordinator to resume.
+**Run status** — a receipt is `active`, `blocked`, `diverged`, `succeeded`,
+`failed`, or `interrupted`. The first three are non-terminal and hold the
+feature's single-run lock. The last three are terminal, archived, and release the
+lock. `blocked` waits for a human decision; `diverged` waits for an explicitly
+accepted, currently approved plan revision.
+
+**Coordinator lineage** — the ordered Feature Session IDs, providers, and
+attachment times recorded for one logical Run. A Run may resume under another
+provider, but lineage does not claim continuity of an opaque provider
+conversation, transcript, or native-subagent identity.
+
+**Accept revision** — `ivar feature execute accept-revision` adopts a currently
+approved plan revision for a diverged run and returns it to `blocked`; the
+coordinator then uses `start --resume` to make it active again.
 
 **Plan revision** — a changed plan must be approved again. A diverged Run
 Receipt adopts that approved revision through `ivar feature execute
@@ -187,10 +200,13 @@ not `depends on`: `ivar` models co-belonging, not dependency, and claims nothing
 about merge order. Added in a second pass, because a PR's URL does not exist
 before it is created.
 
-**Close** — a feature's normal terminal transition. Stops executor sessions,
-removes derived execution and session state, records `outcome` (`delivered`,
-`integrated`, or `abandoned`) and `closedAt` in `plan.md`'s frontmatter, and
-keeps the three plan files. The hall's git history is the record; there is no
+**Close** — a feature's normal terminal transition. Stops live executor
+sessions, records `outcome` (`delivered`, `integrated`, or `abandoned`) and
+`closedAt` in `plan.md`'s frontmatter, and keeps the three plan files. It
+refuses while a non-terminal Run Receipt holds the feature's Run lock; when it
+can close, it preserves Run Receipt history and legacy evidence. The hall's git
+history is the record; there is
+ no
 separate journal. `integrated` is the child's close: it requires a passing
 receipt on every promotion and freezes the whole child with no reopen.
 

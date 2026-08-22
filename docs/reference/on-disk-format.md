@@ -83,6 +83,34 @@ someone remembering to add a line is a secrets directory that eventually leaks.
 `ivar.json` is deliberately **not** inside `.ivar/`. It is the file a reviewer
 reads in a pull request, so it stays visible at the root.
 
+## Run Receipt history
+
+Execution state is local under `.ivar/features/<feature>/execution/`:
+
+```
+execution/
+  run.json                         current Run Receipt, when one exists
+  archive/runs/<run-id>.json       immutable terminal Run Receipts
+  archive/boards/<hash>.json       immutable legacy execution evidence
+```
+
+`run.json` is the feature's single-Run lock only while its status is `active`,
+`blocked`, or `diverged`. A terminal receipt is moved whole to `archive/runs/`
+and `run.json` is removed, making room for the next Run. `ivar feature close`
+preserves this directory and refuses while a non-terminal receipt holds the
+lock.
+
+A receipt contains the approved plan fingerprint, an immutable baseline
+snapshot, coordinator session/provider lineage, checkpoints, a structured report
+when supplied, and exact final snapshot evidence. It is an audit record, not a
+provider transcript, subagent registry, or scheduler state.
+
+Older local execution records are migrated on read. Ivar archives the original
+legacy record under `archive/boards/` and creates a provider-neutral receipt. A
+legacy completed record retains its known outcome; a legacy non-terminal record
+becomes `interrupted`, because its prior coordination state cannot be resumed.
+The migration is local, restartable, and never changes a repository or remote.
+
 ## Two migration policies
 
 The split matters, and it is not a detail.

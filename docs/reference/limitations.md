@@ -69,12 +69,18 @@ It means `ivar` does not prevent two agents from editing the same file. Git
 serialises individual operations; it does not resolve concurrent intent. Use
 coordination, reviews, or isolated branches when you need stronger separation.
 
-## Execution is not a sandbox
+## Execution is not a sandbox or a provider controller
 
 Ivar does not sandbox provider activity. A provider can run shell commands,
 formatters, and generators against any promoted worktree available to its
-session. The Run Receipt records the baseline and finish diff for audit, but it
-does not attribute individual writes or revert them.
+session. The Run Receipt records exact baseline and final snapshot evidence for
+audit, but it neither attributes individual writes nor reverts them.
+
+The active provider, not Ivar, creates, schedules, monitors, and synthesizes
+native subagents. Ivar does not launch headless provider children, parse provider
+transcripts, retain conversation or native-subagent identifiers, or promise that
+a logical resume restores provider context. Resuming a receipt with another
+provider attaches the current Feature Session to the same local audit record.
 
 Use repository permissions, isolated environments, or a platform sandbox when
 you need stronger write isolation.
