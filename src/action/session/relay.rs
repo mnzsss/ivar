@@ -11,6 +11,7 @@ use std::io;
 use serde::Serialize;
 
 use crate::action::Ctx;
+use crate::action::execute::import_legacy;
 use crate::domain::feature::{RunReceipt, RunStatus};
 use crate::domain::name::FeatureName;
 use crate::error::{Outcome, Report, WriteHuman};
@@ -67,6 +68,11 @@ pub fn relay(ctx: &Ctx, input: RelayInput) -> Outcome<RelayOutcome> {
     let layout = discover_hall(ctx)?;
 
     let feature_name = FeatureName::new(input.feature)?;
+    import_legacy(
+        &layout,
+        &feature_name,
+        layout.plan_dir(&feature_name).join("plan.md"),
+    )?;
 
     // Delegate to start with relay flag — same gates, same logic.
     let report = start::start(

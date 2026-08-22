@@ -45,6 +45,7 @@ pub fn start(ctx: &Ctx, input: StartInput) -> Outcome<StartOutcome> {
     let layout = discover_hall(ctx)?;
     let feature = FeatureName::new(input.feature)?;
     let plan = ctx.resolve(Utf8Path::new(&input.plan));
+    super::import_legacy(&layout, &feature, plan.clone())?;
     let session = lookup::resolve(&layout, None, Some(feature.as_str()))?;
     let state = session.state.ok_or_else(|| {
         Failure::blocked(

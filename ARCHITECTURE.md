@@ -548,10 +548,10 @@ downstream gates. This is planning state, not a fourth execution approval.
 
 `domain/feature/run.rs` is the provider-neutral Run Receipt aggregate; the
 `action/execute/` files validate and transition it, and `store/feature/run.rs`
-owns its paths, archive, and legacy import. This direction is intentional:
-domain types define state and invariants without I/O, actions combine those types
-with session, plan, and snapshot facts, and the store persists only the resulting
-receipt. No action joins execution filenames itself.
+owns its paths and archive. This direction is intentional: domain types define
+state and invariants without I/O, actions combine those types with session, plan,
+and snapshot facts, and the store persists only the resulting receipt. No action
+joins execution filenames itself.
 
 A receipt pins an approved plan fingerprint and immutable baseline, then records
 coordinator session/provider lineage, checkpoints, structured report, and exact
@@ -568,9 +568,9 @@ contracts. A later session may resume the same logical Run under another provide
 the receipt records ordered lineage, not an invented continuity of an opaque
 provider conversation.
 
-Run Receipts are local state and migrate on read. The only retained board-shaped
-code is a private import DTO: it archives original legacy evidence, preserves a
-known completed outcome, and converts every legacy non-terminal record to
+Run Receipts are local state and migrate on read. Historical execution records
+are imported into receipts before receipt-aware actions read or mutate them. A
+known completed outcome is preserved; every non-terminal historical record becomes
 `interrupted`. This compatibility path is historical input, not an active
 execution architecture.
 
@@ -599,7 +599,7 @@ re-verifies unchanged failed ones, and resumes the rest. The first receipt of an
 kind freezes the child's relationship/base/policy and promotion membership;
 a successful receipt freezes its promotion individually (even when it later goes
 stale). The scoped guards in `action::feature::mutation` enforce these
-boundaries — plan/board mutations stay legal during a partial integration, an
+boundaries — plan and receipt mutations stay legal during a partial integration, an
 unrestricted session cannot coexist with a successful receipt, and a fully
 `integrated` close freezes the whole child with no reopen.
 

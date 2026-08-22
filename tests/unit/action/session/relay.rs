@@ -16,7 +16,7 @@ use crate::action::feature::create::{self as feature_create, CreateInput};
 use crate::action::feature::promote::{self as feature_promote, PromoteInput};
 use crate::action::hall::{self, InitInput};
 use crate::action::session::start::{self as session_start, StartInput};
-use crate::domain::feature::{RunBaseline, RunId, RunReceipt, RunStatus};
+use crate::domain::feature::{RunBaseline, RunId, RunProvenance, RunReceipt, RunStatus};
 use crate::domain::name::{BranchName, HallName, RepoName};
 use crate::domain::provider::Provider;
 use crate::infra::fs;
@@ -93,6 +93,16 @@ fn hall_with_provider_session() -> (tempfile::TempDir, Utf8PathBuf) {
     .unwrap();
 
     (guard, root)
+}
+
+fn legacy_board() -> serde_json::Value {
+    serde_json::json!({
+        "version": 3,
+        "status": "completed",
+        "workstreams": [],
+        "sessions": {},
+        "journal": []
+    })
 }
 
 fn unguard_worktrees(root: &camino::Utf8Path) {
@@ -209,6 +219,37 @@ fn relay_emits_the_four_line_output_contract() {
     assert!(lines[1].starts_with("Provider:"));
     assert!(lines[2].starts_with("plan preserved"));
     assert!(lines[3].is_empty(), "fourth line must be blank");
+    unguard_worktrees(&root);
+}
+
+/// Relay imports historical execution evidence before reading the receipt.
+#[test]
+fn relay_imports_legacy_board_before_reading_the_receipt() {
+    let (_guard, root) = hall_with_provider_session();
+    let ctx = Ctx::new(root.clone());
+    let layout = Layout::at(root.clone());
+    let feature = FeatureName::new("checkout").unwrap();
+    crate::infra::fs::ensure_dir(&layout.execution_dir(&feature)).unwrap();
+    crate::infra::json::write_canonical(
+        &layout.execution_dir(&feature).join("board.json"),
+        &legacy_board(),
+    )
+    .unwrap();
+
+    let report = relay(
+        &ctx,
+        RelayInput {
+            feature: "checkout".to_owned(),
+            provider: "opencode".to_owned(),
+        },
+    )
+    .unwrap();
+
+    assert_eq!(report.value.run_status, None);
+    assert!(RunReceipt::read(&layout, &feature).unwrap().is_none());
+    let history = crate::store::feature::run::history(&layout, &feature).unwrap();
+    assert_eq!(history.len(), 1);
+    assert_eq!(history[0].provenance, RunProvenance::LegacyImport);
     unguard_worktrees(&root);
 }
 

@@ -13,6 +13,23 @@ fn cli_definition_is_valid() {
 }
 
 #[test]
+fn execute_status_rejects_history_with_a_specific_run() {
+    let error = Cli::try_parse_from([
+        "ivar",
+        "feature",
+        "execute",
+        "status",
+        "checkout",
+        "--history",
+        "--run",
+        "00000000-0000-0000-0000-000000000001",
+    ])
+    .unwrap_err();
+
+    assert_eq!(error.kind(), clap::error::ErrorKind::ArgumentConflict);
+}
+
+#[test]
 fn init_args_convert_into_init_input_without_change() {
     let args = InitArgs {
         path: Utf8PathBuf::from("some/dir"),

@@ -404,9 +404,9 @@ pub struct ExecuteFinishArgs {
 #[derive(Debug, Args)]
 pub struct ExecuteStatusArgs {
     pub feature: String,
-    #[arg(long)]
+    #[arg(long, conflicts_with = "run")]
     pub history: bool,
-    #[arg(long)]
+    #[arg(long, conflicts_with = "history")]
     pub run: Option<String>,
 }
 

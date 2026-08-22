@@ -32,6 +32,8 @@ impl WriteHuman for AcceptRevisionOutcome {
 pub fn accept_revision(ctx: &Ctx, input: AcceptRevisionInput) -> Outcome<AcceptRevisionOutcome> {
     let layout = discover_hall(ctx)?;
     let feature = FeatureName::new(input.feature)?;
+    let plan = ctx.resolve(Utf8Path::new(&input.plan));
+    super::import_legacy(&layout, &feature, plan.clone())?;
     let session = lookup::resolve(&layout, None, Some(feature.as_str()))?;
     let state = session.state.ok_or_else(|| {
         Failure::blocked(
@@ -39,7 +41,7 @@ pub fn accept_revision(ctx: &Ctx, input: AcceptRevisionInput) -> Outcome<AcceptR
             "feature session has no state record",
         )
     })?;
-    let fingerprint = hash::file(&ctx.resolve(Utf8Path::new(&input.plan)))?;
+    let fingerprint = hash::file(&plan)?;
     let approvals = ApprovalState::read(&layout, &feature)?.unwrap_or_else(ApprovalState::fresh);
     if approvals
         .record(Gate::Plan)

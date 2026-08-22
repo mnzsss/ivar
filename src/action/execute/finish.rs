@@ -36,6 +36,8 @@ impl WriteHuman for FinishOutcome {
 pub fn finish(ctx: &Ctx, input: FinishInput) -> Outcome<FinishOutcome> {
     let layout = discover_hall(ctx)?;
     let feature = FeatureName::new(input.feature)?;
+    let plan = ctx.resolve(Utf8Path::new(&input.plan));
+    super::import_legacy(&layout, &feature, plan.clone())?;
     let session = lookup::resolve(&layout, None, Some(feature.as_str()))?;
     let state = session.state.ok_or_else(|| {
         Failure::blocked(
@@ -53,7 +55,7 @@ pub fn finish(ctx: &Ctx, input: FinishInput) -> Outcome<FinishOutcome> {
     let outcome = RunOutcome::parse(&input.outcome)?;
     let mut receipt = RunReceipt::read(&layout, &feature)?
         .ok_or_else(|| Failure::blocked("execute.run_missing", "no current run receipt exists"))?;
-    let plan_fingerprint = hash::file(&ctx.resolve(Utf8Path::new(&input.plan)))?;
+    let plan_fingerprint = hash::file(&plan)?;
     let diff = snapshot::diff(&receipt.baseline)?;
     let now = rfc3339_now();
     if plan_fingerprint != receipt.plan_fingerprint {
