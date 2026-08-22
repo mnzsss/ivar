@@ -675,7 +675,7 @@ pub enum PlanCommand {
     /// Print one feature's SPDD artifact.
     Show(PlanShowArgs),
     /// Approve one of a feature's SPDD gates: requirements, analysis, plan,
-    /// or execution-graph. Requires the gate upstream of it to be approved
+    /// Requires the gate upstream of it to be approved
     /// first, and records a fingerprint of the artifact's content.
     Approve(PlanApproveArgs),
     /// Declare a revision of an approved gate, marking it — and every gate
@@ -706,7 +706,7 @@ pub struct PlanShowArgs {
 pub struct PlanApproveArgs {
     /// The feature whose gate to approve.
     pub feature: String,
-    /// The gate: `requirements`, `analysis`, `plan`, or `execution-graph`.
+    /// The gate: `requirements`, `analysis`, or `plan`.
     pub gate: String,
 }
 
@@ -715,7 +715,7 @@ pub struct PlanApproveArgs {
 pub struct PlanInvalidateArgs {
     /// The feature whose gate to invalidate.
     pub feature: String,
-    /// The gate: `requirements`, `analysis`, `plan`, or `execution-graph`.
+    /// The gate: `requirements`, `analysis`, or `plan`.
     pub gate: String,
 }
 
@@ -1392,4 +1392,6 @@ impl ColorMode {
     }
 }
 
-// CLI tests for retired board commands were removed with that surface.
+#[cfg(test)]
+#[path = "../../tests/unit/cli/root.rs"]
+mod tests;

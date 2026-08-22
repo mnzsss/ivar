@@ -9,10 +9,13 @@
 //!
 //! `promotion` — the promotion record: which repos, and each one's
 //! [`WorktreeState`], plus the `FeatureBoard` approval record. `approval` —
-//! the four SPDD approval gates (Requirements, Analysis, Plan, Execution
-//! Graph) and their fingerprints. `delivery` — the guard checks and the
+//! the three SPDD approval gates (Requirements, Analysis, Plan) and their
+//! fingerprints. `run` — the Run Receipt: one provider-coordinated execution
+//! of an approved plan, its lifecycle, its coordinator lineage, and its
+//! filesystem evidence. `delivery` — the guard checks and the
 //! delivery preview. `execution` — the plan-derived graph of workstreams plus
-//! its status and journal. `write_contract` — the glob-matching write
+//! its status and journal, retained only until the board actions are gone.
+//! `write_contract` — the glob-matching write
 //! contract each workstream must respect, split out of `execution` because
 //! it touches no board, status or journal. `integration` — the pure
 //! nested-integration vocabulary: via/strategy/override/policy, receipts and
@@ -41,6 +44,7 @@ mod execution;
 mod integration;
 #[path = "feature.rs"]
 mod promotion;
+mod run;
 mod write_contract;
 
 pub use approval::{ApprovalState, Gate, GateRecord, GateState, UnknownGate};
@@ -57,5 +61,12 @@ pub use integration::{
 };
 pub use promotion::{
     Feature, FeatureBoard, Promotion, PromotionOutcome, UnknownOutcome, WorktreeState,
+};
+pub use run::{
+    AgentRole, ChangeKind, CheckStatus, CheckpointKind, CoordinatorEntry, CoordinatorReport,
+    InvalidRunId, LegacyEvidence, LegacyJournalEntry, LegacyWorkstream, PathChange, PathEvidence,
+    PathState, RUN_CURRENT_VERSION, RepoBaseline, RepoDiff, RunBaseline, RunCheckpoint, RunDiff,
+    RunId, RunOutcome, RunProvenance, RunReceipt, RunStatus, RunTransition, TaskResult, TaskStatus,
+    UnknownRunOutcome, VerificationCheck, classify_change,
 };
 pub use write_contract::WriteContract;

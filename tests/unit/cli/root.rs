@@ -272,50 +272,6 @@ fn feature_rebase_accepts_onto() {
     }
 }
 
-/// `--session` names the caller's Ivar session id, whose provider supplies
-/// defaults for untargeted workstreams at prepare time.
-#[test]
-fn execute_prepare_accepts_session() {
-    let cli = Cli::try_parse_from([
-        "ivar",
-        "feature",
-        "execute",
-        "prepare",
-        "checkout",
-        "--graph-json",
-        "/tmp/graph.json",
-        "--session",
-        "session-123",
-    ])
-    .unwrap();
-
-    match cli.command {
-        Command::Feature(FeatureCommand::Execute(ExecuteCommand::Prepare(args))) => {
-            assert_eq!(args.feature, "checkout");
-            assert_eq!(args.graph_json, "/tmp/graph.json");
-            assert_eq!(args.session.as_deref(), Some("session-123"));
-        }
-        other => panic!("expected Execute(Prepare), got {other:?}"),
-    }
-}
-
-/// The conversion into `PrepareInput` carries the session id through
-/// unchanged — the action never reads the environment itself.
-#[test]
-fn execute_prepare_maps_session_into_prepare_input() {
-    let args = ExecutePrepareArgs {
-        feature: "checkout".to_owned(),
-        graph_json: "/tmp/graph.json".to_owned(),
-        session: Some("session-123".to_owned()),
-    };
-
-    let input: crate::action::execute::prepare::PrepareInput = args.into();
-
-    assert_eq!(input.feature, "checkout");
-    assert_eq!(input.graph_json, "/tmp/graph.json");
-    assert_eq!(input.session.as_deref(), Some("session-123"));
-}
-
 /// A future git may name an operation this build has never heard of. Parsing
 /// must still succeed — gitcredentials(7) requires the helper to ignore what
 /// it does not implement, and it cannot ignore what clap rejected first.

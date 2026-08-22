@@ -15,9 +15,21 @@
 //! the store stamps the schema version onto the JSON value, and the type
 //! accepts it as an unknown field.
 //!
-//! The feature's **execution board** lives at
+//! The feature's **Run Receipt** lives at `features/<name>/execution/run.json`,
+//! with its archive alongside it. That whole surface is [`run`]'s, including
+//! the private legacy-board import that turns a pre-receipt
+//! `execution/board.json` into a terminal imported receipt.
+//!
+//! The feature's **execution board** still lives at
 //! `features/<name>/execution/board.json`, also through the versioned store.
-//! `ExecutionBoard` carries its own `version` field, like `Feature` does.
+//! `ExecutionBoard` carries its own `version` field, like `Feature` does. It is
+//! retained only until the board actions are deleted; nothing new should reach
+//! for it, and the legacy importer reads old boards through its own private DTOs
+//! rather than through this type. The board's filename and its v0 → v3
+//! migration chain live in [`run::legacy`], not here, so both outlive the store
+//! below — N-COMPAT is permanent, and the store is not.
+
+pub mod run;
 
 use camino::Utf8PathBuf;
 
@@ -31,8 +43,9 @@ use crate::store::versioned::{Migration, Policy, Store};
 /// the type owns the number, this module just wires it into the store.
 const CURRENT_VERSION: u32 = 3;
 
-/// `approvals.json`'s schema version.
-const APPROVALS_VERSION: u32 = 1;
+/// `approvals.json`'s schema version. v2 dropped the fourth `execution_graph`
+/// gate record; see [`approvals_v1_to_v2`].
+const APPROVALS_VERSION: u32 = 2;
 
 /// `board.json`'s schema version.
 const BOARD_VERSION: u32 = 3;
@@ -46,9 +59,9 @@ const FEATURE_FILE: &str = "feature.json";
 /// directory.
 const APPROVALS_FILE: &str = "approvals.json";
 
-/// The filename each feature's execution board lives in, under its execution
-/// directory.
-const BOARD_FILE: &str = "board.json";
+/// The serde name of the gate that v2 retired. A string rather than a `Gate`
+/// variant because the whole point is that the variant is gone.
+const RETIRED_GATE: &str = "execution_graph";
 
 impl Feature {
     /// Read `features/<name>/feature.json`. `Ok(None)` when the feature has
@@ -116,12 +129,12 @@ impl ExecutionBoard {
 /// `action`.
 #[must_use]
 pub fn board_path(layout: &Layout, name: &FeatureName) -> Utf8PathBuf {
-    layout.execution_dir(name).join(BOARD_FILE)
+    run::legacy::board_path(layout, name)
 }
 
 /// Migrate a feature.json from v0 → v1. Like `board.json`'s own `v0_to_v1`
-/// step below, `feature.json` has shipped with `version: 1` stamped since it
-/// first existed — this step exists only to keep the chain contiguous from
+/// step (now in [`run::legacy`]), `feature.json` has shipped with `version: 1`
+/// stamped since it first existed — this step exists only to keep the chain contiguous from
 /// 0, which [`Store::new`] requires once any migration is registered.
 fn feature_v0_to_v1(value: serde_json::Value) -> Result<serde_json::Value, String> {
     Ok(value)
@@ -163,93 +176,6 @@ fn feature_v2_to_v3(mut value: serde_json::Value) -> Result<serde_json::Value, S
     Ok(value)
 }
 
-/// Migrate a board.json from v0 → v1. The board has never had a v0 shape:
-/// it has been written with `version: 1` since the day it shipped, like
-/// `ivar.json` itself. The step exists to keep the chain contiguous — a file
-/// with no `version` field at all is treated as v1 and passed through; the
-/// store stamps the final version regardless.
-fn v0_to_v1(value: serde_json::Value) -> Result<serde_json::Value, String> {
-    Ok(value)
-}
-
-/// Migrate a board.json from v1 → v2.
-///
-/// v2 keeps v1's shape — `status`, `graph {workstreams, plan_fingerprint}`,
-/// `journal` — and adds fields with sensible defaults: `next_event_seq` and
-/// `seq`/`event_id` on the journal (the monotonic order and identity that
-/// make tick/reply idempotent), `blocked_by` and `sessions` on the board, and
-/// `provider`/`agent` on each workstream (the executor override that lets a
-/// workstream declare where it runs).
-fn v1_to_v2(mut value: serde_json::Value) -> Result<serde_json::Value, String> {
-    let root = value.as_object_mut().ok_or("board must be an object")?;
-
-    // --- workstreams: add provider/agent where missing ----------------------
-    let graph = root
-        .get_mut("graph")
-        .and_then(|g| g.as_object_mut())
-        .ok_or("board is missing graph")?;
-    if let Some(streams) = graph.get_mut("workstreams").and_then(|w| w.as_array_mut()) {
-        for ws in streams {
-            let obj = ws.as_object_mut().ok_or("workstream not an object")?;
-            obj.entry("provider").or_insert(serde_json::Value::Null);
-            obj.entry("agent").or_insert(serde_json::Value::Null);
-        }
-    }
-
-    // --- journal: number the entries with seq/event_id ----------------------
-    let mut fallback = Vec::new();
-    let journal = root
-        .get_mut("journal")
-        .and_then(|j| j.as_array_mut())
-        .unwrap_or(&mut fallback);
-    for (index, entry) in journal.iter_mut().enumerate() {
-        let obj = entry.as_object_mut().ok_or("journal entry not an object")?;
-        let seq = (index + 1) as u64;
-        let kind = obj
-            .get("kind")
-            .and_then(serde_json::Value::as_str)
-            .map(str::to_owned)
-            .unwrap_or_else(|| "unknown".to_owned());
-        obj.entry("seq").or_insert(serde_json::Value::from(seq));
-        obj.entry("event_id")
-            .or_insert_with(|| serde_json::Value::String(format!("migrated.v1.{kind}.{seq}")));
-    }
-    let next_seq = (journal.len() + 1) as u64;
-
-    // --- board: new fields with sensible defaults ---------------------------
-    root.entry("next_event_seq")
-        .or_insert(serde_json::Value::from(next_seq));
-    root.entry("blocked_by").or_insert(serde_json::Value::Null);
-    root.entry("sessions")
-        .or_insert(serde_json::Value::Object(Default::default()));
-
-    Ok(value)
-}
-
-/// Migrate a board.json from v2 → v3.
-///
-/// v3 adds `revision: Option<String>` to every journal entry — the plan
-/// fingerprint an entry satisfies (execution evidence only; `None` for
-/// legacy entries and everything else). The type already carries
-/// `#[serde(default)]`, so a v2 entry without the field would deserialise
-/// on its own; this step still fills the explicit `null` so the persisted
-/// v3 is the canonical shape and the field is present uniformly, while
-/// rewriting nothing else — every existing field and the entry order are
-/// left byte-for-byte untouched.
-fn v2_to_v3(mut value: serde_json::Value) -> Result<serde_json::Value, String> {
-    let root = value.as_object_mut().ok_or("board must be an object")?;
-    let mut fallback = Vec::new();
-    let journal = root
-        .get_mut("journal")
-        .and_then(|j| j.as_array_mut())
-        .unwrap_or(&mut fallback);
-    for entry in journal.iter_mut() {
-        let obj = entry.as_object_mut().ok_or("journal entry not an object")?;
-        obj.entry("revision").or_insert(serde_json::Value::Null);
-    }
-    Ok(value)
-}
-
 /// The versioned store over one feature's file.
 fn store(layout: &Layout, name: &FeatureName) -> Store<Feature> {
     Store::new(
@@ -264,11 +190,43 @@ fn store(layout: &Layout, name: &FeatureName) -> Store<Feature> {
     )
 }
 
+/// Migrate an approvals.json from v1 → v2.
+///
+/// v2 is the three-gate lifecycle. A v1 file carries a fourth record for the
+/// `execution_graph` gate, and that gate no longer exists as a `Gate`
+/// variant — so the record has to go *here*, at the JSON-value layer, before
+/// `ApprovalState`'s derived `Deserialize` ever sees it. Left in place it
+/// would not read as an unknown gate to be normalized away; it would fail the
+/// whole file to parse, and a user's approvals would be unreadable rather
+/// than merely one gate shorter.
+///
+/// Everything else is untouched: the first three records keep their order,
+/// their states, and their fingerprints. What ivar knew a human had approved
+/// does not change because a fourth gate stopped existing.
+fn approvals_v1_to_v2(mut value: serde_json::Value) -> Result<serde_json::Value, String> {
+    let root = value
+        .as_object_mut()
+        .ok_or("approval state must be an object")?;
+    let gates = root
+        .get_mut("gates")
+        .and_then(serde_json::Value::as_array_mut)
+        .ok_or("approval state is missing gates")?;
+    gates.retain(|record| {
+        record.get("gate").and_then(serde_json::Value::as_str) != Some(RETIRED_GATE)
+    });
+    Ok(value)
+}
+
 /// The versioned store over one feature's approvals file.
+///
+/// The chain starts at v1, not v0: `approvals.json` has been written with
+/// `version: 1` stamped since it first existed, so there is no unversioned
+/// predecessor to migrate from and a v0 file is refused as unreachable rather
+/// than adopted.
 fn approvals_store(layout: &Layout, name: &FeatureName) -> Store<ApprovalState> {
     Store::new(
         layout.planning_dir(name).join(APPROVALS_FILE),
-        Vec::new(),
+        vec![Migration::new(1, 2, approvals_v1_to_v2)],
         APPROVALS_VERSION,
         Policy::Local,
     )
@@ -279,9 +237,9 @@ fn board_store(layout: &Layout, name: &FeatureName) -> Store<ExecutionBoard> {
     Store::new(
         board_path(layout, name),
         vec![
-            Migration::new(0, 1, v0_to_v1),
-            Migration::new(1, 2, v1_to_v2),
-            Migration::new(2, 3, v2_to_v3),
+            Migration::new(0, 1, run::legacy::v0_to_v1),
+            Migration::new(1, 2, run::legacy::v1_to_v2),
+            Migration::new(2, 3, run::legacy::v2_to_v3),
         ],
         BOARD_VERSION,
         Policy::Local,

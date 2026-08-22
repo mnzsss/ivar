@@ -8,6 +8,7 @@
 use camino::Utf8PathBuf;
 
 use super::*;
+use crate::domain::feature::RunId;
 use crate::error::Status;
 use crate::test_support::canonical_temp_dir as hall_root;
 
@@ -303,4 +304,80 @@ fn hall_instructions_and_provider_aliases_are_distinct() {
         layout.instruction_alias(&Provider::OpenCode),
         Utf8PathBuf::from("/hall/AGENTS.md")
     );
+}
+
+// -- run receipt paths ----------------------------------------------------
+
+/// Every path a Run Receipt lives at, so no filename arithmetic has to happen
+/// in `store::feature::run` — or, worse, in an action.
+#[test]
+fn run_receipt_accessors_compute_the_documented_paths() {
+    let layout = Layout::at("/hall");
+    let feature = FeatureName::new("checkout").unwrap();
+    let run = RunId::new("6f1d9e64-0d1a-4f2b-9a5c-2b7e1d4c8a33").unwrap();
+
+    assert_eq!(
+        layout.run_receipt(&feature),
+        Utf8PathBuf::from("/hall/.ivar/features/checkout/execution/run.json")
+    );
+    assert_eq!(
+        layout.run_archive_dir(&feature),
+        Utf8PathBuf::from("/hall/.ivar/features/checkout/execution/archive")
+    );
+    assert_eq!(
+        layout.run_archive_runs_dir(&feature),
+        Utf8PathBuf::from("/hall/.ivar/features/checkout/execution/archive/runs")
+    );
+    assert_eq!(
+        layout.archived_run(&feature, &run),
+        Utf8PathBuf::from(
+            "/hall/.ivar/features/checkout/execution/archive/runs/\
+             6f1d9e64-0d1a-4f2b-9a5c-2b7e1d4c8a33.json"
+        )
+    );
+    assert_eq!(
+        layout.board_archive_dir(&feature),
+        Utf8PathBuf::from("/hall/.ivar/features/checkout/execution/archive/boards")
+    );
+    assert_eq!(
+        layout.archived_board(&feature, "abc123"),
+        Utf8PathBuf::from("/hall/.ivar/features/checkout/execution/archive/boards/abc123.json")
+    );
+}
+
+/// The archive sits under the execution directory, not beside it: `feature
+/// close` and the read-only guard both reason about one directory per feature
+/// concern, and a receipt archive somewhere else would be missed by both.
+#[test]
+fn the_run_archive_lives_under_the_execution_directory() {
+    let layout = Layout::at("/hall");
+    let feature = FeatureName::new("checkout").unwrap();
+    let execution = layout.execution_dir(&feature);
+
+    for path in [
+        layout.run_receipt(&feature),
+        layout.run_archive_dir(&feature),
+        layout.run_archive_runs_dir(&feature),
+        layout.board_archive_dir(&feature),
+        layout.archived_board(&feature, "abc123"),
+    ] {
+        assert!(
+            path.starts_with(&execution),
+            "{path} must live under {execution}"
+        );
+    }
+}
+
+/// `archived_run` takes a [`RunId`], not a `&str`, and `RunId`'s only
+/// constructor validates it as a UUID. That is what stops `status --run <id>`
+/// from becoming a path traversal — the check is in the type, so no call site
+/// can forget it.
+#[test]
+fn a_run_id_cannot_carry_a_path_traversal_into_the_archive() {
+    for hostile in ["../../../etc/passwd", "..", "a/b", ""] {
+        assert!(
+            RunId::new(hostile).is_err(),
+            "`{hostile}` must never become a run id"
+        );
+    }
 }

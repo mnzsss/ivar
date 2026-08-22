@@ -12,9 +12,9 @@
 
 use camino::{Utf8Path, Utf8PathBuf};
 
-use crate::infra::fs;
+use crate::infra::{fs, hash};
 
-use super::{CommitInfo, Divergence, Error, TargetState};
+use super::{BlobEvidence, CommitInfo, Divergence, Error, TargetState};
 
 /// What is at `path`: a repository, something git does not recognise, or
 /// nothing.
@@ -278,6 +278,73 @@ fn commits_in(
         });
     }
     Ok(commits)
+}
+
+/// What `path` held in `commit`, in the repository at `worktree`.
+///
+/// Reads the commit's *tree*, not the index and not the worktree, which is
+/// what makes the answer stable across everything a run can do to HEAD:
+/// commit, amend, reset, rebase, or switch branches. The starting commit still
+/// exists, and it still holds what it held.
+///
+/// `Ok(None)` for a path the tree has nothing at, and for one that names
+/// anything other than a blob — a directory or a submodule gitlink. Neither is
+/// a file a receipt describes, and neither is reachable from the path sets
+/// that feed this (`git status` and `git diff --name-only` name blobs).
+///
+/// The hash is SHA-256 of the blob's bytes, not git's own object id, so it
+/// compares equal to a hash taken over the same path in the worktree. For a
+/// symlink the blob's bytes are the link target — the same convention
+/// `PathEvidence::symlink` records on the domain side.
+pub(crate) fn path_at_commit(
+    worktree: &Utf8Path,
+    commit: &str,
+    path: &Utf8Path,
+) -> Result<Option<BlobEvidence>, Error> {
+    let repository = open(worktree)?;
+    let id = resolve(&repository, worktree, commit)?;
+
+    let tree = repository
+        .find_commit(id)
+        .and_then(|commit| commit.tree())
+        .map_err(|source| Error::Refused {
+            command: format!("git -C {worktree} cat-file -p {commit}^{{tree}}"),
+            detail: source.message().to_owned(),
+        })?;
+
+    let entry = match tree.get_path(path.as_std_path()) {
+        Ok(entry) => entry,
+        // The one error that is an answer rather than a failure: git reports a
+        // path the tree does not hold as `NotFound`, and "nothing was there"
+        // is exactly the baseline an added file needs.
+        Err(source) if source.code() == git2::ErrorCode::NotFound => return Ok(None),
+        Err(source) => {
+            return Err(Error::Refused {
+                command: format!("git -C {worktree} cat-file -p {commit}:{path}"),
+                detail: source.message().to_owned(),
+            });
+        }
+    };
+
+    if entry.kind() != Some(git2::ObjectType::Blob) {
+        return Ok(None);
+    }
+
+    let blob = repository
+        .find_blob(entry.id())
+        .map_err(|source| Error::Refused {
+            command: format!("git -C {worktree} cat-file blob {}", entry.id()),
+            detail: source.message().to_owned(),
+        })?;
+
+    Ok(Some(BlobEvidence {
+        // `filemode` is `i32` in git2 and every real value (`100644`,
+        // `100755`, `120000`) fits a `u32`. A negative one would be a libgit2
+        // bug, not a repository state, so it reads as 0 rather than panicking
+        // in the middle of an audit.
+        mode: u32::try_from(entry.filemode()).unwrap_or(0),
+        sha256: hash::bytes(blob.content()),
+    }))
 }
 
 /// Open `path` as a repository, or say clearly that it is not one.

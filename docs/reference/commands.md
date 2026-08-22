@@ -267,103 +267,61 @@ Move a still-pristine child under a different parent, updating its parent and de
 Operate on a feature's execution board
 
 
-###### `ivar feature execute prepare`
+###### `ivar feature execute start`
 
-Prepare a feature's execution board from its plan and execution graph
+Start a new run, resume a blocked run, or restart a non-terminal run
 
 | argument | required | description |
 | --- | --- | --- |
-| `feature` | yes | The feature to prepare an execution board for |
+| `feature` | yes |  |
 
 | flag | value | default | description |
 | --- | --- | --- | --- |
-| `--graph-json` | `<GRAPH_JSON>` |  | Path to the execution graph JSON — workstreams with `id`/`title`/`operations`/`depends_on`/`write_contract` |
-| `--session` | `<SESSION>` |  | The current Ivar session whose provider supplies defaults for untargeted workstreams |
+| `--plan` | `<PLAN>` |  |  |
+| `--resume` |  |  |  |
+| `--restart` |  |  |  |
 
 
-###### `ivar feature execute replan`
+###### `ivar feature execute finish`
 
-Fold a revised plan into the board: advance the plan fingerprint and pause every workstream whose Operations changed until it acknowledges the new revision
+Record a coordinator's structured completion report
 
 | argument | required | description |
 | --- | --- | --- |
-| `feature` | yes | The feature whose board is replanned |
+| `feature` | yes |  |
 
 | flag | value | default | description |
 | --- | --- | --- | --- |
-| `--plan` | `<PLAN>` |  | Path to the revised plan.md — the new revision to fold in |
-| `--graph-json` | `<GRAPH_JSON>` |  | Path to the revised execution graph JSON — the complete replacement graph the board adopts |
-| `--allow-remove-completed` |  | `false` | Allow the revised graph to omit workstreams that have completed (`Done`). Replan refuses to remove a completed workstream without this flag — it is the explicit authorization that completed work may disappear from the board. Removed workstreams' history stays in the journal |
+| `--plan` | `<PLAN>` |  |  |
+| `--report-json` | `<REPORT_JSON>` |  |  |
+| `--outcome` | `<OUTCOME>` |  |  |
 
 
-###### `ivar feature execute ack-revision`
+###### `ivar feature execute status`
 
-Acknowledge a plan revision for one paused workstream, unpausing it. The board resumes once every paused workstream has acknowledged
+Show the current receipt, a receipt by id, or complete history
 
 | argument | required | description |
 | --- | --- | --- |
-| `feature` | yes | The feature whose board holds the paused workstream |
+| `feature` | yes |  |
 
 | flag | value | default | description |
 | --- | --- | --- | --- |
-| `--workstream` | `<WORKSTREAM>` |  | The paused workstream's id |
+| `--history` |  |  |  |
+| `--run` | `<RUN>` |  |  |
 
 
-###### `ivar feature execute reconcile`
+###### `ivar feature execute accept-revision`
 
-Record a workstream's code divergence in the board's journal. The plan is never rewritten
+Accept an approved plan revision for a diverged run
 
 | argument | required | description |
 | --- | --- | --- |
-| `feature` | yes | The feature whose board records the divergence |
+| `feature` | yes |  |
 
 | flag | value | default | description |
 | --- | --- | --- | --- |
-| `--workstream` | `<WORKSTREAM>` |  | The workstream the divergence belongs to |
-| `--description` | `<DESCRIPTION>` |  | The executor's own description of what changed and why |
-
-
-###### `ivar feature execute approve`
-
-Transition AwaitingApproval → Approved for the whole board
-
-| argument | required | description |
-| --- | --- | --- |
-| `feature` | yes | The feature whose board to approve |
-
-
-###### `ivar feature execute tick`
-
-Find ready workstreams on the board and launch them
-
-| argument | required | description |
-| --- | --- | --- |
-| `feature` | yes | The feature whose board to tick — find ready workstreams and launch them |
-
-
-###### `ivar feature execute guard-check`
-
-Check the write contract for a session or repo path
-
-| flag | value | default | description |
-| --- | --- | --- | --- |
-| `--feature` | `<FEATURE>` |  | The feature whose write contract to check |
-| `--session` | `<SESSION>` |  | The session to check the write contract for |
-| `--path` | `<PATH>` |  | A path to check the write contract against |
-
-
-###### `ivar feature execute reply`
-
-Send a reply to a blocked workstream, unblocking it
-
-| argument | required | description |
-| --- | --- | --- |
-| `message` | yes | The reply message |
-
-| flag | value | default | description |
-| --- | --- | --- | --- |
-| `--feature` | `<FEATURE>` |  | The feature whose blocked workstream to reply to |
-| `--session` | `<SESSION>` |  | The session to send a reply into |
+| `--plan` | `<PLAN>` |  |  |
 
 
 ##### `ivar feature deliver`
@@ -559,12 +517,12 @@ Print one feature's SPDD artifact
 
 ##### `ivar plan approve`
 
-Approve one of a feature's SPDD gates: requirements, analysis, plan, or execution-graph. Requires the gate upstream of it to be approved first, and records a fingerprint of the artifact's content
+Approve one of a feature's SPDD gates: requirements, analysis, plan, Requires the gate upstream of it to be approved first, and records a fingerprint of the artifact's content
 
 | argument | required | description |
 | --- | --- | --- |
 | `feature` | yes | The feature whose gate to approve |
-| `gate` | yes | The gate: `requirements`, `analysis`, `plan`, or `execution-graph` |
+| `gate` | yes | The gate: `requirements`, `analysis`, or `plan` |
 
 
 ##### `ivar plan invalidate`
@@ -574,7 +532,7 @@ Declare a revision of an approved gate, marking it — and every gate downstream
 | argument | required | description |
 | --- | --- | --- |
 | `feature` | yes | The feature whose gate to invalidate |
-| `gate` | yes | The gate: `requirements`, `analysis`, `plan`, or `execution-graph` |
+| `gate` | yes | The gate: `requirements`, `analysis`, or `plan` |
 
 
 ##### `ivar plan status`
