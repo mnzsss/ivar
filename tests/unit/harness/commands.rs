@@ -371,7 +371,7 @@ fn plan_checks_relation_context_at_the_start_of_analysis() {
 }
 
 /// `/ivar-execute` uses the Run Receipt lifecycle while the active provider
-/// coordinates native subagents without an Ivar execution board.
+/// coordinates native subagents itself.
 #[test]
 fn execute_uses_receipt_lifecycle_and_native_coordination() {
     let content = embedded("execute");

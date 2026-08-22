@@ -17,7 +17,7 @@ Then, by task:
 - **[Day to day](guides/day-to-day.md)** — feature, promote, session, deliver.
   The loop you actually spend your week in.
 - **[Planning and execution](guides/planning-and-execution.md)** — the SPDD
-  artifacts, the four approval gates, and running a plan as workstreams.
+  artifacts, the three approval gates, and the Run Receipt lifecycle.
 - **[Skills](guides/skills.md)** — sharing skills across the hall and
   materialising them per harness.
 - **[Upgrading](guides/upgrading.md)** — what moves on its own, what asks you

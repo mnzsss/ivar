@@ -355,8 +355,8 @@ pub(crate) fn worktree_dirty(path: &Utf8Path) -> Result<bool, Error> {
 /// `git -C <worktree> status --porcelain -z --untracked-files=all` — every
 /// path in the worktree that diverges from its last commit, as
 /// worktree-relative paths. Tracked edits and untracked files alike, which is
-/// the difference that matters to the caller: a file an executor *created*
-/// outside its write contract is untracked, and invisible to `git diff`.
+/// the difference that matters to the caller: a file created during a run is
+/// untracked and invisible to `git diff`.
 ///
 /// `-z` rather than the default line format because the default *quotes* any
 /// path holding a space or a non-ASCII byte, and a quoted path is one the

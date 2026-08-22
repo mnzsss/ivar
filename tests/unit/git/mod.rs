@@ -349,8 +349,7 @@ fn changed_paths_does_not_quote_a_path_with_a_space_in_it() {
 
 /// The same quoting hazard, one byte worse: a path holding a literal newline.
 /// NUL-separated records need no escaping, so the dirty half of the
-/// existing-work query must hand the path back verbatim for a contract to
-/// match.
+/// existing-work query must hand the path back verbatim for a path match.
 #[test]
 fn changed_paths_does_not_quote_a_path_with_a_newline_in_it() {
     let (_guard, worktree) = worktree_on_main();
@@ -369,8 +368,8 @@ fn changed_paths_does_not_quote_a_path_with_a_newline_in_it() {
 
 /// The committed half of the existing-work query has the same NUL contract:
 /// `git diff --name-only` in its default form quotes a path holding a space
-/// or a newline, and a quoted path never matches a write contract. `-z`
-/// returns it raw.
+/// or a newline, and a quoted path never matches the raw path. `-z` returns
+/// it raw.
 #[test]
 fn paths_committed_since_returns_paths_with_spaces_and_newlines_verbatim() {
     let (_guard, dir) = utf8_temp_dir();

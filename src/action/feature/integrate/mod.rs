@@ -237,8 +237,8 @@ pub fn integrate(ctx: &Ctx, input: IntegrateInput) -> Outcome<IntegrateOutcome> 
     }
 
     // 4. An unrestricted live session cannot coexist with a first successful
-    // receipt: the session has no write contract, so a locked promotion would
-    // be writable from it. Refused before any repo can gain one.
+    // receipt, because it could still write a locked promotion. Refused before
+    // any repo can gain one.
     if !child.has_any_receipt() && has_live_sessions(&layout, &name)? {
         return Err(Failure::blocked(
             "integration.session_live",

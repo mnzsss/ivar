@@ -264,7 +264,7 @@ Move a still-pristine child under a different parent, updating its parent and de
 
 ##### `ivar feature execute`
 
-Operate on a feature's execution board
+Manage a feature's Run Receipt lifecycle
 
 
 ###### `ivar feature execute start`
@@ -640,7 +640,7 @@ watching. There is no `--yes`.
 **`ivar session start` is the one verb that takes over your terminal.** It opens
 a TUI. Everything else prints and exits.
 
-**`ivar feature execute …` is machinery for running a plan across workstreams,
-not a verb you reach for by hand** — the plan and the board drive it. Read
-[Planning and execution](../guides/planning-and-execution.md) before using it
-directly.
+**`ivar feature execute …` manages the Run Receipt lifecycle for an approved
+plan.** The provider coordinates the work; Ivar records the execution boundary.
+Read [Planning and execution](../guides/planning-and-execution.md) before using
+it directly.

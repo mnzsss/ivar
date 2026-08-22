@@ -1,9 +1,8 @@
 //! The Run Receipt: one provider-coordinated execution of an approved plan.
 //!
-//! This replaces the execution board. A board was a *scheduler* — a graph of
-//! workstreams, a dependency wave, one provider session per workstream, and a
-//! journal of headless-child events folded back into status. A receipt is an
-//! *audit boundary*: who authorised this run, against which plan revision,
+//! This replaces the retired scheduler. A scheduler coordinated dependencies,
+//! provider sessions, and headless-child events. A receipt is an *audit
+//! boundary*: who authorised this run, against which plan revision,
 //! what the filesystem looked like when it started, what the coordinator
 //! reported, and what actually changed. The provider owns the scheduling now,
 //! so nothing here describes tasks, dependencies, or child processes.

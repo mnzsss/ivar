@@ -34,7 +34,7 @@ half-understood state file is worse than no state file.
   .ivar/secrets/                local        secret material you maintain by hand
   .ivar/state.json              local        hall state, health, bookkeeping
   .ivar/repos/                  local        bare clones and worktrees
-  .ivar/features/               local        promotion records, execution boards
+  .ivar/features/               local        promotion records, Run Receipts
   .ivar/sessions/               local        discovery-session view dirs
   .claude/commands/ivar-*.md    local        derived workflow commands (Claude Code)
   .opencode/commands/ivar-*.md  local        derived workflow commands (OpenCode)

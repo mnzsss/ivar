@@ -64,16 +64,8 @@ src/
                    verification.rs (the ordered executable checks),
                    reparent.rs, and pull_requests.rs (the shared PR operations
                    delivery and integration both use).
-    execute/       feature execute: prepare · replan · ack · reconcile ·
-                   approve · guard_check · reply, plus inbox (both ends of the
-                   human-reply channel, written by reply and read back into
-                   the prompt by tick) and tick/ — the launch orchestration in
-                   mod.rs, the per-workstream worker thread (session
-                   materialisation + spawn + stream drain) in launch.rs, and
-                   the event-folding onto the board in events.rs. Shared
-                   internals: plan_ops (the Operations parser both prompt and
-                   replan use) and targeting (session-provider resolution at
-                   prepare)
+    execute/       feature execute: start · finish · status · accept-revision,
+                   the provider-neutral Run Receipt lifecycle
     session/       start · connect · conversion · stop · prune · relay, plus
                    view (the shared View Dir materialisation: repo symlinks,
                    per-session harness config, the projected plan, the
@@ -86,16 +78,12 @@ src/
 
   domain/          pure types and invariants. No I/O, no git, no clap.
     name.rs        validated newtypes: HallName, RepoName, FeatureName, BranchName…
-    feature/       a facade over seven focused files: feature.rs (the
-                   promotion record and FeatureBoard — declared here as
-                   `promotion`, via `#[path]`, because a module cannot share
-                   the name of the directory that contains it), delivery.rs
-                   (guards and the delivery preview), approval.rs (the SPDD
-                   gates), execution.rs (the execution board and workstream
-                   graph), write_contract.rs (the glob-matching write
-                   contract each workstream must respect, split out of
-                   execution.rs because it touches no board, status or
-                   journal), integration.rs (the pure nested-integration
+    feature/       a facade over focused files: feature.rs (the promotion
+                   record and FeatureBoard — declared here as `promotion`, via
+                   `#[path]`, because a module cannot share the name of the
+                   directory that contains it), delivery.rs (guards and the
+                   delivery preview), approval.rs (the SPDD gates), run.rs
+                   (Run Receipts), integration.rs (the pure nested-integration
                    vocabulary: via/strategy/policy resolution, receipts and
                    verification evidence, and the derived integration-state
                    classifier), and base.rs (effective_base, the
@@ -298,11 +286,8 @@ exceptions:
 - `error.rs` — the single output/error envelope (`Failure`, `Status`,
   `FixAction`, `Warning`, `Report`, `Palette`).
 - `domain/name.rs` — one validation vocabulary with a common error model.
-- `domain/feature/execution.rs` — the execution board's status/journal
-  invariants and the plan-derived workstream graph. It has no child modules
-  and no `pub use`, so — unlike the facades below — it is not a facade; it is
-  simply a coherent file that stayed over the trigger after `write_contract.rs`
-  was carved out of it.
+- `domain/feature/run.rs` — the Run Receipt vocabulary and lifecycle
+  invariants in one coherent module.
 - `domain/feature/integration.rs` — the pure nested-integration vocabulary in
   one place: via/strategy/policy resolution, receipts, and the evidence a
   receipt's trust rests on.
@@ -339,27 +324,16 @@ exceptions:
   and nested integration both call; splitting it would risk a second PR
   command shape drifting from this one.
 - `action/feature/mutation.rs` — the three scoped mutation guards (whole-child,
-  structure, per-promotion) that keep a partial integration's plan and board
-  mutable without freezing more than the receipt actually froze.
+  structure, per-promotion) that keep a partial integration's planning mutable
+  without freezing more than the receipt actually froze.
 - `action/plan/status.rs`, `action/plan/approve.rs`,
   `action/repo/remove.rs`, `action/session/conversion.rs`,
-  `action/feature/delete.rs`, `action/feature/promote.rs`,
-  `action/execute/prepare.rs` — coherent command-level behaviors only modestly
-  over the trigger.
+  `action/feature/delete.rs`, and `action/feature/promote.rs` — coherent
+  command-level behaviors only modestly over the trigger.
 - `action/repo/pull.rs` — the one place a repo's refresh policy lives: the
   per-repo fetch step, the default-branch refresh, and the `refresh_all` sweep
-  that `session start` and `execute tick` both call. It crossed the trigger
-  when that sweep replaced the copy each of those two verbs used to carry.
-- `action/execute/tick/mod.rs` — the tick orchestration: the module doc's
-  concurrency contract, the public inputs/outcomes, and the single `tick()`
-  that fans out and folds; its worker and event-folding halves were extracted
-  to launch.rs and events.rs.
-- `action/execute/tick/launch.rs` — the worker half `tick()` fans out to: one
-  workstream's session materialisation, spawn, and stream drain, kept whole
-  because a worker thread's steps do not compose usefully split across files.
-- `action/execute/plan_ops.rs` — the one `## Operations` parser `prompt` and
-  `replan` both call; a copy in each would let the two forks drift on what
-  counts as a heading, a bullet, or the write-contract marker.
+  used by session startup. It crossed the trigger when that sweep replaced the
+  copies callers previously carried.
 - `git/mod.rs` — the `Git` trait and the real implementation dispatching
   across `read.rs`/`exec.rs`; one file so a caller sees one seam and never
   which backend answered.
@@ -560,8 +534,8 @@ What this costs, stated plainly:
 - **Reading the state costs a file read**, at every point that wants it. Cheap,
   local, and the artifact was already being read by `plan status`.
 - **There is no history.** Derived state answers *where is this now*, never *when
-  did it get here*. The execution board's journal is where anything append-only
-  belongs; do not smuggle history into the gates.
+  did it get here*. Run Receipts hold append-only execution evidence; do not
+  smuggle history into the gates.
 - **A derived value must be recomputed, not cached across a mutation.** The gate
   is read inside `deliver`, after the feature is read, and is not threaded in
   from a caller who might be holding a stale copy.
@@ -646,7 +620,7 @@ One dotdir, one manifest, one name everywhere.
     state.json            local hall state (gitignored)
     repos/<name>/.bare/   the bare clone; every checkout is a worktree off it
     repos/<name>/<branch>/
-    features/<name>/      promotion records, execution board, session view dirs
+    features/<name>/      promotion records, Run Receipts, session view dirs
     sessions/<uuid>/      discovery session view dirs
     secrets/              hand-maintained secret material (gitignored)
     setups/<repo>.sh      per-repo setup scripts

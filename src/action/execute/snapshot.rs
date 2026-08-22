@@ -96,7 +96,9 @@ fn evidence(path: Utf8PathBuf) -> Result<PathEvidence, crate::error::Failure> {
     if !fs::exists(&path)? {
         return Ok(PathEvidence::absent());
     }
-    let metadata = fs::stat(&path)?.expect("existing path has metadata");
+    let Some(metadata) = fs::stat(&path)? else {
+        return Ok(PathEvidence::absent());
+    };
     #[cfg(unix)]
     let mode = std::os::unix::fs::PermissionsExt::mode(&metadata.permissions()) & 0o177_777;
     #[cfg(not(unix))]

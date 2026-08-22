@@ -12,13 +12,8 @@
 //! the three SPDD approval gates (Requirements, Analysis, Plan) and their
 //! fingerprints. `run` — the Run Receipt: one provider-coordinated execution
 //! of an approved plan, its lifecycle, its coordinator lineage, and its
-//! filesystem evidence. `delivery` — the guard checks and the
-//! delivery preview. `execution` — the plan-derived graph of workstreams plus
-//! its status and journal, retained only until the board actions are gone.
-//! `write_contract` — the glob-matching write
-//! contract each workstream must respect, split out of `execution` because
-//! it touches no board, status or journal. `integration` — the pure
-//! nested-integration vocabulary: via/strategy/override/policy, receipts and
+//! filesystem evidence. `delivery` — the guard checks and the delivery preview.
+//! `integration` — the pure nested-integration vocabulary: via/strategy/override/policy, receipts and
 //! verification evidence, and the derived integration-state classifier. All
 //! pure, no I/O — reading and writing these values is `store::feature`'s
 //! job.
@@ -40,19 +35,14 @@
 mod approval;
 mod base;
 mod delivery;
-mod execution;
 mod integration;
 #[path = "feature.rs"]
 mod promotion;
 mod run;
-mod write_contract;
 
 pub use approval::{ApprovalState, Gate, GateRecord, GateState, UnknownGate};
 pub use base::effective_base;
 pub use delivery::{DeliveryAction, DeliveryPreview, DeliveryRepo, DeliveryTreeBlocker, Guard};
-pub use execution::{
-    ExecutionBoard, ExecutionGraph, ExecutionStatus, JournalEntry, WorkstreamDef, WorkstreamStatus,
-};
 pub use integration::{
     ClassificationFacts, FeatureIntegrationState, IntegrationOverride, IntegrationPolicy,
     IntegrationReceipt, IntegrationStrategy, IntegrationVia, PrCheckResult,
@@ -69,4 +59,3 @@ pub use run::{
     RunId, RunOutcome, RunProvenance, RunReceipt, RunStatus, RunTransition, TaskResult, TaskStatus,
     UnknownRunOutcome, VerificationCheck, classify_change,
 };
-pub use write_contract::WriteContract;

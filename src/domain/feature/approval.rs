@@ -1,12 +1,10 @@
 //! The three SPDD approval gates and their state: `Gate`, `GateState`,
 //! `UnknownGate`, `ApprovalState`, and one `GateRecord` per gate.
 //!
-//! There were four. The fourth, `ExecutionGraph`, fingerprinted a workstream
-//! graph `ivar` derived from the plan and then scheduled itself. The provider
-//! owns that decomposition now, so the gate has no artifact and no decision of
-//! its own: an approved Plan is what authorises execution. Old `approvals.json`
-//! files still carry a fourth record, which `store::feature` drops at the
-//! JSON-value migration layer before this enum ever sees them.
+//! Earlier releases had a fourth approval record for execution planning. An
+//! approved Plan now authorises execution. Old `approvals.json` files may carry
+//! that retired record, which `store::feature` drops at the JSON-value migration
+//! layer before this enum sees it.
 //!
 //! Pure data, no I/O — the persisted form lives at
 //! `features/<feature>/planning/approvals.json`, written by `store::feature`.

@@ -205,8 +205,8 @@ impl Layout {
     }
 
     /// `<hall>/.ivar/features/<feature>/execution/` — the feature's current
-    /// Run Receipt, its archive, and (until the board actions are gone) the
-    /// legacy execution board.
+    /// Run Receipt and its archive. The legacy importer also reads a historical
+    /// board from this directory.
     #[must_use]
     pub fn execution_dir(&self, feature: &FeatureName) -> Utf8PathBuf {
         self.feature_dir(feature).join("execution")

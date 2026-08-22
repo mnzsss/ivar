@@ -208,8 +208,8 @@ fn stream_reads_multiple_lines_in_order_and_then_ends() {
 /// blocks writing a full stderr pipe, and `wait` — the only thing that drains
 /// stderr — is never reached because the caller is still reading. A provider
 /// logging steadily to stderr during a long session is exactly this, and the
-/// symptom is `feature execute tick` hanging with no output, indistinguishable
-/// from a slow provider.
+/// symptom is a session command hanging with no output, indistinguishable from
+/// a slow provider.
 ///
 /// Run on a worker with a timeout rather than inline: a deadlocked assertion
 /// would hang the whole test binary instead of failing it.

@@ -243,7 +243,7 @@ pub enum FeatureCommand {
     /// promotion, plan, execution, session, receipt, close record, or
     /// descendant exists.
     Reparent(FeatureReparentArgs),
-    /// Operate on a feature's execution board.
+    /// Manage a feature's Run Receipt lifecycle.
     #[command(subcommand)]
     Execute(ExecuteCommand),
     /// Preview, then push, a feature's promoted repos. `--preview` prints the
@@ -416,106 +416,6 @@ pub struct ExecuteAcceptRevisionArgs {
     pub feature: String,
     #[arg(long)]
     pub plan: String,
-}
-
-/// Retired board command arguments retained only for source compatibility.
-#[derive(Debug, Args)]
-pub struct ExecutePrepareArgs {
-    /// The feature to prepare an execution board for.
-    pub feature: String,
-    /// Path to the execution graph JSON — workstreams with
-    /// `id`/`title`/`operations`/`depends_on`/`write_contract`.
-    #[arg(long)]
-    pub graph_json: String,
-    /// The current Ivar session whose provider supplies defaults for
-    /// untargeted workstreams.
-    #[arg(long)]
-    pub session: Option<String>,
-}
-
-/// Arguments for `ivar feature execute replan`.
-#[derive(Debug, Args)]
-pub struct ExecuteReplanArgs {
-    /// The feature whose board is replanned.
-    pub feature: String,
-    /// Path to the revised plan.md — the new revision to fold in.
-    #[arg(long)]
-    pub plan: String,
-    /// Path to the revised execution graph JSON — the complete replacement
-    /// graph the board adopts.
-    #[arg(long)]
-    pub graph_json: String,
-    /// Allow the revised graph to omit workstreams that have completed
-    /// (`Done`). Replan refuses to remove a completed workstream without
-    /// this flag — it is the explicit authorization that completed work may
-    /// disappear from the board. Removed workstreams' history stays in the
-    /// journal.
-    #[arg(long, default_value_t = false)]
-    pub allow_remove_completed: bool,
-}
-
-/// Arguments for `ivar feature execute ack-revision`.
-#[derive(Debug, Args)]
-pub struct ExecuteAckArgs {
-    /// The feature whose board holds the paused workstream.
-    pub feature: String,
-    /// The paused workstream's id.
-    #[arg(long)]
-    pub workstream: String,
-}
-
-/// Arguments for `ivar feature execute reconcile`.
-#[derive(Debug, Args)]
-pub struct ExecuteReconcileArgs {
-    /// The feature whose board records the divergence.
-    pub feature: String,
-    /// The workstream the divergence belongs to.
-    #[arg(long)]
-    pub workstream: String,
-    /// The executor's own description of what changed and why.
-    #[arg(long)]
-    pub description: String,
-}
-
-/// Arguments for `ivar feature execute approve`.
-#[derive(Debug, Args)]
-pub struct ExecuteApproveArgs {
-    /// The feature whose board to approve.
-    pub feature: String,
-}
-
-/// Arguments for `ivar feature execute tick`.
-#[derive(Debug, Args)]
-pub struct ExecuteTickArgs {
-    /// The feature whose board to tick — find ready workstreams and launch them.
-    pub feature: String,
-}
-
-/// Arguments for `ivar feature execute guard-check`.
-#[derive(Debug, Args)]
-pub struct ExecuteGuardCheckArgs {
-    /// The feature whose write contract to check.
-    #[arg(long)]
-    pub feature: Option<String>,
-    /// The session to check the write contract for.
-    #[arg(long)]
-    pub session: Option<String>,
-    /// A path to check the write contract against.
-    #[arg(long)]
-    pub path: Option<String>,
-}
-
-/// Arguments for `ivar feature execute reply`.
-#[derive(Debug, Args)]
-pub struct ExecuteReplyArgs {
-    /// The feature whose blocked workstream to reply to.
-    #[arg(long)]
-    pub feature: Option<String>,
-    /// The session to send a reply into.
-    #[arg(long)]
-    pub session: Option<String>,
-    /// The reply message.
-    pub message: String,
 }
 
 /// Arguments for `ivar feature deliver`.
@@ -1084,97 +984,6 @@ impl From<ExecuteAcceptRevisionArgs> for accept_revision::AcceptRevisionInput {
         Self { feature, plan }
     }
 }
-
-/*
-impl From<ExecuteReplanArgs> for execute_replan::ReplanInput {
-    fn from(args: ExecuteReplanArgs) -> Self {
-        let ExecuteReplanArgs {
-            feature,
-            plan,
-            graph_json,
-            allow_remove_completed,
-        } = args;
-        Self {
-            feature,
-            plan,
-            graph_json,
-            allow_remove_completed,
-        }
-    }
-}
-
-impl From<ExecuteAckArgs> for execute_ack::AckInput {
-    fn from(args: ExecuteAckArgs) -> Self {
-        let ExecuteAckArgs {
-            feature,
-            workstream,
-        } = args;
-        Self {
-            feature,
-            workstream,
-        }
-    }
-}
-
-impl From<ExecuteReconcileArgs> for execute_reconcile::ReconcileInput {
-    fn from(args: ExecuteReconcileArgs) -> Self {
-        let ExecuteReconcileArgs {
-            feature,
-            workstream,
-            description,
-        } = args;
-        Self {
-            feature,
-            workstream,
-            description,
-        }
-    }
-}
-
-impl From<ExecuteApproveArgs> for execute_approve::ApproveInput {
-    fn from(args: ExecuteApproveArgs) -> Self {
-        let ExecuteApproveArgs { feature } = args;
-        Self { feature }
-    }
-}
-
-impl From<ExecuteTickArgs> for execute_tick::TickInput {
-    fn from(args: ExecuteTickArgs) -> Self {
-        let ExecuteTickArgs { feature } = args;
-        Self { feature }
-    }
-}
-
-impl From<ExecuteGuardCheckArgs> for execute_guard_check::GuardCheckInput {
-    fn from(args: ExecuteGuardCheckArgs) -> Self {
-        let ExecuteGuardCheckArgs {
-            feature,
-            session,
-            path,
-        } = args;
-        Self {
-            feature,
-            session,
-            path,
-        }
-    }
-}
-
-impl From<ExecuteReplyArgs> for execute_reply::ReplyInput {
-    fn from(args: ExecuteReplyArgs) -> Self {
-        let ExecuteReplyArgs {
-            feature,
-            session,
-            message,
-        } = args;
-        Self {
-            feature,
-            session,
-            message,
-        }
-    }
-}
-*/
 
 impl From<FeatureDeliverArgs> for deliver::DeliverInput {
     fn from(args: FeatureDeliverArgs) -> Self {
