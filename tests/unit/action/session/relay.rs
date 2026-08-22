@@ -16,7 +16,7 @@ use crate::action::feature::create::{self as feature_create, CreateInput};
 use crate::action::feature::promote::{self as feature_promote, PromoteInput};
 use crate::action::hall::{self, InitInput};
 use crate::action::session::start::{self as session_start, StartInput};
-use crate::domain::feature::{ExecutionGraph, WorkstreamDef, WorkstreamStatus};
+use crate::domain::feature::{RunBaseline, RunId, RunProvenance, RunReceipt, RunStatus};
 use crate::domain::name::{BranchName, HallName, RepoName};
 use crate::domain::provider::Provider;
 use crate::infra::fs;
@@ -93,6 +93,16 @@ fn hall_with_provider_session() -> (tempfile::TempDir, Utf8PathBuf) {
     .unwrap();
 
     (guard, root)
+}
+
+fn legacy_board() -> serde_json::Value {
+    serde_json::json!({
+        "version": 3,
+        "status": "completed",
+        "workstreams": [],
+        "sessions": {},
+        "journal": []
+    })
 }
 
 fn unguard_worktrees(root: &camino::Utf8Path) {
@@ -212,24 +222,19 @@ fn relay_emits_the_four_line_output_contract() {
     unguard_worktrees(&root);
 }
 
-/// The third line counts the execution board's workstream steps.
+/// Relay imports historical execution evidence before reading the receipt.
 #[test]
-fn relay_third_line_counts_the_boards_steps() {
+fn relay_imports_legacy_board_before_reading_the_receipt() {
     let (_guard, root) = hall_with_provider_session();
     let ctx = Ctx::new(root.clone());
     let layout = Layout::at(root.clone());
     let feature = FeatureName::new("checkout").unwrap();
-
-    // A board with three workstreams, one done.
-    let graph = ExecutionGraph {
-        workstreams: vec![
-            workstream("WS-1", WorkstreamStatus::Done),
-            workstream("WS-2", WorkstreamStatus::Active),
-            workstream("WS-3", WorkstreamStatus::Waiting),
-        ],
-        plan_fingerprint: "abc123".to_owned(),
-    };
-    ExecutionBoard::new(graph).write(&layout, &feature).unwrap();
+    crate::infra::fs::ensure_dir(&layout.execution_dir(&feature)).unwrap();
+    crate::infra::json::write_canonical(
+        &layout.execution_dir(&feature).join("board.json"),
+        &legacy_board(),
+    )
+    .unwrap();
 
     let report = relay(
         &ctx,
@@ -239,34 +244,54 @@ fn relay_third_line_counts_the_boards_steps() {
         },
     )
     .unwrap();
-    assert_eq!(report.value.steps_done, Some(1));
-    assert_eq!(report.value.steps_total, Some(3));
+
+    assert_eq!(report.value.run_status, None);
+    assert!(RunReceipt::read(&layout, &feature).unwrap().is_none());
+    let history = crate::store::feature::run::history(&layout, &feature).unwrap();
+    assert_eq!(history.len(), 1);
+    assert_eq!(history[0].provenance, RunProvenance::LegacyImport);
+    unguard_worktrees(&root);
+}
+
+/// Relay exposes receipt identity and state, never inferred progress.
+#[test]
+fn relay_reports_the_current_receipt_without_progress_counts() {
+    let (_guard, root) = hall_with_provider_session();
+    let ctx = Ctx::new(root.clone());
+    let layout = Layout::at(root.clone());
+    let feature = FeatureName::new("checkout").unwrap();
+    let receipt = RunReceipt::start(
+        RunId::new("00000000-0000-0000-0000-000000000001").unwrap(),
+        feature.clone(),
+        "plans/checkout/plan.md",
+        "abc123",
+        RunBaseline::default(),
+        crate::domain::name::SessionId::new("00000000-0000-0000-0000-000000000002").unwrap(),
+        Provider::ClaudeCode,
+        "2026-01-01T00:00:00Z",
+    );
+    receipt.write(&layout).unwrap();
+
+    let report = relay(
+        &ctx,
+        RelayInput {
+            feature: "checkout".to_owned(),
+            provider: "opencode".to_owned(),
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        report.value.run_id.as_deref(),
+        Some("00000000-0000-0000-0000-000000000001")
+    );
+    assert_eq!(report.value.run_status, Some(RunStatus::Active));
 
     let mut out = Vec::new();
     report.value.write_human(&mut out).unwrap();
     let text = String::from_utf8(out).unwrap();
-    let lines: Vec<&str> = text.lines().collect();
-    assert_eq!(
-        lines[2], "plan preserved · 1 of 3 steps done",
-        "was: {}",
-        lines[2]
-    );
+    assert!(text.contains("run 00000000-0000-0000-0000-000000000001 is active"));
+    assert!(!text.contains("steps"));
     unguard_worktrees(&root);
-}
-
-/// A board workstream definition, fully defaulted except id and status.
-fn workstream(id: &str, status: WorkstreamStatus) -> WorkstreamDef {
-    WorkstreamDef {
-        id: id.to_owned(),
-        title: id.to_owned(),
-        operations: Vec::new(),
-        depends_on: Vec::new(),
-        write_contract: Vec::new(),
-        status,
-        provider: None,
-        model: None,
-        agent: None,
-    }
 }
 
 /// The session record of `session_id` in a hall whose `checkout` feature
@@ -390,7 +415,7 @@ fn relay_with_same_provider_as_previous_is_blocked() {
 }
 
 #[test]
-fn relay_output_when_no_board_exists_shows_zero_of_zero() {
+fn relay_output_without_a_receipt_mentions_no_progress() {
     let (_guard, root) = hall_with_provider_session();
     let ctx = Ctx::new(root.clone());
 
@@ -406,10 +431,8 @@ fn relay_output_when_no_board_exists_shows_zero_of_zero() {
     let mut out = Vec::new();
     report.value.write_human(&mut out).unwrap();
     let text = String::from_utf8(out).unwrap();
-    assert!(
-        text.contains("0 of 0 steps done"),
-        "no board → zero of zero, was: {text}"
-    );
+    assert!(text.contains("plan preserved"));
+    assert!(!text.contains("steps"));
     unguard_worktrees(&root);
 }
 

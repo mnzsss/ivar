@@ -37,6 +37,9 @@ artifacts the install script above fetches and checksums for you.
   choice, with skills and agent config materialised for whichever one you use.
 - **Skills** — installed, updated and materialised locally, into each harness's
   native location.
+- **Run Receipts** — local, durable records for an approved plan's execution.
+  Your provider coordinates native subagents; `ivar` records the plan snapshot,
+  evidence, recovery state, and history without storing provider transcripts.
 
 ## Status
 
@@ -57,8 +60,9 @@ it consumes the Linux build with no separate path.
 In this repo: [Concepts](docs/concepts.md) for the model,
 [Getting started](docs/getting-started.md) for the two ways in,
 [Why not just `git worktree`?](docs/why-not-worktree.md) for the fair objection,
-and the [command reference](docs/reference/commands.md). Full index:
-[docs/](docs/README.md).
+the [planning and execution guide](docs/guides/planning-and-execution.md) for
+three-gate SPDD and Run Receipts, and the
+[command reference](docs/reference/commands.md). Full index: [docs/](docs/README.md).
 
 ## Contributing
 

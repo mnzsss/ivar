@@ -6,10 +6,9 @@
 //! that must stay movable:
 //!
 //! - **The whole child** — a feature closed as `integrated` is immutable,
-//!   full stop. [`ensure_not_fully_integrated`] is the narrow gate for
-//!   plan/board/inbox/journal-only mutations (planning and execution state
-//!   may keep moving during a *partial* integration, just not after the
-//!   `integrated` close record exists).
+//!   full stop. [`ensure_not_fully_integrated`] is the narrow gate for plan
+//!   mutations (planning may keep moving during a *partial* integration, just
+//!   not after the `integrated` close record exists).
 //! - **Structure** — relationship, base, policy, and promotion membership are
 //!   feature-wide facts frozen by the *first* receipt of any kind.
 //!   [`ensure_structure_mutable`] is the gate for reparenting, promote/demote
@@ -20,12 +19,10 @@
 //!   does not lock its promotion, so repo B stays repairable while repo A
 //!   stays byte-for-byte locked.
 //!
-//! Plus two shape-specific gates: [`ensure_contracts_avoid_locked_promotions`]
-//! (executor write contracts must name literal repos and may not reach a
-//! locked promotion) and [`ensure_unrestricted_session_allowed`] (an
-//! unrestricted session cannot coexist with a successful partial state).
+//! [`ensure_unrestricted_session_allowed`] ensures an unrestricted session
+//! cannot coexist with a successful partial state.
 
-use crate::domain::feature::{Feature, WorkstreamDef};
+use crate::domain::feature::Feature;
 use crate::domain::name::RepoName;
 use crate::error::{Failure, FixAction};
 use crate::store::layout::Layout;
@@ -33,8 +30,8 @@ use crate::store::layout::Layout;
 use super::lifecycle::is_fully_integrated;
 
 /// Refuse when the feature is fully integrated (closed as `integrated`) —
-/// the whole-child immutability fact. The gate for plan/board/inbox/journal
-/// mutations, which stay legal during a *partial* integration.
+/// the whole-child immutability fact. Planning mutations stay legal during a
+/// *partial* integration.
 pub(crate) fn ensure_not_fully_integrated(
     layout: &Layout,
     feature: &Feature,
@@ -74,33 +71,6 @@ pub(crate) fn ensure_promotion_mutable(
     Ok(())
 }
 
-/// Refuse an executor wave whose raw write contracts could move a locked
-/// promotion. When no successful receipt exists, contracts behave exactly as
-/// before. Otherwise every contract entry must name a literal promoted repo
-/// as its first path component — no globs, no `..`, no absolute paths, no
-/// unknown repos — and that repo must not carry a successful receipt.
-pub(crate) fn ensure_contracts_avoid_locked_promotions(
-    _layout: &Layout,
-    feature: &Feature,
-    workstreams: &[WorkstreamDef],
-) -> Result<(), Failure> {
-    let has_successful = feature.promotions.values().any(|promotion| {
-        promotion
-            .integration_receipt
-            .as_ref()
-            .is_some_and(|receipt| receipt.verification.passed())
-    });
-    if !has_successful {
-        return Ok(());
-    }
-    for workstream in workstreams {
-        for entry in &workstream.write_contract {
-            check_contract_entry(feature, workstream, entry)?;
-        }
-    }
-    Ok(())
-}
-
 /// Refuse an unrestricted session on a feature that carries a successful
 /// receipt — a session with no contract would be able to write a locked
 /// promotion. Fresh children and failed-evidence-only children pass; any
@@ -120,48 +90,6 @@ pub(crate) fn ensure_unrestricted_session_allowed(
         {
             return Err(session_unrestricted_blocked(feature, repo));
         }
-    }
-    Ok(())
-}
-
-/// One raw contract entry, judged against the feature's promotions. The
-/// first path component — after normalising separators — must be a literal
-/// promoted [`RepoName`]; a component containing `*`, `?`, `[`, `]`, an
-/// empty component (an absolute path), `..`, or a name no promotion carries
-/// is ambiguous and refuses the whole wave.
-fn check_contract_entry(
-    feature: &Feature,
-    workstream: &WorkstreamDef,
-    entry: &str,
-) -> Result<(), Failure> {
-    let normalized = entry.replace('\\', "/");
-    let first = normalized.split('/').next().unwrap_or_default();
-
-    if first.is_empty()
-        || first == ".."
-        || first.contains('*')
-        || first.contains('?')
-        || first.contains('[')
-        || first.contains(']')
-    {
-        return Err(partial_contract_ambiguous(
-            feature, workstream, entry, first,
-        ));
-    }
-    let Ok(repo) = RepoName::new(first) else {
-        return Err(partial_contract_ambiguous(
-            feature, workstream, entry, first,
-        ));
-    };
-    if !feature.is_promoted(&repo) {
-        return Err(partial_contract_ambiguous(
-            feature, workstream, entry, first,
-        ));
-    }
-    if feature.promotion_has_successful_receipt(&repo) {
-        return Err(promotion_immutable_contract(
-            feature, workstream, entry, &repo,
-        ));
     }
     Ok(())
 }
@@ -239,53 +167,6 @@ fn promotion_immutable(feature: &Feature, repo: &RepoName) -> Failure {
     ))
 }
 
-/// The failure for a contract entry that could reach a locked promotion.
-fn promotion_immutable_contract(
-    feature: &Feature,
-    workstream: &WorkstreamDef,
-    entry: &str,
-    repo: &RepoName,
-) -> Failure {
-    Failure::blocked(
-        "feature.promotion_integration_immutable",
-        format!(
-            "workstream `{}` in feature `{}` names `{entry}` — `{repo}` carries a successful integration receipt and cannot be written",
-            workstream.id, feature.name
-        ),
-    )
-    .expected("write contracts to name only unreceipted or failed-evidence promotions")
-    .actual(format!("`{repo}` is a locked promotion"))
-    .fix(FixAction::safe(
-        "feature.scope_contract",
-        "Scope the workstream's write contract to the promotions that are still repairable.",
-    ))
-}
-
-/// The failure for a contract entry whose first component cannot be pinned to
-/// exactly one promoted repo.
-fn partial_contract_ambiguous(
-    feature: &Feature,
-    workstream: &WorkstreamDef,
-    entry: &str,
-    first: &str,
-) -> Failure {
-    Failure::blocked(
-        "feature.partial_contract_ambiguous",
-        format!(
-            "workstream `{}` in feature `{}` has an ambiguous write contract entry `{entry}`",
-            workstream.id, feature.name
-        ),
-    )
-    .expected("every entry to name a literal promoted repo as its first path component")
-    .actual(format!(
-        "first component `{first}` is not a literal promoted repo (no globs, no `..`, no absolute paths)"
-    ))
-    .fix(FixAction::safe(
-        "feature.literal_repo_contract",
-        "Rewrite the entry as `<repo>/<path>` with a literal promoted repo name.",
-    ))
-}
-
 /// The failure for an unrestricted session on a successful partial state.
 fn session_unrestricted_blocked(feature: &Feature, repo: &RepoName) -> Failure {
     Failure::blocked(
@@ -295,11 +176,11 @@ fn session_unrestricted_blocked(feature: &Feature, repo: &RepoName) -> Failure {
             feature.name
         ),
     )
-    .expected("no successful receipt, or a session bound by scoped write contracts")
+    .expected("no successful receipt")
     .actual(format!("`{repo}` is locked by its receipt"))
     .fix(FixAction::safe(
-        "feature.scoped_execution",
-        "Run the work through `feature execute` with contracts naming only unreceipted or failed promotions.",
+        "feature.finish_integration",
+        "Finish integration before starting another unrestricted session.",
     ))
 }
 

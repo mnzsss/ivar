@@ -42,8 +42,7 @@ worktree stays on disk, so nothing is lost.
 feature. Cannot switch features mid-session; open another instead. Multiple
 sessions may bind the same feature at once and share its worktrees. **Live** while
 its view dir exists — liveness is not a process. The session's `state.json`
-records the provider that launched it — the authoritative default `feature
-execute prepare` inherits for untargeted workstreams.
+records the provider that launched it.
 
 **View dir** — the per-session directory of symlinks, one per repo, pointing at
 the right worktree: the feature branch for promoted repos, the shared read-only
@@ -60,10 +59,8 @@ dir, and the plan edits land in the hall.
 **Provider** — the agent harness that runs inside a session: Claude Code or
 OpenCode. Chosen at `ivar init`, added later with `ivar provider add`, selected
 per session with `--provider`. Each discovers config differently, so hall config
-and view dir contents are generated per provider. At execution, each
-workstream's provider is pinned at `prepare` — explicit in the graph or plan,
-or inherited from the caller session — and recorded in both `plan.md` and
-`board.json` before approval; `tick` then launches the recorded harness.
+and view dir contents are generated per provider. During execution, the
+provider coordinates work and Ivar records the Run Receipt.
 
 ## Sessions
 
@@ -154,50 +151,40 @@ Entities, Approach, Structure, Operations, Operation details, Norms, Safeguards.
 The design sections reference the standing sources and record only this feature's
 delta rather than restating them. *Canvas* names the format, not the artifact.
 
-Operations and Operation details are the two the machine reads: `Operations`
-maps each execution-graph workstream id (`### <id>`) to the operation ids it
-owns and the paths it may write, and `Operation details` gives each `**OP-***`
-id the text an executor is handed verbatim. `ivar feature execute tick` parses
-both to render executor prompts, and refuses to launch a workstream claiming an
-operation the plan does not back. `/ivar-plan` carries the exact shape.
+**Operations and Operation details** — the concrete implementation steps in a
+plan. `Operations` identifies the work to do; `Operation details` provides the
+executor-facing detail. `/ivar-plan` carries the exact shape.
 
 **Approval gate** — an explicit human decision that moves a feature through the
-lifecycle. Four exist: requirements, analysis, plan, execution graph. Each
-refuses until the one upstream is approved, and approving records a fingerprint of
-the artifact — so editing an approved artifact invalidates it and cascades
-downstream. The execution-graph gate is crossed by `ivar feature execute approve`,
-not `plan approve`.
+lifecycle. Three exist: requirements, analysis, and plan. Each refuses until the
+one upstream is approved, and approving records a fingerprint of the artifact —
+so editing an approved artifact invalidates it and cascades downstream.
 
-**Feature execution board** — persistent coordination state under
-`.ivar/features/<feature>/execution/`, surviving sessions. Holds the execution
-graph, global status, an append-only journal, directed inboxes, executor cursors,
-outboxes, handoffs, blockers and write contracts. Global state is
-coordinator-owned; executor artifacts are scoped to their workstream. After
-approval the board is authoritative for who runs what: every workstream carries
-the provider resolved at prepare, so `tick` launches the recorded harness
-instead of re-deciding it.
+**Run Receipt** — persistent, provider-neutral execution evidence under
+`.ivar/features/<feature>/execution/`, surviving sessions. It pins the approved
+plan fingerprint, immutable baseline, exact final snapshot evidence, coordinator
+lineage, checkpoints, structured report, and outcome. The provider coordinates
+execution and native subagents; the receipt is the local audit and recovery
+boundary, not a task scheduler or transcript store.
 
-**Workstream** — one named unit of work on the execution board: a `### <id>`
-block in the plan's Operations section matched to a graph entry carrying its
-operations, dependencies and write contract. The workstream's `provider`,
-`model` and `agent` are pinned at `prepare` — explicit in the graph or plan, or
-inherited from the caller session — and recorded in both `plan.md` and
-`board.json` before the board is approved.
+**Run status** — a receipt is `active`, `blocked`, `diverged`, `succeeded`,
+`failed`, or `interrupted`. The first three are non-terminal and hold the
+feature's single-run lock. The last three are terminal, archived, and release the
+lock. `blocked` waits for a human decision; `diverged` waits for an explicitly
+accepted, currently approved plan revision.
 
-**Write contract** — the set of paths a workstream is allowed to write.
-Checkable before a write with `ivar feature execute guard-check`.
+**Coordinator lineage** — the ordered Feature Session IDs, providers, and
+attachment times recorded for one logical Run. A Run may resume under another
+provider, but lineage does not claim continuity of an opaque provider
+conversation, transcript, or native-subagent identity.
 
-**Replan** — revising the plan when the divergence is *structural* (the approach
-or entities are wrong, or the change crosses workstream boundaries). Advances the
-plan's revision and pauses every affected workstream until it acknowledges the new
-one. Unaffected workstreams keep running. Design-level, blocking, before code.
+**Accept revision** — `ivar feature execute accept-revision` adopts a currently
+approved plan revision for a diverged run and returns it to `blocked`; the
+coordinator then uses `start --resume` to make it active again.
 
-**Reconcile** — folding *local* code divergence back into the record when it is
-confined to one workstream's operations. Written to the journal; the plan is not
-rewritten. The code→plan direction.
-
-**Ack revision** — a paused workstream acknowledging a new plan revision,
-unpausing it. The board resumes once every paused workstream has.
+**Plan revision** — a changed plan must be approved again. A diverged Run
+Receipt adopts that approved revision through `ivar feature execute
+accept-revision` before it can resume.
 
 ## Delivering and finishing
 
@@ -213,10 +200,13 @@ not `depends on`: `ivar` models co-belonging, not dependency, and claims nothing
 about merge order. Added in a second pass, because a PR's URL does not exist
 before it is created.
 
-**Close** — a feature's normal terminal transition. Stops executor sessions,
-removes derived board and session state, records `outcome` (`delivered`,
-`integrated`, or `abandoned`) and `closedAt` in `plan.md`'s frontmatter, and
-keeps the three plan files. The hall's git history is the record; there is no
+**Close** — a feature's normal terminal transition. Stops live executor
+sessions, records `outcome` (`delivered`, `integrated`, or `abandoned`) and
+`closedAt` in `plan.md`'s frontmatter, and keeps the three plan files. It
+refuses while a non-terminal Run Receipt holds the feature's Run lock; when it
+can close, it preserves Run Receipt history and legacy evidence. The hall's git
+history is the record; there is
+ no
 separate journal. `integrated` is the child's close: it requires a passing
 receipt on every promotion and freezes the whole child with no reopen.
 

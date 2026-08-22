@@ -159,24 +159,25 @@ fn reparent_refuses_once_any_work_fact_exists() {
         "refusal must not touch the record"
     );
 
-    // An execution board is work.
-    create(&ctx, "executed", Some("root"));
-    fs::ensure_dir(&layout.execution_dir(&FeatureName::new("executed").unwrap())).unwrap();
-    fs::write_text(
-        &layout
-            .execution_dir(&FeatureName::new("executed").unwrap())
-            .join("board.json"),
-        "{}",
-    )
-    .unwrap();
-    let before = bytes("executed");
-    let failure = reparent(&ctx, reparent_input("executed", "target")).unwrap_err();
-    assert_eq!(failure.code, "feature.reparent_work_started");
-    assert_eq!(
-        bytes("executed"),
-        before,
-        "refusal must not touch the record"
-    );
+    // Any execution evidence blocks reparenting without deserializing it:
+    // current receipt, archives, pending legacy board, and raw board archive.
+    for (name, relative) in [
+        ("current-run", "run.json"),
+        ("archived-run", "archive/runs/receipt.json"),
+        ("legacy-board", "board.json"),
+        ("archived-board", "archive/boards/board.json"),
+    ] {
+        create(&ctx, name, Some("root"));
+        let path = layout
+            .execution_dir(&FeatureName::new(name).unwrap())
+            .join(relative);
+        fs::ensure_dir(path.parent().unwrap()).unwrap();
+        fs::write_text(&path, "not a board or receipt").unwrap();
+        let before = bytes(name);
+        let failure = reparent(&ctx, reparent_input(name, "target")).unwrap_err();
+        assert_eq!(failure.code, "feature.reparent_work_started");
+        assert_eq!(bytes(name), before, "refusal must not touch the record");
+    }
 
     // A live (or detached) session dir is work.
     create(&ctx, "sessioned", Some("root"));

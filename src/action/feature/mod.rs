@@ -34,10 +34,7 @@ pub mod status;
 mod verification;
 pub mod view;
 
-// The scoped mutation guards, exposed `pub(crate)` so the plan, execute, and
-// session mutations can enforce the partial-integration boundaries without
-// reaching into this module's internals. See `mutation` for the scopes.
-pub(crate) use mutation::{
-    ensure_contracts_avoid_locked_promotions, ensure_not_fully_integrated,
-    ensure_unrestricted_session_allowed,
-};
+// The scoped mutation guards are exposed `pub(crate)` so plan and session
+// mutations can enforce partial-integration boundaries without reaching into
+// this module's internals. See `mutation` for the scopes.
+pub(crate) use mutation::{ensure_not_fully_integrated, ensure_unrestricted_session_allowed};

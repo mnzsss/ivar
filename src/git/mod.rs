@@ -63,6 +63,33 @@ pub enum TargetState {
     Occupied,
 }
 
+/// What one path holds in a commit: git's filemode, and the SHA-256 of the
+/// blob's bytes.
+///
+/// The *baseline* half of run evidence. A run's starting commit is the only
+/// description of every clean tracked path at start — copying those into the
+/// receipt would be storage for nothing, since the commit already holds them —
+/// so a comparison at finish reads them back from here.
+///
+/// **No content, ever.** The hash leaves this module and the bytes do not,
+/// which is what keeps a Run Receipt from becoming an archive of someone's
+/// working tree.
+///
+/// The hash is SHA-256 of the blob, *not* git's own SHA-1 object id: it has to
+/// compare equal to a hash taken over the same path in the worktree, and those
+/// are hashed with `infra::hash`. For a symlink (`mode` `120000`) the blob's
+/// bytes *are* the link target, so a retargeted symlink hashes differently
+/// while its content-as-a-file would not exist to hash at all.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BlobEvidence {
+    /// Git's filemode: `100644`, `100755`, or `120000` for a symlink.
+    /// Recorded because flipping the executable bit is a change no content
+    /// hash can see.
+    pub mode: u32,
+    /// SHA-256 of the blob's bytes, lowercase hex.
+    pub sha256: String,
+}
+
 /// One commit's place in a branch-divergence report.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct CommitInfo {
@@ -289,6 +316,27 @@ pub trait Git {
         path: &Utf8Path,
         since: &str,
     ) -> Result<Vec<Utf8PathBuf>, Error>;
+
+    /// What `path` held in `commit`, in the repository at `worktree`.
+    /// `Ok(None)` when the commit's tree has nothing at that path.
+    ///
+    /// The baseline resolver for run evidence: [`Self::changed_paths`] and
+    /// [`Self::paths_committed_since`] between them name every path a run may
+    /// have touched, and this answers what each of them looked like before it
+    /// did. A path that was clean at start has no recorded evidence — its
+    /// starting content *is* whatever the starting commit holds, and this is
+    /// how that is read back.
+    ///
+    /// `Ok(None)` also covers a path that names something other than a blob —
+    /// a directory, or a submodule gitlink. Neither is a file a receipt
+    /// describes, and both are unreachable from the path sets above, which
+    /// only ever name blobs.
+    fn path_at_commit(
+        &self,
+        worktree: &Utf8Path,
+        commit: &str,
+        path: &Utf8Path,
+    ) -> Result<Option<BlobEvidence>, Error>;
 
     /// How many commits `branch` has that `base` does not, in the repository
     /// at `git_dir` — `git rev-list --count <base>..<branch>`.
@@ -520,6 +568,15 @@ impl Git for System {
         since: &str,
     ) -> Result<Vec<Utf8PathBuf>, Error> {
         exec::paths_committed_since(path, since)
+    }
+
+    fn path_at_commit(
+        &self,
+        worktree: &Utf8Path,
+        commit: &str,
+        path: &Utf8Path,
+    ) -> Result<Option<BlobEvidence>, Error> {
+        read::path_at_commit(worktree, commit, path)
     }
 
     fn commits_ahead(&self, git_dir: &Utf8Path, base: &str, branch: &str) -> Result<u64, Error> {

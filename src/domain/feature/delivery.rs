@@ -1,4 +1,4 @@
-//! The delivery surface: the `Guard` checks on a feature's approval board,
+//! The delivery surface: the `Guard` checks on a feature's approvals,
 //! the side-effect-free `DeliveryPreview` / `DeliveryRepo` / `DeliveryAction`
 //! summary `feature deliver --preview` produces, and the verdict on whether a
 //! repo's base still supports delivering onto it.
@@ -15,7 +15,7 @@ use super::approval::GateState;
 use super::integration::FeatureIntegrationState;
 use crate::error::{Failure, FixAction};
 
-/// One named guard check on a feature's execution board.
+/// One named guard check on a feature's approval state.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Guard {

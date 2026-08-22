@@ -5,6 +5,8 @@
     clippy::indexing_slicing
 )]
 
+use camino::{Utf8Path, Utf8PathBuf};
+
 use super::*;
 use crate::git::exec;
 use crate::test_support::{empty_repo, git, seeded_repo, utf8_temp_dir};
@@ -223,4 +225,341 @@ fn divergence_on_a_revision_that_does_not_exist_is_refused() {
         Error::Refused { .. } => {}
         other => panic!("expected Refused, got {other:?}"),
     }
+}
+
+// -- path_at_commit ---------------------------------------------------------
+
+/// A real repository with `file.txt` committed twice, so there are two commits
+/// whose trees differ at a known path. Answers `(worktree, first, second)`.
+fn two_commits(dir: &Utf8Path) -> (Utf8PathBuf, String, String) {
+    let repo = seeded_repo(&dir.join("repo"), "main");
+    std::fs::write(repo.join("file.txt"), "one\n").unwrap();
+    git(&repo, &["add", "file.txt"]);
+    git(&repo, &["commit", "-m", "one"]);
+    let first = exec::head_commit(&repo).unwrap();
+
+    std::fs::write(repo.join("file.txt"), "two\n").unwrap();
+    git(&repo, &["commit", "-am", "two"]);
+    let second = exec::head_commit(&repo).unwrap();
+
+    (repo, first, second)
+}
+
+#[test]
+fn path_at_commit_reads_the_content_that_commit_holds() {
+    let (_guard, dir) = utf8_temp_dir();
+    let (repo, first, second) = two_commits(&dir);
+
+    let before = path_at_commit(&repo, &first, Utf8Path::new("file.txt"))
+        .unwrap()
+        .unwrap();
+    let after = path_at_commit(&repo, &second, Utf8Path::new("file.txt"))
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(before.sha256, hash::bytes(b"one\n"));
+    assert_eq!(after.sha256, hash::bytes(b"two\n"));
+    assert_eq!(before.mode, 0o100_644);
+}
+
+/// The hash has to compare equal to one taken over the worktree, because that
+/// is the comparison run evidence is built out of. Git's own SHA-1 object id
+/// would not.
+#[test]
+fn the_hash_matches_one_taken_over_the_same_file_in_the_worktree() {
+    let (_guard, dir) = utf8_temp_dir();
+    let (repo, _first, second) = two_commits(&dir);
+
+    let from_commit = path_at_commit(&repo, &second, Utf8Path::new("file.txt"))
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(
+        from_commit.sha256,
+        hash::file(&repo.join("file.txt")).unwrap()
+    );
+}
+
+/// "Nothing was there" is an answer, not a failure — it is exactly the
+/// baseline an added file needs.
+#[test]
+fn a_path_the_commit_does_not_hold_answers_none() {
+    let (_guard, dir) = utf8_temp_dir();
+    let (repo, _first, second) = two_commits(&dir);
+
+    assert_eq!(
+        path_at_commit(&repo, &second, Utf8Path::new("never-existed.txt")).unwrap(),
+        None
+    );
+}
+
+/// A file added in the second commit did not exist in the first, which is what
+/// makes it read as `Added` rather than `Modified`.
+#[test]
+fn a_file_added_later_is_absent_from_the_earlier_commit() {
+    let (_guard, dir) = utf8_temp_dir();
+    let (repo, first, second) = two_commits(&dir);
+    std::fs::write(repo.join("new.txt"), "new\n").unwrap();
+    git(&repo, &["add", "new.txt"]);
+    git(&repo, &["commit", "-m", "add new"]);
+    let third = exec::head_commit(&repo).unwrap();
+
+    assert_eq!(
+        path_at_commit(&repo, &first, Utf8Path::new("new.txt")).unwrap(),
+        None
+    );
+    assert_eq!(
+        path_at_commit(&repo, &second, Utf8Path::new("new.txt")).unwrap(),
+        None
+    );
+    assert!(
+        path_at_commit(&repo, &third, Utf8Path::new("new.txt"))
+            .unwrap()
+            .is_some()
+    );
+}
+
+/// Flipping the executable bit changes no content hash. The mode is recorded
+/// next to the hash precisely so that change is not invisible.
+#[test]
+fn the_filemode_distinguishes_an_executable_from_a_plain_file() {
+    let (_guard, dir) = utf8_temp_dir();
+    let repo = seeded_repo(&dir.join("repo"), "main");
+    std::fs::write(repo.join("run.sh"), "#!/bin/sh\n").unwrap();
+    git(&repo, &["add", "run.sh"]);
+    git(&repo, &["commit", "-m", "plain"]);
+    let plain = exec::head_commit(&repo).unwrap();
+
+    git(&repo, &["update-index", "--chmod=+x", "run.sh"]);
+    git(&repo, &["commit", "-m", "executable"]);
+    let executable = exec::head_commit(&repo).unwrap();
+
+    let before = path_at_commit(&repo, &plain, Utf8Path::new("run.sh"))
+        .unwrap()
+        .unwrap();
+    let after = path_at_commit(&repo, &executable, Utf8Path::new("run.sh"))
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(before.mode, 0o100_644);
+    assert_eq!(after.mode, 0o100_755);
+    assert_eq!(
+        before.sha256, after.sha256,
+        "the content did not change — only the mode did"
+    );
+}
+
+/// A symlink's blob *is* its target, so a retargeted symlink hashes
+/// differently. Hashing the file it points at would report no change at all.
+#[test]
+fn a_symlink_hashes_its_target_not_the_file_it_points_at() {
+    let (_guard, dir) = utf8_temp_dir();
+    let repo = seeded_repo(&dir.join("repo"), "main");
+    std::fs::write(repo.join("a.txt"), "same\n").unwrap();
+    std::fs::write(repo.join("b.txt"), "same\n").unwrap();
+    std::os::unix::fs::symlink("a.txt", repo.join("link")).unwrap();
+    git(&repo, &["add", "."]);
+    git(&repo, &["commit", "-m", "link to a"]);
+    let to_a = exec::head_commit(&repo).unwrap();
+
+    std::fs::remove_file(repo.join("link")).unwrap();
+    std::os::unix::fs::symlink("b.txt", repo.join("link")).unwrap();
+    git(&repo, &["add", "."]);
+    git(&repo, &["commit", "-m", "link to b"]);
+    let to_b = exec::head_commit(&repo).unwrap();
+
+    let before = path_at_commit(&repo, &to_a, Utf8Path::new("link"))
+        .unwrap()
+        .unwrap();
+    let after = path_at_commit(&repo, &to_b, Utf8Path::new("link"))
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(before.mode, 0o120_000, "a symlink's git filemode");
+    assert_eq!(before.sha256, hash::bytes(b"a.txt"));
+    assert_eq!(after.sha256, hash::bytes(b"b.txt"));
+    assert_ne!(
+        before.sha256, after.sha256,
+        "the targets differ even though both files hold the same bytes"
+    );
+}
+
+/// Binary content is bytes like any other — no encoding step to get wrong, and
+/// no content leaving this module either way.
+#[test]
+fn a_binary_file_hashes_its_bytes() {
+    let (_guard, dir) = utf8_temp_dir();
+    let repo = seeded_repo(&dir.join("repo"), "main");
+    let bytes: Vec<u8> = (0u8..=255).collect();
+    std::fs::write(repo.join("blob.bin"), &bytes).unwrap();
+    git(&repo, &["add", "blob.bin"]);
+    git(&repo, &["commit", "-m", "binary"]);
+    let head = exec::head_commit(&repo).unwrap();
+
+    let evidence = path_at_commit(&repo, &head, Utf8Path::new("blob.bin"))
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(evidence.sha256, hash::bytes(&bytes));
+}
+
+/// A directory is not a file a receipt describes, and neither is a submodule
+/// gitlink. Both read as `None` rather than as an error, because the path sets
+/// that feed this only ever name blobs.
+#[test]
+fn a_path_that_is_not_a_blob_answers_none() {
+    let (_guard, dir) = utf8_temp_dir();
+    let repo = seeded_repo(&dir.join("repo"), "main");
+    std::fs::create_dir(repo.join("src")).unwrap();
+    std::fs::write(repo.join("src/lib.rs"), "fn main() {}\n").unwrap();
+    git(&repo, &["add", "."]);
+    git(&repo, &["commit", "-m", "tree"]);
+    let head = exec::head_commit(&repo).unwrap();
+
+    assert_eq!(
+        path_at_commit(&repo, &head, Utf8Path::new("src")).unwrap(),
+        None
+    );
+    assert!(
+        path_at_commit(&repo, &head, Utf8Path::new("src/lib.rs"))
+            .unwrap()
+            .is_some()
+    );
+}
+
+/// The property the whole baseline rests on: the starting commit still exists
+/// and still holds what it held, whatever the run did to HEAD afterwards.
+#[test]
+fn the_starting_commit_still_answers_after_a_commit_amend_reset_or_branch_switch() {
+    let (_guard, dir) = utf8_temp_dir();
+    let (repo, start, _second) = two_commits(&dir);
+    let expected = hash::bytes(b"one\n");
+
+    // commit
+    std::fs::write(repo.join("file.txt"), "three\n").unwrap();
+    git(&repo, &["commit", "-am", "three"]);
+    assert_eq!(
+        path_at_commit(&repo, &start, Utf8Path::new("file.txt"))
+            .unwrap()
+            .unwrap()
+            .sha256,
+        expected
+    );
+
+    // amend
+    std::fs::write(repo.join("file.txt"), "four\n").unwrap();
+    git(&repo, &["commit", "-a", "--amend", "-m", "four"]);
+    assert_eq!(
+        path_at_commit(&repo, &start, Utf8Path::new("file.txt"))
+            .unwrap()
+            .unwrap()
+            .sha256,
+        expected
+    );
+
+    // reset
+    git(&repo, &["reset", "--hard", &start]);
+    assert_eq!(
+        path_at_commit(&repo, &start, Utf8Path::new("file.txt"))
+            .unwrap()
+            .unwrap()
+            .sha256,
+        expected
+    );
+
+    // branch switch
+    git(&repo, &["checkout", "-b", "other"]);
+    std::fs::write(repo.join("file.txt"), "five\n").unwrap();
+    git(&repo, &["commit", "-am", "five"]);
+    assert_eq!(
+        path_at_commit(&repo, &start, Utf8Path::new("file.txt"))
+            .unwrap()
+            .unwrap()
+            .sha256,
+        expected
+    );
+}
+
+/// A rebase rewrites every commit it moves, and the *starting* commit is
+/// therefore no longer on the branch. It is still reachable by id, which is
+/// the only reason recording an id rather than a ref works.
+#[test]
+fn the_starting_commit_still_answers_after_a_rebase_rewrites_the_branch() {
+    let (_guard, dir) = utf8_temp_dir();
+    let repo = seeded_repo(&dir.join("repo"), "main");
+    std::fs::write(repo.join("file.txt"), "one\n").unwrap();
+    git(&repo, &["add", "file.txt"]);
+    git(&repo, &["commit", "-m", "one"]);
+    let base = exec::head_commit(&repo).unwrap();
+
+    git(&repo, &["checkout", "-b", "topic"]);
+    std::fs::write(repo.join("topic.txt"), "topic\n").unwrap();
+    git(&repo, &["add", "topic.txt"]);
+    git(&repo, &["commit", "-m", "topic"]);
+    let start = exec::head_commit(&repo).unwrap();
+
+    git(&repo, &["checkout", "main"]);
+    std::fs::write(repo.join("main.txt"), "main\n").unwrap();
+    git(&repo, &["add", "main.txt"]);
+    git(&repo, &["commit", "-m", "main moves"]);
+
+    git(&repo, &["checkout", "topic"]);
+    git(&repo, &["rebase", "main"]);
+
+    assert_ne!(
+        exec::head_commit(&repo).unwrap(),
+        start,
+        "the rebase must have rewritten the branch for this test to mean anything"
+    );
+    assert_eq!(
+        path_at_commit(&repo, &start, Utf8Path::new("topic.txt"))
+            .unwrap()
+            .unwrap()
+            .sha256,
+        hash::bytes(b"topic\n")
+    );
+    assert_eq!(
+        path_at_commit(&repo, &base, Utf8Path::new("topic.txt")).unwrap(),
+        None
+    );
+}
+
+/// A revision that does not exist is git's own refusal, never `Ok(None)` —
+/// which would read as "nothing was there" and hide that the baseline itself
+/// is gone.
+#[test]
+fn a_commit_that_does_not_exist_is_a_refusal_not_an_absent_path() {
+    let (_guard, dir) = utf8_temp_dir();
+    let (repo, _first, _second) = two_commits(&dir);
+
+    assert!(
+        path_at_commit(
+            &repo,
+            "0000000000000000000000000000000000000000",
+            Utf8Path::new("file.txt")
+        )
+        .is_err()
+    );
+}
+
+/// Paths with spaces and non-ASCII bytes are looked up as given. Nothing here
+/// quotes or unquotes, so there is no escaping dialect to get wrong.
+#[test]
+fn a_path_with_spaces_and_non_ascii_bytes_is_read_as_given() {
+    let (_guard, dir) = utf8_temp_dir();
+    let repo = seeded_repo(&dir.join("repo"), "main");
+    let name = "a directory/naïve file.txt";
+    std::fs::create_dir(repo.join("a directory")).unwrap();
+    std::fs::write(repo.join(name), "held\n").unwrap();
+    git(&repo, &["add", "."]);
+    git(&repo, &["commit", "-m", "awkward"]);
+    let head = exec::head_commit(&repo).unwrap();
+
+    assert_eq!(
+        path_at_commit(&repo, &head, Utf8Path::new(name))
+            .unwrap()
+            .unwrap()
+            .sha256,
+        hash::bytes(b"held\n")
+    );
 }

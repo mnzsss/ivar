@@ -1,4 +1,4 @@
-//! Unit tests for `crate::domain::feature::approval` — the four SPDD
+//! Unit tests for `crate::domain::feature::approval` — the three SPDD
 //! approval gates and their state.
 //!
 //! Physically located here but compiled inside the library crate via `#[path]`
@@ -15,45 +15,41 @@ use super::*;
 // -- approval gates ---------------------------------------------------------
 
 #[test]
-fn the_four_gates_form_a_chain_in_lifecycle_order() {
-    assert_eq!(
-        Gate::ALL,
-        [
-            Gate::Requirements,
-            Gate::Analysis,
-            Gate::Plan,
-            Gate::ExecutionGraph
-        ]
-    );
+fn the_three_gates_form_a_chain_in_lifecycle_order() {
+    assert_eq!(Gate::ALL, [Gate::Requirements, Gate::Analysis, Gate::Plan]);
     assert_eq!(Gate::Requirements.upstream(), None);
     assert_eq!(Gate::Analysis.upstream(), Some(Gate::Requirements));
     assert_eq!(Gate::Plan.upstream(), Some(Gate::Analysis));
-    assert_eq!(Gate::ExecutionGraph.upstream(), Some(Gate::Plan));
 }
 
 #[test]
 fn and_downstream_lists_the_gate_and_everything_after_it() {
     assert_eq!(
         Gate::Requirements.and_downstream(),
-        &[
-            Gate::Requirements,
-            Gate::Analysis,
-            Gate::Plan,
-            Gate::ExecutionGraph
-        ]
+        &[Gate::Requirements, Gate::Analysis, Gate::Plan]
     );
     assert_eq!(
         Gate::Analysis.and_downstream(),
-        &[Gate::Analysis, Gate::Plan, Gate::ExecutionGraph]
+        &[Gate::Analysis, Gate::Plan]
     );
+    assert_eq!(Gate::Plan.and_downstream(), &[Gate::Plan]);
+}
+
+#[test]
+fn plan_is_the_last_gate_so_nothing_cascades_past_it() {
+    let mut approvals = ApprovalState::fresh();
+    for gate in Gate::ALL {
+        approvals.set(gate, GateState::Approved, Some(format!("fp-{gate}")));
+    }
+
+    approvals.invalidate_from(Gate::Plan);
+
     assert_eq!(
-        Gate::Plan.and_downstream(),
-        &[Gate::Plan, Gate::ExecutionGraph]
+        approvals.state(Gate::Requirements),
+        Some(GateState::Approved)
     );
-    assert_eq!(
-        Gate::ExecutionGraph.and_downstream(),
-        &[Gate::ExecutionGraph]
-    );
+    assert_eq!(approvals.state(Gate::Analysis), Some(GateState::Approved));
+    assert_eq!(approvals.state(Gate::Plan), Some(GateState::NeedsRevision));
 }
 
 #[test]
@@ -61,9 +57,30 @@ fn gate_parse_accepts_every_cli_name_and_rejects_unknowns() {
     assert_eq!(Gate::parse("requirements"), Ok(Gate::Requirements));
     assert_eq!(Gate::parse("analysis"), Ok(Gate::Analysis));
     assert_eq!(Gate::parse("plan"), Ok(Gate::Plan));
-    assert_eq!(Gate::parse("execution-graph"), Ok(Gate::ExecutionGraph));
-    assert_eq!(Gate::parse("execution_graph"), Ok(Gate::ExecutionGraph));
     assert!(matches!(Gate::parse("bogus"), Err(UnknownGate(_))));
+}
+
+#[test]
+fn gate_parse_no_longer_accepts_the_execution_graph_gate() {
+    // Deliberately not even a deprecated alias: a stale command must fail
+    // loudly rather than approve something that no longer exists.
+    assert!(matches!(
+        Gate::parse("execution-graph"),
+        Err(UnknownGate(name)) if name == "execution-graph"
+    ));
+    assert!(matches!(
+        Gate::parse("execution_graph"),
+        Err(UnknownGate(_))
+    ));
+}
+
+#[test]
+fn the_unknown_gate_failure_names_only_the_three_that_exist() {
+    let failure = Failure::from(UnknownGate("execution-graph".to_owned()));
+    let rendered = format!("{failure:?}");
+
+    assert!(rendered.contains("requirements, analysis, plan"));
+    assert!(!rendered.contains("execution-graph,"));
 }
 
 #[test]
@@ -71,7 +88,6 @@ fn display_names_are_the_cli_surface() {
     assert_eq!(Gate::Requirements.to_string(), "requirements");
     assert_eq!(Gate::Analysis.to_string(), "analysis");
     assert_eq!(Gate::Plan.to_string(), "plan");
-    assert_eq!(Gate::ExecutionGraph.to_string(), "execution-graph");
     assert_eq!(GateState::Pending.to_string(), "pending");
     assert_eq!(GateState::Approved.to_string(), "approved");
     assert_eq!(GateState::NeedsRevision.to_string(), "needs-revision");
@@ -80,8 +96,8 @@ fn display_names_are_the_cli_surface() {
 #[test]
 fn serde_names_are_snake_case() {
     assert_eq!(
-        serde_json::to_value(Gate::ExecutionGraph).unwrap(),
-        serde_json::json!("execution_graph")
+        serde_json::to_value(Gate::Plan).unwrap(),
+        serde_json::json!("plan")
     );
     assert_eq!(
         serde_json::to_value(GateState::NeedsRevision).unwrap(),
@@ -90,10 +106,19 @@ fn serde_names_are_snake_case() {
 }
 
 #[test]
-fn fresh_approval_state_has_all_four_gates_pending() {
+fn a_serialized_execution_graph_gate_no_longer_deserializes() {
+    // The store's v1 → v2 migration drops the record before this type ever
+    // sees it; if that step were skipped, this is the failure it prevents.
+    let error = serde_json::from_value::<Gate>(serde_json::json!("execution_graph"));
+
+    assert!(error.is_err());
+}
+
+#[test]
+fn fresh_approval_state_has_all_three_gates_pending() {
     let approvals = ApprovalState::fresh();
 
-    assert_eq!(approvals.gates.len(), 4);
+    assert_eq!(approvals.gates.len(), 3);
     for gate in Gate::ALL {
         assert_eq!(approvals.state(gate), Some(GateState::Pending));
     }
@@ -124,10 +149,11 @@ fn set_updates_an_existing_record_and_normalize_fills_gaps() {
     // A hand-edited file may carry fewer gates; normalize completes them.
     let mut partial = ApprovalState { gates: Vec::new() };
     partial.normalize();
-    assert_eq!(partial.gates.len(), 4);
+    assert_eq!(partial.gates.len(), 3);
+    assert_eq!(partial.state(Gate::Plan), Some(GateState::Pending));
     assert_eq!(
-        partial.state(Gate::ExecutionGraph),
-        Some(GateState::Pending)
+        partial.gates.iter().map(|r| r.gate).collect::<Vec<_>>(),
+        Gate::ALL.to_vec()
     );
 }
 
@@ -157,7 +183,7 @@ fn invalidate_from_marks_the_gate_and_downstream_and_clears_fingerprints() {
         approvals.state(Gate::Requirements),
         Some(GateState::Approved)
     );
-    for gate in [Gate::Analysis, Gate::Plan, Gate::ExecutionGraph] {
+    for gate in [Gate::Analysis, Gate::Plan] {
         assert_eq!(approvals.state(gate), Some(GateState::NeedsRevision));
         assert_eq!(approvals.record(gate).unwrap().artifact_fingerprint, None);
     }

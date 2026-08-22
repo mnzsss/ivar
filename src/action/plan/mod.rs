@@ -3,7 +3,7 @@
 //! The SPDD process produces three committed Markdown files per feature,
 //! under `<hall>/plans/<feature>/`: `requirements.md`, `analysis.md`, and
 //! `plan.md`. This module manages those files on disk — create, show, and
-//! list — and the four approval gates around them (`approve` /
+//! list — and the three approval gates around them (`approve` /
 //! `invalidate`): the gates are crossed by explicit commands, recorded per
 //! feature at `features/<feature>/planning/approvals.json`, and invalidated
 //! by a change to an upstream artifact.
@@ -11,7 +11,7 @@
 //! The files are committed (they are the team's shared record of *why* a
 //! feature exists), which is why the layout puts them at the hall root under
 //! `plans/`, not under `.ivar/`. `status` is the read surface over the whole
-//! cycle — the gates, what invalidated each, and the execution board — so the
+//! cycle — the gates, what invalidated each, and current run evidence — so the
 //! SPDD state is visible without opening JSON.
 
 use camino::Utf8PathBuf;
@@ -28,7 +28,7 @@ pub mod list;
 pub mod show;
 pub mod status;
 
-/// The feature's approval state, or a fresh one with all four gates pending
+/// The feature's approval state, or a fresh one with all three gates pending
 /// if none was ever written, normalised to lifecycle order.
 pub(super) fn load_approvals(
     layout: &Layout,
@@ -39,14 +39,13 @@ pub(super) fn load_approvals(
     Ok(approvals)
 }
 
-/// The artifact a gate fingerprints. Requirements, Analysis, and Plan each
-/// own their Markdown file; the Execution Graph is derived from `plan.md`, so
-/// it fingerprints that too — the same content the board's graph fingerprints.
+/// The artifact each gate fingerprints. Requirements, Analysis, and Plan each
+/// own one Markdown file.
 pub(super) fn artifact_path(layout: &Layout, feature: &FeatureName, gate: Gate) -> Utf8PathBuf {
     match gate {
         Gate::Requirements => layout.plan_dir(feature).join("requirements.md"),
         Gate::Analysis => layout.plan_dir(feature).join("analysis.md"),
-        Gate::Plan | Gate::ExecutionGraph => layout.plan_dir(feature).join("plan.md"),
+        Gate::Plan => layout.plan_dir(feature).join("plan.md"),
     }
 }
 

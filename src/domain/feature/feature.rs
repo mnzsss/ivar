@@ -248,11 +248,7 @@ impl From<UnknownOutcome> for Failure {
     }
 }
 
-/// The execution board for a feature: whether it is approved to run, and
-/// which guard checks stand between that and execution.
-///
-/// Created empty on `feature create`; `feature execute` (a later slice) is
-/// what fills the guards in and flips `approved`.
+/// A feature's delivery approval state and guard checks.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct FeatureBoard {

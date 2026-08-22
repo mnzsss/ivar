@@ -18,7 +18,11 @@
 //!     repos/<repo>/<branch>/           a worktree off that bare
 //!     features/<feature>/              promotion records
 //!     features/<feature>/planning/     approval-gate state (approvals.json)
-//!     features/<feature>/execution/    the feature execution board
+//!     features/<feature>/execution/    the current Run Receipt (run.json)
+//!     features/<feature>/execution/archive/runs/<run-id>.json
+//!                                      terminal receipts, immutable
+//!     features/<feature>/execution/archive/boards/<hash>.json
+//!                                      raw normalized legacy boards, content-addressed
 //!     features/<feature>/integration/  throwaway local-integration staging
 //!                                      worktrees (candidate/source per repo)
 //!     features/<feature>/sessions/<id>/  feature-session view dirs
@@ -50,7 +54,8 @@
 //!   [`crate::domain::name`] rather than `&str`: `manifest()`, `state()`,
 //!   `repo_bare(&RepoName)`, `repo_worktree(&RepoName, &BranchName)`,
 //!   `feature_dir(&FeatureName)`, `planning_dir(&FeatureName)`,
-//!   `execution_dir(&FeatureName)`,
+//!   `execution_dir(&FeatureName)`, `run_receipt(&FeatureName)`,
+//!   `archived_run(&FeatureName, &RunId)`, `archived_board(&FeatureName, &str)`,
 //!   `feature_session(&FeatureName, &SessionId)`, `discovery_session(&SessionId)`,
 //!   `setup_script(&RepoName)`, `session_hook(&RepoName)`, `secrets_dir()`,
 //!   `hall_skills()`, `plan_dir(&FeatureName)`,
@@ -96,6 +101,7 @@
 
 use camino::{Utf8Path, Utf8PathBuf};
 
+use crate::domain::feature::RunId;
 use crate::domain::name::{BranchName, FeatureName, RepoName, SessionId};
 use crate::domain::provider::Provider;
 use crate::error::{Failure, FixAction};
@@ -106,6 +112,9 @@ const MANIFEST_FILE_NAME: &str = "ivar.json";
 
 /// The one dotdir everything `ivar` manages lives under.
 const IVAR_DIR: &str = ".ivar";
+
+/// The current Run Receipt's filename, under a feature's execution directory.
+const RUN_FILE: &str = "run.json";
 
 /// Every path under a hall, computed from its root.
 ///
@@ -195,11 +204,67 @@ impl Layout {
         self.features_dir().join(feature.as_str())
     }
 
-    /// `<hall>/.ivar/features/<feature>/execution/` — the feature execution
-    /// board.
+    /// `<hall>/.ivar/features/<feature>/execution/` — the feature's current
+    /// Run Receipt and its archive. The legacy importer also reads a historical
+    /// board from this directory.
     #[must_use]
     pub fn execution_dir(&self, feature: &FeatureName) -> Utf8PathBuf {
         self.feature_dir(feature).join("execution")
+    }
+
+    /// `<hall>/.ivar/features/<feature>/execution/run.json` — the current Run
+    /// Receipt. At most one exists; a terminal receipt is archived and this
+    /// file removed before the next run creates it.
+    #[must_use]
+    pub fn run_receipt(&self, feature: &FeatureName) -> Utf8PathBuf {
+        self.execution_dir(feature).join(RUN_FILE)
+    }
+
+    /// `<hall>/.ivar/features/<feature>/execution/archive/` — everything the
+    /// lifecycle has finished with, kept forever.
+    #[must_use]
+    pub fn run_archive_dir(&self, feature: &FeatureName) -> Utf8PathBuf {
+        self.execution_dir(feature).join("archive")
+    }
+
+    /// `<hall>/.ivar/features/<feature>/execution/archive/runs/` — one file
+    /// per terminal receipt, named by run id.
+    #[must_use]
+    pub fn run_archive_runs_dir(&self, feature: &FeatureName) -> Utf8PathBuf {
+        self.run_archive_dir(feature).join("runs")
+    }
+
+    /// `<hall>/.ivar/features/<feature>/execution/archive/runs/<run-id>.json` —
+    /// one archived receipt.
+    ///
+    /// Takes a [`RunId`], not a `&str`: the id becomes a path component, and
+    /// `RunId`'s only constructor validates it as a UUID. Joining an
+    /// unvalidated string here is what `status --run <id>` would turn into a
+    /// traversal.
+    #[must_use]
+    pub fn archived_run(&self, feature: &FeatureName, run: &RunId) -> Utf8PathBuf {
+        self.run_archive_runs_dir(feature)
+            .join(format!("{run}.json"))
+    }
+
+    /// `<hall>/.ivar/features/<feature>/execution/archive/boards/` — the raw
+    /// normalized execution boards that legacy import consumed.
+    #[must_use]
+    pub fn board_archive_dir(&self, feature: &FeatureName) -> Utf8PathBuf {
+        self.run_archive_dir(feature).join("boards")
+    }
+
+    /// `<hall>/.ivar/features/<feature>/execution/archive/boards/<hash>.json` —
+    /// one archived board, named by the SHA-256 of its own normalized bytes.
+    ///
+    /// Content-addressed on purpose: identical content lands on the same path,
+    /// so re-running an interrupted import writes the same bytes to the same
+    /// place, and different content can never overwrite an existing archive
+    /// because it computes a different name.
+    #[must_use]
+    pub fn archived_board(&self, feature: &FeatureName, source_hash: &str) -> Utf8PathBuf {
+        self.board_archive_dir(feature)
+            .join(format!("{source_hash}.json"))
     }
 
     /// `<hall>/.ivar/features/<feature>/execution/inbox/` — one append-only

@@ -1,5 +1,5 @@
-//! View Dir materialisation: the shared core `session start`, `session
-//! connect`, `session convert` and `execute tick` all run.
+//! View Dir materialisation: the shared core for `session start`, `session
+//! connect`, and `session convert`.
 //!
 //! A **View Dir** is the single directory an agent session works in: one
 //! symlink per registered repo (promoted repos point at their feature
@@ -9,15 +9,14 @@
 //!
 //! # The harness config dir is real, never a symlink
 //!
-//! A later per-session write — the execute guard's `settings.json` — lands
-//! inside `<view_dir>/<config_dir>/`. This used to symlink that whole
-//! directory in from the hall under the name `.config`: wrong on two counts.
-//! Claude Code reads `.claude/`, never `.config/`, and nothing in this crate
-//! sets `CLAUDE_CONFIG_DIR`, so the hall's standing config — including the
-//! shipped `/ivar-*` commands — never reached a session's agent at all. And
-//! even fixed to the right name, a symlinked directory would send the
-//! guard's per-session `settings.json` into `hall/.claude` itself, applying
-//! one workstream's write guard to every session sharing the hall.
+//! Per-session harness state such as `settings.json` lands inside
+//! `<view_dir>/<config_dir>/`. This used to symlink that whole directory in
+//! from the hall under the name `.config`: wrong on two counts. Claude Code
+//! reads `.claude/`, never `.config/`, and nothing in this crate sets
+//! `CLAUDE_CONFIG_DIR`, so the hall's standing config — including the shipped
+//! `/ivar-*` commands — never reached a session's agent at all. A symlinked
+//! directory would also send per-session `settings.json` into `hall/.claude`
+//! itself.
 //!
 //! A real directory keeps per-session state per-session. Only `commands/`
 //! inside it is symlinked back to the hall — via [`Layout::commands_dir`],

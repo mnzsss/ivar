@@ -1,5 +1,10 @@
-//! The four SPDD approval gates and their state: `Gate`, `GateState`,
+//! The three SPDD approval gates and their state: `Gate`, `GateState`,
 //! `UnknownGate`, `ApprovalState`, and one `GateRecord` per gate.
+//!
+//! Earlier releases had a fourth approval record for execution planning. An
+//! approved Plan now authorises execution. Old `approvals.json` files may carry
+//! that retired record, which `store::feature` drops at the JSON-value migration
+//! layer before this enum sees it.
 //!
 //! Pure data, no I/O — the persisted form lives at
 //! `features/<feature>/planning/approvals.json`, written by `store::feature`.
@@ -10,13 +15,14 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::{Failure, FixAction};
 
-/// One of the four SPDD approval gates, in lifecycle order.
+/// One of the three SPDD approval gates, in lifecycle order.
 ///
 /// A gate is crossed by an explicit command after a human reviews its
 /// artifact; once crossed it blocks edits to that artifact unless invalidated
 /// by a change to an upstream artifact. The chain: Requirements has no
-/// upstream, Analysis requires Requirements, Plan requires Analysis, and the
-/// Execution Graph requires Plan.
+/// upstream, Analysis requires Requirements, and Plan requires Analysis. Plan
+/// is the last gate — nothing downstream of it is approved separately, because
+/// an approved plan is itself the authorisation a run pins its fingerprint to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Gate {
@@ -24,20 +30,13 @@ pub enum Gate {
     Requirements,
     /// `analysis.md` — how the requirements will be met.
     Analysis,
-    /// `plan.md` — the step-by-step implementation plan.
+    /// `plan.md` — the step-by-step implementation plan, and the last gate.
     Plan,
-    /// The execution graph derived from `plan.md`'s Operations.
-    ExecutionGraph,
 }
 
 impl Gate {
-    /// The four gates in lifecycle order, upstream first.
-    pub const ALL: [Gate; 4] = [
-        Gate::Requirements,
-        Gate::Analysis,
-        Gate::Plan,
-        Gate::ExecutionGraph,
-    ];
+    /// The three gates in lifecycle order, upstream first.
+    pub const ALL: [Gate; 3] = [Gate::Requirements, Gate::Analysis, Gate::Plan];
 
     /// The gate that must be [`GateState::Approved`] before this one may be.
     /// `Requirements` is the root of the chain and has no upstream.
@@ -47,7 +46,6 @@ impl Gate {
             Gate::Requirements => None,
             Gate::Analysis => Some(Gate::Requirements),
             Gate::Plan => Some(Gate::Analysis),
-            Gate::ExecutionGraph => Some(Gate::Plan),
         }
     }
 
@@ -56,15 +54,9 @@ impl Gate {
     #[must_use]
     pub const fn and_downstream(self) -> &'static [Gate] {
         match self {
-            Gate::Requirements => &[
-                Gate::Requirements,
-                Gate::Analysis,
-                Gate::Plan,
-                Gate::ExecutionGraph,
-            ],
-            Gate::Analysis => &[Gate::Analysis, Gate::Plan, Gate::ExecutionGraph],
-            Gate::Plan => &[Gate::Plan, Gate::ExecutionGraph],
-            Gate::ExecutionGraph => &[Gate::ExecutionGraph],
+            Gate::Requirements => &[Gate::Requirements, Gate::Analysis, Gate::Plan],
+            Gate::Analysis => &[Gate::Analysis, Gate::Plan],
+            Gate::Plan => &[Gate::Plan],
         }
     }
 
@@ -75,27 +67,30 @@ impl Gate {
             Gate::Requirements => 0,
             Gate::Analysis => 1,
             Gate::Plan => 2,
-            Gate::ExecutionGraph => 3,
         }
     }
 
-    /// Parse the CLI spelling of a gate name. Accepts the human-facing names
-    /// (which [`fmt::Display`] emits) — `execution_graph` is accepted as an
-    /// alias of `execution-graph` because it is what serde writes on disk.
+    /// Parse the CLI spelling of a gate name — the human-facing names, which
+    /// [`fmt::Display`] emits and which serde also writes on disk now that no
+    /// gate name has two words in it.
+    ///
+    /// `execution-graph` is deliberately *not* accepted, not even as a
+    /// deprecated alias: accepting it would let a stale command or an agent
+    /// working from old documentation approve something, and there is nothing
+    /// left for it to approve.
     pub fn parse(value: &str) -> Result<Self, UnknownGate> {
         match value {
             "requirements" => Ok(Gate::Requirements),
             "analysis" => Ok(Gate::Analysis),
             "plan" => Ok(Gate::Plan),
-            "execution-graph" | "execution_graph" => Ok(Gate::ExecutionGraph),
             other => Err(UnknownGate(other.to_owned())),
         }
     }
 }
 
 impl fmt::Display for Gate {
-    /// The human-facing, CLI spelling. `ExecutionGraph` renders as
-    /// `execution-graph`, not serde's `execution_graph`. Goes through
+    /// The human-facing, CLI spelling — the same string serde writes, now
+    /// that no gate name has two words in it. Goes through
     /// [`fmt::Formatter::pad`], so width/alignment format specs (`{:<16}` in
     /// the CLI's gate table) actually pad.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -103,7 +98,6 @@ impl fmt::Display for Gate {
             Gate::Requirements => "requirements",
             Gate::Analysis => "analysis",
             Gate::Plan => "plan",
-            Gate::ExecutionGraph => "execution-graph",
         };
         f.pad(name)
     }
@@ -136,14 +130,14 @@ impl fmt::Display for GateState {
 /// A gate name that matched no gate. The CLI passes the raw string through to
 /// the action, which parses it here — `cli` cannot import `domain`.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-#[error("unknown gate `{0}` — expected one of: requirements, analysis, plan, execution-graph")]
+#[error("unknown gate `{0}` — expected one of: requirements, analysis, plan")]
 pub struct UnknownGate(pub String);
 
 impl From<UnknownGate> for Failure {
     fn from(error: UnknownGate) -> Self {
         Failure::blocked("plan.unknown_gate", error.to_string()).fix(FixAction::safe(
             "plan.valid_gate",
-            "Use one of: requirements, analysis, plan, execution-graph.",
+            "Use one of: requirements, analysis, plan.",
         ))
     }
 }
@@ -152,9 +146,12 @@ impl From<UnknownGate> for Failure {
 /// artifact content each approval was recorded against.
 ///
 /// Persisted per feature at `features/<feature>/planning/approvals.json`
-/// (schema v1, `Policy::Local`) by `store::feature`. `gates` always holds all
-/// four after [`ApprovalState::normalize`]; a hand-edited file may omit some,
-/// and the missing ones read as `Pending`.
+/// (schema v2, `Policy::Local`) by `store::feature`. `gates` always holds all
+/// three after [`ApprovalState::normalize`]; a hand-edited file may omit some,
+/// and the missing ones read as `Pending`. A v1 file's fourth
+/// `execution_graph` record is dropped by the store's migration before this
+/// type deserializes, so it never reaches [`normalize`](Self::normalize) as an
+/// unknown gate.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ApprovalState {
     /// One record per gate, in lifecycle order.
@@ -162,7 +159,7 @@ pub struct ApprovalState {
 }
 
 impl ApprovalState {
-    /// A fresh state: all four gates pending, no fingerprints.
+    /// A fresh state: all three gates pending, no fingerprints.
     #[must_use]
     pub fn fresh() -> Self {
         Self {

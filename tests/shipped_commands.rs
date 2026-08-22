@@ -185,12 +185,10 @@ fn init_materialises_the_selected_providers_commands() {
     );
 }
 
-/// The shipped bytes encode the nested-subfeature coordination decisions:
-/// the coordinator auto-creates an isolatable child and announces it, the
-/// plan carries the child/replan/reconcile split, and the executor prompt
-/// stops and reports instead of mutating feature state.
+/// The shipped bytes make the provider the coordinator while preserving the
+/// Run Receipt lifecycle and explicit child-feature isolation for new scope.
 #[test]
-fn shipped_commands_encode_automatic_child_creation_and_executor_boundaries() {
+fn shipped_commands_encode_provider_native_receipt_coordination() {
     let (_guard, root) = hall_root();
     ivar()
         .current_dir(&root)
@@ -210,18 +208,19 @@ fn shipped_commands_encode_automatic_child_creation_and_executor_boundaries() {
     assert!(feature_create.contains("do not ask permission"));
 
     let plan = collapsed(read("plan"));
-    assert!(plan.contains("Outside the approved scope + isolatable"));
-    assert!(plan.contains("`ivar feature create <child> --parent <current>`"));
-    assert!(plan.contains("Structural correction to the approved plan"));
-    assert!(plan.contains("Implementation-only local divergence"));
+    assert!(plan.contains("three planning phases"));
+    assert!(plan.contains("[approve plan] → Execution"));
+    assert!(!plan.contains("approve graph"));
 
     let execute = collapsed(read("execute"));
-    assert!(execute.contains("You are the coordinator"));
-    assert!(execute.contains("no permission question"));
-    assert!(execute.contains("The executor is not the coordinator"));
-    assert!(execute.contains("stops and reports"));
-    assert!(execute.contains("never create, reparent, promote, integrate, close, delete"));
-    assert!(execute.contains("you create the child"));
+    assert!(execute.contains("active provider coordinates its own native subagents"));
+    assert!(execute.contains("ivar feature execute start"));
+    assert!(execute.contains("ivar feature execute finish"));
+    assert!(execute.contains("child Feature"));
+    assert!(!execute.contains("workstream"));
+    assert!(!execute.contains("execute tick"));
+    assert!(execute.contains("If newly discovered work is outside the approved plan"));
+    assert!(execute.contains("create a child Feature"));
 }
 
 /// `ivar provider add` materialises the new provider's commands immediately —
@@ -344,33 +343,20 @@ fn status_stays_operational_when_a_shipped_command_is_missing() {
         .stdout(predicate::str::contains("operational"));
 }
 
-/// Replan's input contract: the revised graph is required, so omitting
-/// `--graph-json` is a Clap error, not a fallback to the plan alone.
+/// The shipped execution workflow names only the Run Receipt lifecycle verbs.
 #[test]
-fn replan_requires_graph_json() {
+fn execute_help_exposes_the_receipt_lifecycle_without_legacy_verbs() {
     let (_guard, root) = hall_root();
     ivar()
         .current_dir(&root)
-        .args(["feature", "execute", "replan", "acme", "--plan", "plan.md"])
-        .assert()
-        .failure()
-        .stderr(predicate::str::contains("--graph-json"));
-}
-
-/// The `--allow-remove-completed` help text explains its destructive scope —
-/// that completed work may disappear from the board — so a caller does not
-/// reach for it without understanding what it authorizes.
-#[test]
-fn replan_help_explains_the_completed_removal_flags_scope() {
-    let (_guard, root) = hall_root();
-    ivar()
-        .current_dir(&root)
-        .args(["feature", "execute", "replan", "--help"])
+        .args(["feature", "execute", "--help"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("--allow-remove-completed"))
-        .stdout(predicate::str::contains(
-            "omit workstreams that have completed",
-        ))
-        .stdout(predicate::str::contains("explicit authorization"));
+        .stdout(predicate::str::contains("start"))
+        .stdout(predicate::str::contains("finish"))
+        .stdout(predicate::str::contains("status"))
+        .stdout(predicate::str::contains("accept-revision"))
+        .stdout(predicate::str::contains("replan").not())
+        .stdout(predicate::str::contains("prepare").not())
+        .stdout(predicate::str::contains("tick").not());
 }

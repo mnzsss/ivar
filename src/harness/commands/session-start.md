@@ -71,8 +71,7 @@ block. At the start of every conversation, re-derive where the feature is:
 1. Run `ivar plan status plans/<feature>/plan.md`.
 2. Read the plan artifacts that exist under `plans/<feature>/`.
 3. Continue from the first approval gate that is `pending` or
-   `needs-revision`, and consider the execution board if the status reports
-   one.
+   `needs-revision`.
 
 This is what lets a relay — or a fresh conversation on an existing session —
 pick the feature's work back up.

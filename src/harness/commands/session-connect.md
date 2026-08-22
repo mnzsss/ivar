@@ -70,8 +70,7 @@ re-derive where the feature is in the SPDD cycle:
 1. Run `ivar plan status plans/<feature>/plan.md`.
 2. Read the plan artifacts that exist under `plans/<feature>/`.
 3. Continue from the first approval gate that is `pending` or
-   `needs-revision`, and consider the execution board if the status reports
-   one.
+   `needs-revision`.
 
 ## When to use
 

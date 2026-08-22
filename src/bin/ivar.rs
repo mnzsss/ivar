@@ -24,11 +24,7 @@ use serde::Serialize;
 
 use ivar::action::Ctx;
 use ivar::action::confirm;
-use ivar::action::execute::{
-    ack as execute_ack, approve as execute_approve, guard_check as execute_guard_check, prepare,
-    reconcile as execute_reconcile, replan as execute_replan, reply as execute_reply,
-    tick as execute_tick,
-};
+use ivar::action::execute::{accept_revision, finish, start, status as execute_status};
 use ivar::action::feature::{
     close, create, delete, deliver, demote, integrate, list as feature_list, promote,
     prune as feature_prune, rebase, reparent, review, status, view,
@@ -180,50 +176,26 @@ fn main() -> ExitCode {
                 &mut stderr,
             ),
             FeatureCommand::Execute(cmd) => match cmd {
-                ExecuteCommand::Prepare(args) => respond(
-                    prepare::prepare(&ctx, args.into()),
+                ExecuteCommand::Start(args) => respond(
+                    start::start(&ctx, args.into()),
                     json,
                     &mut stdout,
                     &mut stderr,
                 ),
-                ExecuteCommand::Replan(args) => respond(
-                    execute_replan::replan(&ctx, args.into()),
+                ExecuteCommand::Finish(args) => respond(
+                    finish::finish(&ctx, args.into()),
                     json,
                     &mut stdout,
                     &mut stderr,
                 ),
-                ExecuteCommand::AckRevision(args) => respond(
-                    execute_ack::ack_revision(&ctx, args.into()),
+                ExecuteCommand::Status(args) => respond(
+                    execute_status::status(&ctx, args.into()),
                     json,
                     &mut stdout,
                     &mut stderr,
                 ),
-                ExecuteCommand::Reconcile(args) => respond(
-                    execute_reconcile::reconcile(&ctx, args.into()),
-                    json,
-                    &mut stdout,
-                    &mut stderr,
-                ),
-                ExecuteCommand::Approve(args) => respond(
-                    execute_approve::approve(&ctx, args.into()),
-                    json,
-                    &mut stdout,
-                    &mut stderr,
-                ),
-                ExecuteCommand::Tick(args) => respond(
-                    execute_tick::tick(&ctx, args.into()),
-                    json,
-                    &mut stdout,
-                    &mut stderr,
-                ),
-                ExecuteCommand::GuardCheck(args) => respond(
-                    execute_guard_check::guard_check(&ctx, args.into()),
-                    json,
-                    &mut stdout,
-                    &mut stderr,
-                ),
-                ExecuteCommand::Reply(args) => respond(
-                    execute_reply::reply(&ctx, args.into()),
+                ExecuteCommand::AcceptRevision(args) => respond(
+                    accept_revision::accept_revision(&ctx, args.into()),
                     json,
                     &mut stdout,
                     &mut stderr,

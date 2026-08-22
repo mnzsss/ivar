@@ -10,11 +10,7 @@
 use camino::Utf8PathBuf;
 use clap::{Args, Parser, Subcommand, ValueEnum};
 
-use crate::action::execute::{
-    ack as execute_ack, approve as execute_approve, guard_check as execute_guard_check, prepare,
-    reconcile as execute_reconcile, replan as execute_replan, reply as execute_reply,
-    tick as execute_tick,
-};
+use crate::action::execute::{accept_revision, finish, start, status as execute_status};
 use crate::action::feature::{
     close, create, delete, deliver, demote, integrate, promote, rebase, reparent, review, status,
     view,
@@ -247,7 +243,7 @@ pub enum FeatureCommand {
     /// promotion, plan, execution, session, receipt, close record, or
     /// descendant exists.
     Reparent(FeatureReparentArgs),
-    /// Operate on a feature's execution board.
+    /// Manage a feature's Run Receipt lifecycle.
     #[command(subcommand)]
     Execute(ExecuteCommand),
     /// Preview, then push, a feature's promoted repos. `--preview` prints the
@@ -367,130 +363,59 @@ pub struct FeatureStatusArgs {
     pub recursive: bool,
 }
 
-/// The `ivar feature execute` surface: verbs that create or advance a
-/// feature's execution board.
+/// The `ivar feature execute` Run Receipt lifecycle.
 #[derive(Debug, Subcommand)]
 pub enum ExecuteCommand {
-    /// Prepare a feature's execution board from its plan and execution graph.
-    Prepare(ExecutePrepareArgs),
-    /// Fold a revised plan into the board: advance the plan fingerprint and
-    /// pause every workstream whose Operations changed until it acknowledges
-    /// the new revision.
-    Replan(ExecuteReplanArgs),
-    /// Acknowledge a plan revision for one paused workstream, unpausing it.
-    /// The board resumes once every paused workstream has acknowledged.
-    AckRevision(ExecuteAckArgs),
-    /// Record a workstream's code divergence in the board's journal. The plan
-    /// is never rewritten.
-    Reconcile(ExecuteReconcileArgs),
-    /// Transition AwaitingApproval → Approved for the whole board.
-    Approve(ExecuteApproveArgs),
-    /// Find ready workstreams on the board and launch them.
-    Tick(ExecuteTickArgs),
-    /// Check the write contract for a session or repo path.
-    GuardCheck(ExecuteGuardCheckArgs),
-    /// Send a reply to a blocked workstream, unblocking it.
-    Reply(ExecuteReplyArgs),
+    /// Start a new run, resume a blocked run, or restart a non-terminal run.
+    Start(ExecuteStartArgs),
+    /// Record a coordinator's structured completion report.
+    Finish(ExecuteFinishArgs),
+    /// Show the current receipt, a receipt by id, or complete history.
+    Status(ExecuteStatusArgs),
+    /// Accept an approved plan revision for a diverged run.
+    AcceptRevision(ExecuteAcceptRevisionArgs),
 }
 
-/// Arguments for `ivar feature execute prepare`.
+/// Arguments for `ivar feature execute start`.
 #[derive(Debug, Args)]
-pub struct ExecutePrepareArgs {
-    /// The feature to prepare an execution board for.
+pub struct ExecuteStartArgs {
     pub feature: String,
-    /// Path to the execution graph JSON — workstreams with
-    /// `id`/`title`/`operations`/`depends_on`/`write_contract`.
-    #[arg(long)]
-    pub graph_json: String,
-    /// The current Ivar session whose provider supplies defaults for
-    /// untargeted workstreams.
-    #[arg(long)]
-    pub session: Option<String>,
-}
-
-/// Arguments for `ivar feature execute replan`.
-#[derive(Debug, Args)]
-pub struct ExecuteReplanArgs {
-    /// The feature whose board is replanned.
-    pub feature: String,
-    /// Path to the revised plan.md — the new revision to fold in.
     #[arg(long)]
     pub plan: String,
-    /// Path to the revised execution graph JSON — the complete replacement
-    /// graph the board adopts.
-    #[arg(long)]
-    pub graph_json: String,
-    /// Allow the revised graph to omit workstreams that have completed
-    /// (`Done`). Replan refuses to remove a completed workstream without
-    /// this flag — it is the explicit authorization that completed work may
-    /// disappear from the board. Removed workstreams' history stays in the
-    /// journal.
-    #[arg(long, default_value_t = false)]
-    pub allow_remove_completed: bool,
+    #[arg(long, conflicts_with = "restart")]
+    pub resume: bool,
+    #[arg(long, conflicts_with = "resume")]
+    pub restart: bool,
 }
 
-/// Arguments for `ivar feature execute ack-revision`.
+/// Arguments for `ivar feature execute finish`.
 #[derive(Debug, Args)]
-pub struct ExecuteAckArgs {
-    /// The feature whose board holds the paused workstream.
+pub struct ExecuteFinishArgs {
     pub feature: String,
-    /// The paused workstream's id.
     #[arg(long)]
-    pub workstream: String,
+    pub plan: String,
+    #[arg(long)]
+    pub report_json: String,
+    #[arg(long)]
+    pub outcome: String,
 }
 
-/// Arguments for `ivar feature execute reconcile`.
+/// Arguments for `ivar feature execute status`.
 #[derive(Debug, Args)]
-pub struct ExecuteReconcileArgs {
-    /// The feature whose board records the divergence.
+pub struct ExecuteStatusArgs {
     pub feature: String,
-    /// The workstream the divergence belongs to.
-    #[arg(long)]
-    pub workstream: String,
-    /// The executor's own description of what changed and why.
-    #[arg(long)]
-    pub description: String,
+    #[arg(long, conflicts_with = "run")]
+    pub history: bool,
+    #[arg(long, conflicts_with = "history")]
+    pub run: Option<String>,
 }
 
-/// Arguments for `ivar feature execute approve`.
+/// Arguments for `ivar feature execute accept-revision`.
 #[derive(Debug, Args)]
-pub struct ExecuteApproveArgs {
-    /// The feature whose board to approve.
+pub struct ExecuteAcceptRevisionArgs {
     pub feature: String,
-}
-
-/// Arguments for `ivar feature execute tick`.
-#[derive(Debug, Args)]
-pub struct ExecuteTickArgs {
-    /// The feature whose board to tick — find ready workstreams and launch them.
-    pub feature: String,
-}
-
-/// Arguments for `ivar feature execute guard-check`.
-#[derive(Debug, Args)]
-pub struct ExecuteGuardCheckArgs {
-    /// The feature whose write contract to check.
     #[arg(long)]
-    pub feature: Option<String>,
-    /// The session to check the write contract for.
-    #[arg(long)]
-    pub session: Option<String>,
-    /// A path to check the write contract against.
-    #[arg(long)]
-    pub path: Option<String>,
-}
-
-/// Arguments for `ivar feature execute reply`.
-#[derive(Debug, Args)]
-pub struct ExecuteReplyArgs {
-    /// The feature whose blocked workstream to reply to.
-    #[arg(long)]
-    pub feature: Option<String>,
-    /// The session to send a reply into.
-    #[arg(long)]
-    pub session: Option<String>,
-    /// The reply message.
-    pub message: String,
+    pub plan: String,
 }
 
 /// Arguments for `ivar feature deliver`.
@@ -650,7 +575,7 @@ pub enum PlanCommand {
     /// Print one feature's SPDD artifact.
     Show(PlanShowArgs),
     /// Approve one of a feature's SPDD gates: requirements, analysis, plan,
-    /// or execution-graph. Requires the gate upstream of it to be approved
+    /// Requires the gate upstream of it to be approved
     /// first, and records a fingerprint of the artifact's content.
     Approve(PlanApproveArgs),
     /// Declare a revision of an approved gate, marking it — and every gate
@@ -681,7 +606,7 @@ pub struct PlanShowArgs {
 pub struct PlanApproveArgs {
     /// The feature whose gate to approve.
     pub feature: String,
-    /// The gate: `requirements`, `analysis`, `plan`, or `execution-graph`.
+    /// The gate: `requirements`, `analysis`, or `plan`.
     pub gate: String,
 }
 
@@ -690,7 +615,7 @@ pub struct PlanApproveArgs {
 pub struct PlanInvalidateArgs {
     /// The feature whose gate to invalidate.
     pub feature: String,
-    /// The gate: `requirements`, `analysis`, `plan`, or `execution-graph`.
+    /// The gate: `requirements`, `analysis`, or `plan`.
     pub gate: String,
 }
 
@@ -1004,107 +929,59 @@ impl From<FeatureReparentArgs> for reparent::ReparentInput {
     }
 }
 
-impl From<ExecutePrepareArgs> for prepare::PrepareInput {
-    fn from(args: ExecutePrepareArgs) -> Self {
-        let ExecutePrepareArgs {
-            feature,
-            graph_json,
-            session,
-        } = args;
-        Self {
-            feature,
-            graph_json,
-            session,
-        }
-    }
-}
-
-impl From<ExecuteReplanArgs> for execute_replan::ReplanInput {
-    fn from(args: ExecuteReplanArgs) -> Self {
-        let ExecuteReplanArgs {
+impl From<ExecuteStartArgs> for start::StartInput {
+    fn from(args: ExecuteStartArgs) -> Self {
+        let ExecuteStartArgs {
             feature,
             plan,
-            graph_json,
-            allow_remove_completed,
+            resume,
+            restart,
         } = args;
         Self {
             feature,
             plan,
-            graph_json,
-            allow_remove_completed,
+            resume,
+            restart,
         }
     }
 }
 
-impl From<ExecuteAckArgs> for execute_ack::AckInput {
-    fn from(args: ExecuteAckArgs) -> Self {
-        let ExecuteAckArgs {
+impl From<ExecuteFinishArgs> for finish::FinishInput {
+    fn from(args: ExecuteFinishArgs) -> Self {
+        let ExecuteFinishArgs {
             feature,
-            workstream,
+            plan,
+            report_json,
+            outcome,
         } = args;
         Self {
             feature,
-            workstream,
+            plan,
+            report_json,
+            outcome,
         }
     }
 }
 
-impl From<ExecuteReconcileArgs> for execute_reconcile::ReconcileInput {
-    fn from(args: ExecuteReconcileArgs) -> Self {
-        let ExecuteReconcileArgs {
+impl From<ExecuteStatusArgs> for execute_status::StatusInput {
+    fn from(args: ExecuteStatusArgs) -> Self {
+        let ExecuteStatusArgs {
             feature,
-            workstream,
-            description,
+            history,
+            run,
         } = args;
         Self {
             feature,
-            workstream,
-            description,
+            history,
+            run,
         }
     }
 }
 
-impl From<ExecuteApproveArgs> for execute_approve::ApproveInput {
-    fn from(args: ExecuteApproveArgs) -> Self {
-        let ExecuteApproveArgs { feature } = args;
-        Self { feature }
-    }
-}
-
-impl From<ExecuteTickArgs> for execute_tick::TickInput {
-    fn from(args: ExecuteTickArgs) -> Self {
-        let ExecuteTickArgs { feature } = args;
-        Self { feature }
-    }
-}
-
-impl From<ExecuteGuardCheckArgs> for execute_guard_check::GuardCheckInput {
-    fn from(args: ExecuteGuardCheckArgs) -> Self {
-        let ExecuteGuardCheckArgs {
-            feature,
-            session,
-            path,
-        } = args;
-        Self {
-            feature,
-            session,
-            path,
-        }
-    }
-}
-
-impl From<ExecuteReplyArgs> for execute_reply::ReplyInput {
-    fn from(args: ExecuteReplyArgs) -> Self {
-        let ExecuteReplyArgs {
-            feature,
-            session,
-            message,
-        } = args;
-        Self {
-            feature,
-            session,
-            message,
-        }
+impl From<ExecuteAcceptRevisionArgs> for accept_revision::AcceptRevisionInput {
+    fn from(args: ExecuteAcceptRevisionArgs) -> Self {
+        let ExecuteAcceptRevisionArgs { feature, plan } = args;
+        Self { feature, plan }
     }
 }
 

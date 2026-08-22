@@ -103,8 +103,7 @@ pub fn connect(ctx: &Ctx, input: ConnectInput) -> Outcome<ConnectOutcome> {
     };
 
     // Re-binding an unrestricted session to a successful partial state would
-    // hand it a locked promotion with no write contract; refused before the
-    // view is re-materialised.
+    // hand it a locked promotion; refuse before the view is re-materialised.
     if let Some(feature) = &feature {
         crate::action::feature::ensure_unrestricted_session_allowed(&layout, feature)?;
     }
