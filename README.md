@@ -114,11 +114,7 @@ It uses your existing GitHub credentials only when it must clone a repository or
 open a pull request as you. Read [Concepts](docs/concepts.md) and
 [Limitations](docs/reference/limitations.md) for the exact boundaries.
 
-## Status and support
-
-**Beta, pre-`0.1.0`.** The command surface is settled; the on-disk format may
-still change before `0.1.0`. Local state migrates itself, while `ivar.json` never
-migrates without you asking.
+## Support
 
 **macOS and Linux.** Windows is not supported because a view dir is built from
 symlinks. Use WSL for the Linux build.
