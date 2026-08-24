@@ -4,7 +4,7 @@
   <img src="docs/assets/readme-banner.webp" alt="A stylized Viking longship crossing a Nordic fjord between mountains" width="1200">
 </p>
 
-**One logical change can span several repositories. `ivar` gives it one working directory.**
+**Coordinate one feature across existing repositories without changing their topology. `ivar` gives it one working directory.**
 
 A billing-currency change can touch an API contract in `api`, the generated
 client in `web`, and shared types in a third repository. It is one architectural
