@@ -8,7 +8,9 @@
 use camino::{Utf8Path, Utf8PathBuf};
 
 use super::*;
-use crate::domain::name::HallName;
+use crate::action::feature::create::{CreateInput, create as feature_create};
+use crate::domain::feature::{RunBaseline, RunId, RunReceipt};
+use crate::domain::name::{FeatureName, HallName, SessionId};
 use crate::domain::provider::Provider;
 use crate::error::{Status, WriteHuman};
 use crate::infra::fs;
@@ -948,6 +950,115 @@ fn doctor_returns_every_applicable_instruction_finding_in_one_run() {
     ] {
         assert!(codes.contains(&expected), "missing {expected} in {codes:?}");
     }
+}
+
+// -- doctor: in-flight run receipts ---------------------------------------
+
+#[test]
+fn doctor_names_an_active_run_whose_coordinating_session_is_gone() {
+    let (_guard, root) = hall_root();
+    let ctx = Ctx::new(root.clone());
+    let layout = Layout::at(root.clone());
+    init(
+        &ctx,
+        InitInput {
+            path: Utf8PathBuf::from("."),
+            name: Some("acme".to_owned()),
+            provider: None,
+        },
+    )
+    .unwrap();
+    feature_create(
+        &ctx,
+        CreateInput {
+            name: "checkout".to_owned(),
+            branch: None,
+            base: None,
+            parent: None,
+            via: None,
+            strategy: None,
+        },
+    )
+    .unwrap();
+    let feature = FeatureName::new("checkout").unwrap();
+    RunReceipt::start(
+        RunId::new("00000000-0000-0000-0000-000000000001").unwrap(),
+        feature.clone(),
+        "plans/checkout/plan.md",
+        "fingerprint",
+        RunBaseline::default(),
+        SessionId::new("00000000-0000-0000-0000-000000000002").unwrap(),
+        Provider::ClaudeCode,
+        "2026-01-01T00:00:00Z",
+    )
+    .write(&layout)
+    .unwrap();
+    // No session View Dir exists — the coordinator is dead.
+
+    let report = doctor(&ctx).unwrap();
+
+    let finding = finding(&report.value, "execute.run_orphaned");
+    assert!(finding.what.contains("checkout"), "was: {}", finding.what);
+    assert!(
+        finding.fix.contains("--resume") && finding.fix.contains("--restart"),
+        "the fix must offer resume and restart: {}",
+        finding.fix
+    );
+}
+
+#[test]
+fn doctor_says_nothing_about_an_active_run_with_a_live_session() {
+    let (_guard, root) = hall_root();
+    let ctx = Ctx::new(root.clone());
+    let layout = Layout::at(root.clone());
+    init(
+        &ctx,
+        InitInput {
+            path: Utf8PathBuf::from("."),
+            name: Some("acme".to_owned()),
+            provider: None,
+        },
+    )
+    .unwrap();
+    feature_create(
+        &ctx,
+        CreateInput {
+            name: "checkout".to_owned(),
+            branch: None,
+            base: None,
+            parent: None,
+            via: None,
+            strategy: None,
+        },
+    )
+    .unwrap();
+    let feature = FeatureName::new("checkout").unwrap();
+    let session = SessionId::new("00000000-0000-0000-0000-000000000002").unwrap();
+    RunReceipt::start(
+        RunId::new("00000000-0000-0000-0000-000000000001").unwrap(),
+        feature.clone(),
+        "plans/checkout/plan.md",
+        "fingerprint",
+        RunBaseline::default(),
+        session.clone(),
+        Provider::ClaudeCode,
+        "2026-01-01T00:00:00Z",
+    )
+    .write(&layout)
+    .unwrap();
+    fs::ensure_dir(&layout.feature_session(&feature, &session)).unwrap();
+
+    let report = doctor(&ctx).unwrap();
+
+    assert!(
+        report
+            .value
+            .findings
+            .iter()
+            .all(|finding| finding.code != "execute.run_orphaned"),
+        "a live coordinator must not be reported orphaned: {:?}",
+        report.value.findings
+    );
 }
 
 // -- cleanup --------------------------------------------------------------
