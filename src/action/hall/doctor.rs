@@ -9,11 +9,15 @@ use std::io;
 
 use serde::Serialize;
 
+use crate::domain::feature::{RunReceipt, RunStatus};
+use crate::domain::name::FeatureName;
 use crate::domain::provider::Provider;
-use crate::error::{Outcome, Report, WriteHuman};
+use crate::error::{Failure, Outcome, Report, WriteHuman};
 use crate::git::{self, Git, TargetState};
 use crate::harness::commands::{self, Inspection, Integrity};
 use crate::harness::config::{build_block, instructions};
+use crate::infra::fs;
+use crate::store::layout::Layout;
 
 use super::Ctx;
 use super::{discover_hall, read_manifest};
@@ -152,10 +156,64 @@ pub fn doctor(ctx: &Ctx) -> Outcome<DoctorOutcome> {
         }),
     }
 
+    // In-flight run receipts: `active` means a coordinator is attached and
+    // work is in flight, so the coordinating session must be alive. When its
+    // View Dir is gone the run is stranded — it still holds the feature's
+    // single-run lock, so no competing run can start and nothing can finish
+    // it. `blocked` and `diverged` deliberately wait on a human with no live
+    // coordinator, so only `active` is orphan-checked.
+    for (feature, receipt) in in_flight_receipts(&layout)? {
+        let plan = receipt.plan_path.to_string();
+        if !receipt.coordinators.iter().any(|entry| {
+            fs::is_dir(&layout.feature_session(&feature, &entry.session)).unwrap_or(false)
+        }) {
+            findings.push(Diagnosis {
+                code: "execute.run_orphaned",
+                what: format!(
+                    "run {} for feature `{feature}` is {} but its coordinating session is gone",
+                    receipt.id, receipt.status
+                ),
+                fix: format!(
+                    "Attach a feature session and resume it with \
+                     `ivar feature execute start {feature} --plan {plan} --resume`, or abandon \
+                     the run with `--restart`."
+                ),
+            });
+        }
+    }
+
     Ok(Report::new(DoctorOutcome {
         root: layout.root().to_path_buf(),
         findings,
     }))
+}
+
+/// Every feature's current receipt that is still in flight — non-terminal.
+///
+/// Iterates the hall's features directly rather than through the validated
+/// parent tree: `doctor` should name a broken feature, not refuse to run
+/// because one feature's parent reference is dangling. A receipt is skipped
+/// when it is terminal or when reading it fails.
+fn in_flight_receipts(layout: &Layout) -> Result<Vec<(FeatureName, RunReceipt)>, Failure> {
+    let mut receipts = Vec::new();
+    let features_dir = layout.features_dir();
+    if fs::is_dir(&features_dir)? {
+        for entry in fs::read_dir(&features_dir)? {
+            let Some(name) = entry.file_name() else {
+                continue;
+            };
+            let Ok(feature) = FeatureName::new(name.to_owned()) else {
+                continue;
+            };
+            let Some(receipt) = RunReceipt::read(layout, &feature).ok().flatten() else {
+                continue;
+            };
+            if receipt.status == RunStatus::Active {
+                receipts.push((feature, receipt));
+            }
+        }
+    }
+    Ok(receipts)
 }
 
 /// One diagnosis for a command file that is not in its target state.
