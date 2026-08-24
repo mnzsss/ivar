@@ -1,6 +1,6 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use clap::{CommandFactory as _, Parser as _};
+use clap::CommandFactory as _;
 
 use super::*;
 
