@@ -54,7 +54,17 @@ pub mod store;
 pub mod git;
 pub mod harness;
 
+// `action` and `cli` are not part of the published API. They are `pub` only so
+// `src/bin/ivar.rs` and the integration tests, which are separate crates, can
+// reach them.
+//
+// Without `#[doc(hidden)]`, cargo-semver-checks counts all 225 items in these two
+// modules as public. Adding one field to any `*Input`/`*Outcome` struct then
+// registers as a breaking change, which fills the release-plz PR with false
+// positives and forces a minor bump for an internal refactor.
+#[doc(hidden)]
 pub mod action;
+#[doc(hidden)]
 pub mod cli;
 pub mod tui;
 
