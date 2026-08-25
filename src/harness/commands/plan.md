@@ -55,14 +55,12 @@ is approved too — the escape is "never written," never "written and ignored."
 `ivar plan create <feature> requirements analysis` is the upgrade path back to
 full SPDD from here: it writes only the artifacts you are missing.
 
-One edge to know about when you take that upgrade path: writing
-`requirements.md` after the Plan gate is already approved does not invalidate
-it. Approval is recorded against the artifact a human actually reviewed, and
-nothing tracks which files existed at the time, so the plan stays approved and
-the feature can still be delivered with an unapproved requirements beside it.
-The next `plan approve` will refuse until you approve the new artifact, but the
-standing approval is yours to revisit — `ivar plan invalidate <feature> plan`
-is the deliberate way to void it.
+Writing either file back is what ends the short path, and it ends it
+immediately: an approved Plan gate whose upstream artifact has just appeared
+unapproved drops to `needs-revision`, and `ivar feature deliver` refuses until
+you approve the new artifact and re-approve the plan. That is the same rule
+`plan approve` enforces, applied to an approval already granted — the tool will
+not report a gate approved that it would now decline to grant.
 
 Do not use the short path for anything with real design risk: a new module
 boundary, a schema or API change, a new external dependency, anything that

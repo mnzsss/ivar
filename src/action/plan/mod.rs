@@ -16,7 +16,7 @@
 
 use camino::Utf8PathBuf;
 
-use crate::domain::feature::{ApprovalState, Gate};
+use crate::domain::feature::{ApprovalState, Gate, GateState};
 use crate::domain::name::FeatureName;
 use crate::error::Failure;
 use crate::infra::{fs, hash};
@@ -116,4 +116,138 @@ impl Artifact {
             Self::Plan => Gate::Plan,
         }
     }
+}
+
+/// The first gate upstream of `gate` whose artifact exists on disk and is not
+/// approved, scanning upstream-first. `None` when every upstream gate is
+/// either absent or approved.
+///
+/// An artifact that was never written is not a gate. That is what lets a small
+/// change carry a `plan.md` alone, with no `requirements.md` and no
+/// `analysis.md` to approve.
+///
+/// The walk is deliberately **transitive**, not immediate-upstream. With
+/// `requirements.md` written but unapproved and `analysis.md` absent, consulting
+/// only `gate.upstream()` would wave `plan` straight through — an artifact a
+/// human wrote and never approved would have stopped nothing, and the escape
+/// hatch would be a `--force` in disguise. The escape is "never written", never
+/// "written and ignored".
+///
+/// Correctness rests on `Gate::ALL` being in lifecycle order; if a gate is ever
+/// inserted, re-read this loop.
+pub(super) fn first_blocking_upstream(
+    approvals: &ApprovalState,
+    layout: &Layout,
+    feature: &FeatureName,
+    gate: Gate,
+) -> Result<Option<Gate>, Failure> {
+    for candidate in Gate::ALL {
+        if candidate == gate {
+            break;
+        }
+        if !artifact_exists(layout, feature, candidate)? {
+            continue;
+        }
+        if approvals.state(candidate) != Some(GateState::Approved) {
+            return Ok(Some(candidate));
+        }
+    }
+    Ok(None)
+}
+
+/// Every gate whose recorded approval no longer holds against the files on
+/// disk right now: it is `Approved`, but some upstream artifact exists and is
+/// not approved.
+///
+/// This is the same question [`first_blocking_upstream`] answers for a gate
+/// about to be crossed, asked instead of a gate already crossed. It needs no
+/// history — not "did the artifact set grow since approval?", which would mean
+/// recording what existed at approval time, but "is this approval coherent
+/// with the files as they are?", which is a function of the present.
+///
+/// Without it, writing `requirements.md` after the plan gate was approved
+/// would leave `approve` refusing while `status` still reported approved and
+/// `deliver` still shipped — the tool enforcing one rule and reporting another.
+pub(super) fn incoherent_approvals(
+    approvals: &ApprovalState,
+    layout: &Layout,
+    feature: &FeatureName,
+) -> Result<Vec<Gate>, Failure> {
+    let mut stale = Vec::new();
+    for gate in Gate::ALL {
+        if approvals.state(gate) != Some(GateState::Approved) {
+            continue;
+        }
+        if first_blocking_upstream(approvals, layout, feature, gate)?.is_some() {
+            stale.push(gate);
+        }
+    }
+    Ok(stale)
+}
+
+/// `approvals`, corrected against the files as they are right now.
+///
+/// Two corrections, in order. **Content**: an approved gate whose artifact no
+/// longer hashes to the recorded fingerprint is invalidated, cascading
+/// downstream; a vanished artifact counts as changed. **Shape**: an approved
+/// gate with an upstream artifact that has since been written and left
+/// unapproved is invalidated too — see [`incoherent_approvals`].
+///
+/// Every surface that asks "is this gate approved?" has to ask it through
+/// here. Reading `approvals.json` raw answers a question about the last
+/// command that wrote it, not about the feature as it stands, which is how
+/// `deliver` came to report a gate approved while `plan status` reported the
+/// same gate as needing revision.
+pub(super) fn reconciled(
+    approvals: &ApprovalState,
+    layout: &Layout,
+    feature: &FeatureName,
+) -> Result<ApprovalState, Failure> {
+    let mut out = approvals.clone();
+    out.normalize();
+
+    let mut drifted = Vec::new();
+    for record in &out.gates {
+        if record.state != GateState::Approved {
+            continue;
+        }
+        if artifact_fingerprint(layout, feature, record.gate)? != record.artifact_fingerprint {
+            drifted.push(record.gate);
+        }
+    }
+    for gate in drifted {
+        out.invalidate_from(gate);
+    }
+
+    for gate in incoherent_approvals(&out, layout, feature)? {
+        out.invalidate_from(gate);
+    }
+
+    Ok(out)
+}
+
+/// The `plan` gate's state for `feature`, corrected for *shape* — the read
+/// `deliver` and `integrate` share.
+///
+/// Only [`incoherent_approvals`] is applied here, not the content-drift pass
+/// [`reconciled`] also runs. That asymmetry is deliberate. `write_close`
+/// stamps an outcome onto `plan.md`'s frontmatter when a feature closes, so
+/// the file's hash moves without a human touching the plan; folding content
+/// drift into this read would invalidate the gate on ivar's own edit and break
+/// a second `integrate` on an already-closed child.
+///
+/// The consequence is worth stating plainly: a `plan.md` a human edited after
+/// approving it is reported `needs-revision` by `ivar plan status`, and
+/// `deliver` still ships it. That hole predates optional gates and closing it
+/// means teaching `write_close` to re-fingerprint what it stamped.
+pub(super) fn effective_plan_gate(
+    layout: &Layout,
+    feature: &FeatureName,
+) -> Result<GateState, Failure> {
+    let mut approvals = ApprovalState::read(layout, feature)?.unwrap_or_default();
+    approvals.normalize();
+    for gate in incoherent_approvals(&approvals, layout, feature)? {
+        approvals.invalidate_from(gate);
+    }
+    Ok(approvals.state(Gate::Plan).unwrap_or(GateState::Pending))
 }

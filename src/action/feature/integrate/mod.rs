@@ -39,8 +39,8 @@ use camino::Utf8PathBuf;
 use serde::Serialize;
 
 use crate::domain::feature::{
-    ApprovalState, Feature, FeatureIntegrationState, Gate, GateState, IntegrationOverride,
-    IntegrationPolicy, IntegrationStrategy, IntegrationVia, VerificationEvidence,
+    Feature, FeatureIntegrationState, GateState, IntegrationOverride, IntegrationPolicy,
+    IntegrationStrategy, IntegrationVia, VerificationEvidence,
 };
 use crate::domain::name::{BranchName, FeatureName, RepoName};
 use crate::domain::session::rfc3339_now;
@@ -212,10 +212,7 @@ pub fn integrate(ctx: &Ctx, input: IntegrateInput) -> Outcome<IntegrateOutcome> 
 
     // 2. The plan gate must be approved — integration is a planned act, and
     // the artifact a human crossed is the gate (see ARCHITECTURE.md, seam 7).
-    let plan_gate = ApprovalState::read(&layout, &name)?
-        .unwrap_or_default()
-        .state(Gate::Plan)
-        .unwrap_or(GateState::Pending);
+    let plan_gate = crate::action::plan::effective_plan_gate(&layout, &name)?;
     if plan_gate != GateState::Approved {
         return Err(Failure::blocked(
             "integration.plan_not_approved",

@@ -185,7 +185,7 @@ pub fn approve(ctx: &Ctx, input: ApproveInput) -> Outcome<ApproveOutcome> {
         ))
     })?;
 
-    if let Some(blocking) = first_blocking_upstream(&approvals, &layout, &feature, gate)? {
+    if let Some(blocking) = super::first_blocking_upstream(&approvals, &layout, &feature, gate)? {
         return Err(Failure::blocked(
             "plan.upstream_not_approved",
             format!(
@@ -272,43 +272,6 @@ pub fn invalidate(ctx: &Ctx, input: InvalidateInput) -> Outcome<InvalidateOutcom
     }))
 }
 
-/// The first gate upstream of `gate` whose artifact exists on disk and is not
-/// approved, scanning upstream-first. `None` when every upstream gate is
-/// either absent or approved.
-///
-/// An artifact that was never written is not a gate. That is what lets a small
-/// change carry a `plan.md` alone, with no `requirements.md` and no
-/// `analysis.md` to approve.
-///
-/// The walk is deliberately **transitive**, not immediate-upstream. With
-/// `requirements.md` written but unapproved and `analysis.md` absent, consulting
-/// only `gate.upstream()` would wave `plan` straight through — an artifact a
-/// human wrote and never approved would have stopped nothing, and the escape
-/// hatch would be a `--force` in disguise. The escape is "never written", never
-/// "written and ignored".
-///
-/// Correctness rests on `Gate::ALL` being in lifecycle order; if a gate is ever
-/// inserted, re-read this loop.
-fn first_blocking_upstream(
-    approvals: &ApprovalState,
-    layout: &Layout,
-    feature: &FeatureName,
-    gate: Gate,
-) -> Result<Option<Gate>, Failure> {
-    for candidate in Gate::ALL {
-        if candidate == gate {
-            break;
-        }
-        if !super::artifact_exists(layout, feature, candidate)? {
-            continue;
-        }
-        if approvals.state(candidate) != Some(GateState::Approved) {
-            return Ok(Some(candidate));
-        }
-    }
-    Ok(None)
-}
-
 /// Block when the feature does not exist — approvals belong to features.
 fn require_feature(layout: &Layout, feature: &FeatureName) -> Result<(), Failure> {
     if fs::is_dir(&layout.feature_dir(feature))? {
@@ -326,31 +289,32 @@ fn require_feature(layout: &Layout, feature: &FeatureName) -> Result<(), Failure
     )))
 }
 
-/// Re-check every approved gate's fingerprint against its artifact's current
-/// content. Every gate whose fingerprint no longer matches is invalidated,
-/// cascading downstream. An artifact that has vanished counts as changed. Only
-/// an unreadable file is an error — drift itself never is. Returns whether any
-/// gate was invalidated, so the caller can persist the corrected state even
-/// when the operation it is part of is about to be refused.
+/// Re-check every approved gate against the files as they are now, in two
+/// passes.
+///
+/// **Content.** Every gate whose fingerprint no longer matches its artifact is
+/// invalidated, cascading downstream. An artifact that has vanished counts as
+/// changed.
+///
+/// **Shape.** Every gate whose approval no longer holds because an upstream
+/// artifact has since been written and left unapproved is invalidated too —
+/// see [`super::incoherent_approvals`]. A gate crossed while its upstream did
+/// not exist was crossed honestly; it stops being honest the moment the
+/// upstream shows up.
+///
+/// Only an unreadable file is an error — neither kind of drift ever is.
+/// Returns whether any gate was invalidated, so the caller can persist the
+/// corrected state even when the operation it is part of is about to be
+/// refused.
 fn reconcile(
     approvals: &mut ApprovalState,
     layout: &Layout,
     feature: &FeatureName,
 ) -> Result<bool, Failure> {
-    let mut drifted = Vec::new();
-    for record in &approvals.gates {
-        if record.state != GateState::Approved {
-            continue;
-        }
-        let current = super::artifact_fingerprint(layout, feature, record.gate)?;
-        if current != record.artifact_fingerprint {
-            drifted.push(record.gate);
-        }
-    }
-    for gate in &drifted {
-        approvals.invalidate_from(*gate);
-    }
-    Ok(!drifted.is_empty())
+    let fixed = super::reconciled(approvals, layout, feature)?;
+    let changed = fixed != *approvals;
+    *approvals = fixed;
+    Ok(changed)
 }
 
 /// The one gate-state rendering, shared by both outcomes: one line per gate

@@ -239,6 +239,7 @@ fn compute_gates(
             drift_roots.push(record.gate);
         }
     }
+    let stale = super::incoherent_approvals(approvals, layout, feature)?;
 
     let mut gates = Vec::new();
     let mut previous_invalidated = None;
@@ -257,6 +258,13 @@ fn compute_gates(
                     "`{}` changed since approval",
                     super::artifact_path(layout, feature, gate)
                 )),
+            )
+        } else if stale.contains(&gate) {
+            let blocking = super::first_blocking_upstream(approvals, layout, feature, gate)?
+                .map_or_else(String::new, |upstream| upstream.to_string());
+            (
+                GateState::NeedsRevision,
+                Some(format!("`{blocking}` was written after this was approved")),
             )
         } else if let Some(upstream) = previous_invalidated {
             (

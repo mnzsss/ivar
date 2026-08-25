@@ -209,3 +209,77 @@ fn status_refuses_a_path_outside_feature_plans() {
     .unwrap_err();
     assert_eq!(failure.code, "plan.status_not_a_plan");
 }
+
+/// The short path's one sharp edge, closed. A feature that approved `plan`
+/// while `requirements.md` did not exist crossed that gate honestly. Writing
+/// `requirements.md` afterwards, unapproved, ends that: `plan approve` would
+/// refuse now, so `status` must not keep reporting the gate as approved. The
+/// tool has to enforce and report the same rule.
+#[test]
+fn status_invalidates_an_approved_gate_once_an_upstream_artifact_appears() {
+    let (_guard, root) = seeded_hall();
+    let ctx = Ctx::new(root.clone());
+    let layout = Layout::discover(&root).unwrap().unwrap();
+    let feature = FeatureName::new("checkout").unwrap();
+
+    // Take the short path: only plan.md on disk, only the plan gate crossed.
+    fs::remove_path(&layout.plan_dir(&feature).join("requirements.md")).unwrap();
+    fs::remove_path(&layout.plan_dir(&feature).join("analysis.md")).unwrap();
+    plan_approve::approve(
+        &ctx,
+        ApproveInput {
+            feature: "checkout".to_owned(),
+            gate: "plan".to_owned(),
+        },
+    )
+    .unwrap();
+
+    let before = status(&ctx, input()).unwrap();
+    assert_eq!(
+        before
+            .value
+            .gates
+            .iter()
+            .map(|g| g.gate)
+            .collect::<Vec<_>>(),
+        vec![Gate::Plan]
+    );
+    assert_eq!(
+        before.value.gates.first().unwrap().state,
+        GateState::Approved
+    );
+
+    // Now the upstream artifact shows up, unapproved.
+    fs::write_text(
+        &layout.plan_dir(&feature).join("requirements.md"),
+        "# Requirements\n",
+    )
+    .unwrap();
+
+    let after = status(&ctx, input()).unwrap();
+    let states: Vec<_> = after
+        .value
+        .gates
+        .iter()
+        .map(|g| (g.gate, g.state))
+        .collect();
+    assert_eq!(
+        states,
+        vec![
+            (Gate::Requirements, GateState::Pending),
+            (Gate::Plan, GateState::NeedsRevision),
+        ]
+    );
+    let reason = after
+        .value
+        .gates
+        .get(1)
+        .unwrap()
+        .invalidated_by
+        .as_deref()
+        .unwrap();
+    assert!(
+        reason.contains("requirements"),
+        "the reason should name the artifact that appeared, got: {reason}"
+    );
+}

@@ -695,3 +695,56 @@ fn the_approve_human_surface_omits_gates_the_feature_does_not_have() {
          \x20 plan             approved\n"
     );
 }
+
+/// The approve path persists what `status` reports. A plan gate crossed while
+/// `requirements.md` was absent is void once that file appears unapproved, so
+/// the next command through `reconcile` writes the correction to disk rather
+/// than leaving `approvals.json` claiming an approval the tool would now
+/// refuse to grant.
+#[test]
+fn reconcile_voids_an_approved_plan_once_an_upstream_artifact_appears() {
+    let (_guard, root) = seeded_hall();
+    let ctx = Ctx::new(root.clone());
+
+    // Short path: only plan.md exists, only the plan gate is crossed.
+    fs::remove_path(&root.join("plans/checkout/requirements.md")).unwrap();
+    fs::remove_path(&root.join("plans/checkout/analysis.md")).unwrap();
+    approve(
+        &ctx,
+        ApproveInput {
+            feature: "checkout".to_owned(),
+            gate: "plan".to_owned(),
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        persisted(&root).state(Gate::Plan),
+        Some(GateState::Approved)
+    );
+
+    // The upstream artifact appears, unapproved.
+    fs::write_text(
+        &root.join("plans/checkout/requirements.md"),
+        "# Requirements\n",
+    )
+    .unwrap();
+
+    // Any command that reconciles now refuses, and the refusal names the
+    // artifact that appeared.
+    let failure = approve(
+        &ctx,
+        ApproveInput {
+            feature: "checkout".to_owned(),
+            gate: "plan".to_owned(),
+        },
+    )
+    .unwrap_err();
+    assert_eq!(failure.status, Status::Blocked);
+    assert_eq!(failure.code, "plan.upstream_not_approved");
+
+    // And the correction was persisted, not merely reported.
+    assert_eq!(
+        persisted(&root).state(Gate::Plan),
+        Some(GateState::NeedsRevision)
+    );
+}

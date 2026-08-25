@@ -2,9 +2,7 @@
 //! gate check, and the refusals when a preview (or an approved plan) is
 //! missing.
 
-use crate::domain::feature::{
-    ApprovalState, DeliveryPreview, DeliveryRepo, DeliveryTreeBlocker, Gate, GateState,
-};
+use crate::domain::feature::{DeliveryPreview, DeliveryRepo, DeliveryTreeBlocker, GateState};
 use crate::domain::name::FeatureName;
 use crate::error::{Failure, FixAction};
 use crate::infra::{hash, json};
@@ -31,8 +29,7 @@ pub(crate) fn plan_gate_state(
     layout: &Layout,
     feature: &FeatureName,
 ) -> Result<GateState, Failure> {
-    let approvals = ApprovalState::read(layout, feature)?.unwrap_or_default();
-    Ok(approvals.state(Gate::Plan).unwrap_or(GateState::Pending))
+    crate::action::plan::effective_plan_gate(layout, feature)
 }
 
 /// Delivering a feature whose plan gate is not approved, refused.

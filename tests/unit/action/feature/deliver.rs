@@ -699,3 +699,57 @@ fn the_human_apply_surface_reports_each_push() {
     assert!(rendered.contains("  api: pushed"));
     assert!(rendered.contains("  web: not pushed — remote did not answer"));
 }
+
+/// The short path's sharp edge, closed at the surface that matters. A feature
+/// that approved `plan` while `requirements.md` did not exist may deliver.
+/// Once `requirements.md` appears unapproved, that approval no longer holds,
+/// and `deliver` has to refuse rather than ship on a gate `plan approve` would
+/// now decline to grant.
+#[test]
+fn deliver_refuses_once_an_upstream_artifact_appears_after_approval() {
+    let (_guard, root) = hall_with_promoted(&["api"]);
+    let ctx = Ctx::new(root.clone());
+
+    // Short path: scaffold and approve the plan gate alone.
+    crate::action::plan::create::create(
+        &ctx,
+        crate::action::plan::create::CreateInput {
+            feature: "checkout".to_owned(),
+            artifacts: vec![crate::action::plan::Artifact::Plan],
+        },
+    )
+    .unwrap();
+    crate::action::plan::approve::approve(
+        &ctx,
+        crate::action::plan::approve::ApproveInput {
+            feature: "checkout".to_owned(),
+            gate: "plan".to_owned(),
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        deliver(&ctx, preview_input("checkout"))
+            .unwrap()
+            .value
+            .preview
+            .plan_gate,
+        GateState::Approved
+    );
+
+    // The upstream artifact appears, unapproved.
+    crate::infra::fs::write_text(
+        &root.join("plans/checkout/requirements.md"),
+        "# Requirements\n",
+    )
+    .unwrap();
+
+    let preview = deliver(&ctx, preview_input("checkout")).unwrap();
+    assert_eq!(preview.value.preview.plan_gate, GateState::NeedsRevision);
+
+    let failure = deliver(
+        &ctx,
+        apply_input("checkout", &preview.value.preview.fingerprint),
+    )
+    .unwrap_err();
+    assert_eq!(failure.code, "deliver.plan_not_approved");
+}
