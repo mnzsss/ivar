@@ -210,6 +210,21 @@ fn not_a_plan(path: &Utf8Path, layout: &Layout) -> Failure {
     ))
 }
 
+/// The gates a feature actually has, in lifecycle order, with drift already
+/// reconciled.
+///
+/// A gate is omitted from the result when its artifact does not exist on disk
+/// **and** its stored state is [`GateState::Pending`] — the feature
+/// deliberately never wrote that artifact, so it was never a gate to begin
+/// with (R-STATUS-OMITS). The conjunction is load-bearing: an absent artifact
+/// whose gate was `Approved` (or `NeedsRevision`) is *not* omitted, and keeps
+/// flowing through the drift branch below to `needs-revision` with its
+/// `invalidated_by` reason (R-STATUS-DRIFT). Omitting on absence alone would
+/// silently clear a gate whose approved artifact someone deleted, turning
+/// this rule into a hole instead of a fix. An omitted gate also never sets
+/// `previous_invalidated`, so it cannot seed a downstream cascade — but the
+/// cascade still passes through it untouched, since skipping it never resets
+/// whatever an earlier gate already set.
 fn compute_gates(
     approvals: &ApprovalState,
     layout: &Layout,
@@ -231,6 +246,10 @@ fn compute_gates(
         let stored = approvals
             .record(gate)
             .map_or(GateState::Pending, |record| record.state);
+        if stored == GateState::Pending && !super::artifact_exists(layout, feature, gate)? {
+            // Never crossed and nothing on disk — not a gate for this feature.
+            continue;
+        }
         let (state, invalidated_by) = if drift_roots.contains(&gate) {
             (
                 GateState::NeedsRevision,

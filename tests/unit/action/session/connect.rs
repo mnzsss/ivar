@@ -398,6 +398,7 @@ fn connect_repairs_the_projected_plan_commands_and_instructions() {
         &ctx,
         PlanCreateInput {
             feature: "checkout".to_owned(),
+            artifacts: Vec::new(),
         },
     )
     .unwrap();

@@ -36,6 +36,7 @@ fn list_reports_created_plans_with_their_artifacts() {
         &ctx,
         CreateInput {
             feature: "checkout".to_owned(),
+            artifacts: Vec::new(),
         },
     )
     .unwrap();

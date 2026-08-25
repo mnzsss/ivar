@@ -41,6 +41,7 @@ fn seeded_hall() -> (tempfile::TempDir, Utf8PathBuf) {
         &ctx,
         PlanCreateInput {
             feature: "checkout".to_owned(),
+            artifacts: Vec::new(),
         },
     )
     .unwrap();
@@ -151,6 +152,167 @@ fn approve_analysis_requires_requirements_approved() {
         report.value.approvals.state(Gate::Analysis),
         Some(GateState::Approved)
     );
+}
+
+#[test]
+fn approve_plan_succeeds_when_both_upstream_artifacts_are_absent() {
+    let (_guard, root) = seeded_hall();
+    let ctx = Ctx::new(root.clone());
+    // A light feature: only plan.md is meant to exist. Delete the other two
+    // scaffolded artifacts behind ivar's back to model that.
+    fs::remove_path(&root.join("plans/checkout/requirements.md")).unwrap();
+    fs::remove_path(&root.join("plans/checkout/analysis.md")).unwrap();
+
+    let report = approve(
+        &ctx,
+        ApproveInput {
+            feature: "checkout".to_owned(),
+            gate: "plan".to_owned(),
+        },
+    )
+    .unwrap();
+
+    assert!(report.is_clean());
+    assert_eq!(report.value.gate, Gate::Plan);
+    assert_eq!(
+        report.value.approvals.state(Gate::Plan),
+        Some(GateState::Approved)
+    );
+
+    let on_disk = persisted(&root);
+    assert_eq!(on_disk.state(Gate::Plan), Some(GateState::Approved));
+}
+
+#[test]
+fn approve_plan_blocked_by_written_unapproved_requirements_when_analysis_absent() {
+    let (_guard, root) = seeded_hall();
+    let ctx = Ctx::new(root.clone());
+    // requirements.md exists and is unapproved (still Pending); analysis.md is
+    // absent. An immediate-upstream-only check would see analysis.md missing
+    // and wave `plan` straight through — that is exactly the regression this
+    // rule must not reintroduce (F1). The escape is "never written", never
+    // "written and ignored".
+    fs::remove_path(&root.join("plans/checkout/analysis.md")).unwrap();
+
+    let failure = approve(
+        &ctx,
+        ApproveInput {
+            feature: "checkout".to_owned(),
+            gate: "plan".to_owned(),
+        },
+    )
+    .unwrap_err();
+
+    assert_eq!(failure.status, Status::Blocked);
+    assert_eq!(failure.code, "plan.upstream_not_approved");
+    assert!(
+        failure.what.contains("requirements"),
+        "failure should name `requirements`, the actual blocking gate: {}",
+        failure.what
+    );
+    assert!(
+        !failure.what.contains("analysis"),
+        "an absent analysis.md must never be named as blocking: {}",
+        failure.what
+    );
+}
+
+#[test]
+fn approve_plan_succeeds_when_requirements_is_approved_and_analysis_is_absent() {
+    let (_guard, root) = seeded_hall();
+    let ctx = Ctx::new(root.clone());
+    approve(
+        &ctx,
+        ApproveInput {
+            feature: "checkout".to_owned(),
+            gate: "requirements".to_owned(),
+        },
+    )
+    .unwrap();
+    fs::remove_path(&root.join("plans/checkout/analysis.md")).unwrap();
+
+    let report = approve(
+        &ctx,
+        ApproveInput {
+            feature: "checkout".to_owned(),
+            gate: "plan".to_owned(),
+        },
+    )
+    .unwrap();
+
+    assert!(report.is_clean());
+    assert_eq!(
+        report.value.approvals.state(Gate::Plan),
+        Some(GateState::Approved)
+    );
+}
+
+#[test]
+fn approving_all_three_gates_in_order_behaves_exactly_as_before_this_change() {
+    let (_guard, root) = seeded_hall();
+    let ctx = Ctx::new(root.clone());
+
+    for gate in ["requirements", "analysis", "plan"] {
+        let report = approve(
+            &ctx,
+            ApproveInput {
+                feature: "checkout".to_owned(),
+                gate: gate.to_owned(),
+            },
+        )
+        .unwrap();
+        assert!(report.is_clean());
+    }
+
+    let on_disk = persisted(&root);
+    for gate in Gate::ALL {
+        assert_eq!(on_disk.state(gate), Some(GateState::Approved));
+    }
+}
+
+#[test]
+fn deleting_an_approved_requirements_artifact_still_cascades_to_needs_revision() {
+    let (_guard, root) = seeded_hall();
+    let ctx = Ctx::new(root.clone());
+    for gate in ["requirements", "analysis", "plan"] {
+        approve(
+            &ctx,
+            ApproveInput {
+                feature: "checkout".to_owned(),
+                gate: gate.to_owned(),
+            },
+        )
+        .unwrap();
+    }
+
+    // The approved artifact vanishes entirely, rather than merely changing
+    // content.
+    fs::remove_path(&root.join("plans/checkout/requirements.md")).unwrap();
+
+    // Reconcile runs — and persists — before any refusal, so the next
+    // approval attempt still records the honest, cascaded state even though
+    // it is itself refused.
+    let failure = approve(
+        &ctx,
+        ApproveInput {
+            feature: "checkout".to_owned(),
+            gate: "plan".to_owned(),
+        },
+    )
+    .unwrap_err();
+    assert_eq!(failure.code, "plan.upstream_not_approved");
+
+    // Absence must not silently clear an approval that was already crossed:
+    // every gate downstream of (and including) the vanished artifact is
+    // `needs-revision`, never omitted and never left `approved`.
+    let on_disk = persisted(&root);
+    for gate in Gate::ALL {
+        assert_eq!(
+            on_disk.state(gate),
+            Some(GateState::NeedsRevision),
+            "{gate} should need revision after requirements.md was deleted"
+        );
+    }
 }
 
 #[test]
@@ -466,6 +628,7 @@ fn the_approve_human_surface_lists_every_gate_state() {
         feature: FeatureName::new("checkout").unwrap(),
         gate: Gate::Requirements,
         approvals,
+        visible: Gate::ALL.to_vec(),
     };
 
     let mut out = Vec::new();
@@ -492,6 +655,7 @@ fn the_invalidate_human_surface_lists_every_gate_state() {
         gate: Gate::Requirements,
         cascaded: Gate::ALL.to_vec(),
         approvals,
+        visible: Gate::ALL.to_vec(),
     };
 
     let mut out = Vec::new();
@@ -503,5 +667,31 @@ fn the_invalidate_human_surface_lists_every_gate_state() {
          \x20 requirements     needs-revision\n\
          \x20 analysis         needs-revision\n\
          \x20 plan             needs-revision\n"
+    );
+}
+
+/// A feature that took the short path has one gate, and the approve surface
+/// must say so. Rendering the whole `ApprovalState` would announce
+/// `requirements pending` for an artifact nobody wrote, which is exactly the
+/// instruction the short path exists to stop giving.
+#[test]
+fn the_approve_human_surface_omits_gates_the_feature_does_not_have() {
+    let mut approvals = ApprovalState::fresh();
+    approvals.set(Gate::Plan, GateState::Approved, None);
+    let outcome = ApproveOutcome {
+        root: Utf8PathBuf::from("/hall"),
+        feature: FeatureName::new("checkout").unwrap(),
+        gate: Gate::Plan,
+        approvals,
+        visible: vec![Gate::Plan],
+    };
+
+    let mut out = Vec::new();
+    outcome.write_human(&mut out).unwrap();
+
+    assert_eq!(
+        String::from_utf8(out).unwrap(),
+        "Approved `plan` for feature `checkout`\n\
+         \x20 plan             approved\n"
     );
 }

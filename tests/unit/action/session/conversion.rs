@@ -183,6 +183,7 @@ fn convert_projects_the_plan_and_writes_bootstrap_instructions() {
         &ctx,
         PlanCreateInput {
             feature: "checkout".to_owned(),
+            artifacts: Vec::new(),
         },
     )
     .unwrap();

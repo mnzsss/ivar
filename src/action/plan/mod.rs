@@ -63,3 +63,57 @@ pub(super) fn artifact_fingerprint(
     }
     Ok(Some(hash::file(&path)?))
 }
+
+/// Whether `gate`'s artifact exists on disk.
+///
+/// An artifact that was never written is not a gate — this is the predicate
+/// the whole optional-SPDD rule turns on. See [`first_blocking_upstream`].
+pub(super) fn artifact_exists(
+    layout: &Layout,
+    feature: &FeatureName,
+    gate: Gate,
+) -> Result<bool, Failure> {
+    Ok(fs::is_file(&artifact_path(layout, feature, gate))?)
+}
+
+/// Which SPDD artifact — the file a gate fingerprints.
+///
+/// Lives here beside [`artifact_path`] and [`artifact_fingerprint`], the two
+/// functions that answer questions about these files. `show` re-exports it, so
+/// `plan::show::Artifact` still resolves for anyone who named that path.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, clap::ValueEnum,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum Artifact {
+    Requirements,
+    Analysis,
+    Plan,
+}
+
+impl Artifact {
+    /// Every artifact, in canonical (lifecycle) order — the set `plan create`
+    /// scaffolds when no subset is named.
+    pub const ALL: [Artifact; 3] = [Artifact::Requirements, Artifact::Analysis, Artifact::Plan];
+
+    /// The artifact's filename.
+    #[must_use]
+    pub const fn filename(self) -> &'static str {
+        match self {
+            Self::Requirements => "requirements.md",
+            Self::Analysis => "analysis.md",
+            Self::Plan => "plan.md",
+        }
+    }
+
+    /// The gate this artifact backs. One mapping, shared by `create` and the
+    /// gate rule, so the two can never disagree about which file is which.
+    #[must_use]
+    pub const fn gate(self) -> Gate {
+        match self {
+            Self::Requirements => Gate::Requirements,
+            Self::Analysis => Gate::Analysis,
+            Self::Plan => Gate::Plan,
+        }
+    }
+}

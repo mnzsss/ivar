@@ -29,6 +29,7 @@ fn approve_through_plan(root: &Utf8PathBuf) {
         &ctx,
         crate::action::plan::create::CreateInput {
             feature: "checkout".to_owned(),
+            artifacts: Vec::new(),
         },
     )
     .unwrap();

@@ -35,6 +35,7 @@ fn seeded_hall() -> (tempfile::TempDir, Utf8PathBuf) {
         &ctx,
         PlanCreateInput {
             feature: "checkout".to_owned(),
+            artifacts: Vec::new(),
         },
     )
     .unwrap();

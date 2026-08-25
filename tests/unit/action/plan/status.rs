@@ -40,6 +40,7 @@ fn seeded_hall() -> (tempfile::TempDir, Utf8PathBuf) {
         &ctx,
         PlanCreateInput {
             feature: "checkout".to_owned(),
+            artifacts: Vec::new(),
         },
     )
     .unwrap();
@@ -130,6 +131,70 @@ fn status_projects_current_receipt_and_plan_divergence() {
     assert!(!receipt.plan_matches);
     assert!(receipt.recovery.unwrap().contains("active"));
     assert!(report.value.evidence_available);
+}
+
+#[test]
+fn status_omits_gate_whose_artifact_is_absent_and_never_approved() {
+    let (_guard, root) = seeded_hall();
+    fs::remove_file(&root.join("plans/checkout/requirements.md")).unwrap();
+
+    let report = status(&Ctx::new(root), input()).unwrap();
+    assert_eq!(
+        report
+            .value
+            .gates
+            .iter()
+            .map(|gate| gate.gate)
+            .collect::<Vec<_>>(),
+        [Gate::Analysis, Gate::Plan]
+    );
+}
+
+#[test]
+fn status_keeps_approved_gate_as_needs_revision_when_its_artifact_is_deleted() {
+    let (_guard, root) = seeded_hall();
+    let ctx = Ctx::new(root.clone());
+    plan_approve::approve(
+        &ctx,
+        ApproveInput {
+            feature: "checkout".to_owned(),
+            gate: "requirements".to_owned(),
+        },
+    )
+    .unwrap();
+    fs::remove_file(&root.join("plans/checkout/requirements.md")).unwrap();
+
+    let report = status(&ctx, input()).unwrap();
+    let requirements = report
+        .value
+        .gates
+        .iter()
+        .find(|gate| gate.gate == Gate::Requirements)
+        .expect("an approved gate must not be omitted when its artifact vanishes");
+    assert_eq!(requirements.state, GateState::NeedsRevision);
+    assert!(requirements.invalidated_by.is_some());
+}
+
+#[test]
+fn status_lists_all_three_gates_when_every_artifact_is_present() {
+    let (_guard, root) = seeded_hall();
+    let report = status(&Ctx::new(root), input()).unwrap();
+    assert_eq!(
+        report
+            .value
+            .gates
+            .iter()
+            .map(|gate| gate.gate)
+            .collect::<Vec<_>>(),
+        Gate::ALL
+    );
+    assert!(
+        report
+            .value
+            .gates
+            .iter()
+            .all(|gate| gate.state == GateState::Pending && gate.invalidated_by.is_none())
+    );
 }
 
 #[test]

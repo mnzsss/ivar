@@ -35,16 +35,17 @@
 //! # Artifacts
 //!
 //! Requirements, Analysis, and Plan fingerprint their own committed Markdown
-//! file under `plans/<feature>/`. The Execution Graph has no file of its own —
-//! it is derived from `plan.md`'s Operations section — so it fingerprints
-//! `plan.md` too: any plan change invalidates the graph, which is exactly the
-//! cascade CONTEXT.md requires.
+//! file under `plans/<feature>/`. A gate whose file was never written is not a
+//! gate at all: `approve` skips absent upstream artifacts, so a small change
+//! can carry a `plan.md` alone. An upstream artifact that *exists* and is not
+//! approved still blocks — see [`first_blocking_upstream`].
 //!
 //! # Persistence
 //!
 //! The state lives at `features/<feature>/planning/approvals.json` (schema
-//! v1, `Policy::Local` — gitignored, per-machine). An absent file means no
-//! gate has ever been crossed.
+//! v2, `Policy::Local` — gitignored, per-machine). An absent file means no
+//! gate has ever been crossed. v2 is what dropped the retired fourth record;
+//! `store::feature` migrates a v1 file before this module sees it.
 
 use std::io;
 
@@ -81,12 +82,15 @@ pub struct ApproveOutcome {
     /// The full approval state after the transition — the gate itself, and
     /// any gates the reconciliation just invalidated.
     pub approvals: ApprovalState,
+    /// The gates this feature actually has, in lifecycle order. See
+    /// [`visible_gates`].
+    pub visible: Vec<Gate>,
 }
 
 impl WriteHuman for ApproveOutcome {
     fn write_human(&self, w: &mut impl io::Write) -> io::Result<()> {
         writeln!(w, "Approved `{}` for feature `{}`", self.gate, self.feature)?;
-        write_gates(w, &self.approvals)
+        write_gates(w, &self.approvals, &self.visible)
     }
 }
 
@@ -114,6 +118,9 @@ pub struct InvalidateOutcome {
     pub cascaded: Vec<Gate>,
     /// The full approval state after the transition.
     pub approvals: ApprovalState,
+    /// The gates this feature actually has, in lifecycle order. See
+    /// [`visible_gates`].
+    pub visible: Vec<Gate>,
 }
 
 impl WriteHuman for InvalidateOutcome {
@@ -123,7 +130,7 @@ impl WriteHuman for InvalidateOutcome {
             "Invalidated `{}` for feature `{}`",
             self.gate, self.feature
         )?;
-        write_gates(w, &self.approvals)
+        write_gates(w, &self.approvals, &self.visible)
     }
 }
 
@@ -178,34 +185,36 @@ pub fn approve(ctx: &Ctx, input: ApproveInput) -> Outcome<ApproveOutcome> {
         ))
     })?;
 
-    if let Some(upstream) = gate.upstream()
-        && !approvals.upstream_approved(gate)
-    {
+    if let Some(blocking) = first_blocking_upstream(&approvals, &layout, &feature, gate)? {
         return Err(Failure::blocked(
             "plan.upstream_not_approved",
             format!(
-                "cannot approve `{gate}` for `{feature}`: the upstream gate `{upstream}` is not approved"
+                "cannot approve `{gate}` for `{feature}`: the upstream gate `{blocking}` is written but not approved"
             ),
         )
-        .expected(format!("the upstream gate `{upstream}` to be approved first"))
+        .expected(format!(
+            "every written upstream gate to be approved first; `{blocking}` is not"
+        ))
         .actual(format!(
-            "`{upstream}` is {}",
-            approvals.state(upstream).unwrap_or(GateState::Pending)
+            "`{blocking}` is {}",
+            approvals.state(blocking).unwrap_or(GateState::Pending)
         ))
         .fix(FixAction::safe(
             "plan.approve_upstream",
-            format!("Approve the upstream gate first: `ivar plan approve {feature} {upstream}`."),
+            format!("Approve it first: `ivar plan approve {feature} {blocking}`."),
         )));
     }
 
     approvals.set(gate, GateState::Approved, Some(fingerprint));
     approvals.write(&layout, &feature)?;
 
+    let visible = visible_gates(&approvals, &layout, &feature)?;
     Ok(Report::new(ApproveOutcome {
         root: layout.root().to_path_buf(),
         feature,
         gate,
         approvals,
+        visible,
     }))
 }
 
@@ -252,13 +261,52 @@ pub fn invalidate(ctx: &Ctx, input: InvalidateInput) -> Outcome<InvalidateOutcom
 
     approvals.write(&layout, &feature)?;
 
+    let visible = visible_gates(&approvals, &layout, &feature)?;
     Ok(Report::new(InvalidateOutcome {
         root: layout.root().to_path_buf(),
         feature,
         gate,
         cascaded,
         approvals,
+        visible,
     }))
+}
+
+/// The first gate upstream of `gate` whose artifact exists on disk and is not
+/// approved, scanning upstream-first. `None` when every upstream gate is
+/// either absent or approved.
+///
+/// An artifact that was never written is not a gate. That is what lets a small
+/// change carry a `plan.md` alone, with no `requirements.md` and no
+/// `analysis.md` to approve.
+///
+/// The walk is deliberately **transitive**, not immediate-upstream. With
+/// `requirements.md` written but unapproved and `analysis.md` absent, consulting
+/// only `gate.upstream()` would wave `plan` straight through — an artifact a
+/// human wrote and never approved would have stopped nothing, and the escape
+/// hatch would be a `--force` in disguise. The escape is "never written", never
+/// "written and ignored".
+///
+/// Correctness rests on `Gate::ALL` being in lifecycle order; if a gate is ever
+/// inserted, re-read this loop.
+fn first_blocking_upstream(
+    approvals: &ApprovalState,
+    layout: &Layout,
+    feature: &FeatureName,
+    gate: Gate,
+) -> Result<Option<Gate>, Failure> {
+    for candidate in Gate::ALL {
+        if candidate == gate {
+            break;
+        }
+        if !super::artifact_exists(layout, feature, candidate)? {
+            continue;
+        }
+        if approvals.state(candidate) != Some(GateState::Approved) {
+            return Ok(Some(candidate));
+        }
+    }
+    Ok(None)
 }
 
 /// Block when the feature does not exist — approvals belong to features.
@@ -305,13 +353,51 @@ fn reconcile(
     Ok(!drifted.is_empty())
 }
 
-/// The one gate-state rendering, shared by both outcomes: one line per gate,
-/// lifecycle order, states padded into a column.
-fn write_gates(w: &mut impl io::Write, approvals: &ApprovalState) -> io::Result<()> {
+/// The one gate-state rendering, shared by both outcomes: one line per gate
+/// the feature actually has, lifecycle order, states padded into a column.
+///
+/// `visible` is what keeps this surface honest for a feature that took the
+/// short path. `approvals` always carries a record per gate — `normalize`
+/// makes sure of it — so rendering it whole would announce `requirements
+/// pending` for a gate the feature deliberately does not have, and send the
+/// next reader off to write an artifact nobody wants. `ivar plan status` omits
+/// those; so does this.
+fn write_gates(
+    w: &mut impl io::Write,
+    approvals: &ApprovalState,
+    visible: &[Gate],
+) -> io::Result<()> {
     for record in &approvals.gates {
+        if !visible.contains(&record.gate) {
+            continue;
+        }
         writeln!(w, "  {:<16} {}", record.gate, record.state)?;
     }
     Ok(())
+}
+
+/// The gates `feature` actually has: every gate whose artifact is on disk,
+/// plus every gate that was crossed at some point, even if its artifact has
+/// since vanished.
+///
+/// The second half is the same conjunction `ivar plan status` turns on: a gate
+/// that was approved and whose file was then deleted must stay visible as
+/// drift, never quietly disappear.
+fn visible_gates(
+    approvals: &ApprovalState,
+    layout: &Layout,
+    feature: &FeatureName,
+) -> Result<Vec<Gate>, Failure> {
+    let mut visible = Vec::new();
+    for gate in Gate::ALL {
+        let crossed = approvals
+            .state(gate)
+            .is_some_and(|state| state != GateState::Pending);
+        if crossed || super::artifact_exists(layout, feature, gate)? {
+            visible.push(gate);
+        }
+    }
+    Ok(visible)
 }
 
 #[cfg(test)]
