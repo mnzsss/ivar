@@ -105,7 +105,8 @@ committed `plans/<feature>/`. Three artifacts, three approval gates — but a
 gate exists only once its artifact does. An artifact that was never written is
 not a gate, so a change small enough to skip Requirements and Analysis can
 carry a `plan.md` alone through to execution; the moment either is written, it
-blocks `plan approve` until it too is approved. The hall's standing instructions
+blocks `plan approve`, and voids an approval already granted, until it too is
+approved. The hall's standing instructions
 live in a single committed `HALL.md`; every view dir — discovery included —
 receives its own provider-native instruction file derived from it. A feature
 session's file carries the canonical content plus a bootstrap block telling

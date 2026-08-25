@@ -138,7 +138,8 @@ ivar feature deliver fix-typo --fingerprint <fingerprint>
 
 This only holds while `requirements.md` and `analysis.md` stay unwritten. The
 moment either is written, it blocks `plan approve` exactly as it would in full
-SPDD, until it too is approved — the escape is "never written," never
+SPDD, and an already-approved plan gate drops to `needs-revision` so `deliver`
+refuses too, until it is approved — the escape is "never written," never
 "written and ignored." `ivar plan create fix-typo requirements analysis` is
 the upgrade path from here to full SPDD: it writes only the two you are
 missing, leaving `plan.md` alone. Reach for the short path only when there is
