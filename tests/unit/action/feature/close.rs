@@ -305,3 +305,103 @@ fn an_integrated_close_cannot_be_replaced_or_reopened() {
         "the integrated outcome must not be overwritten"
     );
 }
+
+/// Closing a feature stamps an outcome onto `plan.md`'s frontmatter. That is
+/// ivar's own edit, not a human revising the plan, so the approval that
+/// authorised the close has to survive it — otherwise closing a feature voids
+/// the very gate that permitted closing it.
+#[test]
+fn closing_a_feature_preserves_the_plan_approval_across_its_own_stamp() {
+    let (_guard, root) = seeded_hall();
+    let ctx = Ctx::new(root.clone());
+    let layout = Layout::at(&root);
+    let feature = FeatureName::new("checkout").unwrap();
+
+    crate::action::plan::create::create(
+        &ctx,
+        crate::action::plan::create::CreateInput {
+            feature: "checkout".to_owned(),
+            artifacts: vec![crate::action::plan::Artifact::Plan],
+        },
+    )
+    .unwrap();
+    crate::action::plan::approve::approve(
+        &ctx,
+        crate::action::plan::approve::ApproveInput {
+            feature: "checkout".to_owned(),
+            gate: "plan".to_owned(),
+        },
+    )
+    .unwrap();
+
+    close(&ctx, close_input("delivered")).unwrap();
+
+    let approvals = crate::domain::feature::ApprovalState::read(&layout, &feature)
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        approvals.state(crate::domain::feature::Gate::Plan),
+        Some(crate::domain::feature::GateState::Approved),
+        "the close stamp must not read as a revision"
+    );
+    assert_eq!(
+        approvals
+            .record(crate::domain::feature::Gate::Plan)
+            .unwrap()
+            .artifact_fingerprint
+            .as_deref(),
+        Some(
+            crate::infra::hash::file(&layout.plan_dir(&feature).join("plan.md"))
+                .unwrap()
+                .as_str()
+        ),
+        "the fingerprint must be resealed against the stamped file"
+    );
+}
+
+/// Resealing an approval is not granting one. A plan a human edited before the
+/// close was already drifted, and closing must not launder that away.
+#[test]
+fn closing_a_feature_does_not_reseal_a_plan_that_had_already_drifted() {
+    let (_guard, root) = seeded_hall();
+    let ctx = Ctx::new(root.clone());
+    let layout = Layout::at(&root);
+    let feature = FeatureName::new("checkout").unwrap();
+
+    crate::action::plan::create::create(
+        &ctx,
+        crate::action::plan::create::CreateInput {
+            feature: "checkout".to_owned(),
+            artifacts: vec![crate::action::plan::Artifact::Plan],
+        },
+    )
+    .unwrap();
+    crate::action::plan::approve::approve(
+        &ctx,
+        crate::action::plan::approve::ApproveInput {
+            feature: "checkout".to_owned(),
+            gate: "plan".to_owned(),
+        },
+    )
+    .unwrap();
+
+    // A human rewrites the plan after approving it.
+    let plan_path = layout.plan_dir(&feature).join("plan.md");
+    let body = crate::infra::fs::read_text(&plan_path).unwrap().unwrap();
+    crate::infra::fs::write_text(&plan_path, &format!("{body}\nrewritten\n")).unwrap();
+
+    close(&ctx, close_input("delivered")).unwrap();
+
+    let approvals = crate::domain::feature::ApprovalState::read(&layout, &feature)
+        .unwrap()
+        .unwrap();
+    assert_ne!(
+        approvals
+            .record(crate::domain::feature::Gate::Plan)
+            .unwrap()
+            .artifact_fingerprint
+            .as_deref(),
+        Some(crate::infra::hash::file(&plan_path).unwrap().as_str()),
+        "a plan that drifted before the close stays drifted"
+    );
+}

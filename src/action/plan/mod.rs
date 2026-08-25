@@ -226,28 +226,24 @@ pub(super) fn reconciled(
     Ok(out)
 }
 
-/// The `plan` gate's state for `feature`, corrected for *shape* — the read
-/// `deliver` and `integrate` share.
+/// The `plan` gate's state for `feature`, fully reconciled — the read
+/// `deliver` and `integrate` share with `plan approve`.
 ///
-/// Only [`incoherent_approvals`] is applied here, not the content-drift pass
-/// [`reconciled`] also runs. That asymmetry is deliberate. `write_close`
-/// stamps an outcome onto `plan.md`'s frontmatter when a feature closes, so
-/// the file's hash moves without a human touching the plan; folding content
-/// drift into this read would invalidate the gate on ivar's own edit and break
-/// a second `integrate` on an already-closed child.
+/// Reading `approvals.json` raw answers a question about the last command that
+/// wrote it, not about the feature as it stands. That is how `deliver` came to
+/// ship a plan `ivar plan status` was already reporting as needing revision.
 ///
-/// The consequence is worth stating plainly: a `plan.md` a human edited after
-/// approving it is reported `needs-revision` by `ivar plan status`, and
-/// `deliver` still ships it. That hole predates optional gates and closing it
-/// means teaching `write_close` to re-fingerprint what it stamped.
+/// This applies both corrections, content and shape. It can only do that
+/// because `write_close` reseals the plan approval across the frontmatter it
+/// stamps (see `action::feature::lifecycle`); without that, closing a feature
+/// would invalidate the gate that authorised the close, and a second
+/// `integrate` on a closed child would be refused.
 pub(super) fn effective_plan_gate(
     layout: &Layout,
     feature: &FeatureName,
 ) -> Result<GateState, Failure> {
-    let mut approvals = ApprovalState::read(layout, feature)?.unwrap_or_default();
-    approvals.normalize();
-    for gate in incoherent_approvals(&approvals, layout, feature)? {
-        approvals.invalidate_from(gate);
-    }
-    Ok(approvals.state(Gate::Plan).unwrap_or(GateState::Pending))
+    let stored = ApprovalState::read(layout, feature)?.unwrap_or_default();
+    Ok(reconciled(&stored, layout, feature)?
+        .state(Gate::Plan)
+        .unwrap_or(GateState::Pending))
 }
