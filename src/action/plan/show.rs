@@ -13,26 +13,10 @@ use super::super::discover_hall;
 use crate::action::Ctx;
 
 /// Which artifact to show.
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, clap::ValueEnum,
-)]
-#[serde(rename_all = "snake_case")]
-pub enum Artifact {
-    Requirements,
-    Analysis,
-    Plan,
-}
-
-impl Artifact {
-    /// The artifact's filename.
-    const fn filename(self) -> &'static str {
-        match self {
-            Self::Requirements => "requirements.md",
-            Self::Analysis => "analysis.md",
-            Self::Plan => "plan.md",
-        }
-    }
-}
+///
+/// Defined in [`super`], beside the path and fingerprint helpers it belongs
+/// with, and re-exported here so `plan::show::Artifact` keeps resolving.
+pub use super::Artifact;
 
 /// What `ivar plan show` needs.
 #[derive(Debug, Clone)]

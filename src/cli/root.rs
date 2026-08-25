@@ -568,20 +568,26 @@ pub struct SessionRelayArgs {
 /// the approval gates that transition a feature through the SPDD lifecycle.
 #[derive(Debug, Subcommand)]
 pub enum PlanCommand {
-    /// Scaffold a feature's SPDD artifacts (requirements, analysis, plan).
+    /// Scaffold a feature's SPDD artifacts (requirements, analysis, plan), or
+    /// only the ones named. With a subset, writes what is missing and leaves
+    /// what is already there untouched.
     Create(PlanCreateArgs),
     /// List which features have plans, and how complete.
     List,
     /// Print one feature's SPDD artifact.
     Show(PlanShowArgs),
-    /// Approve one of a feature's SPDD gates: requirements, analysis, plan,
-    /// Requires the gate upstream of it to be approved
-    /// first, and records a fingerprint of the artifact's content.
+    /// Approve one of a feature's SPDD gates: requirements, analysis, plan.
+    /// Requires every gate upstream of it to be either approved or never
+    /// written — an artifact that exists still has to be approved, even
+    /// though an absent one is skipped — and records a fingerprint of the
+    /// artifact's content.
     Approve(PlanApproveArgs),
     /// Declare a revision of an approved gate, marking it — and every gate
     /// downstream — as needing revision.
     Invalidate(PlanInvalidateArgs),
-    /// Show approval gate status for a plan file.
+    /// Show approval gate status for a plan file. Omits a gate that has no
+    /// artifact and was never approved; a gate that was approved and whose
+    /// artifact then vanished is still shown, as needs-revision.
     Status(PlanStatusArgs),
 }
 
@@ -590,6 +596,9 @@ pub enum PlanCommand {
 pub struct PlanCreateArgs {
     /// The feature to scaffold plans for.
     pub feature: String,
+    /// Which artifacts to scaffold (`requirements`, `analysis`, `plan`);
+    /// scaffolds all three when omitted.
+    pub artifacts: Vec<crate::action::plan::Artifact>,
 }
 
 /// Arguments for `ivar plan show`.
@@ -1103,8 +1112,8 @@ impl From<ProviderAddArgs> for provider_add::AddInput {
 
 impl From<PlanCreateArgs> for plan_create::CreateInput {
     fn from(args: PlanCreateArgs) -> Self {
-        let PlanCreateArgs { feature } = args;
-        Self { feature }
+        let PlanCreateArgs { feature, artifacts } = args;
+        Self { feature, artifacts }
     }
 }
 

@@ -29,6 +29,7 @@ fn approve_through_plan(root: &Utf8PathBuf) {
         &ctx,
         crate::action::plan::create::CreateInput {
             feature: "checkout".to_owned(),
+            artifacts: Vec::new(),
         },
     )
     .unwrap();
@@ -697,4 +698,94 @@ fn the_human_apply_surface_reports_each_push() {
     assert!(rendered.contains("Delivered `checkout` in /hall (fingerprint abc123):"));
     assert!(rendered.contains("  api: pushed"));
     assert!(rendered.contains("  web: not pushed — remote did not answer"));
+}
+
+/// The short path's sharp edge, closed at the surface that matters. A feature
+/// that approved `plan` while `requirements.md` did not exist may deliver.
+/// Once `requirements.md` appears unapproved, that approval no longer holds,
+/// and `deliver` has to refuse rather than ship on a gate `plan approve` would
+/// now decline to grant.
+#[test]
+fn deliver_refuses_once_an_upstream_artifact_appears_after_approval() {
+    let (_guard, root) = hall_with_promoted(&["api"]);
+    let ctx = Ctx::new(root.clone());
+
+    // Short path: scaffold and approve the plan gate alone.
+    crate::action::plan::create::create(
+        &ctx,
+        crate::action::plan::create::CreateInput {
+            feature: "checkout".to_owned(),
+            artifacts: vec![crate::action::plan::Artifact::Plan],
+        },
+    )
+    .unwrap();
+    crate::action::plan::approve::approve(
+        &ctx,
+        crate::action::plan::approve::ApproveInput {
+            feature: "checkout".to_owned(),
+            gate: "plan".to_owned(),
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        deliver(&ctx, preview_input("checkout"))
+            .unwrap()
+            .value
+            .preview
+            .plan_gate,
+        GateState::Approved
+    );
+
+    // The upstream artifact appears, unapproved.
+    crate::infra::fs::write_text(
+        &root.join("plans/checkout/requirements.md"),
+        "# Requirements\n",
+    )
+    .unwrap();
+
+    let preview = deliver(&ctx, preview_input("checkout")).unwrap();
+    assert_eq!(preview.value.preview.plan_gate, GateState::NeedsRevision);
+
+    let failure = deliver(
+        &ctx,
+        apply_input("checkout", &preview.value.preview.fingerprint),
+    )
+    .unwrap_err();
+    assert_eq!(failure.code, "deliver.plan_not_approved");
+}
+
+/// `deliver` read `approvals.json` raw, which answers a question about the
+/// last command that wrote it rather than about the feature as it stands. A
+/// plan.md edited after approval was reported `needs-revision` by
+/// `ivar plan status` and shipped by `deliver` anyway — the tool enforcing one
+/// rule and reporting another.
+#[test]
+fn deliver_refuses_a_plan_edited_after_it_was_approved() {
+    let (_guard, root) = hall_with_promoted(&["api"]);
+    let ctx = Ctx::new(root.clone());
+    approve_through_plan(&root);
+
+    assert_eq!(
+        deliver(&ctx, preview_input("checkout"))
+            .unwrap()
+            .value
+            .preview
+            .plan_gate,
+        GateState::Approved
+    );
+
+    // A human rewrites the plan after approving it.
+    let plan_path = root.join("plans/checkout/plan.md");
+    let body = crate::infra::fs::read_text(&plan_path).unwrap().unwrap();
+    crate::infra::fs::write_text(&plan_path, &format!("{body}\nrewritten\n")).unwrap();
+
+    let preview = deliver(&ctx, preview_input("checkout")).unwrap();
+    assert_eq!(preview.value.preview.plan_gate, GateState::NeedsRevision);
+
+    let failure = deliver(
+        &ctx,
+        apply_input("checkout", &preview.value.preview.fingerprint),
+    )
+    .unwrap_err();
+    assert_eq!(failure.code, "deliver.plan_not_approved");
 }

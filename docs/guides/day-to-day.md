@@ -120,6 +120,32 @@ squash, rebase, or cherry-pick), it resets the branch to the remote tip, losing
 nothing. It never touches a branch with genuine local work or uncommitted
 changes; those are left for you.
 
+## Small changes: skip the artifacts you do not need
+
+Full SPDD is the default, but a gate only exists once its artifact does. A
+change with no real design risk — a typo fix, a one-line config change — can
+skip Requirements and Analysis and go straight to Plan:
+
+```sh
+ivar feature create fix-typo
+ivar feature promote fix-typo docs
+ivar plan create fix-typo plan       # scaffolds only plan.md
+#   ... write plans/fix-typo/plan.md ...
+ivar plan approve fix-typo plan      # succeeds: no upstream artifact exists to block it
+ivar feature deliver fix-typo --preview
+ivar feature deliver fix-typo --fingerprint <fingerprint>
+```
+
+This only holds while `requirements.md` and `analysis.md` stay unwritten. The
+moment either is written, it blocks `plan approve` exactly as it would in full
+SPDD, and an already-approved plan gate drops to `needs-revision` so `deliver`
+refuses too, until it is approved — the escape is "never written," never
+"written and ignored." `ivar plan create fix-typo requirements analysis` is
+the upgrade path from here to full SPDD: it writes only the two you are
+missing, leaving `plan.md` alone. Reach for the short path only when there is
+no real design decision to review; anything riskier earns the full three
+artifacts.
+
 ## Deliver
 
 Delivery is gated on the **plan** gate. A feature whose plan was never approved

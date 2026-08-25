@@ -117,6 +117,7 @@ fn approve_plan(ctx: &Ctx, feature: &str) {
         ctx,
         plan_create::CreateInput {
             feature: feature.to_owned(),
+            artifacts: Vec::new(),
         },
     )
     .unwrap();

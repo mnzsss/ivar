@@ -40,6 +40,7 @@ fn seeded_hall() -> (tempfile::TempDir, Utf8PathBuf) {
         &ctx,
         PlanCreateInput {
             feature: "checkout".to_owned(),
+            artifacts: Vec::new(),
         },
     )
     .unwrap();
@@ -133,6 +134,70 @@ fn status_projects_current_receipt_and_plan_divergence() {
 }
 
 #[test]
+fn status_omits_gate_whose_artifact_is_absent_and_never_approved() {
+    let (_guard, root) = seeded_hall();
+    fs::remove_file(&root.join("plans/checkout/requirements.md")).unwrap();
+
+    let report = status(&Ctx::new(root), input()).unwrap();
+    assert_eq!(
+        report
+            .value
+            .gates
+            .iter()
+            .map(|gate| gate.gate)
+            .collect::<Vec<_>>(),
+        [Gate::Analysis, Gate::Plan]
+    );
+}
+
+#[test]
+fn status_keeps_approved_gate_as_needs_revision_when_its_artifact_is_deleted() {
+    let (_guard, root) = seeded_hall();
+    let ctx = Ctx::new(root.clone());
+    plan_approve::approve(
+        &ctx,
+        ApproveInput {
+            feature: "checkout".to_owned(),
+            gate: "requirements".to_owned(),
+        },
+    )
+    .unwrap();
+    fs::remove_file(&root.join("plans/checkout/requirements.md")).unwrap();
+
+    let report = status(&ctx, input()).unwrap();
+    let requirements = report
+        .value
+        .gates
+        .iter()
+        .find(|gate| gate.gate == Gate::Requirements)
+        .expect("an approved gate must not be omitted when its artifact vanishes");
+    assert_eq!(requirements.state, GateState::NeedsRevision);
+    assert!(requirements.invalidated_by.is_some());
+}
+
+#[test]
+fn status_lists_all_three_gates_when_every_artifact_is_present() {
+    let (_guard, root) = seeded_hall();
+    let report = status(&Ctx::new(root), input()).unwrap();
+    assert_eq!(
+        report
+            .value
+            .gates
+            .iter()
+            .map(|gate| gate.gate)
+            .collect::<Vec<_>>(),
+        Gate::ALL
+    );
+    assert!(
+        report
+            .value
+            .gates
+            .iter()
+            .all(|gate| gate.state == GateState::Pending && gate.invalidated_by.is_none())
+    );
+}
+
+#[test]
 fn status_refuses_a_path_outside_feature_plans() {
     let (_guard, root) = seeded_hall();
     let failure = status(
@@ -143,4 +208,78 @@ fn status_refuses_a_path_outside_feature_plans() {
     )
     .unwrap_err();
     assert_eq!(failure.code, "plan.status_not_a_plan");
+}
+
+/// The short path's one sharp edge, closed. A feature that approved `plan`
+/// while `requirements.md` did not exist crossed that gate honestly. Writing
+/// `requirements.md` afterwards, unapproved, ends that: `plan approve` would
+/// refuse now, so `status` must not keep reporting the gate as approved. The
+/// tool has to enforce and report the same rule.
+#[test]
+fn status_invalidates_an_approved_gate_once_an_upstream_artifact_appears() {
+    let (_guard, root) = seeded_hall();
+    let ctx = Ctx::new(root.clone());
+    let layout = Layout::discover(&root).unwrap().unwrap();
+    let feature = FeatureName::new("checkout").unwrap();
+
+    // Take the short path: only plan.md on disk, only the plan gate crossed.
+    fs::remove_path(&layout.plan_dir(&feature).join("requirements.md")).unwrap();
+    fs::remove_path(&layout.plan_dir(&feature).join("analysis.md")).unwrap();
+    plan_approve::approve(
+        &ctx,
+        ApproveInput {
+            feature: "checkout".to_owned(),
+            gate: "plan".to_owned(),
+        },
+    )
+    .unwrap();
+
+    let before = status(&ctx, input()).unwrap();
+    assert_eq!(
+        before
+            .value
+            .gates
+            .iter()
+            .map(|g| g.gate)
+            .collect::<Vec<_>>(),
+        vec![Gate::Plan]
+    );
+    assert_eq!(
+        before.value.gates.first().unwrap().state,
+        GateState::Approved
+    );
+
+    // Now the upstream artifact shows up, unapproved.
+    fs::write_text(
+        &layout.plan_dir(&feature).join("requirements.md"),
+        "# Requirements\n",
+    )
+    .unwrap();
+
+    let after = status(&ctx, input()).unwrap();
+    let states: Vec<_> = after
+        .value
+        .gates
+        .iter()
+        .map(|g| (g.gate, g.state))
+        .collect();
+    assert_eq!(
+        states,
+        vec![
+            (Gate::Requirements, GateState::Pending),
+            (Gate::Plan, GateState::NeedsRevision),
+        ]
+    );
+    let reason = after
+        .value
+        .gates
+        .get(1)
+        .unwrap()
+        .invalidated_by
+        .as_deref()
+        .unwrap();
+    assert!(
+        reason.contains("requirements"),
+        "the reason should name the artifact that appeared, got: {reason}"
+    );
 }

@@ -20,11 +20,11 @@
 //! "closed, but not by one of our outcomes" — still a close, never a
 //! classification.
 
-use crate::domain::feature::{Feature, PromotionOutcome};
+use crate::domain::feature::{ApprovalState, Feature, Gate, GateState, PromotionOutcome};
 use crate::domain::name::FeatureName;
 use crate::domain::session::rfc3339_now;
 use crate::error::Failure;
-use crate::infra::{frontmatter, fs};
+use crate::infra::{frontmatter, fs, hash};
 use crate::store::layout::Layout;
 
 /// The slice of `plan.md`'s frontmatter the close seam reads and writes.
@@ -60,6 +60,43 @@ impl CloseRecord {
     pub(crate) fn known_outcome(&self) -> Option<PromotionOutcome> {
         PromotionOutcome::parse(&self.outcome).ok()
     }
+}
+
+/// Carry an approved `plan` gate across the frontmatter stamp [`write_close`]
+/// just wrote.
+///
+/// A gate's approval is void once its artifact's content moves — that rule is
+/// what stops an approval standing on a plan somebody rewrote. `write_close`
+/// moves the content itself: it stamps an outcome onto the frontmatter and
+/// keeps the body byte-for-byte. Left alone, ivar's own edit reads as a human
+/// revision, and closing a feature would invalidate the very gate that
+/// authorised closing it.
+///
+/// So the fingerprint is re-recorded, and only in the one case where doing so
+/// changes nothing a human decided: the gate is `Approved` **and** its stored
+/// fingerprint still matches the content being replaced. A plan that had
+/// already drifted before the close stays drifted — this reseals an approval,
+/// it never grants one.
+fn reseal_plan_approval(
+    layout: &Layout,
+    feature: &FeatureName,
+    before: &str,
+    after: &str,
+) -> Result<(), Failure> {
+    let Some(mut approvals) = ApprovalState::read(layout, feature)? else {
+        return Ok(());
+    };
+    approvals.normalize();
+    let matches_before = approvals.record(Gate::Plan).is_some_and(|record| {
+        record.state == GateState::Approved
+            && record.artifact_fingerprint.as_deref() == Some(hash::text(before).as_str())
+    });
+    if !matches_before {
+        return Ok(());
+    }
+    approvals.set(Gate::Plan, GateState::Approved, Some(hash::text(after)));
+    approvals.write(layout, feature)?;
+    Ok(())
 }
 
 /// Read the close record from `plans/<feature>/plan.md`'s frontmatter.
@@ -102,6 +139,7 @@ pub(crate) fn write_close(
     let rendered = frontmatter::replace(&plan_source, &updated)?;
     fs::ensure_dir(&layout.plan_dir(feature))?;
     fs::write_text(&plan_path, &rendered)?;
+    reseal_plan_approval(layout, feature, &plan_source, &rendered)?;
 
     Ok(CloseRecord {
         outcome: outcome.to_string(),

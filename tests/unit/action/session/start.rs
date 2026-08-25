@@ -659,6 +659,7 @@ fn a_feature_session_projects_only_the_active_plan() {
         &ctx,
         PlanCreateInput {
             feature: "checkout".to_owned(),
+            artifacts: Vec::new(),
         },
     )
     .unwrap();
@@ -744,6 +745,7 @@ fn writing_through_the_projected_plan_lands_in_the_hall() {
         &ctx,
         PlanCreateInput {
             feature: "checkout".to_owned(),
+            artifacts: Vec::new(),
         },
     )
     .unwrap();

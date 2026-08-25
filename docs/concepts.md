@@ -101,17 +101,22 @@ branch, same session, no handoff, nothing pushed in between.
 
 The feature's plan is projected into the view dir so an agent confined to the
 session can read and edit the SPDD artifacts — edits land in the hall's
-committed `plans/<feature>/`. The hall's standing instructions live in a
-single committed `HALL.md`; every view dir — discovery included — receives its
-own provider-native instruction file derived from it. A feature session's file
-carries the canonical content plus a bootstrap block telling the agent to
-re-derive where the feature is with `ivar plan status plans/checkout/plan.md`
-and continue from the first gate that is `pending` or `needs-revision`; a
-discovery session's file is exactly the canonical content. The provider root
-aliases (`CLAUDE.md` / `AGENTS.md` at the hall root) are relative symlinks to
-`HALL.md`, never sources. When `HALL.md` is missing, a session still opens,
-with a warning and no shared content. The bootstrap block is what lets a
-relay from one provider to another pick the work back up.
+committed `plans/<feature>/`. Three artifacts, three approval gates — but a
+gate exists only once its artifact does. An artifact that was never written is
+not a gate, so a change small enough to skip Requirements and Analysis can
+carry a `plan.md` alone through to execution; the moment either is written, it
+blocks `plan approve`, and voids an approval already granted, until it too is
+approved. The hall's standing instructions
+live in a single committed `HALL.md`; every view dir — discovery included —
+receives its own provider-native instruction file derived from it. A feature
+session's file carries the canonical content plus a bootstrap block telling
+the agent to re-derive where the feature is with `ivar plan status
+plans/checkout/plan.md` and continue from the first gate that is `pending` or
+`needs-revision`; a discovery session's file is exactly the canonical content.
+The provider root aliases (`CLAUDE.md` / `AGENTS.md` at the hall root) are
+relative symlinks to `HALL.md`, never sources. When `HALL.md` is missing, a
+session still opens, with a warning and no shared content. The bootstrap block
+is what lets a relay from one provider to another pick the work back up.
 
 A session is **live** while its view dir exists — liveness is not a process. Kill
 the agent, lose the conversation; the branch, the worktrees and the plan are on
