@@ -13,7 +13,9 @@ phases, each followed by a human approval gate.
 - You must be inside a **Feature Session** (`IVAR_FEATURE` must be set).
 - The feature must exist (`ivar feature list`).
 - Start a new SPDD flow with `ivar plan create <feature>` to scaffold the
-  planning artifacts.
+  planning artifacts. Name a subset — `ivar plan create <feature> plan` — to
+  scaffold only that one; see "The short path" below for when that is
+  appropriate.
 
 ## Process Overview
 
@@ -28,6 +30,46 @@ session the same directory is projected into the view dir, so the artifacts are
 reachable at `plans/<feature>/` relative to `$IVAR_SESSION_PATH` — edits there
 land in the hall's committed directory. Once an artifact is approved, changing
 it cascades invalidation to downstream artifacts.
+
+Full SPDD — all three artifacts, all three approvals — is the default and the
+right choice whenever there is a real decision to review. An artifact that is
+never written is not a gate, though: `ivar plan approve` only requires the
+upstream artifacts that actually exist on disk. See "The short path" below
+before deciding to skip Requirements or Analysis.
+
+## The short path
+
+For a change with no real design risk — a typo fix, a one-line config change,
+a version bump — writing Requirements and Analysis is pure overhead. Skip
+straight to Plan:
+
+1. `ivar plan create <feature> plan` scaffolds only `plan.md`.
+2. Write it, following Phase 3 below.
+3. `ivar plan approve <feature> plan` succeeds on its own: with
+   `requirements.md` and `analysis.md` absent, there is no upstream gate left
+   to block it.
+
+This only holds while those two files stay unwritten. The moment either is
+written, it blocks `plan approve` exactly as it would in full SPDD, until it
+is approved too — the escape is "never written," never "written and ignored."
+`ivar plan create <feature> requirements analysis` is the upgrade path back to
+full SPDD from here: it writes only the artifacts you are missing.
+
+One edge to know about when you take that upgrade path: writing
+`requirements.md` after the Plan gate is already approved does not invalidate
+it. Approval is recorded against the artifact a human actually reviewed, and
+nothing tracks which files existed at the time, so the plan stays approved and
+the feature can still be delivered with an unapproved requirements beside it.
+The next `plan approve` will refuse until you approve the new artifact, but the
+standing approval is yours to revisit — `ivar plan invalidate <feature> plan`
+is the deliberate way to void it.
+
+Do not use the short path for anything with real design risk: a new module
+boundary, a schema or API change, a new external dependency, anything that
+touches more than one repo, anything you would want a teammate to weigh in on
+before it is built. That work earns the full three artifacts. Nothing
+technical enforces this beyond judgement — `plan create` writing all three by
+default is the only guard, and the rest is on you.
 
 ## Phase 1: Requirements
 
@@ -67,18 +109,22 @@ after they approve.
 
 ## Phase 3: Plan
 
-1. Synthesize the Requirements and Analysis into the REASONS canvas:
-   - **Requirements** — referencing the artifact
-   - **Entities** — domain model (delta only)
-   - **Approach** — the chosen design approach
+1. Synthesize into the REASONS canvas — the sections `ivar plan create`
+   scaffolds in `plan.md`:
+   - **Entities** — domain model, delta only
+   - **Approach** — the chosen design, and what was rejected
    - **Structure** — file/module organization
-   - **Operations** — implementable units identified by OP-* IDs
-   - **Operation details** — what each operation ID means
-   - **Norms** — coding conventions to follow
+   - **Changes** — the implementation in reviewable steps, including the
+     files or interfaces each step affects
+   - **Verification** — the checks that demonstrate the change is complete
+   - **Norms** — coding conventions this feature follows
    - **Safeguards** — things to watch out for
 
-2. Write the Plan artifact to `plans/<feature>/plan.md`. Give `Operations`
-and `Operation details` the exact shape required by the planning schema.
+   When Requirements and Analysis exist, reference them near the top of the
+   canvas (for example `Requirements: plans/<feature>/requirements.md
+   (approved).`) rather than repeating their content.
+
+2. Write the Plan artifact to `plans/<feature>/plan.md`.
 
 3. **Pause for human approval.** Show the plan to the user. Only proceed after
 they approve.
