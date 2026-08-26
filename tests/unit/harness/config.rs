@@ -144,6 +144,67 @@ fn opencode_translates_a_stdio_definition_into_its_own_spelling() {
     assert_eq!(fs::read_text(&path).unwrap().unwrap(), expected);
 }
 
+/// A server carrying `oauth` gets an `oauth` object with `clientId` literal,
+/// `clientSecret` as the `{env:NAME}` reference the manifest names — never a
+/// value — and the derived `redirectUri`.
+#[test]
+fn opencode_emits_the_oauth_block_for_a_server_that_carries_one() {
+    let (_guard, dir) = utf8_temp_dir();
+    let path = dir.join("opencode.json");
+    let servers = vec![
+        McpServerDef::new("figma-gaio", "sse")
+            .url("https://mcp.figma.com/mcp")
+            .oauth(crate::domain::mcp::McpOauth::new(
+                "client-123",
+                "IVAR_MCP_FIGMA_GAIO_SECRET",
+            )),
+    ];
+
+    materialise_mcp(&path, Provider::OpenCode, &servers).unwrap();
+
+    let expected = json::to_canonical_string(&serde_json::json!({
+        "$schema": "https://opencode.ai/config.json",
+        "mcp": {
+            "figma-gaio": {
+                "type": "remote",
+                "url": "https://mcp.figma.com/mcp",
+                "oauth": {
+                    "clientId": "client-123",
+                    "clientSecret": "{env:IVAR_MCP_FIGMA_GAIO_SECRET}",
+                    "redirectUri": OAUTH_REDIRECT_URI,
+                },
+            }
+        }
+    }))
+    .unwrap();
+    assert_eq!(fs::read_text(&path).unwrap().unwrap(), expected);
+}
+
+/// Claude Code is on the remote host's allowlist and needs no
+/// pre-registration — its branch must never emit the `oauth` key even for a
+/// server whose manifest entry carries one.
+#[test]
+fn claude_code_never_emits_the_oauth_block() {
+    let (_guard, dir) = utf8_temp_dir();
+    let path = dir.join(".mcp.json");
+    let servers = vec![
+        McpServerDef::new("figma-gaio", "sse")
+            .url("https://mcp.figma.com/mcp")
+            .oauth(crate::domain::mcp::McpOauth::new(
+                "client-123",
+                "IVAR_MCP_FIGMA_GAIO_SECRET",
+            )),
+    ];
+
+    materialise_mcp(&path, Provider::ClaudeCode, &servers).unwrap();
+
+    let on_disk = fs::read_text(&path).unwrap().unwrap();
+    assert!(
+        !on_disk.contains("oauth"),
+        "Claude Code must never emit an oauth block: {on_disk}"
+    );
+}
+
 #[test]
 fn opencode_spells_a_remote_definition_with_type_remote_and_a_url() {
     let (_guard, dir) = utf8_temp_dir();

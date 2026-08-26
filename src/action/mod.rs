@@ -20,6 +20,7 @@ pub mod confirm;
 pub mod execute;
 pub mod feature;
 pub mod hall;
+pub mod mcp;
 pub mod plan;
 pub mod provider;
 pub mod repo;

@@ -29,6 +29,26 @@ fn execute_status_rejects_history_with_a_specific_run() {
     assert_eq!(error.kind(), clap::error::ErrorKind::ArgumentConflict);
 }
 
+/// `--provider` picks one harness; `--all-providers` runs every harness the
+/// hall lists. Naming both at once is not "pick one for me" — it is a
+/// contradiction, so clap's `conflicts_with` refuses it outright rather than
+/// letting `action::mcp::auth` guess which one wins.
+#[test]
+fn mcp_auth_rejects_provider_with_all_providers() {
+    let error = Cli::try_parse_from([
+        "ivar",
+        "mcp",
+        "auth",
+        "figma-gaio",
+        "--provider",
+        "opencode",
+        "--all-providers",
+    ])
+    .unwrap_err();
+
+    assert_eq!(error.kind(), clap::error::ErrorKind::ArgumentConflict);
+}
+
 #[test]
 fn init_args_convert_into_init_input_without_change() {
     let args = InitArgs {

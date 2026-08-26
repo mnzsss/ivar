@@ -6,6 +6,15 @@
 //! wholesale, while `opencode.json`'s `mcp` key is merged and every other key
 //! the user wrote survives. The Claude/OpenCode spelling translation lives
 //! here.
+//!
+//! # `oauth`: OpenCode only, and never a secret value
+//!
+//! A server whose manifest entry carries `McpServerDef.oauth` gets an
+//! `oauth` object in its OpenCode entry: `clientId` and `redirectUri`
+//! literal, `clientSecret` as the `{env:NAME}` reference the manifest names
+//! — never the secret itself, since `McpOauth` has no field that could hold
+//! one. Claude Code's branch never emits this key at all: Claude Code is on
+//! the remote host's allowlist and needs no pre-registration.
 
 /// Materialise `provider`'s MCP config at `path` from `servers`.
 ///
@@ -22,6 +31,20 @@ use crate::domain::provider::Provider;
 use crate::infra::{fs, json};
 
 use super::{Change, Error};
+
+/// The redirect URI a pre-registered OpenCode OAuth client declares, and the
+/// one `opencode.json`'s `oauth.redirectUri` must repeat so OpenCode listens
+/// where the registration told the server it would.
+///
+/// The path (`/callback`) is the remote host's requirement, not OpenCode's
+/// own default (`/mcp/oauth/callback`) — Figma's registration endpoint
+/// returns `400 invalid_redirect_uri` for anything else (measured
+/// 2026-08-26; see `plans/ivar-mcp-auth/analysis.md`). The port (`19876`) is
+/// OpenCode's own default callback port; setting `oauth.redirectUri`
+/// overrides both OpenCode's callback server and its authorize request, so
+/// declaring it here is what reconciles the two rather than leaving them to
+/// disagree.
+pub const OAUTH_REDIRECT_URI: &str = "http://127.0.0.1:19876/callback";
 
 pub fn materialise_mcp(
     path: &Utf8Path,
@@ -165,6 +188,23 @@ fn server_doc(provider: Provider, server: &McpServerDef) -> serde_json::Value {
             }
             if let Some(env) = &server.env {
                 object.insert("environment".to_owned(), serde_json::json!(env));
+            }
+            // A pre-provisioned OAuth client, for a server whose host rejects
+            // OpenCode's own dynamic client registration. `clientSecret` is
+            // always the `{env:NAME}` reference the manifest names, never a
+            // value — `McpOauth` has no field that could hold one.
+            // Claude Code's branch above never reaches this: it is on
+            // Figma's allowlist and needs no pre-registration (R-SECRET-HANDOFF,
+            // R-NO-SECRETS).
+            if let Some(oauth) = &server.oauth {
+                object.insert(
+                    "oauth".to_owned(),
+                    serde_json::json!({
+                        "clientId": oauth.client_id,
+                        "clientSecret": format!("{{env:{}}}", oauth.client_secret_env),
+                        "redirectUri": OAUTH_REDIRECT_URI,
+                    }),
+                );
             }
         }
     }

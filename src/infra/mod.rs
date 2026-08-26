@@ -8,6 +8,7 @@
 //! `std::process`, or `serde_json`'s writers directly.** When a primitive is
 //! missing, it gets added here rather than reached around.
 
+pub mod figma;
 pub mod frontmatter;
 pub mod fs;
 pub mod github;

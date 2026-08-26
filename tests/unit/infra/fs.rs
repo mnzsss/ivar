@@ -469,3 +469,59 @@ fn not_utf8_error_converts_to_a_blocked_failure() {
     .into();
     assert_eq!(failure.code, "fs.not_utf8");
 }
+
+// -- data_dir: tested through the pure `data_dir_from` cascade so nothing
+// here touches the process environment (which races across concurrently-run
+// tests — see `github::token_from` for the same pattern).
+
+#[test]
+fn data_dir_from_uses_xdg_data_home_when_absolute() {
+    let resolved = data_dir_from(
+        Some("/custom/data".to_owned()),
+        Some("/home/someone".to_owned()),
+    )
+    .unwrap();
+    assert_eq!(resolved, Utf8PathBuf::from("/custom/data"));
+}
+
+#[test]
+fn data_dir_from_falls_through_when_xdg_data_home_is_relative() {
+    let resolved = data_dir_from(
+        Some("relative/data".to_owned()),
+        Some("/home/someone".to_owned()),
+    )
+    .unwrap();
+    assert_eq!(resolved, Utf8PathBuf::from("/home/someone/.local/share"));
+}
+
+#[test]
+fn data_dir_from_falls_through_when_xdg_data_home_is_empty() {
+    let resolved = data_dir_from(Some(String::new()), Some("/home/someone".to_owned())).unwrap();
+    assert_eq!(resolved, Utf8PathBuf::from("/home/someone/.local/share"));
+}
+
+#[test]
+fn data_dir_from_uses_home_when_xdg_data_home_is_unset() {
+    let resolved = data_dir_from(None, Some("/home/someone".to_owned())).unwrap();
+    assert_eq!(resolved, Utf8PathBuf::from("/home/someone/.local/share"));
+}
+
+#[test]
+fn data_dir_from_fails_naming_what_it_looked_for_when_neither_resolves() {
+    let failure = data_dir_from(None, None).unwrap_err();
+    assert_eq!(failure.code, "fs.data_dir");
+    assert!(
+        failure
+            .expected
+            .as_deref()
+            .unwrap_or("")
+            .contains("XDG_DATA_HOME")
+    );
+    assert!(failure.expected.as_deref().unwrap_or("").contains("HOME"));
+}
+
+#[test]
+fn data_dir_from_fails_when_xdg_data_home_is_relative_and_home_is_unset() {
+    let failure = data_dir_from(Some("relative/data".to_owned()), None).unwrap_err();
+    assert_eq!(failure.code, "fs.data_dir");
+}
