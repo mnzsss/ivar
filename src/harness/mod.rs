@@ -21,6 +21,26 @@
 //! of harnesses is known at compile time, so dispatch is a match over a closed
 //! enum, not a vtable, and capabilities are explicit flags rather than inferred.
 //!
+//! # Rejected: writing to OpenCode's own credential store
+//!
+//! An earlier version of this module wrote to
+//! `<data_dir>/opencode/mcp-auth.json` — OpenCode's own MCP OAuth credential
+//! store — to pre-provision a client for a server whose host rejects dynamic
+//! registration. Measured on 2026-08-26: `opencode mcp auth` does not
+//! consult that store for its OAuth client at all; it reads `opencode.json`
+//! only. Writing there was correct code aimed at the wrong target, so it was
+//! deleted rather than kept as dead weight — see
+//! `plans/ivar-mcp-auth/analysis.md`. Pre-registration now reaches OpenCode
+//! through `harness::config`'s materialised `opencode.json`, driven by
+//! `McpServerDef.oauth` on the manifest.
+//!
+//! [`opencode_auth`] resurrects a read-only fragment of that deleted module.
+//! `opencode mcp auth` exits `0` unconditionally, even on a failed
+//! authentication (measured 2026-08-26), so `ivar mcp auth` cannot trust its
+//! exit status for this provider (`R-HONEST`). [`opencode_auth::has_tokens`]
+//! reads the same store the earlier version wrote to — the file itself is
+//! real and useful, only writing to it was the mistake.
+//!
 //! # Layering
 //!
 //! `harness` may import `domain`, `infra` and `error`. Not `store` — so paths
@@ -29,6 +49,7 @@
 
 pub mod commands;
 pub mod config;
+pub mod opencode_auth;
 
 use crate::domain::provider::Provider;
 use crate::error::{Failure, FixAction};

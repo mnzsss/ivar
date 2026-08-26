@@ -141,13 +141,13 @@ migrates without telling you because there is nothing useful to say.
 
 | file | version |
 | --- | --- |
-| `ivar.json` | 2 |
+| `ivar.json` | 3 |
 | `.ivar/features/<feature>/feature.json` | 3 |
 
 `ivar.json` starts at 1. There is no version 0 to migrate from: a file with no
 `version` field is not an `ivar.json`, and is rejected rather than adopted. A
 migration chain may begin at its format's earliest supported version — `ivar.json`'s
-chain is `[1→2]` — and v0 stays unreachable.
+chain is `[1→2, 2→3]` — and v0 stays unreachable.
 
 ### `ivar.json` v2
 
@@ -167,6 +167,33 @@ v2 adds two things, both with embedded defaults so v1 files migrate cleanly:
 `integration` is the hall's per-field default (CLI > feature > hall > embedded)
 and `checks` are the repo's ordered verification commands. Migrating `ivar.json`
 from v1 is explicit — `ivar migrate` — because the file is committed.
+
+### `ivar.json` v3
+
+v3 adds one optional field to an `mcp` entry: `oauth`, a pre-provisioned OAuth
+client registration for a server whose host rejects a harness's own dynamic
+client registration (`ivar mcp auth`'s pre-registration step; `mcp.figma.com`
+today).
+
+```json
+{
+  "version": 3,
+  "mcp": [
+    {
+      "name": "figma-gaio",
+      "type": "sse",
+      "url": "https://mcp.figma.com/mcp",
+      "oauth": { "client_id": "…", "client_secret_env": "IVAR_MCP_FIGMA_GAIO_SECRET" }
+    }
+  ]
+}
+```
+
+`client_id` is not a secret. `client_secret_env` is the *name* of an
+environment variable — never a value — the same reference convention `env`
+already follows elsewhere in an `mcp` entry. The field is absent by default,
+so v2 → v3 adds nothing to a hall that never used it; migrating is still
+explicit (`ivar migrate`) because the file is committed.
 
 ### `feature.json` v3
 

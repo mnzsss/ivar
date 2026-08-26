@@ -44,7 +44,7 @@ fn write_then_read_round_trips_and_writes_canonical_bytes() {
     Manifest::write(&layout, &manifest).unwrap();
 
     let expected = json::to_canonical_string(&serde_json::json!({
-        "version": 2,
+        "version": 3,
         "name": "acme",
         "integration": { "strategy": "squash", "via": "local" },
         "providers": { "available": ["claude-code", "opencode"], "default": "claude-code" },
@@ -174,7 +174,7 @@ fn version_newer_than_current_is_refused_and_the_file_is_untouched() {
     match &error {
         Error::Store(versioned::Error::TooNew { found, highest, .. }) => {
             assert_eq!(*found, 99);
-            assert_eq!(*highest, 2);
+            assert_eq!(*highest, 3);
         }
         other => panic!("expected TooNew, got {other:?}"),
     }
@@ -223,7 +223,7 @@ fn write_refuses_when_on_disk_is_older_than_current_and_leaves_it_untouched() {
     assert_eq!(bytes_after, original.as_bytes());
 }
 
-// -- v1 -> v2 committed migration -------------------------------------------
+// -- v1 -> v3 committed migration, through v2 --------------------------------
 
 /// The exact v1 shape ivar wrote before the v2 bump: no `integration` at the
 /// top level, no `checks` on any repo.
@@ -231,8 +231,15 @@ fn v1_manifest_bytes() -> &'static str {
     r#"{"version":1,"name":"acme","providers":{"available":["claude-code","opencode"],"default":"claude-code"},"repos":[{"name":"api","url":"git@github.com:acme/api.git","default_branch":"main"},{"name":"web","url":"git@github.com:acme/web.git","default_branch":"main"}]}"#
 }
 
+/// The exact v2 shape ivar wrote before the v3 bump: `integration` and
+/// `checks` present (v1 → v2's own additions), no server carries `oauth`
+/// (v3's addition, which v2 could not have had).
+fn v2_manifest_bytes() -> &'static str {
+    r#"{"version":2,"name":"acme","integration":{"strategy":"squash","via":"local"},"providers":{"available":["claude-code","opencode"],"default":"claude-code"},"repos":[{"name":"api","url":"git@github.com:acme/api.git","default_branch":"main","checks":[]}]}"#
+}
+
 #[test]
-fn a_v1_manifest_reads_in_memory_as_v2_without_rewriting_the_file() {
+fn a_v1_manifest_reads_in_memory_as_current_without_rewriting_the_file() {
     let (_dir, root) = utf8_temp_dir();
     let layout = Layout::at(root);
     let original = v1_manifest_bytes();
@@ -240,7 +247,7 @@ fn a_v1_manifest_reads_in_memory_as_v2_without_rewriting_the_file() {
 
     let manifest = Manifest::read(&layout).unwrap().unwrap();
 
-    assert_eq!(manifest.version(), 2);
+    assert_eq!(manifest.version(), 3);
     assert_eq!(
         manifest.integration(),
         crate::domain::feature::IntegrationPolicy::default()
@@ -249,6 +256,7 @@ fn a_v1_manifest_reads_in_memory_as_v2_without_rewriting_the_file() {
     for repo in manifest.repos() {
         assert!(repo.checks().is_empty());
     }
+    assert!(manifest.mcp_servers().is_empty());
 
     let bytes_after = fs::read_bytes(&layout.manifest()).unwrap().unwrap();
     assert_eq!(
@@ -259,13 +267,38 @@ fn a_v1_manifest_reads_in_memory_as_v2_without_rewriting_the_file() {
 }
 
 #[test]
-fn migration_plan_available_for_v1_and_unreachable_for_v0() {
+fn a_v2_manifest_reads_in_memory_as_current_without_rewriting_the_file() {
+    let (_dir, root) = utf8_temp_dir();
+    let layout = Layout::at(root);
+    let original = v2_manifest_bytes();
+    fs::write_text(&layout.manifest(), original).unwrap();
+
+    let manifest = Manifest::read(&layout).unwrap().unwrap();
+
+    assert_eq!(manifest.version(), 3);
+    assert_eq!(manifest.repos().len(), 1);
+    assert!(manifest.mcp_servers().is_empty());
+
+    let bytes_after = fs::read_bytes(&layout.manifest()).unwrap().unwrap();
+    assert_eq!(
+        bytes_after,
+        original.as_bytes(),
+        "a committed read must never rewrite the file"
+    );
+}
+
+#[test]
+fn migration_plan_available_for_v1_and_v2_and_unreachable_for_v0() {
     let (_dir, root) = utf8_temp_dir();
     let layout = Layout::at(root);
 
     fs::write_text(&layout.manifest(), v1_manifest_bytes()).unwrap();
     let plan = Manifest::plan(&layout).unwrap().unwrap();
-    assert_eq!(plan, MigrationPlan::Available { from: 1, to: 2 });
+    assert_eq!(plan, MigrationPlan::Available { from: 1, to: 3 });
+
+    fs::write_text(&layout.manifest(), v2_manifest_bytes()).unwrap();
+    let plan = Manifest::plan(&layout).unwrap().unwrap();
+    assert_eq!(plan, MigrationPlan::Available { from: 2, to: 3 });
 
     fs::write_text(
         &layout.manifest(),
@@ -273,11 +306,11 @@ fn migration_plan_available_for_v1_and_unreachable_for_v0() {
     )
     .unwrap();
     let plan = Manifest::plan(&layout).unwrap().unwrap();
-    assert_eq!(plan, MigrationPlan::Unreachable { from: 0, to: 2 });
+    assert_eq!(plan, MigrationPlan::Unreachable { from: 0, to: 3 });
 }
 
 #[test]
-fn a_plain_write_refuses_a_v1_file_and_explicit_migrate_writes_canonical_v2() {
+fn a_plain_write_refuses_a_v1_file_and_explicit_migrate_writes_canonical_current() {
     let (_dir, root) = utf8_temp_dir();
     let layout = Layout::at(root);
     let original = v1_manifest_bytes();
@@ -290,20 +323,55 @@ fn a_plain_write_refuses_a_v1_file_and_explicit_migrate_writes_canonical_v2() {
         Error::Store(versioned::Error::CommittedRefusesImplicitUpgrade { .. })
     ));
 
-    // The explicit migrate advances the committed file to canonical v2.
+    // The explicit migrate advances the committed file to canonical v3,
+    // stepping through v2 on the way.
     let migrated = Manifest::migrate(&layout).unwrap().unwrap();
-    assert_eq!(migrated.version(), 2);
+    assert_eq!(migrated.version(), 3);
     assert_eq!(migrated.repos().len(), 2);
 
     let on_disk = fs::read_text(&layout.manifest()).unwrap().unwrap();
     let expected = json::to_canonical_string(&serde_json::json!({
-        "version": 2,
+        "version": 3,
         "name": "acme",
         "integration": { "strategy": "squash", "via": "local" },
         "providers": { "available": ["claude-code", "opencode"], "default": "claude-code" },
         "repos": [
             { "name": "api", "url": "git@github.com:acme/api.git", "default_branch": "main" },
             { "name": "web", "url": "git@github.com:acme/web.git", "default_branch": "main" }
+        ],
+    }))
+    .unwrap();
+    assert_eq!(on_disk, expected);
+}
+
+#[test]
+fn a_plain_write_refuses_a_v2_file_and_explicit_migrate_writes_canonical_current() {
+    let (_dir, root) = utf8_temp_dir();
+    let layout = Layout::at(root);
+    let original = v2_manifest_bytes();
+    fs::write_text(&layout.manifest(), original).unwrap();
+
+    let error = Manifest::write(&layout, &sample_manifest()).unwrap_err();
+    assert!(matches!(
+        error,
+        Error::Store(versioned::Error::CommittedRefusesImplicitUpgrade { .. })
+    ));
+
+    // v2 -> v3 adds nothing to the data — the migration exists purely to
+    // advance the stamped version, and this hall's own repo (with no `mcp`
+    // array at all) proves that round-trips exactly as it did before.
+    let migrated = Manifest::migrate(&layout).unwrap().unwrap();
+    assert_eq!(migrated.version(), 3);
+    assert!(migrated.mcp_servers().is_empty());
+
+    let on_disk = fs::read_text(&layout.manifest()).unwrap().unwrap();
+    let expected = json::to_canonical_string(&serde_json::json!({
+        "version": 3,
+        "name": "acme",
+        "integration": { "strategy": "squash", "via": "local" },
+        "providers": { "available": ["claude-code", "opencode"], "default": "claude-code" },
+        "repos": [
+            { "name": "api", "url": "git@github.com:acme/api.git", "default_branch": "main" }
         ],
     }))
     .unwrap();

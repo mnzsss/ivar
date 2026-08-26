@@ -10,12 +10,15 @@
 //!
 //! # What lives here
 //!
-//! Exactly one type: [`McpServerDef`], the per-server definition the manifest
-//! carries. The *shape* of the on-disk config is the harness layer's problem —
-//! `harness::config` translates this into `.mcp.json` (Claude Code) or
-//! `opencode.json` (OpenCode) — because the two harnesses spell the same
-//! definition differently (see below). `domain` stays pure: no I/O, no
-//! provider knowledge beyond what [`crate::domain::provider`] already owns.
+//! Two types: [`McpServerDef`], the per-server definition the manifest
+//! carries, and [`McpOauth`], the pre-provisioned OAuth client a server whose
+//! host cannot complete its own dynamic client registration needs (see
+//! `crate::infra::figma` and `ivar mcp auth`). The *shape* of the on-disk
+//! config is the harness layer's problem — `harness::config` translates this
+//! into `.mcp.json` (Claude Code) or `opencode.json` (OpenCode) — because the
+//! two harnesses spell the same definition differently (see below). `domain`
+//! stays pure: no I/O, no provider knowledge beyond what
+//! [`crate::domain::provider`] already owns.
 //!
 //! # The shape is Claude-Code-first
 //!
@@ -28,10 +31,13 @@
 //!
 //! # No secrets
 //!
-//! The only secret-adjacent field is `env`, and it holds *references* — an
-//! env var name the harness resolves when it spawns the server — never a
-//! secret value. That is the whole v1 boundary: the definitions are committed
-//! to `ivar.json`, so they cannot carry credentials.
+//! `env` holds *references* — an env var name the harness resolves when it
+//! spawns the server — never a secret value. `McpOauth.client_secret_env`
+//! follows the exact same convention: it is the *name* of the environment
+//! variable that holds the client secret at runtime, never the secret
+//! itself. `client_id` is not a secret and is stored plainly. That is the
+//! whole boundary: the definitions are committed to `ivar.json`, so they
+//! cannot carry credentials.
 
 use std::collections::BTreeMap;
 
@@ -65,6 +71,12 @@ pub struct McpServerDef {
     /// the harness resolves at runtime — never stored secrets.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub env: Option<BTreeMap<String, String>>,
+    /// A pre-provisioned OAuth client registration, for a server whose host
+    /// rejects a harness's own dynamic client registration (`ivar mcp auth`'s
+    /// pre-registration step). Absent for every server that registers its own
+    /// client, which is the common case.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub oauth: Option<McpOauth>,
 }
 
 impl McpServerDef {
@@ -80,6 +92,7 @@ impl McpServerDef {
             args: None,
             url: None,
             env: None,
+            oauth: None,
         }
     }
 
@@ -109,6 +122,44 @@ impl McpServerDef {
     pub fn env(mut self, env: BTreeMap<String, String>) -> Self {
         self.env = Some(env);
         self
+    }
+
+    /// Set the pre-provisioned OAuth client registration.
+    #[must_use]
+    pub fn oauth(mut self, oauth: McpOauth) -> Self {
+        self.oauth = Some(oauth);
+        self
+    }
+}
+
+/// A pre-provisioned OAuth client registration for a server whose host
+/// rejects a harness's own dynamic client registration.
+///
+/// `client_id` is not a secret and lives in the manifest directly.
+/// `client_secret_env` is the *name* of the environment variable that holds
+/// the client secret at runtime — never the secret's value — the same
+/// reference convention [`McpServerDef::env`] already follows. `redirect_uri`
+/// is deliberately not a field here: it is derived by the harness layer from
+/// the host's requirement and the harness's own default callback port, not
+/// stored per-server.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct McpOauth {
+    /// The `client_id` a registration issued. Not a secret.
+    pub client_id: String,
+    /// The name of the environment variable that holds the client secret at
+    /// runtime.
+    pub client_secret_env: String,
+}
+
+impl McpOauth {
+    /// Build an `McpOauth` value.
+    #[must_use]
+    pub fn new(client_id: impl Into<String>, client_secret_env: impl Into<String>) -> Self {
+        Self {
+            client_id: client_id.into(),
+            client_secret_env: client_secret_env.into(),
+        }
     }
 }
 

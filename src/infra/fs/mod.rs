@@ -192,6 +192,55 @@ pub(super) fn not_utf8(path: std::path::PathBuf) -> Error {
     }
 }
 
+/// Resolve the base directory for ivar's persistent data.
+///
+/// Resolution order:
+/// 1. `$XDG_DATA_HOME`, if set to a non-empty, absolute path.
+/// 2. `$HOME/.local/share`.
+///
+/// A relative or empty `XDG_DATA_HOME` is treated as unset, not as an
+/// error — it falls through to `$HOME` rather than failing outright. This
+/// never returns a guessed path: if neither resolves, the returned
+/// [`Failure`] names both variables it looked for.
+pub fn data_dir() -> Result<Utf8PathBuf, Failure> {
+    data_dir_from(
+        std::env::var("XDG_DATA_HOME").ok(),
+        std::env::var("HOME").ok(),
+    )
+}
+
+/// The resolution cascade as a pure function, so the fallthrough rules and
+/// the no-path failure are testable without mutating the process
+/// environment (which races across concurrently-run tests).
+fn data_dir_from(
+    xdg_data_home: Option<String>,
+    home: Option<String>,
+) -> Result<Utf8PathBuf, Failure> {
+    if let Some(xdg_data_home) = xdg_data_home {
+        let path = Utf8PathBuf::from(xdg_data_home);
+        if !path.as_str().is_empty() && path.is_absolute() {
+            return Ok(path);
+        }
+    }
+
+    if let Some(home) = home
+        && !home.is_empty()
+    {
+        return Ok(Utf8PathBuf::from(home).join(".local").join("share"));
+    }
+
+    Err(Failure::failed(
+        "fs.data_dir",
+        "could not resolve a data directory — neither $XDG_DATA_HOME nor $HOME is set",
+    )
+    .expected("$XDG_DATA_HOME set to an absolute path, or $HOME set")
+    .actual("$XDG_DATA_HOME is unset (or relative/empty) and $HOME is unset (or empty)")
+    .fix(FixAction::safe(
+        "fs.set_home",
+        "Set $HOME in the environment, or $XDG_DATA_HOME to an absolute path.",
+    )))
+}
+
 /// A unique sibling path in the same directory as `path`, for the
 /// write-to-temp-then-rename dance. Never collides across concurrent callers —
 /// suffixed with a fresh UUID, not a counter — and never leaves the containing

@@ -54,7 +54,7 @@ pub(crate) mod session;
 pub mod instructions;
 
 pub use instructions::{Change, MANAGED_END, MANAGED_START, build_block, materialise, remove};
-pub use mcp::{materialise_mcp, remove_mcp};
+pub use mcp::{OAUTH_REDIRECT_URI, materialise_mcp, remove_mcp};
 
 /// Everything that can go wrong maintaining an MCP config: it could not be
 /// parsed, or it parsed as something the `mcp` key cannot merge into.

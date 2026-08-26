@@ -30,6 +30,7 @@ use ivar::action::feature::{
     prune as feature_prune, rebase, reparent, review, status, view,
 };
 use ivar::action::hall;
+use ivar::action::mcp::auth as mcp_auth;
 use ivar::action::plan::approve::{self as plan_approve};
 use ivar::action::plan::{
     create as plan_create, list as plan_list, show as plan_show, status as plan_status,
@@ -49,8 +50,8 @@ use ivar::action::skill::{
 };
 use ivar::action::sync;
 use ivar::cli::root::{
-    Cli, Command, ExecuteCommand, FeatureCommand, PlanCommand, ProviderCommand, RepoCommand,
-    SessionCommand, SkillCommand,
+    Cli, Command, ExecuteCommand, FeatureCommand, McpCommand, PlanCommand, ProviderCommand,
+    RepoCommand, SessionCommand, SkillCommand,
 };
 use ivar::error::{Failure, Outcome, Palette, Report, WriteHuman};
 use ivar::infra::progress;
@@ -359,6 +360,14 @@ fn main() -> ExitCode {
             SkillCommand::Doctor => {
                 respond(skill_doctor::doctor(&ctx), json, &mut stdout, &mut stderr)
             }
+        },
+        Command::Mcp(cmd) => match cmd {
+            McpCommand::Auth(args) => respond(
+                mcp_auth::auth(&ctx, args.into()),
+                json,
+                &mut stdout,
+                &mut stderr,
+            ),
         },
         // Git's credential protocol is raw on stdin/stdout — it must not pass
         // through `respond`, which would render a `Report` on top of it.

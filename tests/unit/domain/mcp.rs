@@ -25,6 +25,7 @@ fn a_fresh_definition_carries_only_name_and_type() {
     assert_eq!(def.args, None);
     assert_eq!(def.url, None);
     assert_eq!(def.env, None);
+    assert_eq!(def.oauth, None);
 }
 
 #[test]
@@ -86,5 +87,44 @@ fn a_remote_definition_round_trips_with_a_url() {
 #[test]
 fn an_unknown_field_in_a_definition_is_refused() {
     let raw = r#"{"name":"docs","type":"stdio","bogus":true}"#;
+    assert!(serde_json::from_str::<McpServerDef>(raw).is_err());
+}
+
+// -- oauth: absent by default, a reference to a secret never the value ----
+
+#[test]
+fn a_definition_with_no_oauth_omits_the_key_entirely() {
+    let def = stdio_server();
+
+    let rendered = serde_json::to_value(&def).unwrap();
+    assert!(
+        rendered.get("oauth").is_none(),
+        "a server with no oauth must not even carry the key"
+    );
+}
+
+#[test]
+fn a_definition_with_oauth_round_trips_and_carries_only_id_and_env_name() {
+    let def = McpServerDef::new("figma-gaio", "sse")
+        .url("https://mcp.figma.com/mcp")
+        .oauth(McpOauth::new("client-123", "IVAR_MCP_FIGMA_GAIO_SECRET"));
+
+    let rendered = serde_json::to_value(&def).unwrap();
+    assert_eq!(rendered["oauth"]["client_id"], "client-123");
+    assert_eq!(
+        rendered["oauth"]["client_secret_env"],
+        "IVAR_MCP_FIGMA_GAIO_SECRET"
+    );
+    // No key on the wire could ever hold a secret value — the struct simply
+    // has no field for one.
+    assert_eq!(rendered["oauth"].as_object().unwrap().len(), 2);
+
+    let parsed: McpServerDef = serde_json::from_value(rendered).unwrap();
+    assert_eq!(parsed, def);
+}
+
+#[test]
+fn an_unknown_field_on_oauth_is_refused() {
+    let raw = r#"{"name":"figma-gaio","type":"sse","url":"https://mcp.figma.com/mcp","oauth":{"client_id":"x","client_secret_env":"Y","client_secret":"leaked"}}"#;
     assert!(serde_json::from_str::<McpServerDef>(raw).is_err());
 }

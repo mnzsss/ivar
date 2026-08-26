@@ -137,6 +137,14 @@ fn write_canonical_overwrite_leaves_no_partial_state() {
 }
 
 #[test]
+fn write_canonical_creates_missing_parent_directories() {
+    let (_dir, root) = utf8_temp_dir();
+    let path = root.join("a/b/c/deep.json");
+    write_canonical(&path, &serde_json::json!({ "deep": true })).unwrap();
+    let roundtripped: Option<serde_json::Value> = read(&path).unwrap();
+    assert_eq!(roundtripped, Some(serde_json::json!({ "deep": true })));
+}
+#[test]
 fn absent_file_reads_as_ok_none() {
     let (_dir, root) = utf8_temp_dir();
     let missing = root.join("missing.json");

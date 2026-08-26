@@ -2,7 +2,7 @@
 //!
 //! The settled v1 surface (ARCHITECTURE.md's module map):
 //! `ivar init · sync · status · doctor · cleanup · migrate · repo · feature ·
-//! session · provider · plan · skill`. Every verb dispatches to an action file that
+//! session · provider · plan · skill · mcp`. Every verb dispatches to an action file that
 //! returns `Failure::blocked("…not implemented yet")` — never a silent success
 //! and never `todo!()`. See ARCHITECTURE.md's build order: those verbs land in
 //! later slices, not stubbed 40-deep now.
@@ -16,6 +16,7 @@ use crate::action::feature::{
     view,
 };
 use crate::action::hall::InitInput;
+use crate::action::mcp::auth as mcp_auth;
 use crate::action::plan::approve as plan_approve;
 use crate::action::plan::{create as plan_create, show as plan_show, status as plan_status};
 use crate::action::provider::add as provider_add;
@@ -98,6 +99,9 @@ pub enum Command {
     /// Manage skills.
     #[command(subcommand)]
     Skill(SkillCommand),
+    /// Authenticate the hall's declared MCP servers.
+    #[command(subcommand)]
+    Mcp(McpCommand),
     /// Answer git's credential helper protocol on stdin. Registered as
     /// `credential.https://github.com.helper = !ivar git-credential` so a
     /// token never lands in `.git/config`.
@@ -668,6 +672,45 @@ pub enum ProviderCommand {
     Add(ProviderAddArgs),
 }
 
+/// The `ivar mcp` surface: authenticating the hall's declared MCP servers
+/// under the session's provider.
+#[derive(Debug, Subcommand)]
+pub enum McpCommand {
+    /// Authenticate one MCP server. Resolves the server from `ivar.json`'s
+    /// `mcp` array and the provider from the hall's default, `--provider`, or
+    /// — with `--all-providers` — every provider the hall lists, run one at a
+    /// time; where a provider's own dynamic client registration is known to
+    /// be rejected by the server (Figma on OpenCode, today), pre-registers a
+    /// client first for that provider — a registration is not an
+    /// authentication, and is reported separately, per provider. Then hands
+    /// off to each provider's own login command (`claude mcp login <name>` or
+    /// `opencode mcp auth <name>`), which owns the terminal from that point
+    /// on: it prints a URL and waits on a browser. With `--all-providers`,
+    /// every provider is attempted even after an earlier one fails, and the
+    /// command reports which succeeded and which failed rather than stopping
+    /// at the first problem.
+    Auth(McpAuthArgs),
+}
+
+/// Arguments for `ivar mcp auth`.
+#[derive(Debug, Args)]
+pub struct McpAuthArgs {
+    /// The server's name, as declared in `ivar.json`'s `mcp` array.
+    pub server: String,
+    /// The provider to authenticate against. Defaults to the hall's default
+    /// provider. Conflicts with `--all-providers`.
+    #[arg(long, conflicts_with = "all_providers")]
+    pub provider: Option<String>,
+    /// Authenticate every provider the hall lists (`providers.available`),
+    /// one at a time — never concurrently, since each provider's login
+    /// command takes over the terminal and waits on a browser. Every
+    /// provider is attempted even if an earlier one fails; the run is
+    /// reported as needing attention (not a clean success) the moment any of
+    /// them does. Conflicts with `--provider`.
+    #[arg(long)]
+    pub all_providers: bool,
+}
+
 /// Arguments for `ivar skill create`.
 #[derive(Debug, Args)]
 pub struct SkillCreateArgs {
@@ -1107,6 +1150,21 @@ impl From<ProviderAddArgs> for provider_add::AddInput {
     fn from(args: ProviderAddArgs) -> Self {
         let ProviderAddArgs { name } = args;
         Self { name }
+    }
+}
+
+impl From<McpAuthArgs> for mcp_auth::AuthInput {
+    fn from(args: McpAuthArgs) -> Self {
+        let McpAuthArgs {
+            server,
+            provider,
+            all_providers,
+        } = args;
+        Self {
+            server,
+            provider,
+            all_providers,
+        }
     }
 }
 

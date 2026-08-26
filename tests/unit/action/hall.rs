@@ -63,7 +63,7 @@ fn migrate_on_a_current_hall_reports_nothing_to_do_and_writes_nothing() {
 
     let report = migrate(&ctx).unwrap();
 
-    assert_eq!(report.value.plan, MigrationPlan::Current { version: 2 });
+    assert_eq!(report.value.plan, MigrationPlan::Current { version: 3 });
     assert!(!report.value.migrated);
     assert!(report.is_clean());
     assert!(human(&report.value).contains("Nothing to do"));
@@ -98,13 +98,13 @@ fn migrate_refuses_a_file_newer_than_this_build_without_touching_it() {
         report.value.plan,
         MigrationPlan::TooNew {
             found: 99,
-            highest: 2
+            highest: 3
         }
     );
     assert!(!report.value.migrated);
     // The whole point of `plan` over `read`: a too-new hall gets described,
     // not refused into silence.
-    assert!(human(&report.value).contains("understands up to 2"));
+    assert!(human(&report.value).contains("understands up to 3"));
     // ...but describing it must not report success. A warning is what
     // makes `bin/ivar.rs` exit 1 instead of 0.
     assert!(!report.is_clean(), "a too-new hall must not exit clean");
@@ -130,10 +130,10 @@ fn migrate_reports_an_unversioned_file_as_unreachable_rather_than_adopting_it() 
     // the format contract forbids exactly that.
     assert_eq!(
         report.value.plan,
-        MigrationPlan::Unreachable { from: 0, to: 2 }
+        MigrationPlan::Unreachable { from: 0, to: 3 }
     );
     assert!(!report.value.migrated);
-    assert!(human(&report.value).contains("no migration to reach version 2"));
+    assert!(human(&report.value).contains("no migration to reach version 3"));
     assert!(
         !report.is_clean(),
         "an unreachable hall must not exit clean"

@@ -45,6 +45,22 @@ fn v1_to_v2(mut value: serde_json::Value) -> Result<serde_json::Value, String> {
     Ok(value)
 }
 
+/// Migrate a manifest from v2 → v3.
+///
+/// v3 adds `McpServerDef.oauth` — an optional pre-provisioned OAuth client
+/// registration (`client_id`, `client_secret_env`) for an MCP server whose
+/// host rejects a harness's own dynamic client registration. The field is
+/// optional and `#[serde(skip_serializing_if = "Option::is_none")]`, so a v2
+/// manifest — which never has an `oauth` entry carrying it — already
+/// deserialises against the v3 shape without help. This step touches no
+/// data; it exists so the chain stays contiguous and [`Manifest::migrate`]
+/// has a registered step to run, which is what advances the version number
+/// stamped on disk and lets `ivar migrate` describe the step honestly rather
+/// than reporting nothing to do on a v2 file.
+fn v2_to_v3(value: serde_json::Value) -> Result<serde_json::Value, String> {
+    Ok(value)
+}
+
 /// What migrating `ivar.json` would do. Produced by [`Manifest::plan`], which
 /// never touches the file.
 ///
@@ -181,7 +197,10 @@ impl Manifest {
     fn open(layout: &Layout) -> Store<Self> {
         Store::new(
             layout.manifest(),
-            vec![Migration::new(1, 2, v1_to_v2)],
+            vec![
+                Migration::new(1, 2, v1_to_v2),
+                Migration::new(2, 3, v2_to_v3),
+            ],
             CURRENT_VERSION,
             Policy::Committed,
         )
