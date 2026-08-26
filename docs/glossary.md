@@ -279,7 +279,12 @@ unknown key is a hard error naming the key, never a warning.
 **MCP** — hall-scoped, per-provider MCP server definitions, part of `ivar.json`
 and materialised at the hall root (`.mcp.json` for Claude Code, the OpenCode
 equivalent), discovered by walk-up from the view dir. Stores definitions only, and
-references secrets through env vars rather than holding them.
+references secrets through env vars rather than holding them. The name stored in
+`ivar.json` is canonical and unqualified — `figma`, say — and reusable across
+halls; at each provider boundary `ivar` derives a materialised name,
+`<hall>-<server>`, so `acme-figma` is what actually reaches `.mcp.json`,
+`opencode.json`, `claude mcp login`, and the OAuth secret variable name. The
+materialised name is never stored back into `ivar.json`.
 
 **Skill** — a reusable instruction bundle (a folder with a `SKILL.md`) shared
 across the hall from `.ivar/skills/` and materialised into each harness's native
