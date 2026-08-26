@@ -15,7 +15,7 @@ The findings are the deliverable, and they land in the conversation. This
 workflow writes no file.
 
 `ivar feature review <feature>` still writes the VSCode workspace it always
-wrote. Step 7 offers it once the review is done.
+wrote. Step 9 offers it once the review is done.
 
 ## Prerequisites
 
@@ -24,8 +24,11 @@ wrote. Step 7 offers it once the review is done.
   an argument naming one.
 - For a pull request target, `gh` must be installed and authenticated. A
   feature target never calls `gh`.
-- Subagents must be able to run shell commands. This workflow hands them the
-  commands that produce a diff, never the diff itself.
+- A subagent this harness can spawn, holding its own context and able to run
+  shell commands. Separate contexts are what isolate the axes, so a harness
+  with no subagent cannot run this workflow. Concurrency is not required — one
+  at a time, in sequence, is enough. This workflow hands subagents the commands
+  that produce a diff, never the diff itself.
 
 ## Steps
 
@@ -86,9 +89,18 @@ wrote. Step 7 offers it once the review is done.
    the Spec subagent and say in the report that no spec was available. Never
    drop the axis silently.
 
-6. **Run the axes.** Act as the coordinator. Decompose the review using this
-   provider's native subagent capabilities: **one Standards subagent per repo,
-   and one Spec subagent for the whole target.** Never one per axis per repo.
+6. **Run the axes.** First, confirm you can isolate them: you hold a subagent
+   tool, and it has at least one target able to run shell commands. That is the
+   whole requirement. Running the axes at the same time is not part of it, so a
+   harness that spawns one subagent at a time passes and runs them in sequence.
+   If you hold no such tool, or it has no target, stop here and say so: this
+   harness has no subagent to isolate the axes with, and registering one is a
+   change to the harness, which `ivar` neither makes nor names. Decide this by
+   what you can do, never by an agent's name.
+
+   Then act as the coordinator. Decompose the review using this provider's
+   native subagent capabilities: **one Standards subagent per repo, and one
+   Spec subagent for the whole target.** Never one per axis per repo.
 
    The split is asymmetric because the axes are. Standards is a property of a
    repo — each carries its own conventions, and one subagent holding two repos'
@@ -213,6 +225,13 @@ failing one — so they are reported apart.
   and `gh pr view` already know it. Ask the user for a target, never for a
   base.
 - **A remote that cannot carry a pull request is named, never attempted.**
+- **A missing subagent stops the review; it never degrades it.** Never run both
+  axes in one context and still report them under `## Standards` and `## Spec`
+  — that is the contamination the split exists to prevent, wearing the shape of
+  the right artifact. Never hand back a partial review as though it were whole.
+- **A capability this harness lacks is never this file's fault.** Name the
+  capability and the harness that is missing it. Never report these
+  instructions as incomplete, truncated or malformed to explain a stop.
 
 ## Credit
 
