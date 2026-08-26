@@ -7,7 +7,7 @@ use crate::test_support::utf8_temp_dir;
 fn absent_file_has_no_tokens() {
     let (_dir, root) = utf8_temp_dir();
 
-    assert!(!has_tokens_under(&root, "figma-gaio").unwrap());
+    assert!(!has_tokens_under(&root, "acme-figma").unwrap());
 }
 
 #[test]
@@ -17,12 +17,12 @@ fn a_server_with_a_tokens_object_is_authenticated() {
     json::write_canonical(
         &path,
         &serde_json::json!({
-            "figma-gaio": { "tokens": { "access": "abc", "refresh": "def" } },
+            "acme-figma": { "tokens": { "access": "abc", "refresh": "def" } },
         }),
     )
     .unwrap();
 
-    assert!(has_tokens_under(&root, "figma-gaio").unwrap());
+    assert!(has_tokens_under(&root, "acme-figma").unwrap());
 }
 
 #[test]
@@ -32,12 +32,12 @@ fn a_server_present_but_without_tokens_is_not_authenticated() {
     json::write_canonical(
         &path,
         &serde_json::json!({
-            "figma-gaio": {},
+            "acme-figma": {},
         }),
     )
     .unwrap();
 
-    assert!(!has_tokens_under(&root, "figma-gaio").unwrap());
+    assert!(!has_tokens_under(&root, "acme-figma").unwrap());
 }
 
 #[test]
@@ -47,12 +47,12 @@ fn a_different_servers_tokens_do_not_leak_onto_this_one() {
     json::write_canonical(
         &path,
         &serde_json::json!({
-            "linear-gaio": { "tokens": { "access": "abc" } },
+            "acme-linear": { "tokens": { "access": "abc" } },
         }),
     )
     .unwrap();
 
-    assert!(!has_tokens_under(&root, "figma-gaio").unwrap());
+    assert!(!has_tokens_under(&root, "acme-figma").unwrap());
 }
 
 #[test]

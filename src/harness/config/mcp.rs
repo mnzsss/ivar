@@ -27,6 +27,7 @@
 use camino::Utf8Path;
 
 use crate::domain::mcp::McpServerDef;
+use crate::domain::name::HallName;
 use crate::domain::provider::Provider;
 use crate::infra::{fs, json};
 
@@ -50,8 +51,9 @@ pub fn materialise_mcp(
     path: &Utf8Path,
     provider: Provider,
     servers: &[McpServerDef],
+    hall: &HallName,
 ) -> Result<Change, Error> {
-    let servers_value = servers_doc(provider, servers);
+    let servers_value = servers_doc(provider, servers, hall);
     let (existing, raw) = read_doc(path)?;
 
     let Some(mut doc) = existing else {
@@ -132,11 +134,12 @@ fn mcp_doc(provider: Provider, servers: serde_json::Value) -> serde_json::Value 
     serde_json::Value::Object(root)
 }
 
-/// The `mcp` value itself: one entry per server, keyed by name.
-fn servers_doc(provider: Provider, servers: &[McpServerDef]) -> serde_json::Value {
+/// The `mcp` value itself: one entry per server, keyed by its hall-qualified
+/// name — the provider boundary, where two halls' servers must stay distinct.
+fn servers_doc(provider: Provider, servers: &[McpServerDef], hall: &HallName) -> serde_json::Value {
     let mut map = serde_json::Map::new();
     for server in servers {
-        map.insert(server.name.clone(), server_doc(provider, server));
+        map.insert(server.materialised_name(hall), server_doc(provider, server));
     }
     serde_json::Value::Object(map)
 }

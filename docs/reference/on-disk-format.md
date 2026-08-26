@@ -180,10 +180,10 @@ today).
   "version": 3,
   "mcp": [
     {
-      "name": "figma-gaio",
+      "name": "figma",
       "type": "sse",
       "url": "https://mcp.figma.com/mcp",
-      "oauth": { "client_id": "…", "client_secret_env": "IVAR_MCP_FIGMA_GAIO_SECRET" }
+      "oauth": { "client_id": "…", "client_secret_env": "IVAR_MCP_ACME_FIGMA_SECRET" }
     }
   ]
 }
@@ -194,6 +194,18 @@ environment variable — never a value — the same reference convention `env`
 already follows elsewhere in an `mcp` entry. The field is absent by default,
 so v2 → v3 adds nothing to a hall that never used it; migrating is still
 explicit (`ivar migrate`) because the file is committed.
+
+The `name` stored here (`figma`, above) is canonical and unqualified. Providers
+never see it directly: every provider boundary — the key in `.mcp.json` and
+`opencode.json`, the argument to `claude mcp login` / `opencode mcp auth`, the
+key OpenCode writes into `mcp-auth.json`, and the OAuth secret variable name —
+receives `<hall>-<server>` instead, derived from the hall this manifest belongs
+to (`acme-figma`, in a hall named `acme`). This is a breaking change from
+previous behaviour, where the stored name was used verbatim at every provider
+boundary. A hall whose entry is already hall-qualified (`figma-acme`, say)
+must rename it to the canonical form by hand and re-run `ivar sync`, and
+re-export any `client_secret_env` secret under the new variable name — `ivar`
+will not rewrite a committed, hand-edited file by guessing at intent.
 
 ### `feature.json` v3
 

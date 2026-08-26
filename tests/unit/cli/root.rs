@@ -39,7 +39,7 @@ fn mcp_auth_rejects_provider_with_all_providers() {
         "ivar",
         "mcp",
         "auth",
-        "figma-gaio",
+        "figma",
         "--provider",
         "opencode",
         "--all-providers",
