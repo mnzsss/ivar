@@ -63,6 +63,7 @@ pub(super) fn preregister_if_needed(
     manifest: &Manifest,
     provider: Provider,
     server: &McpServerDef,
+    materialised_name: &str,
 ) -> Result<Preregistered, Failure> {
     if provider != Provider::OpenCode {
         return Ok(Preregistered::not_needed());
@@ -109,7 +110,7 @@ pub(super) fn preregister_if_needed(
         .actual("client_secret absent")
     })?;
 
-    let secret_env = secret_env_var(&server.name);
+    let secret_env = secret_env_var(materialised_name);
     let updated_servers: Vec<McpServerDef> = manifest
         .mcp_servers()
         .iter()
@@ -132,6 +133,7 @@ pub(super) fn preregister_if_needed(
         &mcp_path,
         Provider::OpenCode,
         updated_manifest.mcp_servers(),
+        updated_manifest.name(),
     )?;
 
     print_secret_export(&secret_env, &client_secret)?;
@@ -170,18 +172,18 @@ fn ensure_secret_env_set(var: &str, server_name: &str) -> Result<(), Failure> {
 }
 
 /// The environment variable name a fresh registration's secret is exported
-/// under, deterministic from `server_name`.
+/// under, deterministic from `materialised_name`.
 ///
 /// Every ASCII letter or digit is uppercased; everything else (`-`, mostly)
-/// folds to `_` — `figma-gaio` becomes `IVAR_MCP_FIGMA_GAIO_SECRET`. This is
+/// folds to `_` — `acme-figma` becomes `IVAR_MCP_ACME_FIGMA_SECRET`. This is
 /// the *only* place that name is built: [`preregister_if_needed`] stores this
 /// exact string in `ivar.json`'s `oauth.client_secret_env`, and
 /// [`print_secret_export`] prints this exact string in the `export` line —
 /// both read this function's output rather than formatting the name
 /// themselves a second time, so the two can never drift into two different
 /// spellings of the same variable.
-fn secret_env_var(server_name: &str) -> String {
-    let normalised: String = server_name
+fn secret_env_var(materialised_name: &str) -> String {
+    let normalised: String = materialised_name
         .chars()
         .map(|c| {
             if c.is_ascii_alphanumeric() {

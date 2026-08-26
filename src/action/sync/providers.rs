@@ -146,7 +146,7 @@ pub(crate) fn sync_mcp(
     let label = format!("{} MCP config", provider.mcp_config_path());
 
     let result = if manifest.providers().available().contains(&provider) {
-        config::materialise_mcp(&path, provider, manifest.mcp_servers())
+        config::materialise_mcp(&path, provider, manifest.mcp_servers(), manifest.name())
     } else {
         config::remove_mcp(&path, provider)
     };

@@ -26,13 +26,13 @@ fn resolve_server_finds_a_declared_server_by_name() {
     let (_guard, root) = seeded_hall();
     declare_server(
         &root,
-        McpServerDef::new("linear-gaio", "stdio").command("linear-mcp"),
+        McpServerDef::new("linear", "stdio").command("linear-mcp"),
     );
     let layout = Layout::at(root.clone());
     let manifest = Manifest::read(&layout).unwrap().unwrap();
 
-    let server = resolve_server(&manifest, "linear-gaio").unwrap();
-    assert_eq!(server.name, "linear-gaio");
+    let server = resolve_server(&manifest, "linear").unwrap();
+    assert_eq!(server.name, "linear");
 }
 
 #[test]
@@ -40,15 +40,15 @@ fn resolve_server_lists_the_declared_names_when_absent() {
     let (_guard, root) = seeded_hall();
     declare_server(
         &root,
-        McpServerDef::new("linear-gaio", "stdio").command("linear-mcp"),
+        McpServerDef::new("linear", "stdio").command("linear-mcp"),
     );
     let layout = Layout::at(root.clone());
     let manifest = Manifest::read(&layout).unwrap().unwrap();
 
-    let failure = resolve_server(&manifest, "figma-gaio").unwrap_err();
+    let failure = resolve_server(&manifest, "figma").unwrap_err();
     assert_eq!(failure.status, Status::Blocked);
     assert_eq!(failure.code, "mcp.server_not_found");
-    assert!(failure.expected.unwrap().contains("linear-gaio"));
+    assert!(failure.expected.unwrap().contains("linear"));
 }
 
 #[test]
@@ -57,7 +57,7 @@ fn resolve_server_names_the_empty_case_when_none_are_declared() {
     let layout = Layout::at(root.clone());
     let manifest = Manifest::read(&layout).unwrap().unwrap();
 
-    let failure = resolve_server(&manifest, "figma-gaio").unwrap_err();
+    let failure = resolve_server(&manifest, "figma").unwrap_err();
     assert!(failure.expected.unwrap().contains("no servers declared"));
 }
 
@@ -107,7 +107,7 @@ fn auth_refuses_an_unknown_server_before_any_dispatch() {
     let failure = auth(
         &ctx,
         AuthInput {
-            server: "figma-gaio".to_owned(),
+            server: "figma".to_owned(),
             provider: None,
             all_providers: false,
         },
@@ -122,14 +122,14 @@ fn auth_refuses_an_unknown_provider_before_any_dispatch() {
     let (_guard, root) = seeded_hall();
     declare_server(
         &root,
-        McpServerDef::new("linear-gaio", "stdio").command("linear-mcp"),
+        McpServerDef::new("linear", "stdio").command("linear-mcp"),
     );
     let ctx = Ctx::new(root.clone());
 
     let failure = auth(
         &ctx,
         AuthInput {
-            server: "linear-gaio".to_owned(),
+            server: "linear".to_owned(),
             provider: Some("bogus".to_owned()),
             all_providers: false,
         },
@@ -150,7 +150,7 @@ fn auth_refuses_an_unknown_server_for_all_providers_too() {
     let failure = auth(
         &ctx,
         AuthInput {
-            server: "figma-gaio".to_owned(),
+            server: "figma".to_owned(),
             provider: None,
             all_providers: true,
         },
@@ -175,7 +175,7 @@ fn ok_run(provider: Provider) -> ProviderRun {
     ProviderRun {
         provider,
         preregistration: Preregistration::NotNeeded,
-        command: format!("{} mcp auth figma-gaio", provider.id()),
+        command: format!("{} mcp auth acme-figma", provider.id()),
         authenticated: true,
         error: None,
     }
@@ -185,7 +185,7 @@ fn failed_run(provider: Provider, error: &str) -> ProviderRun {
     ProviderRun {
         provider,
         preregistration: Preregistration::NotNeeded,
-        command: format!("{} mcp auth figma-gaio", provider.id()),
+        command: format!("{} mcp auth acme-figma", provider.id()),
         authenticated: false,
         error: Some(error.to_owned()),
     }
@@ -218,7 +218,7 @@ fn all_providers_hall_lists_available_providers_in_declared_order() {
 fn all_providers_report_is_clean_when_every_leg_succeeds() {
     let runs = vec![ok_run(Provider::ClaudeCode), ok_run(Provider::OpenCode)];
 
-    let report = all_providers_report("figma-gaio", runs);
+    let report = all_providers_report("figma", runs);
 
     assert!(report.is_clean());
     assert_eq!(
@@ -241,11 +241,11 @@ fn all_providers_report_is_unclean_when_any_leg_fails() {
         ok_run(Provider::ClaudeCode),
         failed_run(
             Provider::OpenCode,
-            "`opencode mcp auth figma-gaio` exited 1",
+            "`opencode mcp auth acme-figma` exited 1",
         ),
     ];
 
-    let report = all_providers_report("figma-gaio", runs);
+    let report = all_providers_report("figma", runs);
 
     assert!(
         !report.is_clean(),
@@ -277,7 +277,7 @@ fn all_providers_report_single_leg_summary_is_silent() {
     // The single-provider path never sees this function, but the summary
     // line must still not clutter a one-entry report if it ever does.
     let runs = vec![ok_run(Provider::ClaudeCode)];
-    let report = all_providers_report("figma-gaio", runs);
+    let report = all_providers_report("figma", runs);
 
     let mut rendered = Vec::new();
     report.value.write_human(&mut rendered).unwrap();

@@ -6,19 +6,19 @@ use super::*;
 
 #[test]
 fn auth_command_is_claude_mcp_login_for_claude_code() {
-    let command = auth_command(Harness::ClaudeCode, "figma-gaio", None);
-    assert_eq!(command.display(), "claude mcp login figma-gaio");
+    let command = auth_command(Harness::ClaudeCode, "acme-figma", None);
+    assert_eq!(command.display(), "claude mcp login acme-figma");
 }
 
 #[test]
 fn auth_command_is_opencode_mcp_auth_for_opencode() {
-    let command = auth_command(Harness::OpenCode, "figma-gaio", None);
-    assert_eq!(command.display(), "opencode mcp auth figma-gaio");
+    let command = auth_command(Harness::OpenCode, "acme-figma", None);
+    assert_eq!(command.display(), "opencode mcp auth acme-figma");
 }
 
 #[test]
 fn auth_command_carries_no_env_override_without_a_fresh_secret() {
-    let command = auth_command(Harness::OpenCode, "figma-gaio", None);
+    let command = auth_command(Harness::OpenCode, "acme-figma", None);
     assert!(command.envs().is_empty());
 }
 
@@ -29,16 +29,16 @@ fn auth_command_carries_no_env_override_without_a_fresh_secret() {
 #[test]
 fn auth_command_puts_a_fresh_registrations_secret_into_the_childs_environment() {
     let fresh = (
-        "IVAR_MCP_FIGMA_GAIO_SECRET".to_owned(),
+        "IVAR_MCP_ACME_FIGMA_SECRET".to_owned(),
         "top-secret".to_owned(),
     );
 
-    let command = auth_command(Harness::OpenCode, "figma-gaio", Some(&fresh));
+    let command = auth_command(Harness::OpenCode, "acme-figma", Some(&fresh));
 
     assert_eq!(
         command.envs(),
         &[(
-            "IVAR_MCP_FIGMA_GAIO_SECRET".to_owned(),
+            "IVAR_MCP_ACME_FIGMA_SECRET".to_owned(),
             "top-secret".to_owned()
         )]
     );
@@ -50,13 +50,13 @@ fn auth_command_puts_a_fresh_registrations_secret_into_the_childs_environment() 
 
 #[test]
 fn login_failed_names_the_exit_code() {
-    let failure = login_failed("claude mcp login figma-gaio", Some(1));
+    let failure = login_failed("claude mcp login acme-figma", Some(1));
     assert_eq!(failure.code, "mcp.auth_failed");
     assert!(failure.what.contains("exited 1"));
 }
 
 #[test]
 fn login_failed_names_a_signal_death() {
-    let failure = login_failed("claude mcp login figma-gaio", None);
+    let failure = login_failed("claude mcp login acme-figma", None);
     assert!(failure.what.contains("killed by a signal"));
 }

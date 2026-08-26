@@ -326,6 +326,10 @@ pub fn auth(ctx: &Ctx, input: AuthInput) -> Outcome<AuthOutcome> {
     let manifest = read_manifest(&layout)?;
 
     let server = resolve_server(&manifest, &input.server)?;
+    // The materialised name is what actually runs — the provider's login
+    // command and its own credential store — while `AuthOutcome.server`
+    // below keeps the canonical name the operator typed.
+    let materialised_name = server.materialised_name(manifest.name());
 
     if input.all_providers {
         // Sequential on purpose (`R-ALL-SEQUENTIAL`): `.map` over an
@@ -337,14 +341,14 @@ pub fn auth(ctx: &Ctx, input: AuthInput) -> Outcome<AuthOutcome> {
             .providers()
             .available()
             .iter()
-            .map(|&provider| run_provider(&layout, &manifest, server, provider))
+            .map(|&provider| run_provider(&layout, &manifest, server, &materialised_name, provider))
             .collect();
 
         return Ok(all_providers_report(&server.name, runs));
     }
 
     let provider = resolve_provider(&manifest, input.provider.as_deref())?;
-    let run = try_run_provider(&layout, &manifest, server, provider)?;
+    let run = try_run_provider(&layout, &manifest, server, &materialised_name, provider)?;
     Ok(Report::new(AuthOutcome {
         server: server.name.clone(),
         runs: vec![run],

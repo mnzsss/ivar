@@ -639,7 +639,7 @@ fn sync_writes_declared_servers_into_the_config() {
 
     assert!(report.is_clean());
     let on_disk = fs::read_text(&root.join(".mcp.json")).unwrap().unwrap();
-    assert!(on_disk.contains("\"docs\""), "was: {on_disk}");
+    assert!(on_disk.contains("\"acme-docs\""), "was: {on_disk}");
     assert!(on_disk.contains("\"npx\""), "was: {on_disk}");
 }
 

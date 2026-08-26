@@ -30,12 +30,13 @@ fn attempt(
     layout: &Layout,
     manifest: &Manifest,
     server: &McpServerDef,
+    materialised_name: &str,
     provider: Provider,
 ) -> Attempt {
     let Preregistered {
         report: preregistration,
         fresh_secret,
-    } = match preregister_if_needed(layout, manifest, provider, server) {
+    } = match preregister_if_needed(layout, manifest, provider, server, materialised_name) {
         Ok(preregistered) => preregistered,
         Err(failure) => {
             return Attempt {
@@ -57,10 +58,10 @@ fn attempt(
         }
     };
 
-    let command = auth_command(harness, &server.name, fresh_secret.as_ref());
+    let command = auth_command(harness, materialised_name, fresh_secret.as_ref());
     let display = command.display();
     let outcome = match proc::inherit(&command) {
-        Ok(Some(0)) => verify_authenticated(harness, &server.name),
+        Ok(Some(0)) => verify_authenticated(harness, materialised_name),
         Ok(code) => Err(login_failed(&display, code)),
         Err(spawn_error) => Err(spawn_error.into()),
     };
@@ -81,13 +82,14 @@ pub(super) fn try_run_provider(
     layout: &Layout,
     manifest: &Manifest,
     server: &McpServerDef,
+    materialised_name: &str,
     provider: Provider,
 ) -> Result<ProviderRun, Failure> {
     let Attempt {
         preregistration,
         command,
         outcome,
-    } = attempt(layout, manifest, server, provider);
+    } = attempt(layout, manifest, server, materialised_name, provider);
     outcome?;
     Ok(ProviderRun {
         provider,
@@ -105,13 +107,14 @@ pub(super) fn run_provider(
     layout: &Layout,
     manifest: &Manifest,
     server: &McpServerDef,
+    materialised_name: &str,
     provider: Provider,
 ) -> ProviderRun {
     let Attempt {
         preregistration,
         command,
         outcome,
-    } = attempt(layout, manifest, server, provider);
+    } = attempt(layout, manifest, server, materialised_name, provider);
     match outcome {
         Ok(()) => ProviderRun {
             provider,
@@ -136,18 +139,23 @@ pub(super) fn run_provider(
 /// itself: whether a token exchange actually landed in OpenCode's own
 /// store. Claude Code's exit status, already checked by [`attempt`] before
 /// this runs, is reliable — this is a no-op for it.
-fn verify_authenticated(harness: Harness, server_name: &str) -> Result<(), Failure> {
+///
+/// `materialised_name` — never the canonical one — because OpenCode keys
+/// `mcp-auth.json` by whatever name [`auth_command`] handed its login
+/// command; a bare canonical lookup here would report every successful
+/// OpenCode auth as `mcp.auth_not_verified`.
+fn verify_authenticated(harness: Harness, materialised_name: &str) -> Result<(), Failure> {
     match harness {
         Harness::ClaudeCode => Ok(()),
         Harness::OpenCode => {
-            if opencode_auth::has_tokens(server_name)? {
+            if opencode_auth::has_tokens(materialised_name)? {
                 return Ok(());
             }
             Err(Failure::failed(
                 "mcp.auth_not_verified",
                 format!(
-                    "`opencode mcp auth {server_name}` exited 0, but no tokens for \
-                     `{server_name}` were found in OpenCode's own credential store"
+                    "`opencode mcp auth {materialised_name}` exited 0, but no tokens for \
+                     `{materialised_name}` were found in OpenCode's own credential store"
                 ),
             )
             .expected("a `tokens` entry for this server in OpenCode's mcp-auth.json")
@@ -163,7 +171,10 @@ fn verify_authenticated(harness: Harness, server_name: &str) -> Result<(), Failu
     }
 }
 
-/// The harness's own login command for `name` — the whole of step 3.
+/// The harness's own login command for `materialised_name` — the whole of
+/// step 3. The materialised name, not the canonical one: it is what the
+/// provider's own config keys this server by, so it is what the login
+/// command and OpenCode's `mcp-auth.json` must agree on.
 ///
 /// `fresh_secret`, when `Some((var, value))`, is set on the child's own
 /// environment (defect fix, `R-SECRET-HANDOFF`): a client registered on this
@@ -172,14 +183,16 @@ fn verify_authenticated(harness: Harness, server_name: &str) -> Result<(), Failu
 /// operator's own exported variable is the (only) source.
 fn auth_command(
     harness: Harness,
-    name: &str,
+    materialised_name: &str,
     fresh_secret: Option<&(String, String)>,
 ) -> proc::Command {
     let args: [&str; 2] = match harness {
         Harness::ClaudeCode => ["mcp", "login"],
         Harness::OpenCode => ["mcp", "auth"],
     };
-    let command = proc::Command::new(harness.binary()).args(args).arg(name);
+    let command = proc::Command::new(harness.binary())
+        .args(args)
+        .arg(materialised_name);
     match fresh_secret {
         Some((var, value)) => command.env(var.clone(), value.clone()),
         None => command,

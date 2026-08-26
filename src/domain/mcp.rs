@@ -43,6 +43,8 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
+use super::name::HallName;
+
 /// One MCP server definition: how a harness should spawn (or connect to) one
 /// server, and nothing about the secrets it will need at runtime.
 ///
@@ -129,6 +131,19 @@ impl McpServerDef {
     pub fn oauth(mut self, oauth: McpOauth) -> Self {
         self.oauth = Some(oauth);
         self
+    }
+
+    /// The name a provider boundary keys this server by: `<hall>-<server>`.
+    ///
+    /// [`Self::name`] is the canonical, hall-portable identity the manifest
+    /// validates and `ivar mcp auth` takes as its argument; this derived form
+    /// exists only where a hall's servers must be disambiguated from every
+    /// other hall's — a provider's config file, its login command, and the
+    /// OAuth secret variable name. `name` is never overwritten with the
+    /// result.
+    #[must_use]
+    pub fn materialised_name(&self, hall: &HallName) -> String {
+        format!("{hall}-{}", self.name)
     }
 }
 

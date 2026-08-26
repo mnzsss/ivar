@@ -15,9 +15,16 @@ fn preregistration_not_needed_for_claude_code() {
     let (_guard, root) = seeded_hall();
     let layout = Layout::at(root.clone());
     let manifest = Manifest::read(&layout).unwrap().unwrap();
-    let server = McpServerDef::new("figma-gaio", "sse").url("https://mcp.figma.com/mcp");
+    let server = McpServerDef::new("figma", "sse").url("https://mcp.figma.com/mcp");
 
-    let result = preregister_if_needed(&layout, &manifest, Provider::ClaudeCode, &server).unwrap();
+    let result = preregister_if_needed(
+        &layout,
+        &manifest,
+        Provider::ClaudeCode,
+        &server,
+        "acme-figma",
+    )
+    .unwrap();
     assert!(matches!(result.report, Preregistration::NotNeeded));
 }
 
@@ -26,9 +33,16 @@ fn preregistration_not_needed_without_a_url() {
     let (_guard, root) = seeded_hall();
     let layout = Layout::at(root.clone());
     let manifest = Manifest::read(&layout).unwrap().unwrap();
-    let server = McpServerDef::new("linear-gaio", "stdio").command("linear-mcp");
+    let server = McpServerDef::new("linear", "stdio").command("linear-mcp");
 
-    let result = preregister_if_needed(&layout, &manifest, Provider::OpenCode, &server).unwrap();
+    let result = preregister_if_needed(
+        &layout,
+        &manifest,
+        Provider::OpenCode,
+        &server,
+        "acme-linear",
+    )
+    .unwrap();
     assert!(matches!(result.report, Preregistration::NotNeeded));
 }
 
@@ -37,9 +51,16 @@ fn preregistration_not_needed_for_a_host_off_the_allowlist() {
     let (_guard, root) = seeded_hall();
     let layout = Layout::at(root.clone());
     let manifest = Manifest::read(&layout).unwrap().unwrap();
-    let server = McpServerDef::new("linear-gaio", "sse").url("https://mcp.linear.app/mcp");
+    let server = McpServerDef::new("linear", "sse").url("https://mcp.linear.app/mcp");
 
-    let result = preregister_if_needed(&layout, &manifest, Provider::OpenCode, &server).unwrap();
+    let result = preregister_if_needed(
+        &layout,
+        &manifest,
+        Provider::OpenCode,
+        &server,
+        "acme-linear",
+    )
+    .unwrap();
     assert!(matches!(result.report, Preregistration::NotNeeded));
 }
 
@@ -56,11 +77,18 @@ fn preregistration_skipped_when_the_manifest_already_carries_oauth() {
     // set", to exercise the present-and-usable branch without mutating the
     // process environment (`unsafe_code` is denied in this crate, so
     // `std::env::set_var` is not an option).
-    let server = McpServerDef::new("figma-gaio", "sse")
+    let server = McpServerDef::new("figma", "sse")
         .url("https://mcp.figma.com/mcp")
         .oauth(McpOauth::new("existing-client", "CARGO_MANIFEST_DIR"));
 
-    let result = preregister_if_needed(&layout, &manifest, Provider::OpenCode, &server).unwrap();
+    let result = preregister_if_needed(
+        &layout,
+        &manifest,
+        Provider::OpenCode,
+        &server,
+        "acme-figma",
+    )
+    .unwrap();
     assert!(matches!(result.report, Preregistration::Skipped));
 }
 
@@ -73,15 +101,21 @@ fn preregistration_skipped_path_fails_naming_the_variable_when_it_is_unset() {
     let (_guard, root) = seeded_hall();
     let layout = Layout::at(root.clone());
     let manifest = Manifest::read(&layout).unwrap().unwrap();
-    let server = McpServerDef::new("figma-gaio", "sse")
+    let server = McpServerDef::new("figma", "sse")
         .url("https://mcp.figma.com/mcp")
         .oauth(McpOauth::new(
             "existing-client",
             "IVAR_MCP_AUTH_TEST_DOES_NOT_EXIST_UNSET",
         ));
 
-    let failure =
-        preregister_if_needed(&layout, &manifest, Provider::OpenCode, &server).unwrap_err();
+    let failure = preregister_if_needed(
+        &layout,
+        &manifest,
+        Provider::OpenCode,
+        &server,
+        "acme-figma",
+    )
+    .unwrap_err();
 
     assert_eq!(failure.code, "mcp.missing_client_secret_env");
     assert!(
@@ -95,7 +129,7 @@ fn preregistration_skipped_path_fails_naming_the_variable_when_it_is_unset() {
 
 #[test]
 fn secret_env_var_uppercases_and_folds_non_alphanumerics() {
-    assert_eq!(secret_env_var("figma-gaio"), "IVAR_MCP_FIGMA_GAIO_SECRET");
+    assert_eq!(secret_env_var("acme-figma"), "IVAR_MCP_ACME_FIGMA_SECRET");
     assert_eq!(secret_env_var("linear"), "IVAR_MCP_LINEAR_SECRET");
 }
 
@@ -110,7 +144,7 @@ fn secret_env_var_uppercases_and_folds_non_alphanumerics() {
 /// `all_providers_report`'s tests below never construct one that does.
 #[test]
 fn print_secret_export_succeeds_against_real_stderr() {
-    print_secret_export("IVAR_MCP_FIGMA_GAIO_SECRET", "shh").unwrap();
+    print_secret_export("IVAR_MCP_ACME_FIGMA_SECRET", "shh").unwrap();
 }
 
 // -- host_of --------------------------------------------------------------

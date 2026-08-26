@@ -7,9 +7,15 @@
 
 use super::*;
 use crate::domain::mcp::McpServerDef;
+use crate::domain::name::HallName;
 use crate::domain::provider::Provider;
 use crate::infra::fs;
 use crate::test_support::utf8_temp_dir;
+
+/// The neutral fixture hall these tests materialise servers under.
+fn hall() -> HallName {
+    HallName::new("acme").unwrap()
+}
 
 // -- materialise_mcp: Claude Code ----------------------------------------
 
@@ -21,7 +27,7 @@ fn an_empty_server_list_materialises_a_valid_empty_config() {
     let path = dir.join(".mcp.json");
 
     assert_eq!(
-        materialise_mcp(&path, Provider::ClaudeCode, &[]).unwrap(),
+        materialise_mcp(&path, Provider::ClaudeCode, &[], &hall()).unwrap(),
         Change::Created
     );
 
@@ -43,11 +49,11 @@ fn a_stdio_server_is_serialised_with_command_args_and_env() {
             )])),
     ];
 
-    materialise_mcp(&path, Provider::ClaudeCode, &servers).unwrap();
+    materialise_mcp(&path, Provider::ClaudeCode, &servers, &hall()).unwrap();
 
     let expected = json::to_canonical_string(&serde_json::json!({
         "mcpServers": {
-            "docs": {
+            "acme-docs": {
                 "type": "stdio",
                 "command": "npx",
                 "args": ["-y", "@acme/docs-mcp"],
@@ -67,13 +73,13 @@ fn materialising_mcp_twice_is_unchanged_and_does_not_rewrite() {
     let servers = vec![McpServerDef::new("docs", "stdio").command("npx")];
 
     assert_eq!(
-        materialise_mcp(&path, Provider::ClaudeCode, &servers).unwrap(),
+        materialise_mcp(&path, Provider::ClaudeCode, &servers, &hall()).unwrap(),
         Change::Created
     );
     let after_first = fs::read_bytes(&path).unwrap().unwrap();
 
     assert_eq!(
-        materialise_mcp(&path, Provider::ClaudeCode, &servers).unwrap(),
+        materialise_mcp(&path, Provider::ClaudeCode, &servers, &hall()).unwrap(),
         Change::Unchanged
     );
     assert_eq!(fs::read_bytes(&path).unwrap().unwrap(), after_first);
@@ -83,16 +89,16 @@ fn materialising_mcp_twice_is_unchanged_and_does_not_rewrite() {
 fn changed_servers_rewrite_the_config() {
     let (_guard, dir) = utf8_temp_dir();
     let path = dir.join(".mcp.json");
-    materialise_mcp(&path, Provider::ClaudeCode, &[]).unwrap();
+    materialise_mcp(&path, Provider::ClaudeCode, &[], &hall()).unwrap();
 
     let with_server = vec![McpServerDef::new("docs", "stdio").command("npx")];
     assert_eq!(
-        materialise_mcp(&path, Provider::ClaudeCode, &with_server).unwrap(),
+        materialise_mcp(&path, Provider::ClaudeCode, &with_server, &hall()).unwrap(),
         Change::Updated
     );
 
     let on_disk = fs::read_text(&path).unwrap().unwrap();
-    assert!(on_disk.contains("\"docs\""), "was: {on_disk}");
+    assert!(on_disk.contains("\"acme-docs\""), "was: {on_disk}");
 }
 
 // -- materialise_mcp: OpenCode -------------------------------------------
@@ -102,7 +108,7 @@ fn opencode_materialises_the_schema_key_next_to_the_mcp_key() {
     let (_guard, dir) = utf8_temp_dir();
     let path = dir.join("opencode.json");
 
-    materialise_mcp(&path, Provider::OpenCode, &[]).unwrap();
+    materialise_mcp(&path, Provider::OpenCode, &[], &hall()).unwrap();
 
     let expected = json::to_canonical_string(&serde_json::json!({
         "$schema": "https://opencode.ai/config.json",
@@ -128,12 +134,12 @@ fn opencode_translates_a_stdio_definition_into_its_own_spelling() {
             )])),
     ];
 
-    materialise_mcp(&path, Provider::OpenCode, &servers).unwrap();
+    materialise_mcp(&path, Provider::OpenCode, &servers, &hall()).unwrap();
 
     let expected = json::to_canonical_string(&serde_json::json!({
         "$schema": "https://opencode.ai/config.json",
         "mcp": {
-            "docs": {
+            "acme-docs": {
                 "type": "local",
                 "command": ["npx", "-y", "@acme/docs-mcp"],
                 "environment": { "TOKEN": "{env:TOKEN}" },
@@ -152,25 +158,25 @@ fn opencode_emits_the_oauth_block_for_a_server_that_carries_one() {
     let (_guard, dir) = utf8_temp_dir();
     let path = dir.join("opencode.json");
     let servers = vec![
-        McpServerDef::new("figma-gaio", "sse")
+        McpServerDef::new("figma", "sse")
             .url("https://mcp.figma.com/mcp")
             .oauth(crate::domain::mcp::McpOauth::new(
                 "client-123",
-                "IVAR_MCP_FIGMA_GAIO_SECRET",
+                "IVAR_MCP_ACME_FIGMA_SECRET",
             )),
     ];
 
-    materialise_mcp(&path, Provider::OpenCode, &servers).unwrap();
+    materialise_mcp(&path, Provider::OpenCode, &servers, &hall()).unwrap();
 
     let expected = json::to_canonical_string(&serde_json::json!({
         "$schema": "https://opencode.ai/config.json",
         "mcp": {
-            "figma-gaio": {
+            "acme-figma": {
                 "type": "remote",
                 "url": "https://mcp.figma.com/mcp",
                 "oauth": {
                     "clientId": "client-123",
-                    "clientSecret": "{env:IVAR_MCP_FIGMA_GAIO_SECRET}",
+                    "clientSecret": "{env:IVAR_MCP_ACME_FIGMA_SECRET}",
                     "redirectUri": OAUTH_REDIRECT_URI,
                 },
             }
@@ -188,15 +194,15 @@ fn claude_code_never_emits_the_oauth_block() {
     let (_guard, dir) = utf8_temp_dir();
     let path = dir.join(".mcp.json");
     let servers = vec![
-        McpServerDef::new("figma-gaio", "sse")
+        McpServerDef::new("figma", "sse")
             .url("https://mcp.figma.com/mcp")
             .oauth(crate::domain::mcp::McpOauth::new(
                 "client-123",
-                "IVAR_MCP_FIGMA_GAIO_SECRET",
+                "IVAR_MCP_ACME_FIGMA_SECRET",
             )),
     ];
 
-    materialise_mcp(&path, Provider::ClaudeCode, &servers).unwrap();
+    materialise_mcp(&path, Provider::ClaudeCode, &servers, &hall()).unwrap();
 
     let on_disk = fs::read_text(&path).unwrap().unwrap();
     assert!(
@@ -211,7 +217,7 @@ fn opencode_spells_a_remote_definition_with_type_remote_and_a_url() {
     let path = dir.join("opencode.json");
     let servers = vec![McpServerDef::new("sentry", "sse").url("https://mcp.example.com/mcp")];
 
-    materialise_mcp(&path, Provider::OpenCode, &servers).unwrap();
+    materialise_mcp(&path, Provider::OpenCode, &servers, &hall()).unwrap();
 
     let on_disk = fs::read_text(&path).unwrap().unwrap();
     assert!(on_disk.contains("\"type\": \"remote\""), "was: {on_disk}");
@@ -240,7 +246,7 @@ fn an_existing_opencode_config_keeps_its_other_keys() {
 
     let servers = vec![McpServerDef::new("docs", "stdio").command("npx")];
     assert_eq!(
-        materialise_mcp(&path, Provider::OpenCode, &servers).unwrap(),
+        materialise_mcp(&path, Provider::OpenCode, &servers, &hall()).unwrap(),
         Change::Updated
     );
 
@@ -254,13 +260,13 @@ fn an_existing_opencode_config_keeps_its_other_keys() {
         "the mcp key must be replaced: {on_disk}"
     );
     assert!(
-        on_disk.contains("\"docs\""),
+        on_disk.contains("\"acme-docs\""),
         "the manifest's servers must land: {on_disk}"
     );
 
     // And the next sync touches nothing.
     assert_eq!(
-        materialise_mcp(&path, Provider::OpenCode, &servers).unwrap(),
+        materialise_mcp(&path, Provider::OpenCode, &servers, &hall()).unwrap(),
         Change::Unchanged
     );
 }
@@ -273,7 +279,7 @@ fn a_config_that_is_not_an_object_is_refused_not_clobbered() {
     let path = dir.join("opencode.json");
     fs::write_text(&path, "[1, 2, 3]").unwrap();
 
-    let error = materialise_mcp(&path, Provider::OpenCode, &[])
+    let error = materialise_mcp(&path, Provider::OpenCode, &[], &hall())
         .expect_err("an array cannot take an mcp key");
 
     let failure: Failure = error.into();
@@ -291,7 +297,8 @@ fn a_config_that_is_not_valid_json_is_refused_not_clobbered() {
     let path = dir.join(".mcp.json");
     fs::write_text(&path, "{ not json").unwrap();
 
-    let error = materialise_mcp(&path, Provider::ClaudeCode, &[]).expect_err("unparseable");
+    let error =
+        materialise_mcp(&path, Provider::ClaudeCode, &[], &hall()).expect_err("unparseable");
 
     let failure: Failure = error.into();
     assert!(
@@ -315,7 +322,7 @@ fn a_config_that_is_not_valid_json_is_refused_not_clobbered() {
 fn removing_an_exclusively_mcp_file_deletes_it() {
     let (_guard, dir) = utf8_temp_dir();
     let path = dir.join(".mcp.json");
-    materialise_mcp(&path, Provider::ClaudeCode, &[]).unwrap();
+    materialise_mcp(&path, Provider::ClaudeCode, &[], &hall()).unwrap();
 
     assert_eq!(
         remove_mcp(&path, Provider::ClaudeCode).unwrap(),

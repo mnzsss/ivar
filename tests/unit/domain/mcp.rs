@@ -105,15 +105,15 @@ fn a_definition_with_no_oauth_omits_the_key_entirely() {
 
 #[test]
 fn a_definition_with_oauth_round_trips_and_carries_only_id_and_env_name() {
-    let def = McpServerDef::new("figma-gaio", "sse")
+    let def = McpServerDef::new("figma", "sse")
         .url("https://mcp.figma.com/mcp")
-        .oauth(McpOauth::new("client-123", "IVAR_MCP_FIGMA_GAIO_SECRET"));
+        .oauth(McpOauth::new("client-123", "IVAR_MCP_ACME_FIGMA_SECRET"));
 
     let rendered = serde_json::to_value(&def).unwrap();
     assert_eq!(rendered["oauth"]["client_id"], "client-123");
     assert_eq!(
         rendered["oauth"]["client_secret_env"],
-        "IVAR_MCP_FIGMA_GAIO_SECRET"
+        "IVAR_MCP_ACME_FIGMA_SECRET"
     );
     // No key on the wire could ever hold a secret value — the struct simply
     // has no field for one.
@@ -125,6 +125,17 @@ fn a_definition_with_oauth_round_trips_and_carries_only_id_and_env_name() {
 
 #[test]
 fn an_unknown_field_on_oauth_is_refused() {
-    let raw = r#"{"name":"figma-gaio","type":"sse","url":"https://mcp.figma.com/mcp","oauth":{"client_id":"x","client_secret_env":"Y","client_secret":"leaked"}}"#;
+    let raw = r#"{"name":"figma","type":"sse","url":"https://mcp.figma.com/mcp","oauth":{"client_id":"x","client_secret_env":"Y","client_secret":"leaked"}}"#;
     assert!(serde_json::from_str::<McpServerDef>(raw).is_err());
+}
+
+// -- materialised_name: the provider-boundary form, never a mutation -----
+
+#[test]
+fn materialised_name_prefixes_the_hall_and_leaves_name_untouched() {
+    let def = McpServerDef::new("figma", "sse").url("https://mcp.figma.com/mcp");
+    let hall = HallName::new("acme").unwrap();
+
+    assert_eq!(def.materialised_name(&hall), "acme-figma");
+    assert_eq!(def.name, "figma");
 }
