@@ -25,8 +25,8 @@
 //! # Contract
 //!
 //! - `write_canonical(path, &value)` — serialize, canonicalise, write atomically
-//!   (write to a sibling temp file, then rename, so a crash never leaves a
-//!   half-written state file).
+//!   (creating missing parent directories, then writing to a sibling temp file
+//!   and renaming, so a crash never leaves a half-written state file).
 //! - `to_canonical_string(&value)` — the same bytes, without touching disk. This
 //!   is what tests and the differential harness compare.
 //! - `read(path)` — deserialize, distinguishing "genuinely absent" from "present
@@ -105,10 +105,14 @@ pub fn to_canonical_string<T: Serialize>(value: &T) -> Result<String, Error> {
     Ok(rendered)
 }
 
-/// Serialize `value` to the canonical format and write it to `path` atomically.
-/// The only function in the crate that should ever write JSON to disk.
+/// Serialize `value` to the canonical format and write it to `path` atomically,
+/// creating missing parent directories first. The only function in the crate
+/// that should ever write JSON to disk.
 pub fn write_canonical<T: Serialize>(path: &Utf8Path, value: &T) -> Result<(), Error> {
     let rendered = to_canonical_string(value)?;
+    if let Some(parent) = path.parent().filter(|parent| !parent.as_str().is_empty()) {
+        fs::ensure_dir(parent)?;
+    }
     fs::write_atomic(path, rendered.as_bytes())?;
     Ok(())
 }
