@@ -75,6 +75,11 @@ src/
     provider/      add · list
     skill/         create · add · update · remove · detach · sync · status ·
                    list · doctor
+    mcp/           auth — big enough to own a directory: the public verb,
+                   input/outcome types, and resolution live in auth/mod.rs,
+                   Figma pre-registration and the secret handoff in
+                   auth/preregister.rs, and provider command construction and
+                   dispatch in auth/dispatch.rs.
 
   domain/          pure types and invariants. No I/O, no git, no clap.
     name.rs        validated newtypes: HallName, RepoName, FeatureName, BranchName…
@@ -248,13 +253,15 @@ that difference is deliberate in roughly twenty places, not drift: a facade's
 own verb is tested where the facade's link says it is, and a focused child
 with no independent surface is exercised alongside it rather than carrying an
 empty file of its own. `action/sync/`'s `repo.rs`, `providers.rs`, and
-`setup.rs`; `action/feature/deliver/`'s `preview.rs` and `repos.rs`;
+`setup.rs`; `action/mcp/auth/`'s `preregister.rs` and `dispatch.rs`;
+`action/feature/deliver/`'s `preview.rs` and `repos.rs`;
 `action/feature/integrate/`'s `apply.rs`; `action/execute/`'s lifecycle files;
 `harness/commands/catalog.rs`; `harness/config/mcp.rs`; `infra/fs/`'s `io.rs`,
 `symlink.rs`, and `guard.rs`; `infra/proc/`'s `ports.rs`; and `tui/scrollback.rs`
 are all tested through the linked file of the module that declares them
-(`sync/mod.rs`, `deliver/mod.rs`, `integrate/mod.rs`, `execute/mod.rs`,
-`commands.rs`, `config/mod.rs`, `fs/mod.rs`, `proc/mod.rs`, `driver.rs`).
+(`sync/mod.rs`, `auth/mod.rs`, `deliver/mod.rs`, `integrate/mod.rs`,
+`execute/mod.rs`, `commands.rs`, `config/mod.rs`, `fs/mod.rs`, `proc/mod.rs`,
+`driver.rs`).
 `action/hall/`'s five verb files predate this
 pattern and share one file, `tests/unit/action/hall.rs`, for a different
 reason: the facade there holds the shared discovery/read/prompt helpers, not
