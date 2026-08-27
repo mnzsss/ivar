@@ -23,10 +23,11 @@ rewrite the relation prose; the workflow below is the entire contract.
 
 ## Entry modes
 
-- **With a Repo argument** (`/ivar-relations api`): evaluate `api` against
-  every other registered Repo in both directions, and load every existing
-  relation involving it.
-- **Without an argument**: enter review mode — read all existing relations,
+- **With a Repo argument** (`/ivar-relations api`, arriving as `$ARGUMENTS`):
+  evaluate that Repo against every other registered Repo in both directions,
+  and load every existing relation involving it.
+- **Without an argument** (`$ARGUMENTS` is empty): enter review mode — read
+  all existing relations,
   ask which Repo or ordered pair the human wants to review, then use the same
   flow.
 - **Unknown Repo**: refuse conversationally before proposing anything — say

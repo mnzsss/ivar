@@ -468,3 +468,31 @@ fn execute_defines_provider_native_receipt_coordination() {
     assert!(content.contains("accept-revision"), "was: {content}");
     assert!(content.contains("--report-json"), "was: {content}");
 }
+
+/// OpenCode substitutes `$ARGUMENTS` into the command template and drops
+/// anything the template never references — unlike Claude Code, which appends
+/// unmatched arguments to the prompt. So a command that declares an
+/// `argument-hint` must also *consume* the argument, or `/ivar-session-connect
+/// <feature>` loses `<feature>` under OpenCode.
+#[test]
+fn every_command_declaring_an_argument_hint_consumes_arguments() {
+    let dropped = catalog()
+        .iter()
+        .filter(|command| {
+            let frontmatter = command
+                .content
+                .split("\n---")
+                .next()
+                .expect("every command opens with frontmatter");
+            frontmatter.contains("argument-hint:")
+                && !command.content[frontmatter.len()..].contains("$ARGUMENTS")
+        })
+        .map(|command| command.id)
+        .collect::<Vec<_>>();
+
+    assert!(
+        dropped.is_empty(),
+        "these commands declare an argument-hint but never reference \
+         `$ARGUMENTS`, so OpenCode drops the argument: {dropped:?}"
+    );
+}

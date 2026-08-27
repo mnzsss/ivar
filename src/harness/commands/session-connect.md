@@ -13,9 +13,15 @@ session's bootstrap instructions.
 
 ## Steps
 
-1. Determine the target session. The user provides either:
-   - A session ID prefix: `ivar session connect <id-prefix>`
-   - A feature name: `ivar session connect --feature <feature>`
+1. Determine the target session from `$ARGUMENTS`. When it is empty, ask
+   which session to reconnect to — never guess. When it is given, it is
+   either a session ID prefix or a feature name:
+   - A session ID prefix: `ivar session connect $ARGUMENTS`
+   - A feature name: `ivar session connect --feature $ARGUMENTS`
+
+   A value that looks like a hex UUID prefix is an ID; anything else is a
+   feature name. If the ID form fails with `session.not_found`, retry once as
+   `--feature $ARGUMENTS` before reporting failure.
 2. Run the command. It emits three stable machine-readable binding keys:
    ```
    IVAR_SESSION_ID=<uuid>
