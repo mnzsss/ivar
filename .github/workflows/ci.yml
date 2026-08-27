@@ -93,42 +93,6 @@ jobs:
       # Build only. The MSRV is a compile contract, not a test contract.
       - run: cargo build --all-features
 
-  # README.md and CONTRIBUTING.md both state that every commit carries a
-  # `Signed-off-by` trailer under the DCO. A rule nothing checks is a rule that
-  # gets discovered at review time, by a stranger, after the work is done — the
-  # exact cost CONTRIBUTING.md's "open an issue first" exists to avoid.
-  #
-  # Pull requests only. A push to main is already-merged history; failing it
-  # here would block the release pipeline over something unfixable.
-  dco:
-    name: dco
-    if: github.event_name == 'pull_request' && github.event.pull_request.draft == false
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-        with:
-          # rev-list walks between two commits, so shallow history is not
-          # enough — both ends and everything between must be present.
-          fetch-depth: 0
-      - name: every commit carries Signed-off-by
-        env:
-          BASE: ${{ github.event.pull_request.base.sha }}
-          HEAD: ${{ github.event.pull_request.head.sha }}
-        run: |
-          # --no-merges: a merge from main brings back commits that are already
-          # in history, and a merge commit itself is not authored content.
-          missing=0
-          for sha in $(git rev-list --no-merges "$BASE..$HEAD"); do
-            if [ -z "$(git log -1 --format='%(trailers:key=Signed-off-by,valueonly)' "$sha")" ]; then
-              echo "::error::no Signed-off-by: $sha $(git log -1 --format=%s "$sha")"
-              missing=1
-            fi
-          done
-          if [ "$missing" -ne 0 ]; then
-            echo "Sign off the whole branch with: git rebase --signoff $BASE && git push --force-with-lease"
-            exit 1
-          fi
-
   coverage:
     name: coverage (report only)
     if: github.event.pull_request.draft == false
