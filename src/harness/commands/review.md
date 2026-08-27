@@ -32,9 +32,10 @@ wrote. Step 9 offers it once the review is done.
 
 ## Steps
 
-1. **Resolve the target.** With no argument inside a feature session, the
-   target is `$IVAR_FEATURE` and every repo promoted to it. An argument
-   overrides the session: a bare name is a feature, and a `<repo>#<number>`
+1. **Resolve the target.** The argument is `$ARGUMENTS`. When it is empty
+   inside a feature session, the target is `$IVAR_FEATURE` and every repo
+   promoted to it. An argument overrides the session: a bare name is a
+   feature, and a `<repo>#<number>`
    pair or a `https://github.com/<owner>/<repo>/pull/<number>` URL is a pull
    request. With neither, ask the user which one they mean. Never guess.
 
