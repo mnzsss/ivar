@@ -30,6 +30,9 @@ const OBSERVE_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 pub(crate) struct PullRequest {
     /// The PR's URL.
     pub url: String,
+    /// The host-assigned PR number — what a blocker names alongside the URL
+    /// so a human can find it without following a link.
+    pub number: u64,
     /// The PR's state: `OPEN`, `MERGED`, `CLOSED`, `QUEUED`, …
     pub state: String,
     /// The head branch's commit, per the forge. `None` when the record does
@@ -39,11 +42,13 @@ pub(crate) struct PullRequest {
     pub merge_commit: Option<String>,
 }
 
-/// The `--json url,state,mergeCommit,headRefOid` shape `gh pr list` and
-/// `gh pr view` both emit.
+/// The `--json url,number,state,mergeCommit,headRefOid` shape `gh pr list`
+/// and `gh pr view` both emit.
 #[derive(Debug, Deserialize)]
 struct GhPrRecord {
     url: String,
+    #[serde(default)]
+    number: u64,
     #[serde(default)]
     state: String,
     #[serde(default, rename = "mergeCommit")]
@@ -62,6 +67,7 @@ impl From<GhPrRecord> for PullRequest {
     fn from(record: GhPrRecord) -> Self {
         Self {
             url: record.url,
+            number: record.number,
             state: record.state,
             head_oid: record.head_ref_oid,
             merge_commit: record.merge_commit.map(|commit| commit.oid),
@@ -87,7 +93,7 @@ pub(crate) fn find_pull_request(
                 "--state",
                 state,
                 "--json",
-                "url,state,mergeCommit,headRefOid",
+                "url,number,state,mergeCommit,headRefOid",
             ])
             .cwd(git_dir),
         "pr list",
@@ -139,8 +145,10 @@ pub(crate) fn create_pull_request(
         )
         .actual(output)
     })?;
+    let number = pr_number(&url).unwrap_or(0);
     Ok(PullRequest {
         url,
+        number,
         state: "OPEN".to_owned(),
         head_oid: None,
         merge_commit: None,
@@ -289,7 +297,7 @@ fn view_pull_request(git_dir: &Utf8Path, url: &str) -> Result<PullRequest, Failu
                 "view",
                 url,
                 "--json",
-                "url,state,mergeCommit,headRefOid",
+                "url,number,state,mergeCommit,headRefOid",
             ])
             .cwd(git_dir),
         "pr view",
@@ -378,4 +386,10 @@ fn pr_url(stdout: &str) -> Option<String> {
         .map(str::trim)
         .rfind(|line| line.starts_with("https://") && line.contains("/pull/"))
         .map(ToOwned::to_owned)
+}
+
+/// The PR number trailing a `.../pull/<number>` URL. `gh pr create` prints no
+/// `--json`, so the number is parsed off the same URL its stdout gives up.
+fn pr_number(url: &str) -> Option<u64> {
+    url.rsplit('/').next()?.parse().ok()
 }

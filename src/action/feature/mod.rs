@@ -28,6 +28,7 @@ pub mod prune;
 mod pull_requests;
 pub mod rebase;
 mod relations;
+pub mod rename;
 pub mod reparent;
 pub mod review;
 pub mod status;
