@@ -36,31 +36,21 @@
 //! ref changed out from under it — the marker is kept and the failure names
 //! the exact divergence and the manual recovery required.
 
-use std::collections::BTreeMap;
 use std::io;
 
-use camino::{Utf8Path, Utf8PathBuf};
-use serde::{Deserialize, Serialize};
+use camino::Utf8PathBuf;
+use serde::Serialize;
 
-use crate::domain::feature::Feature;
+use crate::action::Ctx;
 use crate::domain::name::{BranchName, FeatureName, RepoName};
-use crate::error::{Failure, FixAction, Outcome, Report, WriteHuman};
-use crate::git::{self, Git};
-use crate::infra::{fs, json};
-use crate::store::layout::Layout;
-use crate::store::manifest::Manifest;
+use crate::error::{Failure, FixAction, Outcome, WriteHuman};
+use crate::git;
 
 use super::super::{discover_hall, read_manifest};
-use super::pull_requests;
 use super::relations;
-use crate::action::Ctx;
-use crate::action::session::{lookup, view};
 
 mod plan;
 mod steps;
-
-pub(crate) use plan::{Blocker, RenamePlan, RepoRenamePlan};
-use steps::{Direction, Step, Transition};
 
 /// What `ivar feature rename` needs.
 #[derive(Debug, Clone)]
@@ -179,12 +169,11 @@ pub fn rename(ctx: &Ctx, input: RenameInput) -> Outcome<RenameOutcome> {
         .map(FeatureName::new)
         .transpose()?
         .unwrap_or_else(|| feature_name.clone());
-    let renamed_branch_input = input.branch;
+    let renamed_branch_input = input.branch.map(BranchName::new).transpose()?;
 
     let source = relations::read_feature(&layout, &feature_name)?;
     let renamed_branch = renamed_branch_input
-        .map(BranchName::new)
-        .transpose()?
+        .clone()
         .unwrap_or_else(|| source.branch.clone());
 
     if renamed_name == source.name && renamed_branch == source.branch {
@@ -206,18 +195,20 @@ pub fn rename(ctx: &Ctx, input: RenameInput) -> Outcome<RenameOutcome> {
         &git,
         &source,
         renamed_name,
-        renamed_branch_input.map(BranchName::new).transpose()?,
+        renamed_branch_input,
     )?;
 
     if !plan.1.is_empty() {
-        return Err(Failure::blocked("rename.blocked", "Rename blocked by preflight checks".to_string())
-            .details(format!("{:?}", plan.1)));
+        return Err(Failure::blocked(
+            "rename.blocked",
+            "Rename blocked by preflight checks".to_owned(),
+        )
+        .details(serde_json::to_value(&plan.1).unwrap_or(serde_json::Value::Null)));
     }
 
     steps::run(&layout, &manifest, &git, plan.0)
-
 }
 
 #[cfg(test)]
-#[path = "../../../tests/unit/action/feature/rename.rs"]
+#[path = "../../../../tests/unit/action/feature/rename.rs"]
 mod tests;

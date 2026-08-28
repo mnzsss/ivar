@@ -452,6 +452,73 @@ pub trait Git {
     /// `git -C <worktree> rebase --abort` — abandon an in-progress rebase and
     /// restore the branch to where it was before it started.
     fn abort_rebase(&self, worktree: &Utf8Path) -> Result<(), Error>;
+
+    /// `git --git-dir <git_dir> branch -m <from> <to>` — relabel a local
+    /// branch, in place.
+    ///
+    /// A metadata-only ref rename in the bare repository: it does not touch
+    /// any worktree's checked-out files, index, or staged changes, and it
+    /// updates the symbolic `HEAD` of any worktree that had `from` checked
+    /// out, so that worktree's `HEAD` names `to` immediately afterwards —
+    /// dirty, staged, and untracked content all ride along untouched.
+    fn rename_branch(&self, git_dir: &Utf8Path, from: &str, to: &str) -> Result<(), Error>;
+
+    /// `git --git-dir <git_dir> worktree move <from> <to>` — relocate a
+    /// worktree's directory and repair git's own registration of it.
+    ///
+    /// Unlike a bare `fs::rename`, this keeps the bare repository's
+    /// `worktrees/<name>/gitdir` pointing at the worktree's new location, so
+    /// `git` invoked from inside the moved worktree keeps working. `to`'s
+    /// parent directory is created first when missing — the destination is a
+    /// branch-derived path that may nest one level deeper than any directory
+    /// that already exists.
+    fn move_worktree(
+        &self,
+        git_dir: &Utf8Path,
+        from: &Utf8Path,
+        to: &Utf8Path,
+    ) -> Result<(), Error>;
+
+    /// Publish `branch` at exactly `at` on `remote`, but only if `remote`
+    /// does not already have `branch` — `git push
+    /// --force-with-lease="refs/heads/<branch>:" <remote>
+    /// <at>:refs/heads/<branch>`.
+    ///
+    /// The empty expected-tip form of `--force-with-lease` is git's own
+    /// "create, never overwrite" compare-and-swap: the push is refused if
+    /// `branch` already exists on `remote`, which is what keeps a rename from
+    /// clobbering a branch someone else published under the destination name
+    /// between preflight and this call. On success the local
+    /// `refs/remotes/origin/<branch>` tracking ref is updated to `at`, the
+    /// same bookkeeping [`Self::push`] performs, and under the same condition
+    /// (only when `remote` is origin's own configured URL).
+    fn publish_remote_branch(
+        &self,
+        git_dir: &Utf8Path,
+        remote: &str,
+        branch: &str,
+        at: &str,
+    ) -> Result<(), Error>;
+
+    /// Delete `branch` on `remote`, but only if it is still at `expected_tip`
+    /// — `git push --force-with-lease="refs/heads/<branch>:<expected_tip>"
+    /// <remote> :refs/heads/<branch>`.
+    ///
+    /// The non-empty expected-tip form of `--force-with-lease` is git's own
+    /// compare-and-delete: the push is refused — "stale info" — if `branch`
+    /// moved on `remote` since `expected_tip` was captured, which is exactly
+    /// the guard a rename needs before it deletes the branch it just
+    /// republished under a new name. On success the local
+    /// `refs/remotes/origin/<branch>` tracking ref is removed, under the
+    /// same "only when `remote` is origin's own configured URL" condition as
+    /// [`Self::publish_remote_branch`].
+    fn delete_remote_branch(
+        &self,
+        git_dir: &Utf8Path,
+        remote: &str,
+        branch: &str,
+        expected_tip: &str,
+    ) -> Result<(), Error>;
 }
 
 /// The production [`Git`]: `git2` for reads, the `git` binary for mutations.
@@ -640,6 +707,39 @@ impl Git for System {
 
     fn abort_rebase(&self, worktree: &Utf8Path) -> Result<(), Error> {
         exec::abort_rebase(worktree)
+    }
+
+    fn rename_branch(&self, git_dir: &Utf8Path, from: &str, to: &str) -> Result<(), Error> {
+        exec::rename_branch(git_dir, from, to)
+    }
+
+    fn move_worktree(
+        &self,
+        git_dir: &Utf8Path,
+        from: &Utf8Path,
+        to: &Utf8Path,
+    ) -> Result<(), Error> {
+        exec::move_worktree(git_dir, from, to)
+    }
+
+    fn publish_remote_branch(
+        &self,
+        git_dir: &Utf8Path,
+        remote: &str,
+        branch: &str,
+        at: &str,
+    ) -> Result<(), Error> {
+        exec::publish_remote_branch(git_dir, remote, branch, at)
+    }
+
+    fn delete_remote_branch(
+        &self,
+        git_dir: &Utf8Path,
+        remote: &str,
+        branch: &str,
+        expected_tip: &str,
+    ) -> Result<(), Error> {
+        exec::delete_remote_branch(git_dir, remote, branch, expected_tip)
     }
 }
 

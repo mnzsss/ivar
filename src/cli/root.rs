@@ -12,8 +12,8 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 
 use crate::action::execute::{accept_revision, finish, start, status as execute_status};
 use crate::action::feature::{
-    close, create, delete, deliver, demote, integrate, promote, rebase, reparent, review, status,
-    view,
+    close, create, delete, deliver, demote, integrate, promote, rebase, rename, reparent, review,
+    status, view,
 };
 use crate::action::hall::InitInput;
 use crate::action::mcp::auth as mcp_auth;
@@ -247,6 +247,14 @@ pub enum FeatureCommand {
     /// promotion, plan, execution, session, receipt, close record, or
     /// descendant exists.
     Reparent(FeatureReparentArgs),
+    /// Rename a feature, its branch, or both — the one allowed identity
+    /// transition. Every promoted repo's local branch and worktree, its
+    /// remote branch when published, direct children, live sessions, and the
+    /// `plans/` directory all move together, durably and resumably: a
+    /// mid-flight failure automatically reverses whatever already landed, and
+    /// an interruption resumes on the next `ivar feature rename` invocation
+    /// naming the same feature.
+    Rename(FeatureRenameArgs),
     /// Manage a feature's Run Receipt lifecycle.
     #[command(subcommand)]
     Execute(ExecuteCommand),
@@ -331,6 +339,21 @@ pub struct FeatureReparentArgs {
     /// parent's branch in the same record write.
     #[arg(long)]
     pub parent: String,
+}
+
+/// Arguments for `ivar feature rename`.
+#[derive(Debug, Args)]
+pub struct FeatureRenameArgs {
+    /// The feature to rename.
+    pub feature: String,
+    /// The feature's new name. Requires at least one of `--name`/`--branch`
+    /// to differ from the current value.
+    #[arg(long)]
+    pub name: Option<String>,
+    /// The feature's new branch. Requires at least one of `--name`/`--branch`
+    /// to differ from the current value.
+    #[arg(long)]
+    pub branch: Option<String>,
 }
 
 /// Arguments for `ivar feature promote`.
@@ -987,6 +1010,21 @@ impl From<FeatureReparentArgs> for reparent::ReparentInput {
     fn from(args: FeatureReparentArgs) -> Self {
         let FeatureReparentArgs { child, parent } = args;
         Self { child, parent }
+    }
+}
+
+impl From<FeatureRenameArgs> for rename::RenameInput {
+    fn from(args: FeatureRenameArgs) -> Self {
+        let FeatureRenameArgs {
+            feature,
+            name,
+            branch,
+        } = args;
+        Self {
+            feature,
+            name,
+            branch,
+        }
     }
 }
 

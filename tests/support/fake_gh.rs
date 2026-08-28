@@ -4,11 +4,11 @@
 //! The fake answers the same commands and exit codes the real GitHub CLI does:
 //!
 //! ```text
-//! gh pr list --head <branch> --state <open|all> --json url,state,mergeCommit,headRefOid
+//! gh pr list --head <branch> --state <open|all> --json url,number,state,mergeCommit,headRefOid
 //! gh pr create --base <parent> --head <child> --title <title> --body <body>
 //! gh pr checks <url> --required --json name,bucket,state,link
 //! gh pr merge <url> --merge|--squash|--rebase --match-head-commit <sha>
-//! gh pr view <url> --json url,state,mergeCommit,headRefOid
+//! gh pr view <url> --json url,number,state,mergeCommit,headRefOid
 //! gh pr comment <url> --body <body>
 //! ```
 //!
@@ -114,15 +114,17 @@ if git config --get remote.origin.url >/dev/null 2>&1; then
   origin=$(git config --get remote.origin.url)
 fi
 
+pr_number=$(printf '%s' "$pr_url" | awk -F/ '{print $NF}')
+
 emit_pr() {
-  # url,state,mergeCommit,headRefOid — mergeCommit is an object or null.
+  # url,number,state,mergeCommit,headRefOid — mergeCommit is an object or null.
   if [ "$pr_state" = "MERGED" ]; then
     merge_oid=$(git -C "$origin" rev-parse "refs/heads/$pr_base" 2>/dev/null || printf '')
-    printf '{"url":"%s","state":"%s","mergeCommit":{"oid":"%s"},"headRefOid":"%s"}' \
-      "$pr_url" "$pr_state" "$merge_oid" "$head_oid"
+    printf '{"url":"%s","number":%s,"state":"%s","mergeCommit":{"oid":"%s"},"headRefOid":"%s"}' \
+      "$pr_url" "$pr_number" "$pr_state" "$merge_oid" "$head_oid"
   else
-    printf '{"url":"%s","state":"%s","mergeCommit":null,"headRefOid":"%s"}' \
-      "$pr_url" "$pr_state" "$head_oid"
+    printf '{"url":"%s","number":%s,"state":"%s","mergeCommit":null,"headRefOid":"%s"}' \
+      "$pr_url" "$pr_number" "$pr_state" "$head_oid"
   fi
 }
 

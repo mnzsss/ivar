@@ -1,86 +1,46 @@
-
-use camino::{Utf8Path, Utf8PathBuf};
+use camino::Utf8PathBuf;
 use serde::{Deserialize, Serialize};
 
-use crate::domain::feature::Feature;
-use crate::domain::name::{BranchName, FeatureName, RepoName};
-use crate::error::Failure;
-use crate::git::Git;
-use crate::store::layout::Layout;
-use crate::store::manifest::Manifest;
-use crate::infra::fs;
-
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct RepoRenamePlan {
-    pub repo: RepoName,
-    pub old_worktree: Utf8PathBuf,
-    pub new_worktree: Utf8PathBuf,
-    pub old_branch: BranchName,
-    pub new_branch: BranchName,
-    pub old_remote: Option<String>,
-    pub old_remote_tip: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RenamePlan {
-    pub old_feature: Feature,
-    pub new_name: FeatureName,
-    pub new_branch: BranchName,
-    pub old_dir: Utf8PathBuf,
-    pub new_dir: Utf8PathBuf,
-    pub old_plan_dir: Utf8PathBuf,
-    pub new_plan_dir: Utf8PathBuf,
-    pub repos: Vec<RepoRenamePlan>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Blocker {
-    pub scope: String,
-    pub subject: String,
-    pub explanation: String,
-}
-
-use crate::domain::feature::Feature;
-use crate::domain::name::{BranchName, FeatureName, RepoName};
-use crate::error::Failure;
-use crate::git::Git;
-use crate::store::layout::Layout;
-use crate::store::manifest::Manifest;
-use crate::infra::{fs, json};
 use crate::action::feature::pull_requests;
+use crate::domain::feature::Feature;
+use crate::domain::name::{BranchName, FeatureName, RepoName};
+use crate::error::Failure;
+use crate::git::Git;
+use crate::infra::fs;
+use crate::store::layout::Layout;
+use crate::store::manifest::Manifest;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct RepoRenamePlan {
-    pub repo: RepoName,
-    pub old_worktree: Utf8PathBuf,
-    pub new_worktree: Utf8PathBuf,
-    pub old_branch: BranchName,
-    pub new_branch: BranchName,
-    pub old_remote: Option<String>,
-    pub old_remote_tip: Option<String>,
+pub(super) struct RepoRenamePlan {
+    pub(super) repo: RepoName,
+    pub(super) old_worktree: Utf8PathBuf,
+    pub(super) new_worktree: Utf8PathBuf,
+    pub(super) old_branch: BranchName,
+    pub(super) new_branch: BranchName,
+    pub(super) old_remote: Option<String>,
+    pub(super) old_remote_tip: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RenamePlan {
-    pub old_feature: Feature,
-    pub new_name: FeatureName,
-    pub new_branch: BranchName,
-    pub old_dir: Utf8PathBuf,
-    pub new_dir: Utf8PathBuf,
-    pub old_plan_dir: Utf8PathBuf,
-    pub new_plan_dir: Utf8PathBuf,
-    pub repos: Vec<RepoRenamePlan>,
+pub(super) struct RenamePlan {
+    pub(super) old_feature: Feature,
+    pub(super) new_name: FeatureName,
+    pub(super) new_branch: BranchName,
+    pub(super) old_dir: Utf8PathBuf,
+    pub(super) new_dir: Utf8PathBuf,
+    pub(super) old_plan_dir: Utf8PathBuf,
+    pub(super) new_plan_dir: Utf8PathBuf,
+    pub(super) repos: Vec<RepoRenamePlan>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Blocker {
-    pub scope: String,
-    pub subject: String,
-    pub explanation: String,
+pub(super) struct Blocker {
+    pub(super) scope: String,
+    pub(super) subject: String,
+    pub(super) explanation: String,
 }
 
-pub fn build(
+pub(super) fn build(
     layout: &Layout,
     manifest: &Manifest,
     git: &impl Git,
@@ -89,13 +49,15 @@ pub fn build(
     new_branch_input: Option<BranchName>,
 ) -> Result<(RenamePlan, Vec<Blocker>), Failure> {
     let mut blockers = Vec::new();
-    let new_branch = new_branch_input.clone().unwrap_or_else(|| source.branch.clone());
+    let new_branch = new_branch_input
+        .clone()
+        .unwrap_or_else(|| source.branch.clone());
 
     // R-FEATURE-COLLISIONS: occupied `.ivar/features/<new-name>`
     let new_dir = layout.feature_dir(&new_name);
-    if fs::is_dir(&new_dir)? {
+    if new_name != source.name && fs::is_dir(&new_dir)? {
         blockers.push(Blocker {
-            scope: "feature".to_string(),
+            scope: "feature".to_owned(),
             subject: new_name.to_string(),
             explanation: format!("Feature directory `{new_dir}` already exists."),
         });
@@ -104,9 +66,9 @@ pub fn build(
     // R-FEATURE-COLLISIONS: occupied `plans/<new-name>`
     let old_plan_dir = layout.plan_dir(&source.name);
     let new_plan_dir = layout.plan_dir(&new_name);
-    if fs::is_dir(&new_plan_dir)? {
+    if new_name != source.name && fs::is_dir(&new_plan_dir)? {
         blockers.push(Blocker {
-            scope: "plan".to_string(),
+            scope: "plan".to_owned(),
             subject: new_name.to_string(),
             explanation: format!("Plan directory `{new_plan_dir}` already exists."),
         });
@@ -114,14 +76,14 @@ pub fn build(
 
     let mut repo_plans = Vec::new();
 
-    for (repo_name, _promotion) in &source.promotions {
-        let repo = match manifest.repo(repo_name) {
+    for repo_name in source.promotions.keys() {
+        let repo = match manifest.repos().iter().find(|r| r.name() == repo_name) {
             Some(r) => r,
             None => {
                 blockers.push(Blocker {
-                    scope: "repository".to_string(),
+                    scope: "repository".to_owned(),
                     subject: repo_name.to_string(),
-                    explanation: "Repository not found in manifest.".to_string(),
+                    explanation: "Repository not found in manifest.".to_owned(),
                 });
                 continue;
             }
@@ -131,17 +93,17 @@ pub fn build(
         let old_worktree = layout.repo_worktree(repo_name, &source.branch);
         let new_worktree = layout.repo_worktree(repo_name, &new_branch);
 
-        if let Err(_) = git.worktree_git_dir(&old_worktree) {
+        if git.worktree_git_dir(&old_worktree).is_err() {
             blockers.push(Blocker {
-                scope: "repository".to_string(),
+                scope: "repository".to_owned(),
                 subject: repo_name.to_string(),
                 explanation: format!("Worktree `{old_worktree}` is not registered by Git."),
             });
         }
-        
-        if fs::is_dir(&new_worktree)? {
-             blockers.push(Blocker {
-                scope: "repository".to_string(),
+
+        if new_branch != source.branch && fs::is_dir(&new_worktree)? {
+            blockers.push(Blocker {
+                scope: "repository".to_owned(),
                 subject: repo_name.to_string(),
                 explanation: format!("Target worktree `{new_worktree}` already exists."),
             });
@@ -156,15 +118,18 @@ pub fn build(
         match pull_requests::find_pull_request(&bare, source.branch.as_str(), "open") {
             Ok(Some(pr)) => {
                 blockers.push(Blocker {
-                    scope: "pull-request".to_string(),
+                    scope: "pull-request".to_owned(),
                     subject: repo_name.to_string(),
-                    explanation: format!("Open PR #{} (URL: {}) targets old branch: {}. Close it first.", pr.number, pr.url, source.branch),
+                    explanation: format!(
+                        "Open PR #{} (URL: {}) targets old branch: {}. Close it first.",
+                        pr.number, pr.url, source.branch
+                    ),
                 });
             }
             Ok(None) => {}
             Err(e) => {
-                 blockers.push(Blocker {
-                    scope: "pull-request".to_string(),
+                blockers.push(Blocker {
+                    scope: "pull-request".to_owned(),
                     subject: repo_name.to_string(),
                     explanation: format!("Failed to check open PRs: {}", e),
                 });
@@ -177,7 +142,7 @@ pub fn build(
             new_worktree,
             old_branch: source.branch.clone(),
             new_branch: new_branch.clone(),
-            old_remote: Some(remote.to_string()),
+            old_remote: Some(remote.to_owned()),
             old_remote_tip,
         });
     }
@@ -195,52 +160,3 @@ pub fn build(
 
     Ok((plan, blockers))
 }
- new_name.to_string(),
-            explanation: format!("Feature directory `{new_dir}` already exists."),
-        });
-    }
-
-    // R-REPO-PREFLIGHT: check registered worktree
-    for (repo_name, _promotion) in &source.promotions {
-        let worktree = layout.repo_worktree(repo_name, &source.branch);
-        if let Err(_) = git.worktree_git_dir(&worktree) {
-            blockers.push(Blocker {
-                scope: "repository".to_string(),
-                subject: repo_name.to_string(),
-                explanation: format!("Worktree `{worktree}` is not registered by Git."),
-            });
-        }
-    }
-
-    // R-OPEN-PRS: check open PRs
-    for (repo_name, _promotion) in &source.promotions {
-        let bare = layout.repo_bare(repo_name);
-        match crate::action::feature::pull_requests::find_pull_request(&bare, source.branch.as_str(), "open") {
-            Ok(Some(pr)) => {
-                blockers.push(Blocker {
-                    scope: "pull-request".to_string(),
-                    subject: repo_name.to_string(),
-                    explanation: format!("Open PR #{} targets old branch: {}. Close it first.", pr.number, pr.url),
-                });
-            }
-            Ok(None) => {}
-            Err(_) => {}
-        }
-    }
-
-    let plan = RenamePlan {
-        old_feature: source.clone(),
-        new_name: new_name.clone(),
-        new_branch: new_branch.unwrap_or_else(|| source.branch.clone()),
-        old_dir: layout.feature_dir(&source.name),
-        new_dir: new_dir.clone(),
-        old_plan_dir: layout.plan_dir(&source.name),
-        new_plan_dir: layout.plan_dir(&new_name),
-        repos: vec![],
-    };
-
-
-    Ok((plan, blockers))
-}
-
-
