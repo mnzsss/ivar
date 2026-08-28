@@ -35,7 +35,10 @@ fn disabled_reporter_returns_blocked_failure_listing_options_on_select_many() {
     ];
     let err = confirmer.select_many("Select:", &options).unwrap_err();
     assert_eq!(err.code, "skill.add.multiple_choices");
-    assert!(err.what.contains("opt1 (--path skills/opt1) — First option"));
+    assert!(
+        err.what
+            .contains("opt1 (--path skills/opt1) — First option")
+    );
     assert!(err.what.contains("opt2 (--path skills/opt2)"));
 }
 

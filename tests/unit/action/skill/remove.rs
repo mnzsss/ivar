@@ -52,7 +52,9 @@ fn remove_purges_the_lockfile_entry() {
     let _ = sync::sync(&ctx).unwrap();
 
     // Verify state exists.
-    let state = skill::read(&root, crate::domain::skill::SkillRoot::Hall).unwrap().unwrap();
+    let state = skill::read(&root, crate::domain::skill::SkillRoot::Hall)
+        .unwrap()
+        .unwrap();
     assert_eq!(state.installations.len(), 1);
 
     remove(

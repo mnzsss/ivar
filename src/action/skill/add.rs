@@ -108,22 +108,17 @@ pub(super) fn discover_candidates(temp_dir: &Utf8Path) -> Result<Vec<CandidateSk
                 )
             })?;
 
-            let id = skill_dir
-                .file_name()
-                .unwrap_or("skill")
-                .to_owned();
+            let id = skill_dir.file_name().unwrap_or("skill").to_owned();
 
             let rel_path = if skill_dir == repo_root {
                 String::new()
             } else {
-                let rel = skill_dir
-                    .strip_prefix(&repo_root)
-                    .map_err(|_| {
-                        Failure::failed(
-                            "skill.add.strip_prefix",
-                            "could not resolve relative skill path".to_owned(),
-                        )
-                    })?;
+                let rel = skill_dir.strip_prefix(&repo_root).map_err(|_| {
+                    Failure::failed(
+                        "skill.add.strip_prefix",
+                        "could not resolve relative skill path".to_owned(),
+                    )
+                })?;
                 rel.as_str().replace('\\', "/")
             };
 
@@ -156,7 +151,10 @@ fn find_repo_root(temp_dir: &Utf8Path) -> Utf8PathBuf {
             .filter(|p| fs::is_dir(p).unwrap_or(false))
             .collect();
         if dirs.len() == 1 {
-            return dirs.first().cloned().unwrap_or_else(|| temp_dir.to_path_buf());
+            return dirs
+                .first()
+                .cloned()
+                .unwrap_or_else(|| temp_dir.to_path_buf());
         }
     }
     temp_dir.to_path_buf()
@@ -204,9 +202,15 @@ pub fn add(ctx: &Ctx, input: AddInput) -> Outcome<AddOutcome> {
         if !ext.path.is_empty() {
             return Err(Failure::blocked(
                 "skill.add.path_not_found",
-                format!("no skill found at path `{}` in repository `{}`", ext.path, ext.repo),
+                format!(
+                    "no skill found at path `{}` in repository `{}`",
+                    ext.path, ext.repo
+                ),
             )
-            .expected(format!("a SKILL.md under path `{}` in `{}`", ext.path, ext.repo))
+            .expected(format!(
+                "a SKILL.md under path `{}` in `{}`",
+                ext.path, ext.repo
+            ))
             .actual("no SKILL.md found at that path")
             .fix(FixAction::safe(
                 "skill.add.list_skills",
@@ -217,7 +221,10 @@ pub fn add(ctx: &Ctx, input: AddInput) -> Outcome<AddOutcome> {
             "skill.add.no_skills",
             format!("no skills found in repository `{}`", ext.repo),
         )
-        .expected(format!("at least one directory containing a SKILL.md in `{}`", ext.repo))
+        .expected(format!(
+            "at least one directory containing a SKILL.md in `{}`",
+            ext.repo
+        ))
         .actual("no SKILL.md found in repository")
         .fix(FixAction::safe(
             "skill.add.check_repo",
@@ -284,11 +291,17 @@ pub fn add(ctx: &Ctx, input: AddInput) -> Outcome<AddOutcome> {
                 "skill.add.already_exists",
                 format!("skill `{}` already exists at `{}`", c.id, dir),
             )
-            .expected(format!("skill `{}` to not already exist in either skills root", c.id))
+            .expected(format!(
+                "skill `{}` to not already exist in either skills root",
+                c.id
+            ))
             .actual(format!("skill directory already present at `{dir}`"))
             .fix(FixAction::safe(
                 "skill.remove",
-                format!("Run `ivar skill remove {}` first if you want to replace it.", c.id),
+                format!(
+                    "Run `ivar skill remove {}` first if you want to replace it.",
+                    c.id
+                ),
             )));
         }
     }

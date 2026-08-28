@@ -17,7 +17,8 @@ fn parse_https_github_url() {
     assert_eq!(res.path, "");
     assert_eq!(res.git_ref, "");
 
-    let res_dot_git = parse_source("https://github.com/vercel-labs/skills.git", None, None).unwrap();
+    let res_dot_git =
+        parse_source("https://github.com/vercel-labs/skills.git", None, None).unwrap();
     assert_eq!(res_dot_git.repo, "vercel-labs/skills");
 }
 
@@ -69,15 +70,21 @@ fn path_flag_conflicts_with_tree_url_subpath() {
 #[test]
 fn rejects_non_github_hosts_and_bad_formats() {
     assert_eq!(
-        parse_source("https://gitlab.com/owner/repo", None, None).unwrap_err().code,
+        parse_source("https://gitlab.com/owner/repo", None, None)
+            .unwrap_err()
+            .code,
         "skill.add.invalid_source"
     );
     assert_eq!(
-        parse_source("git@github.com:owner/repo.git", None, None).unwrap_err().code,
+        parse_source("git@github.com:owner/repo.git", None, None)
+            .unwrap_err()
+            .code,
         "skill.add.invalid_source"
     );
     assert_eq!(
-        parse_source("owner/repo@main", None, None).unwrap_err().code,
+        parse_source("owner/repo@main", None, None)
+            .unwrap_err()
+            .code,
         "skill.add.invalid_source"
     );
     assert_eq!(

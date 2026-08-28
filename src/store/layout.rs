@@ -521,11 +521,11 @@ impl Layout {
     /// not `.ivar/` — see the module doc comment's "gitignore trap" section for
     /// why the whole-directory form silently breaks the negations.
     ///
-    /// Commands use a narrow `ivar-*.md` pattern because user command files 
-    /// remain committable; skills target dirs (.claude/skills/, .opencode/skills/) 
-    /// are ignored wholesale because every child is a derived target pointing 
-    /// into `.ivar/skills*`, and the symlinks are absolute/machine-local. 
-    /// The source of truth remains `.ivar/skills/` and `.ivar/skills-local/`, 
+    /// Commands use a narrow `ivar-*.md` pattern because user command files
+    /// remain committable; skills target dirs (.claude/skills/, .opencode/skills/)
+    /// are ignored wholesale because every child is a derived target pointing
+    /// into `.ivar/skills*`, and the symlinks are absolute/machine-local.
+    /// The source of truth remains `.ivar/skills/` and `.ivar/skills-local/`,
     /// never the harness target dirs.
     #[must_use]
     pub fn gitignore_lines() -> Vec<&'static str> {

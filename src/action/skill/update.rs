@@ -145,8 +145,8 @@ fn try_download_and_extract(
     };
 
     // Fetch tarball from GitHub and extract it into a temp directory.
-    let tarball_bytes = crate::infra::github::fetch_tarball(&ext.repo, &ext.git_ref)
-        .map_err(|e| e.to_string())?;
+    let tarball_bytes =
+        crate::infra::github::fetch_tarball(&ext.repo, &ext.git_ref).map_err(|e| e.to_string())?;
 
     let temp_dir = fs::TempDir::new().map_err(|e| e.to_string())?;
     super::extract_tarball_into(&tarball_bytes, temp_dir.path()).map_err(|e| e.to_string())?;
@@ -192,7 +192,10 @@ fn find_repo_root(temp_dir: &camino::Utf8Path) -> camino::Utf8PathBuf {
             .filter(|p| fs::is_dir(p).unwrap_or(false))
             .collect();
         if dirs.len() == 1 {
-            return dirs.first().cloned().unwrap_or_else(|| temp_dir.to_path_buf());
+            return dirs
+                .first()
+                .cloned()
+                .unwrap_or_else(|| temp_dir.to_path_buf());
         }
     }
     temp_dir.to_path_buf()

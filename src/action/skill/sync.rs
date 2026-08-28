@@ -25,8 +25,8 @@ use crate::infra::fs;
 use crate::store::render::{self, Error as RenderError};
 use crate::store::skill;
 
-use super::enumerate;
 use super::super::discover_hall;
+use super::enumerate;
 
 /// What `ivar skill sync` did.
 #[derive(Debug, Clone, Serialize)]
@@ -207,9 +207,12 @@ fn read_state(layout: &crate::store::layout::Layout, root: SkillRoot) -> State {
 /// so no entry can be shadowed here.
 fn merge_states(hall: &State, local: &State) -> State {
     let mut merged = hall.clone();
-    merged
-        .installations
-        .extend(local.installations.iter().map(|(k, v)| (k.clone(), v.clone())));
+    merged.installations.extend(
+        local
+            .installations
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone())),
+    );
     merged
 }
 
@@ -218,11 +221,7 @@ fn merge_states(hall: &State, local: &State) -> State {
 /// A skill that is no longer declared in either root has no `SkillRoot` to
 /// consult, so its entry is attributed to the root whose state file already
 /// records it — that is where the delete has to be written.
-fn split_state(
-    merged: &State,
-    skills: &[crate::domain::skill::Skill],
-    root: SkillRoot,
-) -> State {
+fn split_state(merged: &State, skills: &[crate::domain::skill::Skill], root: SkillRoot) -> State {
     let mut out = State::default();
     for (id, entry) in &merged.installations {
         let owner = skills

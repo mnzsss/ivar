@@ -22,39 +22,40 @@ pub fn parse_source(
 ) -> Result<ExternalRef, Failure> {
     let source = source.trim();
 
-    let (repo, url_path, url_ref) = if let Some(stripped) = source.strip_prefix("https://github.com/") {
-        let clean = stripped.trim_end_matches('/');
-        let parts: Vec<&str> = clean.split('/').filter(|s| !s.is_empty()).collect();
-        if parts.len() == 2 {
-            let owner = parts.first().copied().unwrap_or_default();
-            let raw_repo = parts.get(1).copied().unwrap_or_default();
-            let repo_name = raw_repo.strip_suffix(".git").unwrap_or(raw_repo);
-            (format!("{owner}/{repo_name}"), String::new(), String::new())
-        } else if parts.len() >= 4 && parts.get(2) == Some(&"tree") {
-            let owner = parts.first().copied().unwrap_or_default();
-            let raw_repo = parts.get(1).copied().unwrap_or_default();
-            let repo_name = raw_repo.strip_suffix(".git").unwrap_or(raw_repo);
-            let repo = format!("{owner}/{repo_name}");
-            let git_ref = parts.get(3).copied().unwrap_or_default().to_owned();
-            let path = parts.get(4..).unwrap_or_default().join("/");
-            (repo, path, git_ref)
+    let (repo, url_path, url_ref) =
+        if let Some(stripped) = source.strip_prefix("https://github.com/") {
+            let clean = stripped.trim_end_matches('/');
+            let parts: Vec<&str> = clean.split('/').filter(|s| !s.is_empty()).collect();
+            if parts.len() == 2 {
+                let owner = parts.first().copied().unwrap_or_default();
+                let raw_repo = parts.get(1).copied().unwrap_or_default();
+                let repo_name = raw_repo.strip_suffix(".git").unwrap_or(raw_repo);
+                (format!("{owner}/{repo_name}"), String::new(), String::new())
+            } else if parts.len() >= 4 && parts.get(2) == Some(&"tree") {
+                let owner = parts.first().copied().unwrap_or_default();
+                let raw_repo = parts.get(1).copied().unwrap_or_default();
+                let repo_name = raw_repo.strip_suffix(".git").unwrap_or(raw_repo);
+                let repo = format!("{owner}/{repo_name}");
+                let git_ref = parts.get(3).copied().unwrap_or_default().to_owned();
+                let path = parts.get(4..).unwrap_or_default().join("/");
+                (repo, path, git_ref)
+            } else {
+                return Err(invalid_source_failure(source));
+            }
+        } else if !source.contains("://") && !source.contains('@') && !source.contains(' ') {
+            let clean = source.trim_end_matches('/');
+            let parts: Vec<&str> = clean.split('/').filter(|s| !s.is_empty()).collect();
+            if parts.len() == 2 {
+                let owner = parts.first().copied().unwrap_or_default();
+                let raw_repo = parts.get(1).copied().unwrap_or_default();
+                let repo_name = raw_repo.strip_suffix(".git").unwrap_or(raw_repo);
+                (format!("{owner}/{repo_name}"), String::new(), String::new())
+            } else {
+                return Err(invalid_source_failure(source));
+            }
         } else {
             return Err(invalid_source_failure(source));
-        }
-    } else if !source.contains("://") && !source.contains('@') && !source.contains(' ') {
-        let clean = source.trim_end_matches('/');
-        let parts: Vec<&str> = clean.split('/').filter(|s| !s.is_empty()).collect();
-        if parts.len() == 2 {
-            let owner = parts.first().copied().unwrap_or_default();
-            let raw_repo = parts.get(1).copied().unwrap_or_default();
-            let repo_name = raw_repo.strip_suffix(".git").unwrap_or(raw_repo);
-            (format!("{owner}/{repo_name}"), String::new(), String::new())
-        } else {
-            return Err(invalid_source_failure(source));
-        }
-    } else {
-        return Err(invalid_source_failure(source));
-    };
+        };
 
     // Check for path conflict: --path flag AND a subpath in the URL
     if !url_path.is_empty() && path_flag.is_some_and(|p| !p.trim().is_empty()) {

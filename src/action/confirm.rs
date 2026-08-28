@@ -189,12 +189,18 @@ impl Confirm for Interactive {
                 continue;
             }
             let idx: usize = p.parse().map_err(|_| {
-                Failure::blocked("confirm.invalid_selection", format!("invalid selection `{p}`"))
+                Failure::blocked(
+                    "confirm.invalid_selection",
+                    format!("invalid selection `{p}`"),
+                )
             })?;
             if idx == 0 || idx > options.len() {
                 return Err(Failure::blocked(
                     "confirm.invalid_selection",
-                    format!("selection index `{idx}` out of range (1..{})", options.len()),
+                    format!(
+                        "selection index `{idx}` out of range (1..{})",
+                        options.len()
+                    ),
                 ));
             }
             selected.push(idx - 1);

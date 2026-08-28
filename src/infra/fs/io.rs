@@ -234,8 +234,9 @@ impl TempDir {
     pub fn new() -> Result<Self, Error> {
         let id = uuid::Uuid::new_v4();
         let path_std = std::env::temp_dir().join(format!("ivar-tmp-{id}"));
-        let path = Utf8PathBuf::from_path_buf(path_std)
-            .map_err(|p| Error::NotUtf8 { display: p.display().to_string() })?;
+        let path = Utf8PathBuf::from_path_buf(path_std).map_err(|p| Error::NotUtf8 {
+            display: p.display().to_string(),
+        })?;
         ensure_dir(&path)?;
         Ok(Self { path })
     }
@@ -261,14 +262,18 @@ pub fn copy_dir(src: &Utf8Path, dst: &Utf8Path) -> Result<(), Error> {
             path: src.to_owned(),
             source: e.into(),
         })?;
-        let rel_path = entry.path().strip_prefix(src.as_std_path()).map_err(|_| Error::Read {
-            path: src.to_owned(),
-            source: std::io::Error::other("strip_prefix failed"),
-        })?;
+        let rel_path = entry
+            .path()
+            .strip_prefix(src.as_std_path())
+            .map_err(|_| Error::Read {
+                path: src.to_owned(),
+                source: std::io::Error::other("strip_prefix failed"),
+            })?;
         if rel_path.as_os_str().is_empty() {
             continue;
         }
-        let rel_utf8 = Utf8Path::from_path(rel_path).ok_or_else(|| not_utf8(entry.path().to_path_buf()))?;
+        let rel_utf8 =
+            Utf8Path::from_path(rel_path).ok_or_else(|| not_utf8(entry.path().to_path_buf()))?;
         let target_path = dst.join(rel_utf8);
 
         let file_type = entry.file_type();
@@ -278,9 +283,11 @@ pub fn copy_dir(src: &Utf8Path, dst: &Utf8Path) -> Result<(), Error> {
             if let Some(parent) = target_path.parent() {
                 ensure_dir(parent)?;
             }
-            fs_err::copy(entry.path(), target_path.as_std_path()).map_err(|source| Error::Write {
-                path: target_path,
-                source,
+            fs_err::copy(entry.path(), target_path.as_std_path()).map_err(|source| {
+                Error::Write {
+                    path: target_path,
+                    source,
+                }
             })?;
         } else if file_type.is_symlink() {
             if let Some(parent) = target_path.parent() {
@@ -290,7 +297,8 @@ pub fn copy_dir(src: &Utf8Path, dst: &Utf8Path) -> Result<(), Error> {
                 path: Utf8PathBuf::from_path_buf(entry.path().to_path_buf()).unwrap_or_default(),
                 source,
             })?;
-            let link_target_utf8 = Utf8Path::from_path(&link_target).ok_or_else(|| not_utf8(link_target.clone()))?;
+            let link_target_utf8 =
+                Utf8Path::from_path(&link_target).ok_or_else(|| not_utf8(link_target.clone()))?;
             super::create_symlink(&target_path, link_target_utf8)?;
         }
     }

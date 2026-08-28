@@ -25,7 +25,10 @@ pub mod update;
 use std::io::Write;
 
 /// Extract gzipped tarball bytes into `target_dir` using system `tar`.
-pub(super) fn extract_tarball_into(data: &[u8], target_dir: &camino::Utf8Path) -> std::io::Result<()> {
+pub(super) fn extract_tarball_into(
+    data: &[u8],
+    target_dir: &camino::Utf8Path,
+) -> std::io::Result<()> {
     let mut child = std::process::Command::new("tar")
         .args(["xzf", "-"])
         .current_dir(target_dir.as_std_path())
