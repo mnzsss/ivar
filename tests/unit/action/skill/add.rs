@@ -47,14 +47,14 @@ fn discovery_scans_fixture_directory_for_candidate_skills() {
 fn selection_seam_with_fixed_selects_chosen_index() {
     let options = vec![
         SelectOption {
-            id: "alpha".to_string(),
-            description: Some("Alpha".to_string()),
-            path_if_any: "skills/alpha".to_string(),
+            id: "alpha".to_owned(),
+            description: Some("Alpha".to_owned()),
+            path_if_any: "skills/alpha".to_owned(),
         },
         SelectOption {
-            id: "beta".to_string(),
-            description: Some("Beta".to_string()),
-            path_if_any: "skills/beta".to_string(),
+            id: "beta".to_owned(),
+            description: Some("Beta".to_owned()),
+            path_if_any: "skills/beta".to_owned(),
         },
     ];
 

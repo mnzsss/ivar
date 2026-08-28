@@ -23,14 +23,14 @@ fn disabled_reporter_returns_blocked_failure_listing_options_on_select_many() {
     let confirmer = reporter(false);
     let options = vec![
         SelectOption {
-            id: "opt1".to_string(),
-            description: Some("First option".to_string()),
-            path_if_any: "skills/opt1".to_string(),
+            id: "opt1".to_owned(),
+            description: Some("First option".to_owned()),
+            path_if_any: "skills/opt1".to_owned(),
         },
         SelectOption {
-            id: "opt2".to_string(),
+            id: "opt2".to_owned(),
             description: None,
-            path_if_any: "skills/opt2".to_string(),
+            path_if_any: "skills/opt2".to_owned(),
         },
     ];
     let err = confirmer.select_many("Select:", &options).unwrap_err();
@@ -63,19 +63,19 @@ fn fixed_select_returns_preset_indices() {
     let f = fixed_select(true, vec![0, 2]);
     let options = vec![
         SelectOption {
-            id: "a".to_string(),
+            id: "a".to_owned(),
             description: None,
-            path_if_any: "".to_string(),
+            path_if_any: "".to_owned(),
         },
         SelectOption {
-            id: "b".to_string(),
+            id: "b".to_owned(),
             description: None,
-            path_if_any: "".to_string(),
+            path_if_any: "".to_owned(),
         },
         SelectOption {
-            id: "c".to_string(),
+            id: "c".to_owned(),
             description: None,
-            path_if_any: "".to_string(),
+            path_if_any: "".to_owned(),
         },
     ];
     assert_eq!(f.select_many("Select:", &options).unwrap(), vec![0, 2]);
