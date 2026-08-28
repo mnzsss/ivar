@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use camino::Utf8PathBuf;
 
 use super::*;
-use crate::domain::skill::{ExternalRef, RenderMode};
+use crate::domain::skill::{ExternalRef, RenderMode, SkillRoot};
 use crate::domain::skill_sync::{InstallationEntry, ProviderEntry};
 use crate::test_support::utf8_temp_dir;
 
@@ -78,9 +78,9 @@ fn empty_state_round_trips() {
     let (_dir, root) = utf8_temp_dir();
     let state = State::default();
 
-    write(&root, &state).unwrap();
+    write(&root, SkillRoot::Hall, &state).unwrap();
 
-    let read_back = read(&root).unwrap().unwrap();
+    let read_back = read(&root, SkillRoot::Hall).unwrap().unwrap();
     assert_eq!(read_back.installations.len(), 0);
 }
 
@@ -121,16 +121,16 @@ fn state_with_installations_round_trips() {
     );
     let state = State { installations };
 
-    write(&root, &state).unwrap();
+    write(&root, SkillRoot::Hall, &state).unwrap();
 
-    let read_back = read(&root).unwrap().unwrap();
+    let read_back = read(&root, SkillRoot::Hall).unwrap().unwrap();
     assert_eq!(read_back, state);
 }
 
 #[test]
 fn absent_state_file_returns_none() {
     let (_dir, root) = utf8_temp_dir();
-    let result = read(&root).unwrap();
+    let result = read(&root, SkillRoot::Hall).unwrap();
     assert!(result.is_none());
 }
 
@@ -141,7 +141,7 @@ fn broken_json_is_a_hard_error() {
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
     std::fs::write(&path, "{ not json").unwrap();
 
-    let error = read(&root).unwrap_err();
+    let error = read(&root, SkillRoot::Hall).unwrap_err();
     assert!(matches!(error, Error::Json(json::Error::Parse { .. })));
 }
 

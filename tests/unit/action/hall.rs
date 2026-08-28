@@ -332,7 +332,8 @@ fn gitignore_uses_the_star_form_and_reincludes_committed_children() {
     assert_eq!(
         content,
         ".ivar/*\n!.ivar/skills/\n!.ivar/setups/\n\
-             .claude/commands/ivar-*.md\n.opencode/commands/ivar-*.md\n"
+             .claude/commands/ivar-*.md\n.opencode/commands/ivar-*.md\n\
+             .claude/skills/\n.opencode/skills/\n"
     );
     assert!(!content.lines().any(|line| line == ".ivar/"));
 }

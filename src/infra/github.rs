@@ -180,18 +180,29 @@ pub fn fetch_tarball(repo: &str, r#ref: &str) -> Result<Vec<u8>, Failure> {
         })?;
 
     let status = response.status();
-    let body = read_body(response.into_body().as_reader())?;
+    let mut bytes = Vec::new();
+    response
+        .into_body()
+        .as_reader()
+        .read_to_end(&mut bytes)
+        .map_err(|e| {
+            Failure::failed(
+                "github.read_bytes",
+                format!("could not read response bytes: {e}"),
+            )
+        })?;
 
     if status != 200 {
+        let text = String::from_utf8_lossy(&bytes).into_owned();
         return Err(Failure::failed(
             "github.tarball_http",
             format!("GitHub API returned {status}"),
         )
         .expected("HTTP 200")
-        .actual(body));
+        .actual(text));
     }
 
-    Ok(body.into_bytes())
+    Ok(bytes)
 }
 
 /// Resolve a GitHub ref (branch, tag, or SHA) to a commit SHA via the API.

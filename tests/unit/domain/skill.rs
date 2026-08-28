@@ -19,6 +19,7 @@ fn authored_skill_has_no_source() {
             description: None,
             source: None,
         },
+        SkillRoot::Hall,
     );
     assert!(skill.is_authored());
     assert!(!skill.is_external());
@@ -39,6 +40,7 @@ fn external_skill_has_an_external_source() {
                 git_ref: "main".to_owned(),
             }),
         },
+        SkillRoot::Hall,
     );
     assert!(!skill.is_authored());
     assert!(skill.is_external());
@@ -55,6 +57,7 @@ fn default_description_is_generated_from_id() {
             description: None,
             source: None,
         },
+        SkillRoot::Hall,
     );
     assert_eq!(skill.description, "The gamma skill");
 }
@@ -67,6 +70,7 @@ fn serialize_and_deserialize_authored_skill() {
         id: RepoName::new("roundtrip").unwrap(),
         description: "A round-trip skill".to_owned(),
         source: Source::Authored,
+        root: SkillRoot::Hall,
         dir: camino::Utf8PathBuf::from("/skills/roundtrip"),
     };
 
@@ -86,6 +90,7 @@ fn serialize_and_deserialize_external_skill() {
             path: "skills/ext".to_owned(),
             git_ref: "abc123".to_owned(),
         }),
+        root: SkillRoot::Hall,
         dir: camino::Utf8PathBuf::from("/skills/ext-rt"),
     };
 
@@ -101,6 +106,7 @@ fn render_mode_matches_source_type() {
         id: RepoName::new("a").unwrap(),
         description: "a".to_owned(),
         source: Source::Authored,
+        root: SkillRoot::Hall,
         dir: camino::Utf8PathBuf::from("/a"),
     };
     assert_eq!(authored.render_mode(), RenderMode::Symlink);
@@ -113,6 +119,7 @@ fn render_mode_matches_source_type() {
             path: "p".to_owned(),
             git_ref: "z".to_owned(),
         }),
+        root: SkillRoot::Hall,
         dir: camino::Utf8PathBuf::from("/b"),
     };
     assert_eq!(external.render_mode(), RenderMode::Copy);

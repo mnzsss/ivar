@@ -22,7 +22,7 @@ use camino::Utf8PathBuf;
 use serde::{Deserialize, Serialize};
 
 use ivar::domain::name::RepoName;
-use ivar::domain::skill::{ExternalRef, RenderMode, Skill, Source};
+use ivar::domain::skill::{ExternalRef, RenderMode, Skill, SkillRoot, Source};
 use ivar::domain::skill_sync::{
     Action, InstallationEntry, MaterialStatus, PlanOptions, ProviderEntry, State, Step, Target,
     TargetId,
@@ -154,6 +154,7 @@ fn build_skill(g: &GoldenSkill) -> Skill {
         id: RepoName::new(&g.id).expect("valid repo name"),
         description: g.description.clone(),
         source,
+        root: SkillRoot::Hall,
         dir: g.dir.clone(),
     }
 }

@@ -394,6 +394,15 @@ impl Layout {
         self.ivar_dir().join("skills")
     }
 
+    /// Local skills that never enter the hall's git repo.
+    ///
+    /// The `.gitignore` is `.ivar/*` + `!.ivar/skills/` + `!.ivar/setups/`,
+    /// so any new directory here is gitignored by default.
+    #[must_use]
+    pub fn hall_skills_local(&self) -> Utf8PathBuf {
+        self.ivar_dir().join("skills-local")
+    }
+
     /// `<hall>/plans/<feature>/` — `requirements.md` · `analysis.md` ·
     /// `plan.md`. Committed.
     #[must_use]
@@ -512,10 +521,12 @@ impl Layout {
     /// not `.ivar/` — see the module doc comment's "gitignore trap" section for
     /// why the whole-directory form silently breaks the negations.
     ///
-    /// The last two lines ignore exactly the shipped workflow command files
-    /// `ivar` materialises into each provider's command directory. They are
-    /// narrow on purpose — `.claude/commands/ivar-*.md`, never
-    /// `.claude/commands/` — so a user's own commands stay committable.
+    /// Commands use a narrow `ivar-*.md` pattern because user command files
+    /// remain committable; skills target dirs (.claude/skills/, .opencode/skills/)
+    /// are ignored wholesale because every child is a derived target pointing
+    /// into `.ivar/skills*`, and the symlinks are absolute/machine-local.
+    /// The source of truth remains `.ivar/skills/` and `.ivar/skills-local/`,
+    /// never the harness target dirs.
     #[must_use]
     pub fn gitignore_lines() -> Vec<&'static str> {
         vec![
@@ -524,6 +535,8 @@ impl Layout {
             "!.ivar/setups/",
             ".claude/commands/ivar-*.md",
             ".opencode/commands/ivar-*.md",
+            ".claude/skills/",
+            ".opencode/skills/",
         ]
     }
 

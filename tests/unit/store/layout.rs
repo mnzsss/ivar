@@ -112,6 +112,8 @@ fn gitignore_lines_excludes_the_dotdir_per_entry_and_reincludes_committed_childr
             "!.ivar/setups/",
             ".claude/commands/ivar-*.md",
             ".opencode/commands/ivar-*.md",
+            ".claude/skills/",
+            ".opencode/skills/",
         ]
     );
 }
@@ -129,6 +131,8 @@ fn gitignore_lines_ignore_only_ivar_shipped_commands() {
             "!.ivar/setups/",
             ".claude/commands/ivar-*.md",
             ".opencode/commands/ivar-*.md",
+            ".claude/skills/",
+            ".opencode/skills/",
         ]
     );
 }

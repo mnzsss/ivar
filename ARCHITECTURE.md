@@ -661,10 +661,13 @@ One dotdir, one manifest, one name everywhere.
     setups/<repo>.sh      per-repo setup scripts
     setups/<repo>.session.sh  per-repo session hooks
     skills/               hall-scoped skills (committed)
+    skills-local/         personal skills (gitignored)
   plans/<feature>/        requirements.md · analysis.md · plan.md (committed)
   .claude/ .opencode/     harness-dictated, and the TARGET of symlinks, not the source
   .claude/commands/ivar-*.md   derived workflow commands (gitignored)
   .opencode/commands/ivar-*.md derived workflow commands (gitignored)
+  .claude/skills/              derived materialised skills (gitignored)
+  .opencode/skills/            derived materialised skills (gitignored)
 ```
 
 A feature-session view dir is a real directory at

@@ -38,6 +38,8 @@ half-understood state file is worse than no state file.
   .ivar/sessions/               local        discovery-session view dirs
   .claude/commands/ivar-*.md    local        derived workflow commands (Claude Code)
   .opencode/commands/ivar-*.md  local        derived workflow commands (OpenCode)
+  .claude/skills/               local        derived materialised skills (Claude Code)
+  .opencode/skills/             local        derived materialised skills (OpenCode)
 ```
 
 "Committed" means it belongs in your hall's git history and your teammates get it

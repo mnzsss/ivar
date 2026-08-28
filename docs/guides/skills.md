@@ -9,42 +9,66 @@ them by cloning, and nothing hosted is required.
 
 ## Where they live
 
+Skills live in one of two roots:
+
 ```
-<hall>/.ivar/skills/<id>/SKILL.md      committed — the source
-<hall>/.claude/skills/…                materialised for Claude Code
-<hall>/.opencode/skills/…              materialised for OpenCode
+<hall>/.ivar/skills/          committed — shared across the team
+<hall>/.ivar/skills-local/    personal — gitignored
+```
+
+`sync` merges both roots into the harness targets:
+
+```
+<hall>/.claude/skills/…
+<hall>/.opencode/skills/…
 ```
 
 `.ivar/skills/` is **committed**, along with `.ivar/setups/` — the hall's
-`.gitignore` includes `.ivar/*` plus `!.ivar/skills/` and `!.ivar/setups/` for
-exactly this reason. Everything else under `.ivar/` is derived and ignored,
-and the materialised copies above are derived too.
-
-(The re-include lines have to be spelled that way. `.ivar/` on its own would
-exclude the directory, and git does not re-include a child of an excluded
-directory — the skills would silently never be committed.)
+`.gitignore` ignores derived harness targets `.claude/skills/` and
+`.opencode/skills/`, and includes `.ivar/*` plus `!.ivar/skills/` and `!.ivar/setups/` for
+exactly this reason. Everything else under `.ivar/` is derived and ignored.
 
 ## Authoring one
 
 ```sh
-ivar skill create review-checklist --description "How we review cross-repo PRs"
-ivar skill sync
+# Defaults to personal root (.ivar/skills-local/)
+ivar skill create my-tool --description "..."
+
+# Publishes to shared root (.ivar/skills/)
+ivar skill create team-tool --description "..." --hall
 ```
 
-`create` scaffolds the folder and its `SKILL.md`; `sync` materialises every hall
-skill into each harness's native target. Commit `.ivar/skills/` and your
+Personal is the default because writing to the committed root is a commit 
+visible in review and inherited by everyone who clones the hall. 
+
+`ivar skill sync` materialises all skills from both roots into
+each harness's native target location. Commit `.ivar/skills/` and your
 teammates get it on their next `git pull` + `ivar skill sync`.
 
 ## Installing someone else's
 
+`ivar skill add` pulls a skill from a GitHub repo. The source can be a shorthand,
+a full URL, or a URL pointing straight at one skill:
+
 ```sh
-ivar skill add https://github.com/acme/skills --path skills/rust-review --ref v2
+ivar skill add acme/skills
+ivar skill add https://github.com/acme/skills
+ivar skill add https://github.com/acme/skills/tree/main/skills/rust-review
+```
+
+When the target holds more than one skill, `add` lists them and asks which to
+install; pass `--path` (or the `tree/…/subpath` URL form) to install one without
+prompting, and `--ref` to pin a branch, tag or sha. As with `create`, the skill
+lands in your personal root unless you pass `--hall`.
+
+```sh
+ivar skill add acme/skills --path skills/rust-review --ref v2
 ivar skill update            # move external skills to their tracked ref
 ```
 
 An **external** skill tracks a ref in another repo. `ivar skill update` moves it
-forward; nothing moves on its own, so a skill cannot change under you between two
-runs of the same command.
+forward and re-fetches only that skill's folder; nothing moves on its own, so a
+skill cannot change under you between two runs of the same command.
 
 To take ownership of one — stop tracking upstream and keep a local copy you can
 edit:

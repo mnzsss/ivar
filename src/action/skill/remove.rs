@@ -11,6 +11,7 @@ use serde::Serialize;
 
 use crate::action::{Ctx, Done};
 use crate::domain::name::RepoName;
+use crate::domain::skill::SkillRoot;
 use crate::domain::skill_sync::TargetId;
 use crate::error::{Failure, FixAction, Outcome, Report, WriteHuman};
 use crate::infra::fs;
@@ -43,25 +44,28 @@ impl WriteHuman for RemoveOutcome {
 
 pub fn remove(ctx: &Ctx, input: RemoveInput) -> Outcome<Done> {
     let layout = discover_hall(ctx)?;
-    let skills_dir = layout.hall_skills();
 
-    // Find the skill directory.
-    let skill_dir = skills_dir.join(&input.skill);
-    if !fs::exists(&skill_dir)? {
+    // Find the skill in either root. No flag: an id names at most one
+    // directory, because a collision is refused during enumeration.
+    let Some((skill_dir, root)) = super::enumerate::resolve(&layout, &input.skill)? else {
         return Err(Failure::blocked(
             "skill.not_found",
             format!("skill `{}` does not exist", input.skill),
         )
-        .expected("a skill directory under `.ivar/skills/`")
-        .actual(format!("no directory at `{skill_dir}`"))
+        .expected("a skill directory in either skills root")
+        .actual(format!(
+            "no directory at `{}` or `{}`",
+            layout.hall_skills_local().join(&input.skill),
+            layout.hall_skills().join(&input.skill)
+        ))
         .fix(FixAction::safe(
             "skill.list",
             "List available skills to find the correct id.",
         )));
-    }
+    };
 
     // Parse the skill to know its id and source type.
-    let skill = skill::parse_skill(skill_dir.clone()).map_err(|e| {
+    let skill = skill::parse_skill(skill_dir.clone(), root).map_err(|e| {
         Failure::failed(
             "skill.parse_error",
             format!("could not parse skill `{}`: {}", input.skill, e),
@@ -104,15 +108,16 @@ pub fn remove(ctx: &Ctx, input: RemoveInput) -> Outcome<Done> {
     // Remove the skill directory itself.
     fs::remove_path(&skill_dir)?;
 
-    // Purge the lockfile entry so state is fully cleaned.
-    purge_lockfile_entry(layout.root(), &skill.id);
+    // Purge the lockfile entry so state is fully cleaned — from the state
+    // file of the root that owned the skill, never the other one.
+    purge_lockfile_entry(layout.root(), root, &skill.id);
 
     Ok(Report::new(Done))
 }
 
-/// Remove a skill's entry from the installation state file.
-fn purge_lockfile_entry(hall_root: &camino::Utf8Path, skill_id: &RepoName) {
-    let Some(mut state) = skill::read(hall_root).ok().flatten() else {
+/// Remove a skill's entry from its own root's installation state file.
+fn purge_lockfile_entry(hall_root: &camino::Utf8Path, root: SkillRoot, skill_id: &RepoName) {
+    let Some(mut state) = skill::read(hall_root, root).ok().flatten() else {
         return;
     };
     state.installations.remove(skill_id.as_str());
@@ -120,10 +125,9 @@ fn purge_lockfile_entry(hall_root: &camino::Utf8Path, skill_id: &RepoName) {
         // Removing the last skill leaves no state to record — delete the
         // lockfile so `read` answers `None` (nothing installed), not an
         // empty-but-present file.
-        let path = hall_root.join(".ivar").join("skills").join("state.json");
-        let _ = crate::infra::fs::remove_path(&path);
+        let _ = crate::infra::fs::remove_path(&skill::state_path(hall_root, root));
     } else {
-        let _ = skill::write(hall_root, &state);
+        let _ = skill::write(hall_root, root, &state);
     }
 }
 

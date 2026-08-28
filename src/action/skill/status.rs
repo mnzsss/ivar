@@ -11,7 +11,8 @@ use serde::Serialize;
 use crate::action::{Ctx, Done};
 use crate::domain::name::RepoName;
 use crate::domain::skill_sync::MaterialStatus;
-use crate::error::{Failure, Outcome, Report, WriteHuman};
+use crate::error::{Outcome, Report, WriteHuman};
+#[cfg(test)]
 use crate::infra::fs;
 use crate::store::render;
 use crate::store::skill;
@@ -73,10 +74,11 @@ impl WriteHuman for StatusOutcome {
 /// Show skill installation state.
 pub fn status(ctx: &Ctx) -> Outcome<Done> {
     let layout = discover_hall(ctx)?;
-    let skills_dir = layout.hall_skills();
 
-    // Enumerate declared skills.
-    let skills = enumerate_skills(&skills_dir)?;
+    // Both roots. A colliding id is dropped here for the same reason `sync`
+    // drops it: neither copy can be materialised, so neither has a status.
+    let (skills, _warnings) =
+        super::enumerate::enumerate_both(&layout.hall_skills(), &layout.hall_skills_local())?;
 
     // Build status entries.
     let mut skill_statuses = Vec::new();
@@ -121,31 +123,6 @@ fn material_status_label(status: MaterialStatus) -> String {
         MaterialStatus::NotLink => "not a symlink".to_owned(),
         MaterialStatus::BrokenSymlink => "broken symlink".to_owned(),
     }
-}
-
-/// Enumerate skills from the hall skills directory.
-fn enumerate_skills(
-    hall_skills: &camino::Utf8Path,
-) -> Result<Vec<crate::domain::skill::Skill>, Failure> {
-    let mut skills = Vec::new();
-    if !fs::exists(hall_skills)? {
-        return Ok(skills);
-    }
-    for entry in fs::read_dir(hall_skills)? {
-        let file_name = entry.file_name().ok_or_else(|| {
-            Failure::failed(
-                "skill.bad_entry",
-                format!("directory entry has no name: {:?}", entry),
-            )
-        })?;
-        if let Ok(_id) = crate::domain::name::RepoName::new(file_name)
-            && let Ok(Some(skill)) = skill::parse_skill(entry.clone())
-        {
-            skills.push(skill);
-        }
-    }
-    skills.sort_by(|a, b| a.id.cmp(&b.id));
-    Ok(skills)
 }
 
 #[cfg(test)]

@@ -16,15 +16,17 @@ use serde::Serialize;
 
 use crate::action::Ctx;
 use crate::domain::name::RepoName;
+use crate::domain::skill::SkillRoot;
 use crate::domain::skill_sync::{
     Action, InstallationEntry, PlanOptions, ProviderEntry, State, Step, Target, TargetId,
 };
-use crate::error::{Failure, Outcome, Report, Warning, WriteHuman};
+use crate::error::{Outcome, Report, Warning, WriteHuman};
 use crate::infra::fs;
 use crate::store::render::{self, Error as RenderError};
 use crate::store::skill;
 
 use super::super::discover_hall;
+use super::enumerate;
 
 /// What `ivar skill sync` did.
 #[derive(Debug, Clone, Serialize)]
@@ -52,15 +54,18 @@ impl WriteHuman for SyncOutcome {
 /// of steps executed and any per-step warnings.
 pub fn sync(ctx: &Ctx) -> Outcome<SyncOutcome> {
     let layout = discover_hall(ctx)?;
-    let hall_skills = layout.hall_skills();
 
-    // Enumerate declared skills.
-    let skills = enumerate_skills(&hall_skills)?;
+    // Enumerate both roots. An id claimed by both is dropped from both and
+    // reported — the harness has one slot per id, so neither may win silently.
+    let (skills, mut warnings) =
+        enumerate::enumerate_both(&layout.hall_skills(), &layout.hall_skills_local())?;
 
-    // Read current installation state.
-    let state = skill::read(layout.root())
-        .unwrap_or_default()
-        .unwrap_or_default();
+    // Read each root's state, then merge for planning. The planner reconciles
+    // one set of declarations against one set of recorded installations; it
+    // neither knows nor needs to know that the set came from two files.
+    let hall_state = read_state(&layout, SkillRoot::Hall);
+    let local_state = read_state(&layout, SkillRoot::Local);
+    let state = merge_states(&hall_state, &local_state);
 
     // Build targets for both providers.
     let mut targets = Vec::new();
@@ -108,7 +113,6 @@ pub fn sync(ctx: &Ctx) -> Outcome<SyncOutcome> {
     });
 
     // Execute best-effort: failures become warnings, never abort.
-    let mut warnings = Vec::new();
     for step in &steps {
         if let Err(e) = execute_step(step) {
             warnings.push(Warning::new(
@@ -139,17 +143,26 @@ pub fn sync(ctx: &Ctx) -> Outcome<SyncOutcome> {
                 Action::Unchanged => {}
             }
         }
-        if let Err(e) = skill::write(layout.root(), &new_state) {
-            warnings.push(Warning::new(
-                "skill.sync.state_write_failed",
-                layout
-                    .root()
-                    .join(".ivar")
-                    .join("skills")
-                    .join("state.json")
-                    .to_string(),
-                e.to_string(),
-            ));
+        // Split the merged state back out, one file per root. This is the
+        // whole reason the states are separate: `.ivar/skills/` is un-ignored
+        // by the hall's `.gitignore`, so anything recorded there is committed.
+        // A personal skill's id must never reach it.
+        for root in [SkillRoot::Hall, SkillRoot::Local] {
+            let split = split_state(&new_state, &skills, root);
+            let path = skill::state_path(layout.root(), root);
+            if split.installations.is_empty() {
+                // Nothing left for this root — drop the file rather than leave
+                // an empty one, so `read` answers `None` (nothing installed).
+                let _ = fs::remove_path(&path);
+                continue;
+            }
+            if let Err(e) = skill::write(layout.root(), root, &split) {
+                warnings.push(Warning::new(
+                    "skill.sync.state_write_failed",
+                    path.to_string(),
+                    e.to_string(),
+                ));
+            }
         }
     }
 
@@ -178,27 +191,48 @@ pub fn sync(ctx: &Ctx) -> Outcome<SyncOutcome> {
 
 // -- helpers ------------------------------------------------------------------
 
-/// Enumerate skills from the hall skills directory.
-fn enumerate_skills(hall_skills: &Utf8Path) -> Result<Vec<crate::domain::skill::Skill>, Failure> {
-    let mut skills = Vec::new();
-    if !fs::exists(hall_skills)? {
-        return Ok(skills);
-    }
-    for entry in fs::read_dir(hall_skills)? {
-        let file_name = entry.file_name().ok_or_else(|| {
-            Failure::failed(
-                "skill.bad_entry",
-                format!("directory entry has no name: {:?}", entry),
-            )
-        })?;
-        if let Ok(_id) = RepoName::new(file_name)
-            && let Ok(Some(skill)) = skill::parse_skill(entry.clone())
-        {
-            skills.push(skill);
+/// Read one root's recorded state, treating an unreadable file as empty.
+///
+/// A missing state file is the normal case for a hall with no personal
+/// skills, and for every hall before its first sync.
+fn read_state(layout: &crate::store::layout::Layout, root: SkillRoot) -> State {
+    skill::read(layout.root(), root)
+        .unwrap_or_default()
+        .unwrap_or_default()
+}
+
+/// Merge two roots' states into the single view the planner expects.
+///
+/// Ids cannot clash: `enumerate_both` refuses an id declared in both roots,
+/// so no entry can be shadowed here.
+fn merge_states(hall: &State, local: &State) -> State {
+    let mut merged = hall.clone();
+    merged.installations.extend(
+        local
+            .installations
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone())),
+    );
+    merged
+}
+
+/// Take the entries belonging to one root out of the merged state.
+///
+/// A skill that is no longer declared in either root has no `SkillRoot` to
+/// consult, so its entry is attributed to the root whose state file already
+/// records it — that is where the delete has to be written.
+fn split_state(merged: &State, skills: &[crate::domain::skill::Skill], root: SkillRoot) -> State {
+    let mut out = State::default();
+    for (id, entry) in &merged.installations {
+        let owner = skills
+            .iter()
+            .find(|skill| skill.id.as_str() == id)
+            .map(|skill| skill.root);
+        if owner == Some(root) {
+            out.installations.insert(id.clone(), entry.clone());
         }
     }
-    skills.sort_by(|a, b| a.id.cmp(&b.id));
-    Ok(skills)
+    out
 }
 
 /// Compute a deterministic hash for a source directory.

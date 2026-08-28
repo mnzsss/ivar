@@ -57,6 +57,7 @@ const DEFAULT_WIDTH: u16 = 80;
 pub enum Stream {
     Stdout,
     Stderr,
+    Stdin,
 }
 
 /// The precedence rule for whether to emit colour, as a pure function of its
@@ -136,6 +137,7 @@ pub fn colour_for(stream: Stream, override_: Option<bool>) -> bool {
                 is_tty(Stream::Stderr),
             )
         }),
+        Stream::Stdin => false,
     }
 }
 
@@ -175,6 +177,7 @@ pub fn is_tty(stream: Stream) -> bool {
     match stream {
         Stream::Stdout => std::io::stdout().is_tty(),
         Stream::Stderr => std::io::stderr().is_tty(),
+        Stream::Stdin => std::io::stdin().is_tty(),
     }
 }
 

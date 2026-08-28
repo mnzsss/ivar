@@ -11,13 +11,14 @@ use camino::Utf8PathBuf;
 
 use super::*;
 use crate::domain::name::RepoName;
-use crate::domain::skill::{ExternalSkillSource, Skill, SkillFrontmatter};
+use crate::domain::skill::{ExternalSkillSource, Skill, SkillFrontmatter, SkillRoot};
 
 fn authored_skill(id: &str, dir: &str) -> Skill {
     Skill::from_frontmatter(
         RepoName::new(id).unwrap(),
         Utf8PathBuf::from(dir),
         SkillFrontmatter::authored(id, format!("The {id} skill")),
+        SkillRoot::Hall,
     )
 }
 
@@ -34,6 +35,7 @@ fn external_skill(id: &str, dir: &str) -> Skill {
                 git_ref: "main".to_owned(),
             }),
         },
+        SkillRoot::Hall,
     )
 }
 
