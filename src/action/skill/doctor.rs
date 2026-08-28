@@ -10,7 +10,8 @@ use serde::Serialize;
 
 use crate::action::Ctx;
 use crate::domain::skill_sync::{MaterialStatus, Target, TargetId};
-use crate::error::{Failure, FixAction, Outcome, Report, WriteHuman};
+use crate::error::{FixAction, Outcome, Report, WriteHuman};
+#[cfg(test)]
 use crate::infra::fs;
 use crate::store::render;
 use crate::store::skill;
@@ -67,15 +68,19 @@ impl WriteHuman for DoctorOutcome {
 /// Health diagnostics with fix actions.
 pub fn doctor(ctx: &Ctx) -> Outcome<DoctorOutcome> {
     let layout = discover_hall(ctx)?;
-    let skills_dir = layout.hall_skills();
 
-    // Enumerate declared skills.
-    let skills = enumerate_skills(&skills_dir)?;
+    // Both roots. A collision is a health problem by definition — the id is
+    // declared twice and materialises nowhere — so it is reported rather than
+    // silently skipped, which is what `doctor` exists for.
+    let (skills, collisions) =
+        super::enumerate::enumerate_both(&layout.hall_skills(), &layout.hall_skills_local())?;
 
-    // Read current installation state.
-    let state = skill::read(layout.root())
-        .unwrap_or_default()
-        .unwrap_or_default();
+    // Read each root's state and merge; the diagnostics below reconcile one
+    // view of what is declared against one view of what is recorded.
+    let mut state = read_state(&layout, crate::domain::skill::SkillRoot::Hall);
+    state
+        .installations
+        .extend(read_state(&layout, crate::domain::skill::SkillRoot::Local).installations);
 
     // Build targets for both providers.
     let mut targets = Vec::new();
@@ -100,6 +105,20 @@ pub fn doctor(ctx: &Ctx) -> Outcome<DoctorOutcome> {
 
     // Find problems.
     let mut problems = Vec::new();
+
+    // An id declared in both roots materialises nowhere. Report it first: it
+    // explains why a skill the user can see on disk is absent everywhere else.
+    for collision in collisions {
+        problems.push(Problem {
+            code: "skill.collision",
+            subject: collision.subject.clone(),
+            what: collision.what.clone(),
+            fix_action: FixAction::unsafe_(
+                "skill.rename_one",
+                "Rename one of the two directories so the id is unique.",
+            ),
+        });
+    }
 
     for skill in &skills {
         // Check each target.
@@ -199,29 +218,14 @@ pub fn doctor(ctx: &Ctx) -> Outcome<DoctorOutcome> {
     }))
 }
 
-/// Enumerate skills from the hall skills directory.
-fn enumerate_skills(
-    hall_skills: &camino::Utf8Path,
-) -> Result<Vec<crate::domain::skill::Skill>, Failure> {
-    let mut skills = Vec::new();
-    if !fs::exists(hall_skills)? {
-        return Ok(skills);
-    }
-    for entry in fs::read_dir(hall_skills)? {
-        let file_name = entry.file_name().ok_or_else(|| {
-            Failure::failed(
-                "skill.bad_entry",
-                format!("directory entry has no name: {:?}", entry),
-            )
-        })?;
-        if let Ok(_id) = crate::domain::name::RepoName::new(file_name)
-            && let Ok(Some(skill)) = skill::parse_skill(entry.clone())
-        {
-            skills.push(skill);
-        }
-    }
-    skills.sort_by(|a, b| a.id.cmp(&b.id));
-    Ok(skills)
+/// Read one root's recorded state, treating an unreadable file as empty.
+fn read_state(
+    layout: &crate::store::layout::Layout,
+    root: crate::domain::skill::SkillRoot,
+) -> crate::domain::skill_sync::State {
+    skill::read(layout.root(), root)
+        .unwrap_or_default()
+        .unwrap_or_default()
 }
 
 #[cfg(test)]

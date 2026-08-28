@@ -561,11 +561,12 @@ Scaffold a new skill: a folder with a SKILL.md
 
 | argument | required | description |
 | --- | --- | --- |
-| `id` | yes | The skill's id — one path segment, unique within the skills dir |
+| `id` | yes | The skill's id — one path segment, unique across both skills roots |
 
 | flag | value | default | description |
 | --- | --- | --- | --- |
 | `--description` | `<DESCRIPTION>` |  | The skill's description, for the SKILL.md frontmatter |
+| `--hall` |  |  | Create it in the hall's committed skills directory, shared with everyone who clones the hall. Without this it stays personal to you |
 
 
 ##### `ivar skill add`
@@ -580,6 +581,7 @@ Install an external skill from a git repo
 | --- | --- | --- | --- |
 | `--path` | `<PATH>` |  | A sub-path inside the repo that holds the skill folder |
 | `--ref` | `<REF>` |  | A git ref (branch, tag, or sha) to pin the skill to |
+| `--hall` |  |  | Install into the hall's committed skills directory, shared with everyone who clones the hall. Without this it stays personal to you |
 
 
 ##### `ivar skill update`

@@ -101,6 +101,6 @@ fn sync_updates_the_state_lockfile() {
     sync(&ctx).unwrap();
 
     // State file should exist and contain the skill.
-    let state = skill::read(&root).unwrap().unwrap();
+    let state = skill::read(&root, crate::domain::skill::SkillRoot::Hall).unwrap().unwrap();
     assert!(state.installations.contains_key("persist"));
 }

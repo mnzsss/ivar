@@ -64,6 +64,7 @@ fn the_human_surface_lists_skills_with_descriptions() {
         skills: vec![SkillSummary {
             id: RepoName::new("audit").unwrap(),
             description: "Review a codebase".to_owned(),
+            root: SkillRoot::Hall,
         }],
     };
 

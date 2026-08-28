@@ -25,6 +25,8 @@ pub struct AddInput {
     pub repo: String,
     pub path: Option<String>,
     pub ref_: Option<String>,
+    /// Install into the committed hall root instead of the personal one.
+    pub hall: bool,
 }
 
 /// What `ivar skill add` did.
@@ -59,20 +61,27 @@ pub fn add(ctx: &Ctx, input: AddInput) -> Outcome<AddOutcome> {
 
     let id = RepoName::new(id_str)?;
 
-    let skill_dir = layout.hall_skills().join(id.as_str());
-    let skill_file = skill_dir.join("SKILL.md");
-    if fs::exists(&skill_file)? {
+    // Refuse against both roots — see `create` for why.
+    if let Some((existing, _)) = super::enumerate::resolve(&layout, id.as_str())? {
         return Err(Failure::blocked(
             "skill.already_exists",
             format!("skill `{id}` already exists"),
         )
-        .expected("a skill id that has not been used before")
-        .actual(format!("`{skill_file}` already exists"))
+        .expected("a skill id that has not been used in either root")
+        .actual(format!("`{existing}` already exists"))
         .fix(FixAction::safe(
             "skill.use_existing",
             "Edit the existing skill, or remove it deliberately first.",
         )));
     }
+
+    let root_dir = if input.hall {
+        layout.hall_skills()
+    } else {
+        layout.hall_skills_local()
+    };
+    let skill_dir = root_dir.join(id.as_str());
+    let skill_file = skill_dir.join("SKILL.md");
 
     fs::ensure_dir(&skill_dir)?;
 

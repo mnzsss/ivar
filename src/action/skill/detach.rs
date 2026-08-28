@@ -41,24 +41,26 @@ impl WriteHuman for DetachOutcome {
 
 pub fn detach(ctx: &Ctx, input: DetachInput) -> Outcome<Done> {
     let layout = discover_hall(ctx)?;
-    let skills_dir = layout.hall_skills();
 
-    // Find and parse the skill.
-    let skill_dir = skills_dir.join(&input.skill);
-    if !fs::exists(&skill_dir)? {
+    // Find the skill in either root — no flag, see `enumerate::resolve`.
+    let Some((skill_dir, root)) = super::enumerate::resolve(&layout, &input.skill)? else {
         return Err(Failure::blocked(
             "skill.not_found",
             format!("skill `{}` does not exist", input.skill),
         )
-        .expected("a skill directory under `.ivar/skills/`")
-        .actual(format!("no directory at `{skill_dir}`"))
+        .expected("a skill directory in either skills root")
+        .actual(format!(
+            "no directory at `{}` or `{}`",
+            layout.hall_skills_local().join(&input.skill),
+            layout.hall_skills().join(&input.skill)
+        ))
         .fix(FixAction::safe(
             "skill.list",
             "List available skills to find the correct id.",
         )));
-    }
+    };
 
-    let Some(skill) = skill::parse_skill(skill_dir.clone()).map_err(|e| {
+    let Some(skill) = skill::parse_skill(skill_dir.clone(), root).map_err(|e| {
         Failure::failed(
             "skill.parse_error",
             format!("could not parse skill `{}`: {}", input.skill, e),

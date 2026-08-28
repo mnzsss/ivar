@@ -14,6 +14,7 @@ pub mod add;
 pub mod create;
 pub mod detach;
 pub mod doctor;
+pub mod enumerate;
 pub mod list;
 pub mod remove;
 pub mod status;

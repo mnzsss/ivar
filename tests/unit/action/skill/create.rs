@@ -15,6 +15,7 @@ fn create_writes_sk_md_with_name_and_description_frontmatter() {
         CreateInput {
             id: "refactor".to_owned(),
             description: "Safely restructure code".to_owned(),
+            hall: true,
         },
     )
     .unwrap();
@@ -35,6 +36,7 @@ fn create_is_rejected_for_a_duplicate_skill() {
         CreateInput {
             id: "refactor".to_owned(),
             description: "first".to_owned(),
+            hall: true,
         },
     )
     .unwrap();
@@ -44,6 +46,7 @@ fn create_is_rejected_for_a_duplicate_skill() {
         CreateInput {
             id: "refactor".to_owned(),
             description: "second".to_owned(),
+            hall: true,
         },
     )
     .unwrap_err();
@@ -62,6 +65,7 @@ fn create_rejects_an_invalid_id() {
         CreateInput {
             id: "../etc".to_owned(),
             description: "x".to_owned(),
+            hall: true,
         },
     )
     .unwrap_err();

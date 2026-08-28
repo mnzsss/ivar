@@ -714,11 +714,15 @@ pub struct McpAuthArgs {
 /// Arguments for `ivar skill create`.
 #[derive(Debug, Args)]
 pub struct SkillCreateArgs {
-    /// The skill's id — one path segment, unique within the skills dir.
+    /// The skill's id — one path segment, unique across both skills roots.
     pub id: String,
     /// The skill's description, for the SKILL.md frontmatter.
     #[arg(long)]
     pub description: String,
+    /// Create it in the hall's committed skills directory, shared with
+    /// everyone who clones the hall. Without this it stays personal to you.
+    #[arg(long)]
+    pub hall: bool,
 }
 
 /// Arguments for `ivar skill add`.
@@ -732,6 +736,10 @@ pub struct SkillAddArgs {
     /// A git ref (branch, tag, or sha) to pin the skill to.
     #[arg(long)]
     pub r#ref: Option<String>,
+    /// Install into the hall's committed skills directory, shared with
+    /// everyone who clones the hall. Without this it stays personal to you.
+    #[arg(long)]
+    pub hall: bool,
 }
 
 /// Arguments for `ivar skill update`.
@@ -1205,18 +1213,32 @@ impl From<PlanStatusArgs> for plan_status::StatusInput {
 
 impl From<SkillCreateArgs> for skill_create::CreateInput {
     fn from(args: SkillCreateArgs) -> Self {
-        let SkillCreateArgs { id, description } = args;
-        Self { id, description }
+        let SkillCreateArgs {
+            id,
+            description,
+            hall,
+        } = args;
+        Self {
+            id,
+            description,
+            hall,
+        }
     }
 }
 
 impl From<SkillAddArgs> for skill_add::AddInput {
     fn from(args: SkillAddArgs) -> Self {
-        let SkillAddArgs { repo, path, r#ref } = args;
+        let SkillAddArgs {
+            repo,
+            path,
+            r#ref,
+            hall,
+        } = args;
         Self {
             repo,
             path,
             ref_: r#ref,
+            hall,
         }
     }
 }

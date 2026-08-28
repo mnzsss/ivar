@@ -46,24 +46,19 @@ impl WriteHuman for UpdateOutcome {
 /// re-downloaded from their upstream repo. One failure does not abort the batch.
 pub fn update(ctx: &Ctx, input: UpdateInput) -> Outcome<UpdateOutcome> {
     let layout = discover_hall(ctx)?;
-    let skills_dir = layout.hall_skills();
-
-    // If there is no skills directory at all, nothing to do — clean result.
-    if !fs::exists(&skills_dir)? {
-        return Ok(Report::new(UpdateOutcome {
-            root: layout.root().to_path_buf(),
-            processed: 0,
-        }));
-    }
 
     let mut warnings = Vec::new();
     let mut processed = 0usize;
 
     for skill_name in &input.skills {
-        let skill_dir = skills_dir.join(skill_name);
+        // Look in both roots — a personal skill can be external too, and
+        // updating it must work without naming its root.
+        let Some((skill_dir, _root)) = super::enumerate::resolve(&layout, skill_name)? else {
+            continue;
+        };
         let skill_file = skill_dir.join("SKILL.md");
 
-        // If the skill directory doesn't exist, skip it silently.
+        // A directory without a SKILL.md is not a skill; skip it silently.
         if !fs::exists(&skill_file)? {
             continue;
         }

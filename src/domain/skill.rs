@@ -17,8 +17,18 @@
 //!
 //! # Scope decision (R-3)
 //!
-//! Only hall-scoped skills (`<hall>/.ivar/skills/`) are supported. User-home
-//! skills are out of scope for now.
+//! Two roots are supported: committed hall skills (`<hall>/.ivar/skills/`) and
+//! local, personal skills (`<hall>/.ivar/skills-local/`). User-home
+//! skills and cross-hall skills remain out of scope for now.
+//!
+/// Where a skill definition lives.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SkillRoot {
+    /// The hall's committed skills directory.
+    Hall,
+    /// The hall's local, personal, gitignored skills directory.
+    Local,
+}
 
 use serde::{Deserialize, Serialize};
 
@@ -106,6 +116,8 @@ pub struct Skill {
     pub description: String,
     /// Where this skill comes from.
     pub source: Source,
+    /// Which skills root defines this skill.
+    pub root: SkillRoot,
     /// The absolute path to the directory containing this skill's files.
     pub dir: camino::Utf8PathBuf,
 }
@@ -124,6 +136,7 @@ impl Skill {
         id: RepoName,
         dir: camino::Utf8PathBuf,
         frontmatter: SkillFrontmatter,
+        root: SkillRoot,
     ) -> Self {
         let description = frontmatter
             .description
@@ -138,6 +151,7 @@ impl Skill {
             id,
             description,
             source,
+            root,
             dir,
         }
     }

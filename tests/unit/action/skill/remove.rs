@@ -52,7 +52,7 @@ fn remove_purges_the_lockfile_entry() {
     let _ = sync::sync(&ctx).unwrap();
 
     // Verify state exists.
-    let state = skill::read(&root).unwrap().unwrap();
+    let state = skill::read(&root, crate::domain::skill::SkillRoot::Hall).unwrap().unwrap();
     assert_eq!(state.installations.len(), 1);
 
     remove(
@@ -64,7 +64,7 @@ fn remove_purges_the_lockfile_entry() {
     .unwrap();
 
     // Lockfile entry purged.
-    let state = skill::read(&root).unwrap();
+    let state = skill::read(&root, crate::domain::skill::SkillRoot::Hall).unwrap();
     assert!(
         state.is_none(),
         "lockfile should be absent after removing last skill"
@@ -105,7 +105,7 @@ fn remove_is_verifiable_by_state_cleanup() {
     .unwrap();
 
     // No state entries remain.
-    let state = skill::read(&root).unwrap();
+    let state = skill::read(&root, crate::domain::skill::SkillRoot::Hall).unwrap();
     assert!(state.is_none());
 
     // No skill directory remains.

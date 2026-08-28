@@ -2,14 +2,18 @@
 //!
 //! This module owns the on-disk persistence for the sync planner's recorded
 //! state. It is a thin wrapper around [`infra::json`], providing typed read /
-//! write paths under `<hall>/.ivar/skills/state.json`.
+//! write paths for each skills root's own `state.json`.
 //!
 //! # Contract
 //!
-//! - `read(layout)` — absent is `Ok(None)`; present-but-unparseable is an error.
-//! - `write(layout, &state)` — canonical JSON, atomic, idempotent.
-//! - The state file lives alongside skills so it is versioned with them when
-//!   the hall's `.gitignore` re-includes `.ivar/skills/`.
+//! - `read(hall_root, root)` — absent is `Ok(None)`; present-but-unparseable
+//!   is an error.
+//! - `write(hall_root, root, &state)` — canonical JSON, atomic, idempotent.
+//! - Each root keeps its own state file beside its skills:
+//!   `.ivar/skills/state.json` is committed with the skills it describes, and
+//!   `.ivar/skills-local/state.json` is gitignored with its own. Splitting
+//!   them is what keeps a personal skill's id out of the repository — see
+//!   [`state_path`].
 //!
 //! SKILL.md parsing also lives here rather than in `domain::skill` — it needs
 //! `infra::frontmatter` and `infra::fs`, and `domain` may not import `infra`.
@@ -18,7 +22,7 @@
 use camino::Utf8PathBuf;
 
 use crate::domain::name::RepoName;
-use crate::domain::skill::{Skill, SkillFrontmatter};
+use crate::domain::skill::{Skill, SkillFrontmatter, SkillRoot};
 use crate::domain::skill_sync::{State, TargetId};
 use crate::error::{Failure, FixAction};
 use crate::infra::json;
@@ -78,7 +82,7 @@ pub fn parse_frontmatter(content: &str) -> Result<Option<SkillFrontmatter>, Fail
 /// This is the full pipeline: read frontmatter → validate → construct.
 /// Returns `Ok(None)` when the file has no frontmatter or no `name`,
 /// and `Err` on hard failures (unparseable YAML, bad directory name).
-pub fn parse_skill(dir: camino::Utf8PathBuf) -> Result<Option<Skill>, Failure> {
+pub fn parse_skill(dir: camino::Utf8PathBuf, root: SkillRoot) -> Result<Option<Skill>, Failure> {
     let id = dir.file_name().ok_or_else(|| {
         Failure::blocked("skill.bad_dir", format!("directory has no name: {dir}"))
     })?;
@@ -111,24 +115,49 @@ pub fn parse_skill(dir: camino::Utf8PathBuf) -> Result<Option<Skill>, Failure> {
         return Ok(None);
     };
 
-    Ok(Some(Skill::from_frontmatter(id, dir, fm)))
+    Ok(Some(Skill::from_frontmatter(id, dir, fm, root)))
 }
 
-/// Read the skill installation state from the hall's skills directory.
+/// The directory a root's skills and its state file live in.
+fn root_dir(hall_root: &camino::Utf8Path, root: SkillRoot) -> camino::Utf8PathBuf {
+    let name = match root {
+        SkillRoot::Hall => "skills",
+        SkillRoot::Local => "skills-local",
+    };
+    hall_root.join(".ivar").join(name)
+}
+
+/// Where a root records what it has installed.
+///
+/// Each root keeps its own lockfile. That is not tidiness: the hall's
+/// `.gitignore` un-ignores `.ivar/skills/`, so anything written there is
+/// committed. A personal skill's id, path and hash must never land in a
+/// committed file, and a second state file is the only way that holds
+/// structurally rather than by remembering to filter.
+#[must_use]
+pub fn state_path(hall_root: &camino::Utf8Path, root: SkillRoot) -> camino::Utf8PathBuf {
+    root_dir(hall_root, root).join("state.json")
+}
+
+/// Read one root's installation state.
 ///
 /// Returns `Ok(None)` when the state file does not exist yet — the normal case
-/// for a fresh hall. A present-but-unparseable file is a hard error.
-pub fn read(hall_root: &camino::Utf8Path) -> Result<Option<State>, Error> {
-    let path = hall_root.join(".ivar").join("skills").join("state.json");
-    Ok(json::read(&path)?)
+/// for a fresh hall, and for every hall with no personal skills. A
+/// present-but-unparseable file is a hard error.
+pub fn read(hall_root: &camino::Utf8Path, root: SkillRoot) -> Result<Option<State>, Error> {
+    let state_file = state_path(hall_root, root);
+    if !crate::infra::fs::exists(&state_file)? {
+        return Ok(None);
+    }
+    Ok(json::read(&state_file)?)
 }
 
-/// Write `state` to the hall's skills lockfile atomically.
+/// Write `state` to one root's lockfile atomically.
 ///
 /// Uses canonical JSON (sorted keys, two-space indent, trailing newline).
 /// Creates the parent directory if it does not exist.
-pub fn write(hall_root: &camino::Utf8Path, state: &State) -> Result<(), Error> {
-    let dir = hall_root.join(".ivar").join("skills");
+pub fn write(hall_root: &camino::Utf8Path, root: SkillRoot, state: &State) -> Result<(), Error> {
+    let dir = root_dir(hall_root, root);
     crate::infra::fs::ensure_dir(&dir)?;
     json::write_canonical(&dir.join("state.json"), state)?;
     Ok(())

@@ -1,4 +1,4 @@
-//! `ivar skill list` — the skills in the hall's shared skills directory.
+//! `ivar skill list` — the skills the hall can use, from both roots.
 
 use std::io;
 
@@ -6,6 +6,7 @@ use camino::Utf8PathBuf;
 use serde::Serialize;
 
 use crate::domain::name::RepoName;
+use crate::domain::skill::SkillRoot;
 use crate::error::{Outcome, Report, WriteHuman};
 use crate::infra::frontmatter;
 use crate::infra::fs;
@@ -16,10 +17,13 @@ use crate::action::Ctx;
 /// One skill's summary.
 #[derive(Debug, Clone, Serialize)]
 pub struct SkillSummary {
-    /// The skill's id — its folder name under `.ivar/skills/`.
+    /// The skill's id — its folder name under its root.
     pub id: RepoName,
     /// The skill's description, from its `SKILL.md` frontmatter.
     pub description: String,
+    /// Which root defines it — the committed hall directory, or the personal
+    /// one that never enters git.
+    pub root: SkillRoot,
 }
 
 /// What `ivar skill list` found.
@@ -39,25 +43,43 @@ impl WriteHuman for ListOutcome {
         }
         writeln!(w, "Skills in {}:", self.root)?;
         for skill in &self.skills {
-            writeln!(w, "  {}  {}", skill.id, skill.description)?;
+            // Origin is printed for personal skills only. A hall skill is the
+            // shared, expected case and needs no annotation; a personal one is
+            // invisible to everyone else, which is worth saying out loud.
+            let origin = match skill.root {
+                SkillRoot::Hall => "",
+                SkillRoot::Local => "  (local)",
+            };
+            writeln!(w, "  {}  {}{origin}", skill.id, skill.description)?;
         }
         Ok(())
     }
 }
-
-/// List the skills under `.ivar/skills/`.
+/// List the skills in both roots.
 ///
 /// A skill whose `SKILL.md` is unreadable or has no parseable frontmatter is
 /// listed with an empty description rather than failing the whole listing —
 /// a status command does not hide seven skills because one is malformed.
 /// (`doctor` is where the malformation gets named.)
+///
+/// This is why `list` scans directories itself instead of calling
+/// [`enumerate`](super::enumerate::enumerate): the shared enumerator drops a
+/// skill it cannot parse, which is right for `sync` (an unparseable skill
+/// cannot be materialised) and wrong here (the user asked what is on disk).
+/// A colliding id is therefore *shown twice*, once per root, rather than
+/// hidden — `sync` is where the refusal belongs.
 pub fn list(ctx: &Ctx) -> Outcome<ListOutcome> {
     let layout = discover_hall(ctx)?;
-
-    let skills_dir = layout.hall_skills();
     let mut skills = Vec::new();
-    if fs::is_dir(&skills_dir)? {
-        for entry in fs::read_dir(&skills_dir)? {
+
+    for (dir, root) in [
+        (layout.hall_skills(), SkillRoot::Hall),
+        (layout.hall_skills_local(), SkillRoot::Local),
+    ] {
+        if !fs::is_dir(&dir)? {
+            continue;
+        }
+        for entry in fs::read_dir(&dir)? {
             let Some(name) = entry.file_name() else {
                 continue;
             };
@@ -65,11 +87,13 @@ pub fn list(ctx: &Ctx) -> Outcome<ListOutcome> {
                 continue;
             };
             skills.push(SkillSummary {
-                description: read_description(&skills_dir.join(name)),
+                description: read_description(&dir.join(name)),
                 id,
+                root,
             });
         }
     }
+
     skills.sort_by(|a, b| a.id.cmp(&b.id));
 
     Ok(Report::new(ListOutcome {

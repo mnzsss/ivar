@@ -17,6 +17,7 @@ fn add_writes_sk_md_with_source_frontmatter() {
             repo: "mnzsss/skills".to_owned(),
             path: Some("skills/lint".to_owned()),
             ref_: Some("main".to_owned()),
+            hall: true,
         },
     )
     .unwrap();
@@ -44,6 +45,7 @@ fn add_with_defaults_uses_empty_path_and_ref() {
             repo: "owner/toolkit".to_owned(),
             path: None,
             ref_: None,
+            hall: true,
         },
     )
     .unwrap();
@@ -68,6 +70,7 @@ fn add_is_rejected_for_a_duplicate_skill() {
             repo: "owner/toolkit".to_owned(),
             path: None,
             ref_: None,
+            hall: true,
         },
     )
     .unwrap();
@@ -78,6 +81,7 @@ fn add_is_rejected_for_a_duplicate_skill() {
             repo: "other/toolkit".to_owned(),
             path: None,
             ref_: None,
+            hall: true,
         },
     )
     .unwrap_err();
@@ -97,6 +101,7 @@ fn add_derives_id_from_last_path_segment_of_repo() {
             repo: "deep/owner/repo-name".to_owned(),
             path: None,
             ref_: None,
+            hall: true,
         },
     )
     .unwrap();
