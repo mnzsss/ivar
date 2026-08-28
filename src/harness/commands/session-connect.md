@@ -63,8 +63,9 @@ session's bootstrap instructions.
    ```
 
 7. From this point forward, **all file reads, writes, and shell commands must
-   operate inside `$IVAR_SESSION_PATH`**. When running shell commands,
-   `cd $IVAR_SESSION_PATH` first.
+   operate inside `$IVAR_SESSION_PATH`**. When running shell commands, set the
+   tool's `workdir` to `$IVAR_SESSION_PATH` (do not rely on `cd`, which does
+   not persist between calls).
 8. When the agent needs to read context (CLAUDE.md, AGENTS.md), prefer the
    session directory's file over hall-root files — it carries the hall's
    standing instructions plus the session bootstrap block.
