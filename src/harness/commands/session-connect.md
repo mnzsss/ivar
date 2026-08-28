@@ -38,6 +38,9 @@ session's bootstrap instructions.
    ```bash
    cd $IVAR_SESSION_PATH
    ```
+
+   > **IMPORTANT FOR AI AGENTS:** Your bash tool does NOT persist the `cd` command across turns. For EVERY subsequent bash tool call in this session, you MUST set the `workdir` parameter to `$IVAR_SESSION_PATH` or use absolute paths.
+
 5. If the session is feature-bound, discover promoted repos via
    `ivar feature status "$IVAR_FEATURE"`.
 6. Emit a guard instruction as the response to the user — print exactly this
