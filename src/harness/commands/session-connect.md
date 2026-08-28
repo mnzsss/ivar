@@ -38,6 +38,9 @@ session's bootstrap instructions.
    ```bash
    cd $IVAR_SESSION_PATH
    ```
+
+   > **IMPORTANT FOR AI AGENTS:** Your bash tool does NOT persist the `cd` command across turns. For EVERY subsequent bash tool call in this session, you MUST set the `workdir` parameter to `$IVAR_SESSION_PATH` or use absolute paths.
+
 5. If the session is feature-bound, discover promoted repos via
    `ivar feature status "$IVAR_FEATURE"`.
 6. Emit a guard instruction as the response to the user — print exactly this
@@ -60,8 +63,9 @@ session's bootstrap instructions.
    ```
 
 7. From this point forward, **all file reads, writes, and shell commands must
-   operate inside `$IVAR_SESSION_PATH`**. When running shell commands,
-   `cd $IVAR_SESSION_PATH` first.
+   operate inside `$IVAR_SESSION_PATH`**. When running shell commands, set the
+   tool's `workdir` to `$IVAR_SESSION_PATH` (do not rely on `cd`, which does
+   not persist between calls).
 8. When the agent needs to read context (CLAUDE.md, AGENTS.md), prefer the
    session directory's file over hall-root files — it carries the hall's
    standing instructions plus the session bootstrap block.

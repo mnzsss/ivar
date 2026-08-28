@@ -62,6 +62,8 @@ still opens.
    plan directory; edits there land in the hall). When running shell commands,
    `cd $IVAR_SESSION_PATH` first.
 
+   > **IMPORTANT FOR AI AGENTS:** Your bash tool does NOT persist the `cd` command across turns. For EVERY subsequent bash tool call in this session, you MUST set the `workdir` parameter to `$IVAR_SESSION_PATH` or use absolute paths.
+
 ## Continuing an existing feature
 
 A feature session's instruction file (`CLAUDE.md` / `AGENTS.md` at the view
