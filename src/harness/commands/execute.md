@@ -63,11 +63,16 @@ Ivar records the provider-neutral Run Receipt lifecycle and final evidence.
 
      Then resume, or restart if the revision requires a fresh execution.
 
-3. Act as the coordinator. Decompose the approved plan using this provider's
-   native subagent capabilities. Schedule tasks concurrently only when they
-   are independent and do not conflict. Monitor and synthesize their results
-   using the provider's own facilities; do not persist provider-native child or
-   conversation identifiers in Ivar.
+ 3. Act as the coordinator. Read `plan.md` and `plans/<feature>/tasks/`. Process the
+    plan wave by wave using provider-native subagent capabilities:
+    - For the current wave, dispatch ONE subagent per task packet in `plans/<feature>/tasks/`.
+      Hand the subagent ONLY that task packet's path (`plans/<feature>/tasks/NN-*.md`),
+      and instruct it to follow the packet's steps exactly and NOT edit `plan.md`.
+    - As each subagent completes its task, fill the result and evidence back into the task packet.
+    - Do not persist provider-native child or conversation identifiers in Ivar.
+    - After all tasks in a wave pass their exit criteria, pause for the wave checkpoint.
+      Summarize the completed wave and request human approval to proceed. Do NOT start
+      the next wave until the human approves the wave checkpoint.
 
 4. Ask the human directly when a decision needs their input. If newly
    discovered work is outside the approved plan and can be isolated, create a

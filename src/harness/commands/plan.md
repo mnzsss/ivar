@@ -116,10 +116,11 @@ after they approve.
    - **Entities** — domain model, delta only
    - **Approach** — the chosen design, and what was rejected
    - **Structure** — file/module organization
-   - **Changes** — the implementation in reviewable steps, including the
-     files or interfaces each step affects
+   - **Changes** — implementation organized into sequential waves (`### Wave N — <outcome>`)
+     with point budget (`**Budget:** 0 / 8 points`, ceiling 8 per wave), prerequisites, a
+     task table (`| Task | Points | Blocked by | Outcome |`), and exit criteria.
    - **Verification** — the checks that demonstrate the change is complete
-   - **Norms** — coding conventions this feature follows
+   - **Norms** — coding conventions this feature follows. Every behavioural task is Test-Driven (Red → Green → Refactor).
    - **Safeguards** — things to watch out for
 
    When Requirements and Analysis exist, reference them near the top of the
@@ -128,10 +129,58 @@ after they approve.
 
 2. Write the Plan artifact to `plans/<feature>/plan.md`.
 
-3. **Pause for human approval.** Show the plan to the user. Only proceed after
-they approve.
+3. Generate task packets into `plans/<feature>/tasks/NN-<semantic-task-name>.md` for
+   every task in `plan.md`. Name files with a two-digit order prefix (e.g.
+   `01-pin-scaffold.md`). Each task packet must follow this structure:
 
-4. Call `ivar plan approve <feature> plan`.
+   ```
+   ### Task N: [Component Name]
+   **Files:**
+   - Create: `exact/path.rs`
+   - Modify: `exact/path.rs:123-145`
+   - Test: `tests/exact/path.rs`
+   **Interfaces:**
+   - Consumes: [exact signatures from earlier tasks]
+   - Produces: [exact function names + types later tasks rely on]
+   - [ ] **Step 1: Write the failing test**
+   - [ ] **Step 2: Run test to verify it fails**  Run: `...`  Expected: FAIL ...
+   - [ ] **Step 3: Write minimal implementation**
+   - [ ] **Step 4: Run test to verify it passes**  Run: `...`  Expected: PASS
+   - [ ] **Step 5: Commit**
+   ```
+
+   No placeholders anywhere: no `TBD`/`TODO`, no "implement later", no "add error handling",
+   no "similar to Task N", no step that says what to do without showing how, no reference to a
+   symbol defined nowhere. Steps 1–2 are Red (write failing test, run to verify FAIL),
+   Steps 3–4 are Green (minimal code, run to verify PASS). Refactoring is permitted between
+   Step 4 and Step 5.
+
+4. Dispatch a plan-document reviewer subagent to review `plan.md` and `plans/<feature>/tasks/`.
+   The subagent evaluates the plan against `requirements.md` (the spec) across four categories:
+
+   | Category | What to Look For |
+   |---|---|
+   | Completeness | TODOs, placeholders, incomplete tasks, missing steps |
+   | Spec Alignment | Plan covers `requirements.md` (the spec), no major scope creep |
+   | Task Decomposition | Tasks have clear boundaries, steps are actionable |
+   | Buildability | Could an engineer follow this plan without getting stuck? |
+
+   Reviewer output format:
+
+   ```
+   ## Plan Review
+   **Status:** Approved | Issues Found
+   **Issues (if any):**
+   - [Task X, Step Y]: [specific issue] - [why it matters]
+   **Recommendations (advisory, do not block approval):**
+   - [suggestions]
+   ```
+
+   Calibration: approve unless there are serious gaps; minor wording and "nice to have" suggestions do not block approval. If issues are found, update the plan/tasks and re-review until Status is Approved.
+
+5. **Pause for human approval.** Show the plan, task packets, and plan review status to the user. Only proceed after they approve.
+
+6. Call `ivar plan approve <feature> plan`.
 
 ## Execution
 

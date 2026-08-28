@@ -31,11 +31,10 @@ the artifacts, and a relay from one provider to another carries them along.
 `ivar plan status plans/<feature>/plan.md` run from inside the session re-derives
 where the feature is — the gates remain the source of truth.
 
-`plan.md` is written as a **REASONS canvas** — Requirements, Entities, Approach,
-Structure, Operations, Norms, Safeguards. The design sections *reference* the
+`plan.md` is written as a **REASONS canvas** — Entities, Approach, Structure, Changes, Verification, Norms, Safeguards. The design sections *reference* the
 standing sources rather than restating them, and record only this feature's
-delta. Its **Operations** section gives the coordinator concrete, testable
-implementation steps.
+delta. Its `## Changes` section organizes the implementation into sequential waves
+with a point budget (ceiling 8 points per wave). Each task in a wave is written as an explicit task packet under `plans/<feature>/tasks/NN-<semantic-name>.md` following a Test-Driven Red → Green → Refactor structure. Before the plan gate is approved, a plan-document reviewer subagent evaluates `plan.md` and all task packets for completeness, spec alignment against `requirements.md`, task decomposition, and buildability.
 
 Read them back with `ivar plan show checkout requirements`, and see how far along
 every feature is with `ivar plan list`.
@@ -79,9 +78,7 @@ A Run Receipt is persistent local evidence under
 session and approved plan fingerprint, records an immutable baseline snapshot,
 and attaches the current session and provider to the receipt.
 
-The active provider is the coordinator. It decides how to decompose the approved
-plan, create and schedule its native subagents, manage dependencies, and
-synthesize results. Ivar does not schedule work, launch headless provider
+The active provider is the coordinator. It reads `plan.md` and `plans/<feature>/tasks/`, executing the plan wave by wave. For each wave, the coordinator dispatches ONE native subagent per task packet, handing the subagent only its specific task packet context to carry out Red → Green → Refactor steps without modifying `plan.md`. Between waves, a wave checkpoint pauses execution for human approval before the coordinator proceeds to the next wave. Ivar does not schedule work, launch headless provider
 processes, parse transcripts, or store native-subagent identifiers. Ask a human
 directly when a decision needs their input. If newly discovered work lies outside
 the approved plan and can be isolated, make it a child Feature rather than
