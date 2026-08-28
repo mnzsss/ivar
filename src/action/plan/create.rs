@@ -30,7 +30,7 @@ const PLAN_TEMPLATE: &str = "\
 # Plan
 
 The REASONS canvas: explain the implementation, its constraints, and how it
-will be verified.
+will be verified. Every behavioural task is Test-Driven — Red → Green → Refactor.
 
 ## Entities
 
@@ -46,8 +46,23 @@ File and module organization.
 
 ## Changes
 
-Describe the implementation in reviewable steps, including the files or
-interfaces each step affects.
+The implementation, split into sequential waves.
+
+### Wave 1 — <outcome>
+
+**Budget:** 0 / 8 points
+**Prerequisites:** none
+
+| Task | Points | Blocked by | Outcome |
+| --- | ---: | --- | --- |
+| `tasks/01-<semantic-name>.md` | 1 | — | <outcome> |
+
+#### Exit criteria
+
+- [ ] Verification checks pass.
+- [ ] Executed points ≤ 8.
+- [ ] Deviations recorded.
+- [ ] Human approval requested and granted to start Wave 2.
 
 ## Verification
 
@@ -55,7 +70,7 @@ List the checks that demonstrate the change is complete.
 
 ## Norms
 
-Conventions this feature follows.
+Conventions this feature follows. Every behavioural task follows Red → Green → Refactor.
 
 ## Safeguards
 

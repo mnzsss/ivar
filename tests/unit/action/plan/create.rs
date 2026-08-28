@@ -214,3 +214,30 @@ fn the_human_surface_names_created_and_skipped_artifacts() {
          Already present, left untouched: plan.md\n"
     );
 }
+
+#[test]
+fn scaffolded_plan_contains_wave_structure() {
+    let (_guard, root) = seeded_hall();
+    let ctx = Ctx::new(root.clone());
+
+    create(
+        &ctx,
+        CreateInput {
+            feature: "checkout".to_owned(),
+            artifacts: vec![Artifact::Plan],
+        },
+    )
+    .unwrap();
+
+    let plan_content = fs::read_text(&root.join("plans/checkout/plan.md"))
+        .unwrap()
+        .unwrap();
+
+    assert!(plan_content.contains("### Wave"));
+    assert!(plan_content.contains("**Budget:**"));
+    assert!(plan_content.contains("points"));
+    assert!(
+        plan_content.contains("Red → Green → Refactor")
+            || plan_content.contains("Red -> Green -> Refactor")
+    );
+}
