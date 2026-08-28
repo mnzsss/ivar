@@ -17,7 +17,15 @@ use std::fmt;
 use std::io::Write;
 use std::sync::Arc;
 
-use crate::error::Failure;
+use crate::error::{Failure, FixAction};
+
+/// An option for multi-selection.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SelectOption {
+    pub id: String,
+    pub description: Option<String>,
+    pub path_if_any: String,
+}
 
 /// The confirmation seam. Implementations never decide *whether* to ask —
 /// that is [`reporter`]'s job — they only ask and answer.
@@ -25,6 +33,10 @@ pub trait Confirm: fmt::Debug + Send + Sync {
     /// Ask `question` (with an optional `caveat` printed above it) and return
     /// whether the human answered yes. `true` only for an explicit `y`.
     fn confirm(&self, question: &str, caveat: Option<&str>) -> Result<bool, Failure>;
+
+    /// Prompt the human to choose zero or more options from `options`.
+    /// Returns the chosen 0-based indices.
+    fn select_many(&self, prompt: &str, options: &[SelectOption]) -> Result<Vec<usize>, Failure>;
 }
 
 /// Never asks and never consents. A pipe is not consent.
@@ -35,15 +47,54 @@ impl Confirm for NonInteractive {
     fn confirm(&self, _question: &str, _caveat: Option<&str>) -> Result<bool, Failure> {
         Ok(false)
     }
+
+    fn select_many(&self, _prompt: &str, options: &[SelectOption]) -> Result<Vec<usize>, Failure> {
+        let mut opt_str = String::new();
+        for o in options {
+            let path_info = if o.path_if_any.is_empty() {
+                String::new()
+            } else {
+                format!(" (--path {})", o.path_if_any)
+            };
+            if let Some(desc) = &o.description {
+                opt_str.push_str(&format!("  - {}{path_info} — {desc}\n", o.id));
+            } else {
+                opt_str.push_str(&format!("  - {}{path_info}\n", o.id));
+            }
+        }
+        Err(Failure::blocked(
+            "skill.add.multiple_choices",
+            format!(
+                "repository contains multiple skills; select one by passing --path:\n{}",
+                opt_str.trim_end()
+            ),
+        )
+        .expected("a --path argument specifying which skill to install")
+        .actual(format!("found {} skills", options.len()))
+        .fix(FixAction::safe(
+            "skill.add.specify_path",
+            "Pass --path <path> to select a skill to install.",
+        )))
+    }
 }
 
 /// A fixed answer, for tests and for callers that already decided.
 #[derive(Debug)]
-struct Fixed(bool);
+struct Fixed {
+    answer: bool,
+    selection: Option<Vec<usize>>,
+}
 
 impl Confirm for Fixed {
     fn confirm(&self, _question: &str, _caveat: Option<&str>) -> Result<bool, Failure> {
-        Ok(self.0)
+        Ok(self.answer)
+    }
+
+    fn select_many(&self, _prompt: &str, options: &[SelectOption]) -> Result<Vec<usize>, Failure> {
+        match &self.selection {
+            Some(indices) => Ok(indices.clone()),
+            None => Ok((0..options.len()).collect()),
+        }
     }
 }
 
@@ -82,6 +133,74 @@ impl Confirm for Interactive {
         })?;
         Ok(answer.trim().eq_ignore_ascii_case("y"))
     }
+
+    fn select_many(&self, prompt: &str, options: &[SelectOption]) -> Result<Vec<usize>, Failure> {
+        let mut stderr = std::io::stderr().lock();
+        writeln!(stderr, "{prompt}").map_err(|source| {
+            Failure::failed(
+                "confirm.write_prompt",
+                format!("could not write the prompt: {source}"),
+            )
+        })?;
+        for (i, opt) in options.iter().enumerate() {
+            let desc_str = match &opt.description {
+                Some(d) => format!(" — {d}"),
+                None => String::new(),
+            };
+            writeln!(stderr, "  [{}] {}{desc_str}", i + 1, opt.id).map_err(|source| {
+                Failure::failed(
+                    "confirm.write_prompt",
+                    format!("could not write options: {source}"),
+                )
+            })?;
+        }
+        write!(stderr, "Enter numbers (comma-separated) or \"all\": ").map_err(|source| {
+            Failure::failed(
+                "confirm.write_prompt",
+                format!("could not write prompt line: {source}"),
+            )
+        })?;
+        let _ = stderr.flush();
+
+        let mut answer = String::new();
+        let bytes_read = std::io::stdin().read_line(&mut answer).map_err(|source| {
+            Failure::failed(
+                "confirm.read_answer",
+                format!("could not read your answer: {source}"),
+            )
+        })?;
+
+        let trimmed = answer.trim();
+        if trimmed.eq_ignore_ascii_case("all") {
+            return Ok((0..options.len()).collect());
+        }
+
+        if bytes_read == 0 || trimmed.is_empty() {
+            return Err(Failure::blocked(
+                "confirm.no_answer",
+                "no selection entered on stdin",
+            ));
+        }
+
+        let mut selected = Vec::new();
+        for part in trimmed.split(',') {
+            let p = part.trim();
+            if p.is_empty() {
+                continue;
+            }
+            let idx: usize = p.parse().map_err(|_| {
+                Failure::blocked("confirm.invalid_selection", format!("invalid selection `{p}`"))
+            })?;
+            if idx == 0 || idx > options.len() {
+                return Err(Failure::blocked(
+                    "confirm.invalid_selection",
+                    format!("selection index `{idx}` out of range (1..{})", options.len()),
+                ));
+            }
+            selected.push(idx - 1);
+        }
+        Ok(selected)
+    }
 }
 
 /// Build the process's confirmer. `enabled` is the startup decision — a run
@@ -103,7 +222,20 @@ pub fn reporter(enabled: bool) -> Arc<dyn Confirm> {
 #[must_use]
 #[allow(dead_code)]
 pub(crate) fn fixed(answer: bool) -> Arc<dyn Confirm> {
-    Arc::new(Fixed(answer))
+    Arc::new(Fixed {
+        answer,
+        selection: None,
+    })
+}
+
+/// A confirmer that returns `selection` for multi-select, for tests.
+#[must_use]
+#[allow(dead_code)]
+pub(crate) fn fixed_select(answer: bool, selection: Vec<usize>) -> Arc<dyn Confirm> {
+    Arc::new(Fixed {
+        answer,
+        selection: Some(selection),
+    })
 }
 
 #[cfg(test)]

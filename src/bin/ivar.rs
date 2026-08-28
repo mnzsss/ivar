@@ -83,7 +83,10 @@ fn main() -> ExitCode {
     let ctx = Ctx::new(current_dir())
         .with_progress(progress::reporter(!json))
         .with_confirm(confirm::reporter(
-            !json && std::env::var_os("CI").is_none() && term::is_tty(term::Stream::Stderr),
+            !json
+                && std::env::var_os("CI").is_none()
+                && term::is_tty(term::Stream::Stderr)
+                && term::is_tty(term::Stream::Stdin),
         ));
 
     let mut stdout = io::stdout().lock();

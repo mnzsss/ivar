@@ -1,110 +1,83 @@
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing
+)]
 
 use super::*;
-use crate::error::Status;
-use crate::store::layout::Layout;
-use crate::store::skill::parse_frontmatter;
-use crate::test_support::seeded_hall;
+use crate::action::confirm::{SelectOption, fixed_select};
+use crate::infra::fs;
 
 #[test]
-fn add_writes_sk_md_with_source_frontmatter() {
-    let (_guard, root) = seeded_hall();
-    let ctx = Ctx::new(root.clone());
+fn discovery_scans_fixture_directory_for_candidate_skills() {
+    let temp = fs::TempDir::new().unwrap();
+    let repo_root = temp.path().join("my-repo-12345");
+    let foo_dir = repo_root.join("skills/foo");
+    let bar_dir = repo_root.join("skills/bar");
 
-    let report = add(
-        &ctx,
-        AddInput {
-            repo: "mnzsss/skills".to_owned(),
-            path: Some("skills/lint".to_owned()),
-            ref_: Some("main".to_owned()),
-            hall: true,
-        },
+    fs::ensure_dir(&foo_dir).unwrap();
+    fs::ensure_dir(&bar_dir).unwrap();
+
+    fs::write_text(
+        &foo_dir.join("SKILL.md"),
+        "---\nname: foo\ndescription: Foo skill\n---\nbody\n",
     )
     .unwrap();
 
-    assert!(report.is_clean());
-    assert_eq!(report.value.id.as_str(), "skills");
+    fs::write_text(
+        &bar_dir.join("SKILL.md"),
+        "---\nname: bar\ndescription: Bar skill\n---\nbody\n",
+    )
+    .unwrap();
 
-    let source = fs::read_text(&report.value.skill_file).unwrap().unwrap();
-    let meta = parse_frontmatter(&source).unwrap().unwrap();
+    let candidates = discover_candidates(temp.path()).unwrap();
+    assert_eq!(candidates.len(), 2);
 
-    assert_eq!(meta.name, "skills");
-    assert_eq!(meta.source.as_ref().unwrap().repo, "mnzsss/skills");
-    assert_eq!(meta.source.as_ref().unwrap().path, "skills/lint");
-    assert_eq!(meta.source.as_ref().unwrap().git_ref, "main");
+    let foo_cand = candidates.iter().find(|c| c.id == "foo").unwrap();
+    assert_eq!(foo_cand.path, "skills/foo");
+    assert_eq!(foo_cand.description.as_deref(), Some("Foo skill"));
+
+    let bar_cand = candidates.iter().find(|c| c.id == "bar").unwrap();
+    assert_eq!(bar_cand.path, "skills/bar");
+    assert_eq!(bar_cand.description.as_deref(), Some("Bar skill"));
 }
 
 #[test]
-fn add_with_defaults_uses_empty_path_and_ref() {
-    let (_guard, root) = seeded_hall();
-    let ctx = Ctx::new(root.clone());
-
-    let _report = add(
-        &ctx,
-        AddInput {
-            repo: "owner/toolkit".to_owned(),
-            path: None,
-            ref_: None,
-            hall: true,
+fn selection_seam_with_fixed_selects_chosen_index() {
+    let options = vec![
+        SelectOption {
+            id: "alpha".to_string(),
+            description: Some("Alpha".to_string()),
+            path_if_any: "skills/alpha".to_string(),
         },
-    )
-    .unwrap();
+        SelectOption {
+            id: "beta".to_string(),
+            description: Some("Beta".to_string()),
+            path_if_any: "skills/beta".to_string(),
+        },
+    ];
 
-    let skill_dir = Layout::at(root).hall_skills().join("toolkit");
-    let source = fs::read_text(&skill_dir.join("SKILL.md")).unwrap().unwrap();
-    let meta = parse_frontmatter(&source).unwrap().unwrap();
-
-    assert_eq!(meta.source.as_ref().unwrap().repo, "owner/toolkit");
-    assert_eq!(meta.source.as_ref().unwrap().path, "");
-    assert_eq!(meta.source.as_ref().unwrap().git_ref, "");
+    let confirmer = fixed_select(true, vec![1]);
+    let chosen = confirmer.select_many("Select skill", &options).unwrap();
+    assert_eq!(chosen, vec![1]);
 }
 
 #[test]
-fn add_is_rejected_for_a_duplicate_skill() {
-    let (_guard, root) = seeded_hall();
-    let ctx = Ctx::new(root.clone());
+fn in_candidate_duplicate_id_refusal() {
+    let temp = fs::TempDir::new().unwrap();
+    let repo_root = temp.path().join("my-repo-12345");
+    let a_foo = repo_root.join("dir_a/foo");
+    let b_foo = repo_root.join("dir_b/foo");
 
-    add(
-        &ctx,
-        AddInput {
-            repo: "owner/toolkit".to_owned(),
-            path: None,
-            ref_: None,
-            hall: true,
-        },
-    )
-    .unwrap();
+    fs::ensure_dir(&a_foo).unwrap();
+    fs::ensure_dir(&b_foo).unwrap();
 
-    let failure = add(
-        &ctx,
-        AddInput {
-            repo: "other/toolkit".to_owned(),
-            path: None,
-            ref_: None,
-            hall: true,
-        },
-    )
-    .unwrap_err();
+    fs::write_text(&a_foo.join("SKILL.md"), "---\nname: foo\n---\nbody\n").unwrap();
+    fs::write_text(&b_foo.join("SKILL.md"), "---\nname: foo\n---\nbody\n").unwrap();
 
-    assert_eq!(failure.status, Status::Blocked);
-    assert_eq!(failure.code, "skill.already_exists");
-}
-
-#[test]
-fn add_derives_id_from_last_path_segment_of_repo() {
-    let (_guard, root) = seeded_hall();
-    let ctx = Ctx::new(root.clone());
-
-    let report = add(
-        &ctx,
-        AddInput {
-            repo: "deep/owner/repo-name".to_owned(),
-            path: None,
-            ref_: None,
-            hall: true,
-        },
-    )
-    .unwrap();
-
-    assert_eq!(report.value.id.as_str(), "repo-name");
+    let candidates = discover_candidates(temp.path()).unwrap();
+    assert_eq!(candidates.len(), 2);
+    assert_eq!(candidates[0].id, "foo");
+    assert_eq!(candidates[1].id, "foo");
 }

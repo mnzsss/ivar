@@ -8,16 +8,16 @@
 //! warnings inside the `Ok` channel.
 
 use std::io;
-use std::io::Write;
 
 use camino::Utf8PathBuf;
 use serde::Serialize;
 
-use crate::error::{Failure, Outcome, Report, Warning, WriteHuman};
+use crate::action::Ctx;
+use crate::error::{Outcome, Report, Warning, WriteHuman};
+use crate::infra::frontmatter;
 use crate::infra::fs;
 
 use super::super::discover_hall;
-use crate::action::Ctx;
 
 /// What `ivar skill update` needs.
 #[derive(Debug, Clone)]
@@ -64,7 +64,7 @@ pub fn update(ctx: &Ctx, input: UpdateInput) -> Outcome<UpdateOutcome> {
         }
 
         let raw = fs::read_text(&skill_file)?.ok_or_else(|| {
-            Failure::failed(
+            crate::error::Failure::failed(
                 "skill.update.read",
                 format!("could not read SKILL.md for skill `{skill_name}`"),
             )
@@ -96,7 +96,7 @@ pub fn update(ctx: &Ctx, input: UpdateInput) -> Outcome<UpdateOutcome> {
             Some(_) => {
                 // Attempt to re-download and extract from upstream.
                 // This is best-effort — a failed download produces a warning, not a hard error.
-                match try_download_and_extract(&layout, &skill_dir, &fm) {
+                match try_download_and_extract(&skill_dir, &fm) {
                     Ok(()) => {}
                     Err(e) => {
                         warnings.push(Warning::new(
@@ -137,7 +137,6 @@ pub fn update(ctx: &Ctx, input: UpdateInput) -> Outcome<UpdateOutcome> {
 /// Returns `Err` on network or extraction failure — the caller converts this to
 /// a warning so one bad download never aborts the batch.
 fn try_download_and_extract(
-    _layout: &crate::store::layout::Layout,
     skill_dir: &camino::Utf8Path,
     fm: &crate::domain::skill::SkillFrontmatter,
 ) -> Result<(), String> {
@@ -145,37 +144,58 @@ fn try_download_and_extract(
         return Err("skill has no external source".to_owned());
     };
 
-    // Fetch tarball from GitHub and extract it into the skill directory.
-    // Uses the infra::github helpers for auth + network.
-    match crate::infra::github::fetch_tarball(&ext.repo, &ext.git_ref) {
-        Ok(tarball_bytes) => {
-            extract_tarball_into(&tarball_bytes, skill_dir).map_err(|e| e.to_string())
+    // Fetch tarball from GitHub and extract it into a temp directory.
+    let tarball_bytes = crate::infra::github::fetch_tarball(&ext.repo, &ext.git_ref)
+        .map_err(|e| e.to_string())?;
+
+    let temp_dir = fs::TempDir::new().map_err(|e| e.to_string())?;
+    super::extract_tarball_into(&tarball_bytes, temp_dir.path()).map_err(|e| e.to_string())?;
+
+    let repo_root = find_repo_root(temp_dir.path());
+    let source_dir = if ext.path.is_empty() {
+        repo_root
+    } else {
+        repo_root.join(&ext.path)
+    };
+
+    if !fs::exists(&source_dir).unwrap_or(false) {
+        return Err(format!(
+            "recorded path `{}` not found in repository `{}`",
+            ext.path, ext.repo
+        ));
+    }
+
+    // Replace skill_dir contents with source_dir contents.
+    fs::remove_path(skill_dir).map_err(|e| e.to_string())?;
+    fs::copy_dir(&source_dir, skill_dir).map_err(|e| e.to_string())?;
+
+    // Re-inject the frontmatter source field into SKILL.md.
+    let skill_file = skill_dir.join("SKILL.md");
+    if let Ok(Some(raw)) = fs::read_text(&skill_file) {
+        let mut updated_fm = crate::store::skill::parse_frontmatter(&raw)
+            .ok()
+            .flatten()
+            .unwrap_or_else(|| fm.clone());
+        updated_fm.source = Some(ext.clone());
+        if let Ok(new_raw) = frontmatter::replace(&raw, &updated_fm) {
+            let _ = fs::write_text(&skill_file, &new_raw);
         }
-        Err(e) => Err(format!("{e}")),
-    }
-}
-
-/// Extract a gzipped tarball bytes into the target directory using system `tar`.
-fn extract_tarball_into(data: &[u8], target_dir: &camino::Utf8Path) -> std::io::Result<()> {
-    let mut child = std::process::Command::new("tar")
-        .args(["xzf", "-"])
-        .current_dir(target_dir)
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn()?;
-
-    if let Some(mut stdin) = child.stdin.take() {
-        stdin.write_all(data)?;
-    }
-
-    let status = child.wait()?;
-
-    if !status.success() {
-        return Err(std::io::Error::other("tar extraction failed"));
     }
 
     Ok(())
+}
+
+fn find_repo_root(temp_dir: &camino::Utf8Path) -> camino::Utf8PathBuf {
+    if let Ok(entries) = fs::read_dir(temp_dir) {
+        let dirs: Vec<_> = entries
+            .into_iter()
+            .filter(|p| fs::is_dir(p).unwrap_or(false))
+            .collect();
+        if dirs.len() == 1 {
+            return dirs.first().cloned().unwrap_or_else(|| temp_dir.to_path_buf());
+        }
+    }
+    temp_dir.to_path_buf()
 }
 
 #[cfg(test)]

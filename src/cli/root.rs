@@ -728,7 +728,8 @@ pub struct SkillCreateArgs {
 /// Arguments for `ivar skill add`.
 #[derive(Debug, Args)]
 pub struct SkillAddArgs {
-    /// The git repo URL or path to install the skill from.
+    /// The skill source: owner/repo, https://github.com/owner/repo, or
+    /// https://github.com/owner/repo/tree/<ref>/<path>.
     pub repo: String,
     /// A sub-path inside the repo that holds the skill folder.
     #[arg(long)]

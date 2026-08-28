@@ -575,7 +575,7 @@ Install an external skill from a git repo
 
 | argument | required | description |
 | --- | --- | --- |
-| `repo` | yes | The git repo URL or path to install the skill from |
+| `repo` | yes | The skill source: owner/repo, https://github.com/owner/repo, or https://github.com/owner/repo/tree/<ref>/<path> |
 
 | flag | value | default | description |
 | --- | --- | --- | --- |
