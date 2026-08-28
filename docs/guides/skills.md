@@ -9,30 +9,40 @@ them by cloning, and nothing hosted is required.
 
 ## Where they live
 
+Skills live in one of two roots:
+
 ```
-<hall>/.ivar/skills/<id>/SKILL.md      committed — the source
-<hall>/.claude/skills/…                materialised for Claude Code
-<hall>/.opencode/skills/…              materialised for OpenCode
+<hall>/.ivar/skills/          committed — shared across the team
+<hall>/.ivar/skills-local/    personal — gitignored
+```
+
+`sync` merges both roots into the harness targets:
+
+```
+<hall>/.claude/skills/…
+<hall>/.opencode/skills/…
 ```
 
 `.ivar/skills/` is **committed**, along with `.ivar/setups/` — the hall's
-`.gitignore` includes `.ivar/*` plus `!.ivar/skills/` and `!.ivar/setups/` for
-exactly this reason. Everything else under `.ivar/` is derived and ignored,
-and the materialised copies above are derived too.
-
-(The re-include lines have to be spelled that way. `.ivar/` on its own would
-exclude the directory, and git does not re-include a child of an excluded
-directory — the skills would silently never be committed.)
+`.gitignore` ignores derived harness targets `.claude/skills/` and
+`.opencode/skills/`, and includes `.ivar/*` plus `!.ivar/skills/` and `!.ivar/setups/` for
+exactly this reason. Everything else under `.ivar/` is derived and ignored.
 
 ## Authoring one
 
 ```sh
-ivar skill create review-checklist --description "How we review cross-repo PRs"
-ivar skill sync
+# Defaults to personal root (.ivar/skills-local/)
+ivar skill create my-tool --description "..."
+
+# Publishes to shared root (.ivar/skills/)
+ivar skill create team-tool --description "..." --hall
 ```
 
-`create` scaffolds the folder and its `SKILL.md`; `sync` materialises every hall
-skill into each harness's native target. Commit `.ivar/skills/` and your
+Personal is the default because writing to the committed root is a commit 
+visible in review and inherited by everyone who clones the hall. 
+
+`ivar skill sync` materialises all skills from both roots into
+each harness's native target location. Commit `.ivar/skills/` and your
 teammates get it on their next `git pull` + `ivar skill sync`.
 
 ## Installing someone else's

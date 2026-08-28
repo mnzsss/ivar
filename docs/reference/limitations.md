@@ -87,7 +87,8 @@ you need stronger write isolation.
 
 ## Local state is disposable
 
-Everything under `.ivar/` except `skills/` and `setups/` is local derived state.
+Folders like `skills/`, `skills-local/`, and `setups/` are managed or personal;
+everything else under `.ivar/` is local derived state.
 Removing it costs a re-clone and session recreation, not committed work. Do not
 put source files, plans, secrets you need to share, or irreplaceable artifacts
 there.
