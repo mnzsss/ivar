@@ -47,14 +47,28 @@ teammates get it on their next `git pull` + `ivar skill sync`.
 
 ## Installing someone else's
 
+`ivar skill add` pulls a skill from a GitHub repo. The source can be a shorthand,
+a full URL, or a URL pointing straight at one skill:
+
 ```sh
-ivar skill add https://github.com/acme/skills --path skills/rust-review --ref v2
+ivar skill add acme/skills
+ivar skill add https://github.com/acme/skills
+ivar skill add https://github.com/acme/skills/tree/main/skills/rust-review
+```
+
+When the target holds more than one skill, `add` lists them and asks which to
+install; pass `--path` (or the `tree/…/subpath` URL form) to install one without
+prompting, and `--ref` to pin a branch, tag or sha. As with `create`, the skill
+lands in your personal root unless you pass `--hall`.
+
+```sh
+ivar skill add acme/skills --path skills/rust-review --ref v2
 ivar skill update            # move external skills to their tracked ref
 ```
 
 An **external** skill tracks a ref in another repo. `ivar skill update` moves it
-forward; nothing moves on its own, so a skill cannot change under you between two
-runs of the same command.
+forward and re-fetches only that skill's folder; nothing moves on its own, so a
+skill cannot change under you between two runs of the same command.
 
 To take ownership of one — stop tracking upstream and keep a local copy you can
 edit:
