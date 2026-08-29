@@ -40,8 +40,9 @@ use ivar::action::repo::{
     add, list as repo_list, pull, remove, setup as repo_setup, upstream as repo_upstream,
 };
 use ivar::action::session::{
-    connect as session_connect, conversion as session_conversion, prune as session_prune,
-    relay as session_relay, start as session_start, stop as session_stop,
+    connect as session_connect, conversion as session_conversion, env_cmd as session_env_cmd,
+    guard_cmd as session_guard_cmd, prune as session_prune, relay as session_relay,
+    start as session_start, stop as session_stop,
 };
 use ivar::action::skill::{
     add as skill_add, create as skill_create, detach as skill_detach, doctor as skill_doctor,
@@ -291,6 +292,12 @@ fn main() -> ExitCode {
                 &mut stdout,
                 &mut stderr,
             ),
+            SessionCommand::Env(args) => respond(
+                session_env_cmd::run(&ctx, args.into()),
+                json,
+                &mut stdout,
+                &mut stderr,
+            ),
         },
         Command::Provider(cmd) => match cmd {
             ProviderCommand::List => {
@@ -376,6 +383,27 @@ fn main() -> ExitCode {
                 respond(skill_doctor::doctor(&ctx), json, &mut stdout, &mut stderr)
             }
         },
+        Command::Guard(args) => {
+            let input = match session_guard_cmd::GuardInput::try_from(args) {
+                Ok(input) => input,
+                Err(failure) => {
+                    return respond_failure(failure, json, &mut stdout, &mut stderr);
+                }
+            };
+            match session_guard_cmd::run(input) {
+                Ok(outcome) => {
+                    if !outcome.body.is_empty() {
+                        let _ = write!(stdout, "{}", outcome.body);
+                    }
+                    if outcome.exit_zero {
+                        ExitCode::SUCCESS
+                    } else {
+                        ExitCode::FAILURE
+                    }
+                }
+                Err(failure) => respond_failure(failure, json, &mut stdout, &mut stderr),
+            }
+        }
         Command::Mcp(cmd) => match cmd {
             McpCommand::Auth(args) => respond(
                 mcp_auth::auth(&ctx, args.into()),

@@ -177,6 +177,16 @@ impl Provider {
         }
     }
 
+    /// The provider-native directory holding plugins. Only OpenCode uses this
+    /// today; Claude Code has no plugin system, so this returns `None`.
+    #[must_use]
+    pub const fn plugins_dir(&self) -> Option<&'static str> {
+        match self {
+            Self::ClaudeCode => None,
+            Self::OpenCode => Some(".opencode/plugins"),
+        }
+    }
+
     /// The file this harness's MCP server definitions live in, at the hall
     /// root.
     ///

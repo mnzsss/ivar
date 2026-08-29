@@ -26,12 +26,7 @@ instructions.
    IVAR_FEATURE=<feature-or-empty>
    IVAR_SESSION_PATH=<absolute-view-dir>
    ```
-3. Export the env vars:
-   ```bash
-   export IVAR_SESSION_ID=<uuid>
-   export IVAR_FEATURE=<feature-or-empty>
-   export IVAR_SESSION_PATH=<absolute-view-dir>
-   ```
+3. Note that `session connect` prints export statements for human terminals, but the agent session environment is already injected by `ivar session start` (or resolvable via `ivar session env`). Do not execute export statements manually.
 4. **Change working directory immediately:**
    ```bash
    cd $IVAR_SESSION_PATH

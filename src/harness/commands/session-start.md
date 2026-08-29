@@ -48,12 +48,7 @@ still opens.
    IVAR_FEATURE=<feature-or-empty>
    IVAR_SESSION_PATH=<absolute-view-dir>
    ```
-5. Export env vars for this shell session:
-   ```bash
-   export IVAR_SESSION_ID=<id>
-   export IVAR_FEATURE=<feature>
-   export IVAR_SESSION_PATH=<path>
-   ```
+5. Note that the session environment is already injected for the agent by `ivar session start`. Any shell opened outside this process can acquire the environment with `eval "$(ivar session env)"` or `ivar session env --json`.
 6. From this point forward, **all file reads, writes, and shell commands must
    operate inside the session path**. Promoted repos are mounted directly at
    the view dir's own root — prefix repo paths with

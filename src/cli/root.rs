@@ -22,14 +22,15 @@ use crate::action::plan::{create as plan_create, show as plan_show, status as pl
 use crate::action::provider::add as provider_add;
 use crate::action::repo::{add, pull, remove, setup as repo_setup, upstream as repo_upstream};
 use crate::action::session::{
-    connect as session_connect, conversion as session_conversion, relay as session_relay,
-    start as session_start, stop as session_stop,
+    connect as session_connect, conversion as session_conversion, env_cmd as session_env_cmd,
+    guard_cmd, relay as session_relay, start as session_start, stop as session_stop,
 };
 use crate::action::skill::{
     add as skill_add, create as skill_create, detach as skill_detach, remove as skill_remove,
     update as skill_update,
 };
 use crate::action::sync::SyncInput;
+use crate::error::Failure;
 
 /// Mount the repos a feature spans into one directory, on one branch, for
 /// one agent session.
@@ -102,6 +103,8 @@ pub enum Command {
     /// Authenticate the hall's declared MCP servers.
     #[command(subcommand)]
     Mcp(McpCommand),
+    /// Guard: evaluate a tool request against the session's writable set.
+    Guard(GuardArgs),
     /// Answer git's credential helper protocol on stdin. Registered as
     /// `credential.https://github.com.helper = !ivar git-credential` so a
     /// token never lands in `.git/config`.
@@ -122,6 +125,28 @@ pub struct GitCredentialArgs {
     /// read as `get`: only a human runs this without an operation.
     #[arg(value_name = "OPERATION")]
     pub operation: Option<String>,
+}
+
+/// Arguments for `ivar guard`.
+#[derive(Debug, Args)]
+pub struct GuardArgs {
+    /// The provider whose hook protocol to use for output shaping.
+    #[arg(long)]
+    pub provider: String,
+}
+
+impl TryFrom<GuardArgs> for guard_cmd::GuardInput {
+    type Error = crate::error::Failure;
+
+    fn try_from(args: GuardArgs) -> Result<Self, Self::Error> {
+        let provider = args.provider.parse().map_err(|e| {
+            Failure::blocked(
+                "guard.invalid_provider",
+                format!("unknown provider `{}`: {e}", args.provider),
+            )
+        })?;
+        Ok(Self { provider })
+    }
 }
 
 /// The `ivar repo` surface: what a repo is, who owns it, and how the hall's
@@ -538,6 +563,8 @@ pub enum SessionCommand {
     Prune,
     /// Relay session info: four-line output contract for external consumers.
     Relay(SessionRelayArgs),
+    /// Resolve and output the session environment by walking up from cwd.
+    Env(SessionEnvArgs),
 }
 
 /// Arguments for `ivar session start`.
@@ -604,6 +631,22 @@ pub struct SessionRelayArgs {
     /// The provider to relay to. Required — relay must switch providers.
     #[arg(long)]
     pub provider: String,
+}
+
+/// Arguments for `ivar session env`.
+#[derive(Debug, Args)]
+pub struct SessionEnvArgs {
+    /// Working directory to resolve from. Defaults to current working directory.
+    #[arg(long)]
+    pub cwd: Option<String>,
+}
+
+impl From<SessionEnvArgs> for session_env_cmd::EnvInput {
+    fn from(args: SessionEnvArgs) -> Self {
+        Self {
+            cwd: args.cwd.map(Utf8PathBuf::from),
+        }
+    }
 }
 
 /// The `ivar plan` surface: the SPDD artifacts, committed per feature, and

@@ -1071,3 +1071,59 @@ fn the_json_surface_carries_every_entry_and_its_change() {
         r#"{"root":"/hall","entries":[{"surface":"hall","label":".ivar/","change":"created"}]}"#
     );
 }
+
+// -- settings and plugin materialisation -----------------------------------
+
+#[test]
+fn sync_materialises_settings_and_plugin_per_provider() {
+    let (_guard, root) = hall_with_both_providers();
+    let ctx = Ctx::new(root.clone());
+
+    let report = sync(&ctx, SyncInput::default()).unwrap();
+
+    assert!(report.is_clean());
+    assert!(
+        root.join(".claude/settings.json").is_file(),
+        ".claude/settings.json must be created for Claude Code"
+    );
+    assert!(
+        root.join(".opencode/plugins/ivar.js").is_file(),
+        ".opencode/plugins/ivar.js must be created for OpenCode"
+    );
+    // The settings file carries ivar's env key.
+    let settings: serde_json::Value = serde_json::from_str(
+        &fs::read_text(&root.join(".claude/settings.json"))
+            .unwrap()
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(settings["env"]["IVAR_HALL"], serde_json::json!("acme"));
+}
+
+#[test]
+fn sync_removes_plugin_when_opencode_is_not_listed() {
+    let (_guard, root) = hall_with_both_providers();
+    let ctx = Ctx::new(root.clone());
+    sync(&ctx, SyncInput::default()).unwrap();
+    assert!(root.join(".opencode/plugins/ivar.js").is_file());
+
+    // Drop OpenCode from the manifest.
+    let layout = Layout::at(root.clone());
+    let manifest = Manifest::new(
+        HallName::new("acme").unwrap(),
+        Providers::new(vec![Provider::ClaudeCode], Provider::ClaudeCode),
+        vec![],
+        None,
+    )
+    .unwrap();
+    Manifest::write(&layout, &manifest).unwrap();
+
+    sync(&ctx, SyncInput::default()).unwrap();
+
+    assert!(
+        !root.join(".opencode/plugins/ivar.js").exists(),
+        "plugin must be removed when OpenCode is not listed"
+    );
+    // Claude Code's settings survive.
+    assert!(root.join(".claude/settings.json").is_file());
+}

@@ -361,3 +361,18 @@ fn execute_help_exposes_the_receipt_lifecycle_without_legacy_verbs() {
         .stdout(predicate::str::contains("prepare").not())
         .stdout(predicate::str::contains("tick").not());
 }
+
+#[test]
+fn no_shipped_command_tells_the_agent_to_export_ivar_vars() {
+    for id in SHIPPED_IDS {
+        let source = format!(
+            "{}/src/harness/commands/{id}.md",
+            env!("CARGO_MANIFEST_DIR")
+        );
+        let body = std::fs::read_to_string(source).unwrap();
+        assert!(
+            !body.contains("export IVAR_"),
+            "/ivar-{id} still tells the agent to export IVAR_* vars"
+        );
+    }
+}

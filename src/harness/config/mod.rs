@@ -49,12 +49,16 @@ use crate::error::{Failure, FixAction};
 use crate::infra::json;
 
 mod mcp;
+mod plugin;
 pub(crate) mod session;
+mod settings;
 
 pub mod instructions;
 
 pub use instructions::{Change, MANAGED_END, MANAGED_START, build_block, materialise, remove};
 pub use mcp::{OAUTH_REDIRECT_URI, materialise_mcp, remove_mcp};
+pub use plugin::{OPENCODE_PLUGIN, materialise_plugin, remove_plugin};
+pub use settings::{materialise_settings, remove_settings};
 
 /// Everything that can go wrong maintaining an MCP config: it could not be
 /// parsed, or it parsed as something the `mcp` key cannot merge into.

@@ -700,19 +700,18 @@ Two traps, both learned the hard way:
 Setup scripts and anything else `ivar` spawns get these, and they are a **public
 contract** — a user's committed `.ivar/setups/<repo>.sh` breaks if they move.
 
-| variable | set when | value |
-| --- | --- | --- |
 | variable | setup script | session hook | value |
 | --- | --- | --- | --- |
 | `IVAR_HALL` | ✓ | ✓ | the hall root |
-| `IVAR_REPO` | ✓ | ✓ | the repo name, as it appears in `ivar.json` |
-| `IVAR_BRANCH` | ✓ | ✓ | the branch that worktree is checked out on |
-| `IVAR_WORKTREE` | ✓ | ✓ | the absolute path of the worktree (also the cwd) |
-| `IVAR_WORKTREE_KIND` | ✓ | ✓ | `default` or `feature` |
-| `IVAR_SECRETS_DIR` | ✓ | ✓ | `.ivar/secrets/` — hand-maintained, never written by `ivar` |
+| `IVAR_REPO` | ✓ | — | the repo name, as it appears in `ivar.json` |
+| `IVAR_BRANCH` | ✓ | — | the branch that worktree is checked out on |
+| `IVAR_WORKTREE` | ✓ | — | the absolute path of the worktree (also the cwd) |
+| `IVAR_WORKTREE_KIND` | ✓ | — | `default` or `feature` |
+| `IVAR_SECRETS_DIR` | ✓ | — | `.ivar/secrets/` — hand-maintained, never written by `ivar` |
 | `IVAR_FEATURE` | feature worktrees only | ✓ | the feature name |
 | `IVAR_SESSION_ID` | — | ✓ | the session id |
 | `IVAR_SESSION_PATH` | — | ✓ | the view dir |
+| `IVAR_PROVIDER` | — | ✓ | the active harness provider (`claude-code` or `opencode`) |
 
 The three worktree variables were added when slice 2 landed the setup-script
 runner: a script's whole job is to bootstrap *this* repo on *this* branch, and

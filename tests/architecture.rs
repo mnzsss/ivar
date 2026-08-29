@@ -385,3 +385,16 @@ fn crate_imports(text: &str) -> Vec<String> {
     }
     modules
 }
+
+#[test]
+fn session_env_decisions_are_on_record() {
+    for path in [
+        "docs/adr/0003-env-by-process-guard-by-hook.md",
+        "docs/reference/limitations.md",
+    ] {
+        assert!(
+            std::path::Path::new(path).is_file(),
+            "missing decision/limitation document: {path}"
+        );
+    }
+}
