@@ -444,6 +444,13 @@ impl Layout {
         self.root().join(provider.commands_dir())
     }
 
+    /// `<hall>/.opencode/plugins/` — the provider-native plugin directory.
+    /// Returns `None` for providers that have no plugin system (Claude Code).
+    #[must_use]
+    pub fn plugins_dir(&self, provider: &Provider) -> Option<Utf8PathBuf> {
+        provider.plugins_dir().map(|dir| self.root().join(dir))
+    }
+
     /// `<hall>/HALL.md` — the sole editable source of shared hall
     /// instructions. Committed, and mostly the user's: `harness::config`
     /// owns only the bytes between its two markers.
