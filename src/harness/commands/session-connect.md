@@ -1,27 +1,25 @@
 ---
 description: Reconnect to an active ivar session instead of creating a new one.
-argument-hint: [session-id-prefix]
+argument-hint: [feature-name]
 ---
 
 # Session Connect
 
-`/ivar-session-connect` reconnects to an active ivar session instead of creating
-a new one. Connect re-materialises the session's view dir, repairing anything
-that drifted or predates the current `ivar`: repo symlinks, read-only guards,
-the provider's config dir and commands, the projected plan link, and the
-session's bootstrap instructions.
+You are executing `/ivar-session-connect`. Do the steps below now — do not
+describe them. Reconnect to the feature's active session, export the emitted
+bindings, and change into the view dir.
+
+Connect re-materialises the session's view dir, repairing anything that drifted
+or predates the current `ivar`: repo symlinks, read-only guards, the provider's
+config dir and commands, the projected plan link, and the session's bootstrap
+instructions.
 
 ## Steps
 
-1. Determine the target session from `$ARGUMENTS`. When it is empty, ask
-   which session to reconnect to — never guess. When it is given, it is
-   either a session ID prefix or a feature name:
-   - A session ID prefix: `ivar session connect $ARGUMENTS`
-   - A feature name: `ivar session connect --feature $ARGUMENTS`
-
-   A value that looks like a hex UUID prefix is an ID; anything else is a
-   feature name. If the ID form fails with `session.not_found`, retry once as
-   `--feature $ARGUMENTS` before reporting failure.
+1. Determine the target feature from `$ARGUMENTS`. When it is empty, ask which
+   feature to reconnect to — never guess. The value is a feature name; run:
+   `ivar session connect --feature $ARGUMENTS`
+   If it names multiple candidate sessions, ask the user which one to connect to.
 2. Run the command. It emits three stable machine-readable binding keys:
    ```
    IVAR_SESSION_ID=<uuid>
