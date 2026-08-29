@@ -20,6 +20,22 @@ pub(crate) struct WritableSet {
     worktrees: Vec<Utf8PathBuf>,
 }
 
+/// Leniently canonicalise `path`. If canonicalisation fails (e.g. for a
+/// file that does not exist yet), try canonicalising its parent and appending
+/// the file name, falling back to the raw path if parent canonicalisation also
+/// fails.
+fn canonicalize_lenient(path: &Utf8Path) -> Utf8PathBuf {
+    if let Ok(canonical) = path.canonicalize_utf8() {
+        return canonical;
+    }
+    if let (Some(parent), Some(file_name)) = (path.parent(), path.file_name())
+        && let Ok(canonical_parent) = parent.canonicalize_utf8()
+    {
+        return canonical_parent.join(file_name);
+    }
+    path.to_path_buf()
+}
+
 impl WritableSet {
     /// Build the writable set from the session's view dir and the feature's
     /// promoted repos. Both the view dir and each worktree are canonicalised to
@@ -55,12 +71,11 @@ impl WritableSet {
     }
 
     /// Whether `path` is inside the view dir or one of the promoted worktrees.
-    /// The input path is canonicalised (falling back to the raw path for
-    /// not-yet-existing files) so symlinks cannot escape the set.
+    /// The input path is canonicalised (with parent fallback for not-yet-existing
+    /// files) so symlinks cannot escape the set on platforms like macOS where
+    /// `/tmp` or `/var` are symlinks.
     pub(crate) fn allows(&self, path: &Utf8Path) -> bool {
-        let canonical = path
-            .canonicalize_utf8()
-            .unwrap_or_else(|_| path.to_path_buf());
+        let canonical = canonicalize_lenient(path);
         canonical.starts_with(&self.view_dir)
             || self.worktrees.iter().any(|wt| canonical.starts_with(wt))
     }
@@ -73,6 +88,8 @@ impl WritableSet {
     /// Build a `WritableSet` from explicit parts. Test-only.
     #[cfg(test)]
     pub(crate) fn from_parts(view_dir: Utf8PathBuf, worktrees: Vec<Utf8PathBuf>) -> Self {
+        let view_dir = canonicalize_lenient(&view_dir);
+        let worktrees = worktrees.iter().map(|w| canonicalize_lenient(w)).collect();
         Self {
             view_dir,
             worktrees,
