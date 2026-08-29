@@ -22,27 +22,45 @@ pub(crate) struct WritableSet {
 
 impl WritableSet {
     /// Build the writable set from the session's view dir and the feature's
-    /// promoted repos.
+    /// promoted repos. Both the view dir and each worktree are canonicalised to
+    /// prevent symlink escapes.
     pub(crate) fn from_session(
         layout: &Layout,
         feature: &Feature,
         view_dir: &Utf8Path,
     ) -> Result<Self, Failure> {
+        let view_dir = view_dir
+            .canonicalize_utf8()
+            .map_err(|source| Failure::failed(
+                "guard.unresolvable_view_dir",
+                format!("could not canonicalise view dir `{view_dir}`: {source}"),
+            ))?;
         let worktrees = feature
             .promotions
             .keys()
-            .map(|repo| layout.repo_worktree(repo, &feature.branch))
-            .collect();
+            .map(|repo| {
+                let wt = layout.repo_worktree(repo, &feature.branch);
+                wt.canonicalize_utf8().map_err(|source| Failure::failed(
+                    "guard.unresolvable_worktree",
+                    format!("could not canonicalise worktree `{wt}`: {source}"),
+                ))
+            })
+            .collect::<Result<Vec<_>, Failure>>()?;
         Ok(Self {
-            view_dir: view_dir.to_path_buf(),
+            view_dir,
             worktrees,
         })
     }
 
     /// Whether `path` is inside the view dir or one of the promoted worktrees.
+    /// The input path is canonicalised (falling back to the raw path for
+    /// not-yet-existing files) so symlinks cannot escape the set.
     pub(crate) fn allows(&self, path: &Utf8Path) -> bool {
-        path.starts_with(&self.view_dir)
-            || self.worktrees.iter().any(|wt| path.starts_with(wt))
+        let canonical = path
+            .canonicalize_utf8()
+            .unwrap_or_else(|_| path.to_path_buf());
+        canonical.starts_with(&self.view_dir)
+            || self.worktrees.iter().any(|wt| canonical.starts_with(wt))
     }
 
     /// The view dir — the canonical root of this set.

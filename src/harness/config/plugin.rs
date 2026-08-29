@@ -17,27 +17,40 @@ use super::{Change, Error};
 /// The embedded plugin source: a single file OpenCode loads from
 /// `.opencode/plugins/`. Idempotent — `materialise_plugin` writes it only
 /// when the bytes on disk differ.
+///
+/// Hook signatures (from `opencode.ai/docs/plugins`):
+/// - `shell.env(input, output)` — `input.cwd` is the working directory;
+///   `output.env` is a mutable object; set keys on it to inject env vars.
+/// - `tool.execute.before(input, output)` — `input.tool` is the tool name;
+///   `output.args` are the arguments. Throw to block execution.
 pub const OPENCODE_PLUGIN: &str = r#"// ivar session plugin for OpenCode
 // Materialised by `ivar sync`. Do not edit.
 
 export default {
-  "shell.env": async (ctx) => {
+  "shell.env": async (input, output) => {
     const { execSync } = await import("child_process");
-    const env = JSON.parse(execSync("ivar session env", { encoding: "utf-8" }));
-    return { ...ctx.env, ...env };
+    const result = execSync(
+      `ivar session env --json --cwd ${JSON.stringify(input.cwd)}`,
+      { encoding: "utf-8" }
+    );
+    const env = JSON.parse(result);
+    for (const [key, value] of Object.entries(env)) {
+      output.env[key] = value;
+    }
   },
 
-  "tool.execute.before": async (ctx) => {
+  "tool.execute.before": async (input, output) => {
     const { execSync } = await import("child_process");
-    try {
-      execSync("ivar guard --provider opencode", {
-        encoding: "utf-8",
-        stdio: "pipe",
-      });
-    } catch (e) {
-      return { ...ctx, abort: true, error: e.message };
-    }
-    return ctx;
+    const payload = JSON.stringify({
+      tool: input.tool,
+      args: output.args,
+      cwd: input.cwd || output.cwd || "",
+    });
+    execSync("ivar guard --provider opencode", {
+      input: payload,
+      encoding: "utf-8",
+      stdio: ["pipe", "pipe", "pipe"],
+    });
   },
 };
 "#;
