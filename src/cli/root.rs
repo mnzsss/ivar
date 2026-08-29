@@ -13,7 +13,7 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 use crate::action::execute::{accept_revision, finish, start, status as execute_status};
 use crate::action::feature::{
     cleanup, close, create, delete, deliver, demote, integrate, promote, rebase, rename, reparent,
-    review, status, view,
+    status, view,
 };
 use crate::action::hall::InitInput;
 use crate::action::mcp::auth as mcp_auth;
@@ -299,9 +299,6 @@ pub enum FeatureCommand {
     /// Rebase every promoted repo's worktree onto its effective base. A dirty
     /// worktree is skipped; a conflict is aborted and reported.
     Rebase(FeatureRebaseArgs),
-    /// Write a VSCode workspace opening the feature: promoted repos on the
-    /// feature branch, everyone else on their default branch.
-    Review(FeatureReviewArgs),
     /// Open an interactive multi-shell view over the feature's promoted
     /// repos — one shell per repo, each running in its worktree.
     View(FeatureViewArgs),
@@ -527,13 +524,6 @@ pub struct FeatureRebaseArgs {
     /// verb for once a feature's own base has landed.
     #[arg(long)]
     pub onto: Option<String>,
-}
-
-/// Arguments for `ivar feature review`.
-#[derive(Debug, Args)]
-pub struct FeatureReviewArgs {
-    /// The feature to open.
-    pub name: String,
 }
 
 /// Arguments for `ivar feature view`.
@@ -1190,13 +1180,6 @@ impl From<FeatureRebaseArgs> for rebase::RebaseInput {
     fn from(args: FeatureRebaseArgs) -> Self {
         let FeatureRebaseArgs { name, onto } = args;
         Self { name, onto }
-    }
-}
-
-impl From<FeatureReviewArgs> for review::ReviewInput {
-    fn from(args: FeatureReviewArgs) -> Self {
-        let FeatureReviewArgs { name } = args;
-        Self { name }
     }
 }
 

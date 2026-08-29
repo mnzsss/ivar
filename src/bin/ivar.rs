@@ -27,7 +27,7 @@ use ivar::action::confirm;
 use ivar::action::execute::{accept_revision, finish, start, status as execute_status};
 use ivar::action::feature::{
     cleanup, close, create, delete, deliver, demote, integrate, list as feature_list, promote,
-    prune as feature_prune, rebase, rename, reparent, review, status, view,
+    prune as feature_prune, rebase, rename, reparent, status, view,
 };
 use ivar::action::hall;
 use ivar::action::mcp::auth as mcp_auth;
@@ -238,12 +238,6 @@ fn main() -> ExitCode {
             ),
             FeatureCommand::Rebase(args) => respond(
                 rebase::rebase(&ctx, args.into()),
-                json,
-                &mut stdout,
-                &mut stderr,
-            ),
-            FeatureCommand::Review(args) => respond(
-                review::review(&ctx, args.into()),
                 json,
                 &mut stdout,
                 &mut stderr,

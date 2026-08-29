@@ -14,9 +14,6 @@ reported side by side.
 The findings are the deliverable, and they land in the conversation. This
 workflow writes no file.
 
-`ivar feature review <feature>` still writes the VSCode workspace it always
-wrote. Step 9 offers it once the review is done.
-
 ## Prerequisites
 
 - A target: a feature session with `IVAR_FEATURE` and `IVAR_SESSION_PATH`
@@ -140,23 +137,11 @@ wrote. Step 9 offers it once the review is done.
    worst one it raised. Never name a single worst finding across both — that is
    the ranking the split exists to prevent.
 
-8. **Check the change against the hall's relations.** Compare what the diff
-   does against the relation context in `HALL.md`, and offer `/ivar-relations`
-   only for concrete evidence in the diff that the prose contradicts, extends,
-   or obsoletes. Deferring it blocks nothing. This step never writes `HALL.md`;
-   `/ivar-relations` is the only writer of the relation region.
-
-9. **Offer the workspace.** For a feature target, offer a visual pass over the
-   same changes:
-
-   ```bash
-   ivar feature review <feature>
-   ```
-
-   It writes `<feature>.code-workspace`, opening every repo in the hall as a
-   folder with the promoted ones on the feature branch. Offer it; never run it
-   unasked.
-
+ 8. **Check the change against the hall's relations.** Compare what the diff
+    does against the relation context in `HALL.md`, and offer `/ivar-relations`
+    only for concrete evidence in the diff that the prose contradicts, extends,
+    or obsoletes. Deferring it blocks nothing. This step never writes `HALL.md`;
+    `/ivar-relations` is the only writer of the relation region.
 ## The smell baseline
 
 Two rules sit above this list and outrank every entry in it.
