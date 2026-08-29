@@ -1,3 +1,10 @@
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing
+)]
+
 use super::*;
 use crate::domain::name::SessionId;
 use crate::domain::provider::Provider;

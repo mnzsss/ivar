@@ -2,7 +2,12 @@
 //!
 //! Physically located here but compiled inside the library crate via `#[path]`
 //! so `use super::*` reaches private parent items.
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing
+)]
 
 use super::*;
 use crate::action::feature::create::{self as feature_create, CreateInput};

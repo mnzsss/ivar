@@ -71,24 +71,24 @@ impl SessionEnv {
     pub fn render_json(&self) -> serde_json::Value {
         let mut map = serde_json::Map::new();
         map.insert(
-            "IVAR_HALL".to_string(),
+            "IVAR_HALL".to_owned(),
             serde_json::Value::String(self.hall.to_string()),
         );
         map.insert(
-            "IVAR_SESSION_ID".to_string(),
+            "IVAR_SESSION_ID".to_owned(),
             serde_json::Value::String(self.session_id.clone()),
         );
         map.insert(
-            "IVAR_SESSION_PATH".to_string(),
+            "IVAR_SESSION_PATH".to_owned(),
             serde_json::Value::String(self.view_dir.to_string()),
         );
         map.insert(
-            "IVAR_PROVIDER".to_string(),
-            serde_json::Value::String(self.provider.id().to_string()),
+            "IVAR_PROVIDER".to_owned(),
+            serde_json::Value::String(self.provider.id().to_owned()),
         );
         if let Some(feature) = &self.feature {
             map.insert(
-                "IVAR_FEATURE".to_string(),
+                "IVAR_FEATURE".to_owned(),
                 serde_json::Value::String(feature.to_string()),
             );
         }
@@ -125,26 +125,22 @@ impl SessionEnv {
         };
 
         loop {
-            let state_file = current.join("state.json");
-            if state_file.is_file() {
-                if let Some(file_name) = current.file_name() {
-                    if let Ok(session_id) = SessionId::new(file_name) {
-                        if let Some(layout) = Layout::discover(&current)? {
-                            if let Some(state) =
-                                crate::domain::session::SessionState::read(&current)?
-                            {
-                                let env = Self::build(
-                                    &layout,
-                                    &session_id,
-                                    &current,
-                                    state.provider,
-                                    state.feature.as_ref(),
-                                );
-                                return Ok(Some(env));
-                            }
-                        }
-                    }
-                }
+            if current.join("state.json").is_file()
+                && let Some(file_name) = current.file_name()
+                && let Ok(session_id) = SessionId::new(file_name)
+                && let (Some(layout), Ok(Some(state))) = (
+                    Layout::discover(&current)?,
+                    crate::domain::session::SessionState::read(&current),
+                )
+            {
+                let env = Self::build(
+                    &layout,
+                    &session_id,
+                    &current,
+                    state.provider,
+                    state.feature.as_ref(),
+                );
+                return Ok(Some(env));
             }
 
             match current.parent() {

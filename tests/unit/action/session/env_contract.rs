@@ -1,5 +1,11 @@
 //! The `Environment contract` table in ARCHITECTURE.md is the source of truth
 //! for the session environment; this test keeps the code honest to it.
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing
+)]
 
 use std::collections::BTreeSet;
 
