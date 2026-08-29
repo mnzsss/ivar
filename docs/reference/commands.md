@@ -410,6 +410,20 @@ Open an interactive multi-shell view over the feature's promoted repos — one s
 Delete features whose branches have been merged into their default branches
 
 
+##### `ivar feature cleanup`
+
+Authorize and perform a feature's local teardown
+
+| argument | required | description |
+| --- | --- | --- |
+| `name` | yes | The feature to clean up |
+
+| flag | value | default | description |
+| --- | --- | --- | --- |
+| `--preview` |  |  | Preview only: compute and print the summary, teardown nothing |
+| `--record` | `<RECORD>` |  | Path to the approved cleanup record; required to perform teardown |
+
+
 #### `ivar session`
 
 Manage sessions

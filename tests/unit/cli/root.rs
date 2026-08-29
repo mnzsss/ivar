@@ -65,6 +65,21 @@ fn init_args_convert_into_init_input_without_change() {
 }
 
 #[test]
+fn feature_cleanup_rejects_both_modes() {
+    let error = Cli::try_parse_from([
+        "ivar",
+        "feature",
+        "cleanup",
+        "checkout",
+        "--preview",
+        "--record",
+        "docs/updates/001-checkout.cleanup.json",
+    ])
+    .unwrap_err();
+    assert_eq!(error.kind(), clap::error::ErrorKind::ArgumentConflict);
+}
+
+#[test]
 fn color_mode_maps_to_the_override_colour_expects() {
     assert_eq!(ColorMode::Auto.as_override(), None);
     assert_eq!(ColorMode::Always.as_override(), Some(true));

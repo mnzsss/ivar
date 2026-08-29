@@ -410,6 +410,14 @@ impl Layout {
         self.root.join("plans").join(feature.as_str())
     }
 
+    /// `<hall>/docs/updates/` — numbered delivery-relevant change records,
+    /// including a feature's durable cleanup record (MNZS-379's convention).
+    /// Committed.
+    #[must_use]
+    pub fn docs_updates_dir(&self) -> Utf8PathBuf {
+        self.root.join("docs").join("updates")
+    }
+
     /// `<hall>/.claude/` or `<hall>/.opencode/` — the harness-dictated config
     /// dir a session's view dir symlinks target. Lives at the hall root, not
     /// under `.ivar/`, because it belongs to the harness, not to `ivar`.

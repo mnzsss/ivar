@@ -12,7 +12,7 @@
 //! are, because the session is using it.
 //!
 //! Pruning is best-effort per feature, like every batch verb here: a feature
-//! that cannot be checked (its clone is missing, its repo left the manifest)
+//! that cannot be judged (its clone is missing, its repo left the manifest)
 //! or cannot be torn down is kept, with the reason reported — never a whole
 //! run abort. Teardown itself is delegated to `feature delete`, so the two
 //! paths cannot drift.
@@ -22,19 +22,21 @@ use std::io;
 use camino::Utf8PathBuf;
 use serde::Serialize;
 
-use crate::domain::feature::Feature;
+use crate::action::Ctx;
+use crate::action::feature::base;
+use crate::action::feature::delete::{self as feature_delete, DeleteInput};
+use crate::action::session::lookup as session_lookup;
+use crate::domain::feature::{
+    DeliveryFacts, DeliveryRepoFacts, DeliveryVerdict, Feature, classify_delivery,
+};
 use crate::domain::name::FeatureName;
-use crate::error::{Failure, Outcome, Report, Warning, WriteHuman};
+use crate::error::{Failure, Outcome, Report, Status, WriteHuman};
 use crate::git::{self, TargetState};
 use crate::infra::fs;
 use crate::store::layout::Layout;
 use crate::store::manifest::Manifest;
 
 use super::super::{discover_hall, read_manifest};
-use super::base;
-use super::delete::{self as feature_delete, DeleteInput};
-use crate::action::Ctx;
-use crate::action::session::lookup as session_lookup;
 
 /// Why one feature was kept.
 #[derive(Debug, Clone, Serialize)]
@@ -84,7 +86,6 @@ pub fn prune(ctx: &Ctx) -> Outcome<PruneOutcome> {
     let layout = discover_hall(ctx)?;
     let manifest = read_manifest(&layout)?;
     let git = git::System;
-
     let mut pruned = Vec::new();
     let mut kept = Vec::new();
     let mut warnings = Vec::new();
@@ -106,17 +107,13 @@ pub fn prune(ctx: &Ctx) -> Outcome<PruneOutcome> {
                     pruned.push(name);
                     warnings.extend(report.warnings);
                 }
-                Err(failure) => {
-                    warnings.push(Warning::new(
-                        "feature.prune_delete_failed",
-                        name.to_string(),
-                        failure.what.clone(),
-                    ));
+                Err(failure) if failure.status == Status::Blocked => {
                     kept.push(KeptFeature {
                         feature: name,
-                        reason: format!("could not be deleted: {}", failure.what),
+                        reason: failure.what,
                     });
                 }
+                Err(failure) => return Err(failure),
             },
         }
     }
@@ -141,47 +138,71 @@ fn classify(
     manifest: &Manifest,
     feature: &Feature,
 ) -> Verdict {
-    // The hard guard: never touch a feature with a live session.
-    match session_lookup::list_feature(layout, &feature.name) {
-        Ok(sessions) if !sessions.is_empty() => {
-            return Verdict::Keep("has a live session".to_owned());
-        }
-        Err(error) => {
-            return Verdict::Keep(format!("cannot check its sessions: {error}"));
-        }
-        _ => {}
-    }
-
-    // Nothing promoted — nothing to be unmerged.
-    if feature.promotions.is_empty() {
-        return Verdict::Prune;
-    }
-
-    for (repo, promotion) in &feature.promotions {
-        let Some(manifest_repo) = manifest.repos().iter().find(|r| r.name() == repo) else {
-            return Verdict::Keep(format!("repo `{repo}` is no longer in ivar.json"));
+    let (live_sessions, session_inspection_error) =
+        match session_lookup::list_feature(layout, &feature.name) {
+            Ok(sessions) => (
+                sessions.into_iter().map(|session| session.id).collect(),
+                None,
+            ),
+            Err(error) => (Vec::new(), Some(error.to_string())),
         };
-        let effective_base = base::resolve(feature, promotion, manifest_repo.default_branch());
-        let bare = layout.repo_bare(repo);
-        if !matches!(git.target_state(&bare), Ok(TargetState::Repository)) {
-            return Verdict::Keep(format!(
-                "cannot check `{repo}` — its clone is missing (run `ivar sync`)"
-            ));
-        }
-        match git.commits_ahead(&bare, effective_base.as_str(), feature.branch.as_str()) {
-            Ok(0) => {}
-            Ok(ahead) => {
-                return Verdict::Keep(format!(
-                    "`{repo}` has {ahead} commit(s) not merged into `{effective_base}`"
-                ));
+
+    let repo_facts: Vec<_> = feature
+        .promotions
+        .iter()
+        .map(|(repo, promotion)| {
+            let Some(manifest_repo) = manifest.repos().iter().find(|r| r.name() == repo) else {
+                return DeliveryRepoFacts {
+                    repo: repo.clone(),
+                    effective_base: None,
+                    clone_exists: false,
+                    unmerged_commits: None,
+                    in_manifest: false,
+                    inspection_error: None,
+                };
+            };
+            let effective_base = base::resolve(feature, promotion, manifest_repo.default_branch());
+            let bare = layout.repo_bare(repo);
+            let clone_exists = matches!(git.target_state(&bare), Ok(TargetState::Repository));
+            let mut inspection_error = None;
+            let unmerged_commits = if clone_exists {
+                match git.commits_ahead(&bare, effective_base.as_str(), feature.branch.as_str()) {
+                    Ok(ahead) => Some(ahead),
+                    Err(error) => {
+                        inspection_error = Some(error.to_string());
+                        None
+                    }
+                }
+            } else {
+                None
+            };
+            DeliveryRepoFacts {
+                repo: repo.clone(),
+                effective_base: Some(effective_base),
+                clone_exists,
+                unmerged_commits,
+                in_manifest: true,
+                inspection_error,
             }
-            Err(error) => {
-                return Verdict::Keep(format!("cannot check `{repo}`: {error}"));
-            }
+        })
+        .collect();
+
+    let delivery_facts = DeliveryFacts {
+        repos: repo_facts,
+        live_sessions,
+        session_inspection_error,
+    };
+
+    match classify_delivery(&delivery_facts) {
+        DeliveryVerdict::Delivered => Verdict::Prune,
+        DeliveryVerdict::Blocked(blockers) => {
+            let reason = blockers
+                .first()
+                .map(|b| b.to_string())
+                .unwrap_or_else(|| "feature is kept".to_owned());
+            Verdict::Keep(reason)
         }
     }
-
-    Verdict::Prune
 }
 
 /// What to do with one feature.
@@ -198,6 +219,7 @@ enum Verdict {
 fn list_features(layout: &Layout) -> Result<Vec<Feature>, Failure> {
     let features_dir = layout.features_dir();
     let mut features = Vec::new();
+
     if fs::is_dir(&features_dir)? {
         for entry in fs::read_dir(&features_dir)? {
             let Some(name) = entry.file_name() else {
@@ -211,6 +233,7 @@ fn list_features(layout: &Layout) -> Result<Vec<Feature>, Failure> {
             }
         }
     }
+
     features.sort_by(|a, b| a.name.cmp(&b.name));
     Ok(features)
 }

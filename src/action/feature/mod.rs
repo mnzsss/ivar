@@ -14,6 +14,7 @@
 //! [`promote`] for the branch-from-default-branch rule.
 
 mod base;
+pub mod cleanup;
 pub mod close;
 pub mod create;
 pub mod delete;

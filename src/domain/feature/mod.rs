@@ -29,11 +29,16 @@
 //! The child modules are implementation detail; the facade below is the
 //! public surface. This module owns the reexports, so `domain::feature::*`
 //! keeps its established names. The child holding the promotion record lives
-//! in `feature.rs` but is declared here as `promotion` — a module cannot
+//! in `feature.rs` but is declared here as `promotion` — a
+//! module name matching `Feature` would clash with the type itself.
+//!
+//! The child module structure uses cargo-style file placement: each child is
+//! declared here with explicit `mod` statements, and sibling files do not
 //! share the name of the directory that contains it.
 
 mod approval;
 mod base;
+mod cleanup;
 mod delivery;
 mod integration;
 #[path = "feature.rs"]
@@ -42,6 +47,13 @@ mod run;
 
 pub use approval::{ApprovalState, Gate, GateRecord, GateState, UnknownGate};
 pub use base::effective_base;
+pub use cleanup::{
+    BranchDeletion, CLEANUP_RECORD_SCHEMA_VERSION, CleanupApplyOutcome, CleanupApprovals,
+    CleanupBlocker, CleanupFacts, CleanupPreview, CleanupRecord, CleanupRepo, CleanupRepoFacts,
+    CleanupVerdict, DeliveryApproval, DeliveryBlocker, DeliveryFacts, DeliveryRepoFacts,
+    DeliveryVerdict, DocumentationApproval, DocumentationDecision, TeardownApproval,
+    WorktreeRemoval, classify_cleanup, classify_delivery,
+};
 pub use delivery::{DeliveryAction, DeliveryPreview, DeliveryRepo, DeliveryTreeBlocker, Guard};
 pub use integration::{
     ClassificationFacts, FeatureIntegrationState, IntegrationOverride, IntegrationPolicy,
