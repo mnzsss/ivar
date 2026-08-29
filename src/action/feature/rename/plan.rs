@@ -115,24 +115,26 @@ pub(super) fn build(
         let old_remote_tip = git.remote_branch_tip(&bare, remote, source.branch.as_str())?;
 
         // R-OPEN-PRS
-        match pull_requests::find_pull_request(&bare, source.branch.as_str(), "open") {
-            Ok(Some(pr)) => {
-                blockers.push(Blocker {
-                    scope: "pull-request".to_owned(),
-                    subject: repo_name.to_string(),
-                    explanation: format!(
-                        "Open PR #{} (URL: {}) targets old branch: {}. Close it first.",
-                        pr.number, pr.url, source.branch
-                    ),
-                });
-            }
-            Ok(None) => {}
-            Err(e) => {
-                blockers.push(Blocker {
-                    scope: "pull-request".to_owned(),
-                    subject: repo_name.to_string(),
-                    explanation: format!("Failed to check open PRs: {}", e),
-                });
+        if old_remote_tip.is_some() {
+            match pull_requests::find_pull_request(&bare, source.branch.as_str(), "open") {
+                Ok(Some(pr)) => {
+                    blockers.push(Blocker {
+                        scope: "pull-request".to_owned(),
+                        subject: repo_name.to_string(),
+                        explanation: format!(
+                            "Open PR #{} (URL: {}) targets old branch: {}. Close it first.",
+                            pr.number, pr.url, source.branch
+                        ),
+                    });
+                }
+                Ok(None) => {}
+                Err(e) => {
+                    blockers.push(Blocker {
+                        scope: "pull-request".to_owned(),
+                        subject: repo_name.to_string(),
+                        explanation: format!("Failed to check open PRs: {}", e),
+                    });
+                }
             }
         }
 
