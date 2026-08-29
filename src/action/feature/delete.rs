@@ -28,7 +28,9 @@ use camino::{Utf8Path, Utf8PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::domain::feature::Feature;
-use crate::domain::name::{FeatureName, RepoName};
+use crate::domain::name::FeatureName;
+#[cfg(test)]
+use crate::domain::name::RepoName;
 use crate::error::{Failure, FixAction, Outcome, Report, Warning, WriteHuman};
 use crate::git::{self, Git};
 use crate::infra::fs;
@@ -44,17 +46,7 @@ pub struct DeleteInput {
     pub name: String,
 }
 
-/// One promoted repo's worktree removal.
-#[derive(Debug, Clone, Serialize)]
-pub struct WorktreeRemoval {
-    /// The repo whose worktree was (or was not) removed.
-    pub repo: RepoName,
-    /// Whether the worktree is gone.
-    pub removed: bool,
-    /// Why it was not removed, when it was not.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub detail: Option<String>,
-}
+pub use crate::domain::feature::WorktreeRemoval;
 
 /// What `ivar feature delete` did.
 #[derive(Debug, Clone, Serialize)]
@@ -278,7 +270,7 @@ pub fn delete(ctx: &Ctx, input: DeleteInput) -> Outcome<DeleteOutcome> {
 /// which is what lets the check report *why* with the mode, uid, and gid, and
 /// what keeps it honest when the process runs as root, where permission
 /// checks always answer yes.
-fn collect_blockers(root: &Utf8Path) -> Vec<DeleteBlocker> {
+pub(crate) fn collect_blockers(root: &Utf8Path) -> Vec<DeleteBlocker> {
     use std::os::unix::fs::MetadataExt as _;
 
     let mut blockers = Vec::new();

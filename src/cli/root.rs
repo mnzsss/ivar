@@ -12,8 +12,8 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 
 use crate::action::execute::{accept_revision, finish, start, status as execute_status};
 use crate::action::feature::{
-    close, create, delete, deliver, demote, integrate, promote, rebase, rename, reparent, review,
-    status, view,
+    cleanup, close, create, delete, deliver, demote, integrate, promote, rebase, rename, reparent,
+    review, status, view,
 };
 use crate::action::hall::InitInput;
 use crate::action::mcp::auth as mcp_auth;
@@ -283,6 +283,21 @@ pub enum FeatureCommand {
     /// Delete features whose branches have been merged into their default
     /// branches.
     Prune,
+    /// Authorize and perform a feature's local teardown.
+    Cleanup(FeatureCleanupArgs),
+}
+
+/// Arguments for `ivar feature cleanup`.
+#[derive(Debug, Args)]
+pub struct FeatureCleanupArgs {
+    /// The feature to clean up.
+    pub name: String,
+    /// Preview only: compute and print the summary, teardown nothing.
+    #[arg(long, conflicts_with = "record")]
+    pub preview: bool,
+    /// Path to the approved cleanup record; required to perform teardown.
+    #[arg(long, conflicts_with = "preview")]
+    pub record: Option<Utf8PathBuf>,
 }
 
 /// Arguments for `ivar feature create`.
@@ -1110,6 +1125,21 @@ impl From<FeatureDeleteArgs> for delete::DeleteInput {
     fn from(args: FeatureDeleteArgs) -> Self {
         let FeatureDeleteArgs { name } = args;
         Self { name }
+    }
+}
+
+impl From<FeatureCleanupArgs> for cleanup::CleanupInput {
+    fn from(args: FeatureCleanupArgs) -> Self {
+        let FeatureCleanupArgs {
+            name,
+            preview,
+            record,
+        } = args;
+        Self {
+            feature: name,
+            preview,
+            record,
+        }
     }
 }
 

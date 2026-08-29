@@ -26,7 +26,7 @@ use ivar::action::Ctx;
 use ivar::action::confirm;
 use ivar::action::execute::{accept_revision, finish, start, status as execute_status};
 use ivar::action::feature::{
-    close, create, delete, deliver, demote, integrate, list as feature_list, promote,
+    cleanup, close, create, delete, deliver, demote, integrate, list as feature_list, promote,
     prune as feature_prune, rebase, rename, reparent, review, status, view,
 };
 use ivar::action::hall;
@@ -225,6 +225,12 @@ fn main() -> ExitCode {
             ),
             FeatureCommand::Delete(args) => respond(
                 delete::delete(&ctx, args.into()),
+                json,
+                &mut stdout,
+                &mut stderr,
+            ),
+            FeatureCommand::Cleanup(args) => respond(
+                cleanup::cleanup(&ctx, args.into()),
                 json,
                 &mut stdout,
                 &mut stderr,
