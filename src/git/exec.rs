@@ -28,7 +28,7 @@
 
 use camino::{Utf8Path, Utf8PathBuf};
 
-use crate::infra::proc;
+use crate::infra::{fs, proc};
 
 use super::Error;
 
@@ -651,6 +651,120 @@ pub(crate) fn rebase_branch(worktree: &Utf8Path, branch: &str) -> Result<(), Err
 pub(crate) fn abort_rebase(worktree: &Utf8Path) -> Result<(), Error> {
     run(git().cwd(worktree).arg("rebase").arg("--abort"))?;
     Ok(())
+}
+
+/// `git --git-dir <git_dir> branch -m <from> <to>` — relabel a local branch.
+///
+/// A metadata-only ref rename: it relabels `refs/heads/<from>` to
+/// `refs/heads/<to>` and updates any worktree's symbolic `HEAD` that pointed
+/// at `from`, touching no worktree's index or working tree. Refuses
+/// (`Error::Refused`) when `from` does not exist or `to` already does.
+pub(crate) fn rename_branch(git_dir: &Utf8Path, from: &str, to: &str) -> Result<(), Error> {
+    run(git()
+        .arg("--git-dir")
+        .arg(git_dir.as_str())
+        .arg("branch")
+        .arg("-m")
+        .arg(from)
+        .arg(to))?;
+    Ok(())
+}
+
+/// `git --git-dir <git_dir> worktree move <from> <to>` — relocate a
+/// worktree's directory and repair the bare repository's registration of it.
+///
+/// `to`'s parent is created first when missing, since a branch-derived
+/// destination may nest one directory deeper than any sibling worktree does.
+pub(crate) fn move_worktree(
+    git_dir: &Utf8Path,
+    from: &Utf8Path,
+    to: &Utf8Path,
+) -> Result<(), Error> {
+    if let Some(parent) = to.parent() {
+        fs::ensure_dir(parent)?;
+    }
+    run(git()
+        .arg("--git-dir")
+        .arg(git_dir.as_str())
+        .arg("worktree")
+        .arg("move")
+        .arg(from.as_str())
+        .arg(to.as_str()))?;
+    Ok(())
+}
+
+/// Publish `branch` at exactly `at` on `remote`, refused if `remote` already
+/// has `branch` — `git push --force-with-lease="refs/heads/<branch>:"
+/// <remote> <at>:refs/heads/<branch>`.
+///
+/// The empty expected-tip is git's own compare-and-create: the push is
+/// refused rather than overwriting an unexpected branch someone else
+/// published under this name. On success, [`record_push`] updates the local
+/// tracking ref exactly as [`push`] does.
+pub(crate) fn publish_remote_branch(
+    git_dir: &Utf8Path,
+    remote: &str,
+    branch: &str,
+    at: &str,
+) -> Result<(), Error> {
+    let to = format!("refs/heads/{branch}");
+    run(git()
+        .arg("--git-dir")
+        .arg(git_dir.as_str())
+        .arg("push")
+        .arg(format!("--force-with-lease=refs/heads/{branch}:"))
+        .arg(remote)
+        .arg(format!("{at}:{to}")))?;
+    record_push(git_dir, remote, at, &to);
+    Ok(())
+}
+
+/// Delete `branch` on `remote`, refused if it moved past `expected_tip` —
+/// `git push --force-with-lease="refs/heads/<branch>:<expected_tip>"
+/// <remote> :refs/heads/<branch>`.
+///
+/// The non-empty expected-tip is git's own compare-and-delete: the push is
+/// refused ("stale info") if the remote branch is not exactly at
+/// `expected_tip`, which is the race guard a rename needs before deleting
+/// the branch it just republished under its new name. On success the local
+/// `refs/remotes/origin/<branch>` tracking ref is removed, under the same
+/// "only when `remote` is origin's own configured URL" condition
+/// [`record_push`] applies.
+pub(crate) fn delete_remote_branch(
+    git_dir: &Utf8Path,
+    remote: &str,
+    branch: &str,
+    expected_tip: &str,
+) -> Result<(), Error> {
+    run(git()
+        .arg("--git-dir")
+        .arg(git_dir.as_str())
+        .arg("push")
+        .arg(format!(
+            "--force-with-lease=refs/heads/{branch}:{expected_tip}"
+        ))
+        .arg(remote)
+        .arg(format!(":refs/heads/{branch}")))?;
+    record_delete(git_dir, remote, branch);
+    Ok(())
+}
+
+/// The delete-time counterpart to [`record_push`]: removes the local
+/// `refs/remotes/origin/<branch>` tracking ref, and only when `remote` is
+/// origin's own configured URL — a ref named `origin` must not be made to
+/// forget a branch some other remote deleted. Never reports failure, for the
+/// same reason `record_push` does not: the remote deletion has already
+/// landed.
+fn record_delete(git_dir: &Utf8Path, remote: &str, branch: &str) {
+    if origin_url(git_dir).as_deref() != Some(remote) {
+        return;
+    }
+    let _ = run(git()
+        .arg("--git-dir")
+        .arg(git_dir.as_str())
+        .arg("update-ref")
+        .arg("-d")
+        .arg(format!("refs/remotes/origin/{branch}")));
 }
 
 #[cfg(test)]

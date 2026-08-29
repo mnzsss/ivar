@@ -262,6 +262,20 @@ Move a still-pristine child under a different parent, updating its parent and de
 | `--parent` | `<PARENT>` |  | The new parent feature. The child's `base` is rewritten to the new parent's branch in the same record write |
 
 
+##### `ivar feature rename`
+
+Rename a feature, its branch, or both — the one allowed identity transition. Every promoted repo's local branch and worktree, its remote branch when published, direct children, live sessions, and the `plans/` directory all move together, durably and resumably: a mid-flight failure automatically reverses whatever already landed, and an interruption resumes on the next `ivar feature rename` invocation naming the same feature
+
+| argument | required | description |
+| --- | --- | --- |
+| `feature` | yes | The feature to rename |
+
+| flag | value | default | description |
+| --- | --- | --- | --- |
+| `--name` | `<NAME>` |  | The feature's new name. Requires at least one of `--name`/`--branch` to differ from the current value |
+| `--branch` | `<BRANCH>` |  | The feature's new branch. Requires at least one of `--name`/`--branch` to differ from the current value |
+
+
 ##### `ivar feature execute`
 
 Manage a feature's Run Receipt lifecycle

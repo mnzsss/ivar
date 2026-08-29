@@ -235,18 +235,7 @@ pub(crate) fn integrate_pr(
     let pr = match pull_requests::find_pull_request(&bare, child.branch.as_str(), "all")? {
         Some(pr) => pr,
         None => {
-            let created = pull_requests::create_pull_request(
-                &bare,
-                &child.branch,
-                &parent.branch,
-                &child.name,
-            )?;
-            pull_requests::PullRequest {
-                url: created.url,
-                state: "OPEN".to_owned(),
-                head_oid: None,
-                merge_commit: None,
-            }
+            pull_requests::create_pull_request(&bare, &child.branch, &parent.branch, &child.name)?
         }
     };
 

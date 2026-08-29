@@ -91,13 +91,18 @@ pub(crate) fn read_all(layout: &Layout) -> Result<Vec<Feature>, Failure> {
     let features_dir = layout.features_dir();
     if fs::is_dir(&features_dir)? {
         for entry in fs::read_dir(&features_dir)? {
+            if matches!(fs::read_symlink(&entry)?, fs::SymlinkTarget::Target(_)) {
+                continue;
+            }
             let Some(name) = entry.file_name() else {
                 continue;
             };
             let Ok(feature_name) = FeatureName::new(name.to_owned()) else {
                 continue;
             };
-            if let Some(feature) = Feature::read(layout, &feature_name)? {
+            if let Some(feature) = Feature::read(layout, &feature_name)?
+                && feature.name == feature_name
+            {
                 features.push(feature);
             }
         }

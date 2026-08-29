@@ -86,6 +86,245 @@ fn adding_a_worktree_over_an_occupied_path_is_refused_by_git() {
     assert!(matches!(error, Error::Refused { .. }));
 }
 
+// -- branch rename and worktree move ------------------------------------------
+//
+// `feature rename`'s two local mutations: relabel the branch, relocate the
+// worktree. Both must preserve dirty, staged, and untracked content — neither
+// touches the index or the working tree, only git's own bookkeeping.
+
+#[test]
+fn rename_branch_relabels_the_ref_and_updates_the_worktrees_head() {
+    let (_guard, dir) = utf8_temp_dir();
+    let origin = seeded_repo(&dir.join("origin"), "main");
+    let bare = dir.join("api.bare");
+    clone_bare(origin.as_str(), &bare).unwrap();
+    crate::test_support::git(&bare, &["branch", "old", "main"]);
+    let worktree = dir.join("api/old");
+    add_worktree(&bare, &worktree, "old").unwrap();
+
+    rename_branch(&bare, "old", "new").unwrap();
+
+    assert!(!ref_exists(&bare, "refs/heads/old"));
+    assert!(ref_exists(&bare, "refs/heads/new"));
+    let head = std::process::Command::new("git")
+        .args(["-C", worktree.as_str(), "symbolic-ref", "HEAD"])
+        .output()
+        .unwrap();
+    assert_eq!(
+        String::from_utf8_lossy(&head.stdout).trim(),
+        "refs/heads/new"
+    );
+}
+
+#[test]
+fn rename_branch_preserves_dirty_staged_and_untracked_content() {
+    let (_guard, dir) = utf8_temp_dir();
+    let origin = seeded_repo(&dir.join("origin"), "main");
+    let bare = dir.join("api.bare");
+    clone_bare(origin.as_str(), &bare).unwrap();
+    crate::test_support::git(&bare, &["branch", "old", "main"]);
+    let worktree = dir.join("api/old");
+    add_worktree(&bare, &worktree, "old").unwrap();
+    std::fs::write(worktree.join("README.md"), "dirty\n").unwrap();
+    std::fs::write(worktree.join("staged.txt"), "staged\n").unwrap();
+    crate::test_support::git(&worktree, &["add", "staged.txt"]);
+    std::fs::write(worktree.join("untracked.txt"), "untracked\n").unwrap();
+
+    rename_branch(&bare, "old", "new").unwrap();
+
+    let status = std::process::Command::new("git")
+        .args(["-C", worktree.as_str(), "status", "--porcelain"])
+        .output()
+        .unwrap();
+    let status = String::from_utf8_lossy(&status.stdout);
+    assert!(status.contains("README.md"), "dirty edit lost: {status}");
+    assert!(
+        status.contains("A  staged.txt"),
+        "staged file lost: {status}"
+    );
+    assert!(
+        status.contains("?? untracked.txt"),
+        "untracked file lost: {status}"
+    );
+}
+
+#[test]
+fn rename_branch_over_an_existing_target_is_refused() {
+    let (_guard, dir) = utf8_temp_dir();
+    let origin = seeded_repo(&dir.join("origin"), "main");
+    let bare = dir.join("api.bare");
+    clone_bare(origin.as_str(), &bare).unwrap();
+    crate::test_support::git(&bare, &["branch", "old", "main"]);
+    crate::test_support::git(&bare, &["branch", "new", "main"]);
+
+    let error = rename_branch(&bare, "old", "new").expect_err("target already exists");
+
+    assert!(matches!(error, Error::Refused { .. }));
+}
+
+#[test]
+fn move_worktree_relocates_the_directory_and_repairs_registration() {
+    let (_guard, dir) = utf8_temp_dir();
+    let origin = seeded_repo(&dir.join("origin"), "main");
+    let bare = dir.join("api.bare");
+    clone_bare(origin.as_str(), &bare).unwrap();
+    crate::test_support::git(&bare, &["branch", "old", "main"]);
+    let from = dir.join("api/old");
+    add_worktree(&bare, &from, "old").unwrap();
+
+    let to = dir.join("api/feat/new-name");
+    move_worktree(&bare, &from, &to).unwrap();
+
+    assert!(!from.exists());
+    assert_eq!(
+        std::fs::read_to_string(to.join("README.md")).unwrap(),
+        "seed\n"
+    );
+    let list = std::process::Command::new("git")
+        .args(["--git-dir", bare.as_str(), "worktree", "list"])
+        .output()
+        .unwrap();
+    let list = String::from_utf8_lossy(&list.stdout);
+    assert!(
+        list.contains(to.as_str()),
+        "worktree not re-registered: {list}"
+    );
+}
+
+#[test]
+fn move_worktree_preserves_dirty_staged_and_untracked_content() {
+    let (_guard, dir) = utf8_temp_dir();
+    let origin = seeded_repo(&dir.join("origin"), "main");
+    let bare = dir.join("api.bare");
+    clone_bare(origin.as_str(), &bare).unwrap();
+    crate::test_support::git(&bare, &["branch", "old", "main"]);
+    let from = dir.join("api/old");
+    add_worktree(&bare, &from, "old").unwrap();
+    std::fs::write(from.join("README.md"), "dirty\n").unwrap();
+    std::fs::write(from.join("staged.txt"), "staged\n").unwrap();
+    crate::test_support::git(&from, &["add", "staged.txt"]);
+    std::fs::write(from.join("untracked.txt"), "untracked\n").unwrap();
+
+    let to = dir.join("api/new");
+    move_worktree(&bare, &from, &to).unwrap();
+
+    let status = std::process::Command::new("git")
+        .args(["-C", to.as_str(), "status", "--porcelain"])
+        .output()
+        .unwrap();
+    let status = String::from_utf8_lossy(&status.stdout);
+    assert!(status.contains("README.md"), "dirty edit lost: {status}");
+    assert!(
+        status.contains("A  staged.txt"),
+        "staged file lost: {status}"
+    );
+    assert!(
+        status.contains("?? untracked.txt"),
+        "untracked file lost: {status}"
+    );
+}
+
+// -- conditional remote branch create/delete ----------------------------------
+//
+// `feature rename`'s remote compare-and-swap: publish the new branch only if
+// absent, delete the old branch only if it is still at the captured tip.
+
+#[test]
+fn publish_remote_branch_creates_the_branch_at_the_given_object() {
+    let (_guard, dir) = utf8_temp_dir();
+    let origin = seeded_repo(&dir.join("origin"), "main");
+    crate::test_support::git(&origin, &["config", "receive.denyCurrentBranch", "ignore"]);
+    let bare = dir.join("api.bare");
+    clone_bare(origin.as_str(), &bare).unwrap();
+    let at = ref_value(&bare, "refs/heads/main").unwrap();
+
+    publish_remote_branch(&bare, origin.as_str(), "new", &at).unwrap();
+
+    assert_eq!(
+        remote_branch_tip(&bare, origin.as_str(), "new").unwrap(),
+        Some(at.clone())
+    );
+    assert_eq!(
+        ref_value(&bare, "refs/remotes/origin/new"),
+        Some(at),
+        "the publish landed but left no tracking-ref record of itself"
+    );
+}
+
+#[test]
+fn publish_remote_branch_over_an_existing_branch_is_refused() {
+    let (_guard, dir) = utf8_temp_dir();
+    let origin = seeded_repo(&dir.join("origin"), "main");
+    crate::test_support::git(&origin, &["config", "receive.denyCurrentBranch", "ignore"]);
+    let bare = dir.join("api.bare");
+    clone_bare(origin.as_str(), &bare).unwrap();
+    let at = ref_value(&bare, "refs/heads/main").unwrap();
+    publish_remote_branch(&bare, origin.as_str(), "new", &at).unwrap();
+    // A different object under the same name — publishing the exact object
+    // already there is a legitimate no-op push, not a conflict, so this must
+    // name a genuinely different commit to prove the refusal.
+    crate::test_support::git(&bare, &["update-ref", "refs/heads/other-tmp", &at]);
+    let worktree = dir.join("api/other-tmp");
+    add_worktree(&bare, &worktree, "other-tmp").unwrap();
+    crate::test_support::git(&worktree, &["commit", "--allow-empty", "-m", "other"]);
+    let other = ref_value(&bare, "refs/heads/other-tmp").unwrap();
+
+    let error = publish_remote_branch(&bare, origin.as_str(), "new", &other)
+        .expect_err("the branch is already published at a different object");
+
+    assert!(matches!(error, Error::Refused { .. }));
+}
+
+#[test]
+fn delete_remote_branch_at_the_expected_tip_removes_it_and_its_tracking_ref() {
+    let (_guard, dir) = utf8_temp_dir();
+    let origin = seeded_repo(&dir.join("origin"), "main");
+    crate::test_support::git(&origin, &["config", "receive.denyCurrentBranch", "ignore"]);
+    let bare = dir.join("api.bare");
+    clone_bare(origin.as_str(), &bare).unwrap();
+    let at = ref_value(&bare, "refs/heads/main").unwrap();
+    publish_remote_branch(&bare, origin.as_str(), "old", &at).unwrap();
+
+    delete_remote_branch(&bare, origin.as_str(), "old", &at).unwrap();
+
+    assert_eq!(
+        remote_branch_tip(&bare, origin.as_str(), "old").unwrap(),
+        None
+    );
+    assert!(!ref_exists(&bare, "refs/remotes/origin/old"));
+}
+
+/// The race guard: a tip captured at preflight that no longer matches the
+/// remote must refuse rather than delete whatever is there now.
+#[test]
+fn delete_remote_branch_at_a_stale_tip_is_refused() {
+    let (_guard, dir) = utf8_temp_dir();
+    let origin = seeded_repo(&dir.join("origin"), "main");
+    crate::test_support::git(&origin, &["config", "receive.denyCurrentBranch", "ignore"]);
+    let bare = dir.join("api.bare");
+    clone_bare(origin.as_str(), &bare).unwrap();
+    let at = ref_value(&bare, "refs/heads/main").unwrap();
+    publish_remote_branch(&bare, origin.as_str(), "old", &at).unwrap();
+    let stale = at;
+    // The remote branch moves after the tip was captured.
+    let worktree = dir.join("api/old");
+    add_worktree(&bare, &worktree, "old").unwrap();
+    std::fs::write(worktree.join("README.md"), "moved\n").unwrap();
+    crate::test_support::git(&worktree, &["commit", "-am", "moved"]);
+    push(&bare, origin.as_str(), "old", "refs/heads/old").unwrap();
+
+    let error = delete_remote_branch(&bare, origin.as_str(), "old", &stale)
+        .expect_err("the remote tip moved since it was captured");
+
+    assert!(matches!(error, Error::Refused { .. }));
+    assert!(
+        remote_branch_tip(&bare, origin.as_str(), "old")
+            .unwrap()
+            .is_some(),
+        "the stale delete must not have removed the branch"
+    );
+}
+
 // -- remote-tracking refs -----------------------------------------------------
 //
 // `git clone --bare` writes no `remote.origin.fetch`, so nothing ever lands in

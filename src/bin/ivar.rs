@@ -27,7 +27,7 @@ use ivar::action::confirm;
 use ivar::action::execute::{accept_revision, finish, start, status as execute_status};
 use ivar::action::feature::{
     close, create, delete, deliver, demote, integrate, list as feature_list, promote,
-    prune as feature_prune, rebase, reparent, review, status, view,
+    prune as feature_prune, rebase, rename, reparent, review, status, view,
 };
 use ivar::action::hall;
 use ivar::action::mcp::auth as mcp_auth;
@@ -169,6 +169,12 @@ fn main() -> ExitCode {
             ),
             FeatureCommand::Reparent(args) => respond(
                 reparent::reparent(&ctx, args.into()),
+                json,
+                &mut stdout,
+                &mut stderr,
+            ),
+            FeatureCommand::Rename(args) => respond(
+                rename::rename(&ctx, args.into()),
                 json,
                 &mut stdout,
                 &mut stderr,
