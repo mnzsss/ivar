@@ -48,8 +48,8 @@ src/
                    repo.rs, provider/config reconciliation in providers.rs,
                    and setup-script execution in setup.rs.
     repo/          add · list · remove · pull · setup · upstream
-    feature/       create · list · promote · demote · status · reparent ·
-                   close · delete · rebase · review · view · prune, plus
+     feature/       create · list · promote · demote · status · reparent ·
+                    close · delete · rebase · review · view · prune · cleanup, plus
                    deliver/ — the preview fingerprint, push, and pull-request
                    phases split across mod.rs, repos.rs, and preview.rs — and
                    integrate/ — the receipt-driven orchestration (preflight,

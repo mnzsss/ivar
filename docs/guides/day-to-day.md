@@ -198,20 +198,18 @@ second pass, because a PR's URL does not exist until it has been created.
 ivar feature close checkout --outcome delivered   # or: abandoned
 ```
 
-Close stops executor sessions, removes derived execution state, and records the
-outcome in `plan.md`'s frontmatter. The three plan files stay under
-`plans/<feature>/`, and the hall's git history is the record.
+`close` records the outcome in `plan.md`'s frontmatter and stops executor state. The three plan files stay under `plans/<feature>/`, and the hall's git history is the record.
 
-`ivar feature delete` is the destructive one — worktrees, state, plans. It
-preflights write access across the whole cleanup tree and collects every blocker
-before touching anything, so a run that cannot finish does not start.
+`/ivar-feature-cleanup` (supported by `ivar feature cleanup --preview` and `--record`) is the documented, human-approved end-of-feature workflow. It verifies delivery evidence, collects explicit human approvals for delivery, documentation, and teardown, writes durable audit documentation, and tears down local feature resources only when all gates pass and fingerprint state has not drifted.
+
+`ivar feature delete` is direct low-level teardown — worktrees, state, plans. It preflights write access across the whole cleanup tree and collects every blocker before touching anything, so a run that cannot finish does not start.
 
 Housekeeping, when features pile up:
 
 ```sh
-ivar feature prune     # features whose branches were merged
+ivar feature prune     # unattended mergedness-based batch deletion
 ivar session prune     # sessions no longer bound to anything
-ivar cleanup           # stale state; asks before each deletion
+ivar cleanup           # top-level stale state reconciliation; asks before each deletion
 ```
 
 ## The shape of it
