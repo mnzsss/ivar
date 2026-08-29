@@ -22,8 +22,8 @@ use crate::action::plan::{create as plan_create, show as plan_show, status as pl
 use crate::action::provider::add as provider_add;
 use crate::action::repo::{add, pull, remove, setup as repo_setup, upstream as repo_upstream};
 use crate::action::session::{
-    connect as session_connect, conversion as session_conversion, relay as session_relay,
-    start as session_start, stop as session_stop,
+    connect as session_connect, conversion as session_conversion, env_cmd as session_env_cmd,
+    relay as session_relay, start as session_start, stop as session_stop,
 };
 use crate::action::skill::{
     add as skill_add, create as skill_create, detach as skill_detach, remove as skill_remove,
@@ -538,6 +538,8 @@ pub enum SessionCommand {
     Prune,
     /// Relay session info: four-line output contract for external consumers.
     Relay(SessionRelayArgs),
+    /// Resolve and output the session environment by walking up from cwd.
+    Env(SessionEnvArgs),
 }
 
 /// Arguments for `ivar session start`.
@@ -604,6 +606,22 @@ pub struct SessionRelayArgs {
     /// The provider to relay to. Required — relay must switch providers.
     #[arg(long)]
     pub provider: String,
+}
+
+/// Arguments for `ivar session env`.
+#[derive(Debug, Args)]
+pub struct SessionEnvArgs {
+    /// Working directory to resolve from. Defaults to current working directory.
+    #[arg(long)]
+    pub cwd: Option<String>,
+}
+
+impl From<SessionEnvArgs> for session_env_cmd::EnvInput {
+    fn from(args: SessionEnvArgs) -> Self {
+        Self {
+            cwd: args.cwd.map(Utf8PathBuf::from),
+        }
+    }
 }
 
 /// The `ivar plan` surface: the SPDD artifacts, committed per feature, and

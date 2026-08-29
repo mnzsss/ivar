@@ -103,6 +103,66 @@ impl SessionEnv {
         }
         k
     }
+
+    /// Walk up from `start` looking for a `state.json` inside a view directory.
+    ///
+    /// Reads NO environment variables — resolution is pure disk walk-up.
+    pub fn resolve_by_cwd(start: &Utf8Path) -> Result<Option<Self>, crate::error::Failure> {
+        let mut current = match start.canonicalize_utf8() {
+            Ok(path) => path,
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(err) => {
+                return Err(crate::error::Failure::blocked(
+                    "fs.unresolvable",
+                    format!("path `{start}` could not be resolved: {err}"),
+                ));
+            }
+        };
+
+        loop {
+            let state_file = current.join("state.json");
+            if state_file.is_file() {
+                if let Some(file_name) = current.file_name() {
+                    if let Ok(session_id) = SessionId::new(file_name) {
+                        if let Some(layout) = Layout::discover(&current)? {
+                            if let Some(state) =
+                                crate::domain::session::SessionState::read(&current)?
+                            {
+                                let env = Self::build(
+                                    &layout,
+                                    &session_id,
+                                    &current,
+                                    state.provider,
+                                    state.feature.as_ref(),
+                                );
+                                return Ok(Some(env));
+                            }
+                        }
+                    }
+                }
+            }
+
+            match current.parent() {
+                Some(parent) => current = parent.to_path_buf(),
+                None => return Ok(None),
+            }
+        }
+    }
+}
+
+impl crate::error::WriteHuman for SessionEnv {
+    fn write_human(&self, w: &mut impl std::io::Write) -> std::io::Result<()> {
+        write!(w, "{}", self.render_shell())
+    }
+}
+
+impl serde::Serialize for SessionEnv {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        self.render_json().serialize(serializer)
+    }
 }
 
 #[cfg(test)]
@@ -112,3 +172,7 @@ mod tests;
 #[cfg(test)]
 #[path = "../../../tests/unit/action/session/env_contract.rs"]
 mod contract_tests;
+
+#[cfg(test)]
+#[path = "../../../tests/unit/action/session/env_cmd.rs"]
+mod env_cmd_tests;

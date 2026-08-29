@@ -40,8 +40,8 @@ use ivar::action::repo::{
     add, list as repo_list, pull, remove, setup as repo_setup, upstream as repo_upstream,
 };
 use ivar::action::session::{
-    connect as session_connect, conversion as session_conversion, prune as session_prune,
-    relay as session_relay, start as session_start, stop as session_stop,
+    connect as session_connect, conversion as session_conversion, env_cmd as session_env_cmd,
+    prune as session_prune, relay as session_relay, start as session_start, stop as session_stop,
 };
 use ivar::action::skill::{
     add as skill_add, create as skill_create, detach as skill_detach, doctor as skill_doctor,
@@ -287,6 +287,12 @@ fn main() -> ExitCode {
             }
             SessionCommand::Relay(args) => respond(
                 session_relay::relay(&ctx, args.into()),
+                json,
+                &mut stdout,
+                &mut stderr,
+            ),
+            SessionCommand::Env(args) => respond(
+                session_env_cmd::run(&ctx, args.into()),
                 json,
                 &mut stdout,
                 &mut stderr,
