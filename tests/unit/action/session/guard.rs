@@ -69,6 +69,10 @@ fn hall_with_promoted_feature() -> (tempfile::TempDir, Utf8PathBuf) {
     (guard, root)
 }
 
+// ---------------------------------------------------------------------------
+// WritableSet tests
+// ---------------------------------------------------------------------------
+
 #[test]
 fn writable_set_is_view_dir_plus_promoted_worktrees() {
     let (_guard, root) = hall_with_promoted_feature();
@@ -161,4 +165,57 @@ fn writes_inside_the_set_are_allowed_and_shell_is_never_classified() {
         ),
         GuardDecision::Allow
     ));
+}
+
+// ---------------------------------------------------------------------------
+// guard() adapter tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn claude_adapter_denies_a_write_outside_the_set() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root.clone());
+    let feature =
+        Feature::read(&layout, &FeatureName::new("checkout").unwrap())
+            .unwrap()
+            .unwrap();
+    let session_id = SessionId::new("6f0c9d5f-0000-4000-8000-000000000000").unwrap();
+    let view_dir = layout.feature_session(&feature.name, &session_id);
+    crate::infra::fs::ensure_dir(&view_dir).unwrap();
+    let mut state = crate::domain::session::SessionState::new(Provider::ClaudeCode, "2026-08-29T00:00:00Z");
+    state.bind(feature.name.clone(), "2026-08-29T00:00:00Z");
+    state.write(&view_dir).unwrap();
+
+    let cwd = view_dir.join("src");
+    crate::infra::fs::ensure_dir(&cwd).unwrap();
+
+    let payload = serde_json::json!({
+        "tool_name": "Write",
+        "tool_input": { "file_path": "/etc/passwd" },
+        "cwd": cwd,
+    });
+    let out = guard(Provider::ClaudeCode, &payload.to_string()).unwrap();
+    // Deny is still a success exit for Claude Code — the decision travels in
+    // the JSON body, not the exit code.
+    assert!(out.exit_zero);
+    let body: serde_json::Value = serde_json::from_str(&out.body).unwrap();
+    assert_eq!(
+        body["hookSpecificOutput"]["permissionDecision"],
+        "deny"
+    );
+    assert!(body["hookSpecificOutput"]["permissionDecisionReason"]
+        .as_str()
+        .unwrap()
+        .contains("writable"));
+}
+
+#[test]
+fn opencode_adapter_allows_a_read() {
+    let payload = r#"{
+        "tool": "read",
+        "args": { "filePath": "/etc/passwd" },
+        "cwd": "/tmp/acme/.ivar/sessions/6f0c9d5f-0000-4000-8000-000000000000"
+    }"#;
+    let out = guard(Provider::OpenCode, payload).unwrap();
+    assert!(out.exit_zero);
 }

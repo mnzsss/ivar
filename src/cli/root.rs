@@ -102,6 +102,8 @@ pub enum Command {
     /// Authenticate the hall's declared MCP servers.
     #[command(subcommand)]
     Mcp(McpCommand),
+    /// Guard: evaluate a tool request against the session's writable set.
+    Guard(GuardArgs),
     /// Answer git's credential helper protocol on stdin. Registered as
     /// `credential.https://github.com.helper = !ivar git-credential` so a
     /// token never lands in `.git/config`.
@@ -122,6 +124,14 @@ pub struct GitCredentialArgs {
     /// read as `get`: only a human runs this without an operation.
     #[arg(value_name = "OPERATION")]
     pub operation: Option<String>,
+}
+
+/// Arguments for `ivar guard`.
+#[derive(Debug, Args)]
+pub struct GuardArgs {
+    /// The provider whose hook protocol to use for output shaping.
+    #[arg(long)]
+    pub provider: String,
 }
 
 /// The `ivar repo` surface: what a repo is, who owns it, and how the hall's

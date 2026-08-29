@@ -681,6 +681,15 @@ Authenticate one MCP server. Resolves the server from `ivar.json`'s `mcp` array 
 | `--provider` | `<PROVIDER>` |  | The provider to authenticate against. Defaults to the hall's default provider. Conflicts with `--all-providers` |
 | `--all-providers` |  |  | Authenticate every provider the hall lists (`providers.available`), one at a time — never concurrently, since each provider's login command takes over the terminal and waits on a browser. Every provider is attempted even if an earlier one fails; the run is reported as needing attention (not a clean success) the moment any of them does. Conflicts with `--provider` |
 
+
+#### `ivar guard`
+
+Guard: evaluate a tool request against the session's writable set
+
+| flag | value | default | description |
+| --- | --- | --- | --- |
+| `--provider` | `<PROVIDER>` |  | The provider whose hook protocol to use for output shaping |
+
 <!-- END GENERATED COMMANDS -->
 
 ## Notes the generator cannot give you

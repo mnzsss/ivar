@@ -1,8 +1,14 @@
 //! The session write guard: determines which files a session may write.
+//!
+//! Provider-neutral: `decide` classifies tool requests as Allow or Deny.
+//! Provider-specific adapters shape the output for Claude Code's hook
+//! protocol or OpenCode's hook protocol.
 
 use camino::{Utf8Path, Utf8PathBuf};
+use serde::Deserialize;
 
 use crate::domain::feature::Feature;
+use crate::domain::provider::Provider;
 use crate::error::Failure;
 use crate::store::layout::Layout;
 
@@ -87,16 +93,129 @@ pub(crate) fn decide(set: Option<&WritableSet>, req: &ToolRequest) -> GuardDecis
                         .chain(set.worktrees.iter().map(|w| w.to_string()))
                         .collect();
                     GuardDecision::Deny {
-                        reason: format!(
-                            "writable set: {}",
-                            members.join(", ")
-                        ),
+                        reason: format!("writable set: {}", members.join(", ")),
                     }
                 }
             }
         }
         _ => GuardDecision::Allow,
     }
+}
+
+// ---------------------------------------------------------------------------
+// Provider-specific adapters
+// ---------------------------------------------------------------------------
+
+/// Claude Code hook input: `tool_name`, `tool_input.file_path`, `cwd`.
+#[derive(Debug, Deserialize)]
+struct ClaudeHookInput {
+    tool_name: String,
+    tool_input: serde_json::Value,
+    cwd: Option<Utf8PathBuf>,
+}
+
+/// OpenCode hook input: `tool`, `args.filePath`, `cwd`.
+#[derive(Debug, Deserialize)]
+struct OpenCodeHookInput {
+    tool: String,
+    args: serde_json::Value,
+    cwd: Option<Utf8PathBuf>,
+}
+
+/// The outcome of a guard evaluation: stdout body and whether the process
+/// exits 0.
+#[derive(Debug)]
+pub struct GuardOutcome {
+    pub body: String,
+    pub exit_zero: bool,
+}
+
+/// Run the guard: parse stdin JSON, resolve the session, decide, and
+/// shape the output for the given provider.
+pub fn guard(provider: Provider, stdin_json: &str) -> Result<GuardOutcome, Failure> {
+    let decision = match provider {
+        Provider::ClaudeCode => {
+            let input: ClaudeHookInput = serde_json::from_str(stdin_json)
+                .map_err(|e| Failure::blocked("guard.parse", format!("invalid Claude hook JSON: {e}")))?;
+            let tool_request = ToolRequest {
+                tool: input.tool_name,
+                file_path: input
+                    .tool_input
+                    .get("file_path")
+                    .and_then(|v| v.as_str())
+                    .map(Utf8PathBuf::from),
+            };
+            let session_env = input
+                .cwd
+                .as_deref()
+                .and_then(|cwd| crate::action::session::env::SessionEnv::resolve_by_cwd(cwd).ok())
+                .flatten();
+            let set = session_env
+                .as_ref()
+                .and_then(|env| resolve_writable_set(env));
+            decide(set.as_ref(), &tool_request)
+        }
+        Provider::OpenCode => {
+            let input: OpenCodeHookInput = serde_json::from_str(stdin_json)
+                .map_err(|e| Failure::blocked("guard.parse", format!("invalid OpenCode hook JSON: {e}")))?;
+            let tool_request = ToolRequest {
+                tool: input.tool,
+                file_path: input
+                    .args
+                    .get("filePath")
+                    .and_then(|v| v.as_str())
+                    .map(Utf8PathBuf::from),
+            };
+            let session_env = input
+                .cwd
+                .as_deref()
+                .and_then(|cwd| crate::action::session::env::SessionEnv::resolve_by_cwd(cwd).ok())
+                .flatten();
+            let set = session_env
+                .as_ref()
+                .and_then(|env| resolve_writable_set(env));
+            decide(set.as_ref(), &tool_request)
+        }
+    };
+
+    match provider {
+        Provider::ClaudeCode => {
+            let (perm, reason) = match &decision {
+                GuardDecision::Allow => ("allow".to_string(), String::new()),
+                GuardDecision::Deny { reason } => ("deny".to_string(), reason.clone()),
+            };
+            let body = serde_json::json!({
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "permissionDecision": perm,
+                    "permissionDecisionReason": reason,
+                }
+            });
+            Ok(GuardOutcome {
+                body: body.to_string(),
+                exit_zero: true,
+            })
+        }
+        Provider::OpenCode => match decision {
+            GuardDecision::Allow => Ok(GuardOutcome {
+                body: String::new(),
+                exit_zero: true,
+            }),
+            GuardDecision::Deny { reason } => Ok(GuardOutcome {
+                body: reason,
+                exit_zero: false,
+            }),
+        },
+    }
+}
+
+/// Try to build a `WritableSet` from a resolved session env. Walks up
+/// from the view dir to find the layout and feature.
+fn resolve_writable_set(env: &crate::action::session::env::SessionEnv) -> Option<WritableSet> {
+    let feature_name = env.feature.as_ref()?;
+    let layout = Layout::discover(&env.view_dir).ok()??;
+    let feature = Feature::read(&layout, feature_name).ok()??;
+    WritableSet::from_session(&layout, &feature, &env.view_dir).ok()
 }
 
 #[cfg(test)]
