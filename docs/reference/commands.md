@@ -495,6 +495,15 @@ Relay session info: four-line output contract for external consumers
 | `--provider` | `<PROVIDER>` |  | The provider to relay to. Required — relay must switch providers |
 
 
+##### `ivar session env`
+
+Resolve and output the session environment by walking up from cwd
+
+| flag | value | default | description |
+| --- | --- | --- | --- |
+| `--cwd` | `<CWD>` |  | Working directory to resolve from. Defaults to current working directory |
+
+
 #### `ivar provider`
 
 Manage providers
