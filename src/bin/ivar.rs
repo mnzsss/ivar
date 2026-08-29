@@ -15,7 +15,7 @@
 //! (ARCHITECTURE.md, "1. `action` is the unit, and it has one output
 //! shape").
 
-use std::io::{self, Read, Write};
+use std::io::{self, Write};
 use std::process::ExitCode;
 
 use camino::Utf8PathBuf;
@@ -24,7 +24,6 @@ use serde::Serialize;
 
 use ivar::action::Ctx;
 use ivar::action::confirm;
-use ivar::domain::provider::Provider;
 use ivar::action::execute::{accept_revision, finish, start, status as execute_status};
 use ivar::action::feature::{
     cleanup, close, create, delete, deliver, demote, integrate, list as feature_list, promote,
@@ -42,8 +41,8 @@ use ivar::action::repo::{
 };
 use ivar::action::session::{
     connect as session_connect, conversion as session_conversion, env_cmd as session_env_cmd,
-    guard as session_guard, prune as session_prune, relay as session_relay, start as session_start,
-    stop as session_stop,
+    guard_cmd as session_guard_cmd, prune as session_prune, relay as session_relay,
+    start as session_start, stop as session_stop,
 };
 use ivar::action::skill::{
     add as skill_add, create as skill_create, detach as skill_detach, doctor as skill_doctor,
@@ -385,32 +384,24 @@ fn main() -> ExitCode {
             }
         },
         Command::Guard(args) => {
-            let provider: Result<Provider, _> = args.provider.parse();
-            match provider {
-                Ok(provider) => {
-                    let mut input = String::new();
-                    io::stdin().read_to_string(&mut input).unwrap();
-                    match session_guard::guard(provider, &input) {
-                        Ok(outcome) => {
-                            if !outcome.body.is_empty() {
-                                let _ = write!(stdout, "{}", outcome.body);
-                            }
-                            if outcome.exit_zero {
-                                ExitCode::SUCCESS
-                            } else {
-                                ExitCode::FAILURE
-                            }
-                        }
-                        Err(e) => {
-                            let _ = writeln!(stderr, "ivar: guard: {e}");
-                            ExitCode::from(2)
-                        }
+            let input = match session_guard_cmd::GuardInput::try_from(args) {
+                Ok(input) => input,
+                Err(failure) => {
+                    return respond_failure(failure, json, &mut stdout, &mut stderr);
+                }
+            };
+            match session_guard_cmd::run(input) {
+                Ok(outcome) => {
+                    if !outcome.body.is_empty() {
+                        let _ = write!(stdout, "{}", outcome.body);
+                    }
+                    if outcome.exit_zero {
+                        ExitCode::SUCCESS
+                    } else {
+                        ExitCode::FAILURE
                     }
                 }
-                Err(e) => {
-                    let _ = writeln!(stderr, "ivar: guard: {e}");
-                    ExitCode::from(2)
-                }
+                Err(failure) => respond_failure(failure, json, &mut stdout, &mut stderr),
             }
         }
         Command::Mcp(cmd) => match cmd {

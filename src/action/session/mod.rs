@@ -12,6 +12,7 @@ pub mod conversion;
 pub mod env;
 pub mod env_cmd;
 pub mod guard;
+pub mod guard_cmd;
 pub(crate) mod hook;
 pub(crate) mod lookup;
 pub mod prune;

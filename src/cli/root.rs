@@ -23,13 +23,14 @@ use crate::action::provider::add as provider_add;
 use crate::action::repo::{add, pull, remove, setup as repo_setup, upstream as repo_upstream};
 use crate::action::session::{
     connect as session_connect, conversion as session_conversion, env_cmd as session_env_cmd,
-    relay as session_relay, start as session_start, stop as session_stop,
+    guard_cmd, relay as session_relay, start as session_start, stop as session_stop,
 };
 use crate::action::skill::{
     add as skill_add, create as skill_create, detach as skill_detach, remove as skill_remove,
     update as skill_update,
 };
 use crate::action::sync::SyncInput;
+use crate::error::Failure;
 
 /// Mount the repos a feature spans into one directory, on one branch, for
 /// one agent session.
@@ -132,6 +133,20 @@ pub struct GuardArgs {
     /// The provider whose hook protocol to use for output shaping.
     #[arg(long)]
     pub provider: String,
+}
+
+impl TryFrom<GuardArgs> for guard_cmd::GuardInput {
+    type Error = crate::error::Failure;
+
+    fn try_from(args: GuardArgs) -> Result<Self, Self::Error> {
+        let provider = args.provider.parse().map_err(|e| {
+            Failure::blocked(
+                "guard.invalid_provider",
+                format!("unknown provider `{}`: {e}", args.provider),
+            )
+        })?;
+        Ok(Self { provider })
+    }
 }
 
 /// The `ivar repo` surface: what a repo is, who owns it, and how the hall's
