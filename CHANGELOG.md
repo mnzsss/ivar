@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0](https://github.com/mnzsss/ivar/compare/v0.6.2...v0.7.0) - 2026-08-29
+
+### Added
+
+- *(feature)* add `ivar feature cleanup` with approval-gated teardown ([#55](https://github.com/mnzsss/ivar/pull/55))
+- *(feature)* ivar feature rename ([#54](https://github.com/mnzsss/ivar/pull/54))
+- *(skill)* add a personal, gitignored skills root ([#52](https://github.com/mnzsss/ivar/pull/52))
+- *(plan)* implement wave-based execution planning ([#53](https://github.com/mnzsss/ivar/pull/53))
+
+### Fixed
+
+- *(commands)* preserve session working directory context ([#50](https://github.com/mnzsss/ivar/pull/50))
+
 ## [0.6.2](https://github.com/mnzsss/ivar/compare/v0.6.1...v0.6.2) - 2026-08-27
 
 ### Added
