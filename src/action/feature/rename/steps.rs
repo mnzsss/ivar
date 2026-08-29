@@ -39,7 +39,7 @@ pub(super) struct Transition {
     pub(super) step: Step,
 }
 
-fn marker_path(plan: &RenamePlan) -> Utf8PathBuf {
+pub(super) fn marker_path(plan: &RenamePlan) -> Utf8PathBuf {
     if plan.old_feature.name != plan.new_name && fs::is_dir(&plan.new_dir).unwrap_or(false) {
         plan.new_dir.join(".renaming")
     } else {
@@ -165,7 +165,7 @@ pub(super) fn resume(
     }))
 }
 
-fn perform_step(
+pub(super) fn perform_step(
     layout: &Layout,
     manifest: &Manifest,
     git: &impl Git,
@@ -250,13 +250,12 @@ fn perform_step(
                         let Ok(feature_name) = FeatureName::new(name.to_owned()) else {
                             continue;
                         };
-                        if let Some(mut feature) = Feature::read(layout, &feature_name)? {
-                            if feature.name == feature_name
-                                && feature.parent == Some(plan.old_feature.name.clone())
-                            {
-                                feature.parent = Some(plan.new_name.clone());
-                                feature.write(layout)?;
-                            }
+                        if let Some(mut feature) = Feature::read(layout, &feature_name)?
+                            && feature.name == feature_name
+                            && feature.parent == Some(plan.old_feature.name.clone())
+                        {
+                            feature.parent = Some(plan.new_name.clone());
+                            feature.write(layout)?;
                         }
                     }
                 }
@@ -282,18 +281,19 @@ fn perform_step(
             Ok(Step::MovePlans)
         }
         Step::MovePlans => {
-            if plan.old_feature.name != plan.new_name {
-                if fs::is_dir(&plan.old_plan_dir)? {
-                    fs::rename(&plan.old_plan_dir, &plan.new_plan_dir)?;
-                }
+            if plan.old_feature.name != plan.new_name && fs::is_dir(&plan.old_plan_dir)? {
+                fs::rename(&plan.old_plan_dir, &plan.new_plan_dir)?;
             }
             Ok(Step::Finish)
         }
         Step::Finish => {
-            if plan.old_feature.name != plan.new_name {
-                if matches!(fs::read_symlink(&plan.old_dir)?, fs::SymlinkTarget::Target(_)) {
-                    fs::remove_path(&plan.old_dir)?;
-                }
+            if plan.old_feature.name != plan.new_name
+                && matches!(
+                    fs::read_symlink(&plan.old_dir)?,
+                    fs::SymlinkTarget::Target(_)
+                )
+            {
+                fs::remove_path(&plan.old_dir)?;
             }
             Ok(Step::Finish)
         }
@@ -309,10 +309,8 @@ pub(super) fn undo_step(
 ) -> Result<Step, Failure> {
     match step {
         Step::MovePlans => {
-            if plan.old_feature.name != plan.new_name {
-                if fs::is_dir(&plan.new_plan_dir)? {
-                    fs::rename(&plan.new_plan_dir, &plan.old_plan_dir)?;
-                }
+            if plan.old_feature.name != plan.new_name && fs::is_dir(&plan.new_plan_dir)? {
+                fs::rename(&plan.new_plan_dir, &plan.old_plan_dir)?;
             }
             Ok(Step::MoveSessions)
         }
@@ -352,13 +350,12 @@ pub(super) fn undo_step(
                         let Ok(feature_name) = FeatureName::new(name.to_owned()) else {
                             continue;
                         };
-                        if let Some(mut feature) = Feature::read(layout, &feature_name)? {
-                            if feature.name == feature_name
-                                && feature.parent == Some(plan.new_name.clone())
-                            {
-                                feature.parent = Some(plan.old_feature.name.clone());
-                                feature.write(layout)?;
-                            }
+                        if let Some(mut feature) = Feature::read(layout, &feature_name)?
+                            && feature.name == feature_name
+                            && feature.parent == Some(plan.new_name.clone())
+                        {
+                            feature.parent = Some(plan.old_feature.name.clone());
+                            feature.write(layout)?;
                         }
                     }
                 }
@@ -367,7 +364,10 @@ pub(super) fn undo_step(
         }
         Step::MoveFeatureDir => {
             if plan.old_feature.name != plan.new_name {
-                if matches!(fs::read_symlink(&plan.old_dir)?, fs::SymlinkTarget::Target(_)) {
+                if matches!(
+                    fs::read_symlink(&plan.old_dir)?,
+                    fs::SymlinkTarget::Target(_)
+                ) {
                     fs::remove_path(&plan.old_dir)?;
                 }
                 if fs::is_dir(&plan.new_dir)? {

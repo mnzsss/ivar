@@ -100,10 +100,10 @@ pub(crate) fn read_all(layout: &Layout) -> Result<Vec<Feature>, Failure> {
             let Ok(feature_name) = FeatureName::new(name.to_owned()) else {
                 continue;
             };
-            if let Some(feature) = Feature::read(layout, &feature_name)? {
-                if feature.name == feature_name {
-                    features.push(feature);
-                }
+            if let Some(feature) = Feature::read(layout, &feature_name)?
+                && feature.name == feature_name
+            {
+                features.push(feature);
             }
         }
     }
