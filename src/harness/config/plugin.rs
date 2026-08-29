@@ -47,13 +47,13 @@ export default {
 /// Created when absent, [`Change::Unchanged`] when the bytes on disk already
 /// match. The parent directory is created if needed.
 pub fn materialise_plugin(path: &Utf8Path) -> Result<Change, Error> {
-    if let Some(existing) = fs::read_text(path).map_err(|source| Error::Mcp {
+    let existing = fs::read_text(path).map_err(|source| Error::Mcp {
         path: path.to_path_buf(),
         source: json::Error::Fs(source),
-    })? {
-        if existing == OPENCODE_PLUGIN {
-            return Ok(Change::Unchanged);
-        }
+    })?;
+
+    if existing.as_deref() == Some(OPENCODE_PLUGIN) {
+        return Ok(Change::Unchanged);
     }
 
     if let Some(parent) = path.parent() {

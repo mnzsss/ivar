@@ -36,15 +36,11 @@ pub fn materialise_settings(
         path: path.to_path_buf(),
     })?;
 
-    // Replace ivar-owned keys.
-    object.insert(
-        IVAR_ENV.to_owned(),
-        ivar_doc[IVAR_ENV].clone(),
-    );
-    object.insert(
-        IVAR_HOOKS.to_owned(),
-        ivar_doc[IVAR_HOOKS].clone(),
-    );
+    // Replace ivar-owned keys. Extract from ivar_doc first to avoid indexing.
+    let env_value = ivar_doc.get(IVAR_ENV).cloned().unwrap_or_default();
+    let hooks_value = ivar_doc.get(IVAR_HOOKS).cloned().unwrap_or_default();
+    object.insert(IVAR_ENV.to_owned(), env_value);
+    object.insert(IVAR_HOOKS.to_owned(), hooks_value);
 
     let rendered = json::to_canonical_string(&doc).map_err(|source| Error::Mcp {
         path: path.to_path_buf(),
