@@ -41,10 +41,8 @@ impl WritableSet {
 
     /// Whether `path` is inside the view dir or one of the promoted worktrees.
     pub(crate) fn allows(&self, path: &Utf8Path) -> bool {
-        if path.starts_with(&self.view_dir) {
-            return true;
-        }
-        self.worktrees.iter().any(|wt| path.starts_with(wt))
+        path.starts_with(&self.view_dir)
+            || self.worktrees.iter().any(|wt| path.starts_with(wt))
     }
 
     /// The view dir — the canonical root of this set.
@@ -78,26 +76,22 @@ pub(crate) enum GuardDecision {
 /// Write and Edit tools are checked against the writable set; everything
 /// else is allowed.
 pub(crate) fn decide(set: Option<&WritableSet>, req: &ToolRequest) -> GuardDecision {
-    let tool_lower = req.tool.to_ascii_lowercase();
-    match tool_lower.as_str() {
-        "write" | "edit" => {
-            let Some(set) = set else {
-                return GuardDecision::Deny {
-                    reason: "no ivar session resolves from the cwd".into(),
-                };
-            };
-            match &req.file_path {
-                Some(path) if set.allows(path) => GuardDecision::Allow,
-                _ => {
-                    let members: Vec<String> = std::iter::once(set.view_dir().to_string())
+    match req.tool.to_ascii_lowercase().as_str() {
+        "write" | "edit" => match (set, &req.file_path) {
+            (Some(set), Some(path)) if set.allows(path) => GuardDecision::Allow,
+            (Some(set), _) => GuardDecision::Deny {
+                reason: format!(
+                    "writable set: {}",
+                    std::iter::once(set.view_dir().to_string())
                         .chain(set.worktrees.iter().map(|w| w.to_string()))
-                        .collect();
-                    GuardDecision::Deny {
-                        reason: format!("writable set: {}", members.join(", ")),
-                    }
-                }
-            }
-        }
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ),
+            },
+            (None, _) => GuardDecision::Deny {
+                reason: "no ivar session resolves from the cwd".into(),
+            },
+        },
         _ => GuardDecision::Allow,
     }
 }
@@ -133,11 +127,11 @@ pub struct GuardOutcome {
 /// Run the guard: parse stdin JSON, resolve the session, decide, and
 /// shape the output for the given provider.
 pub fn guard(provider: Provider, stdin_json: &str) -> Result<GuardOutcome, Failure> {
-    let decision = match provider {
+    let (tool_request, cwd) = match provider {
         Provider::ClaudeCode => {
             let input: ClaudeHookInput = serde_json::from_str(stdin_json)
                 .map_err(|e| Failure::blocked("guard.parse", format!("invalid Claude hook JSON: {e}")))?;
-            let tool_request = ToolRequest {
+            let req = ToolRequest {
                 tool: input.tool_name,
                 file_path: input
                     .tool_input
@@ -145,20 +139,12 @@ pub fn guard(provider: Provider, stdin_json: &str) -> Result<GuardOutcome, Failu
                     .and_then(|v| v.as_str())
                     .map(Utf8PathBuf::from),
             };
-            let session_env = input
-                .cwd
-                .as_deref()
-                .and_then(|cwd| crate::action::session::env::SessionEnv::resolve_by_cwd(cwd).ok())
-                .flatten();
-            let set = session_env
-                .as_ref()
-                .and_then(|env| resolve_writable_set(env));
-            decide(set.as_ref(), &tool_request)
+            (req, input.cwd)
         }
         Provider::OpenCode => {
             let input: OpenCodeHookInput = serde_json::from_str(stdin_json)
                 .map_err(|e| Failure::blocked("guard.parse", format!("invalid OpenCode hook JSON: {e}")))?;
-            let tool_request = ToolRequest {
+            let req = ToolRequest {
                 tool: input.tool,
                 file_path: input
                     .args
@@ -166,23 +152,23 @@ pub fn guard(provider: Provider, stdin_json: &str) -> Result<GuardOutcome, Failu
                     .and_then(|v| v.as_str())
                     .map(Utf8PathBuf::from),
             };
-            let session_env = input
-                .cwd
-                .as_deref()
-                .and_then(|cwd| crate::action::session::env::SessionEnv::resolve_by_cwd(cwd).ok())
-                .flatten();
-            let set = session_env
-                .as_ref()
-                .and_then(|env| resolve_writable_set(env));
-            decide(set.as_ref(), &tool_request)
+            (req, input.cwd)
         }
     };
 
+    let set = cwd
+        .as_deref()
+        .and_then(|cwd| crate::action::session::env::SessionEnv::resolve_by_cwd(cwd).ok())
+        .flatten()
+        .and_then(|env| resolve_writable_set(&env));
+
+    let decision = decide(set.as_ref(), &tool_request);
+
     match provider {
         Provider::ClaudeCode => {
-            let (perm, reason) = match &decision {
-                GuardDecision::Allow => ("allow".to_string(), String::new()),
-                GuardDecision::Deny { reason } => ("deny".to_string(), reason.clone()),
+            let (perm, reason): (String, String) = match &decision {
+                GuardDecision::Allow => ("allow".into(), String::new()),
+                GuardDecision::Deny { reason } => ("deny".into(), reason.clone()),
             };
             let body = serde_json::json!({
                 "hookSpecificOutput": {
@@ -209,8 +195,7 @@ pub fn guard(provider: Provider, stdin_json: &str) -> Result<GuardOutcome, Failu
     }
 }
 
-/// Try to build a `WritableSet` from a resolved session env. Walks up
-/// from the view dir to find the layout and feature.
+/// Try to build a `WritableSet` from a resolved session env.
 fn resolve_writable_set(env: &crate::action::session::env::SessionEnv) -> Option<WritableSet> {
     let feature_name = env.feature.as_ref()?;
     let layout = Layout::discover(&env.view_dir).ok()??;

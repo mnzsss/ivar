@@ -98,3 +98,23 @@ there.
 `ivar` cannot promote a repository it does not know about. Register it first with
 `ivar repo add`; a path that merely happens to contain a Git checkout is not part
 of the hall.
+
+## Session write guard is best-effort
+
+The session write guard (`ivar guard`) blocks structured writes (Write, Edit) that
+target paths outside the session's view dir or promoted worktrees. It is a hook —
+the provider invokes it before each tool call — and its effectiveness depends on
+the provider respecting the hook protocol:
+
+- **Claude Code:** The guard always exits 0; the deny decision travels in the JSON
+  body. If the provider ignores the `permissionDecision: deny` response, the write
+  proceeds.
+- **OpenCode:** The guard exits non-zero for deny. A non-zero exit should abort the
+  tool call, but this is provider behaviour, not ivar's guarantee.
+
+**What this means in practice:** The guard is an error message, not a firewall. A
+provider that does not call the hook, or that ignores a deny decision, will allow
+the write. The filesystem-level guarantee — non-promoted worktrees held read-only
+by the kernel — remains the hard boundary. The guard catches the common case
+(Write/Edit through the provider's tool interface) but cannot prevent a shell
+command from writing to arbitrary paths.
