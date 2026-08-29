@@ -21,10 +21,7 @@ const IVAR_HOOKS: &str = "hooks";
 /// The file is created when absent, merged when present (replacing exactly
 /// the `env` and `hooks` keys), and left alone when the canonical bytes
 /// already match. A file that exists but is not a JSON object is refused.
-pub fn materialise_settings(
-    path: &Utf8Path,
-    hall: &HallName,
-) -> Result<Change, Error> {
+pub fn materialise_settings(path: &Utf8Path, hall: &HallName) -> Result<Change, Error> {
     let ivar_doc = ivar_doc(hall);
     let (existing, raw) = read_doc(path)?;
 

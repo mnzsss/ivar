@@ -50,14 +50,14 @@ use crate::infra::json;
 
 mod mcp;
 mod plugin;
-mod settings;
 pub(crate) mod session;
+mod settings;
 
 pub mod instructions;
 
 pub use instructions::{Change, MANAGED_END, MANAGED_START, build_block, materialise, remove};
 pub use mcp::{OAUTH_REDIRECT_URI, materialise_mcp, remove_mcp};
-pub use plugin::{materialise_plugin, remove_plugin, OPENCODE_PLUGIN};
+pub use plugin::{OPENCODE_PLUGIN, materialise_plugin, remove_plugin};
 pub use settings::{materialise_settings, remove_settings};
 
 /// Everything that can go wrong maintaining an MCP config: it could not be

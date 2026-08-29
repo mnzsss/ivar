@@ -1139,6 +1139,10 @@ fn start_command_carries_the_session_environment() {
     let feature = FeatureName::new("checkout").unwrap();
     let feat_env = SessionEnv::build(&layout, &session_id, &view_dir, provider, Some(&feature));
     let feat_command = feat_env.apply(crate::infra::proc::Command::new("claude"));
-    let feat_envs: Vec<_> = feat_command.envs().iter().map(|(k, _)| k.as_str()).collect();
+    let feat_envs: Vec<_> = feat_command
+        .envs()
+        .iter()
+        .map(|(k, _)| k.as_str())
+        .collect();
     assert!(feat_envs.contains(&"IVAR_FEATURE"));
 }

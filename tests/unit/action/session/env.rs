@@ -30,14 +30,18 @@ fn session_env_renders_shell_and_json_and_applies_to_command() {
     assert!(shell.contains("export IVAR_FEATURE=checkout"));
 
     let json = env.render_json();
-    assert_eq!(json["IVAR_SESSION_ID"], "6f0c9d5f-0000-4000-8000-000000000000");
+    assert_eq!(
+        json["IVAR_SESSION_ID"],
+        "6f0c9d5f-0000-4000-8000-000000000000"
+    );
     assert_eq!(json["IVAR_PROVIDER"], "claude-code");
 
     let command = env.apply(crate::infra::proc::Command::new("sh"));
     let envs = command.envs();
-    assert!(envs
-        .iter()
-        .any(|(k, v)| k == "IVAR_SESSION_ID" && v == "6f0c9d5f-0000-4000-8000-000000000000"));
+    assert!(
+        envs.iter()
+            .any(|(k, v)| k == "IVAR_SESSION_ID" && v == "6f0c9d5f-0000-4000-8000-000000000000")
+    );
 
     // A discovery session carries no feature.
     let discovery_dir = layout.discovery_session(&session_id);

@@ -51,8 +51,8 @@ use ivar::action::skill::{
 };
 use ivar::action::sync;
 use ivar::cli::root::{
-    Cli, Command, ExecuteCommand, FeatureCommand, McpCommand, PlanCommand,
-    ProviderCommand, RepoCommand, SessionCommand, SkillCommand,
+    Cli, Command, ExecuteCommand, FeatureCommand, McpCommand, PlanCommand, ProviderCommand,
+    RepoCommand, SessionCommand, SkillCommand,
 };
 use ivar::error::{Failure, Outcome, Palette, Report, WriteHuman};
 use ivar::infra::progress;

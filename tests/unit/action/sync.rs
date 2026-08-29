@@ -1091,9 +1091,12 @@ fn sync_materialises_settings_and_plugin_per_provider() {
         ".opencode/plugins/ivar.js must be created for OpenCode"
     );
     // The settings file carries ivar's env key.
-    let settings: serde_json::Value =
-        serde_json::from_str(&fs::read_text(&root.join(".claude/settings.json"))
-            .unwrap().unwrap()).unwrap();
+    let settings: serde_json::Value = serde_json::from_str(
+        &fs::read_text(&root.join(".claude/settings.json"))
+            .unwrap()
+            .unwrap(),
+    )
+    .unwrap();
     assert_eq!(settings["env"]["IVAR_HALL"], serde_json::json!("acme"));
 }
 

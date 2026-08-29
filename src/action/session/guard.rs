@@ -29,21 +29,23 @@ impl WritableSet {
         feature: &Feature,
         view_dir: &Utf8Path,
     ) -> Result<Self, Failure> {
-        let view_dir = view_dir
-            .canonicalize_utf8()
-            .map_err(|source| Failure::failed(
+        let view_dir = view_dir.canonicalize_utf8().map_err(|source| {
+            Failure::failed(
                 "guard.unresolvable_view_dir",
                 format!("could not canonicalise view dir `{view_dir}`: {source}"),
-            ))?;
+            )
+        })?;
         let worktrees = feature
             .promotions
             .keys()
             .map(|repo| {
                 let wt = layout.repo_worktree(repo, &feature.branch);
-                wt.canonicalize_utf8().map_err(|source| Failure::failed(
-                    "guard.unresolvable_worktree",
-                    format!("could not canonicalise worktree `{wt}`: {source}"),
-                ))
+                wt.canonicalize_utf8().map_err(|source| {
+                    Failure::failed(
+                        "guard.unresolvable_worktree",
+                        format!("could not canonicalise worktree `{wt}`: {source}"),
+                    )
+                })
             })
             .collect::<Result<Vec<_>, Failure>>()?;
         Ok(Self {
@@ -71,7 +73,10 @@ impl WritableSet {
     /// Build a `WritableSet` from explicit parts. Test-only.
     #[cfg(test)]
     pub(crate) fn from_parts(view_dir: Utf8PathBuf, worktrees: Vec<Utf8PathBuf>) -> Self {
-        Self { view_dir, worktrees }
+        Self {
+            view_dir,
+            worktrees,
+        }
     }
 }
 
@@ -147,8 +152,9 @@ pub struct GuardOutcome {
 pub fn guard(provider: Provider, stdin_json: &str) -> Result<GuardOutcome, Failure> {
     let (tool_request, cwd) = match provider {
         Provider::ClaudeCode => {
-            let input: ClaudeHookInput = serde_json::from_str(stdin_json)
-                .map_err(|e| Failure::blocked("guard.parse", format!("invalid Claude hook JSON: {e}")))?;
+            let input: ClaudeHookInput = serde_json::from_str(stdin_json).map_err(|e| {
+                Failure::blocked("guard.parse", format!("invalid Claude hook JSON: {e}"))
+            })?;
             let req = ToolRequest {
                 tool: input.tool_name,
                 file_path: input
@@ -160,8 +166,9 @@ pub fn guard(provider: Provider, stdin_json: &str) -> Result<GuardOutcome, Failu
             (req, input.cwd)
         }
         Provider::OpenCode => {
-            let input: OpenCodeHookInput = serde_json::from_str(stdin_json)
-                .map_err(|e| Failure::blocked("guard.parse", format!("invalid OpenCode hook JSON: {e}")))?;
+            let input: OpenCodeHookInput = serde_json::from_str(stdin_json).map_err(|e| {
+                Failure::blocked("guard.parse", format!("invalid OpenCode hook JSON: {e}"))
+            })?;
             let req = ToolRequest {
                 tool: input.tool,
                 file_path: input

@@ -18,7 +18,9 @@ fn documented_session_hook_vars() -> BTreeSet<String> {
         .1;
     let mut vars = BTreeSet::new();
     for line in table.lines() {
-        let Some(rest) = line.strip_prefix("| `") else { continue };
+        let Some(rest) = line.strip_prefix("| `") else {
+            continue;
+        };
         let cells: Vec<&str> = rest.split('|').map(str::trim).collect();
         let var = cells[0].strip_suffix('`').expect("backticked var");
         if cells.get(2) == Some(&"✓") {
