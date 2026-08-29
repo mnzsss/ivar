@@ -94,8 +94,21 @@ impl SessionEnv {
         }
         serde_json::Value::Object(map)
     }
+    /// The variable names present in this environment, in render order.
+    #[must_use]
+    pub fn keys(&self) -> Vec<&'static str> {
+        let mut k = vec!["IVAR_HALL", "IVAR_SESSION_ID", "IVAR_SESSION_PATH", "IVAR_PROVIDER"];
+        if self.feature.is_some() {
+            k.push("IVAR_FEATURE");
+        }
+        k
+    }
 }
 
 #[cfg(test)]
 #[path = "../../../tests/unit/action/session/env.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "../../../tests/unit/action/session/env_contract.rs"]
+mod contract_tests;
