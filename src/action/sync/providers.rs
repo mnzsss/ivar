@@ -26,6 +26,8 @@ pub(crate) fn sync_providers(
     sync_instructions(layout, manifest, entries, warnings);
     for provider in Provider::ALL {
         sync_mcp(layout, manifest, provider, entries, warnings);
+        sync_settings(layout, manifest, provider, entries, warnings);
+        sync_plugin(layout, manifest, provider, entries, warnings);
         sync_commands(layout, manifest, provider, entries, warnings);
     }
 }
@@ -149,6 +151,64 @@ pub(crate) fn sync_mcp(
         config::materialise_mcp(&path, provider, manifest.mcp_servers(), manifest.name())
     } else {
         config::remove_mcp(&path, provider)
+    };
+
+    match result {
+        Ok(change) => entries.push(Entry::new(provider.id(), label, change.into())),
+        Err(error) => record_failure(entries, warnings, provider.id(), &label, error.into()),
+    }
+}
+
+/// Materialise or remove the provider's settings file (`.claude/settings.json`
+/// for Claude Code). Only Claude Code has a settings file today; other
+/// providers skip this step.
+pub(crate) fn sync_settings(
+    layout: &Layout,
+    manifest: &Manifest,
+    provider: Provider,
+    entries: &mut Vec<Entry>,
+    warnings: &mut Vec<Warning>,
+) {
+    // Only Claude Code has a settings file today.
+    if provider != Provider::ClaudeCode {
+        return;
+    }
+
+    let path = layout.harness_dir(&provider).join("settings.json");
+    let label = format!("{} settings.json", provider.config_dir());
+
+    let result = if manifest.providers().available().contains(&provider) {
+        config::materialise_settings(&path, manifest.name())
+    } else {
+        config::remove_settings(&path)
+    };
+
+    match result {
+        Ok(change) => entries.push(Entry::new(provider.id(), label, change.into())),
+        Err(error) => record_failure(entries, warnings, provider.id(), &label, error.into()),
+    }
+}
+
+/// Materialise or remove the provider's plugin file. Only OpenCode has a
+/// plugin system today; other providers skip this step.
+pub(crate) fn sync_plugin(
+    layout: &Layout,
+    manifest: &Manifest,
+    provider: Provider,
+    entries: &mut Vec<Entry>,
+    warnings: &mut Vec<Warning>,
+) {
+    let Some(plugins_dir) = layout.plugins_dir(&provider) else {
+        return;
+    };
+
+    let path = plugins_dir.join("ivar.js");
+    let label = format!("{} ivar.js plugin", provider.config_dir());
+
+    let result = if manifest.providers().available().contains(&provider) {
+        config::materialise_plugin(&path)
+    } else {
+        config::remove_plugin(&path)
     };
 
     match result {
