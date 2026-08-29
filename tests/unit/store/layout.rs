@@ -204,10 +204,6 @@ fn accessors_compute_the_documented_paths() {
         Utf8PathBuf::from("/hall/.ivar/features/checkout/sessions")
     );
     assert_eq!(
-        layout.workspace_file(&feature),
-        Utf8PathBuf::from("/hall/checkout.code-workspace")
-    );
-    assert_eq!(
         layout.discovery_session(&session),
         Utf8PathBuf::from("/hall/.ivar/sessions/2c6e6f1e-2d8a-4b3a-9c2a-6a7f6f9a1b2c")
     );

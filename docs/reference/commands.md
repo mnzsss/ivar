@@ -387,15 +387,6 @@ Rebase every promoted repo's worktree onto its effective base. A dirty worktree 
 | `--onto` | `<ONTO>` |  | Collapse the base: rebase every promoted repo onto this branch, and record it as the declared base for each repo that lands there. The verb for once a feature's own base has landed |
 
 
-##### `ivar feature review`
-
-Write a VSCode workspace opening the feature: promoted repos on the feature branch, everyone else on their default branch
-
-| argument | required | description |
-| --- | --- | --- |
-| `name` | yes | The feature to open |
-
-
 ##### `ivar feature view`
 
 Open an interactive multi-shell view over the feature's promoted repos — one shell per repo, each running in its worktree

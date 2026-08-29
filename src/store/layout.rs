@@ -336,15 +336,6 @@ impl Layout {
         self.feature_dir(feature).join("sessions")
     }
 
-    /// `<hall>/<feature>.code-workspace` — the VSCode workspace `feature
-    /// review` writes. Lives at the hall root, next to the worktrees it opens,
-    /// so the relative folder paths inside it resolve against this file.
-    #[must_use]
-    pub fn workspace_file(&self, feature: &FeatureName) -> Utf8PathBuf {
-        self.root
-            .join(format!("{}.code-workspace", feature.as_str()))
-    }
-
     /// `<hall>/.ivar/sessions/<id>/` — a discovery-session view dir.
     #[must_use]
     pub fn discovery_session(&self, session: &SessionId) -> Utf8PathBuf {
