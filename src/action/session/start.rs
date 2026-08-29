@@ -56,7 +56,7 @@ use crate::tui::driver::{Driver, Pty, ShellSpec};
 use crate::tui::pty::PtsPty;
 
 use super::super::{discover_hall, read_manifest};
-use super::{hook, lookup, view};
+use super::{env::SessionEnv, hook, lookup, view};
 
 /// What `ivar session start` needs.
 #[derive(Debug, Clone)]
@@ -207,7 +207,14 @@ pub fn start(ctx: &Ctx, input: StartInput) -> Outcome<StartOutcome> {
 
     // 4. The agent command — skipped entirely for a detached session.
     if !input.detached {
-        let command = harness.start_command(input.resume);
+        let env = SessionEnv::build(
+            &layout,
+            &session_id,
+            &view_dir,
+            provider,
+            feature.as_ref().map(|f| &f.name),
+        );
+        let command = env.apply(harness.start_command(input.resume));
         let width = crate::infra::term::width();
         let height = 24;
 

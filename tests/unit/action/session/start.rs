@@ -1117,3 +1117,28 @@ fn missing_canonical_content_warns_but_lets_the_session_open() {
     );
     unguard_worktrees(&root);
 }
+
+#[test]
+fn start_command_carries_the_session_environment() {
+    let hall = Utf8PathBuf::from("/tmp/acme");
+    let layout = Layout::at(hall);
+    let session_id = SessionId::new("6f0c9d5f-0000-4000-8000-000000000000").unwrap();
+    let view_dir = layout.discovery_session(&session_id);
+    let provider = Provider::ClaudeCode;
+
+    let env = SessionEnv::build(&layout, &session_id, &view_dir, provider, None);
+    let command = env.apply(crate::infra::proc::Command::new("claude"));
+
+    let envs: Vec<_> = command.envs().iter().map(|(k, _)| k.as_str()).collect();
+    assert!(envs.contains(&"IVAR_HALL"));
+    assert!(envs.contains(&"IVAR_SESSION_ID"));
+    assert!(envs.contains(&"IVAR_SESSION_PATH"));
+    assert!(envs.contains(&"IVAR_PROVIDER"));
+    assert!(!envs.contains(&"IVAR_FEATURE")); // discovery: no feature
+
+    let feature = FeatureName::new("checkout").unwrap();
+    let feat_env = SessionEnv::build(&layout, &session_id, &view_dir, provider, Some(&feature));
+    let feat_command = feat_env.apply(crate::infra::proc::Command::new("claude"));
+    let feat_envs: Vec<_> = feat_command.envs().iter().map(|(k, _)| k.as_str()).collect();
+    assert!(feat_envs.contains(&"IVAR_FEATURE"));
+}
