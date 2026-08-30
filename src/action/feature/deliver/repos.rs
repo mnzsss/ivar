@@ -142,7 +142,7 @@ pub(crate) fn build_repos(
             DeliveryMode::Land => DeliveryAction::LandOnDefault,
         };
 
-        let (default_branch, ff_possible) = if mode == DeliveryMode::Land {
+        let (default_branch, ff_possible, remote_default_tip) = if mode == DeliveryMode::Land {
             let default_branch = manifest
                 .repos()
                 .iter()
@@ -156,9 +156,17 @@ pub(crate) fn build_repos(
                 None => Some(false),
             };
 
-            (default_branch, ff_possible)
+            let remote_default_tip = match &default_branch {
+                Some(target) => git
+                    .remote_branch_tip(&bare, declared.url(), target.as_str())
+                    .ok()
+                    .flatten(),
+                None => None,
+            };
+
+            (default_branch, ff_possible, remote_default_tip)
         } else {
-            (None, None)
+            (None, None, None)
         };
 
         repos.push(DeliveryRepo {
@@ -173,6 +181,7 @@ pub(crate) fn build_repos(
             pr_url: None,
             default_branch,
             ff_possible,
+            remote_default_tip,
         });
     }
 

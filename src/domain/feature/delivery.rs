@@ -135,6 +135,9 @@ pub struct DeliveryRepo {
     /// populated in land mode.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ff_possible: Option<bool>,
+    /// The remote default branch tip commit SHA observed during preview, if available.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remote_default_tip: Option<String>,
 }
 
 /// What a delivery action is across a feature's promoted repositories.

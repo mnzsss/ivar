@@ -20,6 +20,7 @@ fn repo(base: &str) -> DeliveryRepo {
         pr_url: None,
         default_branch: None,
         ff_possible: None,
+        remote_default_tip: None,
     }
 }
 
@@ -42,6 +43,7 @@ fn delivery_repo(repo: &str) -> DeliveryRepo {
         pr_url: None,
         default_branch: None,
         ff_possible: None,
+        remote_default_tip: None,
     }
 }
 

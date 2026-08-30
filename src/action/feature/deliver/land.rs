@@ -19,16 +19,18 @@ pub(crate) struct LandPlan {
     pub(crate) default_branch: BranchName,
     pub(crate) tip: String,
     pub(crate) remote: String,
+    pub(crate) remote_default_tip: Option<String>,
+    pub(crate) original_head: String,
 }
 
 /// Scope guard ensuring read-only default worktree permissions are always restored on drop.
 pub(crate) struct WorktreeWriteGuard {
-    lifted: Vec<Utf8PathBuf>,
+    lifted: Vec<(Utf8PathBuf, u32)>,
 }
 
 impl WorktreeWriteGuard {
     pub(crate) fn lift(worktrees: &[&Utf8Path]) -> Result<Self, Failure> {
-        let mut lifted = Vec::new();
+        let mut guard = Self { lifted: Vec::new() };
         for &wt in worktrees {
             match crate::infra::fs::unix_mode(wt) {
                 Ok(Some(mode)) if mode & 0o222 == 0 => {
@@ -36,27 +38,39 @@ impl WorktreeWriteGuard {
                         return Err(Failure::failed(
                             "deliver.lift_write_bits_failed",
                             format!("could not lift write permissions on `{wt}`: {e}"),
-                        ));
+                        )
+                        .expected(format!("write permissions to be lifted on `{wt}`"))
+                        .actual(format!("chmod failed: {e}"))
+                        .fix(FixAction::safe(
+                            "deliver.check_permissions",
+                            format!("Ensure user has permission to modify permissions on `{wt}`."),
+                        )));
                     }
-                    lifted.push(wt.to_path_buf());
+                    guard.lifted.push((wt.to_path_buf(), mode));
                 }
                 Ok(_) => {}
                 Err(e) => {
                     return Err(Failure::failed(
                         "deliver.read_mode_failed",
                         format!("could not inspect permissions on `{wt}`: {e}"),
-                    ));
+                    )
+                    .expected(format!("path `{wt}` to exist and be readable"))
+                    .actual(format!("fs error: {e}"))
+                    .fix(FixAction::safe(
+                        "deliver.check_path",
+                        format!("Ensure `{wt}` exists and is accessible."),
+                    )));
                 }
             }
         }
-        Ok(Self { lifted })
+        Ok(guard)
     }
 }
 
 impl Drop for WorktreeWriteGuard {
     fn drop(&mut self) {
-        for wt in &self.lifted {
-            let _ = crate::infra::fs::clear_write_bits(wt);
+        for (wt, orig_mode) in &self.lifted {
+            let _ = crate::infra::fs::chmod(wt, *orig_mode);
         }
     }
 }
@@ -160,6 +174,7 @@ pub(crate) fn preflight(
         }
 
         let tip = git.revision_commit(&bare, feature.branch.as_str())?;
+        let original_head = git.head_commit(&default_worktree)?;
 
         plans.push(LandPlan {
             repo: repo.repo.clone(),
@@ -167,6 +182,8 @@ pub(crate) fn preflight(
             default_branch: default_branch.clone(),
             tip,
             remote: repo.remote.clone(),
+            remote_default_tip: repo.remote_default_tip.clone(),
+            original_head,
         });
     }
 
@@ -185,13 +202,13 @@ pub(crate) fn execute(
 
     let mut results = Vec::new();
 
-    for plan in plans {
+    for (i, plan) in plans.iter().enumerate() {
         let bare = layout.repo_bare(&plan.repo);
 
-        // Re-check remote default branch tip to ensure it hasn't moved since preview.
+        // Re-check remote default branch tip against the remote tip recorded during preview.
         if matches!(
-            git.remote_branch_tip(&bare, &plan.remote, plan.default_branch.as_str()),
-            Ok(Some(ref remote_tip)) if !git.is_ancestor(&bare, remote_tip, plan.default_branch.as_str())?
+            (&plan.remote_default_tip, git.remote_branch_tip(&bare, &plan.remote, plan.default_branch.as_str())),
+            (Some(expected), Ok(Some(ref current))) if current != expected
         ) {
             warnings.push(Warning::new(
                 "deliver.land_remote_moved",
@@ -211,13 +228,32 @@ pub(crate) fn execute(
         }
 
         if let Err(e) = git.fast_forward_to(&plan.worktree, &plan.tip) {
+            // D5 Rollback: reset all previously merged worktrees to original_head
+            for (prev_plan, prev_res) in plans.iter().zip(results.iter()).take(i) {
+                if prev_res.merged {
+                    let _ = git.reset_hard(&prev_plan.worktree, &prev_plan.original_head);
+                }
+            }
+
             return Err(Failure::failed(
                 "git.merge_ff_only_failed",
                 format!(
                     "failed to fast-forward default branch `{}` in `{}`: {e}",
                     plan.default_branch, plan.repo
                 ),
-            ));
+            )
+            .expected(format!(
+                "default branch `{}` to fast-forward to `{}`",
+                plan.default_branch, plan.tip
+            ))
+            .actual(format!("git merge --ff-only failed: {e}"))
+            .fix(FixAction::safe(
+                "deliver.rebase_first",
+                format!(
+                    "Rebase the feature onto default first: `ivar feature rebase {}`.",
+                    feature_name_from_plan(plan)
+                ),
+            )));
         }
 
         let push_result = git.push(
@@ -254,4 +290,8 @@ pub(crate) fn execute(
     }
 
     Ok(results)
+}
+
+fn feature_name_from_plan(plan: &LandPlan) -> &str {
+    plan.worktree.file_name().unwrap_or("feature")
 }
