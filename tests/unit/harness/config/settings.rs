@@ -42,7 +42,10 @@ fn materialise_preserves_user_permissions_and_sandbox() {
     // Claude Code's schema: each entry is a matcher + a `hooks` array.
     for event in ["SessionStart", "PreToolUse"] {
         let entry = &doc["hooks"][event][0];
-        assert!(entry["matcher"].is_string(), "{event} entry needs a matcher");
+        assert!(
+            entry["matcher"].is_string(),
+            "{event} entry needs a matcher"
+        );
         assert!(
             entry["hooks"][0]["command"].is_string(),
             "{event} entry needs a hooks array"
