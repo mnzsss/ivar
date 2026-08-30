@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 
 use camino::Utf8Path;
 
-use crate::domain::feature::{DeliveryAction, DeliveryRepo, Feature};
+use crate::domain::feature::{DeliveryAction, DeliveryMode, DeliveryRepo, Feature};
 use crate::domain::name::RepoName;
 use crate::error::{Failure, FixAction};
 use crate::git::{self, TargetState};
@@ -21,6 +21,7 @@ pub(crate) fn build_repos(
     layout: &Layout,
     manifest: &Manifest,
     feature: &Feature,
+    mode: DeliveryMode,
 ) -> Result<Vec<DeliveryRepo>, Failure> {
     let mut repos = Vec::new();
 
@@ -127,13 +128,37 @@ pub(crate) fn build_repos(
         // on any other host (a local path, a mirror, GitLab) is push-only —
         // `gh` cannot raise a PR there. For GitHub, check the remote: if an
         // open PR already exists for this branch we update it, otherwise we
-        // create one.
-        let action = if !crate::infra::github::is_github_https(declared.url()) {
-            DeliveryAction::PushOnly
-        } else if existing_pr_url(&bare, feature.branch.as_str()).is_some() {
-            DeliveryAction::UpdatePr
+        // create one. In land mode, the action is landing onto default.
+        let action = match mode {
+            DeliveryMode::Push => {
+                if !crate::infra::github::is_github_https(declared.url()) {
+                    DeliveryAction::PushOnly
+                } else if existing_pr_url(&bare, feature.branch.as_str()).is_some() {
+                    DeliveryAction::UpdatePr
+                } else {
+                    DeliveryAction::NewPr
+                }
+            }
+            DeliveryMode::Land => DeliveryAction::LandOnDefault,
+        };
+
+        let (default_branch, ff_possible) = if mode == DeliveryMode::Land {
+            let default_branch = manifest
+                .repos()
+                .iter()
+                .find(|repo| repo.name() == repo_name)
+                .map(|repo| repo.default_branch().clone());
+
+            let ff_possible = match &default_branch {
+                Some(target) => {
+                    Some(git.is_ancestor(&bare, target.as_str(), feature.branch.as_str())?)
+                }
+                None => Some(false),
+            };
+
+            (default_branch, ff_possible)
         } else {
-            DeliveryAction::NewPr
+            (None, None)
         };
 
         repos.push(DeliveryRepo {
@@ -146,6 +171,8 @@ pub(crate) fn build_repos(
             dependencies: Vec::new(),
             blockers,
             pr_url: None,
+            default_branch,
+            ff_possible,
         });
     }
 

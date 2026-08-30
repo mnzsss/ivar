@@ -118,6 +118,7 @@ fn preview_input(feature: &str) -> DeliverInput {
     DeliverInput {
         feature: feature.to_owned(),
         preview: true,
+        land: false,
         fingerprint: None,
     }
 }
@@ -126,6 +127,7 @@ fn apply_input(feature: &str, fingerprint: &str) -> DeliverInput {
     DeliverInput {
         feature: feature.to_owned(),
         preview: false,
+        land: false,
         fingerprint: Some(fingerprint.to_owned()),
     }
 }
@@ -333,6 +335,7 @@ fn apply_requires_a_preview_fingerprint() {
         DeliverInput {
             feature: "checkout".to_owned(),
             preview: false,
+            land: false,
             fingerprint: None,
         },
     )
@@ -500,6 +503,8 @@ fn delivery_repo(name: &str, dependencies: Vec<&str>) -> DeliveryRepo {
             .collect(),
         blockers: Vec::new(),
         pr_url: None,
+        default_branch: None,
+        ff_possible: None,
     }
 }
 
@@ -643,6 +648,7 @@ fn the_human_preview_surface_lists_each_repo_and_the_fingerprint() {
         root: Utf8PathBuf::from("/hall"),
         preview: DeliveryPreview {
             feature: FeatureName::new("checkout").unwrap(),
+            mode: DeliveryMode::Push,
             plan_gate: GateState::Approved,
             repos: vec![delivery_repo("api", vec![])],
             tree_blockers: Vec::new(),
@@ -671,6 +677,7 @@ fn the_human_apply_surface_reports_each_push() {
         root: Utf8PathBuf::from("/hall"),
         preview: DeliveryPreview {
             feature: FeatureName::new("checkout").unwrap(),
+            mode: DeliveryMode::Push,
             plan_gate: GateState::Approved,
             repos: vec![delivery_repo("api", vec![])],
             tree_blockers: Vec::new(),
@@ -788,4 +795,350 @@ fn deliver_refuses_a_plan_edited_after_it_was_approved() {
     )
     .unwrap_err();
     assert_eq!(failure.code, "deliver.plan_not_approved");
+}
+
+#[test]
+fn push_and_land_previews_of_the_same_state_fingerprint_differently() {
+    let feature = FeatureName::new("checkout").unwrap();
+    let repos = vec![];
+    let push = fingerprint_for(
+        &feature,
+        DeliveryMode::Push,
+        GateState::Approved,
+        &[],
+        &repos,
+    )
+    .expect("push fingerprint");
+    let land = fingerprint_for(
+        &feature,
+        DeliveryMode::Land,
+        GateState::Approved,
+        &[],
+        &repos,
+    )
+    .expect("land fingerprint");
+    assert_ne!(
+        push, land,
+        "a push-approved fingerprint must not authorise a land"
+    );
+}
+
+#[test]
+fn preview_without_mode_defaults_to_push() {
+    let json = serde_json::json!({
+        "feature": "checkout",
+        "plan_gate": "approved",
+        "repos": [],
+        "fingerprint": ""
+    });
+    let preview: DeliveryPreview = serde_json::from_value(json).expect("legacy preview");
+    assert_eq!(preview.mode, DeliveryMode::Push);
+}
+
+#[test]
+fn land_on_default_serialises_as_snake_case_and_has_a_word() {
+    let action = DeliveryAction::LandOnDefault;
+    assert_eq!(
+        serde_json::to_value(action).unwrap(),
+        serde_json::json!("land_on_default")
+    );
+    assert_eq!(action_word(action), "land on default");
+}
+
+#[test]
+fn a_push_fingerprint_cannot_be_applied_as_a_land() {
+    let (_guard, root) = hall_with_promoted(&["api"]);
+    approve_through_plan(&root);
+    let ctx = Ctx::new(root.clone());
+
+    let push_preview = deliver(
+        &ctx,
+        DeliverInput {
+            feature: "checkout".to_owned(),
+            preview: true,
+            land: false,
+            fingerprint: None,
+        },
+    )
+    .expect("push preview");
+
+    let refused = deliver(
+        &ctx,
+        DeliverInput {
+            feature: "checkout".to_owned(),
+            preview: false,
+            land: true,
+            fingerprint: Some(push_preview.value.preview.fingerprint.clone()),
+        },
+    );
+    let failure = refused.expect_err("a push fingerprint must not open a land");
+    assert_eq!(failure.code, "deliver.fingerprint_mismatch");
+}
+
+#[test]
+fn a_land_fingerprint_cannot_be_applied_as_a_push() {
+    let (_guard, root) = hall_with_promoted(&["api"]);
+    approve_through_plan(&root);
+    let ctx = Ctx::new(root.clone());
+
+    let land_preview = deliver(
+        &ctx,
+        DeliverInput {
+            feature: "checkout".to_owned(),
+            preview: true,
+            land: true,
+            fingerprint: None,
+        },
+    )
+    .expect("land preview");
+
+    let refused = deliver(
+        &ctx,
+        DeliverInput {
+            feature: "checkout".to_owned(),
+            preview: false,
+            land: false,
+            fingerprint: Some(land_preview.value.preview.fingerprint.clone()),
+        },
+    );
+    let failure = refused.expect_err("a land fingerprint must not open a push");
+    assert_eq!(failure.code, "deliver.fingerprint_mismatch");
+}
+
+#[test]
+fn a_matching_land_fingerprint_returns_land_not_implemented() {
+    let (_guard, root) = hall_with_promoted(&["api"]);
+    approve_through_plan(&root);
+    let ctx = Ctx::new(root.clone());
+
+    let land_preview = deliver(
+        &ctx,
+        DeliverInput {
+            feature: "checkout".to_owned(),
+            preview: true,
+            land: true,
+            fingerprint: None,
+        },
+    )
+    .expect("land preview");
+
+    let refused = deliver(
+        &ctx,
+        DeliverInput {
+            feature: "checkout".to_owned(),
+            preview: false,
+            land: true,
+            fingerprint: Some(land_preview.value.preview.fingerprint.clone()),
+        },
+    );
+    let failure = refused.expect_err("land apply is not implemented in Wave 1");
+    assert_eq!(failure.code, "deliver.land_not_implemented");
+}
+
+// -- land preview and blockers (Wave 2) ------------------------------------
+
+fn git_stdout(cwd: &Utf8Path, args: &[&str]) -> String {
+    let output = std::process::Command::new("git")
+        .args(["-c", "user.name=ivar tests"])
+        .args(["-c", "user.email=tests@ivar.invalid"])
+        .args(["-c", "commit.gpgsign=false"])
+        .args(args)
+        .current_dir(cwd)
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "git {} failed in {cwd}: {}",
+        args.join(" "),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8(output.stdout).unwrap()
+}
+
+fn land_preview_input(feature: &str) -> DeliverInput {
+    DeliverInput {
+        feature: feature.to_owned(),
+        preview: true,
+        land: true,
+        fingerprint: None,
+    }
+}
+
+#[test]
+fn land_preview_reports_ff_possible_without_touching_the_remote() {
+    let (_guard, root) = hall_with_promoted(&["api"]);
+    let ctx = Ctx::new(root.clone());
+    approve_through_plan(&root);
+
+    let out = deliver(&ctx, land_preview_input("checkout")).expect("land preview");
+    let repo = &out.value.preview.repos[0];
+    assert_eq!(repo.ff_possible, Some(true));
+    assert_eq!(repo.default_branch.as_ref().unwrap().as_str(), "main");
+}
+
+#[test]
+fn a_feature_at_the_default_tip_is_fast_forwardable() {
+    let (_guard, root) = hall_with_promoted(&["api"]);
+    let ctx = Ctx::new(root.clone());
+    approve_through_plan(&root);
+
+    let layout = Layout::at(&root);
+    let worktree = layout.repo_worktree(
+        &RepoName::new("api").unwrap(),
+        &BranchName::new("checkout").unwrap(),
+    );
+    let tip = git_stdout(&worktree, &["rev-parse", "HEAD"]);
+    let default_worktree = layout.repo_worktree(
+        &RepoName::new("api").unwrap(),
+        &BranchName::new("main").unwrap(),
+    );
+    git(&default_worktree, &["reset", "--hard", tip.trim()]);
+
+    let out = deliver(&ctx, land_preview_input("checkout")).expect("land preview");
+    assert_eq!(out.value.preview.repos[0].ff_possible, Some(true));
+}
+
+#[test]
+fn push_preview_leaves_land_fields_absent() {
+    let (_guard, root) = hall_with_promoted(&["api"]);
+    let ctx = Ctx::new(root.clone());
+    approve_through_plan(&root);
+
+    let out = deliver(&ctx, preview_input("checkout")).expect("push preview");
+    assert!(out.value.preview.repos[0].ff_possible.is_none());
+    assert!(out.value.preview.repos[0].default_branch.is_none());
+}
+
+#[test]
+fn diverged_default_is_not_fast_forwardable() {
+    let (_guard, root) = hall_with_promoted(&["api"]);
+    let ctx = Ctx::new(root.clone());
+    approve_through_plan(&root);
+
+    let layout = Layout::at(&root);
+    let default_worktree = layout.repo_worktree(
+        &RepoName::new("api").unwrap(),
+        &BranchName::new("main").unwrap(),
+    );
+    std::fs::write(default_worktree.join("main.txt"), "main commit\n").unwrap();
+    git(&default_worktree, &["add", "main.txt"]);
+    git(&default_worktree, &["commit", "-m", "main commit"]);
+
+    let failure = deliver(&ctx, land_preview_input("checkout")).expect_err("non-ff must block");
+    assert_eq!(failure.code, "deliver.land_not_fast_forward");
+    let fix = failure.fix_actions.first().expect("a blocked land must say how to unblock");
+    assert_eq!(fix.command.as_deref().unwrap(), "ivar feature rebase checkout");
+}
+
+#[test]
+fn dirty_default_worktree_blocks_and_is_left_untouched() {
+    let (_guard, root) = hall_with_promoted(&["api"]);
+    let ctx = Ctx::new(root.clone());
+    approve_through_plan(&root);
+
+    let layout = Layout::at(&root);
+    let default_worktree = layout.repo_worktree(
+        &RepoName::new("api").unwrap(),
+        &BranchName::new("main").unwrap(),
+    );
+    std::fs::write(default_worktree.join("dirty.txt"), "uncommitted changes\n").unwrap();
+
+    let before = std::fs::read(default_worktree.join("dirty.txt")).unwrap();
+    let failure = deliver(&ctx, land_preview_input("checkout")).expect_err("dirty must block");
+    assert_eq!(failure.code, "deliver.land_dirty_worktree");
+    let after = std::fs::read(default_worktree.join("dirty.txt")).unwrap();
+    assert_eq!(before, after);
+}
+
+#[test]
+fn rebase_in_progress_blocks() {
+    let (_guard, root) = hall_with_promoted(&["api"]);
+    let ctx = Ctx::new(root.clone());
+    approve_through_plan(&root);
+
+    let layout = Layout::at(&root);
+    let default_worktree = layout.repo_worktree(
+        &RepoName::new("api").unwrap(),
+        &BranchName::new("main").unwrap(),
+    );
+    let worktree_git_dir = crate::git::read::worktree_git_dir(&default_worktree).unwrap();
+    std::fs::create_dir_all(worktree_git_dir.join("rebase-merge")).unwrap();
+
+    let failure = deliver(&ctx, land_preview_input("checkout")).expect_err("rebase in progress must block");
+    assert_eq!(failure.code, "deliver.land_rebase_in_progress");
+}
+
+#[test]
+fn land_no_repos_blocks() {
+    let (_guard, root) = hall_root();
+    let ctx = Ctx::new(root.clone());
+    hall::init(
+        &ctx,
+        InitInput {
+            path: Utf8PathBuf::from("."),
+            name: Some("acme".to_owned()),
+            provider: None,
+        },
+    )
+    .unwrap();
+
+    create_action(
+        &ctx,
+        CreateInput {
+            name: "checkout".to_owned(),
+            branch: None,
+            base: None,
+            parent: None,
+            via: None,
+            strategy: None,
+        },
+    )
+    .unwrap();
+    approve_through_plan(&root);
+
+    let failure = deliver(&ctx, land_preview_input("checkout")).expect_err("no repos must block");
+    assert_eq!(failure.code, "deliver.land_no_repos");
+}
+
+#[test]
+fn land_preview_names_the_target_and_the_mode() {
+    let outcome = DeliverOutcome {
+        root: Utf8PathBuf::from("/hall"),
+        preview: DeliveryPreview {
+            feature: FeatureName::new("checkout").unwrap(),
+            mode: DeliveryMode::Land,
+            plan_gate: GateState::Approved,
+            repos: vec![DeliveryRepo {
+                repo: RepoName::new("api").unwrap(),
+                local_branch: BranchName::new("land-on-default").unwrap(),
+                remote: "https://github.com/acme/api".to_owned(),
+                push_refspec: "land-on-default:refs/heads/land-on-default".to_owned(),
+                action: DeliveryAction::LandOnDefault,
+                base_branch: BranchName::new("main").unwrap(),
+                dependencies: Vec::new(),
+                blockers: Vec::new(),
+                pr_url: None,
+                default_branch: Some(BranchName::new("main").unwrap()),
+                ff_possible: Some(true),
+            }],
+            tree_blockers: Vec::new(),
+            fingerprint: "abc123".to_owned(),
+        },
+        pushes: Vec::new(),
+        checks: Vec::new(),
+    };
+
+    let mut out = Vec::new();
+    outcome.write_human(&mut out).unwrap();
+
+    let rendered = String::from_utf8(out).unwrap();
+    assert!(rendered.contains("land on default"));
+    assert!(rendered.contains("api  land-on-default -> main  fast-forward"));
+    assert!(!rendered.contains("pull request"), "land opens no PR");
+
+    let json_val = serde_json::to_value(&outcome.preview).unwrap();
+    assert_eq!(json_val["mode"], "land");
+    assert_eq!(json_val["repos"][0]["default_branch"], "main");
+    assert_eq!(json_val["repos"][0]["ff_possible"], true);
 }

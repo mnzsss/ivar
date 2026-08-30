@@ -18,6 +18,8 @@ fn repo(base: &str) -> DeliveryRepo {
         dependencies: Vec::new(),
         blockers: Vec::new(),
         pr_url: None,
+        default_branch: None,
+        ff_possible: None,
     }
 }
 
@@ -38,6 +40,8 @@ fn delivery_repo(repo: &str) -> DeliveryRepo {
         dependencies: Vec::new(),
         blockers: Vec::new(),
         pr_url: None,
+        default_branch: None,
+        ff_possible: None,
     }
 }
 
@@ -45,6 +49,7 @@ fn delivery_repo(repo: &str) -> DeliveryRepo {
 fn a_delivery_preview_round_trips_through_serde() {
     let preview = DeliveryPreview {
         feature: FeatureName::new("checkout").unwrap(),
+        mode: DeliveryMode::Push,
         plan_gate: GateState::Approved,
         repos: vec![delivery_repo("api")],
         tree_blockers: Vec::new(),

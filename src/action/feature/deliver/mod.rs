@@ -47,8 +47,8 @@ use camino::Utf8PathBuf;
 use serde::Serialize;
 
 use crate::domain::feature::{
-    DeliveryAction, DeliveryPreview, DeliveryTreeBlocker, Feature, FeatureIntegrationState,
-    GateState, VerificationResult,
+    DeliveryAction, DeliveryMode, DeliveryPreview, DeliveryTreeBlocker, Feature,
+    FeatureIntegrationState, GateState, VerificationResult,
 };
 use crate::domain::name::{FeatureName, RepoName};
 use crate::error::{Failure, FixAction, Outcome, Report, Warning, WriteHuman};
@@ -74,6 +74,8 @@ pub struct DeliverInput {
     pub feature: String,
     /// Preview only: compute and print the summary, push nothing.
     pub preview: bool,
+    /// Land feature branches into default branches locally (fast-forward only).
+    pub land: bool,
     /// The fingerprint from the preview the human approved. Required for
     /// apply; the push is refused when the current state does not fingerprint
     /// to it.
@@ -127,26 +129,59 @@ pub struct DeliverOutcome {
 impl WriteHuman for DeliverOutcome {
     fn write_human(&self, w: &mut impl io::Write) -> io::Result<()> {
         if self.pushes.is_empty() {
-            writeln!(
-                w,
-                "Delivery preview for `{}` in {}:",
-                self.preview.feature, self.root
-            )?;
-            if self.preview.repos.is_empty() {
-                writeln!(w, "  no repos promoted")?;
-            }
-            for repo in &self.preview.repos {
-                writeln!(w, "  {}:", repo.repo)?;
-                writeln!(w, "    branch:  {}", repo.local_branch)?;
-                writeln!(w, "    remote:  {}", repo.remote)?;
-                writeln!(w, "    refspec: {}", repo.push_refspec)?;
-                writeln!(w, "    base:    {}", repo.base_branch)?;
-                writeln!(w, "    action:  {}", action_word(repo.action))?;
-                if repo.blockers.is_empty() {
-                    writeln!(w, "    blockers: none")?;
-                } else {
-                    for blocker in &repo.blockers {
-                        writeln!(w, "    blocker: {blocker}")?;
+            match self.preview.mode {
+                DeliveryMode::Push => {
+                    writeln!(
+                        w,
+                        "Delivery preview for `{}` in {}:",
+                        self.preview.feature, self.root
+                    )?;
+                    if self.preview.repos.is_empty() {
+                        writeln!(w, "  no repos promoted")?;
+                    }
+                    for repo in &self.preview.repos {
+                        writeln!(w, "  {}:", repo.repo)?;
+                        writeln!(w, "    branch:  {}", repo.local_branch)?;
+                        writeln!(w, "    remote:  {}", repo.remote)?;
+                        writeln!(w, "    refspec: {}", repo.push_refspec)?;
+                        writeln!(w, "    base:    {}", repo.base_branch)?;
+                        writeln!(w, "    action:  {}", action_word(repo.action))?;
+                        if repo.blockers.is_empty() {
+                            writeln!(w, "    blockers: none")?;
+                        } else {
+                            for blocker in &repo.blockers {
+                                writeln!(w, "    blocker: {blocker}")?;
+                            }
+                        }
+                    }
+                }
+                DeliveryMode::Land => {
+                    writeln!(
+                        w,
+                        "Delivery preview (land on default) for `{}` in {}:",
+                        self.preview.feature, self.root
+                    )?;
+                    if self.preview.repos.is_empty() {
+                        writeln!(w, "  no repos promoted")?;
+                    }
+                    for repo in &self.preview.repos {
+                        let target = repo
+                            .default_branch
+                            .as_ref()
+                            .map_or("-", |b| b.as_str());
+                        let ff_verdict = match repo.ff_possible {
+                            Some(true) => "fast-forward",
+                            Some(false) => "diverged",
+                            None => "unknown",
+                        };
+                        writeln!(
+                            w,
+                            "  {}  {} -> {}  {}",
+                            repo.repo, repo.local_branch, target, ff_verdict
+                        )?;
+                        for blocker in &repo.blockers {
+                            writeln!(w, "    blocker: {blocker}")?;
+                        }
                     }
                 }
             }
@@ -177,6 +212,7 @@ fn action_word(action: DeliveryAction) -> &'static str {
         DeliveryAction::NewPr => "new pr",
         DeliveryAction::UpdatePr => "update pr",
         DeliveryAction::PushOnly => "push only",
+        DeliveryAction::LandOnDefault => "land on default",
     }
 }
 
@@ -222,18 +258,113 @@ pub fn deliver(ctx: &Ctx, input: DeliverInput) -> Outcome<DeliverOutcome> {
 
     let plan_gate = plan_gate_state(&layout, &feature_name)?;
 
-    let mut repos = build_repos(&git, &layout, &manifest, &feature)?;
+    let mode = if input.land {
+        DeliveryMode::Land
+    } else {
+        DeliveryMode::Push
+    };
+
+    let mut repos = build_repos(&git, &layout, &manifest, &feature, mode)?;
     repos.sort_by(|a, b| a.repo.cmp(&b.repo));
     order_by_dependencies(&mut repos);
-    let fingerprint = fingerprint_for(&feature_name, plan_gate, &tree_blockers, &repos)?;
+    let fingerprint = fingerprint_for(&feature_name, mode, plan_gate, &tree_blockers, &repos)?;
 
     let mut preview = DeliveryPreview {
         feature: feature_name.clone(),
+        mode,
         plan_gate,
         repos,
         tree_blockers,
         fingerprint,
     };
+
+    if input.land {
+        if preview.repos.is_empty() {
+            return Err(Failure::blocked(
+                "deliver.land_no_repos",
+                format!("feature `{feature_name}` promotes no repositories to land"),
+            )
+            .expected("at least one promoted repository to land")
+            .actual(format!("feature `{feature_name}` promotes 0 repositories"))
+            .fix(FixAction::safe(
+                "deliver.promote_first",
+                "Promote at least one repository before delivering.",
+            )));
+        }
+
+        for repo in &preview.repos {
+            let default_branch = repo.default_branch.as_ref().ok_or_else(|| {
+                Failure::blocked(
+                    "deliver.land_not_fast_forward",
+                    format!(
+                        "default branch in repo `{}` is not declared in ivar.json",
+                        repo.repo
+                    ),
+                )
+                .expected("a declared default branch in ivar.json")
+                .actual("no default branch declared")
+                .fix(FixAction::safe(
+                    "deliver.declare_default_branch",
+                    "Declare a default branch for the repository in ivar.json before landing.",
+                ))
+            })?;
+
+            let default_worktree = layout.repo_worktree(&repo.repo, default_branch);
+
+            if git.is_rebase_in_progress(&default_worktree)? {
+                return Err(Failure::blocked(
+                    "deliver.land_rebase_in_progress",
+                    format!("a rebase is in progress in `{default_worktree}`"),
+                )
+                .expected("the default branch worktree to have no active rebase")
+                .actual(format!("rebase in progress in `{default_worktree}`"))
+                .fix(FixAction::safe(
+                    "deliver.finish_rebase_first",
+                    "Complete or abort the in-progress rebase before landing.",
+                )));
+            }
+
+            if git.worktree_dirty(&default_worktree)? {
+                return Err(Failure::blocked(
+                    "deliver.land_dirty_worktree",
+                    format!(
+                        "the default worktree at `{default_worktree}` has uncommitted changes"
+                    ),
+                )
+                .expected("the default worktree to be clean")
+                .actual(format!("uncommitted changes in `{default_worktree}`"))
+                .fix(FixAction::safe(
+                    "deliver.clean_worktree_first",
+                    "Commit or stash your work before landing.",
+                )));
+            }
+
+            if repo.ff_possible != Some(true) {
+                return Err(Failure::blocked(
+                    "deliver.land_not_fast_forward",
+                    format!(
+                        "default branch `{default_branch}` in repo `{}` cannot fast-forward to feature `{feature_name}`",
+                        repo.repo
+                    ),
+                )
+                .expected(format!(
+                    "default branch `{default_branch}` to fast-forward to `{feature_name}`"
+                ))
+                .actual(format!(
+                    "default branch `{default_branch}` has diverged or cannot fast-forward"
+                ))
+                .fix(
+                    FixAction::safe(
+                        "deliver.rebase_first",
+                        format!(
+                            "Rebase the feature onto default first: `ivar feature rebase {feature_name}`."
+                        ),
+                    )
+                    .command(format!("ivar feature rebase {feature_name}")),
+                ));
+            }
+        }
+    }
 
     if input.preview {
         return Ok(Report::new(DeliverOutcome {
@@ -295,6 +426,19 @@ pub fn deliver(ctx: &Ctx, input: DeliverInput) -> Outcome<DeliverOutcome> {
             "deliver.re_preview",
             format!(
                 "Run `ivar feature deliver {feature_name} --preview` again, then apply with the new fingerprint."
+            ),
+        )));
+    }
+
+    if input.land {
+        return Err(Failure::blocked(
+            "deliver.land_not_implemented",
+            format!("land mode for feature `{feature_name}` is not implemented yet"),
+        )
+        .fix(FixAction::safe(
+            "deliver.preview_land",
+            format!(
+                "Run `ivar feature deliver {feature_name} --preview --land` to inspect local land state."
             ),
         )));
     }

@@ -277,6 +277,11 @@ pub trait Git {
     /// untracked. Empty `git status --porcelain` output means clean.
     fn worktree_dirty(&self, path: &Utf8Path) -> Result<bool, Error>;
 
+    /// Whether a rebase is in progress in the worktree at `path`.
+    fn is_rebase_in_progress(&self, path: &Utf8Path) -> Result<bool, Error> {
+        read::is_rebase_in_progress(path)
+    }
+
     /// The worktree at `path`'s uncommitted divergence from its last commit —
     /// `git diff HEAD`, staged and unstaged, tracked files only. Empty when
     /// the worktree is clean; untracked files are invisible to `git diff` by
