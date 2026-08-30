@@ -191,25 +191,51 @@ pub(crate) fn preflight(
 }
 
 /// Executes the land plans: lifts write bits, performs fast-forward merge, best-effort pushes.
+///
+/// Execution runs in three distinct phases (D5 all-or-nothing guarantee):
+/// Phase 1 — Pre-Execution Remote Validation: Checks remote default branch tips for ALL plans.
+///          If ANY plan moved/changed/errored/disappeared, the WHOLE batch is skipped with a warning
+///          or refused with a failure before any worktree write.
+/// Phase 2 — Local Fast-Forward Merge: Fast-forward merges ALL plans. If ANY plan fails, ALL previously
+///          merged plans are rolled back to `original_head`. If rollback fails, `deliver.land_rollback_failed` is returned.
+/// Phase 3 — Best-Effort Push: Pushes ALL plans. Push failures produce warnings (merges stand).
 pub(crate) fn execute(
     git: &impl Git,
     layout: &Layout,
     plans: &[LandPlan],
     warnings: &mut Vec<Warning>,
 ) -> Result<Vec<LandResult>, Failure> {
-    let worktrees: Vec<&Utf8Path> = plans.iter().map(|p| p.worktree.as_path()).collect();
-    let _guard = WorktreeWriteGuard::lift(&worktrees)?;
+    // --- Phase 1: Pre-Execution Remote Validation across ALL plans BEFORE writing any worktree ---
+    let mut remote_moved = false;
 
-    let mut results = Vec::new();
-
-    for (i, plan) in plans.iter().enumerate() {
+    for plan in plans {
         let bare = layout.repo_bare(&plan.repo);
+        let remote_tip_res = git.remote_branch_tip(&bare, &plan.remote, plan.default_branch.as_str());
 
-        // Re-check remote default branch tip against the remote tip recorded during preview.
-        if matches!(
-            (&plan.remote_default_tip, git.remote_branch_tip(&bare, &plan.remote, plan.default_branch.as_str())),
-            (Some(expected), Ok(Some(ref current))) if current != expected
-        ) {
+        let current_remote_tip = match remote_tip_res {
+            Ok(tip) => tip,
+            Err(e) => {
+                // If preview could not reach the remote either (remote_default_tip == None),
+                // we have no basis for comparison — skip the check, proceed. If preview DID
+                // have evidence (remote_default_tip == Some), we cannot verify and must skip
+                // the whole batch to satisfy D5.
+                if plan.remote_default_tip.is_some() {
+                    remote_moved = true;
+                    warnings.push(Warning::new(
+                        "deliver.land_remote_moved",
+                        plan.repo.as_str(),
+                        format!(
+                            "the remote default branch `{}` in `{}` could not be verified: {e}",
+                            plan.default_branch, plan.repo
+                        ),
+                    ));
+                }
+                continue;
+            }
+        };
+
+        if current_remote_tip != plan.remote_default_tip {
+            remote_moved = true;
             warnings.push(Warning::new(
                 "deliver.land_remote_moved",
                 plan.repo.as_str(),
@@ -218,29 +244,67 @@ pub(crate) fn execute(
                     plan.default_branch
                 ),
             ));
-            results.push(LandResult {
+        }
+    }
+
+    if remote_moved {
+        // D5: Zero worktrees written if any remote default moved/drifted
+        return Ok(plans
+            .iter()
+            .map(|plan| LandResult {
                 repo: plan.repo.clone(),
                 merged: false,
                 pushed: false,
                 detail: Some("remote default branch moved".to_owned()),
-            });
-            continue;
-        }
+            })
+            .collect());
+    }
 
+    // --- Lift permissions for local merges ---
+    let worktrees: Vec<&Utf8Path> = plans.iter().map(|p| p.worktree.as_path()).collect();
+    let _guard = WorktreeWriteGuard::lift(&worktrees)?;
+
+    // --- Phase 2: Local Fast-Forward Merge for ALL plans with all-or-nothing rollback ---
+    for (i, plan) in plans.iter().enumerate() {
         if let Err(e) = git.fast_forward_to(&plan.worktree, &plan.tip) {
+            let orig_err = format!(
+                "failed to fast-forward default branch `{}` in `{}`: {e}",
+                plan.default_branch, plan.repo
+            );
+
             // D5 Rollback: reset all previously merged worktrees to original_head
-            for (prev_plan, prev_res) in plans.iter().zip(results.iter()).take(i) {
-                if prev_res.merged {
-                    let _ = git.reset_hard(&prev_plan.worktree, &prev_plan.original_head);
+            let mut rollback_errors = Vec::new();
+            for prev_plan in plans.iter().take(i) {
+                if let Err(reset_err) = git.reset_hard(&prev_plan.worktree, &prev_plan.original_head) {
+                    rollback_errors.push(format!(
+                        "`{}` (target `{}`): {reset_err}",
+                        prev_plan.repo, prev_plan.original_head
+                    ));
                 }
+            }
+
+            if !rollback_errors.is_empty() {
+                return Err(Failure::failed(
+                    "deliver.land_rollback_failed",
+                    format!(
+                        "land failed on `{}` and rollback failed: {orig_err}",
+                        plan.repo
+                    ),
+                )
+                .expected("all merged default worktrees to roll back cleanly to their original tips")
+                .actual(format!(
+                    "original failure: {orig_err}; rollback errors: {}",
+                    rollback_errors.join("; ")
+                ))
+                .fix(FixAction::safe(
+                    "deliver.manual_cleanup",
+                    format!("Manually reset default worktree at `{}` to `{}`.", plan.repo, plan.original_head),
+                )));
             }
 
             return Err(Failure::failed(
                 "git.merge_ff_only_failed",
-                format!(
-                    "failed to fast-forward default branch `{}` in `{}`: {e}",
-                    plan.default_branch, plan.repo
-                ),
+                orig_err.clone(),
             )
             .expected(format!(
                 "default branch `{}` to fast-forward to `{}`",
@@ -255,7 +319,12 @@ pub(crate) fn execute(
                 ),
             )));
         }
+    }
 
+    // --- Phase 3: Best-Effort Push for ALL plans ---
+    let mut results = Vec::new();
+    for plan in plans {
+        let bare = layout.repo_bare(&plan.repo);
         let push_result = git.push(
             &bare,
             &plan.remote,
