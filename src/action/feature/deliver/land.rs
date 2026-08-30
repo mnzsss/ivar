@@ -194,8 +194,9 @@ pub(crate) fn preflight(
 ///
 /// Execution runs in three distinct phases (D5 all-or-nothing guarantee):
 /// Phase 1 — Pre-Execution Remote Validation: Checks remote default branch tips for ALL plans.
-///          If ANY plan moved/changed/errored/disappeared, the WHOLE batch is skipped with a warning
-///          or refused with a failure before any worktree write.
+///          Per LandPlan, approved `remote_default_tip` MUST be `Some(expected)` and match current remote tip.
+///          If `remote_default_tip` is `None` or current remote tip fails/mismatches for ANY plan,
+///          the WHOLE batch is skipped with a warning before any worktree write.
 /// Phase 2 — Local Fast-Forward Merge: Fast-forward merges ALL plans. If ANY plan fails, ALL previously
 ///          merged plans are rolled back to `original_head`. If rollback fails, `deliver.land_rollback_failed` is returned.
 /// Phase 3 — Best-Effort Push: Pushes ALL plans. Push failures produce warnings (merges stand).
@@ -210,45 +211,28 @@ pub(crate) fn execute(
 
     for plan in plans {
         let bare = layout.repo_bare(&plan.repo);
-        let remote_tip_res = git.remote_branch_tip(&bare, &plan.remote, plan.default_branch.as_str());
+        let current_res = git.remote_branch_tip(&bare, &plan.remote, plan.default_branch.as_str());
 
-        let current_remote_tip = match remote_tip_res {
-            Ok(tip) => tip,
-            Err(e) => {
-                // If preview could not reach the remote either (remote_default_tip == None),
-                // we have no basis for comparison — skip the check, proceed. If preview DID
-                // have evidence (remote_default_tip == Some), we cannot verify and must skip
-                // the whole batch to satisfy D5.
-                if plan.remote_default_tip.is_some() {
-                    remote_moved = true;
-                    warnings.push(Warning::new(
-                        "deliver.land_remote_moved",
-                        plan.repo.as_str(),
-                        format!(
-                            "the remote default branch `{}` in `{}` could not be verified: {e}",
-                            plan.default_branch, plan.repo
-                        ),
-                    ));
-                }
-                continue;
+        match (&plan.remote_default_tip, current_res) {
+            (Some(expected), Ok(Some(ref current))) if current == expected => {
+                // Valid evidence match: remote default branch has not moved
             }
-        };
-
-        if current_remote_tip != plan.remote_default_tip {
-            remote_moved = true;
-            warnings.push(Warning::new(
-                "deliver.land_remote_moved",
-                plan.repo.as_str(),
-                format!(
-                    "the remote default branch `{}` has moved since preview; skipping repository",
-                    plan.default_branch
-                ),
-            ));
+            _ => {
+                remote_moved = true;
+                warnings.push(Warning::new(
+                    "deliver.land_remote_moved",
+                    plan.repo.as_str(),
+                    format!(
+                        "the remote default branch `{}` in `{}` moved, disappeared, or lacked preview evidence; skipping repository",
+                        plan.default_branch, plan.repo
+                    ),
+                ));
+            }
         }
     }
 
     if remote_moved {
-        // D5: Zero worktrees written if any remote default moved/drifted
+        // D5: Zero worktrees written if any remote default moved, disappeared, or lacked preview evidence
         return Ok(plans
             .iter()
             .map(|plan| LandResult {
@@ -298,7 +282,10 @@ pub(crate) fn execute(
                 ))
                 .fix(FixAction::safe(
                     "deliver.manual_cleanup",
-                    format!("Manually reset default worktree at `{}` to `{}`.", plan.repo, plan.original_head),
+                    format!(
+                        "Manually reset worktrees that failed rollback: {}.",
+                        rollback_errors.join("; ")
+                    ),
                 )));
             }
 
