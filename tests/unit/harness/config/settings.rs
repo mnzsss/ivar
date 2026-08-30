@@ -39,8 +39,18 @@ fn materialise_preserves_user_permissions_and_sandbox() {
         serde_json::from_str(&fs::read_text(&path).unwrap().unwrap()).unwrap();
     // ivar's keys are present.
     assert_eq!(doc["env"]["IVAR_HALL"], serde_json::json!("acme"));
-    assert!(doc["hooks"]["SessionStart"].is_array());
-    assert!(doc["hooks"]["PreToolUse"].is_array());
+    // Claude Code's schema: each entry is a matcher + a `hooks` array.
+    for event in ["SessionStart", "PreToolUse"] {
+        let entry = &doc["hooks"][event][0];
+        assert!(
+            entry["matcher"].is_string(),
+            "{event} entry needs a matcher"
+        );
+        assert!(
+            entry["hooks"][0]["command"].is_string(),
+            "{event} entry needs a hooks array"
+        );
+    }
     // The user's keys survive byte-for-byte in shape.
     assert_eq!(doc["permissions"]["allow"][0], "Bash(npm run *)");
     assert_eq!(doc["permissions"]["deny"][0], "Read(./.env)");

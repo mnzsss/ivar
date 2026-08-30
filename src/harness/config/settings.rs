@@ -107,8 +107,13 @@ fn ivar_doc(hall: &HallName) -> serde_json::Value {
         "SessionStart".to_owned(),
         serde_json::json!([
             {
-                "type": "command",
-                "command": "ivar session env"
+                "matcher": "",
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": "ivar session env"
+                    }
+                ]
             }
         ]),
     );
@@ -116,8 +121,13 @@ fn ivar_doc(hall: &HallName) -> serde_json::Value {
         "PreToolUse".to_owned(),
         serde_json::json!([
             {
-                "type": "command",
-                "command": "ivar guard --provider claude-code"
+                "matcher": "",
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": "ivar guard --provider claude-code"
+                    }
+                ]
             }
         ]),
     );
