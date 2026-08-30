@@ -1,0 +1,11 @@
+#!/bin/sh
+# Format staged Rust files and restage them, so CI's `cargo fmt --all --check` can't
+# fail on a line that rustfmt would have wrapped anyway.
+# ponytail: restages whole files, so hunks left out by `git add -p` get pulled in.
+set -e
+
+files=$(git diff --cached --name-only --diff-filter=ACM -- '*.rs')
+[ -n "$files" ] || exit 0
+
+cargo fmt --all
+echo "$files" | xargs git add

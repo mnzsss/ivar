@@ -29,6 +29,16 @@ cargo clippy --all-targets --all-features -- -D warnings
 cargo test --all-features
 ```
 
+To keep the first of those from ever failing on a wrapped line, point git at the
+hooks in this repo — once per clone:
+
+```sh
+git config core.hooksPath .githooks
+```
+
+The pre-commit hook runs `cargo fmt --all` and restages the Rust files you had
+staged. It pulls in the whole file, so it does not mix with `git add -p`.
+
 CI never uses credentials, so no test may touch the network. Fake the boundary
 instead — GitHub access goes through a trait, and the fake is what tests see.
 
