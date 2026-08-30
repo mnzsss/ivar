@@ -60,6 +60,7 @@ use super::relations;
 use super::verification;
 use crate::action::Ctx;
 
+mod land;
 mod preview;
 mod repos;
 
@@ -94,6 +95,20 @@ pub struct PushResult {
     pub detail: Option<String>,
 }
 
+/// One repo's land result, in apply mode.
+#[derive(Debug, Clone, Serialize)]
+pub struct LandResult {
+    /// The repo that landed.
+    pub repo: RepoName,
+    /// Whether the local default branch fast-forwarded to the feature tip.
+    pub merged: bool,
+    /// Whether pushing the default branch to remote succeeded.
+    pub pushed: bool,
+    /// Detail when a step was skipped or failed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+}
+
 /// One root repo's ordered checks, run in its worktree before the push.
 #[derive(Debug, Clone, Serialize)]
 pub struct RepoCheckResult {
@@ -120,6 +135,9 @@ pub struct DeliverOutcome {
     /// Per-repo push results; present only in apply mode.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub pushes: Vec<PushResult>,
+    /// Per-repo land results; present only in apply mode for land deliveries.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub land: Vec<LandResult>,
     /// Per-repo ordered check results; present only in apply mode, so the
     /// actual execution is machine-visible.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -128,7 +146,7 @@ pub struct DeliverOutcome {
 
 impl WriteHuman for DeliverOutcome {
     fn write_human(&self, w: &mut impl io::Write) -> io::Result<()> {
-        if self.pushes.is_empty() {
+        if self.pushes.is_empty() && self.land.is_empty() {
             match self.preview.mode {
                 DeliveryMode::Push => {
                     writeln!(
@@ -187,6 +205,28 @@ impl WriteHuman for DeliverOutcome {
             }
             writeln!(w, "  plan gate:   {}", self.preview.plan_gate)?;
             writeln!(w, "  fingerprint: {}", self.preview.fingerprint)
+        } else if !self.land.is_empty() {
+            writeln!(
+                w,
+                "Landed `{}` in {} (fingerprint {}):",
+                self.preview.feature, self.root, self.preview.fingerprint
+            )?;
+            for res in &self.land {
+                if res.merged && res.pushed {
+                    writeln!(w, "  {}: merged and pushed", res.repo)?;
+                } else if res.merged {
+                    if let Some(detail) = &res.detail {
+                        writeln!(w, "  {}: merged, not pushed — {detail}", res.repo)?;
+                    } else {
+                        writeln!(w, "  {}: merged, not pushed", res.repo)?;
+                    }
+                } else if let Some(detail) = &res.detail {
+                    writeln!(w, "  {}: not merged — {detail}", res.repo)?;
+                } else {
+                    writeln!(w, "  {}: not merged", res.repo)?;
+                }
+            }
+            Ok(())
         } else {
             writeln!(
                 w,
@@ -279,91 +319,7 @@ pub fn deliver(ctx: &Ctx, input: DeliverInput) -> Outcome<DeliverOutcome> {
     };
 
     if input.land {
-        if preview.repos.is_empty() {
-            return Err(Failure::blocked(
-                "deliver.land_no_repos",
-                format!("feature `{feature_name}` promotes no repositories to land"),
-            )
-            .expected("at least one promoted repository to land")
-            .actual(format!("feature `{feature_name}` promotes 0 repositories"))
-            .fix(FixAction::safe(
-                "deliver.promote_first",
-                "Promote at least one repository before delivering.",
-            )));
-        }
-
-        for repo in &preview.repos {
-            let default_branch = repo.default_branch.as_ref().ok_or_else(|| {
-                Failure::blocked(
-                    "deliver.land_not_fast_forward",
-                    format!(
-                        "default branch in repo `{}` is not declared in ivar.json",
-                        repo.repo
-                    ),
-                )
-                .expected("a declared default branch in ivar.json")
-                .actual("no default branch declared")
-                .fix(FixAction::safe(
-                    "deliver.declare_default_branch",
-                    "Declare a default branch for the repository in ivar.json before landing.",
-                ))
-            })?;
-
-            let default_worktree = layout.repo_worktree(&repo.repo, default_branch);
-
-            if git.is_rebase_in_progress(&default_worktree)? {
-                return Err(Failure::blocked(
-                    "deliver.land_rebase_in_progress",
-                    format!("a rebase is in progress in `{default_worktree}`"),
-                )
-                .expected("the default branch worktree to have no active rebase")
-                .actual(format!("rebase in progress in `{default_worktree}`"))
-                .fix(FixAction::safe(
-                    "deliver.finish_rebase_first",
-                    "Complete or abort the in-progress rebase before landing.",
-                )));
-            }
-
-            if git.worktree_dirty(&default_worktree)? {
-                return Err(Failure::blocked(
-                    "deliver.land_dirty_worktree",
-                    format!(
-                        "the default worktree at `{default_worktree}` has uncommitted changes"
-                    ),
-                )
-                .expected("the default worktree to be clean")
-                .actual(format!("uncommitted changes in `{default_worktree}`"))
-                .fix(FixAction::safe(
-                    "deliver.clean_worktree_first",
-                    "Commit or stash your work before landing.",
-                )));
-            }
-
-            if repo.ff_possible != Some(true) {
-                return Err(Failure::blocked(
-                    "deliver.land_not_fast_forward",
-                    format!(
-                        "default branch `{default_branch}` in repo `{}` cannot fast-forward to feature `{feature_name}`",
-                        repo.repo
-                    ),
-                )
-                .expected(format!(
-                    "default branch `{default_branch}` to fast-forward to `{feature_name}`"
-                ))
-                .actual(format!(
-                    "default branch `{default_branch}` has diverged or cannot fast-forward"
-                ))
-                .fix(
-                    FixAction::safe(
-                        "deliver.rebase_first",
-                        format!(
-                            "Rebase the feature onto default first: `ivar feature rebase {feature_name}`."
-                        ),
-                    )
-                    .command(format!("ivar feature rebase {feature_name}")),
-                ));
-            }
-        }
+        land::preflight(&git, &layout, &manifest, &feature, &preview)?;
     }
 
     if input.preview {
@@ -371,6 +327,7 @@ pub fn deliver(ctx: &Ctx, input: DeliverInput) -> Outcome<DeliverOutcome> {
             root: layout.root().to_path_buf(),
             preview,
             pushes: Vec::new(),
+            land: Vec::new(),
             checks: Vec::new(),
         }));
     }
@@ -430,17 +387,21 @@ pub fn deliver(ctx: &Ctx, input: DeliverInput) -> Outcome<DeliverOutcome> {
         )));
     }
 
+    let mut warnings = Vec::new();
+
     if input.land {
-        return Err(Failure::blocked(
-            "deliver.land_not_implemented",
-            format!("land mode for feature `{feature_name}` is not implemented yet"),
-        )
-        .fix(FixAction::safe(
-            "deliver.preview_land",
-            format!(
-                "Run `ivar feature deliver {feature_name} --preview --land` to inspect local land state."
-            ),
-        )));
+        let plans = land::preflight(&git, &layout, &manifest, &feature, &preview)?;
+        let land_results = land::execute(&git, &layout, &plans, &mut warnings)?;
+        return Ok(Report::with_warnings(
+            DeliverOutcome {
+                root: layout.root().to_path_buf(),
+                preview,
+                pushes: Vec::new(),
+                land: land_results,
+                checks: Vec::new(),
+            },
+            warnings,
+        ));
     }
 
     let mut pushes = Vec::new();
@@ -502,7 +463,7 @@ pub fn deliver(ctx: &Ctx, input: DeliverInput) -> Outcome<DeliverOutcome> {
     let mut pr_url_map: BTreeMap<RepoName, String> = BTreeMap::new();
     let mut pr_results: Vec<(RepoName, Result<String, Failure>)> = Vec::new();
     for repo in &preview.repos {
-        if repo.action == DeliveryAction::PushOnly {
+        if matches!(repo.action, DeliveryAction::PushOnly | DeliveryAction::LandOnDefault) {
             continue;
         }
 
@@ -566,8 +527,9 @@ pub fn deliver(ctx: &Ctx, input: DeliverInput) -> Outcome<DeliverOutcome> {
                     },
                     Ok,
                 ),
-            _ => create_pull_request(&bare, &repo.local_branch, &repo.base_branch, &feature_name)
+            DeliveryAction::NewPr => create_pull_request(&bare, &repo.local_branch, &repo.base_branch, &feature_name)
                 .map(|pr| pr.url),
+            DeliveryAction::PushOnly | DeliveryAction::LandOnDefault => unreachable!(),
         };
         pr_results.push((repo.repo.clone(), result));
     }
@@ -606,6 +568,7 @@ pub fn deliver(ctx: &Ctx, input: DeliverInput) -> Outcome<DeliverOutcome> {
             root: layout.root().to_path_buf(),
             preview,
             pushes,
+            land: Vec::new(),
             checks,
         },
         warnings,

@@ -655,6 +655,7 @@ fn the_human_preview_surface_lists_each_repo_and_the_fingerprint() {
             fingerprint: "abc123".to_owned(),
         },
         pushes: Vec::new(),
+        land: Vec::new(),
         checks: Vec::new(),
     };
 
@@ -695,6 +696,7 @@ fn the_human_apply_surface_reports_each_push() {
                 detail: Some("remote did not answer".to_owned()),
             },
         ],
+        land: Vec::new(),
         checks: Vec::new(),
     };
 
@@ -906,7 +908,7 @@ fn a_land_fingerprint_cannot_be_applied_as_a_push() {
 }
 
 #[test]
-fn a_matching_land_fingerprint_returns_land_not_implemented() {
+fn a_matching_land_fingerprint_executes_the_land() {
     let (_guard, root) = hall_with_promoted(&["api"]);
     approve_through_plan(&root);
     let ctx = Ctx::new(root.clone());
@@ -922,7 +924,7 @@ fn a_matching_land_fingerprint_returns_land_not_implemented() {
     )
     .expect("land preview");
 
-    let refused = deliver(
+    let applied = deliver(
         &ctx,
         DeliverInput {
             feature: "checkout".to_owned(),
@@ -931,8 +933,23 @@ fn a_matching_land_fingerprint_returns_land_not_implemented() {
             fingerprint: Some(land_preview.value.preview.fingerprint.clone()),
         },
     );
-    let failure = refused.expect_err("land apply is not implemented in Wave 1");
-    assert_eq!(failure.code, "deliver.land_not_implemented");
+    // Wave 3: land now executes; a push to a non-bare origin may warn but the
+    // merge must have been attempted.
+    match applied {
+        Ok(out) => {
+            assert!(
+                out.value.land.iter().any(|r| r.merged),
+                "at least one repo must merge"
+            );
+        }
+        Err(failure) => {
+            // fast-forward failure or mode mismatch — both surface clearly
+            assert_ne!(
+                failure.code, "deliver.land_not_implemented",
+                "land_not_implemented must never fire after Wave 3",
+            );
+        }
+    }
 }
 
 // -- land preview and blockers (Wave 2) ------------------------------------
@@ -1126,6 +1143,7 @@ fn land_preview_names_the_target_and_the_mode() {
             fingerprint: "abc123".to_owned(),
         },
         pushes: Vec::new(),
+        land: Vec::new(),
         checks: Vec::new(),
     };
 
@@ -1141,4 +1159,244 @@ fn land_preview_names_the_target_and_the_mode() {
     assert_eq!(json_val["mode"], "land");
     assert_eq!(json_val["repos"][0]["default_branch"], "main");
     assert_eq!(json_val["repos"][0]["ff_possible"], true);
+}
+
+// -- land apply (Wave 3) ----------------------------------------------------
+
+fn snapshot_all_worktrees(root: &Utf8Path) -> Vec<(Utf8PathBuf, String)> {
+    let layout = Layout::at(root);
+    let manifest = read_manifest(&layout).unwrap();
+    let mut snapshots = Vec::new();
+    for repo in manifest.repos() {
+        let worktree = layout.repo_worktree(repo.name(), repo.default_branch());
+        if worktree.exists() {
+            let sha = git_stdout(&worktree, &["rev-parse", "HEAD"]).trim().to_owned();
+            snapshots.push((worktree, sha));
+        }
+    }
+    snapshots.sort_by(|a, b| a.0.cmp(&b.0));
+    snapshots
+}
+
+#[test]
+fn one_blocked_repo_blocks_the_whole_land_and_writes_nothing() {
+    let (_guard, root) = hall_with_promoted(&["api", "web"]);
+    let ctx = Ctx::new(root.clone());
+    approve_through_plan(&root);
+
+    let layout = Layout::at(&root);
+    let default_worktree_web = layout.repo_worktree(
+        &RepoName::new("web").unwrap(),
+        &BranchName::new("main").unwrap(),
+    );
+    git_stdout(&default_worktree_web, &["commit", "--allow-empty", "-m", "diverge web main"]);
+
+    let feature_worktree_api = layout.repo_worktree(
+        &RepoName::new("api").unwrap(),
+        &BranchName::new("checkout").unwrap(),
+    );
+    std::fs::write(feature_worktree_api.join("api_change.txt"), "api change\n").unwrap();
+    git_stdout(&feature_worktree_api, &["add", "api_change.txt"]);
+    git_stdout(&feature_worktree_api, &["commit", "-m", "api feature commit"]);
+
+    let before = snapshot_all_worktrees(&root);
+
+    let land_preview = deliver(
+        &ctx,
+        DeliverInput {
+            feature: "checkout".to_owned(),
+            preview: true,
+            land: true,
+            fingerprint: None,
+        },
+    );
+    let failure = land_preview.expect_err("a blocked repo must block the batch");
+    assert_eq!(failure.code, "deliver.land_not_fast_forward");
+
+    let after = snapshot_all_worktrees(&root);
+    assert_eq!(before, after, "no repo may be written when land is blocked");
+}
+
+#[test]
+fn write_bits_are_restored_when_the_merge_fails() {
+    let (_guard, root) = hall_with_promoted(&["api"]);
+    let ctx = Ctx::new(root.clone());
+    approve_through_plan(&root);
+
+    let layout = Layout::at(&root);
+    let default_worktree = layout.repo_worktree(
+        &RepoName::new("api").unwrap(),
+        &BranchName::new("main").unwrap(),
+    );
+
+    std::fs::write(default_worktree.join("uncommitted.txt"), "dirty").unwrap();
+
+    let before = crate::infra::fs::unix_mode(&default_worktree).unwrap();
+    let failure = deliver(
+        &ctx,
+        DeliverInput {
+            feature: "checkout".to_owned(),
+            preview: true,
+            land: true,
+            fingerprint: None,
+        },
+    )
+    .expect_err("dirty worktree must fail land");
+    assert_eq!(failure.code, "deliver.land_dirty_worktree");
+
+    assert_eq!(
+        crate::infra::fs::unix_mode(&default_worktree).unwrap(),
+        before,
+        "a failed land must not leave a read-only repo writable"
+    );
+}
+
+#[test]
+fn write_bits_are_restored_after_successful_land() {
+    let (_guard, root) = hall_with_promoted(&["api"]);
+    let ctx = Ctx::new(root.clone());
+    approve_through_plan(&root);
+
+    let layout = Layout::at(&root);
+    let origins = root.parent().unwrap().join("origins").join("api");
+    git_stdout(&origins, &["config", "receive.denyCurrentBranch", "ignore"]);
+
+    let default_worktree = layout.repo_worktree(
+        &RepoName::new("api").unwrap(),
+        &BranchName::new("main").unwrap(),
+    );
+
+    crate::infra::fs::clear_write_bits(&default_worktree).unwrap();
+    let before = crate::infra::fs::unix_mode(&default_worktree).unwrap();
+
+    let land_preview = deliver(
+        &ctx,
+        DeliverInput {
+            feature: "checkout".to_owned(),
+            preview: true,
+            land: true,
+            fingerprint: None,
+        },
+    )
+    .expect("land preview");
+
+    let out = deliver(
+        &ctx,
+        DeliverInput {
+            feature: "checkout".to_owned(),
+            preview: false,
+            land: true,
+            fingerprint: Some(land_preview.value.preview.fingerprint),
+        },
+    )
+    .expect("land apply");
+
+    assert!(out.value.land.iter().all(|r| r.merged));
+    assert_eq!(
+        crate::infra::fs::unix_mode(&default_worktree).unwrap(),
+        before,
+        "a successful land must restore original read-only permissions"
+    );
+}
+
+#[test]
+fn a_clean_land_merges_every_repo_and_pushes_each_default() {
+    let (_guard, root) = hall_with_promoted(&["api"]);
+    let ctx = Ctx::new(root.clone());
+    approve_through_plan(&root);
+
+    let layout = Layout::at(&root);
+    let origins = root.parent().unwrap().join("origins").join("api");
+    git_stdout(&origins, &["config", "receive.denyCurrentBranch", "ignore"]);
+
+    let feature_worktree = layout.repo_worktree(
+        &RepoName::new("api").unwrap(),
+        &BranchName::new("checkout").unwrap(),
+    );
+    std::fs::write(feature_worktree.join("feature.txt"), "new feature content\n").unwrap();
+    git_stdout(&feature_worktree, &["add", "feature.txt"]);
+    git_stdout(&feature_worktree, &["commit", "-m", "add feature.txt"]);
+    let feature_tip = git_stdout(&feature_worktree, &["rev-parse", "HEAD"]).trim().to_owned();
+
+    let land_preview = deliver(
+        &ctx,
+        DeliverInput {
+            feature: "checkout".to_owned(),
+            preview: true,
+            land: true,
+            fingerprint: None,
+        },
+    )
+    .expect("land preview");
+
+    let out = deliver(
+        &ctx,
+        DeliverInput {
+            feature: "checkout".to_owned(),
+            preview: false,
+            land: true,
+            fingerprint: Some(land_preview.value.preview.fingerprint),
+        },
+    )
+    .expect("land apply");
+
+    assert_eq!(out.value.land.len(), 1);
+    assert!(out.value.land[0].merged);
+    assert!(out.value.land[0].pushed);
+
+    let default_worktree = layout.repo_worktree(
+        &RepoName::new("api").unwrap(),
+        &BranchName::new("main").unwrap(),
+    );
+    let default_tip = git_stdout(&default_worktree, &["rev-parse", "HEAD"]).trim().to_owned();
+    assert_eq!(default_tip, feature_tip, "default branch must equal feature tip");
+
+    assert!(feature_worktree.exists(), "feature worktree must still exist");
+}
+
+#[test]
+fn a_failed_push_is_a_warning_not_an_abort() {
+    let (_guard, root) = hall_with_promoted(&["api"]);
+    let ctx = Ctx::new(root.clone());
+    approve_through_plan(&root);
+
+    let layout = Layout::at(&root);
+
+    let feature_worktree = layout.repo_worktree(
+        &RepoName::new("api").unwrap(),
+        &BranchName::new("checkout").unwrap(),
+    );
+    std::fs::write(feature_worktree.join("feature.txt"), "content\n").unwrap();
+    git_stdout(&feature_worktree, &["add", "feature.txt"]);
+    git_stdout(&feature_worktree, &["commit", "-m", "feature commit"]);
+
+    let land_preview = deliver(
+        &ctx,
+        DeliverInput {
+            feature: "checkout".to_owned(),
+            preview: true,
+            land: true,
+            fingerprint: None,
+        },
+    )
+    .expect("land preview");
+
+    let out = deliver(
+        &ctx,
+        DeliverInput {
+            feature: "checkout".to_owned(),
+            preview: false,
+            land: true,
+            fingerprint: Some(land_preview.value.preview.fingerprint),
+        },
+    )
+    .expect("a failed push must not abort the land");
+
+    assert_eq!(out.value.land.len(), 1);
+    assert!(out.value.land[0].merged, "merge stands even when push fails");
+    assert!(!out.value.land[0].pushed, "push failed");
+    assert!(
+        out.warnings.iter().any(|w| w.code == "deliver.land_push_failed"),
+        "push failure produces deliver.land_push_failed warning"
+    );
 }
