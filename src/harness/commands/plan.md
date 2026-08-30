@@ -156,6 +156,15 @@ after they approve.
    Step 4 and Step 5.
 
 4. Dispatch a plan-document reviewer subagent to review `plan.md` and `plans/<feature>/tasks/`.
+   **Run it on the smallest capable model this harness offers, never the
+   coordinator's.** The pass reads finished documents against a checklist, so
+   it does not need the model that wrote them. On Claude Code, set the subagent
+   tool's `model` to `haiku`, and to `sonnet` only when `haiku` cannot hold the
+   plan. On OpenCode, dispatch through an agent whose configured model is that
+   provider's small tier; when only the default agent exists, use it and say so
+   in the report. Report the model you ran, so nobody has to guess whether the
+   review fell back to the coordinator's.
+
    The subagent evaluates the plan against `requirements.md` (the spec) across four categories:
 
    | Category | What to Look For |
@@ -176,7 +185,7 @@ after they approve.
    - [suggestions]
    ```
 
-   Calibration: approve unless there are serious gaps; minor wording and "nice to have" suggestions do not block approval. If issues are found, update the plan/tasks and re-review until Status is Approved.
+   Calibration: approve unless there are serious gaps; minor wording and "nice to have" suggestions do not block approval. When the reviewer raises issues, update the plan/tasks and re-review, at most twice. If the second re-review still reports Issues Found, list what remains and hand it to the human gate in step 5.
 
 5. **Pause for human approval.** Show the plan, task packets, and plan review status to the user. Only proceed after they approve.
 
