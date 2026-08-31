@@ -252,6 +252,18 @@ fn accessors_compute_the_documented_paths() {
         layout.plan_dir(&feature),
         Utf8PathBuf::from("/hall/plans/checkout")
     );
+    assert_eq!(
+        layout.work_dir(&feature),
+        Utf8PathBuf::from("/hall/docs/checkout")
+    );
+    assert_eq!(
+        layout.discovery_doc(&feature),
+        Utf8PathBuf::from("/hall/docs/checkout/discovery.md")
+    );
+    assert_eq!(
+        layout.research_dir(&feature),
+        Utf8PathBuf::from("/hall/docs/checkout/research")
+    );
 }
 
 /// The regression guard for the bug `domain::provider` exists to make
@@ -380,4 +392,35 @@ fn a_run_id_cannot_carry_a_path_traversal_into_the_archive() {
             "`{hostile}` must never become a run id"
         );
     }
+}
+
+/// ADR-0002: memory and execution are two homes joined by one name. A
+/// regression that collapsed them — `work_dir` returning the plan path, or
+/// `plan_dir` moving under `docs/` — would pass every other test here.
+#[test]
+fn memory_and_execution_are_separate_homes_for_one_name() {
+    let layout = Layout::at("/hall");
+    let feature = FeatureName::new("checkout").unwrap();
+
+    assert_ne!(layout.work_dir(&feature), layout.plan_dir(&feature));
+    assert!(
+        layout
+            .plan_dir(&feature)
+            .starts_with(Utf8PathBuf::from("/hall/plans"))
+    );
+    assert!(
+        layout
+            .work_dir(&feature)
+            .starts_with(Utf8PathBuf::from("/hall/docs"))
+    );
+    assert!(
+        layout
+            .discovery_doc(&feature)
+            .starts_with(layout.work_dir(&feature))
+    );
+    assert!(
+        layout
+            .research_dir(&feature)
+            .starts_with(layout.work_dir(&feature))
+    );
 }

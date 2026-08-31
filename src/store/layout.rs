@@ -58,7 +58,8 @@
 //!   `archived_run(&FeatureName, &RunId)`, `archived_board(&FeatureName, &str)`,
 //!   `feature_session(&FeatureName, &SessionId)`, `discovery_session(&SessionId)`,
 //!   `setup_script(&RepoName)`, `session_hook(&RepoName)`, `secrets_dir()`,
-//!   `hall_skills()`, `plan_dir(&FeatureName)`,
+//!   `hall_skills()`, `plan_dir(&FeatureName)`, `work_dir(&FeatureName)`,
+//!   `discovery_doc(&FeatureName)`, `research_dir(&FeatureName)`,
 //!   `harness_dir(&Provider)`, `commands_dir(&Provider)`.
 //! - `gitignore_lines()` — the exact patterns the hall's `.gitignore` needs.
 //!
@@ -382,6 +383,37 @@ impl Layout {
     #[must_use]
     pub fn plan_dir(&self, feature: &FeatureName) -> Utf8PathBuf {
         self.root.join("plans").join(feature.as_str())
+    }
+
+    /// `<hall>/docs/<name>/` — a unit of work's committed memory:
+    /// `discovery.md` and `research/`. Committed.
+    ///
+    /// The sibling of [`Self::plan_dir`], not its replacement. Memory
+    /// outlives the work; execution mostly does not (ADR-0002).
+    ///
+    /// Only names ivar knows are ever touched here. `docs/product/`,
+    /// `docs/updates/`, and `docs/repo-relations/` are the hall's flat
+    /// topic documentation and can never collide with a work name —
+    /// `FeatureName` rejects all three.
+    #[must_use]
+    pub fn work_dir(&self, feature: &FeatureName) -> Utf8PathBuf {
+        self.root.join("docs").join(feature.as_str())
+    }
+
+    /// `<hall>/docs/<name>/discovery.md` — why this work exists, what was
+    /// considered, what was rejected. ivar owns the front matter; the
+    /// agent owns the prose. Committed.
+    #[must_use]
+    pub fn discovery_doc(&self, feature: &FeatureName) -> Utf8PathBuf {
+        self.work_dir(feature).join("discovery.md")
+    }
+
+    /// `<hall>/docs/<name>/research/` — free-form supporting notes, as many
+    /// files as the work needs. ivar creates the directory and never parses
+    /// what is in it. Committed.
+    #[must_use]
+    pub fn research_dir(&self, feature: &FeatureName) -> Utf8PathBuf {
+        self.work_dir(feature).join("research")
     }
 
     /// `<hall>/docs/updates/` — numbered delivery-relevant change records,
