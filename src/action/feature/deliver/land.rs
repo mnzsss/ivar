@@ -267,64 +267,109 @@ pub(crate) fn execute(
 
     // --- Phase 2: Local Fast-Forward Merge for ALL plans with all-or-nothing rollback ---
     for (i, plan) in plans.iter().enumerate() {
+        // Re-validate immediately before each merge (ADR-0004 D5)
+        let bare = layout.repo_bare(&plan.repo);
+        if !git.is_ancestor(&bare, plan.default_branch.as_str(), &plan.tip)? {
+            let failure = Failure::blocked(
+                "deliver.land_not_fast_forward",
+                format!(
+                    "default branch `{}` in repo `{}` cannot fast-forward to feature `{}`",
+                    plan.default_branch,
+                    plan.repo,
+                    feature_name_from_plan(plan)
+                ),
+            )
+            .expected(format!(
+                "default branch `{}` to fast-forward to `{}`",
+                plan.default_branch,
+                feature_name_from_plan(plan)
+            ))
+            .actual(format!(
+                "default branch `{}` has diverged or cannot fast-forward",
+                plan.default_branch
+            ))
+            .fix(
+                FixAction::safe(
+                    "deliver.rebase_first",
+                    format!(
+                        "Rebase the feature onto default first: `ivar feature rebase {}`.",
+                        feature_name_from_plan(plan)
+                    ),
+                )
+                .command(format!(
+                    "ivar feature rebase {}",
+                    feature_name_from_plan(plan)
+                )),
+            );
+            return rollback_merged(git, plans, i, failure);
+        }
+
+        if git.worktree_dirty(&plan.worktree)? {
+            let failure = Failure::blocked(
+                "deliver.land_dirty_worktree",
+                format!(
+                    "the default worktree at `{}` has uncommitted changes",
+                    plan.worktree
+                ),
+            )
+            .expected("the default worktree to be clean")
+            .actual(format!("uncommitted changes in `{}`", plan.worktree))
+            .fix(FixAction::safe(
+                "deliver.clean_worktree_first",
+                "Commit or stash your work before landing.",
+            ));
+            return rollback_merged(git, plans, i, failure);
+        }
+
+        let current_head = git.head_commit(&plan.worktree)?;
+        if current_head != plan.original_head {
+            let failure = Failure::blocked(
+                "deliver.land_head_moved",
+                format!(
+                    "default branch `{}` in repo `{}` moved since preflight",
+                    plan.default_branch, plan.repo
+                ),
+            )
+            .expected(format!(
+                "default branch `{}` to remain at preflight HEAD `{}`",
+                plan.default_branch, plan.original_head
+            ))
+            .actual(format!("HEAD is now `{current_head}`"))
+            .fix(
+                FixAction::safe(
+                    "deliver.rebase_first",
+                    format!(
+                        "Rebase the feature onto default first: `ivar feature rebase {}`.",
+                        feature_name_from_plan(plan)
+                    ),
+                )
+                .command(format!(
+                    "ivar feature rebase {}",
+                    feature_name_from_plan(plan)
+                )),
+            );
+            return rollback_merged(git, plans, i, failure);
+        }
+
         if let Err(e) = git.fast_forward_to(&plan.worktree, &plan.tip) {
             let orig_err = format!(
                 "failed to fast-forward default branch `{}` in `{}`: {e}",
                 plan.default_branch, plan.repo
             );
-
-            // ADR-0004 Rollback: reset all previously merged worktrees to original_head
-            let mut rollback_errors = Vec::new();
-            for prev_plan in plans.iter().take(i) {
-                if let Err(reset_err) =
-                    git.reset_hard(&prev_plan.worktree, &prev_plan.original_head)
-                {
-                    rollback_errors.push(format!(
-                        "`{}` (target `{}`): {reset_err}",
-                        prev_plan.repo, prev_plan.original_head
-                    ));
-                }
-            }
-
-            if !rollback_errors.is_empty() {
-                return Err(Failure::failed(
-                    "deliver.land_rollback_failed",
-                    format!(
-                        "land failed on `{}` and rollback failed: {orig_err}",
-                        plan.repo
-                    ),
-                )
-                .expected(
-                    "all merged default worktrees to roll back cleanly to their original tips",
-                )
-                .actual(format!(
-                    "original failure: {orig_err}; rollback errors: {}",
-                    rollback_errors.join("; ")
+            let failure = Failure::failed("git.merge_ff_only_failed", orig_err)
+                .expected(format!(
+                    "default branch `{}` to fast-forward to `{}`",
+                    plan.default_branch, plan.tip
                 ))
+                .actual(format!("git merge --ff-only failed: {e}"))
                 .fix(FixAction::safe(
-                    "deliver.manual_cleanup",
+                    "deliver.rebase_first",
                     format!(
-                        "Manually reset worktrees that failed rollback: {}.",
-                        rollback_errors.join("; ")
+                        "Rebase the feature onto default first: `ivar feature rebase {}`.",
+                        feature_name_from_plan(plan)
                     ),
-                )));
-            }
-
-            return Err(
-                Failure::failed("git.merge_ff_only_failed", orig_err.clone())
-                    .expected(format!(
-                        "default branch `{}` to fast-forward to `{}`",
-                        plan.default_branch, plan.tip
-                    ))
-                    .actual(format!("git merge --ff-only failed: {e}"))
-                    .fix(FixAction::safe(
-                        "deliver.rebase_first",
-                        format!(
-                            "Rebase the feature onto default first: `ivar feature rebase {}`.",
-                            feature_name_from_plan(plan)
-                        ),
-                    )),
-            );
+                ));
+            return rollback_merged(git, plans, i, failure);
         }
     }
 
@@ -366,6 +411,48 @@ pub(crate) fn execute(
     }
 
     Ok(results)
+}
+
+fn rollback_merged(
+    git: &impl Git,
+    plans: &[LandPlan],
+    failed_index: usize,
+    failure: Failure,
+) -> Result<Vec<LandResult>, Failure> {
+    let mut rollback_errors = Vec::new();
+    for prev_plan in plans.iter().take(failed_index) {
+        if let Err(reset_err) = git.reset_hard(&prev_plan.worktree, &prev_plan.original_head) {
+            rollback_errors.push(format!(
+                "`{}` (target `{}`): {reset_err}",
+                prev_plan.repo, prev_plan.original_head
+            ));
+        }
+    }
+
+    if !rollback_errors.is_empty() {
+        let repo_name = plans
+            .get(failed_index)
+            .map_or("unknown", |p| p.repo.as_str());
+        return Err(Failure::failed(
+            "deliver.land_rollback_failed",
+            format!("land failed on `{repo_name}` and rollback failed: {}", failure.what),
+        )
+        .expected("all merged default worktrees to roll back cleanly to their original tips")
+        .actual(format!(
+            "original failure: {}; rollback errors: {}",
+            failure.what,
+            rollback_errors.join("; ")
+        ))
+        .fix(FixAction::safe(
+            "deliver.manual_cleanup",
+            format!(
+                "Manually reset worktrees that failed rollback: {}.",
+                rollback_errors.join("; ")
+            ),
+        )));
+    }
+
+    Err(failure)
 }
 
 fn feature_name_from_plan(plan: &LandPlan) -> &str {
