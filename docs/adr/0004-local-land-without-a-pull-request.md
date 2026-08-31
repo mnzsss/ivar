@@ -70,8 +70,10 @@ first from being touched. What remains is the window between the last check
 and the write, where only something outside `ivar` can intervene — a
 concurrent process, an `index.lock`, a full disk. That class degrades to a
 named, reported partial state, never to silence. Re-validating
-fast-forwardability immediately before each merge would narrow the window
-further; it would not close it, and it is not implemented.
+fast-forwardability, worktree cleanliness, and HEAD movement immediately
+before each merge narrows the window further (from the full batch to a
+single repo's merge step); it does not close it entirely, as concurrent
+edits can still occur during `fast_forward_to` itself.
 
 ### Why not `integrate`'s receipt model
 
