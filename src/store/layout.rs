@@ -27,8 +27,9 @@
 //!                                      worktrees (candidate/source per repo)
 //!     features/<feature>/sessions/<id>/  feature-session view dirs
 //!     sessions/<id>/                   discovery-session view dirs
-//!     secrets/                         per-repo secret material, hand-maintained
-//!                                      (gitignored — see below)
+//!     secrets/                         secret material (gitignored — see below):
+//!                                      hand-maintained per-repo secrets, plus
+//!                                      mcp.env for Ivar-managed MCP credentials
 //!     setups/<repo>.sh                 per-repo setup scripts — COMMITTED
 //!     setups/<repo>.session.sh         per-repo session hooks — COMMITTED
 //!     skills/                          hall-scoped skills — COMMITTED
@@ -352,15 +353,27 @@ impl Layout {
     }
 
     /// `<hall>/.ivar/secrets/` — where a setup script reads values git does not
-    /// carry. Hand-maintained, never written by `ivar`, and gitignored by the
-    /// same `.ivar/*` rule that covers the rest of local state.
+    /// carry, and where Ivar stores managed MCP credentials in `mcp.env`.
+    /// Gitignored by the same `.ivar/*` rule that covers the rest of local state.
     ///
-    /// `ivar` stores no secrets. This is a *location* handed to setup scripts
-    /// through `IVAR_SECRETS_DIR`, the same posture `domain::mcp` takes: hold
-    /// references, never values.
+    /// General per-repo secrets in this directory are hand-maintained and never
+    /// written by `ivar`. This location is handed to setup scripts through
+    /// `IVAR_SECRETS_DIR`. The one file managed directly by Ivar under this
+    /// directory is [`Self::mcp_secrets_env`].
     #[must_use]
     pub fn secrets_dir(&self) -> Utf8PathBuf {
         self.ivar_dir().join("secrets")
+    }
+
+    /// `<hall>/.ivar/secrets/mcp.env` — local, gitignored storage for
+    /// Ivar-managed MCP OAuth client credentials.
+    ///
+    /// Managed directly by `store::mcp_secrets` with owner-only permissions
+    /// on Unix. Distinct from other files under `secrets/`, which remain
+    /// hand-maintained.
+    #[must_use]
+    pub fn mcp_secrets_env(&self) -> Utf8PathBuf {
+        self.secrets_dir().join("mcp.env")
     }
 
     /// `<hall>/.ivar/skills/` — hall-scoped skills. Committed.

@@ -35,7 +35,7 @@ fn attempt(
 ) -> Attempt {
     let Preregistered {
         report: preregistration,
-        fresh_secret,
+        secret,
     } = match preregister_if_needed(layout, manifest, provider, server, materialised_name) {
         Ok(preregistered) => preregistered,
         Err(failure) => {
@@ -58,7 +58,7 @@ fn attempt(
         }
     };
 
-    let command = auth_command(harness, materialised_name, fresh_secret.as_ref());
+    let command = auth_command(harness, materialised_name, secret.as_ref());
     let display = command.display();
     let outcome = match proc::inherit(&command) {
         Ok(Some(0)) => verify_authenticated(harness, materialised_name),
@@ -176,15 +176,13 @@ fn verify_authenticated(harness: Harness, materialised_name: &str) -> Result<(),
 /// provider's own config keys this server by, so it is what the login
 /// command and OpenCode's `mcp-auth.json` must agree on.
 ///
-/// `fresh_secret`, when `Some((var, value))`, is set on the child's own
-/// environment (defect fix, `R-SECRET-HANDOFF`): a client registered on this
-/// very run needs its secret before the operator could possibly have
-/// exported it. `None` on the `Skipped`/`NotNeeded` paths, where the
-/// operator's own exported variable is the (only) source.
+/// `secret`, when `Some((var, value))`, is set on the child's own
+/// environment (defect fix, `R-SECRET-HANDOFF`): either a fresh registration or
+/// an existing one resolved from the caller environment or local store.
 fn auth_command(
     harness: Harness,
     materialised_name: &str,
-    fresh_secret: Option<&(String, String)>,
+    secret: Option<&(String, String)>,
 ) -> proc::Command {
     let args: [&str; 2] = match harness {
         Harness::ClaudeCode => ["mcp", "login"],
@@ -193,7 +191,7 @@ fn auth_command(
     let command = proc::Command::new(harness.binary())
         .args(args)
         .arg(materialised_name);
-    match fresh_secret {
+    match secret {
         Some((var, value)) => command.env(var.clone(), value.clone()),
         None => command,
     }

@@ -23,12 +23,12 @@
 //!    ([`figma::needs_preregistration`]), and the manifest's entry for it
 //!    does not already carry an `oauth` client, this registers one with
 //!    Figma, writes `oauth.client_id` and `oauth.client_secret_env` back into
-//!    `ivar.json`, re-materialises `opencode.json` so it picks the client up,
-//!    and prints the client secret's `export` line to the operator's
-//!    terminal exactly once (`R-SECRET-HANDOFF`) — see
-//!    [`print_secret_export`]. A manifest entry that already carries `oauth`
-//!    skips the whole step outright — never re-registered, never invalidated
-//!    (`R-IDEMPOTENT`). Every other combination (a different provider, a
+//!    `ivar.json`, persists the client secret into hall-local, gitignored
+//!    `.ivar/secrets/mcp.env`, and re-materialises `opencode.json` so it picks
+//!    the client up. A manifest entry that already carries `oauth`
+//!    skips re-registration outright — never re-registered, never invalidated
+//!    (`R-IDEMPOTENT`) — and resolves the secret from caller environment or
+//!    `.ivar/secrets/mcp.env`. Every other combination (a different provider, a
 //!    server with no `url`, a host Figma never gated) is
 //!    [`Preregistration::NotNeeded`].
 //! 3. **Dispatch.** Hand off to the harness's own login command — `claude mcp
@@ -112,34 +112,29 @@
 //! the command: the manifest's own `McpServerDef.oauth`. See
 //! `plans/ivar-mcp-auth/analysis.md`.
 //!
-//! # The secret handoff (`R-SECRET-HANDOFF`)
+//! # The secret storage and handoff (`R-SECRET-HANDOFF`)
 //!
 //! Figma's registration returns a `client_secret`, and Figma's token endpoint
 //! requires it despite echoing `token_endpoint_auth_method: "none"`
-//! (measured 2026-08-26). That value goes to exactly two places, in memory
-//! only, and nowhere else: the operator's terminal, via
-//! [`print_secret_export`], and — for the one dispatch that mints it — the
-//! child's own environment, via [`Attempt`]'s call into [`auth_command`]. It
-//! never reaches `ivar.json` (which stores only `oauth.client_secret_env`,
-//! the variable's *name*), never `opencode.json` (which stores the
-//! `{env:NAME}` reference `harness::config::mcp` renders), and never
-//! [`AuthOutcome`] or any type reachable from it, since that struct is
+//! (measured 2026-08-26). That value is stored in local, gitignored
+//! `.ivar/secrets/mcp.env` with owner-only Unix permissions (`0600`) and
+//! passed in-memory to the child process environment via [`Attempt`]'s call
+//! into [`auth_command`]. It never reaches `ivar.json` (which stores only
+//! `oauth.client_secret_env`, the variable's *name*), never `opencode.json`
+//! (which stores the `{env:NAME}` reference `harness::config::mcp` renders),
+//! and never [`AuthOutcome`] or any type reachable from it, since that struct is
 //! `Serialize` and a `--json` run would print it verbatim. [`secret_env_var`]
 //! is the one function that names the variable — [`preregister_if_needed`]
-//! stores its output in the manifest and [`print_secret_export`] prints it in
-//! the `export` line, so the two can never spell the same variable two
-//! different ways.
+//! stores its output in the manifest and persists the value under that key in
+//! `.ivar/secrets/mcp.env`.
 //!
 //! # The secret must reach the very run that mints it (defect fix)
 //!
-//! Live execution found this: `ivar mcp auth` printed the `export` line and
-//! immediately dispatched `opencode mcp auth`, which failed with Figma's
-//! `client_secret_basic authentication requires a client_secret` — the
-//! operator cannot have exported the variable yet on the run that just
-//! created it. [`preregister_if_needed`] now returns the fresh secret
-//! alongside [`Preregistration::Registered`] (in [`Preregistered`], which is
-//! deliberately not `Serialize`), and [`attempt`] passes it straight into
-//! [`auth_command`]'s [`proc::Command::env`] for that one child — never to
+//! When pre-registration mints a new client secret, [`preregister_if_needed`]
+//! returns the secret alongside [`Preregistration::Registered`] (in
+//! [`Preregistered`], which is deliberately not `Serialize`), and [`attempt`]
+//! passes it straight into [`auth_command`]'s [`proc::Command::env`] for that
+//! child — never to Claude, never to `ivar.json`, and never to `--json` output.
 //! disk, never for a second run. On the `Skipped` path — a manifest that
 //! already carries `oauth` — `ivar` never held this run's secret in the
 //! first place, so [`ensure_secret_env_set`] fails early, naming the
@@ -198,9 +193,8 @@ pub enum Preregistration {
     /// into `opencode.json`.
     Registered {
         /// The `client_id` Figma issued. Not a secret by itself, but never
-        /// reported alongside the client secret either — that never leaves
-        /// [`print_secret_export`], which prints it to stderr and puts it on
-        /// no value this crate serialises anywhere.
+        /// reported alongside the client secret either — which is saved
+        /// locally to `.ivar/secrets/mcp.env` and passed to the child process environment.
         client_id: String,
     },
 }

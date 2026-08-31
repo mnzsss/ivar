@@ -842,7 +842,10 @@ pub enum McpCommand {
     /// time; where a provider's own dynamic client registration is known to
     /// be rejected by the server (Figma on OpenCode, today), pre-registers a
     /// client first for that provider — a registration is not an
-    /// authentication, and is reported separately, per provider. Then hands
+    /// authentication, and is reported separately, per provider. Persists the
+    /// OAuth client secret locally into `.ivar/secrets/mcp.env` so subsequent
+    /// sessions and authentications do not require re-exporting. To remove a
+    /// stored credential, remove its line from `.ivar/secrets/mcp.env`. Then hands
     /// off to each provider's own login command (`claude mcp login <name>` or
     /// `opencode mcp auth <name>`), which owns the terminal from that point
     /// on: it prints a URL and waits on a browser. With `--all-providers`,

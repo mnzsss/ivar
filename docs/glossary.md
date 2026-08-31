@@ -135,9 +135,10 @@ project sibling sessions must not share — belongs here. A failure warns; the
 session still opens.
 
 **Secrets dir** — `.ivar/secrets/`, handed to setup scripts and session hooks as
-`IVAR_SECRETS_DIR`. Created by `sync`, never written to by `ivar`, and gitignored
-by the same `.ivar/*` rule that covers the rest of local state. `ivar` stores no
-secrets; it points at a directory you maintain.
+`IVAR_SECRETS_DIR`. Gitignored by the same `.ivar/*` rule that covers the rest of local
+state. General per-repo secrets in this directory are hand-maintained; Ivar manages
+durable local MCP OAuth credentials directly in `.ivar/secrets/mcp.env` (with owner-only
+permissions on Unix).
 
 ## Planning
 

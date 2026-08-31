@@ -249,6 +249,10 @@ fn accessors_compute_the_documented_paths() {
         Utf8PathBuf::from("/hall/opencode.json")
     );
     assert_eq!(
+        layout.mcp_secrets_env(),
+        Utf8PathBuf::from("/hall/.ivar/secrets/mcp.env")
+    );
+    assert_eq!(
         layout.plan_dir(&feature),
         Utf8PathBuf::from("/hall/plans/checkout")
     );

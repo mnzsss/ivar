@@ -90,10 +90,47 @@ fn preregistration_skipped_when_the_manifest_already_carries_oauth() {
     )
     .unwrap();
     assert!(matches!(result.report, Preregistration::Skipped));
+    let (var, val) = result.secret.unwrap();
+    assert_eq!(var, "CARGO_MANIFEST_DIR");
+    assert_eq!(val, env!("CARGO_MANIFEST_DIR"));
+
+    // Verify it backfilled into .ivar/secrets/mcp.env
+    let secrets = McpSecrets::read(&layout).unwrap();
+    assert_eq!(
+        secrets.get("CARGO_MANIFEST_DIR"),
+        Some(env!("CARGO_MANIFEST_DIR"))
+    );
+}
+
+#[test]
+fn preregistration_skipped_resolves_from_mcp_secrets_store_when_env_is_unset() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root.clone());
+    let manifest = Manifest::read(&layout).unwrap().unwrap();
+
+    let var_name = "IVAR_MCP_AUTH_TEST_STORED_ONLY_VAR";
+    McpSecrets::set_and_write(&layout, var_name, "stored-secret-val").unwrap();
+
+    let server = McpServerDef::new("figma", "sse")
+        .url("https://mcp.figma.com/mcp")
+        .oauth(McpOauth::new("existing-client", var_name));
+
+    let result = preregister_if_needed(
+        &layout,
+        &manifest,
+        Provider::OpenCode,
+        &server,
+        "acme-figma",
+    )
+    .unwrap();
+    assert!(matches!(result.report, Preregistration::Skipped));
+    let (var, val) = result.secret.unwrap();
+    assert_eq!(var, var_name);
+    assert_eq!(val, "stored-secret-val");
 }
 
 /// Defect fix, related improvement (`R-ERRORS`): on the `Skipped` path
-/// `ivar` never held this run's secret, so a missing export must fail
+/// a missing secret in both environment and local store must fail
 /// early, naming the variable — rather than dispatch into OpenCode's
 /// confusing `client_secret_basic authentication requires a client_secret`.
 #[test]
@@ -131,20 +168,6 @@ fn preregistration_skipped_path_fails_naming_the_variable_when_it_is_unset() {
 fn secret_env_var_uppercases_and_folds_non_alphanumerics() {
     assert_eq!(secret_env_var("acme-figma"), "IVAR_MCP_ACME_FIGMA_SECRET");
     assert_eq!(secret_env_var("linear"), "IVAR_MCP_LINEAR_SECRET");
-}
-
-// -- print_secret_export ----------------------------------------------------
-
-/// A smoke test, not a content check: stderr is always writable in a test
-/// process, and capturing it is not worth the machinery for a two-line
-/// function. What actually matters — the secret never touching `ivar.json`,
-/// any materialised file, or `AuthOutcome` — is enforced by construction
-/// (see the module doc comment's "The secret handoff" section):
-/// `Preregistration::Registered` has no field that could hold one, and
-/// `all_providers_report`'s tests below never construct one that does.
-#[test]
-fn print_secret_export_succeeds_against_real_stderr() {
-    print_secret_export("IVAR_MCP_ACME_FIGMA_SECRET", "shh").unwrap();
 }
 
 // -- host_of --------------------------------------------------------------
