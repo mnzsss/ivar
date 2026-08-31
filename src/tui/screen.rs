@@ -115,12 +115,6 @@ impl Screen {
         &self.styled
     }
 
-    /// The viewport as one joined string (with newlines), for the widget.
-    #[must_use]
-    pub fn as_text(&self) -> String {
-        self.rows.join("\n")
-    }
-
     /// The viewport size.
     #[must_use]
     pub fn size(&self) -> (u16, u16) {

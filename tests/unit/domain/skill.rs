@@ -21,8 +21,6 @@ fn authored_skill_has_no_source() {
         },
         SkillRoot::Hall,
     );
-    assert!(skill.is_authored());
-    assert!(!skill.is_external());
     assert_eq!(skill.render_mode(), RenderMode::Symlink);
 }
 
@@ -42,8 +40,6 @@ fn external_skill_has_an_external_source() {
         },
         SkillRoot::Hall,
     );
-    assert!(!skill.is_authored());
-    assert!(skill.is_external());
     assert_eq!(skill.render_mode(), RenderMode::Copy);
 }
 

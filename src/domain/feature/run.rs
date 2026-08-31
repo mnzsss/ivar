@@ -493,16 +493,6 @@ pub struct RepoDiff {
     pub changes: BTreeMap<Utf8PathBuf, PathChange>,
 }
 
-impl RepoDiff {
-    /// Every path classified as `kind`, in path order.
-    pub fn of_kind(&self, kind: ChangeKind) -> impl Iterator<Item = &Utf8PathBuf> {
-        self.changes
-            .iter()
-            .filter(move |(_, change)| change.kind == kind)
-            .map(|(path, _)| path)
-    }
-}
-
 /// What every repo looks like at a finish checkpoint, relative to the run's
 /// baseline.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]

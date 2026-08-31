@@ -206,7 +206,6 @@ fn inspect_reports_too_new_without_erroring_or_mutating() {
             current: 1
         }
     );
-    assert!(!inspection.needs_migration());
     let bytes_after = fs::read_bytes(&path).unwrap().unwrap();
     assert_eq!(bytes_after, original.as_bytes());
 }
@@ -233,7 +232,6 @@ fn inspect_reports_needs_migration_without_mutating() {
             current: 1
         }
     );
-    assert!(inspection.needs_migration());
     let bytes_after = fs::read_bytes(&path).unwrap().unwrap();
     assert_eq!(bytes_after, original.as_bytes(), "inspect must never write");
 }

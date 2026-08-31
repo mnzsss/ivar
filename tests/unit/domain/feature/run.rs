@@ -285,16 +285,8 @@ fn a_file_replaced_by_a_symlink_is_a_modification() {
 }
 
 #[test]
-fn a_repo_diff_can_list_the_paths_of_one_kind() {
-    let diff = diff();
-    let repo = &diff.repos["ivar"];
-
-    assert_eq!(
-        repo.of_kind(ChangeKind::Added).collect::<Vec<_>>(),
-        vec![&Utf8PathBuf::from("src/store/feature/run.rs")]
-    );
-    assert_eq!(repo.of_kind(ChangeKind::Removed).count(), 0);
-    assert!(!diff.is_empty());
+fn a_run_diff_knows_whether_it_carries_any_change() {
+    assert!(!diff().is_empty());
     assert!(RunDiff::default().is_empty());
 }
 

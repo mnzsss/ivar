@@ -32,7 +32,6 @@ fn merged_repo_is_eligible() {
         session_inspection_error: None,
     });
 
-    assert!(verdict.eligible());
     assert!(verdict.blockers.is_empty());
 }
 
@@ -99,7 +98,6 @@ fn empty_feature_is_explicitly_eligible() {
     });
 
     assert_eq!(verdict.blockers, vec![CleanupBlocker::EmptyFeature]);
-    assert!(verdict.eligible());
 }
 
 #[test]

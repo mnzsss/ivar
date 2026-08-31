@@ -267,23 +267,6 @@ impl Layout {
             .join(format!("{source_hash}.json"))
     }
 
-    /// `<hall>/.ivar/features/<feature>/execution/inbox/` — one append-only
-    /// JSONL file per workstream. This is the channel a human reply travels
-    /// to a blocked workstream; it is deliberately outside `board.json`, which
-    /// stays a single small document the plan owns.
-    #[must_use]
-    pub fn execution_inbox_dir(&self, feature: &FeatureName) -> Utf8PathBuf {
-        self.execution_dir(feature).join("inbox")
-    }
-
-    /// `<hall>/.ivar/features/<feature>/execution/inbox/<workstream>.jsonl` —
-    /// the append-only inbox of one workstream.
-    #[must_use]
-    pub fn execution_inbox(&self, feature: &FeatureName, workstream: &str) -> Utf8PathBuf {
-        self.execution_inbox_dir(feature)
-            .join(format!("{workstream}.jsonl"))
-    }
-
     /// `<hall>/.ivar/features/<feature>/integration/<repo>/` — the staging
     /// area for one repo's local integration: a detached candidate worktree
     /// and a temporary source worktree, both throwaway.

@@ -87,6 +87,9 @@ impl WritableSet {
 
     /// Build a `WritableSet` from explicit parts. Test-only.
     #[cfg(test)]
+    /// `cfg(test)`: the CLI always builds a guard from a resolved session,
+    /// never from loose parts.
+    #[cfg(test)]
     pub(crate) fn from_parts(view_dir: Utf8PathBuf, worktrees: Vec<Utf8PathBuf>) -> Self {
         let view_dir = canonicalize_lenient(&view_dir);
         let worktrees = worktrees.iter().map(|w| canonicalize_lenient(w)).collect();
