@@ -555,6 +555,34 @@ Print one unit of work's memory
 | `--path` |  |  | Print only the path, not the content |
 
 
+##### `ivar discovery amend`
+
+Add to a unit of work's memory. Appends a dated block by default; `--merge` replaces the whole document and requires `--expected-hash`
+
+| argument | required | description |
+| --- | --- | --- |
+| `name` | yes | The unit of work's name |
+
+| flag | value | default | description |
+| --- | --- | --- | --- |
+| `--file` | `<FILE>` |  | Read the content from this file, or from stdin with `-` |
+| `--merge` |  |  | Replace the whole document instead of appending to it |
+| `--expected-hash` | `<EXPECTED_HASH>` |  | The document's current SHA-256. Required with `--merge` |
+
+
+##### `ivar discovery close`
+
+End a discovery: `converted` when it became a feature, `abandoned` when it did not. The doc is kept either way
+
+| argument | required | description |
+| --- | --- | --- |
+| `name` | yes | The unit of work's name |
+
+| flag | value | default | description |
+| --- | --- | --- | --- |
+| `--outcome` | `<OUTCOME>` |  | How it ended |
+
+
 #### `ivar plan`
 
 Manage SPDD plans

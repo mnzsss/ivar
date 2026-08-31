@@ -666,6 +666,12 @@ pub enum DiscoveryCommand {
     List(DiscoveryListArgs),
     /// Print one unit of work's memory.
     Show(DiscoveryShowArgs),
+    /// Add to a unit of work's memory. Appends a dated block by default;
+    /// `--merge` replaces the whole document and requires `--expected-hash`.
+    Amend(DiscoveryAmendArgs),
+    /// End a discovery: `converted` when it became a feature, `abandoned`
+    /// when it did not. The doc is kept either way.
+    Close(DiscoveryCloseArgs),
 }
 
 /// `ivar discovery create <name> [--title …]`.
@@ -694,6 +700,32 @@ pub struct DiscoveryShowArgs {
     /// Print only the path, not the content.
     #[arg(long)]
     pub path: bool,
+}
+
+/// `ivar discovery amend <name> [--file <path>|-] [--merge --expected-hash <sha256>]`.
+#[derive(Debug, Args)]
+pub struct DiscoveryAmendArgs {
+    /// The unit of work's name.
+    pub name: String,
+    /// Read the content from this file, or from stdin with `-`.
+    #[arg(long)]
+    pub file: Option<String>,
+    /// Replace the whole document instead of appending to it.
+    #[arg(long, requires = "expected_hash")]
+    pub merge: bool,
+    /// The document's current SHA-256. Required with `--merge`.
+    #[arg(long)]
+    pub expected_hash: Option<String>,
+}
+
+/// `ivar discovery close <name> --outcome converted|abandoned`.
+#[derive(Debug, Args)]
+pub struct DiscoveryCloseArgs {
+    /// The unit of work's name.
+    pub name: String,
+    /// How it ended.
+    #[arg(long, value_parser = ["converted", "abandoned"])]
+    pub outcome: String,
 }
 
 /// The `ivar plan` surface: the SPDD artifacts, committed per feature, and

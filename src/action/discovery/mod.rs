@@ -15,6 +15,8 @@ use crate::infra::fs;
 use crate::store::discovery;
 use crate::store::layout::Layout;
 
+pub mod amend;
+pub mod close;
 pub mod create;
 pub mod list;
 pub mod show;

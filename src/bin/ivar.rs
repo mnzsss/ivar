@@ -24,6 +24,8 @@ use serde::Serialize;
 
 use ivar::action::Ctx;
 use ivar::action::confirm;
+use ivar::action::discovery::amend as discovery_amend;
+use ivar::action::discovery::close as discovery_close;
 use ivar::action::discovery::create as discovery_create;
 use ivar::action::discovery::list as discovery_list;
 use ivar::action::discovery::show as discovery_show;
@@ -335,6 +337,61 @@ fn main() -> ExitCode {
                 &mut stdout,
                 &mut stderr,
             ),
+            DiscoveryCommand::Amend(args) => {
+                let content_res = match args.file.as_deref() {
+                    Some(path) if path != "-" => {
+                        let path = Utf8PathBuf::from(path);
+                        match ivar::infra::fs::read_text(&path) {
+                            Ok(Some(text)) => Ok(text),
+                            Ok(None) => Err(ivar::error::Failure::blocked(
+                                "discovery.file_not_found",
+                                format!("file `{path}` not found"),
+                            )),
+                            Err(err) => Err(err.into()),
+                        }
+                    }
+                    _ => {
+                        use std::io::Read;
+                        let mut buf = String::new();
+                        match std::io::stdin().read_to_string(&mut buf) {
+                            Ok(_) => Ok(buf),
+                            Err(e) => Err(ivar::error::Failure::failed(
+                                "stdin.read_failed",
+                                format!("failed to read stdin: {e}"),
+                            )),
+                        }
+                    }
+                };
+                let result = content_res.and_then(|content| {
+                    let input = discovery_amend::AmendInput {
+                        name: args.name,
+                        content,
+                        merge: args.merge,
+                        expected_hash: args.expected_hash,
+                        session_id: std::env::var("IVAR_SESSION_ID").ok(),
+                    };
+                    discovery_amend::amend(&ctx, input)
+                });
+                respond(result, json, &mut stdout, &mut stderr)
+            }
+            DiscoveryCommand::Close(args) => {
+                let outcome = match args.outcome.as_str() {
+                    "converted" => DiscoveryStatus::Converted,
+                    "abandoned" => DiscoveryStatus::Abandoned,
+                    "exploring" => DiscoveryStatus::Exploring,
+                    _ => DiscoveryStatus::Unknown,
+                };
+                let input = discovery_close::CloseInput {
+                    name: args.name,
+                    outcome,
+                };
+                respond(
+                    discovery_close::close(&ctx, input),
+                    json,
+                    &mut stdout,
+                    &mut stderr,
+                )
+            }
         },
         Command::Plan(cmd) => match cmd {
             PlanCommand::Create(args) => respond(
