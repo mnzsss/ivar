@@ -12,7 +12,7 @@ use std::collections::BTreeSet;
 #[test]
 fn catalog_is_complete_unique_and_current() {
     let commands = catalog();
-    assert_eq!(commands.len(), 16);
+    assert_eq!(commands.len(), 14);
 
     let ids = commands
         .iter()
@@ -38,11 +38,11 @@ fn catalog_is_complete_unique_and_current() {
     }
 }
 
-/// The relations command is the fifteenth: it has no Bifrost-era predecessor,
-/// so it carries no legacy fingerprint — and every other command keeps its
-/// exact digest, which is what legacy cleanup still recognises.
+/// `relations`, `feature-cleanup` and `connect` have no Bifrost-era
+/// predecessor, so they carry no legacy fingerprint — and every other command
+/// keeps its exact digest, which is what legacy cleanup still recognises.
 #[test]
-fn relations_is_the_fifteenth_command_without_a_legacy_fingerprint() {
+fn commands_without_a_bifrost_predecessor_carry_no_legacy_fingerprint() {
     let commands = catalog();
 
     let relations = commands
@@ -58,8 +58,8 @@ fn relations_is_the_fifteenth_command_without_a_legacy_fingerprint() {
             .iter()
             .filter(|command| command.legacy_sha256.is_some())
             .count(),
-        14,
-        "the original fourteen commands must all remain"
+        11,
+        "every command with a Bifrost-era predecessor must keep its digest"
     );
     for command in commands
         .iter()
@@ -164,7 +164,7 @@ fn materialise_creates_repairs_and_then_becomes_idempotent() {
     let (_guard, dir) = commands_dir();
 
     let first = materialise(&dir).unwrap();
-    assert_eq!(first.len(), 16);
+    assert_eq!(first.len(), 14);
     assert!(first.iter().all(|change| change.change == Change::Created));
 
     fs::write_text(&dir.join("ivar-plan.md"), "changed").unwrap();
@@ -176,7 +176,7 @@ fn materialise_creates_repairs_and_then_becomes_idempotent() {
     );
 
     let third = materialise(&dir).unwrap();
-    assert_eq!(third.len(), 16);
+    assert_eq!(third.len(), 14);
     assert!(
         third
             .iter()
@@ -224,7 +224,7 @@ fn remove_deletes_only_reserved_ivar_commands() {
 
     let changes = remove(&dir).unwrap();
 
-    assert_eq!(changes.len(), 16);
+    assert_eq!(changes.len(), 14);
     assert!(
         changes
             .iter()
@@ -294,7 +294,7 @@ fn inspect_sees_a_healthy_directory_as_current() {
 
     let inspections = inspect(&dir, true).unwrap();
 
-    assert_eq!(inspections.len(), 16);
+    assert_eq!(inspections.len(), 14);
     assert!(
         inspections
             .iter()
@@ -330,7 +330,7 @@ fn inspect_marks_leftover_files_stale_for_a_disabled_provider() {
 
     let inspections = inspect(&dir, false).unwrap();
 
-    assert_eq!(inspections.len(), 16);
+    assert_eq!(inspections.len(), 14);
     assert!(
         inspections
             .iter()
@@ -475,7 +475,7 @@ fn execute_defines_provider_native_receipt_coordination() {
 /// OpenCode substitutes `$ARGUMENTS` into the command template and drops
 /// anything the template never references — unlike Claude Code, which appends
 /// unmatched arguments to the prompt. So a command that declares an
-/// `argument-hint` must also *consume* the argument, or `/ivar-session-connect
+/// `argument-hint` must also *consume* the argument, or `/ivar-connect
 /// <feature>` loses `<feature>` under OpenCode.
 #[test]
 fn every_command_declaring_an_argument_hint_consumes_arguments() {

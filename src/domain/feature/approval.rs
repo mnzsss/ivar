@@ -223,26 +223,6 @@ impl ApprovalState {
         self.gates.sort_by_key(|record| record.gate.index());
     }
 
-    /// Whether `gate`'s upstream (if any) is [`GateState::Approved`]. `true`
-    /// for `Requirements`, which has no upstream.
-    ///
-    /// This is the **strict-chain** predicate: it asks only about recorded
-    /// state and treats every gate as mandatory. It is *not* the rule `ivar
-    /// plan approve` applies. Approval is absence-aware — an artifact that was
-    /// never written is not a gate — and that question needs the filesystem,
-    /// which this module deliberately never touches. The rule lives in
-    /// `action::plan::approve::first_blocking_upstream`.
-    ///
-    /// Kept as published API of the `ivar` lib crate; nothing in the binary
-    /// calls it any more.
-    #[must_use]
-    pub fn upstream_approved(&self, gate: Gate) -> bool {
-        match gate.upstream() {
-            Some(upstream) => self.state(upstream) == Some(GateState::Approved),
-            None => true,
-        }
-    }
-
     /// Invalidate `gate` and everything downstream of it: each becomes
     /// [`GateState::NeedsRevision`] and its stored fingerprint is cleared — an
     /// invalidated approval is void, so there is nothing left to compare

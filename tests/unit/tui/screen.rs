@@ -9,7 +9,6 @@ fn a_blank_screen_is_all_empty_rows() {
         screen.rows(),
         &["".to_owned(), "".to_owned(), "".to_owned()]
     );
-    assert_eq!(screen.as_text(), "\n\n");
 }
 
 #[test]

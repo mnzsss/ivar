@@ -235,8 +235,11 @@ pub(crate) fn fixed(answer: bool) -> Arc<dyn Confirm> {
 }
 
 /// A confirmer that returns `selection` for multi-select, for tests.
+///
+/// `cfg(test)`: nothing in the CLI answers its own prompts, so this must not
+/// reach the shipped binary.
+#[cfg(test)]
 #[must_use]
-#[allow(dead_code)]
 pub(crate) fn fixed_select(answer: bool, selection: Vec<usize>) -> Arc<dyn Confirm> {
     Arc::new(Fixed {
         answer,

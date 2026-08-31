@@ -1,0 +1,9 @@
+# The incremental dev loop here is mostly link time, and `lld` links this
+# crate's 321-dependency graph faster than GNU ld. Linux/x86-64 only: other
+# hosts fall through to the default linker with no config of their own.
+#
+# If lld is not installed, `cargo build` fails with
+# `error: linker 'lld' not found` — install it (Arch: `pacman -S lld`) or
+# delete this file; nothing else in the build depends on it.
+[target.x86_64-unknown-linux-gnu]
+rustflags = ["-C", "link-arg=-fuse-ld=lld"]

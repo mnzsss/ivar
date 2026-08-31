@@ -318,13 +318,6 @@ pub struct CleanupVerdict {
     pub blockers: Vec<CleanupBlocker>,
 }
 
-impl CleanupVerdict {
-    #[must_use]
-    pub fn eligible(&self) -> bool {
-        self.blockers.is_empty() || self.blockers == [CleanupBlocker::EmptyFeature]
-    }
-}
-
 /// Classify a feature for cleanup (combining delivery + operational checks).
 #[must_use]
 pub fn classify_cleanup(facts: &CleanupFacts) -> CleanupVerdict {

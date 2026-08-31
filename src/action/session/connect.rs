@@ -14,11 +14,15 @@ use serde::Serialize;
 
 use crate::domain::feature::Feature;
 use crate::domain::name::FeatureName;
-use crate::domain::session::SessionState;
+use crate::domain::session::{SessionRef, SessionState};
 use crate::error::{Failure, FixAction, Outcome, Report, WriteHuman};
+use crate::harness::Harness;
+use crate::infra::proc;
+use crate::store::layout::Layout;
 
 use super::super::{discover_hall, read_manifest};
 use super::lookup;
+use super::start;
 use super::view;
 use crate::action::Ctx;
 
@@ -29,6 +33,14 @@ pub struct ConnectInput {
     pub session_id: Option<String>,
     /// Narrow the search to sessions bound to this feature.
     pub feature: Option<String>,
+    /// Attach or create: with a `--feature` and no session id, take the
+    /// feature's most recent session that no harness is running in, and start
+    /// a fresh detached one when every candidate is busy or none exist.
+    ///
+    /// This is what makes `/ivar-connect <feature>` a single command with no
+    /// dead end — without it, `connect` never creates and a missing session is
+    /// a `Blocked` failure.
+    pub create: bool,
 }
 
 /// The session binding `connect` emits — the env-var contract of
@@ -41,10 +53,6 @@ pub struct ConnectOutcome {
     pub feature: Option<FeatureName>,
     /// The session's (re-materialised) view dir.
     pub view_dir: Utf8PathBuf,
-    /// The provider's listening ports, if the session's agent opened any —
-    /// e.g. a dev server the user wants to reach. Empty when none are open.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub ports: Vec<u16>,
 }
 
 impl WriteHuman for ConnectOutcome {
@@ -54,15 +62,6 @@ impl WriteHuman for ConnectOutcome {
             writeln!(w, "export IVAR_FEATURE={feature}")?;
         }
         writeln!(w, "export IVAR_SESSION_PATH={}", self.view_dir)?;
-        if !self.ports.is_empty() {
-            let ports = self
-                .ports
-                .iter()
-                .map(u16::to_string)
-                .collect::<Vec<_>>()
-                .join(", ");
-            writeln!(w, "export IVAR_SESSION_PORTS={ports}")?;
-        }
         Ok(())
     }
 }
@@ -75,11 +74,17 @@ pub fn connect(ctx: &Ctx, input: ConnectInput) -> Outcome<ConnectOutcome> {
     let layout = discover_hall(ctx)?;
     let manifest = read_manifest(&layout)?;
 
-    let session = lookup::resolve(
-        &layout,
-        input.session_id.as_deref(),
-        input.feature.as_deref(),
-    )?;
+    let (session, mut warnings) = match attach_or_create(ctx, &layout, &input)? {
+        Some(report) => (report.value, report.warnings),
+        None => (
+            lookup::resolve(
+                &layout,
+                input.session_id.as_deref(),
+                input.feature.as_deref(),
+            )?,
+            Vec::new(),
+        ),
+    };
 
     // The feature to materialise against, if the session is feature-bound.
     // A feature session whose feature record is gone cannot be re-materialised
@@ -127,26 +132,68 @@ pub fn connect(ctx: &Ctx, input: ConnectInput) -> Outcome<ConnectOutcome> {
         &session.view_dir,
     )?;
 
-    // The provider's listening ports — a dev server the session's agent may
-    // have opened. Best-effort: empty when none are found (ticket 22). A
-    // session record without a state (never fully launched) yields none.
-    let ports = match session.state.as_ref().map(|s| s.provider()) {
-        Some(provider) => {
-            let binary = crate::harness::Harness::for_provider(provider)?.binary();
-            crate::infra::proc::find_ports_for_program(binary)
-        }
-        None => Vec::new(),
-    };
-
+    warnings.extend(materialise_report.warnings);
     Ok(Report::with_warnings(
         ConnectOutcome {
             session_id: session.id.to_string(),
             feature: session.feature.clone(),
             view_dir: session.view_dir.clone(),
-            ports,
         },
-        materialise_report.warnings,
+        warnings,
     ))
+}
+
+/// The `--create` path: the feature's most recent **free** session, or a fresh
+/// detached one.
+///
+/// `None` means this is an ordinary lookup — `--create` was not asked for, or a
+/// session id was given, which names one session exactly and leaves nothing to
+/// choose.
+///
+/// "Free" is decided by the session's own harness binary, not by any process
+/// at all: whenever an agent runs this, `ivar` and its shell are themselves
+/// sitting inside a View Dir, so a process-agnostic check would report the
+/// caller's own session as busy. A session whose record is unreadable is not a
+/// candidate — `session prune` owns those.
+fn attach_or_create(
+    ctx: &Ctx,
+    layout: &Layout,
+    input: &ConnectInput,
+) -> Result<Option<Report<SessionRef>>, Failure> {
+    if !input.create || input.session_id.is_some() {
+        return Ok(None);
+    }
+    let Some(feature) = input.feature.as_deref() else {
+        return Ok(None);
+    };
+    let name = FeatureName::new(feature)?;
+
+    for session in lookup::by_recency(layout, &name)? {
+        let Some(state) = session.state.as_ref() else {
+            continue;
+        };
+        let binary = Harness::for_provider(state.provider())?.binary();
+        if !proc::is_program_running_in(&session.view_dir, binary) {
+            return Ok(Some(Report::new(session)));
+        }
+    }
+
+    // Every candidate is busy, or there are none. Detached: the caller is
+    // already an agent — it wants the View Dir and the bindings, not a second
+    // provider launched underneath it.
+    let started = start::start(
+        ctx,
+        start::StartInput {
+            feature: Some(feature.to_owned()),
+            resume: false,
+            provider: None,
+            detached: true,
+            relay: false,
+        },
+    )?;
+    let warnings = started.warnings;
+    let session = lookup::resolve(layout, Some(&started.value.session_id), Some(feature))?;
+    Ok(Some(Report::with_warnings(session, warnings)))
 }
 
 #[cfg(test)]

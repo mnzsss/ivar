@@ -164,18 +164,6 @@ impl Skill {
             Source::External(_) => RenderMode::Copy,
         }
     }
-
-    /// Whether this skill is authored locally.
-    #[must_use]
-    pub fn is_authored(&self) -> bool {
-        matches!(&self.source, Source::Authored)
-    }
-
-    /// Whether this skill points to an external repository.
-    #[must_use]
-    pub fn is_external(&self) -> bool {
-        matches!(&self.source, Source::External(_))
-    }
 }
 
 /// Parse frontmatter from a SKILL.md file.

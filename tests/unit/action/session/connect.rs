@@ -130,6 +130,7 @@ fn connect_locates_a_session_by_id_prefix() {
         ConnectInput {
             session_id: Some(id[..8].to_owned()),
             feature: None,
+            create: false,
         },
     )
     .unwrap();
@@ -151,6 +152,7 @@ fn connect_locates_a_session_by_feature_name() {
         ConnectInput {
             session_id: None,
             feature: Some("checkout".to_owned()),
+            create: false,
         },
     )
     .unwrap();
@@ -179,6 +181,7 @@ fn connect_repairs_drifted_symlinks() {
         ConnectInput {
             session_id: Some(id),
             feature: None,
+            create: false,
         },
     )
     .unwrap();
@@ -221,6 +224,7 @@ fn connect_repairs_read_only_guards_on_non_promoted_worktrees() {
         ConnectInput {
             session_id: Some(id),
             feature: None,
+            create: false,
         },
     )
     .unwrap();
@@ -254,6 +258,7 @@ fn connect_on_an_unchanged_view_dir_is_a_no_op() {
         ConnectInput {
             session_id: Some(id),
             feature: None,
+            create: false,
         },
     )
     .unwrap();
@@ -278,6 +283,7 @@ fn connect_emits_the_session_binding_env_vars() {
         ConnectInput {
             session_id: Some(id.clone()),
             feature: None,
+            create: false,
         },
     )
     .unwrap();
@@ -355,6 +361,7 @@ fn connect_resolves_a_discovery_session() {
         ConnectInput {
             session_id: Some("2c6e6f1e".to_owned()),
             feature: None,
+            create: false,
         },
     )
     .unwrap();
@@ -375,6 +382,7 @@ fn connect_with_no_filter_is_blocked() {
         ConnectInput {
             session_id: None,
             feature: None,
+            create: false,
         },
     )
     .unwrap_err();
@@ -418,6 +426,7 @@ fn connect_repairs_the_projected_plan_commands_and_instructions() {
         ConnectInput {
             session_id: Some(id),
             feature: None,
+            create: false,
         },
     )
     .unwrap();
@@ -451,6 +460,7 @@ fn connect_with_an_unknown_session_is_blocked() {
         ConnectInput {
             session_id: Some("deadbeef".to_owned()),
             feature: None,
+            create: false,
         },
     )
     .unwrap_err();
@@ -482,10 +492,119 @@ fn connect_with_an_ambiguous_prefix_is_blocked() {
         ConnectInput {
             session_id: None,
             feature: Some("checkout".to_owned()),
+            create: false,
         },
     )
     .unwrap_err();
 
     assert_eq!(failure.code, "session.ambiguous");
+    unguard_worktrees(&root);
+}
+
+/// The bug this fixes: a `--feature` search only looks under
+/// `.ivar/features/<f>/sessions/`, so a discovery session already holding that
+/// feature's work is invisible to it. Reporting only `session.start_first`
+/// sent agents off to open a second session beside the one with the work; the
+/// failure must name the candidates and point at `session convert`.
+#[test]
+fn connect_by_feature_names_discovery_sessions_as_convert_candidates() {
+    let (_guard, root) = hall_with_detached_session();
+    let ctx = Ctx::new(root.clone());
+    // A discovery session: no feature, so it lands under `.ivar/sessions/`.
+    let discovery = session_start::start(
+        &ctx,
+        StartInput {
+            feature: None,
+            resume: false,
+            provider: None,
+            detached: true,
+            relay: false,
+        },
+    )
+    .unwrap()
+    .value
+    .session_id;
+    // A feature with no session of its own is the case that used to dead-end.
+    feature_create::create(
+        &ctx,
+        CreateInput {
+            name: "billing".to_owned(),
+            branch: None,
+            base: None,
+            parent: None,
+            via: None,
+            strategy: None,
+        },
+    )
+    .unwrap();
+
+    let failure = connect(
+        &ctx,
+        ConnectInput {
+            session_id: None,
+            feature: Some("billing".to_owned()),
+            create: false,
+        },
+    )
+    .unwrap_err();
+
+    assert_eq!(failure.code, "session.not_found");
+    let actual = failure
+        .actual
+        .clone()
+        .expect("the failure names what it found");
+    assert!(
+        actual.contains(&discovery),
+        "the discovery session must be named as a candidate: {actual}"
+    );
+    assert!(
+        failure
+            .fix_actions
+            .iter()
+            .any(|fix| fix.code == "session.convert"),
+        "convert must be offered before start: {:?}",
+        failure.fix_actions
+    );
+    unguard_worktrees(&root);
+}
+
+/// What `/ivar-connect <feature>` relies on: a feature with no session gets
+/// one, and a second call attaches to that same session rather than opening
+/// another.
+#[test]
+fn connect_with_create_starts_a_session_then_reattaches_to_it() {
+    let (_guard, root) = hall_with_detached_session();
+    let ctx = Ctx::new(root.clone());
+
+    let created = connect(
+        &ctx,
+        ConnectInput {
+            session_id: None,
+            feature: Some("checkout".to_owned()),
+            create: true,
+        },
+    )
+    .unwrap()
+    .value;
+    assert_eq!(
+        created.feature.as_ref().map(ToString::to_string).as_deref(),
+        Some("checkout")
+    );
+
+    // Nothing is running in it, so it is free — the second call must reuse it.
+    let again = connect(
+        &ctx,
+        ConnectInput {
+            session_id: None,
+            feature: Some("checkout".to_owned()),
+            create: true,
+        },
+    )
+    .unwrap()
+    .value;
+    assert_eq!(
+        again.session_id, created.session_id,
+        "a free session must be reused, never duplicated"
+    );
     unguard_worktrees(&root);
 }

@@ -183,14 +183,6 @@ pub enum Inspection {
     TooNew { detected: u32, current: u32 },
 }
 
-impl Inspection {
-    /// Whether this inspection found a migration that would run.
-    #[must_use]
-    pub fn needs_migration(&self) -> bool {
-        matches!(self, Self::NeedsMigration { .. })
-    }
-}
-
 /// Read the schema version out of a raw JSON value. A missing `version` field,
 /// or one that is not a JSON number, is version 0 — unversioned data predates
 /// versioning, and that is not an error.

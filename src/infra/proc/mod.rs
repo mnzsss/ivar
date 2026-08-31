@@ -55,10 +55,10 @@ use camino::Utf8PathBuf;
 
 use crate::error::{Failure, FixAction};
 
-mod ports;
+mod cwd;
 mod streaming;
 
-pub use ports::{find_listening_ports, find_ports_for_program};
+pub use cwd::is_program_running_in;
 pub use streaming::{Stream, stream};
 
 /// A program to run: what, with which arguments, from where, with which
@@ -184,12 +184,6 @@ impl Command {
     #[must_use]
     pub fn envs(&self) -> &[(String, String)] {
         &self.env
-    }
-
-    /// The working directory, if set.
-    #[must_use]
-    pub fn working_dir(&self) -> Option<&Utf8PathBuf> {
-        self.cwd.as_ref()
     }
 
     /// The text to feed the program on standard input, if any. Never part of

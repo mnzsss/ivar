@@ -190,6 +190,10 @@ impl Manifest {
     /// Return a new `Manifest` carrying `policy` as its hall integration
     /// defaults. Infallible: an [`IntegrationPolicy`] is a closed value, so
     /// nothing to validate beyond what the original already satisfied.
+    ///
+    /// `cfg(test)`: a fixture builder. The CLI writes a manifest's integration
+    /// policy through `store::manifest`, never by rebuilding the value.
+    #[cfg(test)]
     #[must_use]
     pub fn with_integration(&self, policy: IntegrationPolicy) -> Self {
         let mut manifest = self.clone();
@@ -371,6 +375,10 @@ impl Repo {
 
     /// Return this repo with `checks` as its verification commands, replacing
     /// whatever it carried before. The original is untouched.
+    ///
+    /// `cfg(test)`: a fixture builder — the CLI parses checks out of
+    /// `ivar.json`, it never grafts them onto a `Repo` in memory.
+    #[cfg(test)]
     #[must_use]
     pub fn with_checks(mut self, checks: Vec<String>) -> Self {
         self.checks = checks;

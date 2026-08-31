@@ -587,6 +587,11 @@ pub struct SessionConnectArgs {
     /// Narrow the search to sessions bound to this feature.
     #[arg(long)]
     pub feature: Option<String>,
+    /// Attach or create: take the feature's most recent session that no
+    /// harness is running in, and start a fresh detached one when every
+    /// candidate is busy or none exist. Needs `--feature`.
+    #[arg(long)]
+    pub create: bool,
 }
 
 /// Arguments for `ivar session convert`.
@@ -1214,10 +1219,12 @@ impl From<SessionConnectArgs> for session_connect::ConnectInput {
         let SessionConnectArgs {
             session_id,
             feature,
+            create,
         } = args;
         Self {
             session_id,
             feature,
+            create,
         }
     }
 }

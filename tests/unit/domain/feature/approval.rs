@@ -158,19 +158,6 @@ fn set_updates_an_existing_record_and_normalize_fills_gaps() {
 }
 
 #[test]
-fn upstream_approved_tracks_the_chain() {
-    let mut approvals = ApprovalState::fresh();
-
-    assert!(approvals.upstream_approved(Gate::Requirements));
-    assert!(!approvals.upstream_approved(Gate::Analysis));
-
-    approvals.set(Gate::Requirements, GateState::Approved, None);
-
-    assert!(approvals.upstream_approved(Gate::Analysis));
-    assert!(!approvals.upstream_approved(Gate::Plan));
-}
-
-#[test]
 fn invalidate_from_marks_the_gate_and_downstream_and_clears_fingerprints() {
     let mut approvals = ApprovalState::fresh();
     for gate in Gate::ALL {
