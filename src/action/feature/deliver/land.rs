@@ -87,10 +87,16 @@ pub(crate) fn preflight(
     if preview.repos.is_empty() {
         return Err(Failure::blocked(
             "deliver.land_no_repos",
-            format!("feature `{}` promotes no repositories to land", feature.name),
+            format!(
+                "feature `{}` promotes no repositories to land",
+                feature.name
+            ),
         )
         .expected("at least one promoted repository to land")
-        .actual(format!("feature `{}` promotes 0 repositories", feature.name))
+        .actual(format!(
+            "feature `{}` promotes 0 repositories",
+            feature.name
+        ))
         .fix(FixAction::safe(
             "deliver.promote_first",
             "Promote at least one repository before delivering.",
@@ -222,10 +228,7 @@ pub(crate) fn execute(
                 )),
             ),
             (Some(_), Ok(None)) => (false, Some("disappeared from remote".to_owned())),
-            (Some(_), Err(e)) => (
-                false,
-                Some(format!("could not be verified: {e}")),
-            ),
+            (Some(_), Err(e)) => (false, Some(format!("could not be verified: {e}"))),
             (None, Ok(Some(_))) => (false, Some("absent at preview".to_owned())),
             (None, Ok(None)) => (false, Some("absent at preview".to_owned())),
             (None, Err(e)) => (
@@ -276,7 +279,9 @@ pub(crate) fn execute(
             // D5 Rollback: reset all previously merged worktrees to original_head
             let mut rollback_errors = Vec::new();
             for prev_plan in plans.iter().take(i) {
-                if let Err(reset_err) = git.reset_hard(&prev_plan.worktree, &prev_plan.original_head) {
+                if let Err(reset_err) =
+                    git.reset_hard(&prev_plan.worktree, &prev_plan.original_head)
+                {
                     rollback_errors.push(format!(
                         "`{}` (target `{}`): {reset_err}",
                         prev_plan.repo, prev_plan.original_head
@@ -292,7 +297,9 @@ pub(crate) fn execute(
                         plan.repo
                     ),
                 )
-                .expected("all merged default worktrees to roll back cleanly to their original tips")
+                .expected(
+                    "all merged default worktrees to roll back cleanly to their original tips",
+                )
                 .actual(format!(
                     "original failure: {orig_err}; rollback errors: {}",
                     rollback_errors.join("; ")
@@ -306,22 +313,21 @@ pub(crate) fn execute(
                 )));
             }
 
-            return Err(Failure::failed(
-                "git.merge_ff_only_failed",
-                orig_err.clone(),
-            )
-            .expected(format!(
-                "default branch `{}` to fast-forward to `{}`",
-                plan.default_branch, plan.tip
-            ))
-            .actual(format!("git merge --ff-only failed: {e}"))
-            .fix(FixAction::safe(
-                "deliver.rebase_first",
-                format!(
-                    "Rebase the feature onto default first: `ivar feature rebase {}`.",
-                    feature_name_from_plan(plan)
-                ),
-            )));
+            return Err(
+                Failure::failed("git.merge_ff_only_failed", orig_err.clone())
+                    .expected(format!(
+                        "default branch `{}` to fast-forward to `{}`",
+                        plan.default_branch, plan.tip
+                    ))
+                    .actual(format!("git merge --ff-only failed: {e}"))
+                    .fix(FixAction::safe(
+                        "deliver.rebase_first",
+                        format!(
+                            "Rebase the feature onto default first: `ivar feature rebase {}`.",
+                            feature_name_from_plan(plan)
+                        ),
+                    )),
+            );
         }
     }
 

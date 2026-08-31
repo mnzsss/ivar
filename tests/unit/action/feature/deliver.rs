@@ -1045,8 +1045,14 @@ fn diverged_default_is_not_fast_forwardable() {
 
     let failure = deliver(&ctx, land_preview_input("checkout")).expect_err("non-ff must block");
     assert_eq!(failure.code, "deliver.land_not_fast_forward");
-    let fix = failure.fix_actions.first().expect("a blocked land must say how to unblock");
-    assert_eq!(fix.command.as_deref().unwrap(), "ivar feature rebase checkout");
+    let fix = failure
+        .fix_actions
+        .first()
+        .expect("a blocked land must say how to unblock");
+    assert_eq!(
+        fix.command.as_deref().unwrap(),
+        "ivar feature rebase checkout"
+    );
 }
 
 #[test]
@@ -1083,7 +1089,8 @@ fn rebase_in_progress_blocks() {
     let worktree_git_dir = crate::git::read::worktree_git_dir(&default_worktree).unwrap();
     std::fs::create_dir_all(worktree_git_dir.join("rebase-merge")).unwrap();
 
-    let failure = deliver(&ctx, land_preview_input("checkout")).expect_err("rebase in progress must block");
+    let failure =
+        deliver(&ctx, land_preview_input("checkout")).expect_err("rebase in progress must block");
     assert_eq!(failure.code, "deliver.land_rebase_in_progress");
 }
 
@@ -1172,7 +1179,9 @@ fn snapshot_all_worktrees(root: &Utf8Path) -> Vec<(Utf8PathBuf, String)> {
     for repo in manifest.repos() {
         let worktree = layout.repo_worktree(repo.name(), repo.default_branch());
         if worktree.exists() {
-            let sha = git_stdout(&worktree, &["rev-parse", "HEAD"]).trim().to_owned();
+            let sha = git_stdout(&worktree, &["rev-parse", "HEAD"])
+                .trim()
+                .to_owned();
             snapshots.push((worktree, sha));
         }
     }
@@ -1191,7 +1200,10 @@ fn one_blocked_repo_blocks_the_whole_land_and_writes_nothing() {
         &RepoName::new("web").unwrap(),
         &BranchName::new("main").unwrap(),
     );
-    git_stdout(&default_worktree_web, &["commit", "--allow-empty", "-m", "diverge web main"]);
+    git_stdout(
+        &default_worktree_web,
+        &["commit", "--allow-empty", "-m", "diverge web main"],
+    );
 
     let feature_worktree_api = layout.repo_worktree(
         &RepoName::new("api").unwrap(),
@@ -1199,7 +1211,10 @@ fn one_blocked_repo_blocks_the_whole_land_and_writes_nothing() {
     );
     std::fs::write(feature_worktree_api.join("api_change.txt"), "api change\n").unwrap();
     git_stdout(&feature_worktree_api, &["add", "api_change.txt"]);
-    git_stdout(&feature_worktree_api, &["commit", "-m", "api feature commit"]);
+    git_stdout(
+        &feature_worktree_api,
+        &["commit", "-m", "api feature commit"],
+    );
 
     let before = snapshot_all_worktrees(&root);
 
@@ -1315,10 +1330,16 @@ fn a_clean_land_merges_every_repo_and_pushes_each_default() {
         &RepoName::new("api").unwrap(),
         &BranchName::new("checkout").unwrap(),
     );
-    std::fs::write(feature_worktree.join("feature.txt"), "new feature content\n").unwrap();
+    std::fs::write(
+        feature_worktree.join("feature.txt"),
+        "new feature content\n",
+    )
+    .unwrap();
     git_stdout(&feature_worktree, &["add", "feature.txt"]);
     git_stdout(&feature_worktree, &["commit", "-m", "add feature.txt"]);
-    let feature_tip = git_stdout(&feature_worktree, &["rev-parse", "HEAD"]).trim().to_owned();
+    let feature_tip = git_stdout(&feature_worktree, &["rev-parse", "HEAD"])
+        .trim()
+        .to_owned();
 
     let land_preview = deliver(
         &ctx,
@@ -1350,10 +1371,18 @@ fn a_clean_land_merges_every_repo_and_pushes_each_default() {
         &RepoName::new("api").unwrap(),
         &BranchName::new("main").unwrap(),
     );
-    let default_tip = git_stdout(&default_worktree, &["rev-parse", "HEAD"]).trim().to_owned();
-    assert_eq!(default_tip, feature_tip, "default branch must equal feature tip");
+    let default_tip = git_stdout(&default_worktree, &["rev-parse", "HEAD"])
+        .trim()
+        .to_owned();
+    assert_eq!(
+        default_tip, feature_tip,
+        "default branch must equal feature tip"
+    );
 
-    assert!(feature_worktree.exists(), "feature worktree must still exist");
+    assert!(
+        feature_worktree.exists(),
+        "feature worktree must still exist"
+    );
 }
 
 #[test]
@@ -1395,10 +1424,15 @@ fn a_failed_push_is_a_warning_not_an_abort() {
     .expect("a failed push must not abort the land");
 
     assert_eq!(out.value.land.len(), 1);
-    assert!(out.value.land[0].merged, "merge stands even when push fails");
+    assert!(
+        out.value.land[0].merged,
+        "merge stands even when push fails"
+    );
     assert!(!out.value.land[0].pushed, "push failed");
     assert!(
-        out.warnings.iter().any(|w| w.code == "deliver.land_push_failed"),
+        out.warnings
+            .iter()
+            .any(|w| w.code == "deliver.land_push_failed"),
         "push failure produces deliver.land_push_failed warning"
     );
 }
@@ -1438,10 +1472,16 @@ fn execute_failure_rolls_back_earlier_merges() {
     )
     .expect("land preview");
 
-    let api_default = layout.repo_worktree(&RepoName::new("api").unwrap(), &BranchName::new("main").unwrap());
+    let api_default = layout.repo_worktree(
+        &RepoName::new("api").unwrap(),
+        &BranchName::new("main").unwrap(),
+    );
     let api_default_before = git_stdout(&api_default, &["rev-parse", "HEAD"]);
 
-    let web_default = layout.repo_worktree(&RepoName::new("web").unwrap(), &BranchName::new("main").unwrap());
+    let web_default = layout.repo_worktree(
+        &RepoName::new("web").unwrap(),
+        &BranchName::new("main").unwrap(),
+    );
     let web_git_dir = crate::git::System.worktree_git_dir(&web_default).unwrap();
     std::fs::write(web_git_dir.join("index.lock"), "lock").unwrap();
 
@@ -1474,7 +1514,10 @@ fn remote_default_ahead_of_local_default_does_not_trigger_remote_moved() {
     git_stdout(&origins, &["config", "receive.denyCurrentBranch", "ignore"]);
 
     // Push a commit to origin main so remote main is ahead of local main
-    git_stdout(&origins, &["commit", "--allow-empty", "-m", "origin main ahead"]);
+    git_stdout(
+        &origins,
+        &["commit", "--allow-empty", "-m", "origin main ahead"],
+    );
 
     // Feature branch on top of origin main
     let feature_worktree = layout.repo_worktree(
@@ -1507,7 +1550,9 @@ fn remote_default_ahead_of_local_default_does_not_trigger_remote_moved() {
     .expect("land apply");
 
     assert!(
-        !out.warnings.iter().any(|w| w.code == "deliver.land_remote_moved"),
+        !out.warnings
+            .iter()
+            .any(|w| w.code == "deliver.land_remote_moved"),
         "remote main did not move after preview; land_remote_moved must not fire"
     );
 }
@@ -1556,17 +1601,23 @@ fn exact_mode_restoration_preserves_original_permission_bits() {
 
     // Set permission to 0o500 (read+exec owner; group and other have no permissions)
     crate::infra::fs::chmod(&default_worktree, 0o500).unwrap();
-    let before = crate::infra::fs::unix_mode(&default_worktree).unwrap().unwrap();
+    let before = crate::infra::fs::unix_mode(&default_worktree)
+        .unwrap()
+        .unwrap();
     assert_eq!(before & 0o777, 0o500);
 
     {
-        let _lifted = crate::action::feature::deliver::land::WorktreeWriteGuard::lift(&[&default_worktree])
-            .expect("lift");
+        let _lifted =
+            crate::action::feature::deliver::land::WorktreeWriteGuard::lift(&[&default_worktree])
+                .expect("lift");
     }
 
-    let after = crate::infra::fs::unix_mode(&default_worktree).unwrap().unwrap();
+    let after = crate::infra::fs::unix_mode(&default_worktree)
+        .unwrap()
+        .unwrap();
     assert_eq!(
-        after & 0o777, 0o500,
+        after & 0o777,
+        0o500,
         "exact mode bits 0o500 must be restored, not altered to 0o555"
     );
 }
@@ -1602,7 +1653,9 @@ fn failure_conventions_are_honored_for_land_system_failures() {
     .expect("preview");
 
     // Lock default worktree index to cause fast_forward_to failure
-    let git_dir = crate::git::System.worktree_git_dir(&default_worktree).unwrap();
+    let git_dir = crate::git::System
+        .worktree_git_dir(&default_worktree)
+        .unwrap();
     std::fs::write(git_dir.join("index.lock"), "lock").unwrap();
 
     let failure = deliver(
@@ -1619,7 +1672,10 @@ fn failure_conventions_are_honored_for_land_system_failures() {
     assert_eq!(failure.code, "git.merge_ff_only_failed");
     assert!(failure.expected.is_some(), "expected must be populated");
     assert!(failure.actual.is_some(), "actual must be populated");
-    assert!(!failure.fix_actions.is_empty(), "fix_actions must be populated");
+    assert!(
+        !failure.fix_actions.is_empty(),
+        "fix_actions must be populated"
+    );
 }
 
 #[test]
@@ -1666,7 +1722,10 @@ fn github_repo_in_land_mode_creates_no_pull_request() {
     )
     .expect("land preview");
 
-    assert_eq!(land_preview.value.preview.repos[0].action, DeliveryAction::LandOnDefault);
+    assert_eq!(
+        land_preview.value.preview.repos[0].action,
+        DeliveryAction::LandOnDefault
+    );
 
     let out = deliver(
         &ctx,
@@ -1679,7 +1738,10 @@ fn github_repo_in_land_mode_creates_no_pull_request() {
     )
     .expect("land apply");
 
-    assert!(out.value.preview.repos[0].pr_url.is_none(), "land mode must not create a PR URL");
+    assert!(
+        out.value.preview.repos[0].pr_url.is_none(),
+        "land mode must not create a PR URL"
+    );
 }
 
 #[test]
@@ -1720,60 +1782,261 @@ fn absence_of_preview_evidence_none_none_skips_whole_batch() {
     // Mock git that returns Ok(None) for remote_branch_tip
     struct UnreachableRemoteGit(crate::git::System);
     impl crate::git::Git for UnreachableRemoteGit {
-        fn target_state(&self, path: &Utf8Path) -> Result<crate::git::TargetState, crate::git::Error> { self.0.target_state(path) }
-        fn head_branch(&self, git_dir: &Utf8Path) -> Result<String, crate::git::Error> { self.0.head_branch(git_dir) }
-        fn worktree_git_dir(&self, path: &Utf8Path) -> Result<Utf8PathBuf, crate::git::Error> { self.0.worktree_git_dir(path) }
-        fn clone_bare(&self, url: &str, dest: &Utf8Path) -> Result<(), crate::git::Error> { self.0.clone_bare(url, dest) }
-        fn ensure_remote_tracking(&self, git_dir: &Utf8Path) -> Result<(), crate::git::Error> { self.0.ensure_remote_tracking(git_dir) }
-        fn add_worktree(&self, git_dir: &Utf8Path, dest: &Utf8Path, branch: &str) -> Result<(), crate::git::Error> { self.0.add_worktree(git_dir, dest, branch) }
-        fn fetch(&self, git_dir: &Utf8Path) -> Result<(), crate::git::Error> { self.0.fetch(git_dir) }
-        fn list_branches(&self, git_dir: &Utf8Path) -> Result<Vec<String>, crate::git::Error> { self.0.list_branches(git_dir) }
-        fn create_branch_and_worktree(&self, git_dir: &Utf8Path, branch: &str, from_branch: &str, dest: &Utf8Path) -> Result<(), crate::git::Error> { self.0.create_branch_and_worktree(git_dir, branch, from_branch, dest) }
-        fn fetch_branch(&self, worktree: &Utf8Path, branch: &str) -> Result<(), crate::git::Error> { self.0.fetch_branch(worktree, branch) }
-        fn fast_forward(&self, worktree: &Utf8Path) -> Result<(), crate::git::Error> { self.0.fast_forward(worktree) }
-        fn remove_worktree(&self, git_dir: &Utf8Path, dest: &Utf8Path) -> Result<(), crate::git::Error> { self.0.remove_worktree(git_dir, dest) }
-        fn add_detached_worktree(&self, git_dir: &Utf8Path, dest: &Utf8Path, revision: &str) -> Result<(), crate::git::Error> { self.0.add_detached_worktree(git_dir, dest, revision) }
-        fn create_branch(&self, git_dir: &Utf8Path, branch: &str, revision: &str) -> Result<(), crate::git::Error> { self.0.create_branch(git_dir, branch, revision) }
-        fn delete_branch(&self, git_dir: &Utf8Path, branch: &str) -> Result<(), crate::git::Error> { self.0.delete_branch(git_dir, branch) }
-        fn merge_no_ff(&self, worktree: &Utf8Path, source: &str) -> Result<(), crate::git::Error> { self.0.merge_no_ff(worktree, source) }
-        fn squash_merge(&self, worktree: &Utf8Path, source: &str, message: &str) -> Result<(), crate::git::Error> { self.0.squash_merge(worktree, source, message) }
-        fn fast_forward_to(&self, worktree: &Utf8Path, revision: &str) -> Result<(), crate::git::Error> { self.0.fast_forward_to(worktree, revision) }
-        fn worktree_dirty(&self, path: &Utf8Path) -> Result<bool, crate::git::Error> { self.0.worktree_dirty(path) }
-        fn diff_worktree(&self, path: &Utf8Path) -> Result<String, crate::git::Error> { self.0.diff_worktree(path) }
-        fn changed_paths(&self, path: &Utf8Path) -> Result<Vec<Utf8PathBuf>, crate::git::Error> { self.0.changed_paths(path) }
-        fn head_commit(&self, path: &Utf8Path) -> Result<String, crate::git::Error> { self.0.head_commit(path) }
-        fn paths_committed_since(&self, path: &Utf8Path, since: &str) -> Result<Vec<Utf8PathBuf>, crate::git::Error> { self.0.paths_committed_since(path, since) }
-        fn path_at_commit(&self, git_dir: &Utf8Path, commit: &str, path: &Utf8Path) -> Result<Option<crate::git::BlobEvidence>, crate::git::Error> { self.0.path_at_commit(git_dir, commit, path) }
-        fn commits_ahead(&self, git_dir: &Utf8Path, base: &str, branch: &str) -> Result<u64, crate::git::Error> { self.0.commits_ahead(git_dir, base, branch) }
-        fn is_ancestor(&self, git_dir: &Utf8Path, ancestor: &str, descendant: &str) -> Result<bool, crate::git::Error> { self.0.is_ancestor(git_dir, ancestor, descendant) }
-        fn divergence(&self, git_dir: &Utf8Path, local: &str, remote: &str) -> Result<crate::git::Divergence, crate::git::Error> { self.0.divergence(git_dir, local, remote) }
-        fn merge_base(&self, git_dir: &Utf8Path, a: &str, b: &str) -> Result<String, crate::git::Error> { self.0.merge_base(git_dir, a, b) }
-        fn revision_commit(&self, git_dir: &Utf8Path, revision: &str) -> Result<String, crate::git::Error> { self.0.revision_commit(git_dir, revision) }
-        fn reset_hard(&self, worktree: &Utf8Path, revision: &str) -> Result<(), crate::git::Error> { self.0.reset_hard(worktree, revision) }
-        fn remote_branch_tip(&self, _git_dir: &Utf8Path, _remote: &str, _branch: &str) -> Result<Option<String>, crate::git::Error> { Ok(None) }
-        fn push(&self, git_dir: &Utf8Path, remote: &str, from: &str, to: &str) -> Result<(), crate::git::Error> { self.0.push(git_dir, remote, from, to) }
-        fn commit_patch_id(&self, worktree: &Utf8Path, commit: &str) -> Result<String, crate::git::Error> { self.0.commit_patch_id(worktree, commit) }
-        fn diff_patch_id(&self, worktree: &Utf8Path, base: &str, tip: &str) -> Result<String, crate::git::Error> { self.0.diff_patch_id(worktree, base, tip) }
-        fn rebase_branch(&self, worktree: &Utf8Path, branch: &str) -> Result<(), crate::git::Error> { self.0.rebase_branch(worktree, branch) }
-        fn abort_rebase(&self, worktree: &Utf8Path) -> Result<(), crate::git::Error> { self.0.abort_rebase(worktree) }
-        fn rename_branch(&self, git_dir: &Utf8Path, from: &str, to: &str) -> Result<(), crate::git::Error> { self.0.rename_branch(git_dir, from, to) }
-        fn move_worktree(&self, git_dir: &Utf8Path, from: &Utf8Path, to: &Utf8Path) -> Result<(), crate::git::Error> { self.0.move_worktree(git_dir, from, to) }
-        fn publish_remote_branch(&self, git_dir: &Utf8Path, remote: &str, branch: &str, at: &str) -> Result<(), crate::git::Error> { self.0.publish_remote_branch(git_dir, remote, branch, at) }
-        fn delete_remote_branch(&self, git_dir: &Utf8Path, remote: &str, branch: &str, expected_tip: &str) -> Result<(), crate::git::Error> { self.0.delete_remote_branch(git_dir, remote, branch, expected_tip) }
+        fn target_state(
+            &self,
+            path: &Utf8Path,
+        ) -> Result<crate::git::TargetState, crate::git::Error> {
+            self.0.target_state(path)
+        }
+        fn head_branch(&self, git_dir: &Utf8Path) -> Result<String, crate::git::Error> {
+            self.0.head_branch(git_dir)
+        }
+        fn worktree_git_dir(&self, path: &Utf8Path) -> Result<Utf8PathBuf, crate::git::Error> {
+            self.0.worktree_git_dir(path)
+        }
+        fn clone_bare(&self, url: &str, dest: &Utf8Path) -> Result<(), crate::git::Error> {
+            self.0.clone_bare(url, dest)
+        }
+        fn ensure_remote_tracking(&self, git_dir: &Utf8Path) -> Result<(), crate::git::Error> {
+            self.0.ensure_remote_tracking(git_dir)
+        }
+        fn add_worktree(
+            &self,
+            git_dir: &Utf8Path,
+            dest: &Utf8Path,
+            branch: &str,
+        ) -> Result<(), crate::git::Error> {
+            self.0.add_worktree(git_dir, dest, branch)
+        }
+        fn fetch(&self, git_dir: &Utf8Path) -> Result<(), crate::git::Error> {
+            self.0.fetch(git_dir)
+        }
+        fn list_branches(&self, git_dir: &Utf8Path) -> Result<Vec<String>, crate::git::Error> {
+            self.0.list_branches(git_dir)
+        }
+        fn create_branch_and_worktree(
+            &self,
+            git_dir: &Utf8Path,
+            branch: &str,
+            from_branch: &str,
+            dest: &Utf8Path,
+        ) -> Result<(), crate::git::Error> {
+            self.0
+                .create_branch_and_worktree(git_dir, branch, from_branch, dest)
+        }
+        fn fetch_branch(&self, worktree: &Utf8Path, branch: &str) -> Result<(), crate::git::Error> {
+            self.0.fetch_branch(worktree, branch)
+        }
+        fn fast_forward(&self, worktree: &Utf8Path) -> Result<(), crate::git::Error> {
+            self.0.fast_forward(worktree)
+        }
+        fn remove_worktree(
+            &self,
+            git_dir: &Utf8Path,
+            dest: &Utf8Path,
+        ) -> Result<(), crate::git::Error> {
+            self.0.remove_worktree(git_dir, dest)
+        }
+        fn add_detached_worktree(
+            &self,
+            git_dir: &Utf8Path,
+            dest: &Utf8Path,
+            revision: &str,
+        ) -> Result<(), crate::git::Error> {
+            self.0.add_detached_worktree(git_dir, dest, revision)
+        }
+        fn create_branch(
+            &self,
+            git_dir: &Utf8Path,
+            branch: &str,
+            revision: &str,
+        ) -> Result<(), crate::git::Error> {
+            self.0.create_branch(git_dir, branch, revision)
+        }
+        fn delete_branch(&self, git_dir: &Utf8Path, branch: &str) -> Result<(), crate::git::Error> {
+            self.0.delete_branch(git_dir, branch)
+        }
+        fn merge_no_ff(&self, worktree: &Utf8Path, source: &str) -> Result<(), crate::git::Error> {
+            self.0.merge_no_ff(worktree, source)
+        }
+        fn squash_merge(
+            &self,
+            worktree: &Utf8Path,
+            source: &str,
+            message: &str,
+        ) -> Result<(), crate::git::Error> {
+            self.0.squash_merge(worktree, source, message)
+        }
+        fn fast_forward_to(
+            &self,
+            worktree: &Utf8Path,
+            revision: &str,
+        ) -> Result<(), crate::git::Error> {
+            self.0.fast_forward_to(worktree, revision)
+        }
+        fn worktree_dirty(&self, path: &Utf8Path) -> Result<bool, crate::git::Error> {
+            self.0.worktree_dirty(path)
+        }
+        fn diff_worktree(&self, path: &Utf8Path) -> Result<String, crate::git::Error> {
+            self.0.diff_worktree(path)
+        }
+        fn changed_paths(&self, path: &Utf8Path) -> Result<Vec<Utf8PathBuf>, crate::git::Error> {
+            self.0.changed_paths(path)
+        }
+        fn head_commit(&self, path: &Utf8Path) -> Result<String, crate::git::Error> {
+            self.0.head_commit(path)
+        }
+        fn paths_committed_since(
+            &self,
+            path: &Utf8Path,
+            since: &str,
+        ) -> Result<Vec<Utf8PathBuf>, crate::git::Error> {
+            self.0.paths_committed_since(path, since)
+        }
+        fn path_at_commit(
+            &self,
+            git_dir: &Utf8Path,
+            commit: &str,
+            path: &Utf8Path,
+        ) -> Result<Option<crate::git::BlobEvidence>, crate::git::Error> {
+            self.0.path_at_commit(git_dir, commit, path)
+        }
+        fn commits_ahead(
+            &self,
+            git_dir: &Utf8Path,
+            base: &str,
+            branch: &str,
+        ) -> Result<u64, crate::git::Error> {
+            self.0.commits_ahead(git_dir, base, branch)
+        }
+        fn is_ancestor(
+            &self,
+            git_dir: &Utf8Path,
+            ancestor: &str,
+            descendant: &str,
+        ) -> Result<bool, crate::git::Error> {
+            self.0.is_ancestor(git_dir, ancestor, descendant)
+        }
+        fn divergence(
+            &self,
+            git_dir: &Utf8Path,
+            local: &str,
+            remote: &str,
+        ) -> Result<crate::git::Divergence, crate::git::Error> {
+            self.0.divergence(git_dir, local, remote)
+        }
+        fn merge_base(
+            &self,
+            git_dir: &Utf8Path,
+            a: &str,
+            b: &str,
+        ) -> Result<String, crate::git::Error> {
+            self.0.merge_base(git_dir, a, b)
+        }
+        fn revision_commit(
+            &self,
+            git_dir: &Utf8Path,
+            revision: &str,
+        ) -> Result<String, crate::git::Error> {
+            self.0.revision_commit(git_dir, revision)
+        }
+        fn reset_hard(&self, worktree: &Utf8Path, revision: &str) -> Result<(), crate::git::Error> {
+            self.0.reset_hard(worktree, revision)
+        }
+        fn remote_branch_tip(
+            &self,
+            _git_dir: &Utf8Path,
+            _remote: &str,
+            _branch: &str,
+        ) -> Result<Option<String>, crate::git::Error> {
+            Ok(None)
+        }
+        fn push(
+            &self,
+            git_dir: &Utf8Path,
+            remote: &str,
+            from: &str,
+            to: &str,
+        ) -> Result<(), crate::git::Error> {
+            self.0.push(git_dir, remote, from, to)
+        }
+        fn commit_patch_id(
+            &self,
+            worktree: &Utf8Path,
+            commit: &str,
+        ) -> Result<String, crate::git::Error> {
+            self.0.commit_patch_id(worktree, commit)
+        }
+        fn diff_patch_id(
+            &self,
+            worktree: &Utf8Path,
+            base: &str,
+            tip: &str,
+        ) -> Result<String, crate::git::Error> {
+            self.0.diff_patch_id(worktree, base, tip)
+        }
+        fn rebase_branch(
+            &self,
+            worktree: &Utf8Path,
+            branch: &str,
+        ) -> Result<(), crate::git::Error> {
+            self.0.rebase_branch(worktree, branch)
+        }
+        fn abort_rebase(&self, worktree: &Utf8Path) -> Result<(), crate::git::Error> {
+            self.0.abort_rebase(worktree)
+        }
+        fn rename_branch(
+            &self,
+            git_dir: &Utf8Path,
+            from: &str,
+            to: &str,
+        ) -> Result<(), crate::git::Error> {
+            self.0.rename_branch(git_dir, from, to)
+        }
+        fn move_worktree(
+            &self,
+            git_dir: &Utf8Path,
+            from: &Utf8Path,
+            to: &Utf8Path,
+        ) -> Result<(), crate::git::Error> {
+            self.0.move_worktree(git_dir, from, to)
+        }
+        fn publish_remote_branch(
+            &self,
+            git_dir: &Utf8Path,
+            remote: &str,
+            branch: &str,
+            at: &str,
+        ) -> Result<(), crate::git::Error> {
+            self.0.publish_remote_branch(git_dir, remote, branch, at)
+        }
+        fn delete_remote_branch(
+            &self,
+            git_dir: &Utf8Path,
+            remote: &str,
+            branch: &str,
+            expected_tip: &str,
+        ) -> Result<(), crate::git::Error> {
+            self.0
+                .delete_remote_branch(git_dir, remote, branch, expected_tip)
+        }
     }
 
     let mock_git = UnreachableRemoteGit(crate::git::System);
     let mut warnings = Vec::new();
-    let results = crate::action::feature::deliver::land::execute(
-        &mock_git,
-        &layout,
-        &plans,
-        &mut warnings,
-    )
-    .unwrap();
+    let results =
+        crate::action::feature::deliver::land::execute(&mock_git, &layout, &plans, &mut warnings)
+            .unwrap();
 
-    assert!(results.iter().all(|r| !r.merged), "None/None must skip whole batch");
-    assert!(warnings.iter().any(|w| w.code == "deliver.land_remote_moved"));
+    assert!(
+        results.iter().all(|r| !r.merged),
+        "None/None must skip whole batch"
+    );
+    assert!(
+        warnings
+            .iter()
+            .any(|w| w.code == "deliver.land_remote_moved")
+    );
 }
 
 #[test]
@@ -1814,60 +2077,264 @@ fn absence_of_preview_evidence_none_err_skips_whole_batch() {
     // Mock git that returns Err for remote_branch_tip
     struct ErrRemoteGit(crate::git::System);
     impl crate::git::Git for ErrRemoteGit {
-        fn target_state(&self, path: &Utf8Path) -> Result<crate::git::TargetState, crate::git::Error> { self.0.target_state(path) }
-        fn head_branch(&self, git_dir: &Utf8Path) -> Result<String, crate::git::Error> { self.0.head_branch(git_dir) }
-        fn worktree_git_dir(&self, path: &Utf8Path) -> Result<Utf8PathBuf, crate::git::Error> { self.0.worktree_git_dir(path) }
-        fn clone_bare(&self, url: &str, dest: &Utf8Path) -> Result<(), crate::git::Error> { self.0.clone_bare(url, dest) }
-        fn ensure_remote_tracking(&self, git_dir: &Utf8Path) -> Result<(), crate::git::Error> { self.0.ensure_remote_tracking(git_dir) }
-        fn add_worktree(&self, git_dir: &Utf8Path, dest: &Utf8Path, branch: &str) -> Result<(), crate::git::Error> { self.0.add_worktree(git_dir, dest, branch) }
-        fn fetch(&self, git_dir: &Utf8Path) -> Result<(), crate::git::Error> { self.0.fetch(git_dir) }
-        fn list_branches(&self, git_dir: &Utf8Path) -> Result<Vec<String>, crate::git::Error> { self.0.list_branches(git_dir) }
-        fn create_branch_and_worktree(&self, git_dir: &Utf8Path, branch: &str, from_branch: &str, dest: &Utf8Path) -> Result<(), crate::git::Error> { self.0.create_branch_and_worktree(git_dir, branch, from_branch, dest) }
-        fn fetch_branch(&self, worktree: &Utf8Path, branch: &str) -> Result<(), crate::git::Error> { self.0.fetch_branch(worktree, branch) }
-        fn fast_forward(&self, worktree: &Utf8Path) -> Result<(), crate::git::Error> { self.0.fast_forward(worktree) }
-        fn remove_worktree(&self, git_dir: &Utf8Path, dest: &Utf8Path) -> Result<(), crate::git::Error> { self.0.remove_worktree(git_dir, dest) }
-        fn add_detached_worktree(&self, git_dir: &Utf8Path, dest: &Utf8Path, revision: &str) -> Result<(), crate::git::Error> { self.0.add_detached_worktree(git_dir, dest, revision) }
-        fn create_branch(&self, git_dir: &Utf8Path, branch: &str, revision: &str) -> Result<(), crate::git::Error> { self.0.create_branch(git_dir, branch, revision) }
-        fn delete_branch(&self, git_dir: &Utf8Path, branch: &str) -> Result<(), crate::git::Error> { self.0.delete_branch(git_dir, branch) }
-        fn merge_no_ff(&self, worktree: &Utf8Path, source: &str) -> Result<(), crate::git::Error> { self.0.merge_no_ff(worktree, source) }
-        fn squash_merge(&self, worktree: &Utf8Path, source: &str, message: &str) -> Result<(), crate::git::Error> { self.0.squash_merge(worktree, source, message) }
-        fn fast_forward_to(&self, worktree: &Utf8Path, revision: &str) -> Result<(), crate::git::Error> { self.0.fast_forward_to(worktree, revision) }
-        fn worktree_dirty(&self, path: &Utf8Path) -> Result<bool, crate::git::Error> { self.0.worktree_dirty(path) }
-        fn diff_worktree(&self, path: &Utf8Path) -> Result<String, crate::git::Error> { self.0.diff_worktree(path) }
-        fn changed_paths(&self, path: &Utf8Path) -> Result<Vec<Utf8PathBuf>, crate::git::Error> { self.0.changed_paths(path) }
-        fn head_commit(&self, path: &Utf8Path) -> Result<String, crate::git::Error> { self.0.head_commit(path) }
-        fn paths_committed_since(&self, path: &Utf8Path, since: &str) -> Result<Vec<Utf8PathBuf>, crate::git::Error> { self.0.paths_committed_since(path, since) }
-        fn path_at_commit(&self, git_dir: &Utf8Path, commit: &str, path: &Utf8Path) -> Result<Option<crate::git::BlobEvidence>, crate::git::Error> { self.0.path_at_commit(git_dir, commit, path) }
-        fn commits_ahead(&self, git_dir: &Utf8Path, base: &str, branch: &str) -> Result<u64, crate::git::Error> { self.0.commits_ahead(git_dir, base, branch) }
-        fn is_ancestor(&self, git_dir: &Utf8Path, ancestor: &str, descendant: &str) -> Result<bool, crate::git::Error> { self.0.is_ancestor(git_dir, ancestor, descendant) }
-        fn divergence(&self, git_dir: &Utf8Path, local: &str, remote: &str) -> Result<crate::git::Divergence, crate::git::Error> { self.0.divergence(git_dir, local, remote) }
-        fn merge_base(&self, git_dir: &Utf8Path, a: &str, b: &str) -> Result<String, crate::git::Error> { self.0.merge_base(git_dir, a, b) }
-        fn revision_commit(&self, git_dir: &Utf8Path, revision: &str) -> Result<String, crate::git::Error> { self.0.revision_commit(git_dir, revision) }
-        fn reset_hard(&self, worktree: &Utf8Path, revision: &str) -> Result<(), crate::git::Error> { self.0.reset_hard(worktree, revision) }
-        fn remote_branch_tip(&self, _git_dir: &Utf8Path, _remote: &str, _branch: &str) -> Result<Option<String>, crate::git::Error> { Err(crate::git::Error::Refused { command: "git ls-remote".to_owned(), detail: "simulated error".to_owned() }) }
-        fn push(&self, git_dir: &Utf8Path, remote: &str, from: &str, to: &str) -> Result<(), crate::git::Error> { self.0.push(git_dir, remote, from, to) }
-        fn commit_patch_id(&self, worktree: &Utf8Path, commit: &str) -> Result<String, crate::git::Error> { self.0.commit_patch_id(worktree, commit) }
-        fn diff_patch_id(&self, worktree: &Utf8Path, base: &str, tip: &str) -> Result<String, crate::git::Error> { self.0.diff_patch_id(worktree, base, tip) }
-        fn rebase_branch(&self, worktree: &Utf8Path, branch: &str) -> Result<(), crate::git::Error> { self.0.rebase_branch(worktree, branch) }
-        fn abort_rebase(&self, worktree: &Utf8Path) -> Result<(), crate::git::Error> { self.0.abort_rebase(worktree) }
-        fn rename_branch(&self, git_dir: &Utf8Path, from: &str, to: &str) -> Result<(), crate::git::Error> { self.0.rename_branch(git_dir, from, to) }
-        fn move_worktree(&self, git_dir: &Utf8Path, from: &Utf8Path, to: &Utf8Path) -> Result<(), crate::git::Error> { self.0.move_worktree(git_dir, from, to) }
-        fn publish_remote_branch(&self, git_dir: &Utf8Path, remote: &str, branch: &str, at: &str) -> Result<(), crate::git::Error> { self.0.publish_remote_branch(git_dir, remote, branch, at) }
-        fn delete_remote_branch(&self, git_dir: &Utf8Path, remote: &str, branch: &str, expected_tip: &str) -> Result<(), crate::git::Error> { self.0.delete_remote_branch(git_dir, remote, branch, expected_tip) }
+        fn target_state(
+            &self,
+            path: &Utf8Path,
+        ) -> Result<crate::git::TargetState, crate::git::Error> {
+            self.0.target_state(path)
+        }
+        fn head_branch(&self, git_dir: &Utf8Path) -> Result<String, crate::git::Error> {
+            self.0.head_branch(git_dir)
+        }
+        fn worktree_git_dir(&self, path: &Utf8Path) -> Result<Utf8PathBuf, crate::git::Error> {
+            self.0.worktree_git_dir(path)
+        }
+        fn clone_bare(&self, url: &str, dest: &Utf8Path) -> Result<(), crate::git::Error> {
+            self.0.clone_bare(url, dest)
+        }
+        fn ensure_remote_tracking(&self, git_dir: &Utf8Path) -> Result<(), crate::git::Error> {
+            self.0.ensure_remote_tracking(git_dir)
+        }
+        fn add_worktree(
+            &self,
+            git_dir: &Utf8Path,
+            dest: &Utf8Path,
+            branch: &str,
+        ) -> Result<(), crate::git::Error> {
+            self.0.add_worktree(git_dir, dest, branch)
+        }
+        fn fetch(&self, git_dir: &Utf8Path) -> Result<(), crate::git::Error> {
+            self.0.fetch(git_dir)
+        }
+        fn list_branches(&self, git_dir: &Utf8Path) -> Result<Vec<String>, crate::git::Error> {
+            self.0.list_branches(git_dir)
+        }
+        fn create_branch_and_worktree(
+            &self,
+            git_dir: &Utf8Path,
+            branch: &str,
+            from_branch: &str,
+            dest: &Utf8Path,
+        ) -> Result<(), crate::git::Error> {
+            self.0
+                .create_branch_and_worktree(git_dir, branch, from_branch, dest)
+        }
+        fn fetch_branch(&self, worktree: &Utf8Path, branch: &str) -> Result<(), crate::git::Error> {
+            self.0.fetch_branch(worktree, branch)
+        }
+        fn fast_forward(&self, worktree: &Utf8Path) -> Result<(), crate::git::Error> {
+            self.0.fast_forward(worktree)
+        }
+        fn remove_worktree(
+            &self,
+            git_dir: &Utf8Path,
+            dest: &Utf8Path,
+        ) -> Result<(), crate::git::Error> {
+            self.0.remove_worktree(git_dir, dest)
+        }
+        fn add_detached_worktree(
+            &self,
+            git_dir: &Utf8Path,
+            dest: &Utf8Path,
+            revision: &str,
+        ) -> Result<(), crate::git::Error> {
+            self.0.add_detached_worktree(git_dir, dest, revision)
+        }
+        fn create_branch(
+            &self,
+            git_dir: &Utf8Path,
+            branch: &str,
+            revision: &str,
+        ) -> Result<(), crate::git::Error> {
+            self.0.create_branch(git_dir, branch, revision)
+        }
+        fn delete_branch(&self, git_dir: &Utf8Path, branch: &str) -> Result<(), crate::git::Error> {
+            self.0.delete_branch(git_dir, branch)
+        }
+        fn merge_no_ff(&self, worktree: &Utf8Path, source: &str) -> Result<(), crate::git::Error> {
+            self.0.merge_no_ff(worktree, source)
+        }
+        fn squash_merge(
+            &self,
+            worktree: &Utf8Path,
+            source: &str,
+            message: &str,
+        ) -> Result<(), crate::git::Error> {
+            self.0.squash_merge(worktree, source, message)
+        }
+        fn fast_forward_to(
+            &self,
+            worktree: &Utf8Path,
+            revision: &str,
+        ) -> Result<(), crate::git::Error> {
+            self.0.fast_forward_to(worktree, revision)
+        }
+        fn worktree_dirty(&self, path: &Utf8Path) -> Result<bool, crate::git::Error> {
+            self.0.worktree_dirty(path)
+        }
+        fn diff_worktree(&self, path: &Utf8Path) -> Result<String, crate::git::Error> {
+            self.0.diff_worktree(path)
+        }
+        fn changed_paths(&self, path: &Utf8Path) -> Result<Vec<Utf8PathBuf>, crate::git::Error> {
+            self.0.changed_paths(path)
+        }
+        fn head_commit(&self, path: &Utf8Path) -> Result<String, crate::git::Error> {
+            self.0.head_commit(path)
+        }
+        fn paths_committed_since(
+            &self,
+            path: &Utf8Path,
+            since: &str,
+        ) -> Result<Vec<Utf8PathBuf>, crate::git::Error> {
+            self.0.paths_committed_since(path, since)
+        }
+        fn path_at_commit(
+            &self,
+            git_dir: &Utf8Path,
+            commit: &str,
+            path: &Utf8Path,
+        ) -> Result<Option<crate::git::BlobEvidence>, crate::git::Error> {
+            self.0.path_at_commit(git_dir, commit, path)
+        }
+        fn commits_ahead(
+            &self,
+            git_dir: &Utf8Path,
+            base: &str,
+            branch: &str,
+        ) -> Result<u64, crate::git::Error> {
+            self.0.commits_ahead(git_dir, base, branch)
+        }
+        fn is_ancestor(
+            &self,
+            git_dir: &Utf8Path,
+            ancestor: &str,
+            descendant: &str,
+        ) -> Result<bool, crate::git::Error> {
+            self.0.is_ancestor(git_dir, ancestor, descendant)
+        }
+        fn divergence(
+            &self,
+            git_dir: &Utf8Path,
+            local: &str,
+            remote: &str,
+        ) -> Result<crate::git::Divergence, crate::git::Error> {
+            self.0.divergence(git_dir, local, remote)
+        }
+        fn merge_base(
+            &self,
+            git_dir: &Utf8Path,
+            a: &str,
+            b: &str,
+        ) -> Result<String, crate::git::Error> {
+            self.0.merge_base(git_dir, a, b)
+        }
+        fn revision_commit(
+            &self,
+            git_dir: &Utf8Path,
+            revision: &str,
+        ) -> Result<String, crate::git::Error> {
+            self.0.revision_commit(git_dir, revision)
+        }
+        fn reset_hard(&self, worktree: &Utf8Path, revision: &str) -> Result<(), crate::git::Error> {
+            self.0.reset_hard(worktree, revision)
+        }
+        fn remote_branch_tip(
+            &self,
+            _git_dir: &Utf8Path,
+            _remote: &str,
+            _branch: &str,
+        ) -> Result<Option<String>, crate::git::Error> {
+            Err(crate::git::Error::Refused {
+                command: "git ls-remote".to_owned(),
+                detail: "simulated error".to_owned(),
+            })
+        }
+        fn push(
+            &self,
+            git_dir: &Utf8Path,
+            remote: &str,
+            from: &str,
+            to: &str,
+        ) -> Result<(), crate::git::Error> {
+            self.0.push(git_dir, remote, from, to)
+        }
+        fn commit_patch_id(
+            &self,
+            worktree: &Utf8Path,
+            commit: &str,
+        ) -> Result<String, crate::git::Error> {
+            self.0.commit_patch_id(worktree, commit)
+        }
+        fn diff_patch_id(
+            &self,
+            worktree: &Utf8Path,
+            base: &str,
+            tip: &str,
+        ) -> Result<String, crate::git::Error> {
+            self.0.diff_patch_id(worktree, base, tip)
+        }
+        fn rebase_branch(
+            &self,
+            worktree: &Utf8Path,
+            branch: &str,
+        ) -> Result<(), crate::git::Error> {
+            self.0.rebase_branch(worktree, branch)
+        }
+        fn abort_rebase(&self, worktree: &Utf8Path) -> Result<(), crate::git::Error> {
+            self.0.abort_rebase(worktree)
+        }
+        fn rename_branch(
+            &self,
+            git_dir: &Utf8Path,
+            from: &str,
+            to: &str,
+        ) -> Result<(), crate::git::Error> {
+            self.0.rename_branch(git_dir, from, to)
+        }
+        fn move_worktree(
+            &self,
+            git_dir: &Utf8Path,
+            from: &Utf8Path,
+            to: &Utf8Path,
+        ) -> Result<(), crate::git::Error> {
+            self.0.move_worktree(git_dir, from, to)
+        }
+        fn publish_remote_branch(
+            &self,
+            git_dir: &Utf8Path,
+            remote: &str,
+            branch: &str,
+            at: &str,
+        ) -> Result<(), crate::git::Error> {
+            self.0.publish_remote_branch(git_dir, remote, branch, at)
+        }
+        fn delete_remote_branch(
+            &self,
+            git_dir: &Utf8Path,
+            remote: &str,
+            branch: &str,
+            expected_tip: &str,
+        ) -> Result<(), crate::git::Error> {
+            self.0
+                .delete_remote_branch(git_dir, remote, branch, expected_tip)
+        }
     }
 
     let mock_git = ErrRemoteGit(crate::git::System);
     let mut warnings = Vec::new();
-    let results = crate::action::feature::deliver::land::execute(
-        &mock_git,
-        &layout,
-        &plans,
-        &mut warnings,
-    )
-    .unwrap();
+    let results =
+        crate::action::feature::deliver::land::execute(&mock_git, &layout, &plans, &mut warnings)
+            .unwrap();
 
-    assert!(results.iter().all(|r| !r.merged), "None/Err must skip whole batch");
-    assert!(warnings.iter().any(|w| w.code == "deliver.land_remote_moved"));
+    assert!(
+        results.iter().all(|r| !r.merged),
+        "None/Err must skip whole batch"
+    );
+    assert!(
+        warnings
+            .iter()
+            .any(|w| w.code == "deliver.land_remote_moved")
+    );
 }
 
 #[test]
@@ -1919,7 +2386,9 @@ fn expected_none_current_some_blocks_or_skips_whole_batch() {
         "expected None when current is Some must skip whole batch"
     );
     assert!(
-        warnings.iter().any(|w| w.code == "deliver.land_remote_moved"),
+        warnings
+            .iter()
+            .any(|w| w.code == "deliver.land_remote_moved"),
         "must emit land_remote_moved warning"
     );
 }
@@ -1931,7 +2400,10 @@ fn remote_moved_on_second_repo_skips_or_blocks_whole_batch_writing_neither() {
     approve_through_plan(&root);
 
     let origins_web = root.parent().unwrap().join("origins").join("web");
-    git_stdout(&origins_web, &["config", "receive.denyCurrentBranch", "ignore"]);
+    git_stdout(
+        &origins_web,
+        &["config", "receive.denyCurrentBranch", "ignore"],
+    );
 
     let before = snapshot_all_worktrees(&root);
 
@@ -1947,7 +2419,10 @@ fn remote_moved_on_second_repo_skips_or_blocks_whole_batch_writing_neither() {
     .expect("land preview");
 
     // Add commit to origin web after preview
-    git_stdout(&origins_web, &["commit", "--allow-empty", "-m", "web origin moved"]);
+    git_stdout(
+        &origins_web,
+        &["commit", "--allow-empty", "-m", "web origin moved"],
+    );
 
     let out = deliver(
         &ctx,
@@ -1972,13 +2447,17 @@ fn remote_moved_on_second_repo_skips_or_blocks_whole_batch_writing_neither() {
                 "all repos must be unmerged"
             );
             assert!(
-                report.warnings.iter().any(|w| w.code == "deliver.land_remote_moved"),
+                report
+                    .warnings
+                    .iter()
+                    .any(|w| w.code == "deliver.land_remote_moved"),
                 "land_remote_moved warning must be emitted"
             );
         }
         Err(failure) => {
             assert!(
-                failure.code == "deliver.fingerprint_mismatch" || failure.code == "deliver.land_remote_moved",
+                failure.code == "deliver.fingerprint_mismatch"
+                    || failure.code == "deliver.land_remote_moved",
                 "must refuse when remote branch moves"
             );
         }
@@ -1996,7 +2475,10 @@ fn remote_moved_with_warning_skips_batch_and_emits_warning() {
     let feature = read_feature(&layout, &FeatureName::new("checkout").unwrap()).unwrap();
 
     let origins_web = root.parent().unwrap().join("origins").join("web");
-    git_stdout(&origins_web, &["config", "receive.denyCurrentBranch", "ignore"]);
+    git_stdout(
+        &origins_web,
+        &["config", "receive.denyCurrentBranch", "ignore"],
+    );
 
     let land_preview = deliver(
         &ctx,
@@ -2018,7 +2500,10 @@ fn remote_moved_with_warning_skips_batch_and_emits_warning() {
     )
     .unwrap();
 
-    git_stdout(&origins_web, &["commit", "--allow-empty", "-m", "web origin moved"]);
+    git_stdout(
+        &origins_web,
+        &["commit", "--allow-empty", "-m", "web origin moved"],
+    );
 
     let mut warnings = Vec::new();
     let results = crate::action::feature::deliver::land::execute(
@@ -2030,7 +2515,9 @@ fn remote_moved_with_warning_skips_batch_and_emits_warning() {
     .expect("execute");
 
     assert!(
-        warnings.iter().any(|w| w.code == "deliver.land_remote_moved"),
+        warnings
+            .iter()
+            .any(|w| w.code == "deliver.land_remote_moved"),
         "land_remote_moved warning must be present"
     );
     assert!(
@@ -2057,7 +2544,12 @@ impl crate::git::Git for FailingRollbackGit {
     fn ensure_remote_tracking(&self, git_dir: &Utf8Path) -> Result<(), crate::git::Error> {
         self.0.ensure_remote_tracking(git_dir)
     }
-    fn add_worktree(&self, git_dir: &Utf8Path, dest: &Utf8Path, branch: &str) -> Result<(), crate::git::Error> {
+    fn add_worktree(
+        &self,
+        git_dir: &Utf8Path,
+        dest: &Utf8Path,
+        branch: &str,
+    ) -> Result<(), crate::git::Error> {
         self.0.add_worktree(git_dir, dest, branch)
     }
     fn fetch(&self, git_dir: &Utf8Path) -> Result<(), crate::git::Error> {
@@ -2073,7 +2565,8 @@ impl crate::git::Git for FailingRollbackGit {
         from_branch: &str,
         dest: &Utf8Path,
     ) -> Result<(), crate::git::Error> {
-        self.0.create_branch_and_worktree(git_dir, branch, from_branch, dest)
+        self.0
+            .create_branch_and_worktree(git_dir, branch, from_branch, dest)
     }
     fn fetch_branch(&self, worktree: &Utf8Path, branch: &str) -> Result<(), crate::git::Error> {
         self.0.fetch_branch(worktree, branch)
@@ -2081,13 +2574,27 @@ impl crate::git::Git for FailingRollbackGit {
     fn fast_forward(&self, worktree: &Utf8Path) -> Result<(), crate::git::Error> {
         self.0.fast_forward(worktree)
     }
-    fn remove_worktree(&self, git_dir: &Utf8Path, dest: &Utf8Path) -> Result<(), crate::git::Error> {
+    fn remove_worktree(
+        &self,
+        git_dir: &Utf8Path,
+        dest: &Utf8Path,
+    ) -> Result<(), crate::git::Error> {
         self.0.remove_worktree(git_dir, dest)
     }
-    fn add_detached_worktree(&self, git_dir: &Utf8Path, dest: &Utf8Path, revision: &str) -> Result<(), crate::git::Error> {
+    fn add_detached_worktree(
+        &self,
+        git_dir: &Utf8Path,
+        dest: &Utf8Path,
+        revision: &str,
+    ) -> Result<(), crate::git::Error> {
         self.0.add_detached_worktree(git_dir, dest, revision)
     }
-    fn create_branch(&self, git_dir: &Utf8Path, branch: &str, revision: &str) -> Result<(), crate::git::Error> {
+    fn create_branch(
+        &self,
+        git_dir: &Utf8Path,
+        branch: &str,
+        revision: &str,
+    ) -> Result<(), crate::git::Error> {
         self.0.create_branch(git_dir, branch, revision)
     }
     fn delete_branch(&self, git_dir: &Utf8Path, branch: &str) -> Result<(), crate::git::Error> {
@@ -2096,10 +2603,19 @@ impl crate::git::Git for FailingRollbackGit {
     fn merge_no_ff(&self, worktree: &Utf8Path, source: &str) -> Result<(), crate::git::Error> {
         self.0.merge_no_ff(worktree, source)
     }
-    fn squash_merge(&self, worktree: &Utf8Path, source: &str, message: &str) -> Result<(), crate::git::Error> {
+    fn squash_merge(
+        &self,
+        worktree: &Utf8Path,
+        source: &str,
+        message: &str,
+    ) -> Result<(), crate::git::Error> {
         self.0.squash_merge(worktree, source, message)
     }
-    fn fast_forward_to(&self, worktree: &Utf8Path, revision: &str) -> Result<(), crate::git::Error> {
+    fn fast_forward_to(
+        &self,
+        worktree: &Utf8Path,
+        revision: &str,
+    ) -> Result<(), crate::git::Error> {
         self.0.fast_forward_to(worktree, revision)
     }
     fn worktree_dirty(&self, path: &Utf8Path) -> Result<bool, crate::git::Error> {
@@ -2114,40 +2630,96 @@ impl crate::git::Git for FailingRollbackGit {
     fn head_commit(&self, path: &Utf8Path) -> Result<String, crate::git::Error> {
         self.0.head_commit(path)
     }
-    fn paths_committed_since(&self, path: &Utf8Path, since: &str) -> Result<Vec<Utf8PathBuf>, crate::git::Error> {
+    fn paths_committed_since(
+        &self,
+        path: &Utf8Path,
+        since: &str,
+    ) -> Result<Vec<Utf8PathBuf>, crate::git::Error> {
         self.0.paths_committed_since(path, since)
     }
-    fn path_at_commit(&self, git_dir: &Utf8Path, commit: &str, path: &Utf8Path) -> Result<Option<crate::git::BlobEvidence>, crate::git::Error> {
+    fn path_at_commit(
+        &self,
+        git_dir: &Utf8Path,
+        commit: &str,
+        path: &Utf8Path,
+    ) -> Result<Option<crate::git::BlobEvidence>, crate::git::Error> {
         self.0.path_at_commit(git_dir, commit, path)
     }
-    fn commits_ahead(&self, git_dir: &Utf8Path, base: &str, branch: &str) -> Result<u64, crate::git::Error> {
+    fn commits_ahead(
+        &self,
+        git_dir: &Utf8Path,
+        base: &str,
+        branch: &str,
+    ) -> Result<u64, crate::git::Error> {
         self.0.commits_ahead(git_dir, base, branch)
     }
-    fn is_ancestor(&self, git_dir: &Utf8Path, ancestor: &str, descendant: &str) -> Result<bool, crate::git::Error> {
+    fn is_ancestor(
+        &self,
+        git_dir: &Utf8Path,
+        ancestor: &str,
+        descendant: &str,
+    ) -> Result<bool, crate::git::Error> {
         self.0.is_ancestor(git_dir, ancestor, descendant)
     }
-    fn divergence(&self, git_dir: &Utf8Path, local: &str, remote: &str) -> Result<crate::git::Divergence, crate::git::Error> {
+    fn divergence(
+        &self,
+        git_dir: &Utf8Path,
+        local: &str,
+        remote: &str,
+    ) -> Result<crate::git::Divergence, crate::git::Error> {
         self.0.divergence(git_dir, local, remote)
     }
-    fn merge_base(&self, git_dir: &Utf8Path, a: &str, b: &str) -> Result<String, crate::git::Error> {
+    fn merge_base(
+        &self,
+        git_dir: &Utf8Path,
+        a: &str,
+        b: &str,
+    ) -> Result<String, crate::git::Error> {
         self.0.merge_base(git_dir, a, b)
     }
-    fn revision_commit(&self, git_dir: &Utf8Path, revision: &str) -> Result<String, crate::git::Error> {
+    fn revision_commit(
+        &self,
+        git_dir: &Utf8Path,
+        revision: &str,
+    ) -> Result<String, crate::git::Error> {
         self.0.revision_commit(git_dir, revision)
     }
     fn reset_hard(&self, _worktree: &Utf8Path, _revision: &str) -> Result<(), crate::git::Error> {
-        Err(crate::git::Error::Refused { command: "git reset --hard".to_owned(), detail: "simulated reset_hard failure for rollback test".to_owned() })
+        Err(crate::git::Error::Refused {
+            command: "git reset --hard".to_owned(),
+            detail: "simulated reset_hard failure for rollback test".to_owned(),
+        })
     }
-    fn remote_branch_tip(&self, git_dir: &Utf8Path, remote: &str, branch: &str) -> Result<Option<String>, crate::git::Error> {
+    fn remote_branch_tip(
+        &self,
+        git_dir: &Utf8Path,
+        remote: &str,
+        branch: &str,
+    ) -> Result<Option<String>, crate::git::Error> {
         self.0.remote_branch_tip(git_dir, remote, branch)
     }
-    fn push(&self, git_dir: &Utf8Path, remote: &str, from: &str, to: &str) -> Result<(), crate::git::Error> {
+    fn push(
+        &self,
+        git_dir: &Utf8Path,
+        remote: &str,
+        from: &str,
+        to: &str,
+    ) -> Result<(), crate::git::Error> {
         self.0.push(git_dir, remote, from, to)
     }
-    fn commit_patch_id(&self, worktree: &Utf8Path, commit: &str) -> Result<String, crate::git::Error> {
+    fn commit_patch_id(
+        &self,
+        worktree: &Utf8Path,
+        commit: &str,
+    ) -> Result<String, crate::git::Error> {
         self.0.commit_patch_id(worktree, commit)
     }
-    fn diff_patch_id(&self, worktree: &Utf8Path, base: &str, tip: &str) -> Result<String, crate::git::Error> {
+    fn diff_patch_id(
+        &self,
+        worktree: &Utf8Path,
+        base: &str,
+        tip: &str,
+    ) -> Result<String, crate::git::Error> {
         self.0.diff_patch_id(worktree, base, tip)
     }
     fn rebase_branch(&self, worktree: &Utf8Path, branch: &str) -> Result<(), crate::git::Error> {
@@ -2156,17 +2728,40 @@ impl crate::git::Git for FailingRollbackGit {
     fn abort_rebase(&self, worktree: &Utf8Path) -> Result<(), crate::git::Error> {
         self.0.abort_rebase(worktree)
     }
-    fn rename_branch(&self, git_dir: &Utf8Path, from: &str, to: &str) -> Result<(), crate::git::Error> {
+    fn rename_branch(
+        &self,
+        git_dir: &Utf8Path,
+        from: &str,
+        to: &str,
+    ) -> Result<(), crate::git::Error> {
         self.0.rename_branch(git_dir, from, to)
     }
-    fn move_worktree(&self, git_dir: &Utf8Path, from: &Utf8Path, to: &Utf8Path) -> Result<(), crate::git::Error> {
+    fn move_worktree(
+        &self,
+        git_dir: &Utf8Path,
+        from: &Utf8Path,
+        to: &Utf8Path,
+    ) -> Result<(), crate::git::Error> {
         self.0.move_worktree(git_dir, from, to)
     }
-    fn publish_remote_branch(&self, git_dir: &Utf8Path, remote: &str, branch: &str, at: &str) -> Result<(), crate::git::Error> {
+    fn publish_remote_branch(
+        &self,
+        git_dir: &Utf8Path,
+        remote: &str,
+        branch: &str,
+        at: &str,
+    ) -> Result<(), crate::git::Error> {
         self.0.publish_remote_branch(git_dir, remote, branch, at)
     }
-    fn delete_remote_branch(&self, git_dir: &Utf8Path, remote: &str, branch: &str, expected_tip: &str) -> Result<(), crate::git::Error> {
-        self.0.delete_remote_branch(git_dir, remote, branch, expected_tip)
+    fn delete_remote_branch(
+        &self,
+        git_dir: &Utf8Path,
+        remote: &str,
+        branch: &str,
+        expected_tip: &str,
+    ) -> Result<(), crate::git::Error> {
+        self.0
+            .delete_remote_branch(git_dir, remote, branch, expected_tip)
     }
 }
 
@@ -2218,7 +2813,10 @@ fn rollback_failure_produces_land_rollback_failed_failure() {
     )
     .unwrap();
 
-    let web_default = layout.repo_worktree(&RepoName::new("web").unwrap(), &BranchName::new("main").unwrap());
+    let web_default = layout.repo_worktree(
+        &RepoName::new("web").unwrap(),
+        &BranchName::new("main").unwrap(),
+    );
 
     // Lock web_default index so fast_forward_to fails during merge phase
     let web_git_dir = crate::git::System.worktree_git_dir(&web_default).unwrap();
@@ -2226,13 +2824,9 @@ fn rollback_failure_produces_land_rollback_failed_failure() {
 
     let mock_git = FailingRollbackGit(crate::git::System);
     let mut warnings = Vec::new();
-    let failure = crate::action::feature::deliver::land::execute(
-        &mock_git,
-        &layout,
-        &plans,
-        &mut warnings,
-    )
-    .expect_err("rollback failure must produce Failure");
+    let failure =
+        crate::action::feature::deliver::land::execute(&mock_git, &layout, &plans, &mut warnings)
+            .expect_err("rollback failure must produce Failure");
 
     assert_eq!(failure.code, "deliver.land_rollback_failed");
     assert!(failure.expected.is_some());

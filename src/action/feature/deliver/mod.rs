@@ -191,10 +191,7 @@ impl WriteHuman for DeliverOutcome {
                         writeln!(w, "  no repos promoted")?;
                     }
                     for repo in &self.preview.repos {
-                        let target = repo
-                            .default_branch
-                            .as_ref()
-                            .map_or("-", |b| b.as_str());
+                        let target = repo.default_branch.as_ref().map_or("-", |b| b.as_str());
                         let ff_verdict = match repo.ff_possible {
                             Some(true) => "fast-forward",
                             Some(false) => "diverged",
@@ -471,7 +468,10 @@ pub fn deliver(ctx: &Ctx, input: DeliverInput) -> Outcome<DeliverOutcome> {
     let mut pr_url_map: BTreeMap<RepoName, String> = BTreeMap::new();
     let mut pr_results: Vec<(RepoName, Result<String, Failure>)> = Vec::new();
     for repo in &preview.repos {
-        if matches!(repo.action, DeliveryAction::PushOnly | DeliveryAction::LandOnDefault) {
+        if matches!(
+            repo.action,
+            DeliveryAction::PushOnly | DeliveryAction::LandOnDefault
+        ) {
             continue;
         }
 
@@ -535,8 +535,10 @@ pub fn deliver(ctx: &Ctx, input: DeliverInput) -> Outcome<DeliverOutcome> {
                     },
                     Ok,
                 ),
-            DeliveryAction::NewPr => create_pull_request(&bare, &repo.local_branch, &repo.base_branch, &feature_name)
-                .map(|pr| pr.url),
+            DeliveryAction::NewPr => {
+                create_pull_request(&bare, &repo.local_branch, &repo.base_branch, &feature_name)
+                    .map(|pr| pr.url)
+            }
             DeliveryAction::PushOnly | DeliveryAction::LandOnDefault => unreachable!(),
         };
         pr_results.push((repo.repo.clone(), result));
