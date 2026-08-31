@@ -213,21 +213,38 @@ pub(crate) fn execute(
         let bare = layout.repo_bare(&plan.repo);
         let current_res = git.remote_branch_tip(&bare, &plan.remote, plan.default_branch.as_str());
 
-        match (&plan.remote_default_tip, current_res) {
-            (Some(expected), Ok(Some(ref current))) if current == expected => {
-                // Valid evidence match: remote default branch has not moved
-            }
-            _ => {
-                remote_moved = true;
-                warnings.push(Warning::new(
-                    "deliver.land_remote_moved",
-                    plan.repo.as_str(),
-                    format!(
-                        "the remote default branch `{}` in `{}` moved, disappeared, or lacked preview evidence; skipping repository",
-                        plan.default_branch, plan.repo
-                    ),
-                ));
-            }
+        let (is_valid, reason) = match (&plan.remote_default_tip, &current_res) {
+            (Some(expected), Ok(Some(current))) if current == expected => (true, None),
+            (Some(expected), Ok(Some(current))) => (
+                false,
+                Some(format!(
+                    "moved (preview expected `{expected}`, current `{current}`)"
+                )),
+            ),
+            (Some(_), Ok(None)) => (false, Some("disappeared from remote".to_owned())),
+            (Some(_), Err(e)) => (
+                false,
+                Some(format!("could not be verified: {e}")),
+            ),
+            (None, Ok(Some(_))) => (false, Some("absent at preview".to_owned())),
+            (None, Ok(None)) => (false, Some("absent at preview".to_owned())),
+            (None, Err(e)) => (
+                false,
+                Some(format!("absent at preview (remote error: {e})")),
+            ),
+        };
+
+        if !is_valid {
+            remote_moved = true;
+            let detail = reason.unwrap_or_default();
+            warnings.push(Warning::new(
+                "deliver.land_remote_moved",
+                plan.repo.as_str(),
+                format!(
+                    "the remote default branch `{}` in `{}`: {detail}; the entire land batch is skipped",
+                    plan.default_branch, plan.repo
+                ),
+            ));
         }
     }
 
