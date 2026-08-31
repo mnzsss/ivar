@@ -435,7 +435,10 @@ fn rollback_merged(
             .map_or("unknown", |p| p.repo.as_str());
         return Err(Failure::failed(
             "deliver.land_rollback_failed",
-            format!("land failed on `{repo_name}` and rollback failed: {}", failure.what),
+            format!(
+                "land failed on `{repo_name}` and rollback failed: {}",
+                failure.what
+            ),
         )
         .expected("all merged default worktrees to roll back cleanly to their original tips")
         .actual(format!(
