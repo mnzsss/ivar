@@ -116,6 +116,51 @@ fn unguard_worktrees(root: &camino::Utf8Path) {
     }
 }
 
+/// Start a detached discovery session and return its id.
+fn start_discovery_session(ctx: &Ctx) -> String {
+    crate::action::session::start::start(
+        ctx,
+        crate::action::session::start::StartInput {
+            feature: None,
+            resume: false,
+            provider: None,
+            detached: true,
+            relay: false,
+        },
+    )
+    .unwrap()
+    .value
+    .session_id
+}
+
+/// Record `session` on `name`'s discovery doc without adding prose.
+fn record_session_on_doc(ctx: &Ctx, name: &str, session: &str) {
+    crate::action::discovery::amend::amend(
+        ctx,
+        crate::action::discovery::amend::AmendInput {
+            name: name.to_owned(),
+            content: String::new(),
+            merge: false,
+            expected_hash: None,
+            session_id: Some(session.to_owned()),
+        },
+    )
+    .unwrap();
+}
+
+/// Create a discovery doc and record `session` on it.
+fn associate_discovery(ctx: &Ctx, name: &str, session: &str) {
+    crate::action::discovery::create::create(
+        ctx,
+        crate::action::discovery::create::CreateInput {
+            name: name.to_owned(),
+            title: None,
+        },
+    )
+    .unwrap();
+    record_session_on_doc(ctx, name, session);
+}
+
 fn feature_name() -> FeatureName {
     FeatureName::new("checkout").unwrap()
 }
@@ -127,12 +172,12 @@ fn convert_moves_the_view_dir_and_rebuilds_symlinks() {
     let layout = Layout::at(root.clone());
     let old_dir = discovery_view_dir(&layout);
     assert!(fs::is_dir(&old_dir).unwrap());
+    associate_discovery(&ctx, "checkout", DISCOVERY_ID);
 
     let report = convert(
         &ctx,
         ConvertInput {
             session_id: DISCOVERY_ID.to_owned(),
-            feature: "checkout".to_owned(),
         },
     )
     .unwrap();
@@ -187,6 +232,7 @@ fn convert_projects_the_plan_and_writes_bootstrap_instructions() {
         },
     )
     .unwrap();
+    associate_discovery(&ctx, "checkout", DISCOVERY_ID);
 
     let old_dir = discovery_view_dir(&layout);
     assert_eq!(
@@ -209,7 +255,6 @@ fn convert_projects_the_plan_and_writes_bootstrap_instructions() {
         &ctx,
         ConvertInput {
             session_id: DISCOVERY_ID.to_owned(),
-            feature: "checkout".to_owned(),
         },
     )
     .unwrap();
@@ -237,12 +282,12 @@ fn convert_preserves_session_id_provider_and_started_at() {
     let ctx = Ctx::new(root.clone());
     let layout = Layout::at(root.clone());
     discovery_view_dir(&layout);
+    associate_discovery(&ctx, "checkout", DISCOVERY_ID);
 
     let report = convert(
         &ctx,
         ConvertInput {
             session_id: DISCOVERY_ID.to_owned(),
-            feature: "checkout".to_owned(),
         },
     )
     .unwrap();
@@ -267,11 +312,11 @@ fn convert_refuses_an_already_converted_session() {
     let ctx = Ctx::new(root.clone());
     let layout = Layout::at(root.clone());
     discovery_view_dir(&layout);
+    associate_discovery(&ctx, "checkout", DISCOVERY_ID);
     convert(
         &ctx,
         ConvertInput {
             session_id: DISCOVERY_ID.to_owned(),
-            feature: "checkout".to_owned(),
         },
     )
     .unwrap();
@@ -280,7 +325,6 @@ fn convert_refuses_an_already_converted_session() {
         &ctx,
         ConvertInput {
             session_id: DISCOVERY_ID.to_owned(),
-            feature: "checkout".to_owned(),
         },
     )
     .unwrap_err();
@@ -319,7 +363,6 @@ fn convert_refuses_a_feature_session() {
         &ctx,
         ConvertInput {
             session_id: "3d7f7f2e".to_owned(),
-            feature: "checkout".to_owned(),
         },
     )
     .unwrap_err();
@@ -328,23 +371,107 @@ fn convert_refuses_a_feature_session() {
     unguard_worktrees(&root);
 }
 
+/// D9: conversion promotes the name the session already has. The session
+/// is found through the discovery doc that lists it.
 #[test]
-fn convert_refuses_a_missing_feature() {
+fn convert_promotes_the_sessions_own_name_creating_the_feature() {
     let (_guard, root) = hall_with_discovery_session();
     let ctx = Ctx::new(root.clone());
     let layout = Layout::at(root.clone());
-    discovery_view_dir(&layout);
 
-    let failure = convert(
+    crate::action::discovery::create::create(
         &ctx,
-        ConvertInput {
-            session_id: DISCOVERY_ID.to_owned(),
-            feature: "ghost".to_owned(),
+        crate::action::discovery::create::CreateInput {
+            name: "checkout-refactor".to_owned(),
+            title: None,
         },
     )
-    .unwrap_err();
+    .unwrap();
 
-    assert_eq!(failure.code, "feature.not_found");
+    let session = start_discovery_session(&ctx);
+    crate::action::discovery::amend::amend(
+        &ctx,
+        crate::action::discovery::amend::AmendInput {
+            name: "checkout-refactor".to_owned(),
+            content: "Found the seam.".to_owned(),
+            merge: false,
+            expected_hash: None,
+            session_id: Some(session.clone()),
+        },
+    )
+    .unwrap();
+
+    let name = FeatureName::new("checkout-refactor").unwrap();
+    assert!(
+        Feature::read(&layout, &name).unwrap().is_none(),
+        "the feature must not exist before conversion"
+    );
+
+    let outcome = convert(
+        &ctx,
+        ConvertInput {
+            session_id: session.clone(),
+        },
+    )
+    .unwrap()
+    .value;
+
+    assert_eq!(outcome.feature, name, "nothing is renamed");
+    assert!(
+        Feature::read(&layout, &name).unwrap().is_some(),
+        "conversion creates the feature it promotes"
+    );
+
+    let doc = crate::store::discovery::parse(
+        &fs::read_text(&layout.discovery_doc(&name))
+            .unwrap()
+            .unwrap(),
+    );
+    assert_eq!(
+        doc.frontmatter.status,
+        crate::domain::discovery::DiscoveryStatus::Converted
+    );
+    assert!(doc.frontmatter.sessions.contains(&session));
+    assert!(doc.body.contains("Found the seam."), "the prose survives");
+    unguard_worktrees(&root);
+}
+
+/// An existing feature is bound, not recreated — `feature create` before
+/// `discovery create` is the reverse order D3 allows.
+#[test]
+fn convert_binds_an_existing_feature_of_the_same_name() {
+    let (_guard, root) = hall_with_discovery_session();
+    let ctx = Ctx::new(root.clone());
+
+    crate::action::feature::create::create(
+        &ctx,
+        crate::action::feature::create::CreateInput {
+            name: "checkout-refactor".to_owned(),
+            branch: None,
+            base: None,
+            parent: None,
+            via: None,
+            strategy: None,
+        },
+    )
+    .unwrap();
+
+    let session = start_discovery_session(&ctx);
+    associate_discovery(&ctx, "checkout-refactor", &session);
+
+    let outcome = convert(
+        &ctx,
+        ConvertInput {
+            session_id: session,
+        },
+    )
+    .unwrap()
+    .value;
+
+    assert_eq!(
+        outcome.feature,
+        FeatureName::new("checkout-refactor").unwrap()
+    );
     unguard_worktrees(&root);
 }
 
@@ -357,6 +484,9 @@ fn an_interrupted_conversion_resumes_on_retry() {
     let ctx = Ctx::new(root.clone());
     let layout = Layout::at(root.clone());
     let old_dir = discovery_view_dir(&layout);
+
+    // Create a discovery doc and record the session on it.
+    associate_discovery(&ctx, "checkout", DISCOVERY_ID);
 
     // Simulate a run interrupted after the move but before the state
     // update: the view dir is already in the feature tree, and the marker
@@ -382,7 +512,6 @@ fn an_interrupted_conversion_resumes_on_retry() {
         &ctx,
         ConvertInput {
             session_id: DISCOVERY_ID.to_owned(),
-            feature: "checkout".to_owned(),
         },
     )
     .unwrap();
@@ -394,5 +523,29 @@ fn an_interrupted_conversion_resumes_on_retry() {
     assert_eq!(state.started_at(), STARTED_AT);
     assert_eq!(state.feature().unwrap().as_str(), "checkout");
     assert!(!fs::exists(&transition_path(&layout, &feature_name())).unwrap());
+    let doc =
+        crate::action::discovery::load(&layout, &FeatureName::new("checkout").unwrap()).unwrap();
+    assert_eq!(
+        doc.frontmatter.status,
+        crate::domain::discovery::DiscoveryStatus::Converted
+    );
     unguard_worktrees(&root);
+}
+
+/// Without a discovery doc naming it, a session has no name to promote.
+#[test]
+fn convert_refuses_a_session_no_discovery_claims() {
+    let (_guard, root) = hall_with_discovery_session();
+    let ctx = Ctx::new(root.clone());
+    let session = start_discovery_session(&ctx);
+
+    let failure = convert(
+        &ctx,
+        ConvertInput {
+            session_id: session,
+        },
+    )
+    .unwrap_err();
+
+    assert_eq!(failure.code, "session.convert_no_discovery");
 }

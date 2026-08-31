@@ -360,11 +360,31 @@ fn a_started_discovery_session_can_be_converted() {
     .unwrap()
     .value;
 
+    // Create a discovery doc and record the session on it.
+    crate::action::discovery::create::create(
+        &ctx,
+        crate::action::discovery::create::CreateInput {
+            name: "checkout".to_owned(),
+            title: None,
+        },
+    )
+    .unwrap();
+    crate::action::discovery::amend::amend(
+        &ctx,
+        crate::action::discovery::amend::AmendInput {
+            name: "checkout".to_owned(),
+            content: String::new(),
+            merge: false,
+            expected_hash: None,
+            session_id: Some(started.session_id.clone()),
+        },
+    )
+    .unwrap();
+
     let converted = conversion::convert(
         &ctx,
         ConvertInput {
             session_id: started.session_id.clone(),
-            feature: "checkout".to_owned(),
         },
     )
     .unwrap()

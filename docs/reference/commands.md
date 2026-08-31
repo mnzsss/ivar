@@ -452,12 +452,11 @@ Re-bind to an existing live session: locate it, re-materialise its view dir, and
 
 ##### `ivar session convert`
 
-Bind a discovery session to a feature (one-way), moving its view dir into the feature's session tree
+Promote a discovery session to a feature session, keeping its name
 
 | argument | required | description |
 | --- | --- | --- |
 | `session_id` | yes | The discovery session's id, or a unique prefix of one |
-| `feature` | yes | The feature to bind the session to. Must already exist |
 
 
 ##### `ivar session stop`

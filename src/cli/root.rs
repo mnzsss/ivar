@@ -547,8 +547,7 @@ pub enum SessionCommand {
     /// Re-bind to an existing live session: locate it, re-materialise its
     /// view dir, and emit the binding as `IVAR_*` env vars.
     Connect(SessionConnectArgs),
-    /// Bind a discovery session to a feature (one-way), moving its view dir
-    /// into the feature's session tree.
+    /// Promote a discovery session to a feature session, keeping its name.
     Convert(SessionConvertArgs),
     /// Stop a session — tear down its view dir and end any running harness.
     /// Omitting the session stops *every* session in the hall.
@@ -604,8 +603,6 @@ pub struct SessionConnectArgs {
 pub struct SessionConvertArgs {
     /// The discovery session's id, or a unique prefix of one.
     pub session_id: String,
-    /// The feature to bind the session to. Must already exist.
-    pub feature: String,
 }
 
 /// Arguments for `ivar session stop`.
@@ -1315,14 +1312,8 @@ impl From<SessionConnectArgs> for session_connect::ConnectInput {
 
 impl From<SessionConvertArgs> for session_conversion::ConvertInput {
     fn from(args: SessionConvertArgs) -> Self {
-        let SessionConvertArgs {
-            session_id,
-            feature,
-        } = args;
-        Self {
-            session_id,
-            feature,
-        }
+        let SessionConvertArgs { session_id } = args;
+        Self { session_id }
     }
 }
 
