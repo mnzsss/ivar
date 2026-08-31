@@ -216,6 +216,8 @@ pub fn start(ctx: &Ctx, input: StartInput) -> Outcome<StartOutcome> {
             feature.as_ref().map(|f| &f.name),
         );
         let command = env.apply(harness.start_command(input.resume));
+        let command =
+            crate::action::mcp::inject_session_mcp_secrets(command, &layout, &manifest, provider);
         let width = crate::infra::term::width();
         let height = 24;
 

@@ -31,7 +31,7 @@ half-understood state file is worse than no state file.
   .ivar/skills/                 committed    skills the team shares
   .ivar/setups/<repo>.sh        committed    per-repo worktree bootstrap
   .ivar/setups/<repo>.session.sh committed   per-repo session hook
-  .ivar/secrets/                local        secret material you maintain by hand
+  .ivar/secrets/                local        secret material (hand-maintained files, plus mcp.env)
   .ivar/state.json              local        hall state, health, bookkeeping
   .ivar/repos/                  local        bare clones and worktrees
   .ivar/features/               local        promotion records, Run Receipts
@@ -80,7 +80,9 @@ yours and is never changed.
 excludes `.ivar/*` and negates only the committed children, so anything else
 under `.ivar/` is ignored by construction. A secrets directory that depended on
 someone remembering to add a line is a secrets directory that eventually leaks.
-`ivar` creates the directory and never writes into it.
+General files under `.ivar/secrets/` are maintained by hand; Ivar manages
+durable local MCP OAuth client secrets directly in `.ivar/secrets/mcp.env` with
+owner-only permissions (`0600` on Unix).
 
 `ivar.json` is deliberately **not** inside `.ivar/`. It is the file a reviewer
 reads in a pull request, so it stays visible at the root.

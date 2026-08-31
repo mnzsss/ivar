@@ -1236,3 +1236,59 @@ fn materialise_view_dir_omits_work_for_a_discovery_session() {
         "a discovery session has no name and so no memory dir to link"
     );
 }
+
+#[test]
+fn opencode_session_command_injects_referenced_mcp_secrets_only() {
+    let (_guard, root) = crate::test_support::seeded_hall();
+    let layout = Layout::at(root.clone());
+    let manifest = Manifest::read(&layout).unwrap().unwrap();
+
+    let server = crate::domain::mcp::McpServerDef::new("figma", "sse")
+        .url("https://mcp.figma.com/mcp")
+        .oauth(crate::domain::mcp::McpOauth::new(
+            "client-id",
+            "IVAR_MCP_ACME_FIGMA_SECRET".to_owned(),
+        ));
+    let updated = manifest.with_mcp_servers(vec![server]).unwrap();
+    Manifest::write(&layout, &updated).unwrap();
+
+    crate::store::mcp_secrets::McpSecrets::set_and_write(
+        &layout,
+        "IVAR_MCP_ACME_FIGMA_SECRET",
+        "secret-figma-val",
+    )
+    .unwrap();
+    crate::store::mcp_secrets::McpSecrets::set_and_write(
+        &layout,
+        "UNREFERENCED_SECRET_VAR",
+        "should-not-be-injected",
+    )
+    .unwrap();
+
+    let command = crate::infra::proc::Command::new("opencode");
+    let injected = crate::action::mcp::inject_session_mcp_secrets(
+        command,
+        &layout,
+        &updated,
+        Provider::OpenCode,
+    );
+
+    let envs = injected.envs();
+    assert_eq!(
+        envs,
+        &[(
+            "IVAR_MCP_ACME_FIGMA_SECRET".to_owned(),
+            "secret-figma-val".to_owned()
+        )]
+    );
+
+    // Claude Code must not inject secrets
+    let claude_command = crate::infra::proc::Command::new("claude");
+    let claude_injected = crate::action::mcp::inject_session_mcp_secrets(
+        claude_command,
+        &layout,
+        &updated,
+        Provider::ClaudeCode,
+    );
+    assert!(claude_injected.envs().is_empty());
+}

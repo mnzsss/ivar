@@ -111,6 +111,8 @@ src/
     layout.rs      every path under a hall is computed here, nowhere else —
                    including the canonical `HALL.md` and each provider's
                    root alias (`CLAUDE.md` / `AGENTS.md`)
+    mcp_secrets.rs .ivar/secrets/mcp.env — durable local MCP OAuth credentials,
+                   owner-only on Unix, never committed.
     gitignore.rs   the hall's .gitignore: append the needed lines, never clobber
     setup_receipt.rs  what a worktree's setup script did last time. The one file
                    NOT under layout: it lives in git's admin dir, so it dies

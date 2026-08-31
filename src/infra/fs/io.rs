@@ -64,6 +64,68 @@ pub fn write_atomic(path: &Utf8Path, contents: &[u8]) -> Result<(), Error> {
     })
 }
 
+/// Write sensitive bytes to `path` atomically with owner-only permissions (`0600` on Unix).
+///
+/// Ensures any parent directory exists, creates a temporary sibling file with mode `0600`
+/// on Unix, writes `contents`, flushes, and renames over `path`. On Unix, also verifies/sets
+/// permissions `0600` on the final path.
+pub fn write_sensitive_atomic(path: &Utf8Path, contents: &[u8]) -> Result<(), Error> {
+    if let Some(parent) = path.parent().filter(|p| !p.as_str().is_empty()) {
+        ensure_dir(parent)?;
+    }
+
+    let temp = sibling_temp_path(path);
+
+    #[cfg(unix)]
+    {
+        use fs_err::os::unix::fs::OpenOptionsExt;
+        use std::io::Write;
+
+        let mut options = fs_err::OpenOptions::new();
+        options.write(true).create_new(true).mode(0o600);
+        let mut file = options
+            .open(temp.as_std_path())
+            .map_err(|source| Error::Write {
+                path: temp.clone(),
+                source,
+            })?;
+        file.write_all(contents).map_err(|source| Error::Write {
+            path: temp.clone(),
+            source,
+        })?;
+        file.flush().map_err(|source| Error::Write {
+            path: temp.clone(),
+            source,
+        })?;
+    }
+
+    #[cfg(not(unix))]
+    {
+        fs_err::write(temp.as_std_path(), contents).map_err(|source| Error::Write {
+            path: temp.clone(),
+            source,
+        })?;
+    }
+
+    fs_err::rename(temp.as_std_path(), path.as_std_path()).map_err(|source| Error::Rename {
+        from: temp.clone(),
+        to: path.to_owned(),
+        source,
+    })?;
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let perms = std::fs::Permissions::from_mode(0o600);
+        fs_err::set_permissions(path.as_std_path(), perms).map_err(|source| Error::Chmod {
+            path: path.to_owned(),
+            source,
+        })?;
+    }
+
+    Ok(())
+}
+
 /// Create a directory and all missing ancestors. Idempotent — succeeds if the
 /// directory already exists.
 pub fn ensure_dir(path: &Utf8Path) -> Result<(), Error> {

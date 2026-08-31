@@ -525,3 +525,43 @@ fn data_dir_from_fails_when_xdg_data_home_is_relative_and_home_is_unset() {
     let failure = data_dir_from(Some("relative/data".to_owned()), None).unwrap_err();
     assert_eq!(failure.code, "fs.data_dir");
 }
+
+// -- write_sensitive_atomic -------------------------------------------------
+
+#[test]
+fn write_sensitive_atomic_creates_parent_and_writes_content() {
+    let (_dir, root) = utf8_temp_dir();
+    let secret_path = root.join("nested").join("secrets").join("mcp.env");
+
+    write_sensitive_atomic(&secret_path, b"TEST_KEY=\"secret_val\"\n").unwrap();
+    assert_eq!(
+        read_text(&secret_path).unwrap().as_deref(),
+        Some("TEST_KEY=\"secret_val\"\n")
+    );
+
+    #[cfg(unix)]
+    {
+        let mode = stat(&secret_path).unwrap().unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o600);
+    }
+}
+
+#[test]
+fn write_sensitive_atomic_overwrites_existing_atomically() {
+    let (_dir, root) = utf8_temp_dir();
+    let secret_path = root.join("mcp.env");
+
+    write_sensitive_atomic(&secret_path, b"KEY1=\"val1\"\n").unwrap();
+    write_sensitive_atomic(&secret_path, b"KEY2=\"val2\"\n").unwrap();
+
+    assert_eq!(
+        read_text(&secret_path).unwrap().as_deref(),
+        Some("KEY2=\"val2\"\n")
+    );
+
+    #[cfg(unix)]
+    {
+        let mode = stat(&secret_path).unwrap().unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o600);
+    }
+}
