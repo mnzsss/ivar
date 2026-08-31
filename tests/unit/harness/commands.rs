@@ -390,7 +390,10 @@ fn execute_marks_waves_complete_and_uses_native_coordination() {
         "coordinator",
         "child Feature",
     ] {
-        assert!(content.contains(required), "missing `{required}`: {content}");
+        assert!(
+            content.contains(required),
+            "missing `{required}`: {content}"
+        );
     }
 
     for removed in [
@@ -420,6 +423,8 @@ fn plan_has_three_approval_gates_and_hands_off_to_execute() {
     assert!(content.contains("approve analysis"), "was: {content}");
     assert!(content.contains("approve plan"), "was: {content}");
     assert!(content.contains("/ivar-execute"), "was: {content}");
+    assert!(content.contains("Done"), "was: {content}");
+    assert!(content.contains("✅"), "was: {content}");
     assert!(!content.contains("approve graph"), "was: {content}");
 }
 
