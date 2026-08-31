@@ -6,6 +6,7 @@ use std::collections::BTreeMap;
 
 use camino::Utf8Path;
 
+use crate::action::feature::deliver::input::PullRequestMetadata;
 use crate::domain::feature::{DeliveryAction, DeliveryMode, DeliveryRepo, Feature};
 use crate::domain::name::RepoName;
 use crate::error::{Failure, FixAction};
@@ -22,6 +23,7 @@ pub(crate) fn build_repos(
     manifest: &Manifest,
     feature: &Feature,
     mode: DeliveryMode,
+    resolved_metadata: &std::collections::BTreeMap<RepoName, PullRequestMetadata>,
 ) -> Result<Vec<DeliveryRepo>, Failure> {
     let mut repos = Vec::new();
 
@@ -190,6 +192,10 @@ pub(crate) fn build_repos(
             (None, None, None)
         };
 
+        let metadata = resolved_metadata
+            .get(repo_name)
+            .cloned()
+            .unwrap_or_default();
         repos.push(DeliveryRepo {
             repo: repo_name.clone(),
             local_branch: feature.branch.clone(),
@@ -203,8 +209,8 @@ pub(crate) fn build_repos(
             default_branch,
             ff_possible,
             remote_default_tip,
-            pr_title: None,
-            pr_body: None,
+            pr_title: metadata.title,
+            pr_body: metadata.body,
         });
     }
 

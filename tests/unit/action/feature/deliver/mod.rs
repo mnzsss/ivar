@@ -10,6 +10,7 @@ use super::*;
 mod apply;
 pub(super) mod fixture;
 mod land;
+mod metadata;
 mod ordering;
 mod preview;
 mod pull_request;
