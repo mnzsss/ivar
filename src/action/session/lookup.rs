@@ -82,15 +82,7 @@ pub(crate) fn resolve(
         .collect();
 
     match matches.len() {
-        0 => Err(
-            Failure::blocked("session.not_found", "no live session matches")
-                .expected("a live session — one whose View Dir exists")
-                .actual(describe_request(id_prefix, feature))
-                .fix(FixAction::safe(
-                    "session.start_first",
-                    "Start a session first with `ivar session start`.",
-                )),
-        ),
+        0 => Err(not_found(layout, id_prefix, feature)?),
         1 => matches.into_iter().next().ok_or_else(|| {
             Failure::failed(
                 "session.lookup_internal",
@@ -135,6 +127,64 @@ pub(crate) fn most_recent(
         b.cmp(a) // descending: most recent first
     });
     Ok(sessions.into_iter().next())
+}
+
+/// The "nothing matched" failure.
+///
+/// A `--feature` search only looks under `.ivar/features/<f>/sessions/`, so a
+/// **discovery** session doing that feature's work is invisible to it. When
+/// such sessions exist, the way forward is `session convert`, not
+/// `session start`: starting would open a second session beside the one
+/// already holding the work.
+fn not_found(
+    layout: &Layout,
+    id_prefix: Option<&str>,
+    feature: Option<&str>,
+) -> Result<Failure, Failure> {
+    let request = describe_request(id_prefix, feature);
+    let failure = Failure::blocked("session.not_found", "no live session matches")
+        .expected("a live session — one whose View Dir exists");
+
+    let Some(feature) = feature else {
+        return Ok(failure.actual(request).fix(FixAction::safe(
+            "session.start_first",
+            "Start a session first with `ivar session start`.",
+        )));
+    };
+
+    let discovery: Vec<String> = list_discovery(layout)?
+        .into_iter()
+        .filter(|session| id_prefix.is_none_or(|prefix| session.id.as_str().starts_with(prefix)))
+        .map(|session| session.id.to_string())
+        .collect();
+    if discovery.is_empty() {
+        return Ok(failure.actual(request).fix(FixAction::safe(
+            "session.start_first",
+            format!("Start a session first with `ivar session start --feature {feature}`."),
+        )));
+    }
+
+    Ok(failure
+        .actual(format!(
+            "{request}, but {} unbound discovery session(s) exist: {}",
+            discovery.len(),
+            discovery.join(", ")
+        ))
+        .fix(
+            FixAction::safe(
+                "session.convert",
+                format!(
+                    "One of those discovery sessions may already hold this feature's work. \
+                     Bind it with `ivar session convert <session-id> {feature}` instead of \
+                     starting a second session."
+                ),
+            )
+            .command(format!("ivar session convert <session-id> {feature}")),
+        )
+        .fix(FixAction::safe(
+            "session.start_first",
+            format!("Otherwise start a fresh one with `ivar session start --feature {feature}`."),
+        )))
 }
 
 /// What `resolve` was asked for, for the "nothing matched" message.

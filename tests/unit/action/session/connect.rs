@@ -489,3 +489,69 @@ fn connect_with_an_ambiguous_prefix_is_blocked() {
     assert_eq!(failure.code, "session.ambiguous");
     unguard_worktrees(&root);
 }
+
+/// The bug this fixes: a `--feature` search only looks under
+/// `.ivar/features/<f>/sessions/`, so a discovery session already holding that
+/// feature's work is invisible to it. Reporting only `session.start_first`
+/// sent agents off to open a second session beside the one with the work; the
+/// failure must name the candidates and point at `session convert`.
+#[test]
+fn connect_by_feature_names_discovery_sessions_as_convert_candidates() {
+    let (_guard, root) = hall_with_detached_session();
+    let ctx = Ctx::new(root.clone());
+    // A discovery session: no feature, so it lands under `.ivar/sessions/`.
+    let discovery = session_start::start(
+        &ctx,
+        StartInput {
+            feature: None,
+            resume: false,
+            provider: None,
+            detached: true,
+            relay: false,
+        },
+    )
+    .unwrap()
+    .value
+    .session_id;
+    // A feature with no session of its own is the case that used to dead-end.
+    feature_create::create(
+        &ctx,
+        CreateInput {
+            name: "billing".to_owned(),
+            branch: None,
+            base: None,
+            parent: None,
+            via: None,
+            strategy: None,
+        },
+    )
+    .unwrap();
+
+    let failure = connect(
+        &ctx,
+        ConnectInput {
+            session_id: None,
+            feature: Some("billing".to_owned()),
+        },
+    )
+    .unwrap_err();
+
+    assert_eq!(failure.code, "session.not_found");
+    let actual = failure
+        .actual
+        .clone()
+        .expect("the failure names what it found");
+    assert!(
+        actual.contains(&discovery),
+        "the discovery session must be named as a candidate: {actual}"
+    );
+    assert!(
+        failure
+            .fix_actions
+            .iter()
+            .any(|fix| fix.code == "session.convert"),
+        "convert must be offered before start: {:?}",
+        failure.fix_actions
+    );
+    unguard_worktrees(&root);
+}
