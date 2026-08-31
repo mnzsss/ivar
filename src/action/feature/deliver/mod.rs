@@ -638,5 +638,5 @@ fn read_feature(layout: &Layout, name: &FeatureName) -> Result<Feature, Failure>
 }
 
 #[cfg(test)]
-#[path = "../../../../tests/unit/action/feature/deliver.rs"]
+#[path = "../../../../tests/unit/action/feature/deliver/mod.rs"]
 mod tests;
