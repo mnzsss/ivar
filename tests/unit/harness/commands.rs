@@ -373,33 +373,34 @@ fn plan_checks_relation_context_at_the_start_of_analysis() {
     assert!(after.contains("never blocks"), "was: {after}");
 }
 
-/// `/ivar-execute` uses the Run Receipt lifecycle while the active provider
-/// coordinates native subagents itself.
+/// `/ivar-execute` marks each wave complete in `plan.md` at the wave
+/// checkpoint while the active provider coordinates native subagents itself.
 #[test]
-fn execute_uses_receipt_lifecycle_and_native_coordination() {
+fn execute_marks_waves_complete_and_uses_native_coordination() {
     let content = embedded("execute");
 
     for required in [
         "ivar plan status",
-        "ivar feature execute status",
-        "ivar feature execute start",
-        "--resume",
-        "--restart",
-        "ivar feature execute accept-revision",
-        "ivar feature execute finish",
-        "--report-json",
         "native subagent",
-        "summary",
-        "tasks",
-        "verification",
+        "wave checkpoint",
+        "mark the wave complete",
+        "Done",
+        "exit criteria",
+        "✅",
+        "coordinator",
+        "child Feature",
     ] {
-        assert!(
-            content.contains(required),
-            "missing `{required}`: {content}"
-        );
+        assert!(content.contains(required), "missing `{required}`: {content}");
     }
 
     for removed in [
+        "ivar feature execute status",
+        "ivar feature execute start",
+        "ivar feature execute finish",
+        "accept-revision",
+        "--resume",
+        "--restart",
+        "--report-json",
         "workstream",
         "write_contract",
         "Execution Board",
@@ -460,16 +461,18 @@ fn feature_create_defines_automatic_nested_creation() {
 
 /// The execute command identifies the invoking agent as the coordinator and
 /// repeats the same decision tree; it never asks permission before creating a
-/// child.
+/// child, and it marks waves complete at each checkpoint.
 #[test]
-fn execute_defines_provider_native_receipt_coordination() {
+fn execute_defines_provider_native_coordination_and_wave_marking() {
     let content = embedded("execute");
 
     assert!(content.contains("provider-native"), "was: {content}");
     assert!(content.contains("coordinator"), "was: {content}");
     assert!(content.contains("child Feature"), "was: {content}");
-    assert!(content.contains("accept-revision"), "was: {content}");
-    assert!(content.contains("--report-json"), "was: {content}");
+    assert!(content.contains("wave checkpoint"), "was: {content}");
+    assert!(content.contains("Done"), "was: {content}");
+    assert!(!content.contains("accept-revision"), "was: {content}");
+    assert!(!content.contains("--report-json"), "was: {content}");
 }
 
 /// OpenCode substitutes `$ARGUMENTS` into the command template and drops

@@ -184,10 +184,10 @@ fn init_materialises_the_selected_providers_commands() {
     );
 }
 
-/// The shipped bytes make the provider the coordinator while preserving the
-/// Run Receipt lifecycle and explicit child-feature isolation for new scope.
+/// The shipped bytes make the provider the coordinator while marking each wave
+/// complete in the plan and isolating new scope in a child feature.
 #[test]
-fn shipped_commands_encode_provider_native_receipt_coordination() {
+fn shipped_commands_encode_wave_completion_and_native_coordination() {
     let (_guard, root) = hall_root();
     ivar()
         .current_dir(&root)
@@ -213,11 +213,13 @@ fn shipped_commands_encode_provider_native_receipt_coordination() {
 
     let execute = collapsed(read("execute"));
     assert!(execute.contains("active provider coordinates its own native subagents"));
-    assert!(execute.contains("ivar feature execute start"));
-    assert!(execute.contains("ivar feature execute finish"));
+    assert!(execute.contains("wave checkpoint"));
+    assert!(execute.contains("mark the wave complete"));
     assert!(execute.contains("child Feature"));
     assert!(!execute.contains("workstream"));
     assert!(!execute.contains("execute tick"));
+    assert!(!execute.contains("ivar feature execute start"));
+    assert!(!execute.contains("ivar feature execute finish"));
     assert!(execute.contains("If newly discovered work is outside the approved plan"));
     assert!(execute.contains("create a child Feature"));
 }
