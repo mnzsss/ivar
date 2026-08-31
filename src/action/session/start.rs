@@ -19,7 +19,8 @@
 //! # What this slice wires
 //!
 //! - The view dir (symlinks per promoted repo; a real harness config dir with
-//!   `commands/` symlinked in from the hall; the active plan projected in; the
+//!   `commands/` symlinked in from the hall; the active plan projected in;
+//!   `work` linked to the hall's `docs/<feature>/` on a feature session; the
 //!   bootstrap instructions — see [`super::view`]).
 //! - The harness spawn through [`crate::harness`] with real `portable-pty`.
 //! - The TUI loop, driven by the [`crate::tui`] modules.

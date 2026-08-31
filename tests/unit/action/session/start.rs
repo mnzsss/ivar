@@ -1146,3 +1146,73 @@ fn start_command_carries_the_session_environment() {
         .collect();
     assert!(feat_envs.contains(&"IVAR_FEATURE"));
 }
+
+/// ADR-0002: memory is committed at `docs/<name>/`, and a session must be
+/// able to write it. The link is created even though `docs/checkout/` does
+/// not exist yet — same contract as the projected plan.
+#[test]
+fn materialise_view_dir_links_work_to_the_halls_memory_dir() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root.clone());
+    let manifest = Manifest::read(&layout).unwrap().unwrap();
+    let feature = Feature::read(&layout, &FeatureName::new("checkout").unwrap())
+        .unwrap()
+        .unwrap();
+    let view_dir = layout.feature_session(
+        &FeatureName::new("checkout").unwrap(),
+        &crate::domain::name::SessionId::new("2c6e6f1e-2d8a-4b3a-9c2a-6a7f6f9a1b2c").unwrap(),
+    );
+
+    crate::action::session::view::materialise(
+        &layout,
+        &manifest,
+        Some(&feature),
+        Provider::ClaudeCode,
+        &view_dir,
+    )
+    .unwrap();
+
+    let link = view_dir.join("work");
+    let target = match fs::read_symlink(&link).unwrap() {
+        fs::SymlinkTarget::Target(path) => path,
+        other => panic!("expected a symlink, got {other:?}"),
+    };
+    assert_eq!(
+        target,
+        layout.work_dir(&FeatureName::new("checkout").unwrap()),
+        "work must point at the hall's committed memory dir"
+    );
+    assert!(
+        target.as_str().ends_with("docs/checkout"),
+        "work must resolve under docs/, not plans/: {target}"
+    );
+}
+
+/// A discovery session has no feature, so no name, so nothing to point
+/// `work` at. The link appears at conversion, when the name is decided.
+#[test]
+fn materialise_view_dir_omits_work_for_a_discovery_session() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root.clone());
+    let manifest = Manifest::read(&layout).unwrap().unwrap();
+    let view_dir = layout.discovery_session(
+        &crate::domain::name::SessionId::new("3d7f7a2f-3e9b-4c4b-8d3b-7b8f7fab2c3d").unwrap(),
+    );
+
+    crate::action::session::view::materialise(
+        &layout,
+        &manifest,
+        None,
+        Provider::ClaudeCode,
+        &view_dir,
+    )
+    .unwrap();
+
+    assert!(
+        matches!(
+            fs::read_symlink(&view_dir.join("work")).unwrap(),
+            fs::SymlinkTarget::Absent
+        ),
+        "a discovery session has no name and so no memory dir to link"
+    );
+}

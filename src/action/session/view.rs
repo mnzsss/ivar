@@ -28,7 +28,7 @@
 //! and OpenCode's commands, not the default provider's. That is what a relay
 //! session actually launches with.
 //!
-//! # Only the active plan is projected
+//! # The active plan and the memory dir are projected
 //!
 //! A feature session gets `<view_dir>/plans/<feature>/` as a symlink to the
 //! hall's committed `plans/<feature>/`, so the SPDD artifacts are reachable
@@ -38,6 +38,12 @@
 //! `ivar plan create <feature>` run from inside the session makes the target
 //! usable immediately. Plans of *other* features are never projected, and a
 //! discovery session (no feature bound) gets no `plans/` at all.
+//!
+//! A feature session also gets `<view_dir>/work` as a symlink to the hall's
+//! committed `docs/<feature>/` — the unit of work's memory (ADR-0002).
+//! Like the plan link it is materialised before the directory exists, so
+//! the first write from inside the session lands in the right place. A
+//! discovery session has no feature, so no name, so no `work` link.
 //!
 //! # Instruction files are derived from `HALL.md`, never from an alias
 //!
@@ -147,11 +153,14 @@ pub(crate) fn materialise(
         fs::replace_symlink_if_changed(&hall_commands, &commands_link)?;
     }
 
-    // Feature sessions: project the active plan. Discovery sessions get no
-    // plan — but both get the instruction file below.
+    // Feature sessions: project the active plan and link the committed
+    // memory dir. Discovery sessions get neither — no feature means no
+    // name, and both paths are keyed by name. Both kinds get the
+    // instruction file below.
     if let Some(feature) = feature {
         project_plan(layout, feature, view_dir)?;
     }
+    project_work(layout, feature, view_dir)?;
 
     let mut report = MaterialiseReport::default();
     materialise_session_instructions(layout, provider, feature, view_dir, &mut report)?;
@@ -172,6 +181,29 @@ fn project_plan(layout: &Layout, feature: &Feature, view_dir: &Utf8Path) -> Resu
     fs::ensure_dir(&view_plans)?;
     let link = view_plans.join(feature.name.as_str());
     fs::replace_symlink_if_changed(&layout.plan_dir(&feature.name), &link)?;
+    Ok(())
+}
+
+/// Link the session's committed memory into the view dir: `work` points at
+/// the hall's `docs/<name>/`.
+///
+/// The link is created even when `docs/<name>/` does not exist yet, so the
+/// first write from inside the session lands in the right place — the same
+/// contract [`project_plan`] gives the projected plan.
+///
+/// A discovery session has no feature, so no name, so no memory directory
+/// to point at: it gets no `work` link at all. Conversion names the work
+/// and re-materialises the view dir, and the link appears then (ADR-0002).
+fn project_work(
+    layout: &Layout,
+    feature: Option<&Feature>,
+    view_dir: &Utf8Path,
+) -> Result<(), Failure> {
+    let Some(feature) = feature else {
+        return Ok(());
+    };
+    let link = view_dir.join("work");
+    fs::replace_symlink_if_changed(&layout.work_dir(&feature.name), &link)?;
     Ok(())
 }
 
