@@ -85,10 +85,6 @@ sha2 = "0.11"
 walkdir = "2"
 uuid = { version = "1", features = ["v4"] }
 
-# --- terminal output -------------------------------------------------------
-
-# --- system ----------------------------------------------------------------
-
 [dev-dependencies]
 # Real temp git repos, real filesystem, real subprocesses. Internal code is
 # never mocked; external systems are faked at a trait seam. wiremock is
@@ -136,3 +132,19 @@ strip = true
 # Setting it would trade a smaller binary for losing `catch_unwind`; make that
 # call deliberately if binary size ever matters, and do not re-derive a reason
 # from this comment's existence.
+
+[profile.dev]
+# `debuginfo = 2` (the default) is what made `target/` 23G on a working
+# checkout: full DWARF for this crate *and* all 321 dependencies. Line tables
+# still give a backtrace its file:line, which is what this crate's tests and
+# `dbg!` calls need. Raise it if you start using a stepping debugger.
+debug = "line-tables-only"
+# Keep debug info in separate object files rather than inside the rlibs and the
+# binary. Linux-only knob; ignored elsewhere.
+split-debuginfo = "unpacked"
+
+[profile.dev.package."*"]
+# No debug info for dependencies. Their DWARF costs disk and link time and
+# buys a stack frame nobody steps into. Set this to `true` for the one
+# dependency you are bisecting, then put it back.
+debug = false
