@@ -66,27 +66,12 @@ fn feature_deliver_parses_grouped_metadata_and_preserves_order() {
 #[test]
 fn feature_deliver_rejects_duplicate_field_in_same_scope() {
     let global_dup = Cli::try_parse_from([
-        "ivar",
-        "feature",
-        "deliver",
-        "checkout",
-        "--name",
-        "title 1",
-        "--name",
-        "title 2",
+        "ivar", "feature", "deliver", "checkout", "--name", "title 1", "--name", "title 2",
     ]);
     assert!(global_dup.is_err());
 
     let repo_dup = Cli::try_parse_from([
-        "ivar",
-        "feature",
-        "deliver",
-        "checkout",
-        "--repo",
-        "api",
-        "--body",
-        "body 1",
-        "--body",
+        "ivar", "feature", "deliver", "checkout", "--repo", "api", "--body", "body 1", "--body",
         "body 2",
     ]);
     assert!(repo_dup.is_err());
@@ -94,21 +79,17 @@ fn feature_deliver_rejects_duplicate_field_in_same_scope() {
 
 #[test]
 fn feature_deliver_parses_legacy_arguments_without_metadata() {
-    let cli = Cli::try_parse_from([
-        "ivar",
-        "feature",
-        "deliver",
-        "checkout",
-        "--preview",
-    ])
-    .unwrap();
+    let cli = Cli::try_parse_from(["ivar", "feature", "deliver", "checkout", "--preview"]).unwrap();
 
     match cli.command {
         Command::Feature(FeatureCommand::Deliver(args)) => {
             let input: deliver::DeliverInput = args.into();
             assert_eq!(input.feature, "checkout");
             assert!(input.preview);
-            assert_eq!(input.global_metadata, deliver::PullRequestMetadata::default());
+            assert_eq!(
+                input.global_metadata,
+                deliver::PullRequestMetadata::default()
+            );
             assert!(input.repo_overrides.is_empty());
         }
         other => panic!("expected feature deliver, got {other:?}"),
