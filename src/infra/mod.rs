@@ -14,6 +14,7 @@ pub mod fs;
 pub mod github;
 pub mod hash;
 pub mod json;
+pub mod oauth;
 pub mod proc;
 pub mod progress;
 pub mod term;
