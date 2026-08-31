@@ -427,62 +427,55 @@ fn diagnostic_prefers_stderr_then_stdout_then_the_exit_itself() {
     assert_eq!(signalled.diagnostic(), "killed by a signal");
 }
 
-// -- port discovery via /proc ---------------------------------------------
+// -- working-directory attribution via /proc ------------------------------
 
+/// The occupancy signal behind `session connect --create`: this test process
+/// is running in its own working directory, so its own program name must be
+/// found there.
 #[test]
-fn find_listening_ports_returns_empty_for_a_pid_with_no_sockets() {
-    // A PID that does not exist on this machine — no /proc entry, so we get
-    // an empty list rather than an error.
-    let ports = find_listening_ports(99999);
-
-    assert!(ports.is_empty());
-}
-
-#[test]
-fn find_listening_ports_is_empty_on_non_linux() {
-    // If /proc/self/net/tcp is absent (non-Linux), the function must still
-    // return an empty vec, never panic.
-    let self_pid = std::process::id();
-    let ports = find_listening_ports(self_pid);
-
-    // May or may not be non-empty depending on whether our own process
-    // has open sockets; what matters is it returns cleanly.
-    assert!(ports.iter().all(|p| *p > 0 && *p < u16::MAX));
-}
-
-#[test]
-fn find_listening_ports_parses_hex_port_correctly() {
-    // Port 8080 = 0x1F90. We verify parsing by checking against /proc/self
-    // which always exists; the exact ports depend on the environment.
-    let ports = find_listening_ports(std::process::id());
-
-    // Every returned port is a valid u16 range value.
-    for port in &ports {
-        assert!(*port > 0, "port must be > 0, got {port}");
-        assert!(*port < u16::MAX, "port must be < 65536, got {port}");
-    }
-}
-
-#[test]
-fn find_ports_for_program_finds_this_test_process() {
-    // The test binary's own cmdline contains its name, so it must be
-    // found by its own invocation — the closest thing to a hermetic
-    // assertion on a /proc walk.
+fn is_program_running_in_finds_this_process_in_its_own_cwd() {
+    let cwd = camino::Utf8PathBuf::from_path_buf(std::env::current_dir().unwrap())
+        .expect("the test's working directory is UTF-8");
     let program = std::env::current_exe()
         .ok()
-        .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
+        .and_then(|path| {
+            path.file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+        })
         .unwrap_or_else(|| "ivar".to_owned());
 
-    // No panic, valid ports — the process may or may not listen.
-    let ports = find_ports_for_program(&program);
-    assert!(ports.iter().all(|p| *p > 0 && *p < u16::MAX));
+    assert!(is_program_running_in(&cwd, &program));
 }
 
+/// A directory nothing runs in holds nobody — this is what `--create` reads as
+/// "free", and reading it wrong would silently duplicate a live session.
 #[test]
-fn find_ports_for_program_returns_empty_for_a_ghost_program() {
-    // A program name that no live process can plausibly have.
-    let ports = find_ports_for_program("no-such-program-xyz-12345");
-    assert!(ports.is_empty());
+fn is_program_running_in_is_false_for_a_directory_with_no_processes() {
+    let dir = camino::Utf8PathBuf::from("/no-such-view-dir-xyz-12345");
+    assert!(!is_program_running_in(&dir, "node"));
+}
+
+/// The program filter is load-bearing: `ivar` and the shell that ran it are
+/// cwd'd inside a View Dir, so an unfiltered walk would call every session
+/// busy — including the caller's own.
+///
+/// The needle is built at run time on purpose. A literal would be a substring
+/// of this test file's path, and of whatever shell command line invoked the
+/// run — both of which are cmdlines the walk reads, in this very directory.
+#[test]
+fn is_program_running_in_is_false_for_a_program_that_is_not_there() {
+    let cwd = camino::Utf8PathBuf::from_path_buf(std::env::current_dir().unwrap())
+        .expect("the test's working directory is UTF-8");
+    let needle = format!(
+        "absent-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    );
+
+    assert!(!is_program_running_in(&cwd, &needle));
 }
 
 // -- cwd and PWD are set together -----------------------------------------
