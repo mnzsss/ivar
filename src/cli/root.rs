@@ -487,22 +487,102 @@ pub struct ExecuteAcceptRevisionArgs {
     pub plan: String,
 }
 
-/// Arguments for `ivar feature deliver`.
-#[derive(Debug, Args)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FeatureDeliverArgs {
     /// The feature to deliver.
-    pub name: String,
+    pub feature: String,
     /// Print the delivery preview and push nothing.
-    #[arg(long)]
     pub preview: bool,
     /// Land feature branches into default branches locally (fast-forward only).
-    #[arg(long)]
     pub land: bool,
     /// The fingerprint from the preview the human approved; required to apply.
-    /// Apply recomputes the preview and refuses when the fingerprint differs —
-    /// the state has drifted since the preview.
-    #[arg(long)]
     pub fingerprint: Option<String>,
+    /// Global metadata.
+    pub global_metadata: deliver::PullRequestMetadata,
+    /// Repository-scoped overrides.
+    pub repo_overrides: Vec<deliver::RepoMetadataOverride>,
+}
+
+impl clap::Args for FeatureDeliverArgs {
+    fn augment_args(cmd: clap::Command) -> clap::Command {
+        cmd.arg(
+            clap::Arg::new("feature")
+                .help("The feature to deliver.")
+                .required(true)
+                .index(1),
+        )
+        .arg(
+            clap::Arg::new("preview")
+                .long("preview")
+                .help("Print the delivery preview and push nothing.")
+                .action(clap::ArgAction::SetTrue),
+        )
+        .arg(
+            clap::Arg::new("land")
+                .long("land")
+                .help("Land feature branches into default branches locally (fast-forward only).")
+                .action(clap::ArgAction::SetTrue),
+        )
+        .arg(
+            clap::Arg::new("fingerprint")
+                .long("fingerprint")
+                .help("The fingerprint from the preview the human approved; required to apply. Apply recomputes the preview and refuses when the fingerprint differs — the state has drifted since the preview.")
+                .value_name("FINGERPRINT"),
+        )
+        .arg(
+            clap::Arg::new("name")
+                .long("name")
+                .help("Pull request title. If placed before any `--repo`, applies globally; if placed after a `--repo`, applies to that repo.")
+                .value_name("TITLE")
+                .action(clap::ArgAction::Append),
+        )
+        .arg(
+            clap::Arg::new("body")
+                .long("body")
+                .help("Pull request body text or `./*.md` / `./*.txt` file path. If placed before any `--repo`, applies globally; if placed after a `--repo`, applies to that repo.")
+                .value_name("BODY")
+                .action(clap::ArgAction::Append),
+        )
+        .arg(
+            clap::Arg::new("repo")
+                .long("repo")
+                .help("Scope following `--name` and `--body` flags to this promoted repository.")
+                .value_name("REPO")
+                .action(clap::ArgAction::Append),
+        )
+    }
+
+    fn augment_args_for_update(cmd: clap::Command) -> clap::Command {
+        Self::augment_args(cmd)
+    }
+}
+
+impl clap::FromArgMatches for FeatureDeliverArgs {
+    fn from_arg_matches(matches: &clap::ArgMatches) -> Result<Self, clap::Error> {
+        let feature = matches
+            .get_one::<String>("feature")
+            .cloned()
+            .ok_or_else(|| clap::Error::new(clap::error::ErrorKind::MissingRequiredArgument))?;
+        let preview = matches.get_flag("preview");
+        let land = matches.get_flag("land");
+        let fingerprint = matches.get_one::<String>("fingerprint").cloned();
+
+        let (global_metadata, repo_overrides) = Self::parse_metadata(matches)?;
+
+        Ok(Self {
+            feature,
+            preview,
+            land,
+            fingerprint,
+            global_metadata,
+            repo_overrides,
+        })
+    }
+
+    fn update_from_arg_matches(&mut self, matches: &clap::ArgMatches) -> Result<(), clap::Error> {
+        *self = Self::from_arg_matches(matches)?;
+        Ok(())
+    }
 }
 
 /// Arguments for `ivar feature close`.
@@ -1224,19 +1304,140 @@ impl From<ExecuteAcceptRevisionArgs> for accept_revision::AcceptRevisionInput {
     }
 }
 
+impl FeatureDeliverArgs {
+    /// Reconstruct global metadata and ordered per-repo overrides from raw command line arguments.
+    pub fn parse_metadata(
+        matches: &clap::ArgMatches,
+    ) -> Result<
+        (
+            deliver::PullRequestMetadata,
+            Vec<deliver::RepoMetadataOverride>,
+        ),
+        clap::Error,
+    > {
+        enum DeliverOption {
+            Name(String),
+            Body(String),
+            Repo(String),
+        }
+
+        let mut occurrences: Vec<(usize, DeliverOption)> = Vec::new();
+
+        if let Some(indices) = matches.indices_of("name") {
+            let values: Vec<&String> = matches
+                .get_many::<String>("name")
+                .map(|v| v.collect())
+                .unwrap_or_default();
+            for (idx, val) in indices.zip(values) {
+                occurrences.push((idx, DeliverOption::Name(val.clone())));
+            }
+        }
+        if let Some(indices) = matches.indices_of("body") {
+            let values: Vec<&String> = matches
+                .get_many::<String>("body")
+                .map(|v| v.collect())
+                .unwrap_or_default();
+            for (idx, val) in indices.zip(values) {
+                occurrences.push((idx, DeliverOption::Body(val.clone())));
+            }
+        }
+        if let Some(indices) = matches.indices_of("repo") {
+            let values: Vec<&String> = matches
+                .get_many::<String>("repo")
+                .map(|v| v.collect())
+                .unwrap_or_default();
+            for (idx, val) in indices.zip(values) {
+                occurrences.push((idx, DeliverOption::Repo(val.clone())));
+            }
+        }
+
+        occurrences.sort_by_key(|(idx, _)| *idx);
+
+        let mut global_metadata = deliver::PullRequestMetadata::default();
+        let mut repo_overrides: Vec<deliver::RepoMetadataOverride> = Vec::new();
+        let mut current_repo: Option<(String, deliver::PullRequestMetadata)> = None;
+
+        for (_, opt) in occurrences {
+            match opt {
+                DeliverOption::Repo(repo_name) => {
+                    if let Some((r, meta)) = current_repo.take() {
+                        repo_overrides.push(deliver::RepoMetadataOverride {
+                            repo: r,
+                            metadata: meta,
+                        });
+                    }
+                    current_repo = Some((repo_name, deliver::PullRequestMetadata::default()));
+                }
+                DeliverOption::Name(title) => {
+                    if let Some((ref r, ref mut meta)) = current_repo {
+                        if meta.title.is_some() {
+                            return Err(clap::Error::raw(
+                                clap::error::ErrorKind::ArgumentConflict,
+                                format!("duplicate `--name` in repository group `{r}`\n"),
+                            ));
+                        }
+                        meta.title = Some(title);
+                    } else {
+                        if global_metadata.title.is_some() {
+                            return Err(clap::Error::raw(
+                                clap::error::ErrorKind::ArgumentConflict,
+                                "duplicate global `--name`\n",
+                            ));
+                        }
+                        global_metadata.title = Some(title);
+                    }
+                }
+                DeliverOption::Body(body) => {
+                    if let Some((ref r, ref mut meta)) = current_repo {
+                        if meta.body.is_some() {
+                            return Err(clap::Error::raw(
+                                clap::error::ErrorKind::ArgumentConflict,
+                                format!("duplicate `--body` in repository group `{r}`\n"),
+                            ));
+                        }
+                        meta.body = Some(body);
+                    } else {
+                        if global_metadata.body.is_some() {
+                            return Err(clap::Error::raw(
+                                clap::error::ErrorKind::ArgumentConflict,
+                                "duplicate global `--body`\n",
+                            ));
+                        }
+                        global_metadata.body = Some(body);
+                    }
+                }
+            }
+        }
+
+        if let Some((r, meta)) = current_repo {
+            repo_overrides.push(deliver::RepoMetadataOverride {
+                repo: r,
+                metadata: meta,
+            });
+        }
+
+        Ok((global_metadata, repo_overrides))
+    }
+}
+
 impl From<FeatureDeliverArgs> for deliver::DeliverInput {
     fn from(args: FeatureDeliverArgs) -> Self {
         let FeatureDeliverArgs {
-            name,
+            feature,
             preview,
             land,
             fingerprint,
+            global_metadata,
+            repo_overrides,
         } = args;
+
         Self {
-            feature: name,
+            feature,
             preview,
             land,
             fingerprint,
+            global_metadata,
+            repo_overrides,
         }
     }
 }

@@ -35,6 +35,7 @@ fn diverged_default_is_not_fast_forwardable() {
             preview: false,
             land: true,
             fingerprint: Some(preview.fingerprint),
+            ..Default::default()
         },
     )
     .expect_err("non-ff must block");
@@ -81,6 +82,7 @@ fn dirty_default_worktree_blocks_and_is_left_untouched() {
             preview: false,
             land: true,
             fingerprint: Some(preview.fingerprint),
+            ..Default::default()
         },
     )
     .expect_err("dirty must block");
@@ -121,6 +123,7 @@ fn rebase_in_progress_blocks() {
             preview: false,
             land: true,
             fingerprint: Some(preview.fingerprint),
+            ..Default::default()
         },
     )
     .expect_err("rebase in progress must block");
@@ -168,6 +171,7 @@ fn land_no_repos_blocks() {
             preview: false,
             land: true,
             fingerprint: Some(preview.fingerprint),
+            ..Default::default()
         },
     )
     .expect_err("no repos must block");
@@ -210,6 +214,7 @@ fn one_blocked_repo_blocks_the_whole_land_and_writes_nothing() {
             preview: true,
             land: true,
             fingerprint: None,
+            ..Default::default()
         },
     )
     .expect("preview")
@@ -223,6 +228,7 @@ fn one_blocked_repo_blocks_the_whole_land_and_writes_nothing() {
             preview: false,
             land: true,
             fingerprint: Some(preview.fingerprint),
+            ..Default::default()
         },
     )
     .expect_err("a blocked repo must block the batch");
@@ -272,6 +278,7 @@ fn land_runs_verification_gate_and_refuses_on_failure() {
             preview: false,
             land: true,
             fingerprint: Some(preview.fingerprint),
+            ..Default::default()
         },
     )
     .expect_err("failing verification checks must refuse land");

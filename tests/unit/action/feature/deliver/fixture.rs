@@ -110,6 +110,8 @@ pub(super) fn preview_input(feature: &str) -> DeliverInput {
         preview: true,
         land: false,
         fingerprint: None,
+        global_metadata: PullRequestMetadata::default(),
+        repo_overrides: Vec::new(),
     }
 }
 
@@ -119,6 +121,8 @@ pub(super) fn apply_input(feature: &str, fingerprint: &str) -> DeliverInput {
         preview: false,
         land: false,
         fingerprint: Some(fingerprint.to_owned()),
+        global_metadata: PullRequestMetadata::default(),
+        repo_overrides: Vec::new(),
     }
 }
 
@@ -128,6 +132,8 @@ pub(super) fn land_preview_input(feature: &str) -> DeliverInput {
         preview: true,
         land: true,
         fingerprint: None,
+        global_metadata: PullRequestMetadata::default(),
+        repo_overrides: Vec::new(),
     }
 }
 

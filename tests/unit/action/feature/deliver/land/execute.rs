@@ -14,6 +14,7 @@ fn a_matching_land_fingerprint_executes_the_land() {
             preview: true,
             land: true,
             fingerprint: None,
+            ..Default::default()
         },
     )
     .expect("land preview");
@@ -25,6 +26,7 @@ fn a_matching_land_fingerprint_executes_the_land() {
             preview: false,
             land: true,
             fingerprint: Some(land_preview.value.preview.fingerprint.clone()),
+            ..Default::default()
         },
     );
     // Wave 3: land now executes; a push to a non-bare origin may warn but the
@@ -80,6 +82,7 @@ fn a_clean_land_merges_every_repo_and_pushes_each_default() {
             preview: true,
             land: true,
             fingerprint: None,
+            ..Default::default()
         },
     )
     .expect("land preview");
@@ -91,6 +94,7 @@ fn a_clean_land_merges_every_repo_and_pushes_each_default() {
             preview: false,
             land: true,
             fingerprint: Some(land_preview.value.preview.fingerprint),
+            ..Default::default()
         },
     )
     .expect("land apply");
@@ -140,6 +144,7 @@ fn a_failed_push_is_a_warning_not_an_abort() {
             preview: true,
             land: true,
             fingerprint: None,
+            ..Default::default()
         },
     )
     .expect("land preview");
@@ -151,6 +156,7 @@ fn a_failed_push_is_a_warning_not_an_abort() {
             preview: false,
             land: true,
             fingerprint: Some(land_preview.value.preview.fingerprint),
+            ..Default::default()
         },
     )
     .expect("a failed push must not abort the land");
@@ -200,6 +206,7 @@ fn execute_failure_rolls_back_earlier_merges() {
             preview: true,
             land: true,
             fingerprint: None,
+            ..Default::default()
         },
     )
     .expect("land preview");
@@ -224,6 +231,7 @@ fn execute_failure_rolls_back_earlier_merges() {
             preview: false,
             land: true,
             fingerprint: Some(land_preview.value.preview.fingerprint),
+            ..Default::default()
         },
     )
     .expect_err("execute failure on web must return Err");
@@ -266,6 +274,7 @@ fn remote_default_ahead_of_local_default_does_not_trigger_remote_moved() {
             preview: true,
             land: true,
             fingerprint: None,
+            ..Default::default()
         },
     )
     .expect("land preview");
@@ -277,6 +286,7 @@ fn remote_default_ahead_of_local_default_does_not_trigger_remote_moved() {
             preview: false,
             land: true,
             fingerprint: Some(land_preview.value.preview.fingerprint),
+            ..Default::default()
         },
     )
     .expect("land apply");
@@ -315,6 +325,7 @@ fn failure_conventions_are_honored_for_land_system_failures() {
             preview: true,
             land: true,
             fingerprint: None,
+            ..Default::default()
         },
     )
     .expect("preview");
@@ -332,6 +343,7 @@ fn failure_conventions_are_honored_for_land_system_failures() {
             preview: false,
             land: true,
             fingerprint: Some(land_preview.value.preview.fingerprint),
+            ..Default::default()
         },
     )
     .expect_err("merge failure");
@@ -361,6 +373,7 @@ fn absence_of_preview_evidence_none_none_skips_whole_batch() {
             preview: true,
             land: true,
             fingerprint: None,
+            ..Default::default()
         },
     )
     .expect("land preview")
@@ -654,6 +667,7 @@ fn absence_of_preview_evidence_none_err_skips_whole_batch() {
             preview: true,
             land: true,
             fingerprint: None,
+            ..Default::default()
         },
     )
     .expect("land preview")
@@ -950,6 +964,7 @@ fn expected_none_current_some_blocks_or_skips_whole_batch() {
             preview: true,
             land: true,
             fingerprint: None,
+            ..Default::default()
         },
     )
     .expect("land preview")
@@ -1009,6 +1024,7 @@ fn remote_moved_on_second_repo_skips_or_blocks_whole_batch_writing_neither() {
             preview: true,
             land: true,
             fingerprint: None,
+            ..Default::default()
         },
     )
     .expect("land preview");
@@ -1026,6 +1042,7 @@ fn remote_moved_on_second_repo_skips_or_blocks_whole_batch_writing_neither() {
             preview: false,
             land: true,
             fingerprint: Some(land_preview.value.preview.fingerprint),
+            ..Default::default()
         },
     );
 
@@ -1081,6 +1098,7 @@ fn remote_moved_with_warning_skips_batch_and_emits_warning() {
             preview: true,
             land: true,
             fingerprint: None,
+            ..Default::default()
         },
     )
     .expect("land preview");
@@ -1390,6 +1408,7 @@ fn rollback_failure_produces_land_rollback_failed_failure() {
             preview: true,
             land: true,
             fingerprint: None,
+            ..Default::default()
         },
     )
     .expect("land preview")
@@ -1448,6 +1467,7 @@ fn land_absent_preview_evidence_reports_absent_at_preview_not_moved() {
             preview: false,
             land: true,
             fingerprint: Some(preview.fingerprint),
+            ..Default::default()
         },
     )
     .expect("deliver with absent preview evidence returns results with unmerged status");
@@ -1608,6 +1628,7 @@ fn land_merge_failure_fix_action_uses_feature_name() {
             preview: false,
             land: true,
             fingerprint: Some(land_preview.fingerprint),
+            ..Default::default()
         },
     )
     .expect_err("merge failure must return Err");
@@ -1687,6 +1708,7 @@ fn land_revalidates_head_movement_and_rolls_back() {
             preview: false,
             land: true,
             fingerprint: Some(land_preview.fingerprint),
+            ..Default::default()
         },
     )
     .expect_err("HEAD movement during phase 2 must refuse land and roll back");
@@ -1752,6 +1774,7 @@ fn land_revalidates_dirty_worktree_and_rolls_back() {
             preview: false,
             land: true,
             fingerprint: Some(land_preview.fingerprint),
+            ..Default::default()
         },
     )
     .expect_err("dirty worktree during phase 2 must refuse land and roll back");
@@ -1821,6 +1844,7 @@ fn land_revalidates_fast_forward_and_rolls_back() {
             preview: false,
             land: true,
             fingerprint: Some(land_preview.fingerprint),
+            ..Default::default()
         },
     )
     .expect_err("non-fast-forward during phase 2 must refuse land and roll back");

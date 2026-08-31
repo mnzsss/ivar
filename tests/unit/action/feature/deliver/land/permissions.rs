@@ -23,6 +23,7 @@ fn write_bits_are_restored_when_the_merge_fails() {
             preview: true,
             land: true,
             fingerprint: None,
+            ..Default::default()
         },
     )
     .expect("preview")
@@ -36,6 +37,7 @@ fn write_bits_are_restored_when_the_merge_fails() {
             preview: false,
             land: true,
             fingerprint: Some(preview.fingerprint),
+            ..Default::default()
         },
     )
     .expect_err("dirty worktree must fail land");
@@ -73,6 +75,7 @@ fn write_bits_are_restored_after_successful_land() {
             preview: true,
             land: true,
             fingerprint: None,
+            ..Default::default()
         },
     )
     .expect("land preview");
@@ -84,6 +87,7 @@ fn write_bits_are_restored_after_successful_land() {
             preview: false,
             land: true,
             fingerprint: Some(land_preview.value.preview.fingerprint),
+            ..Default::default()
         },
     )
     .expect("land apply");

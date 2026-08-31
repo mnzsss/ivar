@@ -58,6 +58,8 @@ fn github_repo_in_land_mode_creates_no_pull_request() {
             preview: true,
             land: true,
             fingerprint: None,
+            global_metadata: PullRequestMetadata::default(),
+            repo_overrides: Vec::new(),
         },
     )
     .expect("land preview");
@@ -74,6 +76,8 @@ fn github_repo_in_land_mode_creates_no_pull_request() {
             preview: false,
             land: true,
             fingerprint: Some(land_preview.value.preview.fingerprint),
+            global_metadata: PullRequestMetadata::default(),
+            repo_overrides: Vec::new(),
         },
     )
     .expect("land apply");

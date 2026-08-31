@@ -5,6 +5,116 @@ use clap::CommandFactory as _;
 use super::*;
 
 #[test]
+fn feature_deliver_parses_grouped_metadata_and_preserves_order() {
+    let cli = Cli::try_parse_from([
+        "ivar",
+        "feature",
+        "deliver",
+        "checkout",
+        "--name",
+        "feat: global title",
+        "--body",
+        "global body",
+        "--repo",
+        "api",
+        "--name",
+        "feat(api): title",
+        "--body",
+        "./docs/api.md",
+        "--repo",
+        "web",
+        "--name",
+        "feat(web): title",
+    ])
+    .unwrap();
+
+    match cli.command {
+        Command::Feature(FeatureCommand::Deliver(args)) => {
+            let input: deliver::DeliverInput = args.into();
+            assert_eq!(input.feature, "checkout");
+            assert_eq!(
+                input.global_metadata,
+                deliver::PullRequestMetadata {
+                    title: Some("feat: global title".to_owned()),
+                    body: Some("global body".to_owned()),
+                }
+            );
+            assert_eq!(
+                input.repo_overrides,
+                vec![
+                    deliver::RepoMetadataOverride {
+                        repo: "api".to_owned(),
+                        metadata: deliver::PullRequestMetadata {
+                            title: Some("feat(api): title".to_owned()),
+                            body: Some("./docs/api.md".to_owned()),
+                        },
+                    },
+                    deliver::RepoMetadataOverride {
+                        repo: "web".to_owned(),
+                        metadata: deliver::PullRequestMetadata {
+                            title: Some("feat(web): title".to_owned()),
+                            body: None,
+                        },
+                    },
+                ]
+            );
+        }
+        other => panic!("expected feature deliver, got {other:?}"),
+    }
+}
+
+#[test]
+fn feature_deliver_rejects_duplicate_field_in_same_scope() {
+    let global_dup = Cli::try_parse_from([
+        "ivar",
+        "feature",
+        "deliver",
+        "checkout",
+        "--name",
+        "title 1",
+        "--name",
+        "title 2",
+    ]);
+    assert!(global_dup.is_err());
+
+    let repo_dup = Cli::try_parse_from([
+        "ivar",
+        "feature",
+        "deliver",
+        "checkout",
+        "--repo",
+        "api",
+        "--body",
+        "body 1",
+        "--body",
+        "body 2",
+    ]);
+    assert!(repo_dup.is_err());
+}
+
+#[test]
+fn feature_deliver_parses_legacy_arguments_without_metadata() {
+    let cli = Cli::try_parse_from([
+        "ivar",
+        "feature",
+        "deliver",
+        "checkout",
+        "--preview",
+    ])
+    .unwrap();
+
+    match cli.command {
+        Command::Feature(FeatureCommand::Deliver(args)) => {
+            let input: deliver::DeliverInput = args.into();
+            assert_eq!(input.feature, "checkout");
+            assert!(input.preview);
+            assert_eq!(input.global_metadata, deliver::PullRequestMetadata::default());
+            assert!(input.repo_overrides.is_empty());
+        }
+        other => panic!("expected feature deliver, got {other:?}"),
+    }
+}
+#[test]
 fn cli_definition_is_valid() {
     // `debug_assert` panics on a malformed clap definition (duplicate
     // ids, conflicting args, ...) — the cheapest test that the derive

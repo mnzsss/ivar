@@ -8,7 +8,7 @@ mod preview;
 mod push;
 mod repos;
 
-pub use input::DeliverInput;
+pub use input::{DeliverInput, PullRequestMetadata, RepoMetadataOverride};
 pub use outcome::{DeliverOutcome, LandResult, PushResult, RepoCheckResult};
 
 use crate::action::Ctx;
