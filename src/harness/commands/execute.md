@@ -1,5 +1,5 @@
 ---
-description: Execute an approved plan with provider-native coordination and an Ivar Run Receipt.
+description: Execute an approved plan with provider-native coordination, marking each wave complete in the plan as it lands.
 argument-hint: <plan-path>
 ---
 
@@ -7,7 +7,7 @@ argument-hint: <plan-path>
 
 `/ivar-execute` executes the approved plan at `$ARGUMENTS` for the current
 Feature Session. The active provider coordinates its own native subagents;
-Ivar records the provider-neutral Run Receipt lifecycle and final evidence.
+`plan.md` is the progress record, updated at each wave checkpoint.
 
 ## Prerequisites
 
@@ -27,78 +27,24 @@ Ivar records the provider-neutral Run Receipt lifecycle and final evidence.
    ivar plan status $ARGUMENTS
    ```
 
-2. Inspect the current Run Receipt before starting work:
+2. Act as the coordinator. Read `plan.md` and `plans/<feature>/tasks/`. Process
+   the plan wave by wave using provider-native subagent capabilities:
+   - For the current wave, dispatch ONE subagent per task packet in `plans/<feature>/tasks/`.
+     Hand the subagent ONLY that task packet's path (`plans/<feature>/tasks/NN-*.md`),
+     and instruct it to follow the packet's steps exactly and NOT edit `plan.md`.
+   - As each subagent completes its task, fill the result and evidence back into the task packet.
+   - Do not persist provider-native child or conversation identifiers in Ivar.
+   - After all tasks in a wave pass their exit criteria, pause for the wave checkpoint.
+     Summarize the completed wave and request human approval to proceed. Do NOT start
+     the next wave until the human approves the wave checkpoint.
 
-   ```sh
-   ivar feature execute status $IVAR_FEATURE
-   ```
-
-   - With no receipt or a terminal receipt, begin a new run:
-
-     ```sh
-     ivar feature execute start $IVAR_FEATURE --plan $ARGUMENTS
-     ```
-
-   - For an `active` or `blocked` receipt, continue the logical run with:
-
-     ```sh
-     ivar feature execute start $IVAR_FEATURE --plan $ARGUMENTS --resume
-     ```
-
-     This may attach the current provider to a run begun by another provider;
-     do not claim continuity of a provider conversation.
-
-   - To abandon a non-terminal receipt and begin again, use:
-
-     ```sh
-     ivar feature execute start $IVAR_FEATURE --plan $ARGUMENTS --restart
-     ```
-
-   - For a `diverged` receipt, inspect the approved revision. Adopt it only
-     after confirming it remains the intended scope:
-
-     ```sh
-     ivar feature execute accept-revision $IVAR_FEATURE --plan $ARGUMENTS
-     ```
-
-     Then resume, or restart if the revision requires a fresh execution.
-
- 3. Act as the coordinator. Read `plan.md` and `plans/<feature>/tasks/`. Process the
-    plan wave by wave using provider-native subagent capabilities:
-    - For the current wave, dispatch ONE subagent per task packet in `plans/<feature>/tasks/`.
-      Hand the subagent ONLY that task packet's path (`plans/<feature>/tasks/NN-*.md`),
-      and instruct it to follow the packet's steps exactly and NOT edit `plan.md`.
-    - As each subagent completes its task, fill the result and evidence back into the task packet.
-    - Do not persist provider-native child or conversation identifiers in Ivar.
-    - After all tasks in a wave pass their exit criteria, pause for the wave checkpoint.
-      Summarize the completed wave and request human approval to proceed. Do NOT start
-      the next wave until the human approves the wave checkpoint.
+3. At the wave checkpoint, after the human approves, mark the wave complete in
+   `plan.md` before starting the next wave:
+   - In the wave's task table, set each completed task's `Done` cell to `[x]`.
+   - Flip each satisfied exit-criteria checkbox from `- [ ]` to `- [x]`.
+   - Mark the wave heading complete: `### Wave N — <outcome> ✅`.
+   Never edit `plan.md` while a wave is still in progress — only at its checkpoint.
 
 4. Ask the human directly when a decision needs their input. If newly
    discovered work is outside the approved plan and can be isolated, create a
-   child Feature rather than silently expanding this run. Record the follow-up
-   in the final report.
-
-5. Verify the completed work. Write a temporary JSON report with the required
-   `summary`, `tasks`, and `verification` fields. Each task needs `title`,
-   `status`, and `result`; each verification needs `command`, `status`, and
-   `summary`. Optional fields are `agents`, `deviations`, `blockers`, and
-   `follow_ups`. Use provider-neutral role names and concise evidence, never
-   transcripts or provider-native identifiers.
-
-6. Finish the receipt with the appropriate outcome:
-
-   ```sh
-   ivar feature execute finish $IVAR_FEATURE --plan $ARGUMENTS \
-     --report-json /tmp/ivar-run-report.json --outcome succeeded
-   ```
-
-   Valid outcomes are `succeeded`, `failed`, and `blocked`. A blocked or failed
-   outcome must explain the relevant blocker in the report.
-
-7. Inspect the finished receipt and communicate its outcome and verification to
-   the human:
-
-   ```sh
-   ivar feature execute status $IVAR_FEATURE
-   ```
+   child Feature rather than silently expanding this run.

@@ -118,7 +118,10 @@ after they approve.
    - **Structure** — file/module organization
    - **Changes** — implementation organized into sequential waves (`### Wave N — <outcome>`)
      with point budget (`**Budget:** 0 / 8 points`, ceiling 8 per wave), prerequisites, a
-     task table (`| Task | Points | Blocked by | Outcome |`), and exit criteria.
+     task table (`| Task | Points | Blocked by | Outcome | Done |` — `[x]` when a task is
+     complete, `[ ]` while pending), checkboxed exit criteria (`- [ ]`, flipped to `- [x]`
+     as each is met), and a wave-complete marker (`### Wave N — <outcome> ✅` once every
+     exit criterion is met).
    - **Verification** — the checks that demonstrate the change is complete
    - **Norms** — coding conventions this feature follows. Every behavioural task is Test-Driven (Red → Green → Refactor).
    - **Safeguards** — things to watch out for
@@ -194,5 +197,5 @@ after they approve.
 ## Execution
 
 After the Plan gate is approved, begin `/ivar-execute plans/<feature>/plan.md`.
-That workflow creates and maintains the provider-neutral Run Receipt while the
-active provider coordinates its native subagents.
+That workflow executes the plan wave by wave and marks each wave complete in
+`plan.md` at each wave checkpoint.
