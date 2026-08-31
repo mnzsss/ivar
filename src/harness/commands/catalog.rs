@@ -41,7 +41,7 @@ pub const fn catalog() -> &'static [ShippedCommand] {
     COMMANDS
 }
 
-/// The 16 official workflow commands, paired with the legacy fingerprint of
+/// The 14 official workflow commands, paired with the legacy fingerprint of
 /// the command each one supersedes. The `legacy_sha256` values are the exact
 /// SHA-256 digests of the Bifrost-era command files; do not change them
 /// without regenerating the digest of the artifact they describe. A command
@@ -107,20 +107,19 @@ const COMMANDS: &[ShippedCommand] = &[
         content: include_str!("../commands/review.md"),
         legacy_sha256: Some("da6d0ad313c366246d0b15fac0e04340af65786486dfaed5f5128770537d4b2d"),
     },
+    // `connect` is the only session command an agent gets. `session start` and
+    // `session stop` are ivar's own lifecycle, and `connect --create` already
+    // covers the agent's half of it: shipping all three let an agent open a
+    // second session beside the one holding the work. Their
+    // `ivar-session-*.md` files are in the reserved namespace, so
+    // `materialise` removes them on the next sync.
+    // `legacy_sha256` is `None`: the Bifrost-era artifact this supersedes was
+    // named `session-connect.md`, which is not this id's legacy name, so an
+    // unprefixed `connect.md` is a user's file and is never touched.
     ShippedCommand {
-        id: "session-connect",
-        content: include_str!("../commands/session-connect.md"),
-        legacy_sha256: Some("c81e99ac2bbfcea31381e61ead8e2a51cf91c46781e4466025ab11f23bee7b24"),
-    },
-    ShippedCommand {
-        id: "session-start",
-        content: include_str!("../commands/session-start.md"),
-        legacy_sha256: Some("43affb5874c67b0aa2e904c7bca48499401f8d04667cbe6500add74d2c6508e4"),
-    },
-    ShippedCommand {
-        id: "session-stop",
-        content: include_str!("../commands/session-stop.md"),
-        legacy_sha256: Some("2e2c6fc76618a19f77dec801dd59d52b6a5b6446f8f048943750534701aa4bbd"),
+        id: "connect",
+        content: include_str!("../commands/connect.md"),
+        legacy_sha256: None,
     },
     ShippedCommand {
         id: "sync",

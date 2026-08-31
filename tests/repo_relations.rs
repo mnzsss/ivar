@@ -24,7 +24,8 @@ use common::{hall_root, ivar, seeded_repo};
 use predicates::prelude::*;
 
 /// The fifteen shipped command ids.
-const SHIPPED_IDS: [&str; 15] = [
+const SHIPPED_IDS: [&str; 13] = [
+    "connect",
     "deliver",
     "discovery",
     "execute",
@@ -36,9 +37,6 @@ const SHIPPED_IDS: [&str; 15] = [
     "repo-list",
     "repo-setup",
     "review",
-    "session-connect",
-    "session-start",
-    "session-stop",
     "sync",
 ];
 

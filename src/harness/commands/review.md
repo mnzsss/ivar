@@ -17,7 +17,7 @@ workflow writes no file.
 ## Prerequisites
 
 - A target: a feature session with `IVAR_FEATURE` and `IVAR_SESSION_PATH`
-  exported, as `/ivar-session-start` and `/ivar-session-connect` instruct, or
+  exported, as `/ivar-connect` instructs, or
   an argument naming one.
 - For a pull request target, `gh` must be installed and authenticated. A
   feature target never calls `gh`.
