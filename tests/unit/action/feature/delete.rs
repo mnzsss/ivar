@@ -219,3 +219,108 @@ fn the_human_surface_names_what_was_deleted() {
         "Deleted feature `checkout` in /hall\n"
     );
 }
+
+/// ADR-0002 D10: deleting execution never deletes memory. `feature delete`
+/// removes `plans/<name>/` and `.ivar/features/<name>/`; `docs/<name>/`
+/// survives untouched — including a `research/` file ivar never wrote.
+///
+/// This holds today by construction, because `delete` names only those two
+/// paths. The guard exists because that is easy to break by accident and
+/// impossible to notice: the information lost is the information nobody
+/// looks for until they need it.
+#[test]
+fn delete_removes_execution_and_keeps_memory() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let ctx = Ctx::new(root.clone());
+    let layout = Layout::at(root.clone());
+    let name = FeatureName::new("checkout").unwrap();
+
+    crate::action::discovery::create::create(
+        &ctx,
+        crate::action::discovery::create::CreateInput {
+            name: "checkout".to_owned(),
+            title: None,
+        },
+    )
+    .unwrap();
+
+    // A file ivar never wrote, in a directory ivar created. D4: the agent
+    // owns the prose, and deletion must not judge which prose matters.
+    let note = layout.research_dir(&name).join("interview-notes.md");
+    fs::write_text(&note, "# What the team said\n").unwrap();
+
+    fs::ensure_dir(&layout.plan_dir(&name)).unwrap();
+    fs::write_text(&layout.plan_dir(&name).join("plan.md"), "# Plan\n").unwrap();
+
+    assert!(fs::is_dir(&layout.plan_dir(&name)).unwrap());
+    assert!(fs::is_file(&layout.discovery_doc(&name)).unwrap());
+
+    delete(
+        &ctx,
+        DeleteInput {
+            name: "checkout".to_owned(),
+        },
+    )
+    .unwrap();
+
+    assert!(
+        !fs::is_dir(&layout.plan_dir(&name)).unwrap(),
+        "execution is removed"
+    );
+    assert!(
+        !fs::is_dir(&layout.feature_dir(&name)).unwrap(),
+        "local state is removed"
+    );
+    assert!(
+        fs::is_file(&layout.discovery_doc(&name)).unwrap(),
+        "memory survives: discovery.md"
+    );
+    assert!(
+        fs::is_dir(&layout.research_dir(&name)).unwrap(),
+        "memory survives: research/"
+    );
+    assert_eq!(
+        fs::read_text(&note).unwrap().as_deref(),
+        Some("# What the team said\n"),
+        "memory survives byte-for-byte, including files ivar never wrote"
+    );
+    assert!(
+        fs::is_dir(&layout.work_dir(&name)).unwrap(),
+        "the memory dir itself survives"
+    );
+}
+
+/// Deleting a feature leaves its retained discovery visible to discovery
+/// commands.
+#[test]
+fn a_deleted_features_memory_remains_listed() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let ctx = Ctx::new(root);
+    let name = FeatureName::new("checkout").unwrap();
+
+    crate::action::discovery::create::create(
+        &ctx,
+        crate::action::discovery::create::CreateInput {
+            name: "checkout".to_owned(),
+            title: None,
+        },
+    )
+    .unwrap();
+    delete(
+        &ctx,
+        DeleteInput {
+            name: "checkout".to_owned(),
+        },
+    )
+    .unwrap();
+
+    let listed = crate::action::discovery::list::list(
+        &ctx,
+        crate::action::discovery::list::ListInput { status: None },
+    )
+    .unwrap()
+    .value;
+
+    assert_eq!(listed.discoveries.len(), 1);
+    assert_eq!(listed.discoveries[0].name, name);
+}

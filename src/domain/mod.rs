@@ -9,6 +9,7 @@
 //! branch a repo resolves to for a given feature, what a well-formed name looks
 //! like. What does not: reading it, writing it, or shelling out about it.
 
+pub mod discovery;
 pub mod feature;
 pub mod health;
 pub mod mcp;

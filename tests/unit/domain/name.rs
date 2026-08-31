@@ -46,6 +46,62 @@ fn segment_rules_apply_to_every_segment_type() {
     assert!(FeatureName::new("../etc").is_err());
 }
 
+// -- FeatureName: kebab-only, non-reserved --------------------------------
+
+#[rstest]
+#[case::single_char("a")]
+#[case::plain("checkout")]
+#[case::kebab("checkout-refactor")]
+#[case::digits("v2")]
+#[case::digit_led("2fa-login")]
+#[case::long_kebab("a-b-c-d")]
+fn feature_accepts_kebab_names(#[case] value: &str) {
+    assert_eq!(FeatureName::new(value).unwrap().as_str(), value);
+}
+
+#[rstest]
+#[case::uppercase("Checkout", InvalidName::NotKebab)]
+#[case::underscore("checkout_v2", InvalidName::NotKebab)]
+#[case::dot("api.v2", InvalidName::NotKebab)]
+#[case::leading_dash("-checkout", InvalidName::NotKebab)]
+#[case::trailing_dash("checkout-", InvalidName::NotKebab)]
+#[case::space_inside("checkout refactor", InvalidName::NotKebab)]
+#[case::non_ascii("café", InvalidName::NotKebab)]
+#[case::reserved_product("product", InvalidName::ReservedName)]
+#[case::reserved_updates("updates", InvalidName::ReservedName)]
+#[case::reserved_relations("repo-relations", InvalidName::ReservedName)]
+fn feature_rejects_non_kebab_and_reserved(#[case] value: &str, #[case] expected: InvalidName) {
+    assert_eq!(FeatureName::new(value).unwrap_err(), expected);
+}
+
+#[test]
+fn feature_still_enforces_every_segment_rule() {
+    assert_eq!(FeatureName::new("").unwrap_err(), InvalidName::Empty);
+    assert_eq!(
+        FeatureName::new("a/b").unwrap_err(),
+        InvalidName::NotASegment
+    );
+    assert_eq!(FeatureName::new("..").unwrap_err(), InvalidName::Traversal);
+    assert_eq!(
+        FeatureName::new(".hidden").unwrap_err(),
+        InvalidName::Hidden
+    );
+}
+
+#[test]
+fn repo_and_hall_names_are_not_narrowed_to_kebab() {
+    assert!(RepoName::new("api_gateway").is_ok());
+    assert!(RepoName::new("api.v2").is_ok());
+    assert!(HallName::new("Valhalla_Hall").is_ok());
+}
+
+#[test]
+fn reserved_name_rejection_carries_its_own_code_and_fix() {
+    let failure: Failure = FeatureName::new("updates").unwrap_err().into();
+    assert_eq!(failure.code, "feature.reserved_name");
+    assert_eq!(failure.fix_actions.len(), 1);
+}
+
 // -- BranchName -----------------------------------------------------------
 
 #[rstest]

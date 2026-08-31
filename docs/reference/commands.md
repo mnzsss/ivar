@@ -452,12 +452,11 @@ Re-bind to an existing live session: locate it, re-materialise its view dir, and
 
 ##### `ivar session convert`
 
-Bind a discovery session to a feature (one-way), moving its view dir into the feature's session tree
+Promote a discovery session to a feature session, keeping its name
 
 | argument | required | description |
 | --- | --- | --- |
 | `session_id` | yes | The discovery session's id, or a unique prefix of one |
-| `feature` | yes | The feature to bind the session to. Must already exist |
 
 
 ##### `ivar session stop`
@@ -513,6 +512,74 @@ Register a new provider by name
 | argument | required | description |
 | --- | --- | --- |
 | `name` | yes | The provider's name (e.g. `claude-code`, `opencode`) |
+
+
+#### `ivar discovery`
+
+Manage discovery docs: a unit of work's committed memory
+
+
+##### `ivar discovery create`
+
+Start a unit of work's memory: `docs/<name>/discovery.md` plus its `research/` directory. No feature required — a name may earn memory long before it earns execution
+
+| argument | required | description |
+| --- | --- | --- |
+| `name` | yes | The unit of work's name. Lowercase kebab-case |
+
+| flag | value | default | description |
+| --- | --- | --- | --- |
+| `--title` | `<TITLE>` |  | A human-readable title. Defaults to the name |
+
+
+##### `ivar discovery list`
+
+List every unit of work with committed memory
+
+| flag | value | default | description |
+| --- | --- | --- | --- |
+| `--status` | `<STATUS>` |  | Show only discoveries in this status |
+
+
+##### `ivar discovery show`
+
+Print one unit of work's memory
+
+| argument | required | description |
+| --- | --- | --- |
+| `name` | yes | The unit of work's name |
+
+| flag | value | default | description |
+| --- | --- | --- | --- |
+| `--path` |  |  | Print only the path, not the content |
+
+
+##### `ivar discovery amend`
+
+Add to a unit of work's memory. Appends a dated block by default; `--merge` replaces the whole document and requires `--expected-hash`
+
+| argument | required | description |
+| --- | --- | --- |
+| `name` | yes | The unit of work's name |
+
+| flag | value | default | description |
+| --- | --- | --- | --- |
+| `--file` | `<FILE>` |  | Read the content from this file, or from stdin with `-` |
+| `--merge` |  |  | Replace the whole document instead of appending to it |
+| `--expected-hash` | `<EXPECTED_HASH>` |  | The document's current SHA-256. Required with `--merge` |
+
+
+##### `ivar discovery close`
+
+End a discovery: `converted` when it became a feature, `abandoned` when it did not. The doc is kept either way
+
+| argument | required | description |
+| --- | --- | --- |
+| `name` | yes | The unit of work's name |
+
+| flag | value | default | description |
+| --- | --- | --- | --- |
+| `--outcome` | `<OUTCOME>` |  | How it ended |
 
 
 #### `ivar plan`
