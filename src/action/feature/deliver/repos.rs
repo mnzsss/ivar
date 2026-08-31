@@ -203,6 +203,8 @@ pub(crate) fn build_repos(
             default_branch,
             ff_possible,
             remote_default_tip,
+            pr_title: None,
+            pr_body: None,
         });
     }
 

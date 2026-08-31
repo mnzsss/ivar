@@ -215,6 +215,8 @@ pub(super) fn delivery_repo(name: &str, dependencies: Vec<&str>) -> DeliveryRepo
         default_branch: None,
         ff_possible: None,
         remote_default_tip: None,
+        pr_title: None,
+        pr_body: None,
     }
 }
 

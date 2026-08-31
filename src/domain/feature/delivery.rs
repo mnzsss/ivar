@@ -138,6 +138,12 @@ pub struct DeliveryRepo {
     /// The remote default branch tip commit SHA observed during preview, if available.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub remote_default_tip: Option<String>,
+    /// The supplied pull request title, if any.
+    #[serde(default)]
+    pub pr_title: Option<String>,
+    /// The supplied pull request body, if any.
+    #[serde(default)]
+    pub pr_body: Option<String>,
 }
 
 /// What a delivery action is across a feature's promoted repositories.
