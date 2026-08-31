@@ -349,6 +349,7 @@ Preview, then push, a feature's promoted repos. `--preview` prints the side-effe
 | flag | value | default | description |
 | --- | --- | --- | --- |
 | `--preview` |  |  | Print the delivery preview and push nothing |
+| `--land` |  |  | Land feature branches into default branches locally (fast-forward only) |
 | `--fingerprint` | `<FINGERPRINT>` |  | The fingerprint from the preview the human approved; required to apply. Apply recomputes the preview and refuses when the fingerprint differs — the state has drifted since the preview |
 
 

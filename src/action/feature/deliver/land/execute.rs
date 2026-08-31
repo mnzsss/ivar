@@ -1,200 +1,16 @@
-//! Land mode execution: preflight validation, permission guard, fast-forward merge, and best-effort push.
+//! Three-phase execution for landing features onto default branch.
 
-use camino::{Utf8Path, Utf8PathBuf};
+use std::collections::HashMap;
 
-use crate::domain::feature::{DeliveryPreview, Feature};
-use crate::domain::name::{BranchName, RepoName};
+use camino::Utf8Path;
+
+use crate::action::feature::deliver::outcome::LandResult;
 use crate::error::{Failure, FixAction, Warning};
 use crate::git::Git;
 use crate::store::layout::Layout;
 
-use super::LandResult;
-
-/// What land mode executes per repository (ADR-0004).
-#[derive(Debug, Clone)]
-pub(crate) struct LandPlan {
-    pub(crate) repo: RepoName,
-    pub(crate) worktree: Utf8PathBuf,
-    pub(crate) default_branch: BranchName,
-    pub(crate) tip: String,
-    pub(crate) remote: String,
-    pub(crate) remote_default_tip: Option<String>,
-    pub(crate) original_head: String,
-    pub(crate) feature_name: String,
-}
-
-/// Scope guard ensuring read-only default worktree permissions are always restored on drop.
-pub(crate) struct WorktreeWriteGuard {
-    lifted: Vec<(Utf8PathBuf, u32)>,
-}
-
-impl WorktreeWriteGuard {
-    pub(crate) fn lift(worktrees: &[&Utf8Path]) -> Result<Self, Failure> {
-        let mut guard = Self { lifted: Vec::new() };
-        for &wt in worktrees {
-            match crate::infra::fs::unix_mode(wt) {
-                Ok(Some(mode)) if mode & 0o222 == 0 => {
-                    if let Err(e) = crate::infra::fs::restore_write_bits(wt) {
-                        return Err(Failure::failed(
-                            "deliver.lift_write_bits_failed",
-                            format!("could not lift write permissions on `{wt}`: {e}"),
-                        )
-                        .expected(format!("write permissions to be lifted on `{wt}`"))
-                        .actual(format!("chmod failed: {e}"))
-                        .fix(FixAction::safe(
-                            "deliver.check_permissions",
-                            format!("Ensure user has permission to modify permissions on `{wt}`."),
-                        )));
-                    }
-                    guard.lifted.push((wt.to_path_buf(), mode));
-                }
-                Ok(_) => {}
-                Err(e) => {
-                    return Err(Failure::failed(
-                        "deliver.read_mode_failed",
-                        format!("could not inspect permissions on `{wt}`: {e}"),
-                    )
-                    .expected(format!("path `{wt}` to exist and be readable"))
-                    .actual(format!("fs error: {e}"))
-                    .fix(FixAction::safe(
-                        "deliver.check_path",
-                        format!("Ensure `{wt}` exists and is accessible."),
-                    )));
-                }
-            }
-        }
-        Ok(guard)
-    }
-}
-
-impl Drop for WorktreeWriteGuard {
-    fn drop(&mut self) {
-        for (wt, orig_mode) in &self.lifted {
-            let _ = crate::infra::fs::chmod(wt, *orig_mode);
-        }
-    }
-}
-
-/// Preflight check for landing: checks every promoted repo for blockers before any write.
-/// Returns a list of [`LandPlan`]s on success, or the first [`Failure`] blocker.
-pub(crate) fn preflight(
-    git: &impl Git,
-    layout: &Layout,
-    feature: &Feature,
-    preview: &DeliveryPreview,
-) -> Result<Vec<LandPlan>, Failure> {
-    if preview.repos.is_empty() {
-        return Err(Failure::blocked(
-            "deliver.land_no_repos",
-            format!(
-                "feature `{}` promotes no repositories to land",
-                feature.name
-            ),
-        )
-        .expected("at least one promoted repository to land")
-        .actual(format!(
-            "feature `{}` promotes 0 repositories",
-            feature.name
-        ))
-        .fix(FixAction::safe(
-            "deliver.promote_first",
-            "Promote at least one repository before delivering.",
-        )));
-    }
-
-    let mut plans = Vec::new();
-
-    for repo in &preview.repos {
-        let default_branch = repo.default_branch.as_ref().ok_or_else(|| {
-            Failure::blocked(
-                "deliver.declare_default_branch",
-                format!(
-                    "default branch in repo `{}` is not declared in ivar.json",
-                    repo.repo
-                ),
-            )
-            .expected("a declared default branch in ivar.json")
-            .actual("no default branch declared")
-            .fix(FixAction::safe(
-                "deliver.declare_default_branch",
-                "Declare a default branch for the repository in ivar.json before landing.",
-            ))
-        })?;
-
-        let default_worktree = layout.repo_worktree(&repo.repo, default_branch);
-
-        if git.is_rebase_in_progress(&default_worktree)? {
-            return Err(Failure::blocked(
-                "deliver.land_rebase_in_progress",
-                format!("a rebase is in progress in `{default_worktree}`"),
-            )
-            .expected("the default branch worktree to have no active rebase")
-            .actual(format!("rebase in progress in `{default_worktree}`"))
-            .fix(FixAction::safe(
-                "deliver.finish_rebase_first",
-                "Complete or abort the in-progress rebase before landing.",
-            )));
-        }
-
-        if git.worktree_dirty(&default_worktree)? {
-            return Err(Failure::blocked(
-                "deliver.land_dirty_worktree",
-                format!("the default worktree at `{default_worktree}` has uncommitted changes"),
-            )
-            .expected("the default worktree to be clean")
-            .actual(format!("uncommitted changes in `{default_worktree}`"))
-            .fix(FixAction::safe(
-                "deliver.clean_worktree_first",
-                "Commit or stash your work before landing.",
-            )));
-        }
-
-        let bare = layout.repo_bare(&repo.repo);
-
-        if !git.is_ancestor(&bare, default_branch.as_str(), feature.branch.as_str())? {
-            return Err(Failure::blocked(
-                "deliver.land_not_fast_forward",
-                format!(
-                    "default branch `{default_branch}` in repo `{}` cannot fast-forward to feature `{}`",
-                    repo.repo, feature.name
-                ),
-            )
-            .expected(format!(
-                "default branch `{default_branch}` to fast-forward to `{}`",
-                feature.name
-            ))
-            .actual(format!(
-                "default branch `{default_branch}` has diverged or cannot fast-forward"
-            ))
-            .fix(
-                FixAction::safe(
-                    "deliver.rebase_first",
-                    format!(
-                        "Rebase the feature onto default first: `ivar feature rebase {}`.",
-                        feature.name
-                    ),
-                )
-                .command(format!("ivar feature rebase {}", feature.name)),
-            ));
-        }
-
-        let tip = git.revision_commit(&bare, feature.branch.as_str())?;
-        let original_head = git.head_commit(&default_worktree)?;
-
-        plans.push(LandPlan {
-            repo: repo.repo.clone(),
-            worktree: default_worktree,
-            default_branch: default_branch.clone(),
-            tip,
-            remote: repo.remote.clone(),
-            remote_default_tip: repo.remote_default_tip.clone(),
-            original_head,
-            feature_name: feature.name.to_string(),
-        });
-    }
-
-    Ok(plans)
-}
+use super::LandPlan;
+use super::permissions::WorktreeWriteGuard;
 
 /// Executes the land plans: lifts write bits, performs fast-forward merge, best-effort pushes.
 ///
@@ -206,7 +22,7 @@ pub(crate) fn preflight(
 /// Phase 2 — Local Fast-Forward Merge: Fast-forward merges ALL plans. If ANY plan fails, ALL previously
 ///          merged plans are rolled back to `original_head`. If rollback fails, `deliver.land_rollback_failed` is returned.
 /// Phase 3 — Best-Effort Push: Pushes ALL plans. Push failures produce warnings (merges stand).
-pub(crate) fn execute(
+pub fn execute(
     git: &impl Git,
     layout: &Layout,
     plans: &[LandPlan],
@@ -214,7 +30,7 @@ pub(crate) fn execute(
 ) -> Result<Vec<LandResult>, Failure> {
     // --- Phase 1: Pre-Execution Remote Validation across ALL plans BEFORE writing any worktree ---
     let mut remote_moved = false;
-    let mut plan_reasons = std::collections::HashMap::new();
+    let mut plan_reasons = HashMap::new();
 
     for plan in plans {
         let bare = layout.repo_bare(&plan.repo);
@@ -274,15 +90,12 @@ pub(crate) fn execute(
                 "deliver.land_not_fast_forward",
                 format!(
                     "default branch `{}` in repo `{}` cannot fast-forward to feature `{}`",
-                    plan.default_branch,
-                    plan.repo,
-                    feature_name_from_plan(plan)
+                    plan.default_branch, plan.repo, plan.feature_name
                 ),
             )
             .expected(format!(
                 "default branch `{}` to fast-forward to `{}`",
-                plan.default_branch,
-                feature_name_from_plan(plan)
+                plan.default_branch, plan.feature_name
             ))
             .actual(format!(
                 "default branch `{}` has diverged or cannot fast-forward",
@@ -293,13 +106,10 @@ pub(crate) fn execute(
                     "deliver.rebase_first",
                     format!(
                         "Rebase the feature onto default first: `ivar feature rebase {}`.",
-                        feature_name_from_plan(plan)
+                        plan.feature_name
                     ),
                 )
-                .command(format!(
-                    "ivar feature rebase {}",
-                    feature_name_from_plan(plan)
-                )),
+                .command(format!("ivar feature rebase {}", plan.feature_name)),
             );
             return rollback_merged(git, plans, i, failure);
         }
@@ -339,14 +149,11 @@ pub(crate) fn execute(
                 FixAction::safe(
                     "deliver.rebase_first",
                     format!(
-                        "Rebase the feature onto default first: `ivar feature rebase {}`.",
-                        feature_name_from_plan(plan)
+                        "Rebase the feature onto `{}`: `ivar feature rebase {}`.",
+                        plan.default_branch, plan.feature_name
                     ),
                 )
-                .command(format!(
-                    "ivar feature rebase {}",
-                    feature_name_from_plan(plan)
-                )),
+                .command(format!("ivar feature rebase {}", plan.feature_name)),
             );
             return rollback_merged(git, plans, i, failure);
         }
@@ -366,7 +173,7 @@ pub(crate) fn execute(
                     "deliver.rebase_first",
                     format!(
                         "Rebase the feature onto default first: `ivar feature rebase {}`.",
-                        feature_name_from_plan(plan)
+                        plan.feature_name
                     ),
                 ));
             return rollback_merged(git, plans, i, failure);
@@ -436,7 +243,7 @@ fn rollback_merged(
         return Err(Failure::failed(
             "deliver.land_rollback_failed",
             format!(
-                "land failed on `{repo_name}` and rollback failed: {}",
+                "local merge failed for `{repo_name}`, and rollback of earlier merges also failed: {}",
                 failure.what
             ),
         )
@@ -456,8 +263,4 @@ fn rollback_merged(
     }
 
     Err(failure)
-}
-
-fn feature_name_from_plan(plan: &LandPlan) -> &str {
-    &plan.feature_name
 }
