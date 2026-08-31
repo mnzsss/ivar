@@ -238,6 +238,13 @@ pub fn delete(ctx: &Ctx, input: DeleteInput) -> Outcome<DeleteOutcome> {
 
     // Everything that can fail cheaply is gone. Plans go before the feature
     // directory: the record a retry needs is the last thing to disappear.
+    //
+    // Only execution is removed. `docs/<name>/` — the discovery doc and its
+    // research — is deliberately untouched (ADR-0002 D10): a feature that
+    // was tried and dropped leaves behind the cheapest information a team
+    // owns, and deleting the feature is precisely when that information
+    // stops being re-derivable. Adding `work_dir` to the removals below
+    // would compile, pass every other test, and quietly throw it away.
     fs::remove_path(&layout.plan_dir(&name)).map_err(|source| {
         Failure::failed(
             "feature.delete_plans_failed",
