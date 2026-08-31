@@ -432,6 +432,10 @@ fn diagnostic_prefers_stderr_then_stdout_then_the_exit_itself() {
 /// The occupancy signal behind `session connect --create`: this test process
 /// is running in its own working directory, so its own program name must be
 /// found there.
+///
+/// Linux only. Off Linux there is no `/proc` to walk and the function answers
+/// `false` for everything, which the two tests below pin down instead.
+#[cfg(target_os = "linux")]
 #[test]
 fn is_program_running_in_finds_this_process_in_its_own_cwd() {
     let cwd = camino::Utf8PathBuf::from_path_buf(std::env::current_dir().unwrap())
