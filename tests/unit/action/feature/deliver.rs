@@ -1043,7 +1043,28 @@ fn diverged_default_is_not_fast_forwardable() {
     git(&default_worktree, &["add", "main.txt"]);
     git(&default_worktree, &["commit", "-m", "main commit"]);
 
-    let failure = deliver(&ctx, land_preview_input("checkout")).expect_err("non-ff must block");
+    let preview = deliver(&ctx, land_preview_input("checkout"))
+        .expect("land preview")
+        .value
+        .preview;
+    assert_eq!(preview.repos[0].ff_possible, Some(false));
+    assert!(
+        preview.repos[0]
+            .blockers
+            .iter()
+            .any(|b| b.contains("cannot fast-forward"))
+    );
+
+    let failure = deliver(
+        &ctx,
+        DeliverInput {
+            feature: "checkout".to_owned(),
+            preview: false,
+            land: true,
+            fingerprint: Some(preview.fingerprint),
+        },
+    )
+    .expect_err("non-ff must block");
     assert_eq!(failure.code, "deliver.land_not_fast_forward");
     let fix = failure
         .fix_actions
@@ -1069,7 +1090,27 @@ fn dirty_default_worktree_blocks_and_is_left_untouched() {
     std::fs::write(default_worktree.join("dirty.txt"), "uncommitted changes\n").unwrap();
 
     let before = std::fs::read(default_worktree.join("dirty.txt")).unwrap();
-    let failure = deliver(&ctx, land_preview_input("checkout")).expect_err("dirty must block");
+    let preview = deliver(&ctx, land_preview_input("checkout"))
+        .expect("land preview")
+        .value
+        .preview;
+    assert!(
+        preview.repos[0]
+            .blockers
+            .iter()
+            .any(|b| b.contains("uncommitted changes"))
+    );
+
+    let failure = deliver(
+        &ctx,
+        DeliverInput {
+            feature: "checkout".to_owned(),
+            preview: false,
+            land: true,
+            fingerprint: Some(preview.fingerprint),
+        },
+    )
+    .expect_err("dirty must block");
     assert_eq!(failure.code, "deliver.land_dirty_worktree");
     let after = std::fs::read(default_worktree.join("dirty.txt")).unwrap();
     assert_eq!(before, after);
@@ -1089,8 +1130,27 @@ fn rebase_in_progress_blocks() {
     let worktree_git_dir = crate::git::read::worktree_git_dir(&default_worktree).unwrap();
     std::fs::create_dir_all(worktree_git_dir.join("rebase-merge")).unwrap();
 
-    let failure =
-        deliver(&ctx, land_preview_input("checkout")).expect_err("rebase in progress must block");
+    let preview = deliver(&ctx, land_preview_input("checkout"))
+        .expect("land preview")
+        .value
+        .preview;
+    assert!(
+        preview.repos[0]
+            .blockers
+            .iter()
+            .any(|b| b.contains("rebase is in progress"))
+    );
+
+    let failure = deliver(
+        &ctx,
+        DeliverInput {
+            feature: "checkout".to_owned(),
+            preview: false,
+            land: true,
+            fingerprint: Some(preview.fingerprint),
+        },
+    )
+    .expect_err("rebase in progress must block");
     assert_eq!(failure.code, "deliver.land_rebase_in_progress");
 }
 
@@ -1122,7 +1182,22 @@ fn land_no_repos_blocks() {
     .unwrap();
     approve_through_plan(&root);
 
-    let failure = deliver(&ctx, land_preview_input("checkout")).expect_err("no repos must block");
+    let preview = deliver(&ctx, land_preview_input("checkout"))
+        .expect("land preview")
+        .value
+        .preview;
+    assert!(preview.repos.is_empty());
+
+    let failure = deliver(
+        &ctx,
+        DeliverInput {
+            feature: "checkout".to_owned(),
+            preview: false,
+            land: true,
+            fingerprint: Some(preview.fingerprint),
+        },
+    )
+    .expect_err("no repos must block");
     assert_eq!(failure.code, "deliver.land_no_repos");
 }
 
@@ -1218,7 +1293,7 @@ fn one_blocked_repo_blocks_the_whole_land_and_writes_nothing() {
 
     let before = snapshot_all_worktrees(&root);
 
-    let land_preview = deliver(
+    let preview = deliver(
         &ctx,
         DeliverInput {
             feature: "checkout".to_owned(),
@@ -1226,8 +1301,21 @@ fn one_blocked_repo_blocks_the_whole_land_and_writes_nothing() {
             land: true,
             fingerprint: None,
         },
-    );
-    let failure = land_preview.expect_err("a blocked repo must block the batch");
+    )
+    .expect("preview")
+    .value
+    .preview;
+
+    let failure = deliver(
+        &ctx,
+        DeliverInput {
+            feature: "checkout".to_owned(),
+            preview: false,
+            land: true,
+            fingerprint: Some(preview.fingerprint),
+        },
+    )
+    .expect_err("a blocked repo must block the batch");
     assert_eq!(failure.code, "deliver.land_not_fast_forward");
 
     let after = snapshot_all_worktrees(&root);
@@ -1249,13 +1337,26 @@ fn write_bits_are_restored_when_the_merge_fails() {
     std::fs::write(default_worktree.join("uncommitted.txt"), "dirty").unwrap();
 
     let before = crate::infra::fs::unix_mode(&default_worktree).unwrap();
-    let failure = deliver(
+    let preview = deliver(
         &ctx,
         DeliverInput {
             feature: "checkout".to_owned(),
             preview: true,
             land: true,
             fingerprint: None,
+        },
+    )
+    .expect("preview")
+    .value
+    .preview;
+
+    let failure = deliver(
+        &ctx,
+        DeliverInput {
+            feature: "checkout".to_owned(),
+            preview: false,
+            land: true,
+            fingerprint: Some(preview.fingerprint),
         },
     )
     .expect_err("dirty worktree must fail land");
@@ -1751,7 +1852,6 @@ fn absence_of_preview_evidence_none_none_skips_whole_batch() {
     approve_through_plan(&root);
 
     let layout = Layout::at(&root);
-    let manifest = read_manifest(&layout).unwrap();
     let feature = read_feature(&layout, &FeatureName::new("checkout").unwrap()).unwrap();
 
     let mut preview = deliver(
@@ -1773,7 +1873,6 @@ fn absence_of_preview_evidence_none_none_skips_whole_batch() {
     let plans = crate::action::feature::deliver::land::preflight(
         &crate::git::System,
         &layout,
-        &manifest,
         &feature,
         &preview,
     )
@@ -2046,7 +2145,6 @@ fn absence_of_preview_evidence_none_err_skips_whole_batch() {
     approve_through_plan(&root);
 
     let layout = Layout::at(&root);
-    let manifest = read_manifest(&layout).unwrap();
     let feature = read_feature(&layout, &FeatureName::new("checkout").unwrap()).unwrap();
 
     let mut preview = deliver(
@@ -2068,7 +2166,6 @@ fn absence_of_preview_evidence_none_err_skips_whole_batch() {
     let plans = crate::action::feature::deliver::land::preflight(
         &crate::git::System,
         &layout,
-        &manifest,
         &feature,
         &preview,
     )
@@ -2344,7 +2441,6 @@ fn expected_none_current_some_blocks_or_skips_whole_batch() {
     approve_through_plan(&root);
 
     let layout = Layout::at(&root);
-    let manifest = read_manifest(&layout).unwrap();
     let feature = read_feature(&layout, &FeatureName::new("checkout").unwrap()).unwrap();
 
     let mut preview = deliver(
@@ -2366,7 +2462,6 @@ fn expected_none_current_some_blocks_or_skips_whole_batch() {
     let plans = crate::action::feature::deliver::land::preflight(
         &crate::git::System,
         &layout,
-        &manifest,
         &feature,
         &preview,
     )
@@ -2471,7 +2566,6 @@ fn remote_moved_with_warning_skips_batch_and_emits_warning() {
     approve_through_plan(&root);
 
     let layout = Layout::at(&root);
-    let manifest = read_manifest(&layout).unwrap();
     let feature = read_feature(&layout, &FeatureName::new("checkout").unwrap()).unwrap();
 
     let origins_web = root.parent().unwrap().join("origins").join("web");
@@ -2494,7 +2588,6 @@ fn remote_moved_with_warning_skips_batch_and_emits_warning() {
     let plans = crate::action::feature::deliver::land::preflight(
         &crate::git::System,
         &layout,
-        &manifest,
         &feature,
         &land_preview.value.preview,
     )
@@ -2772,7 +2865,6 @@ fn rollback_failure_produces_land_rollback_failed_failure() {
     approve_through_plan(&root);
 
     let layout = Layout::at(&root);
-    let manifest = read_manifest(&layout).unwrap();
     let feature = read_feature(&layout, &FeatureName::new("checkout").unwrap()).unwrap();
 
     let feature_api = layout.repo_worktree(
@@ -2807,7 +2899,6 @@ fn rollback_failure_produces_land_rollback_failed_failure() {
     let plans = crate::action::feature::deliver::land::preflight(
         &crate::git::System,
         &layout,
-        &manifest,
         &feature,
         &preview,
     )

@@ -323,10 +323,6 @@ pub fn deliver(ctx: &Ctx, input: DeliverInput) -> Outcome<DeliverOutcome> {
         fingerprint,
     };
 
-    if input.land {
-        land::preflight(&git, &layout, &manifest, &feature, &preview)?;
-    }
-
     if input.preview {
         return Ok(Report::new(DeliverOutcome {
             root: layout.root().to_path_buf(),
@@ -395,7 +391,36 @@ pub fn deliver(ctx: &Ctx, input: DeliverInput) -> Outcome<DeliverOutcome> {
     let mut warnings = Vec::new();
 
     if input.land {
-        let plans = land::preflight(&git, &layout, &manifest, &feature, &preview)?;
+        let plans = land::preflight(&git, &layout, &feature, &preview)?;
+
+        let mut checks = Vec::new();
+        for repo in &preview.repos {
+            let worktree = layout.repo_worktree(&repo.repo, &feature.branch);
+            let repo_checks = verification::checks_for(&manifest, &repo.repo);
+            let run = verification::run(&repo_checks, &worktree)?;
+            let passed = run.results.iter().all(|result| result.success);
+            checks.push(RepoCheckResult {
+                repo: repo.repo.clone(),
+                passed,
+                results: run.results,
+            });
+            if !passed {
+                return Err(Failure::blocked(
+                    "deliver.checks_failed",
+                    format!("verification checks failed for repo `{}`", repo.repo),
+                )
+                .expected("all verification checks to pass before landing")
+                .actual(format!("verification checks failed in `{}`", repo.repo))
+                .fix(FixAction::safe(
+                    "deliver.fix_checks",
+                    format!(
+                        "Fix the failing verification checks in `{}` before landing.",
+                        repo.repo
+                    ),
+                )));
+            }
+        }
+
         let land_results = land::execute(&git, &layout, &plans, &mut warnings)?;
         return Ok(Report::with_warnings(
             DeliverOutcome {
@@ -403,7 +428,7 @@ pub fn deliver(ctx: &Ctx, input: DeliverInput) -> Outcome<DeliverOutcome> {
                 preview,
                 pushes: Vec::new(),
                 land: land_results,
-                checks: Vec::new(),
+                checks,
             },
             warnings,
         ));

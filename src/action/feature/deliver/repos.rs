@@ -151,9 +151,30 @@ pub(crate) fn build_repos(
 
             let ff_possible = match &default_branch {
                 Some(target) => {
-                    Some(git.is_ancestor(&bare, target.as_str(), feature.branch.as_str())?)
+                    let default_wt = layout.repo_worktree(repo_name, target);
+                    if git.is_rebase_in_progress(&default_wt).unwrap_or(false) {
+                        blockers.push(format!("a rebase is in progress in `{default_wt}`"));
+                    }
+                    if git.worktree_dirty(&default_wt).unwrap_or(false) {
+                        blockers.push(format!(
+                            "the default worktree at `{default_wt}` has uncommitted changes"
+                        ));
+                    }
+                    let is_ff = git.is_ancestor(&bare, target.as_str(), feature.branch.as_str())?;
+                    if !is_ff {
+                        blockers.push(format!(
+                            "default branch `{target}` in repo `{repo_name}` cannot fast-forward to feature `{}`",
+                            feature.name
+                        ));
+                    }
+                    Some(is_ff)
                 }
-                None => Some(false),
+                None => {
+                    blockers.push(format!(
+                        "default branch in repo `{repo_name}` is not declared in ivar.json"
+                    ));
+                    Some(false)
+                }
             };
 
             let remote_default_tip = match &default_branch {

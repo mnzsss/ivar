@@ -7,11 +7,10 @@ use crate::domain::name::{BranchName, RepoName};
 use crate::error::{Failure, FixAction, Warning};
 use crate::git::Git;
 use crate::store::layout::Layout;
-use crate::store::manifest::Manifest;
 
 use super::LandResult;
 
-/// What Task 10 executes per repository.
+/// What land mode executes per repository (ADR-0004).
 #[derive(Debug, Clone)]
 pub(crate) struct LandPlan {
     pub(crate) repo: RepoName,
@@ -21,6 +20,8 @@ pub(crate) struct LandPlan {
     pub(crate) remote: String,
     pub(crate) remote_default_tip: Option<String>,
     pub(crate) original_head: String,
+    #[allow(dead_code)]
+    pub(crate) feature_name: String,
 }
 
 /// Scope guard ensuring read-only default worktree permissions are always restored on drop.
@@ -80,7 +81,6 @@ impl Drop for WorktreeWriteGuard {
 pub(crate) fn preflight(
     git: &impl Git,
     layout: &Layout,
-    _manifest: &Manifest,
     feature: &Feature,
     preview: &DeliveryPreview,
 ) -> Result<Vec<LandPlan>, Failure> {
@@ -108,7 +108,7 @@ pub(crate) fn preflight(
     for repo in &preview.repos {
         let default_branch = repo.default_branch.as_ref().ok_or_else(|| {
             Failure::blocked(
-                "deliver.land_not_fast_forward",
+                "deliver.declare_default_branch",
                 format!(
                     "default branch in repo `{}` is not declared in ivar.json",
                     repo.repo
@@ -190,6 +190,7 @@ pub(crate) fn preflight(
             remote: repo.remote.clone(),
             remote_default_tip: repo.remote_default_tip.clone(),
             original_head,
+            feature_name: feature.name.to_string(),
         });
     }
 
@@ -198,7 +199,7 @@ pub(crate) fn preflight(
 
 /// Executes the land plans: lifts write bits, performs fast-forward merge, best-effort pushes.
 ///
-/// Execution runs in three distinct phases (D5 all-or-nothing guarantee):
+/// Execution runs in three distinct phases (ADR-0004 all-or-nothing guarantee):
 /// Phase 1 — Pre-Execution Remote Validation: Checks remote default branch tips for ALL plans.
 ///          Per LandPlan, approved `remote_default_tip` MUST be `Some(expected)` and match current remote tip.
 ///          If `remote_default_tip` is `None` or current remote tip fails/mismatches for ANY plan,
@@ -214,32 +215,27 @@ pub(crate) fn execute(
 ) -> Result<Vec<LandResult>, Failure> {
     // --- Phase 1: Pre-Execution Remote Validation across ALL plans BEFORE writing any worktree ---
     let mut remote_moved = false;
+    let mut plan_reasons = std::collections::HashMap::new();
 
     for plan in plans {
         let bare = layout.repo_bare(&plan.repo);
         let current_res = git.remote_branch_tip(&bare, &plan.remote, plan.default_branch.as_str());
 
-        let (is_valid, reason) = match (&plan.remote_default_tip, &current_res) {
-            (Some(expected), Ok(Some(current))) if current == expected => (true, None),
-            (Some(expected), Ok(Some(current))) => (
-                false,
-                Some(format!(
-                    "moved (preview expected `{expected}`, current `{current}`)"
-                )),
-            ),
-            (Some(_), Ok(None)) => (false, Some("disappeared from remote".to_owned())),
-            (Some(_), Err(e)) => (false, Some(format!("could not be verified: {e}"))),
-            (None, Ok(Some(_))) => (false, Some("absent at preview".to_owned())),
-            (None, Ok(None)) => (false, Some("absent at preview".to_owned())),
-            (None, Err(e)) => (
-                false,
-                Some(format!("absent at preview (remote error: {e})")),
-            ),
+        let reason = match (&plan.remote_default_tip, &current_res) {
+            (Some(expected), Ok(Some(current))) if current == expected => None,
+            (Some(expected), Ok(Some(current))) => Some(format!(
+                "moved (preview expected `{expected}`, current `{current}`)"
+            )),
+            (Some(_), Ok(None)) => Some("disappeared from remote".to_owned()),
+            (Some(_), Err(e)) => Some(format!("could not be verified: {e}")),
+            (None, Ok(Some(_))) => Some("absent at preview".to_owned()),
+            (None, Ok(None)) => Some("absent at preview".to_owned()),
+            (None, Err(e)) => Some(format!("absent at preview (remote error: {e})")),
         };
 
-        if !is_valid {
+        if let Some(detail) = reason {
             remote_moved = true;
-            let detail = reason.unwrap_or_default();
+            plan_reasons.insert(plan.repo.clone(), format!("remote default branch {detail}"));
             warnings.push(Warning::new(
                 "deliver.land_remote_moved",
                 plan.repo.as_str(),
@@ -252,14 +248,16 @@ pub(crate) fn execute(
     }
 
     if remote_moved {
-        // D5: Zero worktrees written if any remote default moved, disappeared, or lacked preview evidence
+        // ADR-0004: Zero worktrees written if any remote default moved, disappeared, or lacked preview evidence
         return Ok(plans
             .iter()
             .map(|plan| LandResult {
                 repo: plan.repo.clone(),
                 merged: false,
                 pushed: false,
-                detail: Some("remote default branch moved".to_owned()),
+                detail: plan_reasons.get(&plan.repo).cloned().or_else(|| {
+                    Some("remote default branch validation failed for batch".to_owned())
+                }),
             })
             .collect());
     }
@@ -276,7 +274,7 @@ pub(crate) fn execute(
                 plan.default_branch, plan.repo
             );
 
-            // D5 Rollback: reset all previously merged worktrees to original_head
+            // ADR-0004 Rollback: reset all previously merged worktrees to original_head
             let mut rollback_errors = Vec::new();
             for prev_plan in plans.iter().take(i) {
                 if let Err(reset_err) =
