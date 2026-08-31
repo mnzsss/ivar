@@ -35,6 +35,12 @@ and points at `ivar feature rebase <name>`; land never resolves a conflict.
 Every promoted repo is validated before any is written; one blocker refuses
 the batch. Execution runs in three phases (`src/action/feature/deliver/land.rs`):
 
+0. **Preflight** — for every repo: a rebase in progress, a dirty default
+   worktree, a default that does not fast-forward, or an undeclared default
+   branch each refuse the batch. Then every repo's ordered verification checks
+   run, and a repo whose checks fail refuses the batch too — land writes onto
+   default branches, so it verifies at least as strictly as push, which only
+   moves a branch a human still reviews.
 1. **Validate** — for every repo, re-read the remote default tip and compare
    it against the evidence captured at preview time. Absent evidence or a
    mismatched tip refuses the entire batch. No worktrees are touched.
@@ -57,6 +63,15 @@ reported in `deliver.land_rollback_failed`, carrying both the original merge
 failure and every repo left unrestored. This is the one path where the batch
 really is half-landed, and it is named rather than hidden — a rollback failure
 must not be reported as a clean refusal.
+
+**What the guarantee covers, then.** Every failure land can foresee is caught
+in phases 0 and 1, with nothing written: a blocker in the last repo stops the
+first from being touched. What remains is the window between the last check
+and the write, where only something outside `ivar` can intervene — a
+concurrent process, an `index.lock`, a full disk. That class degrades to a
+named, reported partial state, never to silence. Re-validating
+fast-forwardability immediately before each merge would narrow the window
+further; it would not close it, and it is not implemented.
 
 ### Why not `integrate`'s receipt model
 
