@@ -13,18 +13,26 @@
 //! [`DeliveryPreview`] — one entry per promoted repo plus a **fingerprint**:
 //! SHA-256 of the serialized preview summary. It pushes nothing, so it is
 //! side-effect-free by construction — which is a claim about writes, not about
-//! the network. The preview reads the remote twice: for the PR action, and for
-//! the "unpushed commits" blocker, which counts the branch's commits the
-//! remote does not already hold. Asking git's local config instead would be
-//! cheaper and wrong: `deliver` pushes to a URL, and git records no upstream
-//! for such a push, so a branch `deliver` itself pushed would read as unpushed
-//! forever.
+//! the network. The preview reads the remote for PR actions, for the "unpushed
+//! commits" blocker, and (in land mode) for remote default tip evidence.
+//! Asking git's local config instead would be cheaper and wrong: `deliver`
+//! pushes to a URL, and git records no upstream for such a push, so a branch
+//! `deliver` itself pushed would read as unpushed forever.
 //!
 //! `ivar feature deliver <name> --fingerprint <fp>` recomputes the same
 //! preview and refuses with [`Failure::blocked`] when the fingerprint differs
 //! — the state the human approved has drifted, so nothing is pushed. Only a
 //! matching fingerprint opens the push, which then runs **best-effort per
 //! repo**: a failed push is a [`Warning`], never an abort of the batch.
+//!
+//! # What is deliberately not here
+//!
+//! - **Merge sequencing across repos.** Repos in a hall may depend on each other,
+//!   but delivery pushes/lands all promoted repos independently. It does not
+//!   topologically order remote pushes or coordinate CI pipelines across repos.
+//! - **Local landing without fast-forward.** `--land` fast-forwards local default
+//!   branches to feature tips. It refuses diverged defaults and points at
+//!   `ivar feature rebase`. Land never resolves merge conflicts.
 //!
 //! # Pull requests
 //!
