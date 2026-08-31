@@ -20,7 +20,6 @@ pub(crate) struct LandPlan {
     pub(crate) remote: String,
     pub(crate) remote_default_tip: Option<String>,
     pub(crate) original_head: String,
-    #[allow(dead_code)]
     pub(crate) feature_name: String,
 }
 
@@ -370,5 +369,5 @@ pub(crate) fn execute(
 }
 
 fn feature_name_from_plan(plan: &LandPlan) -> &str {
-    plan.worktree.file_name().unwrap_or("feature")
+    &plan.feature_name
 }

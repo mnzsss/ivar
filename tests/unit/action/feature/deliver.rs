@@ -2924,3 +2924,285 @@ fn rollback_failure_produces_land_rollback_failed_failure() {
     assert!(failure.actual.is_some());
     assert!(!failure.fix_actions.is_empty());
 }
+
+#[test]
+fn land_runs_verification_gate_and_refuses_on_failure() {
+    let (_guard, root) = hall_with_promoted(&["api"]);
+    let ctx = Ctx::new(root.clone());
+    approve_through_plan(&root);
+
+    let layout = Layout::at(&root);
+    let manifest = read_manifest(&layout).unwrap();
+    let repos: Vec<_> = manifest
+        .repos()
+        .iter()
+        .map(|r| {
+            if r.name().as_str() == "api" {
+                r.clone().with_checks(vec!["exit 1".to_owned()])
+            } else {
+                r.clone()
+            }
+        })
+        .collect();
+    let new_manifest = Manifest::new(
+        manifest.name().clone(),
+        manifest.providers().clone(),
+        repos,
+        None,
+    )
+    .unwrap();
+    Manifest::write(&layout, &new_manifest).unwrap();
+
+    let preview = deliver(&ctx, land_preview_input("checkout"))
+        .expect("land preview")
+        .value
+        .preview;
+
+    let failure = deliver(
+        &ctx,
+        DeliverInput {
+            feature: "checkout".to_owned(),
+            preview: false,
+            land: true,
+            fingerprint: Some(preview.fingerprint),
+        },
+    )
+    .expect_err("failing verification checks must refuse land");
+
+    assert_eq!(failure.code, "deliver.checks_failed");
+    assert!(
+        failure
+            .what
+            .contains("verification checks failed for repo `api`")
+    );
+}
+
+#[test]
+fn land_absent_preview_evidence_reports_absent_at_preview_not_moved() {
+    let (_guard, root) = hall_with_promoted(&["api"]);
+    let ctx = Ctx::new(root.clone());
+    approve_through_plan(&root);
+
+    let origins = root.parent().unwrap().join("origins").join("api");
+    git_stdout(&origins, &["update-ref", "-d", "refs/heads/main"]);
+
+    let preview = deliver(&ctx, land_preview_input("checkout"))
+        .expect("land preview")
+        .value
+        .preview;
+
+    assert!(preview.repos[0].remote_default_tip.is_none());
+
+    let out = deliver(
+        &ctx,
+        DeliverInput {
+            feature: "checkout".to_owned(),
+            preview: false,
+            land: true,
+            fingerprint: Some(preview.fingerprint),
+        },
+    )
+    .expect("deliver with absent preview evidence returns results with unmerged status");
+
+    assert_eq!(out.value.land.len(), 1);
+    assert!(!out.value.land[0].merged);
+    assert_eq!(
+        out.value.land[0].detail.as_deref(),
+        Some("remote default branch absent at preview")
+    );
+
+    let warning = out
+        .warnings
+        .iter()
+        .find(|w| w.code == "deliver.land_remote_moved")
+        .expect("land_remote_moved warning emitted");
+
+    assert!(
+        warning.what.contains("absent at preview"),
+        "warning message must state 'absent at preview', got: {}",
+        warning.what
+    );
+    assert!(
+        !warning.what.contains("moved (preview expected"),
+        "warning message must not report 'moved' when evidence was absent"
+    );
+}
+
+#[test]
+fn land_remote_disappeared_reports_disappeared_from_remote() {
+    let (_guard, root) = hall_with_promoted(&["api"]);
+    let ctx = Ctx::new(root.clone());
+    approve_through_plan(&root);
+
+    let layout = Layout::at(&root);
+    let feature = read_feature(&layout, &FeatureName::new("checkout").unwrap()).unwrap();
+
+    let origins = root.parent().unwrap().join("origins").join("api");
+    git_stdout(&origins, &["config", "receive.denyCurrentBranch", "ignore"]);
+
+    let land_preview = deliver(&ctx, land_preview_input("checkout"))
+        .expect("land preview")
+        .value
+        .preview;
+
+    let plans = crate::action::feature::deliver::land::preflight(
+        &crate::git::System,
+        &layout,
+        &feature,
+        &land_preview,
+    )
+    .unwrap();
+
+    git_stdout(&origins, &["update-ref", "-d", "refs/heads/main"]);
+
+    let mut warnings = Vec::new();
+    let results = crate::action::feature::deliver::land::execute(
+        &crate::git::System,
+        &layout,
+        &plans,
+        &mut warnings,
+    )
+    .unwrap();
+
+    assert_eq!(results.len(), 1);
+    assert!(!results[0].merged);
+    assert_eq!(
+        results[0].detail.as_deref(),
+        Some("remote default branch disappeared from remote")
+    );
+
+    let warning = warnings
+        .iter()
+        .find(|w| w.code == "deliver.land_remote_moved")
+        .expect("warning emitted");
+
+    assert!(warning.what.contains("disappeared from remote"));
+}
+
+#[test]
+fn land_merge_failure_fix_action_uses_feature_name() {
+    let (_guard, root) = hall_with_promoted(&["api"]);
+    let ctx = Ctx::new(root.clone());
+
+    let feature_name = "auth-v2";
+    let custom_branch = "feat/auth-v2";
+    create_action(
+        &ctx,
+        CreateInput {
+            name: feature_name.to_owned(),
+            branch: Some(custom_branch.to_owned()),
+            base: None,
+            parent: None,
+            via: None,
+            strategy: None,
+        },
+    )
+    .unwrap();
+    crate::action::sync::sync(&ctx, Default::default()).unwrap();
+
+    promote::promote(
+        &ctx,
+        PromoteInput {
+            feature: feature_name.to_owned(),
+            repo: "api".to_owned(),
+            base: None,
+        },
+    )
+    .unwrap();
+
+    crate::action::plan::create::create(
+        &ctx,
+        crate::action::plan::create::CreateInput {
+            feature: feature_name.to_owned(),
+            artifacts: Vec::new(),
+        },
+    )
+    .unwrap();
+    for gate in ["requirements", "analysis", "plan"] {
+        crate::action::plan::approve::approve(
+            &ctx,
+            crate::action::plan::approve::ApproveInput {
+                feature: feature_name.to_owned(),
+                gate: gate.to_owned(),
+            },
+        )
+        .unwrap();
+    }
+
+    let layout = Layout::at(&root);
+    let feature = read_feature(&layout, &FeatureName::new(feature_name).unwrap()).unwrap();
+    let feature_worktree = layout.repo_worktree(&RepoName::new("api").unwrap(), &feature.branch);
+    std::fs::write(feature_worktree.join("f.txt"), "f").unwrap();
+    git_stdout(&feature_worktree, &["add", "f.txt"]);
+    git_stdout(
+        &feature_worktree,
+        &["commit", "-m", "commit on feat/auth-v2"],
+    );
+
+    let land_preview = deliver(&ctx, land_preview_input(feature_name))
+        .expect("land preview")
+        .value
+        .preview;
+
+    let default_worktree = layout.repo_worktree(
+        &RepoName::new("api").unwrap(),
+        &BranchName::new("main").unwrap(),
+    );
+    let git_dir = crate::git::System
+        .worktree_git_dir(&default_worktree)
+        .unwrap();
+    std::fs::write(git_dir.join("index.lock"), "lock").unwrap();
+
+    let failure = deliver(
+        &ctx,
+        DeliverInput {
+            feature: feature_name.to_owned(),
+            preview: false,
+            land: true,
+            fingerprint: Some(land_preview.fingerprint),
+        },
+    )
+    .expect_err("merge failure must return Err");
+
+    assert_eq!(failure.code, "git.merge_ff_only_failed");
+    let fix = failure
+        .fix_actions
+        .first()
+        .expect("fix action must be present");
+    assert!(
+        fix.what.contains("ivar feature rebase auth-v2"),
+        "fix action must name the feature, got: {}",
+        fix.what
+    );
+}
+
+#[test]
+fn land_undeclared_default_branch_returns_declare_default_branch_error() {
+    let (_guard, root) = hall_with_promoted(&["api"]);
+    let ctx = Ctx::new(root.clone());
+    approve_through_plan(&root);
+
+    let layout = Layout::at(&root);
+    let feature = read_feature(&layout, &FeatureName::new("checkout").unwrap()).unwrap();
+
+    let push_preview = deliver(&ctx, preview_input("checkout"))
+        .expect("push preview")
+        .value
+        .preview;
+
+    assert!(push_preview.repos[0].default_branch.is_none());
+
+    let failure = crate::action::feature::deliver::land::preflight(
+        &crate::git::System,
+        &layout,
+        &feature,
+        &push_preview,
+    )
+    .expect_err("undeclared default branch must return Err");
+
+    assert_eq!(failure.code, "deliver.declare_default_branch");
+    assert_eq!(
+        failure.fix_actions[0].code,
+        "deliver.declare_default_branch"
+    );
+}
