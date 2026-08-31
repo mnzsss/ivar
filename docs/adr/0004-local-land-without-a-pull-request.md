@@ -49,6 +49,15 @@ The atomicity promised is therefore **local**: merges are local and gated by
 a complete preflight; pushes are independent network operations. There is no
 atomic push across N remotes.
 
+**By compensation, not by transaction.** The repos have separate Git
+directories, so no transaction spans them. Phase 2 records each default's
+original commit and, on a failed merge, resets the already-merged repos back
+to it. That compensation is itself fallible: a repo it cannot restore is
+reported in `deliver.land_rollback_failed`, carrying both the original merge
+failure and every repo left unrestored. This is the one path where the batch
+really is half-landed, and it is named rather than hidden — a rollback failure
+must not be reported as a clean refusal.
+
 ### Why not `integrate`'s receipt model
 
 Receipts make integration partial and resumable on purpose — right for a tree

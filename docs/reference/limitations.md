@@ -106,6 +106,16 @@ is atomic, because it is local. The pushes that follow are independent network
 operations against independent remotes, and no protocol makes them one
 transaction.
 
+"Atomic locally" is enforced by compensation, not by a transaction: the repos
+have separate Git directories, so there is nothing to commit or abort across
+them. Land records each default's original commit before merging, and if any
+repo's fast-forward fails, it resets the ones already merged back to those
+commits. That compensation can itself fail — a repo it could not restore is
+named in `deliver.land_rollback_failed`, alongside the merge failure that
+triggered the rollback. When that happens the batch is genuinely half-landed,
+and the failure says so rather than reporting all-or-nothing it did not
+achieve.
+
 The honest failure mode: every repo's default carries the change locally, and
 one of them did not reach its remote. `deliver.land_push_failed` names the repo;
 the local default is ahead of its remote until pushed. Rerunning the land is
