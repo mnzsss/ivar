@@ -447,6 +447,7 @@ Re-bind to an existing live session: locate it, re-materialise its view dir, and
 | flag | value | default | description |
 | --- | --- | --- | --- |
 | `--feature` | `<FEATURE>` |  | Narrow the search to sessions bound to this feature |
+| `--create` |  |  | Attach or create: take the feature's most recent session that no harness is running in, and start a fresh detached one when every candidate is busy or none exist. Needs `--feature` |
 
 
 ##### `ivar session convert`

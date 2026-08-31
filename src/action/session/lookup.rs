@@ -109,14 +109,14 @@ pub(crate) fn resolve(
     }
 }
 
-/// The most recent live session bound to `feature`, by `started_at`.
+/// Every live session bound to `feature`, most recent first by `started_at`.
 ///
 /// Sessions without a readable `state.json` are skipped — without a record
-/// there is no provider to compare, which is all relay needs this for.
-pub(crate) fn most_recent(
+/// there is no provider to compare, which is all the callers need this for.
+pub(crate) fn by_recency(
     layout: &Layout,
     feature: &FeatureName,
-) -> Result<Option<SessionRef>, Failure> {
+) -> Result<Vec<SessionRef>, Failure> {
     let mut sessions: Vec<SessionRef> = list_feature(layout, feature)?
         .into_iter()
         .filter(|session| session.state.is_some())
@@ -126,7 +126,15 @@ pub(crate) fn most_recent(
         let b = b.state.as_ref().map_or("", SessionState::started_at);
         b.cmp(a) // descending: most recent first
     });
-    Ok(sessions.into_iter().next())
+    Ok(sessions)
+}
+
+/// The most recent live session bound to `feature`.
+pub(crate) fn most_recent(
+    layout: &Layout,
+    feature: &FeatureName,
+) -> Result<Option<SessionRef>, Failure> {
+    Ok(by_recency(layout, feature)?.into_iter().next())
 }
 
 /// The "nothing matched" failure.
