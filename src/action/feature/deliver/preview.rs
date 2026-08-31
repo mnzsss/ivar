@@ -2,7 +2,9 @@
 //! gate check, and the refusals when a preview (or an approved plan) is
 //! missing.
 
-use crate::domain::feature::{DeliveryPreview, DeliveryRepo, DeliveryTreeBlocker, GateState};
+use crate::domain::feature::{
+    DeliveryMode, DeliveryPreview, DeliveryRepo, DeliveryTreeBlocker, GateState,
+};
 use crate::domain::name::FeatureName;
 use crate::error::{Failure, FixAction};
 use crate::infra::{hash, json};
@@ -10,12 +12,14 @@ use crate::store::layout::Layout;
 
 pub(crate) fn fingerprint_for(
     feature: &FeatureName,
+    mode: DeliveryMode,
     plan_gate: GateState,
     tree_blockers: &[DeliveryTreeBlocker],
     repos: &[DeliveryRepo],
 ) -> Result<String, Failure> {
     let preview = DeliveryPreview {
         feature: feature.clone(),
+        mode,
         plan_gate,
         repos: repos.to_vec(),
         tree_blockers: tree_blockers.to_vec(),

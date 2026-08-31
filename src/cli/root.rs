@@ -495,6 +495,9 @@ pub struct FeatureDeliverArgs {
     /// Print the delivery preview and push nothing.
     #[arg(long)]
     pub preview: bool,
+    /// Land feature branches into default branches locally (fast-forward only).
+    #[arg(long)]
+    pub land: bool,
     /// The fingerprint from the preview the human approved; required to apply.
     /// Apply recomputes the preview and refuses when the fingerprint differs —
     /// the state has drifted since the preview.
@@ -1223,11 +1226,13 @@ impl From<FeatureDeliverArgs> for deliver::DeliverInput {
         let FeatureDeliverArgs {
             name,
             preview,
+            land,
             fingerprint,
         } = args;
         Self {
             feature: name,
             preview,
+            land,
             fingerprint,
         }
     }

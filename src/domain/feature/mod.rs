@@ -54,7 +54,9 @@ pub use cleanup::{
     DeliveryVerdict, DocumentationApproval, DocumentationDecision, TeardownApproval,
     WorktreeRemoval, classify_cleanup, classify_delivery,
 };
-pub use delivery::{DeliveryAction, DeliveryPreview, DeliveryRepo, DeliveryTreeBlocker, Guard};
+pub use delivery::{
+    DeliveryAction, DeliveryMode, DeliveryPreview, DeliveryRepo, DeliveryTreeBlocker, Guard,
+};
 pub use integration::{
     ClassificationFacts, FeatureIntegrationState, IntegrationOverride, IntegrationPolicy,
     IntegrationReceipt, IntegrationStrategy, IntegrationVia, PrCheckResult,

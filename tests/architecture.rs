@@ -213,10 +213,15 @@ fn every_unit_test_file_is_linked_from_src() {
         .map(|file| display_path(manifest, file))
         .collect();
 
-    let mut linked = BTreeSet::new();
+    let mut direct_links = BTreeSet::new();
     for file in rust_files(&src) {
         let text = fs::read_to_string(&file).unwrap();
-        linked.extend(path_links_to_unit_tests(&text));
+        direct_links.extend(path_links_to_unit_tests(&text));
+    }
+
+    let mut linked = BTreeSet::new();
+    for link in direct_links {
+        expand_unit_test_tree(manifest, &link, &mut linked);
     }
 
     let orphans: Vec<&String> = mirrored.difference(&linked).collect();
@@ -265,6 +270,43 @@ fn path_links_to_unit_tests(text: &str) -> Vec<String> {
         }
     }
     links
+}
+
+fn expand_unit_test_tree(manifest: &Path, entry_rel: &str, linked: &mut BTreeSet<String>) {
+    if !linked.insert(entry_rel.to_owned()) {
+        return;
+    }
+    let full_path = manifest.join(entry_rel);
+    let Ok(text) = fs::read_to_string(&full_path) else {
+        return;
+    };
+    let Some(parent_dir) = full_path.parent() else {
+        return;
+    };
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("//") {
+            continue;
+        }
+        if let Some(rest) = trimmed.strip_suffix(';') {
+            let parts: Vec<&str> = rest.split_whitespace().collect();
+            if let Some(mod_name) = parts
+                .iter()
+                .position(|&p| p == "mod")
+                .and_then(|pos| parts.get(pos + 1))
+            {
+                let file_candidate = parent_dir.join(format!("{mod_name}.rs"));
+                let dir_candidate = parent_dir.join(mod_name).join("mod.rs");
+                if file_candidate.is_file() {
+                    let rel = display_path(manifest, &file_candidate);
+                    expand_unit_test_tree(manifest, &rel, linked);
+                } else if dir_candidate.is_file() {
+                    let rel = display_path(manifest, &dir_candidate);
+                    expand_unit_test_tree(manifest, &rel, linked);
+                }
+            }
+        }
+    }
 }
 
 /// The layering rule extends to relocated unit tests, so a test that imports

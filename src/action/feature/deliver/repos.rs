@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 
 use camino::Utf8Path;
 
-use crate::domain::feature::{DeliveryAction, DeliveryRepo, Feature};
+use crate::domain::feature::{DeliveryAction, DeliveryMode, DeliveryRepo, Feature};
 use crate::domain::name::RepoName;
 use crate::error::{Failure, FixAction};
 use crate::git::{self, TargetState};
@@ -21,6 +21,7 @@ pub(crate) fn build_repos(
     layout: &Layout,
     manifest: &Manifest,
     feature: &Feature,
+    mode: DeliveryMode,
 ) -> Result<Vec<DeliveryRepo>, Failure> {
     let mut repos = Vec::new();
 
@@ -127,13 +128,66 @@ pub(crate) fn build_repos(
         // on any other host (a local path, a mirror, GitLab) is push-only —
         // `gh` cannot raise a PR there. For GitHub, check the remote: if an
         // open PR already exists for this branch we update it, otherwise we
-        // create one.
-        let action = if !crate::infra::github::is_github_https(declared.url()) {
-            DeliveryAction::PushOnly
-        } else if existing_pr_url(&bare, feature.branch.as_str()).is_some() {
-            DeliveryAction::UpdatePr
+        // create one. In land mode, the action is landing onto default.
+        let action = match mode {
+            DeliveryMode::Push => {
+                if !crate::infra::github::is_github_https(declared.url()) {
+                    DeliveryAction::PushOnly
+                } else if existing_pr_url(&bare, feature.branch.as_str()).is_some() {
+                    DeliveryAction::UpdatePr
+                } else {
+                    DeliveryAction::NewPr
+                }
+            }
+            DeliveryMode::Land => DeliveryAction::LandOnDefault,
+        };
+
+        let (default_branch, ff_possible, remote_default_tip) = if mode == DeliveryMode::Land {
+            let default_branch = manifest
+                .repos()
+                .iter()
+                .find(|repo| repo.name() == repo_name)
+                .map(|repo| repo.default_branch().clone());
+
+            let ff_possible = match &default_branch {
+                Some(target) => {
+                    let default_wt = layout.repo_worktree(repo_name, target);
+                    if git.is_rebase_in_progress(&default_wt).unwrap_or(false) {
+                        blockers.push(format!("a rebase is in progress in `{default_wt}`"));
+                    }
+                    if git.worktree_dirty(&default_wt).unwrap_or(false) {
+                        blockers.push(format!(
+                            "the default worktree at `{default_wt}` has uncommitted changes"
+                        ));
+                    }
+                    let is_ff = git.is_ancestor(&bare, target.as_str(), feature.branch.as_str())?;
+                    if !is_ff {
+                        blockers.push(format!(
+                            "default branch `{target}` in repo `{repo_name}` cannot fast-forward to feature `{}`",
+                            feature.name
+                        ));
+                    }
+                    Some(is_ff)
+                }
+                None => {
+                    blockers.push(format!(
+                        "default branch in repo `{repo_name}` is not declared in ivar.json"
+                    ));
+                    Some(false)
+                }
+            };
+
+            let remote_default_tip = match &default_branch {
+                Some(target) => git
+                    .remote_branch_tip(&bare, declared.url(), target.as_str())
+                    .ok()
+                    .flatten(),
+                None => None,
+            };
+
+            (default_branch, ff_possible, remote_default_tip)
         } else {
-            DeliveryAction::NewPr
+            (None, None, None)
         };
 
         repos.push(DeliveryRepo {
@@ -146,6 +200,9 @@ pub(crate) fn build_repos(
             dependencies: Vec::new(),
             blockers,
             pr_url: None,
+            default_branch,
+            ff_possible,
+            remote_default_tip,
         });
     }
 

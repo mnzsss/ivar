@@ -25,6 +25,17 @@ pub struct Guard {
     pub passed: bool,
 }
 
+/// What mode delivery runs in: pushing feature branches or landing onto default.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum DeliveryMode {
+    /// Today's behaviour: push feature branches to the remote.
+    #[default]
+    Push,
+    /// Fast-forward merge feature branches into default branches locally, then push.
+    Land,
+}
+
 /// The side-effect-free summary of a feature's pending delivery actions.
 ///
 /// Produced by `ivar feature deliver --preview` and re-produced by apply mode,
@@ -41,6 +52,9 @@ pub struct Guard {
 pub struct DeliveryPreview {
     /// The feature being delivered.
     pub feature: FeatureName,
+    /// What mode this delivery preview was generated for.
+    #[serde(default)]
+    pub mode: DeliveryMode,
     /// The state of the feature's [`Gate::Plan`] — the gate delivery is
     /// conditioned on. Read from the approvals artifact, never stored on the
     /// feature: there is no lifecycle field to fall out of step with it.
@@ -114,13 +128,24 @@ pub struct DeliveryRepo {
     /// [`DeliveryAction::UpdatePr`] and the PR step succeeded.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pr_url: Option<String>,
+    /// The default branch of the repository, populated in land mode.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_branch: Option<BranchName>,
+    /// Whether the default branch can fast-forward to the feature branch tip,
+    /// populated in land mode.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ff_possible: Option<bool>,
+    /// The remote default branch tip commit SHA observed during preview, if available.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remote_default_tip: Option<String>,
 }
 
-/// What a delivery action is. The valhalla model distinguishes creating and
-/// updating pull requests from a bare push; `ivar` is serverless — no PR
-/// surface exists, so only [`Self::PushOnly`] is ever produced. The other two
-/// variants exist so the type is the full model and a future PR-capable
-/// surface cannot invent a fourth meaning.
+/// What a delivery action is across a feature's promoted repositories.
+///
+/// `ivar` opens pull requests through `gh` when a repo's delivery action calls
+/// for one, pushes directly when only a push is requested, and lands locally
+/// onto default branches when requested. These variants form the complete
+/// model; adding a new variant is a deliberate model change.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DeliveryAction {
@@ -130,6 +155,9 @@ pub enum DeliveryAction {
     UpdatePr,
     /// Just push the branch to the remote.
     PushOnly,
+    /// Merge this repo's feature branch into its default branch, fast-forward
+    /// only, then push the default.
+    LandOnDefault,
 }
 
 /// Whether a repo's declared base still supports delivering onto it.

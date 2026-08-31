@@ -99,6 +99,32 @@ there.
 `ivar repo add`; a path that merely happens to contain a Git checkout is not part
 of the hall.
 
+## No atomic push across N remotes
+
+`deliver --land` merges every promoted repo locally or none of them — that part
+is atomic, because it is local. The pushes that follow are independent network
+operations against independent remotes, and no protocol makes them one
+transaction.
+
+"Atomic locally" is enforced by compensation, not by a transaction: the repos
+have separate Git directories, so there is nothing to commit or abort across
+them. Land records each default's original commit before merging, and if any
+repo's fast-forward fails, it resets the ones already merged back to those
+commits. That compensation can itself fail — a repo it could not restore is
+named in `deliver.land_rollback_failed`, alongside the merge failure that
+triggered the rollback. When that happens the batch is genuinely half-landed,
+and the failure says so rather than reporting all-or-nothing it did not
+achieve.
+
+The honest failure mode: every repo's default carries the change locally, and
+one of them did not reach its remote. `deliver.land_push_failed` names the repo;
+the local default is ahead of its remote until pushed. Rerunning the land is
+safe — a repo already merged is already a fast-forward no-op.
+
+`ivar` does not roll back merges that succeeded to match a push that failed.
+Reverting shared history to compensate for a network error is worse than an
+unpushed commit.
+
 ## Session write guard is best-effort
 
 The session write guard (`ivar guard`) blocks structured writes (Write, Edit) that
