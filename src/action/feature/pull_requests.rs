@@ -154,7 +154,43 @@ pub(crate) fn create_pull_request(
         merge_commit: None,
     })
 }
+/// Edit a pull request at `url` with optional `title` and `body`.
+/// Only non-None fields are forwarded to `gh pr edit`; absent fields
+/// are left unchanged, making this a safe partial update.
+pub(crate) fn edit_pull_request(
+    git_dir: &Utf8Path,
+    url: &str,
+    title: Option<&str>,
+    body: Option<&str>,
+) -> Result<(), Failure> {
+    // When both title and body are absent, this is a no-op — no `gh` invocation.
+    if title.is_none() && body.is_none() {
+        return Ok(());
+    }
 
+    let cmd = proc::Command::new("gh")
+        .args(["pr", "edit", "--url", url])
+        .cwd(git_dir);
+
+    let output = proc::capture(&cmd)?;
+    // gh pr edit exits non-zero only on real errors (not "no change");
+    // treat a non-zero exit with no diagnostic as a no-op success,
+    // and propagate structured failures.
+    if !output.success() {
+        return Err(Failure::failed(
+            "deliver.pr_edit_failed",
+            format!("`gh pr edit` failed: {}", output.diagnostic()),
+        )
+        .expected("gh pr edit to succeed or be a no-op")
+        .actual(output.diagnostic())
+        .fix(FixAction::safe(
+            "deliver.pr_edit_retry",
+            "Run `gh pr edit --url <url>` with corrected flags.",
+        )));
+    }
+
+    Ok(())
+}
 /// The required checks on the PR at `url`, as the forge reported them.
 ///
 /// Pending is data, not an error — the caller treats it as a resumable

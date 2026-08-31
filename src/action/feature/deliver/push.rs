@@ -3,7 +3,7 @@
 use std::collections::BTreeMap;
 
 use crate::action::feature::pull_requests::{
-    create_pull_request, existing_pr_url, link_sibling_prs,
+    create_pull_request, edit_pull_request, existing_pr_url, link_sibling_prs,
 };
 use crate::action::feature::verification;
 use crate::domain::feature::{DeliveryAction, DeliveryPreview, Feature};
@@ -137,8 +137,9 @@ pub(super) fn execute(
         // create` would only refuse it as a duplicate. Its URL is still part of
         // the report, and `gh pr list` is the only place it comes from.
         let result = match repo.action {
-            DeliveryAction::UpdatePr => existing_pr_url(&bare, repo.local_branch.as_str())
-                .map_or_else(
+            DeliveryAction::UpdatePr => {
+                // Try to find existing PR; if it exists, do a partial edit; otherwise create new.
+                existing_pr_url(&bare, repo.local_branch.as_str()).map_or_else(
                     || {
                         create_pull_request(
                             &bare,
@@ -148,8 +149,18 @@ pub(super) fn execute(
                         )
                         .map(|pr| pr.url)
                     },
-                    Ok,
-                ),
+                    |url| {
+                        // PR exists — do a safe partial edit (only supplied fields change).
+                        edit_pull_request(
+                            &bare,
+                            &url,
+                            repo.pr_title.as_deref(),
+                            repo.pr_body.as_deref(),
+                        )
+                        .map(|_| url)
+                    },
+                )
+            }
             DeliveryAction::NewPr => {
                 create_pull_request(&bare, &repo.local_branch, &repo.base_branch, feature_name)
                     .map(|pr| pr.url)
