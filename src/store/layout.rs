@@ -416,6 +416,19 @@ impl Layout {
         self.work_dir(feature).join("research")
     }
 
+    /// `<hall>/docs/` — the parent of every unit of work's memory, and also
+    /// the home of the hall's own flat topic documentation
+    /// (`product/`, `updates/`, `repo-relations/`).
+    ///
+    /// Scanning this directory is only ever safe with a filter: a child is
+    /// a unit of work only when its name parses as a [`FeatureName`] *and*
+    /// it holds a `discovery.md`. Everything else belongs to the team
+    /// (ADR-0002 D1).
+    #[must_use]
+    pub fn work_docs_root(&self) -> Utf8PathBuf {
+        self.root.join("docs")
+    }
+
     /// `<hall>/docs/updates/` — numbered delivery-relevant change records,
     /// including a feature's durable cleanup record (MNZS-379's convention).
     /// Committed.

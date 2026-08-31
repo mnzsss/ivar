@@ -515,6 +515,46 @@ Register a new provider by name
 | `name` | yes | The provider's name (e.g. `claude-code`, `opencode`) |
 
 
+#### `ivar discovery`
+
+Manage discovery docs: a unit of work's committed memory
+
+
+##### `ivar discovery create`
+
+Start a unit of work's memory: `docs/<name>/discovery.md` plus its `research/` directory. No feature required — a name may earn memory long before it earns execution
+
+| argument | required | description |
+| --- | --- | --- |
+| `name` | yes | The unit of work's name. Lowercase kebab-case |
+
+| flag | value | default | description |
+| --- | --- | --- | --- |
+| `--title` | `<TITLE>` |  | A human-readable title. Defaults to the name |
+
+
+##### `ivar discovery list`
+
+List every unit of work with committed memory
+
+| flag | value | default | description |
+| --- | --- | --- | --- |
+| `--status` | `<STATUS>` |  | Show only discoveries in this status |
+
+
+##### `ivar discovery show`
+
+Print one unit of work's memory
+
+| argument | required | description |
+| --- | --- | --- |
+| `name` | yes | The unit of work's name |
+
+| flag | value | default | description |
+| --- | --- | --- | --- |
+| `--path` |  |  | Print only the path, not the content |
+
+
 #### `ivar plan`
 
 Manage SPDD plans

@@ -24,6 +24,9 @@ use serde::Serialize;
 
 use ivar::action::Ctx;
 use ivar::action::confirm;
+use ivar::action::discovery::create as discovery_create;
+use ivar::action::discovery::list as discovery_list;
+use ivar::action::discovery::show as discovery_show;
 use ivar::action::execute::{accept_revision, finish, start, status as execute_status};
 use ivar::action::feature::{
     cleanup, close, create, delete, deliver, demote, integrate, list as feature_list, promote,
@@ -51,9 +54,10 @@ use ivar::action::skill::{
 };
 use ivar::action::sync;
 use ivar::cli::root::{
-    Cli, Command, ExecuteCommand, FeatureCommand, McpCommand, PlanCommand, ProviderCommand,
-    RepoCommand, SessionCommand, SkillCommand,
+    Cli, Command, DiscoveryCommand, ExecuteCommand, FeatureCommand, McpCommand, PlanCommand,
+    ProviderCommand, RepoCommand, SessionCommand, SkillCommand,
 };
+use ivar::domain::discovery::DiscoveryStatus;
 use ivar::error::{Failure, Outcome, Palette, Report, WriteHuman};
 use ivar::infra::progress;
 use ivar::infra::term;
@@ -299,6 +303,34 @@ fn main() -> ExitCode {
             }
             ProviderCommand::Add(args) => respond(
                 provider_add::add(&ctx, args.into()),
+                json,
+                &mut stdout,
+                &mut stderr,
+            ),
+        },
+        Command::Discovery(cmd) => match cmd {
+            DiscoveryCommand::Create(args) => respond(
+                discovery_create::create(&ctx, args.into()),
+                json,
+                &mut stdout,
+                &mut stderr,
+            ),
+            DiscoveryCommand::List(args) => {
+                let status = args.status.as_deref().map(|s| match s {
+                    "exploring" => DiscoveryStatus::Exploring,
+                    "converted" => DiscoveryStatus::Converted,
+                    "abandoned" => DiscoveryStatus::Abandoned,
+                    _ => DiscoveryStatus::Unknown,
+                });
+                respond(
+                    discovery_list::list(&ctx, discovery_list::ListInput { status }),
+                    json,
+                    &mut stdout,
+                    &mut stderr,
+                )
+            }
+            DiscoveryCommand::Show(args) => respond(
+                discovery_show::show(&ctx, args.into()),
                 json,
                 &mut stdout,
                 &mut stderr,

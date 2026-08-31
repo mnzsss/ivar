@@ -408,10 +408,11 @@ fn memory_and_execution_are_separate_homes_for_one_name() {
             .plan_dir(&feature)
             .starts_with(Utf8PathBuf::from("/hall/plans"))
     );
+    assert_eq!(layout.work_docs_root(), Utf8PathBuf::from("/hall/docs"));
     assert!(
         layout
             .work_dir(&feature)
-            .starts_with(Utf8PathBuf::from("/hall/docs"))
+            .starts_with(layout.work_docs_root())
     );
     assert!(
         layout

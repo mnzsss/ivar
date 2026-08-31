@@ -17,6 +17,7 @@
 //! which enforces this lexically over every file in this directory.
 
 pub mod confirm;
+pub mod discovery;
 pub mod execute;
 pub mod feature;
 pub mod hall;

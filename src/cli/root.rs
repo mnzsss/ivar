@@ -10,6 +10,8 @@
 use camino::Utf8PathBuf;
 use clap::{Args, Parser, Subcommand, ValueEnum};
 
+use crate::action::discovery::create as discovery_create;
+use crate::action::discovery::show as discovery_show;
 use crate::action::execute::{accept_revision, finish, start, status as execute_status};
 use crate::action::feature::{
     cleanup, close, create, delete, deliver, demote, integrate, promote, rebase, rename, reparent,
@@ -94,6 +96,9 @@ pub enum Command {
     /// Manage providers.
     #[command(subcommand)]
     Provider(ProviderCommand),
+    /// Manage discovery docs: a unit of work's committed memory.
+    #[command(subcommand)]
+    Discovery(DiscoveryCommand),
     /// Manage SPDD plans.
     #[command(subcommand)]
     Plan(PlanCommand),
@@ -642,6 +647,53 @@ impl From<SessionEnvArgs> for session_env_cmd::EnvInput {
             cwd: args.cwd.map(Utf8PathBuf::from),
         }
     }
+}
+
+/// `ivar discovery …`.
+#[derive(Debug, Args)]
+pub struct DiscoveryArgs {
+    #[command(subcommand)]
+    pub command: DiscoveryCommand,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum DiscoveryCommand {
+    /// Start a unit of work's memory: `docs/<name>/discovery.md` plus its
+    /// `research/` directory. No feature required — a name may earn memory
+    /// long before it earns execution.
+    Create(DiscoveryCreateArgs),
+    /// List every unit of work with committed memory.
+    List(DiscoveryListArgs),
+    /// Print one unit of work's memory.
+    Show(DiscoveryShowArgs),
+}
+
+/// `ivar discovery create <name> [--title …]`.
+#[derive(Debug, Args)]
+pub struct DiscoveryCreateArgs {
+    /// The unit of work's name. Lowercase kebab-case.
+    pub name: String,
+    /// A human-readable title. Defaults to the name.
+    #[arg(long)]
+    pub title: Option<String>,
+}
+
+/// `ivar discovery list [--status …]`.
+#[derive(Debug, Args)]
+pub struct DiscoveryListArgs {
+    /// Show only discoveries in this status.
+    #[arg(long, value_parser = ["exploring", "converted", "abandoned", "unknown"])]
+    pub status: Option<String>,
+}
+
+/// `ivar discovery show <name> [--path]`.
+#[derive(Debug, Args)]
+pub struct DiscoveryShowArgs {
+    /// The unit of work's name.
+    pub name: String,
+    /// Print only the path, not the content.
+    #[arg(long)]
+    pub path: bool,
 }
 
 /// The `ivar plan` surface: the SPDD artifacts, committed per feature, and
@@ -1274,6 +1326,23 @@ impl From<McpAuthArgs> for mcp_auth::AuthInput {
             server,
             provider,
             all_providers,
+        }
+    }
+}
+
+impl From<DiscoveryCreateArgs> for discovery_create::CreateInput {
+    fn from(args: DiscoveryCreateArgs) -> Self {
+        let DiscoveryCreateArgs { name, title } = args;
+        Self { name, title }
+    }
+}
+
+impl From<DiscoveryShowArgs> for discovery_show::ShowInput {
+    fn from(args: DiscoveryShowArgs) -> Self {
+        let DiscoveryShowArgs { name, path } = args;
+        Self {
+            name,
+            path_only: path,
         }
     }
 }
