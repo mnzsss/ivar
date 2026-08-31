@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0](https://github.com/mnzsss/ivar/compare/v0.7.0...v0.8.0) - 2026-08-31
+
+### Added
+
+- *(deliver)* land root features on default branches ([#63](https://github.com/mnzsss/ivar/pull/63))
+- *(discovery)* add committed discovery docs ([#64](https://github.com/mnzsss/ivar/pull/64))
+- one `/ivar-connect`, and a smaller shipped binary ([#62](https://github.com/mnzsss/ivar/pull/62))
+- *(session)* session env contract, guard, and harness config ([#58](https://github.com/mnzsss/ivar/pull/58))
+
+### Changed
+
+- *(commands)* Run the plan review on the harness's small model ([#61](https://github.com/mnzsss/ivar/pull/61))
+
+### Fixed
+
+- *(harness)* Emit Claude Code hooks in the matcher/hooks shape ([#60](https://github.com/mnzsss/ivar/pull/60))
+- *(commands)* make /ivar-session-connect feature-only and imperative ([#56](https://github.com/mnzsss/ivar/pull/56))
+
+### Other
+
+- remove feature review subcommand (VSCode workspace) ([#59](https://github.com/mnzsss/ivar/pull/59))
+
 ## [0.7.0](https://github.com/mnzsss/ivar/compare/v0.6.2...v0.7.0) - 2026-08-29
 
 ### Added
