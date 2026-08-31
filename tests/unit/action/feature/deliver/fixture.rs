@@ -4,9 +4,10 @@ pub(super) use crate::action::feature::create::{CreateInput, create as create_ac
 pub(super) use crate::action::feature::promote::{self, PromoteInput};
 pub(super) use crate::action::hall::{self, InitInput};
 pub(super) use crate::domain::feature::{DeliveryAction, DeliveryRepo};
-pub(super) use crate::domain::name::{BranchName, FeatureName, HallName, RepoName};
+pub(super) use crate::domain::name::{BranchName, HallName, RepoName};
 pub(super) use crate::domain::provider::Provider;
-pub(super) use crate::error::Status;
+pub(super) use crate::error::{Status, WriteHuman};
+pub(super) use crate::git::Git;
 pub(super) use crate::store::layout::Layout;
 pub(super) use crate::store::manifest::{Manifest, Providers, Repo};
 pub(super) use crate::test_support::{git, hall_root, seeded_repo};

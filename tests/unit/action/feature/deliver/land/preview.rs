@@ -165,4 +165,12 @@ fn land_preview_names_the_target_and_the_mode() {
     assert_eq!(json_val["repos"][0]["ff_possible"], true);
 }
 
-// -- land apply (Wave 3) ----------------------------------------------------
+#[test]
+fn land_on_default_serialises_as_snake_case_and_has_a_word() {
+    let action = DeliveryAction::LandOnDefault;
+    assert_eq!(
+        serde_json::to_value(action).unwrap(),
+        serde_json::json!("land_on_default")
+    );
+    assert_eq!(outcome::action_word(action), "land on default");
+}
