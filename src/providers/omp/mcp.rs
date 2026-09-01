@@ -1,16 +1,20 @@
-use crate::domain::mcp::McpServerDef;
+use crate::domain::mcp::{McpServerDef, McpTransport};
 
 pub(crate) const ROOT_KEY: &str = "mcpServers";
 
-pub(crate) fn server_doc(_name: &str, server: &McpServerDef) -> serde_json::Value {
+/// OMP's spelling: canonical `http` stays `http`, canonical `local` becomes
+/// `stdio`.
+pub(crate) fn server_doc(
+    _name: &str,
+    server: &McpServerDef,
+    transport: McpTransport,
+) -> serde_json::Value {
     let mut object = serde_json::Map::new();
-    let transport = match server.type_.as_str() {
-        "stdio" => "stdio",
-        "sse" => "sse",
-        "streamable-http" | "http" => "http",
-        other => other,
+    let type_str = match transport {
+        McpTransport::Http => "http",
+        McpTransport::Local => "stdio",
     };
-    object.insert("type".to_owned(), serde_json::json!(transport));
+    object.insert("type".to_owned(), serde_json::json!(type_str));
 
     if let Some(command) = &server.command {
         object.insert("command".to_owned(), serde_json::json!(command));

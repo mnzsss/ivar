@@ -17,7 +17,7 @@ use std::collections::HashSet;
 use serde::{Deserialize, Serialize};
 
 use crate::domain::feature::IntegrationPolicy;
-use crate::domain::mcp::{McpServerDef, McpTransport};
+use crate::domain::mcp::McpServerDef;
 use crate::domain::name::{BranchName, HallName, RepoName};
 use crate::domain::provider::Provider;
 

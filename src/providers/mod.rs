@@ -5,7 +5,7 @@ pub mod omp;
 pub mod opencode;
 
 use crate::domain::guard::{GuardDecision, GuardOutcome, ToolRequest};
-use crate::domain::mcp::McpServerDef;
+use crate::domain::mcp::{McpServerDef, McpTransport};
 use crate::domain::provider::Provider;
 use crate::error::{Failure, FixAction};
 use crate::infra::oauth::Tokens;
@@ -77,12 +77,21 @@ pub fn mcp_root_key(provider: Provider) -> &'static str {
 }
 
 /// Renders a single MCP server definition into provider-native JSON shape.
+///
+/// `transport` is the canonical interpretation of the manifest's `type`,
+/// already validated by the caller, so each provider renders its own
+/// spelling of a value that cannot be anything but `http` or `local`.
 #[must_use]
-pub fn mcp_server_doc(provider: Provider, name: &str, server: &McpServerDef) -> serde_json::Value {
+pub fn mcp_server_doc(
+    provider: Provider,
+    name: &str,
+    server: &McpServerDef,
+    transport: McpTransport,
+) -> serde_json::Value {
     match provider {
-        Provider::ClaudeCode => claude_code::mcp::server_doc(name, server),
-        Provider::OpenCode => opencode::mcp::server_doc(name, server),
-        Provider::Omp => omp::mcp::server_doc(name, server),
+        Provider::ClaudeCode => claude_code::mcp::server_doc(name, server, transport),
+        Provider::OpenCode => opencode::mcp::server_doc(name, server, transport),
+        Provider::Omp => omp::mcp::server_doc(name, server, transport),
     }
 }
 

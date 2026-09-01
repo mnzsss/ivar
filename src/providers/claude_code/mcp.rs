@@ -1,10 +1,21 @@
-use crate::domain::mcp::McpServerDef;
+use crate::domain::mcp::{McpServerDef, McpTransport};
 
 pub(crate) const ROOT_KEY: &str = "mcpServers";
 
-pub(crate) fn server_doc(_name: &str, server: &McpServerDef) -> serde_json::Value {
+/// Claude Code's spelling: canonical `http` stays `http`, canonical `local`
+/// becomes `stdio`. `command`/`args`/`env` are Claude's native shape and are
+/// carried through unchanged.
+pub(crate) fn server_doc(
+    _name: &str,
+    server: &McpServerDef,
+    transport: McpTransport,
+) -> serde_json::Value {
     let mut object = serde_json::Map::new();
-    object.insert("type".to_owned(), serde_json::json!(server.type_));
+    let type_str = match transport {
+        McpTransport::Http => "http",
+        McpTransport::Local => "stdio",
+    };
+    object.insert("type".to_owned(), serde_json::json!(type_str));
     if let Some(command) = &server.command {
         object.insert("command".to_owned(), serde_json::json!(command));
     }
