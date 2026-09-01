@@ -146,6 +146,8 @@ pub(super) fn execute(
                             &repo.local_branch,
                             &repo.base_branch,
                             feature_name,
+                            repo.pr_title.as_deref(),
+                            repo.pr_body.as_deref(),
                         )
                         .map(|pr| pr.url)
                     },
@@ -161,10 +163,15 @@ pub(super) fn execute(
                     },
                 )
             }
-            DeliveryAction::NewPr => {
-                create_pull_request(&bare, &repo.local_branch, &repo.base_branch, feature_name)
-                    .map(|pr| pr.url)
-            }
+            DeliveryAction::NewPr => create_pull_request(
+                &bare,
+                &repo.local_branch,
+                &repo.base_branch,
+                feature_name,
+                repo.pr_title.as_deref(),
+                repo.pr_body.as_deref(),
+            )
+            .map(|pr| pr.url),
             DeliveryAction::PushOnly | DeliveryAction::LandOnDefault => unreachable!(),
         };
         pr_results.push((repo.repo.clone(), result));

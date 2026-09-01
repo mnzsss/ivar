@@ -234,9 +234,14 @@ pub(crate) fn integrate_pr(
     // parent's branch — never an ancestor, never a default branch.
     let pr = match pull_requests::find_pull_request(&bare, child.branch.as_str(), "all")? {
         Some(pr) => pr,
-        None => {
-            pull_requests::create_pull_request(&bare, &child.branch, &parent.branch, &child.name)?
-        }
+        None => pull_requests::create_pull_request(
+            &bare,
+            &child.branch,
+            &parent.branch,
+            &child.name,
+            None,
+            None,
+        )?,
     };
 
     // The PR's head must still be the recorded source — `gh` enforces this at
