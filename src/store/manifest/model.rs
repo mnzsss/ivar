@@ -271,14 +271,18 @@ impl Manifest {
                         name: server.name.clone(),
                     });
                 }
-                server.transport().map_err(|transport| Error::InvalidMcpType {
-                    name: server.name.clone(),
-                    transport,
-                })?;
-                server.validate().map_err(|reason| Error::InvalidMcpServerDefinition {
-                    name: server.name.clone(),
-                    reason: format!("{reason:?}"),
-                })?;
+                server
+                    .transport()
+                    .map_err(|transport| Error::InvalidMcpType {
+                        name: server.name.clone(),
+                        transport,
+                    })?;
+                server
+                    .validate()
+                    .map_err(|reason| Error::InvalidMcpServerDefinition {
+                        name: server.name.clone(),
+                        reason: format!("{reason}"),
+                    })?;
             }
         }
         Ok(())

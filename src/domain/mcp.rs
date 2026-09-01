@@ -40,6 +40,7 @@
 //! cannot carry credentials.
 
 use std::collections::BTreeMap;
+use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
@@ -63,6 +64,44 @@ pub enum McpValidationError {
     EmptyCommandForLocal,
     LocalWithUrl,
     ArgsWithoutCommand,
+}
+
+impl fmt::Display for McpValidationError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::InvalidTransport(t) => write!(
+                f,
+                "invalid transport type `{t}`; expected `http` or `local`"
+            ),
+            Self::MissingUrlForHttp => {
+                write!(f, "MCP server using `http` transport is missing a `url`")
+            }
+            Self::InvalidUrlForHttp(url) => write!(
+                f,
+                "MCP server `http` URL `{url}` is missing `http://` or `https://` prefix"
+            ),
+            Self::HttpWithUnsupportedFields => write!(
+                f,
+                "MCP server using `http` transport cannot have `command`, `args`, or `env` fields"
+            ),
+            Self::MissingCommandForLocal => write!(
+                f,
+                "MCP server using `local` transport is missing a `command`"
+            ),
+            Self::EmptyCommandForLocal => write!(
+                f,
+                "MCP server using `local` transport has a blank `command`"
+            ),
+            Self::LocalWithUrl => write!(
+                f,
+                "MCP server using `local` transport should not have a `url`"
+            ),
+            Self::ArgsWithoutCommand => write!(
+                f,
+                "MCP server using `local` transport with `args` must also have a `command`"
+            ),
+        }
+    }
 }
 
 /// One MCP server definition: how a harness should spawn (or connect to) one

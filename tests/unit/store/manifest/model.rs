@@ -382,12 +382,11 @@ fn invalid_mcp_configurations_are_rejected_on_read() {
         r#"{"version":3,"name":"acme","providers":{"available":["claude-code"],"default":"claude-code"},"repos":[],"integration":{"via":"local","strategy":"squash"},"mcp":[{"name":"local-args-no-cmd","type":"local","args":["-y"]}]}"#,
     ];
 
-
     for json in invalid_configs {
         fs::write_text(&layout.manifest(), json).unwrap();
         let error = Manifest::read(&layout).unwrap_err();
         match error {
-            Error::InvalidMcpServerDefinition { .. } => {}, // Correct
+            Error::InvalidMcpServerDefinition { .. } => {} // Correct
             other => panic!("expected InvalidMcpServerDefinition, got {other:?}"),
         }
     }

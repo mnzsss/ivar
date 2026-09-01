@@ -135,7 +135,6 @@ fn opencode_translates_a_stdio_definition_into_its_own_spelling() {
             )])),
     ];
 
-
     materialise_mcp(&path, Provider::OpenCode, &servers, &hall()).unwrap();
 
     let expected = json::to_canonical_string(&serde_json::json!({

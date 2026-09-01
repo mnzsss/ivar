@@ -25,7 +25,6 @@
 /// A file that exists but cannot be parsed as a JSON object is refused, never
 /// clobbered.
 use camino::Utf8Path;
-use serde::de::Error as SerdeError;
 
 use crate::domain::mcp::McpServerDef;
 use crate::domain::name::HallName;
@@ -125,16 +124,19 @@ fn mcp_doc(provider: Provider, servers: serde_json::Value) -> serde_json::Value 
 
 /// The `mcp` value itself: one entry per server, keyed by its hall-qualified
 /// name — the provider boundary, where two halls' servers must stay distinct.
-fn servers_doc(provider: Provider, servers: &[McpServerDef], hall: &HallName) -> Result<serde_json::Value, Error> {
+fn servers_doc(
+    provider: Provider,
+    servers: &[McpServerDef],
+    hall: &HallName,
+) -> Result<serde_json::Value, Error> {
     let mut map = serde_json::Map::new();
     for server in servers {
-        let transport = server.transport().map_err(|type_| Error::Mcp {
-            path: "UNKNOWN".into(),
-            source: json::Error::Parse {
-                path: "UNKNOWN".into(),
-                source: SerdeError::custom(format!("invalid transport: {type_}")),
-            },
-        })?;
+        let transport = server
+            .transport()
+            .map_err(|transport| Error::InvalidMcpTransport {
+                name: server.name.clone(),
+                transport,
+            })?;
         let name = server.materialised_name(hall);
         map.insert(
             name.clone(),
@@ -143,6 +145,7 @@ fn servers_doc(provider: Provider, servers: &[McpServerDef], hall: &HallName) ->
     }
     Ok(serde_json::Value::Object(map))
 }
+
 
 
 /// Read `path` as JSON, returning the parsed document and its raw bytes.

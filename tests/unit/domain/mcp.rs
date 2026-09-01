@@ -178,3 +178,18 @@ fn materialised_name_prefixes_the_hall_and_leaves_name_untouched() {
     assert_eq!(def.materialised_name(&hall), "acme-figma");
     assert_eq!(def.name, "figma");
 }
+
+#[test]
+fn validation_fails_for_args_without_command() {
+    let def = McpServerDef::new("test", "local").args(vec!["arg".to_owned()]);
+    assert_eq!(def.validate(), Err(McpValidationError::ArgsWithoutCommand));
+}
+
+#[test]
+fn the_args_without_command_variant_displays_a_user_friendly_message() {
+    let err = McpValidationError::ArgsWithoutCommand;
+    assert_eq!(
+        err.to_string(),
+        "MCP server using `local` transport with `args` must also have a `command`"
+    );
+}
