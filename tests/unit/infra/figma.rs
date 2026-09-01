@@ -76,8 +76,14 @@ fn parse_www_authenticate_resource_metadata_in_various_orders() {
 
 #[test]
 fn parse_www_authenticate_missing_or_malformed() {
-    assert_eq!(parse_www_authenticate_resource_metadata("Bearer realm=Figma"), None);
-    assert_eq!(parse_www_authenticate_resource_metadata("Bearer resource_metadata="), Some("".to_owned()));
+    assert_eq!(
+        parse_www_authenticate_resource_metadata("Bearer realm=Figma"),
+        None
+    );
+    assert_eq!(
+        parse_www_authenticate_resource_metadata("Bearer resource_metadata="),
+        Some("".to_owned())
+    );
 }
 
 #[test]

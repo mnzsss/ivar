@@ -50,6 +50,7 @@ use crate::infra::{fs, json};
 /// `clientId`, optional `clientSecret`, optional `clientSecretExpiresAt`.
 ///
 /// `Debug` is redacted — secrets must never appear in logs or diagnostics.
+#[derive(Clone)]
 pub struct ClientInfo {
     pub client_id: String,
     pub client_secret: Option<String>,
@@ -72,6 +73,7 @@ impl std::fmt::Debug for ClientInfo {
 /// camelCase schema is handled by `#[serde(rename_all = "camelCase")]`.
 ///
 /// `Debug` is redacted — tokens and secrets must never appear in logs.
+#[derive(Clone)]
 pub struct Entry {
     pub server_url: String,
     pub client_info: ClientInfo,

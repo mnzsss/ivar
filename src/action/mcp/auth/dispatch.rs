@@ -36,7 +36,11 @@ pub(super) struct Attempt {
 }
 
 fn provider_is_internal_flow(provider: Provider, server: &McpServerDef) -> bool {
-    provider == Provider::OpenCode && server.url.as_deref().is_some_and(|u| host_of(u).is_some_and(figma::needs_preregistration))
+    provider == Provider::OpenCode
+        && server
+            .url
+            .as_deref()
+            .is_some_and(|u| host_of(u).is_some_and(figma::needs_preregistration))
 }
 
 fn attempt(
@@ -271,25 +275,3 @@ fn login_failed(display: &str, code: Option<i32>) -> Failure {
 #[cfg(test)]
 #[path = "../../../../tests/unit/action/mcp/auth/dispatch.rs"]
 mod tests;
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::domain::mcp::McpServerDef;
-    use crate::domain::provider::Provider;
-
-    #[test]
-    fn opencode_figma_selects_internal_oauth() {
-        let server = McpServerDef::new("figma", "sse").url("https://mcp.figma.com/mcp");
-        assert!(provider_is_internal_flow(Provider::OpenCode, &server));
-    }
-    #[test]
-    fn claude_figma_selects_provider_command() {
-        let server = McpServerDef::new("figma", "sse").url("https://mcp.figma.com/mcp");
-        assert!(!provider_is_internal_flow(Provider::ClaudeCode, &server));
-    }
-    #[test]
-    fn opencode_non_figma_selects_provider_command() {
-        let server = McpServerDef::new("linear", "sse").url("https://mcp.linear.app/mcp");
-        assert!(!provider_is_internal_flow(Provider::OpenCode, &server));
-    }
-}
