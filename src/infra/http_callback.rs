@@ -54,7 +54,7 @@ impl std::fmt::Debug for AuthorizationCode {
 ///
 /// Bind it, print [`authorization_callback_url`](Self::authorization_callback_url)
 /// for the user, then [`wait`](Self::wait) for the result.
-pub struct CallbackServer {
+    pub struct CallbackServer {
     listener: Option<TcpListener>,
     shutdown: Arc<AtomicBool>,
     receiver: mpsc::Receiver<Result<AuthorizationCode, Failure>>,
@@ -122,12 +122,19 @@ impl CallbackServer {
         })?;
 
         let worker_shutdown = Arc::clone(&shutdown);
+        let listener_for_worker = listener.try_clone().map_err(|e| {
+            Failure::failed(
+                "callback.clone_failed",
+                format!("could not clone listener: {e}"),
+            )
+        })?;
+
         let worker = thread::spawn(move || {
-            Self::worker_loop(listener, tx, worker_shutdown, expected, timeout);
+            Self::worker_loop(listener_for_worker, tx, worker_shutdown, expected, timeout);
         });
 
         Ok(Self {
-            listener: None,
+            listener: Some(listener),
             shutdown,
             receiver: rx,
             worker: Some(worker),
@@ -354,8 +361,9 @@ impl CallbackServer {
 impl Drop for CallbackServer {
     fn drop(&mut self) {
         self.shutdown.store(true, Ordering::Release);
-        // Drop the listener first — this closes the socket and unblocks
-        // any pending `accept()` call in the worker thread.
+        // Drop the listener explicitly — this closes this handle, and
+        // triggers the closing of the socket (if the worker's handle is
+        // already closed), and unblocks the worker's `accept()`.
         drop(self.listener.take());
         if let Some(worker) = self.worker.take() {
             let _ = worker.join();
