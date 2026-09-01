@@ -321,11 +321,32 @@ pub fn discover_oauth_endpoints(server_url: &str) -> Result<OAuthEndpoints, Fail
     // Step 1: POST to the server URL to trigger the 401 challenge.
     // The MCP Server expects a POST request (JSON-RPC initialize) to initiate
     // the stream/connection, and will respond with 401 + WWW-Authenticate.
+    let request_body = serde_json::to_string(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "method": "initialize",
+        "params": {
+            "protocolVersion": "2024-11-05",
+            "capabilities": {},
+            "clientInfo": {
+                "name": "ivar",
+                "version": "0.8.0"
+            }
+        },
+        "id": 1
+    }))
+    .map_err(|e| {
+        Failure::failed(
+            "figma.discover_server_encode",
+            format!("could not encode initialize request: {e}"),
+        )
+    })?;
+
     let response = ureq::post(server_url)
         .config()
         .http_status_as_error(false)
         .build()
-        .send(())
+        .header("Content-Type", "application/json")
+        .send(request_body)
         .map_err(|e| {
             Failure::failed(
                 "figma.discover_server",
