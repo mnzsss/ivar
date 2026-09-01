@@ -69,7 +69,7 @@ pub(super) trait FlowOps {
         code: &str,
         verifier: &str,
         id: &str,
-        secret: &str,
+        secret: Option<&str>,
         mode: AuthMode,
     ) -> Result<Tokens, Failure>;
     fn write(&self, name: &str, entry: &Entry) -> Result<(), Failure>;
@@ -110,7 +110,7 @@ impl FlowOps for RealFlowOps {
         code: &str,
         verifier: &str,
         id: &str,
-        secret: &str,
+        secret: Option<&str>,
         mode: AuthMode,
     ) -> Result<Tokens, Failure> {
         oauth::exchange_code(
@@ -119,7 +119,7 @@ impl FlowOps for RealFlowOps {
             REDIRECT_URI,
             &oauth::CodeVerifier(verifier.to_owned()),
             id,
-            Some(secret),
+            secret,
             mode,
         )
     }
@@ -191,12 +191,16 @@ pub(super) fn run_internal_flow_pipeline(
             "internal OAuth flow requires a client_id from pre-registration",
         )
     })?;
-    let client_secret = preregistered.secret.map(|(_, s)| s).ok_or_else(|| {
-        Failure::blocked(
-            "figma_oauth.no_client_secret",
-            "internal OAuth flow requires a client secret from pre-registration",
-        )
-    })?;
+    let client_secret = if preregistered.auth_mode == AuthMode::None {
+        None
+    } else {
+        Some(preregistered.secret.map(|(_, s)| s).ok_or_else(|| {
+            Failure::blocked(
+                "figma_oauth.no_client_secret",
+                "internal OAuth flow requires a client secret from pre-registration",
+            )
+        })?)
+    };
 
     // Step 3: Discover endpoints
     let server_url = server.url.as_deref().ok_or_else(|| {
@@ -239,7 +243,7 @@ pub(super) fn run_internal_flow_pipeline(
         &code.0,
         &verifier.0,
         &client_id,
-        &client_secret,
+        client_secret.as_deref(),
         preregistered.auth_mode,
     )?;
 
@@ -248,7 +252,7 @@ pub(super) fn run_internal_flow_pipeline(
         server_url: server_url.to_owned(),
         client_info: ClientInfo {
             client_id,
-            client_secret: Some(client_secret),
+            client_secret,
             client_secret_expires_at: None,
         },
         tokens,

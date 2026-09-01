@@ -247,7 +247,7 @@ pub fn exchange_code(
     let body = read_body(response.into_body().as_reader())?;
 
     if !status.is_success() {
-        let oauth_error = extract_oauth_error(&body).unwrap_or("unknown_error");
+        let (oauth_error, body_keys) = summarize_error_body(&body);
         let field_names = params
             .iter()
             .map(|(k, _)| *k)
@@ -261,13 +261,47 @@ pub fn exchange_code(
         .expected("HTTP 2xx")
         .actual(format!(
             "HTTP {status}, endpoint: {token_endpoint}, content-type: {}, body-len: {}, \
-             oauth-error: {oauth_error}, auth-mode: {auth_mode}, fields: [{field_names}]",
+             oauth-error: {oauth_error}, auth-mode: {auth_mode}, fields: [{field_names}], body-keys: [{body_keys}]",
             classify_content_type(&content_type),
             body.len()
         )));
     }
 
     tokens_from_json(&body, now_unix())
+}
+
+fn summarize_error_body(body: &str) -> (String, String) {
+    let json: serde_json::Value = serde_json::from_str(body).unwrap_or(serde_json::Value::Null);
+    let keys = if let serde_json::Value::Object(map) = &json {
+        map.keys().take(10).cloned().collect::<Vec<_>>().join(", ")
+    } else {
+        "non-object".to_owned()
+    };
+
+    let Some(obj) = json.as_object() else {
+        return ("unknown_error".to_owned(), keys);
+    };
+
+    let error_val = obj
+        .get("error")
+        .or(obj.get("reason"))
+        .or(obj.get("message"))
+        .or(obj.get("err"));
+
+    let category = match error_val {
+        Some(serde_json::Value::String(s)) => match s.as_str() {
+            "invalid_request"
+            | "invalid_client"
+            | "invalid_grant"
+            | "unauthorized_client"
+            | "unsupported_grant_type"
+            | "invalid_scope" => s.clone(),
+            _ => "unknown_error".to_owned(),
+        },
+        _ => "unknown_error".to_owned(),
+    };
+
+    (category, keys)
 }
 
 fn classify_content_type(ct: &str) -> &'static str {
@@ -284,28 +318,6 @@ fn classify_content_type(ct: &str) -> &'static str {
     }
 }
 
-/// Extract OAuth error category from a JSON response body.
-fn extract_oauth_error(body: &str) -> Option<&'static str> {
-    let json: serde_json::Value = serde_json::from_str(body).ok()?;
-    let error = json.get("error")?.as_str()?;
-    match error {
-        "invalid_request"
-        | "invalid_client"
-        | "invalid_grant"
-        | "unauthorized_client"
-        | "unsupported_grant_type"
-        | "invalid_scope" => Some(match error {
-            "invalid_request" => "invalid_request",
-            "invalid_client" => "invalid_client",
-            "invalid_grant" => "invalid_grant",
-            "unauthorized_client" => "unauthorized_client",
-            "unsupported_grant_type" => "unsupported_grant_type",
-            "invalid_scope" => "invalid_scope",
-            _ => unreachable!(),
-        }),
-        _ => Some("unknown_oauth_error"),
-    }
-}
 
 /// Parse a token-endpoint JSON body into [`Tokens`], turning the server's
 /// relative `expires_in` seconds into an absolute `expiresAt` using `now_unix`.

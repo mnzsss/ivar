@@ -46,7 +46,7 @@ impl Preregistered {
             report: Preregistration::NotNeeded,
             client_id: None,
             secret: None,
-            auth_mode: AuthMode::ClientSecretPost,
+            auth_mode: AuthMode::None,
         }
     }
 }
