@@ -94,11 +94,21 @@ pub(crate) fn seeded_repo(path: &Utf8Path, branch: &str) -> Utf8PathBuf {
 /// Run git in `cwd`, with a fixed identity, panicking with git's own stderr if
 /// it refuses. Committer identity is forced because a machine with no global
 /// `user.email` cannot commit at all, and that failure is opaque.
+///
+/// `core.hooksPath` is emptied for the same class of reason: this helper builds
+/// the *arrangement* a test starts from, and much of that arrangement is
+/// commits on a default branch, which ivar's protection hook exists to refuse.
+/// Scaffolding is not the behaviour under test.
+///
+/// This opt-out belongs to the scaffolding and nowhere else. A test that
+/// asserts protection must invoke git without it — see the `git_unguarded`
+/// helper in `tests/unit/git/exec.rs` — or it proves nothing.
 pub(crate) fn git(cwd: &Utf8Path, args: &[&str]) {
     let output = std::process::Command::new("git")
         .args(["-c", "user.name=ivar tests"])
         .args(["-c", "user.email=tests@ivar.invalid"])
         .args(["-c", "commit.gpgsign=false"])
+        .args(["-c", "core.hooksPath="])
         .args(args)
         .current_dir(cwd)
         .output()

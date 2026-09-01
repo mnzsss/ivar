@@ -42,6 +42,7 @@ pub(crate) mod exec;
 pub(crate) mod read;
 
 pub use self::error::Error;
+pub use self::exec::Protection;
 
 use camino::{Utf8Path, Utf8PathBuf};
 
@@ -184,6 +185,19 @@ pub trait Git {
     /// answer "stale info" in a hall and nowhere else: with no tracking ref
     /// there is nothing to lease against.
     fn ensure_remote_tracking(&self, git_dir: &Utf8Path) -> Result<(), Error>;
+
+    /// Make committing on `default_branch` refuse in the worktree at
+    /// `default_worktree`, and nowhere else.
+    ///
+    /// Idempotent, so `sync` can call it on every run. Deliberately has no
+    /// default body: a new implementation of this trait that silently does not
+    /// protect anything is the bug this whole seam exists to prevent.
+    fn protect_default_branch(
+        &self,
+        git_dir: &Utf8Path,
+        default_worktree: &Utf8Path,
+        default_branch: &str,
+    ) -> Result<exec::Protection, Error>;
 
     /// Add a worktree at `dest`, checked out on the existing `branch`, off the
     /// bare repository at `git_dir`.
@@ -553,6 +567,15 @@ impl Git for System {
 
     fn ensure_remote_tracking(&self, git_dir: &Utf8Path) -> Result<(), Error> {
         exec::ensure_remote_tracking(git_dir)
+    }
+
+    fn protect_default_branch(
+        &self,
+        git_dir: &Utf8Path,
+        default_worktree: &Utf8Path,
+        default_branch: &str,
+    ) -> Result<exec::Protection, Error> {
+        exec::protect_default_branch(git_dir, default_worktree, default_branch)
     }
 
     fn add_worktree(&self, git_dir: &Utf8Path, dest: &Utf8Path, branch: &str) -> Result<(), Error> {

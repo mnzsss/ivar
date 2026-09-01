@@ -47,6 +47,24 @@ pub(crate) fn sync_repo(
         Ok(Some(entry)) => entries.push(entry),
         Err(failure) => record_failure(entries, warnings, &surface, "setup script", failure),
     }
+
+    // After the setup script, deliberately. A project's `pnpm install` may
+    // install husky, which writes `core.hooksPath` into the shared config and
+    // would disable a hook installed before it ran. Going last means ivar's
+    // worktree-local override is written over whatever the script left behind.
+    match git.protect_default_branch(&bare, &worktree, branch.as_str()) {
+        Ok(git::Protection::Installed) => {
+            entries.push(Entry::new(&surface, "branch protection", Change::Created));
+        }
+        Ok(git::Protection::AlreadyInstalled) => {}
+        Err(error) => record_failure(
+            entries,
+            warnings,
+            &surface,
+            "branch protection",
+            error.into(),
+        ),
+    }
 }
 
 pub(crate) fn ensure_bare(
