@@ -197,6 +197,7 @@ impl CallbackServer {
                 Ok((stream, _)) => {
                     let result = Self::handle_connection(stream, &expected_state);
                     let _ = tx.send(result);
+                    drop(listener); // Explicitly drop listener to close clone
                     break;
                 }
                 Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
