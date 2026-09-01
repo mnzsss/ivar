@@ -279,10 +279,6 @@ fn form_encode_uses_plus_for_spaces() {
 struct RequestAnalysis {
     is_post: bool,
     has_basic_auth: bool,
-    has_grant_type: bool,
-    has_code: bool,
-    has_redirect_uri: bool,
-    has_code_verifier: bool,
     has_client_id: bool,
     has_client_secret: bool,
 }
@@ -296,29 +292,28 @@ fn exchange_code_request_structure() {
         let (mut stream, _) = listener.accept().unwrap();
         let mut buf = [0u8; 4096];
         let bytes = stream.read(&mut buf).expect("Failed to read from stream");
-        let request = String::from_utf8_lossy(&buf[..bytes]);
+        let request = String::from_utf8_lossy(
+            buf.get(..bytes)
+                .expect("Request buffer slice out of bounds"),
+        );
 
         let is_post = request.starts_with("POST");
         let has_basic_auth = request.to_lowercase().contains("authorization: basic ");
-
-        let has_grant_type = request.contains("grant_type");
-        let has_code = request.contains("code=");
-        let has_redirect_uri = request.contains("redirect_uri=");
-        let has_code_verifier = request.contains("code_verifier=");
         let has_client_id = request.contains("client_id=");
         let has_client_secret = request.contains("client_secret=");
 
         let response =
             "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n{\"access_token\":\"at\"}";
-        stream.write_all(response.as_bytes()).unwrap();
+        stream
+            .write_all(response.as_bytes())
+            .expect("Failed to send response");
+        stream
+            .shutdown(std::net::Shutdown::Both)
+            .expect("Failed to close stream");
 
         RequestAnalysis {
             is_post,
             has_basic_auth,
-            has_grant_type,
-            has_code,
-            has_redirect_uri,
-            has_code_verifier,
             has_client_id,
             has_client_secret,
         }
@@ -331,10 +326,12 @@ fn exchange_code_request_structure() {
     let analysis = handle.join().unwrap();
     assert!(analysis.is_post, "Request was not POST");
     assert!(analysis.has_basic_auth, "Request missing Basic Auth header");
-    // Grant type might be tricky to detect if body isn't fully read or if it's sent in a specific way.
-    // Given Basic Auth header is present and we remove client_secret from body, we are likely auth-compliant.
     assert!(
         !analysis.has_client_secret,
-        "Request contained client_secret in body"
+        "Request incorrectly contained client_secret"
+    );
+    assert!(
+        !analysis.has_client_id,
+        "Request incorrectly contained client_id"
     );
 }
