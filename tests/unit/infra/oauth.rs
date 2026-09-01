@@ -89,16 +89,23 @@ fn pkce_verifier_is_base64url_without_padding() {
 #[test]
 fn pkce_challenge_is_sha256_base64url_no_pad() {
     let (verifier, challenge) = pkce_pair();
-    // SHA-256 of the raw verifier bytes -> 43 base64url chars, no padding.
+    // SHA-256 of the verifier string -> 43 base64url chars, no padding.
     assert_eq!(challenge.0.len(), 43);
     assert!(!challenge.0.contains('='), "challenge must not be padded");
 
-    let raw = URL_SAFE_NO_PAD.decode(verifier.0.as_bytes()).unwrap();
-    let expected = URL_SAFE_NO_PAD.encode(Sha256::digest(raw.as_slice()).as_slice());
+    let expected = URL_SAFE_NO_PAD.encode(Sha256::digest(verifier.0.as_bytes()).as_slice());
     assert_eq!(
         challenge.0, expected,
         "challenge must be base64url(SHA-256(verifier))"
     );
+}
+
+#[test]
+fn pkce_challenge_matches_rfc7636_appendix_b_vector() {
+    let verifier = CodeVerifier("dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk".to_owned());
+    let expected_challenge = "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM";
+    let challenge = challenge_from_verifier(&verifier);
+    assert_eq!(challenge.0, expected_challenge);
 }
 
 // -- state --------------------------------------------------------------

@@ -107,11 +107,14 @@ fn random_bytes_32() -> [u8; 32] {
 pub fn pkce_pair() -> (CodeVerifier, CodeChallenge) {
     let verifier_bytes = random_bytes_32();
     let verifier = CodeVerifier(URL_SAFE_NO_PAD.encode(verifier_bytes.as_slice()));
+    (verifier.clone(), challenge_from_verifier(&verifier))
+}
 
-    let hash = Sha256::digest(verifier_bytes.as_slice());
-    let challenge = CodeChallenge(URL_SAFE_NO_PAD.encode(hash.as_slice()));
-
-    (verifier, challenge)
+/// Compute the PKCE challenge for a given verifier string, per RFC 7636 §4.2:
+/// `code_challenge = BASE64URL-ENCODE(SHA256(ASCII(code_verifier)))`.
+pub fn challenge_from_verifier(verifier: &CodeVerifier) -> CodeChallenge {
+    let hash = Sha256::digest(verifier.0.as_bytes());
+    CodeChallenge(URL_SAFE_NO_PAD.encode(hash.as_slice()))
 }
 
 /// Generate a random OAuth `state` value (43 chars of base64url-encoded 32

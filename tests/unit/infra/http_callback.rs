@@ -28,7 +28,8 @@ fn query_separator_inside_value_is_not_split() {
 
 #[test]
 fn path_is_decoded_for_routing() {
-    let (_method, path, _query) = CallbackServer::parse_request_line("GET /call%62ack HTTP/1.1").unwrap();
+    let (_method, path, _query) =
+        CallbackServer::parse_request_line("GET /call%62ack HTTP/1.1").unwrap();
     assert_eq!(path, "/callback");
 }
 
