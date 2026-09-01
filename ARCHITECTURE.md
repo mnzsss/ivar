@@ -47,7 +47,9 @@ src/
                    report types live in mod.rs, repo materialisation in
                    repo.rs, provider/config reconciliation in providers.rs,
                    and setup-script execution in setup.rs.
-    repo/          add · list · remove · pull · setup · upstream
+    repo/          add · list · remove · pull · setup · upstream, where pull/
+                   splits the sweep in mod.rs from diagnosis.rs — whether a
+                   diverged branch is safe to reset, and which blocker to name
      feature/       create · list · promote · demote · status · reparent ·
                     close · delete · rebase · view · prune · cleanup, plus
                    deliver/ — the preview fingerprint, push, and pull-request
@@ -135,6 +137,10 @@ src/
                    these six parses `git`'s porcelain -z output, which is far
                    cheaper than the equivalent git2 walk for a plain local
                    read, and none of them touches a remote.
+    protect.rs     the pre-commit hook that refuses a commit on a default
+                   branch, and the worktree-local config that selects it. Apart
+                   from exec.rs because it configures a repository rather than
+                   operating on one.
     credential.rs  git credential-helper protocol, for the token fallback
 
   harness/         provider adapters
@@ -254,7 +260,9 @@ The mirror is against the *linked* module, not the physical src/ tree, and
 that difference is deliberate in roughly twenty places, not drift: a facade's
 own verb is tested where the facade's link says it is, and a focused child
 with no independent surface is exercised alongside it rather than carrying an
-empty file of its own. `action/sync/`'s `repo.rs`, `providers.rs`, and
+empty file of its own. `action/repo/pull/`'s `diagnosis.rs`, whose blockers are
+observed through the sweep that reports them; `action/sync/`'s `repo.rs`,
+`providers.rs`, and
 `setup.rs`; `action/mcp/auth/`'s `preregister.rs` and `dispatch.rs`;
 `action/feature/deliver/`'s `preview.rs` and `repos.rs`;
 `action/feature/integrate/`'s `apply.rs`; `action/execute/`'s lifecycle files;

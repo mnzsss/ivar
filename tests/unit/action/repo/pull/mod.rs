@@ -8,6 +8,8 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
+use camino::Utf8Path;
+
 use super::*;
 use crate::action::hall::{self, InitInput};
 use crate::domain::name::{BranchName, HallName};
