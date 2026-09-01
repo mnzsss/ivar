@@ -190,6 +190,6 @@ fn the_args_without_command_variant_displays_a_user_friendly_message() {
     let err = McpValidationError::ArgsWithoutCommand;
     assert_eq!(
         err.to_string(),
-        "MCP server using `local` transport with `args` must also have a `command`"
+        "using `local` transport with `args` must also have a `command`"
     );
 }

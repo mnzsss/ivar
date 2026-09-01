@@ -74,31 +74,26 @@ impl fmt::Display for McpValidationError {
                 "invalid transport type `{t}`; expected `http` or `local`"
             ),
             Self::MissingUrlForHttp => {
-                write!(f, "MCP server using `http` transport is missing a `url`")
+                write!(f, "using `http` transport is missing a `url`")
             }
             Self::InvalidUrlForHttp(url) => write!(
                 f,
-                "MCP server `http` URL `{url}` is missing `http://` or `https://` prefix"
+                "using `http` transport URL `{url}` is missing `http://` or `https://` prefix"
             ),
             Self::HttpWithUnsupportedFields => write!(
                 f,
-                "MCP server using `http` transport cannot have `command`, `args`, or `env` fields"
+                "using `http` transport cannot have `command`, `args`, or `env` fields"
             ),
-            Self::MissingCommandForLocal => write!(
-                f,
-                "MCP server using `local` transport is missing a `command`"
-            ),
-            Self::EmptyCommandForLocal => write!(
-                f,
-                "MCP server using `local` transport has a blank `command`"
-            ),
-            Self::LocalWithUrl => write!(
-                f,
-                "MCP server using `local` transport should not have a `url`"
-            ),
+            Self::MissingCommandForLocal => {
+                write!(f, "using `local` transport is missing a `command`")
+            }
+            Self::EmptyCommandForLocal => {
+                write!(f, "using `local` transport has a blank `command`")
+            }
+            Self::LocalWithUrl => write!(f, "using `local` transport should not have a `url`"),
             Self::ArgsWithoutCommand => write!(
                 f,
-                "MCP server using `local` transport with `args` must also have a `command`"
+                "using `local` transport with `args` must also have a `command`"
             ),
         }
     }
@@ -178,15 +173,15 @@ impl McpServerDef {
                     return Err(McpValidationError::LocalWithUrl);
                 }
 
-                let command = self
+                if self.args.is_some() && self.command.is_none() {
+                    return Err(McpValidationError::ArgsWithoutCommand);
+                }
+
+                let _command = self
                     .command
                     .as_ref()
                     .filter(|c| !c.trim().is_empty())
                     .ok_or(McpValidationError::MissingCommandForLocal)?;
-
-                if command.trim().is_empty() {
-                    return Err(McpValidationError::EmptyCommandForLocal);
-                }
 
                 if self.args.is_some() && self.command.is_none() {
                     return Err(McpValidationError::ArgsWithoutCommand);
