@@ -163,14 +163,22 @@ impl CallbackServer {
     ///
     /// Returns [`Failure`] on timeout, invalid request, state mismatch,
     /// missing code, or OAuth error.
-    pub fn wait(self) -> Result<AuthorizationCode, Failure> {
-        match self.receiver.recv() {
+    pub fn wait(mut self) -> Result<AuthorizationCode, Failure> {
+        let result = match self.receiver.recv() {
             Ok(result) => result,
             Err(_) => Err(Failure::failed(
                 "callback.worker_exited",
                 "callback worker exited before sending a result",
             )),
+        };
+
+        // Ensure the worker has fully finished and the listener is closed.
+        drop(self.listener.take());
+        if let Some(worker) = self.worker.take() {
+            let _ = worker.join();
         }
+
+        result
     }
 
     // -- worker -----------------------------------------------------------
@@ -196,8 +204,8 @@ impl CallbackServer {
             match listener.accept() {
                 Ok((stream, _)) => {
                     let result = Self::handle_connection(stream, &expected_state);
-                    let _ = tx.send(result);
                     drop(listener); // Explicitly drop listener to close clone
+                    let _ = tx.send(result);
                     break;
                 }
                 Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
