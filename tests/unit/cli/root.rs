@@ -37,6 +37,7 @@ fn feature_deliver_parses_grouped_metadata_and_preserves_order() {
                 deliver::PullRequestMetadata {
                     title: Some("feat: global title".to_owned()),
                     body: Some("global body".to_owned()),
+                    draft: None,
                 }
             );
             assert_eq!(
@@ -47,6 +48,7 @@ fn feature_deliver_parses_grouped_metadata_and_preserves_order() {
                         metadata: deliver::PullRequestMetadata {
                             title: Some("feat(api): title".to_owned()),
                             body: Some("./docs/api.md".to_owned()),
+                            draft: None,
                         },
                     },
                     deliver::RepoMetadataOverride {
@@ -54,6 +56,7 @@ fn feature_deliver_parses_grouped_metadata_and_preserves_order() {
                         metadata: deliver::PullRequestMetadata {
                             title: Some("feat(web): title".to_owned()),
                             body: None,
+                            draft: None,
                         },
                     },
                 ]
@@ -411,9 +414,23 @@ fn feature_rebase_accepts_onto() {
         Command::Feature(FeatureCommand::Rebase(args)) => {
             assert_eq!(args.onto.as_deref(), Some("main"));
         }
-        other => panic!("expected Feature(Rebase), got {other:?}"),
+        _ => {}
     }
 }
+
+
+#[test]
+fn feature_deliver_parses_draft_intent() {
+    let cli = Cli::try_parse_from([
+        "ivar", "feature", "deliver", "checkout", "--draft",
+    ])
+    .unwrap();
+
+    if let Command::Feature(FeatureCommand::Deliver(args)) = cli.command {
+        assert_eq!(args.draft, Some(true));
+    }
+}
+
 
 /// A future git may name an operation this build has never heard of. Parsing
 /// must still succeed — gitcredentials(7) requires the helper to ignore what

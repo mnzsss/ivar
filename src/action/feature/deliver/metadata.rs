@@ -99,6 +99,7 @@ pub(crate) fn resolve(
     let global_resolved = PullRequestMetadata {
         title: input.global_metadata.title.clone(),
         body: resolve_body(ctx, input.global_metadata.body.as_deref())?,
+        draft: input.global_metadata.draft,
     };
 
     let mut overrides_by_repo: BTreeMap<RepoName, PullRequestMetadata> = BTreeMap::new();
@@ -110,6 +111,7 @@ pub(crate) fn resolve(
             PullRequestMetadata {
                 title: r_override.metadata.title.clone(),
                 body: resolved_body,
+                draft: r_override.metadata.draft,
             },
         );
     }
@@ -123,8 +125,11 @@ pub(crate) fn resolve(
         let body = repo_override
             .and_then(|m| m.body.clone())
             .or_else(|| global_resolved.body.clone());
+        let draft = repo_override
+            .and_then(|m| m.draft)
+            .or(global_resolved.draft);
 
-        result.insert(repo_name.clone(), PullRequestMetadata { title, body });
+        result.insert(repo_name.clone(), PullRequestMetadata { title, body, draft });
     }
 
     Ok(result)

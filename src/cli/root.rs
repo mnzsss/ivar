@@ -501,6 +501,8 @@ pub struct FeatureDeliverArgs {
     pub global_metadata: deliver::PullRequestMetadata,
     /// Repository-scoped overrides.
     pub repo_overrides: Vec<deliver::RepoMetadataOverride>,
+    /// Whether to create/convert as draft.
+    pub draft: Option<bool>,
 }
 
 impl clap::Args for FeatureDeliverArgs {
@@ -576,6 +578,7 @@ impl clap::FromArgMatches for FeatureDeliverArgs {
             fingerprint,
             global_metadata,
             repo_overrides,
+            draft: None,
         })
     }
 
@@ -1429,6 +1432,7 @@ impl From<FeatureDeliverArgs> for deliver::DeliverInput {
             fingerprint,
             global_metadata,
             repo_overrides,
+            draft: _,
         } = args;
 
         Self {

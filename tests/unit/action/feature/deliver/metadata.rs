@@ -52,6 +52,7 @@ fn resolve_global_metadata_applies_to_all_repos() {
         global_metadata: PullRequestMetadata {
             title: Some("feat: global title".to_owned()),
             body: Some("global body inline".to_owned()),
+            draft: None,
         },
         repo_overrides: Vec::new(),
     };
@@ -60,6 +61,7 @@ fn resolve_global_metadata_applies_to_all_repos() {
     let expected = PullRequestMetadata {
         title: Some("feat: global title".to_owned()),
         body: Some("global body inline".to_owned()),
+        draft: None,
     };
     assert_eq!(
         resolved.get(&RepoName::new("api").unwrap()),
@@ -82,23 +84,26 @@ fn resolve_field_wise_inheritance_and_repo_overrides() {
         global_metadata: PullRequestMetadata {
             title: Some("feat: global title".to_owned()),
             body: Some("global body inline".to_owned()),
+            draft: None,
         },
         repo_overrides: vec![
-            RepoMetadataOverride {
-                repo: "api".to_owned(),
-                metadata: PullRequestMetadata {
-                    title: Some("feat(api): custom title".to_owned()),
-                    body: None, // inherits global body
+                RepoMetadataOverride {
+                    repo: "api".to_owned(),
+                    metadata: PullRequestMetadata {
+                        title: Some("feat(api): custom title".to_owned()),
+                        body: None,
+                        draft: None,
+                    },
                 },
-            },
-            RepoMetadataOverride {
-                repo: "web".to_owned(),
-                metadata: PullRequestMetadata {
-                    title: None, // inherits global title
-                    body: Some("custom web body".to_owned()),
+                RepoMetadataOverride {
+                    repo: "web".to_owned(),
+                    metadata: PullRequestMetadata {
+                        title: None,
+                        body: Some("custom web body".to_owned()),
+                        draft: None,
+                    },
                 },
-            },
-        ],
+            ],
     };
 
     let resolved = resolve(&ctx, &feature, &input).unwrap();
@@ -107,6 +112,7 @@ fn resolve_field_wise_inheritance_and_repo_overrides() {
         Some(&PullRequestMetadata {
             title: Some("feat(api): custom title".to_owned()),
             body: Some("global body inline".to_owned()),
+            draft: None,
         })
     );
     assert_eq!(
@@ -114,6 +120,16 @@ fn resolve_field_wise_inheritance_and_repo_overrides() {
         Some(&PullRequestMetadata {
             title: Some("feat: global title".to_owned()),
             body: Some("custom web body".to_owned()),
+            draft: None,
+        })
+    );
+
+    assert_eq!(
+        resolved.get(&RepoName::new("web").unwrap()),
+        Some(&PullRequestMetadata {
+            title: Some("feat: global title".to_owned()),
+            body: Some("custom web body".to_owned()),
+            draft: None,
         })
     );
 }
@@ -133,6 +149,7 @@ fn resolve_inline_body_versus_file_body() {
         global_metadata: PullRequestMetadata {
             title: None,
             body: Some("./body.md".to_owned()),
+            draft: None,
         },
         repo_overrides: Vec::new(),
     };
@@ -143,6 +160,7 @@ fn resolve_inline_body_versus_file_body() {
         Some(&PullRequestMetadata {
             title: None,
             body: Some("Content from file\n".to_owned()),
+            draft: None,
         })
     );
 
@@ -155,6 +173,7 @@ fn resolve_inline_body_versus_file_body() {
         global_metadata: PullRequestMetadata {
             title: None,
             body: Some("body.md".to_owned()), // missing leading ./
+            draft: None,
         },
         repo_overrides: Vec::new(),
     };
@@ -164,6 +183,7 @@ fn resolve_inline_body_versus_file_body() {
         Some(&PullRequestMetadata {
             title: None,
             body: Some("body.md".to_owned()),
+            draft: None,
         })
     );
 }
@@ -179,6 +199,7 @@ fn resolve_rejects_metadata_in_land_mode() {
         global_metadata: PullRequestMetadata {
             title: Some("title".to_owned()),
             body: None,
+            draft: None,
         },
         repo_overrides: Vec::new(),
     };
@@ -244,6 +265,7 @@ fn resolve_rejects_missing_or_invalid_body_file() {
         global_metadata: PullRequestMetadata {
             title: None,
             body: Some("./nonexistent.txt".to_owned()),
+            draft: None,
         },
         repo_overrides: Vec::new(),
     };
@@ -262,6 +284,7 @@ fn resolve_rejects_missing_or_invalid_body_file() {
         global_metadata: PullRequestMetadata {
             title: None,
             body: Some("./invalid.txt".to_owned()),
+            draft: None,
         },
         repo_overrides: Vec::new(),
     };
