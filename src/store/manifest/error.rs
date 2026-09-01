@@ -68,6 +68,10 @@ pub enum Error {
     /// Two MCP server definitions in `mcp` share the same `name`.
     #[error("MCP server name `{name}` is used by more than one definition")]
     DuplicateMcpServerName { name: String },
+
+    /// An MCP server definition uses an unsupported transport.
+    #[error("MCP server `{name}` uses unsupported transport `{transport}`")]
+    InvalidMcpType { name: String, transport: String },
 }
 
 impl From<Error> for Failure {
@@ -147,6 +151,13 @@ impl From<Error> for Failure {
                     format!("Give one of the duplicate `{name}` definitions a different name."),
                 ))
             }
+            Error::InvalidMcpType { name, transport } => Failure::blocked("manifest.invalid_mcp_type", what)
+                .expected("MCP transport to be `http` or `local`")
+                .actual(format!("`{name}` uses unsupported `{transport}`"))
+                .fix(FixAction::safe(
+                    "manifest.fix_mcp_transport",
+                    format!("Change `{name}`'s transport to `http` or `local`."),
+                )),
         }
     }
 }

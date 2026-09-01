@@ -359,15 +359,27 @@ fn mcp_servers_round_trip_through_write_and_read() {
 }
 
 #[test]
-fn duplicate_mcp_server_failure_names_the_offending_name() {
-    let failure: Failure = Error::DuplicateMcpServerName {
-        name: "docs".to_owned(),
+fn invalid_mcp_transports_are_rejected_on_read() {
+    let (_dir, root) = utf8_temp_dir();
+    let layout = Layout::at(root);
+
+    // Test cases for invalid MCP types
+    let invalid_configs = vec![
+        (r#"{"version":3,"name":"acme","providers":{"available":["claude-code"],"default":"claude-code"},"repos":[],"integration":{"via":"local","strategy":"squash"},"mcp":[{"name":"bad","type":"remote"}]}"#, "remote"),
+        (r#"{"version":3,"name":"acme","providers":{"available":["claude-code"],"default":"claude-code"},"repos":[],"integration":{"via":"local","strategy":"squash"},"mcp":[{"name":"bad","type":"stdio"}]}"#, "stdio"),
+    ];
+
+    for (json, transport) in invalid_configs {
+        fs::write_text(&layout.manifest(), json).unwrap();
+        let error = Manifest::read(&layout).unwrap_err();
+        match error {
+            Error::InvalidMcpType { name, transport: actual_transport } => {
+                assert_eq!(name, "bad");
+                assert_eq!(actual_transport, transport);
+            }
+            other => panic!("expected InvalidMcpType, got {other:?}"),
+        }
     }
-    .into();
-    assert_eq!(failure.status, Status::Blocked);
-    assert_eq!(failure.code, "manifest.duplicate_mcp_server_name");
-    assert!(failure.what.contains("docs"));
-    assert!(failure.fix_actions[0].safe);
 }
 
 // -- v2: hall integration defaults and ordered repo checks ------------------

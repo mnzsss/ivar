@@ -45,6 +45,13 @@ use serde::{Deserialize, Serialize};
 
 use super::name::HallName;
 
+/// The canonical MCP transport: `http` or `local`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum McpTransport {
+    Http,
+    Local,
+}
+
 /// One MCP server definition: how a harness should spawn (or connect to) one
 /// server, and nothing about the secrets it will need at runtime.
 ///
@@ -82,6 +89,16 @@ pub struct McpServerDef {
 }
 
 impl McpServerDef {
+    /// Attempt to derive the canonical transport from the definition,
+    /// rejecting invalid or obsolete spellings.
+    pub fn transport(&self) -> Result<McpTransport, String> {
+        match self.type_.as_str() {
+            "http" => Ok(McpTransport::Http),
+            "local" => Ok(McpTransport::Local),
+            other => Err(other.to_owned()),
+        }
+    }
+
     /// Build a definition from its required fields. The optional halves
     /// (`command`, `args`, `url`, `env`) start absent and are set with the
     /// chaining setters below.
