@@ -247,30 +247,41 @@ pub fn exchange_code(
     let body = read_body(response.into_body().as_reader())?;
 
     if !status.is_success() {
-        let (oauth_error, body_keys) = summarize_error_body(&body);
+        let summary = summarize_error_body(&body);
         let field_names = params
             .iter()
             .map(|(k, _)| *k)
             .collect::<Vec<_>>()
             .join(", ");
 
-        return Err(Failure::failed(
-            "oauth.exchange_code_http",
-            format!("token endpoint returned {status}: {oauth_error}"),
-        )
-        .expected("HTTP 2xx")
-        .actual(format!(
-            "HTTP {status}, endpoint: {token_endpoint}, content-type: {}, body-len: {}, \
-             oauth-error: {oauth_error}, auth-mode: {auth_mode}, fields: [{field_names}], body-keys: [{body_keys}]",
-            classify_content_type(&content_type),
-            body.len()
-        )));
+        let mut oauth_err = format!("token endpoint returned {status}: {}", summary.category);
+        if let Some(detail) = summary.detail {
+            oauth_err.push_str(&format!(", {detail}"));
+        }
+
+        return Err(Failure::failed("oauth.exchange_code_http", oauth_err)
+            .expected("HTTP 2xx")
+            .actual(format!(
+                "HTTP {status}, endpoint: {token_endpoint}, content-type: {}, body-len: {}, \
+             oauth-error: {}, auth-mode: {auth_mode}, fields: [{field_names}], body-keys: [{}]",
+                classify_content_type(&content_type),
+                body.len(),
+                summary.category,
+                summary.keys
+            )));
     }
 
     tokens_from_json(&body, now_unix())
 }
 
-fn summarize_error_body(body: &str) -> (String, String) {
+#[derive(Debug)]
+struct ErrorSummary {
+    category: String,
+    keys: String,
+    detail: Option<String>,
+}
+
+fn summarize_error_body(body: &str) -> ErrorSummary {
     let json: serde_json::Value = serde_json::from_str(body).unwrap_or(serde_json::Value::Null);
     let keys = if let serde_json::Value::Object(map) = &json {
         map.keys().take(10).cloned().collect::<Vec<_>>().join(", ")
@@ -279,7 +290,11 @@ fn summarize_error_body(body: &str) -> (String, String) {
     };
 
     let Some(obj) = json.as_object() else {
-        return ("unknown_error".to_owned(), keys);
+        return ErrorSummary {
+            category: "unknown_error".to_owned(),
+            keys,
+            detail: None,
+        };
     };
 
     let error_val = obj
@@ -301,7 +316,30 @@ fn summarize_error_body(body: &str) -> (String, String) {
         _ => "unknown_error".to_owned(),
     };
 
-    (category, keys)
+    let mut details = Vec::new();
+    for key in &["error", "message"] {
+        if let Some(serde_json::Value::String(s)) = obj.get(*key) {
+            let sanitized = s.replace(|c: char| c.is_control() || c == '\n' || c == '\r', " ");
+            let truncated = if sanitized.len() > 200 {
+                format!("{}…", &sanitized[..200])
+            } else {
+                sanitized
+            };
+            details.push(format!("{key}=\"{truncated}\""));
+        }
+    }
+
+    let detail = if details.is_empty() {
+        None
+    } else {
+        Some(details.join(", "))
+    };
+
+    ErrorSummary {
+        category,
+        keys,
+        detail,
+    }
 }
 
 fn classify_content_type(ct: &str) -> &'static str {
@@ -317,7 +355,6 @@ fn classify_content_type(ct: &str) -> &'static str {
         "other"
     }
 }
-
 
 /// Parse a token-endpoint JSON body into [`Tokens`], turning the server's
 /// relative `expires_in` seconds into an absolute `expiresAt` using `now_unix`.

@@ -6,6 +6,58 @@ use std::net::TcpListener;
 use std::thread;
 use std::time::Duration;
 
+// -- summarize_error_body -----------------------------------------------
+
+#[test]
+fn error_detail_includes_error_and_message_strings() {
+    let body = r#"{"error":"forbidden","message":"not allowed"}"#;
+    let summary = summarize_error_body(body);
+    assert_eq!(
+        summary.detail,
+        Some("error=\"forbidden\", message=\"not allowed\"".to_owned())
+    );
+}
+
+#[test]
+fn error_detail_omits_non_allowlisted_keys() {
+    let body = r#"{"error":"e","i18n":"val","message":"m","status":400}"#;
+    let summary = summarize_error_body(body);
+    assert_eq!(
+        summary.detail,
+        Some("error=\"e\", message=\"m\"".to_owned())
+    );
+}
+
+#[test]
+fn error_detail_truncates_long_values() {
+    let long_error = "a".repeat(250);
+    let body = format!(r#"{{"error":"{long_error}"}}"#);
+    let summary = summarize_error_body(&body);
+    let expected = format!("error=\"{}…\"", "a".repeat(200));
+    assert_eq!(summary.detail, Some(expected));
+}
+
+#[test]
+fn error_detail_strips_newlines_and_control_chars() {
+    let body = r#"{"error":"line\nend\u0000"}"#;
+    let summary = summarize_error_body(body);
+    assert_eq!(summary.detail, Some("error=\"line end \"".to_owned()));
+}
+
+#[test]
+fn error_detail_absent_when_no_string_fields() {
+    let body = r#"{"status":400}"#;
+    let summary = summarize_error_body(body);
+    assert_eq!(summary.detail, None);
+}
+
+#[test]
+fn error_detail_ignores_non_string_values() {
+    let body = r#"{"error":123,"message":["a"]}"#;
+    let summary = summarize_error_body(body);
+    assert_eq!(summary.detail, None);
+}
+
 // -- pkce_pair ----------------------------------------------------------
 
 #[test]
