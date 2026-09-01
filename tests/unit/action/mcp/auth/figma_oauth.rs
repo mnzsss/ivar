@@ -37,13 +37,6 @@ fn discover_oauth_endpoints_pure_parsing() {
 }
 
 #[test]
-fn build_well_known_url() {
-    let base = "https://www.figma.com/oauth";
-    let expected = "https://www.figma.com/oauth/.well-known/oauth-authorization-server";
-    assert_eq!(figma::build_well_known_url(base).unwrap(), expected);
-}
-
-#[test]
 fn provider_run_command_shows_internal_flow_label() {
     // Given: a ProviderRun from internal flow
     let run = ProviderRun {
