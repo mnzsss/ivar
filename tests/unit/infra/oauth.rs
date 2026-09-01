@@ -320,7 +320,10 @@ fn exchange_code_request_structure() {
             if bytes == 0 {
                 break;
             }
-            request.push_str(&String::from_utf8_lossy(&buf[..bytes]));
+            request.push_str(&String::from_utf8_lossy(
+                buf.get(..bytes)
+                    .expect("buffer should be large enough to hold read bytes"),
+            ));
         }
 
         let is_post = request.starts_with("POST");
