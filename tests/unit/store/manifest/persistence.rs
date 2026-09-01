@@ -46,6 +46,7 @@ fn write_then_read_round_trips_and_writes_canonical_bytes() {
     let expected = json::to_canonical_string(&serde_json::json!({
         "version": 4,
         "name": "acme",
+        "$schema": "https://ivar.run/ivar.schema.json",
         "integration": { "strategy": "squash", "via": "local" },
         "providers": { "available": ["claude-code", "opencode"], "default": "claude-code" },
         "repos": [

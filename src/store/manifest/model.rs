@@ -45,9 +45,14 @@ pub struct Manifest {
     integration: IntegrationPolicy,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     skills: Option<Skills>,
+    #[serde(rename = "$schema", skip_serializing_if = "Option::is_none")]
+    schema: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     mcp: Option<Vec<McpServerDef>>,
 }
+
+/// Canonical URL for the Ivar manifest schema.
+pub(super) const MANIFEST_SCHEMA_URL: &str = "https://ivar.run/ivar.schema.json";
 
 impl Manifest {
     /// Build a validated `Manifest`. Refuses exactly what [`Self::validate`]
@@ -58,7 +63,7 @@ impl Manifest {
     /// The v1 call shape is preserved: a manifest built through this
     /// constructor carries the embedded integration defaults
     /// ([`IntegrationPolicy::default`], `local`/`squash`) and repos with no
-    /// checks.
+    /// checks, and the canonical manifest schema reference.
     pub fn new(
         name: HallName,
         providers: Providers,
@@ -72,6 +77,7 @@ impl Manifest {
             repos,
             integration: IntegrationPolicy::default(),
             skills,
+            schema: Some(MANIFEST_SCHEMA_URL.to_owned()),
             mcp: None,
         };
         manifest.validate()?;
@@ -214,6 +220,7 @@ impl Manifest {
             repos,
             integration: self.integration,
             skills: self.skills.clone(),
+            schema: self.schema.clone(),
             mcp: self.mcp.clone(),
         };
         manifest.validate()?;
