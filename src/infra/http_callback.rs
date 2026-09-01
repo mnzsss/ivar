@@ -10,6 +10,8 @@
 //! - No async runtime, no HTTP framework — `std::net::TcpListener` on a
 //!   worker thread.
 //! - Bounded input (8 KiB read limit) to reject oversized requests.
+//! - Accepted sockets are restored to blocking mode with a read/write timeout
+//!   to prevent slow or hostile clients from pinning the worker thread.
 //! - `Drop` signals the worker to stop and closes the listener so the
 //!   port is released immediately.
 //! - `wait()` consumes `self`, so the caller cannot accidentally use the
@@ -38,6 +40,9 @@ const DEFAULT_PORT: u16 = 19876;
 
 /// Maximum bytes to read from a single HTTP request (request line + headers).
 const MAX_READ: usize = 8192;
+
+/// Timeout for reading/writing on the callback socket.
+const READ_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// An authorization code yielded by the callback listener. The value is
 /// redacted from `Debug` to prevent leaks.
@@ -220,14 +225,57 @@ impl CallbackServer {
         mut stream: TcpStream,
         expected_state: &str,
     ) -> Result<AuthorizationCode, Failure> {
-        let mut buf = vec![0u8; MAX_READ];
-        let n = stream.read(&mut buf).map_err(|e| {
+        stream.set_nonblocking(false).map_err(|e| {
             Failure::failed(
-                "callback.read_failed",
-                format!("could not read request: {e}"),
+                "callback.blocking_failed",
+                format!("could not set stream to blocking mode: {e}"),
             )
         })?;
-        let request = String::from_utf8_lossy(buf.get(..n).unwrap_or(&[]));
+        stream.set_read_timeout(Some(READ_TIMEOUT)).map_err(|e| {
+            Failure::failed(
+                "callback.read_failed",
+                format!("could not set read timeout: {e}"),
+            )
+        })?;
+        stream.set_write_timeout(Some(READ_TIMEOUT)).map_err(|e| {
+            Failure::failed(
+                "callback.read_failed",
+                format!("could not set write timeout: {e}"),
+            )
+        })?;
+
+        let mut buf = Vec::new();
+        let mut tmp_buf = [0u8; 1024];
+        loop {
+            let n = stream.read(&mut tmp_buf).map_err(|e| {
+                Failure::failed(
+                    "callback.read_failed",
+                    format!("could not read request: {e}"),
+                )
+            })?;
+
+            if n == 0 {
+                return Err(Failure::failed(
+                    "callback.read_failed",
+                    "client closed connection before sending complete request headers",
+                ));
+            }
+
+            buf.extend_from_slice(tmp_buf.get(..n).unwrap_or(&[]));
+
+            if buf.len() > MAX_READ {
+                return Err(Failure::failed(
+                    "callback.request_too_large",
+                    "request headers too large",
+                ));
+            }
+
+            if buf.windows(4).any(|w| w == b"\r\n\r\n") {
+                break;
+            }
+        }
+
+        let request = String::from_utf8_lossy(&buf);
         let request = request.into_owned();
 
         let (method, path, query) = Self::parse_request_line(&request)?;

@@ -307,6 +307,58 @@ fn timeout_returns_error_and_releases_port() {
     assert_eq!(err.code, "callback.timeout");
 }
 
+// -- split request --------------------------------------------------------
+
+#[test]
+fn split_request_is_handled() {
+    let expected_state = "expected-state";
+    let server = CallbackServer::bind_on(expected_state, Duration::from_secs(10)).unwrap();
+    let addr = server.addr();
+
+    std::thread::spawn(move || {
+        let mut stream = std::net::TcpStream::connect(addr).expect("connect");
+        let chunk1 = "GET /callback?code=auth-code-123&sta".to_owned();
+        let chunk2 = "te=expected-state HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n";
+
+        stream.write_all(chunk1.as_bytes()).expect("write 1");
+        stream.flush().expect("flush");
+        std::thread::sleep(Duration::from_millis(100));
+        stream.write_all(chunk2.as_bytes()).expect("write 2");
+
+        let mut response = String::new();
+        std::io::Read::read_to_string(&mut stream, &mut response).expect("read response");
+        assert!(
+            response.starts_with("HTTP/1.1 200"),
+            "expected 200, got: {response}"
+        );
+    });
+
+    let result = server.wait().expect("wait should succeed");
+    assert_eq!(result.0, "auth-code-123");
+}
+
+// -- oversized request ----------------------------------------------------
+
+#[test]
+fn oversized_request_is_rejected() {
+    let expected_state = "expected-state";
+    let server = CallbackServer::bind_on(expected_state, Duration::from_secs(10)).unwrap();
+    let addr = server.addr();
+
+    std::thread::spawn(move || {
+        let mut stream = std::net::TcpStream::connect(addr).expect("connect");
+        // Send more than 8192 bytes
+        let body = "A".repeat(8193);
+        let request = format!("GET /callback?{body} HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n");
+        let _ = stream.write_all(request.as_bytes());
+    });
+
+    let err = server
+        .wait()
+        .expect_err("wait should fail for too large request");
+    assert_eq!(err.code, "callback.request_too_large");
+}
+
 // -- drop before callback ------------------------------------------------
 
 #[test]
