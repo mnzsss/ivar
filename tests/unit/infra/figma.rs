@@ -1,6 +1,9 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use super::*;
+use std::io::{BufRead, BufReader, Write};
+use std::net::TcpListener;
+use std::thread;
 
 // -- needs_preregistration: the allowlist table --------------------------
 
@@ -110,4 +113,46 @@ fn parse_authorization_metadata_errors() {
     // Missing token_endpoint
     let malformed = r#"{"authorization_endpoint":"https://auth.example.com/authorize"}"#;
     assert!(parse_authorization_metadata(malformed).is_err());
+}
+
+// -- reproduction of 405 error ---------------------------------------------
+#[test]
+fn discover_oauth_endpoints_repro_405() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let url = format!("http://127.0.0.1:{}", port);
+
+    thread::spawn(move || {
+        for stream in listener.incoming() {
+            let mut stream = stream.unwrap();
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            let mut request_line = String::new();
+            reader.read_line(&mut request_line).unwrap();
+
+            if request_line.starts_with("GET") {
+                stream
+                    .write_all(b"HTTP/1.1 405 Method Not Allowed\r\n\r\n")
+                    .unwrap();
+            } else if request_line.starts_with("POST") {
+                stream.write_all(b"HTTP/1.1 401 Unauthorized\r\nWWW-Authenticate: Bearer resource_metadata=\"http://localhost/metadata\"\r\n\r\n").unwrap();
+            }
+        }
+    });
+
+    // This should now succeed (or at least get past 405)
+    let result = discover_oauth_endpoints(&url);
+    // Now we assert success in proceeding past step 1!
+    // But Step 2 will fail because http://localhost/metadata doesn't exist.
+    // That's fine, we just want to prove we triggered the 401 and parsed the header correctly.
+    assert!(
+        result.is_err(),
+        "Expected error on Step 2 (not found), but got: {:?}",
+        result
+    );
+    let err = result.err().unwrap();
+    assert!(
+        err.code.contains("figma.discover_resource_metadata"),
+        "Expected Step 2 error, got: {:?}",
+        err
+    );
 }

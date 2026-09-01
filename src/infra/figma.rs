@@ -318,12 +318,14 @@ pub(crate) fn parse_authorization_metadata(json_str: &str) -> Result<OAuthEndpoi
 ///
 /// No secrets, tokens, or codes appear in errors or their `actual` fields.
 pub fn discover_oauth_endpoints(server_url: &str) -> Result<OAuthEndpoints, Failure> {
-    // Step 1: GET the server URL to get the WWW-Authenticate header.
-    let response = ureq::get(server_url)
+    // Step 1: POST to the server URL to trigger the 401 challenge.
+    // The MCP Server expects a POST request (JSON-RPC initialize) to initiate
+    // the stream/connection, and will respond with 401 + WWW-Authenticate.
+    let response = ureq::post(server_url)
         .config()
         .http_status_as_error(false)
         .build()
-        .call()
+        .send(())
         .map_err(|e| {
             Failure::failed(
                 "figma.discover_server",
