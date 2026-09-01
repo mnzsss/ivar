@@ -14,7 +14,7 @@ use crate::error::Failure;
 use crate::harness::opencode_auth::Entry;
 use crate::infra::figma::{self, OAuthEndpoints};
 use crate::infra::http_callback::{AuthorizationCode, CallbackServer};
-use crate::infra::oauth::Tokens;
+use crate::infra::oauth::{AuthMode, Tokens};
 
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum PipelineEvent {
@@ -121,6 +121,7 @@ impl FlowOps for MockOps {
             report: Preregistration::NotNeeded,
             client_id: Some("id".to_owned()),
             secret: Some(("VAR".to_owned(), "secret".to_owned())),
+            auth_mode: AuthMode::ClientSecretPost,
         })
     }
     fn discover(&self, _: &str) -> Result<OAuthEndpoints, Failure> {
@@ -152,7 +153,15 @@ impl FlowOps for MockOps {
         }
         Ok(AuthorizationCode("code".to_owned()))
     }
-    fn exchange(&self, _: &str, _: &str, _: &str, _: &str, _: &str) -> Result<Tokens, Failure> {
+    fn exchange(
+        &self,
+        _: &str,
+        _: &str,
+        _: &str,
+        _: &str,
+        _: &str,
+        _: AuthMode,
+    ) -> Result<Tokens, Failure> {
         self.events.borrow_mut().push(PipelineEvent::Exchange);
         if self.fail_at == Some(PipelineEvent::Exchange) {
             return Err(Failure::failed("fail", "fail"));

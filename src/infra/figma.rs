@@ -64,12 +64,27 @@ pub fn needs_preregistration(host: &str) -> bool {
     PREREGISTRATION_HOSTS.contains(&host)
 }
 
+// For registration output to map to `AuthMode`
+use crate::infra::oauth::AuthMode;
+
 /// A registered OAuth client, as Figma's registration endpoint returns it.
 #[derive(Debug, Clone, serde::Deserialize)]
 pub struct ClientInfo {
     pub client_id: String,
     pub client_secret: Option<String>,
     pub client_secret_expires_at: Option<i64>,
+    #[serde(default)]
+    pub token_endpoint_auth_method: Option<String>,
+}
+
+impl ClientInfo {
+    pub fn auth_mode(&self) -> AuthMode {
+        match self.token_endpoint_auth_method.as_deref() {
+            Some("client_secret_post") => AuthMode::ClientSecretPost,
+            Some("client_secret_basic") => AuthMode::ClientSecretBasic,
+            _ => AuthMode::None,
+        }
+    }
 }
 
 /// Register an OAuth client for `redirect_uri` with Figma's MCP server.
@@ -132,14 +147,21 @@ fn register_client_as(redirect_uri: &str, client_name: &str) -> Result<ClientInf
         return Err(registration_failure(status.as_u16(), body));
     }
 
-    serde_json::from_str(&body).map_err(|e| {
+    let mut info: ClientInfo = serde_json::from_str(&body).map_err(|e| {
         Failure::failed(
             "figma.register_client_parse",
             format!("could not parse registration response: {e}"),
         )
         .expected("a JSON object with client_id")
         .actual(body)
-    })
+    })?;
+
+    // Figma registration might not return the auth method. Default to None.
+    if info.token_endpoint_auth_method.is_none() {
+        info.token_endpoint_auth_method = Some("none".to_owned());
+    }
+
+    Ok(info)
 }
 
 /// Build the [`Failure`] for a non-2xx registration response. A 403 gets a

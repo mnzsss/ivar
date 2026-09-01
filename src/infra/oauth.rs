@@ -158,9 +158,28 @@ pub fn authorize_url(
     format!("{authorization_endpoint}?{query}")
 }
 
-/// Exchange an authorization code for tokens at `token_endpoint`, using PKCE
-/// and the client secret (Figma requires the secret despite registering
-/// `token_endpoint_auth_method: "none"` — measured 2026-08-26).
+/// Token endpoint authentication method.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AuthMode {
+    None,
+    ClientSecretPost,
+    ClientSecretBasic,
+}
+
+impl std::fmt::Display for AuthMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AuthMode::None => write!(f, "none"),
+            AuthMode::ClientSecretPost => write!(f, "client_secret_post"),
+            AuthMode::ClientSecretBasic => write!(f, "client_secret_basic"),
+        }
+    }
+}
+
+/// Exchange an authorization code for tokens at `token_endpoint`, using PKCE.
+///
+/// `client_secret` is `Some` only when `auth_mode` is `ClientSecretPost` or
+/// `ClientSecretBasic`.
 #[allow(clippy::too_many_arguments)]
 pub fn exchange_code(
     token_endpoint: &str,
@@ -168,25 +187,45 @@ pub fn exchange_code(
     redirect_uri: &str,
     code_verifier: &CodeVerifier,
     client_id: &str,
-    client_secret: &str,
+    client_secret: Option<&str>,
+    auth_mode: AuthMode,
 ) -> Result<Tokens, Failure> {
-    let form = format!(
-        "grant_type=authorization_code&code={}&redirect_uri={}&code_verifier={}&client_id={}&client_secret={}",
-        form_encode(authorization_code),
-        form_encode(redirect_uri),
-        form_encode(&code_verifier.0),
-        form_encode(client_id),
-        form_encode(client_secret),
-    );
+    let mut params = vec![
+        ("grant_type", "authorization_code".to_owned()),
+        ("code", authorization_code.to_owned()),
+        ("redirect_uri", redirect_uri.to_owned()),
+        ("code_verifier", code_verifier.0.clone()),
+        ("client_id", client_id.to_owned()),
+    ];
 
-    // `http_status_as_error(false)` keeps a non-2xx response — status *and*
-    // body — in hand rather than turning it into a transport error, so the
-    // caller can distinguish a refused exchange from a transport failure
-    // without ever echoing the body (which may hold an `access_token`).
-    let response = ureq::post(token_endpoint)
+    if let Some(secret) = client_secret
+        && auth_mode == AuthMode::ClientSecretPost
+    {
+        params.push(("client_secret", secret.to_owned()));
+    }
+
+    let form = params
+        .iter()
+        .map(|(key, value)| format!("{}={}", key, form_encode(value)))
+        .collect::<Vec<_>>()
+        .join("&");
+
+    // `http_status_as_error(false)` maintains control over the response for
+    // better diagnostic reporting.
+    let mut request = ureq::post(token_endpoint)
         .config()
         .http_status_as_error(false)
-        .build()
+        .build();
+
+    if auth_mode == AuthMode::ClientSecretBasic
+        && let Some(secret) = client_secret
+    {
+        let auth = format!("{}:{}", client_id, secret);
+        let b64 = base64::engine::general_purpose::STANDARD.encode(auth);
+        request = request.header("Authorization", &format!("Basic {}", b64));
+    }
+
+    let response = request
         .header("Content-Type", "application/x-www-form-urlencoded")
         .send(form)
         .map_err(|e| {
@@ -199,19 +238,50 @@ pub fn exchange_code(
         })?;
 
     let status = response.status();
+    let content_type = response
+        .headers()
+        .get("Content-Type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_owned();
     let body = read_body(response.into_body().as_reader())?;
 
     if !status.is_success() {
         let oauth_error = extract_oauth_error(&body).unwrap_or("unknown_error");
+        let field_names = params
+            .iter()
+            .map(|(k, _)| *k)
+            .collect::<Vec<_>>()
+            .join(", ");
+
         return Err(Failure::failed(
             "oauth.exchange_code_http",
             format!("token endpoint returned {status}: {oauth_error}"),
         )
         .expected("HTTP 2xx")
-        .actual(format!("HTTP {status}, OAuth error: {oauth_error}")));
+        .actual(format!(
+            "HTTP {status}, endpoint: {token_endpoint}, content-type: {}, body-len: {}, \
+             oauth-error: {oauth_error}, auth-mode: {auth_mode}, fields: [{field_names}]",
+            classify_content_type(&content_type),
+            body.len()
+        )));
     }
 
     tokens_from_json(&body, now_unix())
+}
+
+fn classify_content_type(ct: &str) -> &'static str {
+    if ct.contains("application/json") {
+        "application/json"
+    } else if ct.contains("application/x-www-form-urlencoded") {
+        "application/x-www-form-urlencoded"
+    } else if ct.contains("text/plain") {
+        "text/plain"
+    } else if ct.contains("text/html") {
+        "text/html"
+    } else {
+        "other"
+    }
 }
 
 /// Extract OAuth error category from a JSON response body.

@@ -66,6 +66,7 @@ fn attempt(
         report: preregistration,
         client_id: _,
         secret,
+        auth_mode: _,
     } = match preregister_if_needed(layout, manifest, provider, server, materialised_name) {
         Ok(preregistered) => preregistered,
         Err(failure) => {

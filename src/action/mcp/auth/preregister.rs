@@ -10,6 +10,7 @@ use crate::domain::provider::Provider;
 use crate::error::{Failure, FixAction};
 use crate::harness::config;
 use crate::infra::figma;
+use crate::infra::oauth::AuthMode;
 use crate::store::layout::Layout;
 use crate::store::manifest::Manifest;
 use crate::store::mcp_secrets::McpSecrets;
@@ -24,6 +25,8 @@ pub(super) struct Preregistered {
     pub(super) client_id: Option<String>,
     /// Resolved or freshly minted client secret for child command dispatch.
     pub(super) secret: Option<(String, String)>,
+    /// The auth mode to use for token exchange.
+    pub(super) auth_mode: AuthMode,
 }
 
 impl std::fmt::Debug for Preregistered {
@@ -32,6 +35,7 @@ impl std::fmt::Debug for Preregistered {
             .field("report", &self.report)
             .field("client_id", &self.client_id)
             .field("secret_var", &self.secret.as_ref().map(|(var, _)| var))
+            .field("auth_mode", &self.auth_mode)
             .finish()
     }
 }
@@ -42,6 +46,7 @@ impl Preregistered {
             report: Preregistration::NotNeeded,
             client_id: None,
             secret: None,
+            auth_mode: AuthMode::ClientSecretPost,
         }
     }
 }
@@ -82,11 +87,12 @@ pub(super) fn preregister_if_needed(
             report: Preregistration::Skipped,
             client_id: Some(oauth.client_id.clone()),
             secret: Some((oauth.client_secret_env.clone(), val)),
+            auth_mode: AuthMode::ClientSecretPost,
         });
     }
 
     let registered = figma::register_client(config::OAUTH_REDIRECT_URI)?;
-    let client_secret = registered.client_secret.ok_or_else(|| {
+    let client_secret = registered.client_secret.clone().ok_or_else(|| {
         Failure::failed(
             "mcp.figma_no_client_secret",
             format!(
@@ -103,6 +109,7 @@ pub(super) fn preregister_if_needed(
     })?;
 
     let secret_env = secret_env_var(materialised_name);
+    let auth_mode = registered.auth_mode();
 
     // Persist to local secret store before modifying manifest or provider configs
     McpSecrets::set_and_write(layout, &secret_env, &client_secret)?;
@@ -138,6 +145,7 @@ pub(super) fn preregister_if_needed(
         },
         client_id: Some(registered.client_id),
         secret: Some((secret_env, client_secret)),
+        auth_mode,
     })
 }
 

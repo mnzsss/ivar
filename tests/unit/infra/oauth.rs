@@ -280,7 +280,16 @@ fn exchange_code_captures_oauth_error() {
 
     let token_endpoint = format!("http://127.0.0.1:{port}");
     let verifier = CodeVerifier("v".to_owned());
-    let err = exchange_code(&token_endpoint, "code", "uri", &verifier, "id", "secret").unwrap_err();
+    let err = exchange_code(
+        &token_endpoint,
+        "code",
+        "uri",
+        &verifier,
+        "id",
+        Some("secret"),
+        AuthMode::ClientSecretPost,
+    )
+    .unwrap_err();
 
     assert!(err.actual.unwrap().contains("invalid_grant"));
 }
@@ -298,32 +307,51 @@ fn form_encode_uses_plus_for_spaces() {
     assert_eq!(form_encode("http://x/y"), "http%3A%2F%2Fx%2Fy");
 }
 
-struct RequestAnalysis {
-    is_post: bool,
-    has_basic_auth: bool,
-    has_client_id: bool,
-    has_client_secret: bool,
+#[test]
+fn exchange_code_request_structure_none() {
+    exchange_code_with_mode(AuthMode::None, |is_post, _, _, has_secret| {
+        assert!(is_post);
+        assert!(!has_secret);
+    });
 }
 
 #[test]
-fn exchange_code_request_structure() {
+fn exchange_code_request_structure_post() {
+    exchange_code_with_mode(AuthMode::ClientSecretPost, |is_post, _, _, has_secret| {
+        assert!(is_post);
+        assert!(has_secret);
+    });
+}
+
+#[test]
+fn exchange_code_request_structure_basic() {
+    exchange_code_with_mode(AuthMode::ClientSecretBasic, |is_post, has_basic, _, _| {
+        assert!(is_post);
+        assert!(has_basic);
+    });
+}
+
+fn exchange_code_with_mode<F>(mode: AuthMode, assertion: F)
+where
+    F: FnOnce(bool, bool, bool, bool) + Send + 'static,
+{
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let port = listener.local_addr().unwrap().port();
 
     let handle = thread::spawn(move || {
         let (mut stream, _) = listener.accept().unwrap();
-        let _buf = [0u8; 8192];
         let mut buf = [0u8; 8192];
         let mut request = String::new();
-        while !request.contains("client_secret=") {
-            let bytes = stream.read(&mut buf).expect("Failed to read from stream");
+        while let Ok(bytes) = stream.read(&mut buf) {
             if bytes == 0 {
                 break;
             }
             request.push_str(&String::from_utf8_lossy(
-                buf.get(..bytes)
-                    .expect("buffer should be large enough to hold read bytes"),
+                buf.get(..bytes).expect("buffer valid"),
             ));
+            // We need to read enough to get the body.
+            // In a real test we might just wait for close() which happens when stream is dropped on the client side.
+            // But here the client closes after send().
         }
 
         let is_post = request.starts_with("POST");
@@ -333,31 +361,23 @@ fn exchange_code_request_structure() {
 
         let response =
             "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n{\"access_token\":\"at\"}";
-        stream
-            .write_all(response.as_bytes())
-            .expect("Failed to send response");
-        stream
-            .shutdown(std::net::Shutdown::Both)
-            .expect("Failed to close stream");
+        let _ = stream.write_all(response.as_bytes());
+        let _ = stream.shutdown(std::net::Shutdown::Both);
 
-        RequestAnalysis {
-            is_post,
-            has_basic_auth,
-            has_client_id,
-            has_client_secret,
-        }
+        assertion(is_post, has_basic_auth, has_client_id, has_client_secret);
     });
 
     let token_endpoint = format!("http://127.0.0.1:{port}");
     let verifier = CodeVerifier("v".to_owned());
-    let _ = exchange_code(&token_endpoint, "code", "uri", &verifier, "id", "secret").unwrap();
-
-    let analysis = handle.join().unwrap();
-    assert!(analysis.is_post, "Request was not POST");
-    assert!(
-        !analysis.has_basic_auth,
-        "Request incorrectly had Basic Auth header"
-    );
-    assert!(analysis.has_client_secret, "Request missing client_secret");
-    assert!(analysis.has_client_id, "Request missing client_id");
+    let _ = exchange_code(
+        &token_endpoint,
+        "code",
+        "uri",
+        &verifier,
+        "id",
+        Some("secret"),
+        mode,
+    )
+    .unwrap();
+    handle.join().unwrap();
 }

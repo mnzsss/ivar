@@ -43,7 +43,7 @@ use super::{AuthMethod, Preregistration, ProviderRun};
 use crate::infra::figma::{self, OAuthEndpoints};
 use crate::infra::fs;
 use crate::infra::http_callback::{AuthorizationCode, CallbackServer};
-use crate::infra::oauth::{self, Tokens};
+use crate::infra::oauth::{self, AuthMode, Tokens};
 
 /// How long to wait for the OAuth callback before giving up.
 const CALLBACK_TIMEOUT: Duration = Duration::from_secs(120);
@@ -70,6 +70,7 @@ pub(super) trait FlowOps {
         verifier: &str,
         id: &str,
         secret: &str,
+        mode: AuthMode,
     ) -> Result<Tokens, Failure>;
     fn write(&self, name: &str, entry: &Entry) -> Result<(), Failure>;
     fn verify(&self, name: &str) -> Result<bool, Failure>;
@@ -110,6 +111,7 @@ impl FlowOps for RealFlowOps {
         verifier: &str,
         id: &str,
         secret: &str,
+        mode: AuthMode,
     ) -> Result<Tokens, Failure> {
         oauth::exchange_code(
             endpoint,
@@ -117,7 +119,8 @@ impl FlowOps for RealFlowOps {
             REDIRECT_URI,
             &oauth::CodeVerifier(verifier.to_owned()),
             id,
-            secret,
+            Some(secret),
+            mode,
         )
     }
     fn write(&self, name: &str, entry: &Entry) -> Result<(), Failure> {
@@ -237,6 +240,7 @@ pub(super) fn run_internal_flow_pipeline(
         &verifier.0,
         &client_id,
         &client_secret,
+        preregistered.auth_mode,
     )?;
 
     // Step 9: Persist
