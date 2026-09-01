@@ -171,15 +171,12 @@ pub fn exchange_code(
     client_secret: &str,
 ) -> Result<Tokens, Failure> {
     let form = format!(
-        "grant_type=authorization_code&code={}&redirect_uri={}&code_verifier={}",
+        "grant_type=authorization_code&code={}&redirect_uri={}&code_verifier={}&client_id={}&client_secret={}",
         form_encode(authorization_code),
         form_encode(redirect_uri),
         form_encode(&code_verifier.0),
-    );
-
-    let auth_header = format!(
-        "Basic {}",
-        STANDARD.encode(format!("{client_id}:{client_secret}"))
+        form_encode(client_id),
+        form_encode(client_secret),
     );
 
     // `http_status_as_error(false)` keeps a non-2xx response — status *and*
@@ -191,7 +188,6 @@ pub fn exchange_code(
         .http_status_as_error(false)
         .build()
         .header("Content-Type", "application/x-www-form-urlencoded")
-        .header("Authorization", &auth_header)
         .send(form)
         .map_err(|e| {
             Failure::failed(
