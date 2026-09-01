@@ -23,15 +23,13 @@ fn repo(base: &str) -> DeliveryRepo {
         remote_default_tip: None,
         pr_title: None,
         pr_body: None,
+        draft: None,
     }
 }
 
 fn main_branch() -> BranchName {
     BranchName::new("main").unwrap()
 }
-
-// -- delivery preview ----------------------------------------------------
-
 fn delivery_repo(repo: &str) -> DeliveryRepo {
     DeliveryRepo {
         repo: RepoName::new(repo).unwrap(),
@@ -48,6 +46,7 @@ fn delivery_repo(repo: &str) -> DeliveryRepo {
         remote_default_tip: None,
         pr_title: None,
         pr_body: None,
+        draft: None,
     }
 }
 

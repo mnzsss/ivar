@@ -55,7 +55,8 @@ pub use cleanup::{
     WorktreeRemoval, classify_cleanup, classify_delivery,
 };
 pub use delivery::{
-    DeliveryAction, DeliveryMode, DeliveryPreview, DeliveryRepo, DeliveryTreeBlocker, Guard,
+    DeliveryAction, DeliveryMode, DeliveryPreview, DeliveryRepo, DeliveryTreeBlocker, DraftAction,
+    Guard,
 };
 pub use integration::{
     ClassificationFacts, FeatureIntegrationState, IntegrationOverride, IntegrationPolicy,

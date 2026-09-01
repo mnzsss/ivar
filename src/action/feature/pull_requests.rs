@@ -40,6 +40,8 @@ pub(crate) struct PullRequest {
     pub head_oid: Option<String>,
     /// The merge commit, once merged. `None` while open.
     pub merge_commit: Option<String>,
+    /// Is this PR a draft?
+    pub is_draft: bool,
 }
 
 /// The `--json url,number,state,mergeCommit,headRefOid` shape `gh pr list`
@@ -51,6 +53,8 @@ struct GhPrRecord {
     number: u64,
     #[serde(default)]
     state: String,
+    #[serde(default, rename = "isDraft")]
+    is_draft: bool,
     #[serde(default, rename = "mergeCommit")]
     merge_commit: Option<GhOid>,
     #[serde(default, rename = "headRefOid")]
@@ -69,6 +73,7 @@ impl From<GhPrRecord> for PullRequest {
             url: record.url,
             number: record.number,
             state: record.state,
+            is_draft: record.is_draft,
             head_oid: record.head_ref_oid,
             merge_commit: record.merge_commit.map(|commit| commit.oid),
         }
@@ -93,7 +98,7 @@ pub(crate) fn find_pull_request(
                 "--state",
                 state,
                 "--json",
-                "url,number,state,mergeCommit,headRefOid",
+                "url,number,state,mergeCommit,headRefOid,isDraft",
             ])
             .cwd(git_dir),
         "pr list",
@@ -160,6 +165,7 @@ pub(crate) fn create_pull_request(
         url,
         number,
         state: "OPEN".to_owned(),
+        is_draft: false,
         head_oid: None,
         merge_commit: None,
     })
@@ -335,7 +341,8 @@ fn observe_merge_with(
                         "integration.observe_again",
                         "Run `ivar feature integrate` again to re-observe the merge.",
                     )));
-                }
+
+            }
                 std::thread::sleep(poll);
             }
         }
