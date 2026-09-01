@@ -156,3 +156,21 @@ fn discover_oauth_endpoints_repro_405() {
         err
     );
 }
+
+#[test]
+fn a_secret_with_auth_method_none_still_means_client_secret_post() {
+    // Figma echoes back the `"none"` it was sent while issuing a secret its
+    // token endpoint then demands.
+    let info: ClientInfo = serde_json::from_str(
+        r#"{"client_id":"id","client_secret":"s","token_endpoint_auth_method":"none"}"#,
+    )
+    .unwrap();
+    assert_eq!(info.auth_mode(), AuthMode::ClientSecretPost);
+}
+
+#[test]
+fn no_secret_with_auth_method_none_stays_a_public_client() {
+    let info: ClientInfo =
+        serde_json::from_str(r#"{"client_id":"id","token_endpoint_auth_method":"none"}"#).unwrap();
+    assert_eq!(info.auth_mode(), AuthMode::None);
+}

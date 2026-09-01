@@ -78,10 +78,18 @@ pub struct ClientInfo {
 }
 
 impl ClientInfo {
+    /// The token-endpoint auth mode to use for this registration.
+    ///
+    /// Figma echoes back the `token_endpoint_auth_method: "none"` it was sent
+    /// while still issuing a `client_secret`, and its token endpoint then
+    /// rejects an exchange that omits it with `Client secret is required`
+    /// (measured 2026-08-26). A registration carrying a secret is a
+    /// confidential client, so `none` plus a secret means `client_secret_post`.
     pub fn auth_mode(&self) -> AuthMode {
         match self.token_endpoint_auth_method.as_deref() {
             Some("client_secret_post") => AuthMode::ClientSecretPost,
             Some("client_secret_basic") => AuthMode::ClientSecretBasic,
+            _ if self.client_secret.is_some() => AuthMode::ClientSecretPost,
             _ => AuthMode::None,
         }
     }
