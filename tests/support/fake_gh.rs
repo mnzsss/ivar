@@ -76,6 +76,7 @@ while [ $# -gt 0 ]; do
     --body) body="$2"; shift 2 ;;
     --required) required=1; shift ;;
     --match-head-commit) match_sha="$2"; shift 2 ;;
+    --url) url="$2"; shift 2 ;;
     --merge|--squash|--rebase) strategy="$1"; shift ;;
     *)
       if [ -z "$url" ]; then url="$1"; fi
@@ -160,6 +161,44 @@ case "$sub" in
     # refused, exactly like the real `gh`.
     printf '%s|%s|%s|%s|%s|%s|%s\n' "$cwd_now" "$head" "$pr_url" "$base" "OPEN" "" "$head_oid" >> "$GH_FAKE_STATE"
     printf '%s\n' "$pr_url"
+    ;;
+  "pr edit")
+    # gh pr edit --url <url> [--title <title>] [--body <body>]
+    # The main loop already captured --url, --title, --body into $url, $title, $body.
+    if [ -z "$url" ]; then
+      printf 'missing --url flag\n' >&2
+      exit 1
+    fi
+    # Look up the PR by URL in the fake state.
+    cwd_now="$(pwd)"
+    record=$(grep -F "|$url|" "$GH_FAKE_STATE" | head -n 1)
+    if [ -z "$record" ]; then
+      printf 'no pull request found for URL "%s"\n' "$url" >&2
+      exit 1
+    fi
+    pr_url=$(printf '%s' "$record" | awk -F'|' '{print $3}')
+    old_head=$(printf '%s' "$record" | awk -F'|' '{print $2}')
+    pr_state=$(printf '%s' "$record" | awk -F'|' '{print $5}')
+    pr_base=$(printf '%s' "$record" | awk -F'|' '{print $4}')
+    created_oid=$(printf '%s' "$record" | awk -F'|' '{print $7}')
+    # Resolve final title/body: use new value if supplied, else keep existing.
+    final_title="$title"
+    final_body="$body"
+    if [ -z "$final_title" ]; then
+      final_title=$(printf '%s' "$record" | awk -F'|' '{print $8}')
+    fi
+    if [ -z "$final_body" ]; then
+      final_body=$(printf '%s' "$record" | awk -F'|' '{print $9}')
+    fi
+    # Rebuild the record: cwd|head|url|base|state|queue|created_oid[|title|body]
+    new_record="${cwd_now}|${old_head}|${pr_url}|${pr_base}|${pr_state}"
+    [ -n "$created_oid" ] && new_record="${new_record}|${created_oid}"
+    [ -n "$final_title" ] && new_record="${new_record}|${final_title}"
+    [ -n "$final_body" ] && new_record="${new_record}|${final_body}"
+    # Replace the old record in the state file.
+    text=$(grep -vF "|${old_head}|" "$GH_FAKE_STATE" 2>/dev/null || true)
+    printf '%s\n' "$text" > "$GH_FAKE_STATE"
+    printf '%s\n' "$new_record" >> "$GH_FAKE_STATE"
     ;;
   "pr checks")
     if [ -z "$pr_url" ]; then printf '[]\n'; exit 0; fi
