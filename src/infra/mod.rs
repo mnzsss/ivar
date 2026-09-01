@@ -13,6 +13,7 @@ pub mod frontmatter;
 pub mod fs;
 pub mod github;
 pub mod hash;
+pub mod http_callback;
 pub mod json;
 pub mod oauth;
 pub mod proc;
