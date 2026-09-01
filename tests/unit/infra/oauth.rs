@@ -1,6 +1,9 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use super::*;
+use std::net::TcpListener;
+use std::thread;
+use std::io::{Read, Write};
 
 // -- pkce_pair ----------------------------------------------------------
 
@@ -271,4 +274,42 @@ fn query_encode_uses_pct20_for_spaces() {
 fn form_encode_uses_plus_for_spaces() {
     assert_eq!(form_encode("a b"), "a+b");
     assert_eq!(form_encode("http://x/y"), "http%3A%2F%2Fx%2Fy");
+}
+
+#[test]
+fn exchange_code_request_structure() {
+    // Start listener
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    
+    let handle = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut buf = [0u8; 2048];
+        let bytes = stream.read(&mut buf).unwrap();
+        let request = String::from_utf8_lossy(&buf[..bytes]);
+        
+        // Respond with OK
+        let response = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n{\"access_token\":\"at\"}";
+        stream.write_all(response.as_bytes()).unwrap();
+        
+        request.to_string()
+    });
+    
+    // Call exchange_code
+    let token_endpoint = format!("http://127.0.0.1:{port}");
+    let verifier = CodeVerifier("v".to_owned());
+    let _ = exchange_code(
+        &token_endpoint, 
+        "code", 
+        "uri", 
+        &verifier, 
+        "id", 
+        "secret"
+    ).unwrap();
+    
+    let request = handle.join().unwrap();
+    // Verify request
+    let request_lower = request.to_lowercase();
+    assert!(request_lower.contains("authorization: basic "), "Request did not contain Authorization: Basic header. Request:\n{request}");
+    assert!(!request_lower.contains("client_secret="), "Request incorrectly contained client_secret= in body. Request:\n{request}");
 }

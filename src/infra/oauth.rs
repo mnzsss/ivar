@@ -23,7 +23,7 @@ use std::io::Read;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use base64::Engine;
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64::engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD};
 use sha2::{Digest, Sha256};
 
 use crate::error::Failure;
@@ -171,12 +171,15 @@ pub fn exchange_code(
     client_secret: &str,
 ) -> Result<Tokens, Failure> {
     let form = format!(
-        "grant_type=authorization_code&code={}&redirect_uri={}&code_verifier={}&client_id={}&client_secret={}",
+        "grant_type=authorization_code&code={}&redirect_uri={}&code_verifier={}",
         form_encode(authorization_code),
         form_encode(redirect_uri),
         form_encode(&code_verifier.0),
-        form_encode(client_id),
-        form_encode(client_secret),
+    );
+
+    let auth_header = format!(
+        "Basic {}",
+        STANDARD.encode(format!("{client_id}:{client_secret}"))
     );
 
     // `http_status_as_error(false)` keeps a non-2xx response — status *and*
@@ -188,6 +191,7 @@ pub fn exchange_code(
         .http_status_as_error(false)
         .build()
         .header("Content-Type", "application/x-www-form-urlencoded")
+        .header("Authorization", &auth_header)
         .send(form)
         .map_err(|e| {
             Failure::failed(
