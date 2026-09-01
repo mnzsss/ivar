@@ -7,8 +7,8 @@ use std::collections::BTreeMap;
 use camino::Utf8Path;
 
 use crate::action::feature::deliver::input::PullRequestMetadata;
-use crate::domain::feature::{DeliveryAction, DeliveryMode, DeliveryRepo, DraftAction};
 use crate::domain::feature::Feature;
+use crate::domain::feature::{DeliveryAction, DeliveryMode, DeliveryRepo, DraftAction};
 use crate::domain::name::RepoName;
 use crate::error::{Failure, FixAction};
 use crate::git::{self, TargetState};
@@ -212,7 +212,13 @@ pub(crate) fn build_repos(
             remote_default_tip,
             pr_title: metadata.title,
             pr_body: metadata.body,
-            draft: metadata.draft.map(|d| if d { DraftAction::CreateAsDraft } else { DraftAction::ConvertToDraft }),
+            draft: metadata.draft.map(|d| {
+                if d {
+                    DraftAction::CreateAsDraft
+                } else {
+                    DraftAction::ConvertToDraft
+                }
+            }),
         });
     }
 

@@ -410,27 +410,19 @@ fn feature_rebase_accepts_onto() {
     let cli =
         Cli::try_parse_from(["ivar", "feature", "rebase", "checkout", "--onto", "main"]).unwrap();
 
-    match cli.command {
-        Command::Feature(FeatureCommand::Rebase(args)) => {
-            assert_eq!(args.onto.as_deref(), Some("main"));
-        }
-        _ => {}
+    if let Command::Feature(FeatureCommand::Rebase(args)) = cli.command {
+        assert_eq!(args.onto.as_deref(), Some("main"));
     }
 }
-
 
 #[test]
 fn feature_deliver_parses_draft_intent() {
-    let cli = Cli::try_parse_from([
-        "ivar", "feature", "deliver", "checkout", "--draft",
-    ])
-    .unwrap();
+    let cli = Cli::try_parse_from(["ivar", "feature", "deliver", "checkout", "--draft"]).unwrap();
 
     if let Command::Feature(FeatureCommand::Deliver(args)) = cli.command {
-        assert_eq!(args.draft, Some(true));
+        assert_eq!(args.global_metadata.draft, Some(true));
     }
 }
-
 
 /// A future git may name an operation this build has never heard of. Parsing
 /// must still succeed — gitcredentials(7) requires the helper to ignore what

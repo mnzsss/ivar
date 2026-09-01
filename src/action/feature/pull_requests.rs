@@ -341,8 +341,7 @@ fn observe_merge_with(
                         "integration.observe_again",
                         "Run `ivar feature integrate` again to re-observe the merge.",
                     )));
-
-            }
+                }
                 std::thread::sleep(poll);
             }
         }

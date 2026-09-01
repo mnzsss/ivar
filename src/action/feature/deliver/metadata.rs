@@ -129,7 +129,10 @@ pub(crate) fn resolve(
             .and_then(|m| m.draft)
             .or(global_resolved.draft);
 
-        result.insert(repo_name.clone(), PullRequestMetadata { title, body, draft });
+        result.insert(
+            repo_name.clone(),
+            PullRequestMetadata { title, body, draft },
+        );
     }
 
     Ok(result)

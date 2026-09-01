@@ -501,8 +501,6 @@ pub struct FeatureDeliverArgs {
     pub global_metadata: deliver::PullRequestMetadata,
     /// Repository-scoped overrides.
     pub repo_overrides: Vec<deliver::RepoMetadataOverride>,
-    /// Whether to create/convert as draft.
-    pub draft: Option<bool>,
 }
 
 impl clap::Args for FeatureDeliverArgs {
@@ -552,6 +550,12 @@ impl clap::Args for FeatureDeliverArgs {
                 .value_name("REPO")
                 .action(clap::ArgAction::Append),
         )
+        .arg(
+            clap::Arg::new("draft")
+                .long("draft")
+                .help("Create or convert a pull request to a draft. If placed before any `--repo`, applies globally; if placed after a `--repo`, applies to that repo.")
+                .action(clap::ArgAction::SetTrue),
+        )
     }
 
     fn augment_args_for_update(cmd: clap::Command) -> clap::Command {
@@ -578,7 +582,6 @@ impl clap::FromArgMatches for FeatureDeliverArgs {
             fingerprint,
             global_metadata,
             repo_overrides,
-            draft: None,
         })
     }
 
@@ -1322,6 +1325,7 @@ impl FeatureDeliverArgs {
             Name(String),
             Body(String),
             Repo(String),
+            Draft(bool),
         }
 
         let mut occurrences: Vec<(usize, DeliverOption)> = Vec::new();
@@ -1351,6 +1355,11 @@ impl FeatureDeliverArgs {
                 .unwrap_or_default();
             for (idx, val) in indices.zip(values) {
                 occurrences.push((idx, DeliverOption::Repo(val.clone())));
+            }
+        }
+        if let Some(indices) = matches.indices_of("draft") {
+            for idx in indices {
+                occurrences.push((idx, DeliverOption::Draft(true)));
             }
         }
 
@@ -1409,6 +1418,25 @@ impl FeatureDeliverArgs {
                         global_metadata.body = Some(body);
                     }
                 }
+                DeliverOption::Draft(draft) => {
+                    if let Some((ref r, ref mut meta)) = current_repo {
+                        if meta.draft.is_some() {
+                            return Err(clap::Error::raw(
+                                clap::error::ErrorKind::ArgumentConflict,
+                                format!("duplicate `--draft` in repository group `{r}`\n"),
+                            ));
+                        }
+                        meta.draft = Some(draft);
+                    } else {
+                        if global_metadata.draft.is_some() {
+                            return Err(clap::Error::raw(
+                                clap::error::ErrorKind::ArgumentConflict,
+                                "duplicate global `--draft`\n",
+                            ));
+                        }
+                        global_metadata.draft = Some(draft);
+                    }
+                }
             }
         }
 
@@ -1432,7 +1460,6 @@ impl From<FeatureDeliverArgs> for deliver::DeliverInput {
             fingerprint,
             global_metadata,
             repo_overrides,
-            draft: _,
         } = args;
 
         Self {

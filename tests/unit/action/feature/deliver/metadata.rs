@@ -87,23 +87,23 @@ fn resolve_field_wise_inheritance_and_repo_overrides() {
             draft: None,
         },
         repo_overrides: vec![
-                RepoMetadataOverride {
-                    repo: "api".to_owned(),
-                    metadata: PullRequestMetadata {
-                        title: Some("feat(api): custom title".to_owned()),
-                        body: None,
-                        draft: None,
-                    },
+            RepoMetadataOverride {
+                repo: "api".to_owned(),
+                metadata: PullRequestMetadata {
+                    title: Some("feat(api): custom title".to_owned()),
+                    body: None,
+                    draft: None,
                 },
-                RepoMetadataOverride {
-                    repo: "web".to_owned(),
-                    metadata: PullRequestMetadata {
-                        title: None,
-                        body: Some("custom web body".to_owned()),
-                        draft: None,
-                    },
+            },
+            RepoMetadataOverride {
+                repo: "web".to_owned(),
+                metadata: PullRequestMetadata {
+                    title: None,
+                    body: Some("custom web body".to_owned()),
+                    draft: None,
                 },
-            ],
+            },
+        ],
     };
 
     let resolved = resolve(&ctx, &feature, &input).unwrap();
