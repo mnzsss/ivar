@@ -2,8 +2,9 @@
 //!
 //! When the provider is OpenCode and the server's host is on Figma's
 //! pre-registration allowlist, Ivar performs the full authorization-code
-//! + PKCE flow itself instead of delegating to `opencode mcp auth`
-//! (`R-FIGMA-FLOW`). This module orchestrates the steps:
+//! + PKCE flow itself instead of delegating to `opencode mcp auth`.
+//!
+//! This module orchestrates the steps:
 //!
 //! 1. **Conflict check** — `opencode_auth::has_entry(materialised_name)`
 //!    before anything else (`R-CONFLICT`).

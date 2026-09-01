@@ -1,46 +1,17 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use super::*;
-
 use crate::action::mcp::auth::{AuthMethod, Preregistration, ProviderRun};
-use crate::domain::mcp::McpServerDef;
-use crate::domain::name::HallName;
 use crate::domain::provider::Provider;
 use crate::infra::figma;
-use crate::store::manifest::{Manifest, Providers};
-
-/// Helper to build a minimal manifest with no pre-registered Figma client.
-fn manifest() -> Manifest {
-    Manifest::new(
-        HallName::new("test").unwrap(),
-        Providers::new(vec![Provider::OpenCode], Provider::OpenCode),
-        vec![],
-        None,
-    )
-    .unwrap()
-}
-
-/// Helper to build a minimal MCP server def for Figma.
-fn figma_server() -> McpServerDef {
-    McpServerDef {
-        name: "figma-test".to_owned(),
-        type_: "stdio".to_owned(),
-        command: Some("figma".to_owned()),
-        args: None,
-        url: Some("https://mcp.figma.com/mcp".to_owned()),
-        env: None,
-        oauth: None,
-    }
-}
 
 #[test]
 fn discover_oauth_endpoints_pure_parsing() {
-    // Given: a minimal WWW-Authenticate header value pointing to resource metadata
     let header = r#"Bearer realm="Figma", resource_metadata="https://mcp.figma.com/.well-known/oauth-protected-resource""#;
-    let resource_url =
-        figma::parse_www_authenticate_resource_metadata(header).expect("parse header");
-
-    // When: parsing the resource metadata JSON
+    // Verify the parser extracts the resource_metadata URL from the header.
+    assert_eq!(
+        figma::parse_www_authenticate_resource_metadata(header),
+        Some("https://mcp.figma.com/.well-known/oauth-protected-resource".to_owned())
+    );
     let resource_json = r#"{"authorization_servers":["https://www.figma.com/oauth"],"resource":"https://api.figma.com","scopes_supported":["file_read"]}"#;
     let (authorization_server, resource) =
         figma::parse_resource_metadata(resource_json).expect("parse resource");

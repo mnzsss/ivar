@@ -44,9 +44,10 @@ fn attempt(
 ) -> Attempt {
     // For OpenCode + Figma host, dispatch to the internal OAuth flow.
     if provider == Provider::OpenCode
-        && server.url.as_deref().map_or(false, |u| {
-            host_of(u).map_or(false, |h| figma::needs_preregistration(h))
-        })
+        && server
+            .url
+            .as_deref()
+            .is_some_and(|u| host_of(u).is_some_and(figma::needs_preregistration))
     {
         return attempt_internal_flow(layout, manifest, server, materialised_name);
     }
