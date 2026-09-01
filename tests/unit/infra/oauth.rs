@@ -261,7 +261,29 @@ fn tokens_omit_none_fields_when_serializing() {
     assert!(value.get("scope").is_none());
 }
 
-// -- encoding -----------------------------------------------------------
+#[test]
+fn exchange_code_captures_oauth_error() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+
+    thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        // Read the request
+        let mut buf = [0u8; 4096];
+        let _ = stream.read(&mut buf).unwrap();
+
+        // Return a 400 error
+        let response = "HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\n\r\n{\"error\":\"invalid_grant\"}";
+        stream.write_all(response.as_bytes()).unwrap();
+        stream.shutdown(std::net::Shutdown::Both).unwrap();
+    });
+
+    let token_endpoint = format!("http://127.0.0.1:{port}");
+    let verifier = CodeVerifier("v".to_owned());
+    let err = exchange_code(&token_endpoint, "code", "uri", &verifier, "id", "secret").unwrap_err();
+
+    assert!(err.actual.unwrap().contains("invalid_grant"));
+}
 
 #[test]
 fn query_encode_uses_pct20_for_spaces() {

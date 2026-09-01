@@ -206,15 +206,39 @@ pub fn exchange_code(
     let body = read_body(response.into_body().as_reader())?;
 
     if !status.is_success() {
+        let oauth_error = extract_oauth_error(&body).unwrap_or("unknown_error");
         return Err(Failure::failed(
             "oauth.exchange_code_http",
-            format!("token endpoint returned {status}"),
+            format!("token endpoint returned {status}: {oauth_error}"),
         )
         .expected("HTTP 2xx")
-        .actual(format!("HTTP {status}")));
+        .actual(format!("HTTP {status}, OAuth error: {oauth_error}")));
     }
 
     tokens_from_json(&body, now_unix())
+}
+
+/// Extract OAuth error category from a JSON response body.
+fn extract_oauth_error(body: &str) -> Option<&'static str> {
+    let json: serde_json::Value = serde_json::from_str(body).ok()?;
+    let error = json.get("error")?.as_str()?;
+    match error {
+        "invalid_request"
+        | "invalid_client"
+        | "invalid_grant"
+        | "unauthorized_client"
+        | "unsupported_grant_type"
+        | "invalid_scope" => Some(match error {
+            "invalid_request" => "invalid_request",
+            "invalid_client" => "invalid_client",
+            "invalid_grant" => "invalid_grant",
+            "unauthorized_client" => "unauthorized_client",
+            "unsupported_grant_type" => "unsupported_grant_type",
+            "invalid_scope" => "invalid_scope",
+            _ => unreachable!(),
+        }),
+        _ => Some("unknown_oauth_error"),
+    }
 }
 
 /// Parse a token-endpoint JSON body into [`Tokens`], turning the server's
