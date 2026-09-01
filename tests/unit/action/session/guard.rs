@@ -144,6 +144,76 @@ fn writes_outside_the_set_are_denied_with_a_reason_naming_the_set() {
     }
 }
 
+/// Every structured write tool a provider can send, not just the two the
+/// guard was originally written against. `NotebookEdit` and `MultiEdit` are
+/// the ones that leaked: they fell through to the permissive arm and wrote
+/// wherever they liked.
+#[test]
+fn every_structured_write_tool_is_denied_outside_the_set() {
+    let (set, _guard) = writable_set_fixture();
+    for tool in [
+        "Write",
+        "Edit",
+        "MultiEdit",
+        "NotebookEdit",
+        "ApplyPatch",
+        "apply_patch",
+        "patch",
+    ] {
+        let req = ToolRequest {
+            tool: tool.to_owned(),
+            file_path: Some("/etc/passwd".into()),
+        };
+        match decide(Some(&set), &req) {
+            GuardDecision::Deny { reason } => assert!(
+                reason.contains("writable"),
+                "`{tool}` must name the set: {reason}"
+            ),
+            GuardDecision::Allow => panic!("`{tool}` outside the set must be denied"),
+        }
+    }
+}
+
+/// A discovery session binds no feature, and every repo under it is mounted
+/// read-only on its default branch. Resolving to `None` made the guard inert
+/// exactly there — the session where nothing at all may be written.
+#[test]
+fn a_discovery_session_resolves_to_an_empty_writable_set() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root.clone());
+    let session_id = SessionId::new("6f0c9d5f-0000-4000-8000-00000000dddd").unwrap();
+    let view_dir = layout.discovery_session(&session_id);
+    crate::infra::fs::ensure_dir(&view_dir).unwrap();
+
+    let env = crate::action::session::env::SessionEnv {
+        hall: root.clone(),
+        session_id: session_id.to_string(),
+        view_dir: view_dir.clone(),
+        provider: Provider::ClaudeCode,
+        feature: None,
+    };
+
+    let set = resolve_writable_set(&env).expect("a discovery session must resolve to a set");
+    assert!(
+        set.worktrees.is_empty(),
+        "a discovery session promotes nothing: {:?}",
+        set.worktrees
+    );
+
+    // The view dir is still the agent's own scratch space.
+    assert!(set.allows(&view_dir.join("notes.md")));
+
+    // A repo mounted read-only under it is not writable.
+    let api_worktree = layout.repo_worktree(
+        &RepoName::new("api").unwrap(),
+        &BranchName::new("main").unwrap(),
+    );
+    assert!(
+        !set.allows(&api_worktree.join("src/lib.rs")),
+        "a discovery session must not write into a read-only worktree"
+    );
+}
+
 #[test]
 fn writes_inside_the_set_are_allowed_and_shell_is_never_classified() {
     let (set, _guard) = writable_set_fixture();
