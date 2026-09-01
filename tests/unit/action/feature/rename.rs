@@ -45,7 +45,7 @@ impl git::Git for DummyRemoteGit {
         git_dir: &Utf8Path,
         default_worktree: &Utf8Path,
         default_branch: &str,
-    ) -> Result<git::exec::Protection, git::Error> {
+    ) -> Result<git::protect::Protection, git::Error> {
         self.system
             .protect_default_branch(git_dir, default_worktree, default_branch)
     }
@@ -663,7 +663,7 @@ impl git::Git for FailingGit {
         git_dir: &Utf8Path,
         default_worktree: &Utf8Path,
         default_branch: &str,
-    ) -> Result<git::exec::Protection, git::Error> {
+    ) -> Result<git::protect::Protection, git::Error> {
         self.dummy
             .protect_default_branch(git_dir, default_worktree, default_branch)
     }
@@ -927,7 +927,7 @@ impl git::Git for RaceGit {
         git_dir: &Utf8Path,
         default_worktree: &Utf8Path,
         default_branch: &str,
-    ) -> Result<git::exec::Protection, git::Error> {
+    ) -> Result<git::protect::Protection, git::Error> {
         self.system
             .protect_default_branch(git_dir, default_worktree, default_branch)
     }
@@ -1546,7 +1546,7 @@ impl git::Git for PublishedRemoteGit {
         git_dir: &Utf8Path,
         default_worktree: &Utf8Path,
         default_branch: &str,
-    ) -> Result<git::exec::Protection, git::Error> {
+    ) -> Result<git::protect::Protection, git::Error> {
         self.dummy
             .protect_default_branch(git_dir, default_worktree, default_branch)
     }

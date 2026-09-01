@@ -399,7 +399,7 @@ fn absence_of_preview_evidence_none_none_skips_whole_batch() {
             git_dir: &Utf8Path,
             default_worktree: &Utf8Path,
             default_branch: &str,
-        ) -> Result<crate::git::exec::Protection, crate::git::Error> {
+        ) -> Result<crate::git::protect::Protection, crate::git::Error> {
             self.0
                 .protect_default_branch(git_dir, default_worktree, default_branch)
         }
@@ -702,7 +702,7 @@ fn absence_of_preview_evidence_none_err_skips_whole_batch() {
             git_dir: &Utf8Path,
             default_worktree: &Utf8Path,
             default_branch: &str,
-        ) -> Result<crate::git::exec::Protection, crate::git::Error> {
+        ) -> Result<crate::git::protect::Protection, crate::git::Error> {
             self.0
                 .protect_default_branch(git_dir, default_worktree, default_branch)
         }
@@ -1163,7 +1163,7 @@ impl crate::git::Git for FailingRollbackGit {
         git_dir: &Utf8Path,
         default_worktree: &Utf8Path,
         default_branch: &str,
-    ) -> Result<crate::git::exec::Protection, crate::git::Error> {
+    ) -> Result<crate::git::protect::Protection, crate::git::Error> {
         self.0
             .protect_default_branch(git_dir, default_worktree, default_branch)
     }

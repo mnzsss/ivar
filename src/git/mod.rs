@@ -39,10 +39,11 @@
 pub mod credential;
 pub(crate) mod error;
 pub(crate) mod exec;
+pub(crate) mod protect;
 pub(crate) mod read;
 
 pub use self::error::Error;
-pub use self::exec::Protection;
+pub use self::protect::Protection;
 
 use camino::{Utf8Path, Utf8PathBuf};
 
@@ -197,7 +198,7 @@ pub trait Git {
         git_dir: &Utf8Path,
         default_worktree: &Utf8Path,
         default_branch: &str,
-    ) -> Result<exec::Protection, Error>;
+    ) -> Result<protect::Protection, Error>;
 
     /// Add a worktree at `dest`, checked out on the existing `branch`, off the
     /// bare repository at `git_dir`.
@@ -574,8 +575,8 @@ impl Git for System {
         git_dir: &Utf8Path,
         default_worktree: &Utf8Path,
         default_branch: &str,
-    ) -> Result<exec::Protection, Error> {
-        exec::protect_default_branch(git_dir, default_worktree, default_branch)
+    ) -> Result<protect::Protection, Error> {
+        protect::protect_default_branch(git_dir, default_worktree, default_branch)
     }
 
     fn add_worktree(&self, git_dir: &Utf8Path, dest: &Utf8Path, branch: &str) -> Result<(), Error> {
