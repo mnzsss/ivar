@@ -321,24 +321,22 @@ impl CallbackServer {
         }
     }
 
-    fn parse_request_line(request: &str) -> Result<(&str, String, String), Failure> {
+    pub(crate) fn parse_request_line(request: &str) -> Result<(&str, String, String), Failure> {
         let first_line = request.lines().next().unwrap_or("");
         let mut parts = first_line.splitn(3, ' ');
         let method = parts.next().unwrap_or("");
         let full_path = parts.next().unwrap_or("");
-        // Decode the path so %2F becomes /, etc.
-        let decoded_path = url_decode(full_path);
-        let (path, query) = match decoded_path.find('?') {
-            Some(pos) => (
-                decoded_path[..pos].to_owned(),
-                decoded_path[pos + 1..].to_owned(),
-            ),
-            None => (decoded_path, String::new()),
+        let (path_raw, query_raw) = match full_path.split_once('?') {
+            Some((p, q)) => (p, q),
+            None => (full_path, ""),
         };
+        // Decode the path so %2F becomes /, etc.
+        let path = url_decode(path_raw);
+        let query = query_raw.to_owned();
         Ok((method, path, query))
     }
 
-    fn parse_query(query: &str) -> std::collections::HashMap<String, String> {
+    pub(crate) fn parse_query(query: &str) -> std::collections::HashMap<String, String> {
         let mut params = std::collections::HashMap::new();
         if query.is_empty() {
             return params;

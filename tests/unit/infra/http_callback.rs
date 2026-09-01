@@ -2,6 +2,43 @@
 
 use super::*;
 
+// -- parsing logic -------------------------------------------------------
+
+#[test]
+fn query_values_are_decoded_exactly_once() {
+    // Original bug: %252B -> decoded once as %2B -> decoded twice as +
+    // Fix: %252B -> decoded once as %2B
+    let params = CallbackServer::parse_query("code=%252B");
+    assert_eq!(params.get("code").unwrap(), "%2B");
+}
+
+#[test]
+fn code_with_percent_encoded_chars_survives_round_trip() {
+    let params = CallbackServer::parse_query("code=%2B%2F%3D");
+    assert_eq!(params.get("code").unwrap(), "+/=");
+}
+
+#[test]
+fn query_separator_inside_value_is_not_split() {
+    // %26 is '&'. If it's in a value, it shouldn't trigger a new pair.
+    let params = CallbackServer::parse_query("code=val%26ue");
+    assert_eq!(params.get("code").unwrap(), "val&ue");
+    assert_eq!(params.len(), 1);
+}
+
+#[test]
+fn path_is_decoded_for_routing() {
+    let (_method, path, _query) = CallbackServer::parse_request_line("GET /call%62ack HTTP/1.1").unwrap();
+    assert_eq!(path, "/callback");
+}
+
+#[test]
+fn multibyte_query_does_not_panic() {
+    // This is valid UTF-8, it should not panic.
+    let params = CallbackServer::parse_query("code=🚀");
+    assert_eq!(params.get("code").unwrap(), "🚀");
+}
+
 // -- bind tests ----------------------------------------------------------
 
 #[test]
