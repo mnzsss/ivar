@@ -54,7 +54,7 @@ impl std::fmt::Debug for AuthorizationCode {
 ///
 /// Bind it, print [`authorization_callback_url`](Self::authorization_callback_url)
 /// for the user, then [`wait`](Self::wait) for the result.
-    pub struct CallbackServer {
+pub struct CallbackServer {
     listener: Option<TcpListener>,
     shutdown: Arc<AtomicBool>,
     receiver: mpsc::Receiver<Result<AuthorizationCode, Failure>>,
