@@ -31,11 +31,15 @@
 //!    `.ivar/secrets/mcp.env`. Every other combination (a different provider, a
 //!    server with no `url`, a host Figma never gated) is
 //!    [`Preregistration::NotNeeded`].
-//! 3. **Dispatch.** Hand off to the harness's own login command — `claude mcp
-//!    login <name>` or `opencode mcp auth <name>` — through [`proc::inherit`].
-//!    `inherit` is not optional here: the command prints a URL and waits on a
-//!    browser the user is watching, and capturing its output would freeze
-//!    that prompt instead of showing it.
+//! 3. **Dispatch.** For OpenCode + Figma hosts, Ivar performs the OAuth
+//!    authorization-code flow itself ([`dispatch::internal_flow`]): conflict
+//!    check, endpoint discovery, URL print, callback listener, code exchange,
+//!    and credential-store write. For Claude Code and non-Figma servers,
+//!    the harness's own login command — `claude mcp login <name>` or
+//!    `opencode mcp auth <name>` — runs through [`proc::inherit`].
+//!    `inherit` is not optional for the provider-owned path: the command
+//!    prints a URL and waits on a browser the user is watching, and
+//!    capturing its output would freeze that prompt instead of showing it.
 //!
 //! # `--all-providers` runs sequentially, never concurrently (`R-ALL-SEQUENTIAL`)
 //!
@@ -154,6 +158,7 @@ use crate::store::manifest::Manifest;
 use super::super::{discover_hall, read_manifest};
 
 mod dispatch;
+mod figma_oauth;
 mod preregister;
 
 use dispatch::{run_provider, try_run_provider};
@@ -209,9 +214,13 @@ pub struct ProviderRun {
     pub provider: Provider,
     /// What step 2 (pre-registration) did for this provider, if anything.
     pub preregistration: Preregistration,
+    /// How authentication was performed.
+    pub auth_method: AuthMethod,
     /// The harness's own command that ran for this provider — the whole of
     /// step 3, rendered exactly as [`proc::Command::display`] would show it
     /// in an error. Empty when step 2 itself failed and step 3 never ran.
+    /// For [`AuthMethod::InternalOAuthFlow`], contains a descriptive label
+    /// instead of a command line.
     pub command: String,
     /// Whether this provider's harness reported success (exit 0). `false`
     /// means this leg failed — at pre-registration or at dispatch — and
@@ -220,6 +229,18 @@ pub struct ProviderRun {
     /// What went wrong, when `authenticated` is `false`. Absent otherwise.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+}
+
+/// How authentication was performed for a provider run.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AuthMethod {
+    /// The harness's own login command (`claude mcp login` / `opencode mcp auth`)
+    /// was spawned via `proc::inherit`.
+    ProviderCommand,
+    /// Ivar performed the OAuth authorization-code flow itself, printing
+    /// the authorization URL and running a temporary loopback listener.
+    InternalOAuthFlow,
 }
 
 /// What `ivar mcp auth` did: one [`ProviderRun`] per provider attempted.
@@ -295,11 +316,17 @@ impl ProviderRun {
         }
 
         if self.authenticated {
-            writeln!(
-                w,
-                "[{provider}] authenticated `{server}` — `{}` exited 0.",
-                self.command
-            )
+            match self.auth_method {
+                AuthMethod::ProviderCommand => writeln!(
+                    w,
+                    "[{provider}] authenticated `{server}` — `{}` exited 0.",
+                    self.command
+                ),
+                AuthMethod::InternalOAuthFlow => writeln!(
+                    w,
+                    "[{provider}] authenticated `{server}` via Ivar's OAuth flow.",
+                ),
+            }
         } else {
             writeln!(
                 w,

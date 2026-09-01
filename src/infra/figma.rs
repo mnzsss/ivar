@@ -1,4 +1,4 @@
-//! Figma's MCP dynamic client registration.
+//! Figma's MCP dynamic client registration and OAuth metadata discovery.
 //!
 //! # Why this exists
 //!
@@ -8,6 +8,14 @@
 //! carry a workaround: register a client with one specific `client_name`
 //! ahead of time. That is [`register_client`] — a single request, run once
 //! per machine, before the harness's own auth command owns the terminal.
+//!
+//! When Ivar performs the OAuth flow itself (OpenCode + Figma), it also
+//! needs Figma's authorization and token endpoints. These are discovered
+//! dynamically via the MCP server's OAuth resource metadata (RFC 9728):
+//! the server's 401 `WWW-Authenticate` header points to resource metadata,
+//! which points to an authorization server, whose `.well-known` metadata
+//! provides the concrete endpoints. [`discover_oauth_endpoints`] chains
+//! these steps.
 //!
 //! # Which hosts need this
 //!
@@ -167,6 +175,233 @@ fn read_body<T: Read>(mut reader: T) -> Result<String, Failure> {
         )
     })?;
     Ok(buf)
+}
+
+// ---------------------------------------------------------------------------
+// OAuth metadata discovery (RFC 9728 / RFC 8414)
+// ---------------------------------------------------------------------------
+
+/// Discovered OAuth authorization and token endpoints for an MCP server.
+///
+/// `resource` and `scopes_supported` are optional — included when the
+/// server's metadata provides them, absent otherwise. No secrets or tokens
+/// appear in this struct or its `Debug` output.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OAuthEndpoints {
+    pub authorization_endpoint: String,
+    pub token_endpoint: String,
+    pub resource: Option<String>,
+    pub scopes_supported: Option<Vec<String>>,
+}
+
+/// Resource metadata as described by RFC 9728 (`.well-known/oauth-protected-resource`).
+#[derive(serde::Deserialize)]
+struct ResourceMetadata {
+    authorization_servers: Vec<String>,
+    #[serde(default)]
+    resource: Option<String>,
+}
+
+/// Authorization server metadata as described by RFC 8414.
+#[derive(serde::Deserialize)]
+struct AuthorizationServerMetadata {
+    authorization_endpoint: String,
+    token_endpoint: String,
+    #[serde(default)]
+    scopes_supported: Option<Vec<String>>,
+}
+
+/// Extract the `resource_metadata` URL from a `WWW-Authenticate` header
+/// value. The parser supports variable parameter ordering and preserves
+/// quoted URLs.
+///
+/// `None` when the header is absent or contains no `resource_metadata`
+/// parameter.
+pub(crate) fn parse_www_authenticate_resource_metadata(header: &str) -> Option<String> {
+    // Split the scheme from parameters: "Bearer realm=..., resource_metadata=..."
+    let params_part = header
+        .trim()
+        .split_once(char::is_whitespace)
+        .map_or("", |(_, p)| p);
+
+    for param in params_part.split(',') {
+        let param = param.trim();
+        if let Some(rest) = param.strip_prefix("resource_metadata=") {
+            let value = rest.trim();
+            // Strip surrounding quotes if present, preserving inner content.
+            let value = if value.starts_with('"') && value.ends_with('"') && value.len() >= 2 {
+                &value[1..value.len() - 1]
+            } else {
+                value
+            };
+            return Some(value.to_owned());
+        }
+    }
+    None
+}
+
+/// Construct the `.well-known/oauth-authorization-server` URL for an issuer.
+///
+/// For an issuer at root (`https://auth.example.com`), the well-known URL is
+/// `https://auth.example.com/.well-known/oauth-authorization-server`. For an
+/// issuer with a path (`https://auth.example.com/issuer/v1`), the well-known
+/// path is appended to the issuer's path, per RFC 8414 §3.
+///
+/// `None` when the issuer URL cannot be parsed.
+pub(crate) fn build_well_known_url(issuer: &str) -> Result<String, Failure> {
+    let base = issuer.trim_end_matches('/');
+    Ok(format!("{base}/.well-known/oauth-authorization-server"))
+}
+
+/// Parse the resource metadata JSON to extract the first authorization server
+/// issuer URL and optional resource identifier.
+///
+/// Returns `(issuer, resource)`. Fails when the `authorization_servers`
+/// array is absent or empty.
+pub(crate) fn parse_resource_metadata(json_str: &str) -> Result<(String, Option<String>), Failure> {
+    let meta: ResourceMetadata = serde_json::from_str(json_str).map_err(|e| {
+        Failure::failed(
+            "figma.resource_metadata_parse",
+            format!("could not parse resource metadata: {e}"),
+        )
+        .expected("JSON with an authorization_servers array")
+        .actual("invalid resource metadata JSON")
+    })?;
+
+    let issuer = meta
+        .authorization_servers
+        .into_iter()
+        .next()
+        .ok_or_else(|| {
+            Failure::failed(
+                "figma.resource_metadata_no_authorization_server",
+                "resource metadata has no authorization servers",
+            )
+            .expected("a non-empty authorization_servers array")
+            .actual("authorization_servers is empty or absent")
+        })?;
+
+    Ok((issuer, meta.resource))
+}
+
+/// Parse authorization server metadata JSON (RFC 8414) to extract the
+/// endpoints needed for the OAuth flow.
+///
+/// Fails when required fields (`authorization_endpoint`, `token_endpoint`)
+/// are absent.
+pub(crate) fn parse_authorization_metadata(json_str: &str) -> Result<OAuthEndpoints, Failure> {
+    let meta: AuthorizationServerMetadata = serde_json::from_str(json_str).map_err(|e| {
+        Failure::failed(
+            "figma.auth_metadata_parse",
+            format!("could not parse authorization server metadata: {e}"),
+        )
+        .expected("JSON with authorization_endpoint and token_endpoint")
+        .actual("invalid authorization server metadata JSON")
+    })?;
+
+    Ok(OAuthEndpoints {
+        authorization_endpoint: meta.authorization_endpoint,
+        token_endpoint: meta.token_endpoint,
+        resource: None,
+        scopes_supported: meta.scopes_supported,
+    })
+}
+
+/// Discover OAuth authorization and token endpoints for an MCP server.
+///
+/// The discovery follows the MCP OAuth flow (RFC 9728):
+/// 1. GET the server URL; expect a 401 with `WWW-Authenticate` containing
+///    a `resource_metadata` URL.
+/// 2. GET the resource metadata; extract the first authorization server.
+/// 3. GET the authorization server's `.well-known/oauth-authorization-server`
+///    metadata; extract the authorization and token endpoints.
+///
+/// No secrets, tokens, or codes appear in errors or their `actual` fields.
+pub fn discover_oauth_endpoints(server_url: &str) -> Result<OAuthEndpoints, Failure> {
+    // Step 1: GET the server URL to get the WWW-Authenticate header.
+    let response = ureq::get(server_url)
+        .config()
+        .http_status_as_error(false)
+        .build()
+        .call()
+        .map_err(|e| {
+            Failure::failed(
+                "figma.discover_server",
+                format!("could not reach MCP server: {e}"),
+            )
+            .expected("the MCP server to respond")
+            .actual(format!("HTTP transport error: {e}"))
+        })?;
+
+    let status = response.status();
+    if status.as_u16() != 401 {
+        return Err(Failure::failed(
+            "figma.discover_unexpected_status",
+            format!("MCP server returned {status} instead of 401"),
+        )
+        .expected("HTTP 401 with WWW-Authenticate")
+        .actual(format!("HTTP {status}")));
+    }
+
+    let www_auth = response
+        .headers()
+        .get("www-authenticate")
+        .and_then(|v| v.to_str().ok())
+        .ok_or_else(|| {
+            Failure::failed(
+                "figma.discover_no_www_authenticate",
+                "401 response missing WWW-Authenticate header",
+            )
+            .expected("a WWW-Authenticate header with resource_metadata")
+        })?;
+
+    let resource_metadata_url =
+        parse_www_authenticate_resource_metadata(www_auth).ok_or_else(|| {
+            Failure::failed(
+                "figma.discover_no_resource_metadata",
+                "WWW-Authenticate header has no resource_metadata parameter",
+            )
+            .expected("resource_metadata URL in the WWW-Authenticate header")
+            .actual(format!("header value: {www_auth}"))
+        })?;
+
+    // Step 2: GET the resource metadata.
+    let resource_response = ureq::get(&resource_metadata_url)
+        .config()
+        .http_status_as_error(false)
+        .build()
+        .call()
+        .map_err(|e| {
+            Failure::failed(
+                "figma.discover_resource_metadata",
+                format!("could not fetch resource metadata: {e}"),
+            )
+            .expected("the resource metadata endpoint to respond")
+        })?;
+
+    let resource_body = read_body(resource_response.into_body().as_reader())?;
+    let (issuer, resource) = parse_resource_metadata(&resource_body)?;
+
+    // Step 3: GET the authorization server's well-known metadata.
+    let well_known_url = build_well_known_url(&issuer)?;
+    let auth_response = ureq::get(&well_known_url)
+        .config()
+        .http_status_as_error(false)
+        .build()
+        .call()
+        .map_err(|e| {
+            Failure::failed(
+                "figma.discover_auth_metadata",
+                format!("could not fetch authorization server metadata: {e}"),
+            )
+            .expected("the authorization server metadata endpoint to respond")
+        })?;
+
+    let auth_body = read_body(auth_response.into_body().as_reader())?;
+    let mut endpoints = parse_authorization_metadata(&auth_body)?;
+    endpoints.resource = resource;
+
+    Ok(endpoints)
 }
 
 #[cfg(test)]

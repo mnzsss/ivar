@@ -18,6 +18,10 @@ use crate::store::mcp_secrets::McpSecrets;
 pub(super) struct Preregistered {
     /// What step 2 did, for [`super::ProviderRun::preregistration`].
     pub(super) report: Preregistration,
+    /// The OAuth `client_id`, when step 2 produced or resolved one.
+    /// Needed by the internal OAuth flow to build the authorize URL and
+    /// the token exchange request.
+    pub(super) client_id: Option<String>,
     /// Resolved or freshly minted client secret for child command dispatch.
     pub(super) secret: Option<(String, String)>,
 }
@@ -26,6 +30,7 @@ impl std::fmt::Debug for Preregistered {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Preregistered")
             .field("report", &self.report)
+            .field("client_id", &self.client_id)
             .field("secret_var", &self.secret.as_ref().map(|(var, _)| var))
             .finish()
     }
@@ -35,6 +40,7 @@ impl Preregistered {
     fn not_needed() -> Self {
         Self {
             report: Preregistration::NotNeeded,
+            client_id: None,
             secret: None,
         }
     }
@@ -74,6 +80,7 @@ pub(super) fn preregister_if_needed(
         let val = resolve_secret(layout, &oauth.client_secret_env, &server.name)?;
         return Ok(Preregistered {
             report: Preregistration::Skipped,
+            client_id: Some(oauth.client_id.clone()),
             secret: Some((oauth.client_secret_env.clone(), val)),
         });
     }
@@ -127,8 +134,9 @@ pub(super) fn preregister_if_needed(
 
     Ok(Preregistered {
         report: Preregistration::Registered {
-            client_id: registered.client_id,
+            client_id: registered.client_id.clone(),
         },
+        client_id: Some(registered.client_id),
         secret: Some((secret_env, client_secret)),
     })
 }
@@ -188,7 +196,10 @@ fn secret_env_var(materialised_name: &str) -> String {
 /// The host portion of a URL: scheme, userinfo, port, path, query and
 /// fragment stripped. `None` when `url` has no authority or cannot be
 /// parsed.
-fn host_of(url: &str) -> Option<&str> {
+///
+/// Exposed as `pub(super)` so [`super::dispatch`] can gate on
+/// [`figma::needs_preregistration`] without duplicating the parsing.
+pub(super) fn host_of(url: &str) -> Option<&str> {
     let authority = url.split_once("://").map_or(url, |(_, rest)| rest);
     let authority = authority.split(['/', '?', '#']).next()?;
     let host = authority.rsplit_once('@').map_or(authority, |(_, h)| h);

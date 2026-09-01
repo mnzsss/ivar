@@ -176,6 +176,7 @@ fn ok_run(provider: Provider) -> ProviderRun {
         provider,
         preregistration: Preregistration::NotNeeded,
         command: format!("{} mcp auth acme-figma", provider.id()),
+        auth_method: AuthMethod::ProviderCommand,
         authenticated: true,
         error: None,
     }
@@ -186,6 +187,7 @@ fn failed_run(provider: Provider, error: &str) -> ProviderRun {
         provider,
         preregistration: Preregistration::NotNeeded,
         command: format!("{} mcp auth acme-figma", provider.id()),
+        auth_method: AuthMethod::ProviderCommand,
         authenticated: false,
         error: Some(error.to_owned()),
     }
