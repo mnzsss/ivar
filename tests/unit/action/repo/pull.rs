@@ -766,3 +766,96 @@ fn pull_with_no_repos_reports_no_steps() {
     assert!(recording.steps().is_empty());
     assert_eq!(recording.clears.load(Ordering::Relaxed), 1);
 }
+
+/// `--resolve` refuses for two different reasons — uncommitted work, or local
+/// commits that are not duplicates of upstream — and both currently arrive as
+/// the same "cannot fast-forward" sentence. A user cannot tell which they have,
+/// and the two have different recoveries.
+#[test]
+fn resolve_blocked_by_dirt_says_so_and_points_at_a_safe_action() {
+    let (_guard, root) = hall_with(&[("api", "main")]);
+    let ctx = Ctx::new(root.clone());
+    crate::action::sync::sync(&ctx, Default::default()).unwrap();
+
+    // Diverged *and* dirty: the branch cannot fast-forward, and `--resolve`
+    // must not reset over the uncommitted file.
+    let worktree = root.join(".ivar/repos/api/main");
+    git(&worktree, &["commit", "--allow-empty", "-m", "local drift"]);
+    std::fs::write(worktree.join("README.md"), "precious\n").unwrap();
+    let origin = origin_path(&root, "api");
+    std::fs::write(origin.join("CHANGELOG.md"), "v1\n").unwrap();
+    git(&origin, &["add", "CHANGELOG.md"]);
+    git(&origin, &["commit", "-m", "v1"]);
+
+    let report = pull(
+        &ctx,
+        PullInput {
+            resolve: true,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+
+    let PullStatus::Skipped { reason, .. } = status_of(&report, "api") else {
+        panic!("a dirty diverged worktree must skip");
+    };
+    assert!(
+        reason.contains("uncommitted"),
+        "the blocker must be named as dirt: {reason}"
+    );
+    assert!(
+        reason.contains("git status") || reason.contains("git stash"),
+        "dirt must point at a safe way to inspect or park it: {reason}"
+    );
+
+    // The whole point of refusing: the work is still there.
+    assert_eq!(
+        std::fs::read_to_string(worktree.join("README.md")).unwrap(),
+        "precious\n",
+        "--resolve must not discard uncommitted work"
+    );
+}
+
+/// Clean, but the local commits are genuine work rather than duplicates of
+/// what is upstream. Nothing here is safe to reset, and saying "uncommitted"
+/// would send the user looking for changes that do not exist.
+#[test]
+fn resolve_blocked_by_real_divergence_names_divergence_not_dirt() {
+    let (_guard, root) = hall_with(&[("api", "main")]);
+    let ctx = Ctx::new(root.clone());
+    crate::action::sync::sync(&ctx, Default::default()).unwrap();
+
+    let worktree = root.join(".ivar/repos/api/main");
+    std::fs::write(worktree.join("local.md"), "local work\n").unwrap();
+    git(&worktree, &["add", "local.md"]);
+    git(&worktree, &["commit", "-m", "genuine local work"]);
+    let origin = origin_path(&root, "api");
+    std::fs::write(origin.join("CHANGELOG.md"), "v1\n").unwrap();
+    git(&origin, &["add", "CHANGELOG.md"]);
+    git(&origin, &["commit", "-m", "v1"]);
+
+    let report = pull(
+        &ctx,
+        PullInput {
+            resolve: true,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+
+    let PullStatus::Skipped { reason, .. } = status_of(&report, "api") else {
+        panic!("genuine divergence must skip");
+    };
+    assert!(
+        reason.contains("diverged"),
+        "the blocker must be named as divergence: {reason}"
+    );
+    assert!(
+        reason.contains("--diagnose"),
+        "divergence must point at the flag that explains it: {reason}"
+    );
+    assert!(
+        !reason.contains("uncommitted"),
+        "there is nothing uncommitted here: {reason}"
+    );
+}

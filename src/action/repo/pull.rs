@@ -349,16 +349,23 @@ pub(crate) fn refresh_default(
                 } else {
                     None
                 };
-                if resolve && safe_to_reset(git, &worktree, repo) {
-                    match git.reset_hard(&worktree, &remote_ref(repo)) {
+                // Only `--resolve` gets the named blocker: it is the run that
+                // tried to act and declined, so it is the run that owes an
+                // explanation. A plain pull never offered to fix anything, and
+                // its callers already assert git's own wording.
+                match resolve.then(|| safe_to_reset(git, &worktree, repo)) {
+                    None => PullStatus::Skipped { reason, divergence },
+                    Some(Ok(())) => match git.reset_hard(&worktree, &remote_ref(repo)) {
                         Ok(()) => PullStatus::Resolved,
                         Err(reset_error) => PullStatus::Skipped {
                             reason: format!("{reason}; and could not resolve: {reset_error}"),
                             divergence,
                         },
-                    }
-                } else {
-                    PullStatus::Skipped { reason, divergence }
+                    },
+                    Some(Err(blocker)) => PullStatus::Skipped {
+                        reason: blocker.reason().to_owned(),
+                        divergence,
+                    },
                 }
             }
         },
@@ -376,30 +383,67 @@ fn remote_ref(repo: &Repo) -> String {
     format!("origin/{}", repo.default_branch())
 }
 
+/// Why `--resolve` would not reset a branch.
+///
+/// Carried rather than collapsed to a bool because the two blockers have
+/// different recoveries: uncommitted work is parked or inspected by hand,
+/// while genuine divergence is read with `--diagnose` first. Reporting both as
+/// "cannot fast-forward" leaves a user guessing which one they have.
+enum ResetBlocker {
+    /// Uncommitted work in the default worktree.
+    Dirty,
+    /// Local commits that are not duplicates of anything upstream — or a check
+    /// that could not be completed, which is treated the same way on purpose.
+    Diverged,
+}
+
+impl ResetBlocker {
+    /// The sentence a human gets, naming the blocker and one safe next step.
+    ///
+    /// Every suggestion here is read-only or reversible. Nothing offers to
+    /// reset, delete, stash, or commit on the user's behalf: the whole reason
+    /// this path was reached is that ivar could not prove what is safe to
+    /// discard.
+    fn reason(&self) -> &'static str {
+        match self {
+            Self::Dirty => {
+                "the default branch has diverged from the remote and the worktree has \
+                 uncommitted changes; inspect them with `git status`, and park them with \
+                 `git stash` if they are not needed"
+            }
+            Self::Diverged => {
+                "the default branch has diverged from the remote and the local commits are \
+                 not duplicates of upstream work; inspect them with `ivar repo pull --diagnose`"
+            }
+        }
+    }
+}
+
 /// Whether resetting the default branch to the remote tip is safe: every
 /// local-only commit is a duplicate of work already in the remote, and the
 /// worktree is clean (so nothing uncommitted is discarded).
 ///
-/// Conservative by construction: any failure to confirm a duplicate — a
-/// patch-id that cannot be read, a dirty worktree, a missing ref — answers
-/// `false`, and the branch is left for the human. `--resolve` never touches a
-/// branch it cannot prove is a duplicate; false is the safe direction.
-fn safe_to_reset(git: &impl Git, worktree: &Utf8Path, repo: &Repo) -> bool {
+/// `Ok(())` means safe. Conservative by construction: any failure to confirm a
+/// duplicate — a patch-id that cannot be read, a dirty worktree, a missing ref
+/// — is a blocker, and the branch is left for the human. `--resolve` never
+/// touches a branch it cannot prove is a duplicate.
+fn safe_to_reset(git: &impl Git, worktree: &Utf8Path, repo: &Repo) -> Result<(), ResetBlocker> {
     let branch = repo.default_branch().as_str();
     let remote = remote_ref(repo);
 
     // A dirty worktree must not be reset — the reset would discard work that
-    // was never committed and so never reached the remote.
+    // was never committed and so never reached the remote. `unwrap_or(true)`:
+    // a worktree whose state cannot be read is assumed to hold work.
     if git.worktree_dirty(worktree).unwrap_or(true) {
-        return false;
+        return Err(ResetBlocker::Dirty);
     }
 
     let Ok(divergence) = git.divergence(worktree, branch, &remote) else {
-        return false;
+        return Err(ResetBlocker::Diverged);
     };
     if divergence.local_only.is_empty() {
         // Nothing local to lose would mean it did not diverge; be safe anyway.
-        return false;
+        return Err(ResetBlocker::Diverged);
     }
 
     let Some(remote_patch_ids) = divergence
@@ -408,7 +452,7 @@ fn safe_to_reset(git: &impl Git, worktree: &Utf8Path, repo: &Repo) -> bool {
         .map(|commit| git.commit_patch_id(worktree, &commit.sha).ok())
         .collect::<Option<HashSet<String>>>()
     else {
-        return false;
+        return Err(ResetBlocker::Diverged);
     };
 
     // Squash case: the whole local range, as one cumulative diff, matches a
@@ -428,7 +472,11 @@ fn safe_to_reset(git: &impl Git, worktree: &Utf8Path, repo: &Repo) -> bool {
             .unwrap_or(false)
     });
 
-    contained_as_squash || contained_per_commit
+    if contained_as_squash || contained_per_commit {
+        Ok(())
+    } else {
+        Err(ResetBlocker::Diverged)
+    }
 }
 
 /// The local-vs-remote commit lists behind a "cannot fast-forward" report —
