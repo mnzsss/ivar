@@ -630,7 +630,7 @@ fn sync_writes_declared_servers_into_the_config() {
     let layout = Layout::at(root.clone());
     let manifest = Manifest::read(&layout).unwrap().unwrap();
     let manifest = manifest
-        .with_mcp_servers(vec![McpServerDef::new("docs", "stdio").command("npx")])
+        .with_mcp_servers(vec![McpServerDef::new("docs", "local").command("npx")])
         .unwrap();
     Manifest::write(&layout, &manifest).unwrap();
     let ctx = Ctx::new(root.clone());

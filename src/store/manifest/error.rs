@@ -72,6 +72,10 @@ pub enum Error {
     /// An MCP server definition uses an unsupported transport.
     #[error("MCP server `{name}` uses unsupported transport `{transport}`")]
     InvalidMcpType { name: String, transport: String },
+
+    /// An MCP server definition violates its transport invariants.
+    #[error("MCP server `{name}` has an invalid configuration: {reason}")]
+    InvalidMcpServerDefinition { name: String, reason: String },
 }
 
 impl From<Error> for Failure {
@@ -151,13 +155,27 @@ impl From<Error> for Failure {
                     format!("Give one of the duplicate `{name}` definitions a different name."),
                 ))
             }
-            Error::InvalidMcpType { name, transport } => Failure::blocked("manifest.invalid_mcp_type", what)
+            Error::InvalidMcpType { name, transport } => {
+                let fix = match transport.as_str() {
+                    "remote" | "sse" | "streamable-http" | "ws" => format!("Change `{name}`'s transport to `http` (ivar performs provider translation)."),
+                    "stdio" => format!("Change `{name}`'s transport to `local` (ivar performs provider translation)."),
+                    _ => format!("Change `{name}`'s transport to `http` or `local`."),
+                };
+                Failure::blocked("manifest.invalid_mcp_type", what)
                 .expected("MCP transport to be `http` or `local`")
                 .actual(format!("`{name}` uses unsupported `{transport}`"))
-                .fix(FixAction::safe(
-                    "manifest.fix_mcp_transport",
-                    format!("Change `{name}`'s transport to `http` or `local`."),
-                )),
+                .fix(FixAction::safe("manifest.fix_mcp_transport", fix))
+            },
+            Error::InvalidMcpServerDefinition { name, reason } => Failure::blocked(
+                "manifest.invalid_mcp_definition",
+                what
+            )
+            .expected("an MCP server definition satisfying its transport invariants")
+            .actual(format!("`{name}`: {reason}"))
+            .fix(FixAction::safe(
+                "manifest.fix_mcp_definition",
+                format!("Fix the configuration for `{name}`."),
+            )),
         }
     }
 }

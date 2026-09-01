@@ -26,7 +26,8 @@ fn resolve_server_finds_a_declared_server_by_name() {
     let (_guard, root) = seeded_hall();
     declare_server(
         &root,
-        McpServerDef::new("linear", "stdio").command("linear-mcp"),
+        McpServerDef::new("linear", "local").command("linear-mcp"),
+
     );
     let layout = Layout::at(root.clone());
     let manifest = Manifest::read(&layout).unwrap().unwrap();
@@ -40,7 +41,8 @@ fn resolve_server_lists_the_declared_names_when_absent() {
     let (_guard, root) = seeded_hall();
     declare_server(
         &root,
-        McpServerDef::new("linear", "stdio").command("linear-mcp"),
+        McpServerDef::new("linear", "local").command("linear-mcp"),
+
     );
     let layout = Layout::at(root.clone());
     let manifest = Manifest::read(&layout).unwrap().unwrap();
@@ -122,7 +124,8 @@ fn auth_refuses_an_unknown_provider_before_any_dispatch() {
     let (_guard, root) = seeded_hall();
     declare_server(
         &root,
-        McpServerDef::new("linear", "stdio").command("linear-mcp"),
+        McpServerDef::new("linear", "local").command("linear-mcp"),
+
     );
     let ctx = Ctx::new(root.clone());
 

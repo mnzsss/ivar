@@ -1243,7 +1243,7 @@ fn opencode_session_command_injects_referenced_mcp_secrets_only() {
     let layout = Layout::at(root.clone());
     let manifest = Manifest::read(&layout).unwrap().unwrap();
 
-    let server = crate::domain::mcp::McpServerDef::new("figma", "sse")
+    let server = crate::domain::mcp::McpServerDef::new("figma", "http")
         .url("https://mcp.figma.com/mcp")
         .oauth(crate::domain::mcp::McpOauth::new(
             "client-id",

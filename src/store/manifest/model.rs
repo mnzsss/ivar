@@ -275,6 +275,10 @@ impl Manifest {
                     name: server.name.clone(),
                     transport,
                 })?;
+                server.validate().map_err(|reason| Error::InvalidMcpServerDefinition {
+                    name: server.name.clone(),
+                    reason: format!("{reason:?}"),
+                })?;
             }
         }
         Ok(())

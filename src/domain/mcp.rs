@@ -52,6 +52,19 @@ pub enum McpTransport {
     Local,
 }
 
+/// Validation errors for an MCP server definition.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum McpValidationError {
+    InvalidTransport(String),
+    MissingUrlForHttp,
+    InvalidUrlForHttp(String),
+    HttpWithUnsupportedFields,
+    MissingCommandForLocal,
+    EmptyCommandForLocal,
+    LocalWithUrl,
+    ArgsWithoutCommand,
+}
+
 /// One MCP server definition: how a harness should spawn (or connect to) one
 /// server, and nothing about the secrets it will need at runtime.
 ///
@@ -97,6 +110,51 @@ impl McpServerDef {
             "local" => Ok(McpTransport::Local),
             other => Err(other.to_owned()),
         }
+    }
+
+    /// Validate the definition's invariants.
+    pub fn validate(&self) -> Result<(), McpValidationError> {
+        let transport = self
+            .transport()
+            .map_err(McpValidationError::InvalidTransport)?;
+
+        match transport {
+            McpTransport::Http => {
+                let url = self
+                    .url
+                    .as_ref()
+                    .filter(|u| !u.trim().is_empty())
+                    .ok_or(McpValidationError::MissingUrlForHttp)?;
+
+                if !url.starts_with("http://") && !url.starts_with("https://") {
+                    return Err(McpValidationError::InvalidUrlForHttp(url.to_owned()));
+                }
+
+                if self.command.is_some() || self.args.is_some() || self.env.is_some() {
+                    return Err(McpValidationError::HttpWithUnsupportedFields);
+                }
+            }
+            McpTransport::Local => {
+                if self.url.is_some() {
+                    return Err(McpValidationError::LocalWithUrl);
+                }
+
+                let command = self
+                    .command
+                    .as_ref()
+                    .filter(|c| !c.trim().is_empty())
+                    .ok_or(McpValidationError::MissingCommandForLocal)?;
+
+                if command.trim().is_empty() {
+                    return Err(McpValidationError::EmptyCommandForLocal);
+                }
+
+                if self.args.is_some() && self.command.is_none() {
+                    return Err(McpValidationError::ArgsWithoutCommand);
+                }
+            }
+        }
+        Ok(())
     }
 
     /// Build a definition from its required fields. The optional halves
