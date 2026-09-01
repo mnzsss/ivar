@@ -1,9 +1,10 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use super::*;
-use std::io::{Read, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpListener;
 use std::thread;
+use std::time::Duration;
 
 // -- pkce_pair ----------------------------------------------------------
 
@@ -268,9 +269,31 @@ fn exchange_code_captures_oauth_error() {
 
     thread::spawn(move || {
         let (mut stream, _) = listener.accept().unwrap();
-        // Read the request
-        let mut buf = [0u8; 4096];
-        let _ = stream.read(&mut buf).unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        stream
+            .set_write_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+
+        let mut reader = BufReader::new(stream.try_clone().unwrap());
+
+        // Read headers
+        let mut content_length = 0;
+        loop {
+            let mut line = String::new();
+            reader.read_line(&mut line).unwrap();
+            if line == "\r\n" {
+                break;
+            }
+            if line.to_ascii_lowercase().starts_with("content-length:") {
+                content_length = line.split(':').nth(1).unwrap().trim().parse().unwrap();
+            }
+        }
+
+        // Read body
+        let mut body = vec![0u8; content_length];
+        reader.read_exact(&mut body).unwrap();
 
         // Return a 400 error
         let response = "HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\n\r\n{\"error\":\"invalid_grant\"}";
@@ -340,19 +363,32 @@ where
 
     let handle = thread::spawn(move || {
         let (mut stream, _) = listener.accept().unwrap();
-        let mut buf = [0u8; 8192];
+        stream
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        stream
+            .set_write_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+
+        let mut reader = BufReader::new(stream.try_clone().unwrap());
         let mut request = String::new();
-        while let Ok(bytes) = stream.read(&mut buf) {
-            if bytes == 0 {
+        let mut content_length = 0;
+
+        loop {
+            let mut line = String::new();
+            reader.read_line(&mut line).unwrap();
+            if line == "\r\n" {
                 break;
             }
-            request.push_str(&String::from_utf8_lossy(
-                buf.get(..bytes).expect("buffer valid"),
-            ));
-            // We need to read enough to get the body.
-            // In a real test we might just wait for close() which happens when stream is dropped on the client side.
-            // But here the client closes after send().
+            if line.to_ascii_lowercase().starts_with("content-length:") {
+                content_length = line.split(':').nth(1).unwrap().trim().parse().unwrap();
+            }
+            request.push_str(&line);
         }
+
+        let mut body = vec![0u8; content_length];
+        reader.read_exact(&mut body).unwrap();
+        request.push_str(&String::from_utf8_lossy(&body));
 
         let is_post = request.starts_with("POST");
         let has_basic_auth = request.to_lowercase().contains("authorization: basic ");
