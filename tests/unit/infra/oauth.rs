@@ -17,7 +17,11 @@ fn pkce_verifier_is_43_to_128_chars() {
 #[test]
 fn pkce_verifier_is_base64url_without_padding() {
     let (verifier, _challenge) = pkce_pair();
-    assert_eq!(verifier.0.len(), 43, "32 random bytes -> 43 base64url chars");
+    assert_eq!(
+        verifier.0.len(),
+        43,
+        "32 random bytes -> 43 base64url chars"
+    );
     for byte in verifier.0.as_bytes() {
         assert!(
             byte.is_ascii_alphanumeric() || *byte == b'-' || *byte == b'_',
@@ -35,7 +39,10 @@ fn pkce_challenge_is_sha256_base64url_no_pad() {
 
     let raw = URL_SAFE_NO_PAD.decode(verifier.0.as_bytes()).unwrap();
     let expected = URL_SAFE_NO_PAD.encode(Sha256::digest(raw.as_slice()).as_slice());
-    assert_eq!(challenge.0, expected, "challenge must be base64url(SHA-256(verifier))");
+    assert_eq!(
+        challenge.0, expected,
+        "challenge must be base64url(SHA-256(verifier))"
+    );
 }
 
 // -- state --------------------------------------------------------------
@@ -68,14 +75,26 @@ fn authorize_url_has_required_params() {
         None,
     );
     assert!(url.starts_with("https://www.figma.com/oauth?"));
-    assert!(url.contains("response_type=code"), "missing response_type: {url}");
-    assert!(url.contains("client_id=test-client-id"), "missing client_id: {url}");
+    assert!(
+        url.contains("response_type=code"),
+        "missing response_type: {url}"
+    );
+    assert!(
+        url.contains("client_id=test-client-id"),
+        "missing client_id: {url}"
+    );
     assert!(
         url.contains("redirect_uri=http%3A%2F%2F127.0.0.1%3A19876%2Fcallback"),
         "redirect_uri not percent-encoded: {url}"
     );
-    assert!(url.contains("code_challenge_method=S256"), "missing method: {url}");
-    assert!(url.contains(&format!("state={}", st.0)), "state mismatch: {url}");
+    assert!(
+        url.contains("code_challenge_method=S256"),
+        "missing method: {url}"
+    );
+    assert!(
+        url.contains(&format!("state={}", st.0)),
+        "state mismatch: {url}"
+    );
     assert!(
         url.contains(&format!("code_challenge={}", challenge.0)),
         "challenge mismatch: {url}"
@@ -114,14 +133,18 @@ fn authorize_url_encodes_scope_spaces_as_pct20() {
         None,
         Some("openid profile"),
     );
-    assert!(url.contains("scope=openid%20profile"), "scope not encoded: {url}");
+    assert!(
+        url.contains("scope=openid%20profile"),
+        "scope not encoded: {url}"
+    );
 }
 
 // -- tokens_from_json ---------------------------------------------------
 
 #[test]
 fn tokens_from_json_parses_full_response_and_computes_absolute_expiry() {
-    let body = r#"{"access_token":"at","refresh_token":"rt","expires_in":3600,"scope":"files:read"}"#;
+    let body =
+        r#"{"access_token":"at","refresh_token":"rt","expires_in":3600,"scope":"files:read"}"#;
     let tokens = tokens_from_json(body, 1_000_000.0).unwrap();
     assert_eq!(
         tokens,
@@ -203,10 +226,22 @@ fn tokens_serialize_to_opencode_camel_case() {
         scope: Some("files:read".to_owned()),
     };
     let value = serde_json::to_value(&tokens).unwrap();
-    assert_eq!(value.get("accessToken").and_then(|v| v.as_str()), Some("at"));
-    assert_eq!(value.get("refreshToken").and_then(|v| v.as_str()), Some("rt"));
-    assert_eq!(value.get("expiresAt").and_then(|v| v.as_f64()), Some(1_000.0));
-    assert_eq!(value.get("scope").and_then(|v| v.as_str()), Some("files:read"));
+    assert_eq!(
+        value.get("accessToken").and_then(|v| v.as_str()),
+        Some("at")
+    );
+    assert_eq!(
+        value.get("refreshToken").and_then(|v| v.as_str()),
+        Some("rt")
+    );
+    assert_eq!(
+        value.get("expiresAt").and_then(|v| v.as_f64()),
+        Some(1_000.0)
+    );
+    assert_eq!(
+        value.get("scope").and_then(|v| v.as_str()),
+        Some("files:read")
+    );
 }
 
 #[test]

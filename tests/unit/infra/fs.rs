@@ -5,6 +5,7 @@
     clippy::indexing_slicing
 )]
 
+#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -47,6 +48,7 @@ fn read_symlink_resolves_a_real_symlink() {
     assert_eq!(read_symlink(&link).unwrap(), SymlinkTarget::Target(target));
 }
 
+#[cfg(unix)]
 #[test]
 fn unreadable_file_is_a_hard_error_not_absent() {
     let (_dir, root) = utf8_temp_dir();
@@ -185,6 +187,7 @@ fn replace_symlink_is_never_observed_missing_or_pointing_elsewhere() {
     ));
 }
 
+#[cfg(unix)]
 #[test]
 fn replace_symlink_if_changed_is_a_no_op_when_the_target_is_unchanged() {
     use std::os::unix::fs::MetadataExt;
@@ -206,6 +209,7 @@ fn replace_symlink_if_changed_is_a_no_op_when_the_target_is_unchanged() {
     );
 }
 
+#[cfg(unix)]
 #[test]
 fn replace_symlink_if_changed_replaces_when_the_target_differs() {
     use std::os::unix::fs::MetadataExt;
@@ -338,6 +342,7 @@ fn remove_path_unlinks_a_symlink_without_following_it() {
     assert!(exists(&real_dir.join("keep.txt")).unwrap());
 }
 
+#[cfg(unix)]
 #[test]
 fn chmod_clears_write_bits_for_read_only_worktrees() {
     let (_dir, root) = utf8_temp_dir();
@@ -356,6 +361,7 @@ fn chmod_clears_write_bits_for_read_only_worktrees() {
 
 // -- the read-only guard: unix_mode / clear_write_bits / restore_write_bits
 
+#[cfg(unix)]
 #[test]
 fn unix_mode_reports_mode_bits_or_absence() {
     let (_dir, root) = utf8_temp_dir();
@@ -367,6 +373,7 @@ fn unix_mode_reports_mode_bits_or_absence() {
     assert_eq!(unix_mode(&root.join("missing")).unwrap(), None);
 }
 
+#[cfg(unix)]
 #[test]
 fn clear_write_bits_removes_them_and_is_idempotent() {
     use std::os::unix::fs::MetadataExt;
@@ -395,6 +402,7 @@ fn clear_write_bits_removes_them_and_is_idempotent() {
 /// A lift that restored `mode | 0o222` handed a 755 worktree back as 777 —
 /// world-writable, and left that way if the process died mid-lift. Only the
 /// owner's bit comes back, which is the one ivar runs as.
+#[cfg(unix)]
 #[test]
 fn restore_write_bits_never_widens_past_the_owner() {
     let (_dir, root) = utf8_temp_dir();
@@ -420,6 +428,7 @@ fn restore_write_bits_never_widens_past_the_owner() {
     assert_eq!(unix_mode(&dir).unwrap().unwrap() & 0o777, 0o644);
 }
 
+#[cfg(unix)]
 #[test]
 fn restore_write_bits_undoes_the_guard_and_is_idempotent() {
     use std::os::unix::fs::MetadataExt;
@@ -479,6 +488,9 @@ fn data_dir_from_uses_xdg_data_home_when_absolute() {
     let resolved = data_dir_from(
         Some("/custom/data".to_owned()),
         Some("/home/someone".to_owned()),
+        None,
+        None,
+        "linux",
     )
     .unwrap();
     assert_eq!(resolved, Utf8PathBuf::from("/custom/data"));
@@ -489,6 +501,9 @@ fn data_dir_from_falls_through_when_xdg_data_home_is_relative() {
     let resolved = data_dir_from(
         Some("relative/data".to_owned()),
         Some("/home/someone".to_owned()),
+        None,
+        None,
+        "linux",
     )
     .unwrap();
     assert_eq!(resolved, Utf8PathBuf::from("/home/someone/.local/share"));
@@ -496,19 +511,27 @@ fn data_dir_from_falls_through_when_xdg_data_home_is_relative() {
 
 #[test]
 fn data_dir_from_falls_through_when_xdg_data_home_is_empty() {
-    let resolved = data_dir_from(Some(String::new()), Some("/home/someone".to_owned())).unwrap();
+    let resolved = data_dir_from(
+        Some(String::new()),
+        Some("/home/someone".to_owned()),
+        None,
+        None,
+        "linux",
+    )
+    .unwrap();
     assert_eq!(resolved, Utf8PathBuf::from("/home/someone/.local/share"));
 }
 
 #[test]
 fn data_dir_from_uses_home_when_xdg_data_home_is_unset() {
-    let resolved = data_dir_from(None, Some("/home/someone".to_owned())).unwrap();
+    let resolved =
+        data_dir_from(None, Some("/home/someone".to_owned()), None, None, "linux").unwrap();
     assert_eq!(resolved, Utf8PathBuf::from("/home/someone/.local/share"));
 }
 
 #[test]
 fn data_dir_from_fails_naming_what_it_looked_for_when_neither_resolves() {
-    let failure = data_dir_from(None, None).unwrap_err();
+    let failure = data_dir_from(None, None, None, None, "linux").unwrap_err();
     assert_eq!(failure.code, "fs.data_dir");
     assert!(
         failure
@@ -522,7 +545,121 @@ fn data_dir_from_fails_naming_what_it_looked_for_when_neither_resolves() {
 
 #[test]
 fn data_dir_from_fails_when_xdg_data_home_is_relative_and_home_is_unset() {
-    let failure = data_dir_from(Some("relative/data".to_owned()), None).unwrap_err();
+    let failure =
+        data_dir_from(Some("relative/data".to_owned()), None, None, None, "linux").unwrap_err();
+    assert_eq!(failure.code, "fs.data_dir");
+}
+
+// -- data_dir_from: macOS cases ------------------------------------------------
+
+#[test]
+fn data_dir_from_macos_uses_xdg_when_absolute() {
+    let resolved = data_dir_from(
+        Some("/custom/data".to_owned()),
+        Some("/Users/someone".to_owned()),
+        Some("/Users/someone/AppData/Roaming".to_owned()),
+        None,
+        "macos",
+    )
+    .unwrap();
+    assert_eq!(resolved, Utf8PathBuf::from("/custom/data"));
+}
+
+#[test]
+fn data_dir_from_macos_falls_through_to_home_library_application_support() {
+    let resolved =
+        data_dir_from(None, Some("/Users/someone".to_owned()), None, None, "macos").unwrap();
+    assert_eq!(
+        resolved,
+        Utf8PathBuf::from("/Users/someone/Library/Application Support")
+    );
+}
+
+#[test]
+fn data_dir_from_macos_falls_through_when_xdg_is_relative() {
+    let resolved = data_dir_from(
+        Some("relative/data".to_owned()),
+        Some("/Users/someone".to_owned()),
+        None,
+        None,
+        "macos",
+    )
+    .unwrap();
+    assert_eq!(
+        resolved,
+        Utf8PathBuf::from("/Users/someone/Library/Application Support")
+    );
+}
+
+#[test]
+fn data_dir_from_macos_fails_without_xdg_or_home() {
+    let failure = data_dir_from(None, None, None, None, "macos").unwrap_err();
+    assert_eq!(failure.code, "fs.data_dir");
+}
+
+// -- data_dir_from: Windows cases ----------------------------------------------
+
+#[test]
+fn data_dir_from_windows_uses_xdg_when_absolute() {
+    let resolved = data_dir_from(
+        Some("/custom/data".to_owned()),
+        None,
+        Some("/home/someone/AppData/Roaming".to_owned()),
+        Some("/home/someone/AppData/Local".to_owned()),
+        "windows",
+    )
+    .unwrap();
+    assert_eq!(resolved, Utf8PathBuf::from("/custom/data"));
+}
+
+#[test]
+fn data_dir_from_windows_uses_appdata_when_xdg_unset() {
+    let resolved = data_dir_from(
+        None,
+        None,
+        Some("/home/someone/AppData/Roaming".to_owned()),
+        Some("/home/someone/AppData/Local".to_owned()),
+        "windows",
+    )
+    .unwrap();
+    assert_eq!(resolved, Utf8PathBuf::from("/home/someone/AppData/Roaming"));
+}
+
+#[test]
+fn data_dir_from_windows_falls_back_to_localappdata() {
+    let resolved = data_dir_from(
+        None,
+        None,
+        None,
+        Some("/home/someone/AppData/Local".to_owned()),
+        "windows",
+    )
+    .unwrap();
+    assert_eq!(resolved, Utf8PathBuf::from("/home/someone/AppData/Local"));
+}
+
+#[test]
+fn data_dir_from_windows_rejects_relative_appdata() {
+    let resolved = data_dir_from(
+        None,
+        None,
+        Some("relative/appdata".to_owned()),
+        Some("/home/someone/AppData/Local".to_owned()),
+        "windows",
+    )
+    .unwrap();
+    assert_eq!(resolved, Utf8PathBuf::from("/home/someone/AppData/Local"));
+}
+
+#[test]
+fn data_dir_from_windows_rejects_empty_localappdata() {
+    let failure = data_dir_from(None, None, Some("".to_owned()), None, "windows").unwrap_err();
+    assert_eq!(failure.code, "fs.data_dir");
+}
+
+#[test]
+fn data_dir_from_windows_fails_without_any_path() {
+    let failure = data_dir_from(None, None, None, None, "windows").unwrap_err();
     assert_eq!(failure.code, "fs.data_dir");
 }
 

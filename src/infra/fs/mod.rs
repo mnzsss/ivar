@@ -193,53 +193,90 @@ pub(super) fn not_utf8(path: std::path::PathBuf) -> Error {
     }
 }
 
-/// Resolve the base directory for ivar's persistent data.
+/// Resolve the base directory for ivar's persistent data, following the
+/// platform convention the provider uses for the same directory:
 ///
-/// Resolution order:
-/// 1. `$XDG_DATA_HOME`, if set to a non-empty, absolute path.
-/// 2. `$HOME/.local/share`.
+/// - Linux: `$XDG_DATA_HOME` (absolute) or `$HOME/.local/share`.
+/// - macOS: `$XDG_DATA_HOME` (absolute) or `$HOME/Library/Application Support`.
+/// - Windows: `$XDG_DATA_HOME` (absolute) or `%APPDATA%` or `%LOCALAPPDATA%`.
 ///
-/// A relative or empty `XDG_DATA_HOME` is treated as unset, not as an
-/// error — it falls through to `$HOME` rather than failing outright. This
-/// never returns a guessed path: if neither resolves, the returned
-/// [`Failure`] names both variables it looked for.
+/// A relative or empty variable is treated as unset, not as an error — the
+/// cascade falls through rather than failing outright. This never returns a
+/// guessed path: if nothing resolves, the returned [`Failure`] names every
+/// variable it looked for.
 pub fn data_dir() -> Result<Utf8PathBuf, Failure> {
     data_dir_from(
         std::env::var("XDG_DATA_HOME").ok(),
         std::env::var("HOME").ok(),
+        std::env::var("APPDATA").ok(),
+        std::env::var("LOCALAPPDATA").ok(),
+        std::env::consts::OS,
     )
 }
 
 /// The resolution cascade as a pure function, so the fallthrough rules and
-/// the no-path failure are testable without mutating the process
-/// environment (which races across concurrently-run tests).
+/// the no-path failure are testable without mutating the process environment
+/// (which races across concurrently-run tests). `os` is `std::env::consts::OS`.
 fn data_dir_from(
     xdg_data_home: Option<String>,
     home: Option<String>,
+    appdata: Option<String>,
+    localappdata: Option<String>,
+    os: &str,
 ) -> Result<Utf8PathBuf, Failure> {
-    if let Some(xdg_data_home) = xdg_data_home {
-        let path = Utf8PathBuf::from(xdg_data_home);
-        if !path.as_str().is_empty() && path.is_absolute() {
-            return Ok(path);
+    // `$XDG_DATA_HOME`, when set to an absolute path, wins on every platform —
+    // it is the one variable the caller can use to override the convention.
+    if let Some(path) = absolute_non_empty(xdg_data_home) {
+        return Ok(path);
+    }
+
+    let home = home.filter(|h| !h.is_empty());
+    match os {
+        "windows" => {
+            if let Some(path) = absolute_non_empty(appdata) {
+                return Ok(path);
+            }
+            if let Some(path) = absolute_non_empty(localappdata) {
+                return Ok(path);
+            }
+            Err(data_dir_failure())
         }
+        "macos" => match home {
+            Some(home) => Ok(Utf8PathBuf::from(home)
+                .join("Library")
+                .join("Application Support")),
+            None => Err(data_dir_failure()),
+        },
+        _ => match home {
+            Some(home) => Ok(Utf8PathBuf::from(home).join(".local").join("share")),
+            None => Err(data_dir_failure()),
+        },
     }
+}
 
-    if let Some(home) = home
-        && !home.is_empty()
-    {
-        return Ok(Utf8PathBuf::from(home).join(".local").join("share"));
+/// `value`, when it names a non-empty absolute path.
+fn absolute_non_empty(value: Option<String>) -> Option<Utf8PathBuf> {
+    let value = value?;
+    let path = Utf8PathBuf::from(value);
+    if path.as_str().is_empty() || !path.is_absolute() {
+        return None;
     }
+    Some(path)
+}
 
-    Err(Failure::failed(
-        "fs.data_dir",
-        "could not resolve a data directory — neither $XDG_DATA_HOME nor $HOME is set",
-    )
-    .expected("$XDG_DATA_HOME set to an absolute path, or $HOME set")
-    .actual("$XDG_DATA_HOME is unset (or relative/empty) and $HOME is unset (or empty)")
-    .fix(FixAction::safe(
-        "fs.set_home",
-        "Set $HOME in the environment, or $XDG_DATA_HOME to an absolute path.",
-    )))
+/// The failure for "no platform data-directory variable resolved".
+fn data_dir_failure() -> Failure {
+    Failure::failed("fs.data_dir", "could not resolve a data directory")
+        .expected(
+            "$XDG_DATA_HOME set to an absolute path, $HOME set, or (on Windows) \
+             $APPDATA/$LOCALAPPDATA set",
+        )
+        .actual("no platform data-directory variable resolved to an absolute path")
+        .fix(FixAction::safe(
+            "fs.set_data_dir",
+            "Set $XDG_DATA_HOME (any platform), $HOME (Unix/macOS), or \
+             $APPDATA/$LOCALAPPDATA (Windows) to an absolute path.",
+        ))
 }
 
 /// A unique sibling path in the same directory as `path`, for the
