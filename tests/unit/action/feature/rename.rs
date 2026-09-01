@@ -40,6 +40,15 @@ struct DummyRemoteGit {
 }
 
 impl git::Git for DummyRemoteGit {
+    fn protect_default_branch(
+        &self,
+        git_dir: &Utf8Path,
+        default_worktree: &Utf8Path,
+        default_branch: &str,
+    ) -> Result<git::protect::Protection, git::Error> {
+        self.system
+            .protect_default_branch(git_dir, default_worktree, default_branch)
+    }
     fn target_state(&self, path: &Utf8Path) -> Result<git::TargetState, git::Error> {
         self.system.target_state(path)
     }
@@ -649,6 +658,15 @@ impl FailingGit {
 }
 
 impl git::Git for FailingGit {
+    fn protect_default_branch(
+        &self,
+        git_dir: &Utf8Path,
+        default_worktree: &Utf8Path,
+        default_branch: &str,
+    ) -> Result<git::protect::Protection, git::Error> {
+        self.dummy
+            .protect_default_branch(git_dir, default_worktree, default_branch)
+    }
     fn target_state(&self, path: &Utf8Path) -> Result<git::TargetState, git::Error> {
         self.dummy.target_state(path)
     }
@@ -904,6 +922,15 @@ impl RaceGit {
 }
 
 impl git::Git for RaceGit {
+    fn protect_default_branch(
+        &self,
+        git_dir: &Utf8Path,
+        default_worktree: &Utf8Path,
+        default_branch: &str,
+    ) -> Result<git::protect::Protection, git::Error> {
+        self.system
+            .protect_default_branch(git_dir, default_worktree, default_branch)
+    }
     fn target_state(&self, path: &Utf8Path) -> Result<git::TargetState, git::Error> {
         self.system.target_state(path)
     }
@@ -1514,6 +1541,15 @@ struct PublishedRemoteGit {
 }
 
 impl git::Git for PublishedRemoteGit {
+    fn protect_default_branch(
+        &self,
+        git_dir: &Utf8Path,
+        default_worktree: &Utf8Path,
+        default_branch: &str,
+    ) -> Result<git::protect::Protection, git::Error> {
+        self.dummy
+            .protect_default_branch(git_dir, default_worktree, default_branch)
+    }
     fn target_state(&self, path: &Utf8Path) -> Result<git::TargetState, git::Error> {
         self.dummy.target_state(path)
     }

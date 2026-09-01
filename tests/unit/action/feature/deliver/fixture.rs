@@ -168,11 +168,15 @@ pub(super) fn origin_of(root: &Utf8Path, repo: &str) -> String {
         .to_owned()
 }
 
+/// Like `test_support::git`, but hands back stdout. The empty `core.hooksPath`
+/// is the same scaffolding opt-out and carries the same caveat: this builds the
+/// arrangement a test starts from, so it must not be used to assert protection.
 pub(super) fn git_stdout(cwd: &Utf8Path, args: &[&str]) -> String {
     let output = std::process::Command::new("git")
         .args(["-c", "user.name=ivar tests"])
         .args(["-c", "user.email=tests@ivar.invalid"])
         .args(["-c", "commit.gpgsign=false"])
+        .args(["-c", "core.hooksPath="])
         .args(args)
         .current_dir(cwd)
         .output()

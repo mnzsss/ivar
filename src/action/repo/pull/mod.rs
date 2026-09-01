@@ -35,10 +35,11 @@
 //! fetch is the part that waits on a remote, and the two local steps around it
 //! would flash past unread.
 
-use std::collections::HashSet;
+mod diagnosis;
+
 use std::io;
 
-use camino::{Utf8Path, Utf8PathBuf};
+use camino::Utf8PathBuf;
 use serde::Serialize;
 
 use crate::domain::name::RepoName;
@@ -49,8 +50,10 @@ use crate::infra::progress::Progress;
 use crate::store::layout::Layout;
 use crate::store::manifest::{Manifest, Repo};
 
-use super::super::{discover_hall, read_manifest};
 use crate::action::Ctx;
+use crate::action::{discover_hall, read_manifest};
+
+use self::diagnosis::{diagnose_divergence, remote_ref, safe_to_reset};
 
 /// What `ivar repo pull` needs.
 #[derive(Debug, Clone, Default)]
@@ -349,16 +352,23 @@ pub(crate) fn refresh_default(
                 } else {
                     None
                 };
-                if resolve && safe_to_reset(git, &worktree, repo) {
-                    match git.reset_hard(&worktree, &remote_ref(repo)) {
+                // Only `--resolve` gets the named blocker: it is the run that
+                // tried to act and declined, so it is the run that owes an
+                // explanation. A plain pull never offered to fix anything, and
+                // its callers already assert git's own wording.
+                match resolve.then(|| safe_to_reset(git, &worktree, repo)) {
+                    None => PullStatus::Skipped { reason, divergence },
+                    Some(Ok(())) => match git.reset_hard(&worktree, &remote_ref(repo)) {
                         Ok(()) => PullStatus::Resolved,
                         Err(reset_error) => PullStatus::Skipped {
                             reason: format!("{reason}; and could not resolve: {reset_error}"),
                             divergence,
                         },
-                    }
-                } else {
-                    PullStatus::Skipped { reason, divergence }
+                    },
+                    Some(Err(blocker)) => PullStatus::Skipped {
+                        reason: blocker.reason().to_owned(),
+                        divergence,
+                    },
                 }
             }
         },
@@ -368,81 +378,6 @@ pub(crate) fn refresh_default(
         let _ = fs::clear_write_bits(&worktree);
     }
     status
-}
-
-/// The remote-tracking ref `fetch_branch` keeps current — the reset target for
-/// a safely-resolved divergence.
-fn remote_ref(repo: &Repo) -> String {
-    format!("origin/{}", repo.default_branch())
-}
-
-/// Whether resetting the default branch to the remote tip is safe: every
-/// local-only commit is a duplicate of work already in the remote, and the
-/// worktree is clean (so nothing uncommitted is discarded).
-///
-/// Conservative by construction: any failure to confirm a duplicate — a
-/// patch-id that cannot be read, a dirty worktree, a missing ref — answers
-/// `false`, and the branch is left for the human. `--resolve` never touches a
-/// branch it cannot prove is a duplicate; false is the safe direction.
-fn safe_to_reset(git: &impl Git, worktree: &Utf8Path, repo: &Repo) -> bool {
-    let branch = repo.default_branch().as_str();
-    let remote = remote_ref(repo);
-
-    // A dirty worktree must not be reset — the reset would discard work that
-    // was never committed and so never reached the remote.
-    if git.worktree_dirty(worktree).unwrap_or(true) {
-        return false;
-    }
-
-    let Ok(divergence) = git.divergence(worktree, branch, &remote) else {
-        return false;
-    };
-    if divergence.local_only.is_empty() {
-        // Nothing local to lose would mean it did not diverge; be safe anyway.
-        return false;
-    }
-
-    let Some(remote_patch_ids) = divergence
-        .remote_only
-        .iter()
-        .map(|commit| git.commit_patch_id(worktree, &commit.sha).ok())
-        .collect::<Option<HashSet<String>>>()
-    else {
-        return false;
-    };
-
-    // Squash case: the whole local range, as one cumulative diff, matches a
-    // single remote commit — local commits re-landed as a squash.
-    let contained_as_squash = git
-        .merge_base(worktree, branch, &remote)
-        .ok()
-        .and_then(|base| git.diff_patch_id(worktree, &base, branch).ok())
-        .map(|local_cumulative| remote_patch_ids.contains(&local_cumulative))
-        .unwrap_or(false);
-
-    // Rebase / cherry-pick case: every local-only commit individually matches
-    // a remote commit.
-    let contained_per_commit = divergence.local_only.iter().all(|commit| {
-        git.commit_patch_id(worktree, &commit.sha)
-            .map(|id| remote_patch_ids.contains(&id))
-            .unwrap_or(false)
-    });
-
-    contained_as_squash || contained_per_commit
-}
-
-/// The local-vs-remote commit lists behind a "cannot fast-forward" report —
-/// the `--diagnose` view.
-///
-/// Reads the worktree's checked-out branch against its remote-tracking
-/// counterpart (`origin/<branch>`, the ref `fetch_branch` updates). Best-effort:
-/// if the refs cannot be read the diagnosis is `None`, so the pull's own
-/// "skipped" status still stands — a diagnosis failure must not turn a skipped
-/// repo into a failed one.
-fn diagnose_divergence(git: &impl Git, worktree: &Utf8Path, repo: &Repo) -> Option<Divergence> {
-    let branch = repo.default_branch().as_str();
-    git.divergence(worktree, branch, &format!("origin/{branch}"))
-        .ok()
 }
 
 /// Fetch-and-fast-forward every registered repo — the **Smart Fetch** sweep
@@ -502,5 +437,5 @@ fn resolve_targets<'a>(
 }
 
 #[cfg(test)]
-#[path = "../../../tests/unit/action/repo/pull.rs"]
+#[path = "../../../../tests/unit/action/repo/pull/mod.rs"]
 mod tests;

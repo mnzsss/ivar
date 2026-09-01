@@ -138,9 +138,64 @@ the provider respecting the hook protocol:
 - **OpenCode:** The guard exits non-zero for deny. A non-zero exit should abort the
   tool call, but this is provider behaviour, not ivar's guarantee.
 
-**What this means in practice:** The guard is an error message, not a firewall. A
+**What this means in practice:** the guard is an error message, not a firewall. A
 provider that does not call the hook, or that ignores a deny decision, will allow
-the write. The filesystem-level guarantee — non-promoted worktrees held read-only
-by the kernel — remains the hard boundary. The guard catches the common case
-(Write/Edit through the provider's tool interface) but cannot prevent a shell
-command from writing to arbitrary paths.
+the write.
+
+## What protects the default branch
+
+Protection is layered, and the layers are not equally strong. Each one below
+states what it stops and what it does not.
+
+**The structured-tool guard** denies Write, Edit, MultiEdit, NotebookEdit, and
+the patch tools when their target is outside the session's writable set. Tool
+names are matched after normalising case and separators, so `notebook_edit` and
+`NotebookEdit` are the same tool. This is the layer described above, and it
+inherits that layer's weakness: it depends on the provider honouring the hook.
+
+**A Discovery Session resolves to a set holding the view dir alone.** A session
+with no promoted feature may write its own notes and nothing else. This closes a
+gap where a session with no feature previously resolved to no set at all, which
+disarmed the guard entirely.
+
+**Shell commands are not classified.** `Bash` and every other shell tool are
+allowed through without inspection. Deciding whether an arbitrary shell command
+writes, and where, is not something a pattern match can do correctly, and a
+classifier that is wrong in the permissive direction is worse than none: it
+reads as protection while providing none. This is a deliberate gap, and it is
+the largest one.
+
+**The pre-commit hook is deterministic and does not depend on the provider.**
+`ivar sync` installs a `pre-commit` hook that refuses any commit on a repo's
+default branch, however that commit is invoked — through a tool call, through
+Bash, or by hand. It lives in `<bare>/ivar-hooks/` and is selected per worktree
+via worktree-local `core.hooksPath`, so a project's own hook manager (husky and
+similar, which write `core.hooksPath` into the shared config during
+`pnpm install`) does not displace it, and feature worktrees keep the project's
+hooks. Because it is worktree-local, it binds the default-branch worktree only.
+
+`ivar deliver` commits onto the default branch by design when landing with the
+squash strategy, and passes `--no-verify` at that one call site. This is not a
+general escape hatch: there is no environment variable and no configuration that
+turns the hook off.
+
+**The read-only guard is applied to the worktree root only.** It is not applied
+recursively, because worktrees are full of files hardlinked out of a package
+manager's content-addressed store, and `chmod` acts on the inode: recursing
+would change permissions inside that store and inside every checkout sharing it.
+A root-only guard stops files being created or removed in the worktree; it does
+not stop an existing tracked file from being modified in place.
+
+### What is not covered
+
+- **Shell commands that write files.** Not classified, by the reasoning above.
+- **Repositories outside the hall.** Protection is installed by `ivar sync` on
+  repos declared in `ivar.json`. A clone made by hand elsewhere has none of it.
+- **In-place edits to existing files**, per the root-only read-only guard.
+- **`git commit --no-verify`,** typed by a human or emitted by an agent. Git
+  offers no way for a hook to refuse this.
+
+None of this is a security boundary. It is a guardrail against plausible
+mistakes — an agent committing to `main` because that is where it happened to
+be — and it is built for a hall where the person running it wants the guardrail.
+It will not stop a determined process running as your user.

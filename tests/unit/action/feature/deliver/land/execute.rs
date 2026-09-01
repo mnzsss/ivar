@@ -394,6 +394,15 @@ fn absence_of_preview_evidence_none_none_skips_whole_batch() {
     // Mock git that returns Ok(None) for remote_branch_tip
     struct UnreachableRemoteGit(crate::git::System);
     impl crate::git::Git for UnreachableRemoteGit {
+        fn protect_default_branch(
+            &self,
+            git_dir: &Utf8Path,
+            default_worktree: &Utf8Path,
+            default_branch: &str,
+        ) -> Result<crate::git::protect::Protection, crate::git::Error> {
+            self.0
+                .protect_default_branch(git_dir, default_worktree, default_branch)
+        }
         fn target_state(
             &self,
             path: &Utf8Path,
@@ -688,6 +697,15 @@ fn absence_of_preview_evidence_none_err_skips_whole_batch() {
     // Mock git that returns Err for remote_branch_tip
     struct ErrRemoteGit(crate::git::System);
     impl crate::git::Git for ErrRemoteGit {
+        fn protect_default_branch(
+            &self,
+            git_dir: &Utf8Path,
+            default_worktree: &Utf8Path,
+            default_branch: &str,
+        ) -> Result<crate::git::protect::Protection, crate::git::Error> {
+            self.0
+                .protect_default_branch(git_dir, default_worktree, default_branch)
+        }
         fn target_state(
             &self,
             path: &Utf8Path,
@@ -1140,6 +1158,15 @@ fn remote_moved_with_warning_skips_batch_and_emits_warning() {
 struct FailingRollbackGit(crate::git::System);
 
 impl crate::git::Git for FailingRollbackGit {
+    fn protect_default_branch(
+        &self,
+        git_dir: &Utf8Path,
+        default_worktree: &Utf8Path,
+        default_branch: &str,
+    ) -> Result<crate::git::protect::Protection, crate::git::Error> {
+        self.0
+            .protect_default_branch(git_dir, default_worktree, default_branch)
+    }
     fn target_state(&self, path: &Utf8Path) -> Result<crate::git::TargetState, crate::git::Error> {
         self.0.target_state(path)
     }
@@ -1815,8 +1842,11 @@ fn land_revalidates_fast_forward_and_rolls_back() {
         .iter()
         .map(|r| {
             if r.name().as_str() == "api" {
+                // Stands in for someone else moving the default branch between
+                // preview and apply. `core.hooksPath=` because this is staging
+                // that divergence, not exercising the protection hook.
                 r.clone().with_checks(vec![format!(
-                    "git -C {web_default} commit --allow-empty -m 'diverged'"
+                    "git -c core.hooksPath= -C {web_default} commit --allow-empty -m 'diverged'"
                 )])
             } else {
                 r.clone()

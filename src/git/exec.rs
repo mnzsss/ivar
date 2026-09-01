@@ -35,8 +35,10 @@ use super::Error;
 /// A `git` invocation with this module's fail-fast environment already applied.
 ///
 /// Every command in this module starts here, so the discipline described in the
-/// module doc comment cannot be forgotten at one call site.
-fn git() -> proc::Command {
+/// module doc comment cannot be forgotten at one call site. `protect` shares it
+/// for the same reason: a second `Command::new("git")` anywhere in `git/` is a
+/// second chance to forget the environment.
+pub(super) fn git() -> proc::Command {
     proc::Command::new("git")
         // Refuse rather than prompt: a prompt nobody can see reads as a hang.
         .env("GIT_TERMINAL_PROMPT", "0")
@@ -53,7 +55,7 @@ fn git() -> proc::Command {
 /// deliberately returns it as data; the translation belongs here, where "git
 /// said no" is unambiguous, rather than in the general subprocess boundary
 /// where it is not.
-fn run(command: proc::Command) -> Result<String, Error> {
+pub(super) fn run(command: proc::Command) -> Result<String, Error> {
     let output = proc::capture(&command)?;
     if output.success() {
         return Ok(output.stdout);
@@ -322,9 +324,23 @@ pub(crate) fn merge_no_ff(worktree: &Utf8Path, source: &str) -> Result<(), Error
 /// `git -C <worktree> merge --squash <source>` then `git -C <worktree>
 /// commit -m <message>` — the squash strategy's two steps, since `--squash`
 /// stages without committing.
+/// # Why `--no-verify`
+///
+/// This commit lands on the default branch, which is exactly what the
+/// protection hook refuses — so without this, protecting a repo would break
+/// `ivar deliver` in that repo. `--no-verify` is written here, at the one call
+/// site that commits onto a protected branch, rather than as an environment
+/// marker the hook honours: an env var is readable and settable by anything
+/// with a shell, which is the audience the hook exists to stop. An argument on
+/// this one line is not.
 pub(crate) fn squash_merge(worktree: &Utf8Path, source: &str, message: &str) -> Result<(), Error> {
     run(git().cwd(worktree).arg("merge").arg("--squash").arg(source))?;
-    run(git().cwd(worktree).arg("commit").arg("-m").arg(message))?;
+    run(git()
+        .cwd(worktree)
+        .arg("commit")
+        .arg("--no-verify")
+        .arg("-m")
+        .arg(message))?;
     Ok(())
 }
 
