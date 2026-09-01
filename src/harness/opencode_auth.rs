@@ -1,56 +1,146 @@
-//! Read-only access to OpenCode's own MCP OAuth credential store —
+//! Read and write access to OpenCode's MCP OAuth credential store —
 //! `<data_dir>/opencode/mcp-auth.json`.
 //!
-//! # This store is the wrong place to *write* a client
+//! # Why Ivar writes to this store
 //!
-//! An earlier version of this module wrote a pre-provisioned `clientInfo`
-//! here, on the strength of a `clientInformation()` resolution order read out
-//! of the OpenCode binary. Measured on 2026-08-26: `opencode mcp auth` never
-//! reads this file for its OAuth client at all — it resolves that from
-//! `opencode.json` only. That version was deleted rather than kept as dead
-//! weight (see `plans/ivar-mcp-auth/analysis.md`); pre-registration now
-//! reaches OpenCode through `harness::config`'s materialised `opencode.json`,
-//! driven by `McpServerDef.oauth`. Do not re-add a writer here — nothing
-//! this crate does reads a client back out of this file.
+//! Earlier versions of this module deliberately avoided writing here.
+//! That guidance was correct for the old design: measured on 2026-08-26,
+//! `opencode mcp auth` never reads `mcp-auth.json` for its OAuth client
+//! at all — it resolves that from `opencode.json` only. A pre-provisioned
+//! `clientInfo` written here reached nothing.
 //!
-//! # It *is* the right place to read whether authentication happened
+//! That reasoning no longer applies. In the new flow Ivar performs the
+//! Figma OAuth exchange itself (`R-FIGMA-FLOW`) and writes the resulting
+//! tokens into this store. OpenCode *does* read tokens from here at
+//! MCP-connect time — this is exactly what the community workaround
+//! (`gberaudo/opencode-mcp-figma`) writes. The writer returns, justified
+//! by `R-PERSIST` and `R-HONEST`.
 //!
-//! `opencode mcp auth` exits `0` unconditionally — measured against a server
-//! name that does not exist, and measured while it printed `Authentication
-//! failed` to the terminal. The exit status cannot carry `R-HONEST` for this
-//! provider. What this file *does* reflect, reliably, is whether a token
-//! exchange actually completed: a successful `opencode mcp auth` writes a
-//! `tokens` object under the server's name here. [`has_tokens`] is the one
-//! thing this module does.
+//! # Conflict detection
+//!
+//! `write_entry` never overwrites an existing same-name entry (`R-CONFLICT`,
+//! `C-NO-OVERWRITE`). If the key already exists, the write is aborted with
+//! a `Failure::blocked` identifying the server name and store path. The
+//! user must remove it explicitly.
+//!
+//! # Secrets
+//!
+//! Client secrets and tokens are never exposed in `Debug` or error
+//! messages. The [`Entry`] and [`ClientInfo`] types implement redacted
+//! `Debug` to prevent accidental leakage.
 //!
 //! # Layering
 //!
 //! `harness` may import `infra` — [`crate::infra::fs::data_dir`] resolves the
-//! base directory, [`crate::infra::json::read`] parses the file. No `store`
-//! import: the caller hands this module nothing but a server name.
+//! base directory, [`crate::infra::json::read`] and
+//! [`crate::infra::json::to_canonical_string`] handle serialization, and
+//! [`crate::infra::fs::write_sensitive_atomic`] performs the atomic write.
+//! No `store` import.
 
 use camino::{Utf8Path, Utf8PathBuf};
-use serde::Deserialize;
+use serde::Serialize;
 use std::collections::BTreeMap;
 
 use crate::error::Failure;
+use crate::infra::oauth::Tokens;
 use crate::infra::{fs, json};
 
-/// One server's entry in `mcp-auth.json`. Only the field this module reads —
-/// OpenCode's own store carries more, and none of the rest is this module's
-/// business.
-#[derive(Debug, Deserialize)]
-struct StoredAuth {
-    /// Present once a token exchange actually completed for this server.
-    #[serde(default)]
-    tokens: Option<serde_json::Value>,
+/// Client registration info stored alongside tokens in OpenCode's
+/// `mcp-auth.json`. Values match OpenCode's `ClientInfo` schema:
+/// `clientId`, optional `clientSecret`, optional `clientSecretExpiresAt`.
+///
+/// `Debug` is redacted — secrets must never appear in logs or diagnostics.
+#[derive(Clone)]
+pub struct ClientInfo {
+    pub client_id: String,
+    pub client_secret: Option<String>,
+    pub client_secret_expires_at: Option<f64>,
 }
 
-/// `mcp-auth.json`'s path under `data_dir`. Split out from [`has_tokens`] so
-/// the path arithmetic is a plain, deterministic function — no environment
+impl std::fmt::Debug for ClientInfo {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ClientInfo")
+            .field("client_id", &"<redacted>")
+            .field("client_secret", &"<redacted>")
+            .field("client_secret_expires_at", &self.client_secret_expires_at)
+            .finish()
+    }
+}
+
+/// The complete OpenCode-compatible entry written to `mcp-auth.json`.
+///
+/// Contains exactly: `serverUrl`, `clientInfo`, `tokens`. The OpenCode
+/// camelCase schema is handled by `#[serde(rename_all = "camelCase")]`.
+///
+/// `Debug` is redacted — tokens and secrets must never appear in logs.
+#[derive(Clone)]
+pub struct Entry {
+    pub server_url: String,
+    pub client_info: ClientInfo,
+    pub tokens: Tokens,
+}
+
+impl std::fmt::Debug for Entry {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Entry")
+            .field("server_url", &self.server_url)
+            .field("client_info", &self.client_info)
+            .field("tokens", &"<redacted>")
+            .finish()
+    }
+}
+
+/// The on-disk shape of a single entry in `mcp-auth.json`, serialised with
+/// OpenCode's camelCase keys.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct StoreEntry {
+    server_url: String,
+    client_info: StoreClientInfo,
+    tokens: Tokens,
+}
+
+/// The on-disk `clientInfo` shape — only the fields that are always
+/// present. `serde` skips `None` fields so the output matches OpenCode's
+/// expected schema.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct StoreClientInfo {
+    client_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    client_secret: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    client_secret_expires_at: Option<f64>,
+}
+
+/// `mcp-auth.json`'s path under `data_dir`. Split out so the path
+/// arithmetic is a plain, deterministic function — no environment
 /// variable to set up to exercise it.
 fn auth_path_under(data_dir: &Utf8Path) -> Utf8PathBuf {
     data_dir.join("opencode").join("mcp-auth.json")
+}
+
+/// Read the raw store map from the auth file. Absent file = empty map.
+/// Invalid JSON = error.
+fn read_map_under(data_dir: &Utf8Path) -> Result<BTreeMap<String, serde_json::Value>, Failure> {
+    let path = auth_path_under(data_dir);
+    let store: Option<BTreeMap<String, serde_json::Value>> = json::read(&path)?;
+    Ok(store.unwrap_or_default())
+}
+
+/// Whether the store contains any entry (including one with only
+/// `codeVerifier`, `{}`, `clientInfo`, etc.) under `server_name`.
+///
+/// `Ok(false)` for a missing file or a missing entry — those are not
+/// errors. An error means the file exists but could not be parsed.
+pub fn has_entry(server_name: &str) -> Result<bool, Failure> {
+    has_entry_under(&fs::data_dir()?, server_name)
+}
+
+/// [`has_entry`], parameterised on the data directory.
+pub fn has_entry_under(data_dir: &Utf8Path, server_name: &str) -> Result<bool, Failure> {
+    let map = read_map_under(data_dir)?;
+    Ok(map.contains_key(server_name))
 }
 
 /// Whether OpenCode's own store shows a completed token exchange for
@@ -63,14 +153,82 @@ pub fn has_tokens(server_name: &str) -> Result<bool, Failure> {
     has_tokens_under(&fs::data_dir()?, server_name)
 }
 
-/// [`has_tokens`], parameterised on the data directory so a test can point it
-/// at a temporary file instead of resolving `$XDG_DATA_HOME`/`$HOME`.
+/// [`has_tokens`], parameterised on the data directory.
 fn has_tokens_under(data_dir: &Utf8Path, server_name: &str) -> Result<bool, Failure> {
+    let map = read_map_under(data_dir)?;
+    Ok(map
+        .get(server_name)
+        .and_then(|value| value.get("tokens"))
+        .is_some_and(serde_json::Value::is_object))
+}
+
+/// Write an `Entry` into the store under `server_name`, preserving every
+/// existing unrelated entry.
+///
+/// # Conflict check
+///
+/// If `server_name` already exists in the store, this returns
+/// `Failure::blocked` (`R-CONFLICT`, `C-NO-OVERWRITE`). The entry is
+/// never overwritten — the user must remove it explicitly.
+///
+/// # Atomicity
+///
+/// The write uses [`fs::write_sensitive_atomic`] with mode `0600` (Unix),
+/// so a crash never leaves a half-written file and every unrelated entry
+/// is preserved.
+pub fn write_entry(server_name: &str, entry: &Entry) -> Result<(), Failure> {
+    write_entry_under(&fs::data_dir()?, server_name, entry)
+}
+
+/// [`write_entry`], parameterised on the data directory.
+pub fn write_entry_under(
+    data_dir: &Utf8Path,
+    server_name: &str,
+    entry: &Entry,
+) -> Result<(), Failure> {
     let path = auth_path_under(data_dir);
-    let store: Option<BTreeMap<String, StoredAuth>> = json::read(&path)?;
-    Ok(store
-        .and_then(|servers| servers.get(server_name).map(|entry| entry.tokens.is_some()))
-        .unwrap_or(false))
+    let mut map = read_map_under(data_dir)?;
+
+    if map.contains_key(server_name) {
+        return Err(Failure::blocked(
+            "opencode_auth.conflict",
+            format!(
+                "the store at {path} already has an entry for \"{server_name}\""
+            ),
+        )
+        .expected("no existing entry for this server name")
+        .actual("an entry already exists under this key")
+        .fix(crate::error::FixAction::unsafe_(
+            "opencode_auth.remove_entry",
+            format!(
+                "Remove the \"{server_name}\" entry from {path} explicitly before re-authenticating."
+            ),
+        )));
+    }
+
+    let store_entry = StoreEntry {
+        server_url: entry.server_url.clone(),
+        client_info: StoreClientInfo {
+            client_id: entry.client_info.client_id.clone(),
+            client_secret: entry.client_info.client_secret.clone(),
+            client_secret_expires_at: entry.client_info.client_secret_expires_at,
+        },
+        tokens: entry.tokens.clone(),
+    };
+
+    let entry_value = serde_json::to_value(store_entry).map_err(|e| {
+        Failure::failed(
+            "opencode_auth.serialize",
+            format!("could not serialize credential entry: {e}"),
+        )
+    })?;
+    map.insert(server_name.to_owned(), entry_value);
+
+    let full_bytes = json::to_canonical_string(&map).map_err(Failure::from)?;
+
+    fs::write_sensitive_atomic(&path, full_bytes.as_bytes())?;
+
+    Ok(())
 }
 
 #[cfg(test)]
