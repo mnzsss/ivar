@@ -63,7 +63,8 @@ pub enum McpValidationError {
     MissingCommandForLocal,
     EmptyCommandForLocal,
     LocalWithUrl,
-    ArgsWithoutCommand,
+    ArgsWithoutCommandForLocal,
+    ArgsNotSupportedForHttp,
 }
 
 impl fmt::Display for McpValidationError {
@@ -91,10 +92,11 @@ impl fmt::Display for McpValidationError {
                 write!(f, "using `local` transport has a blank `command`")
             }
             Self::LocalWithUrl => write!(f, "using `local` transport should not have a `url`"),
-            Self::ArgsWithoutCommand => write!(
+            Self::ArgsWithoutCommandForLocal => write!(
                 f,
                 "using `local` transport with `args` must also have a `command`"
             ),
+            Self::ArgsNotSupportedForHttp => write!(f, "using `http` transport cannot have `args`"),
         }
     }
 }
@@ -102,9 +104,9 @@ impl fmt::Display for McpValidationError {
 /// One MCP server definition: how a harness should spawn (or connect to) one
 /// server, and nothing about the secrets it will need at runtime.
 ///
-/// `type_` is the transport: `stdio`, `sse`, or `streamable-http`. A stdio
-/// server carries `command` (plus `args`); a remote one carries `url`. The
-/// harness materialiser decides how the two spell the same facts on disk.
+/// `type_` is the transport: `http` or `local`. A `local` server carries
+/// `command` (plus `args`); an `http` one carries `url`. The harness
+/// materialiser decides how the two spell the same facts on disk.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct McpServerDef {
@@ -164,7 +166,11 @@ impl McpServerDef {
                     return Err(McpValidationError::InvalidUrlForHttp(url.to_owned()));
                 }
 
-                if self.command.is_some() || self.args.is_some() || self.env.is_some() {
+                if self.args.is_some() {
+                    return Err(McpValidationError::ArgsNotSupportedForHttp);
+                }
+
+                if self.command.is_some() || self.env.is_some() {
                     return Err(McpValidationError::HttpWithUnsupportedFields);
                 }
             }
@@ -174,7 +180,7 @@ impl McpServerDef {
                 }
 
                 if self.args.is_some() && self.command.is_none() {
-                    return Err(McpValidationError::ArgsWithoutCommand);
+                    return Err(McpValidationError::ArgsWithoutCommandForLocal);
                 }
 
                 let _command = self
@@ -182,10 +188,6 @@ impl McpServerDef {
                     .as_ref()
                     .filter(|c| !c.trim().is_empty())
                     .ok_or(McpValidationError::MissingCommandForLocal)?;
-
-                if self.args.is_some() && self.command.is_none() {
-                    return Err(McpValidationError::ArgsWithoutCommand);
-                }
             }
         }
         Ok(())

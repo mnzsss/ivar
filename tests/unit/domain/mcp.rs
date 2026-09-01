@@ -180,14 +180,28 @@ fn materialised_name_prefixes_the_hall_and_leaves_name_untouched() {
 }
 
 #[test]
-fn validation_fails_for_args_without_command() {
+fn validation_fails_for_args_without_command_on_local() {
     let def = McpServerDef::new("test", "local").args(vec!["arg".to_owned()]);
-    assert_eq!(def.validate(), Err(McpValidationError::ArgsWithoutCommand));
+    assert_eq!(
+        def.validate(),
+        Err(McpValidationError::ArgsWithoutCommandForLocal)
+    );
+}
+
+#[test]
+fn validation_fails_for_args_on_http() {
+    let def = McpServerDef::new("test", "http")
+        .url("https://mcp.com")
+        .args(vec!["arg".to_owned()]);
+    assert_eq!(
+        def.validate(),
+        Err(McpValidationError::ArgsNotSupportedForHttp)
+    );
 }
 
 #[test]
 fn the_args_without_command_variant_displays_a_user_friendly_message() {
-    let err = McpValidationError::ArgsWithoutCommand;
+    let err = McpValidationError::ArgsWithoutCommandForLocal;
     assert_eq!(
         err.to_string(),
         "using `local` transport with `args` must also have a `command`"
