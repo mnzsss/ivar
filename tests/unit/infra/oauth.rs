@@ -363,10 +363,39 @@ fn exchange_code_captures_oauth_error() {
         "id",
         Some("secret"),
         AuthMode::ClientSecretPost,
+        None,
     )
     .unwrap_err();
 
     assert!(err.actual.unwrap().contains("invalid_grant"));
+}
+
+#[test]
+fn token_exchange_includes_resource_when_present() {
+    exchange_code_with_resource(Some("my-resource"), |body| {
+        assert!(body.contains("resource=my-resource"));
+    });
+}
+
+#[test]
+fn token_exchange_omits_resource_when_absent() {
+    exchange_code_with_resource(None, |body| {
+        assert!(!body.contains("resource="));
+    });
+}
+
+#[test]
+fn error_category_read_from_message_field() {
+    let body = r#"{"error":"non-oauth-error","message":"invalid_grant"}"#;
+    let summary = summarize_error_body(body);
+    assert_eq!(summary.category, "invalid_grant");
+}
+
+#[test]
+fn error_category_prefers_first_allowlisted_match() {
+    let body = r#"{"reason":"invalid_client","message":"invalid_grant"}"#;
+    let summary = summarize_error_body(body);
+    assert_eq!(summary.category, "invalid_client");
 }
 
 #[test]
@@ -465,6 +494,54 @@ where
         "id",
         Some("secret"),
         mode,
+        None,
+    )
+    .unwrap();
+    handle.join().unwrap();
+}
+
+fn exchange_code_with_resource<F>(resource: Option<&str>, assertion: F)
+where
+    F: FnOnce(&str) + Send + 'static,
+{
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+
+    let handle = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut reader = BufReader::new(stream.try_clone().unwrap());
+        let mut content_length = 0;
+
+        loop {
+            let mut line = String::new();
+            reader.read_line(&mut line).unwrap();
+            if line == "\r\n" {
+                break;
+            }
+            if line.to_ascii_lowercase().starts_with("content-length:") {
+                content_length = line.split(':').nth(1).unwrap().trim().parse().unwrap();
+            }
+        }
+
+        let mut body = vec![0u8; content_length];
+        reader.read_exact(&mut body).unwrap();
+        let body_str = String::from_utf8_lossy(&body);
+        assertion(&body_str);
+
+        stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n{\"access_token\":\"at\"}").unwrap();
+    });
+
+    let ep = format!("http://127.0.0.1:{port}");
+    let verifier = CodeVerifier("v".to_owned());
+    exchange_code(
+        &ep,
+        "c",
+        "uri",
+        &verifier,
+        "id",
+        None,
+        AuthMode::None,
+        resource,
     )
     .unwrap();
     handle.join().unwrap();

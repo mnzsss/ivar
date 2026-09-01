@@ -180,6 +180,7 @@ impl std::fmt::Display for AuthMode {
 ///
 /// `client_secret` is `Some` only when `auth_mode` is `ClientSecretPost` or
 /// `ClientSecretBasic`.
+/// `resource` is included only when `Some` (RFC 8707).
 #[allow(clippy::too_many_arguments)]
 pub fn exchange_code(
     token_endpoint: &str,
@@ -189,6 +190,7 @@ pub fn exchange_code(
     client_id: &str,
     client_secret: Option<&str>,
     auth_mode: AuthMode,
+    resource: Option<&str>,
 ) -> Result<Tokens, Failure> {
     let mut params = vec![
         ("grant_type", "authorization_code".to_owned()),
@@ -197,6 +199,10 @@ pub fn exchange_code(
         ("code_verifier", code_verifier.0.clone()),
         ("client_id", client_id.to_owned()),
     ];
+
+    if let Some(resource) = resource {
+        params.push(("resource", resource.to_owned()));
+    }
 
     if let Some(secret) = client_secret
         && auth_mode == AuthMode::ClientSecretPost
@@ -297,27 +303,26 @@ fn summarize_error_body(body: &str) -> ErrorSummary {
         };
     };
 
-    let error_val = obj
-        .get("error")
-        .or(obj.get("reason"))
-        .or(obj.get("message"))
-        .or(obj.get("err"));
-
-    let category = match error_val {
-        Some(serde_json::Value::String(s)) => match s.as_str() {
-            "invalid_request"
-            | "invalid_client"
-            | "invalid_grant"
-            | "unauthorized_client"
-            | "unsupported_grant_type"
-            | "invalid_scope" => s.clone(),
-            _ => "unknown_error".to_owned(),
-        },
-        _ => "unknown_error".to_owned(),
-    };
+    let mut category = "unknown_error".to_owned();
+    for key in &["error", "reason", "message", "err"] {
+        if let Some(serde_json::Value::String(s)) = obj.get(*key)
+            && [
+                "invalid_request",
+                "invalid_client",
+                "invalid_grant",
+                "unauthorized_client",
+                "unsupported_grant_type",
+                "invalid_scope",
+            ]
+            .contains(&s.as_str())
+        {
+            category = s.clone();
+            break;
+        }
+    }
 
     let mut details = Vec::new();
-    for key in &["error", "message"] {
+    for key in &["error", "reason", "message", "err"] {
         if let Some(serde_json::Value::String(s)) = obj.get(*key) {
             let sanitized = s.replace(|c: char| c.is_control() || c == '\n' || c == '\r', " ");
             let truncated = if sanitized.len() > 200 {

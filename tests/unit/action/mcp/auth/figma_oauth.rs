@@ -161,6 +161,7 @@ impl FlowOps for MockOps {
         _: &str,
         _: Option<&str>,
         _: AuthMode,
+        _: Option<&str>,
     ) -> Result<Tokens, Failure> {
         self.events.borrow_mut().push(PipelineEvent::Exchange);
         if self.fail_at == Some(PipelineEvent::Exchange) {

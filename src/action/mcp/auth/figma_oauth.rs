@@ -63,6 +63,7 @@ pub(super) trait FlowOps {
     fn bind(&self, state: &str) -> Result<CallbackServer, Failure>;
     fn output_url(&self, url: &str);
     fn wait_code(&self, listener: CallbackServer) -> Result<AuthorizationCode, Failure>;
+    #[allow(clippy::too_many_arguments)]
     fn exchange(
         &self,
         endpoint: &str,
@@ -71,6 +72,7 @@ pub(super) trait FlowOps {
         id: &str,
         secret: Option<&str>,
         mode: AuthMode,
+        resource: Option<&str>,
     ) -> Result<Tokens, Failure>;
     fn write(&self, name: &str, entry: &Entry) -> Result<(), Failure>;
     fn verify(&self, name: &str) -> Result<bool, Failure>;
@@ -112,6 +114,7 @@ impl FlowOps for RealFlowOps {
         id: &str,
         secret: Option<&str>,
         mode: AuthMode,
+        resource: Option<&str>,
     ) -> Result<Tokens, Failure> {
         oauth::exchange_code(
             endpoint,
@@ -121,6 +124,7 @@ impl FlowOps for RealFlowOps {
             id,
             secret,
             mode,
+            resource,
         )
     }
     fn write(&self, name: &str, entry: &Entry) -> Result<(), Failure> {
@@ -245,6 +249,7 @@ pub(super) fn run_internal_flow_pipeline(
         &client_id,
         client_secret.as_deref(),
         preregistered.auth_mode,
+        endpoints.resource.as_deref(),
     )?;
 
     // Step 9: Persist
