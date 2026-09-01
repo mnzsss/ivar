@@ -344,13 +344,16 @@ Preview, then push, a feature's promoted repos. `--preview` prints the side-effe
 
 | argument | required | description |
 | --- | --- | --- |
-| `name` | yes | The feature to deliver |
+| `feature` | yes | The feature to deliver. |
 
 | flag | value | default | description |
 | --- | --- | --- | --- |
-| `--preview` |  |  | Print the delivery preview and push nothing |
-| `--land` |  |  | Land feature branches into default branches locally (fast-forward only) |
-| `--fingerprint` | `<FINGERPRINT>` |  | The fingerprint from the preview the human approved; required to apply. Apply recomputes the preview and refuses when the fingerprint differs — the state has drifted since the preview |
+| `--preview` |  |  | Print the delivery preview and push nothing. |
+| `--land` |  |  | Land feature branches into default branches locally (fast-forward only). |
+| `--fingerprint` | `<FINGERPRINT>` |  | The fingerprint from the preview the human approved; required to apply. Apply recomputes the preview and refuses when the fingerprint differs — the state has drifted since the preview. |
+| `--name` | `<TITLE>` |  | Pull request title. If placed before any `--repo`, applies globally; if placed after a `--repo`, applies to that repo. |
+| `--body` | `<BODY>` |  | Pull request body text or `./*.md` / `./*.txt` file path. If placed before any `--repo`, applies globally; if placed after a `--repo`, applies to that repo. |
+| `--repo` | `<REPO>` |  | Scope following `--name` and `--body` flags to this promoted repository. |
 
 
 ##### `ivar feature close`

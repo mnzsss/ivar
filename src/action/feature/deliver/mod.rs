@@ -2,13 +2,14 @@
 
 pub mod input;
 pub mod land;
+pub mod metadata;
 pub mod outcome;
 
 mod preview;
 mod push;
 mod repos;
 
-pub use input::DeliverInput;
+pub use input::{DeliverInput, PullRequestMetadata, RepoMetadataOverride};
 pub use outcome::{DeliverOutcome, LandResult, PushResult, RepoCheckResult};
 
 use crate::action::Ctx;
@@ -32,8 +33,12 @@ pub fn deliver(ctx: &Ctx, input: DeliverInput) -> Outcome<DeliverOutcome> {
     let manifest = read_manifest(&layout)?;
     let git = git::System;
 
-    let feature_name = FeatureName::new(input.feature)?;
+    let feature_name = FeatureName::new(input.feature.clone())?;
     let feature = read_feature(&layout, &feature_name)?;
+
+    // Resolve delivery metadata after loading the feature so validation
+    // can reject land mode, duplicate and unpromoted groups, and body files.
+    let resolved_metadata = metadata::resolve(ctx, &feature, &input)?;
 
     // Only a root delivers. A child's work belongs to its parent — the exact
     // fix names the verb that moves it there.
@@ -75,7 +80,7 @@ pub fn deliver(ctx: &Ctx, input: DeliverInput) -> Outcome<DeliverOutcome> {
         DeliveryMode::Push
     };
 
-    let mut repos = build_repos(&git, &layout, &manifest, &feature, mode)?;
+    let mut repos = build_repos(&git, &layout, &manifest, &feature, mode, &resolved_metadata)?;
     repos.sort_by(|a, b| a.repo.cmp(&b.repo));
     order_by_dependencies(&mut repos);
     let fingerprint = fingerprint_for(&feature_name, mode, plan_gate, &tree_blockers, &repos)?;

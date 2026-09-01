@@ -376,3 +376,47 @@ fn no_shipped_command_tells_the_agent_to_export_ivar_vars() {
         );
     }
 }
+
+/// The deliver command documents PR metadata: global/scoped syntax,
+/// inline vs file body, title guidance, and land conflict.
+#[test]
+fn deliver_command_documents_pr_metadata() {
+    let source = format!(
+        "{}/src/harness/commands/deliver.md",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let body = std::fs::read_to_string(source).unwrap();
+
+    assert!(
+        body.contains("--name"),
+        "deliver should document --name flag"
+    );
+    assert!(
+        body.contains("--body"),
+        "deliver should document --body flag"
+    );
+    assert!(
+        body.contains("--repo api"),
+        "deliver should show scoped --repo syntax"
+    );
+    assert!(
+        body.contains("--repo web"),
+        "deliver should show multiple scoped repos"
+    );
+    assert!(
+        body.contains("./notes.md"),
+        "deliver should document file-relative body syntax"
+    );
+    assert!(
+        body.contains("<type>: <short message>"),
+        "deliver should guide <type>: <short message> title format"
+    );
+    assert!(
+        body.contains("cannot be used with `--land`"),
+        "deliver should state metadata conflicts with land mode"
+    );
+    assert!(
+        !body.contains("L-1234"),
+        "deliver should not use a Linear identifier as an example title"
+    );
+}

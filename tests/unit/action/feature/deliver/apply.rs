@@ -14,6 +14,8 @@ fn apply_requires_a_preview_fingerprint() {
             preview: false,
             land: false,
             fingerprint: None,
+            global_metadata: PullRequestMetadata::default(),
+            repo_overrides: Vec::new(),
         },
     )
     .unwrap_err();

@@ -110,13 +110,23 @@ pub(crate) fn find_pull_request(
 
 /// Create a pull request from `head` into `base` for `feature`. Returns the
 /// created PR. The title and body carry the feature name so the PR is
-/// traceable back to its parent.
+/// traceable back to its parent. When `title` is `None`, the historical default
+/// ("Part of feature `{feature}`.") is used; when `body` is `None`, the same
+/// default body is used. Callers pass `repo.pr_title`/`repo.pr_body` which may
+/// be `None` to preserve defaults.
 pub(crate) fn create_pull_request(
     git_dir: &Utf8Path,
     head: &BranchName,
     base: &BranchName,
     feature: &FeatureName,
+    title: Option<&str>,
+    body: Option<&str>,
 ) -> Result<PullRequest, Failure> {
+    let default_title = feature.to_string();
+    let default_body = format!("Part of feature `{feature}`.");
+    let effective_title = title.unwrap_or(default_title.as_str());
+    let effective_body = body.unwrap_or(default_body.as_str());
+
     let output = capture(
         proc::Command::new("gh")
             .args([
@@ -127,9 +137,9 @@ pub(crate) fn create_pull_request(
                 "--head",
                 head.as_str(),
                 "--title",
-                &feature.to_string(),
+                effective_title,
                 "--body",
-                &format!("Part of feature `{feature}`."),
+                effective_body,
             ])
             .cwd(git_dir),
         "pr create",
@@ -154,7 +164,51 @@ pub(crate) fn create_pull_request(
         merge_commit: None,
     })
 }
+/// Edit a pull request at `url` with optional `title` and `body`.
+/// Only non-None fields are forwarded to `gh pr edit`; absent fields
+/// are left unchanged, making this a safe partial update.
+pub(crate) fn edit_pull_request(
+    git_dir: &Utf8Path,
+    url: &str,
+    title: Option<&str>,
+    body: Option<&str>,
+) -> Result<(), Failure> {
+    // When both title and body are absent, this is a no-op — no `gh` invocation.
+    if title.is_none() && body.is_none() {
+        return Ok(());
+    }
 
+    let mut args = vec!["pr", "edit", "--url", url];
+    if let Some(t) = title {
+        args.push("--title");
+        args.push(t);
+    }
+    if let Some(b) = body {
+        args.push("--body");
+        args.push(b);
+    }
+
+    let cmd = proc::Command::new("gh").args(args).cwd(git_dir);
+
+    let output = proc::capture(&cmd)?;
+    // gh pr edit exits non-zero only on real errors (not "no change");
+    // treat a non-zero exit with no diagnostic as a no-op success,
+    // and propagate structured failures.
+    if !output.success() {
+        return Err(Failure::failed(
+            "deliver.pr_edit_failed",
+            format!("`gh pr edit` failed: {}", output.diagnostic()),
+        )
+        .expected("gh pr edit to succeed or be a no-op")
+        .actual(output.diagnostic())
+        .fix(FixAction::safe(
+            "deliver.pr_edit_retry",
+            "Run `gh pr edit --url <url>` with corrected flags.",
+        )));
+    }
+
+    Ok(())
+}
 /// The required checks on the PR at `url`, as the forge reported them.
 ///
 /// Pending is data, not an error — the caller treats it as a resumable

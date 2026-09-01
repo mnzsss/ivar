@@ -100,6 +100,44 @@ fn preview_shows_the_recorded_base_not_always_the_default_branch() {
 }
 
 #[test]
+fn preview_fingerprint_changes_when_pr_metadata_changes() {
+    let feature = FeatureName::new("checkout").unwrap();
+    let mut repo = delivery_repo("api", Vec::new());
+    let fp_none = fingerprint_for(
+        &feature,
+        DeliveryMode::Push,
+        GateState::Approved,
+        &[],
+        &[repo.clone()],
+    )
+    .unwrap();
+
+    repo.pr_title = Some("feat: something new".to_owned());
+    let fp_title = fingerprint_for(
+        &feature,
+        DeliveryMode::Push,
+        GateState::Approved,
+        &[],
+        &[repo.clone()],
+    )
+    .unwrap();
+
+    repo.pr_body = Some("detailed body".to_owned());
+    let fp_both = fingerprint_for(
+        &feature,
+        DeliveryMode::Push,
+        GateState::Approved,
+        &[],
+        &[repo.clone()],
+    )
+    .unwrap();
+
+    assert_ne!(fp_none, fp_title);
+    assert_ne!(fp_title, fp_both);
+    assert_ne!(fp_none, fp_both);
+}
+
+#[test]
 fn the_preview_has_a_stable_content_fingerprint() {
     let (_guard, root) = hall_with_promoted(&["api"]);
     let ctx = Ctx::new(root.clone());

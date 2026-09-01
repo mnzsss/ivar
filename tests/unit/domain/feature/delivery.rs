@@ -21,6 +21,8 @@ fn repo(base: &str) -> DeliveryRepo {
         default_branch: None,
         ff_possible: None,
         remote_default_tip: None,
+        pr_title: None,
+        pr_body: None,
     }
 }
 
@@ -44,16 +46,21 @@ fn delivery_repo(repo: &str) -> DeliveryRepo {
         default_branch: None,
         ff_possible: None,
         remote_default_tip: None,
+        pr_title: None,
+        pr_body: None,
     }
 }
 
 #[test]
 fn a_delivery_preview_round_trips_through_serde() {
+    let mut repo = delivery_repo("api");
+    repo.pr_title = Some("feat: custom title".to_owned());
+    repo.pr_body = Some("custom body".to_owned());
     let preview = DeliveryPreview {
         feature: FeatureName::new("checkout").unwrap(),
         mode: DeliveryMode::Push,
         plan_gate: GateState::Approved,
-        repos: vec![delivery_repo("api")],
+        repos: vec![repo],
         tree_blockers: Vec::new(),
         fingerprint: "abc123".to_owned(),
     };
@@ -62,6 +69,14 @@ fn a_delivery_preview_round_trips_through_serde() {
         serde_json::from_value(serde_json::to_value(&preview).unwrap()).unwrap();
 
     assert_eq!(parsed, preview);
+}
+
+#[test]
+fn delivery_repo_serializes_explicit_nulls_for_absent_pr_metadata() {
+    let repo = delivery_repo("api");
+    let json = serde_json::to_value(&repo).unwrap();
+    assert_eq!(json.get("pr_title"), Some(&serde_json::Value::Null));
+    assert_eq!(json.get("pr_body"), Some(&serde_json::Value::Null));
 }
 
 #[test]
