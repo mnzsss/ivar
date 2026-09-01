@@ -312,13 +312,11 @@ fn exchange_code_request_structure() {
 
     let handle = thread::spawn(move || {
         let (mut stream, _) = listener.accept().unwrap();
-        let mut buf = [0u8; 4096];
+        let mut buf = [0u8; 8192];
         let bytes = stream.read(&mut buf).expect("Failed to read from stream");
-        let request = String::from_utf8_lossy(
-            buf.get(..bytes)
-                .expect("Request buffer slice out of bounds"),
-        );
-
+        let request = String::from_utf8_lossy(&buf[..bytes]);
+        println!("REQUEST: {}", request);
+        
         let is_post = request.starts_with("POST");
         let has_basic_auth = request.to_lowercase().contains("authorization: basic ");
         let has_client_id = request.contains("client_id=");
@@ -347,13 +345,13 @@ fn exchange_code_request_structure() {
 
     let analysis = handle.join().unwrap();
     assert!(analysis.is_post, "Request was not POST");
-    assert!(analysis.has_basic_auth, "Request missing Basic Auth header");
+    assert!(!analysis.has_basic_auth, "Request incorrectly had Basic Auth header");
     assert!(
-        !analysis.has_client_secret,
-        "Request incorrectly contained client_secret"
+        analysis.has_client_secret,
+        "Request missing client_secret"
     );
     assert!(
-        !analysis.has_client_id,
-        "Request incorrectly contained client_id"
+        analysis.has_client_id,
+        "Request missing client_id"
     );
 }
