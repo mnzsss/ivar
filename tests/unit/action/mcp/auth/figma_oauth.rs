@@ -1,6 +1,9 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::cell::RefCell;
+use std::io::{BufRead, BufReader, Read, Write};
+use std::net::TcpListener;
+use std::thread;
 use std::time::Duration;
 
 use crate::action::mcp::auth::{
@@ -14,7 +17,7 @@ use crate::error::Failure;
 use crate::harness::opencode_auth::Entry;
 use crate::infra::figma::{self, OAuthEndpoints};
 use crate::infra::http_callback::{AuthorizationCode, CallbackServer};
-use crate::infra::oauth::{AuthMode, Tokens};
+use crate::infra::oauth::{self, AuthMode, Tokens};
 
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum PipelineEvent {
@@ -102,6 +105,25 @@ struct MockOps {
     conflict: bool,
     fail_at: Option<PipelineEvent>,
     written: RefCell<Option<Entry>>,
+    /// What step 2 hands back. Defaults to a client already registered with a
+    /// secret; the regression test below swaps in what Figma returns.
+    prereg: Option<Preregistered>,
+    /// When set, `discover` reports this token endpoint and `exchange` performs
+    /// the real [`oauth::exchange_code`] against it instead of faking success.
+    token_endpoint: Option<String>,
+}
+
+impl Default for MockOps {
+    fn default() -> Self {
+        Self {
+            events: RefCell::new(Vec::new()),
+            conflict: false,
+            fail_at: None,
+            written: RefCell::new(None),
+            prereg: None,
+            token_endpoint: None,
+        }
+    }
 }
 
 impl FlowOps for MockOps {
@@ -117,11 +139,19 @@ impl FlowOps for MockOps {
         if self.fail_at == Some(PipelineEvent::Preregister) {
             return Err(Failure::failed("fail", "fail"));
         }
-        Ok(Preregistered {
-            report: Preregistration::NotNeeded,
-            client_id: Some("id".to_owned()),
-            secret: Some(("VAR".to_owned(), "secret".to_owned())),
-            auth_mode: AuthMode::ClientSecretPost,
+        Ok(match &self.prereg {
+            Some(prereg) => Preregistered {
+                report: prereg.report.clone(),
+                client_id: prereg.client_id.clone(),
+                secret: prereg.secret.clone(),
+                auth_mode: prereg.auth_mode,
+            },
+            None => Preregistered {
+                report: Preregistration::NotNeeded,
+                client_id: Some("id".to_owned()),
+                secret: Some(("VAR".to_owned(), "secret".to_owned())),
+                auth_mode: AuthMode::ClientSecretPost,
+            },
         })
     }
     fn discover(&self, _: &str) -> Result<OAuthEndpoints, Failure> {
@@ -131,7 +161,10 @@ impl FlowOps for MockOps {
         }
         Ok(OAuthEndpoints {
             authorization_endpoint: "a".to_owned(),
-            token_endpoint: "t".to_owned(),
+            token_endpoint: self
+                .token_endpoint
+                .clone()
+                .unwrap_or_else(|| "t".to_owned()),
             resource: None,
             scopes_supported: None,
         })
@@ -155,17 +188,29 @@ impl FlowOps for MockOps {
     }
     fn exchange(
         &self,
-        _: &str,
-        _: &str,
-        _: &str,
-        _: &str,
-        _: Option<&str>,
-        _: AuthMode,
-        _: Option<&str>,
+        endpoint: &str,
+        code: &str,
+        verifier: &str,
+        id: &str,
+        secret: Option<&str>,
+        mode: AuthMode,
+        resource: Option<&str>,
     ) -> Result<Tokens, Failure> {
         self.events.borrow_mut().push(PipelineEvent::Exchange);
         if self.fail_at == Some(PipelineEvent::Exchange) {
             return Err(Failure::failed("fail", "fail"));
+        }
+        if self.token_endpoint.is_some() {
+            return oauth::exchange_code(
+                endpoint,
+                code,
+                "http://127.0.0.1:19876/callback",
+                &oauth::CodeVerifier(verifier.to_owned()),
+                id,
+                secret,
+                mode,
+                resource,
+            );
         }
         Ok(Tokens {
             access_token: "at".to_owned(),
@@ -194,10 +239,9 @@ impl FlowOps for MockOps {
 #[test]
 fn conflict_is_checked_before_any_side_effect() {
     let ops = MockOps {
-        events: RefCell::new(Vec::new()),
         conflict: true,
         fail_at: None,
-        written: RefCell::new(None),
+        ..Default::default()
     };
     let server = McpServerDef::new("figma", "sse").url("https://mcp.figma.com/mcp");
     let _ = figma_oauth::run_internal_flow_pipeline(&ops, &server, "figma");
@@ -207,10 +251,9 @@ fn conflict_is_checked_before_any_side_effect() {
 #[test]
 fn discovery_failure_does_not_write_credentials() {
     let ops = MockOps {
-        events: RefCell::new(Vec::new()),
         conflict: false,
         fail_at: Some(PipelineEvent::Discover),
-        written: RefCell::new(None),
+        ..Default::default()
     };
     let server = McpServerDef::new("figma", "sse").url("https://mcp.figma.com/mcp");
     let _ = figma_oauth::run_internal_flow_pipeline(&ops, &server, "figma");
@@ -220,10 +263,9 @@ fn discovery_failure_does_not_write_credentials() {
 #[test]
 fn callback_failure_does_not_write_credentials() {
     let ops = MockOps {
-        events: RefCell::new(Vec::new()),
         conflict: false,
         fail_at: Some(PipelineEvent::Wait),
-        written: RefCell::new(None),
+        ..Default::default()
     };
     let server = McpServerDef::new("figma", "sse").url("https://mcp.figma.com/mcp");
     let _ = figma_oauth::run_internal_flow_pipeline(&ops, &server, "figma");
@@ -233,10 +275,9 @@ fn callback_failure_does_not_write_credentials() {
 #[test]
 fn exchange_failure_does_not_write_credentials() {
     let ops = MockOps {
-        events: RefCell::new(Vec::new()),
         conflict: false,
         fail_at: Some(PipelineEvent::Exchange),
-        written: RefCell::new(None),
+        ..Default::default()
     };
     let server = McpServerDef::new("figma", "sse").url("https://mcp.figma.com/mcp");
     let _ = figma_oauth::run_internal_flow_pipeline(&ops, &server, "figma");
@@ -246,10 +287,9 @@ fn exchange_failure_does_not_write_credentials() {
 #[test]
 fn successful_flow_runs_in_contract_order() {
     let ops = MockOps {
-        events: RefCell::new(Vec::new()),
         conflict: false,
         fail_at: None,
-        written: RefCell::new(None),
+        ..Default::default()
     };
     let server = McpServerDef::new("figma", "sse").url("https://mcp.figma.com/mcp");
     let _ = figma_oauth::run_internal_flow_pipeline(&ops, &server, "figma");
@@ -272,10 +312,9 @@ fn successful_flow_runs_in_contract_order() {
 #[test]
 fn successful_flow_builds_complete_opencode_entry() {
     let ops = MockOps {
-        events: RefCell::new(Vec::new()),
         conflict: false,
         fail_at: None,
-        written: RefCell::new(None),
+        ..Default::default()
     };
     let server = McpServerDef::new("figma", "sse").url("https://mcp.figma.com/mcp");
     let _ = figma_oauth::run_internal_flow_pipeline(&ops, &server, "figma");
@@ -285,4 +324,85 @@ fn successful_flow_builds_complete_opencode_entry() {
     assert_eq!(written.client_info.client_id, "id");
     assert_eq!(written.client_info.client_secret, Some("secret".to_owned()));
     assert_eq!(written.tokens.access_token, "at");
+}
+
+// -- fresh-registration regression --------------------------------------
+
+/// What Figma's registration endpoint returns (measured 2026-08-26):
+/// a `client_secret` alongside `token_endpoint_auth_method: "none"`.
+const FIGMA_REGISTRATION_RESPONSE: &str = r#"{
+    "client_id": "VGup4YT70EEtoQUwR0OEwB",
+    "client_secret": "the-secret",
+    "token_endpoint_auth_method": "none"
+}"#;
+
+/// A one-shot stand-in for Figma's token endpoint: 400 `Client secret is
+/// required` unless the form body carries a `client_secret`, matching the
+/// real endpoint. Returns its URL.
+fn figma_like_token_endpoint() -> String {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+
+    thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        let mut reader = BufReader::new(stream.try_clone().unwrap());
+
+        let mut content_length = 0usize;
+        loop {
+            let mut line = String::new();
+            reader.read_line(&mut line).unwrap();
+            if line == "\r\n" {
+                break;
+            }
+            if line.to_ascii_lowercase().starts_with("content-length:") {
+                content_length = line.split(':').nth(1).unwrap().trim().parse().unwrap();
+            }
+        }
+        let mut body = vec![0u8; content_length];
+        reader.read_exact(&mut body).unwrap();
+        let body = String::from_utf8(body).unwrap();
+
+        let response = if body.contains("client_secret=") {
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n{\"access_token\":\"at\"}"
+        } else {
+            "HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\n\r\n\
+             {\"error\":\"Client secret is required\"}"
+        };
+        stream.write_all(response.as_bytes()).unwrap();
+        stream.shutdown(std::net::Shutdown::Both).unwrap();
+    });
+
+    format!("http://127.0.0.1:{port}")
+}
+
+#[test]
+fn fresh_figma_registration_sends_the_client_secret_to_the_token_endpoint() {
+    let info: figma::ClientInfo = serde_json::from_str(FIGMA_REGISTRATION_RESPONSE).unwrap();
+    let ops = MockOps {
+        prereg: Some(Preregistered {
+            report: Preregistration::Registered {
+                client_id: info.client_id.clone(),
+            },
+            client_id: Some(info.client_id.clone()),
+            secret: info
+                .client_secret
+                .clone()
+                .map(|s| ("IVAR_MCP_FIGMA_SECRET".to_owned(), s)),
+            auth_mode: info.auth_mode(),
+        }),
+        token_endpoint: Some(figma_like_token_endpoint()),
+        ..Default::default()
+    };
+
+    let server = McpServerDef::new("figma", "sse").url("https://mcp.figma.com/mcp");
+    let result = figma_oauth::run_internal_flow_pipeline(&ops, &server, "figma");
+
+    assert!(
+        result.is_ok(),
+        "token exchange rejected: {:?}",
+        result.err().map(|f| f.what)
+    );
 }
