@@ -38,9 +38,9 @@ fn other_statuses_get_a_generic_failure_with_no_fix() {
     assert_eq!(failure.actual.as_deref(), Some("server error"));
 }
 
-// -- real 403, over the network -------------------------------------------
+// -- real 403, over the network --------------------------------------------
 //
-// Everything above tests pure helpers and can't catch a regression in which
+// Everything above tests pure helpers and cannot catch a regression in which
 // *branch the transport takes* — ureq 3.x defaults to turning any non-2xx
 // status into a transport error before application code sees it, which
 // would make the 403 branch in `register_client_as` dead code even though
@@ -53,8 +53,7 @@ fn other_statuses_get_a_generic_failure_with_no_fix() {
 #[test]
 #[ignore = "hits the real Figma registration endpoint over the network"]
 fn a_real_403_names_the_allowlist() {
-    let error =
-        register_client_as("http://127.0.0.1:19876/mcp/oauth/callback", "opencode").unwrap_err();
+    let error = register_client_as("http://127.0.0.1:19876/callback", "opencode").unwrap_err();
     assert_eq!(error.code, "figma.register_client_http");
     let fix = error.fix_actions.first().expect("a fix action on a 403");
     assert!(
