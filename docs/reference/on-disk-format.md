@@ -190,11 +190,12 @@ today).
 
 ```json
 {
+  "$schema": "https://ivar.run/ivar.schema.json",
   "version": 3,
   "mcp": [
     {
       "name": "figma",
-      "type": "sse",
+      "type": "http",
       "url": "https://mcp.figma.com/mcp",
       "oauth": { "client_id": "…", "client_secret_env": "IVAR_MCP_ACME_FIGMA_SECRET" }
     }
@@ -219,6 +220,30 @@ boundary. A hall whose entry is already hall-qualified (`figma-acme`, say)
 must rename it to the canonical form by hand and re-run `ivar sync`, and
 re-export any `client_secret_env` secret under the new variable name — `ivar`
 will not rewrite a committed, hand-edited file by guessing at intent.
+
+### MCP transport migration (v2 → v3 vocabulary change)
+
+The MCP `type` field uses the canonical names `http` (a remote server reached
+over HTTP) and `local` (a local process spawned via stdio). The previously
+accepted spellings — `stdio`, `sse`, and `streamable-http` in the manifest, and
+the OpenCode-native `remote` — are rejected at parse time with a diagnostic that
+names the canonical replacement.
+
+This is a **breaking change**. An existing committed `ivar.json` using any of
+those spellings stops loading until you edit it by hand:
+
+| Obsolete spelling in `ivar.json` | Canonical replacement |
+|---|---|
+| `"type": "stdio"` | `"type": "local"` |
+| `"type": "sse"` | `"type": "http"` |
+| `"type": "streamable-http"` | `"type": "http"` |
+
+`ivar migrate` advances `ivar.json`'s *schema version* (for example v1 → v2 →
+v3); it does **not** rewrite transport spellings. That rename is part of the
+manifest's content, not its version chain, so it is a team event like the
+version bump — one person upgrades, the team agrees, then you edit and commit.
+See [Migration and provider translation](#migration-and-provider-translation)
+for how each canonical value materialises at each provider boundary.
 
 ### `feature.json` v3
 
@@ -278,3 +303,71 @@ appears when something actually changed.
 There is no database, no cache you need to know about, and no format that needs
 `ivar` to read it. That is the point: if this tool went away tomorrow, your work
 is still on disk and still in git.
+
+## Migration and provider translation
+
+The `mcp` entries in `ivar.json` use Ivar's own canonical vocabulary — `http`
+and `local` — not the field names a provider native config file uses. Ivar
+performs the translation, so the same manifest feeds both Claude Code and
+OpenCode.
+
+### Before / after for obsolete spellings
+
+> **Breaking change.** The spellings below are rejected at parse time. Edit
+> each one by hand in your committed `ivar.json`, then commit. `ivar migrate`
+> does **not** perform transport renames — it advances the file's schema
+> version, not its transport vocabulary. The rename is content, not version, so
+> it stays a team decision.
+
+| Obsolete in `ivar.json` | Canonical |
+|---|---|
+| `"type": "stdio"` | `"type": "local"` |
+| `"type": "sse"` | `"type": "http"` |
+| `"type": "streamable-http"` | `"type": "http"` |
+| `"type": "remote"` (OpenCode-native) | `"type": "http"` — `remote` was never a valid Ivar manifest value |
+
+An `http` entry keeps its `url`; a `local` entry keeps its `command`, `args`,
+`env`, and `oauth`. Only `type` changes.
+
+### Provider translation table
+
+| Ivar manifest (`type`) | Claude Code | OpenCode |
+|---|---|---|
+| `http` | `type: "http"` | `type: "remote"` + `url` |
+| `local` | `type: "stdio"` + `command`/`args`/`env` | `type: "local"` + `command` (array) / `environment` |
+
+Each provider entry is keyed by the hall-qualified name `<hall>-<server>`
+(see above). The translation is one-to-one on shape: only the spelling and the
+key under which env vars are expressed differ.
+
+### Editor schema discovery
+
+Every newly generated `ivar.json` begins with the `$schema` property pointing
+at the stable public URL:
+
+```json
+{
+  "$schema": "https://ivar.run/ivar.schema.json",
+  "version": 3,
+  …
+}
+```
+
+An editor that supports JSON Schema (VS Code, Cursor, Zed, OpenCode) uses that
+reference to validate the file, offer completion for every field and enum value,
+and flag a typo or a stale transport spelling before `ivar` ever sees the file.
+The schema is shipped with the source and every release artifact, and is the
+same file published at the URL above.
+
+### Claude approval boundary
+
+When Ivar launches a Claude Code session (for `session start`, `connect`,
+`resume`, or `relay`), it passes `--settings` with an inline
+`{"enabledMcpjsonServers":[…]}` list. That list contains **exactly** the
+hall-qualified names of the MCP servers declared by that hall's manifest —
+sorted and derived only from the manifest, rebuilt on every launch. Ivar never
+writes a settings file, never modifies a global or project Claude Code config,
+and never enables `enableAllProjectMcpServers`. A server not present in the
+manifest is never on the allowlist, so it is not approved. When a hall declares
+no MCP servers, the list is omitted entirely and no project MCP server receives
+approval.

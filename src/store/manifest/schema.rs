@@ -118,7 +118,7 @@ fn extract_oauth_schema(schema: &Value) -> Value {
 fn mcp_http_branch(oauth_schema: Value) -> Value {
     json!({
         "type": "object",
-        "description": "A remote MCP server reached over HTTP (SSE or streamable-http).",
+        "description": "A remote MCP server reached over HTTP.",
         "required": ["name", "type", "url"],
         "additionalProperties": false,
         "properties": {

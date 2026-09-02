@@ -100,3 +100,28 @@ that is not an `ivar.json`: a different tool's config, or a hand-written stub.
 own is the one thing the format contract forbids outright.
 
 See [On-disk format](../reference/on-disk-format.md) for the full contract.
+
+## MCP transport rename is a content edit, not a migration
+
+Upgrading `ivar` also introduces a **breaking change** to the `mcp[].type`
+vocabulary. The only accepted values are now `http` and `local`; the previous
+spellings (`stdio`, `sse`, `streamable-http`, and the OpenCode-native `remote`)
+are rejected at parse time with a diagnostic that names the canonical
+replacement.
+
+`ivar migrate` does **not** rewrite these. Migration advances the file's schema
+*version*; it does not edit the *content* of a committed field. The transport
+rename is a hand-edit:
+
+| Obsolete in `ivar.json` | Canonical |
+|---|---|
+| `"type": "stdio"` | `"type": "local"` |
+| `"type": "sse"` | `"type": "http"` |
+| `"type": "streamable-http"` | `"type": "http"` |
+| `"type": "remote"` | `"type": "http"` (was never a valid Ivar value) |
+
+After editing, re-run `ivar sync` to regenerate each provider's config file.
+Claude Code receives `stdio` and OpenCode receives `local` for a `local`
+entry; both receive their remote spelling for an `http` entry. The full
+translation table and the editor-discoverable schema are in
+[On-disk format](../reference/on-disk-format.md).

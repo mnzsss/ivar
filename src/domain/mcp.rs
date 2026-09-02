@@ -113,16 +113,16 @@ pub struct McpServerDef {
     /// The server's name — also the key its config hangs off in the
     /// harness's file. Unique within a hall's manifest.
     pub name: String,
-    /// The transport: `stdio`, `sse`, or `streamable-http`.
+    /// The transport: `http` or `local`.
     #[serde(rename = "type")]
     pub type_: String,
-    /// The executable a stdio server is spawned with.
+    /// The executable a `local` (stdio) server is spawned with.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub command: Option<String>,
     /// Arguments appended to [`Self::command`].
     #[serde(skip_serializing_if = "Option::is_none")]
     pub args: Option<Vec<String>>,
-    /// The URL a remote (sse / streamable-http) server is reached at.
+    /// The URL a `http` (remote) server is reached at.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
     /// Env vars the server is spawned with. Values are *references* — names
@@ -209,7 +209,7 @@ impl McpServerDef {
         }
     }
 
-    /// Set the executable a stdio server is spawned with.
+    /// Set the executable a `local` (stdio) server is spawned with.
     #[must_use]
     pub fn command(mut self, command: impl Into<String>) -> Self {
         self.command = Some(command.into());

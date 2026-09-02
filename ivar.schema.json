@@ -197,7 +197,7 @@
         "oneOf": [
           {
             "additionalProperties": false,
-            "description": "A remote MCP server reached over HTTP (SSE or streamable-http).",
+            "description": "A remote MCP server reached over HTTP.",
             "properties": {
               "name": {
                 "description": "The server's name, unique within the hall's manifest.",
