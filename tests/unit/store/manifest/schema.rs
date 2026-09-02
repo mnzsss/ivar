@@ -309,27 +309,53 @@ fn schema_has_description() {
     );
 }
 
+/// Walk every `properties` map in the whole document — root and every
+/// `$defs` entry — and assert each property has a non-empty `description`.
+/// Pure `$ref` nodes (properties that are only `{ "$ref": "..." }`) are
+/// skipped because their description lives on the target definition.
 #[test]
-fn type_definitions_have_descriptions() {
+fn all_properties_have_descriptions() {
     let s = schema();
-    let defs = s.get("$defs").expect("must have $defs");
-    for name in [
-        "Providers",
-        "Repo",
-        "IntegrationPolicy",
-        "Skills",
-        "Targets",
-        "McpServerDef",
-        "McpOauth",
-    ] {
-        let def = defs
-            .get(name)
-            .unwrap_or_else(|| panic!("$defs must contain {name}"));
-        assert!(
-            def.get("description").and_then(Value::as_str).is_some(),
-            "$defs.{name} must have a description"
-        );
+    let mut checked = Vec::new();
+
+    // Collect all properties maps: root + each $defs entry.
+    let mut prop_maps: Vec<(&str, &Value)> = Vec::new();
+    prop_maps.push((
+        "root",
+        s.get("properties").expect("root must have properties"),
+    ));
+    if let Some(defs) = s.get("$defs").and_then(Value::as_object) {
+        for (name, def) in defs {
+            if let Some(props) = def.get("properties") {
+                prop_maps.push((name, props));
+            }
+        }
     }
+
+    for (scope, props) in prop_maps {
+        if let Some(obj) = props.as_object() {
+            for (key, val) in obj {
+                // Pure $ref nodes are skipped — their description lives on
+                // the target definition, not the referencing property.
+                if val.get("$ref").is_some() && val.as_object().is_some_and(|o| o.len() == 1) {
+                    continue;
+                }
+                let has_desc = val
+                    .get("description")
+                    .and_then(Value::as_str)
+                    .is_some_and(|d| !d.is_empty());
+                assert!(
+                    has_desc,
+                    "{scope}.properties.{key} must have a non-empty description"
+                );
+                checked.push(format!("{scope}.{key}"));
+            }
+        }
+    }
+    assert!(
+        !checked.is_empty(),
+        "must have checked at least one property for description"
+    );
 }
 
 // -- MCP oneOf: http and local branches -----------------------------------
@@ -438,6 +464,50 @@ fn mcp_branches_are_closed_objects() {
     }
 }
 
+// -- MCP type-schema binding -----------------------------------------------
+
+/// Fails if a field is added to or removed from `McpServerDef` without
+/// the oneOf branches being updated. Obtains the derived property key set
+/// directly from `schemars::schema_for!(McpServerDef)` (before the
+/// override) and asserts it equals the union of the http and local branch
+/// property keys.
+#[test]
+fn mcp_branches_cover_derived_mcp_server_def_fields() {
+    let derived = schemars::schema_for!(crate::domain::mcp::McpServerDef);
+    let derived_schema =
+        serde_json::to_value(&derived).expect("McpServerDef schema must serialize");
+    let derived_props = derived_schema
+        .get("properties")
+        .expect("McpServerDef must have properties");
+    let mut derived_keys: Vec<String> =
+        derived_props.as_object().unwrap().keys().cloned().collect();
+    derived_keys.sort();
+
+    let s = schema();
+    let branches = mcp_one_of(&s);
+    let mut branch_keys: Vec<String> = Vec::new();
+    for branch in branches {
+        if let Some(props) = branch.get("properties") {
+            for key in props.as_object().unwrap().keys() {
+                if !branch_keys.contains(key) {
+                    branch_keys.push(key.clone());
+                }
+            }
+        }
+    }
+    branch_keys.sort();
+
+    assert_eq!(
+        derived_keys, branch_keys,
+        "MCP oneOf branches must cover exactly the fields of McpServerDef \
+         (including the serde rename of type_ to type). \
+         Derived keys: {derived_keys:?}, branch keys: {branch_keys:?}. \
+         If a field was added to or removed from McpServerDef in \
+         src/domain/mcp.rs, update the oneOf branches in \
+         src/store/manifest/schema.rs"
+    );
+}
+
 // -- Structural validation of representative values -----------------------
 
 #[test]
@@ -511,6 +581,11 @@ fn version_is_const_current_version() {
 /// include it in the schema_for!(Manifest) output, which changes generate(),
 /// which changes the artifact. The drift gate test will fail if the artifact
 /// isn't regenerated.
+///
+/// Note: `McpServerDef` is deliberately excluded — it is removed from
+/// `$defs` in `generate()` because the MCP override replaces it with
+/// hand-built oneOf branches. The MCP binding test below covers that
+/// relationship instead.
 #[test]
 fn schema_defs_cover_manifest_reachable_types() {
     let s = schema();
@@ -526,7 +601,6 @@ fn schema_defs_cover_manifest_reachable_types() {
         "IntegrationStrategy",
         "Skills",
         "Targets",
-        "McpServerDef",
         "McpOauth",
     ] {
         assert!(

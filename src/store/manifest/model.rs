@@ -37,12 +37,17 @@ pub(super) const CURRENT_VERSION: u32 = 4;
 #[serde(deny_unknown_fields)]
 pub struct Manifest {
     version: u32,
+    /// The hall's name: a single, non-empty, non-whitespace, non-traversal
+    /// path segment.
+    #[schemars(example = &"valhalla")]
     name: HallName,
     providers: Providers,
+    /// The repos this hall knows about.
     repos: Vec<Repo>,
     /// The hall's integration defaults: the via/strategy a feature inherits
     /// when neither the CLI nor the feature itself overrides a field.
     integration: IntegrationPolicy,
+    /// The hall's shared skill home, if it has one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     skills: Option<Skills>,
     #[serde(rename = "$schema", skip_serializing_if = "Option::is_none")]
@@ -302,6 +307,7 @@ impl Manifest {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Providers {
+    /// Every provider id this hall knows about.
     available: Vec<Provider>,
     default: Provider,
 }
@@ -332,8 +338,14 @@ impl Providers {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Repo {
+    /// A unique, non-empty, single-segment identifier for this repo.
+    #[schemars(example = &"my-repo")]
     name: RepoName,
+    /// The git remote URL to clone from. Must not be empty.
+    #[schemars(example = &"https://github.com/org/repo.git")]
     url: String,
+    /// The branch a fresh worktree defaults to (e.g. "main").
+    #[schemars(example = &"main")]
     default_branch: BranchName,
     /// The repo's ordered verification checks, run via `bash -lc` in the
     /// relevant worktree when this repo is integrated or delivered. Empty
@@ -431,7 +443,9 @@ impl Skills {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Targets {
+    /// Whether skills materialise at `.claude/skills/`.
     claude: bool,
+    /// Whether skills materialise at `.opencode/skills/`.
     opencode: bool,
 }
 

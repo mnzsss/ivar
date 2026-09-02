@@ -73,70 +73,6 @@
       ],
       "type": "object"
     },
-    "McpServerDef": {
-      "additionalProperties": false,
-      "description": "One MCP server definition: how a harness should spawn (or connect to) one\nserver, and nothing about the secrets it will need at runtime.\n\n`type_` is the transport: `http` or `local`. A `local` server carries\n`command` (plus `args`); an `http` one carries `url`. The harness\nmaterialiser decides how the two spell the same facts on disk.",
-      "properties": {
-        "args": {
-          "description": "Arguments appended to [`Self::command`].",
-          "items": {
-            "type": "string"
-          },
-          "type": [
-            "array",
-            "null"
-          ]
-        },
-        "command": {
-          "description": "The executable a stdio server is spawned with.",
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "env": {
-          "additionalProperties": {
-            "type": "string"
-          },
-          "description": "Env vars the server is spawned with. Values are *references* — names\nthe harness resolves at runtime — never stored secrets.",
-          "type": [
-            "object",
-            "null"
-          ]
-        },
-        "name": {
-          "description": "The server's name — also the key its config hangs off in the\nharness's file. Unique within a hall's manifest.",
-          "type": "string"
-        },
-        "oauth": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/McpOauth"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "description": "A pre-provisioned OAuth client registration, for a server whose host\nrejects a harness's own dynamic client registration (`ivar mcp auth`'s\npre-registration step). Absent for every server that registers its own\nclient, which is the common case."
-        },
-        "type": {
-          "description": "The transport: `stdio`, `sse`, or `streamable-http`.",
-          "type": "string"
-        },
-        "url": {
-          "description": "The URL a remote (sse / streamable-http) server is reached at.",
-          "type": [
-            "string",
-            "null"
-          ]
-        }
-      },
-      "required": [
-        "name",
-        "type"
-      ],
-      "type": "object"
-    },
     "Provider": {
       "description": "Which harnesses ivar can open a session in.",
       "enum": [
@@ -150,6 +86,7 @@
       "description": "A hall's provider configuration: which harnesses it knows about, and which\none `ivar session start` picks when none is named explicitly.\n\nUnlike [`Manifest`], this type does not validate its own invariants at\nconstruction — `providers.default` being a member of `providers.available`\nis checked by [`Manifest::validate`], not here, because the check needs\nnothing from `Providers` that `Manifest` cannot already see, and keeping\nevery invariant check in one place (rather than splitting it between this\ntype and `Manifest`) is what keeps [`Error`]'s variants exhaustive and easy\nto audit against the module doc comment's list of three.",
       "properties": {
         "available": {
+          "description": "Every provider id this hall knows about.",
           "items": {
             "$ref": "#/$defs/Provider"
           },
@@ -179,12 +116,24 @@
           "type": "array"
         },
         "default_branch": {
+          "description": "The branch a fresh worktree defaults to (e.g. \"main\").",
+          "examples": [
+            "main"
+          ],
           "type": "string"
         },
         "name": {
+          "description": "A unique, non-empty, single-segment identifier for this repo.",
+          "examples": [
+            "my-repo"
+          ],
           "type": "string"
         },
         "url": {
+          "description": "The git remote URL to clone from. Must not be empty.",
+          "examples": [
+            "https://github.com/org/repo.git"
+          ],
           "type": "string"
         }
       },
@@ -213,9 +162,11 @@
       "description": "Which harnesses a hall's shared skills materialise for.",
       "properties": {
         "claude": {
+          "description": "Whether skills materialise at `.claude/skills/`.",
           "type": "boolean"
         },
         "opencode": {
+          "description": "Whether skills materialise at `.opencode/skills/`.",
           "type": "boolean"
         }
       },
@@ -351,12 +302,17 @@
       "type": "array"
     },
     "name": {
+      "description": "The hall's name: a single, non-empty, non-whitespace, non-traversal\npath segment.",
+      "examples": [
+        "valhalla"
+      ],
       "type": "string"
     },
     "providers": {
       "$ref": "#/$defs/Providers"
     },
     "repos": {
+      "description": "The repos this hall knows about.",
       "items": {
         "$ref": "#/$defs/Repo"
       },
@@ -370,7 +326,8 @@
         {
           "type": "null"
         }
-      ]
+      ],
+      "description": "The hall's shared skill home, if it has one."
     },
     "version": {
       "const": 3,

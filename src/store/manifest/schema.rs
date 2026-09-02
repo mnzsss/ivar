@@ -63,6 +63,18 @@ pub fn generate() -> Value {
         }
     });
 
+    // ── Remove the orphan McpServerDef from $defs ────────────────────
+    // The MCP override replaces the mcp property with hand-built oneOf
+    // branches. The schemars-derived McpServerDef is the loose runtime
+    // shape (all fields optional/nullable) which contradicts the strict
+    // oneOf and is never referenced via $ref. Remove it so the artifact
+    // carries no dead, contradictory definition.
+    if let Some(defs) = schema.pointer_mut("/$defs")
+        && let Some(obj) = defs.as_object_mut()
+    {
+        obj.remove("McpServerDef");
+    }
+
     schema
 }
 
