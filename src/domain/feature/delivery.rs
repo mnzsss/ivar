@@ -144,6 +144,19 @@ pub struct DeliveryRepo {
     /// The supplied pull request body, if any.
     #[serde(default)]
     pub pr_body: Option<String>,
+    /// How the remote PR should be drafted, if at all.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub draft: Option<DraftAction>,
+}
+
+/// The remote draft transition attached to a `DeliveryRepo`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DraftAction {
+    /// Create a new PR as a draft.
+    CreateAsDraft,
+    /// Convert an existing ready PR to a draft.
+    ConvertToDraft,
 }
 
 /// What a delivery action is across a feature's promoted repositories.

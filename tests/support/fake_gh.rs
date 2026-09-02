@@ -37,7 +37,7 @@ use camino::Utf8PathBuf;
 pub(crate) struct FakeGh {
     /// The bin dir holding the `gh` script; prepend to `PATH`.
     pub(crate) dir: Utf8PathBuf,
-    /// PR state: `cwd|head|url|base|state|queue` lines.
+    /// PR state: `cwd|head|url|base|state|queue|created_oid|title|body|is_draft` lines.
     pub(crate) state: Utf8PathBuf,
     /// Check state: `url|name|bucket|state|link` lines.
     pub(crate) checks: Utf8PathBuf,
@@ -66,6 +66,8 @@ required=0
 match_sha=""
 strategy=""
 comment_body=""
+draft=0
+undo=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --head) head="$2"; shift 2 ;;
@@ -77,6 +79,8 @@ while [ $# -gt 0 ]; do
     --required) required=1; shift ;;
     --match-head-commit) match_sha="$2"; shift 2 ;;
     --url) url="$2"; shift 2 ;;
+    --draft) draft=1; shift ;;
+    --undo) undo=1; shift ;;
     --merge|--squash|--rebase) strategy="$1"; shift ;;
     *)
       if [ -z "$url" ]; then url="$1"; fi
@@ -84,8 +88,9 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-# A PR record is `cwd|head|url|base|state|queue|created_oid`. It is keyed by
-# (cwd, head); commands that carry only a URL (`pr merge`, `pr checks`,
+# A PR record is `cwd|head|url|base|state|queue|created_oid|title|body|is_draft`.
+# Fields 8, 9, 10 hold title, body, and the is_draft flag (1 or empty). It is
+# keyed by (cwd, head); commands that carry only a URL (`pr merge`, `pr checks`,
 # `pr view`) look the record up by URL instead.
 cwd_now="$(pwd)"
 if [ -n "$head" ]; then
@@ -97,6 +102,7 @@ pr_url=$(printf '%s' "$record" | awk -F'|' '{print $3}')
 pr_base=$(printf '%s' "$record" | awk -F'|' '{print $4}')
 pr_state=$(printf '%s' "$record" | awk -F'|' '{print $5}')
 pr_queue=$(printf '%s' "$record" | awk -F'|' '{print $6}')
+is_draft_field=$(printf '%s' "$record" | awk -F'|' '{print $10}')
 
 # The head OID, resolved live so head movement is visible to the fake. A
 # URL-only command derives the head from the record it just looked up.
@@ -118,20 +124,37 @@ fi
 pr_number=$(printf '%s' "$pr_url" | awk -F/ '{print $NF}')
 
 emit_pr() {
-  # url,number,state,mergeCommit,headRefOid — mergeCommit is an object or null.
+  # Determine isDraft from the state file field or the current draft flag.
+  draft_json="false"
+  if [ "$is_draft_field" = "1" ] || [ "$draft" = "1" ]; then
+    draft_json="true"
+  fi
+  # url,number,state,mergeCommit,headRefOid,isDraft — mergeCommit is an
+  # object or null.
   if [ "$pr_state" = "MERGED" ]; then
     merge_oid=$(git -C "$origin" rev-parse "refs/heads/$pr_base" 2>/dev/null || printf '')
-    printf '{"url":"%s","number":%s,"state":"%s","mergeCommit":{"oid":"%s"},"headRefOid":"%s"}' \
-      "$pr_url" "$pr_number" "$pr_state" "$merge_oid" "$head_oid"
+    printf '{"url":"%s","number":%s,"state":"%s","mergeCommit":{"oid":"%s"},"headRefOid":"%s","isDraft":%s}' \
+      "$pr_url" "$pr_number" "$pr_state" "$merge_oid" "$head_oid" "$draft_json"
   else
-    printf '{"url":"%s","number":%s,"state":"%s","mergeCommit":null,"headRefOid":"%s"}' \
-      "$pr_url" "$pr_number" "$pr_state" "$head_oid"
+    printf '{"url":"%s","number":%s,"state":"%s","mergeCommit":null,"headRefOid":"%s","isDraft":%s}' \
+      "$pr_url" "$pr_number" "$pr_state" "$head_oid" "$draft_json"
   fi
 }
 
 case "$sub" in
   "pr list")
-    if [ -z "$pr_url" ]; then printf '[]\n'; else printf '[%s]\n' "$(emit_pr)"; fi
+    # Let apply's fingerprint observation see the PR, then model it
+    # disappearing before execution performs its second observation.
+    if [ "${GH_FAKE_LIST_EMPTY_AFTER_FIRST:-0}" = "1" ] &&
+       [ "$(grep -c '^pr list ' "$GH_FAKE_LOG")" -gt 1 ]; then
+      grep -vF "$cwd_now|$head|" "$GH_FAKE_STATE" > "$GH_FAKE_STATE.tmp" || true
+      mv "$GH_FAKE_STATE.tmp" "$GH_FAKE_STATE"
+      printf '[]\n'
+    elif [ -z "$pr_url" ]; then
+      printf '[]\n'
+    else
+      printf '[%s]\n' "$(emit_pr)"
+    fi
     ;;
   "pr view")
     if [ -z "$pr_url" ]; then
@@ -158,8 +181,13 @@ case "$sub" in
     pr_url="https://github.com/acme/pull/$number"
     # Field 7 records the head oid at creation — `--match-head-commit`
     # compares against this, so a head that moves after the PR is opened is
-    # refused, exactly like the real `gh`.
-    printf '%s|%s|%s|%s|%s|%s|%s\n' "$cwd_now" "$head" "$pr_url" "$base" "OPEN" "" "$head_oid" >> "$GH_FAKE_STATE"
+    # refused, exactly like the real `gh`. Fields 8, 9 hold title and body
+    # (empty at creation; gh reads them off stdout but the contract only needs
+    # them preserved across edits), and field 10 holds the initial draft state
+    # (1 when --draft is passed, empty otherwise).
+    draft_field=""
+    [ "$draft" = "1" ] && draft_field="1"
+    printf '%s|%s|%s|%s|%s|%s|%s|%s|%s|%s\n' "$cwd_now" "$head" "$pr_url" "$base" "OPEN" "" "$head_oid" "" "" "$draft_field" >> "$GH_FAKE_STATE"
     printf '%s\n' "$pr_url"
     ;;
   "pr edit")
@@ -180,8 +208,8 @@ case "$sub" in
     old_head=$(printf '%s' "$record" | awk -F'|' '{print $2}')
     pr_state=$(printf '%s' "$record" | awk -F'|' '{print $5}')
     pr_base=$(printf '%s' "$record" | awk -F'|' '{print $4}')
+    pr_queue=$(printf '%s' "$record" | awk -F'|' '{print $6}')
     created_oid=$(printf '%s' "$record" | awk -F'|' '{print $7}')
-    # Resolve final title/body: use new value if supplied, else keep existing.
     final_title="$title"
     final_body="$body"
     if [ -z "$final_title" ]; then
@@ -190,11 +218,8 @@ case "$sub" in
     if [ -z "$final_body" ]; then
       final_body=$(printf '%s' "$record" | awk -F'|' '{print $9}')
     fi
-    # Rebuild the record: cwd|head|url|base|state|queue|created_oid[|title|body]
-    new_record="${cwd_now}|${old_head}|${pr_url}|${pr_base}|${pr_state}"
-    [ -n "$created_oid" ] && new_record="${new_record}|${created_oid}"
-    [ -n "$final_title" ] && new_record="${new_record}|${final_title}"
-    [ -n "$final_body" ] && new_record="${new_record}|${final_body}"
+    # Rebuild the record: cwd|head|url|base|state|queue|created_oid|title|body|is_draft
+    new_record="${cwd_now}|${old_head}|${pr_url}|${pr_base}|${pr_state}|${pr_queue}|${created_oid}|${final_title}|${final_body}|${is_draft_field}"
     # Replace the old record in the state file.
     text=$(grep -vF "|${old_head}|" "$GH_FAKE_STATE" 2>/dev/null || true)
     printf '%s\n' "$text" > "$GH_FAKE_STATE"
@@ -208,6 +233,27 @@ case "$sub" in
     # The real `gh pr checks` exits 8 while anything is pending.
     if grep -F "$pr_url|" "$GH_FAKE_CHECKS" | awk -F'|' '$3 == "pending" { found=1 } END { exit !found }'; then
       exit 8
+    fi
+    ;;
+    "pr ready")
+    # gh pr ready --undo <url> — convert a ready PR to draft.
+    if [ "$undo" = "1" ] && [ -n "$url" ]; then
+
+      # Fail fast if GH_FAKE_READY_FAIL is set — used by tests that
+      # exercise independent conversion failure.
+      if [ "${GH_FAKE_READY_FAIL:-0}" = "1" ]; then
+        printf 'could not convert pull request to draft: testing failure\n' >&2
+        exit 1
+      fi
+      # Fail if the PR is not found in state.
+      if [ -z "$record" ]; then
+        printf 'could not convert pull request to draft: not found\n' >&2
+        exit 1
+      fi
+      # Update the is_draft field (column 10) to "1" (draft).
+      awk -F'|' -v OFS='|' -v u="$url" \
+        '$3 == u { $10 = "1" } { print }' "$GH_FAKE_STATE" > "$GH_FAKE_STATE.tmp"
+      mv "$GH_FAKE_STATE.tmp" "$GH_FAKE_STATE"
     fi
     ;;
   "pr merge")
@@ -302,5 +348,61 @@ impl FakeGh {
             ),
         )
         .unwrap();
+    }
+
+    /// Seed a pre-existing draft PR in the fake state, so `pr list` returns
+    /// it as an open draft for `branch`. This bypasses `pr create` — it is
+    /// for tests that need a PR to already exist before delivery runs.
+    pub(crate) fn set_existing_draft_pr(
+        &self,
+        cwd: &camino::Utf8Path,
+        branch: &str,
+        url: &str,
+        base: &str,
+    ) {
+        let state = std::fs::read_to_string(&self.state).unwrap_or_default();
+        let line = format!("{cwd}|{branch}|{url}|{base}|OPEN||||||1\n");
+        let mut content = state;
+        if !content.is_empty() && !content.ends_with('\n') {
+            content.push('\n');
+        }
+        content.push_str(&line);
+        std::fs::write(&self.state, content).unwrap();
+    }
+
+    /// Set the draft state (field 8) of an existing PR in the fake state.
+    /// `is_draft` = `true` sets the field to `1`; `false` clears it.
+    pub(crate) fn set_pr_draft_state(&self, url: &str, is_draft: bool) {
+        let state = std::fs::read_to_string(&self.state).unwrap_or_default();
+        let new_state: String = state
+            .lines()
+            .map(|line| {
+                if line.contains(&format!("|{url}|")) {
+                    // Rebuild the line: set field 10 (is_draft).
+                    let fields: Vec<&str> = line.split('|').collect();
+                    if fields.len() >= 7 {
+                        let draft_val = if is_draft { "1" } else { "" };
+                        // Ensure at least 10 fields for the draft field.
+                        let mut f: Vec<&str> = fields.to_vec();
+                        while f.len() < 10 {
+                            f.push("");
+                        }
+                        f[9] = draft_val;
+
+                        f.join("|")
+                    } else {
+                        line.to_owned()
+                    }
+                } else {
+                    line.to_owned()
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        let mut final_state = new_state;
+        if !final_state.is_empty() && !final_state.ends_with('\n') {
+            final_state.push('\n');
+        }
+        std::fs::write(&self.state, final_state).unwrap();
     }
 }

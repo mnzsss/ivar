@@ -7,6 +7,8 @@ pub struct PullRequestMetadata {
     pub title: Option<String>,
     /// The supplied body value (either inline text or `./*.md` / `./*.txt` path), if any.
     pub body: Option<String>,
+    /// Whether the pull request should be created as a draft.
+    pub draft: Option<bool>,
 }
 
 /// A repository-scoped metadata override.

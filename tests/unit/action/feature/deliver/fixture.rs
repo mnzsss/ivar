@@ -3,7 +3,7 @@ use super::*;
 pub(super) use crate::action::feature::create::{CreateInput, create as create_action};
 pub(super) use crate::action::feature::promote::{self, PromoteInput};
 pub(super) use crate::action::hall::{self, InitInput};
-pub(super) use crate::domain::feature::{DeliveryAction, DeliveryRepo};
+pub(super) use crate::domain::feature::{DeliveryAction, DeliveryRepo, DraftAction};
 pub(super) use crate::domain::name::{BranchName, HallName, RepoName};
 pub(super) use crate::domain::provider::Provider;
 pub(super) use crate::error::{Status, WriteHuman};
@@ -227,6 +227,7 @@ pub(super) fn delivery_repo(name: &str, dependencies: Vec<&str>) -> DeliveryRepo
         remote_default_tip: None,
         pr_title: None,
         pr_body: None,
+        draft: None,
     }
 }
 

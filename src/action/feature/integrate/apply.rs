@@ -241,6 +241,7 @@ pub(crate) fn integrate_pr(
             &child.name,
             None,
             None,
+            false,
         )?,
     };
 

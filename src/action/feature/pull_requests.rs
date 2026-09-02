@@ -40,10 +40,12 @@ pub(crate) struct PullRequest {
     pub head_oid: Option<String>,
     /// The merge commit, once merged. `None` while open.
     pub merge_commit: Option<String>,
+    /// Is this PR a draft?
+    pub is_draft: bool,
 }
 
-/// The `--json url,number,state,mergeCommit,headRefOid` shape `gh pr list`
-/// and `gh pr view` both emit.
+/// The `--json url,number,state,mergeCommit,headRefOid,isDraft` shape `gh pr
+/// list` and `gh pr view` both emit.
 #[derive(Debug, Deserialize)]
 struct GhPrRecord {
     url: String,
@@ -51,6 +53,8 @@ struct GhPrRecord {
     number: u64,
     #[serde(default)]
     state: String,
+    #[serde(default, rename = "isDraft")]
+    is_draft: bool,
     #[serde(default, rename = "mergeCommit")]
     merge_commit: Option<GhOid>,
     #[serde(default, rename = "headRefOid")]
@@ -69,6 +73,7 @@ impl From<GhPrRecord> for PullRequest {
             url: record.url,
             number: record.number,
             state: record.state,
+            is_draft: record.is_draft,
             head_oid: record.head_ref_oid,
             merge_commit: record.merge_commit.map(|commit| commit.oid),
         }
@@ -93,7 +98,7 @@ pub(crate) fn find_pull_request(
                 "--state",
                 state,
                 "--json",
-                "url,number,state,mergeCommit,headRefOid",
+                "url,number,state,mergeCommit,headRefOid,isDraft",
             ])
             .cwd(git_dir),
         "pr list",
@@ -121,27 +126,31 @@ pub(crate) fn create_pull_request(
     feature: &FeatureName,
     title: Option<&str>,
     body: Option<&str>,
+    draft: bool,
 ) -> Result<PullRequest, Failure> {
     let default_title = feature.to_string();
     let default_body = format!("Part of feature `{feature}`.");
     let effective_title = title.unwrap_or(default_title.as_str());
     let effective_body = body.unwrap_or(default_body.as_str());
 
+    let mut args = vec![
+        "pr",
+        "create",
+        "--base",
+        base.as_str(),
+        "--head",
+        head.as_str(),
+        "--title",
+        effective_title,
+        "--body",
+        effective_body,
+    ];
+    if draft {
+        args.push("--draft");
+    }
+
     let output = capture(
-        proc::Command::new("gh")
-            .args([
-                "pr",
-                "create",
-                "--base",
-                base.as_str(),
-                "--head",
-                head.as_str(),
-                "--title",
-                effective_title,
-                "--body",
-                effective_body,
-            ])
-            .cwd(git_dir),
+        proc::Command::new("gh").args(args).cwd(git_dir),
         "pr create",
     )?;
 
@@ -160,10 +169,23 @@ pub(crate) fn create_pull_request(
         url,
         number,
         state: "OPEN".to_owned(),
+        is_draft: draft,
         head_oid: None,
         merge_commit: None,
     })
 }
+
+/// Convert an existing pull request to draft.
+pub(crate) fn convert_pull_request_to_draft(git_dir: &Utf8Path, url: &str) -> Result<(), Failure> {
+    let _ = capture(
+        proc::Command::new("gh")
+            .args(["pr", "ready", "--undo", url])
+            .cwd(git_dir),
+        "pr ready --undo",
+    )?;
+    Ok(())
+}
+
 /// Edit a pull request at `url` with optional `title` and `body`.
 /// Only non-None fields are forwarded to `gh pr edit`; absent fields
 /// are left unchanged, making this a safe partial update.
@@ -178,7 +200,10 @@ pub(crate) fn edit_pull_request(
         return Ok(());
     }
 
-    let mut args = vec!["pr", "edit", "--url", url];
+    // `gh pr edit` takes the PR as a positional argument -- `[<number> | <url>
+    // | <branch>]`. There is no `--url` flag; passing one aborts with
+    // `unknown flag: --url` before any edit is attempted.
+    let mut args = vec!["pr", "edit", url];
     if let Some(t) = title {
         args.push("--title");
         args.push(t);
@@ -203,7 +228,7 @@ pub(crate) fn edit_pull_request(
         .actual(output.diagnostic())
         .fix(FixAction::safe(
             "deliver.pr_edit_retry",
-            "Run `gh pr edit --url <url>` with corrected flags.",
+            "Run `gh pr edit <url>` with corrected flags.",
         )));
     }
 
@@ -351,7 +376,7 @@ fn view_pull_request(git_dir: &Utf8Path, url: &str) -> Result<PullRequest, Failu
                 "view",
                 url,
                 "--json",
-                "url,number,state,mergeCommit,headRefOid",
+                "url,number,state,mergeCommit,headRefOid,isDraft",
             ])
             .cwd(git_dir),
         "pr view",
@@ -376,10 +401,14 @@ fn view_pull_request(git_dir: &Utf8Path, url: &str) -> Result<PullRequest, Failu
 /// best-effort: a `gh` failure means "no PR", which is the preview's
 /// intentional answer.
 pub(crate) fn existing_pr_url(git_dir: &Utf8Path, branch: &str) -> Option<String> {
-    find_pull_request(git_dir, branch, "open")
-        .ok()
-        .flatten()
-        .map(|pr| pr.url)
+    existing_pr(git_dir, branch).map(|pr| pr.url)
+}
+
+/// The open pull request for `branch`, when there is one —
+/// best-effort: a `gh` failure means "no PR", which is the preview's
+/// intentional answer.
+pub(crate) fn existing_pr(git_dir: &Utf8Path, branch: &str) -> Option<PullRequest> {
+    find_pull_request(git_dir, branch, "open").ok().flatten()
 }
 
 /// Add a comment to each PR linking it to its siblings.

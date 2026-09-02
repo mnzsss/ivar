@@ -7,7 +7,8 @@ use std::collections::BTreeMap;
 use camino::Utf8Path;
 
 use crate::action::feature::deliver::input::PullRequestMetadata;
-use crate::domain::feature::{DeliveryAction, DeliveryMode, DeliveryRepo, Feature};
+use crate::domain::feature::Feature;
+use crate::domain::feature::{DeliveryAction, DeliveryMode, DeliveryRepo, DraftAction};
 use crate::domain::name::RepoName;
 use crate::error::{Failure, FixAction};
 use crate::git::{self, TargetState};
@@ -15,7 +16,7 @@ use crate::store::layout::Layout;
 use crate::store::manifest::Manifest;
 
 use super::super::base;
-use super::super::pull_requests::existing_pr_url;
+use super::super::pull_requests::existing_pr;
 
 pub(crate) fn build_repos(
     git: &impl git::Git,
@@ -131,11 +132,25 @@ pub(crate) fn build_repos(
         // `gh` cannot raise a PR there. For GitHub, check the remote: if an
         // open PR already exists for this branch we update it, otherwise we
         // create one. In land mode, the action is landing onto default.
+        //
+        // The observation is made once and shared with the draft decision
+        // below. Two separate `gh pr list` calls would leave a window in
+        // which a PR opened between them yields `NewPr` paired with
+        // `ConvertToDraft` — and apply would then create a second PR.
+        // A non-GitHub remote or land mode observes nothing and calls no `gh`.
+        let existing = if mode == DeliveryMode::Push
+            && crate::infra::github::is_github_https(declared.url())
+        {
+            existing_pr(&bare, feature.branch.as_str())
+        } else {
+            None
+        };
+
         let action = match mode {
             DeliveryMode::Push => {
                 if !crate::infra::github::is_github_https(declared.url()) {
                     DeliveryAction::PushOnly
-                } else if existing_pr_url(&bare, feature.branch.as_str()).is_some() {
+                } else if existing.is_some() {
                     DeliveryAction::UpdatePr
                 } else {
                     DeliveryAction::NewPr
@@ -196,6 +211,26 @@ pub(crate) fn build_repos(
             .get(repo_name)
             .cloned()
             .unwrap_or_default();
+
+        let draft_action = metadata.draft.and_then(|d| {
+            if mode == DeliveryMode::Land || !crate::infra::github::is_github_https(declared.url())
+            {
+                return None;
+            }
+            if d {
+                // Intent: draft. Derived from the single observation above,
+                // so the baseline action and this decision can never disagree.
+                match &existing {
+                    Some(pr) if pr.is_draft => None,              // already draft: no-op
+                    Some(_) => Some(DraftAction::ConvertToDraft), // ready → draft
+                    None => Some(DraftAction::CreateAsDraft),     // new PR
+                }
+            } else {
+                // Intent: not draft.
+                None
+            }
+        });
+
         repos.push(DeliveryRepo {
             repo: repo_name.clone(),
             local_branch: feature.branch.clone(),
@@ -211,6 +246,7 @@ pub(crate) fn build_repos(
             remote_default_tip,
             pr_title: metadata.title,
             pr_body: metadata.body,
+            draft: draft_action,
         });
     }
 

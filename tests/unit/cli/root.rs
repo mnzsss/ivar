@@ -37,6 +37,7 @@ fn feature_deliver_parses_grouped_metadata_and_preserves_order() {
                 deliver::PullRequestMetadata {
                     title: Some("feat: global title".to_owned()),
                     body: Some("global body".to_owned()),
+                    draft: None,
                 }
             );
             assert_eq!(
@@ -47,6 +48,7 @@ fn feature_deliver_parses_grouped_metadata_and_preserves_order() {
                         metadata: deliver::PullRequestMetadata {
                             title: Some("feat(api): title".to_owned()),
                             body: Some("./docs/api.md".to_owned()),
+                            draft: None,
                         },
                     },
                     deliver::RepoMetadataOverride {
@@ -54,6 +56,7 @@ fn feature_deliver_parses_grouped_metadata_and_preserves_order() {
                         metadata: deliver::PullRequestMetadata {
                             title: Some("feat(web): title".to_owned()),
                             body: None,
+                            draft: None,
                         },
                     },
                 ]
@@ -95,6 +98,7 @@ fn feature_deliver_parses_legacy_arguments_without_metadata() {
         other => panic!("expected feature deliver, got {other:?}"),
     }
 }
+
 #[test]
 fn cli_definition_is_valid() {
     // `debug_assert` panics on a malformed clap definition (duplicate
@@ -412,6 +416,67 @@ fn feature_rebase_accepts_onto() {
             assert_eq!(args.onto.as_deref(), Some("main"));
         }
         other => panic!("expected Feature(Rebase), got {other:?}"),
+    }
+}
+
+#[test]
+fn feature_deliver_parses_draft_intent() {
+    let cli = Cli::try_parse_from(["ivar", "feature", "deliver", "checkout", "--draft"]).unwrap();
+
+    match cli.command {
+        Command::Feature(FeatureCommand::Deliver(args)) => {
+            assert_eq!(args.global_metadata.draft, Some(true));
+        }
+        other => panic!("expected Feature(Deliver), got {other:?}"),
+    }
+}
+
+/// Multi-occurrence `--draft`: two scoped occurrences each bind to their
+/// own repo group.
+#[test]
+fn feature_deliver_parses_multi_repo_scoped_draft() {
+    let cli = Cli::try_parse_from([
+        "ivar", "feature", "deliver", "checkout", "--repo", "api", "--draft", "--repo", "web",
+        "--draft",
+    ])
+    .unwrap();
+
+    match cli.command {
+        Command::Feature(FeatureCommand::Deliver(args)) => {
+            assert_eq!(args.global_metadata.draft, None, "no global draft");
+            let [api, web] = args.repo_overrides.as_slice() else {
+                panic!("expected two repo groups, got {:?}", args.repo_overrides);
+            };
+            assert_eq!(api.repo, "api");
+            assert_eq!(api.metadata.draft, Some(true));
+            assert_eq!(web.repo, "web");
+            assert_eq!(web.metadata.draft, Some(true));
+        }
+        other => panic!("expected Feature(Deliver), got {other:?}"),
+    }
+}
+
+/// A `--draft` before any `--repo` is global; one after a `--repo` is scoped.
+#[test]
+fn feature_deliver_global_and_scoped_draft_mixed() {
+    let cli = Cli::try_parse_from([
+        "ivar", "feature", "deliver", "checkout", "--draft", "--repo", "api", "--draft",
+    ])
+    .unwrap();
+
+    match cli.command {
+        Command::Feature(FeatureCommand::Deliver(args)) => {
+            // The first --draft (global position) applies to all repos not
+            // covered by a scoped override.
+            assert_eq!(args.global_metadata.draft, Some(true));
+            // The second --draft after --repo api is scoped to api only.
+            let [api] = args.repo_overrides.as_slice() else {
+                panic!("expected one repo group, got {:?}", args.repo_overrides);
+            };
+            assert_eq!(api.repo, "api");
+            assert_eq!(api.metadata.draft, Some(true));
+        }
+        other => panic!("expected Feature(Deliver), got {other:?}"),
     }
 }
 

@@ -14,19 +14,25 @@ pub(crate) fn resolve(
     feature: &Feature,
     input: &DeliverInput,
 ) -> Result<BTreeMap<RepoName, PullRequestMetadata>, Failure> {
-    let has_global = input.global_metadata.title.is_some() || input.global_metadata.body.is_some();
-    let has_overrides = !input.repo_overrides.is_empty();
+    let has_global = input.global_metadata.title.is_some()
+        || input.global_metadata.body.is_some()
+        || input.global_metadata.draft.is_some();
+    let has_overrides = !input.repo_overrides.is_empty()
+        || input
+            .repo_overrides
+            .iter()
+            .any(|o| o.metadata.draft.is_some());
 
     if input.land && (has_global || has_overrides) {
         return Err(Failure::blocked(
             "deliver.metadata_in_land_mode",
-            "pull request metadata (--name, --body, --repo) cannot be used in land mode",
+            "pull request options (--name, --body, --draft, --repo) cannot be used in land mode",
         )
-        .expected("land mode (--land) without pull request metadata")
-        .actual("pull request metadata was supplied with --land")
+        .expected("land mode (--land) without pull request options")
+        .actual("pull request options were supplied with --land")
         .fix(FixAction::safe(
             "deliver.drop_metadata_or_land",
-            "Remove pull request metadata options when landing, or remove --land to create/update pull requests.",
+            "Remove pull request options when landing, or remove --land to create/update pull requests.",
         )));
     }
 
@@ -99,6 +105,7 @@ pub(crate) fn resolve(
     let global_resolved = PullRequestMetadata {
         title: input.global_metadata.title.clone(),
         body: resolve_body(ctx, input.global_metadata.body.as_deref())?,
+        draft: input.global_metadata.draft,
     };
 
     let mut overrides_by_repo: BTreeMap<RepoName, PullRequestMetadata> = BTreeMap::new();
@@ -110,6 +117,7 @@ pub(crate) fn resolve(
             PullRequestMetadata {
                 title: r_override.metadata.title.clone(),
                 body: resolved_body,
+                draft: r_override.metadata.draft,
             },
         );
     }
@@ -123,8 +131,14 @@ pub(crate) fn resolve(
         let body = repo_override
             .and_then(|m| m.body.clone())
             .or_else(|| global_resolved.body.clone());
+        let draft = repo_override
+            .and_then(|m| m.draft)
+            .or(global_resolved.draft);
 
-        result.insert(repo_name.clone(), PullRequestMetadata { title, body });
+        result.insert(
+            repo_name.clone(),
+            PullRequestMetadata { title, body, draft },
+        );
     }
 
     Ok(result)
@@ -135,9 +149,15 @@ fn resolve_body(ctx: &Ctx, body: Option<&str>) -> Result<Option<String>, Failure
         return Ok(None);
     };
 
-    if raw.starts_with("./") && (raw.ends_with(".md") || raw.ends_with(".txt")) {
-        let relative_path = raw.trim_start_matches("./");
-        let full_path = ctx.cwd.join(relative_path);
+    // A `./` prefix or a leading `/` marks the argument as a path; the
+    // extension then decides. A bare `body.md` stays inline text, because a
+    // relative name is also a plausible thing to write in a body, and
+    // treating it as a file would read whatever happens to sit in the cwd.
+    let looks_like_path = raw.starts_with("./") || raw.starts_with('/');
+    if looks_like_path && (raw.ends_with(".md") || raw.ends_with(".txt")) {
+        // `join` on an absolute path yields that path, so both forms resolve
+        // through one expression.
+        let full_path = ctx.cwd.join(raw.trim_start_matches("./"));
         let bytes = std::fs::read(&full_path).map_err(|e| {
             Failure::blocked(
                 "deliver.body_file_read_failed",

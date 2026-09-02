@@ -3,10 +3,11 @@
 use std::collections::BTreeMap;
 
 use crate::action::feature::pull_requests::{
-    create_pull_request, edit_pull_request, existing_pr_url, link_sibling_prs,
+    convert_pull_request_to_draft, create_pull_request, edit_pull_request, existing_pr_url,
+    link_sibling_prs,
 };
 use crate::action::feature::verification;
-use crate::domain::feature::{DeliveryAction, DeliveryPreview, Feature};
+use crate::domain::feature::{DeliveryAction, DeliveryPreview, DraftAction, Feature};
 use crate::domain::name::{FeatureName, RepoName};
 use crate::error::{Failure, Report, Warning};
 use crate::git::Git;
@@ -136,44 +137,71 @@ pub(super) fn execute(
         // A branch that already has a PR was updated by the push above — `gh pr
         // create` would only refuse it as a duplicate. Its URL is still part of
         // the report, and `gh pr list` is the only place it comes from.
-        let result = match repo.action {
+        let want_draft = repo.draft.is_some();
+        let (result, should_convert) = match repo.action {
             DeliveryAction::UpdatePr => {
                 // Try to find existing PR; if it exists, do a partial edit; otherwise create new.
                 existing_pr_url(&bare, repo.local_branch.as_str()).map_or_else(
                     || {
-                        create_pull_request(
-                            &bare,
-                            &repo.local_branch,
-                            &repo.base_branch,
-                            feature_name,
-                            repo.pr_title.as_deref(),
-                            repo.pr_body.as_deref(),
+                        (
+                            create_pull_request(
+                                &bare,
+                                &repo.local_branch,
+                                &repo.base_branch,
+                                feature_name,
+                                repo.pr_title.as_deref(),
+                                repo.pr_body.as_deref(),
+                                want_draft,
+                            )
+                            .map(|pr| pr.url),
+                            false,
                         )
-                        .map(|pr| pr.url)
                     },
                     |url| {
                         // PR exists — do a safe partial edit (only supplied fields change).
-                        edit_pull_request(
-                            &bare,
-                            &url,
-                            repo.pr_title.as_deref(),
-                            repo.pr_body.as_deref(),
+                        (
+                            edit_pull_request(
+                                &bare,
+                                &url,
+                                repo.pr_title.as_deref(),
+                                repo.pr_body.as_deref(),
+                            )
+                            .map(|_| url),
+                            true,
                         )
-                        .map(|_| url)
                     },
                 )
             }
-            DeliveryAction::NewPr => create_pull_request(
-                &bare,
-                &repo.local_branch,
-                &repo.base_branch,
-                feature_name,
-                repo.pr_title.as_deref(),
-                repo.pr_body.as_deref(),
-            )
-            .map(|pr| pr.url),
+            DeliveryAction::NewPr => (
+                create_pull_request(
+                    &bare,
+                    &repo.local_branch,
+                    &repo.base_branch,
+                    feature_name,
+                    repo.pr_title.as_deref(),
+                    repo.pr_body.as_deref(),
+                    want_draft,
+                )
+                .map(|pr| pr.url),
+                false,
+            ),
             DeliveryAction::PushOnly | DeliveryAction::LandOnDefault => unreachable!(),
         };
+
+        // Convert only an existing PR. A planned conversion whose PR vanished
+        // is recreated as draft above, so it needs no follow-up transition.
+        if repo.draft == Some(DraftAction::ConvertToDraft)
+            && should_convert
+            && let Ok(url) = &result
+            && let Err(failure) = convert_pull_request_to_draft(&bare, url)
+        {
+            warnings.push(Warning::new(
+                "deliver.pr_draft_conversion_failed",
+                repo.repo.as_str(),
+                format!("{}: {}", failure.code, failure.what),
+            ));
+        }
+
         pr_results.push((repo.repo.clone(), result));
     }
 

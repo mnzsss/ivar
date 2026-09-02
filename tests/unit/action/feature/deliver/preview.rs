@@ -309,3 +309,155 @@ fn preview_without_mode_defaults_to_push() {
     let preview: DeliveryPreview = serde_json::from_value(json).expect("legacy preview");
     assert_eq!(preview.mode, DeliveryMode::Push);
 }
+
+// -- fingerprint sensitivity -----------------------------------------------
+
+#[test]
+fn preview_fingerprint_changes_when_draft_action_differs() {
+    let feature = FeatureName::new("checkout").unwrap();
+
+    let mut repo_none = delivery_repo("api", Vec::new());
+    let fp_none = fingerprint_for(
+        &feature,
+        DeliveryMode::Push,
+        GateState::Approved,
+        &[],
+        &[repo_none.clone()],
+    )
+    .unwrap();
+
+    repo_none.draft = Some(DraftAction::CreateAsDraft);
+    let fp_draft = fingerprint_for(
+        &feature,
+        DeliveryMode::Push,
+        GateState::Approved,
+        &[],
+        &[repo_none.clone()],
+    )
+    .unwrap();
+
+    repo_none.draft = Some(DraftAction::ConvertToDraft);
+    let fp_convert = fingerprint_for(
+        &feature,
+        DeliveryMode::Push,
+        GateState::Approved,
+        &[],
+        &[repo_none],
+    )
+    .unwrap();
+
+    assert_ne!(
+        fp_none, fp_draft,
+        "draft intent must change the fingerprint"
+    );
+    assert_ne!(
+        fp_draft, fp_convert,
+        "create vs convert must differ in the fingerprint"
+    );
+    assert_ne!(
+        fp_none, fp_convert,
+        "convert action must change the fingerprint"
+    );
+}
+
+// -- human rendering: draft actions ----------------------------------------
+
+#[test]
+fn human_preview_renders_new_pr_draft() {
+    let mut repo = delivery_repo("api", Vec::new());
+    repo.action = DeliveryAction::NewPr;
+    repo.draft = Some(DraftAction::CreateAsDraft);
+    let outcome = DeliverOutcome {
+        root: Utf8PathBuf::from("/hall"),
+        preview: DeliveryPreview {
+            feature: FeatureName::new("checkout").unwrap(),
+            mode: DeliveryMode::Push,
+            plan_gate: GateState::Approved,
+            repos: vec![repo],
+            tree_blockers: Vec::new(),
+            fingerprint: "abc123".to_owned(),
+        },
+        pushes: Vec::new(),
+        land: Vec::new(),
+        checks: Vec::new(),
+    };
+
+    let mut out = Vec::new();
+    outcome.write_human(&mut out).unwrap();
+    let rendered = String::from_utf8(out).unwrap();
+    assert!(
+        rendered.contains("action:  new pr (draft)"),
+        "expected 'action:  new pr (draft)' in:\n{rendered}"
+    );
+}
+
+#[test]
+fn human_preview_renders_convert_pr_to_draft() {
+    let mut repo = delivery_repo("api", Vec::new());
+    repo.action = DeliveryAction::UpdatePr;
+    repo.draft = Some(DraftAction::ConvertToDraft);
+    let outcome = DeliverOutcome {
+        root: Utf8PathBuf::from("/hall"),
+        preview: DeliveryPreview {
+            feature: FeatureName::new("checkout").unwrap(),
+            mode: DeliveryMode::Push,
+            plan_gate: GateState::Approved,
+            repos: vec![repo],
+            tree_blockers: Vec::new(),
+            fingerprint: "abc123".to_owned(),
+        },
+        pushes: Vec::new(),
+        land: Vec::new(),
+        checks: Vec::new(),
+    };
+
+    let mut out = Vec::new();
+    outcome.write_human(&mut out).unwrap();
+    let rendered = String::from_utf8(out).unwrap();
+    assert!(
+        rendered.contains("action:  update pr"),
+        "expected 'action:  update pr' in:\n{rendered}"
+    );
+    assert!(
+        rendered.contains("action:  convert pr to draft"),
+        "expected 'action:  convert pr to draft' in:\n{rendered}"
+    );
+    // The convert line must follow the update line.
+    let update_pos = rendered.find("action:  update pr").unwrap();
+    let convert_pos = rendered.find("action:  convert pr to draft").unwrap();
+    assert!(
+        update_pos < convert_pos,
+        "update pr must appear before convert pr to draft"
+    );
+}
+
+#[test]
+fn human_preview_without_draft_omits_draft_text() {
+    let repo = delivery_repo("api", Vec::new());
+    let outcome = DeliverOutcome {
+        root: Utf8PathBuf::from("/hall"),
+        preview: DeliveryPreview {
+            feature: FeatureName::new("checkout").unwrap(),
+            mode: DeliveryMode::Push,
+            plan_gate: GateState::Approved,
+            repos: vec![repo],
+            tree_blockers: Vec::new(),
+            fingerprint: "abc123".to_owned(),
+        },
+        pushes: Vec::new(),
+        land: Vec::new(),
+        checks: Vec::new(),
+    };
+
+    let mut out = Vec::new();
+    outcome.write_human(&mut out).unwrap();
+    let rendered = String::from_utf8(out).unwrap();
+    assert!(
+        rendered.contains("action:  push only"),
+        "expected 'action:  push only' in:\n{rendered}"
+    );
+    assert!(
+        !rendered.contains("draft"),
+        "draft must not appear in legacy output:\n{rendered}"
+    );
+}
