@@ -361,8 +361,8 @@ same file published at the URL above.
 
 ### Claude approval boundary
 
-When Ivar launches a Claude Code session (for `session start`, `connect`,
-`resume`, or `relay`), it passes `--settings` with an inline
+When Ivar launches a Claude Code session (for `session start` and
+`session start --resume`), it passes `--settings` with an inline
 `{"enabledMcpjsonServers":[…]}` list. That list contains **exactly** the
 hall-qualified names of the MCP servers declared by that hall's manifest —
 sorted and derived only from the manifest, rebuilt on every launch. Ivar never
@@ -371,3 +371,6 @@ and never enables `enableAllProjectMcpServers`. A server not present in the
 manifest is never on the allowlist, so it is not approved. When a hall declares
 no MCP servers, the list is present but empty —
 `{"enabledMcpjsonServers":[]}` — granting approval to nothing.
+
+`session connect` and `session relay` create or re-bind a session without
+launching a provider, so no Claude Code approval is granted by either path.
