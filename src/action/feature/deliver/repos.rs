@@ -16,7 +16,7 @@ use crate::store::layout::Layout;
 use crate::store::manifest::Manifest;
 
 use super::super::base;
-use super::super::pull_requests::{existing_pr, existing_pr_url};
+use super::super::pull_requests::existing_pr;
 
 pub(crate) fn build_repos(
     git: &impl git::Git,
@@ -132,11 +132,25 @@ pub(crate) fn build_repos(
         // `gh` cannot raise a PR there. For GitHub, check the remote: if an
         // open PR already exists for this branch we update it, otherwise we
         // create one. In land mode, the action is landing onto default.
+        //
+        // The observation is made once and shared with the draft decision
+        // below. Two separate `gh pr list` calls would leave a window in
+        // which a PR opened between them yields `NewPr` paired with
+        // `ConvertToDraft` — and apply would then create a second PR.
+        // A non-GitHub remote or land mode observes nothing and calls no `gh`.
+        let existing = if mode == DeliveryMode::Push
+            && crate::infra::github::is_github_https(declared.url())
+        {
+            existing_pr(&bare, feature.branch.as_str())
+        } else {
+            None
+        };
+
         let action = match mode {
             DeliveryMode::Push => {
                 if !crate::infra::github::is_github_https(declared.url()) {
                     DeliveryAction::PushOnly
-                } else if existing_pr_url(&bare, feature.branch.as_str()).is_some() {
+                } else if existing.is_some() {
                     DeliveryAction::UpdatePr
                 } else {
                     DeliveryAction::NewPr
@@ -204,8 +218,9 @@ pub(crate) fn build_repos(
                 return None;
             }
             if d {
-                // Intent: draft. Check if an open PR already exists.
-                match existing_pr(&bare, feature.branch.as_str()) {
+                // Intent: draft. Derived from the single observation above,
+                // so the baseline action and this decision can never disagree.
+                match &existing {
                     Some(pr) if pr.is_draft => None,              // already draft: no-op
                     Some(_) => Some(DraftAction::ConvertToDraft), // ready → draft
                     None => Some(DraftAction::CreateAsDraft),     // new PR
