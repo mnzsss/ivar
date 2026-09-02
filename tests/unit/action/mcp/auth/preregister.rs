@@ -43,6 +43,7 @@ fn preregistration_not_needed_for_claude_code() {
         Provider::ClaudeCode,
         &server,
         "acme-figma",
+        None,
     )
     .unwrap();
     assert!(matches!(result.report, Preregistration::NotNeeded));

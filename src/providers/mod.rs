@@ -45,7 +45,17 @@ pub fn launch_contract(provider: Provider) -> LaunchContract {
 }
 
 /// Builds the start command for a provider, validating resume capability.
-pub fn start_command(provider: Provider, resume: bool) -> Result<Command, Failure> {
+///
+/// `mcp_allowlist` carries the hall-qualified names of the MCP servers the
+/// manifest declares. Claude Code serialises them into `--settings` so the
+/// user is not prompted to approve servers Ivar itself materialised; an empty
+/// list is still passed explicitly, so no project MCP inherits approval.
+/// Every other provider ignores it and its argv is unchanged.
+pub fn start_command(
+    provider: Provider,
+    resume: bool,
+    mcp_allowlist: &[String],
+) -> Result<Command, Failure> {
     let contract = launch_contract(provider);
     if resume && !contract.capabilities.supports_resume {
         return Err(Failure::blocked(
@@ -60,7 +70,7 @@ pub fn start_command(provider: Provider, resume: bool) -> Result<Command, Failur
         )));
     }
     match provider {
-        Provider::ClaudeCode => Ok(claude_code::launch::start_command(resume)),
+        Provider::ClaudeCode => Ok(claude_code::launch::start_command(resume, mcp_allowlist)),
         Provider::OpenCode => Ok(opencode::launch::start_command(resume)),
         Provider::Omp => Ok(omp::launch::start_command(resume)),
     }

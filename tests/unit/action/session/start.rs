@@ -2,7 +2,7 @@
 //!
 //! Physically located here but compiled inside the library crate via `#[path]`
 //! so `use super::*` reaches private parent items.
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::indexing_slicing)]
 
 use super::*;
 use crate::action::feature::create::{self as feature_create, CreateInput};
@@ -885,6 +885,111 @@ fn manifest_of(root: &camino::Utf8Path) -> Manifest {
     Manifest::read(&Layout::at(root.to_path_buf()))
         .unwrap()
         .unwrap()
+}
+
+// -- MCP allowlist derivation from manifest ---------------------------------
+
+/// Build a sorted, deduplicated, qualified MCP allowlist from a manifest.
+///
+/// This is the allowlist that gets serialised into `--settings` for Claude.
+/// Extracted so its invariants are testable without spawning a provider.
+fn mcp_allowlist(manifest: &Manifest, hall: &HallName) -> Vec<String> {
+    let mut names: Vec<String> = manifest
+        .mcp_servers()
+        .iter()
+        .map(|server| server.materialised_name(hall))
+        .collect();
+    names.sort();
+    names.dedup();
+    names
+}
+
+/// Two manifest MCP servers declared in reverse alphabetical order produce
+/// a sorted, qualified allowlist.
+#[test]
+fn mcp_allowlist_sorts_servers_from_manifest() {
+    let manifest = Manifest::new(
+        HallName::new("acme").unwrap(),
+        Providers::new(vec![Provider::ClaudeCode], Provider::ClaudeCode),
+        vec![],
+        None,
+    )
+    .unwrap()
+    .with_mcp_servers(vec![
+        crate::domain::mcp::McpServerDef::new("figma", "http").url("https://mcp.figma.com/mcp"),
+        crate::domain::mcp::McpServerDef::new("github", "local").command("github-mcp"),
+    ])
+    .unwrap();
+
+    let allowlist = mcp_allowlist(&manifest, &HallName::new("acme").unwrap());
+    assert_eq!(allowlist, vec!["acme-figma", "acme-github"]);
+}
+
+/// A manifest with no MCP servers produces an empty allowlist, not an
+/// omitted `--settings` flag — the list is always explicit.
+#[test]
+fn mcp_allowlist_is_empty_when_manifest_has_no_mcp_servers() {
+    let manifest = Manifest::new(
+        HallName::new("acme").unwrap(),
+        Providers::new(vec![Provider::ClaudeCode], Provider::ClaudeCode),
+        vec![],
+        None,
+    )
+    .unwrap();
+
+    let allowlist = mcp_allowlist(&manifest, &HallName::new("acme").unwrap());
+    assert!(allowlist.is_empty());
+}
+
+/// The allowlist derives ONLY from `Manifest::mcp_servers()`. A manual
+/// entry in `.mcp.json` (simulated here by constructing the manifest
+/// without it) must not appear.
+#[test]
+fn mcp_allowlist_ignores_manual_mcp_json_entries() {
+    // Simulate a manifest with only one server; a hand-edited `.mcp.json`
+    // might hold a second. The allowlist must come from the manifest alone.
+    let manifest = Manifest::new(
+        HallName::new("acme").unwrap(),
+        Providers::new(vec![Provider::ClaudeCode], Provider::ClaudeCode),
+        vec![],
+        None,
+    )
+    .unwrap()
+    .with_mcp_servers(vec![
+        crate::domain::mcp::McpServerDef::new("figma", "http").url("https://mcp.figma.com/mcp"),
+    ])
+    .unwrap();
+
+    let allowlist = mcp_allowlist(&manifest, &HallName::new("acme").unwrap());
+    assert_eq!(allowlist, vec!["acme-figma"]);
+    // "acme-manual" (from a hypothetical .mcp.json extra key) must not appear.
+    assert!(!allowlist.iter().any(|name| name.contains("manual")));
+}
+
+/// The allowlist serialised into `--settings` is valid JSON with the exact
+/// shape Claude expects.
+#[test]
+fn mcp_settings_json_shape_matches_claude_expectations() {
+    let manifest = Manifest::new(
+        HallName::new("acme").unwrap(),
+        Providers::new(vec![Provider::ClaudeCode], Provider::ClaudeCode),
+        vec![],
+        None,
+    )
+    .unwrap()
+    .with_mcp_servers(vec![
+        crate::domain::mcp::McpServerDef::new("figma", "http").url("https://mcp.figma.com/mcp"),
+    ])
+    .unwrap();
+
+    let allowlist = mcp_allowlist(&manifest, &HallName::new("acme").unwrap());
+    let settings = serde_json::json!({ "enabledMcpjsonServers": &allowlist });
+    let serialised = serde_json::to_string(&settings).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&serialised).unwrap();
+    assert_eq!(
+        parsed["enabledMcpjsonServers"],
+        serde_json::json!(["acme-figma"])
+    );
 }
 
 // -- instruction materialisation from HALL.md -----------------------------
