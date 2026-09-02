@@ -554,7 +554,15 @@ impl clap::Args for FeatureDeliverArgs {
             clap::Arg::new("draft")
                 .long("draft")
                 .help("Create or convert a pull request to a draft. If placed before any `--repo`, applies globally to all repos; if placed after a `--repo`, applies only to that repo. Incompatible with `--land`.")
-                .action(clap::ArgAction::SetTrue),
+                // The flag must be repeatable AND keep one parser index per
+                // occurrence, because position decides global vs repository
+                // scope. `SetTrue` rejects the second occurrence; `Count`
+                // collapses every occurrence onto a single index. `Append`
+                // taking no value records an index and `true` per occurrence.
+                .num_args(0)
+                .value_parser(clap::value_parser!(bool))
+                .default_missing_value("true")
+                .action(clap::ArgAction::Append),
         )
     }
 
@@ -1357,9 +1365,9 @@ impl FeatureDeliverArgs {
                 occurrences.push((idx, DeliverOption::Repo(val.clone())));
             }
         }
-        if matches.get_flag("draft")
-            && let Some(indices) = matches.indices_of("draft")
-        {
+        // No `get_flag` guard: with `Append` the flag is not a bool-typed
+        // value, and `indices_of` already returns `None` when it is absent.
+        if let Some(indices) = matches.indices_of("draft") {
             for idx in indices {
                 occurrences.push((idx, DeliverOption::Draft(true)));
             }
