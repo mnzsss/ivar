@@ -657,6 +657,15 @@ fn existing_pr_edits() {
         "title-only edit should NOT pass --body: {last_edit}"
     );
 
+    // `gh pr edit` takes the PR as a positional argument; there is no `--url`
+    // flag. Passing one makes real `gh` exit with `unknown flag: --url`, so
+    // every metadata update against an existing PR fails while the fake --
+    // which accepts any flag -- still reports success.
+    assert!(
+        !last_edit.contains("--url"),
+        "`gh pr edit` has no --url flag; the PR must be positional: {last_edit}"
+    );
+
     // Third delivery: update PR with body-only edit
     let _preview3 = preview_on_github_with(
         &root,

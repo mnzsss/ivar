@@ -200,7 +200,10 @@ pub(crate) fn edit_pull_request(
         return Ok(());
     }
 
-    let mut args = vec!["pr", "edit", "--url", url];
+    // `gh pr edit` takes the PR as a positional argument -- `[<number> | <url>
+    // | <branch>]`. There is no `--url` flag; passing one aborts with
+    // `unknown flag: --url` before any edit is attempted.
+    let mut args = vec!["pr", "edit", url];
     if let Some(t) = title {
         args.push("--title");
         args.push(t);
@@ -225,7 +228,7 @@ pub(crate) fn edit_pull_request(
         .actual(output.diagnostic())
         .fix(FixAction::safe(
             "deliver.pr_edit_retry",
-            "Run `gh pr edit --url <url>` with corrected flags.",
+            "Run `gh pr edit <url>` with corrected flags.",
         )));
     }
 
