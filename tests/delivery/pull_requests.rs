@@ -1,7 +1,7 @@
 use crate::common::{FakeGh, hall_root};
 use crate::support::{
-    approve_through_plan, as_github_remotes, deliver_on_github, preview_on_github,
-    setup_deliver_hall, setup_two_repo_hall,
+    approve_through_plan, as_github_remotes, deliver_on_github, deliver_on_github_with,
+    preview_on_github, preview_on_github_with, setup_deliver_hall, setup_two_repo_hall,
 };
 
 #[test]
@@ -46,6 +46,32 @@ fn delivering_again_updates_the_existing_pull_request_instead_of_failing() {
         fake.log().matches("pr create").count(),
         1,
         "a second `gh pr create` for a branch that already has a PR is the bug"
+    );
+}
+
+#[test]
+fn delivering_a_draft_pr_sets_correct_state() {
+    let (_guard, root) = hall_root();
+    setup_deliver_hall(&root);
+    approve_through_plan(&root, "checkout");
+    let fake = FakeGh::install(&root);
+    let rewrites = as_github_remotes(&root);
+
+    let preview = preview_on_github_with(&root, &fake, &rewrites, "checkout", &["--draft"]);
+    assert_eq!(preview["preview"]["repos"][0]["draft"], "create_as_draft");
+
+    let _applied = deliver_on_github_with(&root, &fake, &rewrites, "checkout", &["--draft"]);
+    let log = fake.log();
+    assert!(
+        log.contains("--draft"),
+        "gh pr create should include --draft flag: {log}"
+    );
+
+    // Verify state file records draft flag.
+    let pr_state = std::fs::read_to_string(&fake.state).unwrap();
+    assert!(
+        pr_state.ends_with("|1\n") || pr_state.contains("|1\n"),
+        "state should hold is_draft=1 at field 10: {pr_state}"
     );
 }
 

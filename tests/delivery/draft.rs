@@ -275,6 +275,17 @@ fn metadata_edit_precedes_conversion() {
         edit_pos < ready_pos,
         "pr edit should precede pr ready --undo: {log}"
     );
+
+    // Verify draft flag is preserved in the fake state after metadata edit.
+    let pr_state = std::fs::read_to_string(&fake.state).unwrap();
+    assert!(
+        pr_state.contains("|1\n") || pr_state.ends_with("|1"),
+        "draft flag should be preserved after metadata edit: {pr_state}"
+    );
+    assert!(
+        pr_state.contains("feat: updated title"),
+        "title should be updated in fake state: {pr_state}"
+    );
 }
 
 /// Changing the remote PR's draft state between preview and apply
@@ -455,5 +466,104 @@ fn seeded_ready_pr_gets_converted_to_draft() {
         log.matches("pr create").count(),
         0,
         "no new PR should be created: {log}"
+    );
+}
+
+#[test]
+fn conversion_is_idempotent() {
+    let (_guard, root) = hall_root();
+    setup_deliver_hall(&root);
+    approve_through_plan(&root, "checkout");
+    let fake = FakeGh::install(&root);
+    let rewrites = as_github_remotes(&root);
+
+    // Create a ready PR.
+    deliver_on_github(&root, &fake, &rewrites, "checkout");
+
+    // Deliver with --draft: conversions to draft.
+    let _applied = deliver_on_github_with(&root, &fake, &rewrites, "checkout", &["--draft"]);
+
+    // Now preview again: it should NOT plan convert_to_draft.
+    let preview = preview_on_github_with(&root, &fake, &rewrites, "checkout", &["--draft"]);
+    assert!(
+        preview["preview"]["repos"][0]["draft"].is_null(),
+        "already-converted-to-draft PR should not plan conversion again: {:#?}",
+        preview["preview"]["repos"][0]
+    );
+}
+
+#[test]
+fn partial_failure_is_reported_and_pr_not_reverted() {
+    let (_guard, root) = hall_root();
+    setup_deliver_hall(&root);
+    approve_through_plan(&root, "checkout");
+    let fake = FakeGh::install(&root);
+    let rewrites = as_github_remotes(&root);
+
+    // Create the initial ready PR.
+    deliver_on_github(&root, &fake, &rewrites, "checkout");
+
+    // Second delivery with --draft and --name: edit + conversion.
+    // Force conversion failure in the fake.
+    let fp = preview_on_github_with(
+        &root,
+        &fake,
+        &rewrites,
+        "checkout",
+        &["--draft", "--name", "new title"],
+    )["preview"]["fingerprint"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+
+    let output = crate::support::ivar_on_github(&fake, &rewrites)
+        .current_dir(&root)
+        .env("GH_FAKE_READY_FAIL", "1")
+        .args([
+            "feature",
+            "deliver",
+            "checkout",
+            "--fingerprint",
+            &fp,
+            "--draft",
+            "--name",
+            "new title",
+            "--json",
+        ])
+        .output()
+        .unwrap();
+
+    // The process reports a warning attributable to the draft conversion.
+    assert!(
+        !output.status.success(),
+        "delivery with partially failing conversion should warn"
+    );
+
+    // Check JSON output.
+    let applied: serde_json::Value = serde_json::from_slice(&output.stdout).expect("valid json");
+    let pr_url = applied["preview"]["repos"][0]["pr_url"].as_str().unwrap();
+    assert_eq!(
+        pr_url, "https://github.com/acme/pull/1",
+        "PR URL should be in the apply JSON"
+    );
+
+    // The title edit is NOT reverted (fake state holds new title).
+    let pr_state = std::fs::read_to_string(&fake.state).unwrap();
+    assert!(
+        pr_state.contains("new title"),
+        "title should have been updated even if conversion failed"
+    );
+
+    // No compensating/rollback command in the log.
+    let log = fake.log();
+    assert!(
+        !log.contains("pr edit --title"),
+        "should not be a rollback edit"
+    );
+
+    // Conversion attempt appears.
+    assert!(
+        log.contains("pr ready --undo"),
+        "should show conversion attempt"
     );
 }

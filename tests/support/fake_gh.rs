@@ -37,7 +37,7 @@ use camino::Utf8PathBuf;
 pub(crate) struct FakeGh {
     /// The bin dir holding the `gh` script; prepend to `PATH`.
     pub(crate) dir: Utf8PathBuf,
-    /// PR state: `cwd|head|url|base|state|queue` lines.
+    /// PR state: `cwd|head|url|base|state|queue|created_oid|title|body|is_draft` lines.
     pub(crate) state: Utf8PathBuf,
     /// Check state: `url|name|bucket|state|link` lines.
     pub(crate) checks: Utf8PathBuf,
@@ -88,10 +88,10 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-# A PR record is `cwd|head|url|base|state|queue|created_oid[|title|body]`.
-# Field 8 is `is_draft` (1 or empty). It is keyed by (cwd, head); commands
-# that carry only a URL (`pr merge`, `pr checks`, `pr view`) look the record
-# up by URL instead.
+# A PR record is `cwd|head|url|base|state|queue|created_oid|title|body|is_draft`.
+# Fields 8, 9, 10 hold title, body, and the is_draft flag (1 or empty). It is
+# keyed by (cwd, head); commands that carry only a URL (`pr merge`, `pr checks`,
+# `pr view`) look the record up by URL instead.
 cwd_now="$(pwd)"
 if [ -n "$head" ]; then
   record=$(grep -F "$cwd_now|$head|" "$GH_FAKE_STATE" | head -n 1)
@@ -102,7 +102,7 @@ pr_url=$(printf '%s' "$record" | awk -F'|' '{print $3}')
 pr_base=$(printf '%s' "$record" | awk -F'|' '{print $4}')
 pr_state=$(printf '%s' "$record" | awk -F'|' '{print $5}')
 pr_queue=$(printf '%s' "$record" | awk -F'|' '{print $6}')
-is_draft_field=$(printf '%s' "$record" | awk -F'|' '{print $8}')
+is_draft_field=$(printf '%s' "$record" | awk -F'|' '{print $10}')
 
 # The head OID, resolved live so head movement is visible to the fake. A
 # URL-only command derives the head from the record it just looked up.
@@ -170,11 +170,13 @@ case "$sub" in
     pr_url="https://github.com/acme/pull/$number"
     # Field 7 records the head oid at creation — `--match-head-commit`
     # compares against this, so a head that moves after the PR is opened is
-    # refused, exactly like the real `gh`. Field 8 records the initial draft
-    # state (1 when --draft is passed, empty otherwise).
+    # refused, exactly like the real `gh`. Fields 8, 9 hold title and body
+    # (empty at creation; gh reads them off stdout but the contract only needs
+    # them preserved across edits), and field 10 holds the initial draft state
+    # (1 when --draft is passed, empty otherwise).
     draft_field=""
     [ "$draft" = "1" ] && draft_field="1"
-    printf '%s|%s|%s|%s|%s|%s|%s|%s\n' "$cwd_now" "$head" "$pr_url" "$base" "OPEN" "" "$head_oid" "$draft_field" >> "$GH_FAKE_STATE"
+    printf '%s|%s|%s|%s|%s|%s|%s|%s|%s|%s\n' "$cwd_now" "$head" "$pr_url" "$base" "OPEN" "" "$head_oid" "" "" "$draft_field" >> "$GH_FAKE_STATE"
     printf '%s\n' "$pr_url"
     ;;
   "pr edit")
@@ -195,8 +197,8 @@ case "$sub" in
     old_head=$(printf '%s' "$record" | awk -F'|' '{print $2}')
     pr_state=$(printf '%s' "$record" | awk -F'|' '{print $5}')
     pr_base=$(printf '%s' "$record" | awk -F'|' '{print $4}')
+    pr_queue=$(printf '%s' "$record" | awk -F'|' '{print $6}')
     created_oid=$(printf '%s' "$record" | awk -F'|' '{print $7}')
-    # Resolve final title/body: use new value if supplied, else keep existing.
     final_title="$title"
     final_body="$body"
     if [ -z "$final_title" ]; then
@@ -205,14 +207,8 @@ case "$sub" in
     if [ -z "$final_body" ]; then
       final_body=$(printf '%s' "$record" | awk -F'|' '{print $9}')
     fi
-    # Rebuild the record: cwd|head|url|base|state|queue|created_oid[|title|body|is_draft]
-    new_record="${cwd_now}|${old_head}|${pr_url}|${pr_base}|${pr_state}"
-    [ -n "$created_oid" ] && new_record="${new_record}|${created_oid}"
-    [ -n "$final_title" ] && new_record="${new_record}|${final_title}"
-    [ -n "$final_body" ] && new_record="${new_record}|${final_body}"
-    # Preserve draft state from the existing record.
-    existing_draft=$(printf '%s' "$record" | awk -F'|' '{print $8}')
-    [ -n "$existing_draft" ] && new_record="${new_record}|${existing_draft}"
+    # Rebuild the record: cwd|head|url|base|state|queue|created_oid|title|body|is_draft
+    new_record="${cwd_now}|${old_head}|${pr_url}|${pr_base}|${pr_state}|${pr_queue}|${created_oid}|${final_title}|${final_body}|${is_draft_field}"
     # Replace the old record in the state file.
     text=$(grep -vF "|${old_head}|" "$GH_FAKE_STATE" 2>/dev/null || true)
     printf '%s\n' "$text" > "$GH_FAKE_STATE"
@@ -228,9 +224,10 @@ case "$sub" in
       exit 8
     fi
     ;;
-  "pr ready")
-    # gh pr ready --undo <url> — convert a draft PR back to ready.
+    "pr ready")
+    # gh pr ready --undo <url> — convert a ready PR to draft.
     if [ "$undo" = "1" ] && [ -n "$url" ]; then
+
       # Fail fast if GH_FAKE_READY_FAIL is set — used by tests that
       # exercise independent conversion failure.
       if [ "${GH_FAKE_READY_FAIL:-0}" = "1" ]; then
@@ -242,9 +239,9 @@ case "$sub" in
         printf 'could not convert pull request to draft: not found\n' >&2
         exit 1
       fi
-      # Update the is_draft field (column 8) to empty (ready).
+      # Update the is_draft field (column 10) to "1" (draft).
       awk -F'|' -v OFS='|' -v u="$url" \
-        '$3 == u { $8 = "" } { print }' "$GH_FAKE_STATE" > "$GH_FAKE_STATE.tmp"
+        '$3 == u { $10 = "1" } { print }' "$GH_FAKE_STATE" > "$GH_FAKE_STATE.tmp"
       mv "$GH_FAKE_STATE.tmp" "$GH_FAKE_STATE"
     fi
     ;;
@@ -353,7 +350,7 @@ impl FakeGh {
         base: &str,
     ) {
         let state = std::fs::read_to_string(&self.state).unwrap_or_default();
-        let line = format!("{cwd}|{branch}|{url}|{base}|OPEN|||1|\n");
+        let line = format!("{cwd}|{branch}|{url}|{base}|OPEN||||||1\n");
         let mut content = state;
         if !content.is_empty() && !content.ends_with('\n') {
             content.push('\n');
@@ -370,16 +367,17 @@ impl FakeGh {
             .lines()
             .map(|line| {
                 if line.contains(&format!("|{url}|")) {
-                    // Rebuild the line: set field 8 (0-indexed: field after created_oid).
+                    // Rebuild the line: set field 10 (is_draft).
                     let fields: Vec<&str> = line.split('|').collect();
                     if fields.len() >= 7 {
                         let draft_val = if is_draft { "1" } else { "" };
-                        // Ensure at least 9 fields for the draft field.
+                        // Ensure at least 10 fields for the draft field.
                         let mut f: Vec<&str> = fields.to_vec();
-                        while f.len() < 9 {
+                        while f.len() < 10 {
                             f.push("");
                         }
-                        f[7] = draft_val;
+                        f[9] = draft_val;
+
                         f.join("|")
                     } else {
                         line.to_owned()

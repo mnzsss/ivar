@@ -169,7 +169,7 @@ pub(crate) fn create_pull_request(
         url,
         number,
         state: "OPEN".to_owned(),
-        is_draft: false,
+        is_draft: draft,
         head_oid: None,
         merge_commit: None,
     })
