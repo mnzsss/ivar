@@ -36,3 +36,6 @@ mod pull_requests;
 
 #[path = "delivery/metadata.rs"]
 mod metadata;
+
+#[path = "delivery/draft.rs"]
+mod draft;

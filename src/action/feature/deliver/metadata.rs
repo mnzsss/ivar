@@ -14,19 +14,25 @@ pub(crate) fn resolve(
     feature: &Feature,
     input: &DeliverInput,
 ) -> Result<BTreeMap<RepoName, PullRequestMetadata>, Failure> {
-    let has_global = input.global_metadata.title.is_some() || input.global_metadata.body.is_some();
-    let has_overrides = !input.repo_overrides.is_empty();
+    let has_global = input.global_metadata.title.is_some()
+        || input.global_metadata.body.is_some()
+        || input.global_metadata.draft.is_some();
+    let has_overrides = !input.repo_overrides.is_empty()
+        || input
+            .repo_overrides
+            .iter()
+            .any(|o| o.metadata.draft.is_some());
 
     if input.land && (has_global || has_overrides) {
         return Err(Failure::blocked(
             "deliver.metadata_in_land_mode",
-            "pull request metadata (--name, --body, --repo) cannot be used in land mode",
+            "pull request options (--name, --body, --draft, --repo) cannot be used in land mode",
         )
-        .expected("land mode (--land) without pull request metadata")
-        .actual("pull request metadata was supplied with --land")
+        .expected("land mode (--land) without pull request options")
+        .actual("pull request options were supplied with --land")
         .fix(FixAction::safe(
             "deliver.drop_metadata_or_land",
-            "Remove pull request metadata options when landing, or remove --land to create/update pull requests.",
+            "Remove pull request options when landing, or remove --land to create/update pull requests.",
         )));
     }
 

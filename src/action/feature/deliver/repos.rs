@@ -205,15 +205,11 @@ pub(crate) fn build_repos(
             }
             if d {
                 // Intent: draft. Check if an open PR already exists.
-                existing_pr(&bare, feature.branch.as_str())
-                    .and_then(|pr| {
-                        if pr.is_draft {
-                            None
-                        } else {
-                            Some(DraftAction::ConvertToDraft)
-                        }
-                    })
-                    .or(Some(DraftAction::CreateAsDraft))
+                match existing_pr(&bare, feature.branch.as_str()) {
+                    Some(pr) if pr.is_draft => None,              // already draft: no-op
+                    Some(_) => Some(DraftAction::ConvertToDraft), // ready → draft
+                    None => Some(DraftAction::CreateAsDraft),     // new PR
+                }
             } else {
                 // Intent: not draft.
                 None
