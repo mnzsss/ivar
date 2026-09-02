@@ -353,8 +353,8 @@ Preview, then push, a feature's promoted repos. `--preview` prints the side-effe
 | `--fingerprint` | `<FINGERPRINT>` |  | The fingerprint from the preview the human approved; required to apply. Apply recomputes the preview and refuses when the fingerprint differs — the state has drifted since the preview. |
 | `--name` | `<TITLE>` |  | Pull request title. If placed before any `--repo`, applies globally; if placed after a `--repo`, applies to that repo. |
 | `--body` | `<BODY>` |  | Pull request body text or `./*.md` / `./*.txt` file path. If placed before any `--repo`, applies globally; if placed after a `--repo`, applies to that repo. |
-| `--repo` | `<REPO>` |  | Scope following `--name` and `--body` flags to this promoted repository. |
-| `--draft` |  |  | Create or convert a pull request to a draft. |
+| `--repo` | `<REPO>` |  | Scope following `--name`, `--body`, and `--draft` flags to this promoted repository. |
+| `--draft` |  |  | Create or convert a pull request to a draft. If placed before any `--repo`, applies globally to all repos; if placed after a `--repo`, applies only to that repo. Incompatible with `--land`. |
 
 
 ##### `ivar feature close`

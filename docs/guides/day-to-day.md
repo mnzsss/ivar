@@ -187,6 +187,31 @@ refuses rather than pushing something you did not review. Crossing the plan gate
 counts as drift too — the gate's state is inside the fingerprinted summary, so a
 preview taken before approval cannot be applied after it. Preview again.
 
+### Draft pull requests
+
+Pass `--draft` to create PRs as drafts or convert an existing ready PR to a
+draft. New PRs are born draft — `gh pr create --draft` — so the notification
+window never fires. An existing ready PR is converted with `gh pr ready --undo`;
+an already-draft PR is a no-op. Omitting `--draft` preserves the remote state
+and never marks a PR ready.
+
+```sh
+ivar feature deliver checkout --draft            # all repos
+ivar feature deliver checkout --repo api --draft  # one repo only
+```
+
+`--draft` follows the same positional scoping as `--name` and `--body`: before
+any `--repo` it applies globally; after `--repo <name>` it applies only to
+that repo. Groups without `--draft` inherit the global value. `--draft` is
+incompatible with `--land`.
+
+Preview shows which action each repo will take — `new pr (draft)` for a fresh
+draft creation, `convert pr to draft` for an existing ready PR, or `update pr`
+composed with `convert pr to draft` when metadata is also being applied. Metadata
+edits always run before the draft conversion. The fingerprint covers both the
+baseline action and the draft action, so a remote state change between preview
+and apply is caught.
+
 Sibling PRs are linked to each other with **`part of`** — never `depends on`.
 `ivar` models co-belonging, not dependency: these PRs are parts of one change,
 and nothing here claims to know their merge order. The links are added in a

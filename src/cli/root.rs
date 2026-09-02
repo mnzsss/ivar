@@ -546,14 +546,14 @@ impl clap::Args for FeatureDeliverArgs {
         .arg(
             clap::Arg::new("repo")
                 .long("repo")
-                .help("Scope following `--name` and `--body` flags to this promoted repository.")
+                .help("Scope following `--name`, `--body`, and `--draft` flags to this promoted repository.")
                 .value_name("REPO")
                 .action(clap::ArgAction::Append),
         )
         .arg(
             clap::Arg::new("draft")
                 .long("draft")
-                .help("Create or convert a pull request to a draft.")
+                .help("Create or convert a pull request to a draft. If placed before any `--repo`, applies globally to all repos; if placed after a `--repo`, applies only to that repo. Incompatible with `--land`.")
                 .action(clap::ArgAction::SetTrue),
         )
     }

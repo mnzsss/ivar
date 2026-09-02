@@ -408,6 +408,77 @@ fn no_draft_on_ready_pr_no_implicit_ready_command() {
     assert_eq!(log.matches("pr create").count(), 1);
 }
 
+/// `feature deliver --help` documents `--draft`, its positional repository
+/// scope (global before `--repo`, scoped after `--repo <name>`), and its
+/// conflict with `--land`.
+#[test]
+fn draft_help_documents_scope_and_land_conflict() {
+    let output = crate::common::ivar()
+        .args(["feature", "deliver", "--help"])
+        .output()
+        .expect("help runs");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("--draft"),
+        "--draft flag must appear in deliver help: {stdout}"
+    );
+    assert!(
+        stdout.contains("--repo"),
+        "--repo flag must appear in deliver help: {stdout}"
+    );
+    assert!(
+        stdout.contains("--land"),
+        "--land flag must appear in deliver help: {stdout}"
+    );
+
+    // The --draft help text must describe scoping: global before --repo, scoped after.
+    // Check that the --draft description mentions "global" or "before" and "--repo".
+    let draft_section = find_flag_help(&stdout, "draft");
+    assert!(
+        draft_section.contains("global") || draft_section.contains("before"),
+        "--draft help must describe positional scoping (global before --repo): {draft_section}"
+    );
+    assert!(
+        draft_section.contains("--repo"),
+        "--draft help must mention --repo scoping: {draft_section}"
+    );
+
+    // The --draft help text must describe the conflict with --land.
+    assert!(
+        draft_section.contains("land") || draft_section.contains("--land"),
+        "--draft help must mention the --land conflict: {draft_section}"
+    );
+}
+
+/// Extract the help text for a specific long flag from `--help` output.
+/// Returns the description line(s) for `--<flag_name>`.
+fn find_flag_help(help_output: &str, flag_name: &str) -> String {
+    let marker = format!("--{flag_name}");
+    let lines: Vec<&str> = help_output.lines().collect();
+    let mut result = String::new();
+    let mut collecting = false;
+
+    for line in &lines {
+        let trimmed = line.trim();
+        if trimmed.starts_with(&marker) {
+            collecting = true;
+            result.push_str(trimmed);
+            result.push('\n');
+            continue;
+        }
+        if collecting {
+            // Stop at the next flag definition or empty section
+            if trimmed.starts_with("--") || trimmed.is_empty() {
+                break;
+            }
+            result.push_str(trimmed);
+            result.push('\n');
+        }
+    }
+    result
+}
+
 /// --draft with --land is rejected by metadata validation.
 #[test]
 fn draft_with_land_is_rejected() {
