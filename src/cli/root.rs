@@ -539,7 +539,7 @@ impl clap::Args for FeatureDeliverArgs {
         .arg(
             clap::Arg::new("body")
                 .long("body")
-                .help("Pull request body text or `./*.md` / `./*.txt` file path. If placed before any `--repo`, applies globally; if placed after a `--repo`, applies to that repo.")
+                .help("Pull request body text, or a path to a `.md` / `.txt` file — either `./relative` or absolute. If placed before any `--repo`, applies globally; if placed after a `--repo`, applies to that repo.")
                 .value_name("BODY")
                 .action(clap::ArgAction::Append),
         )

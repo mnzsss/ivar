@@ -459,6 +459,35 @@ fn inline_and_file_bodies() {
         repo4["pr_body"], "body.md",
         "non-prefixed body.md should be treated as inline text"
     );
+
+    // An absolute path to a .md/.txt file resolves to its content. Without
+    // this, the path itself silently becomes the pull request body -- the
+    // argument is path-shaped, so inline text is never what was meant.
+    let output5 = ivar_on_github(&fake, &rewrites)
+        .current_dir(&root)
+        .args([
+            "feature",
+            "deliver",
+            "checkout",
+            "--name",
+            "feat",
+            "--body",
+            body_md.as_str(),
+            "--preview",
+            "--json",
+        ])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let value5: serde_json::Value = serde_json::from_slice(&output5).expect("valid json");
+    let repo5 = &value5["preview"]["repos"][0];
+    assert_eq!(
+        repo5["pr_body"], "Content from file\n",
+        "an absolute .md path should resolve to file content"
+    );
 }
 
 /// Duplicate and unpromoted repo errors are rejected at preview.

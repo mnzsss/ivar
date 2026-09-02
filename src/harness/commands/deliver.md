@@ -49,9 +49,12 @@ scoped repo that omits `--name` or `--body` inherits the global value.
 ### Body values
 
 - **Inline string:** `--body "short description"`.
-- **File reference:** `--body ./notes.md` or `--body ./notes.txt` — the file
-  contents are read and used as the PR body. Path is resolved relative to the
-  current working directory.
+- **File reference:** `--body ./notes.md` or `--body /abs/path/notes.txt` — the
+  file contents are read and used as the PR body. A relative path is resolved
+  against the current working directory.
+
+A `.md`/`.txt` argument is only read as a file when it is written as a path:
+prefixed `./` or absolute. A bare `notes.md` is used as inline body text.
 
 ### Title guidance
 

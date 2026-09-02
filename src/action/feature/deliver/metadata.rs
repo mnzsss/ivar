@@ -149,9 +149,15 @@ fn resolve_body(ctx: &Ctx, body: Option<&str>) -> Result<Option<String>, Failure
         return Ok(None);
     };
 
-    if raw.starts_with("./") && (raw.ends_with(".md") || raw.ends_with(".txt")) {
-        let relative_path = raw.trim_start_matches("./");
-        let full_path = ctx.cwd.join(relative_path);
+    // A `./` prefix or a leading `/` marks the argument as a path; the
+    // extension then decides. A bare `body.md` stays inline text, because a
+    // relative name is also a plausible thing to write in a body, and
+    // treating it as a file would read whatever happens to sit in the cwd.
+    let looks_like_path = raw.starts_with("./") || raw.starts_with('/');
+    if looks_like_path && (raw.ends_with(".md") || raw.ends_with(".txt")) {
+        // `join` on an absolute path yields that path, so both forms resolve
+        // through one expression.
+        let full_path = ctx.cwd.join(raw.trim_start_matches("./"));
         let bytes = std::fs::read(&full_path).map_err(|e| {
             Failure::blocked(
                 "deliver.body_file_read_failed",
