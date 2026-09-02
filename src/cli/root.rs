@@ -1318,6 +1318,23 @@ impl From<ExecuteAcceptRevisionArgs> for accept_revision::AcceptRevisionInput {
     }
 }
 
+fn set_delivery_metadata<T>(
+    slot: &mut Option<T>,
+    value: T,
+    option: &str,
+    repo: Option<&str>,
+) -> Result<(), clap::Error> {
+    if slot.is_some() {
+        let scope = repo.map_or_else(String::new, |repo| format!(" in repository group `{repo}`"));
+        return Err(clap::Error::raw(
+            clap::error::ErrorKind::ArgumentConflict,
+            format!("duplicate `--{option}`{scope}\n"),
+        ));
+    }
+    *slot = Some(value);
+    Ok(())
+}
+
 impl FeatureDeliverArgs {
     /// Reconstruct global metadata and ordered per-repo overrides from raw command line arguments.
     pub fn parse_metadata(
@@ -1333,7 +1350,7 @@ impl FeatureDeliverArgs {
             Name(String),
             Body(String),
             Repo(String),
-            Draft(bool),
+            Draft,
         }
 
         let mut occurrences: Vec<(usize, DeliverOption)> = Vec::new();
@@ -1369,7 +1386,7 @@ impl FeatureDeliverArgs {
         // value, and `indices_of` already returns `None` when it is absent.
         if let Some(indices) = matches.indices_of("draft") {
             for idx in indices {
-                occurrences.push((idx, DeliverOption::Draft(true)));
+                occurrences.push((idx, DeliverOption::Draft));
             }
         }
 
@@ -1391,61 +1408,25 @@ impl FeatureDeliverArgs {
                     current_repo = Some((repo_name, deliver::PullRequestMetadata::default()));
                 }
                 DeliverOption::Name(title) => {
-                    if let Some((ref r, ref mut meta)) = current_repo {
-                        if meta.title.is_some() {
-                            return Err(clap::Error::raw(
-                                clap::error::ErrorKind::ArgumentConflict,
-                                format!("duplicate `--name` in repository group `{r}`\n"),
-                            ));
-                        }
-                        meta.title = Some(title);
-                    } else {
-                        if global_metadata.title.is_some() {
-                            return Err(clap::Error::raw(
-                                clap::error::ErrorKind::ArgumentConflict,
-                                "duplicate global `--name`\n",
-                            ));
-                        }
-                        global_metadata.title = Some(title);
-                    }
+                    let (metadata, repo) = match &mut current_repo {
+                        Some((repo, metadata)) => (metadata, Some(repo.as_str())),
+                        None => (&mut global_metadata, None),
+                    };
+                    set_delivery_metadata(&mut metadata.title, title, "name", repo)?;
                 }
                 DeliverOption::Body(body) => {
-                    if let Some((ref r, ref mut meta)) = current_repo {
-                        if meta.body.is_some() {
-                            return Err(clap::Error::raw(
-                                clap::error::ErrorKind::ArgumentConflict,
-                                format!("duplicate `--body` in repository group `{r}`\n"),
-                            ));
-                        }
-                        meta.body = Some(body);
-                    } else {
-                        if global_metadata.body.is_some() {
-                            return Err(clap::Error::raw(
-                                clap::error::ErrorKind::ArgumentConflict,
-                                "duplicate global `--body`\n",
-                            ));
-                        }
-                        global_metadata.body = Some(body);
-                    }
+                    let (metadata, repo) = match &mut current_repo {
+                        Some((repo, metadata)) => (metadata, Some(repo.as_str())),
+                        None => (&mut global_metadata, None),
+                    };
+                    set_delivery_metadata(&mut metadata.body, body, "body", repo)?;
                 }
-                DeliverOption::Draft(draft) => {
-                    if let Some((ref r, ref mut meta)) = current_repo {
-                        if meta.draft.is_some() {
-                            return Err(clap::Error::raw(
-                                clap::error::ErrorKind::ArgumentConflict,
-                                format!("duplicate `--draft` in repository group `{r}`\n"),
-                            ));
-                        }
-                        meta.draft = Some(draft);
-                    } else {
-                        if global_metadata.draft.is_some() {
-                            return Err(clap::Error::raw(
-                                clap::error::ErrorKind::ArgumentConflict,
-                                "duplicate global `--draft`\n",
-                            ));
-                        }
-                        global_metadata.draft = Some(draft);
-                    }
+                DeliverOption::Draft => {
+                    let (metadata, repo) = match &mut current_repo {
+                        Some((repo, metadata)) => (metadata, Some(repo.as_str())),
+                        None => (&mut global_metadata, None),
+                    };
+                    set_delivery_metadata(&mut metadata.draft, true, "draft", repo)?;
                 }
             }
         }

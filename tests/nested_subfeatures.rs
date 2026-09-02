@@ -427,6 +427,11 @@ fn a_pr_integration_checks_merges_and_observes_through_the_fake_gh() {
     assert!(log.contains("pr checks"), "{log}");
     assert!(log.contains("pr merge"), "{log}");
     assert!(log.contains("pr view"), "{log}");
+    assert!(
+        log.lines()
+            .any(|line| line.contains("pr view") && line.contains("isDraft")),
+        "pr view must request draft state: {log}"
+    );
 
     // The parent's local worktree was fetched forward to the merged result.
     let parent_wt = root.join(".ivar/repos/api/parent");

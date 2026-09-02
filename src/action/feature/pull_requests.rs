@@ -44,8 +44,8 @@ pub(crate) struct PullRequest {
     pub is_draft: bool,
 }
 
-/// The `--json url,number,state,mergeCommit,headRefOid` shape `gh pr list`
-/// and `gh pr view` both emit.
+/// The `--json url,number,state,mergeCommit,headRefOid,isDraft` shape `gh pr
+/// list` and `gh pr view` both emit.
 #[derive(Debug, Deserialize)]
 struct GhPrRecord {
     url: String,
@@ -376,7 +376,7 @@ fn view_pull_request(git_dir: &Utf8Path, url: &str) -> Result<PullRequest, Failu
                 "view",
                 url,
                 "--json",
-                "url,number,state,mergeCommit,headRefOid",
+                "url,number,state,mergeCommit,headRefOid,isDraft",
             ])
             .cwd(git_dir),
         "pr view",

@@ -74,6 +74,56 @@ fn existing_ready_pr_conversion_uses_pr_ready_undo() {
     );
 }
 
+/// A PR that disappears after fingerprint validation is recreated as draft,
+/// never exposed as ready before a follow-up conversion.
+#[test]
+fn disappearing_ready_pr_is_recreated_as_draft_atomically() {
+    let (_guard, root) = hall_root();
+    setup_deliver_hall(&root);
+    approve_through_plan(&root, "checkout");
+    let fake = FakeGh::install(&root);
+    let rewrites = as_github_remotes(&root);
+
+    deliver_on_github(&root, &fake, &rewrites, "checkout");
+    let fingerprint = preview_on_github_with(&root, &fake, &rewrites, "checkout", &["--draft"])
+        ["preview"]["fingerprint"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    std::fs::write(&fake.log, "").unwrap();
+
+    let output = crate::support::ivar_on_github(&fake, &rewrites)
+        .current_dir(&root)
+        .env("GH_FAKE_LIST_EMPTY_AFTER_FIRST", "1")
+        .args([
+            "feature",
+            "deliver",
+            "checkout",
+            "--fingerprint",
+            &fingerprint,
+            "--draft",
+            "--json",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let log = fake.log();
+    let create = log.lines().find(|line| line.contains("pr create")).unwrap();
+    assert!(
+        create.contains("--draft"),
+        "fallback creation must be atomic: {log}"
+    );
+    assert!(
+        !log.contains("pr ready --undo"),
+        "new draft needs no conversion: {log}"
+    );
+}
+
 /// An already-draft PR receives no readiness command when `--draft` is set.
 #[test]
 fn already_draft_pr_skips_conversion() {

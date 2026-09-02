@@ -143,7 +143,18 @@ emit_pr() {
 
 case "$sub" in
   "pr list")
-    if [ -z "$pr_url" ]; then printf '[]\n'; else printf '[%s]\n' "$(emit_pr)"; fi
+    # Let apply's fingerprint observation see the PR, then model it
+    # disappearing before execution performs its second observation.
+    if [ "${GH_FAKE_LIST_EMPTY_AFTER_FIRST:-0}" = "1" ] &&
+       [ "$(grep -c '^pr list ' "$GH_FAKE_LOG")" -gt 1 ]; then
+      grep -vF "$cwd_now|$head|" "$GH_FAKE_STATE" > "$GH_FAKE_STATE.tmp" || true
+      mv "$GH_FAKE_STATE.tmp" "$GH_FAKE_STATE"
+      printf '[]\n'
+    elif [ -z "$pr_url" ]; then
+      printf '[]\n'
+    else
+      printf '[%s]\n' "$(emit_pr)"
+    fi
     ;;
   "pr view")
     if [ -z "$pr_url" ]; then
