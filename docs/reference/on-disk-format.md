@@ -369,5 +369,5 @@ sorted and derived only from the manifest, rebuilt on every launch. Ivar never
 writes a settings file, never modifies a global or project Claude Code config,
 and never enables `enableAllProjectMcpServers`. A server not present in the
 manifest is never on the allowlist, so it is not approved. When a hall declares
-no MCP servers, the list is omitted entirely and no project MCP server receives
-approval.
+no MCP servers, the list is present but empty —
+`{"enabledMcpjsonServers":[]}` — granting approval to nothing.
