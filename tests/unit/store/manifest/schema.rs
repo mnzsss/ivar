@@ -489,3 +489,39 @@ fn rejected_sse_is_not_in_mcp_one_of() {
     });
     assert!(!has_sse, "sse must not appear as a valid MCP transport");
 }
+
+// -- Task 5: drift gate and package inclusion ------------------------------
+
+fn schema_artifact_path() -> std::path::PathBuf {
+    let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    manifest_dir.join("ivar.schema.json")
+}
+
+#[test]
+fn schema_artifact_matches_model() {
+    let mut generated = serde_json::to_string_pretty(&generate())
+        .expect("generate() must produce serializable JSON");
+    generated.push('\n');
+    let path = schema_artifact_path();
+    let expected = std::fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()));
+    assert_eq!(
+        generated, expected,
+        "generated schema must exactly match checked-in ivar.schema.json \
+         (run `cargo run --example generate-manifest-schema` to update)"
+    );
+}
+
+#[test]
+fn schema_artifact_is_package_included() {
+    let output = std::process::Command::new("cargo")
+        .args(["package", "--allow-dirty", "--list"])
+        .current_dir(env!("CARGO_MANIFEST_DIR"))
+        .output()
+        .expect("cargo package --list must run");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("ivar.schema.json"),
+        "ivar.schema.json must be included in cargo package output, got:\n{stdout}"
+    );
+}

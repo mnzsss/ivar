@@ -1,0 +1,277 @@
+{
+  "$id": "https://ivar.run/ivar.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "The hall configuration file for ivar: identity, providers, repos, integration defaults, skills, and MCP server definitions.",
+  "properties": {
+    "$schema": {
+      "const": "https://ivar.run/ivar.schema.json",
+      "description": "URL of the JSON Schema for this file.",
+      "type": "string"
+    },
+    "integration": {
+      "additionalProperties": false,
+      "description": "The hall's integration defaults: how features merge and what counts as verified.",
+      "properties": {
+        "strategy": {
+          "description": "How the child's commits land on the parent.",
+          "enum": [
+            "squash",
+            "merge",
+            "rebase"
+          ],
+          "type": "string"
+        },
+        "via": {
+          "description": "How the child's changes travel into the parent.",
+          "enum": [
+            "pr",
+            "local"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "via",
+        "strategy"
+      ],
+      "type": "object"
+    },
+    "mcp": {
+      "description": "Hall-scoped MCP server definitions materialised by ivar sync.",
+      "items": {
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "description": "A remote MCP server reached over HTTP (SSE or streamable-http).",
+            "not": {
+              "required": [
+                "command",
+                "args",
+                "env"
+              ]
+            },
+            "properties": {
+              "name": {
+                "description": "The server's name, unique within the hall's manifest.",
+                "type": "string"
+              },
+              "oauth": {
+                "additionalProperties": false,
+                "description": "A pre-provisioned OAuth client registration for servers whose host rejects dynamic client registration.",
+                "properties": {
+                  "client_id": {
+                    "description": "The client_id a registration issued. Not a secret.",
+                    "type": "string"
+                  },
+                  "client_secret_env": {
+                    "description": "The name of the environment variable that holds the client secret at runtime.",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "client_id",
+                  "client_secret_env"
+                ],
+                "type": "object"
+              },
+              "type": {
+                "const": "http",
+                "description": "Transport type: http for remote servers.",
+                "type": "string"
+              },
+              "url": {
+                "description": "The URL the server is reached at. Must start with http:// or https://.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "type",
+              "url"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "A local MCP server spawned via stdio.",
+            "not": {
+              "required": [
+                "url"
+              ]
+            },
+            "properties": {
+              "args": {
+                "description": "Arguments appended to the command.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "command": {
+                "description": "The executable to spawn. Must not be blank.",
+                "type": "string"
+              },
+              "env": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "description": "Environment variables. Values are references to env var names the harness resolves at runtime, not stored secrets.",
+                "type": "object"
+              },
+              "name": {
+                "description": "The server's name, unique within the hall's manifest.",
+                "type": "string"
+              },
+              "oauth": {
+                "additionalProperties": false,
+                "description": "A pre-provisioned OAuth client registration for servers whose host rejects dynamic client registration.",
+                "properties": {
+                  "client_id": {
+                    "description": "The client_id a registration issued. Not a secret.",
+                    "type": "string"
+                  },
+                  "client_secret_env": {
+                    "description": "The name of the environment variable that holds the client secret at runtime.",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "client_id",
+                  "client_secret_env"
+                ],
+                "type": "object"
+              },
+              "type": {
+                "const": "local",
+                "description": "Transport type: local for servers spawned via stdio.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "type",
+              "command"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "type": "array"
+    },
+    "name": {
+      "description": "The hall's name: a single, non-empty, non-whitespace, non-traversal path segment.",
+      "type": "string"
+    },
+    "providers": {
+      "additionalProperties": false,
+      "description": "Which harnesses this hall knows about, and which one is the default.",
+      "properties": {
+        "available": {
+          "description": "Every provider id this hall knows about.",
+          "items": {
+            "enum": [
+              "claude-code",
+              "opencode"
+            ],
+            "type": "string"
+          },
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "default": {
+          "description": "The provider ivar picks when none is named explicitly. Must appear in available.",
+          "enum": [
+            "claude-code",
+            "opencode"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "available",
+        "default"
+      ],
+      "type": "object"
+    },
+    "repos": {
+      "description": "The repos this hall knows about.",
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "checks": {
+            "description": "Ordered verification checks, run via 'bash -lc' in the worktree. Empty means no checks.",
+            "items": {
+              "description": "An executable command. Must not be blank.",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "default_branch": {
+            "description": "The branch a fresh worktree defaults to (e.g. 'main').",
+            "type": "string"
+          },
+          "name": {
+            "description": "A unique, non-empty, single-segment identifier for this repo.",
+            "type": "string"
+          },
+          "url": {
+            "description": "The git remote URL to clone from. Must not be empty.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "url",
+          "default_branch"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "skills": {
+      "additionalProperties": false,
+      "description": "The hall's shared skill home, if it has one.",
+      "properties": {
+        "targets": {
+          "additionalProperties": false,
+          "description": "Which harnesses this hall's shared skills materialise for.",
+          "properties": {
+            "claude": {
+              "description": "Whether skills materialise at .claude/skills/.",
+              "type": "boolean"
+            },
+            "opencode": {
+              "description": "Whether skills materialise at .opencode/skills/.",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "claude",
+            "opencode"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "targets"
+      ],
+      "type": "object"
+    },
+    "version": {
+      "description": "The manifest schema version.",
+      "minimum": 1,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "version",
+    "name",
+    "providers",
+    "repos",
+    "integration"
+  ],
+  "title": "ivar.json",
+  "type": "object"
+}
