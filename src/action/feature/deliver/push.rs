@@ -185,9 +185,9 @@ pub(super) fn execute(
             && let Err(failure) = convert_pull_request_to_draft(&bare, url)
         {
             warnings.push(Warning::new(
-                failure.code,
+                "deliver.pr_draft_conversion_failed",
                 repo.repo.as_str(),
-                failure.what.clone(),
+                format!("{}: {}", failure.code, failure.what),
             ));
         }
 

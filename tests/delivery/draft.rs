@@ -556,9 +556,32 @@ fn partial_failure_is_reported_and_pr_not_reverted() {
 
     // No compensating/rollback command in the log.
     let log = fake.log();
-    assert!(
-        !log.contains("pr edit --title"),
-        "should not be a rollback edit"
+    assert_eq!(
+        log.matches("pr edit").count(),
+        1,
+        "exactly one metadata edit expected (no rollback edit): {log}"
+    );
+    // No `pr ready` without `--undo` — a bare `pr ready` would mark the PR
+    // ready again, undoing the conversion, which is wrong.
+    for line in log.lines() {
+        if line.contains("pr ready") {
+            assert!(
+                line.contains("--undo"),
+                "pr ready without --undo would mark the PR ready again: {line}"
+            );
+        }
+    }
+
+    // The emitted warning must carry the distinct conversion code.
+    let warnings = applied["warnings"].as_array().expect("warnings array");
+    let conversion_warnings: Vec<&serde_json::Value> = warnings
+        .iter()
+        .filter(|w| w["code"] == "deliver.pr_draft_conversion_failed")
+        .collect();
+    assert_eq!(
+        conversion_warnings.len(),
+        1,
+        "expected exactly one conversion warning with distinct code"
     );
 
     // Conversion attempt appears.
