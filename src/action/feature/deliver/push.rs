@@ -3,10 +3,11 @@
 use std::collections::BTreeMap;
 
 use crate::action::feature::pull_requests::{
-    create_pull_request, edit_pull_request, existing_pr_url, link_sibling_prs,
+    convert_pull_request_to_draft, create_pull_request, edit_pull_request, existing_pr_url,
+    link_sibling_prs,
 };
 use crate::action::feature::verification;
-use crate::domain::feature::{DeliveryAction, DeliveryPreview, Feature};
+use crate::domain::feature::{DeliveryAction, DeliveryPreview, DraftAction, Feature};
 use crate::domain::name::{FeatureName, RepoName};
 use crate::error::{Failure, Report, Warning};
 use crate::git::Git;
@@ -136,6 +137,7 @@ pub(super) fn execute(
         // A branch that already has a PR was updated by the push above — `gh pr
         // create` would only refuse it as a duplicate. Its URL is still part of
         // the report, and `gh pr list` is the only place it comes from.
+        let want_draft = repo.draft == Some(DraftAction::CreateAsDraft);
         let result = match repo.action {
             DeliveryAction::UpdatePr => {
                 // Try to find existing PR; if it exists, do a partial edit; otherwise create new.
@@ -148,6 +150,7 @@ pub(super) fn execute(
                             feature_name,
                             repo.pr_title.as_deref(),
                             repo.pr_body.as_deref(),
+                            want_draft,
                         )
                         .map(|pr| pr.url)
                     },
@@ -170,10 +173,24 @@ pub(super) fn execute(
                 feature_name,
                 repo.pr_title.as_deref(),
                 repo.pr_body.as_deref(),
+                want_draft,
             )
             .map(|pr| pr.url),
             DeliveryAction::PushOnly | DeliveryAction::LandOnDefault => unreachable!(),
         };
+
+        // After creating/updating the PR, handle draft conversion if requested.
+        if repo.draft == Some(DraftAction::ConvertToDraft)
+            && let Ok(ref url) = result
+            && let Err(failure) = convert_pull_request_to_draft(&bare, url)
+        {
+            warnings.push(Warning::new(
+                failure.code,
+                repo.repo.as_str(),
+                failure.what.clone(),
+            ));
+        }
+
         pr_results.push((repo.repo.clone(), result));
     }
 

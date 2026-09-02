@@ -95,6 +95,67 @@ fn delivery_action_serialises_as_snake_case() {
 }
 
 #[test]
+fn draft_action_serialises_as_snake_case() {
+    assert_eq!(
+        serde_json::to_string(&DraftAction::CreateAsDraft).unwrap(),
+        r#""create_as_draft""#
+    );
+    assert_eq!(
+        serde_json::to_string(&DraftAction::ConvertToDraft).unwrap(),
+        r#""convert_to_draft""#
+    );
+}
+
+#[test]
+fn draft_field_is_omitted_when_none() {
+    let repo = delivery_repo("api");
+    let json = serde_json::to_value(&repo).unwrap();
+    assert!(
+        !json.as_object().unwrap().contains_key("draft"),
+        "draft must be absent when None: {json}"
+    );
+}
+
+#[test]
+fn draft_field_is_present_when_set() {
+    let mut repo = delivery_repo("api");
+    repo.draft = Some(DraftAction::CreateAsDraft);
+    let json = serde_json::to_value(&repo).unwrap();
+    assert_eq!(json["draft"], "create_as_draft");
+
+    repo.draft = Some(DraftAction::ConvertToDraft);
+    let json = serde_json::to_value(&repo).unwrap();
+    assert_eq!(json["draft"], "convert_to_draft");
+}
+
+#[test]
+fn draft_field_round_trips_through_serde() {
+    let mut repo = delivery_repo("api");
+    repo.draft = Some(DraftAction::CreateAsDraft);
+    let json = serde_json::to_value(&repo).unwrap();
+    let parsed: DeliveryRepo = serde_json::from_value(json).unwrap();
+    assert_eq!(parsed.draft, Some(DraftAction::CreateAsDraft));
+}
+
+#[test]
+fn legacy_json_without_draft_field_deserializes_to_none() {
+    let json = serde_json::json!({
+        "repo": "api",
+        "local_branch": "checkout",
+        "remote": "git@example.com:acme/api.git",
+        "push_refspec": "checkout:refs/heads/checkout",
+        "action": "push_only",
+        "base_branch": "main",
+        "dependencies": [],
+        "blockers": [],
+        "pr_title": null,
+        "pr_body": null
+    });
+    let parsed: DeliveryRepo = serde_json::from_value(json).unwrap();
+    assert_eq!(parsed.draft, None);
+}
+
+#[test]
 fn an_unknown_field_in_a_delivery_repo_is_refused() {
     let repo = delivery_repo("api");
     let rendered = serde_json::to_value(&repo).unwrap();

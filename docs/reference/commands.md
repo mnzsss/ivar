@@ -354,6 +354,7 @@ Preview, then push, a feature's promoted repos. `--preview` prints the side-effe
 | `--name` | `<TITLE>` |  | Pull request title. If placed before any `--repo`, applies globally; if placed after a `--repo`, applies to that repo. |
 | `--body` | `<BODY>` |  | Pull request body text or `./*.md` / `./*.txt` file path. If placed before any `--repo`, applies globally; if placed after a `--repo`, applies to that repo. |
 | `--repo` | `<REPO>` |  | Scope following `--name` and `--body` flags to this promoted repository. |
+| `--draft` |  |  | Create or convert a pull request to a draft. |
 
 
 ##### `ivar feature close`

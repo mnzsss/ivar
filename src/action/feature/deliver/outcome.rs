@@ -5,7 +5,9 @@ use std::io;
 use camino::Utf8PathBuf;
 use serde::Serialize;
 
-use crate::domain::feature::{DeliveryAction, DeliveryMode, DeliveryPreview, VerificationResult};
+use crate::domain::feature::{
+    DeliveryAction, DeliveryMode, DeliveryPreview, DraftAction, VerificationResult,
+};
 use crate::domain::name::RepoName;
 use crate::error::WriteHuman;
 
@@ -69,12 +71,17 @@ pub struct DeliverOutcome {
     pub checks: Vec<RepoCheckResult>,
 }
 
-pub(crate) fn action_word(action: DeliveryAction) -> &'static str {
-    match action {
+pub(crate) fn action_word(action: DeliveryAction, draft: Option<DraftAction>) -> String {
+    let action = match action {
         DeliveryAction::NewPr => "new pr",
         DeliveryAction::UpdatePr => "update pr",
         DeliveryAction::PushOnly => "push only",
         DeliveryAction::LandOnDefault => "land on default",
+    };
+    match draft {
+        Some(DraftAction::CreateAsDraft) => format!("{action} (draft)"),
+        Some(DraftAction::ConvertToDraft) => "convert pr to draft".to_owned(),
+        None => action.to_owned(),
     }
 }
 
@@ -97,7 +104,12 @@ impl WriteHuman for DeliverOutcome {
                         writeln!(w, "    remote:  {}", repo.remote)?;
                         writeln!(w, "    refspec: {}", repo.push_refspec)?;
                         writeln!(w, "    base:    {}", repo.base_branch)?;
-                        writeln!(w, "    action:  {}", action_word(repo.action))?;
+                        if repo.draft == Some(DraftAction::ConvertToDraft) {
+                            writeln!(w, "    action:  {}", action_word(repo.action, None))?;
+                            writeln!(w, "    action:  {}", action_word(repo.action, repo.draft))?;
+                        } else {
+                            writeln!(w, "    action:  {}", action_word(repo.action, repo.draft))?;
+                        }
                         if repo.blockers.is_empty() {
                             writeln!(w, "    blockers: none")?;
                         } else {

@@ -126,27 +126,31 @@ pub(crate) fn create_pull_request(
     feature: &FeatureName,
     title: Option<&str>,
     body: Option<&str>,
+    draft: bool,
 ) -> Result<PullRequest, Failure> {
     let default_title = feature.to_string();
     let default_body = format!("Part of feature `{feature}`.");
     let effective_title = title.unwrap_or(default_title.as_str());
     let effective_body = body.unwrap_or(default_body.as_str());
 
+    let mut args = vec![
+        "pr",
+        "create",
+        "--base",
+        base.as_str(),
+        "--head",
+        head.as_str(),
+        "--title",
+        effective_title,
+        "--body",
+        effective_body,
+    ];
+    if draft {
+        args.push("--draft");
+    }
+
     let output = capture(
-        proc::Command::new("gh")
-            .args([
-                "pr",
-                "create",
-                "--base",
-                base.as_str(),
-                "--head",
-                head.as_str(),
-                "--title",
-                effective_title,
-                "--body",
-                effective_body,
-            ])
-            .cwd(git_dir),
+        proc::Command::new("gh").args(args).cwd(git_dir),
         "pr create",
     )?;
 
@@ -170,6 +174,18 @@ pub(crate) fn create_pull_request(
         merge_commit: None,
     })
 }
+
+/// Convert an existing pull request to draft.
+pub(crate) fn convert_pull_request_to_draft(git_dir: &Utf8Path, url: &str) -> Result<(), Failure> {
+    let _ = capture(
+        proc::Command::new("gh")
+            .args(["pr", "ready", "--undo", url])
+            .cwd(git_dir),
+        "pr ready --undo",
+    )?;
+    Ok(())
+}
+
 /// Edit a pull request at `url` with optional `title` and `body`.
 /// Only non-None fields are forwarded to `gh pr edit`; absent fields
 /// are left unchanged, making this a safe partial update.
@@ -382,10 +398,14 @@ fn view_pull_request(git_dir: &Utf8Path, url: &str) -> Result<PullRequest, Failu
 /// best-effort: a `gh` failure means "no PR", which is the preview's
 /// intentional answer.
 pub(crate) fn existing_pr_url(git_dir: &Utf8Path, branch: &str) -> Option<String> {
-    find_pull_request(git_dir, branch, "open")
-        .ok()
-        .flatten()
-        .map(|pr| pr.url)
+    existing_pr(git_dir, branch).map(|pr| pr.url)
+}
+
+/// The open pull request for `branch`, when there is one —
+/// best-effort: a `gh` failure means "no PR", which is the preview's
+/// intentional answer.
+pub(crate) fn existing_pr(git_dir: &Utf8Path, branch: &str) -> Option<PullRequest> {
+    find_pull_request(git_dir, branch, "open").ok().flatten()
 }
 
 /// Add a comment to each PR linking it to its siblings.

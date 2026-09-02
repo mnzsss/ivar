@@ -553,7 +553,7 @@ impl clap::Args for FeatureDeliverArgs {
         .arg(
             clap::Arg::new("draft")
                 .long("draft")
-                .help("Create or convert a pull request to a draft. If placed before any `--repo`, applies globally; if placed after a `--repo`, applies to that repo.")
+                .help("Create or convert a pull request to a draft.")
                 .action(clap::ArgAction::SetTrue),
         )
     }
@@ -1357,7 +1357,9 @@ impl FeatureDeliverArgs {
                 occurrences.push((idx, DeliverOption::Repo(val.clone())));
             }
         }
-        if let Some(indices) = matches.indices_of("draft") {
+        if matches.get_flag("draft")
+            && let Some(indices) = matches.indices_of("draft")
+        {
             for idx in indices {
                 occurrences.push((idx, DeliverOption::Draft(true)));
             }

@@ -16,7 +16,7 @@ use crate::store::layout::Layout;
 use crate::store::manifest::Manifest;
 
 use super::super::base;
-use super::super::pull_requests::existing_pr_url;
+use super::super::pull_requests::{existing_pr, existing_pr_url};
 
 pub(crate) fn build_repos(
     git: &impl git::Git,
@@ -197,6 +197,29 @@ pub(crate) fn build_repos(
             .get(repo_name)
             .cloned()
             .unwrap_or_default();
+
+        let draft_action = metadata.draft.and_then(|d| {
+            if mode == DeliveryMode::Land || !crate::infra::github::is_github_https(declared.url())
+            {
+                return None;
+            }
+            if d {
+                // Intent: draft. Check if an open PR already exists.
+                existing_pr(&bare, feature.branch.as_str())
+                    .and_then(|pr| {
+                        if pr.is_draft {
+                            None
+                        } else {
+                            Some(DraftAction::ConvertToDraft)
+                        }
+                    })
+                    .or(Some(DraftAction::CreateAsDraft))
+            } else {
+                // Intent: not draft.
+                None
+            }
+        });
+
         repos.push(DeliveryRepo {
             repo: repo_name.clone(),
             local_branch: feature.branch.clone(),
@@ -212,13 +235,7 @@ pub(crate) fn build_repos(
             remote_default_tip,
             pr_title: metadata.title,
             pr_body: metadata.body,
-            draft: metadata.draft.map(|d| {
-                if d {
-                    DraftAction::CreateAsDraft
-                } else {
-                    DraftAction::ConvertToDraft
-                }
-            }),
+            draft: draft_action,
         });
     }
 

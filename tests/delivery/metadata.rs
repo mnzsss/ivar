@@ -821,50 +821,24 @@ fn push_only_behavior() {
     );
 }
 
-/// Legacy defaults: when no --name/--body supplied, new PR creation uses the
-/// historical default title and body.
+/// Draft PR creation: --draft creates a new PR as a draft.
 #[test]
-fn legacy_defaults() {
+fn draft_pr_creation() {
     let (_guard, root) = hall_root();
     setup_deliver_hall(&root);
     approve_through_plan(&root, "checkout");
     let fake = FakeGh::install(&root);
     let rewrites = as_github_remotes(&root);
 
-    // Preview with no metadata flags - action should be new_pr
+    // Preview with --draft
     let output = ivar_on_github(&fake, &rewrites)
-        .current_dir(&root)
-        .args(["feature", "deliver", "checkout", "--preview", "--json"])
-        .assert()
-        .success()
-        .get_output()
-        .stdout
-        .clone();
-
-    let value: serde_json::Value = serde_json::from_slice(&output).expect("valid json");
-    let preview = &value["preview"];
-    let repo = &preview["repos"][0];
-    assert_eq!(repo["action"], "new_pr", "GitHub repo should create a PR");
-    // When no metadata is supplied, pr_title and pr_body are absent (null)
-    assert!(
-        repo["pr_title"].is_null(),
-        "pr_title should be absent when no --name is supplied"
-    );
-    assert!(
-        repo["pr_body"].is_null(),
-        "pr_body should be absent when no --body is supplied"
-    );
-
-    // Apply with fingerprint - PR should be created with historical defaults
-    let fp = preview["fingerprint"].as_str().unwrap().to_owned();
-    let _output2 = ivar_on_github(&fake, &rewrites)
         .current_dir(&root)
         .args([
             "feature",
             "deliver",
             "checkout",
-            "--fingerprint",
-            &fp,
+            "--draft",
+            "--preview",
             "--json",
         ])
         .assert()
@@ -873,18 +847,33 @@ fn legacy_defaults() {
         .stdout
         .clone();
 
-    // The fake gh log should show pr create with default title and body
+    let value: serde_json::Value = serde_json::from_slice(&output).expect("valid json");
+    let preview = &value["preview"];
+    let repos = preview["repos"].as_array().expect("repos is an array");
+
+    assert_eq!(
+        repos[0]["draft"], "create_as_draft",
+        "draft should be create_as_draft"
+    );
+
+    // Apply
+    let fp = preview["fingerprint"].as_str().unwrap().to_owned();
+    ivar_on_github(&fake, &rewrites)
+        .current_dir(&root)
+        .args([
+            "feature",
+            "deliver",
+            "checkout",
+            "--draft",
+            "--fingerprint",
+            &fp,
+        ])
+        .assert()
+        .success();
+
     let log = fake.log();
     assert!(
-        log.contains("pr create --base main --head checkout"),
-        "gh pr create should be called: {log}"
-    );
-    assert!(
-        log.contains("--title checkout"),
-        "default title should be the feature name: {log}"
-    );
-    assert!(
-        log.contains("--body Part of feature `checkout`."),
-        "default body should be used: {log}"
+        log.contains("--draft"),
+        "gh pr create should use the --draft flag: {log}"
     );
 }

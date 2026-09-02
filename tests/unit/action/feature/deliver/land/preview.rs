@@ -183,5 +183,5 @@ fn land_on_default_serialises_as_snake_case_and_has_a_word() {
         serde_json::to_value(action).unwrap(),
         serde_json::json!("land_on_default")
     );
-    assert_eq!(outcome::action_word(action), "land on default");
+    assert_eq!(outcome::action_word(action, None), "land on default");
 }
