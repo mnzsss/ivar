@@ -42,7 +42,9 @@ use super::promotion::PromotionOutcome;
 /// The public vocabulary is exactly `pr` and `local`. `github` is not accepted
 /// as an enum variant or a CLI value — the PR implementation happens to use
 /// the `gh` executable, but that is an implementation detail of `via=pr`.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum IntegrationVia {
     /// A pull request through the forge, merged and observed.
@@ -75,7 +77,9 @@ impl fmt::Display for IntegrationVia {
 }
 
 /// How the child's commits land on the immediate parent's branch.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum IntegrationStrategy {
     /// One commit, the parent's, carrying the child's whole change.
@@ -126,7 +130,7 @@ pub struct IntegrationOverride {
 }
 
 /// A fully-resolved integration policy: one via, one strategy.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct IntegrationPolicy {
     /// How the child's changes travel into the parent.

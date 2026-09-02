@@ -107,7 +107,7 @@ impl fmt::Display for McpValidationError {
 /// `type_` is the transport: `http` or `local`. A `local` server carries
 /// `command` (plus `args`); an `http` one carries `url`. The harness
 /// materialiser decides how the two spell the same facts on disk.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct McpServerDef {
     /// The server's name — also the key its config hangs off in the
@@ -268,7 +268,7 @@ impl McpServerDef {
 /// is deliberately not a field here: it is derived by the harness layer from
 /// the host's requirement and the harness's own default callback port, not
 /// stored per-server.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct McpOauth {
     /// The `client_id` a registration issued. Not a secret.

@@ -1,4 +1,231 @@
 {
+  "$defs": {
+    "IntegrationPolicy": {
+      "additionalProperties": false,
+      "description": "A fully-resolved integration policy: one via, one strategy.",
+      "properties": {
+        "strategy": {
+          "$ref": "#/$defs/IntegrationStrategy",
+          "description": "How the child's commits land on the parent."
+        },
+        "via": {
+          "$ref": "#/$defs/IntegrationVia",
+          "description": "How the child's changes travel into the parent."
+        }
+      },
+      "required": [
+        "via",
+        "strategy"
+      ],
+      "type": "object"
+    },
+    "IntegrationStrategy": {
+      "description": "How the child's commits land on the immediate parent's branch.",
+      "oneOf": [
+        {
+          "const": "merge",
+          "description": "One commit, the parent's, carrying the child's whole change.",
+          "type": "string"
+        },
+        {
+          "const": "squash",
+          "description": "A single squashed commit.",
+          "type": "string"
+        },
+        {
+          "const": "rebase",
+          "description": "The child replayed onto the parent, then the parent fast-forwarded.",
+          "type": "string"
+        }
+      ]
+    },
+    "IntegrationVia": {
+      "description": "How a child's changes travel into its immediate parent's branch.\n\nThe public vocabulary is exactly `pr` and `local`. `github` is not accepted\nas an enum variant or a CLI value — the PR implementation happens to use\nthe `gh` executable, but that is an implementation detail of `via=pr`.",
+      "oneOf": [
+        {
+          "const": "pr",
+          "description": "A pull request through the forge, merged and observed.",
+          "type": "string"
+        },
+        {
+          "const": "local",
+          "description": "A local merge into the parent's branch.",
+          "type": "string"
+        }
+      ]
+    },
+    "McpOauth": {
+      "additionalProperties": false,
+      "description": "A pre-provisioned OAuth client registration for a server whose host\nrejects a harness's own dynamic client registration.\n\n`client_id` is not a secret and lives in the manifest directly.\n`client_secret_env` is the *name* of the environment variable that holds\nthe client secret at runtime — never the secret's value — the same\nreference convention [`McpServerDef::env`] already follows. `redirect_uri`\nis deliberately not a field here: it is derived by the harness layer from\nthe host's requirement and the harness's own default callback port, not\nstored per-server.",
+      "properties": {
+        "client_id": {
+          "description": "The `client_id` a registration issued. Not a secret.",
+          "type": "string"
+        },
+        "client_secret_env": {
+          "description": "The name of the environment variable that holds the client secret at\nruntime.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "client_id",
+        "client_secret_env"
+      ],
+      "type": "object"
+    },
+    "McpServerDef": {
+      "additionalProperties": false,
+      "description": "One MCP server definition: how a harness should spawn (or connect to) one\nserver, and nothing about the secrets it will need at runtime.\n\n`type_` is the transport: `http` or `local`. A `local` server carries\n`command` (plus `args`); an `http` one carries `url`. The harness\nmaterialiser decides how the two spell the same facts on disk.",
+      "properties": {
+        "args": {
+          "description": "Arguments appended to [`Self::command`].",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "command": {
+          "description": "The executable a stdio server is spawned with.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "env": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Env vars the server is spawned with. Values are *references* — names\nthe harness resolves at runtime — never stored secrets.",
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "name": {
+          "description": "The server's name — also the key its config hangs off in the\nharness's file. Unique within a hall's manifest.",
+          "type": "string"
+        },
+        "oauth": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/McpOauth"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "A pre-provisioned OAuth client registration, for a server whose host\nrejects a harness's own dynamic client registration (`ivar mcp auth`'s\npre-registration step). Absent for every server that registers its own\nclient, which is the common case."
+        },
+        "type": {
+          "description": "The transport: `stdio`, `sse`, or `streamable-http`.",
+          "type": "string"
+        },
+        "url": {
+          "description": "The URL a remote (sse / streamable-http) server is reached at.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "name",
+        "type"
+      ],
+      "type": "object"
+    },
+    "Provider": {
+      "description": "Which harnesses ivar can open a session in.",
+      "enum": [
+        "claude-code",
+        "opencode"
+      ],
+      "type": "string"
+    },
+    "Providers": {
+      "additionalProperties": false,
+      "description": "A hall's provider configuration: which harnesses it knows about, and which\none `ivar session start` picks when none is named explicitly.\n\nUnlike [`Manifest`], this type does not validate its own invariants at\nconstruction — `providers.default` being a member of `providers.available`\nis checked by [`Manifest::validate`], not here, because the check needs\nnothing from `Providers` that `Manifest` cannot already see, and keeping\nevery invariant check in one place (rather than splitting it between this\ntype and `Manifest`) is what keeps [`Error`]'s variants exhaustive and easy\nto audit against the module doc comment's list of three.",
+      "properties": {
+        "available": {
+          "items": {
+            "$ref": "#/$defs/Provider"
+          },
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "default": {
+          "$ref": "#/$defs/Provider"
+        }
+      },
+      "required": [
+        "available",
+        "default"
+      ],
+      "type": "object"
+    },
+    "Repo": {
+      "additionalProperties": false,
+      "description": "One repo a hall knows about.",
+      "properties": {
+        "checks": {
+          "description": "The repo's ordered verification checks, run via `bash -lc` in the\nrelevant worktree when this repo is integrated or delivered. Empty\nmeans \"no checks\" — the v1 common case, and deliberately omitted from\nthe on-disk shape. `#[serde(default)]` so a v1 repo still deserialises.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "default_branch": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "url",
+        "default_branch"
+      ],
+      "type": "object"
+    },
+    "Skills": {
+      "additionalProperties": false,
+      "description": "A hall's shared skill home: which harnesses skills materialise for.",
+      "properties": {
+        "targets": {
+          "$ref": "#/$defs/Targets"
+        }
+      },
+      "required": [
+        "targets"
+      ],
+      "type": "object"
+    },
+    "Targets": {
+      "additionalProperties": false,
+      "description": "Which harnesses a hall's shared skills materialise for.",
+      "properties": {
+        "claude": {
+          "type": "boolean"
+        },
+        "opencode": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "claude",
+        "opencode"
+      ],
+      "type": "object"
+    }
+  },
   "$id": "https://ivar.run/ivar.schema.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
@@ -10,32 +237,8 @@
       "type": "string"
     },
     "integration": {
-      "additionalProperties": false,
-      "description": "The hall's integration defaults: how features merge and what counts as verified.",
-      "properties": {
-        "strategy": {
-          "description": "How the child's commits land on the parent.",
-          "enum": [
-            "squash",
-            "merge",
-            "rebase"
-          ],
-          "type": "string"
-        },
-        "via": {
-          "description": "How the child's changes travel into the parent.",
-          "enum": [
-            "pr",
-            "local"
-          ],
-          "type": "string"
-        }
-      },
-      "required": [
-        "via",
-        "strategy"
-      ],
-      "type": "object"
+      "$ref": "#/$defs/IntegrationPolicy",
+      "description": "The hall's integration defaults: the via/strategy a feature inherits\nwhen neither the CLI nor the feature itself overrides a field."
     },
     "mcp": {
       "description": "Hall-scoped MCP server definitions materialised by ivar sync.",
@@ -44,13 +247,6 @@
           {
             "additionalProperties": false,
             "description": "A remote MCP server reached over HTTP (SSE or streamable-http).",
-            "not": {
-              "required": [
-                "command",
-                "args",
-                "env"
-              ]
-            },
             "properties": {
               "name": {
                 "description": "The server's name, unique within the hall's manifest.",
@@ -58,14 +254,14 @@
               },
               "oauth": {
                 "additionalProperties": false,
-                "description": "A pre-provisioned OAuth client registration for servers whose host rejects dynamic client registration.",
+                "description": "A pre-provisioned OAuth client registration for a server whose host\nrejects a harness's own dynamic client registration.\n\n`client_id` is not a secret and lives in the manifest directly.\n`client_secret_env` is the *name* of the environment variable that holds\nthe client secret at runtime — never the secret's value — the same\nreference convention [`McpServerDef::env`] already follows. `redirect_uri`\nis deliberately not a field here: it is derived by the harness layer from\nthe host's requirement and the harness's own default callback port, not\nstored per-server.",
                 "properties": {
                   "client_id": {
-                    "description": "The client_id a registration issued. Not a secret.",
+                    "description": "The `client_id` a registration issued. Not a secret.",
                     "type": "string"
                   },
                   "client_secret_env": {
-                    "description": "The name of the environment variable that holds the client secret at runtime.",
+                    "description": "The name of the environment variable that holds the client secret at\nruntime.",
                     "type": "string"
                   }
                 },
@@ -95,11 +291,6 @@
           {
             "additionalProperties": false,
             "description": "A local MCP server spawned via stdio.",
-            "not": {
-              "required": [
-                "url"
-              ]
-            },
             "properties": {
               "args": {
                 "description": "Arguments appended to the command.",
@@ -125,14 +316,14 @@
               },
               "oauth": {
                 "additionalProperties": false,
-                "description": "A pre-provisioned OAuth client registration for servers whose host rejects dynamic client registration.",
+                "description": "A pre-provisioned OAuth client registration for a server whose host\nrejects a harness's own dynamic client registration.\n\n`client_id` is not a secret and lives in the manifest directly.\n`client_secret_env` is the *name* of the environment variable that holds\nthe client secret at runtime — never the secret's value — the same\nreference convention [`McpServerDef::env`] already follows. `redirect_uri`\nis deliberately not a field here: it is derived by the harness layer from\nthe host's requirement and the harness's own default callback port, not\nstored per-server.",
                 "properties": {
                   "client_id": {
-                    "description": "The client_id a registration issued. Not a secret.",
+                    "description": "The `client_id` a registration issued. Not a secret.",
                     "type": "string"
                   },
                   "client_secret_env": {
-                    "description": "The name of the environment variable that holds the client secret at runtime.",
+                    "description": "The name of the environment variable that holds the client secret at\nruntime.",
                     "type": "string"
                   }
                 },
@@ -160,108 +351,30 @@
       "type": "array"
     },
     "name": {
-      "description": "The hall's name: a single, non-empty, non-whitespace, non-traversal path segment.",
       "type": "string"
     },
     "providers": {
-      "additionalProperties": false,
-      "description": "Which harnesses this hall knows about, and which one is the default.",
-      "properties": {
-        "available": {
-          "description": "Every provider id this hall knows about.",
-          "items": {
-            "enum": [
-              "claude-code",
-              "opencode"
-            ],
-            "type": "string"
-          },
-          "minItems": 1,
-          "type": "array",
-          "uniqueItems": true
-        },
-        "default": {
-          "description": "The provider ivar picks when none is named explicitly. Must appear in available.",
-          "enum": [
-            "claude-code",
-            "opencode"
-          ],
-          "type": "string"
-        }
-      },
-      "required": [
-        "available",
-        "default"
-      ],
-      "type": "object"
+      "$ref": "#/$defs/Providers"
     },
     "repos": {
-      "description": "The repos this hall knows about.",
       "items": {
-        "additionalProperties": false,
-        "properties": {
-          "checks": {
-            "description": "Ordered verification checks, run via 'bash -lc' in the worktree. Empty means no checks.",
-            "items": {
-              "description": "An executable command. Must not be blank.",
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "default_branch": {
-            "description": "The branch a fresh worktree defaults to (e.g. 'main').",
-            "type": "string"
-          },
-          "name": {
-            "description": "A unique, non-empty, single-segment identifier for this repo.",
-            "type": "string"
-          },
-          "url": {
-            "description": "The git remote URL to clone from. Must not be empty.",
-            "type": "string"
-          }
-        },
-        "required": [
-          "name",
-          "url",
-          "default_branch"
-        ],
-        "type": "object"
+        "$ref": "#/$defs/Repo"
       },
       "type": "array"
     },
     "skills": {
-      "additionalProperties": false,
-      "description": "The hall's shared skill home, if it has one.",
-      "properties": {
-        "targets": {
-          "additionalProperties": false,
-          "description": "Which harnesses this hall's shared skills materialise for.",
-          "properties": {
-            "claude": {
-              "description": "Whether skills materialise at .claude/skills/.",
-              "type": "boolean"
-            },
-            "opencode": {
-              "description": "Whether skills materialise at .opencode/skills/.",
-              "type": "boolean"
-            }
-          },
-          "required": [
-            "claude",
-            "opencode"
-          ],
-          "type": "object"
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Skills"
+        },
+        {
+          "type": "null"
         }
-      },
-      "required": [
-        "targets"
-      ],
-      "type": "object"
+      ]
     },
     "version": {
+      "const": 3,
       "description": "The manifest schema version.",
-      "minimum": 1,
       "type": "integer"
     }
   },

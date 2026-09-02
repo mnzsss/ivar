@@ -33,7 +33,7 @@ pub(super) const CURRENT_VERSION: u32 = 4;
 /// The hall's identity, committed and team-shared. See the module doc comment
 /// for the full JSON shape, the contract, and how the invariants are
 /// enforced.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Manifest {
     version: u32,
@@ -299,7 +299,7 @@ impl Manifest {
 /// every invariant check in one place (rather than splitting it between this
 /// type and `Manifest`) is what keeps [`Error`]'s variants exhaustive and easy
 /// to audit against the module doc comment's list of three.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Providers {
     available: Vec<Provider>,
@@ -329,7 +329,7 @@ impl Providers {
 }
 
 /// One repo a hall knows about.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Repo {
     name: RepoName,
@@ -407,7 +407,7 @@ impl Repo {
 }
 
 /// A hall's shared skill home: which harnesses skills materialise for.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Skills {
     targets: Targets,
@@ -428,7 +428,7 @@ impl Skills {
 }
 
 /// Which harnesses a hall's shared skills materialise for.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Targets {
     claude: bool,

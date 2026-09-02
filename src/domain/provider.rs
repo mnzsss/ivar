@@ -97,9 +97,13 @@
 //! `root.join(provider.config_dir())`. That accessor currently does the identity
 //! interpolation and is wrong for Claude Code today.
 
+use std::borrow::Cow;
 use std::fmt;
 use std::str::FromStr;
 
+use schemars::JsonSchema;
+use schemars::Schema;
+use schemars::json_schema;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::error::{Failure, FixAction};
@@ -218,6 +222,24 @@ impl Provider {
 impl fmt::Display for Provider {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.id())
+    }
+}
+
+impl JsonSchema for Provider {
+    fn schema_name() -> Cow<'static, str> {
+        "Provider".into()
+    }
+
+    fn schema_id() -> Cow<'static, str> {
+        concat!(module_path!(), "::Provider").into()
+    }
+
+    fn json_schema(_generator: &mut schemars::SchemaGenerator) -> Schema {
+        json_schema!({
+            "type": "string",
+            "enum": ["claude-code", "opencode"],
+            "description": "Which harnesses ivar can open a session in."
+        })
     }
 }
 
