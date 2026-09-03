@@ -482,7 +482,9 @@ fn plan_reviewer_checks_declared_readers() {
         .find("| Category | What to Look For |")
         .expect("plan has a reviewer checklist");
     let after = &content[table..];
-    let end = after.find("Reviewer output format").expect("checklist ends");
+    let end = after
+        .find("Reviewer output format")
+        .expect("checklist ends");
     let checklist = &after[..end];
 
     assert!(checklist.contains("Blast Radius"), "was: {checklist}");
