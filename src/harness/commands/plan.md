@@ -125,7 +125,8 @@ after they approve.
    - **Verification** — the checks that demonstrate the change is complete.
      Each build or test check must be at least as wide as the readers the
      packets declare: a check narrower than its blast radius reports green
-     while a reader outside it breaks.
+     while a reader outside it breaks. A reader no command can check — prose
+     stating a count, a fixture — is verified by reading it.
    - **Norms** — coding conventions this feature follows. Every behavioural task is Test-Driven (Red → Green → Refactor).
    - **Safeguards** — things to watch out for
 
@@ -193,7 +194,7 @@ after they approve.
    | Spec Alignment | Plan covers `requirements.md` (the spec), no major scope creep |
    | Task Decomposition | Tasks have clear boundaries, steps are actionable |
    | Buildability | Could an engineer follow this plan without getting stuck? |
-   | Blast Radius | Every packet has a Readers section with real grep output; each reader's constraint is named; the grep scope covers every directory that compiles or tests this repo, and the Verification checks are at least that wide |
+   | Blast Radius | Every packet has a Readers section with real grep output; each reader's constraint is named; the grep scope covers the whole repo minus build artifacts, including readers that never compile, and the Verification checks are at least that wide |
 
    Reviewer output format:
 
