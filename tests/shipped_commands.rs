@@ -210,7 +210,9 @@ fn shipped_commands_encode_wave_completion_and_native_coordination() {
     assert!(plan.contains("three planning phases"));
     assert!(plan.contains("[approve plan] → Execution"));
     assert!(!plan.contains("approve graph"));
-
+    assert!(plan.contains("Step 1 carries the test's literal source"));
+    assert!(plan.contains("**Sketch:**"));
+    assert!(plan.contains("Literal Code"));
     let execute = collapsed(read("execute"));
     assert!(execute.contains("active provider coordinates its own native subagents"));
     assert!(execute.contains("wave checkpoint"));
