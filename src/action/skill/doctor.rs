@@ -82,10 +82,10 @@ pub fn doctor(ctx: &Ctx) -> Outcome<DoctorOutcome> {
         .installations
         .extend(read_state(&layout, crate::domain::skill::SkillRoot::Local).installations);
 
-    // Build targets for both providers.
+    // Build targets for all providers.
     let mut targets = Vec::new();
     for skill in &skills {
-        for target_id in [TargetId::Claude, TargetId::OpenCode] {
+        for target_id in TargetId::ALL {
             // `target_path` is hall-relative; join onto the hall root and
             // verify the whole-directory link the renderer actually creates.
             let path = layout
@@ -122,7 +122,7 @@ pub fn doctor(ctx: &Ctx) -> Outcome<DoctorOutcome> {
 
     for skill in &skills {
         // Check each target.
-        for target_id in [TargetId::Claude, TargetId::OpenCode] {
+        for target_id in TargetId::ALL {
             let target = targets
                 .iter()
                 .find(|t| t.skill == skill.id && t.id == target_id);

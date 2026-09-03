@@ -100,6 +100,10 @@ impl Harness {
         match provider {
             Provider::ClaudeCode => Ok(Self::ClaudeCode),
             Provider::OpenCode => Ok(Self::OpenCode),
+            Provider::Omp => Err(Failure::blocked(
+                "harness.unsupported",
+                "OMP harness launch is not yet configured",
+            )),
         }
     }
 

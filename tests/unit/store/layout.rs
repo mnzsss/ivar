@@ -112,8 +112,10 @@ fn gitignore_lines_excludes_the_dotdir_per_entry_and_reincludes_committed_childr
             "!.ivar/setups/",
             ".claude/commands/ivar-*.md",
             ".opencode/commands/ivar-*.md",
+            ".omp/commands/ivar-*.md",
             ".claude/skills/",
             ".opencode/skills/",
+            ".omp/skills/",
         ]
     );
 }
@@ -131,8 +133,10 @@ fn gitignore_lines_ignore_only_ivar_shipped_commands() {
             "!.ivar/setups/",
             ".claude/commands/ivar-*.md",
             ".opencode/commands/ivar-*.md",
+            ".omp/commands/ivar-*.md",
             ".claude/skills/",
             ".opencode/skills/",
+            ".omp/skills/",
         ]
     );
 }
@@ -150,6 +154,10 @@ fn command_dirs_use_each_providers_native_location() {
     assert_eq!(
         layout.commands_dir(&Provider::OpenCode),
         Utf8PathBuf::from("/hall/.opencode/commands")
+    );
+    assert_eq!(
+        layout.commands_dir(&Provider::Omp),
+        Utf8PathBuf::from("/hall/.omp/commands")
     );
 }
 
@@ -237,6 +245,10 @@ fn accessors_compute_the_documented_paths() {
         Utf8PathBuf::from("/hall/AGENTS.md")
     );
     assert_eq!(
+        layout.instruction_alias(&Provider::Omp),
+        Utf8PathBuf::from("/hall/AGENTS.md")
+    );
+    assert_eq!(
         layout.hall_instructions(),
         Utf8PathBuf::from("/hall/HALL.md")
     );
@@ -247,6 +259,10 @@ fn accessors_compute_the_documented_paths() {
     assert_eq!(
         layout.mcp_config(&Provider::OpenCode),
         Utf8PathBuf::from("/hall/opencode.json")
+    );
+    assert_eq!(
+        layout.mcp_config(&Provider::Omp),
+        Utf8PathBuf::from("/hall/.omp/mcp.json")
     );
     assert_eq!(
         layout.mcp_secrets_env(),
@@ -286,6 +302,20 @@ fn harness_dir_maps_claude_code_to_dot_claude_not_dot_claude_code() {
     assert_eq!(
         layout.commands_dir(&Provider::ClaudeCode),
         Utf8PathBuf::from("/hall/.claude/commands")
+    );
+}
+
+#[test]
+fn harness_dir_maps_omp_to_dot_omp() {
+    let layout = Layout::at("/hall");
+
+    assert_eq!(
+        layout.harness_dir(&Provider::Omp),
+        Utf8PathBuf::from("/hall/.omp")
+    );
+    assert_eq!(
+        layout.commands_dir(&Provider::Omp),
+        Utf8PathBuf::from("/hall/.omp/commands")
     );
 }
 

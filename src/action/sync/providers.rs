@@ -75,11 +75,24 @@ fn reconcile_instructions(
     layout: &Layout,
     manifest: &Manifest,
 ) -> Result<Vec<instructions::Entry>, instructions::Error> {
-    let aliases = Provider::ALL.map(|provider| instructions::Alias {
-        provider,
-        path: layout.instruction_alias(&provider),
-        enabled: manifest.providers().available().contains(&provider),
-    });
+    // One physical alias may have several owners — OpenCode and OMP both own
+    // `AGENTS.md` — so reconcile each path once, enabled when any owner is
+    // available. Reconciling per provider would let a disabled owner delete an
+    // enabled one's file, last writer winning. Order follows `Provider::ALL`
+    // so report lines stay stable. Task 05 generalizes this to a full owner set.
+    let mut aliases: Vec<instructions::Alias> = Vec::with_capacity(Provider::ALL.len());
+    for provider in Provider::ALL {
+        let path = layout.instruction_alias(&provider);
+        let enabled = manifest.providers().available().contains(&provider);
+        match aliases.iter_mut().find(|alias| alias.path == path) {
+            Some(existing) => existing.enabled |= enabled,
+            None => aliases.push(instructions::Alias {
+                provider,
+                path,
+                enabled,
+            }),
+        }
+    }
     let block = config::build_block(manifest.name(), &repo_names(manifest));
     instructions::reconcile(&layout.hall_instructions(), &block, &aliases)
 }
@@ -144,6 +157,12 @@ pub(crate) fn sync_mcp(
     entries: &mut Vec<Entry>,
     warnings: &mut Vec<Warning>,
 ) {
+    // OMP MCP rendering lands in Task 03; until then OMP has no MCP document
+    // to reconcile and must not reach the renderer.
+    if provider == Provider::Omp {
+        return;
+    }
+
     let path = layout.mcp_config(&provider);
     let label = format!("{} MCP config", provider.mcp_config_path());
 

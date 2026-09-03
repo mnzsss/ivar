@@ -239,6 +239,12 @@ pub fn guard(provider: Provider, stdin_json: &str) -> Result<GuardOutcome, Failu
             };
             (req, input.cwd)
         }
+        Provider::Omp => {
+            return Err(Failure::blocked(
+                "guard.unsupported",
+                "OMP guard adapter is not yet implemented",
+            ));
+        }
     };
 
     let set = cwd
@@ -277,6 +283,10 @@ pub fn guard(provider: Provider, stdin_json: &str) -> Result<GuardOutcome, Failu
                 exit_zero: false,
             }),
         },
+        Provider::Omp => Err(Failure::blocked(
+            "guard.unsupported",
+            "OMP guard adapter is not yet implemented",
+        )),
     }
 }
 

@@ -67,10 +67,10 @@ pub fn sync(ctx: &Ctx) -> Outcome<SyncOutcome> {
     let local_state = read_state(&layout, SkillRoot::Local);
     let state = merge_states(&hall_state, &local_state);
 
-    // Build targets for both providers.
+    // Build targets for all providers.
     let mut targets = Vec::new();
     for skill in &skills {
-        for target_id in [TargetId::Claude, TargetId::OpenCode] {
+        for target_id in TargetId::ALL {
             // `target_path` is hall-relative (`.claude/skills/<id>`); the
             // renderer and planner operate on absolute paths, so join it onto
             // the hall root here.
@@ -92,10 +92,9 @@ pub fn sync(ctx: &Ctx) -> Outcome<SyncOutcome> {
     }
 
     // Compute the sync plan. The planner is one-target-per-skill, so run it
-    // once per provider (Claude, OpenCode) and concatenate — a skill
-    // materialises to both native targets.
+    // once per provider and concatenate — a skill materialises to all native targets.
     let mut steps = Vec::new();
-    for target_id in [TargetId::Claude, TargetId::OpenCode] {
+    for target_id in TargetId::ALL {
         let provider_targets: Vec<Target> = targets
             .iter()
             .filter(|t| t.id == target_id)
@@ -268,24 +267,17 @@ fn update_state_entry(state: &mut State, step: &Step, source_hash: &str) {
 
     let providers: std::collections::HashMap<TargetId, ProviderEntry> = {
         let mut map = std::collections::HashMap::new();
-        map.insert(
-            TargetId::Claude,
-            ProviderEntry {
-                target_path: skill::target_path(TargetId::Claude, step.skill.as_str()),
-                rendered_hash: source_hash.to_owned(),
-                linked_at: iso.clone(),
-                mode: Some(step.mode),
-            },
-        );
-        map.insert(
-            TargetId::OpenCode,
-            ProviderEntry {
-                target_path: skill::target_path(TargetId::OpenCode, step.skill.as_str()),
-                rendered_hash: source_hash.to_owned(),
-                linked_at: iso.clone(),
-                mode: Some(step.mode),
-            },
-        );
+        for target_id in TargetId::ALL {
+            map.insert(
+                target_id,
+                ProviderEntry {
+                    target_path: skill::target_path(target_id, step.skill.as_str()),
+                    rendered_hash: source_hash.to_owned(),
+                    linked_at: iso.clone(),
+                    mode: Some(step.mode),
+                },
+            );
+        }
         map
     };
 

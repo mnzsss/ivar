@@ -20,15 +20,20 @@ use crate::domain::skill::{RenderMode, Skill};
 pub enum TargetId {
     Claude,
     OpenCode,
+    Omp,
 }
 
 impl TargetId {
+    /// Every variant, for iteration across targets.
+    pub const ALL: [TargetId; 3] = [TargetId::Claude, TargetId::OpenCode, TargetId::Omp];
+
     /// The canonical string identifier used in state files.
     #[must_use]
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Claude => "claude",
             Self::OpenCode => "opencode",
+            Self::Omp => "omp",
         }
     }
 }

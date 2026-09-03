@@ -58,8 +58,8 @@ fn gitignore_uses_the_star_form_never_the_bare_dotdir() {
     assert_eq!(
         content,
         ".ivar/*\n!.ivar/skills/\n!.ivar/setups/\n\
-         .claude/commands/ivar-*.md\n.opencode/commands/ivar-*.md\n\
-         .claude/skills/\n.opencode/skills/\n"
+         .claude/commands/ivar-*.md\n.opencode/commands/ivar-*.md\n.omp/commands/ivar-*.md\n\
+         .claude/skills/\n.opencode/skills/\n.omp/skills/\n"
     );
     assert!(content.contains("!.ivar/skills/"));
     assert!(

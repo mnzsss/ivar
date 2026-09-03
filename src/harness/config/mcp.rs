@@ -168,6 +168,10 @@ fn server_doc(provider: Provider, server: &McpServerDef) -> serde_json::Value {
                 object.insert("env".to_owned(), serde_json::json!(env));
             }
         }
+        // Task 03 gives OMP its native renderer. Until then `sync_mcp` skips
+        // OMP, so this arm is unreachable in production; it emits an empty
+        // object rather than panicking if that ever stops being true.
+        Provider::Omp => {}
         Provider::OpenCode => {
             let transport = if server.type_ == "stdio" {
                 "local"

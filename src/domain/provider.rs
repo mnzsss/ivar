@@ -105,7 +105,7 @@ use crate::error::{Failure, FixAction};
 
 /// The comma-separated list of valid ids, for error messages. Kept next to
 /// `ALL` so the two are easy to keep in sync by eye.
-const VALID_IDS: &str = "claude-code, opencode";
+const VALID_IDS: &str = "claude-code, opencode, omp";
 
 /// A harness `ivar` can open a session in.
 ///
@@ -118,21 +118,23 @@ pub enum Provider {
     ClaudeCode,
     /// OpenCode.
     OpenCode,
+    /// Oh My Pi (OMP).
+    Omp,
 }
 
 impl Provider {
     /// Every variant, for iteration. Kept exhaustive by
     /// `tests::all_is_exhaustive`, which fails to compile if a variant is added
     /// here without being added there too.
-    pub const ALL: [Provider; 2] = [Provider::ClaudeCode, Provider::OpenCode];
+    pub const ALL: [Provider; 3] = [Provider::ClaudeCode, Provider::OpenCode, Provider::Omp];
 
     /// The stable wire string: as it appears in `ivar.json` and in
     /// `--provider`. Kebab-case, never reworded.
-    #[must_use]
     pub const fn id(&self) -> &'static str {
         match self {
             Self::ClaudeCode => "claude-code",
             Self::OpenCode => "opencode",
+            Self::Omp => "omp",
         }
     }
 
@@ -142,6 +144,7 @@ impl Provider {
         match self {
             Self::ClaudeCode => ".claude",
             Self::OpenCode => ".opencode",
+            Self::Omp => ".omp",
         }
     }
 
@@ -150,10 +153,9 @@ impl Provider {
     pub const fn instruction_file(&self) -> &'static str {
         match self {
             Self::ClaudeCode => "CLAUDE.md",
-            Self::OpenCode => "AGENTS.md",
+            Self::OpenCode | Self::Omp => "AGENTS.md",
         }
     }
-
     /// The provider-native directory holding project workflow commands.
     ///
     /// `ivar` owns files named `ivar-*.md` in it — the shipped workflow
@@ -165,6 +167,7 @@ impl Provider {
         match self {
             Self::ClaudeCode => ".claude/commands",
             Self::OpenCode => ".opencode/commands",
+            Self::Omp => ".omp/commands",
         }
     }
 
@@ -174,6 +177,7 @@ impl Provider {
         match self {
             Self::ClaudeCode => ".claude/skills",
             Self::OpenCode => ".opencode/skills",
+            Self::Omp => ".omp/skills",
         }
     }
 
@@ -184,9 +188,9 @@ impl Provider {
         match self {
             Self::ClaudeCode => None,
             Self::OpenCode => Some(".opencode/plugins"),
+            Self::Omp => None,
         }
     }
-
     /// The file this harness's MCP server definitions live in, at the hall
     /// root.
     ///
@@ -198,6 +202,7 @@ impl Provider {
         match self {
             Self::ClaudeCode => ".mcp.json",
             Self::OpenCode => "opencode.json",
+            Self::Omp => ".omp/mcp.json",
         }
     }
 
@@ -211,10 +216,10 @@ impl Provider {
         match self {
             Self::ClaudeCode => "mcpServers",
             Self::OpenCode => "mcp",
+            Self::Omp => "mcpServers",
         }
     }
 }
-
 impl fmt::Display for Provider {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.id())

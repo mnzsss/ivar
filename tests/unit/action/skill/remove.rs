@@ -26,6 +26,7 @@ fn remove_deletes_the_skill_directory_and_targets() {
 
     assert!(fs::exists(&root.join(".claude").join("skills").join("to_remove")).unwrap());
     assert!(fs::exists(&root.join(".opencode").join("skills").join("to_remove")).unwrap());
+    assert!(fs::exists(&root.join(".omp").join("skills").join("to_remove")).unwrap());
 
     remove(
         &ctx,
@@ -40,6 +41,7 @@ fn remove_deletes_the_skill_directory_and_targets() {
     // Targets torn down.
     assert!(!fs::exists(&root.join(".claude").join("skills").join("to_remove")).unwrap());
     assert!(!fs::exists(&root.join(".opencode").join("skills").join("to_remove")).unwrap());
+    assert!(!fs::exists(&root.join(".omp").join("skills").join("to_remove")).unwrap());
 }
 
 #[test]

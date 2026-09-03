@@ -178,6 +178,7 @@ fn provider_config_dir(provider: TargetId) -> &'static str {
     match provider {
         TargetId::Claude => ".claude",
         TargetId::OpenCode => ".opencode",
+        TargetId::Omp => ".omp",
     }
 }
 

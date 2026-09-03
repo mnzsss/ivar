@@ -593,8 +593,10 @@ impl Layout {
             "!.ivar/setups/",
             ".claude/commands/ivar-*.md",
             ".opencode/commands/ivar-*.md",
+            ".omp/commands/ivar-*.md",
             ".claude/skills/",
             ".opencode/skills/",
+            ".omp/skills/",
         ]
     }
 
