@@ -83,7 +83,7 @@ conversation, re-derive where the feature is in the SPDD cycle:
 - **`session.not_found` naming discovery sessions.** A session started without
   a feature lives under `.ivar/sessions/` and a `--feature` search cannot see
   it — but it may already hold this feature's work. Bind it with
-  `ivar session convert <session-id> $ARGUMENTS` rather than starting a second
+  `ivar session convert <session-id>` rather than starting a second
   session. Ask the user which one to convert; do not pick for them.
 - **Connect re-materialises the view dir** on every run, repairing whatever
   drifted or predates the current `ivar`: repo symlinks, read-only guards, the

@@ -428,6 +428,93 @@ fn plan_has_three_approval_gates_and_hands_off_to_execute() {
     assert!(!content.contains("approve graph"), "was: {content}");
 }
 
+/// A task packet must declare who reads what it writes, with the grep that
+/// found them. Three waves were reverted because a packet edited its declared
+/// files and broke a reader outside the list.
+#[test]
+fn plan_packet_template_requires_declared_readers() {
+    let content = embedded("plan");
+
+    assert!(content.contains("**Readers:**"), "was: {content}");
+    assert!(content.contains("git grep -n"), "was: {content}");
+    assert!(content.contains("no readers outside"), "was: {content}");
+}
+
+/// The Readers grep must cover the whole tree, not a scope someone derives.
+/// Two controlled runs found the same failure twice: a reader in `examples/`
+/// escaped a hardcoded `src/ tests/`, and a reader in `docs/` escaped a scope
+/// derived from the workspace members. Both times every agent reported
+/// success. `git grep` with no pathspec ends the derivation: tracked files in,
+/// build artifacts out, nothing to get wrong.
+#[test]
+fn plan_readers_grep_is_scoped_to_the_whole_tree() {
+    let content = embedded("plan");
+
+    assert!(content.contains("git grep -n '<symbol>'"), "was: {content}");
+    assert!(content.contains("no pathspec"), "was: {content}");
+    assert!(
+        content.contains("not only code that compiles"),
+        "was: {content}"
+    );
+}
+
+/// A build check narrower than the readers it must defend passes while a
+/// reader outside it breaks. In the controlled run every agent ran the
+/// packet's `cargo build`, saw green, and shipped an `examples/` target that
+/// failed to compile.
+#[test]
+fn plan_verification_covers_every_reader_it_declares() {
+    let content = embedded("plan");
+
+    assert!(content.contains("as wide as the readers"), "was: {content}");
+}
+
+/// The plan reviewer checks that packets declare their readers. Without this
+/// the Readers field is advisory, which is how the parent feature's
+/// R-DELEGATE defect was born.
+#[test]
+fn plan_reviewer_checks_declared_readers() {
+    let content = embedded("plan");
+
+    assert!(content.contains("Blast Radius"), "was: {content}");
+
+    let table = content
+        .find("| Category | What to Look For |")
+        .expect("plan has a reviewer checklist");
+    let after = &content[table..];
+    let end = after
+        .find("Reviewer output format")
+        .expect("checklist ends");
+    let checklist = &after[..end];
+
+    assert!(checklist.contains("Blast Radius"), "was: {checklist}");
+    assert!(checklist.contains("Readers"), "was: {checklist}");
+}
+
+/// A packet's line references go stale the moment an earlier wave edits the
+/// same file. This run hit it: packet 02 cited `plan.md:173-178` for a table
+/// Wave 1 had already pushed to 182-187.
+#[test]
+fn execute_reanchors_stale_packet_coordinates() {
+    let content = embedded("execute");
+
+    assert!(content.contains("line references"), "was: {content}");
+    assert!(content.contains("stale"), "was: {content}");
+    assert!(content.contains("re-anchor"), "was: {content}");
+}
+
+/// Marking waves complete edits `plan.md`, which invalidates the plan gate.
+/// `deliver` and `integrate` both refuse until it is approved again, so the
+/// command that caused the drift is the one that must name the remedy.
+#[test]
+fn execute_closes_by_reapproving_the_drifted_plan_gate() {
+    let content = embedded("execute");
+
+    assert!(content.contains("ivar plan approve"), "was: {content}");
+    assert!(content.contains("needs-revision"), "was: {content}");
+    assert!(content.contains("integrate"), "was: {content}");
+}
+
 /// The deliver checkpoint sits between preview and apply, and deferring it
 /// neither blocks apply nor invalidates the fingerprint.
 #[test]

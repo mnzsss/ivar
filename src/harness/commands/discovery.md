@@ -69,27 +69,30 @@ to a Feature.
    - Ask: "Ready to convert this Discovery Session into a Feature Session? This
      is irreversible."
    - If yes:
-     1. Ask: "Create a new Feature or bind to an existing one?"
-        - **New Feature**: ask for the feature name.
-        - **Existing Feature**:
-          - Run `ivar feature list` to show available features.
-          - When the user picks one, check if any repos are already promoted:
-            - Run `ivar feature status <feature>`.
-            - Show which repos are already promoted (they will become
-              immediately writable).
-            - Other repos remain read-only until promoted.
-     2. Confirm the choice with the user.
-     3. For the discovery brief, write a structured summary, omitting
-        irrelevant sections.
-     4. If `discovery.md` already exists for this feature, ask:
-        - **Amend** (default): append a dated section with Session ID, new
-          evidence, and changed understanding.
-        - **Merge** (explicit): integrate and reorganize. Show the proposed
-          document first and get confirmation.
-     5. Run `ivar session convert <session-id> <feature>` to bind the discovery
-        session to the feature.
-     6. Parse the output. Export the binding env vars.
-     7. After successful conversion, check if `/ivar-plan` is installed (look
+     1. Write the discovery brief through the CLI. The doc's frontmatter is
+        ivar-owned — `name`, `status`, `created_at`, `updated_at` and
+        `sessions` — so a hand-written file has no `sessions` entry and
+        conversion will refuse it.
+        - Create the doc if it does not exist:
+          `ivar discovery create <name> [--title <title>]`. The name is the
+          unit of work's name, lowercase kebab-case; it becomes the feature
+          name at conversion.
+        - Write the brief:
+          `IVAR_SESSION_ID=<session-id> ivar discovery amend <name> --file <path>`.
+          `--file -` reads stdin. Append is the default and records the
+          session in `sessions`, which is what conversion looks for.
+        - Use `--merge` only to replace the whole document; it requires
+          `--expected-hash <sha256>`, the hash `ivar discovery show` reports.
+          Show the proposed document and get confirmation first.
+     2. Confirm the brief with the user.
+     3. Run `ivar session convert <session-id>` to bind the session. The
+        command takes no feature argument: it resolves the name from the
+        discovery doc whose frontmatter lists this session, and creates the
+        feature when it does not exist yet. Do not ask the user to choose a
+        new or existing feature — the name follows from the brief, and
+        `ivar feature create` beforehand is unnecessary.
+     4. Parse the output. Export the binding env vars.
+     5. After successful conversion, check if `/ivar-plan` is installed (look
         in `.claude/commands/` or `.opencode/commands/` for `ivar-plan.md`):
         - If installed, offer: "Would you like to create a plan for this
           Feature? Run `/ivar-plan`."

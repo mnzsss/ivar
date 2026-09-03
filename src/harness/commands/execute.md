@@ -17,6 +17,10 @@ Feature Session. The active provider coordinates its own native subagents;
 - The feature must exist in the hall (`ivar feature list`).
 - The plan file must be accessible and all three planning gates — Requirements,
   Analysis, and Plan — must be approved.
+- **A subagent this harness can spawn**, holding its own context. Separate
+  contexts are what keep the plan's reasoning out of the executor's window, so
+  a harness with no subagent cannot run this workflow. Stop and say so rather
+  than executing the plan yourself.
 
 ## Steps
 
@@ -27,16 +31,35 @@ Feature Session. The active provider coordinates its own native subagents;
    ivar plan status $ARGUMENTS
    ```
 
-2. Act as the coordinator. Read `plan.md` and `plans/<feature>/tasks/`. Process
-   the plan wave by wave using provider-native subagent capabilities:
-   - For the current wave, dispatch ONE subagent per task packet in `plans/<feature>/tasks/`.
-     Hand the subagent ONLY that task packet's path (`plans/<feature>/tasks/NN-*.md`),
-     and instruct it to follow the packet's steps exactly and NOT edit `plan.md`.
-   - As each subagent completes its task, fill the result and evidence back into the task packet.
+2. You are the coordinator; do not implement. **You MUST NOT edit feature code,
+   run the feature's build, or run its tests yourself.** Read `plan.md` and
+   `plans/<feature>/tasks/`, then process the plan wave by wave:
+   - For the current wave, you MUST dispatch ONE subagent per task packet in
+     `plans/<feature>/tasks/`. Hand the subagent ONLY that task packet's path
+     (`plans/<feature>/tasks/NN-*.md`), and instruct it to follow the packet's
+     steps exactly and NOT edit `plan.md`.
+   - Before dispatching, **re-anchor the packet's line references.** A packet
+     written at plan time cites lines that an earlier wave may have shifted;
+     stale coordinates send the subagent to the wrong region. Locate each
+     cited construct by content (`grep -n`), correct the packet when it moved,
+     and record the correction as a deviation.
+   - When a subagent reports completion, **verify its evidence before
+     recording it.** Run the packet's own verification commands yourself and
+     compare the result to what the subagent claimed. A packet whose claims do
+     not hold is NOT complete: report the discrepancy to the human and do not
+     write the claim into the packet.
+   - Only after verifying, fill the result and evidence into the task packet.
+   - NEVER accept "expected failure" for a test that was passing before the
+     wave. A test the plan did not name as changing is a regression until the
+     human says otherwise.
+   - NEVER edit a test to make a wave pass. Changing an assertion to
+     accommodate new behaviour is the packet's job, declared in its steps; any
+     other test edit is fabricated evidence.
    - Do not persist provider-native child or conversation identifiers in Ivar.
-   - After all tasks in a wave pass their exit criteria, pause for the wave checkpoint.
-     Summarize the completed wave and request human approval to proceed. Do NOT start
-     the next wave until the human approves the wave checkpoint.
+   - After all tasks in a wave pass their exit criteria, pause for the wave
+     checkpoint. Summarize the completed wave and request human approval to
+     proceed. Do NOT start the next wave until the human approves the wave
+     checkpoint.
 
 3. At the wave checkpoint, after the human approves, mark the wave complete in
    `plan.md` before starting the next wave:
@@ -45,6 +68,14 @@ Feature Session. The active provider coordinates its own native subagents;
    - Mark the wave heading complete: `### Wave N — <outcome> ✅`.
    Never edit `plan.md` while a wave is still in progress — only at its checkpoint.
 
-4. Ask the human directly when a decision needs their input. If newly
+4. After the last wave, **re-approve the plan gate.** Marking waves complete
+   edited `plan.md`, so its fingerprint no longer matches the approval and the
+   gate has dropped to `needs-revision`. Both `ivar feature deliver` and
+   `ivar feature integrate` refuse a feature in that state. Run
+   `ivar plan approve <feature> plan` — the human already approved this content
+   at each wave checkpoint; the re-approval records that the artifact on disk
+   is the one they signed off.
+
+5. Ask the human directly when a decision needs their input. If newly
    discovered work is outside the approved plan and can be isolated, create a
    child Feature rather than silently expanding this run.

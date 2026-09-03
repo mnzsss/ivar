@@ -122,7 +122,11 @@ after they approve.
      complete, `[ ]` while pending), checkboxed exit criteria (`- [ ]`, flipped to `- [x]`
      as each is met), and a wave-complete marker (`### Wave N — <outcome> ✅` once every
      exit criterion is met).
-   - **Verification** — the checks that demonstrate the change is complete
+   - **Verification** — the checks that demonstrate the change is complete.
+     Each build or test check must be at least as wide as the readers the
+     packets declare: a check narrower than its blast radius reports green
+     while a reader outside it breaks. A reader no command can check — prose
+     stating a count, a fixture — is verified by reading it.
    - **Norms** — coding conventions this feature follows. Every behavioural task is Test-Driven (Red → Green → Refactor).
    - **Safeguards** — things to watch out for
 
@@ -142,6 +146,20 @@ after they approve.
    - Create: `exact/path.rs`
    - Modify: `exact/path.rs:123-145`
    - Test: `tests/exact/path.rs`
+   **Readers:**
+   - For each symbol this packet writes, paste the output of
+     `git grep -n '<symbol>'`. Run it from the repo root with no pathspec:
+     it covers every tracked file and no build artifact, so the scope is a
+     fact about the repo rather than a list someone has to derive. A reader
+     is anything that asserts something about the symbol — a doc stating a
+     count, a fixture, a CI config — not only code that compiles.
+   - A symbol reached through a re-export answers to a name this grep never
+     sees; grep that name too.
+   - Name the constraint each reader imposes (an assertion, a caller, a config
+     consumer)
+   - When the grep finds nothing outside the declared files, write
+     `no readers outside the declared files` and paste the command, so the
+     claim is falsifiable
    **Interfaces:**
    - Consumes: [exact signatures from earlier tasks]
    - Produces: [exact function names + types later tasks rely on]
@@ -151,6 +169,9 @@ after they approve.
    - [ ] **Step 4: Run test to verify it passes**  Run: `...`  Expected: PASS
    - [ ] **Step 5: Commit**
    ```
+
+   A packet whose Readers section is absent or unrun is incomplete in the same
+   way a missing test step is.
 
    No placeholders anywhere: no `TBD`/`TODO`, no "implement later", no "add error handling",
    no "similar to Task N", no step that says what to do without showing how, no reference to a
@@ -168,7 +189,7 @@ after they approve.
    in the report. Report the model you ran, so nobody has to guess whether the
    review fell back to the coordinator's.
 
-   The subagent evaluates the plan against `requirements.md` (the spec) across four categories:
+   The subagent evaluates the plan against `requirements.md` (the spec) across these categories:
 
    | Category | What to Look For |
    |---|---|
@@ -176,6 +197,7 @@ after they approve.
    | Spec Alignment | Plan covers `requirements.md` (the spec), no major scope creep |
    | Task Decomposition | Tasks have clear boundaries, steps are actionable |
    | Buildability | Could an engineer follow this plan without getting stuck? |
+   | Blast Radius | Every packet has a Readers section holding real `git grep -n` output run without a pathspec; each reader's constraint is named; the Verification checks are at least as wide as those readers, and a reader no command can check is verified by reading it |
 
    Reviewer output format:
 
@@ -196,6 +218,14 @@ after they approve.
 
 ## Execution
 
-After the Plan gate is approved, begin `/ivar-execute plans/<feature>/plan.md`.
+After the Plan gate is approved, offer execution — do not start it:
+
+> The plan is approved. Run `/ivar-execute plans/<feature>/plan.md` to
+> execute it.
+
+**Never run `/ivar-execute` automatically.** Approving a plan and executing it
+are two decisions, and the human makes both. `/ivar-discovery` states the same
+rule for its own phase transition: it offers `/ivar-plan` and never runs it.
+
 That workflow executes the plan wave by wave and marks each wave complete in
 `plan.md` at each wave checkpoint.
