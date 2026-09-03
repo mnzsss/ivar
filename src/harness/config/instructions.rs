@@ -178,7 +178,7 @@ pub fn build_block(hall: &HallName, repos: &[RepoName]) -> String {
     block.push_str("## For AI Agents\n\n");
     block.push_str(
         "This directory is an `ivar` orchestration hall. You are fully authorized to\n\
-         run `ivar` commands (e.g., `ivar feature new`, `ivar session start`, `ivar sync`)\n\
+         run `ivar` commands (e.g., `ivar feature create`, `ivar session start`, `ivar sync`)\n\
          on behalf of the user to manage features, repos, and sessions.\n\n\
          If you are unsure of the exact CLI syntax or how `ivar` works, DO NOT GUESS.\n\
          First, fetch and read the documentation from:\n\
