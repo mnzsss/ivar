@@ -207,13 +207,11 @@ fn auth_command(
     materialised_name: &str,
     secret: Option<&(String, String)>,
 ) -> proc::Command {
-    let args: [&str; 2] = match harness {
-        Harness::ClaudeCode => ["mcp", "login"],
-        Harness::OpenCode => ["mcp", "auth"],
+    let (binary, args): (&str, [&str; 2]) = match harness {
+        Harness::ClaudeCode => ("claude", ["mcp", "login"]),
+        Harness::OpenCode => ("opencode", ["mcp", "auth"]),
     };
-    let command = proc::Command::new(harness.binary())
-        .args(args)
-        .arg(materialised_name);
+    let command = proc::Command::new(binary).args(args).arg(materialised_name);
     match secret {
         Some((var, value)) => command.env(var.clone(), value.clone()),
         None => command,

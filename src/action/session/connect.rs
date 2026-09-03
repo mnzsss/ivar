@@ -16,8 +16,8 @@ use crate::domain::feature::Feature;
 use crate::domain::name::FeatureName;
 use crate::domain::session::{SessionRef, SessionState};
 use crate::error::{Failure, FixAction, Outcome, Report, WriteHuman};
-use crate::harness::Harness;
 use crate::infra::proc;
+use crate::providers;
 use crate::store::layout::Layout;
 
 use super::super::{discover_hall, read_manifest};
@@ -172,7 +172,7 @@ fn attach_or_create(
         let Some(state) = session.state.as_ref() else {
             continue;
         };
-        let binary = Harness::for_provider(state.provider())?.binary();
+        let binary = providers::launch_contract(state.provider()).binary;
         if !proc::is_program_running_in(&session.view_dir, binary) {
             return Ok(Some(Report::new(session)));
         }

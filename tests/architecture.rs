@@ -59,12 +59,21 @@ const ALLOWED: &[(&str, &[&str])] = &[
     ("cli", &["action"]),
     (
         "action",
-        &["domain", "store", "git", "harness", "tui", "infra"],
+        &[
+            "domain",
+            "store",
+            "git",
+            "harness",
+            "providers",
+            "tui",
+            "infra",
+        ],
     ),
     ("domain", &[]),
     ("store", &["domain", "infra"]),
     ("git", &["infra"]),
     ("harness", &["domain", "infra"]),
+    ("providers", &["domain", "infra"]),
     ("tui", &["domain", "infra"]),
     ("infra", &[]),
 ];
