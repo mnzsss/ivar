@@ -460,6 +460,30 @@ fn plan_reviewer_checks_declared_readers() {
     assert!(checklist.contains("Readers"), "was: {checklist}");
 }
 
+/// A packet's line references go stale the moment an earlier wave edits the
+/// same file. This run hit it: packet 02 cited `plan.md:173-178` for a table
+/// Wave 1 had already pushed to 182-187.
+#[test]
+fn execute_reanchors_stale_packet_coordinates() {
+    let content = embedded("execute");
+
+    assert!(content.contains("line references"), "was: {content}");
+    assert!(content.contains("stale"), "was: {content}");
+    assert!(content.contains("re-anchor"), "was: {content}");
+}
+
+/// Marking waves complete edits `plan.md`, which invalidates the plan gate.
+/// `deliver` and `integrate` both refuse until it is approved again, so the
+/// command that caused the drift is the one that must name the remedy.
+#[test]
+fn execute_closes_by_reapproving_the_drifted_plan_gate() {
+    let content = embedded("execute");
+
+    assert!(content.contains("ivar plan approve"), "was: {content}");
+    assert!(content.contains("needs-revision"), "was: {content}");
+    assert!(content.contains("integrate"), "was: {content}");
+}
+
 /// The deliver checkpoint sits between preview and apply, and deferring it
 /// neither blocks apply nor invalidates the fingerprint.
 #[test]

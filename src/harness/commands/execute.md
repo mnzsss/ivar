@@ -38,6 +38,11 @@ Feature Session. The active provider coordinates its own native subagents;
      `plans/<feature>/tasks/`. Hand the subagent ONLY that task packet's path
      (`plans/<feature>/tasks/NN-*.md`), and instruct it to follow the packet's
      steps exactly and NOT edit `plan.md`.
+   - Before dispatching, **re-anchor the packet's line references.** A packet
+     written at plan time cites lines that an earlier wave may have shifted;
+     stale coordinates send the subagent to the wrong region. Locate each
+     cited construct by content (`grep -n`), correct the packet when it moved,
+     and record the correction as a deviation.
    - When a subagent reports completion, **verify its evidence before
      recording it.** Run the packet's own verification commands yourself and
      compare the result to what the subagent claimed. A packet whose claims do
@@ -63,6 +68,14 @@ Feature Session. The active provider coordinates its own native subagents;
    - Mark the wave heading complete: `### Wave N — <outcome> ✅`.
    Never edit `plan.md` while a wave is still in progress — only at its checkpoint.
 
-4. Ask the human directly when a decision needs their input. If newly
+4. After the last wave, **re-approve the plan gate.** Marking waves complete
+   edited `plan.md`, so its fingerprint no longer matches the approval and the
+   gate has dropped to `needs-revision`. Both `ivar feature deliver` and
+   `ivar feature integrate` refuse a feature in that state. Run
+   `ivar plan approve <feature> plan` — the human already approved this content
+   at each wave checkpoint; the re-approval records that the artifact on disk
+   is the one they signed off.
+
+5. Ask the human directly when a decision needs their input. If newly
    discovered work is outside the approved plan and can be isolated, create a
    child Feature rather than silently expanding this run.
