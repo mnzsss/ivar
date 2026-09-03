@@ -436,21 +436,26 @@ fn plan_packet_template_requires_declared_readers() {
     let content = embedded("plan");
 
     assert!(content.contains("**Readers:**"), "was: {content}");
-    assert!(content.contains("grep -rn"), "was: {content}");
+    assert!(content.contains("git grep -n"), "was: {content}");
     assert!(content.contains("no readers outside"), "was: {content}");
 }
 
-/// The Readers grep must be scoped to the whole tree, not a hardcoded
-/// `src/ tests/`. A controlled run put a reader in `examples/`: six of six
-/// agents ran the literal grep, concluded "no external reader", and shipped a
-/// build that failed outside the scope they were handed. A wrong scope is
-/// worse than no field — it manufactures confidence.
+/// The Readers grep must cover the whole tree, not a scope someone derives.
+/// Two controlled runs found the same failure twice: a reader in `examples/`
+/// escaped a hardcoded `src/ tests/`, and a reader in `docs/` escaped a scope
+/// derived from the workspace members. Both times every agent reported
+/// success. `git grep` with no pathspec ends the derivation: tracked files in,
+/// build artifacts out, nothing to get wrong.
 #[test]
 fn plan_readers_grep_is_scoped_to_the_whole_tree() {
     let content = embedded("plan");
 
-    assert!(content.contains("every directory that compiles"), "was: {content}");
-    assert!(content.contains("examples/"), "was: {content}");
+    assert!(content.contains("git grep -n '<symbol>'"), "was: {content}");
+    assert!(content.contains("no pathspec"), "was: {content}");
+    assert!(
+        content.contains("not only code that compiles"),
+        "was: {content}"
+    );
 }
 
 /// A build check narrower than the readers it must defend passes while a

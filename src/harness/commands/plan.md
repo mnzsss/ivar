@@ -148,15 +148,18 @@ after they approve.
    - Test: `tests/exact/path.rs`
    **Readers:**
    - For each symbol this packet writes, paste the output of
-     `grep -rn '<symbol>' <scope>`, where `<scope>` is every directory that
-     compiles, tests, or configures this repo — not a fixed `src/ tests/`.
-     Derive it from the repo's own layout: `examples/`, `benches/`, `docs/`,
-     build scripts and workspace members are readers too, and a symbol reached
-     through a re-export answers to a name the grep for the symbol never sees.
+     `git grep -n '<symbol>'`. Run it from the repo root with no pathspec:
+     it covers every tracked file and no build artifact, so the scope is a
+     fact about the repo rather than a list someone has to derive. A reader
+     is anything that asserts something about the symbol — a doc stating a
+     count, a fixture, a CI config — not only code that compiles.
+   - A symbol reached through a re-export answers to a name this grep never
+     sees; grep that name too.
    - Name the constraint each reader imposes (an assertion, a caller, a config
      consumer)
-   - When the grep is empty, write `no readers outside the declared files`,
-     and name the scope it covered so the claim is falsifiable
+   - When the grep finds nothing outside the declared files, write
+     `no readers outside the declared files` and paste the command, so the
+     claim is falsifiable
    **Interfaces:**
    - Consumes: [exact signatures from earlier tasks]
    - Produces: [exact function names + types later tasks rely on]
@@ -194,7 +197,7 @@ after they approve.
    | Spec Alignment | Plan covers `requirements.md` (the spec), no major scope creep |
    | Task Decomposition | Tasks have clear boundaries, steps are actionable |
    | Buildability | Could an engineer follow this plan without getting stuck? |
-   | Blast Radius | Every packet has a Readers section with real grep output; each reader's constraint is named; the grep scope covers the whole repo minus build artifacts, including readers that never compile, and the Verification checks are at least that wide |
+   | Blast Radius | Every packet has a Readers section holding real `git grep -n` output run without a pathspec; each reader's constraint is named; the Verification checks are at least as wide as those readers, and a reader no command can check is verified by reading it |
 
    Reviewer output format:
 
