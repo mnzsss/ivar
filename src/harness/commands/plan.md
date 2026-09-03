@@ -185,7 +185,7 @@ after they approve.
    in the report. Report the model you ran, so nobody has to guess whether the
    review fell back to the coordinator's.
 
-   The subagent evaluates the plan against `requirements.md` (the spec) across four categories:
+   The subagent evaluates the plan against `requirements.md` (the spec) across these categories:
 
    | Category | What to Look For |
    |---|---|
