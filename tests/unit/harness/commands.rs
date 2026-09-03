@@ -491,6 +491,41 @@ fn plan_reviewer_checks_declared_readers() {
     assert!(checklist.contains("Readers"), "was: {checklist}");
 }
 
+/// The packet template's own Step 1 must show assertions, not describe them.
+/// Two shipped plans (`ivar-manifest-schema`, `omp-support`: 20 packets)
+/// carried zero code while `:176-180` already forbade it in prose. A rule
+/// stated beside a form that contradicts it loses to the form.
+#[test]
+fn plan_packet_template_requires_literal_test() {
+    let content = embedded("plan");
+
+    assert!(content.contains("literal source"), "was: {content}");
+    assert!(
+        content.contains("Step 1 carries the test's literal source"),
+        "was: {content}"
+    );
+    // The example inside the template is real code, not a placeholder.
+    assert!(content.contains("assert_eq!"), "was: {content}");
+}
+
+/// The escape is bounded on both sides: Step 1 may never use it, and a
+/// sketch still names its signatures. `omp-support`'s packet 01 produced
+/// `Provider::Omp` "with stable id `omp`, config dir `.omp`" — an enum
+/// variant whose actual shape no packet ever wrote down, leaving the next
+/// packet's `Consumes` citing nothing.
+#[test]
+fn plan_sketch_escape_is_bounded() {
+    let content = embedded("plan");
+
+    assert!(content.contains("**Sketch:**"), "was: {content}");
+    assert!(content.contains("never Step 1"), "was: {content}");
+    assert!(
+        content.contains("relaxes a body, never an interface"),
+        "was: {content}"
+    );
+    assert!(content.contains("exact signature"), "was: {content}");
+}
+
 /// A packet's line references go stale the moment an earlier wave edits the
 /// same file. This run hit it: packet 02 cited `plan.md:173-178` for a table
 /// Wave 1 had already pushed to 182-187.
@@ -593,4 +628,27 @@ fn every_command_declaring_an_argument_hint_consumes_arguments() {
         "these commands declare an argument-hint but never reference \
          `$ARGUMENTS`, so OpenCode drops the argument: {dropped:?}"
     );
+}
+
+/// The reviewer checks the code obligation, or it is advisory — which is
+/// how the prose at `:176-180` failed. The row must judge the *reason* on a
+/// sketch, not merely the marker's presence: an unjudged escape becomes the
+/// default.
+#[test]
+fn plan_reviewer_checks_literal_code() {
+    let content = embedded("plan");
+
+    let table = content
+        .find("| Category | What to Look For |")
+        .expect("plan has a reviewer checklist");
+    let after = &content[table..];
+    let end = after
+        .find("Reviewer output format")
+        .expect("checklist ends");
+    let checklist = &after[..end];
+
+    assert!(checklist.contains("Literal Code"), "was: {checklist}");
+    assert!(checklist.contains("Step 1"), "was: {checklist}");
+    assert!(checklist.contains("**Sketch:**"), "was: {checklist}");
+    assert!(checklist.contains("reason"), "was: {checklist}");
 }
