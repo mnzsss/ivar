@@ -196,6 +196,14 @@ after they approve.
 
 ## Execution
 
-After the Plan gate is approved, begin `/ivar-execute plans/<feature>/plan.md`.
+After the Plan gate is approved, offer execution — do not start it:
+
+> The plan is approved. Run `/ivar-execute plans/<feature>/plan.md` to
+> execute it.
+
+**Never run `/ivar-execute` automatically.** Approving a plan and executing it
+are two decisions, and the human makes both. `/ivar-discovery` states the same
+rule for its own phase transition: it offers `/ivar-plan` and never runs it.
+
 That workflow executes the plan wave by wave and marks each wave complete in
 `plan.md` at each wave checkpoint.
