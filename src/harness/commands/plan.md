@@ -140,7 +140,7 @@ after they approve.
    every task in `plan.md`. Name files with a two-digit order prefix (e.g.
    `01-pin-scaffold.md`). Each task packet must follow this structure:
 
-   ```
+   ````
    ### Task N: [Component Name]
    **Files:**
    - Create: `exact/path.rs`
@@ -163,15 +163,37 @@ after they approve.
    **Interfaces:**
    - Consumes: [exact signatures from earlier tasks]
    - Produces: [exact function names + types later tasks rely on]
-   - [ ] **Step 1: Write the failing test**
+   - [ ] **Step 1: Write the failing test** — the test's literal source:
+
+     ```rust
+     #[test]
+     fn rejects_a_transport_the_schema_does_not_define() {
+         let error = McpServerDef::parse(r#"{"type":"sse","url":"http://x"}"#)
+             .expect_err("sse is not a canonical transport");
+         assert_eq!(error.field(), "type");
+     }
+     ```
    - [ ] **Step 2: Run test to verify it fails**  Run: `...`  Expected: FAIL ...
    - [ ] **Step 3: Write minimal implementation**
    - [ ] **Step 4: Run test to verify it passes**  Run: `...`  Expected: PASS
    - [ ] **Step 5: Commit**
-   ```
+   ````
 
-   A packet whose Readers section is absent or unrun is incomplete in the same
-   way a missing test step is.
+   Step 1 carries the test's literal source: the assertions themselves, not a
+   description of them. It is the executable specification and it is short, so
+   there is never a volume argument for describing it instead. Step 3 carries
+   literal source at every point that decides behaviour — the exact call,
+   signature, option set, or type.
+
+   Volume that follows mechanically from a decision point may be described
+   instead, marked `**Sketch:** <reason>` where the reason states why literal
+   code is inappropriate for that volume. The escape is Step 3's alone, never
+   Step 1's. A sketch relaxes a body, never an interface: it still names every
+   symbol it produces with its exact signature, so a later packet's `Consumes`
+   cites something real.
+
+   A packet whose Step 1 shows no source, or whose described step carries no
+   `**Sketch:**`, is incomplete in the same way a missing Readers section is.
 
    No placeholders anywhere: no `TBD`/`TODO`, no "implement later", no "add error handling",
    no "similar to Task N", no step that says what to do without showing how, no reference to a
