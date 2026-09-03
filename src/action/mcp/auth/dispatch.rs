@@ -91,7 +91,7 @@ fn attempt(
         }
     };
 
-    let command = auth_command(harness, materialised_name, secret.as_ref());
+    let command = auth_command(provider, harness, materialised_name, secret.as_ref());
     let display = command.display();
     let outcome = match proc::inherit(&command) {
         Ok(Some(0)) => verify_authenticated(harness, materialised_name),
@@ -203,14 +203,16 @@ pub(super) fn run_provider(
 /// environment (defect fix, `R-SECRET-HANDOFF`): either a fresh registration or
 /// an existing one resolved from the caller environment or local store.
 fn auth_command(
+    provider: Provider,
     harness: Harness,
     materialised_name: &str,
     secret: Option<&(String, String)>,
 ) -> proc::Command {
-    let (binary, args): (&str, [&str; 2]) = match harness {
-        Harness::ClaudeCode => ("claude", ["mcp", "login"]),
-        Harness::OpenCode => ("opencode", ["mcp", "auth"]),
+    let args: [&str; 2] = match harness {
+        Harness::ClaudeCode => ["mcp", "login"],
+        Harness::OpenCode => ["mcp", "auth"],
     };
+    let binary = crate::providers::launch_contract(provider).binary;
     let command = proc::Command::new(binary).args(args).arg(materialised_name);
     match secret {
         Some((var, value)) => command.env(var.clone(), value.clone()),

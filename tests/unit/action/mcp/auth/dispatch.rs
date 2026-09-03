@@ -6,19 +6,24 @@ use super::*;
 
 #[test]
 fn auth_command_is_claude_mcp_login_for_claude_code() {
-    let command = auth_command(Harness::ClaudeCode, "acme-figma", None);
+    let command = auth_command(
+        Provider::ClaudeCode,
+        Harness::ClaudeCode,
+        "acme-figma",
+        None,
+    );
     assert_eq!(command.display(), "claude mcp login acme-figma");
 }
 
 #[test]
 fn auth_command_is_opencode_mcp_auth_for_opencode() {
-    let command = auth_command(Harness::OpenCode, "acme-figma", None);
+    let command = auth_command(Provider::OpenCode, Harness::OpenCode, "acme-figma", None);
     assert_eq!(command.display(), "opencode mcp auth acme-figma");
 }
 
 #[test]
 fn auth_command_carries_no_env_override_without_a_fresh_secret() {
-    let command = auth_command(Harness::OpenCode, "acme-figma", None);
+    let command = auth_command(Provider::OpenCode, Harness::OpenCode, "acme-figma", None);
     assert!(command.envs().is_empty());
 }
 
@@ -33,7 +38,12 @@ fn auth_command_puts_a_fresh_registrations_secret_into_the_childs_environment() 
         "top-secret".to_owned(),
     );
 
-    let command = auth_command(Harness::OpenCode, "acme-figma", Some(&fresh));
+    let command = auth_command(
+        Provider::OpenCode,
+        Harness::OpenCode,
+        "acme-figma",
+        Some(&fresh),
+    );
 
     assert_eq!(
         command.envs(),
