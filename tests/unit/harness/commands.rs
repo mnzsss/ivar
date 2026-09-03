@@ -440,6 +440,30 @@ fn plan_packet_template_requires_declared_readers() {
     assert!(content.contains("no readers outside"), "was: {content}");
 }
 
+/// The Readers grep must be scoped to the whole tree, not a hardcoded
+/// `src/ tests/`. A controlled run put a reader in `examples/`: six of six
+/// agents ran the literal grep, concluded "no external reader", and shipped a
+/// build that failed outside the scope they were handed. A wrong scope is
+/// worse than no field — it manufactures confidence.
+#[test]
+fn plan_readers_grep_is_scoped_to_the_whole_tree() {
+    let content = embedded("plan");
+
+    assert!(content.contains("every directory that compiles"), "was: {content}");
+    assert!(content.contains("examples/"), "was: {content}");
+}
+
+/// A build check narrower than the readers it must defend passes while a
+/// reader outside it breaks. In the controlled run every agent ran the
+/// packet's `cargo build`, saw green, and shipped an `examples/` target that
+/// failed to compile.
+#[test]
+fn plan_verification_covers_every_reader_it_declares() {
+    let content = embedded("plan");
+
+    assert!(content.contains("as wide as the readers"), "was: {content}");
+}
+
 /// The plan reviewer checks that packets declare their readers. Without this
 /// the Readers field is advisory, which is how the parent feature's
 /// R-DELEGATE defect was born.

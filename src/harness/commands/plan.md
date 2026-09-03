@@ -122,7 +122,10 @@ after they approve.
      complete, `[ ]` while pending), checkboxed exit criteria (`- [ ]`, flipped to `- [x]`
      as each is met), and a wave-complete marker (`### Wave N — <outcome> ✅` once every
      exit criterion is met).
-   - **Verification** — the checks that demonstrate the change is complete
+   - **Verification** — the checks that demonstrate the change is complete.
+     Each build or test check must be at least as wide as the readers the
+     packets declare: a check narrower than its blast radius reports green
+     while a reader outside it breaks.
    - **Norms** — coding conventions this feature follows. Every behavioural task is Test-Driven (Red → Green → Refactor).
    - **Safeguards** — things to watch out for
 
@@ -144,10 +147,15 @@ after they approve.
    - Test: `tests/exact/path.rs`
    **Readers:**
    - For each symbol this packet writes, paste the output of
-     `grep -rn '<symbol>' tests/ src/`
+     `grep -rn '<symbol>' <scope>`, where `<scope>` is every directory that
+     compiles, tests, or configures this repo — not a fixed `src/ tests/`.
+     Derive it from the repo's own layout: `examples/`, `benches/`, `docs/`,
+     build scripts and workspace members are readers too, and a symbol reached
+     through a re-export answers to a name the grep for the symbol never sees.
    - Name the constraint each reader imposes (an assertion, a caller, a config
      consumer)
-   - When the grep is empty, write `no readers outside the declared files`
+   - When the grep is empty, write `no readers outside the declared files`,
+     and name the scope it covered so the claim is falsifiable
    **Interfaces:**
    - Consumes: [exact signatures from earlier tasks]
    - Produces: [exact function names + types later tasks rely on]
@@ -185,7 +193,7 @@ after they approve.
    | Spec Alignment | Plan covers `requirements.md` (the spec), no major scope creep |
    | Task Decomposition | Tasks have clear boundaries, steps are actionable |
    | Buildability | Could an engineer follow this plan without getting stuck? |
-   | Blast Radius | Every packet has a Readers section with real grep output; each reader's constraint is named |
+   | Blast Radius | Every packet has a Readers section with real grep output; each reader's constraint is named; the grep scope covers every directory that compiles or tests this repo, and the Verification checks are at least that wide |
 
    Reviewer output format:
 
