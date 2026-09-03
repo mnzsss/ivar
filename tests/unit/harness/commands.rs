@@ -629,3 +629,26 @@ fn every_command_declaring_an_argument_hint_consumes_arguments() {
          `$ARGUMENTS`, so OpenCode drops the argument: {dropped:?}"
     );
 }
+
+/// The reviewer checks the code obligation, or it is advisory — which is
+/// how the prose at `:176-180` failed. The row must judge the *reason* on a
+/// sketch, not merely the marker's presence: an unjudged escape becomes the
+/// default.
+#[test]
+fn plan_reviewer_checks_literal_code() {
+    let content = embedded("plan");
+
+    let table = content
+        .find("| Category | What to Look For |")
+        .expect("plan has a reviewer checklist");
+    let after = &content[table..];
+    let end = after
+        .find("Reviewer output format")
+        .expect("checklist ends");
+    let checklist = &after[..end];
+
+    assert!(checklist.contains("Literal Code"), "was: {checklist}");
+    assert!(checklist.contains("Step 1"), "was: {checklist}");
+    assert!(checklist.contains("**Sketch:**"), "was: {checklist}");
+    assert!(checklist.contains("reason"), "was: {checklist}");
+}

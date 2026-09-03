@@ -220,6 +220,7 @@ after they approve.
    | Task Decomposition | Tasks have clear boundaries, steps are actionable |
    | Buildability | Could an engineer follow this plan without getting stuck? |
    | Blast Radius | Every packet has a Readers section holding real `git grep -n` output run without a pathspec; each reader's constraint is named; the Verification checks are at least as wide as those readers, and a reader no command can check is verified by reading it |
+   | Literal Code | Step 1 shows the test's source, never a description of it; Step 3 shows the exact call or signature at each point that decides behaviour; every described step carries `**Sketch:**` whose reason states why literal code is inappropriate there — a marker with a generic or absent reason is an issue |
 
    Reviewer output format:
 
