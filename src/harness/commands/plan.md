@@ -142,6 +142,12 @@ after they approve.
    - Create: `exact/path.rs`
    - Modify: `exact/path.rs:123-145`
    - Test: `tests/exact/path.rs`
+   **Readers:**
+   - For each symbol this packet writes, paste the output of
+     `grep -rn '<symbol>' tests/ src/`
+   - Name the constraint each reader imposes (an assertion, a caller, a config
+     consumer)
+   - When the grep is empty, write `no readers outside the declared files`
    **Interfaces:**
    - Consumes: [exact signatures from earlier tasks]
    - Produces: [exact function names + types later tasks rely on]
@@ -151,6 +157,9 @@ after they approve.
    - [ ] **Step 4: Run test to verify it passes**  Run: `...`  Expected: PASS
    - [ ] **Step 5: Commit**
    ```
+
+   A packet whose Readers section is absent or unrun is incomplete in the same
+   way a missing test step is.
 
    No placeholders anywhere: no `TBD`/`TODO`, no "implement later", no "add error handling",
    no "similar to Task N", no step that says what to do without showing how, no reference to a
@@ -176,6 +185,7 @@ after they approve.
    | Spec Alignment | Plan covers `requirements.md` (the spec), no major scope creep |
    | Task Decomposition | Tasks have clear boundaries, steps are actionable |
    | Buildability | Could an engineer follow this plan without getting stuck? |
+   | Blast Radius | Every packet has a Readers section with real grep output; each reader's constraint is named |
 
    Reviewer output format:
 

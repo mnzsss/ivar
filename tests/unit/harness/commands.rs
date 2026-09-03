@@ -428,6 +428,38 @@ fn plan_has_three_approval_gates_and_hands_off_to_execute() {
     assert!(!content.contains("approve graph"), "was: {content}");
 }
 
+/// A task packet must declare who reads what it writes, with the grep that
+/// found them. Three waves were reverted because a packet edited its declared
+/// files and broke a reader outside the list.
+#[test]
+fn plan_packet_template_requires_declared_readers() {
+    let content = embedded("plan");
+
+    assert!(content.contains("**Readers:**"), "was: {content}");
+    assert!(content.contains("grep -rn"), "was: {content}");
+    assert!(content.contains("no readers outside"), "was: {content}");
+}
+
+/// The plan reviewer checks that packets declare their readers. Without this
+/// the Readers field is advisory, which is how the parent feature's
+/// R-DELEGATE defect was born.
+#[test]
+fn plan_reviewer_checks_declared_readers() {
+    let content = embedded("plan");
+
+    assert!(content.contains("Blast Radius"), "was: {content}");
+
+    let table = content
+        .find("| Category | What to Look For |")
+        .expect("plan has a reviewer checklist");
+    let after = &content[table..];
+    let end = after.find("Reviewer output format").expect("checklist ends");
+    let checklist = &after[..end];
+
+    assert!(checklist.contains("Blast Radius"), "was: {checklist}");
+    assert!(checklist.contains("Readers"), "was: {checklist}");
+}
+
 /// The deliver checkpoint sits between preview and apply, and deferring it
 /// neither blocks apply nor invalidates the fingerprint.
 #[test]
