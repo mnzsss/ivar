@@ -86,7 +86,7 @@ fn a_remote_definition_round_trips_with_a_url() {
 
 #[test]
 fn an_unknown_field_in_a_definition_is_refused() {
-    let raw = r#"{"name":"docs","type":"stdio","bogus":true}"#;
+    let raw = r#"{"name":"docs","type":"local","command":"npx","bogus":true}"#;
     assert!(serde_json::from_str::<McpServerDef>(raw).is_err());
 }
 
@@ -128,7 +128,7 @@ fn a_definition_with_oauth_round_trips_token_url_and_resource_when_present() {
     let oauth_full = McpOauth::new("client-123", "IVAR_MCP_ACME_FIGMA_SECRET")
         .token_url("https://www.figma.com/oauth/token")
         .resource("https://api.figma.com");
-    let def = McpServerDef::new("figma", "sse")
+    let def = McpServerDef::new("figma", "http")
         .url("https://mcp.figma.com/mcp")
         .oauth(oauth_full.clone());
 
@@ -152,7 +152,7 @@ fn a_definition_with_oauth_round_trips_token_url_and_resource_when_present() {
 #[test]
 fn an_oauth_without_optional_fields_serialises_to_v3_shape_byte_for_byte() {
     let oauth_v3 = McpOauth::new("client-123", "IVAR_MCP_ACME_FIGMA_SECRET");
-    let def = McpServerDef::new("figma", "sse")
+    let def = McpServerDef::new("figma", "http")
         .url("https://mcp.figma.com/mcp")
         .oauth(oauth_v3);
 

@@ -367,7 +367,7 @@ fn internal_flow_threads_omp_provider_through_to_credential_installer() {
         provider: Provider::Omp,
         ..Default::default()
     };
-    let server = McpServerDef::new("figma", "sse").url("https://mcp.figma.com/mcp");
+    let server = McpServerDef::new("figma", "http").url("https://mcp.figma.com/mcp");
     let run = figma_oauth::run_internal_flow_pipeline(&ops, &server, "figma").unwrap();
     assert_eq!(run.provider, Provider::Omp);
     assert_eq!(ops.provider(), Provider::Omp);
@@ -462,7 +462,7 @@ fn fresh_figma_registration_sends_the_client_secret_to_the_token_endpoint() {
         ..Default::default()
     };
 
-    let server = McpServerDef::new("figma", "sse").url("https://mcp.figma.com/mcp");
+    let server = McpServerDef::new("figma", "http").url("https://mcp.figma.com/mcp");
     let result = figma_oauth::run_internal_flow_pipeline(&ops, &server, "figma");
 
     assert!(

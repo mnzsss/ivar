@@ -649,7 +649,7 @@ fn sync_with_omp_available_writes_every_provider_mcp_document() {
     let layout = Layout::at(root.clone());
     let manifest = Manifest::read(&layout).unwrap().unwrap();
     let manifest = manifest
-        .with_mcp_servers(vec![McpServerDef::new("docs", "stdio").command("npx")])
+        .with_mcp_servers(vec![McpServerDef::new("docs", "local").command("npx")])
         .unwrap();
     Manifest::write(&layout, &manifest).unwrap();
     let ctx = Ctx::new(root.clone());
@@ -675,7 +675,7 @@ fn sync_reports_a_malformed_omp_mcp_document_instead_of_silently_skipping_it() {
     let layout = Layout::at(root.clone());
     let manifest = Manifest::read(&layout).unwrap().unwrap();
     let manifest = manifest
-        .with_mcp_servers(vec![McpServerDef::new("docs", "stdio").command("npx")])
+        .with_mcp_servers(vec![McpServerDef::new("docs", "local").command("npx")])
         .unwrap();
     Manifest::write(&layout, &manifest).unwrap();
 
@@ -707,7 +707,7 @@ fn sync_removes_the_omp_mcp_document_when_omp_leaves_the_hall() {
     let layout = Layout::at(root.clone());
     let manifest = Manifest::read(&layout).unwrap().unwrap();
     let manifest = manifest
-        .with_mcp_servers(vec![McpServerDef::new("docs", "stdio").command("npx")])
+        .with_mcp_servers(vec![McpServerDef::new("docs", "local").command("npx")])
         .unwrap();
     Manifest::write(&layout, &manifest).unwrap();
     let ctx = Ctx::new(root.clone());

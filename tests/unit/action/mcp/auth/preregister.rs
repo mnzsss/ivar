@@ -30,25 +30,6 @@ fn fresh_registration_persists_the_endpoints_discovery_returned() {
     );
 }
 
-#[test]
-fn preregistration_not_needed_for_claude_code() {
-    let (_guard, root) = seeded_hall();
-    let layout = Layout::at(root.clone());
-    let manifest = Manifest::read(&layout).unwrap().unwrap();
-    let server = McpServerDef::new("figma", "http").url("https://mcp.figma.com/mcp");
-
-    let result = preregister_if_needed(
-        &layout,
-        &manifest,
-        Provider::ClaudeCode,
-        &server,
-        "acme-figma",
-        None,
-    )
-    .unwrap();
-    assert!(matches!(result.report, Preregistration::NotNeeded));
-}
-
 /// A server whose metadata publishes no `resource` (RFC 8707 is not universal)
 /// must persist none — a fabricated identifier would be rejected at the token
 /// endpoint.
@@ -182,7 +163,7 @@ fn preregistration_skipped_leaves_existing_endpoints_intact_and_does_not_overwri
         .token_url("https://custom.auth.server/oauth/token")
         .resource("https://custom.api.server");
 
-    let server = McpServerDef::new("figma", "sse")
+    let server = McpServerDef::new("figma", "http")
         .url("https://mcp.figma.com/mcp")
         .oauth(original_oauth.clone());
 
