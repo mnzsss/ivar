@@ -50,6 +50,23 @@ fn auth_command_puts_a_fresh_registrations_secret_into_the_childs_environment() 
     assert!(!command.display().contains("top-secret"));
 }
 
+/// `omp` has no `mcp` subcommand at all (measured against omp/18.1.8; its
+/// credential surface is `omp auth-broker`). The refusal has to name that,
+/// not launch: an operator reading "launch is not yet configured" after
+/// running `ivar mcp auth` would go looking in the wrong place.
+#[test]
+fn a_provider_without_an_mcp_login_command_has_no_subcommand_to_dispatch() {
+    assert_eq!(crate::providers::login_subcommand(Provider::Omp), None);
+    assert_eq!(
+        crate::providers::login_subcommand(Provider::ClaudeCode),
+        Some(["mcp", "login"])
+    );
+    assert_eq!(
+        crate::providers::login_subcommand(Provider::OpenCode),
+        Some(["mcp", "auth"])
+    );
+}
+
 // -- login_failed -----------------------------------------------------------
 
 #[test]

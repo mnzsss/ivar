@@ -78,6 +78,11 @@ fn attempt(
         }
     };
 
+    // A provider with no MCP login command cannot be driven through this
+    // path at all. `omp` is the case today: it has no `mcp` subcommand, and
+    // its credential surface is `omp auth-broker` (measured against
+    // omp/18.1.8). Refuse before spawning rather than build a command whose
+    // binary would reject the arguments.
     let subcommand = match crate::providers::login_subcommand(provider) {
         Some(subcommand) => subcommand,
         None => {
@@ -87,8 +92,13 @@ fn attempt(
                 auth_method: AuthMethod::ProviderCommand,
                 outcome: Err(Failure::blocked(
                     "harness.unsupported",
-                    "OMP harness launch is not yet configured",
-                )),
+                    format!("`{provider}` has no MCP login command"),
+                )
+                .expected("a provider whose CLI can run an MCP login")
+                .actual(format!(
+                    "`{}` exposes no `mcp` subcommand",
+                    crate::providers::launch_contract(provider).binary
+                ))),
             };
         }
     };
