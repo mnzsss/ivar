@@ -72,7 +72,7 @@ const ALLOWED: &[(&str, &[&str])] = &[
     ("domain", &[]),
     ("store", &["domain", "infra"]),
     ("git", &["infra"]),
-    ("harness", &["domain", "infra"]),
+    ("harness", &["domain", "infra", "providers"]),
     ("providers", &["domain", "infra"]),
     ("tui", &["domain", "infra"]),
     ("infra", &[]),

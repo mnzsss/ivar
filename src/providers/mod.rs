@@ -4,6 +4,7 @@ pub mod claude_code;
 pub mod omp;
 pub mod opencode;
 
+use crate::domain::mcp::McpServerDef;
 use crate::domain::provider::Provider;
 use crate::error::{Failure, FixAction};
 use crate::infra::proc::Command;
@@ -55,6 +56,30 @@ pub fn start_command(provider: Provider, resume: bool) -> Result<Command, Failur
     }
 }
 
+/// The root key under which MCP servers are configured in the provider config file.
+#[must_use]
+pub fn mcp_root_key(provider: Provider) -> &'static str {
+    match provider {
+        Provider::ClaudeCode => claude_code::mcp::ROOT_KEY,
+        Provider::OpenCode => opencode::mcp::ROOT_KEY,
+        Provider::Omp => omp::mcp::ROOT_KEY,
+    }
+}
+
+/// Renders a single MCP server definition into provider-native JSON shape.
+#[must_use]
+pub fn mcp_server_doc(provider: Provider, name: &str, server: &McpServerDef) -> serde_json::Value {
+    match provider {
+        Provider::ClaudeCode => claude_code::mcp::server_doc(name, server),
+        Provider::OpenCode => opencode::mcp::server_doc(name, server),
+        Provider::Omp => omp::mcp::server_doc(name, server),
+    }
+}
+
 #[cfg(test)]
 #[path = "../../tests/unit/providers/mod.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "../../tests/unit/providers/mcp.rs"]
+mod mcp_tests;
