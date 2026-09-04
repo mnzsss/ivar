@@ -137,11 +137,23 @@ the provider respecting the hook protocol:
   proceeds.
 - **OpenCode:** The guard exits non-zero for deny. A non-zero exit should abort the
   tool call, but this is provider behaviour, not ivar's guarantee.
-
+- **OMP:** The guard exits 0 and outputs `{ "block": true, "reason": "..." }`. If
+  the harness ignores the hook output, the write proceeds.
 **What this means in practice:** the guard is an error message, not a firewall. A
 provider that does not call the hook, or that ignores a deny decision, will allow
 the write.
 
+
+## Provider-specific capabilities and limitations
+
+- **Session resume:** Claude Code supports resuming prior sessions (`--resume`).
+  OpenCode and OMP do not support session resume; `ivar session start --resume`
+  will reject attempts to resume with these providers.
+- **MCP authentication scope:** OMP credentials installed via `ivar mcp auth` are
+  scoped to the active omp profile (`OMP_PROFILE` or `PI_PROFILE`, defaulting to
+  `default`). Switching profiles requires re-authenticating for that profile.
+  However, credentials do not require manual re-authentication on expiry: omp
+  natively refreshes tokens using the rendered `auth` block in `mcp.json`.
 ## What protects the default branch
 
 Protection is layered, and the layers are not equally strong. Each one below

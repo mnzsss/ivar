@@ -516,7 +516,7 @@ Register a new provider by name
 
 | argument | required | description |
 | --- | --- | --- |
-| `name` | yes | The provider's name (e.g. `claude-code`, `opencode`) |
+| `name` | yes | The provider's name (e.g. `claude-code`, `opencode`, `omp`) |
 
 
 #### `ivar discovery`

@@ -26,7 +26,8 @@ half-understood state file is worse than no state file.
   ivar.json                     committed    the hall's identity and its repos
   HALL.md                       committed    the canonical standing instructions
   CLAUDE.md AGENTS.md           committed    provider root aliases — relative
-                                             symlinks to HALL.md
+                                             symlinks to HALL.md (CLAUDE.md for Claude
+                                             Code; AGENTS.md for OpenCode and OMP)
   plans/<feature>/*.md          committed    requirements, analysis, plan
   .ivar/skills/                 committed    skills the team shares
   .ivar/setups/<repo>.sh        committed    per-repo worktree bootstrap
@@ -38,8 +39,11 @@ half-understood state file is worse than no state file.
   .ivar/sessions/               local        discovery-session view dirs
   .claude/commands/ivar-*.md    local        derived workflow commands (Claude Code)
   .opencode/commands/ivar-*.md  local        derived workflow commands (OpenCode)
+  .omp/commands/ivar-*.md       local        derived workflow commands (OMP)
   .claude/skills/               local        derived materialised skills (Claude Code)
   .opencode/skills/             local        derived materialised skills (OpenCode)
+  .omp/skills/                  local        derived materialised skills (OMP)
+  mcp.json                      local        derived MCP configuration (OMP root)
 ```
 
 "Committed" means it belongs in your hall's git history and your teammates get it
@@ -52,8 +56,10 @@ reproducible — deleting it costs you a re-clone, never work.
 instructions. It belongs to the user; `ivar` owns exactly the bytes between its
 `<!-- ivar:managed:start -->` and `<!-- ivar:managed:end -->` markers, plus the
 `/ivar-relations` region's own markers (managed by that workflow, never by
-Rust). Each enabled provider's root alias — `CLAUDE.md` for Claude Code,
-`AGENTS.md` for OpenCode — is a committed **relative symlink to `HALL.md`**.
+Each enabled provider's root alias — `CLAUDE.md` for Claude Code,
+`AGENTS.md` for OpenCode and OMP — is a committed **relative symlink to `HALL.md`**.
+OMP shares `AGENTS.md` with OpenCode; if both are configured, the single
+physical alias is jointly owned and remains as long as either provider is active.
 Aliases are never sources and never workflow edit targets.
 
 - `ivar init` creates `HALL.md` and the first provider's alias; `ivar provider
@@ -70,8 +76,11 @@ is **derived** from `HALL.md` (canonical content, plus the session bootstrap
 for feature sessions), lives in the ephemeral view dir, and is never
 committed.
 
-The `ivar-*.md` workflow commands under each provider's command directory are
-local derived state in the same sense: `ivar init`, `ivar provider add`, and
+The `ivar-*.md` workflow commands under each provider's command directory
+(`.claude/commands/`, `.opencode/commands/`, `.omp/commands/`), MCP documents
+(`.mcp.json`, `opencode.json`, root `mcp.json`), and guard artifacts
+(`.claude/settings.json`, `.opencode/plugins/ivar.js`, `.omp/hooks/pre/ivar.js`) are
+local derived state: `ivar init`, `ivar provider add`, and
 `ivar sync` recreate or repair them from the binary, so they are never
 committed and never hand-edited. Every *other* file in those directories is
 yours and is never changed.

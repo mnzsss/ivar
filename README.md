@@ -119,6 +119,8 @@ open a pull request as you. Read [Concepts](docs/concepts.md) and
 **macOS and Linux.** Windows is not supported because a view dir is built from
 symlinks. Use WSL for the Linux build.
 
+Supported agent harness providers: **Claude Code**, **OpenCode**, and **OMP** (Oh My Pi).
+
 ## Documentation
 
 - [Concepts](docs/concepts.md) — Hall, Feature, Promotion, Session, and View Dir.

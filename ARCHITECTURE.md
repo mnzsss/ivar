@@ -155,11 +155,21 @@ src/
                    operating on one.
     credential.rs  git credential-helper protocol, for the token fallback
 
-  harness/         provider adapters
-    mod.rs         the Harness trait + closed enum dispatch + capability flags.
-                   Claude Code and OpenCode are variants here, not files —
-                   they differ by data (config path, argv, capabilities), and a
-                   file each would have held a match arm and nothing more.
+  providers/       provider adapters and native facts
+    mod.rs         the closed Provider dispatch facade: launch contracts, start
+                   commands, MCP server docs, managed artifacts, instruction surfaces,
+                   session projections, tool request parsing, guard outcomes,
+                   credential installation, and login commands.
+    claude_code/   Claude Code facts: launch flags, .mcp.json generation, hook
+                   script and settings.json managed artifacts, JSON guard outcome.
+    opencode/      OpenCode facts: launch flags, opencode.json generation, plugin
+                   materialisation, shell.env guard outcome, auth storage adapter.
+    omp/           OMP facts: launch flags, mcp.json generation with auth blocks,
+                   pre-hook script, JSON block/reason guard outcome, auth-broker
+                   adapter.
+
+  harness/         shared provider orchestration
+    mod.rs         shared orchestration module definitions.
     commands.rs    the shipped-command reconciliation: materialise/remove/
                    inspect against a session's harness config directory. It
                    is the module file *for* `commands/` — a sibling of the
@@ -168,14 +178,14 @@ src/
                    sources live, compiled in with include_str!. No command
                    content or file reconciliation lives in `bin/ivar.rs` or
                    `action`.
-    config/        per-harness config materialisation: instructions.rs owns
-                   the canonical `HALL.md` managed block and the provider
-                   root aliases (relative symlinks to `HALL.md`); mcp.rs owns
-                   the MCP document construction and the Claude/OpenCode
-                   translation; session.rs builds the session bootstrap block.
+    config/        shared config materialisation: instructions.rs owns
+                   the canonical `HALL.md` managed block, provider
+                   root aliases (relative symlinks to `HALL.md`), and shared
+                   `AGENTS.md` ownership; mcp.rs orchestrates MCP document
+                   construction and secret resolution; session.rs builds the
+                   session bootstrap block.
     opencode_auth.rs  read and write access to OpenCode's MCP OAuth credential
                    store (`mcp-auth.json`) for Figma tokens
-
   tui/             ratatui. Sync render, explicit drive.
     screen.rs      the Screen seam over vt100 — the emulator swap point
     widget.rs      pure deterministic projection of a snapshot into a Buffer
@@ -504,17 +514,18 @@ ADR-0001 §3.
 Tests never mock this. `tempfile::TempDir` plus a real `git init` is fast,
 hermetic, and tests the thing that actually ships.
 
-### 5. `harness::Harness` — trait plus closed enum
+### 5. `providers` facade — closed provider-first dispatch with shared orchestration
 
-The set of harnesses is known at compile time, so dispatch is a match over a
-closed enum, not a vtable. Each variant owns its command construction, its log
-normalisation, and its config file shape — MCP configuration differs per harness
-and is mapped centrally.
+The set of harnesses is known at compile time (`Provider::ALL`), so dispatch is
+a match over a closed enum via the `providers` facade (`src/providers/mod.rs`),
+not an open vtable or direct cross-module coupling. Action modules never import
+concrete provider modules (`claude_code`, `opencode`, `omp`) directly; all
+provider-native facts (launch argv, MCP schemas, hook scripts, guard encodings,
+and auth broker interactions) are private to their respective provider modules.
 
 Capabilities are **explicit flags**, not inferred: `supports_resume`,
 `supports_review`, and so on. A harness that cannot do something declares that,
-rather than pretending and failing at spawn time. There is a `raw` escape hatch at
-both ends.
+rather than pretending and failing at spawn time.
 
 ### 6. `tui`: pure widget, explicit driver
 

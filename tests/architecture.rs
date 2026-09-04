@@ -449,3 +449,46 @@ fn session_env_decisions_are_on_record() {
         );
     }
 }
+
+#[test]
+fn action_modules_do_not_import_concrete_providers() {
+    let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let action_dir = manifest.join("src/action");
+    let unit_action_dir = manifest.join("tests/unit/action");
+
+    let mut violations = Vec::new();
+    for dir in [action_dir, unit_action_dir] {
+        if !dir.is_dir() {
+            continue;
+        }
+        for file in rust_files(&dir) {
+            let content = std::fs::read_to_string(&file).unwrap();
+            for (line_idx, line) in content.lines().enumerate() {
+                let trimmed = line.trim();
+                if trimmed.starts_with("//")
+                    || trimmed.starts_with("/*")
+                    || trimmed.starts_with('*')
+                {
+                    continue;
+                }
+                if trimmed.contains("crate::providers::claude_code")
+                    || trimmed.contains("crate::providers::opencode")
+                    || trimmed.contains("crate::providers::omp")
+                {
+                    violations.push(format!(
+                        "{}:{}: direct import of concrete provider module is forbidden; use crate::providers facade",
+                        file.strip_prefix(manifest).unwrap().display(),
+                        line_idx + 1
+                    ));
+                }
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "Found direct concrete provider imports in action modules ({}):\n  {}",
+        violations.len(),
+        violations.join("\n  ")
+    );
+}

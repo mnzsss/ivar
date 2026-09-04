@@ -1024,7 +1024,7 @@ pub struct SkillDetachArgs {
 /// Arguments for `ivar provider add`.
 #[derive(Debug, Args)]
 pub struct ProviderAddArgs {
-    /// The provider's name (e.g. `claude-code`, `opencode`).
+    /// The provider's name (e.g. `claude-code`, `opencode`, `omp`).
     pub name: String,
 }
 

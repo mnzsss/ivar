@@ -3,6 +3,8 @@
 Two files change shape over time, and they have deliberately different rules.
 Knowing which is which is the whole of this page.
 
+`ivar.json` schema v4 adds discovered token and resource endpoint fields to pre-registered
+OAuth entries, allowing OMP to refresh OAuth tokens automatically via rendered `auth` blocks.
 | | local state | `ivar.json` |
 | --- | --- | --- |
 | where | `.ivar/` | the hall root |
