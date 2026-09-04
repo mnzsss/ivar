@@ -4,11 +4,11 @@ pub mod claude_code;
 pub mod omp;
 pub mod opencode;
 
-use camino::Utf8PathBuf;
 use crate::domain::mcp::McpServerDef;
 use crate::domain::provider::Provider;
 use crate::error::{Failure, FixAction};
 use crate::infra::proc::Command;
+use camino::Utf8PathBuf;
 
 /// A managed standalone file artifact owned by a provider.
 #[derive(Debug, Clone, PartialEq, Eq)]

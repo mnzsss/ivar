@@ -7,8 +7,8 @@
 )]
 
 use crate::domain::provider::Provider;
-use crate::harness::config::artifact::{reconcile_managed_artifact, remove_managed_artifact};
 use crate::harness::config::Change;
+use crate::harness::config::artifact::{reconcile_managed_artifact, remove_managed_artifact};
 use crate::infra::fs;
 use crate::providers;
 use crate::test_support::utf8_temp_dir;
@@ -82,5 +82,8 @@ fn user_owned_sibling_file_in_same_directory_survives() {
 
     remove_managed_artifact(&hook_path).unwrap();
     assert!(!hook_path.exists());
-    assert!(user_hook.exists(), "User file in same directory must never be deleted");
+    assert!(
+        user_hook.exists(),
+        "User file in same directory must never be deleted"
+    );
 }

@@ -8,7 +8,7 @@ use super::{Change, Error};
 ///
 /// Returns [`Change::Created`] if newly created, [`Change::Updated`] if bytes changed,
 /// or [`Change::Unchanged`] if on-disk contents already match.
-pub fn reconcile_managed_artifact(path: &Utf8Path, contents: &str) -> Result<Change, Error> {
+pub(crate) fn reconcile_managed_artifact(path: &Utf8Path, contents: &str) -> Result<Change, Error> {
     let existing = fs::read_text(path).map_err(|source| Error::Artifact {
         path: path.to_owned(),
         source,
@@ -38,7 +38,7 @@ pub fn reconcile_managed_artifact(path: &Utf8Path, contents: &str) -> Result<Cha
 }
 
 /// Remove a managed artifact at `path`. Absent file is [`Change::Unchanged`].
-pub fn remove_managed_artifact(path: &Utf8Path) -> Result<Change, Error> {
+pub(crate) fn remove_managed_artifact(path: &Utf8Path) -> Result<Change, Error> {
     if !path.exists() {
         return Ok(Change::Unchanged);
     }
