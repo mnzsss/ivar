@@ -235,9 +235,14 @@ impl JsonSchema for Provider {
     }
 
     fn json_schema(_generator: &mut schemars::SchemaGenerator) -> Schema {
+        // Derived from `ALL`, never written out. A hand-kept second copy of
+        // the wire strings is the drift this type exists to prevent, and the
+        // copy that stood here had already lost `omp`: the binary accepted a
+        // provider the published schema rejected.
+        let ids: Vec<&'static str> = Self::ALL.iter().map(|provider| provider.id()).collect();
         json_schema!({
             "type": "string",
-            "enum": ["claude-code", "opencode"],
+            "enum": ids,
             "description": "Which harnesses ivar can open a session in."
         })
     }

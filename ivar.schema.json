@@ -91,7 +91,8 @@
       "description": "Which harnesses ivar can open a session in.",
       "enum": [
         "claude-code",
-        "opencode"
+        "opencode",
+        "omp"
       ],
       "type": "string"
     },

@@ -164,20 +164,30 @@ fn all_object_types_in_defs_are_closed() {
 
 // -- provider and integration enums --------------------------------------
 
+/// The published enum is every variant `Provider::ALL` carries, not a subset.
+/// Asserting membership of a few literals is what let `omp` ship missing:
+/// the schema rejected a provider `Provider::from_str` accepts.
 #[test]
-fn provider_enum_values() {
+fn provider_enum_is_exactly_every_supported_provider() {
     let s = schema();
     let defs = s.get("$defs").expect("must have $defs");
     let provider = defs.get("Provider").expect("must have Provider in $defs");
 
-    let values: Vec<&str> = provider
+    let published: Vec<&str> = provider
         .get("enum")
         .and_then(Value::as_array)
         .map(|arr| arr.iter().filter_map(Value::as_str).collect())
         .unwrap_or_default();
 
-    assert!(values.contains(&"claude-code"), "must include claude-code");
-    assert!(values.contains(&"opencode"), "must include opencode");
+    let supported: Vec<&str> = crate::domain::provider::Provider::ALL
+        .iter()
+        .map(|provider| provider.id())
+        .collect();
+
+    assert_eq!(
+        published, supported,
+        "the published enum must be every provider the binary accepts"
+    );
 }
 
 #[test]
