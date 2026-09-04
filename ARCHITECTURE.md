@@ -116,7 +116,9 @@ src/
                    mod.rs, with its Error and Failure conversion in error.rs
     manifest/      ivar.json — committed, NEVER auto-migrates. model.rs owns
                    the data and invariants, persistence.rs the read/write/plan/
-                   migrate, error.rs the Error and its Failure conversion.
+                   migrate, error.rs the Error and its Failure conversion,
+                   schema.rs the published ivar.schema.json, generated from the
+                   same types so the two cannot disagree.
     layout.rs      every path under a hall is computed here, nowhere else —
                    including `<hall>/plans/` (`plans_root()`), the canonical
                    `HALL.md`, and each provider's root alias (`CLAUDE.md` /
