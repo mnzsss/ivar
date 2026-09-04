@@ -312,6 +312,71 @@ pub fn discover_oauth_endpoints(server_url: &str) -> Result<OAuthEndpoints, Fail
     Ok(endpoints)
 }
 
+/// Register an OAuth client at `registration_endpoint` (RFC 7591).
+///
+/// The endpoint is what the authorization server advertised in its RFC 8414
+/// metadata — never a constant, and never a caller-supplied URL. A
+/// registration is not an authentication: it only obtains a `client_id`.
+pub fn register_client(
+    registration_endpoint: &str,
+    redirect_uri: &str,
+    client_name: &str,
+) -> Result<ClientInfo, Failure> {
+    let body = serde_json::json!({
+        "client_name": client_name,
+        "redirect_uris": [redirect_uri],
+        "grant_types": ["authorization_code", "refresh_token"],
+        "response_types": ["code"],
+        "token_endpoint_auth_method": "none",
+    });
+    let body = serde_json::to_string(&body).map_err(|e| {
+        Failure::failed(
+            "mcp_oauth.register_client_encode",
+            format!("could not encode registration request: {e}"),
+        )
+    })?;
+
+    let response = ureq::post(registration_endpoint)
+        .config()
+        .http_status_as_error(false)
+        .build()
+        .header("Content-Type", "application/json")
+        .send(body)
+        .map_err(|e| {
+            Failure::failed(
+                "mcp_oauth.register_client",
+                format!("could not register OAuth client: {e}"),
+            )
+            .expected("the registration endpoint to accept the request")
+            .actual(format!("HTTP error: {e}"))
+        })?;
+
+    let status = response.status();
+    let body = read_body(response.into_body().as_reader())?;
+    if !status.is_success() {
+        return Err(Failure::failed(
+            "mcp_oauth.register_client_http",
+            format!("the registration endpoint returned {status}"),
+        )
+        .expected("HTTP 2xx")
+        .actual(body));
+    }
+    parse_registration_response(&body)
+}
+
+/// Parse an RFC 7591 registration response. Pure: no network, so the
+/// public/confidential decision is unit-testable offline.
+pub(crate) fn parse_registration_response(body: &str) -> Result<ClientInfo, Failure> {
+    serde_json::from_str(body).map_err(|e| {
+        Failure::failed(
+            "mcp_oauth.register_client_parse",
+            format!("could not parse registration response: {e}"),
+        )
+        .expected("a JSON object with client_id")
+        .actual(body.to_owned())
+    })
+}
+
 #[cfg(test)]
 #[path = "../../tests/unit/infra/mcp_oauth.rs"]
 mod tests;

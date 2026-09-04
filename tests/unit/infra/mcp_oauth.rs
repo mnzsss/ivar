@@ -165,3 +165,39 @@ fn authorization_metadata_without_a_registration_endpoint_is_still_valid() {
     let endpoints = parse_authorization_metadata(json).expect("registration_endpoint is optional");
     assert_eq!(endpoints.registration_endpoint, None);
 }
+
+#[test]
+fn a_registration_without_a_secret_is_a_public_client() {
+    let body = r#"{
+        "client_id": "Uk1eiX5O6ndVHwo_",
+        "redirect_uris": ["http://127.0.0.1:19876/callback"],
+        "token_endpoint_auth_method": "none",
+        "client_id_issued_at": 1788544707
+    }"#;
+    let info = parse_registration_response(body).expect("a valid RFC 7591 response");
+    assert_eq!(info.client_id, "Uk1eiX5O6ndVHwo_");
+    assert_eq!(info.client_secret, None);
+    assert_eq!(info.auth_mode(), crate::infra::oauth::AuthMode::None);
+}
+
+#[test]
+fn a_registration_carrying_a_secret_is_confidential_even_when_it_says_none() {
+    let body = r#"{
+        "client_id": "abc",
+        "client_secret": "shh",
+        "token_endpoint_auth_method": "none"
+    }"#;
+    let info = parse_registration_response(body).expect("a valid RFC 7591 response");
+    assert_eq!(
+        info.auth_mode(),
+        crate::infra::oauth::AuthMode::ClientSecretPost,
+        "a response carrying a secret is confidential regardless of what it claims"
+    );
+}
+
+#[test]
+fn a_registration_response_that_is_not_json_names_the_generic_module() {
+    let failure = parse_registration_response("<html>502</html>")
+        .expect_err("HTML is not a registration response");
+    assert_eq!(failure.code, "mcp_oauth.register_client_parse");
+}
