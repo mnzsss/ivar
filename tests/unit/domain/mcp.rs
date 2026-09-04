@@ -207,3 +207,24 @@ fn the_args_without_command_variant_displays_a_user_friendly_message() {
         "using `local` transport with `args` must also have a `command`"
     );
 }
+
+#[test]
+fn a_public_client_carries_no_secret_env_name() {
+    let def = McpServerDef::new("linear", "http")
+        .url("https://mcp.linear.app/mcp")
+        .oauth(McpOauth::public("Uk1eiX5O6ndVHwo_"));
+
+    let rendered = serde_json::to_value(&def).unwrap();
+    assert_eq!(rendered["oauth"]["client_id"], "Uk1eiX5O6ndVHwo_");
+    assert!(
+        rendered["oauth"]
+            .as_object()
+            .unwrap()
+            .get("client_secret_env")
+            .is_none(),
+        "a public client must not carry the key at all"
+    );
+
+    let parsed: McpServerDef = serde_json::from_value(rendered).unwrap();
+    assert_eq!(parsed, def);
+}

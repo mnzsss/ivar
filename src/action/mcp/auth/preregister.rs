@@ -1,8 +1,7 @@
-//! Step 2 of `ivar mcp auth`: pre-register an OAuth client with Figma when
-//! (and only when) the provider is OpenCode and the manifest's entry has no
-//! usable registration yet. See `auth/mod.rs`'s module doc comment for how
-//! this fits into the three-step narrative and the secret-handoff contract
-//! (`R-SECRET-HANDOFF`).
+//! Step 2 of `ivar mcp auth`: pre-register an OAuth client when the
+//! manifest's entry has no usable registration yet. See `auth/mod.rs`'s
+//! module doc comment for how this fits into the three-step narrative and the
+//! secret-handoff contract (`R-SECRET-HANDOFF`).
 
 use super::Preregistration;
 use crate::domain::mcp::{McpOauth, McpServerDef};
@@ -58,58 +57,67 @@ impl Preregistered {
 ///
 /// A successful registration persists the secret to `.ivar/secrets/mcp.env`,
 /// writes back to `ivar.json`, and re-materialises `opencode.json` before returning.
+const CLIENT_NAME: &str = "ivar";
+
 pub(super) fn preregister_if_needed(
     layout: &Layout,
     manifest: &Manifest,
     provider: Provider,
     server: &McpServerDef,
     materialised_name: &str,
-    endpoints: Option<&crate::infra::figma::OAuthEndpoints>,
+    endpoints: Option<&crate::infra::mcp_oauth::OAuthEndpoints>,
 ) -> Result<Preregistered, Failure> {
+    // A usable client registration already on the manifest: skip outright,
+    // never re-register (`R-IDEMPOTENT`) — a second run must leave a working
+    // registration alone. Resolve the secret from environment or local store.
+    if let Some(oauth) = &server.oauth {
+        let (secret, auth_mode) = match &oauth.client_secret_env {
+            Some(var) => {
+                let val = resolve_secret(layout, var, &server.name)?;
+                (Some((var.clone(), val)), AuthMode::ClientSecretPost)
+            }
+            None => (None, AuthMode::None),
+        };
+        return Ok(Preregistered {
+            report: Preregistration::Skipped,
+            client_id: Some(oauth.client_id.clone()),
+            secret,
+            auth_mode,
+        });
+    }
+
     let Some(url) = server.url.as_deref() else {
         return Ok(Preregistered::not_needed());
     };
     let Some(host) = host_of(url) else {
         return Ok(Preregistered::not_needed());
     };
-    if !figma::needs_preregistration(host) {
-        return Ok(Preregistered::not_needed());
-    }
-    // A usable client registration already on the manifest: skip outright,
-    // never re-register (`R-IDEMPOTENT`) — a second run must leave a working
-    // registration alone. Resolve the secret from environment or local store.
-    if let Some(oauth) = &server.oauth {
-        let val = resolve_secret(layout, &oauth.client_secret_env, &server.name)?;
-        return Ok(Preregistered {
-            report: Preregistration::Skipped,
-            client_id: Some(oauth.client_id.clone()),
-            secret: Some((oauth.client_secret_env.clone(), val)),
-            auth_mode: AuthMode::ClientSecretPost,
-        });
-    }
 
-    let registered = figma::register_client(crate::infra::http_callback::OAUTH_REDIRECT_URI)?;
-    let client_secret = registered.client_secret.clone().ok_or_else(|| {
-        Failure::failed(
-            "mcp.figma_no_client_secret",
-            format!(
-                "Figma's registration for `{}` returned no client_secret",
-                server.name
-            ),
-        )
-        .expected(
-            "a client_secret in the registration response — Figma's token endpoint requires \
-             one despite the registration echoing `token_endpoint_auth_method: \"none\"` \
-             (measured 2026-08-26)",
-        )
-        .actual("client_secret absent")
-    })?;
+    // Figma refuses a generic registration: its allowlist checks
+    // `client_name`, so it gets its own registrar. Every other server is
+    // registered against the endpoint its own metadata advertised.
+    let registered = if figma::needs_preregistration(host) {
+        figma::register_client(crate::infra::http_callback::OAUTH_REDIRECT_URI)?
+    } else {
+        let Some(endpoint) = endpoints.and_then(|ep| ep.registration_endpoint.as_deref()) else {
+            return Ok(Preregistered::not_needed());
+        };
+        crate::infra::mcp_oauth::register_client(
+            endpoint,
+            crate::infra::http_callback::OAUTH_REDIRECT_URI,
+            CLIENT_NAME,
+        )?
+    };
 
-    let secret_env = secret_env_var(materialised_name);
     let auth_mode = registered.auth_mode();
-
-    // Persist to local secret store before modifying manifest or provider configs
-    McpSecrets::set_and_write(layout, &secret_env, &client_secret)?;
+    let secret_env = match &registered.client_secret {
+        Some(secret) => {
+            let var = secret_env_var(materialised_name);
+            McpSecrets::set_and_write(layout, &var, secret)?;
+            Some((var, secret.clone()))
+        }
+        None => None,
+    };
 
     let updated_servers: Vec<McpServerDef> = manifest
         .mcp_servers()
@@ -118,7 +126,7 @@ pub(super) fn preregister_if_needed(
             if existing.name == server.name {
                 existing.clone().oauth(oauth_registration(
                     &registered.client_id,
-                    &secret_env,
+                    secret_env.as_ref().map(|(var, _)| var.as_str()),
                     endpoints,
                 ))
             } else {
@@ -142,7 +150,7 @@ pub(super) fn preregister_if_needed(
             client_id: registered.client_id.clone(),
         },
         client_id: Some(registered.client_id),
-        secret: Some((secret_env, client_secret)),
+        secret: secret_env,
         auth_mode,
     })
 }
@@ -156,10 +164,13 @@ pub(super) fn preregister_if_needed(
 /// refresh work, so its absence means the caller skipped discovery entirely.
 fn oauth_registration(
     client_id: &str,
-    secret_env: &str,
-    endpoints: Option<&crate::infra::figma::OAuthEndpoints>,
+    secret_env: Option<&str>,
+    endpoints: Option<&crate::infra::mcp_oauth::OAuthEndpoints>,
 ) -> McpOauth {
-    let mut oauth = McpOauth::new(client_id, secret_env);
+    let mut oauth = match secret_env {
+        Some(var) => McpOauth::new(client_id, var),
+        None => McpOauth::public(client_id),
+    };
     if let Some(ep) = endpoints {
         oauth = oauth.token_url(&ep.token_endpoint);
         if let Some(res) = &ep.resource {

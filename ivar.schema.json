@@ -63,8 +63,11 @@
           "type": "string"
         },
         "client_secret_env": {
-          "description": "The name of the environment variable that holds the client secret at\nruntime.",
-          "type": "string"
+          "description": "The name of the environment variable that holds the client secret at\nruntime. Absent for a public client, which has no secret: a\nregistration answering `token_endpoint_auth_method: \"none\"` issues\nnone, and PKCE alone authenticates the exchange.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "resource": {
           "description": "The server's discovered OAuth resource identifier, when known.",
@@ -82,8 +85,7 @@
         }
       },
       "required": [
-        "client_id",
-        "client_secret_env"
+        "client_id"
       ],
       "type": "object"
     },
@@ -227,8 +229,11 @@
                     "type": "string"
                   },
                   "client_secret_env": {
-                    "description": "The name of the environment variable that holds the client secret at\nruntime.",
-                    "type": "string"
+                    "description": "The name of the environment variable that holds the client secret at\nruntime. Absent for a public client, which has no secret: a\nregistration answering `token_endpoint_auth_method: \"none\"` issues\nnone, and PKCE alone authenticates the exchange.",
+                    "type": [
+                      "string",
+                      "null"
+                    ]
                   },
                   "resource": {
                     "description": "The server's discovered OAuth resource identifier, when known.",
@@ -246,8 +251,7 @@
                   }
                 },
                 "required": [
-                  "client_id",
-                  "client_secret_env"
+                  "client_id"
                 ],
                 "type": "object"
               },
@@ -303,8 +307,11 @@
                     "type": "string"
                   },
                   "client_secret_env": {
-                    "description": "The name of the environment variable that holds the client secret at\nruntime.",
-                    "type": "string"
+                    "description": "The name of the environment variable that holds the client secret at\nruntime. Absent for a public client, which has no secret: a\nregistration answering `token_endpoint_auth_method: \"none\"` issues\nnone, and PKCE alone authenticates the exchange.",
+                    "type": [
+                      "string",
+                      "null"
+                    ]
                   },
                   "resource": {
                     "description": "The server's discovered OAuth resource identifier, when known.",
@@ -322,8 +329,7 @@
                   }
                 },
                 "required": [
-                  "client_id",
-                  "client_secret_env"
+                  "client_id"
                 ],
                 "type": "object"
               },

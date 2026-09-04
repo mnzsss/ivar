@@ -5,7 +5,7 @@
 //! comment for the three-step narrative this completes.
 //!
 //! Additionally, this module owns the internal-flow path for OpenCode + Figma:
-//! [`attempt`] dispatches to [`figma_oauth::run_internal_flow`] instead of
+//! [`attempt`] dispatches to [`flow::run_internal_flow`] instead of
 //! `proc::inherit` when the provider is OpenCode and the server host is on
 //! Figma's pre-registration allowlist.
 
@@ -20,7 +20,7 @@ use crate::store::manifest::Manifest;
 use super::preregister::{Preregistered, host_of, preregister_if_needed};
 use super::{AuthMethod, Preregistration, ProviderRun};
 
-use super::figma_oauth;
+use super::flow;
 
 /// Steps 2 and 3 for one provider, run exactly once. Both
 /// [`try_run_provider`] (the single-provider path, which propagates a
@@ -34,12 +34,23 @@ pub(super) struct Attempt {
     outcome: Result<(), Failure>,
 }
 
+/// Whether this provider authenticates through Ivar's own OAuth flow rather
+/// than its harness's login command.
+///
+/// `omp` always does, for any server Ivar can discover: it exposes no `mcp`
+/// subcommand at all (measured against omp/18.1.10), so there is nothing to
+/// delegate to. `opencode` does only where its own dynamic client
+/// registration is refused — its login command works everywhere else, and a
+/// working path is not worth replacing. `claude-code` never does.
 fn provider_is_internal_flow(provider: Provider, server: &McpServerDef) -> bool {
-    matches!(provider, Provider::OpenCode | Provider::Omp)
-        && server
-            .url
-            .as_deref()
-            .is_some_and(|u| host_of(u).is_some_and(figma::needs_preregistration))
+    let Some(url) = server.url.as_deref() else {
+        return false;
+    };
+    match provider {
+        Provider::Omp => true,
+        Provider::OpenCode => host_of(url).is_some_and(figma::needs_preregistration),
+        Provider::ClaudeCode => false,
+    }
 }
 
 fn attempt(
@@ -125,13 +136,7 @@ fn attempt_internal_flow(
     materialised_name: &str,
     provider: Provider,
 ) -> Attempt {
-    match figma_oauth::run_internal_flow_inner(
-        layout,
-        manifest,
-        server,
-        materialised_name,
-        provider,
-    ) {
+    match flow::run_internal_flow_inner(layout, manifest, server, materialised_name, provider) {
         Ok(run) => Attempt {
             preregistration: run.preregistration.clone(),
             command: run.command.clone(),

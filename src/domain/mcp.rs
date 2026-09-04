@@ -274,8 +274,11 @@ pub struct McpOauth {
     /// The `client_id` a registration issued. Not a secret.
     pub client_id: String,
     /// The name of the environment variable that holds the client secret at
-    /// runtime.
-    pub client_secret_env: String,
+    /// runtime. Absent for a public client, which has no secret: a
+    /// registration answering `token_endpoint_auth_method: "none"` issues
+    /// none, and PKCE alone authenticates the exchange.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_secret_env: Option<String>,
     /// The server's discovered OAuth token endpoint URL, when known.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub token_url: Option<String>,
@@ -290,7 +293,18 @@ impl McpOauth {
     pub fn new(client_id: impl Into<String>, client_secret_env: impl Into<String>) -> Self {
         Self {
             client_id: client_id.into(),
-            client_secret_env: client_secret_env.into(),
+            client_secret_env: Some(client_secret_env.into()),
+            token_url: None,
+            resource: None,
+        }
+    }
+
+    /// A public client: registered, but issued no secret.
+    #[must_use]
+    pub fn public(client_id: impl Into<String>) -> Self {
+        Self {
+            client_id: client_id.into(),
+            client_secret_env: None,
             token_url: None,
             resource: None,
         }

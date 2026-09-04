@@ -33,7 +33,9 @@ pub fn inject_session_mcp_secrets(
         let Some(oauth) = &server.oauth else {
             continue;
         };
-        let var = &oauth.client_secret_env;
+        let Some(var) = &oauth.client_secret_env else {
+            continue;
+        };
         if let Ok(val) = std::env::var(var) {
             command = command.env(var.clone(), val);
         } else if let Some(stored_val) = secrets.as_ref().and_then(|s| s.get(var)) {

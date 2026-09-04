@@ -8,14 +8,14 @@ use std::time::Duration;
 
 use crate::action::mcp::auth::{
     AuthMethod, Preregistration, ProviderRun,
-    figma_oauth::{self, FlowOps},
+    flow::{self, FlowOps},
     preregister::Preregistered,
 };
 use crate::domain::mcp::McpServerDef;
 use crate::domain::provider::Provider;
 use crate::error::Failure;
-use crate::infra::figma::{self, OAuthEndpoints};
 use crate::infra::http_callback::{AuthorizationCode, CallbackServer};
+use crate::infra::mcp_oauth::{self, DiscoveryOutcome, OAuthEndpoints};
 use crate::infra::oauth::{self, AuthMode, Tokens};
 use crate::providers::Credential;
 
@@ -37,19 +37,19 @@ fn discover_oauth_endpoints_pure_parsing() {
     let header = r#"Bearer realm="Figma", resource_metadata="https://mcp.figma.com/.well-known/oauth-protected-resource""#;
     // Verify the parser extracts the resource_metadata URL from the header.
     assert_eq!(
-        figma::parse_www_authenticate_resource_metadata(header),
+        mcp_oauth::parse_www_authenticate_resource_metadata(header),
         Some("https://mcp.figma.com/.well-known/oauth-protected-resource".to_owned())
     );
     let resource_json = r#"{"authorization_servers":["https://www.figma.com/oauth"],"resource":"https://api.figma.com","scopes_supported":["file_read"]}"#;
     let (authorization_server, resource) =
-        figma::parse_resource_metadata(resource_json).expect("parse resource");
+        mcp_oauth::parse_resource_metadata(resource_json).expect("parse resource");
     assert_eq!(authorization_server, "https://www.figma.com/oauth");
     assert_eq!(resource, Some("https://api.figma.com".to_owned()));
     // Note: scopes_supported is not returned by parse_resource_metadata, it's in the auth metadata
 
     // And: fetching the authorization server metadata
     let auth_json = r#"{"authorization_endpoint":"https://www.figma.com/oauth/authorize","token_endpoint":"https://www.figma.com/oauth/token","scopes_supported":["file_read"]}"#;
-    let endpoints = figma::parse_authorization_metadata(auth_json).expect("parse auth");
+    let endpoints = mcp_oauth::parse_authorization_metadata(auth_json).expect("parse auth");
     assert_eq!(
         endpoints.authorization_endpoint,
         "https://www.figma.com/oauth/authorize"
@@ -167,7 +167,7 @@ impl FlowOps for MockOps {
     fn provider(&self) -> Provider {
         self.provider
     }
-    fn check_conflict(&self, _: &str) -> Result<bool, Failure> {
+    fn check_conflict(&self, _: &str, _: &str) -> Result<bool, Failure> {
         self.events.borrow_mut().push(PipelineEvent::ConflictCheck);
         if self.fail_at == Some(PipelineEvent::ConflictCheck) {
             return Err(Failure::failed("fail", "fail"));
@@ -199,12 +199,12 @@ impl FlowOps for MockOps {
             },
         })
     }
-    fn discover(&self, _: &str) -> Result<OAuthEndpoints, Failure> {
+    fn discover(&self, _: &str) -> Result<DiscoveryOutcome, Failure> {
         self.events.borrow_mut().push(PipelineEvent::Discover);
         if self.fail_at == Some(PipelineEvent::Discover) {
             return Err(Failure::failed("fail", "fail"));
         }
-        Ok(OAuthEndpoints {
+        Ok(DiscoveryOutcome::Endpoints(OAuthEndpoints {
             authorization_endpoint: "a".to_owned(),
             token_endpoint: self
                 .token_endpoint
@@ -212,7 +212,8 @@ impl FlowOps for MockOps {
                 .unwrap_or_else(|| "t".to_owned()),
             resource: None,
             scopes_supported: None,
-        })
+            registration_endpoint: None,
+        }))
     }
     fn bind(&self, _: &str) -> Result<CallbackServer, Failure> {
         self.events.borrow_mut().push(PipelineEvent::Bind);
@@ -294,7 +295,7 @@ fn conflict_is_checked_before_any_side_effect() {
         ..Default::default()
     };
     let server = McpServerDef::new("figma", "http").url("https://mcp.figma.com/mcp");
-    let _ = figma_oauth::run_internal_flow_pipeline(&ops, &server, "figma");
+    let _ = flow::run_internal_flow_pipeline(&ops, &server, "figma");
     assert_eq!(*ops.events.borrow(), vec![PipelineEvent::ConflictCheck]);
 }
 
@@ -306,7 +307,7 @@ fn discovery_failure_does_not_write_credentials() {
         ..Default::default()
     };
     let server = McpServerDef::new("figma", "http").url("https://mcp.figma.com/mcp");
-    let _ = figma_oauth::run_internal_flow_pipeline(&ops, &server, "figma");
+    let _ = flow::run_internal_flow_pipeline(&ops, &server, "figma");
     assert!(ops.written.borrow().is_none());
 }
 
@@ -318,7 +319,7 @@ fn callback_failure_does_not_write_credentials() {
         ..Default::default()
     };
     let server = McpServerDef::new("figma", "http").url("https://mcp.figma.com/mcp");
-    let _ = figma_oauth::run_internal_flow_pipeline(&ops, &server, "figma");
+    let _ = flow::run_internal_flow_pipeline(&ops, &server, "figma");
     assert!(ops.written.borrow().is_none());
 }
 
@@ -330,7 +331,7 @@ fn exchange_failure_does_not_write_credentials() {
         ..Default::default()
     };
     let server = McpServerDef::new("figma", "http").url("https://mcp.figma.com/mcp");
-    let _ = figma_oauth::run_internal_flow_pipeline(&ops, &server, "figma");
+    let _ = flow::run_internal_flow_pipeline(&ops, &server, "figma");
     assert!(ops.written.borrow().is_none());
 }
 
@@ -342,7 +343,7 @@ fn successful_flow_runs_in_contract_order() {
         ..Default::default()
     };
     let server = McpServerDef::new("figma", "http").url("https://mcp.figma.com/mcp");
-    let _ = figma_oauth::run_internal_flow_pipeline(&ops, &server, "figma");
+    let _ = flow::run_internal_flow_pipeline(&ops, &server, "figma");
     assert_eq!(
         *ops.events.borrow(),
         vec![
@@ -368,7 +369,7 @@ fn internal_flow_threads_omp_provider_through_to_credential_installer() {
         ..Default::default()
     };
     let server = McpServerDef::new("figma", "http").url("https://mcp.figma.com/mcp");
-    let run = figma_oauth::run_internal_flow_pipeline(&ops, &server, "figma").unwrap();
+    let run = flow::run_internal_flow_pipeline(&ops, &server, "figma").unwrap();
     assert_eq!(run.provider, Provider::Omp);
     assert_eq!(ops.provider(), Provider::Omp);
     assert!(ops.written.borrow().is_some());
@@ -382,7 +383,7 @@ fn successful_flow_builds_complete_credential() {
         ..Default::default()
     };
     let server = McpServerDef::new("figma", "http").url("https://mcp.figma.com/mcp");
-    let _ = figma_oauth::run_internal_flow_pipeline(&ops, &server, "figma");
+    let _ = flow::run_internal_flow_pipeline(&ops, &server, "figma");
     assert!(ops.written.borrow().is_some());
     let (server_url, client_id, client_secret, tokens) = ops.written.borrow().clone().unwrap();
     assert_eq!(server_url, "https://mcp.figma.com/mcp");
@@ -445,7 +446,7 @@ fn figma_like_token_endpoint() -> String {
 
 #[test]
 fn fresh_figma_registration_sends_the_client_secret_to_the_token_endpoint() {
-    let info: figma::ClientInfo = serde_json::from_str(FIGMA_REGISTRATION_RESPONSE).unwrap();
+    let info: mcp_oauth::ClientInfo = serde_json::from_str(FIGMA_REGISTRATION_RESPONSE).unwrap();
     let ops = MockOps {
         prereg: Some(Preregistered {
             report: Preregistration::Registered {
@@ -463,11 +464,65 @@ fn fresh_figma_registration_sends_the_client_secret_to_the_token_endpoint() {
     };
 
     let server = McpServerDef::new("figma", "http").url("https://mcp.figma.com/mcp");
-    let result = figma_oauth::run_internal_flow_pipeline(&ops, &server, "figma");
+    let result = flow::run_internal_flow_pipeline(&ops, &server, "figma");
 
     assert!(
         result.is_ok(),
         "token exchange rejected: {:?}",
         result.err().map(|f| f.what)
+    );
+}
+
+#[test]
+fn every_advertised_scope_reaches_the_authorize_url() {
+    let endpoints = OAuthEndpoints {
+        authorization_endpoint: "https://mcp.linear.app/authorize".to_owned(),
+        token_endpoint: "https://mcp.linear.app/token".to_owned(),
+        resource: None,
+        scopes_supported: Some(vec!["read".to_owned(), "write".to_owned()]),
+        registration_endpoint: None,
+    };
+
+    let url = crate::infra::oauth::authorize_url(
+        &endpoints.authorization_endpoint,
+        "client-123",
+        "http://127.0.0.1:19876/callback",
+        &crate::infra::oauth::State("st".to_owned()),
+        &crate::infra::oauth::CodeChallenge("ch".to_owned()),
+        endpoints.resource.as_deref(),
+        flow::scope_parameter(&endpoints).as_deref(),
+    );
+
+    assert!(
+        url.contains("scope=read%20write"),
+        "every advertised scope must be requested, not just the first — got {url}"
+    );
+}
+
+#[test]
+fn a_server_advertising_no_scopes_sends_no_scope_parameter() {
+    let endpoints = OAuthEndpoints {
+        authorization_endpoint: "https://mcp.figma.com/authorize".to_owned(),
+        token_endpoint: "https://mcp.figma.com/token".to_owned(),
+        resource: None,
+        scopes_supported: None,
+        registration_endpoint: None,
+    };
+    assert_eq!(flow::scope_parameter(&endpoints), None);
+}
+
+#[test]
+fn an_empty_scope_list_sends_no_scope_parameter() {
+    let endpoints = OAuthEndpoints {
+        authorization_endpoint: "https://example.com/authorize".to_owned(),
+        token_endpoint: "https://example.com/token".to_owned(),
+        resource: None,
+        scopes_supported: Some(vec![]),
+        registration_endpoint: None,
+    };
+    assert_eq!(
+        flow::scope_parameter(&endpoints),
+        None,
+        "an empty list is not a scope request for the empty string"
     );
 }

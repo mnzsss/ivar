@@ -48,14 +48,19 @@ pub(crate) fn server_doc(
     // Claude Code never reaches this: it is on Figma's allowlist and
     // needs no pre-registration (R-SECRET-HANDOFF, R-NO-SECRETS).
     if let Some(oauth) = &server.oauth {
-        object.insert(
-            "oauth".to_owned(),
-            serde_json::json!({
-                "clientId": oauth.client_id,
-                "clientSecret": format!("{{env:{}}}", oauth.client_secret_env),
-                "redirectUri": OAUTH_REDIRECT_URI,
-            }),
+        let mut block = serde_json::Map::new();
+        block.insert("clientId".to_owned(), serde_json::json!(oauth.client_id));
+        if let Some(secret_env) = &oauth.client_secret_env {
+            block.insert(
+                "clientSecret".to_owned(),
+                serde_json::json!(format!("{{env:{secret_env}}}")),
+            );
+        }
+        block.insert(
+            "redirectUri".to_owned(),
+            serde_json::json!(OAUTH_REDIRECT_URI),
         );
+        object.insert("oauth".to_owned(), serde_json::Value::Object(block));
     }
     serde_json::Value::Object(object)
 }

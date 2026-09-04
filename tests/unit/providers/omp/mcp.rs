@@ -92,3 +92,21 @@ fn server_url_keeps_query_string_byte_for_byte() {
     let doc = server_doc("acme-figma", &server, McpTransport::Http);
     assert_eq!(doc["url"], url);
 }
+
+#[test]
+fn a_public_client_renders_an_auth_block_without_a_client_secret() {
+    let server = McpServerDef::new("linear", "http")
+        .url("https://mcp.linear.app/mcp")
+        .oauth(McpOauth::public("Uk1eiX5O6ndVHwo_").token_url("https://mcp.linear.app/token"));
+
+    let doc = server_doc("linear", &server, McpTransport::Http);
+    let auth = doc
+        .get("auth")
+        .expect("token_url present means an auth block");
+    assert_eq!(auth["clientId"], "Uk1eiX5O6ndVHwo_");
+    assert_eq!(auth["tokenUrl"], "https://mcp.linear.app/token");
+    assert!(
+        auth.as_object().unwrap().get("clientSecret").is_none(),
+        "a public client has no secret to reference"
+    );
+}

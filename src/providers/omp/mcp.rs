@@ -35,10 +35,12 @@ pub(crate) fn server_doc(
         let mut auth = serde_json::Map::new();
         auth.insert("type".to_owned(), serde_json::json!("oauth"));
         auth.insert("clientId".to_owned(), serde_json::json!(oauth.client_id));
-        auth.insert(
-            "clientSecret".to_owned(),
-            serde_json::json!(format!("${{{}}}", oauth.client_secret_env)),
-        );
+        if let Some(secret_env) = &oauth.client_secret_env {
+            auth.insert(
+                "clientSecret".to_owned(),
+                serde_json::json!(format!("${{{secret_env}}}")),
+            );
+        }
         auth.insert("tokenUrl".to_owned(), serde_json::json!(token_url));
         if let Some(resource) = &oauth.resource {
             auth.insert("resource".to_owned(), serde_json::json!(resource));
