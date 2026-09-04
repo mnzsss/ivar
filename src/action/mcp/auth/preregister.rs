@@ -64,10 +64,8 @@ pub(super) fn preregister_if_needed(
     provider: Provider,
     server: &McpServerDef,
     materialised_name: &str,
+    endpoints: Option<&crate::infra::figma::OAuthEndpoints>,
 ) -> Result<Preregistered, Failure> {
-    if provider != Provider::OpenCode {
-        return Ok(Preregistered::not_needed());
-    }
     let Some(url) = server.url.as_deref() else {
         return Ok(Preregistered::not_needed());
     };
@@ -77,7 +75,6 @@ pub(super) fn preregister_if_needed(
     if !figma::needs_preregistration(host) {
         return Ok(Preregistered::not_needed());
     }
-
     // A usable client registration already on the manifest: skip outright,
     // never re-register (`R-IDEMPOTENT`) — a second run must leave a working
     // registration alone. Resolve the secret from environment or local store.
@@ -119,10 +116,14 @@ pub(super) fn preregister_if_needed(
         .iter()
         .map(|existing| {
             if existing.name == server.name {
-                existing.clone().oauth(McpOauth::new(
-                    registered.client_id.clone(),
-                    secret_env.clone(),
-                ))
+                let mut oauth = McpOauth::new(registered.client_id.clone(), secret_env.clone());
+                if let Some(ep) = endpoints {
+                    oauth = oauth.token_url(&ep.token_endpoint);
+                    if let Some(res) = &ep.resource {
+                        oauth = oauth.resource(res);
+                    }
+                }
+                existing.clone().oauth(oauth)
             } else {
                 existing.clone()
             }
@@ -131,10 +132,10 @@ pub(super) fn preregister_if_needed(
     let updated_manifest = manifest.with_mcp_servers(updated_servers)?;
     Manifest::write(layout, &updated_manifest)?;
 
-    let mcp_path = layout.mcp_config(&Provider::OpenCode);
+    let mcp_path = layout.mcp_config(&provider);
     config::materialise_mcp(
         &mcp_path,
-        Provider::OpenCode,
+        provider,
         updated_manifest.mcp_servers(),
         updated_manifest.name(),
     )?;

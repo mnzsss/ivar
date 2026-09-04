@@ -158,7 +158,7 @@ fn new_rejects_duplicate_repo_names() {
 #[test]
 fn new_accepts_a_well_formed_manifest() {
     let manifest = sample_manifest();
-    assert_eq!(manifest.version(), 3);
+    assert_eq!(manifest.version(), 4);
     assert_eq!(manifest.name().as_str(), "acme");
     assert_eq!(
         manifest.providers().available(),

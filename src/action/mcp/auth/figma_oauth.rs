@@ -55,8 +55,14 @@ const REDIRECT_URI: &str = OAUTH_REDIRECT_URI;
 const INTERNAL_FLOW_LABEL: &str = "ivar oauth";
 
 pub(super) trait FlowOps {
+    fn provider(&self) -> crate::domain::provider::Provider;
     fn check_conflict(&self, name: &str) -> Result<bool, Failure>;
-    fn preregister(&self, server: &McpServerDef, name: &str) -> Result<Preregistered, Failure>;
+    fn preregister(
+        &self,
+        server: &McpServerDef,
+        name: &str,
+        endpoints: &OAuthEndpoints,
+    ) -> Result<Preregistered, Failure>;
     fn discover(&self, url: &str) -> Result<OAuthEndpoints, Failure>;
     fn bind(&self, state: &str) -> Result<CallbackServer, Failure>;
     fn output_url(&self, url: &str);
@@ -83,11 +89,26 @@ struct RealFlowOps {
 }
 
 impl FlowOps for RealFlowOps {
+    fn provider(&self) -> crate::domain::provider::Provider {
+        self.provider
+    }
     fn check_conflict(&self, name: &str) -> Result<bool, Failure> {
         crate::providers::has_credentials(self.provider, name)
     }
-    fn preregister(&self, server: &McpServerDef, name: &str) -> Result<Preregistered, Failure> {
-        preregister_if_needed(&self.layout, &self.manifest, self.provider, server, name)
+    fn preregister(
+        &self,
+        server: &McpServerDef,
+        name: &str,
+        endpoints: &OAuthEndpoints,
+    ) -> Result<Preregistered, Failure> {
+        preregister_if_needed(
+            &self.layout,
+            &self.manifest,
+            self.provider,
+            server,
+            name,
+            Some(endpoints),
+        )
     }
     fn discover(&self, url: &str) -> Result<OAuthEndpoints, Failure> {
         figma::discover_oauth_endpoints(url)
@@ -140,10 +161,9 @@ pub(super) fn run_internal_flow(
     manifest: &Manifest,
     server: &McpServerDef,
     materialised_name: &str,
+    provider: crate::domain::provider::Provider,
 ) -> ProviderRun {
-    let provider = crate::domain::provider::Provider::OpenCode;
-
-    match run_internal_flow_inner(layout, manifest, server, materialised_name) {
+    match run_internal_flow_inner(layout, manifest, server, materialised_name, provider) {
         Ok(run) => run,
         Err(failure) => ProviderRun {
             provider,
@@ -161,11 +181,12 @@ pub(super) fn run_internal_flow_inner(
     manifest: &Manifest,
     server: &McpServerDef,
     materialised_name: &str,
+    provider: crate::domain::provider::Provider,
 ) -> Result<ProviderRun, Failure> {
     let ops = RealFlowOps {
         layout: layout.clone(),
         manifest: manifest.clone(),
-        provider: crate::domain::provider::Provider::OpenCode,
+        provider,
     };
     run_internal_flow_pipeline(&ops, server, materialised_name)
 }
@@ -175,15 +196,24 @@ pub(super) fn run_internal_flow_pipeline(
     server: &McpServerDef,
     materialised_name: &str,
 ) -> Result<ProviderRun, Failure> {
-    let provider = crate::domain::provider::Provider::OpenCode;
+    let provider = ops.provider();
 
     // Step 1: Conflict check
     if ops.check_conflict(materialised_name)? {
         return Err(conflict_failure(materialised_name));
     }
 
-    // Step 2: Pre-register
-    let preregistered = ops.preregister(server, materialised_name)?;
+    // Step 2: Discover endpoints
+    let server_url = server.url.as_deref().ok_or_else(|| {
+        Failure::blocked(
+            "figma_oauth.no_server_url",
+            "internal OAuth flow requires a server URL for endpoint discovery",
+        )
+    })?;
+    let endpoints = ops.discover(server_url)?;
+
+    // Step 3: Pre-register
+    let preregistered = ops.preregister(server, materialised_name, &endpoints)?;
     let preregistration = preregistered.report.clone();
 
     // Extract client_id and secret
@@ -203,17 +233,6 @@ pub(super) fn run_internal_flow_pipeline(
             )
         })?)
     };
-
-    // Step 3: Discover endpoints
-    let server_url = server.url.as_deref().ok_or_else(|| {
-        Failure::blocked(
-            "figma_oauth.no_server_url",
-            "internal OAuth flow requires a server URL for endpoint discovery",
-        )
-    })?;
-    let endpoints = ops.discover(server_url)?;
-
-    // Step 4: PKCE + state
     let (verifier, challenge) = oauth::pkce_pair();
     let state = oauth::state();
 

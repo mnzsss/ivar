@@ -26,8 +26,9 @@ use super::error::Error;
 /// `ivar.json`'s schema version. v1 was the first public version; v2 adds the
 /// hall integration defaults and each repo's ordered verification checks; v3
 /// adds `McpServerDef.oauth`, an optional pre-provisioned OAuth client
-/// registration.
-pub(super) const CURRENT_VERSION: u32 = 3;
+/// registration; v4 adds `McpOauth.token_url` and `McpOauth.resource` so
+/// refresh metadata survives across sessions.
+pub(super) const CURRENT_VERSION: u32 = 4;
 
 /// The hall's identity, committed and team-shared. See the module doc comment
 /// for the full JSON shape, the contract, and how the invariants are

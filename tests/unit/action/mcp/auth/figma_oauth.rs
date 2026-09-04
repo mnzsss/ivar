@@ -65,6 +65,41 @@ fn discover_oauth_endpoints_pure_parsing() {
 }
 
 #[test]
+fn no_token_or_secret_appears_in_serialized_output() {
+    let run = ProviderRun {
+        provider: Provider::Omp,
+        preregistration: Preregistration::Registered {
+            client_id: "client-123".to_owned(),
+        },
+        auth_method: AuthMethod::InternalOAuthFlow,
+        command: "ivar oauth".to_owned(),
+        authenticated: true,
+        error: None,
+    };
+
+    let debug_str = format!("{run:?}");
+    let json_str = serde_json::to_string(&run).unwrap();
+
+    let forbidden = [
+        "secret",
+        "token",
+        "access_token",
+        "refresh_token",
+        "SUPER_SECRET",
+    ];
+    for term in forbidden {
+        assert!(
+            !debug_str.to_lowercase().contains(&term.to_lowercase()),
+            "debug contained {term}"
+        );
+        assert!(
+            !json_str.to_lowercase().contains(&term.to_lowercase()),
+            "json contained {term}"
+        );
+    }
+}
+
+#[test]
 fn provider_run_command_shows_internal_flow_label() {
     // Given: a ProviderRun from internal flow
     let run = ProviderRun {
@@ -111,6 +146,7 @@ struct MockOps {
     /// When set, `discover` reports this token endpoint and `exchange` performs
     /// the real [`oauth::exchange_code`] against it instead of faking success.
     token_endpoint: Option<String>,
+    provider: Provider,
 }
 
 impl Default for MockOps {
@@ -122,11 +158,15 @@ impl Default for MockOps {
             written: RefCell::new(None),
             prereg: None,
             token_endpoint: None,
+            provider: Provider::OpenCode,
         }
     }
 }
 
 impl FlowOps for MockOps {
+    fn provider(&self) -> Provider {
+        self.provider
+    }
     fn check_conflict(&self, _: &str) -> Result<bool, Failure> {
         self.events.borrow_mut().push(PipelineEvent::ConflictCheck);
         if self.fail_at == Some(PipelineEvent::ConflictCheck) {
@@ -134,7 +174,12 @@ impl FlowOps for MockOps {
         }
         Ok(self.conflict)
     }
-    fn preregister(&self, _: &McpServerDef, _: &str) -> Result<Preregistered, Failure> {
+    fn preregister(
+        &self,
+        _: &McpServerDef,
+        _: &str,
+        _: &OAuthEndpoints,
+    ) -> Result<Preregistered, Failure> {
         self.events.borrow_mut().push(PipelineEvent::Preregister);
         if self.fail_at == Some(PipelineEvent::Preregister) {
             return Err(Failure::failed("fail", "fail"));
@@ -302,8 +347,8 @@ fn successful_flow_runs_in_contract_order() {
         *ops.events.borrow(),
         vec![
             PipelineEvent::ConflictCheck,
-            PipelineEvent::Preregister,
             PipelineEvent::Discover,
+            PipelineEvent::Preregister,
             PipelineEvent::Bind,
             PipelineEvent::OutputUrl,
             PipelineEvent::Wait,
@@ -312,6 +357,21 @@ fn successful_flow_runs_in_contract_order() {
             PipelineEvent::Verify
         ]
     );
+}
+
+#[test]
+fn internal_flow_threads_omp_provider_through_to_credential_installer() {
+    let ops = MockOps {
+        conflict: false,
+        fail_at: None,
+        provider: Provider::Omp,
+        ..Default::default()
+    };
+    let server = McpServerDef::new("figma", "sse").url("https://mcp.figma.com/mcp");
+    let run = figma_oauth::run_internal_flow_pipeline(&ops, &server, "figma").unwrap();
+    assert_eq!(run.provider, Provider::Omp);
+    assert_eq!(ops.provider(), Provider::Omp);
+    assert!(ops.written.borrow().is_some());
 }
 
 #[test]

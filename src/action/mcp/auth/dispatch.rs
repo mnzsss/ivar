@@ -35,7 +35,7 @@ pub(super) struct Attempt {
 }
 
 fn provider_is_internal_flow(provider: Provider, server: &McpServerDef) -> bool {
-    provider == Provider::OpenCode
+    matches!(provider, Provider::OpenCode | Provider::Omp)
         && server
             .url
             .as_deref()
@@ -49,14 +49,9 @@ fn attempt(
     materialised_name: &str,
     provider: Provider,
 ) -> Attempt {
-    // For OpenCode + Figma host, dispatch to the internal OAuth flow.
-    if provider_is_internal_flow(provider, server)
-        && server
-            .url
-            .as_deref()
-            .is_some_and(|u| host_of(u).is_some_and(figma::needs_preregistration))
-    {
-        return attempt_internal_flow(layout, manifest, server, materialised_name);
+    // For OpenCode / Omp + Figma host, dispatch to the internal OAuth flow.
+    if provider_is_internal_flow(provider, server) {
+        return attempt_internal_flow(layout, manifest, server, materialised_name, provider);
     }
 
     // All other paths: use the original provider-owned path via
@@ -66,7 +61,7 @@ fn attempt(
         client_id: _,
         secret,
         auth_mode: _,
-    } = match preregister_if_needed(layout, manifest, provider, server, materialised_name) {
+    } = match preregister_if_needed(layout, manifest, provider, server, materialised_name, None) {
         Ok(preregistered) => preregistered,
         Err(failure) => {
             return Attempt {
@@ -128,8 +123,15 @@ fn attempt_internal_flow(
     manifest: &Manifest,
     server: &McpServerDef,
     materialised_name: &str,
+    provider: Provider,
 ) -> Attempt {
-    match figma_oauth::run_internal_flow_inner(layout, manifest, server, materialised_name) {
+    match figma_oauth::run_internal_flow_inner(
+        layout,
+        manifest,
+        server,
+        materialised_name,
+        provider,
+    ) {
         Ok(run) => Attempt {
             preregistration: run.preregistration.clone(),
             command: run.command.clone(),

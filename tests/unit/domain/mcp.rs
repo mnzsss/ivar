@@ -124,6 +124,45 @@ fn a_definition_with_oauth_round_trips_and_carries_only_id_and_env_name() {
 }
 
 #[test]
+fn a_definition_with_oauth_round_trips_token_url_and_resource_when_present() {
+    let oauth_full = McpOauth::new("client-123", "IVAR_MCP_ACME_FIGMA_SECRET")
+        .token_url("https://www.figma.com/oauth/token")
+        .resource("https://api.figma.com");
+    let def = McpServerDef::new("figma", "sse")
+        .url("https://mcp.figma.com/mcp")
+        .oauth(oauth_full.clone());
+
+    let rendered = serde_json::to_value(&def).unwrap();
+    assert_eq!(rendered["oauth"]["client_id"], "client-123");
+    assert_eq!(
+        rendered["oauth"]["client_secret_env"],
+        "IVAR_MCP_ACME_FIGMA_SECRET"
+    );
+    assert_eq!(
+        rendered["oauth"]["token_url"],
+        "https://www.figma.com/oauth/token"
+    );
+    assert_eq!(rendered["oauth"]["resource"], "https://api.figma.com");
+    assert_eq!(rendered["oauth"].as_object().unwrap().len(), 4);
+
+    let parsed: McpServerDef = serde_json::from_value(rendered).unwrap();
+    assert_eq!(parsed, def);
+}
+
+#[test]
+fn an_oauth_without_optional_fields_serialises_to_v3_shape_byte_for_byte() {
+    let oauth_v3 = McpOauth::new("client-123", "IVAR_MCP_ACME_FIGMA_SECRET");
+    let def = McpServerDef::new("figma", "sse")
+        .url("https://mcp.figma.com/mcp")
+        .oauth(oauth_v3);
+
+    let rendered = serde_json::to_value(&def).unwrap();
+    assert_eq!(rendered["oauth"].as_object().unwrap().len(), 2);
+    assert!(rendered["oauth"].get("token_url").is_none());
+    assert!(rendered["oauth"].get("resource").is_none());
+}
+
+#[test]
 fn an_unknown_field_on_oauth_is_refused() {
     let raw = r#"{"name":"figma","type":"sse","url":"https://mcp.figma.com/mcp","oauth":{"client_id":"x","client_secret_env":"Y","client_secret":"leaked"}}"#;
     assert!(serde_json::from_str::<McpServerDef>(raw).is_err());

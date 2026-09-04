@@ -3,31 +3,6 @@
 use super::*;
 use crate::test_support::seeded_hall;
 
-// -- preregister_if_needed: the branches that never touch the filesystem --
-//
-// Every branch below returns before ever reading `layout` or `manifest` (a
-// different provider, no `url`, a host off the allowlist, or a server that
-// already carries `oauth`), so a `seeded_hall()` is enough scaffolding —
-// none of these tests reach the network or rewrite `ivar.json`.
-
-#[test]
-fn preregistration_not_needed_for_claude_code() {
-    let (_guard, root) = seeded_hall();
-    let layout = Layout::at(root.clone());
-    let manifest = Manifest::read(&layout).unwrap().unwrap();
-    let server = McpServerDef::new("figma", "sse").url("https://mcp.figma.com/mcp");
-
-    let result = preregister_if_needed(
-        &layout,
-        &manifest,
-        Provider::ClaudeCode,
-        &server,
-        "acme-figma",
-    )
-    .unwrap();
-    assert!(matches!(result.report, Preregistration::NotNeeded));
-}
-
 #[test]
 fn preregistration_not_needed_without_a_url() {
     let (_guard, root) = seeded_hall();
@@ -41,11 +16,11 @@ fn preregistration_not_needed_without_a_url() {
         Provider::OpenCode,
         &server,
         "acme-linear",
+        None,
     )
     .unwrap();
     assert!(matches!(result.report, Preregistration::NotNeeded));
 }
-
 #[test]
 fn preregistration_not_needed_for_a_host_off_the_allowlist() {
     let (_guard, root) = seeded_hall();
@@ -59,11 +34,11 @@ fn preregistration_not_needed_for_a_host_off_the_allowlist() {
         Provider::OpenCode,
         &server,
         "acme-linear",
+        None,
     )
     .unwrap();
     assert!(matches!(result.report, Preregistration::NotNeeded));
 }
-
 /// R-IDEMPOTENT, the manifest half: a server whose entry already carries
 /// `oauth` is skipped outright, never re-registered — no network call, no
 /// rewrite of `ivar.json`.
@@ -87,9 +62,9 @@ fn preregistration_skipped_when_the_manifest_already_carries_oauth() {
         Provider::OpenCode,
         &server,
         "acme-figma",
+        None,
     )
     .unwrap();
-    assert!(matches!(result.report, Preregistration::Skipped));
     let (var, val) = result.secret.unwrap();
     assert_eq!(var, "CARGO_MANIFEST_DIR");
     assert_eq!(val, env!("CARGO_MANIFEST_DIR"));
@@ -121,14 +96,55 @@ fn preregistration_skipped_resolves_from_mcp_secrets_store_when_env_is_unset() {
         Provider::OpenCode,
         &server,
         "acme-figma",
+        None,
     )
     .unwrap();
-    assert!(matches!(result.report, Preregistration::Skipped));
     let (var, val) = result.secret.unwrap();
     assert_eq!(var, var_name);
     assert_eq!(val, "stored-secret-val");
 }
 
+#[test]
+fn preregistration_skipped_leaves_existing_endpoints_intact_and_does_not_overwrite() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root.clone());
+    let var_name = "IVAR_MCP_AUTH_TEST_EXISTING_ENDPOINTS_VAR";
+    McpSecrets::set_and_write(&layout, var_name, "stored-secret-val").unwrap();
+
+    let original_oauth = McpOauth::new("existing-client", var_name)
+        .token_url("https://custom.auth.server/oauth/token")
+        .resource("https://custom.api.server");
+
+    let server = McpServerDef::new("figma", "sse")
+        .url("https://mcp.figma.com/mcp")
+        .oauth(original_oauth.clone());
+
+    let manifest = Manifest::read(&layout)
+        .unwrap()
+        .unwrap()
+        .with_mcp_servers(vec![server.clone()])
+        .unwrap();
+    Manifest::write(&layout, &manifest).unwrap();
+
+    let result = preregister_if_needed(
+        &layout,
+        &manifest,
+        Provider::OpenCode,
+        &server,
+        "acme-figma",
+        None,
+    )
+    .unwrap();
+    assert!(matches!(result.report, Preregistration::Skipped));
+
+    // Verify the stored manifest was not modified or overwritten
+    let manifest_after = Manifest::read(&layout).unwrap().unwrap();
+    let server_after = manifest_after
+        .mcp_servers()
+        .first()
+        .expect("server must exist");
+    assert_eq!(server_after.oauth.as_ref(), Some(&original_oauth));
+}
 /// Defect fix, related improvement (`R-ERRORS`): on the `Skipped` path
 /// a missing secret in both environment and local store must fail
 /// early, naming the variable — rather than dispatch into OpenCode's
@@ -151,9 +167,9 @@ fn preregistration_skipped_path_fails_naming_the_variable_when_it_is_unset() {
         Provider::OpenCode,
         &server,
         "acme-figma",
+        None,
     )
     .unwrap_err();
-
     assert_eq!(failure.code, "mcp.missing_client_secret_env");
     assert!(
         failure

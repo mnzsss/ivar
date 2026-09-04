@@ -82,7 +82,7 @@ fn the_next_action_is_shared_by_json_and_human_surfaces() {
 
     let layout = Layout::at(root);
     let manifest = Manifest::read(&layout).unwrap().unwrap();
-    assert_eq!(manifest.version(), 3);
+    assert_eq!(manifest.version(), 4);
 }
 
 #[test]
