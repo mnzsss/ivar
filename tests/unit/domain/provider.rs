@@ -18,7 +18,6 @@ fn claude_code_accessors() {
     assert_eq!(provider.commands_dir(), ".claude/commands");
     assert_eq!(provider.skills_dir(), ".claude/skills");
     assert_eq!(provider.mcp_config_path(), ".mcp.json");
-    assert_eq!(provider.mcp_key(), "mcpServers");
 }
 
 #[test]
@@ -30,7 +29,6 @@ fn opencode_accessors() {
     assert_eq!(provider.commands_dir(), ".opencode/commands");
     assert_eq!(provider.skills_dir(), ".opencode/skills");
     assert_eq!(provider.mcp_config_path(), "opencode.json");
-    assert_eq!(provider.mcp_key(), "mcp");
 }
 #[test]
 fn omp_accessors() {
@@ -41,7 +39,6 @@ fn omp_accessors() {
     assert_eq!(provider.commands_dir(), ".omp/commands");
     assert_eq!(provider.skills_dir(), ".omp/skills");
     assert_eq!(provider.mcp_config_path(), ".omp/mcp.json");
-    assert_eq!(provider.mcp_key(), "mcpServers");
 }
 
 // -- Display --------------------------------------------------------------

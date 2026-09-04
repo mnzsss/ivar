@@ -1,5 +1,10 @@
 use crate::domain::mcp::McpServerDef;
 
+/// The key OpenCode hangs its MCP servers off, inside `opencode.json`.
+///
+/// Sourced, not guessed: `docs/wayfinder/bifrost-open-source/BACKLOG.md`
+/// item B19 surveys `vibe-kanban` (Apache-2.0, nine working harness
+/// adapters) and records `mcp` + `$schema` for OpenCode verbatim.
 pub(crate) const ROOT_KEY: &str = "mcp";
 
 pub(crate) const OAUTH_REDIRECT_URI: &str = "http://127.0.0.1:19876/callback";

@@ -28,9 +28,9 @@
 //!   anything else in that reserved namespace on sync; every other file in
 //!   the directory belongs to the user and is never touched.
 //! - `skills_dir()` — where hall-scoped skills materialise for this harness.
-//! - `mcp_config_path()` and `mcp_key()` — the file and the key the servers hang
-//!   off. These differ per harness and are mapped here rather than at each call
-//!   site.
+//! - `mcp_config_path()` — the file the servers hang off. This differs per
+//!   harness and is mapped here rather than at each call site. The *key* inside
+//!   that file is native rendering, so it lives in `providers::mcp_root_key`.
 //! - `ALL` — every variant, for iteration.
 //! - `Display`, `FromStr` (so `clap` can parse `--provider`), `Serialize` /
 //!   `Deserialize` as `id()`.
@@ -60,7 +60,8 @@
 //! - *MCP*: "Materialised at the hall root by `bifrost hall sync` (`.mcp.json`
 //!   for Claude Code, the OpenCode equivalent) ... discovered by walk-up".
 //!
-//! `mcp_key()` is sourced too, just not from `bifrost`:
+//! `mcp_root_key` — now `providers::<provider>::mcp::ROOT_KEY`, not a domain
+//! accessor — is sourced too, just not from `bifrost`:
 //! `docs/wayfinder/bifrost-open-source/BACKLOG.md`, item B19, surveys
 //! `vibe-kanban` (Apache-2.0, nine working harness adapters including both
 //! Claude Code and OpenCode) and records its MCP config keys verbatim —
@@ -203,20 +204,6 @@ impl Provider {
             Self::ClaudeCode => ".mcp.json",
             Self::OpenCode => "opencode.json",
             Self::Omp => ".omp/mcp.json",
-        }
-    }
-
-    /// The key the MCP servers hang off, inside [`Self::mcp_config_path`].
-    ///
-    /// The OpenCode half of this mapping is inferred, not sourced from
-    /// `bifrost` — see the module doc comment's "Where each fact came from"
-    /// section.
-    #[must_use]
-    pub const fn mcp_key(&self) -> &'static str {
-        match self {
-            Self::ClaudeCode => "mcpServers",
-            Self::OpenCode => "mcp",
-            Self::Omp => "mcpServers",
         }
     }
 }
