@@ -4,6 +4,7 @@ pub mod claude_code;
 pub mod omp;
 pub mod opencode;
 
+use crate::domain::guard::{GuardDecision, GuardOutcome, ToolRequest};
 use crate::domain::mcp::McpServerDef;
 use crate::domain::provider::Provider;
 use crate::error::{Failure, FixAction};
@@ -118,6 +119,28 @@ pub fn session_projections(provider: Provider) -> Vec<SessionProjection> {
         Provider::Omp => projections.extend(omp::session::extra_projections()),
     }
     projections
+}
+
+/// Parses provider-specific stdin JSON into a normalized `ToolRequest` and optional cwd.
+pub fn parse_tool_request(
+    provider: Provider,
+    stdin_json: &str,
+) -> Result<(ToolRequest, Option<Utf8PathBuf>), Failure> {
+    match provider {
+        Provider::ClaudeCode => claude_code::guard::parse_tool_request(stdin_json),
+        Provider::OpenCode => opencode::guard::parse_tool_request(stdin_json),
+        Provider::Omp => omp::guard::parse_tool_request(stdin_json),
+    }
+}
+
+/// Renders a `GuardDecision` into the provider-specific outcome shape and exit code.
+#[must_use]
+pub fn render_decision(provider: Provider, decision: &GuardDecision) -> GuardOutcome {
+    match provider {
+        Provider::ClaudeCode => claude_code::guard::render_decision(decision),
+        Provider::OpenCode => opencode::guard::render_decision(decision),
+        Provider::Omp => omp::guard::render_decision(decision),
+    }
 }
 
 #[cfg(test)]

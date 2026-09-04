@@ -1,16 +1,11 @@
 //! The session write guard: determines which files a session may write.
 //!
-//! Provider-neutral: `decide` classifies tool requests as Allow or Deny.
-//! Provider-specific adapters shape the output for Claude Code's hook
-//! protocol or OpenCode's hook protocol.
-
-use camino::{Utf8Path, Utf8PathBuf};
-use serde::Deserialize;
-
 use crate::domain::feature::Feature;
+pub use crate::domain::guard::{GuardDecision, GuardOutcome, ToolRequest};
 use crate::domain::provider::Provider;
 use crate::error::Failure;
 use crate::store::layout::Layout;
+use camino::{Utf8Path, Utf8PathBuf};
 
 /// The set of paths a session is allowed to write into: its view dir plus
 /// the worktrees of promoted repos.
@@ -120,20 +115,6 @@ impl WritableSet {
     }
 }
 
-/// A tool invocation the guard is asked to evaluate.
-#[derive(Debug)]
-pub(crate) struct ToolRequest {
-    pub tool: String,
-    pub file_path: Option<Utf8PathBuf>,
-}
-
-/// The guard's decision for a tool request.
-#[derive(Debug)]
-pub(crate) enum GuardDecision {
-    Allow,
-    Deny { reason: String },
-}
-
 /// Whether `tool` is a structured write — a tool whose whole purpose is to put
 /// bytes on disk at a path it names.
 ///
@@ -179,73 +160,10 @@ pub(crate) fn decide(set: Option<&WritableSet>, req: &ToolRequest) -> GuardDecis
     }
 }
 
-// ---------------------------------------------------------------------------
-// Provider-specific adapters
-// ---------------------------------------------------------------------------
-
-/// Claude Code hook input: `tool_name`, `tool_input.file_path`, `cwd`.
-#[derive(Debug, Deserialize)]
-struct ClaudeHookInput {
-    tool_name: String,
-    tool_input: serde_json::Value,
-    cwd: Option<Utf8PathBuf>,
-}
-
-/// OpenCode hook input: `tool`, `args.filePath`, `cwd`.
-#[derive(Debug, Deserialize)]
-struct OpenCodeHookInput {
-    tool: String,
-    args: serde_json::Value,
-    cwd: Option<Utf8PathBuf>,
-}
-
-/// The outcome of a guard evaluation: stdout body and whether the process
-/// exits 0.
-#[derive(Debug)]
-pub struct GuardOutcome {
-    pub body: String,
-    pub exit_zero: bool,
-}
-
 /// Run the guard: parse stdin JSON, resolve the session, decide, and
 /// shape the output for the given provider.
 pub fn guard(provider: Provider, stdin_json: &str) -> Result<GuardOutcome, Failure> {
-    let (tool_request, cwd) = match provider {
-        Provider::ClaudeCode => {
-            let input: ClaudeHookInput = serde_json::from_str(stdin_json).map_err(|e| {
-                Failure::blocked("guard.parse", format!("invalid Claude hook JSON: {e}"))
-            })?;
-            let req = ToolRequest {
-                tool: input.tool_name,
-                file_path: input
-                    .tool_input
-                    .get("file_path")
-                    .and_then(|v| v.as_str())
-                    .map(Utf8PathBuf::from),
-            };
-            (req, input.cwd)
-        }
-        Provider::OpenCode => {
-            let input: OpenCodeHookInput = serde_json::from_str(stdin_json).map_err(|e| {
-                Failure::blocked("guard.parse", format!("invalid OpenCode hook JSON: {e}"))
-            })?;
-            let req = ToolRequest {
-                tool: input.tool,
-                file_path: input
-                    .args
-                    .get("filePath")
-                    .and_then(|v| v.as_str())
-                    .map(Utf8PathBuf::from),
-            };
-            (req, input.cwd)
-        }
-        Provider::Omp => {
-            return Err(Failure::blocked(
-                "guard.unsupported",
-                "OMP guard adapter is not yet implemented",
-            ));
-        }
-    };
+    let (tool_request, cwd) = crate::providers::parse_tool_request(provider, stdin_json)?;
 
     let set = cwd
         .as_deref()
@@ -255,39 +173,7 @@ pub fn guard(provider: Provider, stdin_json: &str) -> Result<GuardOutcome, Failu
 
     let decision = decide(set.as_ref(), &tool_request);
 
-    match provider {
-        Provider::ClaudeCode => {
-            let (perm, reason): (String, String) = match &decision {
-                GuardDecision::Allow => ("allow".into(), String::new()),
-                GuardDecision::Deny { reason } => ("deny".into(), reason.clone()),
-            };
-            let body = serde_json::json!({
-                "hookSpecificOutput": {
-                    "hookEventName": "PreToolUse",
-                    "permissionDecision": perm,
-                    "permissionDecisionReason": reason,
-                }
-            });
-            Ok(GuardOutcome {
-                body: body.to_string(),
-                exit_zero: true,
-            })
-        }
-        Provider::OpenCode => match decision {
-            GuardDecision::Allow => Ok(GuardOutcome {
-                body: String::new(),
-                exit_zero: true,
-            }),
-            GuardDecision::Deny { reason } => Ok(GuardOutcome {
-                body: reason,
-                exit_zero: false,
-            }),
-        },
-        Provider::Omp => Err(Failure::blocked(
-            "guard.unsupported",
-            "OMP guard adapter is not yet implemented",
-        )),
-    }
+    Ok(crate::providers::render_decision(provider, &decision))
 }
 
 /// Try to build a `WritableSet` from a resolved session env.
