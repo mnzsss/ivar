@@ -8,7 +8,7 @@ use crate::test_support::seeded_hall;
 /// send omp's refresh at the wrong token endpoint and silently break renewal.
 #[test]
 fn fresh_registration_persists_the_endpoints_discovery_returned() {
-    let discovered = crate::infra::figma::OAuthEndpoints {
+    let discovered = crate::infra::mcp_oauth::OAuthEndpoints {
         authorization_endpoint: "https://auth.example.com/authorize".to_owned(),
         token_endpoint: "https://auth.example.com/oauth/token?tenant=42".to_owned(),
         resource: Some("https://api.example.com/mcp".to_owned()),
@@ -39,7 +39,7 @@ fn fresh_registration_persists_the_endpoints_discovery_returned() {
 /// endpoint.
 #[test]
 fn fresh_registration_persists_no_resource_when_discovery_returned_none() {
-    let discovered = crate::infra::figma::OAuthEndpoints {
+    let discovered = crate::infra::mcp_oauth::OAuthEndpoints {
         authorization_endpoint: "https://auth.example.com/authorize".to_owned(),
         token_endpoint: "https://auth.example.com/oauth/token".to_owned(),
         resource: None,

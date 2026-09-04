@@ -64,7 +64,7 @@ pub(super) fn preregister_if_needed(
     provider: Provider,
     server: &McpServerDef,
     materialised_name: &str,
-    endpoints: Option<&crate::infra::figma::OAuthEndpoints>,
+    endpoints: Option<&crate::infra::mcp_oauth::OAuthEndpoints>,
 ) -> Result<Preregistered, Failure> {
     let Some(url) = server.url.as_deref() else {
         return Ok(Preregistered::not_needed());
@@ -162,7 +162,7 @@ pub(super) fn preregister_if_needed(
 fn oauth_registration(
     client_id: &str,
     secret_env: &str,
-    endpoints: Option<&crate::infra::figma::OAuthEndpoints>,
+    endpoints: Option<&crate::infra::mcp_oauth::OAuthEndpoints>,
 ) -> McpOauth {
     let mut oauth = McpOauth::new(client_id, secret_env);
     if let Some(ep) = endpoints {

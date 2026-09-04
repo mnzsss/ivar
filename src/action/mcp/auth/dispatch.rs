@@ -5,7 +5,7 @@
 //! comment for the three-step narrative this completes.
 //!
 //! Additionally, this module owns the internal-flow path for OpenCode + Figma:
-//! [`attempt`] dispatches to [`figma_oauth::run_internal_flow`] instead of
+//! [`attempt`] dispatches to [`flow::run_internal_flow`] instead of
 //! `proc::inherit` when the provider is OpenCode and the server host is on
 //! Figma's pre-registration allowlist.
 
@@ -20,7 +20,7 @@ use crate::store::manifest::Manifest;
 use super::preregister::{Preregistered, host_of, preregister_if_needed};
 use super::{AuthMethod, Preregistration, ProviderRun};
 
-use super::figma_oauth;
+use super::flow;
 
 /// Steps 2 and 3 for one provider, run exactly once. Both
 /// [`try_run_provider`] (the single-provider path, which propagates a
@@ -125,13 +125,7 @@ fn attempt_internal_flow(
     materialised_name: &str,
     provider: Provider,
 ) -> Attempt {
-    match figma_oauth::run_internal_flow_inner(
-        layout,
-        manifest,
-        server,
-        materialised_name,
-        provider,
-    ) {
+    match flow::run_internal_flow_inner(layout, manifest, server, materialised_name, provider) {
         Ok(run) => Attempt {
             preregistration: run.preregistration.clone(),
             command: run.command.clone(),

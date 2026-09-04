@@ -15,6 +15,7 @@ pub mod github;
 pub mod hash;
 pub mod http_callback;
 pub mod json;
+pub mod mcp_oauth;
 pub mod oauth;
 pub mod proc;
 pub mod progress;

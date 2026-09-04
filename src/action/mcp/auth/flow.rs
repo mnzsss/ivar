@@ -8,7 +8,7 @@
 //!    before anything else (`R-CONFLICT`).
 //! 2. **Pre-registration** — reuse [`preregister_if_needed`] for
 //!    client_id / client_secret.
-//! 3. **Endpoint discovery** — [`figma::discover_oauth_endpoints`].
+//! 3. **Endpoint discovery** — \[`mcp_oauth::discover_oauth_endpoints`\].
 //! 4. **PKCE + state** — [`oauth::pkce_pair`] and [`oauth::state`].
 //! 5. **Listener** — bind `127.0.0.1:19876` before printing the URL.
 //! 6. **Print URL** — authorization URL for manual browser opening.
@@ -37,9 +37,9 @@ use crate::store::manifest::Manifest;
 use super::preregister::{Preregistered, preregister_if_needed};
 use super::{AuthMethod, Preregistration, ProviderRun};
 
-use crate::infra::figma::{self, OAuthEndpoints};
 use crate::infra::fs;
 use crate::infra::http_callback::{AuthorizationCode, CallbackServer, OAUTH_REDIRECT_URI};
+use crate::infra::mcp_oauth::{self, OAuthEndpoints};
 use crate::infra::oauth::{self, AuthMode, Tokens};
 
 /// How long to wait for the OAuth callback before giving up.
@@ -111,7 +111,7 @@ impl FlowOps for RealFlowOps {
         )
     }
     fn discover(&self, url: &str) -> Result<OAuthEndpoints, Failure> {
-        figma::discover_oauth_endpoints(url)
+        mcp_oauth::discover_oauth_endpoints(url)
     }
     fn bind(&self, state: &str) -> Result<CallbackServer, Failure> {
         CallbackServer::bind(state, CALLBACK_TIMEOUT)
@@ -321,5 +321,5 @@ fn conflict_failure(materialised_name: &str) -> Failure {
 }
 
 #[cfg(test)]
-#[path = "../../../../tests/unit/action/mcp/auth/figma_oauth.rs"]
+#[path = "../../../../tests/unit/action/mcp/auth/flow.rs"]
 mod tests;

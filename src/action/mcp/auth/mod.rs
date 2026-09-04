@@ -158,7 +158,7 @@ use crate::store::manifest::Manifest;
 use super::super::{discover_hall, read_manifest};
 
 mod dispatch;
-mod figma_oauth;
+mod flow;
 mod preregister;
 
 use dispatch::{run_provider, try_run_provider};
