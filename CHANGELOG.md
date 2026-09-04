@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0](https://github.com/mnzsss/ivar/compare/v0.8.0...v0.9.0) - 2026-09-04
+
+### Added
+
+- route omp through Ivar's OAuth flow ([#78](https://github.com/mnzsss/ivar/pull/78))
+- add OMP profile command bridge ([#76](https://github.com/mnzsss/ivar/pull/76))
+- task packets carry literal code, not descriptions of it ([#74](https://github.com/mnzsss/ivar/pull/74))
+- packets declare the blast radius they must defend ([#73](https://github.com/mnzsss/ivar/pull/73))
+- support draft pull requests in deliver ([#72](https://github.com/mnzsss/ivar/pull/72))
+- *(session)* refuse commits on a default branch ([#69](https://github.com/mnzsss/ivar/pull/69))
+- *(deliver)* configure pull request metadata ([#68](https://github.com/mnzsss/ivar/pull/68))
+- *(mcp)* Persist OAuth client secrets locally for OpenCode ([#65](https://github.com/mnzsss/ivar/pull/65))
+
+### Changed
+
+- *(mcp)* [**breaking**] close the transport vocabulary and publish a manifest schema ([#77](https://github.com/mnzsss/ivar/pull/77))
+
+### Documentation
+
+- *(commands)* mark waves complete in the plan, drop the run receipt lifecycle ([#67](https://github.com/mnzsss/ivar/pull/67))
+
+### Fixed
+
+- enforce the invariants ivar documents ([#75](https://github.com/mnzsss/ivar/pull/75))
+- *(mcp)* send the client secret on a fresh Figma registration ([#71](https://github.com/mnzsss/ivar/pull/71))
+- *(mcp)* correct PKCE challenge derivation in Figma OAuth flow ([#70](https://github.com/mnzsss/ivar/pull/70))
+
 ### Added
 
 - *(providers)* Add OMP (Oh My Pi) harness provider support with native commands, skills, `mcp.json` auth lifecycle rendering, pre-tool guard hooks, and profile-scoped OAuth broker integration ([#65](https://github.com/mnzsss/ivar/pull/65))
