@@ -429,3 +429,15 @@ fn memory_and_execution_are_separate_homes_for_one_name() {
             .starts_with(layout.work_dir(&feature))
     );
 }
+
+#[test]
+fn plans_root_is_the_parent_of_every_plan_dir() {
+    let layout = Layout::at("/hall");
+    let feature = FeatureName::new("checkout").unwrap();
+
+    assert_eq!(layout.plans_root(), Utf8PathBuf::from("/hall/plans"));
+    assert_eq!(
+        layout.plan_dir(&feature).parent(),
+        Some(layout.plans_root().as_path())
+    );
+}

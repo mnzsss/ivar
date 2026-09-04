@@ -59,7 +59,7 @@
 //!   `archived_run(&FeatureName, &RunId)`, `archived_board(&FeatureName, &str)`,
 //!   `feature_session(&FeatureName, &SessionId)`, `discovery_session(&SessionId)`,
 //!   `setup_script(&RepoName)`, `session_hook(&RepoName)`, `secrets_dir()`,
-//!   `hall_skills()`, `plan_dir(&FeatureName)`, `work_dir(&FeatureName)`,
+//!   `hall_skills()`, `plans_root()`, `plan_dir(&FeatureName)`, `work_dir(&FeatureName)`,
 //!   `discovery_doc(&FeatureName)`, `research_dir(&FeatureName)`,
 //!   `harness_dir(&Provider)`, `commands_dir(&Provider)`.
 //! - `gitignore_lines()` — the exact patterns the hall's `.gitignore` needs.
@@ -391,11 +391,22 @@ impl Layout {
         self.ivar_dir().join("skills-local")
     }
 
+    /// `<hall>/plans/` — the parent of every unit of work's execution
+    /// artifacts. Committed.
+    ///
+    /// Scanning this directory is only ever safe with a filter: a child is a
+    /// unit of work's plan only when its name parses as a [`FeatureName`].
+    /// Anything else in `plans/` belongs to the team.
+    #[must_use]
+    pub fn plans_root(&self) -> Utf8PathBuf {
+        self.root.join("plans")
+    }
+
     /// `<hall>/plans/<feature>/` — `requirements.md` · `analysis.md` ·
     /// `plan.md`. Committed.
     #[must_use]
     pub fn plan_dir(&self, feature: &FeatureName) -> Utf8PathBuf {
-        self.root.join("plans").join(feature.as_str())
+        self.plans_root().join(feature.as_str())
     }
 
     /// `<hall>/docs/<name>/` — a unit of work's committed memory:

@@ -155,7 +155,7 @@ fn derive_feature(
             .map(Utf8Path::to_path_buf)
             .ok_or_else(|| not_a_plan(&resolved, layout))?
     };
-    let plans_dir = canonicalize_lenient(&layout.root().join("plans"))?;
+    let plans_dir = canonicalize_lenient(&layout.plans_root())?;
     if dir.parent() != Some(plans_dir.as_path()) {
         return Err(not_a_plan(&resolved, layout));
     }
