@@ -1,8 +1,11 @@
-//! Internal OAuth flow for OpenCode + Figma, owned entirely by Ivar.
+//! Internal OAuth flow, owned entirely by Ivar.
 //!
-//! When the provider is OpenCode and the server's host is on Figma's
-//! pre-registration allowlist, Ivar performs the full authorization-code
-//! + PKCE flow itself instead of delegating to `opencode mcp auth`.
+//! Ivar runs the full authorization-code + PKCE flow itself, rather than
+//! delegating to a harness's own login command, whenever
+//! `provider_is_internal_flow` says so: today that is `opencode` against a
+//! host which rejects its own dynamic client registration. Failures raised
+//! here are keyed `flow.*` — the flow is generic, and only the Figma
+//! exception in `infra::figma` raises `figma.*`.
 //!
 //! 1. **Conflict check** — `providers::has_credentials(provider, materialised_name)`
 //!    before anything else (`R-CONFLICT`).
@@ -206,7 +209,7 @@ pub(super) fn run_internal_flow_pipeline(
     // Step 2: Discover endpoints
     let server_url = server.url.as_deref().ok_or_else(|| {
         Failure::blocked(
-            "figma_oauth.no_server_url",
+            "flow.no_server_url",
             "internal OAuth flow requires a server URL for endpoint discovery",
         )
     })?;
@@ -231,7 +234,7 @@ pub(super) fn run_internal_flow_pipeline(
     // Extract client_id and secret
     let client_id = preregistered.client_id.ok_or_else(|| {
         Failure::blocked(
-            "figma_oauth.no_client_id",
+            "flow.no_client_id",
             "internal OAuth flow requires a client_id from pre-registration",
         )
     })?;
@@ -240,7 +243,7 @@ pub(super) fn run_internal_flow_pipeline(
     } else {
         Some(preregistered.secret.map(|(_, s)| s).ok_or_else(|| {
             Failure::blocked(
-                "figma_oauth.no_client_secret",
+                "flow.no_client_secret",
                 "internal OAuth flow requires a client secret from pre-registration",
             )
         })?)
@@ -293,7 +296,7 @@ pub(super) fn run_internal_flow_pipeline(
     // Step 10: Verify
     if !ops.verify(materialised_name, Some(server_url))? {
         return Err(Failure::failed(
-            "figma_oauth.verify_failed",
+            "flow.verify_failed",
             "token exchange succeeded but has_tokens returned false after write",
         )
         .expected("has_tokens to return true after write_entry")
@@ -318,13 +321,13 @@ fn conflict_failure(materialised_name: &str) -> Failure {
         .unwrap_or_else(|_| "OpenCode's mcp-auth.json".to_owned());
 
     Failure::blocked(
-        "figma_oauth.conflict",
+        "flow.conflict",
         format!("the credential store already has an entry for \"{materialised_name}\""),
     )
     .expected("no existing entry for this server name in the credential store")
     .actual(format!("an entry already exists at {path}"))
     .fix(FixAction::unsafe_(
-        "figma_oauth.remove_entry",
+        "flow.remove_entry",
         format!(
             "Remove the \"{materialised_name}\" entry from the credential store \
              explicitly before re-authenticating: delete the entry from {path}."
