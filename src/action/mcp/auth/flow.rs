@@ -194,6 +194,25 @@ pub(super) fn run_internal_flow_inner(
     run_internal_flow_pipeline(&ops, server, materialised_name)
 }
 
+/// The `scope` parameter for the authorization request: every scope the
+/// server advertised, space-delimited per RFC 6749 §3.3.
+///
+/// Sending only the first would mint a token narrower than the server
+/// offers — `read` without `write` on Linear, `openid` without
+/// `mcp:custom-audience` on a Keycloak-backed server, where the missing
+/// scope is the audience the MCP endpoint checks. Neither failure appears
+/// at authentication time.
+///
+/// `None` when the server advertised nothing, and when it advertised an
+/// empty list — an empty `scope=` is a request, not an absence.
+pub(super) fn scope_parameter(endpoints: &OAuthEndpoints) -> Option<String> {
+    let scopes = endpoints.scopes_supported.as_ref()?;
+    if scopes.is_empty() {
+        return None;
+    }
+    Some(scopes.join(" "))
+}
+
 pub(super) fn run_internal_flow_pipeline(
     ops: &dyn FlowOps,
     server: &McpServerDef,
@@ -255,6 +274,7 @@ pub(super) fn run_internal_flow_pipeline(
     let listener = ops.bind(&state.0)?;
 
     // Step 6: Print URL
+    let scope = scope_parameter(&endpoints);
     let auth_url = oauth::authorize_url(
         &endpoints.authorization_endpoint,
         &client_id,
@@ -262,11 +282,7 @@ pub(super) fn run_internal_flow_pipeline(
         &state,
         &challenge,
         endpoints.resource.as_deref(),
-        endpoints
-            .scopes_supported
-            .as_deref()
-            .and_then(|s| s.first())
-            .map(|s| s.as_str()),
+        scope.as_deref(),
     );
     ops.output_url(&auth_url);
 

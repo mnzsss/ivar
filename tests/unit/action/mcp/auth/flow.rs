@@ -472,3 +472,57 @@ fn fresh_figma_registration_sends_the_client_secret_to_the_token_endpoint() {
         result.err().map(|f| f.what)
     );
 }
+
+#[test]
+fn every_advertised_scope_reaches_the_authorize_url() {
+    let endpoints = OAuthEndpoints {
+        authorization_endpoint: "https://mcp.linear.app/authorize".to_owned(),
+        token_endpoint: "https://mcp.linear.app/token".to_owned(),
+        resource: None,
+        scopes_supported: Some(vec!["read".to_owned(), "write".to_owned()]),
+        registration_endpoint: None,
+    };
+
+    let url = crate::infra::oauth::authorize_url(
+        &endpoints.authorization_endpoint,
+        "client-123",
+        "http://127.0.0.1:19876/callback",
+        &crate::infra::oauth::State("st".to_owned()),
+        &crate::infra::oauth::CodeChallenge("ch".to_owned()),
+        endpoints.resource.as_deref(),
+        flow::scope_parameter(&endpoints).as_deref(),
+    );
+
+    assert!(
+        url.contains("scope=read%20write"),
+        "every advertised scope must be requested, not just the first — got {url}"
+    );
+}
+
+#[test]
+fn a_server_advertising_no_scopes_sends_no_scope_parameter() {
+    let endpoints = OAuthEndpoints {
+        authorization_endpoint: "https://mcp.figma.com/authorize".to_owned(),
+        token_endpoint: "https://mcp.figma.com/token".to_owned(),
+        resource: None,
+        scopes_supported: None,
+        registration_endpoint: None,
+    };
+    assert_eq!(flow::scope_parameter(&endpoints), None);
+}
+
+#[test]
+fn an_empty_scope_list_sends_no_scope_parameter() {
+    let endpoints = OAuthEndpoints {
+        authorization_endpoint: "https://example.com/authorize".to_owned(),
+        token_endpoint: "https://example.com/token".to_owned(),
+        resource: None,
+        scopes_supported: Some(vec![]),
+        registration_endpoint: None,
+    };
+    assert_eq!(
+        flow::scope_parameter(&endpoints),
+        None,
+        "an empty list is not a scope request for the empty string"
+    );
+}
