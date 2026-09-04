@@ -205,9 +205,11 @@ today).
 
 `client_id` is not a secret. `client_secret_env` is the *name* of an
 environment variable — never a value — the same reference convention `env`
-already follows elsewhere in an `mcp` entry. The field is absent by default,
-so v2 → v3 adds nothing to a hall that never used it; migrating is still
-explicit (`ivar migrate`) because the file is committed.
+already follows elsewhere in an `mcp` entry. It is optional: a public OAuth
+client that was issued no secret omits `client_secret_env` entirely. The
+`oauth` block is absent by default, so v2 → v3 adds nothing to a hall that
+never used it; migrating is still explicit (`ivar migrate`) because the file
+is committed.
 
 The `name` stored here (`figma`, above) is canonical and unqualified. Providers
 never see it directly: every provider boundary — the key in `.mcp.json` and

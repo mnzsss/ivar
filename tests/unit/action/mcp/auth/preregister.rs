@@ -19,7 +19,10 @@ fn fresh_registration_persists_the_endpoints_discovery_returned() {
     let oauth = oauth_registration("client-abc", "IVAR_MCP_ACME_SECRET", Some(&discovered));
 
     assert_eq!(oauth.client_id, "client-abc");
-    assert_eq!(oauth.client_secret_env, "IVAR_MCP_ACME_SECRET");
+    assert_eq!(
+        oauth.client_secret_env.as_deref(),
+        Some("IVAR_MCP_ACME_SECRET")
+    );
     // Byte-for-byte, query string included: a token endpoint is not a host.
     assert_eq!(
         oauth.token_url.as_deref(),

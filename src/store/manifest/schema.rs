@@ -96,7 +96,7 @@ fn extract_oauth_schema(schema: &Value) -> Value {
         "type": "object",
         "description": "A pre-provisioned OAuth client registration for \
             servers whose host rejects dynamic client registration.",
-        "required": ["client_id", "client_secret_env"],
+        "required": ["client_id"],
         "additionalProperties": false,
         "properties": {
             "client_id": {

@@ -450,7 +450,10 @@ fn a_v3_manifest_with_oauth_migrates_to_v4_with_fields_intact_and_no_fabricated_
     assert_eq!(server.name, "figma");
     let oauth = server.oauth.as_ref().expect("oauth must remain present");
     assert_eq!(oauth.client_id, "client-123");
-    assert_eq!(oauth.client_secret_env, "IVAR_MCP_ACME_FIGMA_SECRET");
+    assert_eq!(
+        oauth.client_secret_env.as_deref(),
+        Some("IVAR_MCP_ACME_FIGMA_SECRET")
+    );
     assert_eq!(oauth.token_url, None);
     assert_eq!(oauth.resource, None);
 

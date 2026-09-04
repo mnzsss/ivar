@@ -79,11 +79,16 @@ pub(super) fn preregister_if_needed(
     // never re-register (`R-IDEMPOTENT`) — a second run must leave a working
     // registration alone. Resolve the secret from environment or local store.
     if let Some(oauth) = &server.oauth {
-        let val = resolve_secret(layout, &oauth.client_secret_env, &server.name)?;
+        let secret = if let Some(secret_env) = &oauth.client_secret_env {
+            let val = resolve_secret(layout, secret_env, &server.name)?;
+            Some((secret_env.clone(), val))
+        } else {
+            None
+        };
         return Ok(Preregistered {
             report: Preregistration::Skipped,
             client_id: Some(oauth.client_id.clone()),
-            secret: Some((oauth.client_secret_env.clone(), val)),
+            secret,
             auth_mode: AuthMode::ClientSecretPost,
         });
     }
