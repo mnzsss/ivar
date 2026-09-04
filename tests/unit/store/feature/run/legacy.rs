@@ -159,11 +159,7 @@ fn a_board_newer_than_this_ivar_is_refused() {
     assert_eq!(failure.status, Status::Blocked);
 }
 
-// PRODUCTION DEFECT: `v1_to_v2` migration expects `graph` to exist as an object (`legacy.rs:445`),
-// failing with "migrating from v1 to v2 failed: board is missing graph" if `graph` is omitted,
-// despite `BoardDto` allowing `graph` to be optional/defaulted.
 #[test]
-#[ignore = "production defect in legacy.rs:445 (v1_to_v2 requires graph object)"]
 fn a_board_missing_optional_fields_still_imports() {
     let (_guard, layout, feature) = setup_feature("feat-permissive");
     let board_file = board_path(&layout, &feature);
@@ -198,7 +194,7 @@ fn a_board_v3_missing_optional_fields_still_imports() {
     let (_guard, layout, feature) = setup_feature("feat-permissive-v3");
     let board_file = board_path(&layout, &feature);
     fs::ensure_dir(&layout.execution_dir(&feature)).unwrap();
-    // Minimal v3 board (skips v1_to_v2 migration) with only version and status, omitting graph/journal
+    // Minimal v3 board with only version and status, omitting graph/journal
     let minimal = json!({
         "version": 3,
         "status": "completed"
@@ -222,6 +218,58 @@ fn a_board_v3_missing_optional_fields_still_imports() {
     assert_eq!(result.receipt.outcome, Some(RunOutcome::Succeeded));
     assert_eq!(result.receipt.legacy.as_ref().unwrap().workstreams.len(), 0);
     assert_eq!(result.receipt.legacy.as_ref().unwrap().journal.len(), 0);
+}
+
+#[test]
+fn a_board_with_malformed_workstream_is_refused() {
+    let (_guard, layout, feature) = setup_feature("feat-malformed-ws");
+    let board_file = board_path(&layout, &feature);
+    fs::ensure_dir(&layout.execution_dir(&feature)).unwrap();
+    let malformed = json!({
+        "version": 1,
+        "graph": {
+            "workstreams": ["not an object"]
+        }
+    });
+    json::write_canonical(&board_file, &malformed).unwrap();
+
+    let failure = import(
+        &layout,
+        &feature,
+        Utf8PathBuf::from("plan.md"),
+        test_run_id("00000000-0000-4000-8000-000000000001"),
+        "2026-09-03T00:00:00Z",
+    )
+    .unwrap_err();
+
+    assert_eq!(failure.code, "store.migration_failed");
+    assert_eq!(failure.status, Status::Blocked);
+    assert!(failure.what.contains("workstream not an object"));
+}
+
+#[test]
+fn a_board_with_malformed_journal_entry_is_refused() {
+    let (_guard, layout, feature) = setup_feature("feat-malformed-journal");
+    let board_file = board_path(&layout, &feature);
+    fs::ensure_dir(&layout.execution_dir(&feature)).unwrap();
+    let malformed = json!({
+        "version": 1,
+        "journal": ["not an object"]
+    });
+    json::write_canonical(&board_file, &malformed).unwrap();
+
+    let failure = import(
+        &layout,
+        &feature,
+        Utf8PathBuf::from("plan.md"),
+        test_run_id("00000000-0000-4000-8000-000000000001"),
+        "2026-09-03T00:00:00Z",
+    )
+    .unwrap_err();
+
+    assert_eq!(failure.code, "store.migration_failed");
+    assert_eq!(failure.status, Status::Blocked);
+    assert!(failure.what.contains("journal entry not an object"));
 }
 
 #[test]
