@@ -190,6 +190,20 @@ pub(crate) fn install_credentials(_name: &str, credential: &Credential<'_>) -> R
     parse_import_result(&import_output.stdout, &binding)
 }
 
+/// Whether omp already holds a usable token for this server.
+///
+/// omp keys its store by MCP endpoint, so the server URL is the lookup key —
+/// the materialised name never enters it. A non-zero exit or empty stdout is
+/// "no credential", not an error: the caller is asking whether one exists,
+/// and "no" is an answer.
+pub(crate) fn has_entry(server_url: &str) -> bool {
+    let binding = credential_binding(server_url);
+    let binary = launch_contract(Provider::Omp).binary;
+    let cmd = Command::new(binary).arg("token").arg(&binding);
+
+    proc::capture(&cmd).is_ok_and(|out| out.code == Some(0) && !out.stdout.trim().is_empty())
+}
+
 pub(crate) fn verify_authenticated(server_url: &str) -> Result<(), Failure> {
     let binding = credential_binding(server_url);
     let binary = launch_contract(Provider::Omp).binary;

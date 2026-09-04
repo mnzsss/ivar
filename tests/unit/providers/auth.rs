@@ -67,3 +67,32 @@ fn omp_verify_authenticated_uses_server_url_binding_and_refuses_missing_url() {
     assert!(verify_authenticated(Provider::ClaudeCode, name, None).is_ok());
     assert!(verify_authenticated(Provider::ClaudeCode, name, Some(server_url)).is_ok());
 }
+
+/// `omp` keeps a credential store of its own, reachable through `omp token`.
+/// Reporting `false` unconditionally — which it did while omp could never
+/// reach the internal flow — makes every re-run demand a fresh browser
+/// round-trip and silently overwrite a working credential (`R-CONFLICT`).
+#[test]
+fn omp_reports_an_existing_credential_rather_than_a_blanket_false() {
+    // A binding omp cannot possibly hold: no token, so no conflict.
+    let absent = crate::providers::has_credentials(
+        Provider::Omp,
+        "valhalla-hall-linear",
+        Some("https://mcp.example.invalid/mcp"),
+    )
+    .expect("an absent credential is an answer, not a failure");
+    assert!(
+        !absent,
+        "a server omp has no token for must not report a conflict"
+    );
+}
+
+/// Claude Code keeps no store Ivar can inspect, so it never reports a
+/// conflict — its own login command owns that decision.
+#[test]
+fn claude_code_never_reports_a_conflict() {
+    assert!(
+        !crate::providers::has_credentials(Provider::ClaudeCode, "acme-figma", None).unwrap(),
+        "claude-code delegates the overwrite decision to its own login command"
+    );
+}

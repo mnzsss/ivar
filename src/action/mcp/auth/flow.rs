@@ -59,7 +59,7 @@ const INTERNAL_FLOW_LABEL: &str = "ivar oauth";
 
 pub(super) trait FlowOps {
     fn provider(&self) -> crate::domain::provider::Provider;
-    fn check_conflict(&self, name: &str) -> Result<bool, Failure>;
+    fn check_conflict(&self, name: &str, server_url: &str) -> Result<bool, Failure>;
     fn preregister(
         &self,
         server: &McpServerDef,
@@ -95,8 +95,8 @@ impl FlowOps for RealFlowOps {
     fn provider(&self) -> crate::domain::provider::Provider {
         self.provider
     }
-    fn check_conflict(&self, name: &str) -> Result<bool, Failure> {
-        crate::providers::has_credentials(self.provider, name)
+    fn check_conflict(&self, name: &str, server_url: &str) -> Result<bool, Failure> {
+        crate::providers::has_credentials(self.provider, name, Some(server_url))
     }
     fn preregister(
         &self,
@@ -220,18 +220,22 @@ pub(super) fn run_internal_flow_pipeline(
 ) -> Result<ProviderRun, Failure> {
     let provider = ops.provider();
 
-    // Step 1: Conflict check
-    if ops.check_conflict(materialised_name)? {
-        return Err(conflict_failure(materialised_name));
-    }
-
-    // Step 2: Discover endpoints
+    // The server URL is the conflict check's lookup key for a provider that
+    // stores credentials per endpoint (omp), so it is resolved first. Reading
+    // a manifest field is not a side effect — step 1 still precedes them all.
     let server_url = server.url.as_deref().ok_or_else(|| {
         Failure::blocked(
             "flow.no_server_url",
             "internal OAuth flow requires a server URL for endpoint discovery",
         )
     })?;
+
+    // Step 1: Conflict check
+    if ops.check_conflict(materialised_name, server_url)? {
+        return Err(conflict_failure(ops.provider(), materialised_name));
+    }
+
+    // Step 2: Discover endpoints
     let endpoints = match ops.discover(server_url)? {
         DiscoveryOutcome::Endpoints(endpoints) => endpoints,
         DiscoveryOutcome::NoAuthRequired => {
@@ -329,12 +333,29 @@ pub(super) fn run_internal_flow_pipeline(
     })
 }
 
-/// Build the conflict failure, naming the server and the store path.
-fn conflict_failure(materialised_name: &str) -> Failure {
-    let path = fs::data_dir()
-        .map(|d| d.join("opencode").join("mcp-auth.json"))
-        .map(|p| p.to_string())
-        .unwrap_or_else(|_| "OpenCode's mcp-auth.json".to_owned());
+/// Build the conflict failure, naming the server and the store that holds it.
+///
+/// The store is the provider's own, so the remediation must be too: naming
+/// OpenCode's `mcp-auth.json` to someone re-running under omp sends them to
+/// edit a file their credential is not in.
+fn conflict_failure(
+    provider: crate::domain::provider::Provider,
+    materialised_name: &str,
+) -> Failure {
+    let (path, removal) = match provider {
+        crate::domain::provider::Provider::Omp => (
+            "omp's credential vault".to_owned(),
+            "run `omp auth-broker logout <provider-id>`".to_owned(),
+        ),
+        _ => {
+            let path = fs::data_dir()
+                .map(|d| d.join("opencode").join("mcp-auth.json"))
+                .map(|p| p.to_string())
+                .unwrap_or_else(|_| "OpenCode's mcp-auth.json".to_owned());
+            let removal = format!("delete the entry from {path}");
+            (path, removal)
+        }
+    };
 
     Failure::blocked(
         "flow.conflict",
@@ -346,7 +367,7 @@ fn conflict_failure(materialised_name: &str) -> Failure {
         "flow.remove_entry",
         format!(
             "Remove the \"{materialised_name}\" entry from the credential store \
-             explicitly before re-authenticating: delete the entry from {path}."
+             explicitly before re-authenticating: {removal}."
         ),
     ))
 }

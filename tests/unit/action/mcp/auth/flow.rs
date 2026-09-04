@@ -167,7 +167,7 @@ impl FlowOps for MockOps {
     fn provider(&self) -> Provider {
         self.provider
     }
-    fn check_conflict(&self, _: &str) -> Result<bool, Failure> {
+    fn check_conflict(&self, _: &str, _: &str) -> Result<bool, Failure> {
         self.events.borrow_mut().push(PipelineEvent::ConflictCheck);
         if self.fail_at == Some(PipelineEvent::ConflictCheck) {
             return Err(Failure::failed("fail", "fail"));
