@@ -16,7 +16,7 @@ use camino::{Utf8Path, Utf8PathBuf};
 
 use crate::error::{Failure, FixAction};
 
-pub use guard::{chmod, clear_write_bits, restore_write_bits, unix_mode};
+pub use guard::{LiftedGuard, chmod, clear_write_bits, restore_write_bits, unix_mode};
 pub use io::{
     TempDir, copy_dir, ensure_dir, exists, is_dir, is_file, prune_empty_parents, read_bytes,
     read_dir, read_text, remove_file, remove_path, rename, stat, write_atomic, write_bytes,

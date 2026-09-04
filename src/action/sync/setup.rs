@@ -46,21 +46,13 @@ pub(crate) fn run_setup_script(
     // mutation does (`action::repo::pull::refresh_default`). Nothing to lift on
     // a feature worktree: promotion is what makes it writable in the first
     // place.
-    let guarded = fs::unix_mode(worktree)?.is_some_and(|mode| mode & 0o222 == 0);
-    if guarded {
-        fs::restore_write_bits(worktree)?;
-    }
-
-    let run = proc::inherit(&setup_command(layout, repo, worktree, &script));
-
-    // Re-guarded before the run is judged: a worktree must not be left writable
-    // because the script failed, or because spawning it did. Best-effort, like
-    // the pull path — the run's result stands even if the chmod does not.
-    if guarded {
-        let _ = fs::clear_write_bits(worktree);
-    }
-    let code = run?;
-
+    //
+    // The guard is a value, not a pair of statements: the re-guard happens on
+    // drop, so a failure anywhere below cannot leave the worktree writable.
+    let code = {
+        let _guard = fs::LiftedGuard::lift(&[worktree])?;
+        proc::inherit(&setup_command(layout, repo, worktree, &script))?
+    };
     // Recorded before the exit code is judged, so a failed run is remembered as
     // failed — which is what makes the next sync retry it instead of skipping.
     Receipt::write(&git_dir, &Receipt::of_run(&fingerprint, code))?;

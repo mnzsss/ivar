@@ -319,27 +319,19 @@ pub(crate) fn refresh_default(
         }
     }
 
-    // Lift the read-only guard (if any) for the git mutation below. The
-    // restore is best-effort: the refresh result stands even if the chmod
-    // fails, and the next session start/connect re-applies the guard.
-    let lifted = match fs::unix_mode(&worktree) {
-        Ok(Some(mode)) if mode & 0o222 == 0 => match fs::restore_write_bits(&worktree) {
-            Ok(()) => true,
-            Err(error) => {
-                return PullStatus::Failed {
-                    reason: format!("could not lift the read-only guard: {error}"),
-                };
-            }
-        },
-        Ok(_) => false,
-        Err(error) => {
+    // Lift the read-only guard (if any) for the git mutation below. Held as a
+    // value: the re-guard happens on drop, so no path out of the match below
+    // can leave the worktree writable.
+    let _guard = match fs::LiftedGuard::lift(&[&worktree]) {
+        Ok(guard) => guard,
+        Err(failure) => {
             return PullStatus::Failed {
-                reason: error.to_string(),
+                reason: failure.what,
             };
         }
     };
 
-    let status = match git.fetch_branch(&worktree, repo.default_branch().as_str()) {
+    match git.fetch_branch(&worktree, repo.default_branch().as_str()) {
         Err(error) => PullStatus::Failed {
             reason: error.to_string(),
         },
@@ -372,12 +364,7 @@ pub(crate) fn refresh_default(
                 }
             }
         },
-    };
-
-    if lifted {
-        let _ = fs::clear_write_bits(&worktree);
     }
-    status
 }
 
 /// Fetch-and-fast-forward every registered repo — the **Smart Fetch** sweep

@@ -10,7 +10,7 @@ use crate::git::Git;
 use crate::store::layout::Layout;
 
 use super::LandPlan;
-use super::permissions::WorktreeWriteGuard;
+use crate::infra::fs::LiftedGuard;
 
 /// Executes the land plans: lifts write bits, performs fast-forward merge, best-effort pushes.
 ///
@@ -79,7 +79,7 @@ pub fn execute(
 
     // --- Lift permissions for local merges ---
     let worktrees: Vec<&Utf8Path> = plans.iter().map(|p| p.worktree.as_path()).collect();
-    let _guard = WorktreeWriteGuard::lift(&worktrees)?;
+    let _guard = LiftedGuard::lift(&worktrees)?;
 
     // --- Phase 2: Local Fast-Forward Merge for ALL plans with all-or-nothing rollback ---
     for (i, plan) in plans.iter().enumerate() {
