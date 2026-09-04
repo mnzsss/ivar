@@ -15,7 +15,7 @@ use crate::domain::mcp::McpServerDef;
 use crate::domain::provider::Provider;
 use crate::error::Failure;
 use crate::infra::http_callback::{AuthorizationCode, CallbackServer};
-use crate::infra::mcp_oauth::{self, OAuthEndpoints};
+use crate::infra::mcp_oauth::{self, DiscoveryOutcome, OAuthEndpoints};
 use crate::infra::oauth::{self, AuthMode, Tokens};
 use crate::providers::Credential;
 
@@ -199,12 +199,12 @@ impl FlowOps for MockOps {
             },
         })
     }
-    fn discover(&self, _: &str) -> Result<OAuthEndpoints, Failure> {
+    fn discover(&self, _: &str) -> Result<DiscoveryOutcome, Failure> {
         self.events.borrow_mut().push(PipelineEvent::Discover);
         if self.fail_at == Some(PipelineEvent::Discover) {
             return Err(Failure::failed("fail", "fail"));
         }
-        Ok(OAuthEndpoints {
+        Ok(DiscoveryOutcome::Endpoints(OAuthEndpoints {
             authorization_endpoint: "a".to_owned(),
             token_endpoint: self
                 .token_endpoint
@@ -213,7 +213,7 @@ impl FlowOps for MockOps {
             resource: None,
             scopes_supported: None,
             registration_endpoint: None,
-        })
+        }))
     }
     fn bind(&self, _: &str) -> Result<CallbackServer, Failure> {
         self.events.borrow_mut().push(PipelineEvent::Bind);

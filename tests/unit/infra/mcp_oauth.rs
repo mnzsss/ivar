@@ -201,3 +201,59 @@ fn a_registration_response_that_is_not_json_names_the_generic_module() {
         .expect_err("HTML is not a registration response");
     assert_eq!(failure.code, "mcp_oauth.register_client_parse");
 }
+
+#[test]
+fn a_server_that_answers_200_needs_no_auth() {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind loopback");
+    let port = listener.local_addr().expect("addr").port();
+    std::thread::spawn(move || {
+        if let Ok((mut stream, _)) = listener.accept() {
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            let mut request_line = String::new();
+            let _ = reader.read_line(&mut request_line);
+            // drain headers
+            loop {
+                let mut line = String::new();
+                if reader.read_line(&mut line).is_err() || line.trim().is_empty() {
+                    break;
+                }
+            }
+            let _ = stream.write_all(
+                b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}",
+            );
+        }
+    });
+
+    let url = format!("http://127.0.0.1:{port}/mcp");
+    let outcome = discover_oauth_endpoints(&url).expect("200 is not an error");
+    assert!(
+        matches!(outcome, DiscoveryOutcome::NoAuthRequired),
+        "a server that serves initialize without a challenge requires no auth"
+    );
+}
+
+#[test]
+fn an_unexpected_status_is_still_a_failure() {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind loopback");
+    let port = listener.local_addr().expect("addr").port();
+    std::thread::spawn(move || {
+        if let Ok((mut stream, _)) = listener.accept() {
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            let mut request_line = String::new();
+            let _ = reader.read_line(&mut request_line);
+            // drain headers
+            loop {
+                let mut line = String::new();
+                if reader.read_line(&mut line).is_err() || line.trim().is_empty() {
+                    break;
+                }
+            }
+            let _ = stream
+                .write_all(b"HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+        }
+    });
+
+    let url = format!("http://127.0.0.1:{port}/mcp");
+    let failure = discover_oauth_endpoints(&url).expect_err("500 is not a clean outcome");
+    assert_eq!(failure.code, "mcp_oauth.discover_unexpected_status");
+}

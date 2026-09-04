@@ -187,6 +187,10 @@ pub struct AuthInput {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Preregistration {
+    /// The server needs no authentication at all: it served `initialize`
+    /// without a challenge, so there is nothing to register and nothing to
+    /// authenticate.
+    NoAuthRequired,
     /// The provider isn't OpenCode, the server has no `url`, or its host
     /// isn't one Figma's allowlist gates — step 2 never applied.
     NotNeeded,
@@ -312,6 +316,11 @@ impl ProviderRun {
                 w,
                 "[{provider}] pre-registered an OAuth client (`{client_id}`) for `{server}` with \
                  Figma. That only clears the registration allowlist — it is not authentication."
+            )?,
+            Preregistration::NoAuthRequired => writeln!(
+                w,
+                "[{provider}] `{server}` needs no authentication — it answers without a \
+                 challenge."
             )?,
         }
 

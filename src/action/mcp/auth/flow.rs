@@ -39,7 +39,7 @@ use super::{AuthMethod, Preregistration, ProviderRun};
 
 use crate::infra::fs;
 use crate::infra::http_callback::{AuthorizationCode, CallbackServer, OAUTH_REDIRECT_URI};
-use crate::infra::mcp_oauth::{self, OAuthEndpoints};
+use crate::infra::mcp_oauth::{self, DiscoveryOutcome, OAuthEndpoints};
 use crate::infra::oauth::{self, AuthMode, Tokens};
 
 /// How long to wait for the OAuth callback before giving up.
@@ -63,7 +63,7 @@ pub(super) trait FlowOps {
         name: &str,
         endpoints: &OAuthEndpoints,
     ) -> Result<Preregistered, Failure>;
-    fn discover(&self, url: &str) -> Result<OAuthEndpoints, Failure>;
+    fn discover(&self, url: &str) -> Result<DiscoveryOutcome, Failure>;
     fn bind(&self, state: &str) -> Result<CallbackServer, Failure>;
     fn output_url(&self, url: &str);
     fn wait_code(&self, listener: CallbackServer) -> Result<AuthorizationCode, Failure>;
@@ -110,7 +110,7 @@ impl FlowOps for RealFlowOps {
             Some(endpoints),
         )
     }
-    fn discover(&self, url: &str) -> Result<OAuthEndpoints, Failure> {
+    fn discover(&self, url: &str) -> Result<DiscoveryOutcome, Failure> {
         mcp_oauth::discover_oauth_endpoints(url)
     }
     fn bind(&self, state: &str) -> Result<CallbackServer, Failure> {
@@ -210,7 +210,19 @@ pub(super) fn run_internal_flow_pipeline(
             "internal OAuth flow requires a server URL for endpoint discovery",
         )
     })?;
-    let endpoints = ops.discover(server_url)?;
+    let endpoints = match ops.discover(server_url)? {
+        DiscoveryOutcome::Endpoints(endpoints) => endpoints,
+        DiscoveryOutcome::NoAuthRequired => {
+            return Ok(ProviderRun {
+                provider,
+                preregistration: Preregistration::NoAuthRequired,
+                auth_method: AuthMethod::InternalOAuthFlow,
+                command: INTERNAL_FLOW_LABEL.to_owned(),
+                authenticated: true,
+                error: None,
+            });
+        }
+    };
 
     // Step 3: Pre-register
     let preregistered = ops.preregister(server, materialised_name, &endpoints)?;

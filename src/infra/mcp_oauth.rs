@@ -60,6 +60,15 @@ pub(crate) fn read_body<T: Read>(mut reader: T) -> Result<String, Failure> {
 // OAuth metadata discovery (RFC 9728 / RFC 8414)
 // ---------------------------------------------------------------------------
 
+/// What discovery found. A server that serves `initialize` without a
+/// challenge is not a failure to authenticate — it is a server that needs no
+/// authentication.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DiscoveryOutcome {
+    Endpoints(OAuthEndpoints),
+    NoAuthRequired,
+}
+
 /// Discovered OAuth authorization and token endpoints for an MCP server.
 ///
 /// `resource` and `scopes_supported` are optional — included when the
@@ -202,7 +211,7 @@ pub(crate) fn parse_authorization_metadata(json_str: &str) -> Result<OAuthEndpoi
 ///    metadata; extract the authorization and token endpoints.
 ///
 /// No secrets, tokens, or codes appear in errors or their `actual` fields.
-pub fn discover_oauth_endpoints(server_url: &str) -> Result<OAuthEndpoints, Failure> {
+pub fn discover_oauth_endpoints(server_url: &str) -> Result<DiscoveryOutcome, Failure> {
     // Step 1: POST to the server URL to trigger the 401 challenge.
     // The MCP Server expects a POST request (JSON-RPC initialize) to initiate
     // the stream/connection, and will respond with 401 + WWW-Authenticate.
@@ -242,12 +251,15 @@ pub fn discover_oauth_endpoints(server_url: &str) -> Result<OAuthEndpoints, Fail
         })?;
 
     let status = response.status();
+    if status.is_success() {
+        return Ok(DiscoveryOutcome::NoAuthRequired);
+    }
     if status.as_u16() != 401 {
         return Err(Failure::failed(
             "mcp_oauth.discover_unexpected_status",
             format!("MCP server returned {status} instead of 401"),
         )
-        .expected("HTTP 401 with WWW-Authenticate")
+        .expected("HTTP 401 with WWW-Authenticate, or a 2xx needing no auth")
         .actual(format!("HTTP {status}")));
     }
 
@@ -309,7 +321,7 @@ pub fn discover_oauth_endpoints(server_url: &str) -> Result<OAuthEndpoints, Fail
     let mut endpoints = parse_authorization_metadata(&auth_body)?;
     endpoints.resource = resource;
 
-    Ok(endpoints)
+    Ok(DiscoveryOutcome::Endpoints(endpoints))
 }
 
 /// Register an OAuth client at `registration_endpoint` (RFC 7591).
