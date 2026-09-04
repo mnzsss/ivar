@@ -174,3 +174,30 @@ fn no_secret_with_auth_method_none_stays_a_public_client() {
         serde_json::from_str(r#"{"client_id":"id","token_endpoint_auth_method":"none"}"#).unwrap();
     assert_eq!(info.auth_mode(), AuthMode::None);
 }
+
+#[test]
+fn authorization_metadata_carries_the_registration_endpoint() {
+    let json = r#"{
+        "issuer": "https://mcp.linear.app",
+        "authorization_endpoint": "https://mcp.linear.app/authorize",
+        "token_endpoint": "https://mcp.linear.app/token",
+        "registration_endpoint": "https://mcp.linear.app/register",
+        "scopes_supported": ["read", "write"]
+    }"#;
+    let endpoints = parse_authorization_metadata(json).expect("valid RFC 8414 metadata");
+    assert_eq!(
+        endpoints.registration_endpoint.as_deref(),
+        Some("https://mcp.linear.app/register")
+    );
+}
+
+#[test]
+fn authorization_metadata_without_a_registration_endpoint_is_still_valid() {
+    let json = r#"{
+        "issuer": "https://mcp.figma.com",
+        "authorization_endpoint": "https://mcp.figma.com/authorize",
+        "token_endpoint": "https://mcp.figma.com/token"
+    }"#;
+    let endpoints = parse_authorization_metadata(json).expect("registration_endpoint is optional");
+    assert_eq!(endpoints.registration_endpoint, None);
+}

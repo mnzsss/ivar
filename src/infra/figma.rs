@@ -222,6 +222,9 @@ pub struct OAuthEndpoints {
     pub token_endpoint: String,
     pub resource: Option<String>,
     pub scopes_supported: Option<Vec<String>>,
+    /// The RFC 7591 dynamic client registration endpoint, when the
+    /// authorization server advertises one.
+    pub registration_endpoint: Option<String>,
 }
 
 /// Resource metadata as described by RFC 9728 (`.well-known/oauth-protected-resource`).
@@ -239,6 +242,8 @@ struct AuthorizationServerMetadata {
     token_endpoint: String,
     #[serde(default)]
     scopes_supported: Option<Vec<String>>,
+    #[serde(default)]
+    registration_endpoint: Option<String>,
 }
 
 /// Extract the `resource_metadata` URL from a `WWW-Authenticate` header
@@ -334,6 +339,7 @@ pub(crate) fn parse_authorization_metadata(json_str: &str) -> Result<OAuthEndpoi
         token_endpoint: meta.token_endpoint,
         resource: None,
         scopes_supported: meta.scopes_supported,
+        registration_endpoint: meta.registration_endpoint,
     })
 }
 

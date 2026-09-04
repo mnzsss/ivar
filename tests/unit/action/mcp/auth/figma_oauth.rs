@@ -212,6 +212,7 @@ impl FlowOps for MockOps {
                 .unwrap_or_else(|| "t".to_owned()),
             resource: None,
             scopes_supported: None,
+            registration_endpoint: None,
         })
     }
     fn bind(&self, _: &str) -> Result<CallbackServer, Failure> {

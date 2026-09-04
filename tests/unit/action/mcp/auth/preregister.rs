@@ -13,6 +13,7 @@ fn fresh_registration_persists_the_endpoints_discovery_returned() {
         token_endpoint: "https://auth.example.com/oauth/token?tenant=42".to_owned(),
         resource: Some("https://api.example.com/mcp".to_owned()),
         scopes_supported: None,
+        registration_endpoint: None,
     };
 
     let oauth = oauth_registration("client-abc", "IVAR_MCP_ACME_SECRET", Some(&discovered));
@@ -40,6 +41,7 @@ fn fresh_registration_persists_no_resource_when_discovery_returned_none() {
         token_endpoint: "https://auth.example.com/oauth/token".to_owned(),
         resource: None,
         scopes_supported: None,
+        registration_endpoint: None,
     };
 
     let oauth = oauth_registration("client-abc", "IVAR_MCP_ACME_SECRET", Some(&discovered));
