@@ -50,22 +50,27 @@ src/
     repo/          add · list · remove · pull · setup · upstream, where pull/
                    splits the sweep in mod.rs from diagnosis.rs — whether a
                    diverged branch is safe to reset, and which blocker to name
-     feature/       create · list · promote · demote · status · reparent ·
-                    close · delete · rebase · view · prune · cleanup, plus
+    discovery/     create · list · show · amend · close — a unit of work's
+                   committed memory (docs/<name>/discovery.md + research/).
+                   No feature required — a name may earn memory long before
+                   it earns execution.
+    feature/       create · list · promote · demote · status · reparent ·
+                   close · delete · rebase · view · prune · cleanup, plus
                    deliver/ — the preview fingerprint, push, and pull-request
-                   phases split across mod.rs, repos.rs, and preview.rs — and
-                   integrate/ — the receipt-driven orchestration (preflight,
-                   reuse/re-verify/resume, close-on-integrated) in mod.rs,
-                   with the git-and-forge plumbing (local candidate staging,
-                   the PR path, and receipt persistence) in apply.rs. The
-                   nested-subfeature machinery lives in private focused
-                   modules: relations.rs (the child-derived tree, receipt
-                   freshness, and descendant blockers), lifecycle.rs (the
-                   shared plan-frontmatter close seam), mutation.rs (the
-                   scoped whole-child/per-promotion mutation guards),
-                   verification.rs (the ordered executable checks),
-                   reparent.rs, and pull_requests.rs (the shared PR operations
-                   delivery and integration both use).
+                   phases split across mod.rs, repos.rs, and preview.rs,
+                   with land/ (mod.rs, execute.rs, preflight.rs) for fast-forward
+                   merge and push — and integrate/ — the receipt-driven
+                   orchestration (preflight, reuse/re-verify/resume,
+                   close-on-integrated) in mod.rs, with the git-and-forge
+                   plumbing (local candidate staging, the PR path, and receipt
+                   persistence) in apply.rs. The nested-subfeature machinery
+                   lives in private focused modules: relations.rs (the
+                   child-derived tree, receipt freshness, and descendant
+                   blockers), lifecycle.rs (the shared plan-frontmatter close
+                   seam), mutation.rs (the scoped whole-child/per-promotion
+                   mutation guards), verification.rs (the ordered executable
+                   checks), reparent.rs, and pull_requests.rs (the shared PR
+                   operations delivery and integration both use).
     execute/       feature execute: start · finish · status · accept-revision,
                    the provider-neutral Run Receipt lifecycle
     session/       start · connect · conversion · stop · prune · relay, plus
@@ -93,12 +98,14 @@ src/
                    (Run Receipts), integration.rs (the pure nested-integration
                    vocabulary: via/strategy/policy resolution, receipts and
                    verification evidence, and the derived integration-state
-                   classifier), and base.rs (effective_base, the
+                   classifier), base.rs (effective_base, the
                    declared-base-or-default-branch fallback a promotion
-                   resolves against). Children are derived by scanning
-                   `Feature.parent` — no feature stores a child list, and no
-                   lifecycle field is persisted.
+                   resolves against), and cleanup.rs (the side-effect-free
+                   cleanup preview and eligibility classifier). Children are
+                   derived by scanning `Feature.parent` — no feature stores a
+                   child list, and no lifecycle field is persisted.
     session.rs     session state and identity
+    discovery.rs   pure discovery types (DiscoveryDoc, status, frontmatter)
     provider.rs    which harnesses exist, and their capability flags
     health.rs      hall health derivation (uninitialized/operational/stale/degraded)
     skill.rs skill_sync.rs  skills, and the sync plan over them
@@ -111,8 +118,9 @@ src/
                    the data and invariants, persistence.rs the read/write/plan/
                    migrate, error.rs the Error and its Failure conversion.
     layout.rs      every path under a hall is computed here, nowhere else —
-                   including the canonical `HALL.md` and each provider's
-                   root alias (`CLAUDE.md` / `AGENTS.md`)
+                   including `<hall>/plans/` (`plans_root()`), the canonical
+                   `HALL.md`, and each provider's root alias (`CLAUDE.md` /
+                   `AGENTS.md`)
     mcp_secrets.rs .ivar/secrets/mcp.env — durable local MCP OAuth credentials,
                    owner-only on Unix, never committed.
     gitignore.rs   the hall's .gitignore: append the needed lines, never clobber
@@ -120,6 +128,10 @@ src/
                    NOT under layout: it lives in git's admin dir, so it dies
                    with the worktree it describes.
     feature.rs session.rs  the per-feature and per-session state files
+    feature/       run.rs (the current Run Receipt, the immutable run/board
+                   archives, and single-run lock) with legacy.rs (the
+                   permanent v0->v3 board migration chain)
+    discovery.rs   discovery doc parsing and rendering (frontmatter I/O)
     skill.rs       the lockfile and skill state
     render.rs      materialising a skill: symlink or copy, and verify
 
@@ -161,14 +173,8 @@ src/
                    root aliases (relative symlinks to `HALL.md`); mcp.rs owns
                    the MCP document construction and the Claude/OpenCode
                    translation; session.rs builds the session bootstrap block.
-    guard/         the per-session execution guard materialisation: the
-                   dispatch and shared constants in mod.rs, the Claude Code
-                   hook script + settings.json merge in claude.rs, and the
-                   OpenCode plugin in opencode.rs
-    stream.rs      provider-shaped JSON in, ExecutorEvent out: the one place
-                   a `claude -p --output-format stream-json` or `opencode
-                   run` line is parsed, so a provider's envelope shape can
-                   change without anything above this file noticing.
+    opencode_auth.rs  read and write access to OpenCode's MCP OAuth credential
+                   store (`mcp-auth.json`) for Figma tokens
 
   tui/             ratatui. Sync render, explicit drive.
     screen.rs      the Screen seam over vt100 — the emulator swap point
@@ -186,7 +192,8 @@ src/
     fs/            the filesystem primitive set. Nothing else touches std::fs.
                    io.rs owns reads/writes/directories/metadata/removal,
                    symlink.rs owns create/replace/read plus SymlinkTarget,
-                   guard.rs owns the read-only guard (chmod, mode, write bits),
+                   guard.rs owns the read-only guard (chmod, mode, write bits)
+                   and `LiftedGuard` RAII scope guard,
                    and the facade owns the shared Error.
     json.rs        write_canonical — the ONLY on-disk JSON writer
     frontmatter.rs split + parse + emit YAML frontmatter. The YAML swap point.
@@ -194,7 +201,10 @@ src/
     proc/          subprocess spawn: `capture` and `inherit` in mod.rs, the
                    incremental line-protocol runner (`stream`/`Stream`) a
                    provider process needs in streaming.rs, and the Linux
-                   /proc port attribution in ports.rs.
+                   /proc working-directory attribution in cwd.rs.
+    oauth.rs       OAuth 2.0 PKCE and code-for-token exchange primitives
+    figma.rs       Figma MCP client pre-registration and dynamic OAuth discovery
+    http_callback.rs  transient loopback listener for OAuth authorization code
     github.rs      GitHub token lookup (and the credential-helper wiring that
                    derives it from `gh`/`$GITHUB_TOKEN` on each call). PR
                    operations themselves are not a trait seam: tests fake the
@@ -267,7 +277,7 @@ observed through the sweep that reports them; `action/sync/`'s `repo.rs`,
 `action/feature/deliver/`'s `preview.rs` and `repos.rs`;
 `action/feature/integrate/`'s `apply.rs`; `action/execute/`'s lifecycle files;
 `harness/commands/catalog.rs`; `harness/config/mcp.rs`; `infra/fs/`'s `io.rs`,
-`symlink.rs`, and `guard.rs`; `infra/proc/`'s `ports.rs`; and `tui/scrollback.rs`
+`symlink.rs`, and `guard.rs`; `infra/proc/`'s `cwd.rs`; and `tui/scrollback.rs`
 are all tested through the linked file of the module that declares them
 (`sync/mod.rs`, `auth/mod.rs`, `deliver/mod.rs`, `integrate/mod.rs`,
 `execute/mod.rs`, `commands.rs`, `config/mod.rs`, `fs/mod.rs`, `proc/mod.rs`,
@@ -341,7 +351,7 @@ exceptions:
   `action/repo/remove.rs`, `action/session/conversion.rs`,
   `action/feature/delete.rs`, and `action/feature/promote.rs` — coherent
   command-level behaviors only modestly over the trigger.
-- `action/repo/pull.rs` — the one place a repo's refresh policy lives: the
+- `action/repo/pull/mod.rs` — the one place a repo's refresh policy lives: the
   per-repo fetch step, the default-branch refresh, and the `refresh_all` sweep
   used by session startup. It crossed the trigger when that sweep replaced the
   copies callers previously carried.
