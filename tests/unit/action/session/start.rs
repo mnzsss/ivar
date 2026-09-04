@@ -1292,3 +1292,82 @@ fn opencode_session_command_injects_referenced_mcp_secrets_only() {
     );
     assert!(claude_injected.envs().is_empty());
 }
+
+#[test]
+fn omp_session_view_dir_materialises_commands_and_hooks() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root.clone());
+    let manifest = Manifest::read(&layout).unwrap().unwrap();
+    let feature = Feature::read(&layout, &FeatureName::new("checkout").unwrap())
+        .unwrap()
+        .unwrap();
+    let session_id = SessionId::new(uuid::Uuid::new_v4().to_string()).unwrap();
+    let view_dir = layout.feature_session(&FeatureName::new("checkout").unwrap(), &session_id);
+
+    // Populate hall-side command catalog and hooks before session materialisation
+    let hall_omp_commands = layout.commands_dir(&Provider::Omp);
+    crate::harness::commands::materialise(&hall_omp_commands).unwrap();
+
+    let hall_omp_hooks = layout.root().join(".omp/hooks/pre");
+    crate::infra::fs::ensure_dir(&hall_omp_hooks).unwrap();
+    let hook_file = hall_omp_hooks.join("ivar-guard.js");
+    crate::infra::fs::write_text(&hook_file, "console.log('hook');").unwrap();
+
+    crate::action::session::view::materialise(
+        &layout,
+        &manifest,
+        Some(&feature),
+        Provider::Omp,
+        &view_dir,
+    )
+    .unwrap();
+
+    let omp_config_dir = view_dir.join(Provider::Omp.config_dir());
+    let commands_link = omp_config_dir.join("commands");
+    assert_eq!(
+        crate::infra::fs::read_symlink(&commands_link).unwrap(),
+        crate::infra::fs::SymlinkTarget::Target(hall_omp_commands.clone()),
+        ".omp/commands must be a symlink pointing at the hall's .omp/commands"
+    );
+    assert!(
+        crate::infra::fs::is_file(&commands_link.join("ivar-execute.md")).unwrap(),
+        "shipped ivar-*.md commands must be reachable in session view"
+    );
+
+    let hooks_link = omp_config_dir.join("hooks/pre");
+    assert_eq!(
+        crate::infra::fs::read_symlink(&hooks_link).unwrap(),
+        crate::infra::fs::SymlinkTarget::Target(hall_omp_hooks.clone()),
+        ".omp/hooks/pre must be a symlink pointing at the hall's .omp/hooks/pre"
+    );
+    assert!(
+        crate::infra::fs::is_file(&hooks_link.join("ivar-guard.js")).unwrap(),
+        "the hall's hook must be reachable through the projection"
+    );
+}
+
+#[test]
+fn omp_sync_removes_stale_managed_commands_and_preserves_user_files() {
+    let (_guard, root) = hall_root();
+    let layout = Layout::at(root.clone());
+    let omp_commands = layout.commands_dir(&Provider::Omp);
+    crate::infra::fs::ensure_dir(&omp_commands).unwrap();
+
+    // Place a stale managed command and a user-owned file
+    let stale_managed = omp_commands.join("ivar-legacy-command.md");
+    let user_file = omp_commands.join("custom-script.md");
+    crate::infra::fs::write_text(&stale_managed, "<!-- ivar-managed -->\nlegacy").unwrap();
+    crate::infra::fs::write_text(&user_file, "# User custom workflow").unwrap();
+
+    // Run commands materialisation
+    crate::harness::commands::materialise(&omp_commands).unwrap();
+
+    // Shipped commands must exist
+    assert!(crate::infra::fs::is_file(&omp_commands.join("ivar-execute.md")).unwrap());
+    // User-owned file must survive
+    assert!(crate::infra::fs::is_file(&user_file).unwrap());
+    assert_eq!(
+        crate::infra::fs::read_text(&user_file).unwrap().unwrap(),
+        "# User custom workflow"
+    );
+}

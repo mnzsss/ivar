@@ -731,7 +731,7 @@ contract** — a user's committed `.ivar/setups/<repo>.sh` breaks if they move.
 | `IVAR_FEATURE` | feature worktrees only | ✓ | the feature name |
 | `IVAR_SESSION_ID` | — | ✓ | the session id |
 | `IVAR_SESSION_PATH` | — | ✓ | the view dir |
-| `IVAR_PROVIDER` | — | ✓ | the active harness provider (`claude-code` or `opencode`) |
+| `IVAR_PROVIDER` | — | ✓ | the active harness provider (`claude-code`, `opencode`, or `omp`) |
 
 The three worktree variables were added when slice 2 landed the setup-script
 runner: a script's whole job is to bootstrap *this* repo on *this* branch, and

@@ -94,6 +94,32 @@ pub fn managed_artifacts(provider: Provider) -> Vec<ManagedArtifact> {
     }
 }
 
+/// One hall directory projected into a session's provider config dir.
+///
+/// `hall_source` is hall-relative; `config_relative_dest` is relative to
+/// the session's `<view_dir>/<config_dir>`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionProjection {
+    pub hall_source: Utf8PathBuf,
+    pub config_relative_dest: Utf8PathBuf,
+}
+
+/// Every provider projects its command catalog; the source path is
+/// `Provider::commands_dir()`, not a per-provider copy of it. Providers add
+/// their own extra projections on top.
+#[must_use]
+pub fn session_projections(provider: Provider) -> Vec<SessionProjection> {
+    let mut projections = vec![SessionProjection {
+        hall_source: Utf8PathBuf::from(provider.commands_dir()),
+        config_relative_dest: Utf8PathBuf::from("commands"),
+    }];
+    match provider {
+        Provider::ClaudeCode | Provider::OpenCode => {}
+        Provider::Omp => projections.extend(omp::session::extra_projections()),
+    }
+    projections
+}
+
 #[cfg(test)]
 #[path = "../../tests/unit/providers/mod.rs"]
 mod tests;
