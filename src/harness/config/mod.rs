@@ -56,7 +56,7 @@ mod settings;
 pub mod instructions;
 
 pub use instructions::{Change, MANAGED_END, MANAGED_START, build_block, materialise, remove};
-pub use mcp::{OAUTH_REDIRECT_URI, materialise_mcp, remove_mcp};
+pub use mcp::{materialise_mcp, remove_mcp};
 pub use plugin::{OPENCODE_PLUGIN, materialise_plugin, remove_plugin};
 pub use settings::{materialise_settings, remove_settings};
 

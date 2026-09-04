@@ -1,4 +1,8 @@
 use crate::domain::mcp::McpServerDef;
+/// The loopback callback ivar's own OAuth exchange listens on. Shared, not
+/// native: it belongs to the callback listener, so it is consumed from there
+/// rather than restated.
+use crate::infra::http_callback::OAUTH_REDIRECT_URI;
 
 /// The key OpenCode hangs its MCP servers off, inside `opencode.json`.
 ///
@@ -6,8 +10,6 @@ use crate::domain::mcp::McpServerDef;
 /// item B19 surveys `vibe-kanban` (Apache-2.0, nine working harness
 /// adapters) and records `mcp` + `$schema` for OpenCode verbatim.
 pub(crate) const ROOT_KEY: &str = "mcp";
-
-pub(crate) const OAUTH_REDIRECT_URI: &str = "http://127.0.0.1:19876/callback";
 
 pub(crate) fn server_doc(_name: &str, server: &McpServerDef) -> serde_json::Value {
     let mut object = serde_json::Map::new();

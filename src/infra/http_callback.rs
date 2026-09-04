@@ -38,6 +38,20 @@ const LOCALHOST: &str = "127.0.0.1";
 /// Default port for the OAuth callback listener.
 const DEFAULT_PORT: u16 = 19876;
 
+/// The redirect URI the listener above answers on — the one address a
+/// provider config or a client registration must name for the exchange to
+/// come back here.
+///
+/// The path (`/callback`) is the remote host's requirement, not OpenCode's
+/// own default (`/mcp/oauth/callback`) — Figma's registration endpoint
+/// returns `400 invalid_redirect_uri` for anything else (measured
+/// 2026-08-26; see `plans/ivar-mcp-auth/analysis.md`). The port is
+/// [`DEFAULT_PORT`], which is also OpenCode's own default callback port;
+/// setting `oauth.redirectUri` overrides both OpenCode's callback server and
+/// its authorize request, so one shared constant is what reconciles them
+/// rather than leaving three copies to disagree.
+pub const OAUTH_REDIRECT_URI: &str = "http://127.0.0.1:19876/callback";
+
 /// Maximum bytes to read from a single HTTP request (request line + headers).
 const MAX_READ: usize = 8192;
 

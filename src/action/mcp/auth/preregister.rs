@@ -91,7 +91,7 @@ pub(super) fn preregister_if_needed(
         });
     }
 
-    let registered = figma::register_client(config::OAUTH_REDIRECT_URI)?;
+    let registered = figma::register_client(crate::infra::http_callback::OAUTH_REDIRECT_URI)?;
     let client_secret = registered.client_secret.clone().ok_or_else(|| {
         Failure::failed(
             "mcp.figma_no_client_secret",

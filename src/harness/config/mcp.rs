@@ -34,19 +34,6 @@ use crate::infra::{fs, json};
 use crate::providers;
 
 use super::{Change, Error};
-/// The redirect URI a pre-registered OpenCode OAuth client declares, and the
-/// one `opencode.json`'s `oauth.redirectUri` must repeat so OpenCode listens
-/// where the registration told the server it would.
-///
-/// The path (`/callback`) is the remote host's requirement, not OpenCode's
-/// own default (`/mcp/oauth/callback`) — Figma's registration endpoint
-/// returns `400 invalid_redirect_uri` for anything else (measured
-/// 2026-08-26; see `plans/ivar-mcp-auth/analysis.md`). The port (`19876`) is
-/// OpenCode's own default callback port; setting `oauth.redirectUri`
-/// overrides both OpenCode's callback server and its authorize request, so
-/// declaring it here is what reconciles the two rather than leaving them to
-/// disagree.
-pub const OAUTH_REDIRECT_URI: &str = "http://127.0.0.1:19876/callback";
 
 pub fn materialise_mcp(
     path: &Utf8Path,

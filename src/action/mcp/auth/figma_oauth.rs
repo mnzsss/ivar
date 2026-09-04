@@ -42,15 +42,16 @@ use super::{AuthMethod, Preregistration, ProviderRun};
 
 use crate::infra::figma::{self, OAuthEndpoints};
 use crate::infra::fs;
-use crate::infra::http_callback::{AuthorizationCode, CallbackServer};
+use crate::infra::http_callback::{AuthorizationCode, CallbackServer, OAUTH_REDIRECT_URI};
 use crate::infra::oauth::{self, AuthMode, Tokens};
 
 /// How long to wait for the OAuth callback before giving up.
 const CALLBACK_TIMEOUT: Duration = Duration::from_secs(120);
 
 /// The redirect URI — must match the one registered with Figma and the one
-/// `opencode.json`'s `oauth.redirectUri` declares.
-const REDIRECT_URI: &str = "http://127.0.0.1:19876/callback";
+/// `opencode.json`'s `oauth.redirectUri` declares, which is exactly why it is
+/// one shared constant beside the listener rather than a local copy.
+const REDIRECT_URI: &str = OAUTH_REDIRECT_URI;
 
 /// The label used in `ProviderRun::command` for the internal flow, since
 /// there is no child process command to display.
