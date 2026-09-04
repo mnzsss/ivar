@@ -47,5 +47,23 @@ fn install_credentials_reports_no_store_for_providers_without_one() {
     };
 
     assert!(!install_credentials(Provider::ClaudeCode, "acme-figma", &credential).unwrap());
-    assert!(verify_authenticated(Provider::ClaudeCode, "acme-figma").is_ok());
+    assert!(verify_authenticated(Provider::ClaudeCode, "acme-figma", None).is_ok());
+}
+
+#[test]
+fn omp_verify_authenticated_uses_server_url_binding_and_refuses_missing_url() {
+    // When given a server URL, verify_authenticated delegates to omp::auth::verify_authenticated(server_url)
+    // which checks the URL-based binding.
+    // When given None as server_url, OMP must fail with a Failure rather than constructing a nonsense binding.
+    let server_url = "https://acme.example.com/mcp?tenant=123";
+    let name = "acme-figma";
+
+    // OMP without URL fails with Failure
+    let err_no_url = verify_authenticated(Provider::Omp, name, None).unwrap_err();
+    assert_eq!(err_no_url.code, "omp_auth.missing_server_url");
+
+    // OpenCode with name succeeds or fails based on name, ignores URL
+    // ClaudeCode always succeeds regardless of URL
+    assert!(verify_authenticated(Provider::ClaudeCode, name, None).is_ok());
+    assert!(verify_authenticated(Provider::ClaudeCode, name, Some(server_url)).is_ok());
 }

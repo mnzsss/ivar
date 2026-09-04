@@ -8,8 +8,10 @@
 
 use crate::infra::fs::{TempDir, write_sensitive_atomic};
 use crate::infra::oauth::Tokens;
+use crate::infra::proc::Output;
 use crate::providers::omp::auth::{
     credential_binding_from, credential_json, import_command, logout_command, parse_import_result,
+    verify_result_from_output,
 };
 
 #[test]
@@ -231,4 +233,45 @@ fn redaction_no_secrets_in_errors_or_debug() {
     let cmd_str = format!("{cmd:?} {}", cmd.display());
     assert!(!cmd_str.contains("super_secret_access_token_12345"));
     assert!(!cmd_str.contains("super_secret_refresh_token_67890"));
+}
+
+#[test]
+fn token_value_in_stdout_does_not_leak_into_verify_failure() {
+    let secret_token = "secret_access_token_should_never_leak_99999";
+    let binding = "mcp_oauth:profile:default:https://acme.example.com/mcp";
+
+    // When `omp token` exits non-zero, but has written the token to stdout and stderr is empty:
+    let output = Output {
+        code: Some(1),
+        stdout: secret_token.to_owned(),
+        stderr: String::new(),
+    };
+
+    let err = verify_result_from_output(&output, binding).unwrap_err();
+    let rendered_debug = format!("{err:?}");
+    let rendered_display = format!("{err}");
+    let rendered_what = &err.what;
+    let rendered_expected = err.expected.as_deref().unwrap_or_default();
+    let rendered_actual = err.actual.as_deref().unwrap_or_default();
+
+    assert!(
+        !rendered_debug.contains(secret_token),
+        "token leaked into Debug: {rendered_debug}"
+    );
+    assert!(
+        !rendered_display.contains(secret_token),
+        "token leaked into Display: {rendered_display}"
+    );
+    assert!(
+        !rendered_what.contains(secret_token),
+        "token leaked into what: {rendered_what}"
+    );
+    assert!(
+        !rendered_expected.contains(secret_token),
+        "token leaked into expected: {rendered_expected}"
+    );
+    assert!(
+        !rendered_actual.contains(secret_token),
+        "token leaked into actual: {rendered_actual}"
+    );
 }

@@ -75,3 +75,31 @@ fn civil_from_days_known_dates() {
     // Jan (31) + Feb (29, 2000 is a leap year).
     assert_eq!(civil_from_days(30 * 365 + 7 + 31 + 29), (2000, 3, 1));
 }
+
+#[test]
+fn rfc3339_from_epoch_secs_formats_correctly_and_handles_edges() {
+    assert_eq!(
+        rfc3339_from_epoch_secs(0.0),
+        "1970-01-01T00:00:00.000000000Z"
+    );
+    assert_eq!(
+        rfc3339_from_epoch_secs(1800000000.0),
+        "2027-01-15T08:00:00.000000000Z"
+    );
+    assert_eq!(
+        rfc3339_from_epoch_secs(1800000000.5),
+        "2027-01-15T08:00:00.500000000Z"
+    );
+    assert_eq!(
+        rfc3339_from_epoch_secs(-1.0),
+        "1970-01-01T00:00:00.000000000Z"
+    );
+    assert_eq!(
+        rfc3339_from_epoch_secs(f64::NAN),
+        "1970-01-01T00:00:00.000000000Z"
+    );
+    assert_eq!(
+        rfc3339_from_epoch_secs(f64::INFINITY),
+        "1970-01-01T00:00:00.000000000Z"
+    );
+}

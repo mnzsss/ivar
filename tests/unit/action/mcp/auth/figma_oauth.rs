@@ -232,7 +232,7 @@ impl FlowOps for MockOps {
         }
         Ok(())
     }
-    fn verify(&self, _: &str) -> Result<bool, Failure> {
+    fn verify(&self, _: &str, _: Option<&str>) -> Result<bool, Failure> {
         self.events.borrow_mut().push(PipelineEvent::Verify);
         if self.fail_at == Some(PipelineEvent::Verify) {
             return Err(Failure::failed("fail", "fail"));

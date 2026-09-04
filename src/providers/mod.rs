@@ -213,11 +213,31 @@ pub fn login_subcommand(provider: Provider) -> Option<[&'static str; 2]> {
 }
 
 /// Confirm the login actually landed, for providers whose exit code lies.
-pub fn verify_authenticated(provider: Provider, name: &str) -> Result<(), Failure> {
+pub fn verify_authenticated(
+    provider: Provider,
+    name: &str,
+    server_url: Option<&str>,
+) -> Result<(), Failure> {
     match provider {
         Provider::ClaudeCode => Ok(()),
         Provider::OpenCode => opencode::auth::verify_authenticated(name),
-        Provider::Omp => omp::auth::verify_authenticated(name).map(|_| ()),
+        Provider::Omp => {
+            let Some(server_url) = server_url else {
+                return Err(Failure::blocked(
+                    "omp_auth.missing_server_url",
+                    format!(
+                        "cannot verify OMP authentication for MCP server `{name}` without a server URL"
+                    ),
+                )
+                .expected("a server URL for OMP credential binding lookup")
+                .actual("no server URL provided")
+                .fix(FixAction::safe(
+                    "mcp.check_config",
+                    "Configure a `url` for the MCP server before authenticating with OMP.",
+                )));
+            };
+            omp::auth::verify_authenticated(server_url)
+        }
     }
 }
 

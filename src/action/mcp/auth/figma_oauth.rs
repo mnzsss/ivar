@@ -73,7 +73,7 @@ pub(super) trait FlowOps {
         resource: Option<&str>,
     ) -> Result<Tokens, Failure>;
     fn write(&self, name: &str, credential: &Credential<'_>) -> Result<(), Failure>;
-    fn verify(&self, name: &str) -> Result<bool, Failure>;
+    fn verify(&self, name: &str, server_url: Option<&str>) -> Result<bool, Failure>;
 }
 
 struct RealFlowOps {
@@ -128,8 +128,8 @@ impl FlowOps for RealFlowOps {
     fn write(&self, name: &str, credential: &Credential<'_>) -> Result<(), Failure> {
         crate::providers::install_credentials(self.provider, name, credential).map(|_| ())
     }
-    fn verify(&self, name: &str) -> Result<bool, Failure> {
-        Ok(crate::providers::verify_authenticated(self.provider, name).is_ok())
+    fn verify(&self, name: &str, server_url: Option<&str>) -> Result<bool, Failure> {
+        Ok(crate::providers::verify_authenticated(self.provider, name, server_url).is_ok())
     }
 }
 
@@ -260,7 +260,7 @@ pub(super) fn run_internal_flow_pipeline(
     ops.write(materialised_name, &credential)?;
 
     // Step 10: Verify
-    if !ops.verify(materialised_name)? {
+    if !ops.verify(materialised_name, Some(server_url))? {
         return Err(Failure::failed(
             "figma_oauth.verify_failed",
             "token exchange succeeded but has_tokens returned false after write",

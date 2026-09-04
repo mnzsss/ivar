@@ -149,7 +149,25 @@ pub fn rfc3339_now() -> String {
         .unwrap_or_default();
     let secs = now.as_secs() as i64;
     let nanos = now.subsec_nanos();
+    rfc3339_from_parts(secs, nanos)
+}
 
+/// Formats an epoch second (f64) as an RFC 3339 UTC timestamp.
+///
+/// Subsecond precision is rounded to nanoseconds. Negative or non-finite inputs
+/// clamp to the UNIX epoch (`1970-01-01T00:00:00.000000000Z`).
+#[must_use]
+pub fn rfc3339_from_epoch_secs(secs_f64: f64) -> String {
+    if secs_f64.is_nan() || secs_f64.is_infinite() || secs_f64 < 0.0 {
+        return "1970-01-01T00:00:00.000000000Z".to_owned();
+    }
+    let secs = secs_f64.floor() as i64;
+    let subsec_nanos = ((secs_f64 - secs_f64.floor()) * 1_000_000_000.0).round() as u32;
+    rfc3339_from_parts(secs, subsec_nanos)
+}
+
+#[must_use]
+fn rfc3339_from_parts(secs: i64, nanos: u32) -> String {
     let days = secs.div_euclid(86_400);
     let seconds_of_day = secs.rem_euclid(86_400);
     let (hours, minutes, seconds) = (

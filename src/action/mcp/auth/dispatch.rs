@@ -106,7 +106,11 @@ fn attempt(
     let command = auth_command(provider, subcommand, materialised_name, secret.as_ref());
     let display = command.display();
     let outcome = match proc::inherit(&command) {
-        Ok(Some(0)) => crate::providers::verify_authenticated(provider, materialised_name),
+        Ok(Some(0)) => crate::providers::verify_authenticated(
+            provider,
+            materialised_name,
+            server.url.as_deref(),
+        ),
         Ok(code) => Err(login_failed(&display, code)),
         Err(spawn_error) => Err(spawn_error.into()),
     };
