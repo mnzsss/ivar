@@ -432,25 +432,27 @@ pub(in crate::store::feature) fn v0_to_v1(
 /// `journal` — and adds fields with sensible defaults: `next_event_seq` and
 /// `seq`/`event_id` on the journal (the monotonic order and identity that made
 /// tick/reply idempotent), `blocked_by` and `sessions` on the board, and
-/// `provider`/`agent` on each workstream.
+/// `provider`/`agent` on each workstream. Like `journal`, a missing `graph` is
+/// tolerated and left to DTO defaults: absence means no workstreams exist to
+/// backfill, so migration succeeds cleanly.
 pub(in crate::store::feature) fn v1_to_v2(
     mut value: serde_json::Value,
 ) -> Result<serde_json::Value, String> {
     let root = value.as_object_mut().ok_or("board must be an object")?;
 
     // --- workstreams: add provider/agent where missing ----------------------
-    let graph = root
+    let streams = root
         .get_mut("graph")
         .and_then(|g| g.as_object_mut())
-        .ok_or("board is missing graph")?;
-    if let Some(streams) = graph.get_mut("workstreams").and_then(|w| w.as_array_mut()) {
+        .and_then(|g| g.get_mut("workstreams"))
+        .and_then(|w| w.as_array_mut());
+    if let Some(streams) = streams {
         for ws in streams {
             let obj = ws.as_object_mut().ok_or("workstream not an object")?;
             obj.entry("provider").or_insert(serde_json::Value::Null);
             obj.entry("agent").or_insert(serde_json::Value::Null);
         }
     }
-
     // --- journal: number the entries with seq/event_id ----------------------
     let mut fallback = Vec::new();
     let journal = root
@@ -559,3 +561,7 @@ struct JournalDto {
     #[serde(default)]
     message: String,
 }
+
+#[cfg(test)]
+#[path = "../../../../tests/unit/store/feature/run/legacy.rs"]
+mod tests;

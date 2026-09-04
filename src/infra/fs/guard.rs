@@ -6,7 +6,9 @@
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 
-use camino::Utf8Path;
+use camino::{Utf8Path, Utf8PathBuf};
+
+use crate::error::{Failure, FixAction};
 
 use super::{Error, stat};
 
@@ -75,4 +77,83 @@ pub fn restore_write_bits(path: &Utf8Path) -> Result<(), Error> {
         chmod(path, mode | 0o200)?;
     }
     Ok(())
+}
+
+/// A lifted read-only guard that puts itself back.
+///
+/// [`clear_write_bits`] and [`restore_write_bits`] are a pair, and the window
+/// between them is where a worktree is writable. Holding that window open with
+/// a value rather than a pair of statements is what makes the restore
+/// unconditional: it happens on the success path, on every early return, and
+/// on unwind, because it happens in `Drop`.
+///
+/// The alternative — restoring with a statement at the end of the function —
+/// is correct only while nothing between the two returns early, which is a
+/// property every later edit has to re-establish by reading the whole function.
+///
+/// A path that was already writable is not recorded and not touched on drop:
+/// lifting a guard that does not exist must not create one.
+#[cfg(unix)]
+#[derive(Debug)]
+pub struct LiftedGuard {
+    lifted: Vec<(Utf8PathBuf, u32)>,
+}
+
+#[cfg(unix)]
+impl LiftedGuard {
+    /// Lift the read-only guard on each of `paths` that has one, recording the
+    /// exact mode to restore.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Failure`] when a path's mode cannot be read, or when its
+    /// write bits cannot be restored. Paths lifted before the failure are
+    /// re-guarded by the drop of the partially built guard.
+    pub fn lift(paths: &[&Utf8Path]) -> Result<Self, Failure> {
+        let mut guard = Self { lifted: Vec::new() };
+        for &path in paths {
+            match unix_mode(path) {
+                Ok(Some(mode)) if mode & 0o222 == 0 => {
+                    if let Err(e) = restore_write_bits(path) {
+                        return Err(Failure::failed(
+                            "fs.lift_write_bits_failed",
+                            format!("could not lift write permissions on `{path}`: {e}"),
+                        )
+                        .expected(format!("write permissions to be lifted on `{path}`"))
+                        .actual(format!("chmod failed: {e}"))
+                        .fix(FixAction::safe(
+                            "fs.check_permissions",
+                            format!(
+                                "Ensure user has permission to modify permissions on `{path}`."
+                            ),
+                        )));
+                    }
+                    guard.lifted.push((path.to_path_buf(), mode));
+                }
+                Ok(_) => {}
+                Err(e) => {
+                    return Err(Failure::failed(
+                        "fs.read_mode_failed",
+                        format!("could not inspect permissions on `{path}`: {e}"),
+                    )
+                    .expected(format!("path `{path}` to exist and be readable"))
+                    .actual(format!("fs error: {e}"))
+                    .fix(FixAction::safe(
+                        "fs.check_path",
+                        format!("Ensure `{path}` exists and is accessible."),
+                    )));
+                }
+            }
+        }
+        Ok(guard)
+    }
+}
+
+#[cfg(unix)]
+impl Drop for LiftedGuard {
+    fn drop(&mut self) {
+        for (path, mode) in &self.lifted {
+            let _ = chmod(path, *mode);
+        }
+    }
 }

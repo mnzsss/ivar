@@ -53,7 +53,7 @@ impl WriteHuman for ListOutcome {
 pub fn list(ctx: &Ctx) -> Outcome<ListOutcome> {
     let layout = discover_hall(ctx)?;
 
-    let plans_dir = layout.root().join("plans");
+    let plans_dir = layout.plans_root();
     let mut plans = Vec::new();
     if fs::is_dir(&plans_dir)? {
         for entry in fs::read_dir(&plans_dir)? {

@@ -177,6 +177,7 @@ pub(crate) fn materialise(
 /// projected plan usable immediately. Only the session's own feature is ever
 /// linked — the hall's `plans/` directory is never projected wholesale.
 fn project_plan(layout: &Layout, feature: &Feature, view_dir: &Utf8Path) -> Result<(), Failure> {
+    // View Dir's own projected `plans/`, deliberately not `Layout::plans_root()`.
     let view_plans = view_dir.join("plans");
     fs::ensure_dir(&view_plans)?;
     let link = view_plans.join(feature.name.as_str());

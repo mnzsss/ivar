@@ -26,6 +26,24 @@ pub enum Protection {
     AlreadyInstalled,
 }
 
+/// `value` as a single-quoted POSIX shell literal.
+///
+/// Single quotes are the only shell quoting that protects everything — `$`,
+/// backtick, `;`, newline — and the single quote itself is the one character
+/// they cannot contain, so it is emitted as `'\''`: close, escaped quote,
+/// reopen.
+///
+/// This exists because [`hook_bytes`] writes a value into a script that runs
+/// on every commit, and a branch name is not a safe shell token.
+/// [`crate::domain::name`]'s `BranchName` validates git's *ref* grammar, which
+/// has never excluded `$`, backtick, `;` or `|` — `refs/heads/$(id)` is a legal
+/// git branch. The name is therefore valid and still dangerous, and the fix
+/// belongs at the sink that builds shell source, not in a newtype that would
+/// have to reject names git accepts.
+fn shell_single_quoted(value: &str) -> String {
+    format!("'{}'", value.replace('\'', r"'\''"))
+}
+
 /// The bytes of the `pre-commit` hook, with `default_branch` baked in.
 ///
 /// Baked in rather than read from config at commit time: a hook that looks up
@@ -38,14 +56,18 @@ pub enum Protection {
 /// the branch name, so the guard would wave the very first commit through.
 /// A detached HEAD makes `symbolic-ref` exit non-zero, which is the one case
 /// this hook deliberately allows: there is no branch to protect.
+///
+/// See [`shell_single_quoted`] for the quoting rationale on the interpolated
+/// branch name.
 fn hook_bytes(default_branch: &str) -> String {
+    let quoted = shell_single_quoted(default_branch);
     format!(
         r#"#!/bin/sh
 # Installed by ivar. Refuses commits on this repository's default branch.
 branch=$(git symbolic-ref --short -q HEAD) || exit 0
-if [ "$branch" = "{default_branch}" ]; then
-    echo "ivar: refusing a commit on the default branch '{default_branch}'." >&2
-    echo "ivar: promote this repo onto a feature and commit there." >&2
+if [ "$branch" = {quoted} ]; then
+    printf '%s\n' "ivar: refusing a commit on the default branch ${{branch}}." >&2
+    printf '%s\n' "ivar: promote this repo onto a feature and commit there." >&2
     exit 1
 fi
 exit 0

@@ -1,11 +1,9 @@
 //! Land mode execution: preflight validation, permission guard, fast-forward merge, and best-effort push.
 
 pub mod execute;
-pub mod permissions;
 pub mod preflight;
 
 pub use execute::execute;
-pub use permissions::WorktreeWriteGuard;
 pub use preflight::preflight;
 
 use camino::Utf8PathBuf;

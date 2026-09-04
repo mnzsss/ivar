@@ -221,3 +221,55 @@ fn protection_is_idempotent_and_reports_what_it_did() {
         "an idempotent run must not touch the file"
     );
 }
+
+#[test]
+fn shell_quoting_neutralises_metacharacters() {
+    assert_eq!(shell_single_quoted("main"), "'main'");
+
+    let hostile = "$(touch evil);`rm -rf /`|echo $FOO";
+    let quoted = shell_single_quoted(hostile);
+    assert!(quoted.starts_with('\''));
+    assert!(quoted.ends_with('\''));
+    // All hostile characters remain inside single quotes without unescaped quote breaks.
+    assert_eq!(quoted, format!("'{hostile}'"));
+}
+
+#[test]
+fn shell_quoting_escapes_an_embedded_single_quote() {
+    assert_eq!(shell_single_quoted("it's"), r"'it'\''s'");
+}
+
+/// Defends against command substitution injection via branch names reaching generated hooks.
+/// A branch name containing `$(...)` must not execute commands when the hook runs, and the
+/// pre-commit guard must still correctly refuse commits on that branch.
+#[test]
+fn a_branch_name_with_shell_metacharacters_cannot_execute() {
+    let (_guard, dir) = utf8_temp_dir();
+    let sentinel = dir.join("pwned.sentinel");
+    let branch_str = format!("$(touch_{})", sentinel.as_str().replace('/', "_"));
+
+    // This string is a legal git ref (no forbidden characters like ~, ^, :, ?, *, [, space, \),
+    // so quoting defense belongs at the shell hook generation sink.
+
+    let origin = seeded_repo(&dir.join("origin"), &branch_str);
+    let bare = dir.join("api.bare");
+    clone_bare(origin.as_str(), &bare).unwrap();
+    let main_wt = dir.join("api/main");
+    add_worktree(&bare, &main_wt, &branch_str).unwrap();
+
+    protect_default_branch(&bare, &main_wt, &branch_str).unwrap();
+
+    let (ok, stderr) = git_unguarded(&main_wt, &["commit", "--allow-empty", "-m", "attempt"]);
+    assert!(
+        !ok,
+        "a commit on the default branch must be refused: {stderr}"
+    );
+    assert!(
+        !sentinel.exists(),
+        "command substitution must NOT execute when hook runs (sentinel file should not exist)"
+    );
+    assert!(
+        stderr.contains(&branch_str),
+        "refusal message must accurately reflect the branch name: {stderr}"
+    );
+}
