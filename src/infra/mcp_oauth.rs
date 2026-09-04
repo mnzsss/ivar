@@ -240,6 +240,9 @@ pub fn discover_oauth_endpoints(server_url: &str) -> Result<DiscoveryOutcome, Fa
         .http_status_as_error(false)
         .build()
         .header("Content-Type", "application/json")
+        // MCP Streamable HTTP: a server may answer 406 unless the client
+        // accepts both content types. Cloudflare's servers do.
+        .header("Accept", "application/json, text/event-stream")
         .send(request_body)
         .map_err(|e| {
             Failure::failed(

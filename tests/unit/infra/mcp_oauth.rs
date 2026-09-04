@@ -257,3 +257,49 @@ fn an_unexpected_status_is_still_a_failure() {
     let failure = discover_oauth_endpoints(&url).expect_err("500 is not a clean outcome");
     assert_eq!(failure.code, "mcp_oauth.discover_unexpected_status");
 }
+
+/// MCP's Streamable HTTP transport requires the client to accept both
+/// `application/json` and `text/event-stream`; a server is entitled to answer
+/// `406 Not Acceptable` when it does not. Cloudflare's servers do exactly
+/// that, so omitting the header turned a server needing no auth into a
+/// reported failure — the false failure `R-NO-AUTH-SERVER` exists to remove.
+#[test]
+fn discovery_accepts_both_streamable_http_content_types() {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind loopback");
+    let port = listener.local_addr().expect("addr").port();
+    let seen = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
+    let recorder = std::sync::Arc::clone(&seen);
+
+    std::thread::spawn(move || {
+        if let Ok((mut stream, _)) = listener.accept() {
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            let mut request_line = String::new();
+            let _ = reader.read_line(&mut request_line);
+            let mut headers = String::new();
+            loop {
+                let mut line = String::new();
+                if reader.read_line(&mut line).is_err() || line.trim().is_empty() {
+                    break;
+                }
+                headers.push_str(&line);
+            }
+            *recorder.lock().unwrap() = headers;
+            let _ = stream.write_all(
+                b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}",
+            );
+        }
+    });
+
+    let url = format!("http://127.0.0.1:{port}/mcp");
+    let _ = discover_oauth_endpoints(&url);
+
+    let headers = seen.lock().unwrap().to_lowercase();
+    let accept = headers
+        .lines()
+        .find(|l| l.starts_with("accept:"))
+        .expect("discovery must send an Accept header");
+    assert!(
+        accept.contains("application/json") && accept.contains("text/event-stream"),
+        "MCP Streamable HTTP requires both content types; got `{accept}`"
+    );
+}
