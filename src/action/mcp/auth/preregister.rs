@@ -116,14 +116,11 @@ pub(super) fn preregister_if_needed(
         .iter()
         .map(|existing| {
             if existing.name == server.name {
-                let mut oauth = McpOauth::new(registered.client_id.clone(), secret_env.clone());
-                if let Some(ep) = endpoints {
-                    oauth = oauth.token_url(&ep.token_endpoint);
-                    if let Some(res) = &ep.resource {
-                        oauth = oauth.resource(res);
-                    }
-                }
-                existing.clone().oauth(oauth)
+                existing.clone().oauth(oauth_registration(
+                    &registered.client_id,
+                    &secret_env,
+                    endpoints,
+                ))
             } else {
                 existing.clone()
             }
@@ -148,6 +145,28 @@ pub(super) fn preregister_if_needed(
         secret: Some((secret_env, client_secret)),
         auth_mode,
     })
+}
+
+/// The `McpOauth` a fresh registration writes to `ivar.json`.
+///
+/// The endpoint metadata comes from discovery, which ran before this call and
+/// carries what the *server* published — never a constant. `resource` is
+/// optional at the source (RFC 8707 is not universal), so it is written only
+/// when the metadata carried one; `token_url` is what makes omp's native
+/// refresh work, so its absence means the caller skipped discovery entirely.
+fn oauth_registration(
+    client_id: &str,
+    secret_env: &str,
+    endpoints: Option<&crate::infra::figma::OAuthEndpoints>,
+) -> McpOauth {
+    let mut oauth = McpOauth::new(client_id, secret_env);
+    if let Some(ep) = endpoints {
+        oauth = oauth.token_url(&ep.token_endpoint);
+        if let Some(res) = &ep.resource {
+            oauth = oauth.resource(res);
+        }
+    }
+    oauth
 }
 
 /// Resolve a registered OAuth client secret from the caller's environment first

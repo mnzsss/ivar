@@ -3,6 +3,54 @@
 use super::*;
 use crate::test_support::seeded_hall;
 
+/// `R-AUTH-LIFECYCLE`: the endpoints a fresh registration persists are the ones
+/// discovery returned. Hardcoding any of them — the failure this guards — would
+/// send omp's refresh at the wrong token endpoint and silently break renewal.
+#[test]
+fn fresh_registration_persists_the_endpoints_discovery_returned() {
+    let discovered = crate::infra::figma::OAuthEndpoints {
+        authorization_endpoint: "https://auth.example.com/authorize".to_owned(),
+        token_endpoint: "https://auth.example.com/oauth/token?tenant=42".to_owned(),
+        resource: Some("https://api.example.com/mcp".to_owned()),
+        scopes_supported: None,
+    };
+
+    let oauth = oauth_registration("client-abc", "IVAR_MCP_ACME_SECRET", Some(&discovered));
+
+    assert_eq!(oauth.client_id, "client-abc");
+    assert_eq!(oauth.client_secret_env, "IVAR_MCP_ACME_SECRET");
+    // Byte-for-byte, query string included: a token endpoint is not a host.
+    assert_eq!(
+        oauth.token_url.as_deref(),
+        Some("https://auth.example.com/oauth/token?tenant=42")
+    );
+    assert_eq!(
+        oauth.resource.as_deref(),
+        Some("https://api.example.com/mcp")
+    );
+}
+
+/// A server whose metadata publishes no `resource` (RFC 8707 is not universal)
+/// must persist none — a fabricated identifier would be rejected at the token
+/// endpoint.
+#[test]
+fn fresh_registration_persists_no_resource_when_discovery_returned_none() {
+    let discovered = crate::infra::figma::OAuthEndpoints {
+        authorization_endpoint: "https://auth.example.com/authorize".to_owned(),
+        token_endpoint: "https://auth.example.com/oauth/token".to_owned(),
+        resource: None,
+        scopes_supported: None,
+    };
+
+    let oauth = oauth_registration("client-abc", "IVAR_MCP_ACME_SECRET", Some(&discovered));
+
+    assert_eq!(
+        oauth.token_url.as_deref(),
+        Some("https://auth.example.com/oauth/token")
+    );
+    assert_eq!(oauth.resource, None);
+}
+
 #[test]
 fn preregistration_not_needed_without_a_url() {
     let (_guard, root) = seeded_hall();
