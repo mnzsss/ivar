@@ -4,9 +4,7 @@
 //! pre-registration allowlist, Ivar performs the full authorization-code
 //! + PKCE flow itself instead of delegating to `opencode mcp auth`.
 //!
-//! This module orchestrates the steps:
-//!
-//! 1. **Conflict check** — `opencode_auth::has_entry(materialised_name)`
+//! 1. **Conflict check** — `providers::has_credentials(provider, materialised_name)`
 //!    before anything else (`R-CONFLICT`).
 //! 2. **Pre-registration** — reuse [`preregister_if_needed`] for
 //!    client_id / client_secret.
@@ -16,13 +14,12 @@
 //! 6. **Print URL** — authorization URL for manual browser opening.
 //! 7. **Wait for callback** — validate state, receive code.
 //! 8. **Code exchange** — [`oauth::exchange_code`].
-//! 9. **Persist** — [`opencode_auth::write_entry`].
-//! 10. **Verify** — [`opencode_auth::has_tokens`].
+//! 9. **Persist** — [`providers::install_credentials`].
+//! 10. **Verify** — [`providers::verify_authenticated`].
 //!
 //! Failure at any step before 9 leaves the credential store unchanged
 //! (`R-ATOMIC`). `Ctrl+C` terminates the process; the OS releases the
 //! loopback socket; nothing partial is written.
-//!
 //! # Module boundaries
 //!
 //! `action` may import `domain`, `infra`, `harness`, and `store`. This
@@ -33,7 +30,7 @@ use std::time::Duration;
 
 use crate::domain::mcp::McpServerDef;
 use crate::error::{Failure, FixAction};
-use crate::harness::opencode_auth::{self, ClientInfo, Entry};
+use crate::providers::Credential;
 use crate::store::layout::Layout;
 use crate::store::manifest::Manifest;
 
@@ -75,7 +72,7 @@ pub(super) trait FlowOps {
         mode: AuthMode,
         resource: Option<&str>,
     ) -> Result<Tokens, Failure>;
-    fn write(&self, name: &str, entry: &Entry) -> Result<(), Failure>;
+    fn write(&self, name: &str, credential: &Credential<'_>) -> Result<(), Failure>;
     fn verify(&self, name: &str) -> Result<bool, Failure>;
 }
 
@@ -87,7 +84,7 @@ struct RealFlowOps {
 
 impl FlowOps for RealFlowOps {
     fn check_conflict(&self, name: &str) -> Result<bool, Failure> {
-        opencode_auth::has_entry(name)
+        crate::providers::has_credentials(self.provider, name)
     }
     fn preregister(&self, server: &McpServerDef, name: &str) -> Result<Preregistered, Failure> {
         preregister_if_needed(&self.layout, &self.manifest, self.provider, server, name)
@@ -128,11 +125,11 @@ impl FlowOps for RealFlowOps {
             resource,
         )
     }
-    fn write(&self, name: &str, entry: &Entry) -> Result<(), Failure> {
-        opencode_auth::write_entry(name, entry)
+    fn write(&self, name: &str, credential: &Credential<'_>) -> Result<(), Failure> {
+        crate::providers::install_credentials(self.provider, name, credential).map(|_| ())
     }
     fn verify(&self, name: &str) -> Result<bool, Failure> {
-        opencode_auth::has_tokens(name)
+        Ok(crate::providers::verify_authenticated(self.provider, name).is_ok())
     }
 }
 
@@ -254,16 +251,13 @@ pub(super) fn run_internal_flow_pipeline(
     )?;
 
     // Step 9: Persist
-    let entry = Entry {
-        server_url: server_url.to_owned(),
-        client_info: ClientInfo {
-            client_id,
-            client_secret,
-            client_secret_expires_at: None,
-        },
-        tokens,
+    let credential = Credential {
+        server_url,
+        client_id: &client_id,
+        client_secret: client_secret.as_deref(),
+        tokens: &tokens,
     };
-    ops.write(materialised_name, &entry)?;
+    ops.write(materialised_name, &credential)?;
 
     // Step 10: Verify
     if !ops.verify(materialised_name)? {

@@ -1,9 +1,19 @@
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing
+)]
 
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 
+use std::collections::BTreeMap;
+
 use super::*;
+use crate::infra::oauth::Tokens;
+use crate::infra::{fs, json};
+use crate::providers::Credential;
 use crate::test_support::utf8_temp_dir;
 
 // ---------------------------------------------------------------------------
@@ -11,8 +21,6 @@ use crate::test_support::utf8_temp_dir;
 // ---------------------------------------------------------------------------
 
 fn test_entry(server_url: &str) -> Entry {
-    use crate::infra::oauth::Tokens;
-
     Entry {
         server_url: server_url.to_owned(),
         client_info: ClientInfo {
@@ -29,6 +37,19 @@ fn test_entry(server_url: &str) -> Entry {
     }
 }
 
+fn credential_fixture() -> (Tokens, String, String) {
+    (
+        Tokens {
+            access_token: "test-access".to_owned(),
+            refresh_token: Some("test-refresh".to_owned()),
+            expires_at: Some(1_800_000_000.0),
+            scope: None,
+        },
+        "https://mcp.figma.com/mcp".to_owned(),
+        "test-client-id".to_owned(),
+    )
+}
+
 // ---------------------------------------------------------------------------
 // has_tokens (preserved from Wave 1)
 // ---------------------------------------------------------------------------
@@ -43,7 +64,7 @@ fn absent_file_has_no_tokens() {
 #[test]
 fn a_server_with_a_tokens_object_is_authenticated() {
     let (_dir, root) = utf8_temp_dir();
-    let path = auth_path_under(&root);
+    let path = store_path(&root);
     json::write_canonical(
         &path,
         &serde_json::json!({
@@ -58,7 +79,7 @@ fn a_server_with_a_tokens_object_is_authenticated() {
 #[test]
 fn a_server_present_but_without_tokens_is_not_authenticated() {
     let (_dir, root) = utf8_temp_dir();
-    let path = auth_path_under(&root);
+    let path = store_path(&root);
     json::write_canonical(
         &path,
         &serde_json::json!({
@@ -73,7 +94,7 @@ fn a_server_present_but_without_tokens_is_not_authenticated() {
 #[test]
 fn a_different_servers_tokens_do_not_leak_onto_this_one() {
     let (_dir, root) = utf8_temp_dir();
-    let path = auth_path_under(&root);
+    let path = store_path(&root);
     json::write_canonical(
         &path,
         &serde_json::json!({
@@ -89,7 +110,7 @@ fn a_different_servers_tokens_do_not_leak_onto_this_one() {
 fn auth_path_under_joins_the_opencode_store_filename() {
     let root = camino::Utf8PathBuf::from("/data");
     assert_eq!(
-        auth_path_under(&root),
+        store_path(&root),
         camino::Utf8PathBuf::from("/data/opencode/mcp-auth.json")
     );
 }
@@ -101,7 +122,7 @@ fn auth_path_under_joins_the_opencode_store_filename() {
 #[test]
 fn a_null_tokens_value_is_not_authenticated() {
     let (_dir, root) = utf8_temp_dir();
-    let path = auth_path_under(&root);
+    let path = store_path(&root);
     json::write_canonical(
         &path,
         &serde_json::json!({
@@ -116,7 +137,7 @@ fn a_null_tokens_value_is_not_authenticated() {
 #[test]
 fn a_non_object_tokens_value_is_not_authenticated() {
     let (_dir, root) = utf8_temp_dir();
-    let path = auth_path_under(&root);
+    let path = store_path(&root);
     json::write_canonical(
         &path,
         &serde_json::json!({
@@ -141,7 +162,7 @@ fn has_entry_returns_false_when_store_is_absent() {
 #[test]
 fn has_entry_returns_true_when_entry_has_only_code_verifier() {
     let (_dir, root) = utf8_temp_dir();
-    let path = auth_path_under(&root);
+    let path = store_path(&root);
     json::write_canonical(
         &path,
         &serde_json::json!({
@@ -156,7 +177,7 @@ fn has_entry_returns_true_when_entry_has_only_code_verifier() {
 #[test]
 fn has_entry_returns_true_for_empty_object_entry() {
     let (_dir, root) = utf8_temp_dir();
-    let path = auth_path_under(&root);
+    let path = store_path(&root);
     json::write_canonical(
         &path,
         &serde_json::json!({
@@ -171,7 +192,7 @@ fn has_entry_returns_true_for_empty_object_entry() {
 #[test]
 fn has_entry_returns_true_for_entry_with_client_info_only() {
     let (_dir, root) = utf8_temp_dir();
-    let path = auth_path_under(&root);
+    let path = store_path(&root);
     json::write_canonical(
         &path,
         &serde_json::json!({
@@ -188,7 +209,7 @@ fn has_entry_returns_true_for_entry_with_client_info_only() {
 #[test]
 fn has_entry_returns_true_for_full_entry() {
     let (_dir, root) = utf8_temp_dir();
-    let path = auth_path_under(&root);
+    let path = store_path(&root);
     json::write_canonical(
         &path,
         &serde_json::json!({
@@ -206,7 +227,7 @@ fn has_entry_returns_true_for_full_entry() {
 #[test]
 fn has_entry_returns_false_for_different_name() {
     let (_dir, root) = utf8_temp_dir();
-    let path = auth_path_under(&root);
+    let path = store_path(&root);
     json::write_canonical(
         &path,
         &serde_json::json!({
@@ -228,7 +249,7 @@ fn write_entry_under_creates_file_with_correct_camel_case_shape() {
     let entry = test_entry("https://mcp.figma.com");
     write_entry_under(&root, "acme-figma", &entry).unwrap();
 
-    let path = auth_path_under(&root);
+    let path = store_path(&root);
     let content = fs::read_text(&path).unwrap().unwrap();
 
     // Verify the JSON contains camelCase keys
@@ -259,7 +280,7 @@ fn write_entry_under_preserves_unrelated_entry() {
     let (_dir, root) = utf8_temp_dir();
 
     // Pre-existing entry for a different server.
-    let path = auth_path_under(&root);
+    let path = store_path(&root);
     json::write_canonical(
         &path,
         &serde_json::json!({
@@ -296,7 +317,7 @@ fn write_entry_under_file_has_0600_mode_on_unix() {
     let entry = test_entry("https://mcp.figma.com");
     write_entry_under(&root, "acme-figma", &entry).unwrap();
 
-    let path = auth_path_under(&root);
+    let path = store_path(&root);
     let mode = std::fs::metadata(path.as_std_path())
         .unwrap()
         .permissions()
@@ -311,7 +332,7 @@ fn write_entry_under_file_has_0600_mode_on_unix() {
 #[test]
 fn write_entry_under_aborts_on_same_name_conflict() {
     let (_dir, root) = utf8_temp_dir();
-    let path = auth_path_under(&root);
+    let path = store_path(&root);
     json::write_canonical(
         &path,
         &serde_json::json!({
@@ -347,7 +368,7 @@ fn write_entry_under_aborts_on_same_name_conflict() {
 #[test]
 fn write_entry_under_returns_error_for_invalid_json_and_leaves_bytes_unchanged() {
     let (_dir, root) = utf8_temp_dir();
-    let path = auth_path_under(&root);
+    let path = store_path(&root);
     if let Some(parent) = path.parent() {
         fs::ensure_dir(parent).unwrap();
     }
@@ -369,7 +390,7 @@ fn write_entry_under_returns_error_for_invalid_json_and_leaves_bytes_unchanged()
 #[test]
 fn has_entry_under_returns_error_for_invalid_json() {
     let (_dir, root) = utf8_temp_dir();
-    let path = auth_path_under(&root);
+    let path = store_path(&root);
     if let Some(parent) = path.parent() {
         fs::ensure_dir(parent).unwrap();
     }
@@ -388,4 +409,96 @@ fn read_map_under_returns_empty_for_absent_file() {
     let (_dir, root) = utf8_temp_dir();
     let map = read_map_under(&root).unwrap();
     assert!(map.is_empty());
+}
+
+// ---------------------------------------------------------------------------
+// Task 09 Additions
+// ---------------------------------------------------------------------------
+
+#[test]
+fn install_credentials_writes_the_opencode_entry_shape() {
+    let (_guard, root) = crate::test_support::hall_root();
+    let (tokens, url, client_id) = credential_fixture();
+    let credential = Credential {
+        server_url: &url,
+        client_id: &client_id,
+        client_secret: Some("test-secret"),
+        tokens: &tokens,
+    };
+
+    install_credentials_under(&root, "acme-figma", &credential).unwrap();
+
+    let raw = crate::infra::fs::read_text(&store_path(&root))
+        .unwrap()
+        .unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&raw).unwrap();
+    assert_eq!(
+        parsed["acme-figma"]["serverUrl"],
+        "https://mcp.figma.com/mcp"
+    );
+    assert_eq!(
+        parsed["acme-figma"]["clientInfo"]["clientId"],
+        "test-client-id"
+    );
+    assert_eq!(parsed["acme-figma"]["tokens"]["accessToken"], "test-access");
+    assert!(has_tokens_under(&root, "acme-figma").unwrap());
+}
+
+#[test]
+fn install_credentials_refuses_to_overwrite_an_existing_entry() {
+    let (_guard, root) = crate::test_support::hall_root();
+    let (tokens, url, client_id) = credential_fixture();
+    let credential = Credential {
+        server_url: &url,
+        client_id: &client_id,
+        client_secret: None,
+        tokens: &tokens,
+    };
+
+    install_credentials_under(&root, "acme-figma", &credential).unwrap();
+    let err = install_credentials_under(&root, "acme-figma", &credential).unwrap_err();
+
+    assert_eq!(err.code, "opencode_auth.conflict");
+}
+
+/// The diagnostic this returns is the one `dispatch.rs` returned before the
+/// cutover, character for character. It is the only honest answer OpenCode
+/// gives, and rewording it would be a regression a passing test would hide.
+#[test]
+fn verify_authenticated_preserves_the_existing_diagnostic() {
+    let (_guard, root) = crate::test_support::hall_root();
+
+    let err = verify_authenticated_under(&root, "acme-figma").unwrap_err();
+
+    assert_eq!(err.code, "mcp.auth_not_verified");
+    assert!(
+        err.what.contains("`opencode mcp auth acme-figma` exited 0"),
+        "what was: {}",
+        err.what
+    );
+    assert_eq!(
+        err.expected.as_deref(),
+        Some("a `tokens` entry for this server in OpenCode's mcp-auth.json")
+    );
+    assert!(err.fix_actions.iter().any(|f| f.code == "mcp.retry_auth"));
+}
+
+/// A redacted `Debug` is load-bearing: this struct carries a live access
+/// token, and one `{:?}` in a log would leak it.
+#[test]
+fn credential_debug_redacts_every_secret() {
+    let (tokens, url, client_id) = credential_fixture();
+    let credential = Credential {
+        server_url: &url,
+        client_id: &client_id,
+        client_secret: Some("test-secret"),
+        tokens: &tokens,
+    };
+
+    let rendered = format!("{credential:?}");
+    assert!(rendered.contains("https://mcp.figma.com/mcp"));
+    assert!(!rendered.contains("test-access"));
+    assert!(!rendered.contains("test-refresh"));
+    assert!(!rendered.contains("test-secret"));
+    assert!(!rendered.contains("test-client-id"));
 }

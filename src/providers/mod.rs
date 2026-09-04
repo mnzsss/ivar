@@ -8,6 +8,7 @@ use crate::domain::guard::{GuardDecision, GuardOutcome, ToolRequest};
 use crate::domain::mcp::McpServerDef;
 use crate::domain::provider::Provider;
 use crate::error::{Failure, FixAction};
+use crate::infra::oauth::Tokens;
 use crate::infra::proc::Command;
 use camino::Utf8PathBuf;
 
@@ -143,6 +144,82 @@ pub fn render_decision(provider: Provider, decision: &GuardDecision) -> GuardOut
     }
 }
 
+/// One server's freshly-exchanged OAuth credential, before any provider
+/// has decided how to store it.
+///
+/// This is what crosses the provider boundary. The on-disk record is a
+/// provider's own business: OpenCode turns this into an `mcp-auth.json`
+/// entry, and another provider need not have a file at all. `Debug` is
+/// redacted — `Tokens` and `ClientInfo` both redact themselves, and this
+/// must not become the one place a secret prints.
+#[derive(Clone)]
+pub struct Credential<'a> {
+    pub server_url: &'a str,
+    pub client_id: &'a str,
+    pub client_secret: Option<&'a str>,
+    pub tokens: &'a Tokens,
+}
+
+impl std::fmt::Debug for Credential<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Credential")
+            .field("server_url", &self.server_url)
+            .field("client_id", &"<redacted>")
+            .field("client_secret", &"<redacted>")
+            .field("tokens", &"<redacted>")
+            .finish()
+    }
+}
+
+/// Persist a credential in the provider's own store.
+///
+/// `Ok(false)` means the provider keeps no store of its own and relies on
+/// its login command — not a failure, and not something the caller should
+/// have to distinguish by provider id.
+pub fn install_credentials(
+    provider: Provider,
+    name: &str,
+    credential: &Credential<'_>,
+) -> Result<bool, Failure> {
+    match provider {
+        Provider::ClaudeCode => Ok(false),
+        Provider::OpenCode => opencode::auth::install_credentials(name, credential).map(|()| true),
+        Provider::Omp => Ok(false),
+    }
+}
+
+/// Whether an existing entry for `name` would be overwritten.
+pub fn has_credentials(provider: Provider, name: &str) -> Result<bool, Failure> {
+    match provider {
+        Provider::ClaudeCode | Provider::Omp => Ok(false),
+        Provider::OpenCode => opencode::auth::has_entry(name),
+    }
+}
+
+/// The subcommand its login command takes, after the binary, or `None` for a
+/// provider that has no MCP login command at all.
+///
+/// The binary itself comes from `launch_contract(provider).binary` — this
+/// returns only the part that differs, so the binary keeps one home.
+/// `omp` has no `mcp` subcommand (measured against omp/18.1.8; its auth
+/// surface is `omp auth-broker`, which Task 10 owns), so it returns `None`
+/// rather than a command that would fail at spawn.
+pub fn login_subcommand(provider: Provider) -> Option<[&'static str; 2]> {
+    match provider {
+        Provider::ClaudeCode => Some(claude_code::auth::LOGIN_SUBCOMMAND),
+        Provider::OpenCode => Some(opencode::auth::LOGIN_SUBCOMMAND),
+        Provider::Omp => None,
+    }
+}
+
+/// Confirm the login actually landed, for providers whose exit code lies.
+pub fn verify_authenticated(provider: Provider, name: &str) -> Result<(), Failure> {
+    match provider {
+        Provider::ClaudeCode | Provider::Omp => Ok(()),
+        Provider::OpenCode => opencode::auth::verify_authenticated(name),
+    }
+}
+
 #[cfg(test)]
 #[path = "../../tests/unit/providers/mod.rs"]
 mod tests;
@@ -154,3 +231,7 @@ mod mcp_tests;
 #[cfg(test)]
 #[path = "../../tests/unit/providers/hook.rs"]
 mod hook_tests;
+
+#[cfg(test)]
+#[path = "../../tests/unit/providers/auth.rs"]
+mod auth_tests;

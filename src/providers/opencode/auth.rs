@@ -31,19 +31,19 @@
 //!
 //! # Layering
 //!
-//! `harness` may import `infra` — [`crate::infra::fs::data_dir`] resolves the
-//! base directory, [`crate::infra::json::read`] and
-//! [`crate::infra::json::to_canonical_string`] handle serialization, and
-//! [`crate::infra::fs::write_sensitive_atomic`] performs the atomic write.
-//! No `store` import.
+//! `providers` may import `domain`, `infra`, and `error`. Not `store`,
+//! not `action`, not `harness`.
 
 use camino::{Utf8Path, Utf8PathBuf};
 use serde::Serialize;
 use std::collections::BTreeMap;
 
-use crate::error::Failure;
+use crate::error::{Failure, FixAction};
 use crate::infra::oauth::Tokens;
 use crate::infra::{fs, json};
+use crate::providers::Credential;
+
+pub(crate) const LOGIN_SUBCOMMAND: [&str; 2] = ["mcp", "auth"];
 
 /// Client registration info stored alongside tokens in OpenCode's
 /// `mcp-auth.json`. Values match OpenCode's `ClientInfo` schema:
@@ -51,10 +51,10 @@ use crate::infra::{fs, json};
 ///
 /// `Debug` is redacted — secrets must never appear in logs or diagnostics.
 #[derive(Clone)]
-pub struct ClientInfo {
-    pub client_id: String,
-    pub client_secret: Option<String>,
-    pub client_secret_expires_at: Option<f64>,
+pub(crate) struct ClientInfo {
+    pub(crate) client_id: String,
+    pub(crate) client_secret: Option<String>,
+    pub(crate) client_secret_expires_at: Option<f64>,
 }
 
 impl std::fmt::Debug for ClientInfo {
@@ -74,10 +74,10 @@ impl std::fmt::Debug for ClientInfo {
 ///
 /// `Debug` is redacted — tokens and secrets must never appear in logs.
 #[derive(Clone)]
-pub struct Entry {
-    pub server_url: String,
-    pub client_info: ClientInfo,
-    pub tokens: Tokens,
+pub(crate) struct Entry {
+    pub(crate) server_url: String,
+    pub(crate) client_info: ClientInfo,
+    pub(crate) tokens: Tokens,
 }
 
 impl std::fmt::Debug for Entry {
@@ -116,14 +116,16 @@ struct StoreClientInfo {
 /// `mcp-auth.json`'s path under `data_dir`. Split out so the path
 /// arithmetic is a plain, deterministic function — no environment
 /// variable to set up to exercise it.
-fn auth_path_under(data_dir: &Utf8Path) -> Utf8PathBuf {
+pub(crate) fn store_path(data_dir: &Utf8Path) -> Utf8PathBuf {
     data_dir.join("opencode").join("mcp-auth.json")
 }
 
 /// Read the raw store map from the auth file. Absent file = empty map.
 /// Invalid JSON = error.
-fn read_map_under(data_dir: &Utf8Path) -> Result<BTreeMap<String, serde_json::Value>, Failure> {
-    let path = auth_path_under(data_dir);
+pub(crate) fn read_map_under(
+    data_dir: &Utf8Path,
+) -> Result<BTreeMap<String, serde_json::Value>, Failure> {
+    let path = store_path(data_dir);
     let store: Option<BTreeMap<String, serde_json::Value>> = json::read(&path)?;
     Ok(store.unwrap_or_default())
 }
@@ -133,12 +135,12 @@ fn read_map_under(data_dir: &Utf8Path) -> Result<BTreeMap<String, serde_json::Va
 ///
 /// `Ok(false)` for a missing file or a missing entry — those are not
 /// errors. An error means the file exists but could not be parsed.
-pub fn has_entry(server_name: &str) -> Result<bool, Failure> {
+pub(crate) fn has_entry(server_name: &str) -> Result<bool, Failure> {
     has_entry_under(&fs::data_dir()?, server_name)
 }
 
 /// [`has_entry`], parameterised on the data directory.
-pub fn has_entry_under(data_dir: &Utf8Path, server_name: &str) -> Result<bool, Failure> {
+pub(crate) fn has_entry_under(data_dir: &Utf8Path, server_name: &str) -> Result<bool, Failure> {
     let map = read_map_under(data_dir)?;
     Ok(map.contains_key(server_name))
 }
@@ -149,12 +151,13 @@ pub fn has_entry_under(data_dir: &Utf8Path, server_name: &str) -> Result<bool, F
 /// `Ok(false)` for a missing file, a missing entry, or an entry with no
 /// `tokens` — none of those are errors, they are simply "not authenticated
 /// yet". An error here means the file exists but could not be read as JSON.
-pub fn has_tokens(server_name: &str) -> Result<bool, Failure> {
+#[allow(dead_code)]
+pub(crate) fn has_tokens(server_name: &str) -> Result<bool, Failure> {
     has_tokens_under(&fs::data_dir()?, server_name)
 }
 
 /// [`has_tokens`], parameterised on the data directory.
-fn has_tokens_under(data_dir: &Utf8Path, server_name: &str) -> Result<bool, Failure> {
+pub(crate) fn has_tokens_under(data_dir: &Utf8Path, server_name: &str) -> Result<bool, Failure> {
     let map = read_map_under(data_dir)?;
     Ok(map
         .get(server_name)
@@ -176,29 +179,28 @@ fn has_tokens_under(data_dir: &Utf8Path, server_name: &str) -> Result<bool, Fail
 /// The write uses [`fs::write_sensitive_atomic`] with mode `0600` (Unix),
 /// so a crash never leaves a half-written file and every unrelated entry
 /// is preserved.
-pub fn write_entry(server_name: &str, entry: &Entry) -> Result<(), Failure> {
+#[allow(dead_code)]
+pub(crate) fn write_entry(server_name: &str, entry: &Entry) -> Result<(), Failure> {
     write_entry_under(&fs::data_dir()?, server_name, entry)
 }
 
 /// [`write_entry`], parameterised on the data directory.
-pub fn write_entry_under(
+pub(crate) fn write_entry_under(
     data_dir: &Utf8Path,
     server_name: &str,
     entry: &Entry,
 ) -> Result<(), Failure> {
-    let path = auth_path_under(data_dir);
+    let path = store_path(data_dir);
     let mut map = read_map_under(data_dir)?;
 
     if map.contains_key(server_name) {
         return Err(Failure::blocked(
             "opencode_auth.conflict",
-            format!(
-                "the store at {path} already has an entry for \"{server_name}\""
-            ),
+            format!("the store at {path} already has an entry for \"{server_name}\""),
         )
         .expected("no existing entry for this server name")
         .actual("an entry already exists under this key")
-        .fix(crate::error::FixAction::unsafe_(
+        .fix(FixAction::unsafe_(
             "opencode_auth.remove_entry",
             format!(
                 "Remove the \"{server_name}\" entry from {path} explicitly before re-authenticating."
@@ -231,6 +233,55 @@ pub fn write_entry_under(
     Ok(())
 }
 
+pub(crate) fn install_credentials(name: &str, credential: &Credential<'_>) -> Result<(), Failure> {
+    install_credentials_under(&fs::data_dir()?, name, credential)
+}
+
+pub(crate) fn install_credentials_under(
+    data_dir: &Utf8Path,
+    name: &str,
+    credential: &Credential<'_>,
+) -> Result<(), Failure> {
+    let entry = Entry {
+        server_url: credential.server_url.to_owned(),
+        client_info: ClientInfo {
+            client_id: credential.client_id.to_owned(),
+            client_secret: credential.client_secret.map(str::to_owned),
+            client_secret_expires_at: None,
+        },
+        tokens: credential.tokens.clone(),
+    };
+    write_entry_under(data_dir, name, &entry)
+}
+
+/// `opencode mcp auth` exits 0 even when it prints `Authentication failed`
+/// (measured 2026-08-26), so the store is the only honest answer.
+pub(crate) fn verify_authenticated(name: &str) -> Result<(), Failure> {
+    verify_authenticated_under(&fs::data_dir()?, name)
+}
+
+pub(crate) fn verify_authenticated_under(data_dir: &Utf8Path, name: &str) -> Result<(), Failure> {
+    if has_tokens_under(data_dir, name)? {
+        return Ok(());
+    }
+    Err(Failure::failed(
+        "mcp.auth_not_verified",
+        format!(
+            "`opencode mcp auth {name}` exited 0, but no tokens for \
+             `{name}` were found in OpenCode's own credential store"
+        ),
+    )
+    .expected("a `tokens` entry for this server in OpenCode's mcp-auth.json")
+    .actual(
+        "no tokens present - `opencode mcp auth` exits 0 even when it prints \
+         `Authentication failed` (measured 2026-08-26)",
+    )
+    .fix(FixAction::safe(
+        "mcp.retry_auth",
+        "Read the command's output above, then run `ivar mcp auth` again.",
+    )))
+}
+
 #[cfg(test)]
-#[path = "../../tests/unit/harness/opencode_auth.rs"]
+#[path = "../../../tests/unit/providers/opencode/auth.rs"]
 mod tests;
