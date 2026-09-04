@@ -643,11 +643,8 @@ fn sync_writes_declared_servers_into_the_config() {
     assert!(on_disk.contains("\"npx\""), "was: {on_disk}");
 }
 
-/// Declaring a server while OMP is available must not reach OMP's renderer.
-/// Task 03 gives OMP a native MCP document; until then `sync_mcp` skips it,
-/// and this test is what keeps that skip honest.
 #[test]
-fn sync_with_omp_available_writes_other_providers_and_skips_omp() {
+fn sync_with_omp_available_writes_every_provider_mcp_document() {
     let (_guard, root) = hall_with_all_providers();
     let layout = Layout::at(root.clone());
     let manifest = Manifest::read(&layout).unwrap().unwrap();
@@ -662,9 +659,76 @@ fn sync_with_omp_available_writes_other_providers_and_skips_omp() {
     assert!(report.is_clean());
     let on_disk = fs::read_text(&root.join(".mcp.json")).unwrap().unwrap();
     assert!(on_disk.contains("\"acme-docs\""), "was: {on_disk}");
+
+    let omp_doc = fs::read_text(&root.join(".omp/mcp.json")).unwrap().unwrap();
+    assert!(omp_doc.contains("\"acme-docs\""), "was: {omp_doc}");
+    let parsed: serde_json::Value = serde_json::from_str(&omp_doc).unwrap();
+    assert!(
+        parsed.get("mcpServers").is_some(),
+        "OMP's document hangs servers off `mcpServers`: {omp_doc}"
+    );
+}
+
+#[test]
+fn sync_reports_a_malformed_omp_mcp_document_instead_of_silently_skipping_it() {
+    let (_guard, root) = hall_with_all_providers();
+    let layout = Layout::at(root.clone());
+    let manifest = Manifest::read(&layout).unwrap().unwrap();
+    let manifest = manifest
+        .with_mcp_servers(vec![McpServerDef::new("docs", "stdio").command("npx")])
+        .unwrap();
+    Manifest::write(&layout, &manifest).unwrap();
+
+    // A root-level array is the shape `materialise_mcp` refuses.
+    let omp_mcp = root.join(".omp/mcp.json");
+    fs::ensure_dir(omp_mcp.parent().unwrap()).unwrap();
+    fs::write_text(&omp_mcp, "[\"not an object\"]").unwrap();
+
+    let ctx = Ctx::new(root.clone());
+    let report = sync(&ctx, SyncInput::default()).unwrap();
+
+    assert!(
+        !report.is_clean(),
+        "a malformed document must not report clean"
+    );
+    assert!(
+        report
+            .warnings
+            .iter()
+            .any(|w| w.code == "sync.step_failed" && w.what.contains("is not a JSON object")),
+        "warnings were: {:?}",
+        report.warnings
+    );
+}
+
+#[test]
+fn sync_removes_the_omp_mcp_document_when_omp_leaves_the_hall() {
+    let (_guard, root) = hall_with_all_providers();
+    let layout = Layout::at(root.clone());
+    let manifest = Manifest::read(&layout).unwrap().unwrap();
+    let manifest = manifest
+        .with_mcp_servers(vec![McpServerDef::new("docs", "stdio").command("npx")])
+        .unwrap();
+    Manifest::write(&layout, &manifest).unwrap();
+    let ctx = Ctx::new(root.clone());
+    sync(&ctx, SyncInput::default()).unwrap();
+    assert!(fs::exists(&root.join(".omp/mcp.json")).unwrap());
+
+    // Drop OMP from the hall; its document must go the way `remove_mcp`
+    // takes the other providers' documents.
+    let manifest = Manifest::read(&layout).unwrap().unwrap();
+    let manifest = manifest
+        .with_providers(Providers::new(
+            vec![Provider::ClaudeCode, Provider::OpenCode],
+            Provider::ClaudeCode,
+        ))
+        .unwrap();
+    Manifest::write(&layout, &manifest).unwrap();
+
+    sync(&ctx, SyncInput::default()).unwrap();
     assert!(
         !fs::exists(&root.join(".omp/mcp.json")).unwrap(),
-        "OMP has no MCP document until Task 03"
+        "a provider the hall no longer lists keeps no MCP document"
     );
 }
 

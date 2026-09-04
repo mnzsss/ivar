@@ -163,12 +163,6 @@ pub(crate) fn sync_mcp(
     entries: &mut Vec<Entry>,
     warnings: &mut Vec<Warning>,
 ) {
-    // OMP MCP rendering lands in Task 03; until then OMP has no MCP document
-    // to reconcile and must not reach the renderer.
-    if provider == Provider::Omp {
-        return;
-    }
-
     let path = layout.mcp_config(&provider);
     let label = format!("{} MCP config", provider.mcp_config_path());
 
