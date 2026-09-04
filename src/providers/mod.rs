@@ -111,7 +111,7 @@ pub fn managed_artifacts(provider: Provider) -> Vec<ManagedArtifact> {
     match provider {
         Provider::ClaudeCode => claude_code::hook::managed_artifacts(),
         Provider::OpenCode => opencode::hook::managed_artifacts(),
-        Provider::Omp => omp::hook::managed_artifacts(),
+        Provider::Omp => omp::managed_artifacts(),
     }
 }
 
@@ -308,6 +308,10 @@ mod mcp_tests;
 #[cfg(test)]
 #[path = "../../tests/unit/providers/hook.rs"]
 mod hook_tests;
+
+#[cfg(test)]
+#[path = "../../tests/unit/providers/extension.rs"]
+mod extension_tests;
 
 #[cfg(test)]
 #[path = "../../tests/unit/providers/auth.rs"]
