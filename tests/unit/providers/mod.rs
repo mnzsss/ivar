@@ -75,15 +75,21 @@ fn omp_fresh_start_and_resume_commands() {
 
 // -- MCP allowlist (`--settings`) -----------------------------------------
 
-/// Reads the JSON argument that follows `--settings` in a command's argv.
-fn settings_json(command: &crate::infra::proc::Command) -> serde_json::Value {
+/// The `enabledMcpjsonServers` value carried by the command's `--settings`
+/// argument — the set of MCP servers Claude will treat as pre-approved.
+fn approved_servers(command: &crate::infra::proc::Command) -> serde_json::Value {
     let args = command.arguments();
     let flag = args
         .iter()
         .position(|a| a == "--settings")
         .expect("claude argv must carry --settings");
     let raw = args.get(flag + 1).expect("--settings must carry a value");
-    serde_json::from_str(raw).expect("--settings value must be valid JSON")
+    let settings: serde_json::Value =
+        serde_json::from_str(raw).expect("--settings value must be valid JSON");
+    settings
+        .get("enabledMcpjsonServers")
+        .cloned()
+        .expect("--settings must carry enabledMcpjsonServers")
 }
 
 /// `R-CLAUDE-ALLOWLIST`: a fresh Claude start approves exactly the
@@ -94,7 +100,7 @@ fn claude_fresh_start_carries_the_allowlist_in_settings() {
     let command = providers::start_command(Provider::ClaudeCode, false, &allowlist).unwrap();
 
     assert_eq!(
-        settings_json(&command)["enabledMcpjsonServers"],
+        approved_servers(&command),
         serde_json::json!(["acme-figma", "acme-github"])
     );
 }
@@ -108,7 +114,7 @@ fn claude_resume_carries_continue_and_the_allowlist() {
 
     assert!(command.arguments().iter().any(|a| a == "--continue"));
     assert_eq!(
-        settings_json(&command)["enabledMcpjsonServers"],
+        approved_servers(&command),
         serde_json::json!(["acme-figma"])
     );
 }
@@ -120,10 +126,7 @@ fn claude_resume_carries_continue_and_the_allowlist() {
 fn claude_empty_allowlist_still_passes_an_explicit_empty_list() {
     let command = providers::start_command(Provider::ClaudeCode, false, &[]).unwrap();
 
-    assert_eq!(
-        settings_json(&command)["enabledMcpjsonServers"],
-        serde_json::json!([])
-    );
+    assert_eq!(approved_servers(&command), serde_json::json!([]));
 }
 
 /// The allowlist is passed through as given: ordering is the caller's
@@ -138,7 +141,7 @@ fn claude_allowlist_is_passed_through_in_the_order_given() {
     let command = providers::start_command(Provider::ClaudeCode, false, &allowlist).unwrap();
 
     assert_eq!(
-        settings_json(&command)["enabledMcpjsonServers"],
+        approved_servers(&command),
         serde_json::json!(["acme-zeta", "acme-alpha", "acme-figma"])
     );
 }
