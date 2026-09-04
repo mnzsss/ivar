@@ -75,20 +75,20 @@ fn reconcile_instructions(
     layout: &Layout,
     manifest: &Manifest,
 ) -> Result<Vec<instructions::Entry>, instructions::Error> {
-    // One physical alias may have several owners — OpenCode and OMP both own
-    // `AGENTS.md` — so reconcile each path once, enabled when any owner is
-    // available. Reconciling per provider would let a disabled owner delete an
-    // enabled one's file, last writer winning. Order follows `Provider::ALL`
-    // so report lines stay stable. Task 05 generalizes this to a full owner set.
-    let mut aliases: Vec<instructions::Alias> = Vec::with_capacity(Provider::ALL.len());
+    let mut aliases: Vec<instructions::Alias> = Vec::new();
     for provider in Provider::ALL {
         let path = layout.instruction_alias(&provider);
         let enabled = manifest.providers().available().contains(&provider);
         match aliases.iter_mut().find(|alias| alias.path == path) {
-            Some(existing) => existing.enabled |= enabled,
+            Some(existing) => {
+                if !existing.owners.contains(&provider) {
+                    existing.owners.push(provider);
+                }
+                existing.enabled |= enabled;
+            }
             None => aliases.push(instructions::Alias {
-                provider,
                 path,
+                owners: vec![provider],
                 enabled,
             }),
         }
@@ -128,12 +128,18 @@ fn record_instruction_entry(
 /// file belongs to `hall`; an alias belongs to its provider.
 fn instruction_surface_label(entry: &instructions::Entry) -> (String, String) {
     let name = entry.path.file_name().unwrap_or("instructions").to_owned();
-    let provider = Provider::ALL
-        .iter()
-        .find(|provider| provider.instruction_file() == name);
-    match provider {
-        Some(provider) => (provider.id().to_owned(), format!("{name} alias")),
-        None => ("hall".to_owned(), name),
+    let owners: Vec<Provider> = Provider::ALL
+        .into_iter()
+        .filter(|provider| provider.instruction_file() == name)
+        .collect();
+
+    match owners.as_slice() {
+        [] => ("hall".to_owned(), name),
+        [single] => (single.id().to_owned(), format!("{name} alias")),
+        // Several providers own one physical file: attributing it to the
+        // first one would be arbitrary and would change meaning as the enum
+        // grows. The surface is the provider layer itself.
+        _ => ("providers".to_owned(), format!("{name} alias")),
     }
 }
 

@@ -503,7 +503,7 @@ fn a_disabled_providers_alias_entry_is_removed_entirely() {
     let report = sync(&ctx, SyncInput::default()).unwrap();
 
     assert_eq!(
-        entry(&report.value, "opencode", "AGENTS.md alias").change,
+        entry(&report.value, "providers", "AGENTS.md alias").change,
         Change::Removed
     );
     assert!(
@@ -521,7 +521,7 @@ fn a_provider_the_hall_does_not_list_and_never_did_is_unchanged() {
     let report = sync(&ctx, SyncInput::default()).unwrap();
 
     assert_eq!(
-        entry(&report.value, "opencode", "AGENTS.md alias").change,
+        entry(&report.value, "providers", "AGENTS.md alias").change,
         Change::Unchanged
     );
     assert!(!fs::exists(&root.join("AGENTS.md")).unwrap());
@@ -881,7 +881,7 @@ fn sync_repairs_absent_and_wrong_enabled_symlinks() {
         Change::Created
     );
     assert_eq!(
-        entry(&report.value, "opencode", "AGENTS.md alias").change,
+        entry(&report.value, "providers", "AGENTS.md alias").change,
         Change::Updated
     );
     assert_eq!(
@@ -904,7 +904,7 @@ fn sync_preserves_an_enabled_regular_alias_and_reports_conflict() {
 
     assert!(!report.is_clean());
     assert_eq!(
-        entry(&report.value, "opencode", "AGENTS.md alias").change,
+        entry(&report.value, "providers", "AGENTS.md alias").change,
         Change::Failed
     );
     assert!(
@@ -944,7 +944,7 @@ fn a_conflict_does_not_abort_repo_mcp_or_command_reconciliation() {
 
     assert!(!report.is_clean());
     assert_eq!(
-        entry(&report.value, "opencode", "AGENTS.md alias").change,
+        entry(&report.value, "providers", "AGENTS.md alias").change,
         Change::Failed
     );
     // The repo, the MCP config, and the commands still land.
@@ -981,7 +981,7 @@ fn removing_a_provider_by_hand_makes_sync_delete_its_regular_alias() {
     let report = sync(&ctx, SyncInput::default()).unwrap();
 
     assert_eq!(
-        entry(&report.value, "opencode", "AGENTS.md alias").change,
+        entry(&report.value, "providers", "AGENTS.md alias").change,
         Change::Removed
     );
     assert!(!fs::exists(&root.join("AGENTS.md")).unwrap());
@@ -1023,6 +1023,42 @@ fn repeated_healthy_sync_leaves_file_mtimes_unchanged() {
             .and_then(|metadata| metadata.modified().ok());
         assert_eq!(&mtime, before_mtime, "{path} must not be rewritten");
     }
+}
+
+#[test]
+fn sync_report_groups_shared_alias_surfaces_into_single_entry() {
+    // `hall_with` seeds repos, not providers; the provider set lives in the
+    // manifest. Write a manifest listing both AGENTS.md owners, then sync.
+    let (_guard, root) = hall_with(&[]);
+    let layout = Layout::at(root.clone());
+    let manifest = Manifest::new(
+        HallName::new("acme").unwrap(),
+        Providers::new(vec![Provider::OpenCode, Provider::Omp], Provider::OpenCode),
+        Vec::new(),
+        None,
+    )
+    .unwrap();
+    Manifest::write(&layout, &manifest).unwrap();
+
+    let ctx = Ctx::new(root.clone());
+    let report = sync(&ctx, SyncInput::default()).unwrap();
+
+    let agents_entries: Vec<_> = report
+        .value
+        .entries
+        .iter()
+        .filter(|e| e.label == "AGENTS.md alias")
+        .collect();
+
+    assert_eq!(
+        agents_entries.len(),
+        1,
+        "one physical alias must produce one report line, got: {agents_entries:?}"
+    );
+    assert_eq!(
+        agents_entries[0].surface, "providers",
+        "a surface owned by several providers is attributed to none of them alone"
+    );
 }
 
 // -- not in a hall ---------------------------------------------------------

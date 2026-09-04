@@ -95,15 +95,15 @@ pub struct Entry {
     pub detail: Option<String>,
 }
 
-/// One root alias's place in the reconciliation: which provider it belongs to,
-/// where it lives, and whether that provider is still listed by the hall.
+/// One root alias's place in the reconciliation: which providers own it,
+/// where it lives, and whether any of its owning providers are available.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Alias {
-    /// The provider this alias belongs to.
-    pub provider: Provider,
     /// The alias path — `Layout::instruction_alias`'s answer.
     pub path: Utf8PathBuf,
-    /// Whether the provider is in `providers.available`.
+    /// The providers sharing ownership of this alias.
+    pub owners: Vec<Provider>,
+    /// Whether at least one owning provider is in `providers.available`.
     pub enabled: bool,
 }
 
@@ -371,18 +371,22 @@ fn reconcile_alias(alias: &Alias) -> Result<Entry, Error> {
     }
 }
 
-/// The disabled-provider rule: the alias path is entirely Ivar-managed, so any
-/// entry there — symlink or regular file — is removed.
+/// The disabled-provider rule: remove alias when no owner is available.
 fn remove_alias_entry(alias: &Alias) -> Result<Entry, Error> {
     let path = &alias.path;
     let name = path.file_name().unwrap_or("alias").to_owned();
     fs::remove_file(path).map_err(|source| io_error(path, source))?;
+    let owners = alias
+        .owners
+        .iter()
+        .map(|p| p.to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
     Ok(Entry {
         path: path.clone(),
         change: Change::Removed,
         detail: Some(format!(
-            "removed `{name}` because {} is no longer available",
-            alias.provider
+            "removed `{name}` because no owner ({owners}) is available"
         )),
     })
 }
