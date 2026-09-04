@@ -3,7 +3,7 @@
 //!
 //! # What lives here
 //!
-//! A **catalog** of 14 official workflow commands, embedded into the binary at
+//! A **catalog** of 15 official workflow commands, embedded into the binary at
 //! compile time with `include_str!` — there is no runtime asset directory, no
 //! `build.rs`, and no directory scan. Each entry pairs the current provider-
 //! neutral source with the SHA-256 of the legacy command file it supersedes,
