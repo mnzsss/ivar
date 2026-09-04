@@ -4,10 +4,18 @@ pub mod claude_code;
 pub mod omp;
 pub mod opencode;
 
+use camino::Utf8PathBuf;
 use crate::domain::mcp::McpServerDef;
 use crate::domain::provider::Provider;
 use crate::error::{Failure, FixAction};
 use crate::infra::proc::Command;
+
+/// A managed standalone file artifact owned by a provider.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ManagedArtifact {
+    pub relative_path: Utf8PathBuf,
+    pub contents: &'static str,
+}
 
 /// What a provider harness can and cannot do.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -76,6 +84,16 @@ pub fn mcp_server_doc(provider: Provider, name: &str, server: &McpServerDef) -> 
     }
 }
 
+/// Returns the managed standalone file artifacts for a provider.
+#[must_use]
+pub fn managed_artifacts(provider: Provider) -> Vec<ManagedArtifact> {
+    match provider {
+        Provider::ClaudeCode => claude_code::hook::managed_artifacts(),
+        Provider::OpenCode => opencode::hook::managed_artifacts(),
+        Provider::Omp => omp::hook::managed_artifacts(),
+    }
+}
+
 #[cfg(test)]
 #[path = "../../tests/unit/providers/mod.rs"]
 mod tests;
@@ -83,3 +101,7 @@ mod tests;
 #[cfg(test)]
 #[path = "../../tests/unit/providers/mcp.rs"]
 mod mcp_tests;
+
+#[cfg(test)]
+#[path = "../../tests/unit/providers/hook.rs"]
+mod hook_tests;

@@ -1097,10 +1097,10 @@ fn the_json_surface_carries_every_entry_and_its_change() {
     );
 }
 
-// -- settings and plugin materialisation -----------------------------------
+// -- settings and managed artifact materialisation -------------------------
 
 #[test]
-fn sync_materialises_settings_and_plugin_per_provider() {
+fn sync_materialises_settings_and_artifacts_per_provider() {
     let (_guard, root) = hall_with_all_providers();
     let ctx = Ctx::new(root.clone());
 
@@ -1115,6 +1115,10 @@ fn sync_materialises_settings_and_plugin_per_provider() {
         root.join(".opencode/plugins/ivar.js").is_file(),
         ".opencode/plugins/ivar.js must be created for OpenCode"
     );
+    assert!(
+        root.join(".omp/hooks/pre/ivar.js").is_file(),
+        ".omp/hooks/pre/ivar.js must be created for OMP"
+    );
     // The settings file carries ivar's env key.
     let settings: serde_json::Value = serde_json::from_str(
         &fs::read_text(&root.join(".claude/settings.json"))
@@ -1126,13 +1130,14 @@ fn sync_materialises_settings_and_plugin_per_provider() {
 }
 
 #[test]
-fn sync_removes_plugin_when_opencode_is_not_listed() {
+fn sync_removes_artifacts_when_provider_is_not_listed() {
     let (_guard, root) = hall_with_all_providers();
     let ctx = Ctx::new(root.clone());
     sync(&ctx, SyncInput::default()).unwrap();
     assert!(root.join(".opencode/plugins/ivar.js").is_file());
+    assert!(root.join(".omp/hooks/pre/ivar.js").is_file());
 
-    // Drop OpenCode from the manifest.
+    // Drop OpenCode and OMP from the manifest.
     let layout = Layout::at(root.clone());
     let manifest = Manifest::new(
         HallName::new("acme").unwrap(),
@@ -1148,6 +1153,10 @@ fn sync_removes_plugin_when_opencode_is_not_listed() {
     assert!(
         !root.join(".opencode/plugins/ivar.js").exists(),
         "plugin must be removed when OpenCode is not listed"
+    );
+    assert!(
+        !root.join(".omp/hooks/pre/ivar.js").exists(),
+        "hook must be removed when OMP is not listed"
     );
     // Claude Code's settings survive.
     assert!(root.join(".claude/settings.json").is_file());

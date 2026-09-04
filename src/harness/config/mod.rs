@@ -1,10 +1,10 @@
 //! The hall's MCP server config materialisation, plus the shared session
-//! bootstrap block.
+//! bootstrap block and managed provider artifacts.
 //!
 //! The canonical hall instructions and the provider root aliases live in
 //! [`instructions`] — this module's job is everything else `harness::config`
-//! materialises: the MCP server definitions at the hall root, and the
-//! session bootstrap block (see [`session`]).
+//! materialises: the MCP server definitions at the hall root, managed provider
+//! artifacts (hooks and plugins), and the session bootstrap block (see [`session`]).
 //!
 //! # MCP config materialisation: one key at a time
 //!
@@ -46,10 +46,11 @@
 //! cites.
 
 use crate::error::{Failure, FixAction};
+use crate::infra::fs;
 use crate::infra::json;
 
+pub(crate) mod artifact;
 mod mcp;
-mod plugin;
 pub(crate) mod session;
 mod settings;
 
@@ -57,11 +58,9 @@ pub mod instructions;
 
 pub use instructions::{Change, MANAGED_END, MANAGED_START, build_block, materialise, remove};
 pub use mcp::{materialise_mcp, remove_mcp};
-pub use plugin::{OPENCODE_PLUGIN, materialise_plugin, remove_plugin};
 pub use settings::{materialise_settings, remove_settings};
 
-/// Everything that can go wrong maintaining an MCP config: it could not be
-/// parsed, or it parsed as something the `mcp` key cannot merge into.
+/// Everything that can go wrong maintaining an MCP config or managed artifact.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     /// Something failed reading, writing, or serialising an MCP config — the
@@ -77,6 +76,13 @@ pub enum Error {
     /// way to merge the `mcp` key into it — and `ivar` will not invent one.
     #[error("`{path}` is not a JSON object; ivar will not overwrite it")]
     McpNotObject { path: camino::Utf8PathBuf },
+    /// Something failed reading, writing, or removing a managed artifact.
+    #[error("could not maintain the managed artifact `{path}`: {source}")]
+    Artifact {
+        path: camino::Utf8PathBuf,
+        #[source]
+        source: fs::Error,
+    },
 }
 
 impl From<Error> for Failure {
@@ -101,6 +107,15 @@ impl From<Error> for Failure {
                 "harness.fix_mcp_config",
                 format!("Make `{path}` a JSON object (or remove it), then run `ivar sync` again."),
             )),
+            Error::Artifact { path, source } => {
+                let failure: Failure = source.into();
+                failure.fix(FixAction::safe(
+                    "harness.check_artifact_path",
+                    format!(
+                        "Check that `{path}` is accessible and writable, then run `ivar sync` again."
+                    ),
+                ))
+            }
         }
     }
 }

@@ -27,7 +27,7 @@ pub(crate) fn sync_providers(
     for provider in Provider::ALL {
         sync_mcp(layout, manifest, provider, entries, warnings);
         sync_settings(layout, manifest, provider, entries, warnings);
-        sync_plugin(layout, manifest, provider, entries, warnings);
+        sync_artifacts(layout, manifest, provider, entries, warnings);
         sync_commands(layout, manifest, provider, entries, warnings);
     }
 }
@@ -208,31 +208,31 @@ pub(crate) fn sync_settings(
     }
 }
 
-/// Materialise or remove the provider's plugin file. Only OpenCode has a
-/// plugin system today; other providers skip this step.
-pub(crate) fn sync_plugin(
+/// Materialise or remove managed provider artifacts (hooks, plugins).
+pub(crate) fn sync_artifacts(
     layout: &Layout,
     manifest: &Manifest,
     provider: Provider,
     entries: &mut Vec<Entry>,
     warnings: &mut Vec<Warning>,
 ) {
-    let Some(plugins_dir) = layout.plugins_dir(&provider) else {
-        return;
-    };
+    let is_listed = manifest.providers().available().contains(&provider);
+    let artifacts = crate::providers::managed_artifacts(provider);
 
-    let path = plugins_dir.join("ivar.js");
-    let label = format!("{} ivar.js plugin", provider.config_dir());
+    for artifact in artifacts {
+        let path = layout.root().join(&artifact.relative_path);
+        let label = format!("{} managed artifact", artifact.relative_path);
 
-    let result = if manifest.providers().available().contains(&provider) {
-        config::materialise_plugin(&path)
-    } else {
-        config::remove_plugin(&path)
-    };
+        let result = if is_listed {
+            config::artifact::reconcile_managed_artifact(&path, artifact.contents)
+        } else {
+            config::artifact::remove_managed_artifact(&path)
+        };
 
-    match result {
-        Ok(change) => entries.push(Entry::new(provider.id(), label, change.into())),
-        Err(error) => record_failure(entries, warnings, provider.id(), &label, error.into()),
+        match result {
+            Ok(change) => entries.push(Entry::new(provider.id(), label, change.into())),
+            Err(error) => record_failure(entries, warnings, provider.id(), &label, error.into()),
+        }
     }
 }
 
