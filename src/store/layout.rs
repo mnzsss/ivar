@@ -206,6 +206,14 @@ impl Layout {
         self.features_dir().join(feature.as_str())
     }
 
+    /// `<hall>/.ivar/features/<feature>/<feature>.code-workspace` — multi-root
+    /// workspace file opening promoted repos writable and context repos read-only.
+    #[must_use]
+    pub fn feature_workspace(&self, feature: &FeatureName) -> Utf8PathBuf {
+        self.feature_dir(feature)
+            .join(format!("{feature}.code-workspace"))
+    }
+
     /// `<hall>/.ivar/features/<feature>/execution/` — the feature's current
     /// Run Receipt and its archive. The legacy importer also reads a historical
     /// board from this directory.
