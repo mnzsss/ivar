@@ -293,7 +293,7 @@ fn conflict_is_checked_before_any_side_effect() {
         fail_at: None,
         ..Default::default()
     };
-    let server = McpServerDef::new("figma", "sse").url("https://mcp.figma.com/mcp");
+    let server = McpServerDef::new("figma", "http").url("https://mcp.figma.com/mcp");
     let _ = figma_oauth::run_internal_flow_pipeline(&ops, &server, "figma");
     assert_eq!(*ops.events.borrow(), vec![PipelineEvent::ConflictCheck]);
 }
@@ -305,7 +305,7 @@ fn discovery_failure_does_not_write_credentials() {
         fail_at: Some(PipelineEvent::Discover),
         ..Default::default()
     };
-    let server = McpServerDef::new("figma", "sse").url("https://mcp.figma.com/mcp");
+    let server = McpServerDef::new("figma", "http").url("https://mcp.figma.com/mcp");
     let _ = figma_oauth::run_internal_flow_pipeline(&ops, &server, "figma");
     assert!(ops.written.borrow().is_none());
 }
@@ -317,7 +317,7 @@ fn callback_failure_does_not_write_credentials() {
         fail_at: Some(PipelineEvent::Wait),
         ..Default::default()
     };
-    let server = McpServerDef::new("figma", "sse").url("https://mcp.figma.com/mcp");
+    let server = McpServerDef::new("figma", "http").url("https://mcp.figma.com/mcp");
     let _ = figma_oauth::run_internal_flow_pipeline(&ops, &server, "figma");
     assert!(ops.written.borrow().is_none());
 }
@@ -329,7 +329,7 @@ fn exchange_failure_does_not_write_credentials() {
         fail_at: Some(PipelineEvent::Exchange),
         ..Default::default()
     };
-    let server = McpServerDef::new("figma", "sse").url("https://mcp.figma.com/mcp");
+    let server = McpServerDef::new("figma", "http").url("https://mcp.figma.com/mcp");
     let _ = figma_oauth::run_internal_flow_pipeline(&ops, &server, "figma");
     assert!(ops.written.borrow().is_none());
 }
@@ -341,7 +341,7 @@ fn successful_flow_runs_in_contract_order() {
         fail_at: None,
         ..Default::default()
     };
-    let server = McpServerDef::new("figma", "sse").url("https://mcp.figma.com/mcp");
+    let server = McpServerDef::new("figma", "http").url("https://mcp.figma.com/mcp");
     let _ = figma_oauth::run_internal_flow_pipeline(&ops, &server, "figma");
     assert_eq!(
         *ops.events.borrow(),
@@ -367,7 +367,7 @@ fn internal_flow_threads_omp_provider_through_to_credential_installer() {
         provider: Provider::Omp,
         ..Default::default()
     };
-    let server = McpServerDef::new("figma", "sse").url("https://mcp.figma.com/mcp");
+    let server = McpServerDef::new("figma", "http").url("https://mcp.figma.com/mcp");
     let run = figma_oauth::run_internal_flow_pipeline(&ops, &server, "figma").unwrap();
     assert_eq!(run.provider, Provider::Omp);
     assert_eq!(ops.provider(), Provider::Omp);
@@ -381,7 +381,7 @@ fn successful_flow_builds_complete_credential() {
         fail_at: None,
         ..Default::default()
     };
-    let server = McpServerDef::new("figma", "sse").url("https://mcp.figma.com/mcp");
+    let server = McpServerDef::new("figma", "http").url("https://mcp.figma.com/mcp");
     let _ = figma_oauth::run_internal_flow_pipeline(&ops, &server, "figma");
     assert!(ops.written.borrow().is_some());
     let (server_url, client_id, client_secret, tokens) = ops.written.borrow().clone().unwrap();
@@ -462,7 +462,7 @@ fn fresh_figma_registration_sends_the_client_secret_to_the_token_endpoint() {
         ..Default::default()
     };
 
-    let server = McpServerDef::new("figma", "sse").url("https://mcp.figma.com/mcp");
+    let server = McpServerDef::new("figma", "http").url("https://mcp.figma.com/mcp");
     let result = figma_oauth::run_internal_flow_pipeline(&ops, &server, "figma");
 
     assert!(

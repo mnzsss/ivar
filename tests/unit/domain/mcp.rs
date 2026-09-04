@@ -8,7 +8,7 @@
 use super::*;
 
 fn stdio_server() -> McpServerDef {
-    McpServerDef::new("docs", "stdio")
+    McpServerDef::new("docs", "local")
         .command("npx")
         .args(vec!["-y".to_owned(), "@acme/docs-mcp".to_owned()])
 }
@@ -17,10 +17,10 @@ fn stdio_server() -> McpServerDef {
 
 #[test]
 fn a_fresh_definition_carries_only_name_and_type() {
-    let def = McpServerDef::new("docs", "stdio");
+    let def = McpServerDef::new("docs", "local");
 
     assert_eq!(def.name, "docs");
-    assert_eq!(def.type_, "stdio");
+    assert_eq!(def.type_, "local");
     assert_eq!(def.command, None);
     assert_eq!(def.args, None);
     assert_eq!(def.url, None);
@@ -54,7 +54,7 @@ fn the_transport_serialises_under_the_key_type() {
     let def = stdio_server();
 
     let rendered = serde_json::to_value(&def).unwrap();
-    assert_eq!(rendered["type"], "stdio");
+    assert_eq!(rendered["type"], "local");
     assert!(
         rendered.get("command").is_some(),
         "command must be present when set"
@@ -76,7 +76,7 @@ fn a_stdio_definition_round_trips_through_serde() {
 
 #[test]
 fn a_remote_definition_round_trips_with_a_url() {
-    let def = McpServerDef::new("sentry", "sse").url("https://mcp.example.com/mcp");
+    let def = McpServerDef::new("sentry", "http").url("https://mcp.example.com/mcp");
 
     let parsed: McpServerDef = serde_json::from_value(serde_json::to_value(&def).unwrap()).unwrap();
 
@@ -86,7 +86,7 @@ fn a_remote_definition_round_trips_with_a_url() {
 
 #[test]
 fn an_unknown_field_in_a_definition_is_refused() {
-    let raw = r#"{"name":"docs","type":"stdio","bogus":true}"#;
+    let raw = r#"{"name":"docs","type":"local","command":"npx","bogus":true}"#;
     assert!(serde_json::from_str::<McpServerDef>(raw).is_err());
 }
 
@@ -105,7 +105,7 @@ fn a_definition_with_no_oauth_omits_the_key_entirely() {
 
 #[test]
 fn a_definition_with_oauth_round_trips_and_carries_only_id_and_env_name() {
-    let def = McpServerDef::new("figma", "sse")
+    let def = McpServerDef::new("figma", "http")
         .url("https://mcp.figma.com/mcp")
         .oauth(McpOauth::new("client-123", "IVAR_MCP_ACME_FIGMA_SECRET"));
 
@@ -128,7 +128,7 @@ fn a_definition_with_oauth_round_trips_token_url_and_resource_when_present() {
     let oauth_full = McpOauth::new("client-123", "IVAR_MCP_ACME_FIGMA_SECRET")
         .token_url("https://www.figma.com/oauth/token")
         .resource("https://api.figma.com");
-    let def = McpServerDef::new("figma", "sse")
+    let def = McpServerDef::new("figma", "http")
         .url("https://mcp.figma.com/mcp")
         .oauth(oauth_full.clone());
 
@@ -152,7 +152,7 @@ fn a_definition_with_oauth_round_trips_token_url_and_resource_when_present() {
 #[test]
 fn an_oauth_without_optional_fields_serialises_to_v3_shape_byte_for_byte() {
     let oauth_v3 = McpOauth::new("client-123", "IVAR_MCP_ACME_FIGMA_SECRET");
-    let def = McpServerDef::new("figma", "sse")
+    let def = McpServerDef::new("figma", "http")
         .url("https://mcp.figma.com/mcp")
         .oauth(oauth_v3);
 
@@ -172,9 +172,38 @@ fn an_unknown_field_on_oauth_is_refused() {
 
 #[test]
 fn materialised_name_prefixes_the_hall_and_leaves_name_untouched() {
-    let def = McpServerDef::new("figma", "sse").url("https://mcp.figma.com/mcp");
+    let def = McpServerDef::new("figma", "http").url("https://mcp.figma.com/mcp");
     let hall = HallName::new("acme").unwrap();
 
     assert_eq!(def.materialised_name(&hall), "acme-figma");
     assert_eq!(def.name, "figma");
+}
+
+#[test]
+fn validation_fails_for_args_without_command_on_local() {
+    let def = McpServerDef::new("test", "local").args(vec!["arg".to_owned()]);
+    assert_eq!(
+        def.validate(),
+        Err(McpValidationError::ArgsWithoutCommandForLocal)
+    );
+}
+
+#[test]
+fn validation_fails_for_args_on_http() {
+    let def = McpServerDef::new("test", "http")
+        .url("https://mcp.com")
+        .args(vec!["arg".to_owned()]);
+    assert_eq!(
+        def.validate(),
+        Err(McpValidationError::ArgsNotSupportedForHttp)
+    );
+}
+
+#[test]
+fn the_args_without_command_variant_displays_a_user_friendly_message() {
+    let err = McpValidationError::ArgsWithoutCommandForLocal;
+    assert_eq!(
+        err.to_string(),
+        "using `local` transport with `args` must also have a `command`"
+    );
 }

@@ -40,33 +40,89 @@
 //! cannot carry credentials.
 
 use std::collections::BTreeMap;
+use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
 use super::name::HallName;
 
+/// The canonical MCP transport: `http` or `local`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum McpTransport {
+    Http,
+    Local,
+}
+
+/// Validation errors for an MCP server definition.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum McpValidationError {
+    InvalidTransport(String),
+    MissingUrlForHttp,
+    InvalidUrlForHttp(String),
+    HttpWithUnsupportedFields,
+    MissingCommandForLocal,
+    EmptyCommandForLocal,
+    LocalWithUrl,
+    ArgsWithoutCommandForLocal,
+    ArgsNotSupportedForHttp,
+}
+
+impl fmt::Display for McpValidationError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::InvalidTransport(t) => write!(
+                f,
+                "invalid transport type `{t}`; expected `http` or `local`"
+            ),
+            Self::MissingUrlForHttp => {
+                write!(f, "using `http` transport is missing a `url`")
+            }
+            Self::InvalidUrlForHttp(url) => write!(
+                f,
+                "using `http` transport URL `{url}` is missing `http://` or `https://` prefix"
+            ),
+            Self::HttpWithUnsupportedFields => write!(
+                f,
+                "using `http` transport cannot have `command`, `args`, or `env` fields"
+            ),
+            Self::MissingCommandForLocal => {
+                write!(f, "using `local` transport is missing a `command`")
+            }
+            Self::EmptyCommandForLocal => {
+                write!(f, "using `local` transport has a blank `command`")
+            }
+            Self::LocalWithUrl => write!(f, "using `local` transport should not have a `url`"),
+            Self::ArgsWithoutCommandForLocal => write!(
+                f,
+                "using `local` transport with `args` must also have a `command`"
+            ),
+            Self::ArgsNotSupportedForHttp => write!(f, "using `http` transport cannot have `args`"),
+        }
+    }
+}
+
 /// One MCP server definition: how a harness should spawn (or connect to) one
 /// server, and nothing about the secrets it will need at runtime.
 ///
-/// `type_` is the transport: `stdio`, `sse`, or `streamable-http`. A stdio
-/// server carries `command` (plus `args`); a remote one carries `url`. The
-/// harness materialiser decides how the two spell the same facts on disk.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// `type_` is the transport: `http` or `local`. A `local` server carries
+/// `command` (plus `args`); an `http` one carries `url`. The harness
+/// materialiser decides how the two spell the same facts on disk.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct McpServerDef {
     /// The server's name — also the key its config hangs off in the
     /// harness's file. Unique within a hall's manifest.
     pub name: String,
-    /// The transport: `stdio`, `sse`, or `streamable-http`.
+    /// The transport: `http` or `local`.
     #[serde(rename = "type")]
     pub type_: String,
-    /// The executable a stdio server is spawned with.
+    /// The executable a `local` (stdio) server is spawned with.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub command: Option<String>,
     /// Arguments appended to [`Self::command`].
     #[serde(skip_serializing_if = "Option::is_none")]
     pub args: Option<Vec<String>>,
-    /// The URL a remote (sse / streamable-http) server is reached at.
+    /// The URL a `http` (remote) server is reached at.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
     /// Env vars the server is spawned with. Values are *references* — names
@@ -82,6 +138,61 @@ pub struct McpServerDef {
 }
 
 impl McpServerDef {
+    /// Attempt to derive the canonical transport from the definition,
+    /// rejecting invalid or obsolete spellings.
+    pub fn transport(&self) -> Result<McpTransport, String> {
+        match self.type_.as_str() {
+            "http" => Ok(McpTransport::Http),
+            "local" => Ok(McpTransport::Local),
+            other => Err(other.to_owned()),
+        }
+    }
+
+    /// Validate the definition's invariants.
+    pub fn validate(&self) -> Result<(), McpValidationError> {
+        let transport = self
+            .transport()
+            .map_err(McpValidationError::InvalidTransport)?;
+
+        match transport {
+            McpTransport::Http => {
+                let url = self
+                    .url
+                    .as_ref()
+                    .filter(|u| !u.trim().is_empty())
+                    .ok_or(McpValidationError::MissingUrlForHttp)?;
+
+                if !url.starts_with("http://") && !url.starts_with("https://") {
+                    return Err(McpValidationError::InvalidUrlForHttp(url.to_owned()));
+                }
+
+                if self.args.is_some() {
+                    return Err(McpValidationError::ArgsNotSupportedForHttp);
+                }
+
+                if self.command.is_some() || self.env.is_some() {
+                    return Err(McpValidationError::HttpWithUnsupportedFields);
+                }
+            }
+            McpTransport::Local => {
+                if self.url.is_some() {
+                    return Err(McpValidationError::LocalWithUrl);
+                }
+
+                if self.args.is_some() && self.command.is_none() {
+                    return Err(McpValidationError::ArgsWithoutCommandForLocal);
+                }
+
+                let _command = self
+                    .command
+                    .as_ref()
+                    .filter(|c| !c.trim().is_empty())
+                    .ok_or(McpValidationError::MissingCommandForLocal)?;
+            }
+        }
+        Ok(())
+    }
+
     /// Build a definition from its required fields. The optional halves
     /// (`command`, `args`, `url`, `env`) start absent and are set with the
     /// chaining setters below.
@@ -98,7 +209,7 @@ impl McpServerDef {
         }
     }
 
-    /// Set the executable a stdio server is spawned with.
+    /// Set the executable a `local` (stdio) server is spawned with.
     #[must_use]
     pub fn command(mut self, command: impl Into<String>) -> Self {
         self.command = Some(command.into());
@@ -157,7 +268,7 @@ impl McpServerDef {
 /// is deliberately not a field here: it is derived by the harness layer from
 /// the host's requirement and the harness's own default callback port, not
 /// stored per-server.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct McpOauth {
     /// The `client_id` a registration issued. Not a secret.

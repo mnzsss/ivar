@@ -73,7 +73,7 @@ pub enum Error {
         source: json::Error,
     },
     /// The MCP config parsed as JSON but is not an object, so there is no safe
-    /// way to merge the `mcp` key into it — and `ivar` will not invent one.
+    /// way to merge the `mcp`.
     #[error("`{path}` is not a JSON object; ivar will not overwrite it")]
     McpNotObject { path: camino::Utf8PathBuf },
     /// Something failed reading, writing, or removing a managed artifact.
@@ -83,6 +83,9 @@ pub enum Error {
         #[source]
         source: fs::Error,
     },
+    /// An MCP server definition uses an unsupported transport.
+    #[error("MCP server `{name}` uses unsupported transport `{transport}`")]
+    InvalidMcpTransport { name: String, transport: String },
 }
 
 impl From<Error> for Failure {
@@ -116,6 +119,16 @@ impl From<Error> for Failure {
                     ),
                 ))
             }
+            Error::InvalidMcpTransport { name, transport } => Failure::blocked(
+                "harness.invalid_mcp_transport",
+                format!("MCP server `{name}` uses unsupported transport `{transport}`"),
+            )
+            .expected("MCP transport to be `http` or `local`")
+            .actual(format!("`{name}` uses unsupported `{transport}`"))
+            .fix(FixAction::safe(
+                "harness.fix_mcp_transport",
+                format!("Change `{name}`'s transport to `http` or `local`."),
+            )),
         }
     }
 }

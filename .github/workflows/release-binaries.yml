@@ -219,6 +219,60 @@ jobs:
         # instead of failing on the name already being taken.
         run: gh release upload "$TAG" "$ASSET" "$ASSET.sha256" --clobber
 
+  # One file for every platform, so it cannot ride the matrix above: four legs
+  # uploading the same asset name would race, and three of them would be
+  # redundant. It is attached at all because the `$schema` key in every
+  # generated ivar.json names a URL, and a URL needs something behind it that
+  # is pinned to a version — `main` is a moving branch, and an editor that
+  # fetches a schema from one is validating against whatever landed last.
+  schema:
+    name: ivar.schema.json
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ inputs.tag }}
+          persist-credentials: false
+
+      # Same rule as the binaries: verify before upload, so a broken artefact
+      # never reaches the release. The drift test in the suite already proves
+      # the file matches the types it was generated from — what is checked
+      # here is the half that test cannot see. `$id` is the identity a schema
+      # is resolved by; when it disagrees with the URL the file is served
+      # from, editors that cache by `$id` keep validating against a stale copy
+      # and never say why.
+      - name: verify
+        env:
+          PUBLISHED_URL: https://ivar.run/ivar.schema.json
+        run: |
+          set -eu
+
+          test -s ivar.schema.json || {
+            echo "::error::ivar.schema.json is empty or missing"
+            exit 1
+          }
+
+          jq -e . ivar.schema.json > /dev/null || {
+            echo "::error::ivar.schema.json is not valid JSON"
+            exit 1
+          }
+
+          id=$(jq -r '."$id" // empty' ivar.schema.json)
+          [ "$id" = "$PUBLISHED_URL" ] || {
+            echo "::error::\$id is '$id', expected '$PUBLISHED_URL' — the file would resolve under a name it is not served at"
+            exit 1
+          }
+
+      - name: upload
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ inputs.tag }}
+        # --clobber for the same reason as the binaries: a dispatched re-run
+        # replaces the asset instead of failing on the name being taken.
+        run: gh release upload "$TAG" ivar.schema.json --clobber
+
   # release-plz writes the release body from the changelog, which says what
   # changed and nothing about how to get it. This appends the two things a
   # release page is otherwise missing: how to install this version, and the

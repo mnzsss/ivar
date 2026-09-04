@@ -33,21 +33,31 @@ pub(super) const CURRENT_VERSION: u32 = 4;
 /// The hall's identity, committed and team-shared. See the module doc comment
 /// for the full JSON shape, the contract, and how the invariants are
 /// enforced.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Manifest {
     version: u32,
+    /// The hall's name: a single, non-empty, non-whitespace, non-traversal
+    /// path segment.
+    #[schemars(example = &"valhalla")]
     name: HallName,
     providers: Providers,
+    /// The repos this hall knows about.
     repos: Vec<Repo>,
     /// The hall's integration defaults: the via/strategy a feature inherits
     /// when neither the CLI nor the feature itself overrides a field.
     integration: IntegrationPolicy,
+    /// The hall's shared skill home, if it has one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     skills: Option<Skills>,
+    #[serde(rename = "$schema", skip_serializing_if = "Option::is_none")]
+    schema: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     mcp: Option<Vec<McpServerDef>>,
 }
+
+/// Canonical URL for the Ivar manifest schema.
+pub(super) const MANIFEST_SCHEMA_URL: &str = "https://ivar.run/ivar.schema.json";
 
 impl Manifest {
     /// Build a validated `Manifest`. Refuses exactly what [`Self::validate`]
@@ -58,7 +68,7 @@ impl Manifest {
     /// The v1 call shape is preserved: a manifest built through this
     /// constructor carries the embedded integration defaults
     /// ([`IntegrationPolicy::default`], `local`/`squash`) and repos with no
-    /// checks.
+    /// checks, and the canonical manifest schema reference.
     pub fn new(
         name: HallName,
         providers: Providers,
@@ -72,6 +82,7 @@ impl Manifest {
             repos,
             integration: IntegrationPolicy::default(),
             skills,
+            schema: Some(MANIFEST_SCHEMA_URL.to_owned()),
             mcp: None,
         };
         manifest.validate()?;
@@ -214,6 +225,7 @@ impl Manifest {
             repos,
             integration: self.integration,
             skills: self.skills.clone(),
+            schema: self.schema.clone(),
             mcp: self.mcp.clone(),
         };
         manifest.validate()?;
@@ -264,6 +276,18 @@ impl Manifest {
                         name: server.name.clone(),
                     });
                 }
+                server
+                    .transport()
+                    .map_err(|transport| Error::InvalidMcpType {
+                        name: server.name.clone(),
+                        transport,
+                    })?;
+                server
+                    .validate()
+                    .map_err(|reason| Error::InvalidMcpServerDefinition {
+                        name: server.name.clone(),
+                        reason: format!("{reason}"),
+                    })?;
             }
         }
         Ok(())
@@ -280,9 +304,10 @@ impl Manifest {
 /// every invariant check in one place (rather than splitting it between this
 /// type and `Manifest`) is what keeps [`Error`]'s variants exhaustive and easy
 /// to audit against the module doc comment's list of three.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Providers {
+    /// Every provider id this hall knows about.
     available: Vec<Provider>,
     default: Provider,
 }
@@ -310,11 +335,17 @@ impl Providers {
 }
 
 /// One repo a hall knows about.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Repo {
+    /// A unique, non-empty, single-segment identifier for this repo.
+    #[schemars(example = &"my-repo")]
     name: RepoName,
+    /// The git remote URL to clone from. Must not be empty.
+    #[schemars(example = &"https://github.com/org/repo.git")]
     url: String,
+    /// The branch a fresh worktree defaults to (e.g. "main").
+    #[schemars(example = &"main")]
     default_branch: BranchName,
     /// The repo's ordered verification checks, run via `bash -lc` in the
     /// relevant worktree when this repo is integrated or delivered. Empty
@@ -388,7 +419,7 @@ impl Repo {
 }
 
 /// A hall's shared skill home: which harnesses skills materialise for.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Skills {
     targets: Targets,
@@ -409,10 +440,12 @@ impl Skills {
 }
 
 /// Which harnesses a hall's shared skills materialise for.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Targets {
+    /// Whether skills materialise at `.claude/skills/`.
     claude: bool,
+    /// Whether skills materialise at `.opencode/skills/`.
     opencode: bool,
 }
 

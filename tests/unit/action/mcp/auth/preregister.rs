@@ -56,7 +56,7 @@ fn preregistration_not_needed_without_a_url() {
     let (_guard, root) = seeded_hall();
     let layout = Layout::at(root.clone());
     let manifest = Manifest::read(&layout).unwrap().unwrap();
-    let server = McpServerDef::new("linear", "stdio").command("linear-mcp");
+    let server = McpServerDef::new("linear", "local").command("linear-mcp");
 
     let result = preregister_if_needed(
         &layout,
@@ -74,7 +74,7 @@ fn preregistration_not_needed_for_a_host_off_the_allowlist() {
     let (_guard, root) = seeded_hall();
     let layout = Layout::at(root.clone());
     let manifest = Manifest::read(&layout).unwrap().unwrap();
-    let server = McpServerDef::new("linear", "sse").url("https://mcp.linear.app/mcp");
+    let server = McpServerDef::new("linear", "http").url("https://mcp.linear.app/mcp");
 
     let result = preregister_if_needed(
         &layout,
@@ -100,7 +100,7 @@ fn preregistration_skipped_when_the_manifest_already_carries_oauth() {
     // set", to exercise the present-and-usable branch without mutating the
     // process environment (`unsafe_code` is denied in this crate, so
     // `std::env::set_var` is not an option).
-    let server = McpServerDef::new("figma", "sse")
+    let server = McpServerDef::new("figma", "http")
         .url("https://mcp.figma.com/mcp")
         .oauth(McpOauth::new("existing-client", "CARGO_MANIFEST_DIR"));
 
@@ -134,7 +134,7 @@ fn preregistration_skipped_resolves_from_mcp_secrets_store_when_env_is_unset() {
     let var_name = "IVAR_MCP_AUTH_TEST_STORED_ONLY_VAR";
     McpSecrets::set_and_write(&layout, var_name, "stored-secret-val").unwrap();
 
-    let server = McpServerDef::new("figma", "sse")
+    let server = McpServerDef::new("figma", "http")
         .url("https://mcp.figma.com/mcp")
         .oauth(McpOauth::new("existing-client", var_name));
 
@@ -163,7 +163,7 @@ fn preregistration_skipped_leaves_existing_endpoints_intact_and_does_not_overwri
         .token_url("https://custom.auth.server/oauth/token")
         .resource("https://custom.api.server");
 
-    let server = McpServerDef::new("figma", "sse")
+    let server = McpServerDef::new("figma", "http")
         .url("https://mcp.figma.com/mcp")
         .oauth(original_oauth.clone());
 
@@ -202,7 +202,7 @@ fn preregistration_skipped_path_fails_naming_the_variable_when_it_is_unset() {
     let (_guard, root) = seeded_hall();
     let layout = Layout::at(root.clone());
     let manifest = Manifest::read(&layout).unwrap().unwrap();
-    let server = McpServerDef::new("figma", "sse")
+    let server = McpServerDef::new("figma", "http")
         .url("https://mcp.figma.com/mcp")
         .oauth(McpOauth::new(
             "existing-client",

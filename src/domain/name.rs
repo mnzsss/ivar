@@ -391,7 +391,7 @@ fn validate_session_id(value: &str) -> Result<(), InvalidName> {
 /// part impossible to forget on any one type — the whole point of the module.
 macro_rules! validated_name {
     ($name:ident, $validate:path) => {
-        #[derive(Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize)]
+        #[derive(Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, schemars::JsonSchema)]
         #[serde(transparent)]
         pub struct $name(String);
 

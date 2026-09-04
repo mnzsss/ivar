@@ -100,7 +100,9 @@
 mod error;
 mod model;
 mod persistence;
+mod schema;
 
 pub use error::Error;
 pub use model::{Manifest, Providers, Repo, Skills, Targets};
 pub use persistence::MigrationPlan;
+pub use schema::generate;

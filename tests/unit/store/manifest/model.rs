@@ -288,7 +288,7 @@ fn skills_accessor_returns_the_constructed_targets() {
 // -- MCP server definitions ----------------------------------------------
 
 fn mcp_server(name: &str) -> McpServerDef {
-    McpServerDef::new(name, "stdio").command("npx")
+    McpServerDef::new(name, "local").command("npx")
 }
 
 #[test]
@@ -359,15 +359,37 @@ fn mcp_servers_round_trip_through_write_and_read() {
 }
 
 #[test]
-fn duplicate_mcp_server_failure_names_the_offending_name() {
-    let failure: Failure = Error::DuplicateMcpServerName {
-        name: "docs".to_owned(),
+fn invalid_mcp_configurations_are_rejected_on_read() {
+    let (_dir, root) = utf8_temp_dir();
+    let layout = Layout::at(root);
+
+    // Test cases for invalid MCP configurations:
+    // 1. http without url
+    // 2. http with empty url
+    // 3. http carrying command/args/env
+    // 4. local without command
+    // 5. local with empty command
+    // 6. local carrying url
+    // 7. args without command
+
+    let invalid_configs = vec![
+        r#"{"version":3,"name":"acme","providers":{"available":["claude-code"],"default":"claude-code"},"repos":[],"integration":{"via":"local","strategy":"squash"},"mcp":[{"name":"http-no-url","type":"http"}]}"#,
+        r#"{"version":3,"name":"acme","providers":{"available":["claude-code"],"default":"claude-code"},"repos":[],"integration":{"via":"local","strategy":"squash"},"mcp":[{"name":"http-empty-url","type":"http","url":"  "}]}"#,
+        r#"{"version":3,"name":"acme","providers":{"available":["claude-code"],"default":"claude-code"},"repos":[],"integration":{"via":"local","strategy":"squash"},"mcp":[{"name":"http-with-cmd","type":"http","url":"http://x","command":"ls"}]}"#,
+        r#"{"version":3,"name":"acme","providers":{"available":["claude-code"],"default":"claude-code"},"repos":[],"integration":{"via":"local","strategy":"squash"},"mcp":[{"name":"local-no-cmd","type":"local"}]}"#,
+        r#"{"version":3,"name":"acme","providers":{"available":["claude-code"],"default":"claude-code"},"repos":[],"integration":{"via":"local","strategy":"squash"},"mcp":[{"name":"local-empty-cmd","type":"local","command":"  "}]}"#,
+        r#"{"version":3,"name":"acme","providers":{"available":["claude-code"],"default":"claude-code"},"repos":[],"integration":{"via":"local","strategy":"squash"},"mcp":[{"name":"local-with-url","type":"local","command":"ls","url":"http://x"}]}"#,
+        r#"{"version":3,"name":"acme","providers":{"available":["claude-code"],"default":"claude-code"},"repos":[],"integration":{"via":"local","strategy":"squash"},"mcp":[{"name":"local-args-no-cmd","type":"local","args":["-y"]}]}"#,
+    ];
+
+    for json in invalid_configs {
+        fs::write_text(&layout.manifest(), json).unwrap();
+        let error = Manifest::read(&layout).unwrap_err();
+        match error {
+            Error::InvalidMcpServerDefinition { .. } => {} // Correct
+            other => panic!("expected InvalidMcpServerDefinition, got {other:?}"),
+        }
     }
-    .into();
-    assert_eq!(failure.status, Status::Blocked);
-    assert_eq!(failure.code, "manifest.duplicate_mcp_server_name");
-    assert!(failure.what.contains("docs"));
-    assert!(failure.fix_actions[0].safe);
 }
 
 // -- v2: hall integration defaults and ordered repo checks ------------------

@@ -140,7 +140,7 @@ pub fn start(ctx: &Ctx, input: StartInput) -> Outcome<StartOutcome> {
     if input.resume {
         let contract = providers::launch_contract(provider);
         if !contract.capabilities.supports_resume {
-            providers::start_command(provider, true)?;
+            providers::start_command(provider, true, &[])?;
         }
     }
     if input.relay {
@@ -217,7 +217,19 @@ pub fn start(ctx: &Ctx, input: StartInput) -> Outcome<StartOutcome> {
             provider,
             feature.as_ref().map(|f| &f.name),
         );
-        let command = env.apply(crate::providers::start_command(provider, input.resume)?);
+        let hall_name = manifest.name().clone();
+        let mut allowlist: Vec<String> = manifest
+            .mcp_servers()
+            .iter()
+            .map(|server| server.materialised_name(&hall_name))
+            .collect();
+        allowlist.sort();
+        allowlist.dedup();
+        let command = env.apply(crate::providers::start_command(
+            provider,
+            input.resume,
+            &allowlist,
+        )?);
         let command =
             crate::action::mcp::inject_session_mcp_secrets(command, &layout, &manifest, provider);
         let width = crate::infra::term::width();

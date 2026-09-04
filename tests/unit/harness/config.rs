@@ -37,11 +37,11 @@ fn an_empty_server_list_materialises_a_valid_empty_config() {
 }
 
 #[test]
-fn a_stdio_server_is_serialised_with_command_args_and_env() {
+fn a_local_server_is_serialised_with_command_args_and_env() {
     let (_guard, dir) = utf8_temp_dir();
     let path = dir.join(".mcp.json");
     let servers = vec![
-        McpServerDef::new("docs", "stdio")
+        McpServerDef::new("docs", "local")
             .command("npx")
             .args(vec!["-y".to_owned(), "@acme/docs-mcp".to_owned()])
             .env(std::collections::BTreeMap::from([(
@@ -71,7 +71,7 @@ fn a_stdio_server_is_serialised_with_command_args_and_env() {
 fn materialising_mcp_twice_is_unchanged_and_does_not_rewrite() {
     let (_guard, dir) = utf8_temp_dir();
     let path = dir.join(".mcp.json");
-    let servers = vec![McpServerDef::new("docs", "stdio").command("npx")];
+    let servers = vec![McpServerDef::new("docs", "local").command("npx")];
 
     assert_eq!(
         materialise_mcp(&path, Provider::ClaudeCode, &servers, &hall()).unwrap(),
@@ -92,7 +92,7 @@ fn changed_servers_rewrite_the_config() {
     let path = dir.join(".mcp.json");
     materialise_mcp(&path, Provider::ClaudeCode, &[], &hall()).unwrap();
 
-    let with_server = vec![McpServerDef::new("docs", "stdio").command("npx")];
+    let with_server = vec![McpServerDef::new("docs", "local").command("npx")];
     assert_eq!(
         materialise_mcp(&path, Provider::ClaudeCode, &with_server, &hall()).unwrap(),
         Change::Updated
@@ -126,7 +126,7 @@ fn opencode_translates_a_stdio_definition_into_its_own_spelling() {
     let (_guard, dir) = utf8_temp_dir();
     let path = dir.join("opencode.json");
     let servers = vec![
-        McpServerDef::new("docs", "stdio")
+        McpServerDef::new("docs", "local")
             .command("npx")
             .args(vec!["-y".to_owned(), "@acme/docs-mcp".to_owned()])
             .env(std::collections::BTreeMap::from([(
@@ -159,7 +159,7 @@ fn opencode_emits_the_oauth_block_for_a_server_that_carries_one() {
     let (_guard, dir) = utf8_temp_dir();
     let path = dir.join("opencode.json");
     let servers = vec![
-        McpServerDef::new("figma", "sse")
+        McpServerDef::new("figma", "http")
             .url("https://mcp.figma.com/mcp")
             .oauth(crate::domain::mcp::McpOauth::new(
                 "client-123",
@@ -195,7 +195,7 @@ fn claude_code_never_emits_the_oauth_block() {
     let (_guard, dir) = utf8_temp_dir();
     let path = dir.join(".mcp.json");
     let servers = vec![
-        McpServerDef::new("figma", "sse")
+        McpServerDef::new("figma", "http")
             .url("https://mcp.figma.com/mcp")
             .oauth(crate::domain::mcp::McpOauth::new(
                 "client-123",
@@ -216,7 +216,7 @@ fn claude_code_never_emits_the_oauth_block() {
 fn opencode_spells_a_remote_definition_with_type_remote_and_a_url() {
     let (_guard, dir) = utf8_temp_dir();
     let path = dir.join("opencode.json");
-    let servers = vec![McpServerDef::new("sentry", "sse").url("https://mcp.example.com/mcp")];
+    let servers = vec![McpServerDef::new("sentry", "http").url("https://mcp.example.com/mcp")];
 
     materialise_mcp(&path, Provider::OpenCode, &servers, &hall()).unwrap();
 
@@ -245,7 +245,7 @@ fn an_existing_opencode_config_keeps_its_other_keys() {
     )
     .unwrap();
 
-    let servers = vec![McpServerDef::new("docs", "stdio").command("npx")];
+    let servers = vec![McpServerDef::new("docs", "local").command("npx")];
     assert_eq!(
         materialise_mcp(&path, Provider::OpenCode, &servers, &hall()).unwrap(),
         Change::Updated

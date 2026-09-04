@@ -41,7 +41,7 @@ fn ivar_json_is_written_with_canonical_bytes() {
         .success();
 
     let bytes = std::fs::read_to_string(root.join("ivar.json")).expect("read ivar.json");
-    let expected = "{\n  \"integration\": {\n    \"strategy\": \"squash\",\n    \"via\": \"local\"\n  },\n  \"name\": \"acme\",\n  \"providers\": {\n    \"available\": [\n      \"opencode\"\n    ],\n    \"default\": \"opencode\"\n  },\n  \"repos\": [],\n  \"version\": 4\n}\n";
+    let expected = "{\n  \"$schema\": \"https://ivar.run/ivar.schema.json\",\n  \"integration\": {\n    \"strategy\": \"squash\",\n    \"via\": \"local\"\n  },\n  \"name\": \"acme\",\n  \"providers\": {\n    \"available\": [\n      \"opencode\"\n    ],\n    \"default\": \"opencode\"\n  },\n  \"repos\": [],\n  \"version\": 4\n}\n";
     assert_eq!(
         bytes, expected,
         "ivar.json must be sorted keys, two-space indent, one trailing newline"

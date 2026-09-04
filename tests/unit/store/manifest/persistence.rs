@@ -46,6 +46,7 @@ fn write_then_read_round_trips_and_writes_canonical_bytes() {
     let expected = json::to_canonical_string(&serde_json::json!({
         "version": 4,
         "name": "acme",
+        "$schema": "https://ivar.run/ivar.schema.json",
         "integration": { "strategy": "squash", "via": "local" },
         "providers": { "available": ["claude-code", "opencode"], "default": "claude-code" },
         "repos": [
@@ -238,10 +239,18 @@ fn v2_manifest_bytes() -> &'static str {
     r#"{"version":2,"name":"acme","integration":{"strategy":"squash","via":"local"},"providers":{"available":["claude-code","opencode"],"default":"claude-code"},"repos":[{"name":"api","url":"git@github.com:acme/api.git","default_branch":"main","checks":[]}]}"#
 }
 
-/// The exact v3 shape ivar wrote before the v4 bump: `oauth` present on an MCP server
-/// with `client_id` and `client_secret_env` but no `token_url` or `resource`.
+/// A v3 file as ivar wrote them when `sse` was still accepted. The transport
+/// vocabulary closed to `http`/`local` after v3, so this shape is exactly
+/// what a user upgrading across that break has on disk.
 fn v3_manifest_bytes() -> &'static str {
     r#"{"version":3,"name":"acme","integration":{"strategy":"squash","via":"local"},"providers":{"available":["claude-code","opencode"],"default":"claude-code"},"repos":[{"name":"api","url":"git@github.com:acme/api.git","default_branch":"main","checks":[]}],"mcp":[{"name":"figma","type":"sse","url":"https://mcp.figma.com/mcp","oauth":{"client_id":"client-123","client_secret_env":"IVAR_MCP_ACME_FIGMA_SECRET"}}]}"#
+}
+
+/// The same v3 shape with the transport already migrated by hand: `oauth`
+/// present with `client_id` and `client_secret_env` but no `token_url` or
+/// `resource` (v4's additions, which a v3 file could not have had).
+fn v3_canonical_manifest_bytes() -> &'static str {
+    r#"{"version":3,"name":"acme","integration":{"strategy":"squash","via":"local"},"providers":{"available":["claude-code","opencode"],"default":"claude-code"},"repos":[{"name":"api","url":"git@github.com:acme/api.git","default_branch":"main","checks":[]}],"mcp":[{"name":"figma","type":"http","url":"https://mcp.figma.com/mcp","oauth":{"client_id":"client-123","client_secret_env":"IVAR_MCP_ACME_FIGMA_SECRET"}}]}"#
 }
 
 #[test]
@@ -384,11 +393,47 @@ fn a_plain_write_refuses_a_v2_file_and_explicit_migrate_writes_canonical_current
     assert_eq!(on_disk, expected);
 }
 
+/// `C-BREAKING-CHANGE`: `sse` is not a deprecated alias, so a v3 file that
+/// used it cannot migrate silently — the transport is a manual edit. The
+/// refusal must name the entry and the canonical replacement rather than
+/// failing as a generic parse error.
+#[test]
+fn a_v3_manifest_using_a_retired_transport_refuses_to_migrate_and_names_the_replacement() {
+    let (_dir, root) = utf8_temp_dir();
+    let layout = Layout::at(root);
+    fs::write_text(&layout.manifest(), v3_manifest_bytes()).unwrap();
+
+    let error = Manifest::migrate(&layout).unwrap_err();
+    match &error {
+        Error::InvalidMcpType { name, transport } => {
+            assert_eq!(name, "figma");
+            assert_eq!(transport, "sse");
+        }
+        other => panic!("expected InvalidMcpType, got: {other:?}"),
+    }
+
+    let failure = crate::error::Failure::from(error);
+    assert!(
+        failure
+            .fix_actions
+            .iter()
+            .any(|action| action.what.contains("`http`")),
+        "the fix must name the canonical replacement: {failure:?}"
+    );
+
+    // The file is left exactly as it was: a refused migration never rewrites.
+    let on_disk = fs::read_text(&layout.manifest()).unwrap().unwrap();
+    assert_eq!(on_disk, v3_manifest_bytes());
+}
+
+/// A v3 file whose MCP entries already use the canonical vocabulary migrates
+/// to v4 with its `oauth` fields intact, and without fabricating a
+/// `token_url` or `resource` that the v3 file never carried.
 #[test]
 fn a_v3_manifest_with_oauth_migrates_to_v4_with_fields_intact_and_no_fabricated_token_url() {
     let (_dir, root) = utf8_temp_dir();
     let layout = Layout::at(root);
-    let original = v3_manifest_bytes();
+    let original = v3_canonical_manifest_bytes();
     fs::write_text(&layout.manifest(), original).unwrap();
 
     let error = Manifest::write(&layout, &sample_manifest()).unwrap_err();
@@ -421,7 +466,7 @@ fn a_v3_manifest_with_oauth_migrates_to_v4_with_fields_intact_and_no_fabricated_
         "mcp": [
             {
                 "name": "figma",
-                "type": "sse",
+                "type": "http",
                 "url": "https://mcp.figma.com/mcp",
                 "oauth": {
                     "client_id": "client-123",
