@@ -559,3 +559,7 @@ struct JournalDto {
     #[serde(default)]
     message: String,
 }
+
+#[cfg(test)]
+#[path = "../../../../tests/unit/store/feature/run/legacy.rs"]
+mod tests;
