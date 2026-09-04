@@ -180,21 +180,26 @@ impl Manifest {
     /// [`Policy::Committed`]. Callers are expected to have shown
     /// [`Self::plan`] and got a human's answer first; nothing here asks.
     ///
+    /// Validation gates the write. A file whose content the current binary
+    /// refuses — a retired MCP transport, say — is left exactly as it was
+    /// rather than stamped to the new version with the offending content
+    /// intact: that combination is unreadable afterwards, and the failed
+    /// migration would be indistinguishable from a completed one.
+    ///
     /// `Ok(None)` if there is no `ivar.json`.
     pub fn migrate(layout: &Layout) -> Result<Option<Self>, Error> {
-        let migrated = match Self::open(layout).migrate() {
-            Ok(migrated) => migrated,
-            // Same renaming `read` does: for this file, "no migration path"
-            // means "no version field", and that is not an ivar.json.
-            Err(versioned::Error::NoMigrationPath { path, .. }) => {
-                return Err(Error::MissingVersion { path });
-            }
-            Err(other) => return Err(Error::Store(other)),
-        };
-        let Some(manifest) = migrated else {
+        // `read` migrates in memory and validates; under `Policy::Committed`
+        // it leaves the file untouched, so nothing is written until the
+        // migrated form is known to be valid.
+        let Some(manifest) = Self::read(layout)? else {
             return Ok(None);
         };
-        manifest.validate()?;
+        Self::open(layout)
+            .migrate()
+            .map_err(Error::Store)?
+            .ok_or_else(|| Error::MissingVersion {
+                path: layout.manifest(),
+            })?;
         Ok(Some(manifest))
     }
 
