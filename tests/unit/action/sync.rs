@@ -660,7 +660,7 @@ fn sync_with_omp_available_writes_every_provider_mcp_document() {
     let on_disk = fs::read_text(&root.join(".mcp.json")).unwrap().unwrap();
     assert!(on_disk.contains("\"acme-docs\""), "was: {on_disk}");
 
-    let omp_doc = fs::read_text(&root.join(".omp/mcp.json")).unwrap().unwrap();
+    let omp_doc = fs::read_text(&root.join("mcp.json")).unwrap().unwrap();
     assert!(omp_doc.contains("\"acme-docs\""), "was: {omp_doc}");
     let parsed: serde_json::Value = serde_json::from_str(&omp_doc).unwrap();
     assert!(
@@ -680,7 +680,7 @@ fn sync_reports_a_malformed_omp_mcp_document_instead_of_silently_skipping_it() {
     Manifest::write(&layout, &manifest).unwrap();
 
     // A root-level array is the shape `materialise_mcp` refuses.
-    let omp_mcp = root.join(".omp/mcp.json");
+    let omp_mcp = root.join("mcp.json");
     fs::ensure_dir(omp_mcp.parent().unwrap()).unwrap();
     fs::write_text(&omp_mcp, "[\"not an object\"]").unwrap();
 
@@ -712,7 +712,7 @@ fn sync_removes_the_omp_mcp_document_when_omp_leaves_the_hall() {
     Manifest::write(&layout, &manifest).unwrap();
     let ctx = Ctx::new(root.clone());
     sync(&ctx, SyncInput::default()).unwrap();
-    assert!(fs::exists(&root.join(".omp/mcp.json")).unwrap());
+    assert!(fs::exists(&root.join("mcp.json")).unwrap());
 
     // Drop OMP from the hall; its document must go the way `remove_mcp`
     // takes the other providers' documents.
@@ -727,7 +727,7 @@ fn sync_removes_the_omp_mcp_document_when_omp_leaves_the_hall() {
 
     sync(&ctx, SyncInput::default()).unwrap();
     assert!(
-        !fs::exists(&root.join(".omp/mcp.json")).unwrap(),
+        !fs::exists(&root.join("mcp.json")).unwrap(),
         "a provider the hall no longer lists keeps no MCP document"
     );
 }

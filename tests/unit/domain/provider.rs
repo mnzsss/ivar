@@ -38,7 +38,7 @@ fn omp_accessors() {
     assert_eq!(provider.instruction_file(), "AGENTS.md");
     assert_eq!(provider.commands_dir(), ".omp/commands");
     assert_eq!(provider.skills_dir(), ".omp/skills");
-    assert_eq!(provider.mcp_config_path(), ".omp/mcp.json");
+    assert_eq!(provider.mcp_config_path(), "mcp.json");
 }
 
 // -- Display --------------------------------------------------------------

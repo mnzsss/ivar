@@ -262,7 +262,7 @@ fn accessors_compute_the_documented_paths() {
     );
     assert_eq!(
         layout.mcp_config(&Provider::Omp),
-        Utf8PathBuf::from("/hall/.omp/mcp.json")
+        Utf8PathBuf::from("/hall/mcp.json")
     );
     assert_eq!(
         layout.mcp_secrets_env(),

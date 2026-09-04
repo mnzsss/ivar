@@ -198,12 +198,20 @@ impl Provider {
     /// The OpenCode half of this mapping is inferred, not sourced from
     /// `bifrost` — see the module doc comment's "Where each fact came from"
     /// section.
+    ///
+    /// OMP's loader reads exactly two project paths, both at the working
+    /// directory root: `mcp.json` and `.mcp.json` (measured against
+    /// omp/18.1.8, `discovery/mcp-json.ts`). It never descends into `.omp/`
+    /// for server definitions — a `mcp.json` there is an Agent Plugin
+    /// manifest, a different closed schema. `mcp.json` is the one of the two
+    /// that Claude Code does not also read, so each provider keeps a file it
+    /// owns alone.
     #[must_use]
     pub const fn mcp_config_path(&self) -> &'static str {
         match self {
             Self::ClaudeCode => ".mcp.json",
             Self::OpenCode => "opencode.json",
-            Self::Omp => ".omp/mcp.json",
+            Self::Omp => "mcp.json",
         }
     }
 }
