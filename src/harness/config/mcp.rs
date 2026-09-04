@@ -31,21 +31,9 @@ use crate::domain::name::HallName;
 use crate::domain::provider::Provider;
 use crate::infra::{fs, json};
 
-use super::{Change, Error};
+use crate::providers;
 
-/// The redirect URI a pre-registered OpenCode OAuth client declares, and the
-/// one `opencode.json`'s `oauth.redirectUri` must repeat so OpenCode listens
-/// where the registration told the server it would.
-///
-/// The path (`/callback`) is the remote host's requirement, not OpenCode's
-/// own default (`/mcp/oauth/callback`) — Figma's registration endpoint
-/// returns `400 invalid_redirect_uri` for anything else (measured
-/// 2026-08-26; see `plans/ivar-mcp-auth/analysis.md`). The port (`19876`) is
-/// OpenCode's own default callback port; setting `oauth.redirectUri`
-/// overrides both OpenCode's callback server and its authorize request, so
-/// declaring it here is what reconciles the two rather than leaving them to
-/// disagree.
-pub const OAUTH_REDIRECT_URI: &str = "http://127.0.0.1:19876/callback";
+use super::{Change, Error};
 
 pub fn materialise_mcp(
     path: &Utf8Path,
@@ -63,7 +51,7 @@ pub fn materialise_mcp(
     let object = doc.as_object_mut().ok_or_else(|| Error::McpNotObject {
         path: path.to_path_buf(),
     })?;
-    object.insert(provider.mcp_key().to_owned(), servers_value);
+    object.insert(providers::mcp_root_key(provider).to_owned(), servers_value);
     // OpenCode's config carries a `$schema`; make sure one is there, without
     // clobbering one the user already wrote.
     if provider == Provider::OpenCode && !object.contains_key("$schema") {
@@ -103,7 +91,7 @@ pub fn remove_mcp(path: &Utf8Path, provider: Provider) -> Result<Change, Error> 
     let Some(object) = doc.as_object_mut() else {
         return Ok(Change::Unchanged);
     };
-    if object.remove(provider.mcp_key()).is_none() {
+    if object.remove(providers::mcp_root_key(provider)).is_none() {
         return Ok(Change::Unchanged);
     }
 
@@ -130,7 +118,7 @@ fn mcp_doc(provider: Provider, servers: serde_json::Value) -> serde_json::Value 
             serde_json::json!("https://opencode.ai/config.json"),
         );
     }
-    root.insert(provider.mcp_key().to_owned(), servers);
+    root.insert(providers::mcp_root_key(provider).to_owned(), servers);
     serde_json::Value::Object(root)
 }
 
@@ -139,79 +127,12 @@ fn mcp_doc(provider: Provider, servers: serde_json::Value) -> serde_json::Value 
 fn servers_doc(provider: Provider, servers: &[McpServerDef], hall: &HallName) -> serde_json::Value {
     let mut map = serde_json::Map::new();
     for server in servers {
-        map.insert(server.materialised_name(hall), server_doc(provider, server));
+        map.insert(
+            server.materialised_name(hall),
+            providers::mcp_server_doc(provider, &server.materialised_name(hall), server),
+        );
     }
     serde_json::Value::Object(map)
-}
-
-/// One server's entry, in `provider`'s spelling of it.
-///
-/// Claude Code's shape is the canonical one (`command`/`args`/`env`). OpenCode
-/// spells the same facts differently — `stdio` → `local` with `command` as one
-/// array, `sse`/`streamable-http` → `remote` with a `url`, `env` →
-/// `environment` — and that translation is exactly what this function is for.
-fn server_doc(provider: Provider, server: &McpServerDef) -> serde_json::Value {
-    let mut object = serde_json::Map::new();
-    match provider {
-        Provider::ClaudeCode => {
-            object.insert("type".to_owned(), serde_json::json!(server.type_));
-            if let Some(command) = &server.command {
-                object.insert("command".to_owned(), serde_json::json!(command));
-            }
-            if let Some(args) = &server.args {
-                object.insert("args".to_owned(), serde_json::json!(args));
-            }
-            if let Some(url) = &server.url {
-                object.insert("url".to_owned(), serde_json::json!(url));
-            }
-            if let Some(env) = &server.env {
-                object.insert("env".to_owned(), serde_json::json!(env));
-            }
-        }
-        Provider::OpenCode => {
-            let transport = if server.type_ == "stdio" {
-                "local"
-            } else {
-                "remote"
-            };
-            object.insert("type".to_owned(), serde_json::json!(transport));
-            if server.type_ == "stdio" {
-                let mut command: Vec<&str> = Vec::new();
-                if let Some(binary) = &server.command {
-                    command.push(binary);
-                }
-                if let Some(args) = &server.args {
-                    command.extend(args.iter().map(String::as_str));
-                }
-                if !command.is_empty() {
-                    object.insert("command".to_owned(), serde_json::json!(command));
-                }
-            } else if let Some(url) = &server.url {
-                object.insert("url".to_owned(), serde_json::json!(url));
-            }
-            if let Some(env) = &server.env {
-                object.insert("environment".to_owned(), serde_json::json!(env));
-            }
-            // A pre-provisioned OAuth client, for a server whose host rejects
-            // OpenCode's own dynamic client registration. `clientSecret` is
-            // always the `{env:NAME}` reference the manifest names, never a
-            // value — `McpOauth` has no field that could hold one.
-            // Claude Code's branch above never reaches this: it is on
-            // Figma's allowlist and needs no pre-registration (R-SECRET-HANDOFF,
-            // R-NO-SECRETS).
-            if let Some(oauth) = &server.oauth {
-                object.insert(
-                    "oauth".to_owned(),
-                    serde_json::json!({
-                        "clientId": oauth.client_id,
-                        "clientSecret": format!("{{env:{}}}", oauth.client_secret_env),
-                        "redirectUri": OAUTH_REDIRECT_URI,
-                    }),
-                );
-            }
-        }
-    }
-    serde_json::Value::Object(object)
 }
 
 /// Read `path` as JSON, returning the parsed document and its raw bytes.

@@ -4,9 +4,7 @@
 //! pre-registration allowlist, Ivar performs the full authorization-code
 //! + PKCE flow itself instead of delegating to `opencode mcp auth`.
 //!
-//! This module orchestrates the steps:
-//!
-//! 1. **Conflict check** — `opencode_auth::has_entry(materialised_name)`
+//! 1. **Conflict check** — `providers::has_credentials(provider, materialised_name)`
 //!    before anything else (`R-CONFLICT`).
 //! 2. **Pre-registration** — reuse [`preregister_if_needed`] for
 //!    client_id / client_secret.
@@ -16,13 +14,12 @@
 //! 6. **Print URL** — authorization URL for manual browser opening.
 //! 7. **Wait for callback** — validate state, receive code.
 //! 8. **Code exchange** — [`oauth::exchange_code`].
-//! 9. **Persist** — [`opencode_auth::write_entry`].
-//! 10. **Verify** — [`opencode_auth::has_tokens`].
+//! 9. **Persist** — [`providers::install_credentials`].
+//! 10. **Verify** — [`providers::verify_authenticated`].
 //!
 //! Failure at any step before 9 leaves the credential store unchanged
 //! (`R-ATOMIC`). `Ctrl+C` terminates the process; the OS releases the
 //! loopback socket; nothing partial is written.
-//!
 //! # Module boundaries
 //!
 //! `action` may import `domain`, `infra`, `harness`, and `store`. This
@@ -33,7 +30,7 @@ use std::time::Duration;
 
 use crate::domain::mcp::McpServerDef;
 use crate::error::{Failure, FixAction};
-use crate::harness::opencode_auth::{self, ClientInfo, Entry};
+use crate::providers::Credential;
 use crate::store::layout::Layout;
 use crate::store::manifest::Manifest;
 
@@ -42,23 +39,30 @@ use super::{AuthMethod, Preregistration, ProviderRun};
 
 use crate::infra::figma::{self, OAuthEndpoints};
 use crate::infra::fs;
-use crate::infra::http_callback::{AuthorizationCode, CallbackServer};
+use crate::infra::http_callback::{AuthorizationCode, CallbackServer, OAUTH_REDIRECT_URI};
 use crate::infra::oauth::{self, AuthMode, Tokens};
 
 /// How long to wait for the OAuth callback before giving up.
 const CALLBACK_TIMEOUT: Duration = Duration::from_secs(120);
 
 /// The redirect URI — must match the one registered with Figma and the one
-/// `opencode.json`'s `oauth.redirectUri` declares.
-const REDIRECT_URI: &str = "http://127.0.0.1:19876/callback";
+/// `opencode.json`'s `oauth.redirectUri` declares, which is exactly why it is
+/// one shared constant beside the listener rather than a local copy.
+const REDIRECT_URI: &str = OAUTH_REDIRECT_URI;
 
 /// The label used in `ProviderRun::command` for the internal flow, since
 /// there is no child process command to display.
 const INTERNAL_FLOW_LABEL: &str = "ivar oauth";
 
 pub(super) trait FlowOps {
+    fn provider(&self) -> crate::domain::provider::Provider;
     fn check_conflict(&self, name: &str) -> Result<bool, Failure>;
-    fn preregister(&self, server: &McpServerDef, name: &str) -> Result<Preregistered, Failure>;
+    fn preregister(
+        &self,
+        server: &McpServerDef,
+        name: &str,
+        endpoints: &OAuthEndpoints,
+    ) -> Result<Preregistered, Failure>;
     fn discover(&self, url: &str) -> Result<OAuthEndpoints, Failure>;
     fn bind(&self, state: &str) -> Result<CallbackServer, Failure>;
     fn output_url(&self, url: &str);
@@ -74,8 +78,8 @@ pub(super) trait FlowOps {
         mode: AuthMode,
         resource: Option<&str>,
     ) -> Result<Tokens, Failure>;
-    fn write(&self, name: &str, entry: &Entry) -> Result<(), Failure>;
-    fn verify(&self, name: &str) -> Result<bool, Failure>;
+    fn write(&self, name: &str, credential: &Credential<'_>) -> Result<(), Failure>;
+    fn verify(&self, name: &str, server_url: Option<&str>) -> Result<bool, Failure>;
 }
 
 struct RealFlowOps {
@@ -85,11 +89,26 @@ struct RealFlowOps {
 }
 
 impl FlowOps for RealFlowOps {
-    fn check_conflict(&self, name: &str) -> Result<bool, Failure> {
-        opencode_auth::has_entry(name)
+    fn provider(&self) -> crate::domain::provider::Provider {
+        self.provider
     }
-    fn preregister(&self, server: &McpServerDef, name: &str) -> Result<Preregistered, Failure> {
-        preregister_if_needed(&self.layout, &self.manifest, self.provider, server, name)
+    fn check_conflict(&self, name: &str) -> Result<bool, Failure> {
+        crate::providers::has_credentials(self.provider, name)
+    }
+    fn preregister(
+        &self,
+        server: &McpServerDef,
+        name: &str,
+        endpoints: &OAuthEndpoints,
+    ) -> Result<Preregistered, Failure> {
+        preregister_if_needed(
+            &self.layout,
+            &self.manifest,
+            self.provider,
+            server,
+            name,
+            Some(endpoints),
+        )
     }
     fn discover(&self, url: &str) -> Result<OAuthEndpoints, Failure> {
         figma::discover_oauth_endpoints(url)
@@ -127,11 +146,11 @@ impl FlowOps for RealFlowOps {
             resource,
         )
     }
-    fn write(&self, name: &str, entry: &Entry) -> Result<(), Failure> {
-        opencode_auth::write_entry(name, entry)
+    fn write(&self, name: &str, credential: &Credential<'_>) -> Result<(), Failure> {
+        crate::providers::install_credentials(self.provider, name, credential).map(|_| ())
     }
-    fn verify(&self, name: &str) -> Result<bool, Failure> {
-        opencode_auth::has_tokens(name)
+    fn verify(&self, name: &str, server_url: Option<&str>) -> Result<bool, Failure> {
+        Ok(crate::providers::verify_authenticated(self.provider, name, server_url).is_ok())
     }
 }
 
@@ -142,10 +161,9 @@ pub(super) fn run_internal_flow(
     manifest: &Manifest,
     server: &McpServerDef,
     materialised_name: &str,
+    provider: crate::domain::provider::Provider,
 ) -> ProviderRun {
-    let provider = crate::domain::provider::Provider::OpenCode;
-
-    match run_internal_flow_inner(layout, manifest, server, materialised_name) {
+    match run_internal_flow_inner(layout, manifest, server, materialised_name, provider) {
         Ok(run) => run,
         Err(failure) => ProviderRun {
             provider,
@@ -163,11 +181,12 @@ pub(super) fn run_internal_flow_inner(
     manifest: &Manifest,
     server: &McpServerDef,
     materialised_name: &str,
+    provider: crate::domain::provider::Provider,
 ) -> Result<ProviderRun, Failure> {
     let ops = RealFlowOps {
         layout: layout.clone(),
         manifest: manifest.clone(),
-        provider: crate::domain::provider::Provider::OpenCode,
+        provider,
     };
     run_internal_flow_pipeline(&ops, server, materialised_name)
 }
@@ -177,15 +196,24 @@ pub(super) fn run_internal_flow_pipeline(
     server: &McpServerDef,
     materialised_name: &str,
 ) -> Result<ProviderRun, Failure> {
-    let provider = crate::domain::provider::Provider::OpenCode;
+    let provider = ops.provider();
 
     // Step 1: Conflict check
     if ops.check_conflict(materialised_name)? {
         return Err(conflict_failure(materialised_name));
     }
 
-    // Step 2: Pre-register
-    let preregistered = ops.preregister(server, materialised_name)?;
+    // Step 2: Discover endpoints
+    let server_url = server.url.as_deref().ok_or_else(|| {
+        Failure::blocked(
+            "figma_oauth.no_server_url",
+            "internal OAuth flow requires a server URL for endpoint discovery",
+        )
+    })?;
+    let endpoints = ops.discover(server_url)?;
+
+    // Step 3: Pre-register
+    let preregistered = ops.preregister(server, materialised_name, &endpoints)?;
     let preregistration = preregistered.report.clone();
 
     // Extract client_id and secret
@@ -205,17 +233,6 @@ pub(super) fn run_internal_flow_pipeline(
             )
         })?)
     };
-
-    // Step 3: Discover endpoints
-    let server_url = server.url.as_deref().ok_or_else(|| {
-        Failure::blocked(
-            "figma_oauth.no_server_url",
-            "internal OAuth flow requires a server URL for endpoint discovery",
-        )
-    })?;
-    let endpoints = ops.discover(server_url)?;
-
-    // Step 4: PKCE + state
     let (verifier, challenge) = oauth::pkce_pair();
     let state = oauth::state();
 
@@ -253,19 +270,16 @@ pub(super) fn run_internal_flow_pipeline(
     )?;
 
     // Step 9: Persist
-    let entry = Entry {
-        server_url: server_url.to_owned(),
-        client_info: ClientInfo {
-            client_id,
-            client_secret,
-            client_secret_expires_at: None,
-        },
-        tokens,
+    let credential = Credential {
+        server_url,
+        client_id: &client_id,
+        client_secret: client_secret.as_deref(),
+        tokens: &tokens,
     };
-    ops.write(materialised_name, &entry)?;
+    ops.write(materialised_name, &credential)?;
 
     // Step 10: Verify
-    if !ops.verify(materialised_name)? {
+    if !ops.verify(materialised_name, Some(server_url))? {
         return Err(Failure::failed(
             "figma_oauth.verify_failed",
             "token exchange succeeded but has_tokens returned false after write",

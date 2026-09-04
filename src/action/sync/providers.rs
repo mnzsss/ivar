@@ -27,7 +27,7 @@ pub(crate) fn sync_providers(
     for provider in Provider::ALL {
         sync_mcp(layout, manifest, provider, entries, warnings);
         sync_settings(layout, manifest, provider, entries, warnings);
-        sync_plugin(layout, manifest, provider, entries, warnings);
+        sync_artifacts(layout, manifest, provider, entries, warnings);
         sync_commands(layout, manifest, provider, entries, warnings);
     }
 }
@@ -75,11 +75,24 @@ fn reconcile_instructions(
     layout: &Layout,
     manifest: &Manifest,
 ) -> Result<Vec<instructions::Entry>, instructions::Error> {
-    let aliases = Provider::ALL.map(|provider| instructions::Alias {
-        provider,
-        path: layout.instruction_alias(&provider),
-        enabled: manifest.providers().available().contains(&provider),
-    });
+    let mut aliases: Vec<instructions::Alias> = Vec::new();
+    for provider in Provider::ALL {
+        let path = layout.instruction_alias(&provider);
+        let enabled = manifest.providers().available().contains(&provider);
+        match aliases.iter_mut().find(|alias| alias.path == path) {
+            Some(existing) => {
+                if !existing.owners.contains(&provider) {
+                    existing.owners.push(provider);
+                }
+                existing.enabled |= enabled;
+            }
+            None => aliases.push(instructions::Alias {
+                path,
+                owners: vec![provider],
+                enabled,
+            }),
+        }
+    }
     let block = config::build_block(manifest.name(), &repo_names(manifest));
     instructions::reconcile(&layout.hall_instructions(), &block, &aliases)
 }
@@ -115,12 +128,18 @@ fn record_instruction_entry(
 /// file belongs to `hall`; an alias belongs to its provider.
 fn instruction_surface_label(entry: &instructions::Entry) -> (String, String) {
     let name = entry.path.file_name().unwrap_or("instructions").to_owned();
-    let provider = Provider::ALL
-        .iter()
-        .find(|provider| provider.instruction_file() == name);
-    match provider {
-        Some(provider) => (provider.id().to_owned(), format!("{name} alias")),
-        None => ("hall".to_owned(), name),
+    let owners: Vec<Provider> = Provider::ALL
+        .into_iter()
+        .filter(|provider| provider.instruction_file() == name)
+        .collect();
+
+    match owners.as_slice() {
+        [] => ("hall".to_owned(), name),
+        [single] => (single.id().to_owned(), format!("{name} alias")),
+        // Several providers own one physical file: attributing it to the
+        // first one would be arbitrary and would change meaning as the enum
+        // grows. The surface is the provider layer itself.
+        _ => ("providers".to_owned(), format!("{name} alias")),
     }
 }
 
@@ -189,31 +208,31 @@ pub(crate) fn sync_settings(
     }
 }
 
-/// Materialise or remove the provider's plugin file. Only OpenCode has a
-/// plugin system today; other providers skip this step.
-pub(crate) fn sync_plugin(
+/// Materialise or remove managed provider artifacts (hooks, plugins).
+pub(crate) fn sync_artifacts(
     layout: &Layout,
     manifest: &Manifest,
     provider: Provider,
     entries: &mut Vec<Entry>,
     warnings: &mut Vec<Warning>,
 ) {
-    let Some(plugins_dir) = layout.plugins_dir(&provider) else {
-        return;
-    };
+    let is_listed = manifest.providers().available().contains(&provider);
+    let artifacts = crate::providers::managed_artifacts(provider);
 
-    let path = plugins_dir.join("ivar.js");
-    let label = format!("{} ivar.js plugin", provider.config_dir());
+    for artifact in artifacts {
+        let path = layout.root().join(&artifact.relative_path);
+        let label = format!("{} managed artifact", artifact.relative_path);
 
-    let result = if manifest.providers().available().contains(&provider) {
-        config::materialise_plugin(&path)
-    } else {
-        config::remove_plugin(&path)
-    };
+        let result = if is_listed {
+            config::artifact::reconcile_managed_artifact(&path, artifact.contents)
+        } else {
+            config::artifact::remove_managed_artifact(&path)
+        };
 
-    match result {
-        Ok(change) => entries.push(Entry::new(provider.id(), label, change.into())),
-        Err(error) => record_failure(entries, warnings, provider.id(), &label, error.into()),
+        match result {
+            Ok(change) => entries.push(Entry::new(provider.id(), label, change.into())),
+            Err(error) => record_failure(entries, warnings, provider.id(), &label, error.into()),
+        }
     }
 }
 
@@ -225,12 +244,18 @@ pub(crate) fn sync_commands(
     warnings: &mut Vec<Warning>,
 ) {
     let path = layout.commands_dir(&provider);
-    let result = if manifest.providers().available().contains(&provider) {
-        commands::materialise(&path)
+    let enabled = manifest.providers().available().contains(&provider);
+    let result = if enabled {
+        let res = commands::materialise(&path);
+        let catalog = commands::catalog();
+        let names: Vec<String> = catalog.iter().map(|c| c.file_name()).collect();
+        let name_refs: Vec<&str> = names.iter().map(|s| s.as_str()).collect();
+        crate::providers::bridge_sync_commands(provider, &path, &name_refs, warnings);
+        res
     } else {
+        crate::providers::bridge_remove_commands(provider, &path, warnings);
         commands::remove(&path)
     };
-
     match result {
         Ok(changes) => {
             for change in changes {
@@ -252,17 +277,19 @@ pub(crate) fn sync_commands(
         }
     }
 }
-
 pub(crate) fn materialise_commands(layout: &Layout, provider: Provider) -> Option<Warning> {
-    commands::materialise(&layout.commands_dir(&provider))
-        .err()
-        .map(|error| {
-            Warning::new(
-                "provider.commands_not_materialised",
-                provider.id(),
-                format!(
-                    "official commands could not be written: {error}; run `ivar sync` to repair"
-                ),
-            )
-        })
+    let mut warnings = Vec::new();
+    let path = layout.commands_dir(&provider);
+    if let Err(error) = commands::materialise(&path) {
+        warnings.push(Warning::new(
+            "provider.commands_not_materialised",
+            provider.id(),
+            format!("official commands could not be written: {error}; run `ivar sync` to repair"),
+        ));
+    }
+    let catalog = commands::catalog();
+    let names: Vec<String> = catalog.iter().map(|c| c.file_name()).collect();
+    let name_refs: Vec<&str> = names.iter().map(|s| s.as_str()).collect();
+    crate::providers::bridge_sync_commands(provider, &path, &name_refs, &mut warnings);
+    warnings.into_iter().next()
 }

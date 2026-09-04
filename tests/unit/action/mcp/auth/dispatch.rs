@@ -6,19 +6,19 @@ use super::*;
 
 #[test]
 fn auth_command_is_claude_mcp_login_for_claude_code() {
-    let command = auth_command(Harness::ClaudeCode, "acme-figma", None);
+    let command = auth_command(Provider::ClaudeCode, ["mcp", "login"], "acme-figma", None);
     assert_eq!(command.display(), "claude mcp login acme-figma");
 }
 
 #[test]
 fn auth_command_is_opencode_mcp_auth_for_opencode() {
-    let command = auth_command(Harness::OpenCode, "acme-figma", None);
+    let command = auth_command(Provider::OpenCode, ["mcp", "auth"], "acme-figma", None);
     assert_eq!(command.display(), "opencode mcp auth acme-figma");
 }
 
 #[test]
 fn auth_command_carries_no_env_override_without_a_fresh_secret() {
-    let command = auth_command(Harness::OpenCode, "acme-figma", None);
+    let command = auth_command(Provider::OpenCode, ["mcp", "auth"], "acme-figma", None);
     assert!(command.envs().is_empty());
 }
 
@@ -33,8 +33,12 @@ fn auth_command_puts_a_fresh_registrations_secret_into_the_childs_environment() 
         "top-secret".to_owned(),
     );
 
-    let command = auth_command(Harness::OpenCode, "acme-figma", Some(&fresh));
-
+    let command = auth_command(
+        Provider::OpenCode,
+        ["mcp", "auth"],
+        "acme-figma",
+        Some(&fresh),
+    );
     assert_eq!(
         command.envs(),
         &[(
@@ -44,6 +48,53 @@ fn auth_command_puts_a_fresh_registrations_secret_into_the_childs_environment() 
     );
     // The secret must never show up in the human-readable command line.
     assert!(!command.display().contains("top-secret"));
+}
+
+/// `omp` has no `mcp` subcommand at all (measured against omp/18.1.8; its
+/// credential surface is `omp auth-broker`). The refusal has to name that,
+/// not launch: an operator reading "launch is not yet configured" after
+/// running `ivar mcp auth` would go looking in the wrong place.
+#[test]
+fn a_provider_without_an_mcp_login_command_has_no_subcommand_to_dispatch() {
+    assert_eq!(crate::providers::login_subcommand(Provider::Omp), None);
+    assert_eq!(
+        crate::providers::login_subcommand(Provider::ClaudeCode),
+        Some(["mcp", "login"])
+    );
+    assert_eq!(
+        crate::providers::login_subcommand(Provider::OpenCode),
+        Some(["mcp", "auth"])
+    );
+}
+
+#[test]
+fn provider_is_internal_flow_accepts_omp_on_figma_host() {
+    let figma_server = McpServerDef::new("figma", "sse").url("https://mcp.figma.com/mcp");
+    assert!(provider_is_internal_flow(Provider::OpenCode, &figma_server));
+    assert!(provider_is_internal_flow(Provider::Omp, &figma_server));
+    assert!(!provider_is_internal_flow(
+        Provider::ClaudeCode,
+        &figma_server
+    ));
+
+    let other_server = McpServerDef::new("linear", "sse").url("https://mcp.linear.app/mcp");
+    assert!(!provider_is_internal_flow(
+        Provider::OpenCode,
+        &other_server
+    ));
+    assert!(!provider_is_internal_flow(Provider::Omp, &other_server));
+    assert!(!provider_is_internal_flow(
+        Provider::ClaudeCode,
+        &other_server
+    ));
+}
+
+#[test]
+fn a_non_figma_omp_server_refuses_with_the_no_mcp_command_diagnostic() {
+    let linear_server = McpServerDef::new("linear", "sse").url("https://mcp.linear.app/mcp");
+    let result = crate::providers::login_subcommand(Provider::Omp);
+    assert_eq!(result, None);
+    assert!(!provider_is_internal_flow(Provider::Omp, &linear_server));
 }
 
 // -- login_failed -----------------------------------------------------------

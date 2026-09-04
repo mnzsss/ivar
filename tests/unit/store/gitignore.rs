@@ -22,8 +22,8 @@ fn an_absent_gitignore_is_created_with_exactly_the_halls_lines() {
     assert_eq!(
         read(&layout),
         ".ivar/*\n!.ivar/skills/\n!.ivar/setups/\n\
-             .claude/commands/ivar-*.md\n.opencode/commands/ivar-*.md\n\
-             .claude/skills/\n.opencode/skills/\n"
+             .claude/commands/ivar-*.md\n.opencode/commands/ivar-*.md\n.omp/commands/ivar-*.md\n\
+             .claude/skills/\n.opencode/skills/\n.omp/skills/\n"
     );
 }
 

@@ -15,7 +15,7 @@ fn write_skill(root: &camino::Utf8Path, id: &str, description: &str) {
 }
 
 #[test]
-fn sync_materializes_to_claude_and_opencode_targets() {
+fn sync_materializes_to_claude_opencode_and_omp_targets() {
     let (_guard, root) = seeded_hall();
     write_skill(&root, "audit", "Review a codebase");
     let ctx = Ctx::new(root.clone());
@@ -26,8 +26,10 @@ fn sync_materializes_to_claude_and_opencode_targets() {
     // Check that targets were created.
     let claude_target = root.join(".claude").join("skills").join("audit");
     let opencode_target = root.join(".opencode").join("skills").join("audit");
+    let omp_target = root.join(".omp").join("skills").join("audit");
     assert!(fs::exists(&claude_target).unwrap());
     assert!(fs::exists(&opencode_target).unwrap());
+    assert!(fs::exists(&omp_target).unwrap());
 }
 
 #[test]
@@ -38,7 +40,7 @@ fn running_sync_twice_changes_nothing() {
 
     // First run: creates targets.
     let r1 = sync(&ctx).unwrap();
-    assert_eq!(r1.value.steps, 2); // Claude + OpenCode
+    assert_eq!(r1.value.steps, 3); // Claude + OpenCode + Omp
 
     // Second run: no steps because everything matches.
     let r2 = sync(&ctx).unwrap();
@@ -76,7 +78,7 @@ fn sync_is_idempotent_with_multiple_skills() {
     let ctx = Ctx::new(root.clone());
 
     let r1 = sync(&ctx).unwrap();
-    assert_eq!(r1.value.steps, 6); // 3 skills x 2 targets
+    assert_eq!(r1.value.steps, 9); // 3 skills x 3 targets
 
     let r2 = sync(&ctx).unwrap();
     assert_eq!(r2.value.steps, 0);

@@ -44,7 +44,7 @@ fn write_then_read_round_trips_and_writes_canonical_bytes() {
     Manifest::write(&layout, &manifest).unwrap();
 
     let expected = json::to_canonical_string(&serde_json::json!({
-        "version": 3,
+        "version": 4,
         "name": "acme",
         "integration": { "strategy": "squash", "via": "local" },
         "providers": { "available": ["claude-code", "opencode"], "default": "claude-code" },
@@ -174,7 +174,7 @@ fn version_newer_than_current_is_refused_and_the_file_is_untouched() {
     match &error {
         Error::Store(versioned::Error::TooNew { found, highest, .. }) => {
             assert_eq!(*found, 99);
-            assert_eq!(*highest, 3);
+            assert_eq!(*highest, 4);
         }
         other => panic!("expected TooNew, got {other:?}"),
     }
@@ -238,6 +238,12 @@ fn v2_manifest_bytes() -> &'static str {
     r#"{"version":2,"name":"acme","integration":{"strategy":"squash","via":"local"},"providers":{"available":["claude-code","opencode"],"default":"claude-code"},"repos":[{"name":"api","url":"git@github.com:acme/api.git","default_branch":"main","checks":[]}]}"#
 }
 
+/// The exact v3 shape ivar wrote before the v4 bump: `oauth` present on an MCP server
+/// with `client_id` and `client_secret_env` but no `token_url` or `resource`.
+fn v3_manifest_bytes() -> &'static str {
+    r#"{"version":3,"name":"acme","integration":{"strategy":"squash","via":"local"},"providers":{"available":["claude-code","opencode"],"default":"claude-code"},"repos":[{"name":"api","url":"git@github.com:acme/api.git","default_branch":"main","checks":[]}],"mcp":[{"name":"figma","type":"sse","url":"https://mcp.figma.com/mcp","oauth":{"client_id":"client-123","client_secret_env":"IVAR_MCP_ACME_FIGMA_SECRET"}}]}"#
+}
+
 #[test]
 fn a_v1_manifest_reads_in_memory_as_current_without_rewriting_the_file() {
     let (_dir, root) = utf8_temp_dir();
@@ -247,7 +253,7 @@ fn a_v1_manifest_reads_in_memory_as_current_without_rewriting_the_file() {
 
     let manifest = Manifest::read(&layout).unwrap().unwrap();
 
-    assert_eq!(manifest.version(), 3);
+    assert_eq!(manifest.version(), 4);
     assert_eq!(
         manifest.integration(),
         crate::domain::feature::IntegrationPolicy::default()
@@ -275,7 +281,7 @@ fn a_v2_manifest_reads_in_memory_as_current_without_rewriting_the_file() {
 
     let manifest = Manifest::read(&layout).unwrap().unwrap();
 
-    assert_eq!(manifest.version(), 3);
+    assert_eq!(manifest.version(), 4);
     assert_eq!(manifest.repos().len(), 1);
     assert!(manifest.mcp_servers().is_empty());
 
@@ -294,11 +300,11 @@ fn migration_plan_available_for_v1_and_v2_and_unreachable_for_v0() {
 
     fs::write_text(&layout.manifest(), v1_manifest_bytes()).unwrap();
     let plan = Manifest::plan(&layout).unwrap().unwrap();
-    assert_eq!(plan, MigrationPlan::Available { from: 1, to: 3 });
+    assert_eq!(plan, MigrationPlan::Available { from: 1, to: 4 });
 
     fs::write_text(&layout.manifest(), v2_manifest_bytes()).unwrap();
     let plan = Manifest::plan(&layout).unwrap().unwrap();
-    assert_eq!(plan, MigrationPlan::Available { from: 2, to: 3 });
+    assert_eq!(plan, MigrationPlan::Available { from: 2, to: 4 });
 
     fs::write_text(
         &layout.manifest(),
@@ -306,7 +312,7 @@ fn migration_plan_available_for_v1_and_v2_and_unreachable_for_v0() {
     )
     .unwrap();
     let plan = Manifest::plan(&layout).unwrap().unwrap();
-    assert_eq!(plan, MigrationPlan::Unreachable { from: 0, to: 3 });
+    assert_eq!(plan, MigrationPlan::Unreachable { from: 0, to: 4 });
 }
 
 #[test]
@@ -326,12 +332,12 @@ fn a_plain_write_refuses_a_v1_file_and_explicit_migrate_writes_canonical_current
     // The explicit migrate advances the committed file to canonical v3,
     // stepping through v2 on the way.
     let migrated = Manifest::migrate(&layout).unwrap().unwrap();
-    assert_eq!(migrated.version(), 3);
+    assert_eq!(migrated.version(), 4);
     assert_eq!(migrated.repos().len(), 2);
 
     let on_disk = fs::read_text(&layout.manifest()).unwrap().unwrap();
     let expected = json::to_canonical_string(&serde_json::json!({
-        "version": 3,
+        "version": 4,
         "name": "acme",
         "integration": { "strategy": "squash", "via": "local" },
         "providers": { "available": ["claude-code", "opencode"], "default": "claude-code" },
@@ -361,12 +367,12 @@ fn a_plain_write_refuses_a_v2_file_and_explicit_migrate_writes_canonical_current
     // advance the stamped version, and this hall's own repo (with no `mcp`
     // array at all) proves that round-trips exactly as it did before.
     let migrated = Manifest::migrate(&layout).unwrap().unwrap();
-    assert_eq!(migrated.version(), 3);
+    assert_eq!(migrated.version(), 4);
     assert!(migrated.mcp_servers().is_empty());
 
     let on_disk = fs::read_text(&layout.manifest()).unwrap().unwrap();
     let expected = json::to_canonical_string(&serde_json::json!({
-        "version": 3,
+        "version": 4,
         "name": "acme",
         "integration": { "strategy": "squash", "via": "local" },
         "providers": { "available": ["claude-code", "opencode"], "default": "claude-code" },
@@ -376,4 +382,64 @@ fn a_plain_write_refuses_a_v2_file_and_explicit_migrate_writes_canonical_current
     }))
     .unwrap();
     assert_eq!(on_disk, expected);
+}
+
+#[test]
+fn a_v3_manifest_with_oauth_migrates_to_v4_with_fields_intact_and_no_fabricated_token_url() {
+    let (_dir, root) = utf8_temp_dir();
+    let layout = Layout::at(root);
+    let original = v3_manifest_bytes();
+    fs::write_text(&layout.manifest(), original).unwrap();
+
+    let error = Manifest::write(&layout, &sample_manifest()).unwrap_err();
+    assert!(matches!(
+        error,
+        Error::Store(versioned::Error::CommittedRefusesImplicitUpgrade { .. })
+    ));
+
+    let migrated = Manifest::migrate(&layout).unwrap().unwrap();
+    assert_eq!(migrated.version(), 4);
+    let servers = migrated.mcp_servers();
+    assert_eq!(servers.len(), 1);
+    let server = &servers[0];
+    assert_eq!(server.name, "figma");
+    let oauth = server.oauth.as_ref().expect("oauth must remain present");
+    assert_eq!(oauth.client_id, "client-123");
+    assert_eq!(oauth.client_secret_env, "IVAR_MCP_ACME_FIGMA_SECRET");
+    assert_eq!(oauth.token_url, None);
+    assert_eq!(oauth.resource, None);
+
+    let on_disk = fs::read_text(&layout.manifest()).unwrap().unwrap();
+    let expected = json::to_canonical_string(&serde_json::json!({
+        "version": 4,
+        "name": "acme",
+        "integration": { "strategy": "squash", "via": "local" },
+        "providers": { "available": ["claude-code", "opencode"], "default": "claude-code" },
+        "repos": [
+            { "name": "api", "url": "git@github.com:acme/api.git", "default_branch": "main" }
+        ],
+        "mcp": [
+            {
+                "name": "figma",
+                "type": "sse",
+                "url": "https://mcp.figma.com/mcp",
+                "oauth": {
+                    "client_id": "client-123",
+                    "client_secret_env": "IVAR_MCP_ACME_FIGMA_SECRET"
+                }
+            }
+        ]
+    }))
+    .unwrap();
+    assert_eq!(on_disk, expected);
+}
+
+#[test]
+fn migration_plan_reports_available_from_v3_to_v4() {
+    let (_dir, root) = utf8_temp_dir();
+    let layout = Layout::at(root);
+
+    fs::write_text(&layout.manifest(), v3_manifest_bytes()).unwrap();
+    let plan = Manifest::plan(&layout).unwrap().unwrap();
+    assert_eq!(plan, MigrationPlan::Available { from: 3, to: 4 });
 }

@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- *(providers)* Add OMP (Oh My Pi) harness provider support with native commands, skills, `mcp.json` auth lifecycle rendering, pre-tool guard hooks, and profile-scoped OAuth broker integration ([#65](https://github.com/mnzsss/ivar/pull/65))
+- *(architecture)* Provider-first facade boundary in `src/providers` unifying launch contracts, MCP configs, managed artifacts, guard outcomes, and credential adapters across Claude Code, OpenCode, and OMP
+- *(sync)* Shared multi-provider instruction reconciliation with joint `AGENTS.md` ownership between OpenCode and OMP
+
 ## [0.8.0](https://github.com/mnzsss/ivar/compare/v0.7.0...v0.8.0) - 2026-08-31
 
 ### Added

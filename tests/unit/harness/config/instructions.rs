@@ -18,8 +18,8 @@ fn repo(name: &str) -> RepoName {
 
 fn alias(provider: Provider, path: Utf8PathBuf, enabled: bool) -> Alias {
     Alias {
-        provider,
         path,
+        owners: vec![provider],
         enabled,
     }
 }
@@ -558,6 +558,117 @@ fn no_reconcile_result_removes_or_rewrites_hall() {
         assert!(fs::is_file(&canonical).unwrap());
         assert_eq!(fs::read_bytes(&canonical).unwrap().unwrap(), before);
     }
+}
+
+#[test]
+fn shared_instruction_surface_matrix_opencode_and_omp() {
+    let (_guard, root) = utf8_temp_dir();
+    let canonical = root.join("HALL.md");
+    let block = build_block(&hall(), &[]);
+    reconcile(&canonical, &block, &[]).unwrap();
+    let agents_path = root.join("AGENTS.md");
+
+    // State 1: Both OpenCode and OMP enabled -> AGENTS.md created once as symlink to HALL.md
+    let entries = reconcile(
+        &canonical,
+        &block,
+        &[Alias {
+            path: agents_path.clone(),
+            owners: vec![Provider::OpenCode, Provider::Omp],
+            enabled: true,
+        }],
+    )
+    .unwrap();
+
+    assert_eq!(entries.len(), 2); // HALL.md (Unchanged) + AGENTS.md (Created)
+    let agents_entry = entries.iter().find(|e| e.path == agents_path).unwrap();
+    assert_eq!(agents_entry.change, Change::Created);
+    assert_eq!(
+        fs::read_symlink(&agents_path).unwrap(),
+        fs::SymlinkTarget::Target(Utf8PathBuf::from(CANONICAL_FILE))
+    );
+
+    // State 2: OpenCode disabled, OMP enabled -> AGENTS.md preserved as Unchanged
+    let entries = reconcile(
+        &canonical,
+        &block,
+        &[Alias {
+            path: agents_path.clone(),
+            owners: vec![Provider::OpenCode, Provider::Omp],
+            enabled: true, // any owner enabled means alias is enabled
+        }],
+    )
+    .unwrap();
+    let agents_entry = entries.iter().find(|e| e.path == agents_path).unwrap();
+    assert_eq!(agents_entry.change, Change::Unchanged);
+    assert_eq!(
+        fs::read_symlink(&agents_path).unwrap(),
+        fs::SymlinkTarget::Target(Utf8PathBuf::from(CANONICAL_FILE))
+    );
+
+    // State 3: OpenCode enabled, OMP disabled -> AGENTS.md preserved as Unchanged
+    let entries = reconcile(
+        &canonical,
+        &block,
+        &[Alias {
+            path: agents_path.clone(),
+            owners: vec![Provider::OpenCode, Provider::Omp],
+            enabled: true,
+        }],
+    )
+    .unwrap();
+    let agents_entry = entries.iter().find(|e| e.path == agents_path).unwrap();
+    assert_eq!(agents_entry.change, Change::Unchanged);
+    assert_eq!(
+        fs::read_symlink(&agents_path).unwrap(),
+        fs::SymlinkTarget::Target(Utf8PathBuf::from(CANONICAL_FILE))
+    );
+    // State 4: Neither enabled -> AGENTS.md removed
+    let entries = reconcile(
+        &canonical,
+        &block,
+        &[Alias {
+            path: agents_path.clone(),
+            owners: vec![Provider::OpenCode, Provider::Omp],
+            enabled: false,
+        }],
+    )
+    .unwrap();
+    let agents_entry = entries.iter().find(|e| e.path == agents_path).unwrap();
+    assert_eq!(agents_entry.change, Change::Removed);
+    assert!(!fs::exists(&agents_path).unwrap());
+}
+
+#[test]
+fn shared_instruction_surface_user_content_outside_managed_block_is_preserved_on_conflict() {
+    let (_guard, root) = utf8_temp_dir();
+    let canonical = root.join("HALL.md");
+    let block = build_block(&hall(), &[]);
+    reconcile(&canonical, &block, &[]).unwrap();
+    let agents_path = root.join("AGENTS.md");
+
+    // User created regular file at AGENTS.md
+    let user_content = "# Custom Team Rules\nDo not break production.\n";
+    fs::write_text(&agents_path, user_content).unwrap();
+
+    let entries = reconcile(
+        &canonical,
+        &block,
+        &[Alias {
+            path: agents_path.clone(),
+            owners: vec![Provider::OpenCode, Provider::Omp],
+            enabled: true,
+        }],
+    )
+    .unwrap();
+
+    let agents_entry = entries.iter().find(|e| e.path == agents_path).unwrap();
+    assert_eq!(agents_entry.change, Change::Conflict);
+    assert_eq!(
+        fs::read_text(&agents_path).unwrap().unwrap(),
+        user_content,
+        "User content in regular file must be preserved byte-for-byte on conflict"
+    );
 }
 
 // -- inspect --------------------------------------------------------------

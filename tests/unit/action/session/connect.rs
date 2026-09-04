@@ -11,7 +11,8 @@ use crate::action::feature::promote::{self as feature_promote, PromoteInput};
 use crate::action::hall::{self, InitInput};
 use crate::action::plan::create::{self as plan_create, CreateInput as PlanCreateInput};
 use crate::action::session::start::{self as session_start, StartInput};
-use crate::domain::name::{BranchName, HallName, RepoName};
+use crate::domain::feature::Feature;
+use crate::domain::name::{BranchName, FeatureName, HallName, RepoName, SessionId};
 use crate::domain::provider::Provider;
 use crate::infra::fs;
 use crate::store::layout::Layout;
@@ -607,4 +608,59 @@ fn connect_with_create_starts_a_session_then_reattaches_to_it() {
         "a free session must be reused, never duplicated"
     );
     unguard_worktrees(&root);
+}
+
+#[test]
+fn omp_session_reconnect_repairs_deleted_projections() {
+    let (_guard, root) = hall_with_detached_session();
+    let _ctx = Ctx::new(root.clone());
+    let layout = Layout::at(root.clone());
+    let manifest = Manifest::read(&layout).unwrap().unwrap();
+    let feature = Feature::read(&layout, &FeatureName::new("checkout").unwrap())
+        .unwrap()
+        .unwrap();
+    let session_id = SessionId::new(uuid::Uuid::new_v4().to_string()).unwrap();
+    let view_dir = layout.feature_session(&FeatureName::new("checkout").unwrap(), &session_id);
+
+    let hall_omp_commands = layout.commands_dir(&Provider::Omp);
+    crate::harness::commands::materialise(&hall_omp_commands).unwrap();
+
+    crate::action::session::view::materialise(
+        &layout,
+        &manifest,
+        Some(&feature),
+        Provider::Omp,
+        &view_dir,
+    )
+    .unwrap();
+
+    let commands_link = view_dir.join(".omp/commands");
+    assert_eq!(
+        crate::infra::fs::read_symlink(&commands_link).unwrap(),
+        crate::infra::fs::SymlinkTarget::Target(hall_omp_commands.clone()),
+    );
+
+    // Simulate drift: delete the projected symlink
+    crate::infra::fs::remove_path(&commands_link).unwrap();
+    assert_eq!(
+        crate::infra::fs::read_symlink(&commands_link).unwrap(),
+        crate::infra::fs::SymlinkTarget::Absent,
+    );
+
+    // Reconnect/re-materialise view dir
+    crate::action::session::view::materialise(
+        &layout,
+        &manifest,
+        Some(&feature),
+        Provider::Omp,
+        &view_dir,
+    )
+    .unwrap();
+
+    // Projections must be repaired
+    assert_eq!(
+        crate::infra::fs::read_symlink(&commands_link).unwrap(),
+        crate::infra::fs::SymlinkTarget::Target(hall_omp_commands),
+        "reconnect must restore a deleted projection"
+    );
 }

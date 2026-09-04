@@ -140,19 +140,25 @@ pub(crate) fn materialise(
     }
 
     // The harness config dir — `.claude/` for claude-code, `.opencode/` for
-    // opencode — is a real directory inside the view dir, never a symlink to
-    // the hall's own (see the module doc for why). Only `commands/` is
-    // symlinked back in, so the hall's shipped `/ivar-*` commands reach the
-    // agent. It follows the session's provider, not the hall's default — a
-    // relay must materialise the config of the provider it relays to.
+    // opencode, `.omp/` for omp — is a real directory inside the view dir, never
+    // a symlink to the hall's own (see the module doc for why). Surfaces
+    // declared by the provider (commands, plus hooks for OMP) are symlinked
+    // back in, so the hall's catalog and hooks reach the agent. It follows
+    // the session's provider, not the hall's default — a relay must
+    // materialise the config of the provider it relays to.
     let config_dir = view_dir.join(provider.config_dir());
     fs::ensure_dir(&config_dir)?;
-    let hall_commands = layout.commands_dir(&provider);
-    if fs::is_dir(&hall_commands)? {
-        let commands_link = config_dir.join("commands");
-        fs::replace_symlink_if_changed(&hall_commands, &commands_link)?;
-    }
 
+    for projection in crate::providers::session_projections(provider) {
+        let hall_source = layout.root().join(&projection.hall_source);
+        if fs::is_dir(&hall_source)? {
+            let dest_link = config_dir.join(&projection.config_relative_dest);
+            if let Some(parent) = dest_link.parent() {
+                fs::ensure_dir(parent)?;
+            }
+            fs::replace_symlink_if_changed(&hall_source, &dest_link)?;
+        }
+    }
     // Feature sessions: project the active plan and link the committed
     // memory dir. Discovery sessions get neither — no feature means no
     // name, and both paths are keyed by name. Both kinds get the

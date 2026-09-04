@@ -48,8 +48,8 @@ use crate::domain::provider::Provider;
 use crate::domain::session::{SessionState, rfc3339_now};
 use crate::error::{Failure, FixAction, Outcome, Report, Warning, WriteHuman};
 use crate::git;
-use crate::harness::{self, Harness};
 use crate::infra::fs;
+use crate::providers;
 use crate::store::layout::Layout;
 use crate::store::manifest::Manifest;
 use crate::tui;
@@ -137,9 +137,11 @@ pub fn start(ctx: &Ctx, input: StartInput) -> Outcome<StartOutcome> {
     }
 
     let provider = resolve_provider(&manifest, input.provider.as_deref())?;
-    let harness = Harness::for_provider(provider)?;
     if input.resume {
-        harness::check_resume_supported(harness)?;
+        let contract = providers::launch_contract(provider);
+        if !contract.capabilities.supports_resume {
+            providers::start_command(provider, true)?;
+        }
     }
     if input.relay {
         let feature = feature.as_ref().ok_or_else(relay_needs_feature)?;
@@ -215,7 +217,7 @@ pub fn start(ctx: &Ctx, input: StartInput) -> Outcome<StartOutcome> {
             provider,
             feature.as_ref().map(|f| &f.name),
         );
-        let command = env.apply(harness.start_command(input.resume));
+        let command = env.apply(crate::providers::start_command(provider, input.resume)?);
         let command =
             crate::action::mcp::inject_session_mcp_secrets(command, &layout, &manifest, provider);
         let width = crate::infra::term::width();

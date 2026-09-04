@@ -83,7 +83,7 @@
 //! name that does not exist, and measured while it printed `Authentication
 //! failed` to the terminal — while `claude mcp login` does exit non-zero on
 //! failure (also measured). [`verify_authenticated`] is the fix: after a
-//! zero exit, it checks the thing itself — [`opencode_auth::has_tokens`] for
+//! zero exit, it checks the thing itself — [`providers::verify_authenticated`] for
 //! OpenCode, a no-op for Claude Code, where the exit status already checked
 //! by [`attempt`] is reliable. `authenticated: true` now means that check
 //! passed, not merely that the child returned.
@@ -107,8 +107,8 @@
 //!
 //! # Rejected: OpenCode's own `mcp-auth.json` as the idempotency check
 //!
-//! An earlier version checked `harness::opencode_auth::client_for` — did
-//! OpenCode's own credential store already have a usable client — before
+//! An earlier version checked OpenCode's own credential store — did
+//! it already have a usable client — before
 //! registering. Measured on 2026-08-26: `opencode mcp auth` never reads that
 //! store; it resolves its OAuth client from `opencode.json` only. A check
 //! against a file the command never consults cannot protect anything, so

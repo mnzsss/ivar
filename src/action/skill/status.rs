@@ -89,10 +89,7 @@ pub fn status(ctx: &Ctx) -> Outcome<Done> {
         };
 
         let mut targets = Vec::new();
-        for target_id in [
-            crate::domain::skill_sync::TargetId::Claude,
-            crate::domain::skill_sync::TargetId::OpenCode,
-        ] {
+        for target_id in crate::domain::skill_sync::TargetId::ALL {
             let target_path = skill::target_path(target_id, skill.id.as_str());
             let expected = skill.dir.join("SKILL.md");
             let current = render::verify_status(&target_path, &expected);

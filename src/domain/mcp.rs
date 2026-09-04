@@ -165,6 +165,12 @@ pub struct McpOauth {
     /// The name of the environment variable that holds the client secret at
     /// runtime.
     pub client_secret_env: String,
+    /// The server's discovered OAuth token endpoint URL, when known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub token_url: Option<String>,
+    /// The server's discovered OAuth resource identifier, when known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resource: Option<String>,
 }
 
 impl McpOauth {
@@ -174,7 +180,23 @@ impl McpOauth {
         Self {
             client_id: client_id.into(),
             client_secret_env: client_secret_env.into(),
+            token_url: None,
+            resource: None,
         }
+    }
+
+    /// Set the OAuth token endpoint URL.
+    #[must_use]
+    pub fn token_url(mut self, url: impl Into<String>) -> Self {
+        self.token_url = Some(url.into());
+        self
+    }
+
+    /// Set the OAuth resource identifier.
+    #[must_use]
+    pub fn resource(mut self, resource: impl Into<String>) -> Self {
+        self.resource = Some(resource.into());
+        self
     }
 }
 

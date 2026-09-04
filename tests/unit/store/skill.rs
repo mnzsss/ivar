@@ -115,6 +115,15 @@ fn state_with_installations_round_trips() {
                         mode: Some(RenderMode::Copy),
                     },
                 );
+                map.insert(
+                    TargetId::Omp,
+                    ProviderEntry {
+                        target_path: Utf8PathBuf::from("/hall/.omp/skills/alpha"),
+                        rendered_hash: "sha256:z".to_owned(),
+                        linked_at: "2026-01-01T00:00:00.000Z".to_owned(),
+                        mode: Some(RenderMode::Symlink),
+                    },
+                );
                 map
             },
         },
@@ -157,4 +166,10 @@ fn target_path_claude() {
 fn target_path_opencode() {
     let path = target_path(TargetId::OpenCode, "my-skill");
     assert_eq!(path.as_str(), ".opencode/skills/my-skill");
+}
+
+#[test]
+fn target_path_omp() {
+    let path = target_path(TargetId::Omp, "my-skill");
+    assert_eq!(path.as_str(), ".omp/skills/my-skill");
 }

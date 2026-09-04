@@ -10,6 +10,7 @@ use crate::domain::mcp::McpServerDef;
 use crate::domain::name::HallName;
 use crate::domain::provider::Provider;
 use crate::infra::fs;
+use crate::infra::http_callback::OAUTH_REDIRECT_URI;
 use crate::test_support::utf8_temp_dir;
 
 /// The neutral fixture hall these tests materialise servers under.

@@ -128,11 +128,24 @@ pub fn doctor(ctx: &Ctx) -> Outcome<DoctorOutcome> {
     // non-current state is one finding — every applicable one in a single
     // run. `ivar sync` repairs the automatic cases; an enabled regular alias
     // is preserved by design, so its fix is the human adoption checklist.
-    let aliases = Provider::ALL.map(|provider| instructions::Alias {
-        provider,
-        path: layout.instruction_alias(&provider),
-        enabled: manifest.providers().available().contains(&provider),
-    });
+    let mut aliases: Vec<instructions::Alias> = Vec::new();
+    for provider in Provider::ALL {
+        let path = layout.instruction_alias(&provider);
+        let enabled = manifest.providers().available().contains(&provider);
+        match aliases.iter_mut().find(|alias| alias.path == path) {
+            Some(existing) => {
+                if !existing.owners.contains(&provider) {
+                    existing.owners.push(provider);
+                }
+                existing.enabled |= enabled;
+            }
+            None => aliases.push(instructions::Alias {
+                path,
+                owners: vec![provider],
+                enabled,
+            }),
+        }
+    }
     let block = build_block(
         manifest.name(),
         &manifest

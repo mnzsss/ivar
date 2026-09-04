@@ -503,7 +503,7 @@ fn a_disabled_providers_alias_entry_is_removed_entirely() {
     let report = sync(&ctx, SyncInput::default()).unwrap();
 
     assert_eq!(
-        entry(&report.value, "opencode", "AGENTS.md alias").change,
+        entry(&report.value, "providers", "AGENTS.md alias").change,
         Change::Removed
     );
     assert!(
@@ -521,7 +521,7 @@ fn a_provider_the_hall_does_not_list_and_never_did_is_unchanged() {
     let report = sync(&ctx, SyncInput::default()).unwrap();
 
     assert_eq!(
-        entry(&report.value, "opencode", "AGENTS.md alias").change,
+        entry(&report.value, "providers", "AGENTS.md alias").change,
         Change::Unchanged
     );
     assert!(!fs::exists(&root.join("AGENTS.md")).unwrap());
@@ -643,16 +643,105 @@ fn sync_writes_declared_servers_into_the_config() {
     assert!(on_disk.contains("\"npx\""), "was: {on_disk}");
 }
 
+#[test]
+fn sync_with_omp_available_writes_every_provider_mcp_document() {
+    let (_guard, root) = hall_with_all_providers();
+    let layout = Layout::at(root.clone());
+    let manifest = Manifest::read(&layout).unwrap().unwrap();
+    let manifest = manifest
+        .with_mcp_servers(vec![McpServerDef::new("docs", "stdio").command("npx")])
+        .unwrap();
+    Manifest::write(&layout, &manifest).unwrap();
+    let ctx = Ctx::new(root.clone());
+
+    let report = sync(&ctx, SyncInput::default()).unwrap();
+
+    assert!(report.is_clean());
+    let on_disk = fs::read_text(&root.join(".mcp.json")).unwrap().unwrap();
+    assert!(on_disk.contains("\"acme-docs\""), "was: {on_disk}");
+
+    let omp_doc = fs::read_text(&root.join("mcp.json")).unwrap().unwrap();
+    assert!(omp_doc.contains("\"acme-docs\""), "was: {omp_doc}");
+    let parsed: serde_json::Value = serde_json::from_str(&omp_doc).unwrap();
+    assert!(
+        parsed.get("mcpServers").is_some(),
+        "OMP's document hangs servers off `mcpServers`: {omp_doc}"
+    );
+}
+
+#[test]
+fn sync_reports_a_malformed_omp_mcp_document_instead_of_silently_skipping_it() {
+    let (_guard, root) = hall_with_all_providers();
+    let layout = Layout::at(root.clone());
+    let manifest = Manifest::read(&layout).unwrap().unwrap();
+    let manifest = manifest
+        .with_mcp_servers(vec![McpServerDef::new("docs", "stdio").command("npx")])
+        .unwrap();
+    Manifest::write(&layout, &manifest).unwrap();
+
+    // A root-level array is the shape `materialise_mcp` refuses.
+    let omp_mcp = root.join("mcp.json");
+    fs::ensure_dir(omp_mcp.parent().unwrap()).unwrap();
+    fs::write_text(&omp_mcp, "[\"not an object\"]").unwrap();
+
+    let ctx = Ctx::new(root.clone());
+    let report = sync(&ctx, SyncInput::default()).unwrap();
+
+    assert!(
+        !report.is_clean(),
+        "a malformed document must not report clean"
+    );
+    assert!(
+        report
+            .warnings
+            .iter()
+            .any(|w| w.code == "sync.step_failed" && w.what.contains("is not a JSON object")),
+        "warnings were: {:?}",
+        report.warnings
+    );
+}
+
+#[test]
+fn sync_removes_the_omp_mcp_document_when_omp_leaves_the_hall() {
+    let (_guard, root) = hall_with_all_providers();
+    let layout = Layout::at(root.clone());
+    let manifest = Manifest::read(&layout).unwrap().unwrap();
+    let manifest = manifest
+        .with_mcp_servers(vec![McpServerDef::new("docs", "stdio").command("npx")])
+        .unwrap();
+    Manifest::write(&layout, &manifest).unwrap();
+    let ctx = Ctx::new(root.clone());
+    sync(&ctx, SyncInput::default()).unwrap();
+    assert!(fs::exists(&root.join("mcp.json")).unwrap());
+
+    // Drop OMP from the hall; its document must go the way `remove_mcp`
+    // takes the other providers' documents.
+    let manifest = Manifest::read(&layout).unwrap().unwrap();
+    let manifest = manifest
+        .with_providers(Providers::new(
+            vec![Provider::ClaudeCode, Provider::OpenCode],
+            Provider::ClaudeCode,
+        ))
+        .unwrap();
+    Manifest::write(&layout, &manifest).unwrap();
+
+    sync(&ctx, SyncInput::default()).unwrap();
+    assert!(
+        !fs::exists(&root.join("mcp.json")).unwrap(),
+        "a provider the hall no longer lists keeps no MCP document"
+    );
+}
+
 // -- official workflow commands -------------------------------------------
 
-/// A hall whose `ivar.json` lists both providers.
-fn hall_with_both_providers() -> (tempfile::TempDir, Utf8PathBuf) {
+/// A hall whose `ivar.json` lists all providers.
+fn hall_with_all_providers() -> (tempfile::TempDir, Utf8PathBuf) {
     let (guard, root) = hall_with(&[]);
     let layout = Layout::at(root.clone());
     let manifest = Manifest::new(
         HallName::new("acme").unwrap(),
         Providers::new(
-            vec![Provider::ClaudeCode, Provider::OpenCode],
+            vec![Provider::ClaudeCode, Provider::OpenCode, Provider::Omp],
             Provider::ClaudeCode,
         ),
         vec![],
@@ -675,7 +764,7 @@ fn embedded(id: &str) -> String {
 
 #[test]
 fn sync_materialises_shipped_commands_for_available_providers() {
-    let (_guard, root) = hall_with_both_providers();
+    let (_guard, root) = hall_with_all_providers();
     let ctx = Ctx::new(root.clone());
 
     let report = sync(&ctx, SyncInput::default()).unwrap();
@@ -764,7 +853,7 @@ fn sync_repairs_modified_shipped_command_and_preserves_custom_command() {
 
 #[test]
 fn sync_removes_only_shipped_commands_for_unavailable_provider() {
-    let (_guard, root) = hall_with_both_providers();
+    let (_guard, root) = hall_with_all_providers();
     let ctx = Ctx::new(root.clone());
     sync(&ctx, SyncInput::default()).unwrap();
 
@@ -804,7 +893,7 @@ fn sync_removes_only_shipped_commands_for_unavailable_provider() {
 /// permission bits would not be.
 #[test]
 fn command_write_failure_warns_and_other_provider_steps_continue() {
-    let (_guard, root) = hall_with_both_providers();
+    let (_guard, root) = hall_with_all_providers();
     fs::write_text(&root.join(".opencode"), "not a directory\n").unwrap();
     let ctx = Ctx::new(root.clone());
 
@@ -841,7 +930,7 @@ fn command_write_failure_warns_and_other_provider_steps_continue() {
 
 #[test]
 fn sync_repairs_absent_and_wrong_enabled_symlinks() {
-    let (_guard, root) = hall_with_both_providers();
+    let (_guard, root) = hall_with_all_providers();
     // Break both aliases: remove CLAUDE.md, point AGENTS.md elsewhere.
     fs::remove_file(&root.join("CLAUDE.md")).unwrap();
     fs::write_text(&root.join("other.md"), "x").unwrap();
@@ -856,7 +945,7 @@ fn sync_repairs_absent_and_wrong_enabled_symlinks() {
         Change::Created
     );
     assert_eq!(
-        entry(&report.value, "opencode", "AGENTS.md alias").change,
+        entry(&report.value, "providers", "AGENTS.md alias").change,
         Change::Updated
     );
     assert_eq!(
@@ -871,7 +960,7 @@ fn sync_repairs_absent_and_wrong_enabled_symlinks() {
 
 #[test]
 fn sync_preserves_an_enabled_regular_alias_and_reports_conflict() {
-    let (_guard, root) = hall_with_both_providers();
+    let (_guard, root) = hall_with_all_providers();
     fs::write_text(&root.join("AGENTS.md"), "legacy, precious\n").unwrap();
     let ctx = Ctx::new(root.clone());
 
@@ -879,7 +968,7 @@ fn sync_preserves_an_enabled_regular_alias_and_reports_conflict() {
 
     assert!(!report.is_clean());
     assert_eq!(
-        entry(&report.value, "opencode", "AGENTS.md alias").change,
+        entry(&report.value, "providers", "AGENTS.md alias").change,
         Change::Failed
     );
     assert!(
@@ -919,7 +1008,7 @@ fn a_conflict_does_not_abort_repo_mcp_or_command_reconciliation() {
 
     assert!(!report.is_clean());
     assert_eq!(
-        entry(&report.value, "opencode", "AGENTS.md alias").change,
+        entry(&report.value, "providers", "AGENTS.md alias").change,
         Change::Failed
     );
     // The repo, the MCP config, and the commands still land.
@@ -935,7 +1024,7 @@ fn a_conflict_does_not_abort_repo_mcp_or_command_reconciliation() {
 
 #[test]
 fn removing_a_provider_by_hand_makes_sync_delete_its_regular_alias() {
-    let (_guard, root) = hall_with_both_providers();
+    let (_guard, root) = hall_with_all_providers();
     let ctx = Ctx::new(root.clone());
     sync(&ctx, SyncInput::default()).unwrap();
 
@@ -956,7 +1045,7 @@ fn removing_a_provider_by_hand_makes_sync_delete_its_regular_alias() {
     let report = sync(&ctx, SyncInput::default()).unwrap();
 
     assert_eq!(
-        entry(&report.value, "opencode", "AGENTS.md alias").change,
+        entry(&report.value, "providers", "AGENTS.md alias").change,
         Change::Removed
     );
     assert!(!fs::exists(&root.join("AGENTS.md")).unwrap());
@@ -970,7 +1059,7 @@ fn removing_a_provider_by_hand_makes_sync_delete_its_regular_alias() {
 /// mtimes untouched, or every run dirties `git status`.
 #[test]
 fn repeated_healthy_sync_leaves_file_mtimes_unchanged() {
-    let (_guard, root) = hall_with_both_providers();
+    let (_guard, root) = hall_with_all_providers();
     let ctx = Ctx::new(root.clone());
     sync(&ctx, SyncInput::default()).unwrap();
 
@@ -998,6 +1087,42 @@ fn repeated_healthy_sync_leaves_file_mtimes_unchanged() {
             .and_then(|metadata| metadata.modified().ok());
         assert_eq!(&mtime, before_mtime, "{path} must not be rewritten");
     }
+}
+
+#[test]
+fn sync_report_groups_shared_alias_surfaces_into_single_entry() {
+    // `hall_with` seeds repos, not providers; the provider set lives in the
+    // manifest. Write a manifest listing both AGENTS.md owners, then sync.
+    let (_guard, root) = hall_with(&[]);
+    let layout = Layout::at(root.clone());
+    let manifest = Manifest::new(
+        HallName::new("acme").unwrap(),
+        Providers::new(vec![Provider::OpenCode, Provider::Omp], Provider::OpenCode),
+        Vec::new(),
+        None,
+    )
+    .unwrap();
+    Manifest::write(&layout, &manifest).unwrap();
+
+    let ctx = Ctx::new(root.clone());
+    let report = sync(&ctx, SyncInput::default()).unwrap();
+
+    let agents_entries: Vec<_> = report
+        .value
+        .entries
+        .iter()
+        .filter(|e| e.label == "AGENTS.md alias")
+        .collect();
+
+    assert_eq!(
+        agents_entries.len(),
+        1,
+        "one physical alias must produce one report line, got: {agents_entries:?}"
+    );
+    assert_eq!(
+        agents_entries[0].surface, "providers",
+        "a surface owned by several providers is attributed to none of them alone"
+    );
 }
 
 // -- not in a hall ---------------------------------------------------------
@@ -1072,11 +1197,11 @@ fn the_json_surface_carries_every_entry_and_its_change() {
     );
 }
 
-// -- settings and plugin materialisation -----------------------------------
+// -- settings and managed artifact materialisation -------------------------
 
 #[test]
-fn sync_materialises_settings_and_plugin_per_provider() {
-    let (_guard, root) = hall_with_both_providers();
+fn sync_materialises_settings_and_artifacts_per_provider() {
+    let (_guard, root) = hall_with_all_providers();
     let ctx = Ctx::new(root.clone());
 
     let report = sync(&ctx, SyncInput::default()).unwrap();
@@ -1090,6 +1215,10 @@ fn sync_materialises_settings_and_plugin_per_provider() {
         root.join(".opencode/plugins/ivar.js").is_file(),
         ".opencode/plugins/ivar.js must be created for OpenCode"
     );
+    assert!(
+        root.join(".omp/hooks/pre/ivar.js").is_file(),
+        ".omp/hooks/pre/ivar.js must be created for OMP"
+    );
     // The settings file carries ivar's env key.
     let settings: serde_json::Value = serde_json::from_str(
         &fs::read_text(&root.join(".claude/settings.json"))
@@ -1101,13 +1230,14 @@ fn sync_materialises_settings_and_plugin_per_provider() {
 }
 
 #[test]
-fn sync_removes_plugin_when_opencode_is_not_listed() {
-    let (_guard, root) = hall_with_both_providers();
+fn sync_removes_artifacts_when_provider_is_not_listed() {
+    let (_guard, root) = hall_with_all_providers();
     let ctx = Ctx::new(root.clone());
     sync(&ctx, SyncInput::default()).unwrap();
     assert!(root.join(".opencode/plugins/ivar.js").is_file());
+    assert!(root.join(".omp/hooks/pre/ivar.js").is_file());
 
-    // Drop OpenCode from the manifest.
+    // Drop OpenCode and OMP from the manifest.
     let layout = Layout::at(root.clone());
     let manifest = Manifest::new(
         HallName::new("acme").unwrap(),
@@ -1123,6 +1253,10 @@ fn sync_removes_plugin_when_opencode_is_not_listed() {
     assert!(
         !root.join(".opencode/plugins/ivar.js").exists(),
         "plugin must be removed when OpenCode is not listed"
+    );
+    assert!(
+        !root.join(".omp/hooks/pre/ivar.js").exists(),
+        "hook must be removed when OMP is not listed"
     );
     // Claude Code's settings survive.
     assert!(root.join(".claude/settings.json").is_file());

@@ -54,7 +54,7 @@ git. If the agent dies or the process is killed, you have lost a conversation.
 Some variations:
 
 ```sh
-ivar session start checkout --provider opencode   # a specific harness
+ivar session start checkout --provider opencode   # a specific harness (claude-code, opencode, omp)
 ivar session start checkout --detached            # no harness; view dir persists
 ivar session connect --feature checkout           # re-bind after a restart
 ```
@@ -73,10 +73,10 @@ eval "$(ivar session connect --feature checkout)"
 it to another provider. The work survives; the conversation does not:
 
 ```sh
-ivar session relay checkout --provider opencode
+ivar session relay checkout --provider omp
 ```
 
-The relayed session is materialised for the **new** provider (OpenCode's
+The relayed session is materialised for the **new** provider (OMP's
 config and commands — never the old provider's), projects the feature's plan
 into its view dir, and derives its instruction file from the hall's canonical
 `HALL.md`: the canonical content plus a bootstrap block telling the new agent

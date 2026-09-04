@@ -54,6 +54,30 @@ fn doctor_detects_a_missing_target() {
 }
 
 #[test]
+fn doctor_detects_a_missing_omp_target() {
+    let (_guard, root) = seeded_hall();
+    write_skill(&root, "broken_omp");
+    let ctx = Ctx::new(root.clone());
+
+    // Sync once to create targets.
+    let _ = skill_sync::sync(&ctx).unwrap();
+
+    // Remove the OMP target.
+    let omp_target = root.join(".omp").join("skills").join("broken_omp");
+    fs::remove_path(&omp_target).unwrap();
+
+    let outcome = doctor(&ctx).unwrap();
+    assert!(outcome.value.count > 0);
+    assert!(
+        outcome
+            .value
+            .problems
+            .iter()
+            .any(|p| p.code == "skill.target_missing" && p.subject.contains("omp"))
+    );
+}
+
+#[test]
 fn doctor_handles_an_empty_hall() {
     let (_guard, root) = seeded_hall();
     let ctx = Ctx::new(root);

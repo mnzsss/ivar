@@ -1,4 +1,4 @@
-#![allow(clippy::unwrap_used, clippy::expect_used)]
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::type_complexity)]
 
 use std::cell::RefCell;
 use std::io::{BufRead, BufReader, Read, Write};
@@ -14,10 +14,10 @@ use crate::action::mcp::auth::{
 use crate::domain::mcp::McpServerDef;
 use crate::domain::provider::Provider;
 use crate::error::Failure;
-use crate::harness::opencode_auth::Entry;
 use crate::infra::figma::{self, OAuthEndpoints};
 use crate::infra::http_callback::{AuthorizationCode, CallbackServer};
 use crate::infra::oauth::{self, AuthMode, Tokens};
+use crate::providers::Credential;
 
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum PipelineEvent {
@@ -65,6 +65,41 @@ fn discover_oauth_endpoints_pure_parsing() {
 }
 
 #[test]
+fn no_token_or_secret_appears_in_serialized_output() {
+    let run = ProviderRun {
+        provider: Provider::Omp,
+        preregistration: Preregistration::Registered {
+            client_id: "client-123".to_owned(),
+        },
+        auth_method: AuthMethod::InternalOAuthFlow,
+        command: "ivar oauth".to_owned(),
+        authenticated: true,
+        error: None,
+    };
+
+    let debug_str = format!("{run:?}");
+    let json_str = serde_json::to_string(&run).unwrap();
+
+    let forbidden = [
+        "secret",
+        "token",
+        "access_token",
+        "refresh_token",
+        "SUPER_SECRET",
+    ];
+    for term in forbidden {
+        assert!(
+            !debug_str.to_lowercase().contains(&term.to_lowercase()),
+            "debug contained {term}"
+        );
+        assert!(
+            !json_str.to_lowercase().contains(&term.to_lowercase()),
+            "json contained {term}"
+        );
+    }
+}
+
+#[test]
 fn provider_run_command_shows_internal_flow_label() {
     // Given: a ProviderRun from internal flow
     let run = ProviderRun {
@@ -104,13 +139,14 @@ struct MockOps {
     events: RefCell<Vec<PipelineEvent>>,
     conflict: bool,
     fail_at: Option<PipelineEvent>,
-    written: RefCell<Option<Entry>>,
+    written: RefCell<Option<(String, String, Option<String>, Tokens)>>,
     /// What step 2 hands back. Defaults to a client already registered with a
     /// secret; the regression test below swaps in what Figma returns.
     prereg: Option<Preregistered>,
     /// When set, `discover` reports this token endpoint and `exchange` performs
     /// the real [`oauth::exchange_code`] against it instead of faking success.
     token_endpoint: Option<String>,
+    provider: Provider,
 }
 
 impl Default for MockOps {
@@ -122,11 +158,15 @@ impl Default for MockOps {
             written: RefCell::new(None),
             prereg: None,
             token_endpoint: None,
+            provider: Provider::OpenCode,
         }
     }
 }
 
 impl FlowOps for MockOps {
+    fn provider(&self) -> Provider {
+        self.provider
+    }
     fn check_conflict(&self, _: &str) -> Result<bool, Failure> {
         self.events.borrow_mut().push(PipelineEvent::ConflictCheck);
         if self.fail_at == Some(PipelineEvent::ConflictCheck) {
@@ -134,7 +174,12 @@ impl FlowOps for MockOps {
         }
         Ok(self.conflict)
     }
-    fn preregister(&self, _: &McpServerDef, _: &str) -> Result<Preregistered, Failure> {
+    fn preregister(
+        &self,
+        _: &McpServerDef,
+        _: &str,
+        _: &OAuthEndpoints,
+    ) -> Result<Preregistered, Failure> {
         self.events.borrow_mut().push(PipelineEvent::Preregister);
         if self.fail_at == Some(PipelineEvent::Preregister) {
             return Err(Failure::failed("fail", "fail"));
@@ -219,15 +264,20 @@ impl FlowOps for MockOps {
             scope: None,
         })
     }
-    fn write(&self, _: &str, entry: &Entry) -> Result<(), Failure> {
+    fn write(&self, _: &str, credential: &Credential<'_>) -> Result<(), Failure> {
         self.events.borrow_mut().push(PipelineEvent::Write);
-        *self.written.borrow_mut() = Some(entry.clone());
+        *self.written.borrow_mut() = Some((
+            credential.server_url.to_owned(),
+            credential.client_id.to_owned(),
+            credential.client_secret.map(str::to_owned),
+            credential.tokens.clone(),
+        ));
         if self.fail_at == Some(PipelineEvent::Write) {
             return Err(Failure::failed("fail", "fail"));
         }
         Ok(())
     }
-    fn verify(&self, _: &str) -> Result<bool, Failure> {
+    fn verify(&self, _: &str, _: Option<&str>) -> Result<bool, Failure> {
         self.events.borrow_mut().push(PipelineEvent::Verify);
         if self.fail_at == Some(PipelineEvent::Verify) {
             return Err(Failure::failed("fail", "fail"));
@@ -297,8 +347,8 @@ fn successful_flow_runs_in_contract_order() {
         *ops.events.borrow(),
         vec![
             PipelineEvent::ConflictCheck,
-            PipelineEvent::Preregister,
             PipelineEvent::Discover,
+            PipelineEvent::Preregister,
             PipelineEvent::Bind,
             PipelineEvent::OutputUrl,
             PipelineEvent::Wait,
@@ -310,7 +360,22 @@ fn successful_flow_runs_in_contract_order() {
 }
 
 #[test]
-fn successful_flow_builds_complete_opencode_entry() {
+fn internal_flow_threads_omp_provider_through_to_credential_installer() {
+    let ops = MockOps {
+        conflict: false,
+        fail_at: None,
+        provider: Provider::Omp,
+        ..Default::default()
+    };
+    let server = McpServerDef::new("figma", "sse").url("https://mcp.figma.com/mcp");
+    let run = figma_oauth::run_internal_flow_pipeline(&ops, &server, "figma").unwrap();
+    assert_eq!(run.provider, Provider::Omp);
+    assert_eq!(ops.provider(), Provider::Omp);
+    assert!(ops.written.borrow().is_some());
+}
+
+#[test]
+fn successful_flow_builds_complete_credential() {
     let ops = MockOps {
         conflict: false,
         fail_at: None,
@@ -319,11 +384,11 @@ fn successful_flow_builds_complete_opencode_entry() {
     let server = McpServerDef::new("figma", "sse").url("https://mcp.figma.com/mcp");
     let _ = figma_oauth::run_internal_flow_pipeline(&ops, &server, "figma");
     assert!(ops.written.borrow().is_some());
-    let written = ops.written.borrow().clone().unwrap();
-    assert_eq!(written.server_url, "https://mcp.figma.com/mcp");
-    assert_eq!(written.client_info.client_id, "id");
-    assert_eq!(written.client_info.client_secret, Some("secret".to_owned()));
-    assert_eq!(written.tokens.access_token, "at");
+    let (server_url, client_id, client_secret, tokens) = ops.written.borrow().clone().unwrap();
+    assert_eq!(server_url, "https://mcp.figma.com/mcp");
+    assert_eq!(client_id, "id");
+    assert_eq!(client_secret, Some("secret".to_owned()));
+    assert_eq!(tokens.access_token, "at");
 }
 
 // -- fresh-registration regression --------------------------------------

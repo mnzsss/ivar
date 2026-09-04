@@ -404,3 +404,22 @@ fn commit_sha_short_circuit_skips() {
     assert_eq!(steps[0].action, Action::Unchanged);
     assert_eq!(steps[0].reason.as_deref(), Some("commit-sha unchanged"));
 }
+#[test]
+fn omp_target_lifecycle_round_trip() {
+    let skill = authored_skill("alpha", "/source/alpha");
+    let target = target(
+        TargetId::Omp,
+        &skill,
+        "/target/alpha",
+        "sha256:any",
+        MaterialStatus::Missing,
+    );
+    let state = State::default();
+
+    let steps = plan(&[skill], &[target], &state);
+
+    assert_eq!(steps.len(), 1);
+    assert_eq!(steps[0].action, Action::Create);
+    assert_eq!(steps[0].mode, RenderMode::Symlink);
+    assert_eq!(TargetId::Omp.as_str(), "omp");
+}

@@ -41,7 +41,7 @@ fn ivar_json_is_written_with_canonical_bytes() {
         .success();
 
     let bytes = std::fs::read_to_string(root.join("ivar.json")).expect("read ivar.json");
-    let expected = "{\n  \"integration\": {\n    \"strategy\": \"squash\",\n    \"via\": \"local\"\n  },\n  \"name\": \"acme\",\n  \"providers\": {\n    \"available\": [\n      \"opencode\"\n    ],\n    \"default\": \"opencode\"\n  },\n  \"repos\": [],\n  \"version\": 3\n}\n";
+    let expected = "{\n  \"integration\": {\n    \"strategy\": \"squash\",\n    \"via\": \"local\"\n  },\n  \"name\": \"acme\",\n  \"providers\": {\n    \"available\": [\n      \"opencode\"\n    ],\n    \"default\": \"opencode\"\n  },\n  \"repos\": [],\n  \"version\": 4\n}\n";
     assert_eq!(
         bytes, expected,
         "ivar.json must be sorted keys, two-space indent, one trailing newline"
@@ -58,8 +58,8 @@ fn gitignore_uses_the_star_form_never_the_bare_dotdir() {
     assert_eq!(
         content,
         ".ivar/*\n!.ivar/skills/\n!.ivar/setups/\n\
-         .claude/commands/ivar-*.md\n.opencode/commands/ivar-*.md\n\
-         .claude/skills/\n.opencode/skills/\n"
+         .claude/commands/ivar-*.md\n.opencode/commands/ivar-*.md\n.omp/commands/ivar-*.md\n\
+         .claude/skills/\n.opencode/skills/\n.omp/skills/\n"
     );
     assert!(content.contains("!.ivar/skills/"));
     assert!(

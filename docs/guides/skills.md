@@ -21,11 +21,11 @@ Skills live in one of two roots:
 ```
 <hall>/.claude/skills/…
 <hall>/.opencode/skills/…
-```
+<hall>/.omp/skills/…
 
 `.ivar/skills/` is **committed**, along with `.ivar/setups/` — the hall's
-`.gitignore` ignores derived harness targets `.claude/skills/` and
-`.opencode/skills/`, and includes `.ivar/*` plus `!.ivar/skills/` and `!.ivar/setups/` for
+`.gitignore` ignores derived harness targets `.claude/skills/`,
+`.opencode/skills/`, and `.omp/skills/`, and includes `.ivar/*` plus `!.ivar/skills/` and `!.ivar/setups/` for
 exactly this reason. Everything else under `.ivar/` is derived and ignored.
 
 ## Authoring one
@@ -117,8 +117,10 @@ separate surface with a separate lifecycle:
 .ivar/skills/<id>/SKILL.md                 committed hall-owned source
 .claude/skills/<id>/...                    derived hall skill target
 .opencode/skills/<id>/...                  derived hall skill target
+.omp/skills/<id>/...                       derived hall skill target
 .claude/commands/ivar-<id>.md              derived Ivar workflow command
 .opencode/commands/ivar-<id>.md            derived Ivar workflow command
+.omp/commands/ivar-<id>.md                 derived Ivar workflow command
 ```
 
 Workflow commands are embedded in the binary and materialised by

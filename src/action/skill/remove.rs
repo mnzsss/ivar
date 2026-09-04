@@ -90,7 +90,7 @@ pub fn remove(ctx: &Ctx, input: RemoveInput) -> Outcome<Done> {
     })?;
 
     // Tear down materialised targets best-effort.
-    for target_id in [TargetId::Claude, TargetId::OpenCode] {
+    for target_id in TargetId::ALL {
         let target_path = skill::target_path(target_id, skill.id.as_str());
         if fs::exists(&target_path).unwrap_or(false) {
             let step = crate::domain::skill_sync::Step {

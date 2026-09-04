@@ -28,9 +28,9 @@
 //!   anything else in that reserved namespace on sync; every other file in
 //!   the directory belongs to the user and is never touched.
 //! - `skills_dir()` — where hall-scoped skills materialise for this harness.
-//! - `mcp_config_path()` and `mcp_key()` — the file and the key the servers hang
-//!   off. These differ per harness and are mapped here rather than at each call
-//!   site.
+//! - `mcp_config_path()` — the file the servers hang off. This differs per
+//!   harness and is mapped here rather than at each call site. The *key* inside
+//!   that file is native rendering, so it lives in `providers::mcp_root_key`.
 //! - `ALL` — every variant, for iteration.
 //! - `Display`, `FromStr` (so `clap` can parse `--provider`), `Serialize` /
 //!   `Deserialize` as `id()`.
@@ -60,7 +60,8 @@
 //! - *MCP*: "Materialised at the hall root by `bifrost hall sync` (`.mcp.json`
 //!   for Claude Code, the OpenCode equivalent) ... discovered by walk-up".
 //!
-//! `mcp_key()` is sourced too, just not from `bifrost`:
+//! `mcp_root_key` — now `providers::<provider>::mcp::ROOT_KEY`, not a domain
+//! accessor — is sourced too, just not from `bifrost`:
 //! `docs/wayfinder/bifrost-open-source/BACKLOG.md`, item B19, surveys
 //! `vibe-kanban` (Apache-2.0, nine working harness adapters including both
 //! Claude Code and OpenCode) and records its MCP config keys verbatim —
@@ -105,7 +106,7 @@ use crate::error::{Failure, FixAction};
 
 /// The comma-separated list of valid ids, for error messages. Kept next to
 /// `ALL` so the two are easy to keep in sync by eye.
-const VALID_IDS: &str = "claude-code, opencode";
+const VALID_IDS: &str = "claude-code, opencode, omp";
 
 /// A harness `ivar` can open a session in.
 ///
@@ -118,21 +119,23 @@ pub enum Provider {
     ClaudeCode,
     /// OpenCode.
     OpenCode,
+    /// Oh My Pi (OMP).
+    Omp,
 }
 
 impl Provider {
     /// Every variant, for iteration. Kept exhaustive by
     /// `tests::all_is_exhaustive`, which fails to compile if a variant is added
     /// here without being added there too.
-    pub const ALL: [Provider; 2] = [Provider::ClaudeCode, Provider::OpenCode];
+    pub const ALL: [Provider; 3] = [Provider::ClaudeCode, Provider::OpenCode, Provider::Omp];
 
     /// The stable wire string: as it appears in `ivar.json` and in
     /// `--provider`. Kebab-case, never reworded.
-    #[must_use]
     pub const fn id(&self) -> &'static str {
         match self {
             Self::ClaudeCode => "claude-code",
             Self::OpenCode => "opencode",
+            Self::Omp => "omp",
         }
     }
 
@@ -142,6 +145,7 @@ impl Provider {
         match self {
             Self::ClaudeCode => ".claude",
             Self::OpenCode => ".opencode",
+            Self::Omp => ".omp",
         }
     }
 
@@ -150,10 +154,9 @@ impl Provider {
     pub const fn instruction_file(&self) -> &'static str {
         match self {
             Self::ClaudeCode => "CLAUDE.md",
-            Self::OpenCode => "AGENTS.md",
+            Self::OpenCode | Self::Omp => "AGENTS.md",
         }
     }
-
     /// The provider-native directory holding project workflow commands.
     ///
     /// `ivar` owns files named `ivar-*.md` in it — the shipped workflow
@@ -165,6 +168,7 @@ impl Provider {
         match self {
             Self::ClaudeCode => ".claude/commands",
             Self::OpenCode => ".opencode/commands",
+            Self::Omp => ".omp/commands",
         }
     }
 
@@ -174,6 +178,7 @@ impl Provider {
         match self {
             Self::ClaudeCode => ".claude/skills",
             Self::OpenCode => ".opencode/skills",
+            Self::Omp => ".omp/skills",
         }
     }
 
@@ -184,37 +189,32 @@ impl Provider {
         match self {
             Self::ClaudeCode => None,
             Self::OpenCode => Some(".opencode/plugins"),
+            Self::Omp => None,
         }
     }
-
     /// The file this harness's MCP server definitions live in, at the hall
     /// root.
     ///
     /// The OpenCode half of this mapping is inferred, not sourced from
     /// `bifrost` — see the module doc comment's "Where each fact came from"
     /// section.
+    ///
+    /// OMP's loader reads exactly two project paths, both at the working
+    /// directory root: `mcp.json` and `.mcp.json` (measured against
+    /// omp/18.1.8, `discovery/mcp-json.ts`). It never descends into `.omp/`
+    /// for server definitions — a `mcp.json` there is an Agent Plugin
+    /// manifest, a different closed schema. `mcp.json` is the one of the two
+    /// that Claude Code does not also read, so each provider keeps a file it
+    /// owns alone.
     #[must_use]
     pub const fn mcp_config_path(&self) -> &'static str {
         match self {
             Self::ClaudeCode => ".mcp.json",
             Self::OpenCode => "opencode.json",
-        }
-    }
-
-    /// The key the MCP servers hang off, inside [`Self::mcp_config_path`].
-    ///
-    /// The OpenCode half of this mapping is inferred, not sourced from
-    /// `bifrost` — see the module doc comment's "Where each fact came from"
-    /// section.
-    #[must_use]
-    pub const fn mcp_key(&self) -> &'static str {
-        match self {
-            Self::ClaudeCode => "mcpServers",
-            Self::OpenCode => "mcp",
+            Self::Omp => "mcp.json",
         }
     }
 }
-
 impl fmt::Display for Provider {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.id())

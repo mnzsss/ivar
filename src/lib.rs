@@ -53,7 +53,7 @@ pub mod store;
 
 pub mod git;
 pub mod harness;
-
+pub mod providers;
 // `action` and `cli` are not part of the published API. They are `pub` only so
 // `src/bin/ivar.rs` and the integration tests, which are separate crates, can
 // reach them.

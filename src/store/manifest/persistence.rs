@@ -61,6 +61,18 @@ fn v2_to_v3(value: serde_json::Value) -> Result<serde_json::Value, String> {
     Ok(value)
 }
 
+/// Migrate a manifest from v3 → v4.
+///
+/// v4 adds `McpOauth.token_url` and `McpOauth.resource` — optional discovered
+/// endpoint metadata for OAuth-enabled MCP servers. The fields are optional and
+/// `#[serde(skip_serializing_if = "Option::is_none")]`, so a v3 manifest already
+/// deserialises against the v4 shape without help. This step touches no data;
+/// it exists so the chain stays contiguous and [`Manifest::migrate`] has a
+/// registered step to run.
+fn v3_to_v4(value: serde_json::Value) -> Result<serde_json::Value, String> {
+    Ok(value)
+}
+
 /// What migrating `ivar.json` would do. Produced by [`Manifest::plan`], which
 /// never touches the file.
 ///
@@ -200,6 +212,7 @@ impl Manifest {
             vec![
                 Migration::new(1, 2, v1_to_v2),
                 Migration::new(2, 3, v2_to_v3),
+                Migration::new(3, 4, v3_to_v4),
             ],
             CURRENT_VERSION,
             Policy::Committed,
