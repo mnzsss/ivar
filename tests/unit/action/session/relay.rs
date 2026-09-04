@@ -507,4 +507,3 @@ fn relay_materialises_the_relayed_providers_config() {
     );
     unguard_worktrees(&root);
 }
-

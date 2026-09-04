@@ -146,8 +146,6 @@ fn servers_doc(
     Ok(serde_json::Value::Object(map))
 }
 
-
-
 /// Read `path` as JSON, returning the parsed document and its raw bytes.
 ///
 /// `Ok((None, None))` when the file is absent. A file that exists but is not
