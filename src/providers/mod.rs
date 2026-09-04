@@ -184,7 +184,7 @@ pub fn install_credentials(
     match provider {
         Provider::ClaudeCode => Ok(false),
         Provider::OpenCode => opencode::auth::install_credentials(name, credential).map(|()| true),
-        Provider::Omp => Ok(false),
+        Provider::Omp => omp::auth::install_credentials(name, credential).map(|()| true),
     }
 }
 
@@ -215,8 +215,9 @@ pub fn login_subcommand(provider: Provider) -> Option<[&'static str; 2]> {
 /// Confirm the login actually landed, for providers whose exit code lies.
 pub fn verify_authenticated(provider: Provider, name: &str) -> Result<(), Failure> {
     match provider {
-        Provider::ClaudeCode | Provider::Omp => Ok(()),
+        Provider::ClaudeCode => Ok(()),
         Provider::OpenCode => opencode::auth::verify_authenticated(name),
+        Provider::Omp => omp::auth::verify_authenticated(name).map(|_| ()),
     }
 }
 

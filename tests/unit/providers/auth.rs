@@ -47,7 +47,5 @@ fn install_credentials_reports_no_store_for_providers_without_one() {
     };
 
     assert!(!install_credentials(Provider::ClaudeCode, "acme-figma", &credential).unwrap());
-    assert!(!install_credentials(Provider::Omp, "acme-figma", &credential).unwrap());
     assert!(verify_authenticated(Provider::ClaudeCode, "acme-figma").is_ok());
-    assert!(verify_authenticated(Provider::Omp, "acme-figma").is_ok());
 }
