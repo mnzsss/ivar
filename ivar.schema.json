@@ -65,6 +65,20 @@
         "client_secret_env": {
           "description": "The name of the environment variable that holds the client secret at\nruntime.",
           "type": "string"
+        },
+        "resource": {
+          "description": "The server's discovered OAuth resource identifier, when known.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "token_url": {
+          "description": "The server's discovered OAuth token endpoint URL, when known.",
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "required": [
@@ -214,6 +228,20 @@
                   "client_secret_env": {
                     "description": "The name of the environment variable that holds the client secret at\nruntime.",
                     "type": "string"
+                  },
+                  "resource": {
+                    "description": "The server's discovered OAuth resource identifier, when known.",
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "token_url": {
+                    "description": "The server's discovered OAuth token endpoint URL, when known.",
+                    "type": [
+                      "string",
+                      "null"
+                    ]
                   }
                 },
                 "required": [
@@ -276,6 +304,20 @@
                   "client_secret_env": {
                     "description": "The name of the environment variable that holds the client secret at\nruntime.",
                     "type": "string"
+                  },
+                  "resource": {
+                    "description": "The server's discovered OAuth resource identifier, when known.",
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "token_url": {
+                    "description": "The server's discovered OAuth token endpoint URL, when known.",
+                    "type": [
+                      "string",
+                      "null"
+                    ]
                   }
                 },
                 "required": [
@@ -330,7 +372,7 @@
       "description": "The hall's shared skill home, if it has one."
     },
     "version": {
-      "const": 3,
+      "const": 4,
       "description": "The manifest schema version.",
       "type": "integer"
     }
