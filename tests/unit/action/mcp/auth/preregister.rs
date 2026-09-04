@@ -16,7 +16,11 @@ fn fresh_registration_persists_the_endpoints_discovery_returned() {
         registration_endpoint: None,
     };
 
-    let oauth = oauth_registration("client-abc", "IVAR_MCP_ACME_SECRET", Some(&discovered));
+    let oauth = oauth_registration(
+        "client-abc",
+        Some("IVAR_MCP_ACME_SECRET"),
+        Some(&discovered),
+    );
 
     assert_eq!(oauth.client_id, "client-abc");
     assert_eq!(
@@ -47,7 +51,11 @@ fn fresh_registration_persists_no_resource_when_discovery_returned_none() {
         registration_endpoint: None,
     };
 
-    let oauth = oauth_registration("client-abc", "IVAR_MCP_ACME_SECRET", Some(&discovered));
+    let oauth = oauth_registration(
+        "client-abc",
+        Some("IVAR_MCP_ACME_SECRET"),
+        Some(&discovered),
+    );
 
     assert_eq!(
         oauth.token_url.as_deref(),
@@ -260,4 +268,63 @@ fn host_of_strips_port_and_userinfo() {
 #[test]
 fn host_of_works_without_a_scheme() {
     assert_eq!(host_of("mcp.figma.com/mcp"), Some("mcp.figma.com"));
+}
+
+#[test]
+fn a_public_registration_records_no_secret_variable() {
+    let discovered = crate::infra::mcp_oauth::OAuthEndpoints {
+        authorization_endpoint: "https://mcp.linear.app/authorize".to_owned(),
+        token_endpoint: "https://mcp.linear.app/token".to_owned(),
+        resource: None,
+        scopes_supported: Some(vec!["read".to_owned(), "write".to_owned()]),
+        registration_endpoint: Some("https://mcp.linear.app/register".to_owned()),
+    };
+
+    let oauth = oauth_registration("Uk1eiX5O6ndVHwo_", None, Some(&discovered));
+
+    assert_eq!(oauth.client_id, "Uk1eiX5O6ndVHwo_");
+    assert_eq!(
+        oauth.client_secret_env, None,
+        "a public client has no secret, so it names no variable"
+    );
+    assert_eq!(
+        oauth.token_url.as_deref(),
+        Some("https://mcp.linear.app/token"),
+        "token_url is what makes omp's native refresh work"
+    );
+}
+
+#[test]
+fn a_confidential_registration_still_records_its_variable() {
+    let oauth = oauth_registration("client-123", Some("IVAR_MCP_ACME_SECRET"), None);
+    assert_eq!(
+        oauth.client_secret_env.as_deref(),
+        Some("IVAR_MCP_ACME_SECRET")
+    );
+    assert_eq!(oauth.token_url, None);
+}
+
+#[test]
+fn a_recorded_public_client_re_runs_without_resolving_a_secret() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(root.clone());
+    let manifest = Manifest::read(&layout).unwrap().unwrap();
+    let server = McpServerDef::new("linear", "http")
+        .url("https://mcp.linear.app/mcp")
+        .oauth(McpOauth::public("Uk1eiX5O6ndVHwo_"));
+
+    let result = preregister_if_needed(
+        &layout,
+        &manifest,
+        Provider::Omp,
+        &server,
+        "acme-linear",
+        None,
+    )
+    .expect("a recorded public client must re-run without a secret");
+
+    assert_eq!(result.auth_mode, AuthMode::None);
+    assert_eq!(result.secret, None);
+    assert_eq!(result.client_id.as_deref(), Some("Uk1eiX5O6ndVHwo_"));
+    assert!(matches!(result.report, Preregistration::Skipped));
 }
