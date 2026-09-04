@@ -241,6 +241,33 @@ pub fn verify_authenticated(
     }
 }
 
+/// Reconciles provider-specific active profile commands bridge (e.g. OMP profile commands).
+pub fn bridge_sync_commands(
+    provider: Provider,
+    hall_commands_dir: &camino::Utf8Path,
+    command_file_names: &[&str],
+    warnings: &mut Vec<crate::error::Warning>,
+) {
+    match provider {
+        Provider::Omp => {
+            omp::commands::bridge_sync(hall_commands_dir, command_file_names, warnings)
+        }
+        Provider::ClaudeCode | Provider::OpenCode => {}
+    }
+}
+
+/// Removes provider-specific active profile commands bridge for this hall.
+pub fn bridge_remove_commands(
+    provider: Provider,
+    hall_commands_dir: &camino::Utf8Path,
+    warnings: &mut Vec<crate::error::Warning>,
+) {
+    match provider {
+        Provider::Omp => omp::commands::bridge_remove(hall_commands_dir, warnings),
+        Provider::ClaudeCode | Provider::OpenCode => {}
+    }
+}
+
 #[cfg(test)]
 #[path = "../../tests/unit/providers/mod.rs"]
 mod tests;

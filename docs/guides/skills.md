@@ -117,8 +117,10 @@ separate surface with a separate lifecycle:
 .ivar/skills/<id>/SKILL.md                 committed hall-owned source
 .claude/skills/<id>/...                    derived hall skill target
 .opencode/skills/<id>/...                  derived hall skill target
+.omp/skills/<id>/...                       derived hall skill target
 .claude/commands/ivar-<id>.md              derived Ivar workflow command
 .opencode/commands/ivar-<id>.md            derived Ivar workflow command
+.omp/commands/ivar-<id>.md                 derived Ivar workflow command
 ```
 
 Workflow commands are embedded in the binary and materialised by
