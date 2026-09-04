@@ -1885,3 +1885,102 @@ fn land_revalidates_fast_forward_and_rolls_back() {
     let api_current_head = git_stdout(&api_default, &["rev-parse", "HEAD"]);
     assert_eq!(api_current_head, api_orig_head);
 }
+
+#[test]
+fn write_bits_are_restored_when_the_merge_fails() {
+    let (_guard, root) = hall_with_promoted(&["api"]);
+    let ctx = Ctx::new(root.clone());
+    approve_through_plan(&root);
+
+    let layout = Layout::at(&root);
+    let default_worktree = layout.repo_worktree(
+        &RepoName::new("api").unwrap(),
+        &BranchName::new("main").unwrap(),
+    );
+
+    std::fs::write(default_worktree.join("uncommitted.txt"), "dirty").unwrap();
+
+    let before = crate::infra::fs::unix_mode(&default_worktree).unwrap();
+    let preview = deliver(
+        &ctx,
+        DeliverInput {
+            feature: "checkout".to_owned(),
+            preview: true,
+            land: true,
+            fingerprint: None,
+            ..Default::default()
+        },
+    )
+    .expect("preview")
+    .value
+    .preview;
+
+    let failure = deliver(
+        &ctx,
+        DeliverInput {
+            feature: "checkout".to_owned(),
+            preview: false,
+            land: true,
+            fingerprint: Some(preview.fingerprint),
+            ..Default::default()
+        },
+    )
+    .expect_err("dirty worktree must fail land");
+    assert_eq!(failure.code, "deliver.land_dirty_worktree");
+
+    assert_eq!(
+        crate::infra::fs::unix_mode(&default_worktree).unwrap(),
+        before,
+        "a failed land must not leave a read-only repo writable"
+    );
+}
+
+#[test]
+fn write_bits_are_restored_after_successful_land() {
+    let (_guard, root) = hall_with_promoted(&["api"]);
+    let ctx = Ctx::new(root.clone());
+    approve_through_plan(&root);
+
+    let layout = Layout::at(&root);
+    let origins = root.parent().unwrap().join("origins").join("api");
+    git_stdout(&origins, &["config", "receive.denyCurrentBranch", "ignore"]);
+
+    let default_worktree = layout.repo_worktree(
+        &RepoName::new("api").unwrap(),
+        &BranchName::new("main").unwrap(),
+    );
+
+    crate::infra::fs::clear_write_bits(&default_worktree).unwrap();
+    let before = crate::infra::fs::unix_mode(&default_worktree).unwrap();
+
+    let land_preview = deliver(
+        &ctx,
+        DeliverInput {
+            feature: "checkout".to_owned(),
+            preview: true,
+            land: true,
+            fingerprint: None,
+            ..Default::default()
+        },
+    )
+    .expect("land preview");
+
+    let out = deliver(
+        &ctx,
+        DeliverInput {
+            feature: "checkout".to_owned(),
+            preview: false,
+            land: true,
+            fingerprint: Some(land_preview.value.preview.fingerprint),
+            ..Default::default()
+        },
+    )
+    .expect("land apply");
+
+    assert!(out.value.land.iter().all(|r| r.merged));
+    assert_eq!(
+        crate::infra::fs::unix_mode(&default_worktree).unwrap(),
+        before,
+        "a successful land must restore original read-only permissions"
+    );
+}

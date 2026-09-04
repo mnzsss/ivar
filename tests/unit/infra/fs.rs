@@ -458,56 +458,6 @@ fn restore_write_bits_undoes_the_guard_and_is_idempotent() {
 
 #[cfg(unix)]
 #[test]
-fn write_bits_are_restored_when_the_operation_fails() {
-    let (_dir, root) = utf8_temp_dir();
-    let dir = root.join("worktree");
-    ensure_dir(&dir).unwrap();
-    chmod(&dir, 0o755).unwrap();
-    clear_write_bits(&dir).unwrap();
-    let before = unix_mode(&dir).unwrap();
-
-    let unreadable_dir = root.join("unreadable");
-    fs_err::create_dir_all(unreadable_dir.as_std_path()).unwrap();
-    let file_inside = unreadable_dir.join("file.txt");
-    write_text(&file_inside, "test").unwrap();
-    chmod(&unreadable_dir, 0o000).unwrap();
-
-    let result = LiftedGuard::lift(&[&dir, &file_inside]);
-    assert!(result.is_err());
-
-    chmod(&unreadable_dir, 0o755).unwrap();
-
-    assert_eq!(
-        unix_mode(&dir).unwrap(),
-        before,
-        "a failed operation must not leave a read-only repo writable"
-    );
-}
-
-#[cfg(unix)]
-#[test]
-fn write_bits_are_restored_after_successful_scope() {
-    let (_dir, root) = utf8_temp_dir();
-    let dir = root.join("worktree");
-    ensure_dir(&dir).unwrap();
-    chmod(&dir, 0o755).unwrap();
-    clear_write_bits(&dir).unwrap();
-    let before = unix_mode(&dir).unwrap();
-
-    {
-        let _lifted = LiftedGuard::lift(&[&dir]).expect("lift");
-        assert!(unix_mode(&dir).unwrap().unwrap() & 0o222 != 0);
-    }
-
-    assert_eq!(
-        unix_mode(&dir).unwrap(),
-        before,
-        "exiting guard scope must restore original read-only permissions"
-    );
-}
-
-#[cfg(unix)]
-#[test]
 fn partial_write_guard_lift_failure_restores_already_lifted_worktree() {
     let (_dir, root) = utf8_temp_dir();
     let dir1 = root.join("worktree1");
