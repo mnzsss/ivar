@@ -68,33 +68,43 @@ fn a_provider_without_an_mcp_login_command_has_no_subcommand_to_dispatch() {
 }
 
 #[test]
-fn provider_is_internal_flow_accepts_omp_on_figma_host() {
+fn omp_takes_the_internal_flow_for_any_http_server() {
     let figma_server = McpServerDef::new("figma", "http").url("https://mcp.figma.com/mcp");
-    assert!(provider_is_internal_flow(Provider::OpenCode, &figma_server));
+    let linear_server = McpServerDef::new("linear", "http").url("https://mcp.linear.app/mcp");
+
+    // omp has no  subcommand, so the internal flow is its only path.
     assert!(provider_is_internal_flow(Provider::Omp, &figma_server));
+    assert!(provider_is_internal_flow(Provider::Omp, &linear_server));
+    assert_eq!(crate::providers::login_subcommand(Provider::Omp), None);
+}
+
+#[test]
+fn omp_without_a_url_has_no_server_to_discover() {
+    let local_server = McpServerDef::new("fs", "local").command("npx");
+    assert!(!provider_is_internal_flow(Provider::Omp, &local_server));
+}
+
+#[test]
+fn the_other_providers_keep_their_own_login_commands() {
+    let figma_server = McpServerDef::new("figma", "http").url("https://mcp.figma.com/mcp");
+    let linear_server = McpServerDef::new("linear", "http").url("https://mcp.linear.app/mcp");
+
+    // OpenCode: internal flow only where its own registration is refused.
+    assert!(provider_is_internal_flow(Provider::OpenCode, &figma_server));
+    assert!(!provider_is_internal_flow(
+        Provider::OpenCode,
+        &linear_server
+    ));
+
+    // Claude Code: never the internal flow.
     assert!(!provider_is_internal_flow(
         Provider::ClaudeCode,
         &figma_server
     ));
-
-    let other_server = McpServerDef::new("linear", "http").url("https://mcp.linear.app/mcp");
-    assert!(!provider_is_internal_flow(
-        Provider::OpenCode,
-        &other_server
-    ));
-    assert!(!provider_is_internal_flow(Provider::Omp, &other_server));
     assert!(!provider_is_internal_flow(
         Provider::ClaudeCode,
-        &other_server
+        &linear_server
     ));
-}
-
-#[test]
-fn a_non_figma_omp_server_refuses_with_the_no_mcp_command_diagnostic() {
-    let linear_server = McpServerDef::new("linear", "http").url("https://mcp.linear.app/mcp");
-    let result = crate::providers::login_subcommand(Provider::Omp);
-    assert_eq!(result, None);
-    assert!(!provider_is_internal_flow(Provider::Omp, &linear_server));
 }
 
 // -- login_failed -----------------------------------------------------------

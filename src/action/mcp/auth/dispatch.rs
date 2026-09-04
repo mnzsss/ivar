@@ -34,12 +34,23 @@ pub(super) struct Attempt {
     outcome: Result<(), Failure>,
 }
 
+/// Whether this provider authenticates through Ivar's own OAuth flow rather
+/// than its harness's login command.
+///
+/// `omp` always does, for any server Ivar can discover: it exposes no `mcp`
+/// subcommand at all (measured against omp/18.1.10), so there is nothing to
+/// delegate to. `opencode` does only where its own dynamic client
+/// registration is refused — its login command works everywhere else, and a
+/// working path is not worth replacing. `claude-code` never does.
 fn provider_is_internal_flow(provider: Provider, server: &McpServerDef) -> bool {
-    matches!(provider, Provider::OpenCode | Provider::Omp)
-        && server
-            .url
-            .as_deref()
-            .is_some_and(|u| host_of(u).is_some_and(figma::needs_preregistration))
+    let Some(url) = server.url.as_deref() else {
+        return false;
+    };
+    match provider {
+        Provider::Omp => true,
+        Provider::OpenCode => host_of(url).is_some_and(figma::needs_preregistration),
+        Provider::ClaudeCode => false,
+    }
 }
 
 fn attempt(
