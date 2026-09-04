@@ -356,8 +356,13 @@ at the stable public URL:
 An editor that supports JSON Schema (VS Code, Cursor, Zed, OpenCode) uses that
 reference to validate the file, offer completion for every field and enum value,
 and flag a typo or a stale transport spelling before `ivar` ever sees the file.
-The schema is shipped with the source and every release artifact, and is the
-same file published at the URL above.
+
+The same file is checked in at the repository root, packaged in the crate, and
+attached to every GitHub release as `ivar.schema.json` — pinned to that tag,
+where the `$schema` URL and a branch are not. It is generated from the manifest
+types by `cargo run --example generate-manifest-schema`, and a test fails the
+build when the checked-in copy and the types disagree, so there is no second
+copy to drift.
 
 ### Claude approval boundary
 
