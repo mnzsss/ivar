@@ -15,7 +15,7 @@ use crate::action::discovery::show as discovery_show;
 use crate::action::execute::{accept_revision, finish, start, status as execute_status};
 use crate::action::feature::{
     cleanup, close, create, delete, deliver, demote, integrate, promote, rebase, rename, reparent,
-    status, view,
+    status, view, workspace,
 };
 use crate::action::hall::InitInput;
 use crate::action::mcp::auth as mcp_auth;
@@ -312,6 +312,18 @@ pub enum FeatureCommand {
     Prune,
     /// Authorize and perform a feature's local teardown.
     Cleanup(FeatureCleanupArgs),
+    /// Generate a multi-root VSCode workspace (.code-workspace) for a feature,
+    /// opening promoted repos writable and every context repo read-only.
+    Workspace(FeatureWorkspaceArgs),
+}
+
+/// Arguments for `ivar feature workspace`.
+#[derive(Debug, Args)]
+pub struct FeatureWorkspaceArgs {
+    /// The feature to generate a workspace for.
+    pub feature: String,
+    /// Which declared repos to include; includes all when omitted.
+    pub repos: Vec<String>,
 }
 
 /// Arguments for `ivar feature cleanup`.
@@ -1497,6 +1509,13 @@ impl From<FeatureRebaseArgs> for rebase::RebaseInput {
     fn from(args: FeatureRebaseArgs) -> Self {
         let FeatureRebaseArgs { name, onto } = args;
         Self { name, onto }
+    }
+}
+
+impl From<FeatureWorkspaceArgs> for workspace::WorkspaceInput {
+    fn from(args: FeatureWorkspaceArgs) -> Self {
+        let FeatureWorkspaceArgs { feature, repos } = args;
+        Self { feature, repos }
     }
 }
 

@@ -12,7 +12,7 @@ use std::collections::BTreeSet;
 #[test]
 fn catalog_is_complete_unique_and_current() {
     let commands = catalog();
-    assert_eq!(commands.len(), 14);
+    assert_eq!(commands.len(), 15);
 
     let ids = commands
         .iter()
@@ -164,7 +164,7 @@ fn materialise_creates_repairs_and_then_becomes_idempotent() {
     let (_guard, dir) = commands_dir();
 
     let first = materialise(&dir).unwrap();
-    assert_eq!(first.len(), 14);
+    assert_eq!(first.len(), 15);
     assert!(first.iter().all(|change| change.change == Change::Created));
 
     fs::write_text(&dir.join("ivar-plan.md"), "changed").unwrap();
@@ -176,7 +176,7 @@ fn materialise_creates_repairs_and_then_becomes_idempotent() {
     );
 
     let third = materialise(&dir).unwrap();
-    assert_eq!(third.len(), 14);
+    assert_eq!(third.len(), 15);
     assert!(
         third
             .iter()
@@ -224,7 +224,7 @@ fn remove_deletes_only_reserved_ivar_commands() {
 
     let changes = remove(&dir).unwrap();
 
-    assert_eq!(changes.len(), 14);
+    assert_eq!(changes.len(), 15);
     assert!(
         changes
             .iter()
@@ -294,7 +294,7 @@ fn inspect_sees_a_healthy_directory_as_current() {
 
     let inspections = inspect(&dir, true).unwrap();
 
-    assert_eq!(inspections.len(), 14);
+    assert_eq!(inspections.len(), 15);
     assert!(
         inspections
             .iter()
@@ -330,7 +330,7 @@ fn inspect_marks_leftover_files_stale_for_a_disabled_provider() {
 
     let inspections = inspect(&dir, false).unwrap();
 
-    assert_eq!(inspections.len(), 14);
+    assert_eq!(inspections.len(), 15);
     assert!(
         inspections
             .iter()

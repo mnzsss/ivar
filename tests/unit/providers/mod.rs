@@ -160,3 +160,46 @@ fn other_providers_never_receive_settings() {
         }
     }
 }
+
+#[test]
+fn session_projections_for_all_providers() {
+    use camino::Utf8PathBuf;
+    use crate::providers::SessionProjection;
+
+    // Claude Code projects only its commands catalog
+    assert_eq!(
+        providers::session_projections(Provider::ClaudeCode),
+        vec![SessionProjection {
+            hall_source: Utf8PathBuf::from(".claude/commands"),
+            config_relative_dest: Utf8PathBuf::from("commands"),
+        }]
+    );
+
+    // OpenCode projects only its commands catalog
+    assert_eq!(
+        providers::session_projections(Provider::OpenCode),
+        vec![SessionProjection {
+            hall_source: Utf8PathBuf::from(".opencode/commands"),
+            config_relative_dest: Utf8PathBuf::from("commands"),
+        }]
+    );
+
+    // OMP projects commands catalog, hooks/pre, and extensions
+    assert_eq!(
+        providers::session_projections(Provider::Omp),
+        vec![
+            SessionProjection {
+                hall_source: Utf8PathBuf::from(".omp/commands"),
+                config_relative_dest: Utf8PathBuf::from("commands"),
+            },
+            SessionProjection {
+                hall_source: Utf8PathBuf::from(".omp/hooks/pre"),
+                config_relative_dest: Utf8PathBuf::from("hooks/pre"),
+            },
+            SessionProjection {
+                hall_source: Utf8PathBuf::from(".omp/extensions"),
+                config_relative_dest: Utf8PathBuf::from("extensions"),
+            },
+        ]
+    );
+}
