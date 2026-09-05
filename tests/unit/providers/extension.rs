@@ -40,7 +40,7 @@ fn omp_extension_artifact_declared_at_exact_path_and_dependency_free() {
     // R-COMP-BOUND: Early exit when session is already bound to a feature
     assert!(artifact.contents.contains("process.env.IVAR_FEATURE"));
 
-    // R-COMP-COMMANDS: Exactly the 7 commands taking an existing feature
+    // R-COMP-COMMANDS: Exactly the 8 commands taking an existing feature
     let completed_commands = [
         "/ivar-connect",
         "/ivar-promote",
@@ -49,6 +49,7 @@ fn omp_extension_artifact_declared_at_exact_path_and_dependency_free() {
         "/ivar-feature-cleanup",
         "/ivar-plan",
         "/ivar-review",
+        "/ivar-workspace",
     ];
     for cmd in completed_commands {
         assert!(

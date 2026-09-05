@@ -30,6 +30,7 @@ const TARGET_COMMANDS = [
   "/ivar-feature-cleanup",
   "/ivar-plan",
   "/ivar-review",
+  "/ivar-workspace",
 ];
 
 function getFeatureCandidates() {
