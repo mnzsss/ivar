@@ -326,7 +326,7 @@ pub struct FeatureWorkspaceArgs {
     pub repos: Vec<String>,
 }
 
-/// Arguments for .
+/// Arguments for `ivar feature cleanup`.
 #[derive(Debug, Args)]
 pub struct FeatureCleanupArgs {
     /// The feature to clean up.
