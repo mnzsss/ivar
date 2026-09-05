@@ -6,9 +6,9 @@
     clippy::indexing_slicing
 )]
 
-use camino::Utf8Path;
 use crate::domain::provider::Provider;
 use crate::providers::{self, omp};
+use camino::Utf8Path;
 
 #[test]
 fn omp_extension_artifact_declared_at_exact_path_and_dependency_free() {
@@ -27,7 +27,11 @@ fn omp_extension_artifact_declared_at_exact_path_and_dependency_free() {
             .contents
             .contains("// ivar autocomplete extension for OMP")
     );
-    assert!(!artifact.contents.contains("// ivar pre-tool guard hook for OMP"));
+    assert!(
+        !artifact
+            .contents
+            .contains("// ivar pre-tool guard hook for OMP")
+    );
 
     // OMP loads extension modules as ESM default-exported functions
     assert!(artifact.contents.contains("export default function"));

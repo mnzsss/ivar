@@ -10,9 +10,7 @@ use camino::Utf8PathBuf;
 use crate::action::Ctx;
 use crate::action::feature::create::{CreateInput, create as create_action};
 use crate::action::feature::promote::{PromoteInput, promote};
-use crate::action::feature::workspace::{
-    WorkspaceFolderOutcome, WorkspaceInput, WorkspaceOutcome, workspace,
-};
+use crate::action::feature::workspace::{WorkspaceFolderOutcome, WorkspaceInput, workspace};
 use crate::action::hall::{self, InitInput};
 use crate::action::sync::sync;
 use crate::domain::name::{BranchName, FeatureName, HallName, RepoName};
@@ -142,12 +140,17 @@ fn workspace_generates_code_workspace_with_promoted_and_readonly_context_folders
     assert_eq!(folders[2]["name"], "docs");
 
     // readonlyInclude contains web and docs with /** suffix, but not api
-    let readonly = doc["settings"]["files.readonlyInclude"].as_object().unwrap();
+    let readonly = doc["settings"]["files.readonlyInclude"]
+        .as_object()
+        .unwrap();
     assert_eq!(readonly.len(), 2);
     let web_key = format!("{expected_web_path}/**");
     let docs_key = format!("{expected_docs_path}/**");
     assert_eq!(readonly.get(&web_key), Some(&serde_json::Value::Bool(true)));
-    assert_eq!(readonly.get(&docs_key), Some(&serde_json::Value::Bool(true)));
+    assert_eq!(
+        readonly.get(&docs_key),
+        Some(&serde_json::Value::Bool(true))
+    );
     let api_key = format!("{expected_api_path}/**");
     assert!(!readonly.contains_key(&api_key));
 
@@ -212,7 +215,9 @@ fn workspace_filters_repos_and_preserves_manifest_order() {
     assert_eq!(folders[0]["name"], "api");
     assert_eq!(folders[1]["name"], "docs");
 
-    let readonly = doc["settings"]["files.readonlyInclude"].as_object().unwrap();
+    let readonly = doc["settings"]["files.readonlyInclude"]
+        .as_object()
+        .unwrap();
     assert_eq!(readonly.len(), 1);
     let expected_docs_path = layout.repo_worktree(
         &RepoName::new("docs").unwrap(),

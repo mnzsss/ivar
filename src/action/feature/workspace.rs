@@ -83,7 +83,10 @@ struct CodeWorkspaceFolder<'a> {
 
 #[derive(Serialize)]
 struct CodeWorkspaceSettings {
-    #[serde(rename = "files.readonlyInclude", skip_serializing_if = "BTreeMap::is_empty")]
+    #[serde(
+        rename = "files.readonlyInclude",
+        skip_serializing_if = "BTreeMap::is_empty"
+    )]
     readonly_include: BTreeMap<String, bool>,
 }
 
@@ -136,10 +139,10 @@ pub fn workspace(ctx: &Ctx, input: WorkspaceInput) -> Outcome<WorkspaceOutcome> 
 
     // Iterate in manifest declaration order (R-WS-FILTER, R-WS-DETERMINISTIC)
     for repo in manifest.repos() {
-        if let Some(ref filter) = filter_set {
-            if !filter.contains(repo.name()) {
-                continue;
-            }
+        if let Some(ref filter) = filter_set
+            && !filter.contains(repo.name())
+        {
+            continue;
         }
 
         let is_promoted = feature.is_promoted(repo.name());
@@ -158,7 +161,7 @@ pub fn workspace(ctx: &Ctx, input: WorkspaceInput) -> Outcome<WorkspaceOutcome> 
             repo: repo.name().clone(),
             branch,
             path: worktree_path,
-        readonly: !is_promoted,
+            readonly: !is_promoted,
         });
     }
 
@@ -171,9 +174,7 @@ pub fn workspace(ctx: &Ctx, input: WorkspaceInput) -> Outcome<WorkspaceOutcome> 
 
     let doc = CodeWorkspaceDoc {
         folders: workspace_folders,
-        settings: CodeWorkspaceSettings {
-            readonly_include,
-        },
+        settings: CodeWorkspaceSettings { readonly_include },
     };
 
     let workspace_path = layout.feature_workspace(&feature_name);

@@ -163,8 +163,8 @@ fn other_providers_never_receive_settings() {
 
 #[test]
 fn session_projections_for_all_providers() {
-    use camino::Utf8PathBuf;
     use crate::providers::SessionProjection;
+    use camino::Utf8PathBuf;
 
     // Claude Code projects only its commands catalog
     assert_eq!(
