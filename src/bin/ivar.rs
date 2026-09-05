@@ -32,7 +32,7 @@ use ivar::action::discovery::show as discovery_show;
 use ivar::action::execute::{accept_revision, finish, start, status as execute_status};
 use ivar::action::feature::{
     cleanup, close, create, delete, deliver, demote, integrate, list as feature_list, promote,
-    prune as feature_prune, rebase, rename, reparent, status, view,
+    prune as feature_prune, rebase, rename, reparent, status, view, workspace,
 };
 use ivar::action::hall;
 use ivar::action::mcp::auth as mcp_auth;
@@ -238,6 +238,12 @@ fn main() -> ExitCode {
             ),
             FeatureCommand::Cleanup(args) => respond(
                 cleanup::cleanup(&ctx, args.into()),
+                json,
+                &mut stdout,
+                &mut stderr,
+            ),
+            FeatureCommand::Workspace(args) => respond(
+                workspace::workspace(&ctx, args.into()),
                 json,
                 &mut stdout,
                 &mut stderr,

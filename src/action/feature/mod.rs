@@ -34,6 +34,7 @@ pub mod reparent;
 pub mod status;
 mod verification;
 pub mod view;
+pub mod workspace;
 
 // The scoped mutation guards are exposed `pub(crate)` so plan and session
 // mutations can enforce partial-integration boundaries without reaching into

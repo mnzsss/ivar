@@ -10,14 +10,21 @@ use crate::domain::provider::Provider;
 use crate::harness::config::Change;
 use crate::harness::config::artifact::{reconcile_managed_artifact, remove_managed_artifact};
 use crate::infra::fs;
-use crate::providers;
+use crate::providers::{self, ManagedArtifact};
 use crate::test_support::utf8_temp_dir;
+
+fn artifact_by_path<'a>(artifacts: &'a [ManagedArtifact], path: &str) -> &'a ManagedArtifact {
+    artifacts
+        .iter()
+        .find(|a| a.relative_path == path)
+        .unwrap_or_else(|| panic!("artifact with path `{path}` not found in {artifacts:?}"))
+}
 
 #[test]
 fn omp_hook_materialises_and_is_idempotent() {
     let (_guard, dir) = utf8_temp_dir();
     let artifacts = providers::managed_artifacts(Provider::Omp);
-    let artifact = &artifacts[0];
+    let artifact = artifact_by_path(&artifacts, ".omp/hooks/pre/ivar.js");
     let dest = dir.join(&artifact.relative_path);
 
     let first = reconcile_managed_artifact(&dest, artifact.contents).unwrap();
@@ -38,7 +45,7 @@ fn omp_hook_updates_when_bytes_change() {
     fs::write_text(&dest, "// old hook content\n").unwrap();
 
     let artifacts = providers::managed_artifacts(Provider::Omp);
-    let artifact = &artifacts[0];
+    let artifact = artifact_by_path(&artifacts, ".omp/hooks/pre/ivar.js");
 
     let change = reconcile_managed_artifact(&dest, artifact.contents).unwrap();
     assert_eq!(change, Change::Updated);
@@ -50,7 +57,7 @@ fn omp_hook_updates_when_bytes_change() {
 fn omp_hook_removed_when_provider_disabled() {
     let (_guard, dir) = utf8_temp_dir();
     let artifacts = providers::managed_artifacts(Provider::Omp);
-    let artifact = &artifacts[0];
+    let artifact = artifact_by_path(&artifacts, ".omp/hooks/pre/ivar.js");
     let dest = dir.join(&artifact.relative_path);
 
     reconcile_managed_artifact(&dest, artifact.contents).unwrap();
@@ -75,7 +82,8 @@ fn user_owned_sibling_file_in_same_directory_survives() {
     fs::write_text(&user_hook, "console.log('user custom hook');\n").unwrap();
 
     let artifacts = providers::managed_artifacts(Provider::Omp);
-    reconcile_managed_artifact(&hook_path, artifacts[0].contents).unwrap();
+    let artifact = artifact_by_path(&artifacts, ".omp/hooks/pre/ivar.js");
+    reconcile_managed_artifact(&hook_path, artifact.contents).unwrap();
 
     assert!(hook_path.exists());
     assert!(user_hook.exists());

@@ -23,7 +23,7 @@ use common::{hall_root, ivar};
 use predicates::prelude::*;
 
 /// Every shipped command id, as `/ivar-<id>`.
-const SHIPPED_IDS: [&str; 14] = [
+const SHIPPED_IDS: [&str; 15] = [
     "connect",
     "deliver",
     "discovery",
@@ -38,6 +38,7 @@ const SHIPPED_IDS: [&str; 14] = [
     "repo-setup",
     "review",
     "sync",
+    "workspace",
 ];
 
 /// The exact bytes of the Bifrost-era `plan` command — its SHA-256 is the

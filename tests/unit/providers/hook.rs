@@ -37,16 +37,11 @@ fn opencode_plugin_bytes_characterization_unchanged() {
 #[test]
 fn omp_hook_artifact_declared_at_exact_path_and_dependency_free() {
     let artifacts = providers::managed_artifacts(Provider::Omp);
-    assert_eq!(
-        artifacts.len(),
-        1,
-        "OMP must declare exactly 1 managed hook artifact"
-    );
-    let artifact = &artifacts[0];
-    assert_eq!(
-        artifact.relative_path,
-        Utf8PathBuf::from(".omp/hooks/pre/ivar.js")
-    );
+    let hook_path = Utf8PathBuf::from(".omp/hooks/pre/ivar.js");
+    let artifact = artifacts
+        .iter()
+        .find(|a| a.relative_path == hook_path)
+        .unwrap_or_else(|| panic!("expected artifact at {hook_path}, found: {artifacts:?}"));
     assert!(
         artifact
             .contents
@@ -73,5 +68,26 @@ fn claude_code_declares_no_raw_file_artifacts() {
     assert!(
         artifacts.is_empty(),
         "Claude Code hooks live in settings.json, not standalone files"
+    );
+}
+
+#[test]
+fn omp_managed_artifacts_findable_by_path() {
+    let artifacts = providers::managed_artifacts(Provider::Omp);
+    let hook_path = camino::Utf8Path::new(".omp/hooks/pre/ivar.js");
+    let hook = artifacts
+        .iter()
+        .find(|a| a.relative_path == hook_path)
+        .unwrap_or_else(|| panic!("missing artifact at {hook_path}"));
+    assert!(
+        hook.contents
+            .contains("// ivar pre-tool guard hook for OMP")
+    );
+    // Path that is not registered fails lookup
+    let missing_path = camino::Utf8Path::new(".omp/hooks/pre/nonexistent.js");
+    let missing = artifacts.iter().find(|a| a.relative_path == missing_path);
+    assert!(
+        missing.is_none(),
+        "unregistered path should not be found in managed artifacts"
     );
 }

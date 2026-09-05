@@ -420,6 +420,16 @@ Authorize and perform a feature's local teardown
 | `--record` | `<RECORD>` |  | Path to the approved cleanup record; required to perform teardown |
 
 
+##### `ivar feature workspace`
+
+Generate a multi-root VSCode workspace (.code-workspace) for a feature, opening promoted repos writable and every context repo read-only
+
+| argument | required | description |
+| --- | --- | --- |
+| `feature` | yes | The feature to generate a workspace for |
+| `repos` | no | Which declared repos to include; includes all when omitted |
+
+
 #### `ivar session`
 
 Manage sessions
