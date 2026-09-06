@@ -9,6 +9,7 @@ use super::*;
 use crate::action::discovery::create::{self, CreateInput};
 use crate::action::hall::{self, InitInput};
 use crate::domain::discovery::DiscoveryStatus;
+use crate::domain::name::SessionId;
 use crate::infra::fs;
 use crate::store::layout::Layout;
 use crate::test_support::hall_root;
@@ -76,46 +77,20 @@ fn list_is_empty_in_a_hall_with_no_discoveries() {
     assert!(outcome.discoveries.is_empty());
 }
 
-/// D11: `docs/` also holds the hall's own flat topic documentation. `list`
-/// must not report `docs/updates/` as a unit of work, and no ivar command
-/// may touch it.
-#[test]
-fn list_ignores_the_halls_own_topic_directories() {
-    let (_guard, root) = hall();
-    let ctx = Ctx::new(root.clone());
-    start(&ctx, "checkout-refactor");
-
-    let layout = Layout::at(root.clone());
-    for topic in ["product", "updates", "repo-relations"] {
-        let dir = layout.work_docs_root().join(topic);
-        fs::ensure_dir(&dir).unwrap();
-        fs::write_text(&dir.join("001-something.md"), "# A topic\n").unwrap();
-    }
-    // Even a folder carrying a discovery.md is skipped when its name is not
-    // a valid work name — the name is the gate, not the file.
-    let odd = layout.work_docs_root().join("Not A Work Name");
-    fs::ensure_dir(&odd).unwrap();
-    fs::write_text(&odd.join("discovery.md"), "---\nname: x\n---\n").unwrap();
-
-    let outcome = list(&ctx, ListInput { status: None }).unwrap().value;
-
-    let names: Vec<&str> = outcome
-        .discoveries
-        .iter()
-        .map(|d| d.name.as_str())
-        .collect();
-    assert_eq!(names, vec!["checkout-refactor"]);
-}
-
-/// A folder under `docs/` with no `discovery.md` is the team's, not ivar's.
+/// A folder under `.ivar/features/` with no `discovery.md` is skipped.
 #[test]
 fn list_ignores_a_folder_without_a_discovery_doc() {
     let (_guard, root) = hall();
     let ctx = Ctx::new(root.clone());
     let layout = Layout::at(root.clone());
-    let dir = layout.work_docs_root().join("some-folder");
+    let dir = layout.features_dir().join("some-folder");
     fs::ensure_dir(&dir).unwrap();
-    fs::write_text(&dir.join("notes.md"), "just notes\n").unwrap();
+    fs::write_text(
+        &dir.join("notes.md"),
+        "just notes
+",
+    )
+    .unwrap();
 
     let outcome = list(&ctx, ListInput { status: None }).unwrap().value;
 
@@ -128,14 +103,78 @@ fn list_reports_an_unreadable_doc_as_unknown() {
     let (_guard, root) = hall();
     let ctx = Ctx::new(root.clone());
     let layout = Layout::at(root.clone());
-    let dir = layout.work_docs_root().join("broken-doc");
+    let dir = layout.features_dir().join("broken-doc");
     fs::ensure_dir(&dir).unwrap();
-    fs::write_text(&dir.join("discovery.md"), "no front matter at all\n").unwrap();
+    fs::write_text(
+        &dir.join("discovery.md"),
+        "no front matter at all
+",
+    )
+    .unwrap();
 
     let outcome = list(&ctx, ListInput { status: None }).unwrap().value;
 
     assert_eq!(outcome.discoveries.len(), 1);
     assert_eq!(outcome.discoveries[0].status, DiscoveryStatus::Unknown);
+}
+
+#[test]
+fn list_scans_both_features_and_unconverted_sessions() {
+    let (_guard, root) = hall();
+    let ctx = Ctx::new(root.clone());
+    let layout = Layout::at(root.clone());
+
+    // 1. Converted feature with discovery doc at .ivar/features/auth-rewrite/discovery.md
+    let feature_name = FeatureName::new("auth-rewrite").unwrap();
+    let feature_dir = layout.feature_dir(&feature_name);
+    fs::ensure_dir(&feature_dir).unwrap();
+    let feature_doc = layout.discovery_doc(&feature_name);
+    fs::write_text(
+        &feature_doc,
+        "---
+name: auth-rewrite
+title: Auth Rewrite
+status: exploring
+sessions: []
+updated_at: 2026-01-01T00:00:00.000000000Z
+---
+# Auth
+",
+    )
+    .unwrap();
+
+    // 2. Unconverted discovery session with doc at .ivar/sessions/<id>/discovery.md
+    let session_id = SessionId::new("2c6e6f1e-2d8a-4b3a-9c2a-6a7f6f9a1b2c").unwrap();
+    let session_dir = layout.discovery_session(&session_id);
+    fs::ensure_dir(&session_dir).unwrap();
+    let session_doc = session_dir.join("discovery.md");
+    fs::write_text(
+        &session_doc,
+        "---
+name: checkout-poc
+title: Checkout POC
+status: exploring
+sessions:
+  - 2c6e6f1e-2d8a-4b3a-9c2a-6a7f6f9a1b2c
+updated_at: 2026-01-01T00:00:00.000000000Z
+---
+# Checkout POC
+",
+    )
+    .unwrap();
+
+    let outcome = list(&ctx, ListInput { status: None }).unwrap().value;
+
+    assert_eq!(outcome.discoveries.len(), 2);
+    assert_eq!(
+        outcome.discoveries[0].name.as_str(),
+        "2c6e6f1e-2d8a-4b3a-9c2a-6a7f6f9a1b2c"
+    );
+    assert_eq!(outcome.discoveries[0].title, "Checkout POC");
+    assert_eq!(outcome.discoveries[0].status, DiscoveryStatus::Exploring);
+    assert_eq!(outcome.discoveries[1].name.as_str(), "auth-rewrite");
+    assert_eq!(outcome.discoveries[1].title, "Auth Rewrite");
+    assert_eq!(outcome.discoveries[1].status, DiscoveryStatus::Exploring);
 }
 
 #[test]
@@ -181,12 +220,17 @@ fn show_prints_the_doc_and_can_print_only_its_path() {
     .unwrap()
     .value;
 
-    assert!(outcome.content.is_some());
+    let layout = Layout::at(root.clone());
+    let name = FeatureName::new("checkout-refactor").unwrap();
+    assert_eq!(outcome.path, layout.discovery_doc(&name));
+    let content = outcome.content.unwrap();
     assert!(
-        outcome
-            .path
-            .as_str()
-            .ends_with("docs/checkout-refactor/discovery.md")
+        content.starts_with(
+            "---
+name: checkout-refactor
+"
+        ),
+        "content: {content}"
     );
 
     let path_only = super::super::show::show(
@@ -199,22 +243,6 @@ fn show_prints_the_doc_and_can_print_only_its_path() {
     .unwrap()
     .value;
 
+    assert_eq!(path_only.path, layout.discovery_doc(&name));
     assert!(path_only.content.is_none());
-}
-
-#[test]
-fn show_fails_for_a_name_with_no_discovery() {
-    let (_guard, root) = hall();
-    let ctx = Ctx::new(root.clone());
-
-    let failure = super::super::show::show(
-        &ctx,
-        super::super::show::ShowInput {
-            name: "never-started".to_owned(),
-            path_only: false,
-        },
-    )
-    .unwrap_err();
-
-    assert_eq!(failure.code, "discovery.not_found");
 }

@@ -1,7 +1,8 @@
 //! `ivar discovery create <name>` — start a unit of work's memory.
 //!
-//! Writes `docs/<name>/discovery.md` with front matter in `exploring` and
-//! an empty body, and creates `docs/<name>/research/` alongside it.
+//! Writes `<hall>/.ivar/features/<name>/discovery.md` (or `<view_dir>/discovery.md`
+//! inside an unconverted discovery session) with front matter in `exploring` and
+//! an empty body.
 //!
 //! No feature is required, and none is created: D3 says the order does not
 //! matter, and discovery-then-feature is the normal one.
@@ -12,6 +13,7 @@ use camino::Utf8PathBuf;
 use serde::Serialize;
 
 use crate::action::Ctx;
+use crate::action::session::env::SessionEnv;
 use crate::domain::discovery::DiscoveryDoc;
 use crate::domain::name::FeatureName;
 use crate::domain::session::rfc3339_now;
@@ -37,9 +39,9 @@ pub struct CreateOutcome {
     pub root: Utf8PathBuf,
     /// The unit of work's name.
     pub name: FeatureName,
-    /// `<hall>/docs/<name>/`.
-    pub work_dir: Utf8PathBuf,
-    /// `<hall>/docs/<name>/discovery.md`.
+    /// `<hall>/.ivar/features/<name>/`.
+    pub feature_dir: Utf8PathBuf,
+    /// The path where the doc was written.
     pub doc: Utf8PathBuf,
 }
 
@@ -59,7 +61,7 @@ pub fn create(ctx: &Ctx, input: CreateInput) -> Outcome<CreateOutcome> {
     let layout = discover_hall(ctx)?;
     let name = FeatureName::new(input.name)?;
 
-    let doc_path = layout.discovery_doc(&name);
+    let doc_path = super::resolve_doc_path(ctx, &layout, &name)?;
     if fs::is_file(&doc_path)? {
         return Err(Failure::blocked(
             "discovery.already_exists",
@@ -73,17 +75,27 @@ pub fn create(ctx: &Ctx, input: CreateInput) -> Outcome<CreateOutcome> {
         )));
     }
 
-    let work_dir = layout.work_dir(&name);
-    fs::ensure_dir(&work_dir)?;
-    fs::ensure_dir(&layout.research_dir(&name))?;
+    if let Some(parent) = doc_path.parent() {
+        fs::ensure_dir(parent)?;
+    }
 
-    let doc = DiscoveryDoc::new(&name, input.title.as_deref(), &rfc3339_now());
+    let mut doc = DiscoveryDoc::new(&name, input.title.as_deref(), &rfc3339_now());
+    // A doc created inside a discovery session must record that session in its
+    // front matter. `session convert` resolves the name to promote by finding
+    // the doc whose `sessions` lists the converting session; a doc that never
+    // names its own session could never be converted, which is the entire path
+    // a discovery session exists to take.
+    if let Ok(Some(env)) = SessionEnv::resolve_by_cwd(&ctx.cwd)
+        && env.feature.is_none()
+    {
+        doc.frontmatter.sessions.push(env.session_id);
+    }
     fs::write_text(&doc_path, &discovery::render(&doc)?)?;
 
     Ok(Report::new(CreateOutcome {
         root: layout.root().to_path_buf(),
-        name,
-        work_dir,
+        name: name.clone(),
+        feature_dir: layout.feature_dir(&name),
         doc: doc_path,
     }))
 }

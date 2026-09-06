@@ -1,11 +1,9 @@
 //! `ivar discovery list` — every unit of work with committed memory.
 //!
-//! Scans `<hall>/docs/` and keeps a child only when its name is a valid
-//! work name *and* it holds a `discovery.md`. That pair of conditions is
-//! D11: `docs/product/`, `docs/updates/`, and `docs/repo-relations/` are
-//! the hall's own topic documentation, and every other folder there is the
-//! team's. ivar reports only what it created.
+//! Scans both `<hall>/.ivar/features/*/discovery.md` and
+//! `<hall>/.ivar/sessions/*/discovery.md`.
 
+use std::fmt;
 use std::io;
 
 use camino::Utf8PathBuf;
@@ -13,12 +11,57 @@ use serde::Serialize;
 
 use crate::action::Ctx;
 use crate::domain::discovery::DiscoveryStatus;
-use crate::domain::name::FeatureName;
+use crate::domain::name::{FeatureName, SessionId};
 use crate::error::{Outcome, Report, WriteHuman};
 use crate::infra::fs;
 use crate::store::discovery;
 
 use super::super::discover_hall;
+
+/// The identity of a listed discovery: either a converted feature or an
+/// unconverted discovery session.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(untagged)]
+pub enum DiscoveryName {
+    /// A converted discovery doc living in `.ivar/features/<name>/discovery.md`.
+    Feature(FeatureName),
+    /// An unconverted discovery session doc living in `.ivar/sessions/<id>/discovery.md`.
+    Session(SessionId),
+}
+
+impl DiscoveryName {
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::Feature(name) => name.as_str(),
+            Self::Session(id) => id.as_str(),
+        }
+    }
+}
+
+impl fmt::Display for DiscoveryName {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Feature(name) => write!(f, "{name}"),
+            Self::Session(id) => write!(f, "{id}"),
+        }
+    }
+}
+
+impl PartialEq<FeatureName> for DiscoveryName {
+    fn eq(&self, other: &FeatureName) -> bool {
+        match self {
+            Self::Feature(name) => name == other,
+            Self::Session(_) => false,
+        }
+    }
+}
+
+impl PartialEq<DiscoveryName> for FeatureName {
+    fn eq(&self, other: &DiscoveryName) -> bool {
+        other == self
+    }
+}
 
 /// What `ivar discovery list` needs.
 #[derive(Debug, Clone)]
@@ -30,8 +73,8 @@ pub struct ListInput {
 /// One discovery, as listed.
 #[derive(Debug, Clone, Serialize)]
 pub struct Summary {
-    /// The unit of work's name.
-    pub name: FeatureName,
+    /// The unit of work or session identity.
+    pub name: DiscoveryName,
     /// Its title, or the name when the header could not be read.
     pub title: String,
     /// Where it stands.
@@ -67,42 +110,77 @@ impl WriteHuman for ListOutcome {
     }
 }
 
-/// List every unit of work with committed memory.
+/// List every unit of work with discovery memory across feature dirs and active discovery sessions.
 ///
 /// # Errors
 ///
-/// When no hall is found, or `<hall>/docs/` cannot be read.
+/// When no hall is found, or directories cannot be read.
 pub fn list(ctx: &Ctx, input: ListInput) -> Outcome<ListOutcome> {
     let layout = discover_hall(ctx)?;
-    let docs_root = layout.work_docs_root();
-
     let mut discoveries = Vec::new();
-    if fs::is_dir(&docs_root)? {
-        for child in fs::read_dir(&docs_root)? {
+
+    // 1. Scan converted features: .ivar/features/*/discovery.md
+    let features_dir = layout.features_dir();
+    if fs::is_dir(&features_dir)? {
+        for child in fs::read_dir(&features_dir)? {
             if !fs::is_dir(&child)? {
                 continue;
             }
-            // The name is the gate. A folder ivar could not have created is
-            // not ivar's to report — see the module doc.
             let Some(basename) = child.file_name() else {
                 continue;
             };
-            let Ok(name) = FeatureName::new(basename) else {
+            let Ok(feature_name) = FeatureName::new(basename) else {
                 continue;
             };
-            let doc_path = layout.discovery_doc(&name);
+            let doc_path = layout.discovery_doc(&feature_name);
             if !fs::is_file(&doc_path)? {
                 continue;
             }
 
             let doc = discovery::parse(&fs::read_text(&doc_path)?.unwrap_or_default());
             let title = if doc.frontmatter.title.is_empty() {
-                name.as_str().to_owned()
+                feature_name.as_str().to_owned()
             } else {
                 doc.frontmatter.title.clone()
             };
             discoveries.push(Summary {
-                name,
+                name: DiscoveryName::Feature(feature_name),
+                title,
+                status: doc.frontmatter.status,
+            });
+        }
+    }
+
+    // 2. Scan unconverted discovery sessions: .ivar/sessions/*/discovery.md
+    let sessions_dir = layout.discovery_sessions_dir();
+    if fs::is_dir(&sessions_dir)? {
+        for child in fs::read_dir(&sessions_dir)? {
+            if !fs::is_dir(&child)? {
+                continue;
+            }
+            let Some(basename) = child.file_name() else {
+                continue;
+            };
+            let Ok(session_id) = SessionId::new(basename) else {
+                continue;
+            };
+            let doc_path = child.join("discovery.md");
+            if !fs::is_file(&doc_path)? {
+                continue;
+            }
+
+            let doc = discovery::parse(&fs::read_text(&doc_path)?.unwrap_or_default());
+            let title = if doc.frontmatter.title.is_empty() {
+                if doc.frontmatter.name.is_empty() {
+                    session_id.as_str().to_owned()
+                } else {
+                    doc.frontmatter.name.clone()
+                }
+            } else {
+                doc.frontmatter.title.clone()
+            };
+            discoveries.push(Summary {
+                name: DiscoveryName::Session(session_id),
                 title,
                 status: doc.frontmatter.status,
             });

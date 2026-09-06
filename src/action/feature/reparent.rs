@@ -162,7 +162,7 @@ pub fn reparent(ctx: &Ctx, input: ReparentInput) -> Outcome<ReparentOutcome> {
             format!("cannot reparent `{child_name}`: work has started"),
         )
         .expected(
-            "a pristine child — no promotions, receipts, plan/execution/session state, close record, or descendants",
+            "a pristine child — no promotions, receipts, working documents, execution/session state, close record, or descendants",
         )
         .actual("at least one work fact exists")
         .fix(FixAction::safe(
@@ -186,7 +186,23 @@ pub fn reparent(ctx: &Ctx, input: ReparentInput) -> Outcome<ReparentOutcome> {
     }))
 }
 
-/// Whether any work fact exists on the child: a promotion, a receipt, plan/
+/// Working document filenames inside `<hall>/.ivar/features/<child>/` that indicate
+/// real planning or discovery work has started on this unit of work.
+///
+/// `discovery.md` deliberately counts as work having started: creating a discovery
+/// document represents dedicated thinking and memory for this feature.
+/// Reparenting requires the child to be pristine before any thinking or design
+/// artifacts are established.
+const WORKING_DOC_ARTIFACTS: [&str; 5] = [
+    "requirements.md",
+    "analysis.md",
+    "plan.md",
+    "tasks",
+    "discovery.md",
+];
+
+/// Whether any work fact exists on the child: a promotion, a receipt, working
+/// documents (`requirements.md`, `analysis.md`, `plan.md`, `tasks/`, `discovery.md`),
 /// execution/session entries, a close record, or a descendant.
 fn work_started(
     layout: &Layout,
@@ -202,8 +218,13 @@ fn work_started(
     if read_close(layout, &child.name)?.is_some() {
         return Ok(true);
     }
+    let feature_dir = layout.feature_dir(&child.name);
+    for artifact in WORKING_DOC_ARTIFACTS {
+        if fs::exists(&feature_dir.join(artifact))? {
+            return Ok(true);
+        }
+    }
     for dir in [
-        layout.plan_dir(&child.name),
         layout.execution_dir(&child.name),
         layout.feature_sessions_dir(&child.name),
     ]

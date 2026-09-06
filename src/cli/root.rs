@@ -96,7 +96,7 @@ pub enum Command {
     /// Manage providers.
     #[command(subcommand)]
     Provider(ProviderCommand),
-    /// Manage discovery docs: a unit of work's committed memory.
+    /// Manage discovery docs: a unit of work's working brief.
     #[command(subcommand)]
     Discovery(DiscoveryCommand),
     /// Manage SPDD plans.
@@ -280,7 +280,7 @@ pub enum FeatureCommand {
     /// Rename a feature, its branch, or both — the one allowed identity
     /// transition. Every promoted repo's local branch and worktree, its
     /// remote branch when published, direct children, live sessions, and the
-    /// `plans/` directory all move together, durably and resumably: a
+    /// feature directory all move together, durably and resumably: a
     /// mid-flight failure automatically reverses whatever already landed, and
     /// an interruption resumes on the next `ivar feature rename` invocation
     /// naming the same feature.
@@ -764,11 +764,10 @@ pub struct DiscoveryArgs {
 
 #[derive(Debug, Subcommand)]
 pub enum DiscoveryCommand {
-    /// Start a unit of work's memory: `docs/<name>/discovery.md` plus its
-    /// `research/` directory. No feature required — a name may earn memory
-    /// long before it earns execution.
+    /// Start a unit of work's discovery brief. When run in a discovery session,
+    /// writes `discovery.md` into the session view dir.
     Create(DiscoveryCreateArgs),
-    /// List every unit of work with committed memory.
+    /// List every unit of work with a discovery doc.
     List(DiscoveryListArgs),
     /// Print one unit of work's memory.
     Show(DiscoveryShowArgs),

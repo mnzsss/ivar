@@ -81,7 +81,7 @@ workflow writes no file.
    the smell baseline alone, and its report must say so.
 
 5. **Gather the spec, once for the target.** A feature target uses
-   `plans/<feature>/requirements.md` and `plans/<feature>/plan.md` under
+   `../../requirements.md` and `../../plan.md` relative to
    `$IVAR_SESSION_PATH`. A pull request target uses the `title` and `body` read
    in step 3, plus any issue the body references. With neither available, skip
    the Spec subagent and say in the report that no spec was available. Never

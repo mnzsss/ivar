@@ -392,17 +392,17 @@ fn connect_with_no_filter_is_blocked() {
     unguard_worktrees(&root);
 }
 
-/// Connect re-materialises the whole view dir, so a session created before
-/// plan projection and bootstrap instructions existed — or whose entries were
-/// deleted behind ivar's back — is repaired: the plan link, the provider's
-/// commands symlink and the session instruction file all come back.
+/// Connect re-materialises the whole view dir, so a session whose entries were
+/// deleted behind ivar's back is repaired: the provider's commands symlink and
+/// the session instruction file all come back, with no `plans/` or `work`
+/// projected.
 #[test]
-fn connect_repairs_the_projected_plan_commands_and_instructions() {
+fn connect_repairs_commands_and_instructions() {
     let (_guard, root) = hall_with_detached_session();
     let ctx = Ctx::new(root.clone());
     let layout = Layout::at(root.clone());
 
-    // Scaffold the plan so the projected path resolves to real artifacts.
+    // Scaffold the plan so the feature dir has working documents.
     plan_create::create(
         &ctx,
         PlanCreateInput {
@@ -415,9 +415,7 @@ fn connect_repairs_the_projected_plan_commands_and_instructions() {
     let session_id = crate::domain::name::SessionId::new(id.clone()).unwrap();
     let view_dir = layout.feature_session(&FeatureName::new("checkout").unwrap(), &session_id);
 
-    // Drift: the whole projected plan, the commands symlink and the session
-    // instruction file disappear.
-    fs::remove_path(&view_dir.join("plans")).unwrap();
+    // Drift: the commands symlink and the session instruction file disappear.
     fs::remove_file(&view_dir.join(".claude/commands")).unwrap();
     fs::remove_file(&view_dir.join("CLAUDE.md")).unwrap();
     assert!(!fs::exists(&view_dir.join("CLAUDE.md")).unwrap());
@@ -432,10 +430,14 @@ fn connect_repairs_the_projected_plan_commands_and_instructions() {
     )
     .unwrap();
 
-    // The projected plan is back and resolves to the hall's plan directory.
+    // No plans/ projection or work symlink in the view dir.
     assert!(
-        fs::is_file(&view_dir.join("plans/checkout/requirements.md")).unwrap(),
-        "connect must restore the projected plan"
+        !fs::exists(&view_dir.join("plans")).unwrap(),
+        "view dir must not project plans/"
+    );
+    assert!(
+        !fs::exists(&view_dir.join("work")).unwrap(),
+        "view dir must not project work"
     );
     // The provider's commands reach the agent again.
     assert!(

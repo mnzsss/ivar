@@ -28,8 +28,6 @@ pub(super) struct RenamePlan {
     pub(super) new_branch: BranchName,
     pub(super) old_dir: Utf8PathBuf,
     pub(super) new_dir: Utf8PathBuf,
-    pub(super) old_plan_dir: Utf8PathBuf,
-    pub(super) new_plan_dir: Utf8PathBuf,
     pub(super) repos: Vec<RepoRenamePlan>,
 }
 
@@ -60,17 +58,6 @@ pub(super) fn build(
             scope: "feature".to_owned(),
             subject: new_name.to_string(),
             explanation: format!("Feature directory `{new_dir}` already exists."),
-        });
-    }
-
-    // R-FEATURE-COLLISIONS: occupied `plans/<new-name>`
-    let old_plan_dir = layout.plan_dir(&source.name);
-    let new_plan_dir = layout.plan_dir(&new_name);
-    if new_name != source.name && fs::is_dir(&new_plan_dir)? {
-        blockers.push(Blocker {
-            scope: "plan".to_owned(),
-            subject: new_name.to_string(),
-            explanation: format!("Plan directory `{new_plan_dir}` already exists."),
         });
     }
 
@@ -155,8 +142,6 @@ pub(super) fn build(
         new_branch,
         old_dir: layout.feature_dir(&source.name),
         new_dir,
-        old_plan_dir,
-        new_plan_dir,
         repos: repo_plans,
     };
 

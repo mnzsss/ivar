@@ -59,8 +59,6 @@ pub struct DeleteOutcome {
     pub worktrees: Vec<WorktreeRemoval>,
     /// Whether the feature's own directory (and its record) was removed.
     pub feature_removed: bool,
-    /// Whether the plans directory was removed.
-    pub plans_removed: bool,
 }
 
 impl WriteHuman for DeleteOutcome {
@@ -230,27 +228,18 @@ pub fn delete(ctx: &Ctx, input: DeleteInput) -> Outcome<DeleteOutcome> {
                 name,
                 worktrees,
                 feature_removed: false,
-                plans_removed: false,
             },
             warnings,
         ));
     }
 
-    // Everything that can fail cheaply is gone. Plans go before the feature
-    // directory: the record a retry needs is the last thing to disappear.
+    // Everything that can fail cheaply is gone.
     //
-    // Only execution is removed. `docs/<name>/` — the discovery doc and its
-    // research — is deliberately untouched (ADR-0002 D10): a feature that
-    // was tried and dropped leaves behind the cheapest information a team
-    // owns, and deleting the feature is precisely when that information
-    // stops being re-derivable. Adding `work_dir` to the removals below
-    // would compile, pass every other test, and quietly throw it away.
-    fs::remove_path(&layout.plan_dir(&name)).map_err(|source| {
-        Failure::failed(
-            "feature.delete_plans_failed",
-            format!("could not remove plans for feature `{name}`: {source}"),
-        )
-    })?;
+    // Working documents (discovery doc, SPDD plan artifacts) are local to the
+    // feature directory under `.ivar/features/<name>/`, gitignored, and die
+    // with the feature. Distillation into the hall's committed `docs/` is what
+    // preserves anything worth keeping; teardown removes the single local feature
+    // directory and everything within it.
     fs::remove_path(&layout.feature_dir(&name)).map_err(|source| {
         Failure::failed(
             "feature.delete_dir_failed",
@@ -264,7 +253,6 @@ pub fn delete(ctx: &Ctx, input: DeleteInput) -> Outcome<DeleteOutcome> {
             name,
             worktrees,
             feature_removed: true,
-            plans_removed: true,
         },
         warnings,
     ))

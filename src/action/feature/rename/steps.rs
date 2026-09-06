@@ -27,8 +27,7 @@ pub(super) enum Step {
     MoveFeatureDir = 4,
     UpdateChildren = 5,
     MoveSessions = 6,
-    MovePlans = 7,
-    Finish = 8,
+    Finish = 7,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -278,12 +277,6 @@ pub(super) fn perform_step(
                     )?;
                 }
             }
-            Ok(Step::MovePlans)
-        }
-        Step::MovePlans => {
-            if plan.old_feature.name != plan.new_name && fs::is_dir(&plan.old_plan_dir)? {
-                fs::rename(&plan.old_plan_dir, &plan.new_plan_dir)?;
-            }
             Ok(Step::Finish)
         }
         Step::Finish => {
@@ -308,12 +301,6 @@ pub(super) fn undo_step(
     step: Step,
 ) -> Result<Step, Failure> {
     match step {
-        Step::MovePlans => {
-            if plan.old_feature.name != plan.new_name && fs::is_dir(&plan.new_plan_dir)? {
-                fs::rename(&plan.new_plan_dir, &plan.old_plan_dir)?;
-            }
-            Ok(Step::MoveSessions)
-        }
         Step::MoveSessions => {
             let current_name = if fs::is_dir(&plan.new_dir)? {
                 &plan.new_name

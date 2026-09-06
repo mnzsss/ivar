@@ -7,6 +7,7 @@
 
 use super::*;
 use crate::error::Status;
+use crate::infra::fs;
 use crate::store::layout::Layout;
 use crate::test_support::{hall_root, seeded_hall};
 

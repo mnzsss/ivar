@@ -134,7 +134,9 @@ fn deliver_refuses_once_an_upstream_artifact_appears_after_approval() {
 
     // The upstream artifact appears, unapproved.
     crate::infra::fs::write_text(
-        &root.join("plans/checkout/requirements.md"),
+        &Layout::at(root.clone())
+            .plan_dir(&FeatureName::new("checkout").unwrap())
+            .join("requirements.md"),
         "# Requirements\n",
     )
     .unwrap();
@@ -171,7 +173,10 @@ fn deliver_refuses_a_plan_edited_after_it_was_approved() {
     );
 
     // A human rewrites the plan after approving it.
-    let plan_path = root.join("plans/checkout/plan.md");
+    let layout = Layout::at(root.clone());
+    let plan_path = layout
+        .plan_dir(&FeatureName::new("checkout").unwrap())
+        .join("plan.md");
     let body = crate::infra::fs::read_text(&plan_path).unwrap().unwrap();
     crate::infra::fs::write_text(&plan_path, &format!("{body}\nrewritten\n")).unwrap();
 

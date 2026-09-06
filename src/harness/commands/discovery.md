@@ -74,11 +74,12 @@ to a Feature.
         `sessions` — so a hand-written file has no `sessions` entry and
         conversion will refuse it.
         - Create the doc if it does not exist:
-          `ivar discovery create <name> [--title <title>]`. The name is the
+          `ivar discovery create <name> [--title <title>]`. The doc is written
+          into the discovery session's view dir (`discovery.md`). The name is the
           unit of work's name, lowercase kebab-case; it becomes the feature
           name at conversion.
         - Write the brief:
-          `IVAR_SESSION_ID=<session-id> ivar discovery amend <name> --file <path>`.
+          `ivar discovery amend <name> --file <path>`.
           `--file -` reads stdin. Append is the default and records the
           session in `sessions`, which is what conversion looks for.
         - Use `--merge` only to replace the whole document; it requires
@@ -86,11 +87,10 @@ to a Feature.
           Show the proposed document and get confirmation first.
      2. Confirm the brief with the user.
      3. Run `ivar session convert <session-id>` to bind the session. The
-        command takes no feature argument: it resolves the name from the
-        discovery doc whose frontmatter lists this session, and creates the
-        feature when it does not exist yet. Do not ask the user to choose a
-        new or existing feature — the name follows from the brief, and
-        `ivar feature create` beforehand is unnecessary.
+        command moves `discovery.md` into `.ivar/features/<name>/discovery.md`
+        and creates the feature when it does not exist yet. Do not ask the user
+        to choose a new or existing feature — the name follows from the brief,
+        and `ivar feature create` beforehand is unnecessary.
      4. Parse the output. Export the binding env vars.
      5. After successful conversion, check if `/ivar-plan` is installed (look
         in `.claude/commands/` or `.opencode/commands/` for `ivar-plan.md`):

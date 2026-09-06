@@ -7,11 +7,12 @@ use crate::error::Failure;
 use crate::store::layout::Layout;
 use camino::{Utf8Path, Utf8PathBuf};
 
-/// The set of paths a session is allowed to write into: its view dir plus
-/// the worktrees of promoted repos.
+/// The set of paths a session is allowed to write into: its view dir, its
+/// feature directory (for feature sessions), plus the worktrees of promoted repos.
 #[derive(Debug, Clone)]
 pub(crate) struct WritableSet {
     view_dir: Utf8PathBuf,
+    feature_dir: Option<Utf8PathBuf>,
     worktrees: Vec<Utf8PathBuf>,
 }
 
@@ -32,9 +33,9 @@ fn canonicalize_lenient(path: &Utf8Path) -> Utf8PathBuf {
 }
 
 impl WritableSet {
-    /// Build the writable set from the session's view dir and the feature's
-    /// promoted repos. Both the view dir and each worktree are canonicalised to
-    /// prevent symlink escapes.
+    /// Build the writable set from the session's view dir, the feature's
+    /// directory, and the feature's promoted repos. The view dir, feature dir,
+    /// and each worktree are canonicalised to prevent symlink escapes.
     pub(crate) fn from_session(
         layout: &Layout,
         feature: &Feature,
@@ -46,6 +47,8 @@ impl WritableSet {
                 format!("could not canonicalise view dir `{view_dir}`: {source}"),
             )
         })?;
+        let feat_dir_raw = layout.feature_dir(&feature.name);
+        let feature_dir = canonicalize_lenient(&feat_dir_raw);
         let worktrees = feature
             .promotions
             .keys()
@@ -61,6 +64,7 @@ impl WritableSet {
             .collect::<Result<Vec<_>, Failure>>()?;
         Ok(Self {
             view_dir,
+            feature_dir: Some(feature_dir),
             worktrees,
         })
     }
@@ -81,6 +85,7 @@ impl WritableSet {
         })?;
         Ok(Self {
             view_dir,
+            feature_dir: None,
             worktrees: Vec::new(),
         })
     }
@@ -92,6 +97,10 @@ impl WritableSet {
     pub(crate) fn allows(&self, path: &Utf8Path) -> bool {
         let canonical = canonicalize_lenient(path);
         canonical.starts_with(&self.view_dir)
+            || self
+                .feature_dir
+                .as_ref()
+                .is_some_and(|fd| canonical.starts_with(fd))
             || self.worktrees.iter().any(|wt| canonical.starts_with(wt))
     }
 
@@ -102,14 +111,17 @@ impl WritableSet {
 
     /// Build a `WritableSet` from explicit parts. Test-only.
     #[cfg(test)]
-    /// `cfg(test)`: the CLI always builds a guard from a resolved session,
-    /// never from loose parts.
-    #[cfg(test)]
-    pub(crate) fn from_parts(view_dir: Utf8PathBuf, worktrees: Vec<Utf8PathBuf>) -> Self {
+    pub(crate) fn from_parts(
+        view_dir: Utf8PathBuf,
+        feature_dir: Option<Utf8PathBuf>,
+        worktrees: Vec<Utf8PathBuf>,
+    ) -> Self {
         let view_dir = canonicalize_lenient(&view_dir);
+        let feature_dir = feature_dir.map(|fd| canonicalize_lenient(&fd));
         let worktrees = worktrees.iter().map(|w| canonicalize_lenient(w)).collect();
         Self {
             view_dir,
+            feature_dir,
             worktrees,
         }
     }
@@ -149,6 +161,7 @@ pub(crate) fn decide(set: Option<&WritableSet>, req: &ToolRequest) -> GuardDecis
             reason: format!(
                 "writable set: {}",
                 std::iter::once(set.view_dir().to_string())
+                    .chain(set.feature_dir.as_ref().map(|f| f.to_string()))
                     .chain(set.worktrees.iter().map(|w| w.to_string()))
                     .collect::<Vec<_>>()
                     .join(", ")

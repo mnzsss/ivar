@@ -58,9 +58,10 @@ refuses.
    **Read-only repos (do NOT edit or load context from):** <list of read-only repo names>
 
    All file operations must use paths relative to $IVAR_SESSION_PATH. Repos are
-   mounted directly at the view dir's root (`$IVAR_SESSION_PATH/<repo>/`); the
-   feature's plan is at `$IVAR_SESSION_PATH/plans/<feature>/`.
-   Never read or write files outside the session path.
+   mounted directly at the view dir's root (`$IVAR_SESSION_PATH/<repo>/`); working
+   documents live two levels up at `$IVAR_SESSION_PATH/../../` (`requirements.md`,
+   `analysis.md`, `plan.md`, `tasks/`).
+   Never read or write files outside the session path and feature directory.
    When reading files from read-only repos, prefer to search only in promoted repos first.
    ```
 
@@ -70,11 +71,11 @@ refuses.
 
 ## Continuing the feature's work
 
-The plan lives at `$IVAR_SESSION_PATH/plans/<feature>/`. At the start of every
+Working documents live at `$IVAR_SESSION_PATH/../../`. At the start of every
 conversation, re-derive where the feature is in the SPDD cycle:
 
-1. Run `ivar plan status plans/<feature>/plan.md`.
-2. Read the plan artifacts that exist under `plans/<feature>/`.
+1. Run `ivar plan status ../../plan.md`.
+2. Read the plan artifacts that exist under `../../`.
 3. Continue from the first approval gate that is `pending` or
    `needs-revision`.
 
@@ -87,7 +88,7 @@ conversation, re-derive where the feature is in the SPDD cycle:
   session. Ask the user which one to convert; do not pick for them.
 - **Connect re-materialises the view dir** on every run, repairing whatever
   drifted or predates the current `ivar`: repo symlinks, read-only guards, the
-  provider's config dir and commands, the projected plan link, and the
+  provider's config dir and commands, and the
   session's bootstrap instructions. Running it again is safe and cheap.
 - **Each session reconnects under the provider that opened it.** One relayed to
   OpenCode comes back as an OpenCode session, not as the hall's default.

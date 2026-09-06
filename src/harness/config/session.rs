@@ -18,7 +18,7 @@
 use crate::domain::name::FeatureName;
 
 /// Build the session bootstrap block for `feature`, whose plan is reachable
-/// from the View Dir at `plan_rel_path` (e.g. `plans/checkout/plan.md`).
+/// from the View Dir at `plan_rel_path` (e.g. `../../plan.md`).
 #[must_use]
 pub(crate) fn build_session_block(feature: &FeatureName, plan_rel_path: &str) -> String {
     format!(
@@ -32,8 +32,8 @@ it is gone. A relay preserves the work, never the thread.
 Before proposing or editing anything, re-derive planning state:
 
 1. Run `ivar plan status {plan_rel_path}`.
-2. Read the plan artifacts that exist under `plans/{feature}/` —
-   `requirements.md`, `analysis.md`, `plan.md`.
+2. Read the working documents in the feature directory (two levels up) —
+   `../../requirements.md`, `../../analysis.md`, `{plan_rel_path}`.
 3. Continue from the first approval gate that is `pending` or
    `needs-revision`. A `needs-revision` gate means its artifact changed since
    it was approved: revise the artifact, then re-approve the gate with
@@ -56,8 +56,8 @@ ivar feature execute status {feature}
 - To abandon any non-terminal run and begin again, use
   `ivar feature execute start {feature} --plan {plan_rel_path} --restart`.
 
-The plan files are real: edits under `plans/{feature}/` land in the hall's
-committed plan directory.
+The working documents are real: edits in the feature directory land in
+the hall's feature working directory (`.ivar/features/{feature}/`).
 <!-- ivar:session:end -->"#
     )
 }

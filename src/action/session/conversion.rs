@@ -30,6 +30,7 @@ use crate::domain::name::{FeatureName, SessionId};
 use crate::domain::session::{SessionState, rfc3339_now};
 use crate::error::{Failure, FixAction, Outcome, Report, Warning, WriteHuman};
 use crate::infra::{fs, json};
+use crate::store::discovery;
 use crate::store::layout::Layout;
 use crate::store::manifest::Manifest;
 
@@ -98,6 +99,8 @@ struct Transition {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 enum Step {
+    /// About to lift discovery.md from the session view dir into the feature root.
+    LiftDiscovery,
     /// About to move the View Dir.
     MoveSession,
     /// About to bind the session state.
@@ -168,19 +171,58 @@ pub fn convert(ctx: &Ctx, input: ConvertInput) -> Outcome<ConvertOutcome> {
         crate::action::discovery::list::ListInput { status: None },
     )?
     .value;
-    let mut matching_names: Vec<FeatureName> = listed
-        .discoveries
-        .iter()
-        .map(|summary| summary.name.clone())
-        .filter(|name| {
-            crate::action::discovery::load(&layout, name).is_ok_and(|doc| {
-                doc.frontmatter
-                    .sessions
-                    .iter()
-                    .any(|id| id == session.id.as_str())
-            })
-        })
-        .collect();
+    let mut matching_names: Vec<FeatureName> = Vec::new();
+    for summary in &listed.discoveries {
+        let (doc_path, fallback_name) = match &summary.name {
+            crate::action::discovery::list::DiscoveryName::Feature(feature_name) => (
+                layout.discovery_doc(feature_name),
+                Some(feature_name.clone()),
+            ),
+            crate::action::discovery::list::DiscoveryName::Session(id) => {
+                (layout.discovery_session(id).join("discovery.md"), None)
+            }
+        };
+
+        // Parsed directly rather than through `load_at`: the loop skips a
+        // doc it cannot read, so `load_at`'s only added value — the
+        // "no discovery doc for `<name>`" failure — is discarded, and a
+        // session-rooted entry has no `FeatureName` to hand it anyway.
+        let Some(source) = fs::read_text(&doc_path)? else {
+            continue;
+        };
+        let doc = discovery::parse(&source);
+
+        if doc
+            .frontmatter
+            .sessions
+            .iter()
+            .any(|id| id == session.id.as_str())
+        {
+            let resolved_name = match fallback_name {
+                Some(f) => f,
+                None => match FeatureName::new(&doc.frontmatter.name) {
+                    Ok(f) => f,
+                    Err(_) => {
+                        return Err(Failure::blocked(
+                            "session.convert_invalid_feature_name",
+                            format!(
+                                "discovery doc at `{doc_path}` specifies invalid feature name `{}`",
+                                doc.frontmatter.name
+                            ),
+                        )
+                        .expected("a valid kebab-case feature name in the discovery doc frontmatter `name`")
+                        .actual(format!("`{}`", doc.frontmatter.name))
+                        .fix(FixAction::safe(
+                            "discovery.fix_name",
+                            "Edit the `name` field in the discovery doc frontmatter to a valid feature name, then convert again.",
+                        )));
+                    }
+                },
+            };
+            matching_names.push(resolved_name);
+        }
+    }
+
     let feature_name = match matching_names.len() {
         0 => {
             return Err(Failure::blocked(
@@ -249,7 +291,7 @@ pub fn convert(ctx: &Ctx, input: ConvertInput) -> Outcome<ConvertOutcome> {
         session_id: session.id.clone(),
         source: session.view_dir.clone(),
         feature: feature_name.clone(),
-        step: Step::MoveSession,
+        step: Step::LiftDiscovery,
     };
     write_transition(&layout, &feature_name, &transition)?;
     let outcome = run_conversion(&layout, &manifest, &feature_name, &feature, transition)?;
@@ -292,6 +334,36 @@ fn run_conversion(
     mut transition: Transition,
 ) -> Outcome<ConvertOutcome> {
     let dest = layout.feature_session(feature_name, &transition.session_id);
+
+    // Step 0 — lift discovery doc from the session view dir into the feature root,
+    // if one was created during discovery. Idempotent over all (source, dest) states:
+    // (true, _) => move source into dest.
+    // (false, true) => already moved on a prior attempt before the transition step advanced.
+    // (false, false) => legal no-op because a session may convert without having written
+    // a discovery doc (unlike MoveSession, where missing view dirs at both source and dest
+    // is an unrecoverable failure).
+    if transition.step == Step::LiftDiscovery {
+        let source_doc = transition.source.join("discovery.md");
+        let dest_doc = layout.discovery_doc(feature_name);
+
+        match (fs::is_file(&source_doc)?, fs::is_file(&dest_doc)?) {
+            (true, _) => {
+                let Some(parent) = dest_doc.parent() else {
+                    return Err(Failure::failed(
+                        "session.convert_no_parent",
+                        format!("`{dest_doc}` has no parent directory"),
+                    ));
+                };
+                fs::ensure_dir(parent)?;
+                fs::rename(&source_doc, &dest_doc)?;
+            }
+            (false, true) => {}
+            (false, false) => {}
+        }
+
+        transition.step = Step::MoveSession;
+        write_transition(layout, feature_name, &transition)?;
+    }
 
     // Step 1 — move the View Dir into the feature's session tree. Resume
     // handles the crash-after-move case: the source is gone and the

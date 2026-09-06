@@ -5,6 +5,7 @@ use crate::action::feature::create::{self as feature_create, CreateInput as Feat
 use crate::action::hall::{self, InitInput};
 use crate::action::plan::create::{self as plan_create, CreateInput as PlanCreateInput};
 use crate::error::Status;
+use crate::store::layout::Layout;
 use crate::test_support::hall_root;
 
 fn seeded_hall() -> (tempfile::TempDir, Utf8PathBuf) {
@@ -64,7 +65,11 @@ fn show_is_rejected_for_a_missing_artifact() {
     let (_guard, root) = seeded_hall();
     let ctx = Ctx::new(root.clone());
     // Delete the artifact behind ivar's back.
-    fs::remove_path(&root.join("plans/checkout/analysis.md")).unwrap();
+    let layout = Layout::at(root.clone());
+    let path = layout
+        .plan_dir(&FeatureName::new("checkout").unwrap())
+        .join("analysis.md");
+    fs::remove_path(&path).unwrap();
 
     let failure = show(
         &ctx,

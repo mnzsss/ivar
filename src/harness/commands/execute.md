@@ -25,18 +25,18 @@ Feature Session. The active provider coordinates its own native subagents;
 ## Steps
 
 1. Read `$ARGUMENTS`. In a feature session it is normally available at
-   `plans/<feature>/plan.md` relative to `$IVAR_SESSION_PATH`. Verify its gates:
+   `../../plan.md` relative to `$IVAR_SESSION_PATH`. Verify its gates:
 
    ```sh
    ivar plan status $ARGUMENTS
    ```
 
 2. You are the coordinator; do not implement. **You MUST NOT edit feature code,
-   run the feature's build, or run its tests yourself.** Read `plan.md` and
-   `plans/<feature>/tasks/`, then process the plan wave by wave:
+   run the feature's build, or run its tests yourself.** Read `../../plan.md` and
+   `../../tasks/`, then process the plan wave by wave:
    - For the current wave, you MUST dispatch ONE subagent per task packet in
-     `plans/<feature>/tasks/`. Hand the subagent ONLY that task packet's path
-     (`plans/<feature>/tasks/NN-*.md`), and instruct it to follow the packet's
+     `../../tasks/`. Hand the subagent ONLY that task packet's path
+     (`../../tasks/NN-*.md`), and instruct it to follow the packet's
      steps exactly and NOT edit `plan.md`.
    - Before dispatching, **re-anchor the packet's line references.** A packet
      written at plan time cites lines that an earlier wave may have shifted;

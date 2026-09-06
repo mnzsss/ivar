@@ -216,11 +216,10 @@ fn convert_moves_the_view_dir_and_rebuilds_symlinks() {
 }
 
 /// Conversion binds the discovery session to the feature, and the rematerialised
-/// View Dir gains what a feature session carries: the projected plan and the
-/// bootstrap instructions. The plan was *not* reachable from the discovery
-/// view dir before the conversion.
+/// View Dir gains what a feature session carries: the bootstrap instructions,
+/// with no `plans/` or `work` projected.
 #[test]
-fn convert_projects_the_plan_and_writes_bootstrap_instructions() {
+fn convert_writes_bootstrap_instructions_and_projects_no_plans_or_work() {
     let (_guard, root) = hall_with_discovery_session();
     let ctx = Ctx::new(root.clone());
     let layout = Layout::at(root.clone());
@@ -239,6 +238,11 @@ fn convert_projects_the_plan_and_writes_bootstrap_instructions() {
         fs::read_symlink(&old_dir.join("plans")).unwrap(),
         fs::SymlinkTarget::Absent,
         "a discovery session carries no plan projection"
+    );
+    assert_eq!(
+        fs::read_symlink(&old_dir.join("work")).unwrap(),
+        fs::SymlinkTarget::Absent,
+        "a discovery session carries no work projection"
     );
     let discovery_instructions = fs::read_text(&old_dir.join("CLAUDE.md")).unwrap().unwrap();
     assert!(
@@ -262,8 +266,12 @@ fn convert_projects_the_plan_and_writes_bootstrap_instructions() {
     let session_id = SessionId::new(DISCOVERY_ID).unwrap();
     let new_dir = layout.feature_session(&feature_name(), &session_id);
     assert!(
-        fs::is_file(&new_dir.join("plans/checkout/requirements.md")).unwrap(),
-        "the converted view dir must project the feature's plan"
+        !fs::exists(&new_dir.join("plans")).unwrap(),
+        "the converted view dir must not project plans/"
+    );
+    assert!(
+        !fs::exists(&new_dir.join("work")).unwrap(),
+        "the converted view dir must not project work"
     );
     let instructions = fs::read_text(&new_dir.join("CLAUDE.md")).unwrap().unwrap();
     assert!(
@@ -548,4 +556,207 @@ fn convert_refuses_a_session_no_discovery_claims() {
     .unwrap_err();
 
     assert_eq!(failure.code, "session.convert_no_discovery");
+}
+
+#[test]
+fn conversion_lifts_discovery_md_into_feature_dir() {
+    let (_guard, root) = hall_with_discovery_session();
+    let ctx = Ctx::new(root.clone());
+    let layout = Layout::at(root.clone());
+    let session = start_discovery_session(&ctx);
+    let session_id = SessionId::new(&session).unwrap();
+    let view_dir = layout.discovery_session(&session_id);
+
+    // Create a discovery doc inside the discovery session view dir
+    let session_ctx = Ctx::new(view_dir.clone());
+    crate::action::discovery::create::create(
+        &session_ctx,
+        crate::action::discovery::create::CreateInput {
+            name: "checkout".to_owned(),
+            title: Some("Checkout Flow".to_owned()),
+        },
+    )
+    .unwrap();
+
+    assert!(fs::is_file(&view_dir.join("discovery.md")).unwrap());
+    assert!(!fs::exists(&layout.discovery_doc(&FeatureName::new("checkout").unwrap())).unwrap());
+
+    // Convert
+    let report = convert(
+        &ctx,
+        ConvertInput {
+            session_id: session.clone(),
+        },
+    )
+    .unwrap();
+
+    assert_eq!(report.value.feature.as_str(), "checkout");
+    let feature_doc_path = layout.discovery_doc(&FeatureName::new("checkout").unwrap());
+    assert!(fs::is_file(&feature_doc_path).unwrap());
+    assert!(!fs::exists(&view_dir.join("discovery.md")).unwrap());
+
+    let doc = crate::store::discovery::parse(&fs::read_text(&feature_doc_path).unwrap().unwrap());
+    assert_eq!(doc.frontmatter.name, "checkout");
+    assert_eq!(
+        doc.frontmatter.status,
+        crate::domain::discovery::DiscoveryStatus::Converted
+    );
+
+    unguard_worktrees(&root);
+}
+
+#[test]
+fn conversion_resumes_idempotently_from_lift_discovery() {
+    let (_guard, root) = hall_with_discovery_session();
+    let ctx = Ctx::new(root.clone());
+    let layout = Layout::at(root.clone());
+    let old_dir = discovery_view_dir(&layout);
+
+    // Write a discovery doc into the feature root
+    let feat = feature_name();
+    let feature_doc = layout.discovery_doc(&feat);
+    fs::write_text(
+        &feature_doc,
+        &format!(
+            "---
+name: checkout
+title: Checkout
+status: exploring
+sessions:
+  - {DISCOVERY_ID}
+updated_at: {STARTED_AT}
+---
+# Checkout
+"
+        ),
+    )
+    .unwrap();
+
+    let session_id = SessionId::new(DISCOVERY_ID).unwrap();
+    let transition = Transition {
+        session_id: session_id.clone(),
+        source: old_dir.clone(),
+        feature: feat.clone(),
+        step: Step::LiftDiscovery,
+    };
+    write_transition(&layout, &feat, &transition).unwrap();
+
+    let report = convert(
+        &ctx,
+        ConvertInput {
+            session_id: DISCOVERY_ID.to_owned(),
+        },
+    )
+    .unwrap();
+
+    assert_eq!(report.value.session_id, DISCOVERY_ID);
+    assert!(fs::is_file(&feature_doc).unwrap());
+    let doc = crate::action::discovery::load(&layout, &feat).unwrap();
+    assert_eq!(
+        doc.frontmatter.status,
+        crate::domain::discovery::DiscoveryStatus::Converted
+    );
+
+    unguard_worktrees(&root);
+}
+
+#[test]
+fn convert_resolves_name_from_session_rooted_discovery_doc() {
+    let (_guard, root) = hall_with_discovery_session();
+    let ctx = Ctx::new(root.clone());
+    let layout = Layout::at(root.clone());
+    let session = start_discovery_session(&ctx);
+    let session_id = SessionId::new(&session).unwrap();
+    let view_dir = layout.discovery_session(&session_id);
+
+    // Write discovery.md inside the session view dir naming "new-feature"
+    let session_doc = view_dir.join("discovery.md");
+    fs::write_text(
+        &session_doc,
+        &format!(
+            "---
+name: new-feature
+title: New Feature
+status: exploring
+sessions:
+  - {session}
+updated_at: {STARTED_AT}
+---
+# New Feature
+"
+        ),
+    )
+    .unwrap();
+
+    let report = convert(
+        &ctx,
+        ConvertInput {
+            session_id: session.clone(),
+        },
+    )
+    .unwrap();
+
+    assert_eq!(report.value.feature.as_str(), "new-feature");
+    let feature_doc = layout.discovery_doc(&FeatureName::new("new-feature").unwrap());
+    assert!(fs::is_file(&feature_doc).unwrap());
+
+    unguard_worktrees(&root);
+}
+
+#[test]
+fn convert_refuses_when_multiple_discoveries_claim_session() {
+    let (_guard, root) = hall_with_discovery_session();
+    let ctx = Ctx::new(root.clone());
+    let layout = Layout::at(root.clone());
+    let session = start_discovery_session(&ctx);
+
+    // 1. Discovery doc 1 in feature dir
+    let feat1 = FeatureName::new("feat-one").unwrap();
+    fs::ensure_dir(&layout.feature_dir(&feat1)).unwrap();
+    fs::write_text(
+        &layout.discovery_doc(&feat1),
+        &format!(
+            "---
+name: feat-one
+title: Feat One
+status: exploring
+sessions:
+  - {session}
+updated_at: {STARTED_AT}
+---
+"
+        ),
+    )
+    .unwrap();
+
+    // 2. Discovery doc 2 in another feature dir
+    let feat2 = FeatureName::new("feat-two").unwrap();
+    fs::ensure_dir(&layout.feature_dir(&feat2)).unwrap();
+    fs::write_text(
+        &layout.discovery_doc(&feat2),
+        &format!(
+            "---
+name: feat-two
+title: Feat Two
+status: exploring
+sessions:
+  - {session}
+updated_at: {STARTED_AT}
+---
+"
+        ),
+    )
+    .unwrap();
+
+    let failure = convert(
+        &ctx,
+        ConvertInput {
+            session_id: session,
+        },
+    )
+    .unwrap_err();
+
+    assert_eq!(failure.code, "session.convert_discovery_ambiguous");
+
+    unguard_worktrees(&root);
 }

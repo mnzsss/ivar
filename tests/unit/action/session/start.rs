@@ -670,34 +670,17 @@ fn unguard_worktrees(root: &camino::Utf8Path) {
 
 // -- plan projection and bootstrap instructions ----------------------------
 
-/// A feature session projects **only the active feature's plan** into the
-/// view dir: `plans/<feature>/` resolves to the hall's committed plan
-/// directory, and plans of other features are never reachable.
+/// A feature session does not project `plans/` or `work` into the view dir.
 #[test]
-fn a_feature_session_projects_only_the_active_plan() {
+fn a_feature_session_does_not_project_plans_or_work() {
     let (_guard, root) = hall_with_promoted_feature();
     let ctx = Ctx::new(root.clone());
     let layout = Layout::at(root.clone());
-
-    // Scaffold the plan so the projected path resolves to real artifacts.
     plan_create::create(
         &ctx,
         PlanCreateInput {
             feature: "checkout".to_owned(),
             artifacts: Vec::new(),
-        },
-    )
-    .unwrap();
-    // A second feature whose plan must stay out of the session.
-    feature_create::create(
-        &ctx,
-        CreateInput {
-            name: "web".to_owned(),
-            branch: None,
-            base: None,
-            parent: None,
-            via: None,
-            strategy: None,
         },
     )
     .unwrap();
@@ -718,16 +701,20 @@ fn a_feature_session_projects_only_the_active_plan() {
     )
     .unwrap();
 
-    // The active plan resolves through the view dir…
-    assert!(
-        fs::is_file(&view_dir.join("plans/checkout/requirements.md")).unwrap(),
-        "plans/checkout must resolve to the hall's plan directory"
-    );
-    // …and a sibling feature's plan is not projected.
+    // The view dir must NOT contain a projected plans/ directory or a work symlink.
     assert_eq!(
-        fs::read_symlink(&view_dir.join("plans/web")).unwrap(),
+        fs::read_symlink(&view_dir.join("plans")).unwrap(),
         fs::SymlinkTarget::Absent,
-        "a feature session must never project another feature's plan"
+        "a feature session must not project plans/ into the view dir"
+    );
+    assert!(
+        !fs::is_dir(&view_dir.join("plans")).unwrap(),
+        "plans/ must not exist in the view dir"
+    );
+    assert_eq!(
+        fs::read_symlink(&view_dir.join("work")).unwrap(),
+        fs::SymlinkTarget::Absent,
+        "a feature session must not project work into the view dir"
     );
     unguard_worktrees(&root);
 }
@@ -755,54 +742,6 @@ fn a_discovery_session_projects_no_plans() {
         fs::read_symlink(&view_dir.join("plans")).unwrap(),
         fs::SymlinkTarget::Absent,
         "a discovery session must not project any plan"
-    );
-    unguard_worktrees(&root);
-}
-
-/// Writing through the projected plan path lands in the hall's committed plan
-/// directory — the projection is a view of the real artifact, not a copy.
-#[test]
-fn writing_through_the_projected_plan_lands_in_the_hall() {
-    let (_guard, root) = hall_with_promoted_feature();
-    let ctx = Ctx::new(root.clone());
-    let layout = Layout::at(root.clone());
-    plan_create::create(
-        &ctx,
-        PlanCreateInput {
-            feature: "checkout".to_owned(),
-            artifacts: Vec::new(),
-        },
-    )
-    .unwrap();
-
-    let feature = Feature::read(&layout, &FeatureName::new("checkout").unwrap())
-        .unwrap()
-        .unwrap();
-    let view_dir = layout.feature_session(
-        &FeatureName::new("checkout").unwrap(),
-        &crate::domain::name::SessionId::new(uuid::Uuid::new_v4().to_string()).unwrap(),
-    );
-    crate::action::session::view::materialise(
-        &layout,
-        &manifest_of(&root),
-        Some(&feature),
-        Provider::ClaudeCode,
-        &view_dir,
-    )
-    .unwrap();
-
-    fs::write_text(
-        &view_dir.join("plans/checkout/requirements.md"),
-        "# Requirements\n\n- [x] edited through the session\n",
-    )
-    .unwrap();
-
-    assert_eq!(
-        fs::read_text(&layout.plan_dir(&feature.name).join("requirements.md"))
-            .unwrap()
-            .unwrap(),
-        "# Requirements\n\n- [x] edited through the session\n",
-        "the edit must land in the hall's committed plan directory"
     );
     unguard_worktrees(&root);
 }
@@ -845,7 +784,7 @@ fn a_feature_session_instruction_file_combines_hall_and_bootstrap() {
         "the view instruction file must carry the session bootstrap block: {view_instructions}"
     );
     assert!(
-        view_instructions.contains("ivar plan status plans/checkout/plan.md"),
+        view_instructions.contains("ivar plan status ../../plan.md"),
         "the bootstrap block must say how to re-derive the SPDD stage: {view_instructions}"
     );
     assert!(
@@ -1052,10 +991,8 @@ fn feature_sessions_prepend_the_bootstrap_then_the_canonical_content() {
     )
     .unwrap();
 
-    let bootstrap = crate::harness::config::session::build_session_block(
-        &feature.name,
-        "plans/checkout/plan.md",
-    );
+    let bootstrap =
+        crate::harness::config::session::build_session_block(&feature.name, "../../plan.md");
     assert_eq!(
         fs::read_text(&view_dir.join("CLAUDE.md")).unwrap().unwrap(),
         format!("{bootstrap}\n\n{hall}"),
@@ -1277,11 +1214,9 @@ fn start_command_carries_the_session_environment() {
     assert!(feat_envs.contains(&"IVAR_FEATURE"));
 }
 
-/// ADR-0002: memory is committed at `docs/<name>/`, and a session must be
-/// able to write it. The link is created even though `docs/checkout/` does
-/// not exist yet — same contract as the projected plan.
+/// A feature session does not link `work` into the view dir.
 #[test]
-fn materialise_view_dir_links_work_to_the_halls_memory_dir() {
+fn materialise_view_dir_omits_work_for_a_feature_session() {
     let (_guard, root) = hall_with_promoted_feature();
     let layout = Layout::at(root.clone());
     let manifest = Manifest::read(&layout).unwrap().unwrap();
@@ -1302,24 +1237,16 @@ fn materialise_view_dir_links_work_to_the_halls_memory_dir() {
     )
     .unwrap();
 
-    let link = view_dir.join("work");
-    let target = match fs::read_symlink(&link).unwrap() {
-        fs::SymlinkTarget::Target(path) => path,
-        other => panic!("expected a symlink, got {other:?}"),
-    };
     assert_eq!(
-        target,
-        layout.work_dir(&FeatureName::new("checkout").unwrap()),
-        "work must point at the hall's committed memory dir"
+        fs::read_symlink(&view_dir.join("work")).unwrap(),
+        fs::SymlinkTarget::Absent,
+        "a feature session must not project work into the view dir"
     );
-    assert!(
-        target.as_str().ends_with("docs/checkout"),
-        "work must resolve under docs/, not plans/: {target}"
-    );
+    unguard_worktrees(&root);
 }
 
 /// A discovery session has no feature, so no name, so nothing to point
-/// `work` at. The link appears at conversion, when the name is decided.
+/// `work` at.
 #[test]
 fn materialise_view_dir_omits_work_for_a_discovery_session() {
     let (_guard, root) = hall_with_promoted_feature();
@@ -1343,8 +1270,9 @@ fn materialise_view_dir_omits_work_for_a_discovery_session() {
             fs::read_symlink(&view_dir.join("work")).unwrap(),
             fs::SymlinkTarget::Absent
         ),
-        "a discovery session has no name and so no memory dir to link"
+        "a discovery session has no work link"
     );
+    unguard_worktrees(&root);
 }
 
 #[test]

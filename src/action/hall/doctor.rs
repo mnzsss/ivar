@@ -195,6 +195,8 @@ pub fn doctor(ctx: &Ctx) -> Outcome<DoctorOutcome> {
         }
     }
 
+    check_legacy_working_docs(&layout, &mut findings)?;
+
     Ok(Report::new(DoctorOutcome {
         root: layout.root().to_path_buf(),
         findings,
@@ -227,6 +229,70 @@ fn in_flight_receipts(layout: &Layout) -> Result<Vec<(FeatureName, RunReceipt)>,
         }
     }
     Ok(receipts)
+}
+
+/// Detect working documents sitting in legacy locations (`plans/<feature>/` or
+/// `docs/<feature>/discovery.md`) from earlier versions of ivar.
+///
+/// Since working documents live exclusively under `.ivar/features/<name>/`,
+/// files left in committed `plans/` or `docs/` are no longer read or updated.
+///
+/// Precision note: `<hall>/docs/` holds topic docs (`product/`, `updates/`,
+/// `repo-relations/` or any custom doc folders). We ONLY flag directories under
+/// `docs/` if they contain a `discovery.md` file AND are not reserved topic dirs.
+fn check_legacy_working_docs(
+    layout: &Layout,
+    findings: &mut Vec<Diagnosis>,
+) -> Result<(), Failure> {
+    let root = layout.root();
+
+    // Check legacy <hall>/plans/<feature>/
+    let plans_dir = root.join("plans");
+    if fs::is_dir(&plans_dir)? {
+        for entry in fs::read_dir(&plans_dir)? {
+            if fs::is_dir(&entry)?
+                && let Some(name) = entry.file_name()
+                && FeatureName::new(name.to_owned()).is_ok()
+            {
+                findings.push(Diagnosis {
+                    code: "hall.working_docs_legacy_location",
+                    what: format!(
+                        "working documents for feature `{name}` are in committed `plans/{name}/`; ivar no longer reads this path"
+                    ),
+                    fix: format!(
+                        "Move working documents to `.ivar/features/{name}/` or delete `plans/{name}/` if no longer needed."
+                    ),
+                });
+            }
+        }
+    }
+
+    // Check legacy <hall>/docs/<feature>/discovery.md
+    let docs_dir = root.join("docs");
+    if fs::is_dir(&docs_dir)? {
+        for entry in fs::read_dir(&docs_dir)? {
+            if fs::is_dir(&entry)?
+                && let Some(name) = entry.file_name()
+                && !["product", "updates", "repo-relations"].contains(&name)
+                && FeatureName::new(name.to_owned()).is_ok()
+            {
+                let discovery = entry.join("discovery.md");
+                if fs::is_file(&discovery)? {
+                    findings.push(Diagnosis {
+                        code: "hall.working_docs_legacy_location",
+                        what: format!(
+                            "discovery document for `{name}` is at `docs/{name}/discovery.md`; ivar no longer reads this path"
+                        ),
+                        fix: format!(
+                            "Move `docs/{name}/discovery.md` to `.ivar/features/{name}/discovery.md` or delete it."
+                        ),
+                    });
+                }
+            }
+        }
+    }
+
+    Ok(())
 }
 
 /// One diagnosis for a command file that is not in its target state.

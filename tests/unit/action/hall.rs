@@ -1062,6 +1062,69 @@ fn doctor_says_nothing_about_an_active_run_with_a_live_session() {
     );
 }
 
+#[test]
+fn doctor_reports_working_docs_in_legacy_locations() {
+    let (_guard, root) = hall_with_repo();
+    let ctx = Ctx::new(root.clone());
+
+    // Create legacy plans/<feature>/ directory with an SPDD artifact
+    let legacy_plan_dir = root.join("plans/checkout");
+    fs::ensure_dir(&legacy_plan_dir).unwrap();
+    fs::write_text(&legacy_plan_dir.join("plan.md"), "# Plan\n").unwrap();
+
+    // Create legacy docs/<feature>/discovery.md
+    let legacy_docs_dir = root.join("docs/checkout");
+    fs::ensure_dir(&legacy_docs_dir).unwrap();
+    fs::write_text(&legacy_docs_dir.join("discovery.md"), "# Discovery\n").unwrap();
+
+    let report = doctor(&ctx).unwrap();
+
+    let legacy_findings: Vec<_> = report
+        .value
+        .findings
+        .iter()
+        .filter(|f| f.code == "hall.working_docs_legacy_location")
+        .collect();
+
+    assert!(
+        !legacy_findings.is_empty(),
+        "expected hall.working_docs_legacy_location findings, got: {:?}",
+        report.value.findings
+    );
+    for finding in &legacy_findings {
+        assert!(
+            finding.fix.contains(".ivar/features/"),
+            "fix must guide user to .ivar/features/: {}",
+            finding.fix
+        );
+    }
+}
+
+#[test]
+fn doctor_ignores_topic_docs_directories() {
+    let (_guard, root) = hall_with_repo();
+    let ctx = Ctx::new(root.clone());
+
+    // Topic doc directories under docs/ (product, updates, repo-relations) are not legacy feature docs
+    for topic in ["product", "updates", "repo-relations"] {
+        let topic_dir = root.join(format!("docs/{topic}"));
+        fs::ensure_dir(&topic_dir).unwrap();
+        fs::write_text(&topic_dir.join("overview.md"), "# Overview\n").unwrap();
+    }
+
+    let report = doctor(&ctx).unwrap();
+
+    assert!(
+        report
+            .value
+            .findings
+            .iter()
+            .all(|f| f.code != "hall.working_docs_legacy_location"),
+        "topic docs must not be flagged as legacy working docs: {:?}",
+        report.value.findings
+    );
+}
+
 // -- cleanup --------------------------------------------------------------
 
 #[test]

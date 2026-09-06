@@ -4,7 +4,8 @@ use super::*;
 use crate::action::discovery::create::{self, CreateInput};
 use crate::action::hall::{self, InitInput};
 use crate::domain::discovery::DiscoveryDoc;
-use crate::domain::name::FeatureName;
+use crate::domain::name::{FeatureName, SessionId};
+use crate::domain::session::SessionState;
 use crate::infra::{fs, hash};
 use crate::store::discovery;
 use crate::store::layout::Layout;
@@ -72,6 +73,52 @@ fn append_adds_a_dated_block_carrying_the_session_id() {
     );
     assert!(doc.body.contains(&format!("Session: {SESSION}")));
     assert!(doc.body.contains("First finding."));
+    assert_eq!(doc.frontmatter.sessions, vec![SESSION.to_owned()]);
+}
+
+#[test]
+fn amend_inside_discovery_session_updates_view_dir_doc() {
+    let (_guard, root) = hall_with_discovery();
+    let layout = Layout::at(root.clone());
+    let session_id = SessionId::new(SESSION).unwrap();
+    let view_dir = layout.discovery_session(&session_id);
+    fs::ensure_dir(&view_dir).unwrap();
+    let state = SessionState::new(
+        crate::domain::provider::Provider::ClaudeCode,
+        "2026-01-01T00:00:00.000000000Z",
+    );
+    state.write(&view_dir).unwrap();
+
+    let ctx = Ctx::new(view_dir.clone());
+    create::create(
+        &ctx,
+        CreateInput {
+            name: "checkout-refactor".to_owned(),
+            title: None,
+        },
+    )
+    .unwrap();
+
+    let outcome = amend(
+        &ctx,
+        AmendInput {
+            name: "checkout-refactor".to_owned(),
+            content: "Discovered root cause.".to_owned(),
+            merge: false,
+            expected_hash: None,
+            session_id: None,
+        },
+    )
+    .unwrap()
+    .value;
+
+    assert_eq!(outcome.path, view_dir.join("discovery.md"));
+    let doc = discovery::parse(
+        &fs::read_text(&view_dir.join("discovery.md"))
+            .unwrap()
+            .unwrap(),
+    );
+    assert!(doc.body.contains("Discovered root cause."));
     assert_eq!(doc.frontmatter.sessions, vec![SESSION.to_owned()]);
 }
 
@@ -205,7 +252,12 @@ fn amend_fails_for_a_name_with_no_discovery() {
 fn amend_refuses_a_doc_with_unreadable_frontmatter() {
     let (_guard, root) = hall_with_discovery();
     let ctx = Ctx::new(root.clone());
-    fs::write_text(&doc_path(&root), "no front matter at all\n").unwrap();
+    fs::write_text(
+        &doc_path(&root),
+        "no front matter at all
+",
+    )
+    .unwrap();
 
     let failure = append(&ctx, "x").unwrap_err();
 
