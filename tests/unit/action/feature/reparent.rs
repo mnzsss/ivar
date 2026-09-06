@@ -266,3 +266,33 @@ fn list_exposes_parent_depth_and_state_after_reparenting() {
     assert_eq!(child_summary.depth, 1);
     assert_eq!(child_summary.state.to_string(), "active");
 }
+
+#[test]
+fn reparent_refuses_when_working_document_exists() {
+    let (_guard, root) = seeded_hall();
+    let ctx = Ctx::new(root.clone());
+    create(&ctx, "root", None);
+    create(&ctx, "target", None);
+    let layout = Layout::at(&root);
+
+    // Each working document artifact individually marks work as started.
+    for artifact in [
+        "requirements.md",
+        "analysis.md",
+        "plan.md",
+        "tasks/task-1.md",
+        "discovery.md",
+    ] {
+        let name = format!("with-{}", artifact.replace("/", "-").replace(".md", ""));
+        create(&ctx, &name, Some("root"));
+        let feature_name = FeatureName::new(&name).unwrap();
+        let doc_path = layout.feature_dir(&feature_name).join(artifact);
+        if let Some(parent) = doc_path.parent() {
+            fs::ensure_dir(parent).unwrap();
+        }
+        fs::write_text(&doc_path, "# content").unwrap();
+
+        let failure = reparent(&ctx, reparent_input(&name, "target")).unwrap_err();
+        assert_eq!(failure.code, "feature.reparent_work_started");
+    }
+}

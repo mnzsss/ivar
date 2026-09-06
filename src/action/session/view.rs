@@ -5,7 +5,7 @@
 //! symlink per registered repo (promoted repos point at their feature
 //! worktree, the rest at their read-only default-branch worktree), a real
 //! per-session harness config dir, and — for feature sessions — the
-//! feature's plan projected in and its bootstrap instructions materialised.
+//! session bootstrap instructions materialised.
 //!
 //! # The harness config dir is real, never a symlink
 //!
@@ -27,23 +27,6 @@
 //! default: a relay from Claude Code to OpenCode materialises `.opencode/`
 //! and OpenCode's commands, not the default provider's. That is what a relay
 //! session actually launches with.
-//!
-//! # The active plan and the memory dir are projected
-//!
-//! A feature session gets `<view_dir>/plans/<feature>/` as a symlink to the
-//! hall's committed `plans/<feature>/`, so the SPDD artifacts are reachable
-//! through the session path the harness confines the agent to — and editable,
-//! with writes landing in the hall's real plan directory. The link is
-//! materialised even before the plan directory exists, so
-//! `ivar plan create <feature>` run from inside the session makes the target
-//! usable immediately. Plans of *other* features are never projected, and a
-//! discovery session (no feature bound) gets no `plans/` at all.
-//!
-//! A feature session also gets `<view_dir>/work` as a symlink to the hall's
-//! committed `docs/<feature>/` — the unit of work's memory (ADR-0002).
-//! Like the plan link it is materialised before the directory exists, so
-//! the first write from inside the session lands in the right place. A
-//! discovery session has no feature, so no name, so no `work` link.
 //!
 //! # Instruction files are derived from `HALL.md`, never from an alias
 //!
@@ -93,14 +76,13 @@ pub(crate) struct MaterialiseReport {
 /// Materialise `view_dir` for `feature`/`provider`: one symlink per registered
 /// repo, a real per-session harness config dir with the hall's `commands/`
 /// symlinked back in, the provider-native instruction file derived from
-/// `HALL.md`, and — for a feature session — the active plan projected in and
-/// the bootstrap instructions written.
+/// `HALL.md`, and — for a feature session — the bootstrap instructions written.
 ///
 /// For a **feature session** (`feature: Some`), a promoted repo is symlinked
 /// to its feature worktree (writable); every other repo is symlinked to its
 /// default-branch worktree and that worktree is held read-only by the kernel
 /// (write bits cleared). For a **discovery session** (`feature: None`), every
-/// repo is a read-only default-branch worktree and no plan is projected.
+/// repo is a read-only default-branch worktree.
 ///
 /// `provider` is the session's own provider — what the session actually runs
 /// (or ran) under — not the hall's default. It decides which config dir and
@@ -159,59 +141,11 @@ pub(crate) fn materialise(
             fs::replace_symlink_if_changed(&hall_source, &dest_link)?;
         }
     }
-    // Feature sessions: project the active plan and link the committed
-    // memory dir. Discovery sessions get neither — no feature means no
-    // name, and both paths are keyed by name. Both kinds get the
-    // instruction file below.
-    if let Some(feature) = feature {
-        project_plan(layout, feature, view_dir)?;
-    }
-    project_work(layout, feature, view_dir)?;
 
     let mut report = MaterialiseReport::default();
     materialise_session_instructions(layout, provider, feature, view_dir, &mut report)?;
 
     Ok(report)
-}
-
-/// Project the session's feature plan into the view dir: a real `plans/`
-/// directory with `plans/<feature>/` symlinked to the hall's committed plan
-/// directory for that feature.
-///
-/// The link is created even when `plans/<feature>/` does not exist yet, so
-/// `ivar plan create <feature>` run from inside the session makes the
-/// projected plan usable immediately. Only the session's own feature is ever
-/// linked — the hall's `plans/` directory is never projected wholesale.
-fn project_plan(layout: &Layout, feature: &Feature, view_dir: &Utf8Path) -> Result<(), Failure> {
-    // View Dir's own projected `plans/`, deliberately not `Layout::plans_root()`.
-    let view_plans = view_dir.join("plans");
-    fs::ensure_dir(&view_plans)?;
-    let link = view_plans.join(feature.name.as_str());
-    fs::replace_symlink_if_changed(&layout.plan_dir(&feature.name), &link)?;
-    Ok(())
-}
-
-/// Link the session's committed memory into the view dir: `work` points at
-/// the hall's `docs/<name>/`.
-///
-/// The link is created even when `docs/<name>/` does not exist yet, so the
-/// first write from inside the session lands in the right place — the same
-/// contract [`project_plan`] gives the projected plan.
-///
-/// A discovery session has no feature, so no name, so no memory directory
-/// to point at: it gets no `work` link at all. Conversion names the work
-/// and re-materialises the view dir, and the link appears then (ADR-0002).
-fn project_work(
-    layout: &Layout,
-    feature: Option<&Feature>,
-    view_dir: &Utf8Path,
-) -> Result<(), Failure> {
-    let Some(feature) = feature else {
-        return Ok(());
-    };
-    let link = view_dir.join("work");
-    fs::replace_symlink_if_changed(&layout.work_dir(&feature.name), &link)?;
-    Ok(())
 }
 
 /// Write the provider-native instruction file (`CLAUDE.md` / `AGENTS.md`) at
@@ -251,15 +185,14 @@ fn materialise_session_instructions(
         report.warnings.push(Warning::new(
             "instructions.canonical_unavailable",
             "hall",
-            "`HALL.md` is missing or not a regular file; the session opens without the hall's \
-             shared instructions",
+            "`HALL.md` is missing or not a regular file; the session opens without the hall's              shared instructions",
         ));
     }
 
     let content = match feature {
         Some(feature) => {
-            let plan_rel = format!("plans/{}/plan.md", feature.name);
-            let block = config::session::build_session_block(&feature.name, &plan_rel);
+            let plan_rel = "../../plan.md";
+            let block = config::session::build_session_block(&feature.name, plan_rel);
             if hall.is_empty() {
                 block
             } else {

@@ -48,22 +48,22 @@ impl WriteHuman for ListOutcome {
     }
 }
 
-/// List every feature whose `plans/<feature>/` holds at least one SPDD
+/// List every feature whose `.ivar/features/<feature>/` holds at least one SPDD
 /// artifact.
 pub fn list(ctx: &Ctx) -> Outcome<ListOutcome> {
     let layout = discover_hall(ctx)?;
 
-    let plans_dir = layout.plans_root();
+    let features_dir = layout.features_dir();
     let mut plans = Vec::new();
-    if fs::is_dir(&plans_dir)? {
-        for entry in fs::read_dir(&plans_dir)? {
+    if fs::is_dir(&features_dir)? {
+        for entry in fs::read_dir(&features_dir)? {
             let Some(name) = entry.file_name() else {
                 continue;
             };
             let Ok(feature) = FeatureName::new(name) else {
                 continue;
             };
-            let plan_dir = plans_dir.join(name);
+            let plan_dir = features_dir.join(name);
             let artifacts: Vec<String> = ARTIFACTS
                 .iter()
                 .filter(|artifact| fs::is_file(&plan_dir.join(artifact)).unwrap_or(false))

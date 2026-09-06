@@ -82,13 +82,13 @@ pub fn close(ctx: &Ctx, input: CloseInput) -> Outcome<CloseOutcome> {
         )));
     }
 
-    let mut doc = super::load(&layout, &name)?;
+    let path = super::resolve_doc_path(ctx, &layout, &name)?;
+    let mut doc = super::load_at(&path, &name)?;
     super::ensure_writable(&doc, &name)?;
 
     doc.frontmatter.status = input.outcome;
     doc.frontmatter.updated_at = rfc3339_now();
 
-    let path = layout.discovery_doc(&name);
     fs::write_text(&path, &crate::store::discovery::render(&doc)?)?;
 
     Ok(Report::new(CloseOutcome {

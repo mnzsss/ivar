@@ -79,7 +79,7 @@ fn hall_with_promoted_feature() -> (tempfile::TempDir, Utf8PathBuf) {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn writable_set_is_view_dir_plus_promoted_worktrees() {
+fn writable_set_is_view_dir_plus_promoted_worktrees_plus_feature_dir() {
     let (_guard, root) = hall_with_promoted_feature();
     let layout = Layout::at(root.clone());
     let feature = Feature::read(&layout, &FeatureName::new("checkout").unwrap())
@@ -95,11 +95,50 @@ fn writable_set_is_view_dir_plus_promoted_worktrees() {
     assert!(set.allows(&view_dir));
     assert!(set.allows(&view_dir.join("notes.txt")));
 
+    // The feature directory and its working documents are writable.
+    let feature_dir = layout.feature_dir(&feature.name);
+    assert!(set.allows(&feature_dir));
+    assert!(set.allows(&feature_dir.join("plan.md")));
+    assert!(set.allows(&feature_dir.join("discovery.md")));
+    assert!(set.allows(&feature_dir.join("planning/approvals.json")));
+
     // A promoted repo's worktree is writable.
     let api_worktree = layout.repo_worktree(&RepoName::new("api").unwrap(), &feature.branch);
     assert!(set.allows(&api_worktree));
 
     // Paths outside the set are NOT writable.
+    let hall_root_path = layout.root().to_path_buf();
+    assert!(!set.allows(&hall_root_path));
+}
+
+#[test]
+fn discovery_session_writable_set_does_not_include_any_feature_dir() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root.clone());
+    let session_id = SessionId::new("6f0c9d5f-0000-4000-8000-000000000000").unwrap();
+    let view_dir = layout.discovery_session(&session_id);
+    crate::infra::fs::ensure_dir(&view_dir).unwrap();
+
+    let set = WritableSet::from_discovery(&view_dir).unwrap();
+
+    // The view dir itself is writable.
+    assert!(set.allows(&view_dir));
+    assert!(set.allows(&view_dir.join("scratch.txt")));
+
+    // Feature directories and their docs are NOT writable from discovery.
+    let feature_dir = layout.feature_dir(&FeatureName::new("checkout").unwrap());
+    assert!(!set.allows(&feature_dir));
+    assert!(!set.allows(&feature_dir.join("plan.md")));
+    assert!(!set.allows(&feature_dir.join("discovery.md")));
+
+    // Promoted repo worktrees are NOT writable from discovery.
+    let api_worktree = layout.repo_worktree(
+        &RepoName::new("api").unwrap(),
+        &BranchName::new("checkout").unwrap(),
+    );
+    assert!(!set.allows(&api_worktree));
+
+    // Hall root is NOT writable.
     let hall_root_path = layout.root().to_path_buf();
     assert!(!set.allows(&hall_root_path));
 }
@@ -113,7 +152,7 @@ fn writable_set_is_view_dir_plus_promoted_worktrees() {
 fn writable_set_fixture() -> (WritableSet, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
     let view = Utf8PathBuf::try_from(dir.path().to_path_buf()).unwrap();
-    let set = WritableSet::from_parts(view, vec![]);
+    let set = WritableSet::from_parts(view, None, vec![]);
     (set, dir)
 }
 

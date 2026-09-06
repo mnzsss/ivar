@@ -20,7 +20,6 @@ use serde::Serialize;
 use crate::domain::feature::{Feature, IntegrationOverride, IntegrationStrategy, IntegrationVia};
 use crate::domain::name::{BranchName, FeatureName};
 use crate::error::{Failure, FixAction, Outcome, Report, WriteHuman};
-use crate::infra::fs;
 
 use super::super::discover_hall;
 use super::relations;
@@ -153,14 +152,20 @@ pub fn create(ctx: &Ctx, input: CreateInput) -> Outcome<CreateOutcome> {
             .transpose()?,
     };
 
+    // A feature exists when its record does — not when its directory does.
+    // Working documents live in `.ivar/features/<name>/`, so a discovery doc
+    // written before the feature was ever created has already made that
+    // directory. Treating the directory as proof of existence would refuse
+    // to promote precisely the names that earned promotion by being thought
+    // about first, which is the whole path a discovery session takes.
     let dir = layout.feature_dir(&name);
-    if fs::is_dir(&dir)? {
+    if Feature::read(&layout, &name)?.is_some() {
         return Err(Failure::blocked(
             "feature.already_exists",
             format!("feature `{name}` already exists"),
         )
         .expected("a feature name that has not been used before")
-        .actual(format!("`{}` already has a feature directory", dir))
+        .actual(format!("`{dir}` already holds a feature record"))
         .fix(FixAction::safe(
             "feature.use_existing",
             "Use the existing feature, or pick a different name.",

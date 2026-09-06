@@ -16,7 +16,9 @@
 //!     state.json                       local hall state (gitignored)
 //!     repos/<repo>/.bare/              the bare clone
 //!     repos/<repo>/<branch>/           a worktree off that bare
-//!     features/<feature>/              promotion records
+//!     features/<feature>/              promotion records and local working documents:
+//!                                      requirements.md · analysis.md · plan.md ·
+//!                                      tasks/ · discovery.md (gitignored)
 //!     features/<feature>/planning/     approval-gate state (approvals.json)
 //!     features/<feature>/execution/    the current Run Receipt (run.json)
 //!     features/<feature>/execution/archive/runs/<run-id>.json
@@ -33,7 +35,8 @@
 //!     setups/<repo>.sh                 per-repo setup scripts — COMMITTED
 //!     setups/<repo>.session.sh         per-repo session hooks — COMMITTED
 //!     skills/                          hall-scoped skills — COMMITTED
-//!   plans/<feature>/                   requirements.md · analysis.md · plan.md — COMMITTED
+//!   docs/                              flat topic documentation (product/, updates/,
+//!                                      repo-relations/) — COMMITTED
 //!   .claude/  .opencode/               harness-dictated. These are the TARGET of the
 //!                                      view dir's symlinks, not the source, which is
 //!                                      why they stay at the root.
@@ -59,8 +62,8 @@
 //!   `archived_run(&FeatureName, &RunId)`, `archived_board(&FeatureName, &str)`,
 //!   `feature_session(&FeatureName, &SessionId)`, `discovery_session(&SessionId)`,
 //!   `setup_script(&RepoName)`, `session_hook(&RepoName)`, `secrets_dir()`,
-//!   `hall_skills()`, `plans_root()`, `plan_dir(&FeatureName)`, `work_dir(&FeatureName)`,
-//!   `discovery_doc(&FeatureName)`, `research_dir(&FeatureName)`,
+//!   `hall_skills()`, `plan_dir(&FeatureName)`, `discovery_doc(&FeatureName)`,
+//!   `docs_updates_dir()`,
 //!   `harness_dir(&Provider)`, `commands_dir(&Provider)`.
 //! - `gitignore_lines()` — the exact patterns the hall's `.gitignore` needs.
 //!
@@ -399,66 +402,19 @@ impl Layout {
         self.ivar_dir().join("skills-local")
     }
 
-    /// `<hall>/plans/` — the parent of every unit of work's execution
-    /// artifacts. Committed.
-    ///
-    /// Scanning this directory is only ever safe with a filter: a child is a
-    /// unit of work's plan only when its name parses as a [`FeatureName`].
-    /// Anything else in `plans/` belongs to the team.
-    #[must_use]
-    pub fn plans_root(&self) -> Utf8PathBuf {
-        self.root.join("plans")
-    }
-
-    /// `<hall>/plans/<feature>/` — `requirements.md` · `analysis.md` ·
-    /// `plan.md`. Committed.
+    /// `<hall>/.ivar/features/<feature>/` — the unit of work's local working
+    /// documents: `requirements.md` · `analysis.md` · `plan.md` · `tasks/` ·
+    /// `discovery.md`. Gitignored.
     #[must_use]
     pub fn plan_dir(&self, feature: &FeatureName) -> Utf8PathBuf {
-        self.plans_root().join(feature.as_str())
+        self.feature_dir(feature)
     }
 
-    /// `<hall>/docs/<name>/` — a unit of work's committed memory:
-    /// `discovery.md` and `research/`. Committed.
-    ///
-    /// The sibling of [`Self::plan_dir`], not its replacement. Memory
-    /// outlives the work; execution mostly does not (ADR-0002).
-    ///
-    /// Only names ivar knows are ever touched here. `docs/product/`,
-    /// `docs/updates/`, and `docs/repo-relations/` are the hall's flat
-    /// topic documentation and can never collide with a work name —
-    /// `FeatureName` rejects all three.
-    #[must_use]
-    pub fn work_dir(&self, feature: &FeatureName) -> Utf8PathBuf {
-        self.root.join("docs").join(feature.as_str())
-    }
-
-    /// `<hall>/docs/<name>/discovery.md` — why this work exists, what was
-    /// considered, what was rejected. ivar owns the front matter; the
-    /// agent owns the prose. Committed.
+    /// `<hall>/.ivar/features/<feature>/discovery.md` — why this work exists.
+    /// ivar owns the front matter; the agent owns the prose. Gitignored.
     #[must_use]
     pub fn discovery_doc(&self, feature: &FeatureName) -> Utf8PathBuf {
-        self.work_dir(feature).join("discovery.md")
-    }
-
-    /// `<hall>/docs/<name>/research/` — free-form supporting notes, as many
-    /// files as the work needs. ivar creates the directory and never parses
-    /// what is in it. Committed.
-    #[must_use]
-    pub fn research_dir(&self, feature: &FeatureName) -> Utf8PathBuf {
-        self.work_dir(feature).join("research")
-    }
-
-    /// `<hall>/docs/` — the parent of every unit of work's memory, and also
-    /// the home of the hall's own flat topic documentation
-    /// (`product/`, `updates/`, `repo-relations/`).
-    ///
-    /// Scanning this directory is only ever safe with a filter: a child is
-    /// a unit of work only when its name parses as a [`FeatureName`] *and*
-    /// it holds a `discovery.md`. Everything else belongs to the team
-    /// (ADR-0002 D1).
-    #[must_use]
-    pub fn work_docs_root(&self) -> Utf8PathBuf {
-        self.root.join("docs")
+        self.feature_dir(feature).join("discovery.md")
     }
 
     /// `<hall>/docs/updates/` — numbered delivery-relevant change records,

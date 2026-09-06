@@ -412,7 +412,6 @@ fn apply_cleanup(
             worktrees: worktree_removals,
             branches: branch_deletions,
             feature_removed: false,
-            plans_removed: false,
         };
         return Ok(Report::with_warnings(
             CleanupOutcome {
@@ -424,16 +423,7 @@ fn apply_cleanup(
         ));
     }
 
-    // Complete success: remove plans and feature directory, then update durable record outcome
-    fs::remove_path(&layout.plan_dir(&feature.name)).map_err(|source| {
-        Failure::failed(
-            "feature.cleanup_plans_failed",
-            format!(
-                "could not remove plans for feature `{}`: {source}",
-                feature.name
-            ),
-        )
-    })?;
+    // Complete success: remove feature directory, then update durable record outcome
     fs::remove_path(&layout.feature_dir(&feature.name)).map_err(|source| {
         Failure::failed(
             "feature.cleanup_dir_failed",
@@ -448,7 +438,6 @@ fn apply_cleanup(
         worktrees: worktree_removals,
         branches: branch_deletions,
         feature_removed: true,
-        plans_removed: true,
     };
 
     let mut record = record;
@@ -513,7 +502,6 @@ fn preview_for(
     for repo in &repos {
         paths_to_remove.push(layout.repo_worktree(&repo.repo, &feature.branch));
     }
-    paths_to_remove.push(layout.plan_dir(&feature.name));
     paths_to_remove.push(layout.feature_dir(&feature.name));
 
     let fingerprint = fingerprint_for(

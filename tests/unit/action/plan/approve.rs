@@ -56,6 +56,12 @@ fn persisted(root: &Utf8PathBuf) -> ApprovalState {
     ApprovalState::read(&layout, &feature).unwrap().unwrap()
 }
 
+fn plan_file(root: &Utf8PathBuf, name: &str) -> Utf8PathBuf {
+    let layout = Layout::at(root.clone());
+    let feature = FeatureName::new("checkout").unwrap();
+    layout.plan_dir(&feature).join(name)
+}
+
 #[test]
 fn approve_requirements_transitions_the_gate_to_approved() {
     let (_guard, root) = seeded_hall();
@@ -89,7 +95,7 @@ fn approve_requirements_transitions_the_gate_to_approved() {
             .record(Gate::Requirements)
             .unwrap()
             .artifact_fingerprint,
-        Some(hash::file(&root.join("plans/checkout/requirements.md")).unwrap())
+        Some(hash::file(&plan_file(&root, "requirements.md")).unwrap())
     );
 }
 
@@ -160,8 +166,8 @@ fn approve_plan_succeeds_when_both_upstream_artifacts_are_absent() {
     let ctx = Ctx::new(root.clone());
     // A light feature: only plan.md is meant to exist. Delete the other two
     // scaffolded artifacts behind ivar's back to model that.
-    fs::remove_path(&root.join("plans/checkout/requirements.md")).unwrap();
-    fs::remove_path(&root.join("plans/checkout/analysis.md")).unwrap();
+    fs::remove_path(&plan_file(&root, "requirements.md")).unwrap();
+    fs::remove_path(&plan_file(&root, "analysis.md")).unwrap();
 
     let report = approve(
         &ctx,
@@ -192,7 +198,7 @@ fn approve_plan_blocked_by_written_unapproved_requirements_when_analysis_absent(
     // and wave `plan` straight through — that is exactly the regression this
     // rule must not reintroduce (F1). The escape is "never written", never
     // "written and ignored".
-    fs::remove_path(&root.join("plans/checkout/analysis.md")).unwrap();
+    fs::remove_path(&plan_file(&root, "analysis.md")).unwrap();
 
     let failure = approve(
         &ctx,
@@ -229,7 +235,7 @@ fn approve_plan_succeeds_when_requirements_is_approved_and_analysis_is_absent() 
         },
     )
     .unwrap();
-    fs::remove_path(&root.join("plans/checkout/analysis.md")).unwrap();
+    fs::remove_path(&plan_file(&root, "analysis.md")).unwrap();
 
     let report = approve(
         &ctx,
@@ -287,7 +293,7 @@ fn deleting_an_approved_requirements_artifact_still_cascades_to_needs_revision()
 
     // The approved artifact vanishes entirely, rather than merely changing
     // content.
-    fs::remove_path(&root.join("plans/checkout/requirements.md")).unwrap();
+    fs::remove_path(&plan_file(&root, "requirements.md")).unwrap();
 
     // Reconcile runs — and persists — before any refusal, so the next
     // approval attempt still records the honest, cascaded state even though
@@ -330,7 +336,7 @@ fn an_approved_gate_blocks_edits_to_its_artifact_detected_by_fingerprint_change(
 
     // Edit requirements.md behind ivar's back.
     fs::write_text(
-        &root.join("plans/checkout/requirements.md"),
+        &plan_file(&root, "requirements.md"),
         "# Requirements\n\n- [x] changed\n",
     )
     .unwrap();
@@ -376,7 +382,7 @@ fn upstream_invalidation_cascades_to_every_downstream_gate() {
     }
 
     fs::write_text(
-        &root.join("plans/checkout/requirements.md"),
+        &plan_file(&root, "requirements.md"),
         "# Requirements\n\n- [x] changed\n",
     )
     .unwrap();
@@ -425,7 +431,7 @@ fn reapproving_after_a_fix_transitions_back_to_approved() {
 
     // Drift: requirements.md changes.
     fs::write_text(
-        &root.join("plans/checkout/requirements.md"),
+        &plan_file(&root, "requirements.md"),
         "# Requirements\n\n- [x] changed\n",
     )
     .unwrap();
@@ -473,7 +479,7 @@ fn approve_is_blocked_when_the_gates_artifact_is_missing() {
     let (_guard, root) = seeded_hall();
     let ctx = Ctx::new(root.clone());
     // plan.md was scaffolded by `plan create`; delete it behind ivar's back.
-    fs::remove_path(&root.join("plans/checkout/plan.md")).unwrap();
+    fs::remove_path(&plan_file(&root, "plan.md")).unwrap();
 
     let failure = approve(
         &ctx,
@@ -707,8 +713,8 @@ fn reconcile_voids_an_approved_plan_once_an_upstream_artifact_appears() {
     let ctx = Ctx::new(root.clone());
 
     // Short path: only plan.md exists, only the plan gate is crossed.
-    fs::remove_path(&root.join("plans/checkout/requirements.md")).unwrap();
-    fs::remove_path(&root.join("plans/checkout/analysis.md")).unwrap();
+    fs::remove_path(&plan_file(&root, "requirements.md")).unwrap();
+    fs::remove_path(&plan_file(&root, "analysis.md")).unwrap();
     approve(
         &ctx,
         ApproveInput {
@@ -723,11 +729,7 @@ fn reconcile_voids_an_approved_plan_once_an_upstream_artifact_appears() {
     );
 
     // The upstream artifact appears, unapproved.
-    fs::write_text(
-        &root.join("plans/checkout/requirements.md"),
-        "# Requirements\n",
-    )
-    .unwrap();
+    fs::write_text(&plan_file(&root, "requirements.md"), "# Requirements\n").unwrap();
 
     // Any command that reconciles now refuses, and the refusal names the
     // artifact that appeared.

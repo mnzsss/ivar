@@ -1,6 +1,6 @@
 # ADR-0002 — One name, two homes
 
-- **Status:** accepted
+- **Status:** superseded by ADR-0005
 - **Date:** 2026-08-30
 
 ## Context

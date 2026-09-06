@@ -60,6 +60,14 @@ fn feature_accepts_kebab_names(#[case] value: &str) {
 }
 
 #[rstest]
+#[case::product("product")]
+#[case::updates("updates")]
+#[case::repo_relations("repo-relations")]
+fn feature_accepts_previously_reserved_topic_names(#[case] value: &str) {
+    assert_eq!(FeatureName::new(value).unwrap().as_str(), value);
+}
+
+#[rstest]
 #[case::uppercase("Checkout", InvalidName::NotKebab)]
 #[case::underscore("checkout_v2", InvalidName::NotKebab)]
 #[case::dot("api.v2", InvalidName::NotKebab)]
@@ -67,10 +75,7 @@ fn feature_accepts_kebab_names(#[case] value: &str) {
 #[case::trailing_dash("checkout-", InvalidName::NotKebab)]
 #[case::space_inside("checkout refactor", InvalidName::NotKebab)]
 #[case::non_ascii("café", InvalidName::NotKebab)]
-#[case::reserved_product("product", InvalidName::ReservedName)]
-#[case::reserved_updates("updates", InvalidName::ReservedName)]
-#[case::reserved_relations("repo-relations", InvalidName::ReservedName)]
-fn feature_rejects_non_kebab_and_reserved(#[case] value: &str, #[case] expected: InvalidName) {
+fn feature_rejects_non_kebab(#[case] value: &str, #[case] expected: InvalidName) {
     assert_eq!(FeatureName::new(value).unwrap_err(), expected);
 }
 
@@ -93,13 +98,6 @@ fn repo_and_hall_names_are_not_narrowed_to_kebab() {
     assert!(RepoName::new("api_gateway").is_ok());
     assert!(RepoName::new("api.v2").is_ok());
     assert!(HallName::new("Valhalla_Hall").is_ok());
-}
-
-#[test]
-fn reserved_name_rejection_carries_its_own_code_and_fix() {
-    let failure: Failure = FeatureName::new("updates").unwrap_err().into();
-    assert_eq!(failure.code, "feature.reserved_name");
-    assert_eq!(failure.fix_actions.len(), 1);
 }
 
 // -- BranchName -----------------------------------------------------------
@@ -226,6 +224,7 @@ fn every_variant_has_its_own_code_and_fix_action() {
         InvalidName::Traversal,
         InvalidName::Hidden,
         InvalidName::ControlCharacter,
+        InvalidName::NotKebab,
         InvalidName::LeadingOrTrailingSlash,
         InvalidName::DoubleSlash,
         InvalidName::LeadingDash,

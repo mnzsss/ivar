@@ -51,8 +51,7 @@ src/
                    splits the sweep in mod.rs from diagnosis.rs — whether a
                    diverged branch is safe to reset, and which blocker to name
     discovery/     create · list · show · amend · close — a unit of work's
-                   committed memory (docs/<name>/discovery.md + research/).
-                   No feature required — a name may earn memory long before
+                   working brief (.ivar/features/<name>/discovery.md) before
                    it earns execution.
     feature/       create · list · promote · demote · status · reparent ·
                    close · delete · rebase · view · prune · cleanup, plus
@@ -120,7 +119,7 @@ src/
                    schema.rs the published ivar.schema.json, generated from the
                    same types so the two cannot disagree.
     layout.rs      every path under a hall is computed here, nowhere else —
-                   including `<hall>/plans/` (`plans_root()`), the canonical
+                   including `.ivar/features/<feature>/`, the canonical
                    `HALL.md`, and each provider's root alias (`CLAUDE.md` /
                    `AGENTS.md`)
     mcp_secrets.rs .ivar/secrets/mcp.env — durable local MCP OAuth credentials,
@@ -695,7 +694,6 @@ One dotdir, one manifest, one name everywhere.
     setups/<repo>.session.sh  per-repo session hooks
     skills/               hall-scoped skills (committed)
     skills-local/         personal skills (gitignored)
-  plans/<feature>/        requirements.md · analysis.md · plan.md (committed)
   .claude/ .opencode/     harness-dictated, and the TARGET of symlinks, not the source
   .claude/commands/ivar-*.md   derived workflow commands (gitignored)
   .opencode/commands/ivar-*.md derived workflow commands (gitignored)
@@ -707,16 +705,15 @@ A feature-session view dir is a real directory at
 `<hall>/.ivar/features/<feature>/sessions/<uuid>/` containing: one symlink per
 registered repo (feature worktree if promoted, read-only default otherwise), a
 real harness config dir for the session's own provider (`.claude/` or
-`.opencode/`, with `commands/` symlinked back to the hall), the feature's plan
-projected in (`plans/<feature>/` → `<hall>/plans/<feature>/`, so the agent
-confined to the view dir can read and edit the artifacts), and the provider's
+`.opencode/`, with `commands/` symlinked back to the hall), and the provider's
 instruction file (`CLAUDE.md` / `AGENTS.md`) **derived from the canonical
 `HALL.md`** — the session bootstrap block followed by the hall's standing
-instructions, or the canonical content alone for a discovery session. The
-plan link and the instruction file are per-session views, never copies — they
-die with the view dir, and plan edits land in the hall. Every view dir
-receives the instruction file, whether or not it is feature-bound, and the
-file never comes from the root alias.
+instructions, or the canonical content alone for a discovery session. Working
+documents live two levels above the view dir at `.ivar/features/<feature>/`
+(`../../` relative to the session), and the instruction file is a per-session
+view, never a copy — it dies with the view dir. Every view dir receives the
+instruction file, whether or not it is feature-bound, and the file never comes
+from the root alias.
 
 Two traps, both learned the hard way:
 

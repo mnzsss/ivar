@@ -21,6 +21,7 @@ use camino::Utf8PathBuf;
 use serde::Serialize;
 
 use crate::action::Ctx;
+use crate::action::session::env::SessionEnv;
 use crate::domain::name::FeatureName;
 use crate::domain::session::rfc3339_now;
 use crate::error::{Failure, FixAction, Outcome, Report, WriteHuman};
@@ -85,11 +86,17 @@ pub fn amend(ctx: &Ctx, input: AmendInput) -> Outcome<AmendOutcome> {
     let layout = discover_hall(ctx)?;
     let name = FeatureName::new(input.name)?;
 
-    let mut doc = super::load(&layout, &name)?;
+    let path = super::resolve_doc_path(ctx, &layout, &name)?;
+    let mut doc = super::load_at(&path, &name)?;
     super::ensure_writable(&doc, &name)?;
 
-    let path = layout.discovery_doc(&name);
     let now = rfc3339_now();
+    let session_id = input.session_id.or_else(|| {
+        SessionEnv::resolve_by_cwd(&ctx.cwd)
+            .ok()
+            .flatten()
+            .map(|env| env.session_id.to_string())
+    });
 
     let mode = if input.merge {
         let Some(expected) = input.expected_hash else {
@@ -122,15 +129,12 @@ pub fn amend(ctx: &Ctx, input: AmendInput) -> Outcome<AmendOutcome> {
         doc.body = ensure_trailing_newline(&input.content);
         Mode::Merge
     } else {
-        doc.body = append_block(&doc.body, &input.content, &now, input.session_id.as_deref());
+        doc.body = append_block(&doc.body, &input.content, &now, session_id.as_deref());
         Mode::Append
     };
 
     doc.frontmatter.updated_at = now;
-    if let Some(session) = input
-        .session_id
-        .filter(|s| !doc.frontmatter.sessions.contains(s))
-    {
+    if let Some(session) = session_id.filter(|s| !doc.frontmatter.sessions.contains(s)) {
         doc.frontmatter.sessions.push(session);
     }
 
@@ -158,12 +162,12 @@ fn append_block(body: &str, content: &str, now: &str, session: Option<&str>) -> 
     out
 }
 
-/// `text` with exactly one trailing newline, or empty if it is empty.
-fn ensure_trailing_newline(text: &str) -> String {
-    if text.is_empty() || text.ends_with('\n') {
-        text.to_owned()
+fn ensure_trailing_newline(s: &str) -> String {
+    let trimmed = s.trim_end_matches('\n');
+    if trimmed.is_empty() {
+        String::new()
     } else {
-        format!("{text}\n")
+        format!("{trimmed}\n")
     }
 }
 

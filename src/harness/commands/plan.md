@@ -29,10 +29,10 @@ The planning lifecycle has three artifacts and three approval gates:
 Requirements → [approve requirements] → Analysis → [approve analysis] → Plan → [approve plan] → Execution
 ```
 
-Each artifact lives committed under `<hall>/plans/<feature>/`. Inside a feature
-session the same directory is projected into the view dir, so the artifacts are
-reachable at `plans/<feature>/` relative to `$IVAR_SESSION_PATH` — edits there
-land in the hall's committed directory. Once an artifact is approved, changing
+Each artifact lives under `.ivar/features/<feature>/`. Inside a feature
+session the feature directory sits two levels above the view dir, so the artifacts
+are reachable at `../../` relative to `$IVAR_SESSION_PATH` (or by relative filename
+when working from the feature directory). Once an artifact is approved, changing
 it cascades invalidation to downstream artifacts.
 
 Full SPDD — all three artifacts, all three approvals — is the default and the
@@ -77,7 +77,7 @@ default is the only guard, and the rest is on you.
 
 1. Research the feature and its context (repos, existing code, user needs).
 
-2. Write the Requirements artifact to `plans/<feature>/requirements.md`. Include:
+2. Write the Requirements artifact to `../../requirements.md` (relative to `$IVAR_SESSION_PATH`). Include:
    - Functional requirements (R-* IDs: R-LOGIN, R-AUTH, etc.)
    - Non-functional requirements (performance, security)
    - Constraints
@@ -102,7 +102,7 @@ blocks approval of this artifact. This checkpoint never edits `HALL.md`;
    - Risks and mitigations
    - Recommendations
 
-3. Write the Analysis artifact to `plans/<feature>/analysis.md`.
+3. Write the Analysis artifact to `../../analysis.md` (relative to `$IVAR_SESSION_PATH`).
 
 4. **Pause for human approval.** Show the analysis to the user. Only proceed
 after they approve.
@@ -131,12 +131,12 @@ after they approve.
    - **Safeguards** — things to watch out for
 
    When Requirements and Analysis exist, reference them near the top of the
-   canvas (for example `Requirements: plans/<feature>/requirements.md
+   canvas (for example `Requirements: ../../requirements.md
    (approved).`) rather than repeating their content.
 
-2. Write the Plan artifact to `plans/<feature>/plan.md`.
+2. Write the Plan artifact to `../../plan.md` (relative to `$IVAR_SESSION_PATH`).
 
-3. Generate task packets into `plans/<feature>/tasks/NN-<semantic-task-name>.md` for
+3. Generate task packets into `../../tasks/NN-<semantic-task-name>.md` for
    every task in `plan.md`. Name files with a two-digit order prefix (e.g.
    `01-pin-scaffold.md`). Each task packet must follow this structure:
 
@@ -201,7 +201,7 @@ after they approve.
    Steps 3–4 are Green (minimal code, run to verify PASS). Refactoring is permitted between
    Step 4 and Step 5.
 
-4. Dispatch a plan-document reviewer subagent to review `plan.md` and `plans/<feature>/tasks/`.
+4. Dispatch a plan-document reviewer subagent to review `../../plan.md` and `../../tasks/`.
    **Run it on the smallest capable model this harness offers, never the
    coordinator's.** The pass reads finished documents against a checklist, so
    it does not need the model that wrote them. On Claude Code, set the subagent
@@ -243,7 +243,7 @@ after they approve.
 
 After the Plan gate is approved, offer execution — do not start it:
 
-> The plan is approved. Run `/ivar-execute plans/<feature>/plan.md` to
+> The plan is approved. Run `/ivar-execute ../../plan.md` to
 > execute it.
 
 **Never run `/ivar-execute` automatically.** Approving a plan and executing it

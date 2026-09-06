@@ -4,6 +4,7 @@ use super::*;
 use crate::action::feature::create::{self as feature_create, CreateInput as FeatureCreateInput};
 use crate::action::hall::{self, InitInput};
 use crate::error::Status;
+use crate::store::layout::Layout;
 use crate::test_support::hall_root;
 
 fn seeded_hall() -> (tempfile::TempDir, Utf8PathBuf) {
@@ -49,7 +50,8 @@ fn create_scaffolds_the_three_artifacts() {
     .unwrap();
 
     assert!(report.is_clean());
-    let plan_dir = root.join("plans/checkout");
+    let layout = Layout::at(root);
+    let plan_dir = layout.plan_dir(&FeatureName::new("checkout").unwrap());
     assert!(fs::is_file(&plan_dir.join("requirements.md")).unwrap());
     assert!(fs::is_file(&plan_dir.join("analysis.md")).unwrap());
     assert!(fs::is_file(&plan_dir.join("plan.md")).unwrap());
@@ -117,7 +119,8 @@ fn create_with_a_named_subset_writes_only_that_artifact() {
     .unwrap();
 
     assert!(report.is_clean());
-    let plan_dir = root.join("plans/checkout");
+    let layout = Layout::at(root);
+    let plan_dir = layout.plan_dir(&FeatureName::new("checkout").unwrap());
     assert!(fs::is_file(&plan_dir.join("plan.md")).unwrap());
     assert!(!fs::is_file(&plan_dir.join("requirements.md")).unwrap());
     assert!(!fs::is_file(&plan_dir.join("analysis.md")).unwrap());
@@ -132,7 +135,8 @@ fn create_upgrades_a_light_plan_incrementally() {
     // already there.
     let (_guard, root) = seeded_hall();
     let ctx = Ctx::new(root.clone());
-    let plan_dir = root.join("plans/checkout");
+    let layout = Layout::at(root);
+    let plan_dir = layout.plan_dir(&FeatureName::new("checkout").unwrap());
 
     create(
         &ctx,
@@ -197,10 +201,13 @@ fn create_with_a_subset_already_present_is_rejected() {
 
 #[test]
 fn the_human_surface_names_created_and_skipped_artifacts() {
+    let layout = Layout::at(Utf8PathBuf::from("/hall"));
+    let feature = FeatureName::new("checkout").unwrap();
+    let plan_dir = layout.plan_dir(&feature);
     let outcome = CreateOutcome {
         root: Utf8PathBuf::from("/hall"),
-        feature: FeatureName::new("checkout").unwrap(),
-        plan_dir: Utf8PathBuf::from("/hall/plans/checkout"),
+        feature,
+        plan_dir: plan_dir.clone(),
         created: vec![Artifact::Requirements, Artifact::Analysis],
         skipped: vec![Artifact::Plan],
     };
@@ -210,8 +217,10 @@ fn the_human_surface_names_created_and_skipped_artifacts() {
 
     assert_eq!(
         String::from_utf8(out).unwrap(),
-        "Created requirements.md, analysis.md for `checkout` in /hall/plans/checkout\n\
-         Already present, left untouched: plan.md\n"
+        format!(
+            "Created requirements.md, analysis.md for `checkout` in {plan_dir}\n\
+             Already present, left untouched: plan.md\n"
+        )
     );
 }
 
@@ -229,9 +238,11 @@ fn scaffolded_plan_contains_wave_structure() {
     )
     .unwrap();
 
-    let plan_content = fs::read_text(&root.join("plans/checkout/plan.md"))
-        .unwrap()
-        .unwrap();
+    let layout = Layout::at(root);
+    let plan_path = layout
+        .plan_dir(&FeatureName::new("checkout").unwrap())
+        .join("plan.md");
+    let plan_content = fs::read_text(&plan_path).unwrap().unwrap();
 
     assert!(plan_content.contains("### Wave"));
     assert!(plan_content.contains("**Budget:**"));

@@ -1227,9 +1227,6 @@ fn setup_test_hall(
     let old_branch = old_feature.branch.clone();
     let new_branch = BranchName::new(new_branch_str).unwrap();
 
-    let old_plan_dir = layout.plan_dir(&old_name);
-    fs::ensure_dir(&old_plan_dir).unwrap();
-
     TestHallContext {
         _guard: guard,
         layout,
@@ -1289,7 +1286,6 @@ fn test_resume_forward_from_every_checkpoint() {
         steps::Step::MoveFeatureDir,
         steps::Step::UpdateChildren,
         steps::Step::MoveSessions,
-        steps::Step::MovePlans,
     ];
 
     for (idx, &step_checkpoint) in checkpoints.iter().enumerate() {
@@ -1342,8 +1338,8 @@ fn test_resume_forward_from_every_checkpoint() {
         );
         assert!(fs::is_dir(&s_ref.view_dir).unwrap());
 
-        assert!(fs::is_dir(&plan.new_plan_dir).unwrap());
-        assert!(!fs::is_dir(&plan.old_plan_dir).unwrap());
+        assert!(fs::is_dir(&plan.new_dir).unwrap());
+        assert!(!fs::is_dir(&plan.old_dir).unwrap());
 
         assert!(!fs::is_file(&m_path).unwrap());
         assert!(!fs::is_file(&plan.old_dir.join(".renaming")).unwrap());
@@ -1361,7 +1357,6 @@ fn test_resume_rollback_from_every_checkpoint() {
         steps::Step::MoveFeatureDir,
         steps::Step::UpdateChildren,
         steps::Step::MoveSessions,
-        steps::Step::MovePlans,
     ];
 
     for (idx, &step_checkpoint) in checkpoints.iter().enumerate() {
@@ -1417,8 +1412,8 @@ fn test_resume_rollback_from_every_checkpoint() {
         );
         assert!(fs::is_dir(&s_ref.view_dir).unwrap());
 
-        assert!(fs::is_dir(&plan.old_plan_dir).unwrap());
-        assert!(!fs::is_dir(&plan.new_plan_dir).unwrap());
+        assert!(fs::is_dir(&plan.old_dir).unwrap());
+        assert!(!fs::is_dir(&plan.new_dir).unwrap());
 
         assert!(!fs::is_file(&m_path).unwrap());
         assert!(!fs::is_file(&plan.old_dir.join(".renaming")).unwrap());
@@ -1454,7 +1449,7 @@ fn test_forward_failure_triggers_rollback() {
         let restored = Feature::read(&tc.layout, &tc.old_name).unwrap().unwrap();
         assert_eq!(restored.name, tc.old_name);
         assert_eq!(restored.branch, tc.old_branch);
-        assert!(fs::is_dir(&plan.old_plan_dir).unwrap());
+        assert!(fs::is_dir(&plan.old_dir).unwrap());
         assert!(!fs::is_file(&m_path).unwrap());
     }
 
@@ -1485,7 +1480,7 @@ fn test_forward_failure_triggers_rollback() {
         let restored = Feature::read(&tc.layout, &tc.old_name).unwrap().unwrap();
         assert_eq!(restored.name, tc.old_name);
         assert_eq!(restored.branch, tc.old_branch);
-        assert!(fs::is_dir(&plan.old_plan_dir).unwrap());
+        assert!(fs::is_dir(&plan.old_dir).unwrap());
         assert!(!fs::is_file(&m_path).unwrap());
     }
 }
@@ -1532,7 +1527,7 @@ fn test_remote_race_aborts_without_mutation() {
     let child = Feature::read(&tc.layout, &child_name).unwrap().unwrap();
     assert_eq!(child.parent, Some(tc.old_name.clone()));
 
-    assert!(fs::is_dir(&plan.old_plan_dir).unwrap());
+    assert!(fs::is_dir(&plan.old_dir).unwrap());
     assert!(!fs::is_file(&m_path).unwrap());
 }
 

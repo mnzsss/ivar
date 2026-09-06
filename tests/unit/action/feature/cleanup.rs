@@ -234,7 +234,7 @@ fn reports_descendants() {
 }
 
 #[test]
-fn preview_paths_to_remove_lists_worktrees_in_manifest_order_then_plan_then_feature_dir() {
+fn preview_paths_to_remove_lists_worktrees_in_manifest_order_then_feature_dir() {
     let (_guard, root) = hall_with_feature(&["web", "api"], Some("feat/checkout"));
     let layout = Layout::at(root.clone());
     let feature_name = FeatureName::new("checkout").unwrap();
@@ -247,14 +247,13 @@ fn preview_paths_to_remove_lists_worktrees_in_manifest_order_then_plan_then_feat
         vec![
             layout.repo_worktree(&RepoName::new("api").unwrap(), &branch_name),
             layout.repo_worktree(&RepoName::new("web").unwrap(), &branch_name),
-            layout.plan_dir(&feature_name),
             layout.feature_dir(&feature_name),
         ]
     );
 }
 
 #[test]
-fn empty_feature_preview_lists_plan_dir_and_feature_dir_only() {
+fn empty_feature_preview_lists_feature_dir_only() {
     let (_guard, root) = hall_with_feature(&[], None);
     let layout = Layout::at(root.clone());
     let feature_name = FeatureName::new("checkout").unwrap();
@@ -263,10 +262,7 @@ fn empty_feature_preview_lists_plan_dir_and_feature_dir_only() {
 
     assert_eq!(
         preview.paths_to_remove,
-        vec![
-            layout.plan_dir(&feature_name),
-            layout.feature_dir(&feature_name),
-        ]
+        vec![layout.feature_dir(&feature_name)]
     );
 }
 
@@ -371,8 +367,13 @@ fn write_human_includes_paths_to_remove_heading_and_list() {
     let human = String::from_utf8(buf).unwrap();
 
     assert!(human.contains("Paths to remove:"));
-    assert!(human.contains("plans/checkout"));
-    assert!(human.contains(".ivar/features/checkout"));
+    let feature_dir_str = ".ivar/features/checkout";
+    assert!(human.contains(feature_dir_str));
+    assert_eq!(
+        human.matches(feature_dir_str).count(),
+        1,
+        "feature dir must appear exactly once in paths to remove"
+    );
 }
 
 #[test]
@@ -481,7 +482,6 @@ fn fully_valid_record_executes_teardown_removes_local_branches_and_writes_outcom
 
     let apply = outcome.value.apply_outcome.expect("expected apply outcome");
     assert!(apply.feature_removed);
-    assert!(apply.plans_removed);
     assert_eq!(apply.worktrees.len(), 1);
     assert!(apply.worktrees[0].removed);
     assert_eq!(apply.branches.len(), 1);
@@ -500,7 +500,6 @@ fn fully_valid_record_executes_teardown_removes_local_branches_and_writes_outcom
     let record: CleanupRecord = serde_json::from_str(&content).unwrap();
     let recorded_outcome = record.outcome.expect("expected recorded outcome");
     assert!(recorded_outcome.feature_removed);
-    assert!(recorded_outcome.plans_removed);
     assert!(recorded_outcome.worktrees[0].removed);
     assert!(recorded_outcome.branches[0].deleted);
 

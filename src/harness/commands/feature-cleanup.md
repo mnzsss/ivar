@@ -40,7 +40,7 @@ The cleanup workflow owns three explicit human decisions, recorded independently
 
 1. **Delivery Gate** — Approve evidence that every promoted repository is delivered.
 2. **Documentation Gate** — Approve the exact `HALL.md` and `docs/*` diff, or explicitly approve `not_required` with a human reason.
-3. **Teardown Gate** — Approve the exact local sessions, worktrees, metadata, plans, and local branches to be removed.
+3. **Teardown Gate** — Approve the exact local sessions, worktrees, metadata, working documents in the feature directory, and local branches to be removed.
 
 ## Workflow Steps
 
@@ -62,7 +62,7 @@ Present delivery evidence for every promoted repository in manifest order:
 
 ### Step 3: Documentation Gate
 
-Read the feature plan (`plans/<feature>/plan.md`), per-repo commits/diffs for promoted repos, `HALL.md`, and existing topics in `docs/product/`, `docs/updates/`, and `docs/repo-relations/`.
+Read the feature plan (`.ivar/features/<feature>/plan.md` or `../../plan.md` from a session), per-repo commits/diffs for promoted repos, `HALL.md`, and existing topics in `docs/product/`, `docs/updates/`, and `docs/repo-relations/`.
 
 Propose the minimum durable documentation:
 - **Product documentation** (`docs/product/NNN-<slug>.md`): Update an existing product topic before creating a duplicate. Describe current durable product behavior.

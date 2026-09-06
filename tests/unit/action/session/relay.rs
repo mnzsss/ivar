@@ -494,16 +494,18 @@ fn relay_materialises_the_relayed_providers_config() {
         "AGENTS.md must carry the session bootstrap block: {agents}"
     );
     assert!(
-        agents.contains("ivar plan status plans/checkout/plan.md"),
+        agents.contains("ivar plan status ../../plan.md"),
         "AGENTS.md must tell the agent how to re-derive the SPDD stage: {agents}"
     );
 
-    // The active plan is projected into the view dir.
-    let plan_link = read_link_target(&view_dir.join("plans/checkout"));
-    assert_eq!(
-        plan_link,
-        layout.plan_dir(&report.value.feature),
-        "plans/checkout must resolve to the hall's committed plan directory"
+    // The view dir does not project plans/ or work.
+    assert!(
+        !fs::exists(&view_dir.join("plans")).unwrap(),
+        "view dir must not project plans/"
+    );
+    assert!(
+        !fs::exists(&view_dir.join("work")).unwrap(),
+        "view dir must not project work"
     );
     unguard_worktrees(&root);
 }

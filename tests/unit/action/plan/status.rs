@@ -49,7 +49,7 @@ fn seeded_hall() -> (tempfile::TempDir, Utf8PathBuf) {
 
 fn input() -> StatusInput {
     StatusInput {
-        plan_path: "plans/checkout/plan.md".to_owned(),
+        plan_path: ".ivar/features/checkout/plan.md".to_owned(),
     }
 }
 
@@ -83,7 +83,11 @@ fn status_reports_approval_drift_without_persisting_it() {
         )
         .unwrap();
     }
-    fs::write_text(&root.join("plans/checkout/requirements.md"), "changed").unwrap();
+    fs::write_text(
+        &root.join(".ivar/features/checkout/requirements.md"),
+        "changed",
+    )
+    .unwrap();
 
     let report = status(&ctx, input()).unwrap();
     assert!(
@@ -136,7 +140,7 @@ fn status_projects_current_receipt_and_plan_divergence() {
 #[test]
 fn status_omits_gate_whose_artifact_is_absent_and_never_approved() {
     let (_guard, root) = seeded_hall();
-    fs::remove_file(&root.join("plans/checkout/requirements.md")).unwrap();
+    fs::remove_file(&root.join(".ivar/features/checkout/requirements.md")).unwrap();
 
     let report = status(&Ctx::new(root), input()).unwrap();
     assert_eq!(
@@ -162,7 +166,7 @@ fn status_keeps_approved_gate_as_needs_revision_when_its_artifact_is_deleted() {
         },
     )
     .unwrap();
-    fs::remove_file(&root.join("plans/checkout/requirements.md")).unwrap();
+    fs::remove_file(&root.join(".ivar/features/checkout/requirements.md")).unwrap();
 
     let report = status(&ctx, input()).unwrap();
     let requirements = report
@@ -282,4 +286,25 @@ fn status_invalidates_an_approved_gate_once_an_upstream_artifact_appears() {
         reason.contains("requirements"),
         "the reason should name the artifact that appeared, got: {reason}"
     );
+}
+
+#[test]
+fn status_derives_feature_from_features_dir() {
+    let (_guard, root) = seeded_hall();
+    let ctx = Ctx::new(root.clone());
+    let layout = Layout::at(root.clone());
+    let feature = FeatureName::new("checkout").unwrap();
+    let plan_file = layout.plan_dir(&feature).join("plan.md");
+    fs::ensure_dir(&layout.plan_dir(&feature)).unwrap();
+    fs::write_text(&plan_file, "# Plan\n").unwrap();
+
+    let report = status(
+        &ctx,
+        StatusInput {
+            plan_path: ".ivar/features/checkout/plan.md".to_owned(),
+        },
+    )
+    .unwrap();
+
+    assert_eq!(report.value.feature.as_str(), "checkout");
 }

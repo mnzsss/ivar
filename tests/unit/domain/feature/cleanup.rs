@@ -259,7 +259,6 @@ fn cleanup_record_rejects_populated_outcome() {
         worktrees: Vec::new(),
         branches: Vec::new(),
         feature_removed: true,
-        plans_removed: true,
     });
     assert!(
         record
@@ -285,4 +284,36 @@ fn cleanup_record_rejects_unknown_fields() {
         "unexpected_field": 123
     }"#;
     assert!(serde_json::from_str::<CleanupRecord>(json).is_err());
+}
+
+#[test]
+fn cleanup_apply_outcome_deserializes_legacy_plans_removed_key() {
+    let json = r#"{
+        "feature": "feature-cleanup",
+        "branch": "feature-cleanup",
+        "fingerprint": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        "worktrees": [],
+        "branches": [],
+        "feature_removed": true,
+        "plans_removed": true
+    }"#;
+    let outcome: Result<CleanupApplyOutcome, _> = serde_json::from_str(json);
+    assert!(outcome.is_ok());
+    let outcome = outcome.unwrap();
+    assert!(outcome.feature_removed);
+}
+
+#[test]
+fn cleanup_apply_outcome_serialisation_omits_plans_removed() {
+    let outcome = CleanupApplyOutcome {
+        feature: FeatureName::new("feature-cleanup").unwrap(),
+        branch: BranchName::new("feature-cleanup").unwrap(),
+        fingerprint: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".to_owned(),
+        worktrees: Vec::new(),
+        branches: Vec::new(),
+        feature_removed: true,
+    };
+    let json = serde_json::to_string(&outcome).unwrap();
+    assert!(!json.contains("plans_removed"));
+    assert!(json.contains(r#""feature_removed":true"#));
 }

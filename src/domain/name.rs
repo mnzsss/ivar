@@ -104,10 +104,6 @@ pub enum InvalidName {
         "must be lowercase kebab-case: letters, digits and '-', not starting or ending with '-'"
     )]
     NotKebab,
-    /// Collides with a directory name `docs/` already reserves for the
-    /// hall's flat topic documentation.
-    #[error("must not be one of the reserved names: product, updates, repo-relations")]
-    ReservedName,
     /// Starts or ends with `/`.
     #[error("must not start or end with '/'")]
     LeadingOrTrailingSlash,
@@ -151,7 +147,6 @@ impl InvalidName {
             Self::Hidden => "name.hidden",
             Self::ControlCharacter => "name.control_character",
             Self::NotKebab => "feature.not_kebab",
-            Self::ReservedName => "feature.reserved_name",
             Self::LeadingOrTrailingSlash => "branch.leading_or_trailing_slash",
             Self::DoubleSlash => "branch.double_slash",
             Self::LeadingDash => "branch.leading_dash",
@@ -193,10 +188,6 @@ impl InvalidName {
             Self::NotKebab => FixAction::safe(
                 "feature.use_kebab",
                 "Use lowercase kebab-case: 'checkout-refactor', not 'Checkout_v2'.",
-            ),
-            Self::ReservedName => FixAction::safe(
-                "feature.rename_off_reserved",
-                "Choose a name other than 'product', 'updates', or 'repo-relations'; `docs/` reserves those for the hall's topic documentation.",
             ),
             Self::LeadingOrTrailingSlash => FixAction::safe(
                 "branch.trim_slashes",
@@ -290,26 +281,11 @@ fn validate_segment(value: &str) -> Result<(), InvalidName> {
     Ok(())
 }
 
-/// Directory names `docs/` already reserves for the hall's flat, numbered
-/// topic documentation — `feature cleanup` writes all three
-/// (`src/action/feature/cleanup.rs:129`). A work name may not collide with
-/// one, because memory lives at `docs/<name>/`.
-const RESERVED_WORK_NAMES: [&str; 3] = ["product", "updates", "repo-relations"];
-
-/// Rules for `FeatureName`: every segment rule, then lowercase kebab, then
-/// the reserved topic-directory names.
-///
-/// Narrower than `validate_segment` on purpose, and not shared with
-/// `HallName`/`RepoName`: a repo is named by its remote (`api_gateway`,
-/// `api.v2` are both real), while a work name is chosen here and becomes a
-/// directory under `docs/`.
+/// Rules for `FeatureName`: every segment rule, then lowercase kebab.
 fn validate_feature(value: &str) -> Result<(), InvalidName> {
     validate_segment(value)?;
     if !is_kebab(value) {
         return Err(InvalidName::NotKebab);
-    }
-    if RESERVED_WORK_NAMES.contains(&value) {
-        return Err(InvalidName::ReservedName);
     }
     Ok(())
 }

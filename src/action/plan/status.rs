@@ -22,7 +22,7 @@ use super::super::discover_hall;
 
 #[derive(Debug, Clone)]
 pub struct StatusInput {
-    /// A file or directory under `plans/<feature>/`.
+    /// A file or directory under `.ivar/features/<feature>/`.
     pub plan_path: String,
 }
 
@@ -155,8 +155,8 @@ fn derive_feature(
             .map(Utf8Path::to_path_buf)
             .ok_or_else(|| not_a_plan(&resolved, layout))?
     };
-    let plans_dir = canonicalize_lenient(&layout.plans_root())?;
-    if dir.parent() != Some(plans_dir.as_path()) {
+    let features_dir = canonicalize_lenient(&layout.features_dir())?;
+    if dir.parent() != Some(features_dir.as_path()) {
         return Err(not_a_plan(&resolved, layout));
     }
     let Some(raw_name) = dir.file_name() else {
@@ -200,13 +200,13 @@ fn not_a_plan(path: &Utf8Path, layout: &Layout) -> Failure {
         format!("`{path}` is not a feature plan path"),
     )
     .expected(format!(
-        "a file or directory under `{}/plans/<feature>/`",
+        "a file or directory under `{}/.ivar/features/<feature>/`",
         layout.root()
     ))
-    .actual("the path does not sit under the hall's plans directory for a feature")
+    .actual("the path does not sit under the hall's features directory for a feature")
     .fix(FixAction::safe(
         "plan.status_pass_plan_path",
-        "Pass the plan path relative to the hall root, e.g. `plans/checkout/plan.md`.",
+        "Pass the plan path relative to the hall root, e.g. `.ivar/features/checkout/plan.md`.",
     ))
 }
 

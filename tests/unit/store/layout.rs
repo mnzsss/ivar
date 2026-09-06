@@ -270,19 +270,11 @@ fn accessors_compute_the_documented_paths() {
     );
     assert_eq!(
         layout.plan_dir(&feature),
-        Utf8PathBuf::from("/hall/plans/checkout")
-    );
-    assert_eq!(
-        layout.work_dir(&feature),
-        Utf8PathBuf::from("/hall/docs/checkout")
+        Utf8PathBuf::from("/hall/.ivar/features/checkout")
     );
     assert_eq!(
         layout.discovery_doc(&feature),
-        Utf8PathBuf::from("/hall/docs/checkout/discovery.md")
-    );
-    assert_eq!(
-        layout.research_dir(&feature),
-        Utf8PathBuf::from("/hall/docs/checkout/research")
+        Utf8PathBuf::from("/hall/.ivar/features/checkout/discovery.md")
     );
 }
 
@@ -428,46 +420,26 @@ fn a_run_id_cannot_carry_a_path_traversal_into_the_archive() {
     }
 }
 
-/// ADR-0002: memory and execution are two homes joined by one name. A
-/// regression that collapsed them — `work_dir` returning the plan path, or
-/// `plan_dir` moving under `docs/` — would pass every other test here.
 #[test]
-fn memory_and_execution_are_separate_homes_for_one_name() {
+fn plan_dir_and_discovery_doc_live_under_feature_dir() {
     let layout = Layout::at("/hall");
     let feature = FeatureName::new("checkout").unwrap();
 
-    assert_ne!(layout.work_dir(&feature), layout.plan_dir(&feature));
-    assert!(
-        layout
-            .plan_dir(&feature)
-            .starts_with(Utf8PathBuf::from("/hall/plans"))
-    );
-    assert_eq!(layout.work_docs_root(), Utf8PathBuf::from("/hall/docs"));
-    assert!(
-        layout
-            .work_dir(&feature)
-            .starts_with(layout.work_docs_root())
-    );
-    assert!(
-        layout
-            .discovery_doc(&feature)
-            .starts_with(layout.work_dir(&feature))
-    );
-    assert!(
-        layout
-            .research_dir(&feature)
-            .starts_with(layout.work_dir(&feature))
-    );
-}
-
-#[test]
-fn plans_root_is_the_parent_of_every_plan_dir() {
-    let layout = Layout::at("/hall");
-    let feature = FeatureName::new("checkout").unwrap();
-
-    assert_eq!(layout.plans_root(), Utf8PathBuf::from("/hall/plans"));
     assert_eq!(
-        layout.plan_dir(&feature).parent(),
-        Some(layout.plans_root().as_path())
+        layout.plan_dir(&feature),
+        Utf8PathBuf::from("/hall/.ivar/features/checkout")
+    );
+    assert_eq!(
+        layout.discovery_doc(&feature),
+        Utf8PathBuf::from("/hall/.ivar/features/checkout/discovery.md")
+    );
+    assert_eq!(layout.plan_dir(&feature), layout.feature_dir(&feature));
+    assert_eq!(
+        layout.discovery_doc(&feature).parent(),
+        Some(layout.feature_dir(&feature).as_path())
+    );
+    assert_eq!(
+        layout.discovery_doc(&feature).parent(),
+        Some(layout.plan_dir(&feature).as_path())
     );
 }
