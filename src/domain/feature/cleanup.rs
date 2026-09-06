@@ -456,8 +456,11 @@ pub struct BranchDeletion {
 }
 
 /// Structured outcome of applying cleanup teardown, stored in the cleanup record.
+///
+/// Note: `deny_unknown_fields` is omitted intentionally so older records written
+/// by ivar <= 0.8 that contain `"plans_removed": true` can be deserialised
+/// without backwards-compatibility errors.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct CleanupApplyOutcome {
     pub feature: FeatureName,
     pub branch: BranchName,
@@ -465,7 +468,6 @@ pub struct CleanupApplyOutcome {
     pub worktrees: Vec<WorktreeRemoval>,
     pub branches: Vec<BranchDeletion>,
     pub feature_removed: bool,
-    pub plans_removed: bool,
 }
 
 /// The durable cleanup record schema version 1.
