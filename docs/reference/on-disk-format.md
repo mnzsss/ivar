@@ -28,14 +28,13 @@ half-understood state file is worse than no state file.
   CLAUDE.md AGENTS.md           committed    provider root aliases — relative
                                              symlinks to HALL.md (CLAUDE.md for Claude
                                              Code; AGENTS.md for OpenCode and OMP)
-  plans/<feature>/*.md          committed    requirements, analysis, plan
   .ivar/skills/                 committed    skills the team shares
   .ivar/setups/<repo>.sh        committed    per-repo worktree bootstrap
   .ivar/setups/<repo>.session.sh committed   per-repo session hook
   .ivar/secrets/                local        secret material (hand-maintained files, plus mcp.env)
   .ivar/state.json              local        hall state, health, bookkeeping
   .ivar/repos/                  local        bare clones and worktrees
-  .ivar/features/               local        promotion records, Run Receipts
+  .ivar/features/               local        promotion records, Run Receipts, working docs
   .ivar/sessions/               local        discovery-session view dirs
   .claude/commands/ivar-*.md    local        derived workflow commands (Claude Code)
   .opencode/commands/ivar-*.md  local        derived workflow commands (OpenCode)

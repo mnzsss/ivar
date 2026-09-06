@@ -91,7 +91,7 @@ other team's repo sits next to yours:
   api  -> ../../../../repos/api/checkout        (promoted: writable)
   web  -> ../../../../repos/web/checkout        (promoted: writable)
   docs -> ../../../../repos/docs/main           (read-only)
-  plans/checkout -> ../../../plans/checkout     (the feature's plan, committed)
+  (working documents live at ../../: requirements.md, analysis.md, plan.md, tasks/)
   CLAUDE.md / AGENTS.md                         (derived from HALL.md: canonical
                                                 instructions + session bootstrap)
 ```
@@ -99,9 +99,9 @@ other team's repo sits next to yours:
 `cd api`, change the contract, `cd ../web`, regenerate the client. Same
 branch, same session, no handoff, nothing pushed in between.
 
-The feature's plan is projected into the view dir so an agent confined to the
-session can read and edit the SPDD artifacts — edits land in the hall's
-committed `plans/<feature>/`. Three artifacts, three approval gates — but a
+Working documents live directly in the feature directory (`.ivar/features/<feature>/`),
+accessible from the session view dir as `../../`, so an agent confined to the
+session can read and edit the SPDD artifacts. Three artifacts, three approval gates \u2014 but a
 gate exists only once its artifact does. An artifact that was never written is
 not a gate, so a change small enough to skip Requirements and Analysis can
 carry a `plan.md` alone through to execution; the moment either is written, it
@@ -111,7 +111,7 @@ live in a single committed `HALL.md`; every view dir — discovery included —
 receives its own provider-native instruction file derived from it. A feature
 session's file carries the canonical content plus a bootstrap block telling
 the agent to re-derive where the feature is with `ivar plan status
-plans/checkout/plan.md` and continue from the first gate that is `pending` or
+../../plan.md` and continue from the first gate that is `pending` or
 `needs-revision`; a discovery session's file is exactly the canonical content.
 The provider root aliases (`CLAUDE.md` / `AGENTS.md` at the hall root) are
 relative symlinks to `HALL.md`, never sources. When `HALL.md` is missing, a

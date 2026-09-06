@@ -81,7 +81,7 @@ config and commands — never the old provider's), projects the feature's plan
 into its view dir, and derives its instruction file from the hall's canonical
 `HALL.md`: the canonical content plus a bootstrap block telling the new agent
 to re-derive where the feature is in the SPDD cycle with
-`ivar plan status plans/checkout/plan.md` and continue from the first gate
+`ivar plan status ../../plan.md` and continue from the first gate
 that is `pending` or `needs-revision`. Start the provider in that session's
 view dir to pick the work back up.
 
@@ -130,7 +130,7 @@ skip Requirements and Analysis and go straight to Plan:
 ivar feature create fix-typo
 ivar feature promote fix-typo docs
 ivar plan create fix-typo plan       # scaffolds only plan.md
-#   ... write plans/fix-typo/plan.md ...
+#   ... write .ivar/features/fix-typo/plan.md (or ../../plan.md) ...
 ivar plan approve fix-typo plan      # succeeds: no upstream artifact exists to block it
 ivar feature deliver fix-typo --preview
 ivar feature deliver fix-typo --fingerprint <fingerprint>
@@ -223,11 +223,11 @@ second pass, because a PR's URL does not exist until it has been created.
 ivar feature close checkout --outcome delivered   # or: abandoned
 ```
 
-`close` records the outcome in `plan.md`'s frontmatter and stops executor state. The three plan files stay under `plans/<feature>/`, and the hall's git history is the record.
+`close` records the outcome in `plan.md`'s frontmatter and stops executor state. Working documents stay under `.ivar/features/<feature>/` until cleanup or delete.
 
 `/ivar-feature-cleanup` (supported by `ivar feature cleanup --preview` and `--record`) is the documented, human-approved end-of-feature workflow. It verifies delivery evidence, collects explicit human approvals for delivery, documentation, and teardown, writes durable audit documentation, and tears down local feature resources only when all gates pass and fingerprint state has not drifted.
 
-`ivar feature delete` is direct low-level teardown — worktrees, state, plans. It preflights write access across the whole cleanup tree and collects every blocker before touching anything, so a run that cannot finish does not start.
+`ivar feature delete` is direct low-level teardown — worktrees, state, working documents. It preflights write access across the whole cleanup tree and collects every blocker before touching anything, so a run that cannot finish does not start.
 
 Housekeeping, when features pile up:
 

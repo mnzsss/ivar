@@ -12,7 +12,7 @@ change spans repos and you want the design settled before code starts.
 ivar plan create checkout
 ```
 
-Scaffolds three files under `plans/<feature>/`, **committed** to the hall:
+Scaffolds three files under `.ivar/features/<feature>/`:
 
 | file | what it holds |
 | --- | --- |
@@ -20,21 +20,18 @@ Scaffolds three files under `plans/<feature>/`, **committed** to the hall:
 | `analysis.md` | what the code actually looks like now, and the trade-offs |
 | `plan.md` | the design, and the concrete operations that implement it |
 
-They are committed on purpose. They are the artifact a reviewer reads and the
-record of why the change looks the way it does — so they belong in git history,
-not in local state that a `cleanup` could remove.
+They live in the gitignored feature directory so agents inside the session can
+create and edit them freely without polluting git history or tripping guard boundaries.
 
-Inside a feature session, the same directory is projected into the view dir:
-`plans/<feature>/` relative to `$IVAR_SESSION_PATH` resolves to the hall's
-committed plan directory, so an agent confined to the session can read and edit
-the artifacts, and a relay from one provider to another carries them along.
-`ivar plan status plans/<feature>/plan.md` run from inside the session re-derives
-where the feature is — the gates remain the source of truth.
+Inside a feature session, the artifacts live two levels above the view dir at
+`../../` relative to $IVAR_SESSION_PATH, so an agent confined to the session can
+read and edit them directly. `ivar plan status ../../plan.md` run from inside the
+session re-derives where the feature is — the gates remain the source of truth.
 
 `plan.md` is written as a **REASONS canvas** — Entities, Approach, Structure, Changes, Verification, Norms, Safeguards. The design sections *reference* the
 standing sources rather than restating them, and record only this feature's
 delta. Its `## Changes` section organizes the implementation into sequential waves
-with a point budget (ceiling 8 points per wave). Each task in a wave is written as an explicit task packet under `plans/<feature>/tasks/NN-<semantic-name>.md` following a Test-Driven Red → Green → Refactor structure. Before the plan gate is approved, a plan-document reviewer subagent evaluates `plan.md` and all task packets for completeness, spec alignment against `requirements.md`, task decomposition, and buildability.
+with a point budget (ceiling 8 points per wave). Each task in a wave is written as an explicit task packet under `.ivar/features/<feature>/tasks/NN-<semantic-name>.md` (or `../../tasks/` from within a session) following a Test-Driven Red → Green → Refactor structure. Before the plan gate is approved, a plan-document reviewer subagent evaluates `plan.md` and all task packets for completeness, spec alignment against `requirements.md`, task decomposition, and buildability.
 
 Read them back with `ivar plan show checkout requirements`, and see how far along
 every feature is with `ivar plan list`.
@@ -70,7 +67,7 @@ repository or remote.
 After the plan gate is approved, start a Run Receipt from a Feature Session:
 
 ```sh
-ivar feature execute start checkout --plan plans/checkout/plan.md
+ivar feature execute start checkout --plan .ivar/features/checkout/plan.md
 ```
 
 A Run Receipt is persistent local evidence under
@@ -78,7 +75,7 @@ A Run Receipt is persistent local evidence under
 session and approved plan fingerprint, records an immutable baseline snapshot,
 and attaches the current session and provider to the receipt.
 
-The active provider is the coordinator. It reads `plan.md` and `plans/<feature>/tasks/`, executing the plan wave by wave. For each wave, the coordinator dispatches ONE native subagent per task packet, handing the subagent only its specific task packet context to carry out Red → Green → Refactor steps without modifying `plan.md`. Between waves, a wave checkpoint pauses execution for human approval before the coordinator proceeds to the next wave. Ivar does not schedule work, launch headless provider
+The active provider is the coordinator. It reads `plan.md` and `../../tasks/`, executing the plan wave by wave. For each wave, the coordinator dispatches ONE native subagent per task packet, handing the subagent only its specific task packet context to carry out Red → Green → Refactor steps without modifying `plan.md`. Between waves, a wave checkpoint pauses execution for human approval before the coordinator proceeds to the next wave. Ivar does not schedule work, launch headless provider
 processes, parse transcripts, or store native-subagent identifiers. Ask a human
 directly when a decision needs their input. If newly discovered work lies outside
 the approved plan and can be isolated, make it a child Feature rather than
@@ -115,7 +112,7 @@ archive and releases that lock.
 To continue an `active` or `blocked` receipt, attach the current Feature Session:
 
 ```sh
-ivar feature execute start checkout --plan plans/checkout/plan.md --resume
+ivar feature execute start checkout --plan .ivar/features/checkout/plan.md --resume
 ```
 
 A logical Run can resume with a different provider — for example, begin with
@@ -127,7 +124,7 @@ from the approved plan, receipt, repository state, and its current session.
 To deliberately end a non-terminal receipt and begin again:
 
 ```sh
-ivar feature execute start checkout --plan plans/checkout/plan.md --restart
+ivar feature execute start checkout --plan .ivar/features/checkout/plan.md --restart
 ```
 
 The prior receipt becomes `interrupted` and is retained in history.
@@ -138,7 +135,7 @@ When the coordinator stops, it writes a structured JSON report and finishes the
 receipt:
 
 ```sh
-ivar feature execute finish checkout --plan plans/checkout/plan.md \
+ivar feature execute finish checkout --plan .ivar/features/checkout/plan.md \
   --report-json /tmp/ivar-run-report.json --outcome succeeded
 ```
 
@@ -162,8 +159,8 @@ confirm that the revised plan remains the intended scope, then accept it:
 
 ```sh
 ivar plan approve checkout plan
-ivar feature execute accept-revision checkout --plan plans/checkout/plan.md
-ivar feature execute start checkout --plan plans/checkout/plan.md --resume
+ivar feature execute accept-revision checkout --plan .ivar/features/checkout/plan.md
+ivar feature execute start checkout --plan .ivar/features/checkout/plan.md --resume
 ```
 
 Accepting a revision records the old and new fingerprints in a checkpoint and

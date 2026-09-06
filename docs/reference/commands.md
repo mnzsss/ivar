@@ -264,7 +264,7 @@ Move a still-pristine child under a different parent, updating its parent and de
 
 ##### `ivar feature rename`
 
-Rename a feature, its branch, or both — the one allowed identity transition. Every promoted repo's local branch and worktree, its remote branch when published, direct children, live sessions, and the `plans/` directory all move together, durably and resumably: a mid-flight failure automatically reverses whatever already landed, and an interruption resumes on the next `ivar feature rename` invocation naming the same feature
+Rename a feature, its branch, or both — the one allowed identity transition. Every promoted repo's local branch and worktree, its remote branch when published, direct children, live sessions, and the feature directory all move together, durably and resumably: a mid-flight failure automatically reverses whatever already landed, and an interruption resumes on the next `ivar feature rename` invocation naming the same feature
 
 | argument | required | description |
 | --- | --- | --- |
@@ -531,12 +531,12 @@ Register a new provider by name
 
 #### `ivar discovery`
 
-Manage discovery docs: a unit of work's committed memory
+Manage discovery docs: a unit of work's working brief
 
 
 ##### `ivar discovery create`
 
-Start a unit of work's memory: `docs/<name>/discovery.md` plus its `research/` directory. No feature required — a name may earn memory long before it earns execution
+Start a unit of work's discovery brief. When run in a discovery session, writes `discovery.md` into the session view dir
 
 | argument | required | description |
 | --- | --- | --- |
@@ -549,7 +549,7 @@ Start a unit of work's memory: `docs/<name>/discovery.md` plus its `research/` d
 
 ##### `ivar discovery list`
 
-List every unit of work with committed memory
+List every unit of work with a discovery doc
 
 | flag | value | default | description |
 | --- | --- | --- | --- |

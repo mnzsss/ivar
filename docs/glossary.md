@@ -46,15 +46,13 @@ records the provider that launched it.
 
 **View dir** — the per-session directory of symlinks, one per repo, pointing at
 the right worktree: the feature branch for promoted repos, the shared read-only
-default branch for the rest. A feature session additionally projects the
-feature's plan (`plans/<feature>/` → the hall's committed plan directory) and
-carries a provider-native instruction file (`CLAUDE.md` / `AGENTS.md`) with the
-hall's standing instructions plus a session bootstrap block telling the agent
-how to re-derive where the feature is in the SPDD cycle. At
-`.ivar/features/<name>/sessions/<uuid>/` for feature sessions,
-`.ivar/sessions/<uuid>/` for discovery sessions. The plan link and the
-instruction file are per-session views, never copies: they die with the view
-dir, and the plan edits land in the hall.
+default branch for the rest. A feature session's working documents live in its
+parent feature directory (), and the session carries a provider-native
+instruction file ( / ) with the hall's standing instructions
+plus a session bootstrap block telling the agent how to re-derive where the feature
+is in the SPDD cycle. At  for feature sessions,
+ for discovery sessions. The instruction file is a per-session
+view, never a copy: it dies with the view dir.
 
 **Provider** — the agent harness that runs inside a session: Claude Code or
 OpenCode. Chosen at `ivar init`, added later with `ivar provider add`, selected
@@ -80,17 +78,13 @@ writable.
 (typically token exhaustion). **A relay passes the work, never the thread**: the
 branch, worktrees and plan live on disk, the conversation does not. The
 relayed session is materialised for the new provider (its config, commands and
-instruction file), projects the feature's plan into its view dir, and its
-bootstrap instructions tell the agent to re-derive the SPDD stage with
-`ivar plan status` and continue from the first gate that is `pending` or
-`needs-revision`. The opposite axis to conversion — a conversion keeps the
-provider and changes the binding; a relay keeps the binding and changes the
-provider.
-
+instruction file), and its bootstrap instructions tell the agent to re-derive the
+SPDD stage with `ivar plan status` and continue from the first gate that is `pending`
+or `needs-revision`. The opposite axis to conversion — a conversion keeps the
 **Connect** — re-binding your shell or agent to an existing live session without
 creating one. Finds it by id-prefix and/or feature, re-materialises its view dir
 (idempotent, and it repairs symlinks, read-only guards, the provider's config,
-the projected plan link and the session's bootstrap instructions), and emits
+and the session's bootstrap instructions), and emits
 `IVAR_SESSION_ID`, `IVAR_FEATURE` and `IVAR_SESSION_PATH`.
 
 **Detached session** — one created without launching a provider, so an
@@ -142,8 +136,8 @@ permissions on Unix).
 
 ## Planning
 
-**Requirements · Analysis · Plan** — the three SPDD artifacts, committed under
-`plans/<feature>/`. Requirements: what must be true. Analysis: what the code
+**Requirements · Analysis · Plan** — the three SPDD artifacts, located under
+`.ivar/features/<feature>/`. Requirements: what must be true. Analysis: what the code
 actually looks like, and the trade-offs. Plan: the design and the concrete
 operations that implement it.
 
@@ -243,7 +237,7 @@ an unreceipted or failed-evidence promotion stays repairable and resumable. The
 first receipt of any kind freezes the child's relationship, base, policy, and
 promotion membership; `integrated` freezes the whole child.
 
-**Feature deletion** — the destructive teardown: worktrees, state, plans. A batch
+**Feature deletion** — the destructive teardown: worktrees, state, working documents. A batch
 preflight checks write access across every directory in the cleanup tree and
 collects all blockers before mutating, so a run that cannot finish does not start.
 Feature state is preserved on a runtime failure, making a retry idempotent.
