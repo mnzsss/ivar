@@ -158,6 +158,79 @@ fn inherit_returns_the_exit_code() {
     );
 }
 
+// -- detach: spawn and walk away ------------------------------------------
+
+/// The operation. A runner that waited would take a second here; the whole
+/// point is that `ivar` returns while the child is still alive.
+#[test]
+fn detach_returns_before_the_child_exits() {
+    let started = std::time::Instant::now();
+
+    detach(&Command::new("sleep").arg("1")).unwrap();
+
+    assert!(
+        started.elapsed() < std::time::Duration::from_millis(500),
+        "detach waited for the child: {:?}",
+        started.elapsed()
+    );
+}
+
+/// Not waiting must not mean not running: the child really is spawned.
+#[test]
+fn a_detached_child_really_runs() {
+    let (_dir, root) = utf8_temp_dir();
+    let marker = root.join("ran");
+
+    detach(
+        &Command::new("sh")
+            .arg("-c")
+            .arg(format!("printf ran > {marker}")),
+    )
+    .unwrap();
+
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while !marker.exists() && std::time::Instant::now() < deadline {
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+
+    assert_eq!(std::fs::read_to_string(marker.as_std_path()).unwrap(), "ran");
+}
+
+/// The one thing `detach` can report, and the reason the editor's absence is
+/// knowable at all: the program never ran.
+#[test]
+fn detach_reports_a_spawn_error_like_the_other_runners() {
+    let error =
+        detach(&Command::new("ivar-no-such-program-exists-anywhere")).expect_err("no binary");
+
+    assert!(matches!(error, Error::Spawn { .. }));
+}
+
+/// A detached child writing to a stream nobody reads must not block, and must
+/// not land in the parent's output — the parent's stdout is a rendered
+/// outcome.
+#[test]
+fn a_detached_child_gets_no_streams() {
+    let (_dir, root) = utf8_temp_dir();
+    let marker = root.join("done");
+
+    // Writes far more than a pipe buffer holds, then records that it got to
+    // the end. With `Stdio::piped()` and nobody draining, this never finishes.
+    detach(
+        &Command::new("sh")
+            .arg("-c")
+            .arg(format!("yes | head -c 200000; printf done > {marker}")),
+    )
+    .unwrap();
+
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while !marker.exists() && std::time::Instant::now() < deadline {
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+
+    assert!(marker.exists(), "the child blocked on a stream nobody read");
+}
+
 // -- stream: the whole point ------------------------------------------------
 
 /// This is the operation. A test that only reads lines after the child has
