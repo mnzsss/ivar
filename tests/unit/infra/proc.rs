@@ -193,7 +193,10 @@ fn a_detached_child_really_runs() {
         std::thread::sleep(std::time::Duration::from_millis(10));
     }
 
-    assert_eq!(std::fs::read_to_string(marker.as_std_path()).unwrap(), "ran");
+    assert_eq!(
+        std::fs::read_to_string(marker.as_std_path()).unwrap(),
+        "ran"
+    );
 }
 
 /// The one thing `detach` can report, and the reason the editor's absence is
