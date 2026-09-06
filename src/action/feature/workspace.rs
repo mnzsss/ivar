@@ -12,7 +12,7 @@ use crate::action::Ctx;
 use crate::domain::feature::Feature;
 use crate::domain::name::{BranchName, FeatureName, RepoName};
 use crate::error::{Failure, FixAction, Outcome, Report, WriteHuman};
-use crate::infra::json;
+use crate::infra::{json, proc};
 
 /// What `ivar feature workspace` needs.
 #[derive(Debug, Clone)]
@@ -21,6 +21,12 @@ pub struct WorkspaceInput {
     pub feature: String,
     /// Which declared repos to include; includes all when omitted.
     pub repos: Vec<String>,
+    /// Whether to open the generated workspace in VS Code once it is written.
+    ///
+    /// Decided by `bin/ivar.rs`, which is the layer that knows whether this
+    /// run is human or `--json`: a machine-shaped run has no editor to open
+    /// into. Every other caller leaves it `false`.
+    pub open: bool,
 }
 
 /// A single folder included in the generated `.code-workspace`.
@@ -36,6 +42,26 @@ pub struct WorkspaceFolderOutcome {
     pub readonly: bool,
 }
 
+/// What became of the attempt to open the generated workspace.
+///
+/// Deliberately not serialized: `--json` is a machine surface and its shape is
+/// read by other tools, so a human-only detail must not appear in it. It is
+/// not a [`Warning`](crate::error::Warning) either — a warning makes the
+/// process exit 1, and a workspace that was written but not opened is a
+/// success with a sentence attached.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OpenAttempt {
+    /// No open was asked for.
+    NotRequested,
+    /// The editor was started.
+    Opened,
+    /// The editor could not be started, and why.
+    Failed {
+        /// The spawn failure, as a human reads it back.
+        reason: String,
+    },
+}
+
 /// What `ivar feature workspace` computed and wrote.
 #[derive(Debug, Clone, Serialize)]
 pub struct WorkspaceOutcome {
@@ -47,6 +73,9 @@ pub struct WorkspaceOutcome {
     pub feature: FeatureName,
     /// The folders included in the workspace, in manifest declaration order.
     pub folders: Vec<WorkspaceFolderOutcome>,
+    /// What became of the attempt to open the workspace. Human-surface only.
+    #[serde(skip)]
+    pub open: OpenAttempt,
 }
 
 impl WriteHuman for WorkspaceOutcome {
@@ -63,6 +92,13 @@ impl WriteHuman for WorkspaceOutcome {
                 "writable"
             };
             writeln!(w, "  {} ({}, {})", folder.repo, folder.branch, access)?;
+        }
+        match &self.open {
+            OpenAttempt::NotRequested => {}
+            OpenAttempt::Opened => writeln!(w, "Opening it in VS Code.")?,
+            OpenAttempt::Failed { reason } => {
+                writeln!(w, "Wrote the workspace, but could not open it: {reason}")?;
+            }
         }
         Ok(())
     }
@@ -180,11 +216,28 @@ pub fn workspace(ctx: &Ctx, input: WorkspaceInput) -> Outcome<WorkspaceOutcome> 
     let workspace_path = layout.feature_workspace(&feature_name);
     json::write_canonical(&workspace_path, &doc)?;
 
+    // The file is on disk before anything is spawned: opening is a
+    // convenience, and a missing editor must never change what was written.
+    let open = if input.open {
+        let command = proc::Command::new("code")
+            .arg(workspace_path.as_str())
+            .cwd(layout.root());
+        match proc::detach(&command) {
+            Ok(()) => OpenAttempt::Opened,
+            Err(error) => OpenAttempt::Failed {
+                reason: error.to_string(),
+            },
+        }
+    } else {
+        OpenAttempt::NotRequested
+    };
+
     Ok(Report::new(WorkspaceOutcome {
         root: layout.root().to_path_buf(),
         path: workspace_path,
         feature: feature_name,
         folders: folders_outcome,
+        open,
     }))
 }
 
