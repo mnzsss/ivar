@@ -89,7 +89,7 @@ fn path_with(dir: &Utf8Path) -> String {
 fn wait_for(marker: &Utf8Path) -> bool {
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
     while std::time::Instant::now() < deadline {
-        if marker.exists() {
+        if std::fs::metadata(marker.as_std_path()).is_ok_and(|m| m.len() > 0) {
             return true;
         }
         std::thread::sleep(std::time::Duration::from_millis(20));
