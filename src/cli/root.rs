@@ -1515,7 +1515,11 @@ impl From<FeatureRebaseArgs> for rebase::RebaseInput {
 impl From<FeatureWorkspaceArgs> for workspace::WorkspaceInput {
     fn from(args: FeatureWorkspaceArgs) -> Self {
         let FeatureWorkspaceArgs { feature, repos } = args;
-        Self { feature, repos }
+        Self {
+            feature,
+            repos,
+            open: false,
+        }
     }
 }
 

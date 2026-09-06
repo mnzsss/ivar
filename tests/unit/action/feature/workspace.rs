@@ -10,7 +10,9 @@ use camino::Utf8PathBuf;
 use crate::action::Ctx;
 use crate::action::feature::create::{CreateInput, create as create_action};
 use crate::action::feature::promote::{PromoteInput, promote};
-use crate::action::feature::workspace::{WorkspaceFolderOutcome, WorkspaceInput, workspace};
+use crate::action::feature::workspace::{
+    OpenAttempt, WorkspaceFolderOutcome, WorkspaceInput, WorkspaceOutcome, workspace,
+};
 use crate::action::hall::{self, InitInput};
 use crate::action::sync::sync;
 use crate::domain::name::{BranchName, FeatureName, HallName, RepoName};
@@ -104,6 +106,7 @@ fn workspace_generates_code_workspace_with_promoted_and_readonly_context_folders
         WorkspaceInput {
             feature: "checkout".to_owned(),
             repos: vec![],
+            open: false,
         },
     )
     .unwrap();
@@ -197,6 +200,7 @@ fn workspace_filters_repos_and_preserves_manifest_order() {
         WorkspaceInput {
             feature: "checkout".to_owned(),
             repos: vec!["docs".to_owned(), "api".to_owned()],
+            open: false,
         },
     )
     .unwrap();
@@ -239,6 +243,7 @@ fn workspace_fails_when_feature_not_found() {
         WorkspaceInput {
             feature: "ghost".to_owned(),
             repos: vec![],
+            open: false,
         },
     )
     .unwrap_err();
@@ -257,6 +262,7 @@ fn workspace_fails_when_repo_not_in_manifest() {
         WorkspaceInput {
             feature: "checkout".to_owned(),
             repos: vec!["api".to_owned(), "unknown_repo".to_owned()],
+            open: false,
         },
     )
     .unwrap_err();
@@ -275,6 +281,7 @@ fn workspace_is_deterministic_across_repeated_runs() {
         WorkspaceInput {
             feature: "checkout".to_owned(),
             repos: vec![],
+            open: false,
         },
     )
     .unwrap();
@@ -285,6 +292,7 @@ fn workspace_is_deterministic_across_repeated_runs() {
         WorkspaceInput {
             feature: "checkout".to_owned(),
             repos: vec![],
+            open: false,
         },
     )
     .unwrap();
@@ -303,6 +311,7 @@ fn workspace_outcome_writes_human_readable_summary() {
         WorkspaceInput {
             feature: "checkout".to_owned(),
             repos: vec![],
+            open: false,
         },
     )
     .unwrap();
@@ -316,4 +325,105 @@ fn workspace_outcome_writes_human_readable_summary() {
     assert!(rendered.contains("api (checkout, writable)"));
     assert!(rendered.contains("web (main, read-only)"));
     assert!(rendered.contains("docs (master, read-only)"));
+}
+
+// -- opening the editor ----------------------------------------------------
+
+/// The default path, and the one every other test in this file takes: no
+/// open was asked for, so nothing was spawned and the output is exactly what
+/// it was before this feature existed.
+#[test]
+fn a_run_that_does_not_ask_to_open_reports_nothing_extra() {
+    let (_guard, root) = multi_repo_hall_with_feature();
+    let ctx = Ctx::new(root.clone());
+
+    let report = workspace(
+        &ctx,
+        WorkspaceInput {
+            feature: "checkout".to_owned(),
+            repos: vec![],
+            open: false,
+        },
+    )
+    .unwrap();
+
+    assert_eq!(report.value.open, OpenAttempt::NotRequested);
+
+    let mut out = Vec::new();
+    report.value.write_human(&mut out).unwrap();
+    let rendered = String::from_utf8(out).unwrap();
+
+    assert!(!rendered.contains("VS Code"));
+    assert!(!rendered.contains("could not"));
+}
+
+/// The editor's absence is a sentence, not a failure: the file is on disk and
+/// the command succeeded, so the outcome is `Ok` and the report is clean —
+/// a warning would make the process exit 1.
+#[test]
+fn a_failed_open_is_reported_without_failing_the_command() {
+    let outcome = WorkspaceOutcome {
+        root: Utf8PathBuf::from("/hall"),
+        path: Utf8PathBuf::from("/hall/.ivar/features/checkout/checkout.code-workspace"),
+        feature: FeatureName::new("checkout").unwrap(),
+        folders: vec![],
+        open: OpenAttempt::Failed {
+            reason: "could not run `code`: No such file or directory (os error 2)".to_owned(),
+        },
+    };
+
+    let mut out = Vec::new();
+    outcome.write_human(&mut out).unwrap();
+    let rendered = String::from_utf8(out).unwrap();
+
+    assert!(rendered.contains("Wrote workspace for `checkout` to"));
+    assert!(rendered.contains("could not open it"));
+    assert!(rendered.contains("No such file or directory"));
+}
+
+#[test]
+fn a_successful_open_says_so() {
+    let outcome = WorkspaceOutcome {
+        root: Utf8PathBuf::from("/hall"),
+        path: Utf8PathBuf::from("/hall/.ivar/features/checkout/checkout.code-workspace"),
+        feature: FeatureName::new("checkout").unwrap(),
+        folders: vec![],
+        open: OpenAttempt::Opened,
+    };
+
+    let mut out = Vec::new();
+    outcome.write_human(&mut out).unwrap();
+    let rendered = String::from_utf8(out).unwrap();
+
+    assert!(rendered.contains("Opening it in VS Code"));
+}
+
+/// `ivar-orca` reads this command's `--json` output. The open attempt is
+/// human-surface state and must not appear there: the key set is exactly what
+/// it was before this feature.
+#[test]
+fn the_json_surface_does_not_carry_the_open_attempt() {
+    let (_guard, root) = multi_repo_hall_with_feature();
+    let ctx = Ctx::new(root.clone());
+
+    let report = workspace(
+        &ctx,
+        WorkspaceInput {
+            feature: "checkout".to_owned(),
+            repos: vec![],
+            open: false,
+        },
+    )
+    .unwrap();
+
+    let value = serde_json::to_value(&report).unwrap();
+    let mut keys: Vec<&str> = value
+        .as_object()
+        .expect("an object")
+        .keys()
+        .map(String::as_str)
+        .collect();
+    keys.sort_unstable();
+
+    assert_eq!(keys, ["feature", "folders", "path", "root"]);
 }

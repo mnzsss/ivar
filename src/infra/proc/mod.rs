@@ -1,7 +1,7 @@
 //! The subprocess boundary. Nothing else in this crate touches
 //! `std::process`.
 //!
-//! `ivar` shells out for exactly three reasons, and they want different
+//! `ivar` shells out for exactly four reasons, and they want different
 //! things from this module:
 //!
 //! - **git mutations and anything touching a remote** (ADR-0001 §3). Short,
@@ -20,8 +20,15 @@
 //!   process is already dead. So they [`stream`]. This is also the only runner
 //!   that will *write* to its child, via [`Command::stdin`] — a prompt is
 //!   input, and one CLI here wants it there rather than on argv.
+//! - **a program that is meant to outlive `ivar`** — the editor
+//!   `ivar feature workspace` opens. There is nothing to capture and nobody
+//!   to watch: the command's own output is already written by the time the
+//!   window appears, and waiting would hold the terminal open for as long as
+//!   the editor is. So they [`detach`], which spawns, drops the child on the
+//!   floor, and returns.
 //!
-//! All three block the calling thread for as long as they're asked to wait.
+//! The first three block the calling thread for as long as they're asked to
+//! wait; [`detach`] never blocks at all.
 //! There is no async runtime in this crate, and adding one is an
 //! architectural change, not a dependency bump.
 //!
@@ -318,6 +325,34 @@ pub fn inherit(command: &Command) -> Result<Option<i32>, Error> {
         .map_err(|source| spawn_error(command, source))?;
 
     Ok(status.code())
+}
+
+/// Spawn `command` and return the moment it is running, without waiting for
+/// it and without giving it any stream.
+///
+/// The other three runners all wait, which is wrong for a program whose whole
+/// job is to outlive this process: an editor launched from `ivar feature
+/// workspace` keeps running long after the command has printed its outcome,
+/// and waiting would hold the terminal for as long as the editor is open.
+///
+/// All three streams are `/dev/null`. Inheriting them would let a launcher's
+/// chatter land in the middle of a rendered outcome; piping them would give
+/// the child a buffer nobody drains, which is a deadlock the moment it fills.
+///
+/// The child is never reaped, so it is a zombie until this process exits a
+/// few milliseconds later and `init` adopts it. Double-forking to avoid that
+/// would cost an `unsafe` block and a second process, for a child that
+/// outlives its parent by design.
+pub fn detach(command: &Command) -> Result<(), Error> {
+    command
+        .to_std()
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|source| spawn_error(command, source))?;
+
+    Ok(())
 }
 
 fn spawn_error(command: &Command, source: io::Error) -> Error {

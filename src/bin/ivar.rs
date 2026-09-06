@@ -243,7 +243,17 @@ fn main() -> ExitCode {
                 &mut stderr,
             ),
             FeatureCommand::Workspace(args) => respond(
-                workspace::workspace(&ctx, args.into()),
+                workspace::workspace(
+                    &ctx,
+                    // The only arm that consults `json` for anything but
+                    // rendering: opening an editor is a human convenience, and
+                    // a machine-shaped run has no window to open into. `From`
+                    // cannot see the flag, so it is applied here.
+                    workspace::WorkspaceInput {
+                        open: !json,
+                        ..args.into()
+                    },
+                ),
                 json,
                 &mut stdout,
                 &mut stderr,
