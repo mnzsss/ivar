@@ -115,3 +115,122 @@ fn omp_session_env_resolves_all_five_variables() {
     assert_eq!(envs.get("IVAR_PROVIDER").copied(), Some("omp"));
     assert_eq!(envs.get("IVAR_FEATURE").copied(), Some("checkout"));
 }
+
+use crate::action::feature::create::{self as feature_create, CreateInput};
+use crate::action::feature::promote::{self as feature_promote, PromoteInput};
+use crate::action::hall::{self, InitInput};
+use crate::action::session::start::{self as session_start, StartInput};
+use crate::domain::name::{BranchName, RepoName};
+use crate::store::manifest::{Manifest, Providers, Repo};
+use crate::test_support::{hall_root, seeded_repo};
+
+fn hall_with_promoted_feature_and_session() -> (tempfile::TempDir, Utf8PathBuf, String) {
+    let (guard, root) = hall_root();
+    let ctx = crate::action::Ctx::new(root.clone());
+    hall::init(
+        &ctx,
+        InitInput {
+            path: Utf8PathBuf::from("."),
+            name: Some("acme".to_owned()),
+            provider: None,
+        },
+    )
+    .unwrap();
+
+    let origin = seeded_repo(&root.parent().unwrap().join("origins").join("api"), "main");
+    let layout = Layout::at(root.clone());
+    let manifest = Manifest::new(
+        crate::domain::name::HallName::new("acme").unwrap(),
+        Providers::new(vec![Provider::ClaudeCode], Provider::ClaudeCode),
+        vec![Repo::new(
+            RepoName::new("api").unwrap(),
+            origin.as_str(),
+            BranchName::new("main").unwrap(),
+        )],
+        None,
+    )
+    .unwrap();
+    Manifest::write(&layout, &manifest).unwrap();
+
+    feature_create::create(
+        &ctx,
+        CreateInput {
+            name: "checkout".to_owned(),
+            branch: None,
+            base: None,
+            parent: None,
+            via: None,
+            strategy: None,
+        },
+    )
+    .unwrap();
+    crate::action::sync::sync(&ctx, Default::default()).unwrap();
+    feature_promote::promote(
+        &ctx,
+        PromoteInput {
+            feature: "checkout".to_owned(),
+            repo: "api".to_owned(),
+            base: None,
+        },
+    )
+    .unwrap();
+
+    let start_report = session_start::start(
+        &ctx,
+        StartInput {
+            feature: Some("checkout".to_owned()),
+            resume: false,
+            provider: None,
+            detached: true,
+            relay: false,
+        },
+    )
+    .unwrap();
+
+    (guard, root, start_report.value.session_id)
+}
+
+#[test]
+fn resolve_by_cwd_from_promoted_worktree() {
+    let (_guard, root, session_id) = hall_with_promoted_feature_and_session();
+    let layout = Layout::at(root.clone());
+    let feature_name = FeatureName::new("checkout").unwrap();
+    let feature = Feature::read(&layout, &feature_name).unwrap().unwrap();
+    let worktree = layout.repo_worktree(&RepoName::new("api").unwrap(), &feature.branch);
+
+    let env = SessionEnv::resolve_by_cwd(&worktree)
+        .unwrap()
+        .expect("session env should resolve from worktree cwd");
+    assert_eq!(env.session_id, session_id);
+    assert_eq!(env.feature, Some(feature_name));
+}
+
+#[test]
+fn resolve_by_cwd_from_promoted_worktree_picks_most_recent_session() {
+    let (_guard, root, first_session_id) = hall_with_promoted_feature_and_session();
+    let ctx = crate::action::Ctx::new(root.clone());
+    let layout = Layout::at(root.clone());
+    let feature_name = FeatureName::new("checkout").unwrap();
+    let feature = Feature::read(&layout, &feature_name).unwrap().unwrap();
+    let worktree = layout.repo_worktree(&RepoName::new("api").unwrap(), &feature.branch);
+
+    // A feature accumulates sessions; the newest is the one an agent standing
+    // in the worktree is running under.
+    let second = session_start::start(
+        &ctx,
+        StartInput {
+            feature: Some("checkout".to_owned()),
+            resume: false,
+            provider: None,
+            detached: true,
+            relay: false,
+        },
+    )
+    .unwrap();
+
+    let env = SessionEnv::resolve_by_cwd(&worktree)
+        .unwrap()
+        .expect("a worktree cwd resolves even with several sessions");
+    assert_eq!(env.session_id, second.value.session_id);
+    assert_ne!(env.session_id, first_session_id);
+}

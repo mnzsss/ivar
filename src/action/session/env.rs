@@ -2,8 +2,11 @@
 
 use camino::{Utf8Path, Utf8PathBuf};
 
+use crate::domain::feature::Feature;
 use crate::domain::name::{FeatureName, SessionId};
 use crate::domain::provider::Provider;
+use crate::domain::session::SessionState;
+use crate::infra::fs;
 use crate::infra::proc::Command;
 use crate::store::layout::Layout;
 
@@ -113,7 +116,7 @@ impl SessionEnv {
     ///
     /// Reads NO environment variables — resolution is pure disk walk-up.
     pub fn resolve_by_cwd(start: &Utf8Path) -> Result<Option<Self>, crate::error::Failure> {
-        let mut current = match start.canonicalize_utf8() {
+        let current = match start.canonicalize_utf8() {
             Ok(path) => path,
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(None),
             Err(err) => {
@@ -124,31 +127,95 @@ impl SessionEnv {
             }
         };
 
+        let mut walk = current.clone();
         loop {
-            if current.join("state.json").is_file()
-                && let Some(file_name) = current.file_name()
+            if walk.join("state.json").is_file()
+                && let Some(file_name) = walk.file_name()
                 && let Ok(session_id) = SessionId::new(file_name)
-                && let (Some(layout), Ok(Some(state))) = (
-                    Layout::discover(&current)?,
-                    crate::domain::session::SessionState::read(&current),
-                )
+                && let (Some(layout), Ok(Some(state))) =
+                    (Layout::discover(&walk)?, SessionState::read(&walk))
             {
                 let env = Self::build(
                     &layout,
                     &session_id,
-                    &current,
+                    &walk,
                     state.provider,
                     state.feature.as_ref(),
                 );
                 return Ok(Some(env));
             }
 
-            match current.parent() {
-                Some(parent) => current = parent.to_path_buf(),
-                None => return Ok(None),
+            match walk.parent() {
+                Some(parent) => walk = parent.to_path_buf(),
+                None => break,
             }
         }
+
+        let Some(layout) = Layout::discover(&current)? else {
+            return Ok(None);
+        };
+
+        if !fs::is_dir(&layout.features_dir())? {
+            return Ok(None);
+        }
+
+        for entry in fs::read_dir(&layout.features_dir())? {
+            let Some(name) = entry.file_name() else {
+                continue;
+            };
+            let Ok(feature_name) = FeatureName::new(name) else {
+                continue;
+            };
+            let Some(feature) = Feature::read(&layout, &feature_name)? else {
+                continue;
+            };
+
+            let matches_worktree = feature.promotions.keys().any(|repo| {
+                let wt = layout.repo_worktree(repo, &feature.branch);
+                let canonical_wt = canonicalize_lenient(&wt);
+                current == canonical_wt || current.starts_with(&canonical_wt)
+            });
+
+            if !matches_worktree {
+                continue;
+            }
+
+            // A feature accumulates sessions — every `session start` on it
+            // adds one, and old ones outlive their agents. Demanding exactly
+            // one would make this fallback dead on any feature worked on
+            // twice, so take the most recent: the session an agent standing
+            // in this worktree is running under.
+            let Some(session) = super::lookup::most_recent(&layout, &feature_name)? else {
+                return Ok(None);
+            };
+            let Some(state) = session.state.as_ref() else {
+                return Ok(None);
+            };
+
+            let env = Self::build(
+                &layout,
+                &session.id,
+                &session.view_dir,
+                state.provider,
+                state.feature.as_ref(),
+            );
+            return Ok(Some(env));
+        }
+
+        Ok(None)
     }
+}
+
+fn canonicalize_lenient(path: &Utf8Path) -> Utf8PathBuf {
+    if let Ok(canonical) = path.canonicalize_utf8() {
+        return canonical;
+    }
+    if let (Some(parent), Some(file_name)) = (path.parent(), path.file_name())
+        && let Ok(canonical_parent) = parent.canonicalize_utf8()
+    {
+        return canonical_parent.join(file_name);
+    }
+    path.to_path_buf()
 }
 
 impl crate::error::WriteHuman for SessionEnv {
