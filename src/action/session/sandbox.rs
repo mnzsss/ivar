@@ -7,16 +7,38 @@ use crate::domain::feature::Feature;
 use crate::domain::provider::Provider;
 use crate::error::Failure;
 use crate::store::layout::Layout;
-use camino::{Utf8Path, Utf8PathBuf};
+use camino::Utf8PathBuf;
 
-/// The kernel-enforced projection of a `WritableSet`.
-#[derive(Debug, Clone)]
+/// Status of the kernel-enforced write sandbox.
+#[allow(dead_code)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum SandboxStatus {
+    /// Ruleset is fully enforced by the kernel.
+    Enforced,
+    /// Ruleset is partially enforced (e.g. kernel supports an older Landlock ABI).
+    Degraded { reason: String },
+    /// Landlock is unavailable on this kernel or platform (e.g. macOS or Linux < 5.13).
+    Unavailable { reason: String },
+}
+
+impl SandboxStatus {
+    /// Returns true if the sandbox is actively and fully enforcing kernel write restrictions.
+    #[allow(dead_code)]
+    pub(crate) fn is_enforced(&self) -> bool {
+        matches!(self, Self::Enforced)
+    }
+}
+
+/// The kernel-enforced write sandbox holding the derived set of write-allowed filesystem roots.
+#[allow(dead_code)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Sandbox {
     roots: Vec<Utf8PathBuf>,
 }
 
 impl Sandbox {
-    /// Derive all write-allowed roots for this session.
+    /// Derive the complete list of write-allowed filesystem roots for a session.
+    #[allow(dead_code)]
     pub(crate) fn from_writable_set(
         set: &WritableSet,
         layout: &Layout,
@@ -25,27 +47,27 @@ impl Sandbox {
     ) -> Result<Self, Failure> {
         let mut candidate_roots: Vec<Utf8PathBuf> = Vec::new();
 
-        // 1. All roots defined by WritableSet (view dir, feature dir, worktrees).
-        for r in set.roots() {
-            candidate_roots.push(r.to_path_buf());
+        // 1. Primary write roots from the WritableSet (view dir, feature dir, promoted worktrees).
+        for root in set.roots() {
+            candidate_roots.push(root.to_path_buf());
         }
 
-        // 2. Backing bare git directories for all promoted repos in the feature.
+        // 2. Backing git bare repos for any promoted repositories in the feature.
+        // Required for git operations (index.lock, refs, objects) within worktrees.
         if let Some(feature) = feature {
             for repo in feature.promotions.keys() {
-                let bare = layout.repo_bare(repo);
-                candidate_roots.push(bare);
+                candidate_roots.push(layout.repo_bare(repo));
             }
         }
 
-        // 3. /dev/null - required by git and child processes for writing / redirection.
+        // 3. /dev/null - required by git and various tools for write redirection.
         let dev_null = Utf8PathBuf::from("/dev/null");
         candidate_roots.push(dev_null);
 
-        // 4. System temp directory.
-        if let Ok(temp) = Utf8PathBuf::try_from(std::env::temp_dir()) {
-            candidate_roots.push(temp);
-        }
+        // 4. Temporary directory for compiler/tool outputs.
+        let temp_dir = Utf8PathBuf::try_from(std::env::temp_dir())
+            .unwrap_or_else(|_| Utf8PathBuf::from("/tmp"));
+        candidate_roots.push(temp_dir);
 
         // 5. Shared cargo target cache if it exists under the hall layout.
         let cache_dir = layout.root().join(".ivar").join("cache");
@@ -64,10 +86,8 @@ impl Sandbox {
                 if !final_roots.contains(&canonical) {
                     final_roots.push(canonical);
                 }
-            } else if path.exists() {
-                if !final_roots.contains(&path) {
-                    final_roots.push(path);
-                }
+            } else if path.exists() && !final_roots.contains(&path) {
+                final_roots.push(path);
             }
         }
 
@@ -75,8 +95,117 @@ impl Sandbox {
     }
 
     /// Return the list of canonical roots that will be added to the ruleset.
+    #[allow(dead_code)]
     pub(crate) fn roots(&self) -> &[Utf8PathBuf] {
         &self.roots
+    }
+
+    /// Apply the write-only ruleset to the calling process.
+    ///
+    /// On Linux, builds a Landlock ruleset covering all `self.roots()`, handles only
+    /// write-class filesystem access (keeping reads and execution ambient), and restricts
+    /// the calling process with `no_new_privs`.
+    ///
+    /// On non-Linux platforms, returns `SandboxStatus::Unavailable` without failing.
+    #[allow(dead_code)]
+    #[cfg(target_os = "linux")]
+    pub(crate) fn apply(&self) -> Result<SandboxStatus, Failure> {
+        use landlock::{
+            ABI, AccessFs, PathBeneath, PathFd, Ruleset, RulesetAttr, RulesetCreatedAttr,
+            RulesetStatus, Scope,
+        };
+
+        let abi = ABI::V5;
+        // WRITE-only: reads and execs stay ambient (R-READ).
+        let write_rights = AccessFs::from_write(abi);
+
+        let mut ruleset = match Ruleset::default()
+            .handle_access(write_rights)
+            .and_then(|r| r.scope(Scope::Signal | Scope::AbstractUnixSocket))
+            .and_then(|r| r.create())
+        {
+            Ok(ruleset) => ruleset,
+            Err(err) => {
+                let err_str = err.to_string();
+                if err_str.contains("unsupported")
+                    || err_str.contains("ENOSYS")
+                    || err_str.contains("Function not implemented")
+                    || err_str.contains("Operation not supported")
+                {
+                    return Ok(SandboxStatus::Unavailable {
+                        reason: format!("Landlock is not supported by this kernel: {err}"),
+                    });
+                }
+                return Err(Failure::failed(
+                    "sandbox.ruleset_create_failed",
+                    format!("failed to initialize Landlock ruleset: {err}"),
+                ));
+            }
+        };
+
+        for path in &self.roots {
+            let path_fd = match PathFd::new(path.as_std_path()) {
+                Ok(fd) => fd,
+                Err(err) => {
+                    let err_str = err.to_string();
+                    if err_str.contains("No such file") || err_str.contains("not found") {
+                        continue;
+                    }
+                    return Err(Failure::failed(
+                        "sandbox.path_fd_failed",
+                        format!("failed to open path descriptor for `{path}`: {err}"),
+                    ));
+                }
+            };
+
+            ruleset = match ruleset.add_rule(PathBeneath::new(path_fd, write_rights)) {
+                Ok(r) => r,
+                Err(err) => {
+                    return Err(Failure::failed(
+                        "sandbox.add_rule_failed",
+                        format!("failed to add sandbox write rule for `{path}`: {err}"),
+                    ));
+                }
+            };
+        }
+
+        let restriction = match ruleset.restrict_self() {
+            Ok(r) => r,
+            Err(err) => {
+                let err_str = err.to_string();
+                if err_str.contains("unsupported")
+                    || err_str.contains("ENOSYS")
+                    || err_str.contains("Operation not supported")
+                {
+                    return Ok(SandboxStatus::Unavailable {
+                        reason: format!("Landlock self-restriction unsupported: {err}"),
+                    });
+                }
+                return Err(Failure::failed(
+                    "sandbox.restrict_self_failed",
+                    format!("failed to restrict self with Landlock ruleset: {err}"),
+                ));
+            }
+        };
+
+        match restriction.ruleset {
+            RulesetStatus::FullyEnforced => Ok(SandboxStatus::Enforced),
+            RulesetStatus::PartiallyEnforced => Ok(SandboxStatus::Degraded {
+                reason: "Landlock ruleset is partially enforced by the kernel".to_owned(),
+            }),
+            RulesetStatus::NotEnforced => Ok(SandboxStatus::Unavailable {
+                reason: "Landlock ruleset was not enforced by the kernel".to_owned(),
+            }),
+        }
+    }
+
+    /// Apply fallback for non-Linux platforms where Landlock is unavailable.
+    #[allow(dead_code)]
+    #[cfg(not(target_os = "linux"))]
+    pub(crate) fn apply(&self) -> Result<SandboxStatus, Failure> {
+        Ok(SandboxStatus::Unavailable {
+            reason: format!("Landlock is not supported on {}", std::env::consts::OS),
+        })
     }
 }
 
