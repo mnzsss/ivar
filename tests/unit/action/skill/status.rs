@@ -24,11 +24,13 @@ fn status_reports_authored_and_external_skills() {
     let ctx = Ctx::new(root);
 
     let report = status(&ctx).unwrap();
-    assert_eq!(report.value.skills.len(), 2);
-    assert_eq!(report.value.skills[0].id.as_str(), "authed");
-    assert_eq!(report.value.skills[0].source, "authored");
-    assert_eq!(report.value.skills[1].id.as_str(), "ext");
-    assert_eq!(report.value.skills[1].source, "external");
+    let [authored, external] = report.value.skills.as_slice() else {
+        panic!("two skills, two statuses: {:?}", report.value.skills);
+    };
+    assert_eq!(authored.id.as_str(), "authed");
+    assert_eq!(authored.source, "authored");
+    assert_eq!(external.id.as_str(), "ext");
+    assert_eq!(external.source, "external");
 }
 
 #[test]
