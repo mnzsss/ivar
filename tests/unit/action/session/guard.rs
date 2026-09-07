@@ -466,7 +466,9 @@ fn omp_adapter_denies_write_when_cwd_is_unpromoted_repo_worktree() {
     assert!(!out.exit_zero);
     assert!(
         out.body.contains("writable set:")
-            || out.body.contains("no ivar session resolves from the cwd")
+            || out
+                .body
+                .contains("no ivar session resolves from the cwd or the target path")
     );
 }
 
@@ -572,7 +574,10 @@ fn hall_root_cwd_denies_a_target_outside_every_session() {
 
     let out = guard(Provider::Omp, &payload.to_string()).unwrap();
     assert!(!out.exit_zero);
-    assert!(out.body.contains("no ivar session resolves from the cwd"));
+    assert!(
+        out.body
+            .contains("no ivar session resolves from the cwd or the target path")
+    );
 }
 
 #[test]
@@ -605,7 +610,8 @@ fn hall_root_cwd_denies_an_unpromoted_worktree_target() {
     let out = guard(Provider::Omp, &payload.to_string()).unwrap();
     assert!(!out.exit_zero);
     assert!(
-        out.body.contains("no ivar session resolves from the cwd")
+        out.body
+            .contains("no ivar session resolves from the cwd or the target path")
             || out.body.contains("writable set:")
     );
 }
@@ -634,7 +640,8 @@ fn hall_root_cwd_denies_a_relative_target() {
     let out = guard(Provider::Omp, &payload.to_string()).unwrap();
     assert!(!out.exit_zero);
     assert!(
-        out.body.contains("no ivar session resolves from the cwd")
+        out.body
+            .contains("no ivar session resolves from the cwd or the target path")
             || out.body.contains("writable set:")
     );
 }

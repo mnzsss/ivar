@@ -169,6 +169,10 @@ fn is_structured_write(tool: &str) -> bool {
 ///
 /// Structured write tools are checked against the writable set; everything
 /// else is allowed. Shell is not classified here — it is a separate layer.
+///
+/// An absent set means neither the cwd nor the target resolved a session, so
+/// the denial names both: the caller's next move is to check where the target
+/// lives, not only where the agent stands.
 pub(crate) fn decide(set: Option<&WritableSet>, req: &ToolRequest) -> GuardDecision {
     if !is_structured_write(&req.tool) {
         return GuardDecision::Allow;
@@ -186,7 +190,7 @@ pub(crate) fn decide(set: Option<&WritableSet>, req: &ToolRequest) -> GuardDecis
             ),
         },
         (None, _) => GuardDecision::Deny {
-            reason: "no ivar session resolves from the cwd".into(),
+            reason: "no ivar session resolves from the cwd or the target path".into(),
         },
     }
 }
