@@ -9,7 +9,7 @@ use std::io;
 use camino::Utf8PathBuf;
 use serde::Serialize;
 
-use crate::action::{Ctx, Done};
+use crate::action::Ctx;
 use crate::domain::name::RepoName;
 use crate::domain::skill::Source;
 use crate::error::{Failure, FixAction, Outcome, Report, WriteHuman};
@@ -39,7 +39,7 @@ impl WriteHuman for DetachOutcome {
     }
 }
 
-pub fn detach(ctx: &Ctx, input: DetachInput) -> Outcome<Done> {
+pub fn detach(ctx: &Ctx, input: DetachInput) -> Outcome<DetachOutcome> {
     let layout = discover_hall(ctx)?;
 
     // Find the skill in either root — no flag, see `enumerate::resolve`.
@@ -75,7 +75,10 @@ pub fn detach(ctx: &Ctx, input: DetachInput) -> Outcome<Done> {
 
     // Detach of an authored skill is a no-op (explained).
     if matches!(&skill.source, Source::Authored) {
-        return Ok(Report::new(Done));
+        return Ok(Report::new(DetachOutcome {
+            root: layout.root().to_path_buf(),
+            id: skill.id,
+        }));
     }
 
     // Read the current SKILL.md.
@@ -118,7 +121,10 @@ pub fn detach(ctx: &Ctx, input: DetachInput) -> Outcome<Done> {
         )
     })?;
 
-    Ok(Report::new(Done))
+    Ok(Report::new(DetachOutcome {
+        root: layout.root().to_path_buf(),
+        id: skill.id,
+    }))
 }
 
 #[cfg(test)]

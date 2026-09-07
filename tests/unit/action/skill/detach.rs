@@ -24,13 +24,14 @@ fn detach_removes_source_from_frontmatter_and_preserves_body() {
     write_external_skill(&root, "detach_me");
     let ctx = Ctx::new(root.clone());
 
-    detach(
+    let report = detach(
         &ctx,
         DetachInput {
             skill: "detach_me".to_owned(),
         },
     )
     .unwrap();
+    assert_eq!(report.value.id.as_str(), "detach_me");
 
     // Verify the source field is gone.
     let raw = fs::read_text(
@@ -56,16 +57,14 @@ fn detach_of_authored_is_a_no_op() {
     write_authored_skill(&root, "authored");
     let ctx = Ctx::new(root.clone());
 
-    let result = detach(
+    let report = detach(
         &ctx,
         DetachInput {
             skill: "authored".to_owned(),
         },
-    );
-
-    // Returns success (no error) — it's a no-op.
-    result.unwrap();
-
+    )
+    .unwrap();
+    assert_eq!(report.value.id.as_str(), "authored");
     // Frontmatter unchanged (still no source).
     let raw = fs::read_text(
         &root
