@@ -424,8 +424,8 @@ fn deliver_command_documents_pr_metadata() {
     );
 }
 
-/// Every `ivar ...` invocation quoted in shipped prose must parse against the
-/// real CLI.
+/// Every `ivar ...` invocation quoted in shipped prose and repository
+/// documentation must parse against the real CLI.
 ///
 /// `tests/docs_reference.rs` keeps the *generated* half of the docs honest by
 /// rendering `clap` and failing on disagreement. This is the same rule for the
@@ -435,14 +435,17 @@ fn deliver_command_documents_pr_metadata() {
 /// Existence is not the interesting part — every subcommand cited today
 /// exists. Arity is: `ivar session convert <a> <b>` names a real subcommand
 /// and is still wrong, because `convert` takes one positional. Feeding the
-/// whole line to `clap` is what catches that.
+/// whole line to `clap` is what catches that. Citing a group without a verb
+/// (`` `ivar repo` ``) is how a heading names a group; clap answers that with
+/// help rather than a rejection, which the not-drift set forgives.
 mod cited_invocations {
+    use std::path::{Path, PathBuf};
+
     use clap::CommandFactory;
     use ivar::cli::root::Cli;
     use ivar::domain::name::{HallName, RepoName};
     use ivar::harness::commands::catalog;
     use ivar::harness::config::instructions::build_block;
-
     /// A quoted invocation and where it came from.
     struct Citation {
         source: String,
@@ -462,7 +465,7 @@ mod cited_invocations {
             let after = &rest[start + 1..];
             let Some(end) = after.find('`') else { break };
             let span = &after[..end];
-            if !span.contains('\n') {
+            if !span.contains('\n') && !is_placeholder_only(span) {
                 found.push(Citation {
                     source: source.to_owned(),
                     text: span.to_owned(),
@@ -509,8 +512,59 @@ mod cited_invocations {
             .collect()
     }
 
-    /// Every citation in the shipped commands and in the managed `HALL.md`
-    /// block.
+    /// Every Markdown file in the repository whose prose ships to a reader:
+    /// the two root documents and everything under `docs/`.
+    ///
+    /// Read from disk rather than embedded. The command catalog is
+    /// `include_str!`-ed into the binary because it is a shipping artifact;
+    /// documentation is not, and `Cargo.toml`'s `exclude` keeps `docs/` out of
+    /// the published crate entirely.
+    fn doc_files() -> Vec<PathBuf> {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let mut found = vec![root.join("README.md"), root.join("ARCHITECTURE.md")];
+        let mut stack = vec![root.join("docs")];
+        while let Some(current) = stack.pop() {
+            for entry in std::fs::read_dir(&current).unwrap() {
+                let path = entry.unwrap().path();
+                if path.is_dir() {
+                    stack.push(path);
+                } else if path.extension().is_some_and(|e| e == "md") {
+                    found.push(path);
+                }
+            }
+        }
+        found.sort();
+        found
+    }
+
+    /// Whether an invocation is prose about command shape rather than a command.
+    ///
+    /// `ivar <verb>` and `ivar <group> <verb>` document the surface's grammar,
+    /// and `ivar feature execute …` names a group whose verbs follow. `argv`
+    /// turns each placeholder into `x`, which `clap` rightly rejects as an
+    /// unknown subcommand — so these are dropped before they reach it. A
+    /// citation with even one real token, like `ivar feature promote <repo>`,
+    /// is a genuine invocation and is kept.
+    fn is_placeholder_only(invocation: &str) -> bool {
+        let mut tokens = invocation.split_whitespace();
+        if tokens.next() != Some("ivar") {
+            return false;
+        }
+        let rest: Vec<&str> = tokens.collect();
+        if rest.is_empty() {
+            return false;
+        }
+        if rest.iter().all(|token| token.starts_with('<') || token.starts_with('$') || *token == "…") {
+            return true;
+        }
+        if rest.last() == Some(&"…") {
+            return true;
+        }
+        false
+    }
+
+    /// Every citation in the shipped commands, the managed `HALL.md` block,
+    /// and repository documentation.
     fn all_citations() -> Vec<Citation> {
         let mut found: Vec<Citation> = catalog()
             .iter()
@@ -521,20 +575,72 @@ mod cited_invocations {
         let repos = [RepoName::new("repo").unwrap()];
         let block = build_block(&hall, &repos);
         found.extend(citations("HALL.md managed block", &block));
+
+        for path in doc_files() {
+            let text = std::fs::read_to_string(&path).unwrap();
+            let label = path
+                .strip_prefix(Path::new(env!("CARGO_MANIFEST_DIR")))
+                .unwrap_or(&path)
+                .display()
+                .to_string();
+            found.extend(citations(&label, &text));
+        }
         found
     }
 
     /// A broken extractor would make every assertion below vacuous, so the
-    /// count is asserted too. 34 spans exist today; the floor is deliberately
-    /// loose, to catch "matched nothing" rather than to pin a number.
+    /// count is asserted too. 156 spans across the catalog, the `HALL.md`
+    /// block and 19 Markdown files; the floor is deliberately loose, to catch
+    /// "matched nothing" rather than to pin a number.
     #[test]
     fn prose_cites_invocations() {
         let found = all_citations();
         assert!(
-            found.len() >= 30,
-            "expected at least 30 quoted invocations, found {} — the extractor is broken",
+            found.len() >= 120,
+            "expected at least 120 quoted invocations, found {} — the extractor is broken",
             found.len()
         );
+    }
+
+    /// The repository's own prose is scanned, not just the shipped catalog.
+    /// `docs/reference/commands.md` is the file most likely to cite a verb, so
+    /// its absence from the scan is the regression this guards.
+    #[test]
+    fn repository_markdown_is_among_the_sources() {
+        let scanned = doc_files();
+        let names: Vec<String> = scanned
+            .iter()
+            .map(|path| path.display().to_string())
+            .collect();
+
+        for expected in [
+            "README.md",
+            "ARCHITECTURE.md",
+            "docs/reference/commands.md",
+            "docs/glossary.md",
+            "docs/reference/limitations.md",
+        ] {
+            assert!(
+                names.iter().any(|name| name.ends_with(expected)),
+                "{expected} must be scanned, got {names:?}"
+            );
+        }
+    }
+
+    /// Prose about command *shape* is not an invocation. `argv` maps `<verb>`
+    /// to `x`, which parses as an unknown subcommand, so a citation made only
+    /// of placeholders has to be dropped before it reaches `clap`.
+    #[test]
+    fn a_citation_of_only_placeholders_is_not_an_invocation() {
+        assert!(is_placeholder_only("ivar <verb>"));
+        assert!(is_placeholder_only("ivar <group> <verb>"));
+        assert!(is_placeholder_only("ivar feature execute …"));
+
+        assert!(
+            !is_placeholder_only("ivar feature promote <repo>"),
+            "a real prefix with a placeholder argument is still an invocation"
+        );
+        assert!(!is_placeholder_only("ivar sync"));
     }
 
     #[test]
@@ -566,6 +672,7 @@ mod cited_invocations {
                     clap::error::ErrorKind::DisplayHelp
                         | clap::error::ErrorKind::DisplayVersion
                         | clap::error::ErrorKind::MissingRequiredArgument
+                        | clap::error::ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand
                 );
                 if !not_drift {
                     rejected.push(format!(
