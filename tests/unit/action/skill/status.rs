@@ -23,8 +23,12 @@ fn status_reports_authored_and_external_skills() {
     write_skill(&root, "ext", true);
     let ctx = Ctx::new(root);
 
-    let result = status(&ctx);
-    assert!(result.is_ok());
+    let report = status(&ctx).unwrap();
+    assert_eq!(report.value.skills.len(), 2);
+    assert_eq!(report.value.skills[0].id.as_str(), "authed");
+    assert_eq!(report.value.skills[0].source, "authored");
+    assert_eq!(report.value.skills[1].id.as_str(), "ext");
+    assert_eq!(report.value.skills[1].source, "external");
 }
 
 #[test]
@@ -32,8 +36,8 @@ fn status_handles_an_empty_hall() {
     let (_guard, root) = seeded_hall();
     let ctx = Ctx::new(root);
 
-    let result = status(&ctx);
-    assert!(result.is_ok());
+    let report = status(&ctx).unwrap();
+    assert!(report.value.skills.is_empty());
 }
 
 #[test]

@@ -8,7 +8,7 @@ use std::io;
 use camino::Utf8PathBuf;
 use serde::Serialize;
 
-use crate::action::{Ctx, Done};
+use crate::action::Ctx;
 use crate::domain::name::RepoName;
 use crate::domain::skill_sync::MaterialStatus;
 use crate::error::{Outcome, Report, WriteHuman};
@@ -72,7 +72,7 @@ impl WriteHuman for StatusOutcome {
 }
 
 /// Show skill installation state.
-pub fn status(ctx: &Ctx) -> Outcome<Done> {
+pub fn status(ctx: &Ctx) -> Outcome<StatusOutcome> {
     let layout = discover_hall(ctx)?;
 
     // Both roots. A colliding id is dropped here for the same reason `sync`
@@ -90,9 +90,13 @@ pub fn status(ctx: &Ctx) -> Outcome<Done> {
 
         let mut targets = Vec::new();
         for target_id in crate::domain::skill_sync::TargetId::ALL {
-            let target_path = skill::target_path(target_id, skill.id.as_str());
-            let expected = skill.dir.join("SKILL.md");
-            let current = render::verify_status(&target_path, &expected);
+            // `target_path` is hall-relative; join it onto the hall root, and
+            // verify against the skill directory the renderer actually links —
+            // not its `SKILL.md`, which is a file inside that directory.
+            let target_path = layout
+                .root()
+                .join(skill::target_path(target_id, skill.id.as_str()));
+            let current = render::verify_status(&target_path, &skill.dir);
             targets.push(TargetStatus {
                 target: target_id.as_str().to_owned(),
                 status: material_status_label(current),
@@ -108,7 +112,10 @@ pub fn status(ctx: &Ctx) -> Outcome<Done> {
 
     skill_statuses.sort_by(|a, b| a.id.cmp(&b.id));
 
-    Ok(Report::new(Done))
+    Ok(Report::new(StatusOutcome {
+        root: layout.root().to_path_buf(),
+        skills: skill_statuses,
+    }))
 }
 
 /// Convert a [`MaterialStatus`] enum to a human-readable label.

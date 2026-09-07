@@ -28,13 +28,15 @@ fn remove_deletes_the_skill_directory_and_targets() {
     assert!(fs::exists(&root.join(".opencode").join("skills").join("to_remove")).unwrap());
     assert!(fs::exists(&root.join(".omp").join("skills").join("to_remove")).unwrap());
 
-    remove(
+    let report = remove(
         &ctx,
         RemoveInput {
             skill: "to_remove".to_owned(),
         },
     )
     .unwrap();
+    assert_eq!(report.value.id.as_str(), "to_remove");
+    assert_eq!(report.value.targets_removed, 3);
 
     // Skill directory gone.
     assert!(!fs::exists(&root.join(".ivar").join("skills").join("to_remove")).unwrap());
