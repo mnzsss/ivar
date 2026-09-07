@@ -94,6 +94,9 @@ pub struct StartOutcome {
     pub session_id: String,
     /// Whether the session was created detached (no provider launched).
     pub detached: bool,
+    /// Command to launch provider under enforcement (set when detached).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub launch_command: Option<String>,
 }
 
 impl WriteHuman for StartOutcome {
@@ -107,7 +110,11 @@ impl WriteHuman for StartOutcome {
                 w,
                 "{subject} started detached (no provider launched). View dir: {}",
                 self.view_dir
-            )
+            )?;
+            if let Some(cmd) = &self.launch_command {
+                writeln!(w, "To launch provider under write guard:\n  {cmd}")?;
+            }
+            Ok(())
         } else {
             writeln!(w, "{subject} ended. View dir: {}", self.view_dir)
         }
@@ -249,6 +256,19 @@ pub fn start(ctx: &Ctx, input: StartInput) -> Outcome<StartOutcome> {
         }
     }
 
+    let launch_command = if input.detached {
+        let provider_bin = match provider {
+            Provider::ClaudeCode => "claude",
+            Provider::OpenCode => "opencode",
+            Provider::Omp => "omp",
+        };
+        Some(format!(
+            "ivar session sandbox --session {session_id} -- {provider_bin}"
+        ))
+    } else {
+        None
+    };
+
     Ok(Report::with_warnings(
         StartOutcome {
             view_dir,
@@ -256,6 +276,7 @@ pub fn start(ctx: &Ctx, input: StartInput) -> Outcome<StartOutcome> {
             provider,
             session_id: session_id.to_string(),
             detached: input.detached,
+            launch_command,
         },
         warnings,
     ))

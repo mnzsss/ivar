@@ -297,6 +297,42 @@ fn detached_start_creates_the_view_dir_without_launching_a_provider() {
     assert!(state.feature_bound_at().is_some());
 }
 
+#[test]
+fn detached_start_reports_enforced_launch_command() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let ctx = Ctx::new(root);
+
+    let report = start(
+        &ctx,
+        StartInput {
+            feature: Some("checkout".to_owned()),
+            resume: false,
+            provider: Some("claude-code".to_owned()),
+            detached: true,
+            relay: false,
+        },
+    )
+    .unwrap();
+
+    let outcome = report.value;
+    assert!(outcome.detached);
+    let expected_cmd = format!(
+        "ivar session sandbox --session {} -- claude",
+        outcome.session_id
+    );
+    assert_eq!(
+        outcome.launch_command.as_deref(),
+        Some(expected_cmd.as_str())
+    );
+
+    // Verify human-readable rendering includes the launch command
+    let mut buf = Vec::new();
+    outcome.write_human(&mut buf).unwrap();
+    let human_output = String::from_utf8(buf).unwrap();
+    assert!(human_output.contains("To launch provider under write guard:"));
+    assert!(human_output.contains(&expected_cmd));
+}
+
 // -- discovery sessions ----------------------------------------------------
 
 /// No feature named: the session materialises in the hall's own session
