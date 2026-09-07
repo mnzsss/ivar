@@ -186,7 +186,7 @@ similar, which write `core.hooksPath` into the shared config during
 `pnpm install`) does not displace it, and feature worktrees keep the project's
 hooks. Because it is worktree-local, it binds the default-branch worktree only.
 
-`ivar deliver` commits onto the default branch by design when landing with the
+`ivar feature deliver` commits onto the default branch by design when landing with the
 squash strategy, and passes `--no-verify` at that one call site. This is not a
 general escape hatch: there is no environment variable and no configuration that
 turns the hook off.

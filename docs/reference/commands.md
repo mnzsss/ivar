@@ -13,7 +13,7 @@ If you are looking for the shape of the tool rather than its surface, read
 ## How to read this
 
 - **`ivar <verb>`** — the hall-level verbs. The hall is the root of the surface:
-  `ivar sync`, not `ivar hall sync`.
+  the verb is `ivar sync`, with no `hall` group in front of it.
 - **`ivar <group> <verb>`** — `repo`, `feature`, `session`, `provider`, `plan`
   and `skill` group their verbs, because each has more of them than a flat root
   could carry.

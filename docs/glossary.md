@@ -242,8 +242,8 @@ preflight checks write access across every directory in the cleanup tree and
 collects all blockers before mutating, so a run that cannot finish does not start.
 Feature state is preserved on a runtime failure, making a retry idempotent.
 
-**Feature review** — a VSCode multi-root workspace over a whole feature, written
-by `ivar feature review`. Promoted repos appear as their editable feature-branch
+**Feature workspace** — a VSCode multi-root workspace over a whole feature, written
+by `ivar feature workspace`. Promoted repos appear as their editable feature-branch
 worktrees; every other repo as its read-only default-branch checkout, for context.
 The unit reviewed is the feature across repos, not one repo or one PR. Needs no
 session.
