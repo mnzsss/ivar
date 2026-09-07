@@ -314,6 +314,12 @@ fn main() -> ExitCode {
                 &mut stdout,
                 &mut stderr,
             ),
+            SessionCommand::Sandbox(args) => {
+                match ivar::action::session::sandbox::run_launcher(&args.session, &args.command) {
+                    Ok(()) => std::process::ExitCode::SUCCESS,
+                    Err(failure) => respond_failure(failure, json, &mut stdout, &mut stderr),
+                }
+            }
         },
         Command::Provider(cmd) => match cmd {
             ProviderCommand::List => {

@@ -493,3 +493,42 @@ fn git_credential_accepts_an_operation_it_does_not_implement() {
         other => panic!("expected GitCredential, got {other:?}"),
     }
 }
+
+#[test]
+fn session_sandbox_parses_hidden_subcommand_with_trailing_argv() {
+    let cli = Cli::try_parse_from([
+        "ivar",
+        "session",
+        "sandbox",
+        "--session",
+        "6f0c9d5f-0000-4000-8000-000000000000",
+        "--",
+        "claude",
+        "--resume",
+    ])
+    .expect("hidden session sandbox subcommand must parse");
+
+    match cli.command {
+        Command::Session(SessionCommand::Sandbox(args)) => {
+            assert_eq!(args.session, "6f0c9d5f-0000-4000-8000-000000000000");
+            assert_eq!(args.command, vec!["claude", "--resume"]);
+        }
+        other => panic!("expected SessionCommand::Sandbox, got {other:?}"),
+    }
+}
+
+#[test]
+fn session_sandbox_subcommand_is_hidden_from_session_help() {
+    use clap::CommandFactory;
+    let mut app = Cli::command();
+    let session_subcommand = app
+        .find_subcommand_mut("session")
+        .expect("session subcommand must exist");
+    let mut help_bytes = Vec::new();
+    session_subcommand.write_help(&mut help_bytes).unwrap();
+    let help_str = String::from_utf8(help_bytes).unwrap();
+    assert!(
+        !help_str.contains("sandbox"),
+        "hidden sandbox subcommand should not appear in session help:\n{help_str}"
+    );
+}

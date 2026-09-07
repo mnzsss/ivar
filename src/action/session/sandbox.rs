@@ -249,6 +249,106 @@ fn provider_runtime_roots(provider: Provider) -> Vec<Utf8PathBuf> {
     dirs
 }
 
+#[cfg(target_os = "linux")]
+use std::os::unix::process::CommandExt;
+
+/// Run the internal launcher: resolve session by id from disk, apply sandbox, and exec target command.
+#[allow(clippy::print_stderr)]
+pub fn run_launcher(session_id_str: &str, argv: &[String]) -> Result<(), Failure> {
+    if argv.is_empty() {
+        return Err(Failure::blocked(
+            "sandbox.launcher_missing_command",
+            "no command specified to run inside sandbox",
+        ));
+    }
+    let cwd = Utf8PathBuf::try_from(std::env::current_dir().map_err(|e| {
+        Failure::failed("fs.current_dir_failed", format!("could not get cwd: {e}"))
+    })?)
+    .map_err(|e| Failure::failed("fs.utf8_error", format!("non-UTF8 cwd: {e}")))?;
+
+    let layout = Layout::discover(&cwd)?.ok_or_else(|| {
+        Failure::blocked("hall.not_found", "no hall found from current directory")
+    })?;
+
+    let session_ref = crate::action::session::lookup::resolve(&layout, Some(session_id_str), None)?;
+    let state = session_ref.state.as_ref().ok_or_else(|| {
+        Failure::blocked(
+            "session.state_missing",
+            format!("session `{session_id_str}` has no state.json record"),
+        )
+    })?;
+
+    let feature = match &session_ref.feature {
+        Some(feat_name) => Feature::read(&layout, feat_name)?,
+        None => None,
+    };
+
+    let set = match &feature {
+        Some(feat) => WritableSet::from_session(&layout, feat, &session_ref.view_dir)?,
+        None => WritableSet::from_discovery(&session_ref.view_dir)?,
+    };
+
+    let sandbox = Sandbox::from_writable_set(&set, &layout, feature.as_ref(), state.provider)?;
+    let status = sandbox.apply()?;
+
+    match &status {
+        SandboxStatus::Enforced => {
+            eprintln!("[ivar] write guard: kernel Landlock sandbox active");
+        }
+        SandboxStatus::Degraded { reason } => {
+            eprintln!("[ivar] write guard: degraded ({reason})");
+        }
+        SandboxStatus::Unavailable { reason } => {
+            eprintln!("[ivar] write guard: unavailable ({reason})");
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        let prog = argv.first().ok_or_else(|| {
+            Failure::blocked("sandbox.missing_argv", "no program specified to execute")
+        })?;
+        let mut cmd = std::process::Command::new(prog);
+        if let Some(args) = argv.get(1..) {
+            cmd.args(args);
+        }
+        let err = cmd.exec();
+        Err(Failure::failed(
+            "sandbox.exec_failed",
+            format!("failed to exec `{prog}`: {err}"),
+        ))
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    {
+        let prog = argv.first().ok_or_else(|| {
+            Failure::blocked("sandbox.missing_argv", "no program specified to execute")
+        })?;
+        let mut cmd = std::process::Command::new(prog);
+        if let Some(args) = argv.get(1..) {
+            cmd.args(args);
+        }
+        let mut child = cmd.spawn().map_err(|e| {
+            Failure::failed(
+                "sandbox.spawn_failed",
+                format!("failed to spawn `{prog}`: {e}"),
+            )
+        })?;
+        let status = child.wait().map_err(|e| {
+            Failure::failed(
+                "sandbox.wait_failed",
+                format!("failed to wait on `{prog}`: {e}"),
+            )
+        })?;
+        if !status.success() {
+            return Err(Failure::failed(
+                "sandbox.process_failed",
+                format!("process `{prog}` exited with {status}"),
+            ));
+        }
+        Ok(())
+    }
+}
 #[cfg(test)]
 #[path = "../../../tests/unit/action/session/sandbox.rs"]
 mod tests;

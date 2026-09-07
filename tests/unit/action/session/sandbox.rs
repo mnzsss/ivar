@@ -13,6 +13,7 @@ use crate::action::session::sandbox::Sandbox;
 use crate::domain::feature::Feature;
 use crate::domain::name::{BranchName, FeatureName, RepoName, SessionId};
 use crate::domain::provider::Provider;
+use crate::domain::session::SessionState;
 use crate::store::layout::Layout;
 use crate::store::manifest::{Manifest, Providers, Repo};
 use crate::test_support::{hall_root, seeded_repo};
@@ -174,4 +175,29 @@ fn sandbox_status_enum_variants_and_display() {
         reason: "Landlock not supported on this platform".into(),
     };
     assert!(!unavailable.is_enforced());
+}
+
+#[test]
+fn launcher_resolves_session_from_disk_and_builds_sandbox() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root.clone());
+    let feature = Feature::read(&layout, &FeatureName::new("checkout").unwrap())
+        .unwrap()
+        .unwrap();
+    let session_id = SessionId::new("6f0c9d5f-0000-4000-8000-000000000000").unwrap();
+    let view_dir = layout.feature_session(&feature.name, &session_id);
+    crate::infra::fs::ensure_dir(&view_dir).unwrap();
+    let state = SessionState::new(Provider::ClaudeCode, "2026-08-07T12:34:56.000000000Z");
+    state.write(&view_dir).unwrap();
+
+    let session_ref =
+        crate::action::session::lookup::resolve(&layout, Some(session_id.as_str()), None).unwrap();
+    assert_eq!(session_ref.id, session_id);
+}
+
+#[test]
+fn launcher_empty_command_fails_gracefully() {
+    let result = crate::action::session::sandbox::run_launcher("some-session", &[]);
+    let err = result.expect_err("empty command should return error");
+    assert_eq!(err.code, "sandbox.launcher_missing_command");
 }
