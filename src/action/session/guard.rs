@@ -123,6 +123,21 @@ impl WritableSet {
         &self.view_dir
     }
 
+    /// Return the write-allowed root paths: view dir, feature dir (if present),
+    /// and every promoted repo worktree. Note that `sessions_dir` is an exclusion
+    /// boundary under `feature_dir` and is not a root.
+    pub(crate) fn roots(&self) -> Vec<&Utf8Path> {
+        let mut roots = Vec::with_capacity(1 + usize::from(self.feature_dir.is_some()) + self.worktrees.len());
+        roots.push(self.view_dir.as_path());
+        if let Some(feature_dir) = &self.feature_dir {
+            roots.push(feature_dir.as_path());
+        }
+        for wt in &self.worktrees {
+            roots.push(wt.as_path());
+        }
+        roots
+    }
+
     /// Build a `WritableSet` from explicit parts. Test-only.
     #[cfg(test)]
     pub(crate) fn from_parts(

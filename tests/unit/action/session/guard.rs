@@ -143,6 +143,48 @@ fn discovery_session_writable_set_does_not_include_any_feature_dir() {
     assert!(!set.allows(&hall_root_path));
 }
 
+#[test]
+fn writable_set_roots_returns_view_dir_feature_dir_and_promoted_worktrees() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root.clone());
+    let feature = Feature::read(&layout, &FeatureName::new("checkout").unwrap())
+        .unwrap()
+        .unwrap();
+    let session_id = SessionId::new("6f0c9d5f-0000-4000-8000-000000000000").unwrap();
+    let view_dir = layout.feature_session(&feature.name, &session_id);
+    crate::infra::fs::ensure_dir(&view_dir).unwrap();
+
+    let set = WritableSet::from_session(&layout, &feature, &view_dir).unwrap();
+    let roots = set.roots();
+
+    let expected_view = view_dir.canonicalize_utf8().unwrap();
+    let expected_feat = layout.feature_dir(&feature.name).canonicalize_utf8().unwrap();
+    let expected_wt = layout
+        .repo_worktree(&RepoName::new("api").unwrap(), &feature.branch)
+        .canonicalize_utf8()
+        .unwrap();
+
+    assert!(roots.contains(&expected_view.as_path()));
+    assert!(roots.contains(&expected_feat.as_path()));
+    assert!(roots.contains(&expected_wt.as_path()));
+    assert_eq!(roots.len(), 3);
+}
+
+#[test]
+fn discovery_writable_set_roots_contains_only_view_dir() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root.clone());
+    let session_id = SessionId::new("6f0c9d5f-0000-4000-8000-000000000000").unwrap();
+    let view_dir = layout.discovery_session(&session_id);
+    crate::infra::fs::ensure_dir(&view_dir).unwrap();
+
+    let set = WritableSet::from_discovery(&view_dir).unwrap();
+    let roots = set.roots();
+
+    let expected_view = view_dir.canonicalize_utf8().unwrap();
+    assert_eq!(roots, vec![expected_view.as_path()]);
+}
+
 // ---------------------------------------------------------------------------
 // GuardDecision tests
 // ---------------------------------------------------------------------------
