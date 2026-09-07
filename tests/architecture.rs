@@ -441,6 +441,7 @@ fn crate_imports(text: &str) -> Vec<String> {
 fn session_env_decisions_are_on_record() {
     for path in [
         "docs/adr/0003-env-by-process-guard-by-hook.md",
+        "docs/adr/0006-kernel-write-boundary.md",
         "docs/reference/limitations.md",
     ] {
         assert!(
