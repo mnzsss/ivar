@@ -99,7 +99,6 @@ fn link_targets(text: &str) -> Vec<String> {
     found
 }
 
-
 /// Render the whole command tree, depth-first, in declaration order — the same
 /// order `--help` lists them, so the page and the binary agree on more than
 /// just content.
@@ -356,4 +355,3 @@ fn documentation_contains_links_to_check() {
         "expected at least 40 link targets, found {found} — the extractor is broken"
     );
 }
-

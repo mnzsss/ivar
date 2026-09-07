@@ -559,7 +559,10 @@ mod cited_invocations {
         if rest.is_empty() {
             return false;
         }
-        if rest.iter().all(|token| token.starts_with('<') || token.starts_with('$') || *token == "…") {
+        if rest
+            .iter()
+            .all(|token| token.starts_with('<') || token.starts_with('$') || *token == "…")
+        {
             return true;
         }
         false
@@ -640,7 +643,10 @@ mod cited_invocations {
             !is_placeholder_only("ivar feature execute …"),
             "a trailing ellipsis is dropped by `argv`, not skipped here"
         );
-        assert_eq!(argv("ivar feature execute …"), ["ivar", "feature", "execute"]);
+        assert_eq!(
+            argv("ivar feature execute …"),
+            ["ivar", "feature", "execute"]
+        );
         assert!(
             !is_placeholder_only("ivar feature promote <repo>"),
             "a real prefix with a placeholder argument is still an invocation"
