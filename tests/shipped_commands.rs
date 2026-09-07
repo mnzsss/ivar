@@ -502,6 +502,9 @@ mod cited_invocations {
                     in_optional = !token.ends_with(']');
                     return None;
                 }
+                if token == "…" {
+                    return None;
+                }
                 let bare = token.trim_matches('"');
                 Some(if bare.starts_with('<') || bare.starts_with('$') {
                     "x".to_owned()
@@ -539,12 +542,14 @@ mod cited_invocations {
 
     /// Whether an invocation is prose about command shape rather than a command.
     ///
-    /// `ivar <verb>` and `ivar <group> <verb>` document the surface's grammar,
-    /// and `ivar feature execute …` names a group whose verbs follow. `argv`
-    /// turns each placeholder into `x`, which `clap` rightly rejects as an
+    /// `ivar <verb>` and `ivar <group> <verb>` document the surface's grammar.
+    /// `argv` turns each placeholder into `x`, which `clap` rightly rejects as an
     /// unknown subcommand — so these are dropped before they reach it. A
-    /// citation with even one real token, like `ivar feature promote <repo>`,
-    /// is a genuine invocation and is kept.
+    /// trailing `…` is dropped by `argv`, so `ivar feature execute …` reaches
+    /// clap as `ivar feature execute` — a group named without a verb, which
+    /// clap answers with help and the not-drift set forgives. A citation with
+    /// even one real token, like `ivar feature promote <repo>`, is a genuine
+    /// invocation and is kept.
     fn is_placeholder_only(invocation: &str) -> bool {
         let mut tokens = invocation.split_whitespace();
         if tokens.next() != Some("ivar") {
@@ -555,9 +560,6 @@ mod cited_invocations {
             return false;
         }
         if rest.iter().all(|token| token.starts_with('<') || token.starts_with('$') || *token == "…") {
-            return true;
-        }
-        if rest.last() == Some(&"…") {
             return true;
         }
         false
@@ -634,8 +636,11 @@ mod cited_invocations {
     fn a_citation_of_only_placeholders_is_not_an_invocation() {
         assert!(is_placeholder_only("ivar <verb>"));
         assert!(is_placeholder_only("ivar <group> <verb>"));
-        assert!(is_placeholder_only("ivar feature execute …"));
-
+        assert!(
+            !is_placeholder_only("ivar feature execute …"),
+            "a trailing ellipsis is dropped by `argv`, not skipped here"
+        );
+        assert_eq!(argv("ivar feature execute …"), ["ivar", "feature", "execute"]);
         assert!(
             !is_placeholder_only("ivar feature promote <repo>"),
             "a real prefix with a placeholder argument is still an invocation"
