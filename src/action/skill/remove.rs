@@ -9,7 +9,7 @@ use std::io;
 use camino::Utf8PathBuf;
 use serde::Serialize;
 
-use crate::action::{Ctx, Done};
+use crate::action::Ctx;
 use crate::domain::name::RepoName;
 use crate::domain::skill::SkillRoot;
 use crate::domain::skill_sync::TargetId;
@@ -42,7 +42,7 @@ impl WriteHuman for RemoveOutcome {
     }
 }
 
-pub fn remove(ctx: &Ctx, input: RemoveInput) -> Outcome<Done> {
+pub fn remove(ctx: &Ctx, input: RemoveInput) -> Outcome<RemoveOutcome> {
     let layout = discover_hall(ctx)?;
 
     // Find the skill in either root. No flag: an id names at most one
@@ -90,8 +90,13 @@ pub fn remove(ctx: &Ctx, input: RemoveInput) -> Outcome<Done> {
     })?;
 
     // Tear down materialised targets best-effort.
+    let mut targets_removed = 0u64;
     for target_id in TargetId::ALL {
-        let target_path = skill::target_path(target_id, skill.id.as_str());
+        // `target_path` is hall-relative; the renderer works on absolute
+        // paths, so join it onto the hall root before touching disk.
+        let target_path = layout
+            .root()
+            .join(skill::target_path(target_id, skill.id.as_str()));
         if fs::exists(&target_path).unwrap_or(false) {
             let step = crate::domain::skill_sync::Step {
                 skill: skill.id.clone(),
@@ -101,7 +106,9 @@ pub fn remove(ctx: &Ctx, input: RemoveInput) -> Outcome<Done> {
                 mode: skill.render_mode(),
                 reason: None,
             };
-            let _ = render::remove(&step);
+            if render::remove(&step).is_ok() {
+                targets_removed += 1;
+            }
         }
     }
 
@@ -112,7 +119,11 @@ pub fn remove(ctx: &Ctx, input: RemoveInput) -> Outcome<Done> {
     // file of the root that owned the skill, never the other one.
     purge_lockfile_entry(layout.root(), root, &skill.id);
 
-    Ok(Report::new(Done))
+    Ok(Report::new(RemoveOutcome {
+        root: layout.root().to_path_buf(),
+        id: skill.id,
+        targets_removed,
+    }))
 }
 
 /// Remove a skill's entry from its own root's installation state file.
