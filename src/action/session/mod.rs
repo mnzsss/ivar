@@ -17,6 +17,7 @@ pub(crate) mod hook;
 pub(crate) mod lookup;
 pub mod prune;
 pub mod relay;
+pub mod sandbox;
 pub mod start;
 pub mod stop;
 pub(crate) mod view;

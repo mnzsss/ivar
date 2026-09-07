@@ -49,6 +49,7 @@ use crate::domain::session::{SessionState, rfc3339_now};
 use crate::error::{Failure, FixAction, Outcome, Report, Warning, WriteHuman};
 use crate::git;
 use crate::infra::fs;
+use crate::infra::proc::Command;
 use crate::providers;
 use crate::store::layout::Layout;
 use crate::store::manifest::Manifest;
@@ -93,6 +94,9 @@ pub struct StartOutcome {
     pub session_id: String,
     /// Whether the session was created detached (no provider launched).
     pub detached: bool,
+    /// Command to launch provider under enforcement (set when detached).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub launch_command: Option<String>,
 }
 
 impl WriteHuman for StartOutcome {
@@ -106,7 +110,11 @@ impl WriteHuman for StartOutcome {
                 w,
                 "{subject} started detached (no provider launched). View dir: {}",
                 self.view_dir
-            )
+            )?;
+            if let Some(cmd) = &self.launch_command {
+                writeln!(w, "To launch provider under write guard:\n  {cmd}")?;
+            }
+            Ok(())
         } else {
             writeln!(w, "{subject} ended. View dir: {}", self.view_dir)
         }
@@ -232,6 +240,7 @@ pub fn start(ctx: &Ctx, input: StartInput) -> Outcome<StartOutcome> {
         )?);
         let command =
             crate::action::mcp::inject_session_mcp_secrets(command, &layout, &manifest, provider);
+        let command = wrap_with_sandbox(command, &session_id)?;
         let width = crate::infra::term::width();
         let height = 24;
 
@@ -247,6 +256,19 @@ pub fn start(ctx: &Ctx, input: StartInput) -> Outcome<StartOutcome> {
         }
     }
 
+    let launch_command = if input.detached {
+        let provider_bin = match provider {
+            Provider::ClaudeCode => "claude",
+            Provider::OpenCode => "opencode",
+            Provider::Omp => "omp",
+        };
+        Some(format!(
+            "ivar session sandbox --session {session_id} -- {provider_bin}"
+        ))
+    } else {
+        None
+    };
+
     Ok(Report::with_warnings(
         StartOutcome {
             view_dir,
@@ -254,6 +276,7 @@ pub fn start(ctx: &Ctx, input: StartInput) -> Outcome<StartOutcome> {
             provider,
             session_id: session_id.to_string(),
             detached: input.detached,
+            launch_command,
         },
         warnings,
     ))
@@ -353,6 +376,42 @@ fn check_relay(
     }
 
     Ok(())
+}
+
+/// Wrap a provider command so it re-executes through the hidden `ivar session sandbox` launcher.
+///
+/// Preserves all environment variables and configuration from the original command.
+pub(crate) fn wrap_with_sandbox(
+    command: Command,
+    session_id: &SessionId,
+) -> Result<Command, Failure> {
+    let exe_path = std::env::current_exe().map_err(|e| {
+        Failure::failed(
+            "session.current_exe_failed",
+            format!("failed to determine current ivar binary path: {e}"),
+        )
+    })?;
+    let exe_utf8 = Utf8PathBuf::try_from(exe_path).map_err(|e| {
+        Failure::failed(
+            "session.invalid_exe_path",
+            format!("non-UTF8 binary path: {e}"),
+        )
+    })?;
+
+    let mut wrapped = Command::new(exe_utf8.as_str());
+    wrapped = wrapped.arg("session");
+    wrapped = wrapped.arg("sandbox");
+    wrapped = wrapped.arg("--session");
+    wrapped = wrapped.arg(session_id.as_str());
+    wrapped = wrapped.arg("--");
+    wrapped = wrapped.arg(command.program());
+    wrapped = wrapped.args(command.arguments());
+
+    for (k, v) in command.envs() {
+        wrapped = wrapped.env(k, v);
+    }
+
+    Ok(wrapped)
 }
 
 /// Run the TUI over the agent's PTY: pump its output, render one frame, and

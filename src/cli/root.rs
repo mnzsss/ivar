@@ -668,6 +668,21 @@ pub enum SessionCommand {
     Relay(SessionRelayArgs),
     /// Resolve and output the session environment by walking up from cwd.
     Env(SessionEnvArgs),
+    /// Internal launcher: apply Landlock sandbox for the given session and exec child.
+    #[command(hide = true)]
+    Sandbox(SessionSandboxArgs),
+}
+
+/// Arguments for the internal hidden `ivar session sandbox` launcher.
+#[derive(Debug, Args)]
+pub struct SessionSandboxArgs {
+    /// The session id whose writable set to enforce.
+    #[arg(long)]
+    pub session: String,
+
+    /// The command line to execute after applying the sandbox.
+    #[arg(last = true, allow_hyphen_values = true)]
+    pub command: Vec<String>,
 }
 
 /// Arguments for `ivar session start`.

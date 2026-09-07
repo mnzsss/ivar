@@ -69,21 +69,19 @@ It means `ivar` does not prevent two agents from editing the same file. Git
 serialises individual operations; it does not resolve concurrent intent. Use
 coordination, reviews, or isolated branches when you need stronger separation.
 
-## Execution is not a sandbox or a provider controller
+## Execution sandboxing and provider control
 
-Ivar does not sandbox provider activity. A provider can run shell commands,
-formatters, and generators against any promoted worktree available to its
-session. The Run Receipt records exact baseline and final snapshot evidence for
-audit, but it neither attributes individual writes nor reverts them.
+On Linux (kernel >= 5.13 with Landlock support), Ivar applies a kernel-enforced
+write sandbox (`Landlock`) to the provider process before running it. Filesystem
+writes outside the session's writable set (the view directory, feature directory,
+and promoted worktrees) are denied directly by the kernel, even from arbitrary shell
+commands and grandchild subprocesses. On non-Linux platforms (such as macOS) or older
+kernels, Ivar runs without kernel sandboxing and relies on the advisory tool guard.
 
-The active provider, not Ivar, creates, schedules, monitors, and synthesizes
-native subagents. Ivar does not launch headless provider children, parse provider
-transcripts, retain conversation or native-subagent identifiers, or promise that
-a logical resume restores provider context. Resuming a receipt with another
-provider attaches the current Feature Session to the same local audit record.
-
-Use repository permissions, isolated environments, or a platform sandbox when
-you need stronger write isolation.
+Ivar does not control or schedule native provider subagents. The active provider
+creates, schedules, monitors, and synthesizes subagents. The Run Receipt records exact
+baseline and final snapshot evidence for audit, but it neither attributes individual
+writes nor reverts them.
 
 ## Local state is disposable
 
@@ -125,24 +123,28 @@ safe — a repo already merged is already a fast-forward no-op.
 Reverting shared history to compensate for a network error is worse than an
 unpushed commit.
 
-## Session write guard is best-effort
+## Session write guard: Enforcing (Linux) vs Advisory (Everywhere)
 
-The session write guard (`ivar guard`) blocks structured writes (Write, Edit) that
-target paths outside the session's view dir or promoted worktrees. It is a hook —
-the provider invokes it before each tool call — and its effectiveness depends on
-the provider respecting the hook protocol:
+Protection operates in two distinct tiers:
 
-- **Claude Code:** The guard always exits 0; the deny decision travels in the JSON
-  body. If the provider ignores the `permissionDecision: deny` response, the write
-  proceeds.
-- **OpenCode:** The guard exits non-zero for deny. A non-zero exit should abort the
-  tool call, but this is provider behaviour, not ivar's guarantee.
-- **OMP:** The guard exits 0 and outputs `{ "block": true, "reason": "..." }`. If
-  the harness ignores the hook output, the write proceeds.
-**What this means in practice:** the guard is an error message, not a firewall. A
-provider that does not call the hook, or that ignores a deny decision, will allow
-the write.
+1. **Kernel write enforcement (Linux):** On Linux systems supporting Landlock,
+   `ivar session start` launches the provider process under an irreversible
+   write-only Landlock sandbox. Any attempt to modify, create, or delete files
+   outside the session's allowed roots fails with `EACCES` (`Permission denied`)
+   at the syscall level.
+2. **Advisory tool guard (All platforms):** The `ivar guard` hook intercepts
+   structured tool writes (Write, Edit) before execution. Its primary role is
+   **diagnostic legibility**: when an agent attempts an illegal write, the guard
+   returns the session's current `writable set: ...` so the agent understands why
+   the path is disallowed and can ask for repo promotion, rather than receiving an
+   opaque OS permission error.
 
+On platforms without Landlock (e.g. macOS), the advisory hook is the primary line of
+defense for structured tools. Its effectiveness depends on the provider honouring the
+hook protocol:
+- **Claude Code:** The guard exits 0 with `permissionDecision: deny` in the JSON body.
+- **OpenCode:** The guard exits non-zero to signal tool rejection.
+- **OMP:** The guard exits 0 with `{ "block": true, "reason": "..." }`.
 
 ## Provider-specific capabilities and limitations
 
@@ -162,21 +164,19 @@ states what it stops and what it does not.
 **The structured-tool guard** denies Write, Edit, MultiEdit, NotebookEdit, and
 the patch tools when their target is outside the session's writable set. Tool
 names are matched after normalising case and separators, so `notebook_edit` and
-`NotebookEdit` are the same tool. This is the layer described above, and it
-inherits that layer's weakness: it depends on the provider honouring the hook.
+`NotebookEdit` are the same tool. This layer acts as the advisory diagnosis
+mechanism for tool calls, providing immediate actionable feedback to the agent.
 
 **A Discovery Session resolves to a set holding the view dir alone.** A session
 with no promoted feature may write its own notes and nothing else. This closes a
 gap where a session with no feature previously resolved to no set at all, which
 disarmed the guard entirely.
 
-**Shell commands are not classified.** `Bash` and every other shell tool are
-allowed through without inspection. Deciding whether an arbitrary shell command
-writes, and where, is not something a pattern match can do correctly, and a
-classifier that is wrong in the permissive direction is worse than none: it
-reads as protection while providing none. This is a deliberate gap, and it is
-the largest one.
-
+**Shell commands are governed at the kernel boundary on Linux.** At the hook layer,
+shell commands are not inspected: pattern-matching arbitrary shell syntax is unreliable.
+Instead, on Linux, Landlock restricts the spawned shell and all child processes
+at the syscall layer. On platforms without Landlock, shell writes outside promoted
+worktrees remain unblocked by the advisory hook layer.
 **The pre-commit hook is deterministic and does not depend on the provider.**
 `ivar sync` installs a `pre-commit` hook that refuses any commit on a repo's
 default branch, however that commit is invoked — through a tool call, through
@@ -200,13 +200,16 @@ not stop an existing tracked file from being modified in place.
 
 ### What is not covered
 
-- **Shell commands that write files.** Not classified, by the reasoning above.
+- **File metadata operations.** Landlock handles file content and directory structure
+  modifications (`open` with write flags, `mkdir`, `unlink`, `rename`, `rmdir`). It
+  does not restrict metadata operations such as `stat`, `chmod`, `chown`, `utime`,
+  or `flock`.
+- **Platforms without Landlock.** On macOS and older Linux kernels (< 5.13), kernel
+  sandboxing is unavailable; protection degrades gracefully to the advisory tool guard.
 - **Repositories outside the hall.** Protection is installed by `ivar sync` on
   repos declared in `ivar.json`. A clone made by hand elsewhere has none of it.
-- **In-place edits to existing files**, per the root-only read-only guard.
 - **`git commit --no-verify`,** typed by a human or emitted by an agent. Git
   offers no way for a hook to refuse this.
-
 None of this is a security boundary. It is a guardrail against plausible
 mistakes — an agent committing to `main` because that is where it happened to
 be — and it is built for a hall where the person running it wants the guardrail.

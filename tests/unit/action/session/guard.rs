@@ -143,6 +143,51 @@ fn discovery_session_writable_set_does_not_include_any_feature_dir() {
     assert!(!set.allows(&hall_root_path));
 }
 
+#[test]
+fn writable_set_roots_returns_view_dir_feature_dir_and_promoted_worktrees() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root.clone());
+    let feature = Feature::read(&layout, &FeatureName::new("checkout").unwrap())
+        .unwrap()
+        .unwrap();
+    let session_id = SessionId::new("6f0c9d5f-0000-4000-8000-000000000000").unwrap();
+    let view_dir = layout.feature_session(&feature.name, &session_id);
+    crate::infra::fs::ensure_dir(&view_dir).unwrap();
+
+    let set = WritableSet::from_session(&layout, &feature, &view_dir).unwrap();
+    let roots = set.roots();
+
+    let expected_view = view_dir.canonicalize_utf8().unwrap();
+    let expected_feat = layout
+        .feature_dir(&feature.name)
+        .canonicalize_utf8()
+        .unwrap();
+    let expected_wt = layout
+        .repo_worktree(&RepoName::new("api").unwrap(), &feature.branch)
+        .canonicalize_utf8()
+        .unwrap();
+
+    assert!(roots.contains(&expected_view.as_path()));
+    assert!(roots.contains(&expected_feat.as_path()));
+    assert!(roots.contains(&expected_wt.as_path()));
+    assert_eq!(roots.len(), 3);
+}
+
+#[test]
+fn discovery_writable_set_roots_contains_only_view_dir() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root.clone());
+    let session_id = SessionId::new("6f0c9d5f-0000-4000-8000-000000000000").unwrap();
+    let view_dir = layout.discovery_session(&session_id);
+    crate::infra::fs::ensure_dir(&view_dir).unwrap();
+
+    let set = WritableSet::from_discovery(&view_dir).unwrap();
+    let roots = set.roots();
+
+    let expected_view = view_dir.canonicalize_utf8().unwrap();
+    assert_eq!(roots, vec![expected_view.as_path()]);
+}
+
 // ---------------------------------------------------------------------------
 // GuardDecision tests
 // ---------------------------------------------------------------------------
@@ -811,4 +856,60 @@ fn hall_root_cwd_allows_a_read_outside_every_session() {
     let out = guard(Provider::Omp, &payload.to_string()).unwrap();
     assert!(out.exit_zero);
     assert_eq!(out.body, "");
+}
+
+#[test]
+fn scheme_prefixed_targets_are_allowed() {
+    let (_guard, root) = hall_with_promoted_feature();
+
+    let schemes = [
+        "xd://ast_edit",
+        "xd://ast_grep",
+        "memory://scratchpad",
+        "artifact://output-log",
+        "agent://worker-1",
+        "custom-scheme://resource/path",
+    ];
+
+    for uri in schemes {
+        let payload = serde_json::json!({
+            "tool": "write",
+            "args": { "path": uri },
+            "cwd": root,
+        });
+
+        let out = guard(Provider::Omp, &payload.to_string()).unwrap();
+        assert!(
+            out.exit_zero,
+            "scheme URI `{uri}` must be allowed by guard, got exit_zero=false with body: {}",
+            out.body
+        );
+        assert_eq!(out.body, "");
+    }
+}
+
+#[test]
+fn windows_path_or_colon_in_filename_is_not_mistaken_for_uri_scheme() {
+    let (_guard, root) = hall_with_promoted_feature();
+    // A relative path containing a colon or Windows drive is not a valid RFC 3986 scheme with ://
+    let not_schemes = [
+        "file:name.txt",
+        "123://invalid-scheme",
+        "+invalid://foo",
+        "./xd://foo",
+    ];
+
+    for path in not_schemes {
+        let payload = serde_json::json!({
+            "tool": "write",
+            "args": { "path": path },
+            "cwd": root,
+        });
+
+        let out = guard(Provider::Omp, &payload.to_string()).unwrap();
+        assert!(
+            !out.exit_zero,
+            "non-scheme path `{path}` must be denied by guard when outside session"
+        );
+    }
 }
