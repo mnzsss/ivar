@@ -182,6 +182,21 @@ fn is_structured_write(tool: &str) -> bool {
     )
 }
 
+/// Check whether a path string starts with an RFC 3986 URI scheme (`<scheme>://`).
+/// Schemes match `^[a-zA-Z][a-zA-Z0-9+.-]*://`.
+fn has_uri_scheme(s: &str) -> bool {
+    let Some((scheme, _rest)) = s.split_once("://") else {
+        return false;
+    };
+    let mut chars = scheme.chars();
+    match chars.next() {
+        Some(c) if c.is_ascii_alphabetic() => {
+            chars.all(|c| c.is_ascii_alphanumeric() || c == '+' || c == '-' || c == '.')
+        }
+        _ => false,
+    }
+}
+
 /// Decide whether a tool request is allowed inside the session.
 ///
 /// Structured write tools are checked against the writable set; everything
@@ -192,6 +207,11 @@ fn is_structured_write(tool: &str) -> bool {
 /// lives, not only where the agent stands.
 pub(crate) fn decide(set: Option<&WritableSet>, req: &ToolRequest) -> GuardDecision {
     if !is_structured_write(&req.tool) {
+        return GuardDecision::Allow;
+    }
+    if let Some(path) = &req.file_path
+        && has_uri_scheme(path.as_str())
+    {
         return GuardDecision::Allow;
     }
     match (set, &req.file_path) {
@@ -214,9 +234,12 @@ pub(crate) fn decide(set: Option<&WritableSet>, req: &ToolRequest) -> GuardDecis
 
 /// Resolve the target path for a tool request: absolute paths are returned
 /// as-is, relative paths are joined to payload cwd, and absent cwd/target
-/// returns `None`.
+/// returns `None`. Targets with an RFC 3986 URI scheme (e.g. `xd://...`, `memory://...`)
+/// return `None` so they are not treated as filesystem targets.
 fn resolve_target(cwd: Option<&Utf8Path>, file_path: &Utf8Path) -> Option<Utf8PathBuf> {
-    if file_path.is_absolute() {
+    if has_uri_scheme(file_path.as_str()) {
+        None
+    } else if file_path.is_absolute() {
         Some(file_path.to_path_buf())
     } else {
         cwd.map(|base| base.join(file_path))
