@@ -466,6 +466,349 @@ fn omp_adapter_denies_write_when_cwd_is_unpromoted_repo_worktree() {
     assert!(!out.exit_zero);
     assert!(
         out.body.contains("writable set:")
-            || out.body.contains("no ivar session resolves from the cwd")
+            || out
+                .body
+                .contains("no ivar session resolves from the cwd or the target path")
     );
+}
+
+#[test]
+fn hall_root_cwd_allows_write_into_the_target_feature_directory() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root.clone());
+    let feature = Feature::read(&layout, &FeatureName::new("checkout").unwrap())
+        .unwrap()
+        .unwrap();
+    let session_id = SessionId::new("6f0c9d5f-0000-4000-8000-000000000000").unwrap();
+    let view_dir = layout.feature_session(&feature.name, &session_id);
+    crate::infra::fs::ensure_dir(&view_dir).unwrap();
+    let mut state =
+        crate::domain::session::SessionState::new(Provider::Omp, "2026-08-29T00:00:00Z");
+    state.bind(feature.name.clone(), "2026-08-29T00:00:00Z");
+    state.write(&view_dir).unwrap();
+
+    let payload = serde_json::json!({
+        "tool": "write",
+        "args": { "filePath": layout.feature_dir(&feature.name).join("requirements.md") },
+        "cwd": root,
+    });
+
+    let out = guard(Provider::Omp, &payload.to_string()).unwrap();
+    assert!(out.exit_zero);
+    assert_eq!(out.body, "");
+}
+
+#[test]
+fn hall_root_cwd_allows_write_into_a_promoted_worktree() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root.clone());
+    let feature = Feature::read(&layout, &FeatureName::new("checkout").unwrap())
+        .unwrap()
+        .unwrap();
+    let session_id = SessionId::new("6f0c9d5f-0000-4000-8000-000000000000").unwrap();
+    let view_dir = layout.feature_session(&feature.name, &session_id);
+    crate::infra::fs::ensure_dir(&view_dir).unwrap();
+    let mut state =
+        crate::domain::session::SessionState::new(Provider::Omp, "2026-08-29T00:00:00Z");
+    state.bind(feature.name.clone(), "2026-08-29T00:00:00Z");
+    state.write(&view_dir).unwrap();
+
+    let wt = layout.repo_worktree(&RepoName::new("api").unwrap(), &feature.branch);
+    let payload = serde_json::json!({
+        "tool": "edit",
+        "args": { "filePath": wt.join("src/index.js") },
+        "cwd": root,
+    });
+
+    let out = guard(Provider::Omp, &payload.to_string()).unwrap();
+    assert!(out.exit_zero);
+    assert_eq!(out.body, "");
+}
+
+#[test]
+fn hall_root_cwd_allows_a_new_nested_file_inside_the_writable_set() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root.clone());
+    let feature = Feature::read(&layout, &FeatureName::new("checkout").unwrap())
+        .unwrap()
+        .unwrap();
+    let session_id = SessionId::new("6f0c9d5f-0000-4000-8000-000000000000").unwrap();
+    let view_dir = layout.feature_session(&feature.name, &session_id);
+    crate::infra::fs::ensure_dir(&view_dir).unwrap();
+    let mut state =
+        crate::domain::session::SessionState::new(Provider::Omp, "2026-08-29T00:00:00Z");
+    state.bind(feature.name.clone(), "2026-08-29T00:00:00Z");
+    state.write(&view_dir).unwrap();
+
+    let payload = serde_json::json!({
+        "tool": "write",
+        "args": { "filePath": view_dir.join("notes/deep/new.md") },
+        "cwd": root,
+    });
+
+    let out = guard(Provider::Omp, &payload.to_string()).unwrap();
+    assert!(out.exit_zero);
+    assert_eq!(out.body, "");
+}
+
+#[test]
+fn hall_root_cwd_denies_a_target_outside_every_session() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root.clone());
+    let feature = Feature::read(&layout, &FeatureName::new("checkout").unwrap())
+        .unwrap()
+        .unwrap();
+    let session_id = SessionId::new("6f0c9d5f-0000-4000-8000-000000000000").unwrap();
+    let view_dir = layout.feature_session(&feature.name, &session_id);
+    crate::infra::fs::ensure_dir(&view_dir).unwrap();
+    let mut state =
+        crate::domain::session::SessionState::new(Provider::Omp, "2026-08-29T00:00:00Z");
+    state.bind(feature.name.clone(), "2026-08-29T00:00:00Z");
+    state.write(&view_dir).unwrap();
+
+    let payload = serde_json::json!({
+        "tool": "write",
+        "args": { "filePath": "/etc/passwd" },
+        "cwd": root,
+    });
+
+    let out = guard(Provider::Omp, &payload.to_string()).unwrap();
+    assert!(!out.exit_zero);
+    assert!(
+        out.body
+            .contains("no ivar session resolves from the cwd or the target path")
+    );
+}
+
+#[test]
+fn hall_root_cwd_denies_an_unpromoted_worktree_target() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root.clone());
+    let feature = Feature::read(&layout, &FeatureName::new("checkout").unwrap())
+        .unwrap()
+        .unwrap();
+    let session_id = SessionId::new("6f0c9d5f-0000-4000-8000-000000000000").unwrap();
+    let view_dir = layout.feature_session(&feature.name, &session_id);
+    crate::infra::fs::ensure_dir(&view_dir).unwrap();
+    let mut state =
+        crate::domain::session::SessionState::new(Provider::Omp, "2026-08-29T00:00:00Z");
+    state.bind(feature.name.clone(), "2026-08-29T00:00:00Z");
+    state.write(&view_dir).unwrap();
+
+    let unpromoted_wt = layout.repo_worktree(
+        &RepoName::new("api").unwrap(),
+        &BranchName::new("main").unwrap(),
+    );
+    crate::infra::fs::ensure_dir(&unpromoted_wt).unwrap();
+
+    let payload = serde_json::json!({
+        "tool": "edit",
+        "args": { "filePath": unpromoted_wt.join("src/index.js") },
+        "cwd": root,
+    });
+
+    let out = guard(Provider::Omp, &payload.to_string()).unwrap();
+    assert!(!out.exit_zero);
+    assert!(
+        out.body
+            .contains("no ivar session resolves from the cwd or the target path")
+            || out.body.contains("writable set:")
+    );
+}
+
+#[test]
+fn hall_root_cwd_denies_a_relative_target() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root.clone());
+    let feature = Feature::read(&layout, &FeatureName::new("checkout").unwrap())
+        .unwrap()
+        .unwrap();
+    let session_id = SessionId::new("6f0c9d5f-0000-4000-8000-000000000000").unwrap();
+    let view_dir = layout.feature_session(&feature.name, &session_id);
+    crate::infra::fs::ensure_dir(&view_dir).unwrap();
+    let mut state =
+        crate::domain::session::SessionState::new(Provider::Omp, "2026-08-29T00:00:00Z");
+    state.bind(feature.name.clone(), "2026-08-29T00:00:00Z");
+    state.write(&view_dir).unwrap();
+
+    let payload = serde_json::json!({
+        "tool": "write",
+        "args": { "filePath": "requirements.md" },
+        "cwd": root,
+    });
+
+    let out = guard(Provider::Omp, &payload.to_string()).unwrap();
+    assert!(!out.exit_zero);
+    assert!(
+        out.body
+            .contains("no ivar session resolves from the cwd or the target path")
+            || out.body.contains("writable set:")
+    );
+}
+
+#[test]
+fn cwd_session_stays_authoritative_for_a_foreign_target() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root.clone());
+    let feature1 = Feature::read(&layout, &FeatureName::new("checkout").unwrap())
+        .unwrap()
+        .unwrap();
+    let session_id1 = SessionId::new("6f0c9d5f-0000-4000-8000-000000000000").unwrap();
+    let view_dir1 = layout.feature_session(&feature1.name, &session_id1);
+    crate::infra::fs::ensure_dir(&view_dir1).unwrap();
+    let mut state1 =
+        crate::domain::session::SessionState::new(Provider::Omp, "2026-08-29T00:00:00Z");
+    state1.bind(feature1.name.clone(), "2026-08-29T00:00:00Z");
+    state1.write(&view_dir1).unwrap();
+
+    let feature2_name = FeatureName::new("billing").unwrap();
+    let ctx = crate::action::Ctx::new(root.clone());
+    crate::action::feature::create::create(
+        &ctx,
+        crate::action::feature::create::CreateInput {
+            name: "billing".to_owned(),
+            branch: None,
+            base: None,
+            parent: None,
+            via: None,
+            strategy: None,
+        },
+    )
+    .unwrap();
+
+    let payload = serde_json::json!({
+        "tool": "write",
+        "args": { "filePath": layout.feature_dir(&feature2_name).join("requirements.md") },
+        "cwd": view_dir1,
+    });
+
+    let out = guard(Provider::Omp, &payload.to_string()).unwrap();
+    assert!(!out.exit_zero);
+    assert!(out.body.contains("writable set:"));
+}
+
+#[test]
+fn discovery_cwd_denies_a_feature_document_target() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root.clone());
+    let feature = Feature::read(&layout, &FeatureName::new("checkout").unwrap())
+        .unwrap()
+        .unwrap();
+
+    let discovery_session_id = SessionId::new("6f0c9d5f-1111-4000-8000-000000000000").unwrap();
+    let discovery_view_dir = layout.discovery_session(&discovery_session_id);
+    crate::infra::fs::ensure_dir(&discovery_view_dir).unwrap();
+    let state = crate::domain::session::SessionState::new(Provider::Omp, "2026-08-29T00:00:00Z");
+    state.write(&discovery_view_dir).unwrap();
+
+    let payload = serde_json::json!({
+        "tool": "write",
+        "args": { "filePath": layout.feature_dir(&feature.name).join("plan.md") },
+        "cwd": discovery_view_dir,
+    });
+
+    let out = guard(Provider::Omp, &payload.to_string()).unwrap();
+    assert!(!out.exit_zero);
+    assert!(out.body.contains("writable set:"));
+}
+
+#[test]
+fn hall_root_cwd_selects_the_most_recent_session_of_the_feature() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root.clone());
+    let feature = Feature::read(&layout, &FeatureName::new("checkout").unwrap())
+        .unwrap()
+        .unwrap();
+
+    let session_old_id = SessionId::new("6f0c9d5f-0000-4000-8000-000000000001").unwrap();
+    let view_old = layout.feature_session(&feature.name, &session_old_id);
+    crate::infra::fs::ensure_dir(&view_old).unwrap();
+    let mut state_old =
+        crate::domain::session::SessionState::new(Provider::Omp, "2026-08-29T00:00:00Z");
+    state_old.bind(feature.name.clone(), "2026-08-29T00:00:00Z");
+    state_old.write(&view_old).unwrap();
+
+    let session_new_id = SessionId::new("6f0c9d5f-0000-4000-8000-000000000002").unwrap();
+    let view_new = layout.feature_session(&feature.name, &session_new_id);
+    crate::infra::fs::ensure_dir(&view_new).unwrap();
+    let mut state_new =
+        crate::domain::session::SessionState::new(Provider::Omp, "2026-08-30T00:00:00Z");
+    state_new.bind(feature.name.clone(), "2026-08-30T00:00:00Z");
+    state_new.write(&view_new).unwrap();
+
+    // Target newer session's view_dir notes.txt -> allowed
+    let payload_new = serde_json::json!({
+        "tool": "write",
+        "args": { "filePath": view_new.join("notes.txt") },
+        "cwd": root,
+    });
+    let out_new = guard(Provider::Omp, &payload_new.to_string()).unwrap();
+    assert!(out_new.exit_zero);
+    assert_eq!(out_new.body, "");
+
+    // Target older session's view_dir notes.txt -> denied
+    let payload_old = serde_json::json!({
+        "tool": "write",
+        "args": { "filePath": view_old.join("notes.txt") },
+        "cwd": root,
+    });
+    let out_old = guard(Provider::Omp, &payload_old.to_string()).unwrap();
+    assert!(!out_old.exit_zero);
+}
+
+#[test]
+fn claude_and_opencode_agree_with_omp_on_a_feature_document_target() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root.clone());
+    let feature = Feature::read(&layout, &FeatureName::new("checkout").unwrap())
+        .unwrap()
+        .unwrap();
+
+    let session_id = SessionId::new("6f0c9d5f-0000-4000-8000-000000000000").unwrap();
+    let view_dir = layout.feature_session(&feature.name, &session_id);
+    crate::infra::fs::ensure_dir(&view_dir).unwrap();
+    let mut state =
+        crate::domain::session::SessionState::new(Provider::ClaudeCode, "2026-08-29T00:00:00Z");
+    state.bind(feature.name.clone(), "2026-08-29T00:00:00Z");
+    state.write(&view_dir).unwrap();
+
+    let target = layout.feature_dir(&feature.name).join("requirements.md");
+
+    // Claude Code
+    let claude_payload = serde_json::json!({
+        "tool_name": "Write",
+        "tool_input": { "file_path": target },
+        "cwd": root,
+    });
+    let claude_out = guard(Provider::ClaudeCode, &claude_payload.to_string()).unwrap();
+    let claude_val: serde_json::Value = serde_json::from_str(&claude_out.body).unwrap();
+    assert_eq!(
+        claude_val["hookSpecificOutput"]["permissionDecision"],
+        "allow"
+    );
+
+    // OpenCode
+    let opencode_payload = serde_json::json!({
+        "tool": "write",
+        "args": { "filePath": target },
+        "cwd": root,
+    });
+    let opencode_out = guard(Provider::OpenCode, &opencode_payload.to_string()).unwrap();
+    assert!(opencode_out.exit_zero);
+    assert_eq!(opencode_out.body, "");
+}
+
+#[test]
+fn hall_root_cwd_allows_a_read_outside_every_session() {
+    let (_guard, root) = hall_with_promoted_feature();
+
+    let payload = serde_json::json!({
+        "tool": "read",
+        "args": { "filePath": "/etc/passwd" },
+        "cwd": root,
+    });
+
+    let out = guard(Provider::Omp, &payload.to_string()).unwrap();
+    assert!(out.exit_zero);
+    assert_eq!(out.body, "");
 }

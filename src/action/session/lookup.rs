@@ -34,6 +34,24 @@ pub(crate) fn list_feature(
     )
 }
 
+/// Every live session in the hall: discovery sessions and every feature's
+/// sessions.
+pub(crate) fn list_all(layout: &Layout) -> Result<Vec<SessionRef>, Failure> {
+    let mut sessions = list_discovery(layout)?;
+    if fs::is_dir(&layout.features_dir())? {
+        for entry in fs::read_dir(&layout.features_dir())? {
+            let Some(name) = entry.file_name() else {
+                continue;
+            };
+            let Ok(name) = FeatureName::new(name) else {
+                continue;
+            };
+            sessions.extend(list_feature(layout, &name)?);
+        }
+    }
+    Ok(sessions)
+}
+
 /// Resolve a session by id-prefix and/or feature, to exactly one session.
 ///
 /// `Blocked` when neither filter is given, when nothing matches, or when more
@@ -56,25 +74,10 @@ pub(crate) fn resolve(
         )));
     }
 
-    let mut candidates = Vec::new();
-    let feature_filter = feature.map(FeatureName::new).transpose()?;
-    match &feature_filter {
-        Some(name) => candidates.extend(list_feature(layout, name)?),
-        None => {
-            candidates.extend(list_discovery(layout)?);
-            if fs::is_dir(&layout.features_dir())? {
-                for entry in fs::read_dir(&layout.features_dir())? {
-                    let Some(name) = entry.file_name() else {
-                        continue;
-                    };
-                    let Ok(name) = FeatureName::new(name) else {
-                        continue;
-                    };
-                    candidates.extend(list_feature(layout, &name)?);
-                }
-            }
-        }
-    }
+    let candidates = match feature.map(FeatureName::new).transpose()? {
+        Some(name) => list_feature(layout, &name)?,
+        None => list_all(layout)?,
+    };
 
     let matches: Vec<SessionRef> = candidates
         .into_iter()

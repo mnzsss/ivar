@@ -13,6 +13,7 @@ use camino::{Utf8Path, Utf8PathBuf};
 pub(crate) struct WritableSet {
     view_dir: Utf8PathBuf,
     feature_dir: Option<Utf8PathBuf>,
+    sessions_dir: Option<Utf8PathBuf>,
     worktrees: Vec<Utf8PathBuf>,
 }
 
@@ -49,6 +50,7 @@ impl WritableSet {
         })?;
         let feat_dir_raw = layout.feature_dir(&feature.name);
         let feature_dir = canonicalize_lenient(&feat_dir_raw);
+        let sessions_dir = canonicalize_lenient(&layout.feature_sessions_dir(&feature.name));
         let worktrees = feature
             .promotions
             .keys()
@@ -65,6 +67,7 @@ impl WritableSet {
         Ok(Self {
             view_dir,
             feature_dir: Some(feature_dir),
+            sessions_dir: Some(sessions_dir),
             worktrees,
         })
     }
@@ -86,6 +89,7 @@ impl WritableSet {
         Ok(Self {
             view_dir,
             feature_dir: None,
+            sessions_dir: None,
             worktrees: Vec::new(),
         })
     }
@@ -96,12 +100,22 @@ impl WritableSet {
     /// `/tmp` or `/var` are symlinks.
     pub(crate) fn allows(&self, path: &Utf8Path) -> bool {
         let canonical = canonicalize_lenient(path);
-        canonical.starts_with(&self.view_dir)
-            || self
-                .feature_dir
-                .as_ref()
-                .is_some_and(|fd| canonical.starts_with(fd))
-            || self.worktrees.iter().any(|wt| canonical.starts_with(wt))
+        if canonical.starts_with(&self.view_dir) {
+            return true;
+        }
+        if let Some(sessions_dir) = &self.sessions_dir
+            && canonical.starts_with(sessions_dir)
+        {
+            return false;
+        }
+        if self
+            .feature_dir
+            .as_ref()
+            .is_some_and(|fd| canonical.starts_with(fd))
+        {
+            return true;
+        }
+        self.worktrees.iter().any(|wt| canonical.starts_with(wt))
     }
 
     /// The view dir — the canonical root of this set.
@@ -117,11 +131,15 @@ impl WritableSet {
         worktrees: Vec<Utf8PathBuf>,
     ) -> Self {
         let view_dir = canonicalize_lenient(&view_dir);
+        let sessions_dir = feature_dir
+            .as_ref()
+            .map(|fd| canonicalize_lenient(&fd.join("sessions")));
         let feature_dir = feature_dir.map(|fd| canonicalize_lenient(&fd));
         let worktrees = worktrees.iter().map(|w| canonicalize_lenient(w)).collect();
         Self {
             view_dir,
             feature_dir,
+            sessions_dir,
             worktrees,
         }
     }
@@ -151,6 +169,10 @@ fn is_structured_write(tool: &str) -> bool {
 ///
 /// Structured write tools are checked against the writable set; everything
 /// else is allowed. Shell is not classified here — it is a separate layer.
+///
+/// An absent set means neither the cwd nor the target resolved a session, so
+/// the denial names both: the caller's next move is to check where the target
+/// lives, not only where the agent stands.
 pub(crate) fn decide(set: Option<&WritableSet>, req: &ToolRequest) -> GuardDecision {
     if !is_structured_write(&req.tool) {
         return GuardDecision::Allow;
@@ -168,9 +190,77 @@ pub(crate) fn decide(set: Option<&WritableSet>, req: &ToolRequest) -> GuardDecis
             ),
         },
         (None, _) => GuardDecision::Deny {
-            reason: "no ivar session resolves from the cwd".into(),
+            reason: "no ivar session resolves from the cwd or the target path".into(),
         },
     }
+}
+
+/// Resolve the target path for a tool request: absolute paths are returned
+/// as-is, relative paths are joined to payload cwd, and absent cwd/target
+/// returns `None`.
+fn resolve_target(cwd: Option<&Utf8Path>, file_path: &Utf8Path) -> Option<Utf8PathBuf> {
+    if file_path.is_absolute() {
+        Some(file_path.to_path_buf())
+    } else {
+        cwd.map(|base| base.join(file_path))
+    }
+}
+
+/// Resolve the authoritative writable set for a target path when cwd resolves
+/// no session. Discovers layout from the target's nearest existing ancestor,
+/// enumerates all live sessions, builds each writable set, keeps those that
+/// allow `target`, and picks the one with the greatest `started_at` timestamp.
+fn resolve_set_by_target(target: &Utf8Path) -> Option<WritableSet> {
+    let mut current = target;
+    let existing_ancestor = loop {
+        if current.exists() {
+            break current;
+        }
+        match current.parent() {
+            Some(parent) => current = parent,
+            None => break current,
+        }
+    };
+
+    let layout = Layout::discover(existing_ancestor).ok()??;
+    let mut sessions = super::lookup::list_discovery(&layout).ok()?;
+    if let Ok(entries) = crate::infra::fs::read_dir(&layout.features_dir()) {
+        for entry in entries {
+            let Some(name) = entry.file_name() else {
+                continue;
+            };
+            let Ok(feature_name) = crate::domain::name::FeatureName::new(name) else {
+                continue;
+            };
+            if let Ok(Some(session)) = super::lookup::most_recent(&layout, &feature_name) {
+                sessions.push(session);
+            }
+        }
+    }
+
+    let mut candidates = Vec::new();
+    for session in sessions {
+        let Some(state) = session.state.as_ref() else {
+            continue;
+        };
+        let env = crate::action::session::env::SessionEnv::build(
+            &layout,
+            &session.id,
+            &session.view_dir,
+            state.provider,
+            state.feature.as_ref(),
+        );
+        let Some(set) = resolve_writable_set(&env) else {
+            continue;
+        };
+        if set.allows(target) {
+            candidates.push((state.started_at.clone(), set));
+        }
+    }
+
+    // Sort descending by started_at; stable sort preserves enumeration order on ties
+    candidates.sort_by(|a, b| b.0.cmp(&a.0));
+    candidates.into_iter().next().map(|(_, set)| set)
 }
 
 /// Run the guard: parse stdin JSON, resolve the session, decide, and
@@ -178,11 +268,19 @@ pub(crate) fn decide(set: Option<&WritableSet>, req: &ToolRequest) -> GuardDecis
 pub fn guard(provider: Provider, stdin_json: &str) -> Result<GuardOutcome, Failure> {
     let (tool_request, cwd) = crate::providers::parse_tool_request(provider, stdin_json)?;
 
-    let set = cwd
+    let mut set = cwd
         .as_deref()
         .and_then(|cwd| crate::action::session::env::SessionEnv::resolve_by_cwd(cwd).ok())
         .flatten()
         .and_then(|env| resolve_writable_set(&env));
+
+    if set.is_none()
+        && is_structured_write(&tool_request.tool)
+        && let Some(file_path) = &tool_request.file_path
+        && let Some(target) = resolve_target(cwd.as_deref(), file_path)
+    {
+        set = resolve_set_by_target(&target);
+    }
 
     let decision = decide(set.as_ref(), &tool_request);
 
