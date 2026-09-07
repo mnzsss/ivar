@@ -291,7 +291,6 @@ fn detached_start_creates_the_view_dir_without_launching_a_provider() {
     assert!(outcome.detached);
     assert!(fs::is_dir(&outcome.view_dir).unwrap());
     assert!(fs::is_dir(&outcome.view_dir.join("api")).unwrap());
-
     let state = SessionState::read(&outcome.view_dir).unwrap().unwrap();
     assert_eq!(state.provider(), Provider::ClaudeCode);
     assert_eq!(state.feature().unwrap().as_str(), "checkout");
@@ -1212,6 +1211,37 @@ fn start_command_carries_the_session_environment() {
         .map(|(k, _)| k.as_str())
         .collect();
     assert!(feat_envs.contains(&"IVAR_FEATURE"));
+}
+
+#[test]
+fn start_command_is_wrapped_with_sandbox_launcher() {
+    let session_id = SessionId::new("6f0c9d5f-0000-4000-8000-000000000000").unwrap();
+    let mut original = crate::infra::proc::Command::new("claude");
+    original = original.arg("--resume");
+    original = original.env("FOO", "BAR");
+
+    let wrapped = crate::action::session::start::wrap_with_sandbox(original, &session_id)
+        .expect("wrapping with sandbox must succeed");
+
+    let current_exe = std::env::current_exe()
+        .ok()
+        .and_then(|p| Utf8PathBuf::try_from(p).ok())
+        .unwrap_or_else(|| Utf8PathBuf::from("ivar"));
+
+    assert_eq!(wrapped.program(), current_exe.as_str());
+    assert_eq!(
+        wrapped.arguments(),
+        &[
+            "session",
+            "sandbox",
+            "--session",
+            "6f0c9d5f-0000-4000-8000-000000000000",
+            "--",
+            "claude",
+            "--resume"
+        ]
+    );
+    assert!(wrapped.envs().iter().any(|(k, v)| k == "FOO" && v == "BAR"));
 }
 
 /// A feature session does not link `work` into the view dir.

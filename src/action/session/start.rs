@@ -49,6 +49,7 @@ use crate::domain::session::{SessionState, rfc3339_now};
 use crate::error::{Failure, FixAction, Outcome, Report, Warning, WriteHuman};
 use crate::git;
 use crate::infra::fs;
+use crate::infra::proc::Command;
 use crate::providers;
 use crate::store::layout::Layout;
 use crate::store::manifest::Manifest;
@@ -232,6 +233,7 @@ pub fn start(ctx: &Ctx, input: StartInput) -> Outcome<StartOutcome> {
         )?);
         let command =
             crate::action::mcp::inject_session_mcp_secrets(command, &layout, &manifest, provider);
+        let command = wrap_with_sandbox(command, &session_id)?;
         let width = crate::infra::term::width();
         let height = 24;
 
@@ -353,6 +355,42 @@ fn check_relay(
     }
 
     Ok(())
+}
+
+/// Wrap a provider command so it re-executes through the hidden `ivar session sandbox` launcher.
+///
+/// Preserves all environment variables and configuration from the original command.
+pub(crate) fn wrap_with_sandbox(
+    command: Command,
+    session_id: &SessionId,
+) -> Result<Command, Failure> {
+    let exe_path = std::env::current_exe().map_err(|e| {
+        Failure::failed(
+            "session.current_exe_failed",
+            format!("failed to determine current ivar binary path: {e}"),
+        )
+    })?;
+    let exe_utf8 = Utf8PathBuf::try_from(exe_path).map_err(|e| {
+        Failure::failed(
+            "session.invalid_exe_path",
+            format!("non-UTF8 binary path: {e}"),
+        )
+    })?;
+
+    let mut wrapped = Command::new(exe_utf8.as_str());
+    wrapped = wrapped.arg("session");
+    wrapped = wrapped.arg("sandbox");
+    wrapped = wrapped.arg("--session");
+    wrapped = wrapped.arg(session_id.as_str());
+    wrapped = wrapped.arg("--");
+    wrapped = wrapped.arg(command.program());
+    wrapped = wrapped.args(command.arguments());
+
+    for (k, v) in command.envs() {
+        wrapped = wrapped.env(k, v);
+    }
+
+    Ok(wrapped)
 }
 
 /// Run the TUI over the agent's PTY: pump its output, render one frame, and
