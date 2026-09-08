@@ -321,7 +321,7 @@ pub enum FeatureCommand {
 #[derive(Debug, Args)]
 pub struct FeatureWorkspaceArgs {
     /// The feature to generate a workspace for.
-    pub feature: String,
+    pub feature: Option<String>,
     /// Which declared repos to include; includes all when omitted.
     pub repos: Vec<String>,
 }
@@ -330,7 +330,7 @@ pub struct FeatureWorkspaceArgs {
 #[derive(Debug, Args)]
 pub struct FeatureCleanupArgs {
     /// The feature to clean up.
-    pub name: String,
+    pub name: Option<String>,
     /// Preview only: compute and print the summary, teardown nothing.
     #[arg(long, conflicts_with = "record")]
     pub preview: bool,
@@ -373,7 +373,7 @@ pub struct FeatureCreateArgs {
 #[derive(Debug, Args)]
 pub struct FeatureIntegrateArgs {
     /// The child feature to integrate.
-    pub feature: String,
+    pub feature: Option<String>,
     /// The via override for this run: `pr` or `local`. Ignored once the
     /// first receipt froze the policy.
     #[arg(long)]
@@ -388,7 +388,7 @@ pub struct FeatureIntegrateArgs {
 #[derive(Debug, Args)]
 pub struct FeatureReparentArgs {
     /// The child feature to move.
-    pub child: String,
+    pub child: Option<String>,
     /// The new parent feature. The child's `base` is rewritten to the new
     /// parent's branch in the same record write.
     #[arg(long)]
@@ -399,7 +399,7 @@ pub struct FeatureReparentArgs {
 #[derive(Debug, Args)]
 pub struct FeatureRenameArgs {
     /// The feature to rename.
-    pub feature: String,
+    pub feature: Option<String>,
     /// The feature's new name. Requires at least one of `--name`/`--branch`
     /// to differ from the current value.
     #[arg(long)]
@@ -412,9 +412,10 @@ pub struct FeatureRenameArgs {
 
 /// Arguments for `ivar feature promote`.
 #[derive(Debug, Args)]
+#[command(allow_missing_positional = true)]
 pub struct FeaturePromoteArgs {
     /// The feature to promote into.
-    pub feature: String,
+    pub feature: Option<String>,
     /// The repo to promote onto the feature's branch.
     pub repo: String,
     /// Override the branch a new worktree starts from, for this repo only.
@@ -425,9 +426,10 @@ pub struct FeaturePromoteArgs {
 
 /// Arguments for `ivar feature demote`.
 #[derive(Debug, Args)]
+#[command(allow_missing_positional = true)]
 pub struct FeatureDemoteArgs {
     /// The feature to demote from.
-    pub feature: String,
+    pub feature: Option<String>,
     /// The repo to demote.
     pub repo: String,
 }
@@ -436,7 +438,7 @@ pub struct FeatureDemoteArgs {
 #[derive(Debug, Args)]
 pub struct FeatureStatusArgs {
     /// The feature to inspect.
-    pub feature: String,
+    pub feature: Option<String>,
     /// Render the feature's whole subtree — itself and every descendant, in
     /// deterministic pre-order — with each feature's derived state, repos,
     /// and blockers.
@@ -460,7 +462,7 @@ pub enum ExecuteCommand {
 /// Arguments for `ivar feature execute start`.
 #[derive(Debug, Args)]
 pub struct ExecuteStartArgs {
-    pub feature: String,
+    pub feature: Option<String>,
     #[arg(long)]
     pub plan: String,
     #[arg(long, conflicts_with = "restart")]
@@ -472,7 +474,7 @@ pub struct ExecuteStartArgs {
 /// Arguments for `ivar feature execute finish`.
 #[derive(Debug, Args)]
 pub struct ExecuteFinishArgs {
-    pub feature: String,
+    pub feature: Option<String>,
     #[arg(long)]
     pub plan: String,
     #[arg(long)]
@@ -484,7 +486,7 @@ pub struct ExecuteFinishArgs {
 /// Arguments for `ivar feature execute status`.
 #[derive(Debug, Args)]
 pub struct ExecuteStatusArgs {
-    pub feature: String,
+    pub feature: Option<String>,
     #[arg(long, conflicts_with = "run")]
     pub history: bool,
     #[arg(long, conflicts_with = "history")]
@@ -494,7 +496,7 @@ pub struct ExecuteStatusArgs {
 /// Arguments for `ivar feature execute accept-revision`.
 #[derive(Debug, Args)]
 pub struct ExecuteAcceptRevisionArgs {
-    pub feature: String,
+    pub feature: Option<String>,
     #[arg(long)]
     pub plan: String,
 }
@@ -502,7 +504,7 @@ pub struct ExecuteAcceptRevisionArgs {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FeatureDeliverArgs {
     /// The feature to deliver.
-    pub feature: String,
+    pub feature: Option<String>,
     /// Print the delivery preview and push nothing.
     pub preview: bool,
     /// Land feature branches into default branches locally (fast-forward only).
@@ -520,7 +522,7 @@ impl clap::Args for FeatureDeliverArgs {
         cmd.arg(
             clap::Arg::new("feature")
                 .help("The feature to deliver.")
-                .required(true)
+                .required(false)
                 .index(1),
         )
         .arg(
@@ -585,10 +587,7 @@ impl clap::Args for FeatureDeliverArgs {
 
 impl clap::FromArgMatches for FeatureDeliverArgs {
     fn from_arg_matches(matches: &clap::ArgMatches) -> Result<Self, clap::Error> {
-        let feature = matches
-            .get_one::<String>("feature")
-            .cloned()
-            .ok_or_else(|| clap::Error::new(clap::error::ErrorKind::MissingRequiredArgument))?;
+        let feature = matches.get_one::<String>("feature").cloned();
         let preview = matches.get_flag("preview");
         let land = matches.get_flag("land");
         let fingerprint = matches.get_one::<String>("fingerprint").cloned();
@@ -615,7 +614,7 @@ impl clap::FromArgMatches for FeatureDeliverArgs {
 #[derive(Debug, Args)]
 pub struct FeatureCloseArgs {
     /// The feature to close.
-    pub name: String,
+    pub name: Option<String>,
     /// How the feature ended: `delivered` or `abandoned`.
     #[arg(long)]
     pub outcome: String,
@@ -625,14 +624,14 @@ pub struct FeatureCloseArgs {
 #[derive(Debug, Args)]
 pub struct FeatureDeleteArgs {
     /// The feature to delete.
-    pub name: String,
+    pub name: Option<String>,
 }
 
 /// Arguments for `ivar feature rebase`.
 #[derive(Debug, Args)]
 pub struct FeatureRebaseArgs {
     /// The feature to rebase.
-    pub name: String,
+    pub name: Option<String>,
     /// Collapse the base: rebase every promoted repo onto this branch, and
     /// record it as the declared base for each repo that lands there. The
     /// verb for once a feature's own base has landed.
@@ -644,7 +643,7 @@ pub struct FeatureRebaseArgs {
 #[derive(Debug, Args)]
 pub struct FeatureViewArgs {
     /// The feature to view.
-    pub name: String,
+    pub name: Option<String>,
 }
 
 /// The `ivar session` surface.
@@ -879,7 +878,7 @@ pub enum PlanCommand {
 #[derive(Debug, Args)]
 pub struct PlanCreateArgs {
     /// The feature to scaffold plans for.
-    pub feature: String,
+    pub feature: Option<String>,
     /// Which artifacts to scaffold (`requirements`, `analysis`, `plan`);
     /// scaffolds all three when omitted.
     pub artifacts: Vec<crate::action::plan::Artifact>,
@@ -887,27 +886,30 @@ pub struct PlanCreateArgs {
 
 /// Arguments for `ivar plan show`.
 #[derive(Debug, Args)]
+#[command(allow_missing_positional = true)]
 pub struct PlanShowArgs {
     /// The feature whose artifact to show.
-    pub feature: String,
+    pub feature: Option<String>,
     /// Which artifact: `requirements`, `analysis`, or `plan`.
     pub artifact: crate::action::plan::show::Artifact,
 }
 
 /// Arguments for `ivar plan approve`.
 #[derive(Debug, Args)]
+#[command(allow_missing_positional = true)]
 pub struct PlanApproveArgs {
     /// The feature whose gate to approve.
-    pub feature: String,
+    pub feature: Option<String>,
     /// The gate: `requirements`, `analysis`, or `plan`.
     pub gate: String,
 }
 
 /// Arguments for `ivar plan invalidate`.
 #[derive(Debug, Args)]
+#[command(allow_missing_positional = true)]
 pub struct PlanInvalidateArgs {
     /// The feature whose gate to invalidate.
-    pub feature: String,
+    pub feature: Option<String>,
     /// The gate: `requirements`, `analysis`, or `plan`.
     pub gate: String,
 }
@@ -1230,7 +1232,7 @@ impl From<FeaturePromoteArgs> for promote::PromoteInput {
             base,
         } = args;
         Self {
-            feature,
+            feature: feature.unwrap_or_default(),
             repo,
             base,
         }
@@ -1240,14 +1242,20 @@ impl From<FeaturePromoteArgs> for promote::PromoteInput {
 impl From<FeatureDemoteArgs> for demote::DemoteInput {
     fn from(args: FeatureDemoteArgs) -> Self {
         let FeatureDemoteArgs { feature, repo } = args;
-        Self { feature, repo }
+        Self {
+            feature: feature.unwrap_or_default(),
+            repo,
+        }
     }
 }
 
 impl From<FeatureStatusArgs> for status::StatusInput {
     fn from(args: FeatureStatusArgs) -> Self {
         let FeatureStatusArgs { feature, recursive } = args;
-        Self { feature, recursive }
+        Self {
+            feature: feature.unwrap_or_default(),
+            recursive,
+        }
     }
 }
 
@@ -1259,7 +1267,7 @@ impl From<FeatureIntegrateArgs> for integrate::IntegrateInput {
             strategy,
         } = args;
         Self {
-            feature,
+            feature: feature.unwrap_or_default(),
             via,
             strategy,
         }
@@ -1269,7 +1277,10 @@ impl From<FeatureIntegrateArgs> for integrate::IntegrateInput {
 impl From<FeatureReparentArgs> for reparent::ReparentInput {
     fn from(args: FeatureReparentArgs) -> Self {
         let FeatureReparentArgs { child, parent } = args;
-        Self { child, parent }
+        Self {
+            child: child.unwrap_or_default(),
+            parent,
+        }
     }
 }
 
@@ -1281,7 +1292,7 @@ impl From<FeatureRenameArgs> for rename::RenameInput {
             branch,
         } = args;
         Self {
-            feature,
+            feature: feature.unwrap_or_default(),
             name,
             branch,
         }
@@ -1297,7 +1308,7 @@ impl From<ExecuteStartArgs> for start::StartInput {
             restart,
         } = args;
         Self {
-            feature,
+            feature: feature.unwrap_or_default(),
             plan,
             resume,
             restart,
@@ -1314,7 +1325,7 @@ impl From<ExecuteFinishArgs> for finish::FinishInput {
             outcome,
         } = args;
         Self {
-            feature,
+            feature: feature.unwrap_or_default(),
             plan,
             report_json,
             outcome,
@@ -1330,7 +1341,7 @@ impl From<ExecuteStatusArgs> for execute_status::StatusInput {
             run,
         } = args;
         Self {
-            feature,
+            feature: feature.unwrap_or_default(),
             history,
             run,
         }
@@ -1340,7 +1351,10 @@ impl From<ExecuteStatusArgs> for execute_status::StatusInput {
 impl From<ExecuteAcceptRevisionArgs> for accept_revision::AcceptRevisionInput {
     fn from(args: ExecuteAcceptRevisionArgs) -> Self {
         let ExecuteAcceptRevisionArgs { feature, plan } = args;
-        Self { feature, plan }
+        Self {
+            feature: feature.unwrap_or_default(),
+            plan,
+        }
     }
 }
 
@@ -1480,7 +1494,7 @@ impl From<FeatureDeliverArgs> for deliver::DeliverInput {
         } = args;
 
         Self {
-            feature,
+            feature: feature.unwrap_or_default(),
             preview,
             land,
             fingerprint,
@@ -1493,14 +1507,19 @@ impl From<FeatureDeliverArgs> for deliver::DeliverInput {
 impl From<FeatureCloseArgs> for close::CloseInput {
     fn from(args: FeatureCloseArgs) -> Self {
         let FeatureCloseArgs { name, outcome } = args;
-        Self { name, outcome }
+        Self {
+            name: name.unwrap_or_default(),
+            outcome,
+        }
     }
 }
 
 impl From<FeatureDeleteArgs> for delete::DeleteInput {
     fn from(args: FeatureDeleteArgs) -> Self {
         let FeatureDeleteArgs { name } = args;
-        Self { name }
+        Self {
+            name: name.unwrap_or_default(),
+        }
     }
 }
 
@@ -1512,7 +1531,7 @@ impl From<FeatureCleanupArgs> for cleanup::CleanupInput {
             record,
         } = args;
         Self {
-            feature: name,
+            feature: name.unwrap_or_default(),
             preview,
             record,
         }
@@ -1522,7 +1541,10 @@ impl From<FeatureCleanupArgs> for cleanup::CleanupInput {
 impl From<FeatureRebaseArgs> for rebase::RebaseInput {
     fn from(args: FeatureRebaseArgs) -> Self {
         let FeatureRebaseArgs { name, onto } = args;
-        Self { name, onto }
+        Self {
+            name: name.unwrap_or_default(),
+            onto,
+        }
     }
 }
 
@@ -1530,7 +1552,7 @@ impl From<FeatureWorkspaceArgs> for workspace::WorkspaceInput {
     fn from(args: FeatureWorkspaceArgs) -> Self {
         let FeatureWorkspaceArgs { feature, repos } = args;
         Self {
-            feature,
+            feature: feature.unwrap_or_default(),
             repos,
             open: false,
         }
@@ -1540,7 +1562,9 @@ impl From<FeatureWorkspaceArgs> for workspace::WorkspaceInput {
 impl From<FeatureViewArgs> for view::ViewInput {
     fn from(args: FeatureViewArgs) -> Self {
         let FeatureViewArgs { name } = args;
-        Self { feature: name }
+        Self {
+            feature: name.unwrap_or_default(),
+        }
     }
 }
 
@@ -1641,28 +1665,40 @@ impl From<DiscoveryShowArgs> for discovery_show::ShowInput {
 impl From<PlanCreateArgs> for plan_create::CreateInput {
     fn from(args: PlanCreateArgs) -> Self {
         let PlanCreateArgs { feature, artifacts } = args;
-        Self { feature, artifacts }
+        Self {
+            feature: feature.unwrap_or_default(),
+            artifacts,
+        }
     }
 }
 
 impl From<PlanShowArgs> for plan_show::ShowInput {
     fn from(args: PlanShowArgs) -> Self {
         let PlanShowArgs { feature, artifact } = args;
-        Self { feature, artifact }
+        Self {
+            feature: feature.unwrap_or_default(),
+            artifact,
+        }
     }
 }
 
 impl From<PlanApproveArgs> for plan_approve::ApproveInput {
     fn from(args: PlanApproveArgs) -> Self {
         let PlanApproveArgs { feature, gate } = args;
-        Self { feature, gate }
+        Self {
+            feature: feature.unwrap_or_default(),
+            gate,
+        }
     }
 }
 
 impl From<PlanInvalidateArgs> for plan_approve::InvalidateInput {
     fn from(args: PlanInvalidateArgs) -> Self {
         let PlanInvalidateArgs { feature, gate } = args;
-        Self { feature, gate }
+        Self {
+            feature: feature.unwrap_or_default(),
+            gate,
+        }
     }
 }
 
