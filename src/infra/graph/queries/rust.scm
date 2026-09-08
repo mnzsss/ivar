@@ -17,15 +17,27 @@
 (mod_item
   name: (identifier) @symbol.name) @symbol.kind
 
+(const_item
+  name: (identifier) @symbol.name) @symbol.kind
+
+(static_item
+  name: (identifier) @symbol.name) @symbol.kind
+
 ;; Calls
 (call_expression
   function: [
     (identifier) @call.target
     (field_expression
-      value: (identifier) @call.receiver
+      value: [
+        (identifier) @call.receiver
+        (self) @call.receiver
+      ]
       field: (field_identifier) @call.target)
     (scoped_identifier
-      path: (identifier) @call.receiver
+      path: [
+        (identifier) @call.receiver
+        (scoped_identifier) @call.receiver
+      ]
       name: (identifier) @call.target)
   ])
 

@@ -14,6 +14,9 @@
 (type_alias_declaration
   name: (type_identifier) @symbol.name) @symbol.kind
 
+(enum_declaration
+  name: (identifier) @symbol.name) @symbol.kind
+
 ;; Calls
 (call_expression
   function: [
@@ -22,6 +25,7 @@
       object: [
         (identifier) @call.receiver
         (this) @call.receiver
+        (member_expression) @call.receiver
       ]
       property: (property_identifier) @call.target)
   ])
@@ -29,3 +33,9 @@
 ;; Imports
 (import_statement
   source: (string) @import.source)
+
+(import_specifier
+  name: (identifier) @import.name)
+
+(import_clause
+  (identifier) @import.name)
