@@ -11,7 +11,8 @@ pub fn list_tools() -> Value {
                 "type": "object",
                 "properties": {
                     "query": { "type": "string", "description": "Search query or symbol name" },
-                    "repo": { "type": "string", "description": "Optional repository filter" }
+                    "repo": { "type": "string", "description": "Optional repository filter" },
+                    "format": { "type": "string", "enum": ["json", "compact"], "description": "Output format: 'json' (default) or 'compact' (token-efficient pipe-delimited)" }
                 },
                 "required": ["query"]
             }
@@ -25,7 +26,8 @@ pub fn list_tools() -> Value {
                     "symbol": { "type": "string", "description": "Symbol name" },
                     "repo": { "type": "string", "description": "Optional repository filter" },
                     "cross_repo": { "type": "boolean", "description": "Whether to search cross-repository edges" },
-                    "min_confidence": { "type": "number", "description": "Minimum edge confidence score (0.0 - 1.0)" }
+                    "min_confidence": { "type": "number", "description": "Minimum edge confidence score (0.0 - 1.0)" },
+                    "format": { "type": "string", "enum": ["json", "compact"], "description": "Output format: 'json' (default) or 'compact' (token-efficient pipe-delimited)" }
                 },
                 "required": ["symbol"]
             }
@@ -37,7 +39,8 @@ pub fn list_tools() -> Value {
                 "type": "object",
                 "properties": {
                     "symbol_id": { "type": "integer", "description": "Symbol row ID" },
-                    "symbol": { "type": "string", "description": "Symbol name (if symbol_id is unknown)" }
+                    "symbol": { "type": "string", "description": "Symbol name (if symbol_id is unknown)" },
+                    "format": { "type": "string", "enum": ["json", "compact"], "description": "Output format: 'json' (default) or 'compact' (token-efficient pipe-delimited)" }
                 }
             }
         },
@@ -65,7 +68,8 @@ pub fn list_tools() -> Value {
                         "description": "Modified file paths"
                     },
                     "repo": { "type": "string", "description": "Optional repository filter" },
-                    "max_depth": { "type": "integer", "description": "Maximum traversal depth (default 5)" }
+                    "max_depth": { "type": "integer", "description": "Maximum traversal depth (default 5)" },
+                    "format": { "type": "string", "enum": ["json", "compact"], "description": "Output format: 'json' (default) or 'compact' (token-efficient pipe-delimited)" }
                 },
                 "required": ["files"]
             }
@@ -78,7 +82,8 @@ pub fn list_tools() -> Value {
                 "properties": {
                     "from": { "type": "string", "description": "Starting symbol name" },
                     "to": { "type": "string", "description": "Target symbol name" },
-                    "max_hops": { "type": "integer", "description": "Maximum path hops (default 6)" }
+                    "max_hops": { "type": "integer", "description": "Maximum path hops (default 6)" },
+                    "format": { "type": "string", "enum": ["json", "compact"], "description": "Output format: 'json' (default) or 'compact' (token-efficient pipe-delimited)" }
                 },
                 "required": ["from", "to"]
             }
@@ -91,7 +96,8 @@ pub fn list_tools() -> Value {
                 "properties": {
                     "symbol_id": { "type": "integer", "description": "Symbol row ID" },
                     "symbol_name": { "type": "string", "description": "Symbol name (if ID unknown)" },
-                    "max_depth": { "type": "integer", "description": "Maximum depth (default 5)" }
+                    "max_depth": { "type": "integer", "description": "Maximum depth (default 5)" },
+                    "format": { "type": "string", "enum": ["json", "compact"], "description": "Output format: 'json' (default) or 'compact' (token-efficient pipe-delimited)" }
                 }
             }
         },
@@ -111,6 +117,44 @@ pub fn list_tools() -> Value {
             "inputSchema": {
                 "type": "object",
                 "properties": {}
+            }
+        },
+        {
+            "name": "get_dead_code",
+            "description": "Find unreferenced private symbols and dead code in the codebase.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "repo": { "type": "string", "description": "Optional repository filter" },
+                    "limit": { "type": "integer", "description": "Maximum number of items to return (default 50)" },
+                    "format": { "type": "string", "enum": ["json", "compact"], "description": "Output format: 'json' (default) or 'compact' (token-efficient pipe-delimited)" }
+                }
+            }
+        },
+        {
+            "name": "get_complexity",
+            "description": "Find functions and methods ranked descending by cyclomatic complexity.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "threshold": { "type": "integer", "description": "Minimum cyclomatic complexity threshold (default 10)" },
+                    "repo": { "type": "string", "description": "Optional repository filter" },
+                    "limit": { "type": "integer", "description": "Maximum number of items to return (default 50)" },
+                    "format": { "type": "string", "enum": ["json", "compact"], "description": "Output format: 'json' (default) or 'compact' (token-efficient pipe-delimited)" }
+                }
+            }
+        },
+        {
+            "name": "get_hierarchy",
+            "description": "Analyze class, struct, and trait inheritance/implementation hierarchy for a symbol.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "symbol": { "type": "string", "description": "Symbol name to query hierarchy for" },
+                    "repo": { "type": "string", "description": "Optional repository filter" },
+                    "format": { "type": "string", "enum": ["json", "compact"], "description": "Output format: 'json' (default) or 'compact' (token-efficient pipe-delimited)" }
+                },
+                "required": ["symbol"]
             }
         }
     ])

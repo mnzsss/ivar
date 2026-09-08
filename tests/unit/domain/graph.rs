@@ -29,8 +29,10 @@ fn test_symbol_kinds_and_construction() {
             docstring: Some("A doc comment".to_owned()),
             span: Span::new(10, 1, 20, 1),
             is_exported: true,
+            complexity: Some(3),
         };
         assert_eq!(sym.kind, kind);
+        assert_eq!(sym.complexity, Some(3));
         assert!(sym.is_exported);
         assert_eq!(sym.span.start_line, 10);
         assert_eq!(sym.span.end_line, 20);
@@ -43,6 +45,7 @@ fn test_edge_kinds_provenance_and_construction() {
         EdgeKind::Calls,
         EdgeKind::Imports,
         EdgeKind::Implements,
+        EdgeKind::Inherits,
         EdgeKind::CrossImports,
         EdgeKind::CrossExecutes,
         EdgeKind::CrossCallsHttp,
@@ -108,6 +111,7 @@ fn test_explore_result_json_roundtrip() {
                 docstring: None,
                 span: Span::new(1, 1, 10, 1),
                 is_exported: true,
+                complexity: None,
             },
             file_path: "src/domain/graph.rs".to_owned(),
             code: "pub struct Symbol { ... }".to_owned(),
@@ -157,4 +161,74 @@ fn test_path_result_json_roundtrip() {
     let json = serde_json::to_string(&path).expect("serialize path");
     let deserialized: PathResult = serde_json::from_str(&json).expect("deserialize path");
     assert_eq!(path, deserialized);
+}
+
+#[test]
+fn test_analysis_items_json_roundtrip() {
+    let dead_code = DeadCodeItem {
+        symbol: Symbol {
+            id: Some(1),
+            file_id: Some(1),
+            repo: "ivar".to_owned(),
+            name: "unused_func".to_owned(),
+            kind: SymbolKind::Fn,
+            scope: None,
+            signature: Some("fn unused_func()".to_owned()),
+            docstring: None,
+            span: Span::new(1, 1, 5, 1),
+            is_exported: false,
+            complexity: Some(1),
+        },
+        file_path: "src/unused.rs".to_owned(),
+        line: 1,
+    };
+    let json = serde_json::to_string(&dead_code).expect("serialize dead_code");
+    let deserialized: DeadCodeItem = serde_json::from_str(&json).expect("deserialize dead_code");
+    assert_eq!(dead_code, deserialized);
+
+    let complexity_item = ComplexityItem {
+        symbol: Symbol {
+            id: Some(2),
+            file_id: Some(1),
+            repo: "ivar".to_owned(),
+            name: "complex_func".to_owned(),
+            kind: SymbolKind::Fn,
+            scope: None,
+            signature: Some("fn complex_func()".to_owned()),
+            docstring: None,
+            span: Span::new(10, 1, 30, 1),
+            is_exported: true,
+            complexity: Some(15),
+        },
+        file_path: "src/complex.rs".to_owned(),
+        complexity: 15,
+        line: 10,
+    };
+    let json = serde_json::to_string(&complexity_item).expect("serialize complexity_item");
+    let deserialized: ComplexityItem =
+        serde_json::from_str(&json).expect("deserialize complexity_item");
+    assert_eq!(complexity_item, deserialized);
+
+    let hierarchy_item = HierarchyItem {
+        symbol: Symbol {
+            id: Some(3),
+            file_id: Some(2),
+            repo: "ivar".to_owned(),
+            name: "MyClass".to_owned(),
+            kind: SymbolKind::Class,
+            scope: None,
+            signature: Some("class MyClass extends BaseClass".to_owned()),
+            docstring: None,
+            span: Span::new(1, 1, 20, 1),
+            is_exported: true,
+            complexity: None,
+        },
+        file_path: "src/class.ts".to_owned(),
+        bases: vec!["BaseClass".to_owned()],
+        implementations: vec!["InterfaceA".to_owned(), "InterfaceB".to_owned()],
+    };
+    let json = serde_json::to_string(&hierarchy_item).expect("serialize hierarchy_item");
+    let deserialized: HierarchyItem =
+        serde_json::from_str(&json).expect("deserialize hierarchy_item");
+    assert_eq!(hierarchy_item, deserialized);
 }

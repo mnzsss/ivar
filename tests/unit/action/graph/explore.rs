@@ -63,6 +63,7 @@ pub fn caller_func() {
         docstring: None,
         span: Span::new(2, 1, 6, 2),
         is_exported: true,
+        complexity: None,
     };
 
     let caller_sym = Symbol {
@@ -76,6 +77,7 @@ pub fn caller_func() {
         docstring: None,
         span: Span::new(8, 1, 10, 2),
         is_exported: true,
+        complexity: None,
     };
 
     let sym_ids = db

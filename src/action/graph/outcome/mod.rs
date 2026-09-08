@@ -3,7 +3,10 @@
 pub mod ops;
 pub mod query;
 
-pub use ops::{AffectedOutcome, ExploreOutcome, IndexBatchOutcome, McpOutcome, PathOutcome};
+pub use ops::{
+    AffectedOutcome, ExploreOutcome, IndexBatchOutcome, McpOutcome, PathOutcome, VizOutcome,
+};
 pub use query::{
-    CalleesOutcome, CallersOutcome, FileOutcome, FindOutcome, ImpactOutcome, StatsOutcome,
+    CalleesOutcome, CallersOutcome, ComplexityOutcome, DeadCodeOutcome, FileOutcome, FindOutcome,
+    HierarchyOutcome, ImpactOutcome, StatsOutcome,
 };

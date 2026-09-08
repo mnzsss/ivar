@@ -112,5 +112,32 @@ pub fn apply_pragmas(conn: &Connection, is_disk: bool) -> rusqlite::Result<()> {
 /// Applies initial database migrations and index creation.
 pub fn apply_migrations(conn: &Connection) -> rusqlite::Result<()> {
     conn.execute_batch(MIGRATION_V1)?;
+
+    // Migration V2: Ensure complexity column exists on symbols table for existing DBs
+    let has_complexity: bool = {
+        let mut stmt = conn.prepare("PRAGMA table_info(symbols);")?;
+        let mut rows = stmt.query([])?;
+        let mut found = false;
+        while let Some(row) = rows.next()? {
+            let name: String = row.get(1)?;
+            if name == "complexity" {
+                found = true;
+                break;
+            }
+        }
+        found
+    };
+
+    if !has_complexity {
+        conn.execute_batch("ALTER TABLE symbols ADD COLUMN complexity INTEGER;")?;
+    }
+    conn.execute_batch(
+        "CREATE INDEX IF NOT EXISTS idx_symbols_complexity ON symbols(complexity) WHERE complexity IS NOT NULL;",
+    )?;
+
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "../../../tests/unit/store/graph/schema.rs"]
+mod tests;

@@ -4,7 +4,9 @@ use std::path::Path;
 
 use serde_json::Value;
 
-use crate::action::graph::{affected, explore, path, query};
+use crate::action::graph::{
+    affected, compact, complexity, dead_code, explore, hierarchy, path, query,
+};
 use crate::store::graph::db::GraphDb;
 
 pub fn dispatch_tool_call<F>(
@@ -29,7 +31,11 @@ where
                 .ok_or_else(|| "Hall root is required for explore snippet reading".to_owned())?;
             let res =
                 explore::explore(db, root, q, repo).map_err(|e| format!("explore failed: {e}"))?;
-            serde_json::to_string_pretty(&res).map_err(|e| e.to_string())
+            if args.get("format").and_then(Value::as_str) == Some("compact") {
+                Ok(compact::encode_explore(&res))
+            } else {
+                serde_json::to_string_pretty(&res).map_err(|e| e.to_string())
+            }
         }
 
         "get_callers" => {
@@ -49,7 +55,11 @@ where
 
             let callers = query::get_callers(db, sym, repo, cross_repo, min_confidence)
                 .map_err(|e| format!("get_callers failed: {e}"))?;
-            serde_json::to_string_pretty(&callers).map_err(|e| e.to_string())
+            if args.get("format").and_then(Value::as_str) == Some("compact") {
+                Ok(compact::encode_callers(&callers))
+            } else {
+                serde_json::to_string_pretty(&callers).map_err(|e| e.to_string())
+            }
         }
 
         "get_callees" => {
@@ -69,7 +79,11 @@ where
 
             let callees = query::get_callees(db, symbol_id)
                 .map_err(|e| format!("get_callees failed: {e}"))?;
-            serde_json::to_string_pretty(&callees).map_err(|e| e.to_string())
+            if args.get("format").and_then(Value::as_str) == Some("compact") {
+                Ok(compact::encode_callees(&callees))
+            } else {
+                serde_json::to_string_pretty(&callees).map_err(|e| e.to_string())
+            }
         }
 
         "get_file_outline" => {
@@ -102,7 +116,11 @@ where
 
             let affected = affected::find_affected_tests(db, &files, repo, max_depth)
                 .map_err(|e| format!("get_affected_tests failed: {e}"))?;
-            serde_json::to_string_pretty(&affected).map_err(|e| e.to_string())
+            if args.get("format").and_then(Value::as_str) == Some("compact") {
+                Ok(compact::encode_affected(&affected))
+            } else {
+                serde_json::to_string_pretty(&affected).map_err(|e| e.to_string())
+            }
         }
 
         "get_path" => {
@@ -118,7 +136,11 @@ where
 
             let path_res = path::find_shortest_path(db, from, to, max_hops)
                 .map_err(|e| format!("get_path failed: {e}"))?;
-            serde_json::to_string_pretty(&path_res).map_err(|e| e.to_string())
+            if args.get("format").and_then(Value::as_str) == Some("compact") {
+                Ok(compact::encode_path(path_res.as_ref()))
+            } else {
+                serde_json::to_string_pretty(&path_res).map_err(|e| e.to_string())
+            }
         }
 
         "get_impact" => {
@@ -139,7 +161,11 @@ where
 
             let impact = query::get_impact(db, symbol_id, max_depth)
                 .map_err(|e| format!("get_impact failed: {e}"))?;
-            serde_json::to_string_pretty(&impact).map_err(|e| e.to_string())
+            if args.get("format").and_then(Value::as_str) == Some("compact") {
+                Ok(compact::encode_impact(&impact))
+            } else {
+                serde_json::to_string_pretty(&impact).map_err(|e| e.to_string())
+            }
         }
 
         "refresh_index" => {
@@ -152,6 +178,45 @@ where
             let stats =
                 query::get_graph_stats(db).map_err(|e| format!("get_graph_stats failed: {e}"))?;
             serde_json::to_string_pretty(&stats).map_err(|e| e.to_string())
+        }
+        "get_dead_code" => {
+            let repo = args.get("repo").and_then(Value::as_str);
+            let limit = args.get("limit").and_then(Value::as_u64).unwrap_or(50) as usize;
+            let items = dead_code::execute_dead_code(db, repo, limit)
+                .map_err(|e| format!("get_dead_code failed: {e}"))?;
+            if args.get("format").and_then(Value::as_str) == Some("compact") {
+                Ok(compact::encode_dead_code(&items))
+            } else {
+                serde_json::to_string_pretty(&items).map_err(|e| e.to_string())
+            }
+        }
+
+        "get_complexity" => {
+            let repo = args.get("repo").and_then(Value::as_str);
+            let threshold = args.get("threshold").and_then(Value::as_u64).unwrap_or(10) as u32;
+            let limit = args.get("limit").and_then(Value::as_u64).unwrap_or(50) as usize;
+            let items = complexity::execute_complexity(db, repo, threshold, limit)
+                .map_err(|e| format!("get_complexity failed: {e}"))?;
+            if args.get("format").and_then(Value::as_str) == Some("compact") {
+                Ok(compact::encode_complexity(&items))
+            } else {
+                serde_json::to_string_pretty(&items).map_err(|e| e.to_string())
+            }
+        }
+
+        "get_hierarchy" => {
+            let sym = args
+                .get("symbol")
+                .and_then(Value::as_str)
+                .ok_or_else(|| "Missing required parameter 'symbol'".to_owned())?;
+            let repo = args.get("repo").and_then(Value::as_str);
+            let item = hierarchy::execute_hierarchy(db, sym, repo)
+                .map_err(|e| format!("get_hierarchy failed: {e}"))?;
+            if args.get("format").and_then(Value::as_str) == Some("compact") {
+                Ok(compact::encode_hierarchy(item.as_ref()))
+            } else {
+                serde_json::to_string_pretty(&item).map_err(|e| e.to_string())
+            }
         }
 
         _ => Err(format!("Unknown tool: {name}")),

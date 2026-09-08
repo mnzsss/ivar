@@ -113,6 +113,7 @@ pub(super) fn map_symbol_and_path_row(
                 end_col as usize,
             ),
             is_exported: is_exported != 0,
+            complexity: None,
         },
         file_path,
     ))
@@ -132,6 +133,11 @@ pub(super) fn map_symbol_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Symbol
     let end_line: i64 = row.get(10)?;
     let end_col: i64 = row.get(11)?;
     let is_exported: i64 = row.get(12)?;
+    let complexity: Option<u32> = row
+        .get::<_, Option<i64>>(13)
+        .ok()
+        .flatten()
+        .map(|c| c as u32);
 
     Ok(Symbol {
         id: Some(id),
@@ -149,5 +155,6 @@ pub(super) fn map_symbol_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Symbol
             end_col as usize,
         ),
         is_exported: is_exported != 0,
+        complexity,
     })
 }
