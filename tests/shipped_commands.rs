@@ -23,11 +23,10 @@ use common::{hall_root, ivar};
 use predicates::prelude::*;
 
 /// Every shipped command id, as `/ivar-<id>`.
-const SHIPPED_IDS: [&str; 15] = [
+const SHIPPED_IDS: [&str; 14] = [
     "connect",
     "deliver",
     "discovery",
-    "execute",
     "feature-cleanup",
     "feature-create",
     "feature-status",
@@ -214,17 +213,7 @@ fn shipped_commands_encode_wave_completion_and_native_coordination() {
     assert!(plan.contains("Step 1 carries the test's literal source"));
     assert!(plan.contains("**Sketch:**"));
     assert!(plan.contains("Literal Code"));
-    let execute = collapsed(read("execute"));
-    assert!(execute.contains("active provider coordinates its own native subagents"));
-    assert!(execute.contains("wave checkpoint"));
-    assert!(execute.contains("mark the wave complete"));
-    assert!(execute.contains("child Feature"));
-    assert!(!execute.contains("workstream"));
-    assert!(!execute.contains("execute tick"));
-    assert!(!execute.contains("ivar feature execute start"));
-    assert!(!execute.contains("ivar feature execute finish"));
-    assert!(execute.contains("If newly discovered work is outside the approved plan"));
-    assert!(execute.contains("create a child Feature"));
+    assert!(!root.join(".claude/commands/ivar-execute.md").exists());
 }
 
 /// `ivar provider add` materialises the new provider's commands immediately —

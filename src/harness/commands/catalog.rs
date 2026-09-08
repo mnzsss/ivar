@@ -41,7 +41,7 @@ pub const fn catalog() -> &'static [ShippedCommand] {
     COMMANDS
 }
 
-/// The 15 official workflow commands, paired with the legacy fingerprint of
+/// The 14 official workflow commands, paired with the legacy fingerprint of
 /// the command each one supersedes. The `legacy_sha256` values are the exact
 /// SHA-256 digests of the Bifrost-era command files; do not change them
 /// without regenerating the digest of the artifact they describe. A command
@@ -56,11 +56,6 @@ const COMMANDS: &[ShippedCommand] = &[
         id: "discovery",
         content: include_str!("../commands/discovery.md"),
         legacy_sha256: Some("97fba325393f6eba415a62bb6120d7bdc4cd813872e15d6f6669c910e32c0120"),
-    },
-    ShippedCommand {
-        id: "execute",
-        content: include_str!("../commands/execute.md"),
-        legacy_sha256: Some("94c2aa9d9617de45cc5d985e752a99d4c6f5899654967d618542f270a5e18a72"),
     },
     ShippedCommand {
         id: "feature-cleanup",
