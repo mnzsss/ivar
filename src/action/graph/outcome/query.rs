@@ -1,12 +1,10 @@
-//! Outcomes and human-readable formatters for query graph subcommands.
-
 use serde::Serialize;
 use std::io;
 
+use crate::action::graph::compact::{self, ToCompact};
 use crate::action::graph::query;
-use crate::domain::graph::GraphStats;
+use crate::domain::graph::{ComplexityItem, DeadCodeItem, GraphStats, HierarchyItem};
 use crate::error::WriteHuman;
-
 #[derive(Debug, Clone, Serialize)]
 pub struct FindOutcome {
     pub query: String,
@@ -183,5 +181,158 @@ impl WriteHuman for ImpactOutcome {
             )?;
         }
         Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct DeadCodeOutcome(pub Vec<DeadCodeItem>);
+
+impl WriteHuman for DeadCodeOutcome {
+    fn write_human(&self, w: &mut impl io::Write) -> io::Result<()> {
+        writeln!(
+            w,
+            "Dead Code Analysis ({} unreferenced private symbols):",
+            self.0.len()
+        )?;
+        for item in &self.0 {
+            writeln!(
+                w,
+                "  - {} ({:?}) in {}:{}",
+                item.symbol.name, item.symbol.kind, item.file_path, item.line
+            )?;
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ComplexityOutcome(pub Vec<ComplexityItem>);
+
+impl WriteHuman for ComplexityOutcome {
+    fn write_human(&self, w: &mut impl io::Write) -> io::Result<()> {
+        writeln!(
+            w,
+            "Cyclomatic Complexity ({} symbols above threshold):",
+            self.0.len()
+        )?;
+        for item in &self.0 {
+            writeln!(
+                w,
+                "  - [complexity {}] {} ({:?}) in {}:{}",
+                item.complexity, item.symbol.name, item.symbol.kind, item.file_path, item.line
+            )?;
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct HierarchyOutcome(pub Option<HierarchyItem>);
+
+impl WriteHuman for HierarchyOutcome {
+    fn write_human(&self, w: &mut impl io::Write) -> io::Result<()> {
+        match &self.0 {
+            Some(item) => {
+                writeln!(
+                    w,
+                    "Hierarchy for symbol `{}` ({:?}) in {}:",
+                    item.symbol.name, item.symbol.kind, item.file_path
+                )?;
+                let bases = if item.bases.is_empty() {
+                    "(none)".to_owned()
+                } else {
+                    item.bases.join(", ")
+                };
+                let impls = if item.implementations.is_empty() {
+                    "(none)".to_owned()
+                } else {
+                    item.implementations.join(", ")
+                };
+                writeln!(w, "  Bases: {}", bases)?;
+                writeln!(w, "  Implementations/Subtypes: {}", impls)?;
+            }
+            None => {
+                writeln!(w, "No hierarchy found for specified symbol.")?;
+            }
+        }
+        Ok(())
+    }
+}
+
+impl ToCompact for FindOutcome {
+    fn to_compact(&self) -> String {
+        compact::encode_symbols(&self.symbols)
+    }
+}
+
+impl ToCompact for CallersOutcome {
+    fn to_compact(&self) -> String {
+        compact::encode_callers(&self.callers)
+    }
+}
+
+impl ToCompact for CalleesOutcome {
+    fn to_compact(&self) -> String {
+        compact::encode_callees(&self.callees)
+    }
+}
+
+impl ToCompact for FileOutcome {
+    fn to_compact(&self) -> String {
+        let mut out = String::from(compact::SYMBOL_SCHEMA);
+        for sym in &self.0.symbols {
+            let id_str = sym.id.map_or_else(String::new, |id| id.to_string());
+            let kind = crate::store::graph::db::symbol_kind_to_str(&sym.kind);
+            let complexity_str = sym.complexity.map_or_else(String::new, |c| c.to_string());
+            out.push('\n');
+            out.push_str(&format!(
+                "{}|{}|{}|{}|{}|{}|{}",
+                id_str,
+                sym.name,
+                kind,
+                self.0.file_path,
+                sym.span.start_line,
+                sym.span.start_col,
+                complexity_str
+            ));
+        }
+        out
+    }
+}
+
+impl ToCompact for StatsOutcome {
+    fn to_compact(&self) -> String {
+        format!(
+            "#SCHEMA: repos|files|symbols|edges|db_size_bytes\n{}|{}|{}|{}|{}",
+            self.0.repo_count,
+            self.0.file_count,
+            self.0.symbol_count,
+            self.0.edge_count,
+            self.0.db_size_bytes
+        )
+    }
+}
+
+impl ToCompact for ImpactOutcome {
+    fn to_compact(&self) -> String {
+        compact::encode_impact(&self.0)
+    }
+}
+
+impl ToCompact for DeadCodeOutcome {
+    fn to_compact(&self) -> String {
+        compact::encode_dead_code(&self.0)
+    }
+}
+
+impl ToCompact for ComplexityOutcome {
+    fn to_compact(&self) -> String {
+        compact::encode_complexity(&self.0)
+    }
+}
+
+impl ToCompact for HierarchyOutcome {
+    fn to_compact(&self) -> String {
+        compact::encode_hierarchy(self.0.as_ref())
     }
 }

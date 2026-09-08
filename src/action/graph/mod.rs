@@ -1,12 +1,17 @@
 pub mod affected;
+pub mod compact;
+pub mod complexity;
 pub mod cross_repo;
+pub mod dead_code;
 pub mod explore;
+pub mod hierarchy;
 pub mod index;
 pub mod input;
 pub mod mcp;
 pub mod outcome;
 pub mod path;
 pub mod query;
+pub mod viz;
 
 use std::io;
 use std::path::Path;
@@ -18,8 +23,12 @@ use crate::error::{Failure, Outcome, Report};
 use crate::store::graph::db::GraphDb;
 
 pub use affected::{AffectedError, find_affected_tests, is_test_file, parse_files_from_reader};
+pub use compact::ToCompact;
+pub use complexity::{ComplexityError, execute_complexity};
 pub use cross_repo::{CrossRepoLinkOutcome, link_cross_repo_edges};
+pub use dead_code::{DeadCodeError, execute_dead_code};
 pub use explore::{ExploreError, explore};
+pub use hierarchy::{HierarchyError, execute_hierarchy};
 pub use index::{IndexOutcome, index_repo};
 pub use input::*;
 pub use mcp::run_mcp_server;
@@ -29,6 +38,7 @@ pub use query::{
     CalleeInfo, CallerInfo, FileOutline, ImpactItem, ImpactResult, QueryError, SymbolLocation,
     find_symbols, get_callees, get_callers, get_file_outline, get_graph_stats, get_impact,
 };
+pub use viz::{VizError, execute_viz};
 
 fn open_graph_db(ctx: &Ctx) -> Result<GraphDb, Failure> {
     let layout = discover_hall(ctx)?;
@@ -257,4 +267,43 @@ pub fn mcp_cmd(ctx: &Ctx) -> Outcome<McpOutcome> {
     )
     .map_err(|err| Failure::failed("graph.mcp_failed", err.to_string()))?;
     Ok(Report::new(McpOutcome))
+}
+
+// 12. dead-code
+pub fn dead_code_cmd(ctx: &Ctx, args: DeadCodeInput) -> Outcome<DeadCodeOutcome> {
+    let db = open_graph_db(ctx)?;
+    let limit = args.limit.unwrap_or(50);
+    let items = dead_code::execute_dead_code(&db, args.repo.as_deref(), limit)
+        .map_err(|err| Failure::failed("graph.dead_code_failed", err.to_string()))?;
+    Ok(Report::new(DeadCodeOutcome(items)))
+}
+
+// 13. complexity
+pub fn complexity_cmd(ctx: &Ctx, args: ComplexityInput) -> Outcome<ComplexityOutcome> {
+    let db = open_graph_db(ctx)?;
+    let limit = args.limit.unwrap_or(50);
+    let items = complexity::execute_complexity(&db, args.repo.as_deref(), args.threshold, limit)
+        .map_err(|err| Failure::failed("graph.complexity_failed", err.to_string()))?;
+    Ok(Report::new(ComplexityOutcome(items)))
+}
+
+// 14. hierarchy
+pub fn hierarchy_cmd(ctx: &Ctx, args: HierarchyInput) -> Outcome<HierarchyOutcome> {
+    let db = open_graph_db(ctx)?;
+    let item = hierarchy::execute_hierarchy(&db, &args.symbol, args.repo.as_deref())
+        .map_err(|err| Failure::failed("graph.hierarchy_failed", err.to_string()))?;
+    Ok(Report::new(HierarchyOutcome(item)))
+}
+
+// 15. viz
+pub fn viz_cmd(ctx: &Ctx, args: VizInput) -> Outcome<VizOutcome> {
+    let db = open_graph_db(ctx)?;
+    let output_path = std::path::PathBuf::from(&args.output);
+    let (data, resolved_path) = viz::execute_viz(&db, &output_path, args.repo.as_deref())
+        .map_err(|err| Failure::failed("graph.viz_failed", err.to_string()))?;
+    Ok(Report::new(VizOutcome {
+        output_path: resolved_path,
+        node_count: data.nodes.len(),
+        edge_count: data.edges.len(),
+    }))
 }

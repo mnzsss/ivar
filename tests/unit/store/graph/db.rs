@@ -101,6 +101,7 @@ fn test_foreign_key_cascades() {
         docstring: Some("Initializes the system.".to_owned()),
         span: Span::new(1, 1, 10, 1),
         is_exported: true,
+        complexity: Some(1),
     };
     let sym_ids = db.insert_symbols(&[sym]).unwrap();
     let sym_id = sym_ids[0];
@@ -153,6 +154,7 @@ fn test_delete_symbols_for_file() {
         docstring: None,
         span: Span::new(1, 1, 5, 1),
         is_exported: false,
+        complexity: None,
     };
     let sym_ids = db.insert_symbols(&[sym]).unwrap();
     let sym_id = sym_ids[0];
@@ -199,6 +201,7 @@ fn test_fts5_triggers_and_search() {
         docstring: Some("Computes SHA256 digest of input payload.".to_owned()),
         span: Span::new(10, 1, 25, 1),
         is_exported: true,
+        complexity: Some(2),
     };
     db.insert_symbols(&[sym]).unwrap();
 
@@ -263,6 +266,7 @@ fn test_relink_dangling_edges() {
         docstring: None,
         span: Span::new(1, 1, 10, 1),
         is_exported: true,
+        complexity: Some(1),
     };
     let sym_ids = db.insert_symbols(&[target_sym]).unwrap();
     let target_sym_id = sym_ids[0];
@@ -299,6 +303,7 @@ fn test_index_extracted_file_resolves_from_symbol_id() {
             docstring: None,
             span: Span::new(10, 1, 20, 1),
             is_exported: true,
+            complexity: Some(3),
         }],
         edges: vec![Edge {
             id: None,
@@ -348,6 +353,7 @@ fn test_index_extracted_file_duplicate_symbol_names_resolves_correct_from_symbol
                 docstring: None,
                 span: Span::new(10, 5, 20, 50),
                 is_exported: true,
+                complexity: Some(2),
             },
             Symbol {
                 id: None,
@@ -360,6 +366,7 @@ fn test_index_extracted_file_duplicate_symbol_names_resolves_correct_from_symbol
                 docstring: None,
                 span: Span::new(30, 5, 40, 50),
                 is_exported: true,
+                complexity: Some(4),
             },
         ],
         edges: vec![
@@ -416,4 +423,39 @@ fn test_index_extracted_file_duplicate_symbol_names_resolves_correct_from_symbol
         .unwrap();
 
     assert_eq!(from_symbol_ids, vec![Some(sym_ids[0]), Some(sym_ids[1])]);
+}
+
+#[test]
+fn test_symbol_complexity_persistence() {
+    let db = GraphDb::open_in_memory().expect("open");
+    db.insert_repo("ivar", "/path", "main", None).unwrap();
+    let file_id = db
+        .upsert_file("ivar", "src/math.rs", "h_math", 1, 100)
+        .unwrap();
+
+    let sym = Symbol {
+        id: None,
+        file_id: Some(file_id),
+        repo: "ivar".to_owned(),
+        name: "complex_calc".to_owned(),
+        kind: SymbolKind::Fn,
+        scope: None,
+        signature: Some("fn complex_calc()".to_owned()),
+        docstring: None,
+        span: Span::new(1, 1, 50, 1),
+        is_exported: true,
+        complexity: Some(12),
+    };
+    let ids = db.insert_symbols(&[sym]).unwrap();
+    assert_eq!(ids.len(), 1);
+
+    let queried: Option<i64> = db
+        .conn()
+        .query_row(
+            "SELECT complexity FROM symbols WHERE id = ?1",
+            [ids[0]],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(queried, Some(12));
 }

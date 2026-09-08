@@ -58,7 +58,7 @@ pub fn get_impact(
         )
         SELECT cg.symbol_id, cg.depth, cg.path_names,
                s.id, s.file_id, s.repo, s.name, s.kind, s.scope, s.signature, s.docstring,
-               s.start_line, s.start_col, s.end_line, s.end_col, s.is_exported,
+               s.start_line, s.start_col, s.end_line, s.end_col, s.is_exported, s.complexity,
                f.path
         FROM caller_graph cg
         JOIN symbols s ON cg.symbol_id = s.id
@@ -83,8 +83,8 @@ pub fn get_impact(
         let end_line: i64 = row.get(13)?;
         let end_col: i64 = row.get(14)?;
         let is_exported: i64 = row.get(15)?;
-        let file_path: String = row.get(16)?;
-
+        let complexity = row.get::<_, Option<i64>>(16)?.map(|c| c as u32);
+        let file_path: String = row.get(17)?;
         let sym = Symbol {
             id: Some(id),
             file_id: Some(file_id),
@@ -101,6 +101,7 @@ pub fn get_impact(
                 end_col as usize,
             ),
             is_exported: is_exported != 0,
+            complexity,
         };
 
         let path_via = path_names

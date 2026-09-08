@@ -1,12 +1,11 @@
-//! Outcomes and human-readable formatters for operation and traversal graph subcommands.
-
 use serde::Serialize;
 use std::io;
+use std::path::PathBuf;
 
+use crate::action::graph::compact::{self, ToCompact};
 use crate::action::graph::index::IndexOutcome;
 use crate::domain::graph::{AffectedResult, ExploreResult, PathResult};
 use crate::error::WriteHuman;
-
 #[derive(Debug, Clone, Serialize)]
 pub struct ExploreOutcome(pub ExploreResult);
 
@@ -142,5 +141,78 @@ pub struct McpOutcome;
 impl WriteHuman for McpOutcome {
     fn write_human(&self, _w: &mut impl io::Write) -> io::Result<()> {
         Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct VizOutcome {
+    pub output_path: PathBuf,
+    pub node_count: usize,
+    pub edge_count: usize,
+}
+
+impl WriteHuman for VizOutcome {
+    fn write_human(&self, w: &mut impl io::Write) -> io::Result<()> {
+        writeln!(
+            w,
+            "Generated standalone graph visualizer ({} nodes, {} edges) at {}",
+            self.node_count,
+            self.edge_count,
+            self.output_path.display()
+        )
+    }
+}
+
+impl ToCompact for ExploreOutcome {
+    fn to_compact(&self) -> String {
+        compact::encode_explore(&self.0)
+    }
+}
+
+impl ToCompact for AffectedOutcome {
+    fn to_compact(&self) -> String {
+        compact::encode_affected(&self.0)
+    }
+}
+
+impl ToCompact for PathOutcome {
+    fn to_compact(&self) -> String {
+        compact::encode_path(self.0.as_ref())
+    }
+}
+
+impl ToCompact for IndexBatchOutcome {
+    fn to_compact(&self) -> String {
+        let mut out =
+            String::from("#SCHEMA: repo|files_indexed|symbols_indexed|edges_indexed|duration_ms");
+        for outcome in &self.repos {
+            out.push('\n');
+            out.push_str(&format!(
+                "{}|{}|{}|{}|{}",
+                outcome.repo,
+                outcome.files_indexed,
+                outcome.symbols_indexed,
+                outcome.edges_indexed,
+                outcome.duration_ms
+            ));
+        }
+        out
+    }
+}
+
+impl ToCompact for McpOutcome {
+    fn to_compact(&self) -> String {
+        "#SCHEMA: status\nrunning".to_owned()
+    }
+}
+
+impl ToCompact for VizOutcome {
+    fn to_compact(&self) -> String {
+        format!(
+            "#SCHEMA: output_path|node_count|edge_count\n{}|{}|{}",
+            self.output_path.display(),
+            self.node_count,
+            self.edge_count
+        )
     }
 }

@@ -54,6 +54,8 @@ pub struct Symbol {
     pub docstring: Option<String>,
     pub span: Span,
     pub is_exported: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub complexity: Option<u32>,
 }
 
 /// The kind of relationship between symbols or code units.
@@ -63,6 +65,7 @@ pub enum EdgeKind {
     Calls,
     Imports,
     Implements,
+    Inherits,
     CrossImports,
     CrossExecutes,
     CrossCallsHttp,
@@ -155,6 +158,32 @@ pub struct PathResult {
     pub from: String,
     pub to: String,
     pub steps: Vec<PathStep>,
+}
+
+/// A dead code candidate item.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct DeadCodeItem {
+    pub symbol: Symbol,
+    pub file_path: String,
+    pub line: usize,
+}
+
+/// A cyclomatic complexity analysis item.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct ComplexityItem {
+    pub symbol: Symbol,
+    pub file_path: String,
+    pub complexity: u32,
+    pub line: usize,
+}
+
+/// A class or struct hierarchy item.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct HierarchyItem {
+    pub symbol: Symbol,
+    pub file_path: String,
+    pub bases: Vec<String>,
+    pub implementations: Vec<String>,
 }
 
 #[cfg(test)]

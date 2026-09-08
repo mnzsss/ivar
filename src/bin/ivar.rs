@@ -70,7 +70,7 @@ use ivar::infra::term;
 fn main() -> ExitCode {
     let cli = Cli::parse();
     let json = cli.json;
-
+    let compact = cli.compact;
     // Prime both per-stream colour decisions with the flag, before any output
     // exists to render. `term`'s caches take their value from the first call
     // and ignore the argument afterwards, which is what lets `respond` and
@@ -834,7 +834,7 @@ fn main() -> ExitCode {
             ),
         },
         Command::Graph(cmd) => match cmd {
-            GraphCommand::Explore(args) => respond(
+            GraphCommand::Explore(args) => respond_graph(
                 ivar::action::graph::explore_cmd(
                     &ctx,
                     ivar::action::graph::ExploreInput {
@@ -843,10 +843,11 @@ fn main() -> ExitCode {
                     },
                 ),
                 json,
+                compact,
                 &mut stdout,
                 &mut stderr,
             ),
-            GraphCommand::Affected(args) => respond(
+            GraphCommand::Affected(args) => respond_graph(
                 ivar::action::graph::affected_cmd(
                     &ctx,
                     ivar::action::graph::AffectedInput {
@@ -857,10 +858,11 @@ fn main() -> ExitCode {
                     },
                 ),
                 json,
+                compact,
                 &mut stdout,
                 &mut stderr,
             ),
-            GraphCommand::Path(args) => respond(
+            GraphCommand::Path(args) => respond_graph(
                 ivar::action::graph::path_cmd(
                     &ctx,
                     ivar::action::graph::PathInput {
@@ -870,10 +872,11 @@ fn main() -> ExitCode {
                     },
                 ),
                 json,
+                compact,
                 &mut stdout,
                 &mut stderr,
             ),
-            GraphCommand::Find(args) => respond(
+            GraphCommand::Find(args) => respond_graph(
                 ivar::action::graph::find_cmd(
                     &ctx,
                     ivar::action::graph::FindInput {
@@ -883,10 +886,11 @@ fn main() -> ExitCode {
                     },
                 ),
                 json,
+                compact,
                 &mut stdout,
                 &mut stderr,
             ),
-            GraphCommand::Callers(args) => respond(
+            GraphCommand::Callers(args) => respond_graph(
                 ivar::action::graph::callers_cmd(
                     &ctx,
                     ivar::action::graph::CallersInput {
@@ -897,10 +901,11 @@ fn main() -> ExitCode {
                     },
                 ),
                 json,
+                compact,
                 &mut stdout,
                 &mut stderr,
             ),
-            GraphCommand::Callees(args) => respond(
+            GraphCommand::Callees(args) => respond_graph(
                 ivar::action::graph::callees_cmd(
                     &ctx,
                     ivar::action::graph::CalleesInput {
@@ -908,10 +913,11 @@ fn main() -> ExitCode {
                     },
                 ),
                 json,
+                compact,
                 &mut stdout,
                 &mut stderr,
             ),
-            GraphCommand::File(args) => respond(
+            GraphCommand::File(args) => respond_graph(
                 ivar::action::graph::file_cmd(
                     &ctx,
                     ivar::action::graph::FileInput {
@@ -920,10 +926,11 @@ fn main() -> ExitCode {
                     },
                 ),
                 json,
+                compact,
                 &mut stdout,
                 &mut stderr,
             ),
-            GraphCommand::Index(args) => respond(
+            GraphCommand::Index(args) => respond_graph(
                 ivar::action::graph::index_cmd(
                     &ctx,
                     ivar::action::graph::IndexInput {
@@ -932,16 +939,18 @@ fn main() -> ExitCode {
                     },
                 ),
                 json,
+                compact,
                 &mut stdout,
                 &mut stderr,
             ),
-            GraphCommand::Stats => respond(
+            GraphCommand::Stats => respond_graph(
                 ivar::action::graph::stats_cmd(&ctx),
                 json,
+                compact,
                 &mut stdout,
                 &mut stderr,
             ),
-            GraphCommand::Impact(args) => respond(
+            GraphCommand::Impact(args) => respond_graph(
                 ivar::action::graph::impact_cmd(
                     &ctx,
                     ivar::action::graph::ImpactInput {
@@ -950,12 +959,67 @@ fn main() -> ExitCode {
                     },
                 ),
                 json,
+                compact,
                 &mut stdout,
                 &mut stderr,
             ),
-            GraphCommand::Mcp => respond(
+            GraphCommand::DeadCode(args) => respond_graph(
+                ivar::action::graph::dead_code_cmd(
+                    &ctx,
+                    ivar::action::graph::DeadCodeInput {
+                        repo: args.repo,
+                        limit: args.limit,
+                    },
+                ),
+                json,
+                compact,
+                &mut stdout,
+                &mut stderr,
+            ),
+            GraphCommand::Complexity(args) => respond_graph(
+                ivar::action::graph::complexity_cmd(
+                    &ctx,
+                    ivar::action::graph::ComplexityInput {
+                        threshold: args.threshold,
+                        repo: args.repo,
+                        limit: args.limit,
+                    },
+                ),
+                json,
+                compact,
+                &mut stdout,
+                &mut stderr,
+            ),
+            GraphCommand::Hierarchy(args) => respond_graph(
+                ivar::action::graph::hierarchy_cmd(
+                    &ctx,
+                    ivar::action::graph::HierarchyInput {
+                        symbol: args.symbol,
+                        repo: args.repo,
+                    },
+                ),
+                json,
+                compact,
+                &mut stdout,
+                &mut stderr,
+            ),
+            GraphCommand::Viz(args) => respond_graph(
+                ivar::action::graph::viz_cmd(
+                    &ctx,
+                    ivar::action::graph::VizInput {
+                        output: args.output,
+                        repo: args.repo,
+                    },
+                ),
+                json,
+                compact,
+                &mut stdout,
+                &mut stderr,
+            ),
+            GraphCommand::Mcp => respond_graph(
                 ivar::action::graph::mcp_cmd(&ctx),
                 json,
+                compact,
                 &mut stdout,
                 &mut stderr,
             ),
@@ -990,6 +1054,31 @@ fn exit_code_for<T>(report: &Report<T>) -> ExitCode {
 /// being threaded through every dispatch arm.
 fn stderr_palette() -> Palette {
     Palette::from_decision(term::colour_for(term::Stream::Stderr, None))
+}
+
+fn respond_graph<T>(
+    result: Outcome<T>,
+    json: bool,
+    compact: bool,
+    stdout: &mut impl io::Write,
+    stderr: &mut impl io::Write,
+) -> ExitCode
+where
+    T: Serialize + WriteHuman + ivar::action::graph::ToCompact,
+{
+    if json {
+        respond(result, true, stdout, stderr)
+    } else if compact {
+        match result {
+            Ok(report) => {
+                let _ = writeln!(stdout, "{}", report.value.to_compact());
+                ExitCode::SUCCESS
+            }
+            Err(failure) => respond_failure(failure, false, stdout, stderr),
+        }
+    } else {
+        respond(result, false, stdout, stderr)
+    }
 }
 
 /// Render whatever an action returned, and pick the exit code.

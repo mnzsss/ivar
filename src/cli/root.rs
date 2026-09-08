@@ -47,6 +47,10 @@ pub struct Cli {
     #[arg(long, global = true)]
     pub json: bool,
 
+    /// Output token-optimized compact pipe-delimited records with schema header.
+    #[arg(long, global = true)]
+    pub compact: bool,
+
     /// When to colour output.
     ///
     /// `auto` follows `NO_COLOR`, then `FORCE_COLOR`, then whether the stream

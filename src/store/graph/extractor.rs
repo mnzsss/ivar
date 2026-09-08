@@ -104,6 +104,8 @@ fn extract_symbols(
             let is_exported = check_exported(k_node, source_bytes, lang);
             let signature = extract_signature(k_node, source_bytes);
             let docstring = extract_docstring(k_node, source_bytes, lang);
+            let complexity = matches!(kind, SymbolKind::Fn | SymbolKind::Method)
+                .then(|| cyclomatic_complexity(k_node, source_bytes));
 
             symbols.push(Symbol {
                 id: None,
@@ -116,6 +118,7 @@ fn extract_symbols(
                 docstring,
                 span,
                 is_exported,
+                complexity,
             });
         }
     }
@@ -123,12 +126,54 @@ fn extract_symbols(
     symbols
 }
 
+fn cyclomatic_complexity(root: Node<'_>, source_bytes: &[u8]) -> u32 {
+    let mut complexity = 1u32;
+    let mut stack = vec![root];
+    while let Some(node) = stack.pop() {
+        if node.id() != root.id() {
+            if matches!(
+                node.kind(),
+                "if_expression"
+                    | "if_statement"
+                    | "match_arm"
+                    | "while_expression"
+                    | "while_statement"
+                    | "for_expression"
+                    | "for_statement"
+                    | "for_in_statement"
+                    | "for_of_statement"
+                    | "do_statement"
+                    | "switch_case"
+                    | "catch_clause"
+                    | "ternary_expression"
+                    | "conditional_expression"
+            ) {
+                complexity = complexity.saturating_add(1);
+            } else if node.kind() == "binary_expression" {
+                let mut cursor = node.walk();
+                for child in node.children(&mut cursor) {
+                    if let Ok(text) = child.utf8_text(source_bytes)
+                        && (text == "&&" || text == "||" || text == "??")
+                    {
+                        complexity = complexity.saturating_add(1);
+                        break;
+                    }
+                }
+            }
+        }
+
+        let mut cursor = node.walk();
+        stack.extend(node.children(&mut cursor));
+    }
+    complexity
+}
+
 fn extract_edges(
     repo: &str,
     root: Node,
     query: &Query,
     source_bytes: &[u8],
-    _lang: SupportedLanguage,
+    lang: SupportedLanguage,
     local_symbols: &HashSet<String>,
 ) -> Vec<Edge> {
     let mut cursor = QueryCursor::new();
@@ -242,6 +287,164 @@ fn extract_edges(
                 confidence,
             });
         }
+    }
+
+    let hierarchy_edges = extract_hierarchy_edges(repo, root, source_bytes, lang);
+    edges.extend(hierarchy_edges);
+
+    edges
+}
+
+fn extract_hierarchy_edges(
+    repo: &str,
+    root: Node,
+    source_bytes: &[u8],
+    lang: SupportedLanguage,
+) -> Vec<Edge> {
+    let mut edges = Vec::new();
+    let mut stack = vec![root];
+
+    while let Some(node) = stack.pop() {
+        match lang {
+            SupportedLanguage::Rust => {
+                if node.kind() == "impl_item"
+                    && let Some(trait_node) = node.child_by_field_name("trait")
+                    && let Ok(raw_trait) = trait_node.utf8_text(source_bytes)
+                {
+                    let trait_name = raw_trait.split('<').next().unwrap_or(raw_trait).trim();
+                    if !trait_name.is_empty() {
+                        let span = node_to_span(trait_node);
+                        edges.push(Edge {
+                            id: None,
+                            repo: repo.to_owned(),
+                            file_id: None,
+                            from_symbol_id: None,
+                            to_symbol_id: None,
+                            to_name: Some(trait_name.to_owned()),
+                            kind: EdgeKind::Implements,
+                            provenance: Provenance::Extracted,
+                            line: span.start_line,
+                            col: span.start_col,
+                            confidence: 1.0,
+                        });
+                    }
+                }
+            }
+            SupportedLanguage::TypeScript | SupportedLanguage::Tsx => {
+                if node.kind() == "class_declaration" {
+                    let mut cursor = node.walk();
+                    for child in node.children(&mut cursor) {
+                        if child.kind() == "class_heritage" {
+                            let mut h_cursor = child.walk();
+                            for h_child in child.children(&mut h_cursor) {
+                                if h_child.kind() == "extends_clause" {
+                                    let mut e_cursor = h_child.walk();
+                                    for target in h_child.children(&mut e_cursor) {
+                                        if target.kind() != "extends"
+                                            && !target.kind().starts_with("comment")
+                                            && let Ok(raw_name) = target.utf8_text(source_bytes)
+                                        {
+                                            let name = raw_name
+                                                .split('<')
+                                                .next()
+                                                .unwrap_or(raw_name)
+                                                .trim();
+                                            if !name.is_empty() {
+                                                let span = node_to_span(target);
+                                                edges.push(Edge {
+                                                    id: None,
+                                                    repo: repo.to_owned(),
+                                                    file_id: None,
+                                                    from_symbol_id: None,
+                                                    to_symbol_id: None,
+                                                    to_name: Some(name.to_owned()),
+                                                    kind: EdgeKind::Inherits,
+                                                    provenance: Provenance::Extracted,
+                                                    line: span.start_line,
+                                                    col: span.start_col,
+                                                    confidence: 1.0,
+                                                });
+                                            }
+                                        }
+                                    }
+                                } else if h_child.kind() == "implements_clause" {
+                                    let mut i_cursor = h_child.walk();
+                                    for target in h_child.children(&mut i_cursor) {
+                                        if target.kind() != "implements"
+                                            && target.kind() != ","
+                                            && !target.kind().starts_with("comment")
+                                            && let Ok(raw_name) = target.utf8_text(source_bytes)
+                                        {
+                                            let name = raw_name
+                                                .split('<')
+                                                .next()
+                                                .unwrap_or(raw_name)
+                                                .trim();
+                                            if !name.is_empty() {
+                                                let span = node_to_span(target);
+                                                edges.push(Edge {
+                                                    id: None,
+                                                    repo: repo.to_owned(),
+                                                    file_id: None,
+                                                    from_symbol_id: None,
+                                                    to_symbol_id: None,
+                                                    to_name: Some(name.to_owned()),
+                                                    kind: EdgeKind::Implements,
+                                                    provenance: Provenance::Extracted,
+                                                    line: span.start_line,
+                                                    col: span.start_col,
+                                                    confidence: 1.0,
+                                                });
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } else if node.kind() == "interface_declaration" {
+                    let mut cursor = node.walk();
+                    for child in node.children(&mut cursor) {
+                        if child.kind() == "extends_type_clause"
+                            || child.kind() == "extends_clause"
+                            || child.kind() == "interface_heritage"
+                        {
+                            let mut e_cursor = child.walk();
+                            for target in child.children(&mut e_cursor) {
+                                if target.kind() != "extends"
+                                    && target.kind() != ","
+                                    && !target.kind().starts_with("comment")
+                                    && let Ok(raw_name) = target.utf8_text(source_bytes)
+                                {
+                                    let name =
+                                        raw_name.split('<').next().unwrap_or(raw_name).trim();
+                                    if !name.is_empty() {
+                                        let span = node_to_span(target);
+                                        edges.push(Edge {
+                                            id: None,
+                                            repo: repo.to_owned(),
+                                            file_id: None,
+                                            from_symbol_id: None,
+                                            to_symbol_id: None,
+                                            to_name: Some(name.to_owned()),
+                                            kind: EdgeKind::Inherits,
+                                            provenance: Provenance::Extracted,
+                                            line: span.start_line,
+                                            col: span.start_col,
+                                            confidence: 1.0,
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+
+        let mut cursor = node.walk();
+        stack.extend(node.children(&mut cursor));
     }
 
     edges

@@ -45,6 +45,7 @@ Mount the repos a feature spans into one directory, on one branch, for one agent
 | flag | value | default | description |
 | --- | --- | --- | --- |
 | `--json` |  |  | Emit machine-readable output. Prints exactly the value the command computed. The human-readable text is a rendering of that same value, so the two can never tell you different things — script against this. |
+| `--compact` |  |  | Output token-optimized compact pipe-delimited records with schema header |
 | `--color` | `<COLOR>` | `auto` | When to colour output. `auto` follows `NO_COLOR`, then `FORCE_COLOR`, then whether the stream is a terminal — a pipe or a redirect gets none. `always` and `never` override all of that. Only labels are ever coloured; values never are, so `--json` is unaffected either way. |
 
 
@@ -891,6 +892,50 @@ Compute transitive blast-radius impact analysis for a symbol
 ##### `ivar graph mcp`
 
 Run graph MCP server
+
+
+##### `ivar graph dead-code`
+
+Find unreferenced private symbols and dead code
+
+| flag | value | default | description |
+| --- | --- | --- | --- |
+| `--repo` | `<REPO>` |  | Limit search to a specific repository |
+| `--limit` | `<LIMIT>` |  | Maximum number of dead code items to return |
+
+
+##### `ivar graph complexity`
+
+Find functions and methods ranked descending by cyclomatic complexity
+
+| flag | value | default | description |
+| --- | --- | --- | --- |
+| `--threshold` | `<THRESHOLD>` | `10` | Minimum cyclomatic complexity threshold |
+| `--repo` | `<REPO>` |  | Limit search to a specific repository |
+| `--limit` | `<LIMIT>` |  | Maximum number of items to return |
+
+
+##### `ivar graph hierarchy`
+
+Analyze class, struct, and trait inheritance/implementation hierarchy
+
+| argument | required | description |
+| --- | --- | --- |
+| `symbol` | yes | Symbol name to analyze inheritance/implementation hierarchy for |
+
+| flag | value | default | description |
+| --- | --- | --- | --- |
+| `--repo` | `<REPO>` |  | Limit search to a specific repository |
+
+
+##### `ivar graph viz`
+
+Generate a standalone zero-dependency HTML interactive graph visualizer
+
+| flag | value | default | description |
+| --- | --- | --- | --- |
+| `--output` / `-o` | `<OUTPUT>` | `graph.html` | Output file path for the standalone HTML visualizer |
+| `--repo` | `<REPO>` |  | Limit visualization to a specific repository |
 
 
 #### `ivar guard`

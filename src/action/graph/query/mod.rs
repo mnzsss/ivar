@@ -126,6 +126,7 @@ pub fn get_callees(db: &GraphDb, symbol_id: i64) -> Result<Vec<CalleeInfo>, Quer
                     end_col as usize,
                 ),
                 is_exported: is_exported != 0,
+                complexity: None,
             };
             (Some(sym), Some(path), name)
         } else {

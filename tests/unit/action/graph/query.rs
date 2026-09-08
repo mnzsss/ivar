@@ -31,6 +31,7 @@ fn setup_test_db() -> (GraphDb, i64, i64, i64) {
             docstring: Some("A helper function".to_owned()),
             span: Span::new(1, 1, 5, 1),
             is_exported: true,
+            complexity: None,
         },
         Symbol {
             id: None,
@@ -43,6 +44,7 @@ fn setup_test_db() -> (GraphDb, i64, i64, i64) {
             docstring: Some("A caller function".to_owned()),
             span: Span::new(7, 1, 15, 1),
             is_exported: true,
+            complexity: None,
         },
     ];
     let sym_ids = db.insert_symbols(&symbols).expect("insert symbols");
@@ -66,6 +68,7 @@ fn setup_test_db() -> (GraphDb, i64, i64, i64) {
         docstring: None,
         span: Span::new(1, 1, 10, 1),
         is_exported: false,
+        complexity: None,
     }];
     let top_ids = db.insert_symbols(&top_syms).expect("insert top_fn");
     let top_fn_id = top_ids[0];

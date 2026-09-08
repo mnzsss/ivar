@@ -53,8 +53,8 @@ impl GraphDb {
 
             // Insert new symbols
             let mut sym_stmt = self.conn.prepare_cached(
-                "INSERT INTO symbols (file_id, repo, name, kind, scope, signature, docstring, start_line, start_col, end_line, end_col, is_exported)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+                "INSERT INTO symbols (file_id, repo, name, kind, scope, signature, docstring, start_line, start_col, end_line, end_col, is_exported, complexity)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
                  RETURNING id",
             )?;
             let mut sym_name_to_id = std::collections::HashMap::new();
@@ -77,6 +77,7 @@ impl GraphDb {
                         sym.span.end_line as i64,
                         sym.span.end_col as i64,
                         is_exported,
+                        sym.complexity.map(|c| c as i64),
                     ],
                     |row| row.get(0),
                 )?;

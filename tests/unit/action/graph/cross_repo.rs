@@ -28,6 +28,7 @@ fn test_cross_repo_import_linking() {
             docstring: None,
             span: Span::new(1, 1, 5, 1),
             is_exported: true,
+            complexity: None,
         }],
         edges: vec![],
     };
@@ -56,6 +57,7 @@ fn test_cross_repo_import_linking() {
             docstring: None,
             span: Span::new(1, 1, 10, 1),
             is_exported: true,
+            complexity: None,
         }],
         edges: vec![crate::domain::graph::Edge {
             id: None,
@@ -138,6 +140,7 @@ fn test_cross_repo_cli_execution_linking() {
             docstring: None,
             span: Span::new(1, 1, 10, 1),
             is_exported: true,
+            complexity: None,
         }],
         edges: vec![],
     };
@@ -166,6 +169,7 @@ fn test_cross_repo_cli_execution_linking() {
             docstring: None,
             span: Span::new(1, 1, 5, 1),
             is_exported: false,
+            complexity: None,
         }],
         edges: vec![crate::domain::graph::Edge {
             id: None,
@@ -234,6 +238,7 @@ fn test_cross_repo_http_linking() {
             docstring: None,
             span: Span::new(1, 1, 10, 1),
             is_exported: true,
+            complexity: None,
         }],
         edges: vec![],
     };
@@ -262,6 +267,7 @@ fn test_cross_repo_http_linking() {
             docstring: None,
             span: Span::new(1, 1, 5, 1),
             is_exported: false,
+            complexity: None,
         }],
         edges: vec![crate::domain::graph::Edge {
             id: None,

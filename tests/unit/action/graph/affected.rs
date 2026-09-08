@@ -46,6 +46,7 @@ fn test_find_affected_tests_transitive() -> Result<(), Box<dyn std::error::Error
             docstring: None,
             span: Span::new(1, 1, 5, 1),
             is_exported: true,
+            complexity: None,
         }],
         edges: vec![],
     };
@@ -71,6 +72,7 @@ fn test_find_affected_tests_transitive() -> Result<(), Box<dyn std::error::Error
             docstring: None,
             span: Span::new(1, 1, 10, 1),
             is_exported: true,
+            complexity: None,
         }],
         edges: vec![Edge {
             id: None,
@@ -108,6 +110,7 @@ fn test_find_affected_tests_transitive() -> Result<(), Box<dyn std::error::Error
             docstring: None,
             span: Span::new(1, 1, 8, 1),
             is_exported: false,
+            complexity: None,
         }],
         edges: vec![Edge {
             id: None,

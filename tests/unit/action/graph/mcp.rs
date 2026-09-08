@@ -47,6 +47,7 @@ fn setup_test_mcp_db() -> (GraphDb, tempfile::TempDir) {
         docstring: Some("Executes main flow.".to_owned()),
         span: Span::new(1, 1, 3, 1),
         is_exported: true,
+        complexity: None,
     };
     let s2 = Symbol {
         id: None,
@@ -59,6 +60,7 @@ fn setup_test_mcp_db() -> (GraphDb, tempfile::TempDir) {
         docstring: None,
         span: Span::new(4, 1, 4, 18),
         is_exported: true,
+        complexity: None,
     };
     let s3 = Symbol {
         id: None,
@@ -71,6 +73,7 @@ fn setup_test_mcp_db() -> (GraphDb, tempfile::TempDir) {
         docstring: None,
         span: Span::new(2, 1, 4, 1),
         is_exported: false,
+        complexity: None,
     };
 
     let ids = db.insert_symbols(&[s1, s2, s3]).expect("insert symbols");
@@ -158,7 +161,7 @@ fn test_mcp_initialize_and_tools_list() {
     let tools = list_resp["result"]["tools"]
         .as_array()
         .expect("tools array");
-    assert_eq!(tools.len(), 9);
+    assert_eq!(tools.len(), 12);
     let tool_names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
     assert!(tool_names.contains(&"graph_explore"));
     assert!(tool_names.contains(&"get_callers"));
@@ -169,6 +172,9 @@ fn test_mcp_initialize_and_tools_list() {
     assert!(tool_names.contains(&"get_impact"));
     assert!(tool_names.contains(&"refresh_index"));
     assert!(tool_names.contains(&"get_graph_stats"));
+    assert!(tool_names.contains(&"get_dead_code"));
+    assert!(tool_names.contains(&"get_complexity"));
+    assert!(tool_names.contains(&"get_hierarchy"));
 }
 
 #[test]
@@ -371,4 +377,76 @@ fn test_mcp_tool_call_refresh_index_success_and_error() {
     assert_eq!(err_resp["result"]["isError"], true);
     let err_text = err_resp["result"]["content"][0]["text"].as_str().unwrap();
     assert!(err_text.contains("lock acquisition failed"));
+}
+
+#[test]
+fn test_mcp_tool_call_dead_code_complexity_hierarchy_and_compact() {
+    let (db, temp) = setup_test_mcp_db();
+
+    let input = format!(
+        "{}\n{}\n{}\n{}\n{}\n{}\n",
+        json!({"jsonrpc": "2.0", "id": 100, "method": "tools/call", "params": {"name": "get_dead_code", "arguments": {"repo": "my-repo", "limit": 10}}}),
+        json!({"jsonrpc": "2.0", "id": 101, "method": "tools/call", "params": {"name": "get_dead_code", "arguments": {"repo": "my-repo", "limit": 10, "format": "compact"}}}),
+        json!({"jsonrpc": "2.0", "id": 102, "method": "tools/call", "params": {"name": "get_complexity", "arguments": {"repo": "my-repo", "threshold": 1}}}),
+        json!({"jsonrpc": "2.0", "id": 103, "method": "tools/call", "params": {"name": "get_complexity", "arguments": {"repo": "my-repo", "threshold": 1, "format": "compact"}}}),
+        json!({"jsonrpc": "2.0", "id": 104, "method": "tools/call", "params": {"name": "get_hierarchy", "arguments": {"symbol": "execute", "repo": "my-repo"}}}),
+        json!({"jsonrpc": "2.0", "id": 105, "method": "tools/call", "params": {"name": "get_hierarchy", "arguments": {"symbol": "execute", "repo": "my-repo", "format": "compact"}}})
+    );
+
+    let mut output = Vec::new();
+    run_mcp_server(
+        &db,
+        Some(temp.path()),
+        Cursor::new(input),
+        &mut output,
+        |_| Ok(json!({"status": "ok"})),
+    )
+    .expect("run server");
+
+    let lines: Vec<String> = String::from_utf8(output)
+        .expect("utf8")
+        .lines()
+        .map(|s| s.to_owned())
+        .collect();
+
+    assert_eq!(lines.len(), 6);
+
+    // get_dead_code JSON
+    let dead_json: Value = serde_json::from_str(&lines[0]).expect("parse dead json");
+    assert_eq!(dead_json["id"], 100);
+    assert!(!dead_json["result"]["isError"].as_bool().unwrap_or(false));
+
+    // get_dead_code compact
+    let dead_compact: Value = serde_json::from_str(&lines[1]).expect("parse dead compact");
+    assert_eq!(dead_compact["id"], 101);
+    let dead_compact_text = dead_compact["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap();
+    assert!(dead_compact_text.starts_with("#SCHEMA: name|kind|file|line"));
+
+    // get_complexity JSON
+    let comp_json: Value = serde_json::from_str(&lines[2]).expect("parse comp json");
+    assert_eq!(comp_json["id"], 102);
+    assert!(!comp_json["result"]["isError"].as_bool().unwrap_or(false));
+
+    // get_complexity compact
+    let comp_compact: Value = serde_json::from_str(&lines[3]).expect("parse comp compact");
+    assert_eq!(comp_compact["id"], 103);
+    let comp_compact_text = comp_compact["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap();
+    assert!(comp_compact_text.starts_with("#SCHEMA: complexity|name|kind|file|line"));
+
+    // get_hierarchy JSON
+    let hier_json: Value = serde_json::from_str(&lines[4]).expect("parse hier json");
+    assert_eq!(hier_json["id"], 104);
+    assert!(!hier_json["result"]["isError"].as_bool().unwrap_or(false));
+
+    // get_hierarchy compact
+    let hier_compact: Value = serde_json::from_str(&lines[5]).expect("parse hier compact");
+    assert_eq!(hier_compact["id"], 105);
+    let hier_compact_text = hier_compact["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap();
+    assert!(hier_compact_text.starts_with("#SCHEMA: symbol|kind|file|bases|implementations"));
 }

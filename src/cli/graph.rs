@@ -32,6 +32,14 @@ pub enum GraphCommand {
     Impact(GraphImpactArgs),
     /// Run graph MCP server.
     Mcp,
+    /// Find unreferenced private symbols and dead code.
+    DeadCode(GraphDeadCodeArgs),
+    /// Find functions and methods ranked descending by cyclomatic complexity.
+    Complexity(GraphComplexityArgs),
+    /// Analyze class, struct, and trait inheritance/implementation hierarchy.
+    Hierarchy(GraphHierarchyArgs),
+    /// Generate a standalone zero-dependency HTML interactive graph visualizer.
+    Viz(GraphVizArgs),
 }
 
 #[derive(Debug, Args)]
@@ -127,6 +135,48 @@ pub struct GraphImpactArgs {
     /// Maximum traversal depth.
     #[arg(long)]
     pub max_depth: Option<usize>,
+}
+
+#[derive(Debug, Args)]
+pub struct GraphDeadCodeArgs {
+    /// Limit search to a specific repository.
+    #[arg(long)]
+    pub repo: Option<String>,
+    /// Maximum number of dead code items to return.
+    #[arg(long)]
+    pub limit: Option<usize>,
+}
+
+#[derive(Debug, Args)]
+pub struct GraphComplexityArgs {
+    /// Minimum cyclomatic complexity threshold.
+    #[arg(long, default_value_t = 10)]
+    pub threshold: u32,
+    /// Limit search to a specific repository.
+    #[arg(long)]
+    pub repo: Option<String>,
+    /// Maximum number of items to return.
+    #[arg(long)]
+    pub limit: Option<usize>,
+}
+
+#[derive(Debug, Args)]
+pub struct GraphHierarchyArgs {
+    /// Symbol name to analyze inheritance/implementation hierarchy for.
+    pub symbol: String,
+    /// Limit search to a specific repository.
+    #[arg(long)]
+    pub repo: Option<String>,
+}
+
+#[derive(Debug, Args)]
+pub struct GraphVizArgs {
+    /// Output file path for the standalone HTML visualizer.
+    #[arg(long, short = 'o', default_value = "graph.html")]
+    pub output: String,
+    /// Limit visualization to a specific repository.
+    #[arg(long)]
+    pub repo: Option<String>,
 }
 
 #[cfg(test)]

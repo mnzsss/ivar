@@ -58,3 +58,28 @@ pub struct ImpactInput {
     pub symbol_id: i64,
     pub max_depth: Option<usize>,
 }
+
+#[derive(Debug, Clone)]
+pub struct DeadCodeInput {
+    pub repo: Option<String>,
+    pub limit: Option<usize>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ComplexityInput {
+    pub threshold: u32,
+    pub repo: Option<String>,
+    pub limit: Option<usize>,
+}
+
+#[derive(Debug, Clone)]
+pub struct HierarchyInput {
+    pub symbol: String,
+    pub repo: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct VizInput {
+    pub output: String,
+    pub repo: Option<String>,
+}

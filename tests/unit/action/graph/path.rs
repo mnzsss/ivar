@@ -26,6 +26,7 @@ fn test_shortest_path_same_node() -> Result<(), Box<dyn std::error::Error>> {
             docstring: None,
             span: Span::new(1, 1, 5, 1),
             is_exported: true,
+            complexity: None,
         }],
         edges: vec![],
     };
@@ -78,6 +79,7 @@ fn test_shortest_path_bidirectional_chain() -> Result<(), Box<dyn std::error::Er
                 docstring: None,
                 span: Span::new(1, 1, 5, 1),
                 is_exported: true,
+                complexity: None,
             },
             Symbol {
                 id: None,
@@ -90,6 +92,7 @@ fn test_shortest_path_bidirectional_chain() -> Result<(), Box<dyn std::error::Er
                 docstring: None,
                 span: Span::new(6, 1, 10, 1),
                 is_exported: true,
+                complexity: None,
             },
             Symbol {
                 id: None,
@@ -102,6 +105,7 @@ fn test_shortest_path_bidirectional_chain() -> Result<(), Box<dyn std::error::Er
                 docstring: None,
                 span: Span::new(11, 1, 15, 1),
                 is_exported: true,
+                complexity: None,
             },
             Symbol {
                 id: None,
@@ -114,6 +118,7 @@ fn test_shortest_path_bidirectional_chain() -> Result<(), Box<dyn std::error::Er
                 docstring: None,
                 span: Span::new(16, 1, 20, 1),
                 is_exported: true,
+                complexity: None,
             },
         ],
         edges: vec![

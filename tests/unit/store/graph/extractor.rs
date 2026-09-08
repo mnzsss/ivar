@@ -121,3 +121,163 @@ fn test_span_coordinates() {
     assert_eq!(sym.span.end_line, 1);
     assert_eq!(sym.span.end_col, 12);
 }
+
+#[test]
+fn test_rust_cyclomatic_complexity() {
+    let code = r#"
+fn simple_fn() -> i32 {
+    42
+}
+
+struct MyStruct {
+    x: i32,
+}
+
+fn complex_fn(x: i32) -> i32 {
+    if x > 10 && x < 20 {
+        return 1;
+    }
+    match x {
+        1 => 10,
+        2 => 20,
+        _ => 0,
+    }
+    while x > 0 {
+        println!("{}", x);
+    }
+    for i in 0..5 {
+        println!("{}", i);
+    }
+    x
+}
+"#;
+    let res = extract_file("repo", "src/lib.rs", code, SupportedLanguage::Rust).expect("extract");
+
+    let simple = res
+        .symbols
+        .iter()
+        .find(|s| s.name == "simple_fn")
+        .expect("simple_fn");
+    assert_eq!(simple.complexity, Some(1));
+
+    let struct_sym = res
+        .symbols
+        .iter()
+        .find(|s| s.name == "MyStruct")
+        .expect("MyStruct");
+    assert_eq!(struct_sym.complexity, None);
+
+    let complex = res
+        .symbols
+        .iter()
+        .find(|s| s.name == "complex_fn")
+        .expect("complex_fn");
+    // Base: 1 + if(1) + &&(1) + match arms(3) + while(1) + for(1) = 8
+    assert_eq!(complex.complexity, Some(8));
+}
+
+#[test]
+fn test_typescript_cyclomatic_complexity() {
+    let code = r#"
+function simple(): number {
+    return 1;
+}
+
+function branching(x: number, y: boolean): number {
+    if (x > 0 || y) {
+        for (let i = 0; i < 5; i++) {
+            x += i;
+        }
+    }
+    switch (x) {
+        case 1:
+            return 10;
+        case 2:
+            return 20;
+        default:
+            return x > 5 ? 100 : 0;
+    }
+}
+"#;
+    let res =
+        extract_file("repo", "src/mod.ts", code, SupportedLanguage::TypeScript).expect("extract");
+
+    let simple = res
+        .symbols
+        .iter()
+        .find(|s| s.name == "simple")
+        .expect("simple");
+    assert_eq!(simple.complexity, Some(1));
+
+    let branching = res
+        .symbols
+        .iter()
+        .find(|s| s.name == "branching")
+        .expect("branching");
+    // Base: 1 + if(1) + ||(1) + for(1) + case(2) + ternary(1) = 7
+    assert_eq!(branching.complexity, Some(7));
+}
+
+#[test]
+fn test_rust_hierarchy_implements() {
+    let code = r#"
+pub struct Dog;
+pub trait Animal {}
+
+impl Animal for Dog {}
+"#;
+    let res = extract_file("repo", "src/dog.rs", code, SupportedLanguage::Rust).expect("extract");
+
+    let impl_edge = res
+        .edges
+        .iter()
+        .find(|e| e.kind == EdgeKind::Implements)
+        .expect("implements edge");
+    assert_eq!(impl_edge.to_name.as_deref(), Some("Animal"));
+    assert_eq!(impl_edge.provenance, Provenance::Extracted);
+}
+
+#[test]
+fn test_typescript_hierarchy_inherits_and_implements() {
+    let code = r#"
+export class Dog extends Animal implements Runnable, Serializable {
+    bark() {}
+}
+
+export interface Cat extends Animal, Pet {
+    meow(): void;
+}
+"#;
+    let res =
+        extract_file("repo", "src/pets.ts", code, SupportedLanguage::TypeScript).expect("extract");
+
+    let inherits_edges: Vec<_> = res
+        .edges
+        .iter()
+        .filter(|e| e.kind == EdgeKind::Inherits)
+        .collect();
+    assert!(
+        inherits_edges
+            .iter()
+            .any(|e| e.to_name.as_deref() == Some("Animal")),
+        "inherits edge to Animal"
+    );
+
+    let implements_edges: Vec<_> = res
+        .edges
+        .iter()
+        .filter(|e| e.kind == EdgeKind::Implements)
+        .collect();
+    assert!(
+        implements_edges
+            .iter()
+            .any(|e| e.to_name.as_deref() == Some("Runnable")),
+        "implements edge to Runnable"
+    );
+    assert!(
+        implements_edges
+            .iter()
+            .any(|e| e.to_name.as_deref() == Some("Serializable")),
+        "implements edge to Serializable"
+    );
+}
