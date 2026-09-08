@@ -789,6 +789,27 @@ fn sync_materialises_shipped_commands_for_available_providers() {
 }
 
 #[test]
+fn sync_materialises_shipped_skills_for_available_providers() {
+    let (_guard, root) = hall_with_all_providers();
+    let ctx = Ctx::new(root.clone());
+
+    let report = sync(&ctx, SyncInput::default()).unwrap();
+
+    assert!(report.is_clean());
+    for provider in Provider::ALL {
+        let skill_path = root.join(provider.skills_dir()).join("ivar-execute/SKILL.md");
+        assert!(
+            fs::is_file(&skill_path).unwrap(),
+            "Skill must exist at {skill_path}"
+        );
+    }
+    assert_eq!(
+        entry(&report.value, "opencode", "skill ivar-execute").change,
+        Change::Created
+    );
+}
+
+#[test]
 fn second_sync_reports_commands_unchanged_without_rewriting() {
     let (_guard, root) = hall_with(&[]);
     let ctx = Ctx::new(root.clone());

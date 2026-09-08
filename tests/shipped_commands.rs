@@ -286,6 +286,62 @@ fn sync_restores_a_modified_shipped_command() {
     assert!(restored.contains("description:"), "was: {restored:?}");
 }
 
+/// Provider sync materialises shipped skills (e.g. `ivar-execute/SKILL.md`) for available providers,
+/// removes them when unavailable, and `ivar doctor` inspects them.
+#[test]
+fn sync_materialises_shipped_skills_and_doctor_inspects_them() {
+    let (_guard, root) = hall_root();
+    ivar().current_dir(&root).arg("init").assert().success();
+    ivar()
+        .current_dir(&root)
+        .args(["provider", "add", "opencode"])
+        .assert()
+        .success();
+    ivar()
+        .current_dir(&root)
+        .args(["provider", "add", "omp"])
+        .assert()
+        .success();
+
+    ivar().current_dir(&root).arg("sync").assert().success();
+
+    for dir in [".claude/skills", ".opencode/skills", ".omp/skills"] {
+        assert!(
+            root.join(dir).join("ivar-execute/SKILL.md").is_file(),
+            "expected {dir}/ivar-execute/SKILL.md to exist after sync"
+        );
+    }
+
+    // Doctor on a healthy setup reports no skill findings
+    ivar()
+        .current_dir(&root)
+        .arg("doctor")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("provider.skill_missing").not())
+        .stdout(predicate::str::contains("provider.skill_modified").not());
+
+    // Tamper with a skill file and verify doctor catches it
+    std::fs::write(
+        root.join(".claude/skills/ivar-execute/SKILL.md"),
+        "tampered skill content\n",
+    )
+    .unwrap();
+    ivar()
+        .current_dir(&root)
+        .arg("doctor")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("provider.skill_modified"));
+
+    // Sync repairs it
+    ivar().current_dir(&root).arg("sync").assert().success();
+    let restored =
+        std::fs::read_to_string(root.join(".claude/skills/ivar-execute/SKILL.md")).unwrap();
+    assert!(restored.starts_with("---\n"));
+    assert!(restored.contains("name: ivar-execute"));
+}
+
 /// A fingerprint-matching legacy `plan.md` is removed by sync; a customised
 /// one survives and appears in `ivar doctor`.
 #[test]

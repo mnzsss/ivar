@@ -116,6 +116,9 @@ pub fn add(ctx: &Ctx, input: AddInput) -> Outcome<AddOutcome> {
     if let Some(warning) = sync::materialise_commands(&layout, provider) {
         report.warn(warning);
     }
+    if let Some(warning) = sync::materialise_shipped_skills(&layout, provider) {
+        report.warn(warning);
+    }
     Ok(report)
 }
 

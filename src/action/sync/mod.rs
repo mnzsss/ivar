@@ -53,7 +53,7 @@ use serde::Serialize;
 use crate::domain::name::RepoName;
 use crate::error::{Failure, Outcome, Report, Warning, WriteHuman};
 use crate::git::{self};
-use crate::harness::{commands, config};
+use crate::harness::{commands, config, skills};
 use crate::infra::fs;
 use crate::store::gitignore;
 use crate::store::layout::Layout;
@@ -67,7 +67,9 @@ mod providers;
 mod repo;
 mod setup;
 
-pub(crate) use providers::{materialise_commands, materialise_instructions, sync_providers};
+pub(crate) use providers::{
+    materialise_commands, materialise_instructions, materialise_shipped_skills, sync_providers,
+};
 pub(crate) use setup::run_setup_script;
 
 use repo::sync_repo;
@@ -158,6 +160,17 @@ impl From<commands::Change> for Change {
             commands::Change::Updated => Self::Updated,
             commands::Change::Removed => Self::Removed,
             commands::Change::Unchanged => Self::Unchanged,
+        }
+    }
+}
+
+impl From<skills::Change> for Change {
+    fn from(change: skills::Change) -> Self {
+        match change {
+            skills::Change::Created => Self::Created,
+            skills::Change::Updated => Self::Updated,
+            skills::Change::Removed => Self::Removed,
+            skills::Change::Unchanged => Self::Unchanged,
         }
     }
 }

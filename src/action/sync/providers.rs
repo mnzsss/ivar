@@ -11,7 +11,7 @@
 use crate::domain::provider::Provider;
 use crate::error::Warning;
 use crate::harness::config::instructions;
-use crate::harness::{commands, config};
+use crate::harness::{commands, config, skills};
 use crate::store::layout::Layout;
 use crate::store::manifest::Manifest;
 
@@ -29,6 +29,7 @@ pub(crate) fn sync_providers(
         sync_settings(layout, manifest, provider, entries, warnings);
         sync_artifacts(layout, manifest, provider, entries, warnings);
         sync_commands(layout, manifest, provider, entries, warnings);
+        sync_shipped_skills(layout, manifest, provider, entries, warnings);
     }
 }
 
@@ -292,4 +293,56 @@ pub(crate) fn materialise_commands(layout: &Layout, provider: Provider) -> Optio
     let name_refs: Vec<&str> = names.iter().map(|s| s.as_str()).collect();
     crate::providers::bridge_sync_commands(provider, &path, &name_refs, &mut warnings);
     warnings.into_iter().next()
+}
+
+pub(crate) fn sync_shipped_skills(
+    layout: &Layout,
+    manifest: &Manifest,
+    provider: Provider,
+    entries: &mut Vec<Entry>,
+    warnings: &mut Vec<Warning>,
+) {
+    let path = layout.skills_dir(&provider);
+    let enabled = manifest.providers().available().contains(&provider);
+    let result = if enabled {
+        skills::materialise(&path)
+    } else {
+        skills::remove(&path)
+    };
+    match result {
+        Ok(changes) => {
+            for change in changes {
+                entries.push(Entry::new(
+                    provider.id(),
+                    format!("skill {}", change.dir_name),
+                    change.change.into(),
+                ));
+            }
+        }
+        Err(error) => {
+            record_failure(
+                entries,
+                warnings,
+                provider.id(),
+                "shipped skills",
+                error.into(),
+            );
+        }
+    }
+}
+
+pub(crate) fn materialise_shipped_skills(
+    layout: &Layout,
+    provider: Provider,
+) -> Option<Warning> {
+    let path = layout.skills_dir(&provider);
+    if let Err(error) = skills::materialise(&path) {
+        Some(Warning::new(
+            "provider.skills_not_materialised",
+            provider.id(),
+            format!("shipped skills could not be written: {error}; run `ivar sync` to repair"),
+        ))
+    } else {
+        None
+    }
 }
