@@ -72,3 +72,42 @@ fn bounded_map_handles_zero_limit_as_sequential() {
     let values: Vec<i32> = results.into_iter().map(|r| r.unwrap()).collect();
     assert_eq!(values, vec![2, 3, 4]);
 }
+
+#[test]
+fn test_run_feature_batch_runs_all_targets_even_if_one_fails() {
+    use crate::error::Report;
+
+    let features = vec!["feat-1".to_string(), "feat-2".to_string(), "feat-3".to_string()];
+    let results = run_feature_batch(&features, 2, |feat| {
+        if feat == "feat-2" {
+            Err(Failure::failed("mock.fail", "failed for feat-2"))
+        } else {
+            Ok(Report::new(format!("success for {feat}")))
+        }
+    });
+
+    assert_eq!(results.len(), 3);
+    assert_eq!(results[0].feature, "feat-1");
+    assert!(results[0].outcome.is_ok());
+    assert_eq!(results[0].outcome.as_ref().unwrap().value, "success for feat-1");
+
+    assert_eq!(results[1].feature, "feat-2");
+    assert!(results[1].outcome.is_err());
+    assert_eq!(results[1].outcome.as_ref().unwrap_err().code, "mock.fail");
+
+    assert_eq!(results[2].feature, "feat-3");
+    assert!(results[2].outcome.is_ok());
+    assert_eq!(results[2].outcome.as_ref().unwrap().value, "success for feat-3");
+}
+
+#[test]
+fn test_run_feature_batch_preserves_order() {
+    use crate::error::Report;
+
+    let features = vec!["z".to_string(), "a".to_string(), "m".to_string()];
+    let results = run_feature_batch(&features, 4, |feat| {
+        Ok(Report::new(feat.to_uppercase()))
+    });
+    let keys: Vec<String> = results.into_iter().map(|r| r.feature).collect();
+    assert_eq!(keys, vec!["z", "a", "m"]);
+}

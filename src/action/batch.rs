@@ -6,7 +6,7 @@ use std::sync::mpsc;
 use std::sync::Arc;
 use std::thread;
 
-use crate::error::Failure;
+use crate::error::{Failure, Report};
 
 /// Maps a function `f` over `items` in parallel with a bounded concurrency `limit`.
 ///
@@ -80,6 +80,34 @@ where
         indexed_results.sort_by_key(|(idx, _)| *idx);
         indexed_results.into_iter().map(|(_, res)| res).collect()
     })
+}
+
+/// Outcome of executing an action against a single feature in a batch.
+#[derive(Debug)]
+pub struct BatchItemResult<T> {
+    pub feature: String,
+    pub outcome: Result<Report<T>, Failure>,
+}
+
+/// Executes single-feature action closures across target feature names using [`bounded_map`].
+pub fn run_feature_batch<T, F>(
+    features: &[String],
+    concurrency: usize,
+    f: F,
+) -> Vec<BatchItemResult<T>>
+where
+    T: Send,
+    F: Fn(&str) -> Result<Report<T>, Failure> + Sync + RefUnwindSafe,
+{
+    let results = bounded_map(features, concurrency, |feat| f(feat.as_str()));
+    features
+        .iter()
+        .zip(results)
+        .map(|(feat, res)| BatchItemResult {
+            feature: feat.clone(),
+            outcome: res,
+        })
+        .collect()
 }
 
 #[cfg(test)]
