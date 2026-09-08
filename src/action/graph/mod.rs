@@ -458,6 +458,7 @@ pub fn index_cmd(ctx: &Ctx, args: IndexInput) -> Outcome<IndexBatchOutcome> {
             repo_decl.name().as_str(),
             repo_path.as_std_path(),
             args.full,
+            ctx.progress(),
         )
         .map_err(|err| Failure::failed("graph.index_failed", err.to_string()))?;
         outcomes.push(outcome);
@@ -470,6 +471,7 @@ pub fn index_cmd(ctx: &Ctx, args: IndexInput) -> Outcome<IndexBatchOutcome> {
                     repo_decl.name().as_str(),
                     repo_path.as_std_path(),
                     args.full,
+                    ctx.progress(),
                 )
                 .map_err(|err| Failure::failed("graph.index_failed", err.to_string()))?;
                 outcomes.push(outcome);
