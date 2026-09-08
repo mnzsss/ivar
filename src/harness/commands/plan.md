@@ -122,6 +122,8 @@ after they approve.
      complete, `[ ]` while pending), checkboxed exit criteria (`- [ ]`, flipped to `- [x]`
      as each is met), and a wave-complete marker (`### Wave N — <outcome> ✅` once every
      exit criterion is met).
+   - **Lightweight validation** — per-wave executable commands verifying observable contracts.
+   - **Deferred validation failures** — documented failures carried forward.
    - **Verification** — the checks that demonstrate the change is complete.
      Each build or test check must be at least as wide as the readers the
      packets declare: a check narrower than its blast radius reports green
@@ -243,10 +245,10 @@ after they approve.
 
 After the Plan gate is approved, offer execution — do not start it:
 
-> The plan is approved. Run `/ivar-execute ../../plan.md` to
+> The plan is approved. Run `ivar-execute ../../plan.md` to
 > execute it.
 
-**Never run `/ivar-execute` automatically.** Approving a plan and executing it
+**Never run `ivar-execute` automatically.** Approving a plan and executing it
 are two decisions, and the human makes both. `/ivar-discovery` states the same
 rule for its own phase transition: it offers `/ivar-plan` and never runs it.
 

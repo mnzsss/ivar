@@ -647,6 +647,92 @@ fn doctor_says_nothing_about_healthy_commands() {
     );
 }
 
+#[test]
+fn doctor_reports_missing_shipped_skill() {
+    let (_guard, root) = utf8_temp_dir();
+    let ctx = Ctx::new(root.clone());
+    init(&ctx, fresh_input()).unwrap();
+    fs::remove_path(&root.join(".claude/skills/ivar-execute")).unwrap();
+
+    let report = doctor(&ctx).unwrap();
+
+    let finding = finding(&report.value, "provider.skill_missing");
+    assert!(finding.what.contains("execute"), "was: {}", finding.what);
+    assert!(finding.fix.contains("ivar sync"));
+}
+
+#[test]
+fn doctor_reports_modified_shipped_skill() {
+    let (_guard, root) = utf8_temp_dir();
+    let ctx = Ctx::new(root.clone());
+    init(&ctx, fresh_input()).unwrap();
+    fs::write_text(
+        &root.join(".claude/skills/ivar-execute/SKILL.md"),
+        "tampered skill\n",
+    )
+    .unwrap();
+
+    let report = doctor(&ctx).unwrap();
+
+    let finding = finding(&report.value, "provider.skill_modified");
+    assert!(finding.what.contains("execute"), "was: {}", finding.what);
+    assert!(finding.fix.contains("ivar sync"));
+}
+
+#[test]
+fn doctor_reports_stale_skills_for_unavailable_provider() {
+    let (_guard, root) = utf8_temp_dir();
+    let ctx = Ctx::new(root.clone());
+    init(&ctx, fresh_input()).unwrap();
+    // Add OpenCode, sync (materialises its skills), then drop it again.
+    let layout = Layout::at(root.clone());
+    let both = Manifest::new(
+        HallName::new("acme").unwrap(),
+        Providers::new(
+            vec![Provider::ClaudeCode, Provider::OpenCode],
+            Provider::ClaudeCode,
+        ),
+        vec![],
+        None,
+    )
+    .unwrap();
+    Manifest::write(&layout, &both).unwrap();
+    crate::action::sync::sync(&ctx, Default::default()).unwrap();
+    let claude_only = Manifest::new(
+        HallName::new("acme").unwrap(),
+        Providers::new(vec![Provider::ClaudeCode], Provider::ClaudeCode),
+        vec![],
+        None,
+    )
+    .unwrap();
+    Manifest::write(&layout, &claude_only).unwrap();
+
+    let report = doctor(&ctx).unwrap();
+
+    let finding = finding(&report.value, "provider.skill_stale");
+    assert!(finding.what.contains("opencode"), "was: {}", finding.what);
+    assert!(finding.fix.contains("ivar sync"));
+}
+
+#[test]
+fn doctor_says_nothing_about_healthy_skills() {
+    let (_guard, root) = utf8_temp_dir();
+    let ctx = Ctx::new(root.clone());
+    init(&ctx, fresh_input()).unwrap();
+
+    let report = doctor(&ctx).unwrap();
+
+    assert!(
+        report
+            .value
+            .findings
+            .iter()
+            .all(|finding| !finding.code.starts_with("provider.skill")),
+        "healthy skills must produce no skill findings: {:?}",
+        report.value.findings
+    );
+}
+
 // -- init: canonical instructions and the first alias ---------------------
 
 #[test]

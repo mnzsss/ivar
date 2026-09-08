@@ -295,6 +295,60 @@ fn documented_provider_set_equals_all_providers() {
     assert!(providers.contains(&ivar::domain::provider::Provider::Omp));
 }
 
+#[test]
+fn documentation_reflects_guided_wave_execution_lifecycle() {
+    let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let skills_guide = std::fs::read_to_string(manifest_dir.join("docs/guides/skills.md")).unwrap();
+    let plan_guide =
+        std::fs::read_to_string(manifest_dir.join("docs/guides/planning-and-execution.md"))
+            .unwrap();
+    let cmd_ref = std::fs::read_to_string(manifest_dir.join("docs/reference/commands.md")).unwrap();
+
+    // Skills guide documents ivar-execute as official shipped skill
+    assert!(
+        skills_guide.contains("ivar-execute"),
+        "skills.md must document ivar-execute"
+    );
+    assert!(
+        skills_guide.contains("shipped skill")
+            || skills_guide.contains("Shipped skill")
+            || skills_guide.contains("shipped skills"),
+        "skills.md must describe shipped skills"
+    );
+
+    // Planning and execution guide documents key guided execution concepts
+    assert!(
+        plan_guide.contains("ivar-execute"),
+        "planning-and-execution.md must document ivar-execute skill"
+    );
+    assert!(
+        plan_guide.contains("lightweight validation")
+            || plan_guide.contains("Lightweight validation"),
+        "planning-and-execution.md must document lightweight validation"
+    );
+    assert!(
+        plan_guide.contains("Deferred validation failures")
+            || plan_guide.contains("deferred validation"),
+        "planning-and-execution.md must document deferred validation failures"
+    );
+    assert!(
+        plan_guide.contains("Standards review") && plan_guide.contains("Spec review"),
+        "planning-and-execution.md must document dual Standards and Spec review barrier"
+    );
+    assert!(
+        plan_guide.contains("Draft delivery")
+            || plan_guide.contains("draft mode")
+            || plan_guide.contains("draft by default"),
+        "planning-and-execution.md must document draft delivery"
+    );
+
+    // Commands reference notes the execution skill/lifecycle
+    assert!(
+        cmd_ref.contains("ivar-execute"),
+        "commands.md must reference ivar-execute"
+    );
+}
+
 /// A relative link in the documentation must point at a file that exists.
 ///
 /// The corpus is small and entirely relative: 41 relative targets across 19

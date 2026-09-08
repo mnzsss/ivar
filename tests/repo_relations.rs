@@ -6,7 +6,7 @@
 //! real process can prove: init and provider add materialise the canonical
 //! `HALL.md` and its aliases immediately, sync repairs and destroys topology,
 //! doctor reports every drift in one pass, sessions derive their instruction
-//! files from the canonical bytes, and all fifteen workflow commands land for
+//! files from the canonical bytes, and all fourteen workflow commands land for
 //! both providers.
 
 #![allow(
@@ -23,12 +23,12 @@ use camino::Utf8Path;
 use common::{hall_root, ivar, seeded_repo};
 use predicates::prelude::*;
 
-/// The fifteen shipped command ids.
-const SHIPPED_IDS: [&str; 13] = [
+/// The fourteen shipped command ids.
+const SHIPPED_IDS: [&str; 14] = [
     "connect",
     "deliver",
     "discovery",
-    "execute",
+    "feature-cleanup",
     "feature-create",
     "feature-status",
     "plan",
@@ -38,6 +38,7 @@ const SHIPPED_IDS: [&str; 13] = [
     "repo-setup",
     "review",
     "sync",
+    "workspace",
 ];
 
 /// What the root alias at `path` points at, as read by `readlink` — the
@@ -201,7 +202,7 @@ fn disabling_a_provider_by_hand_makes_sync_delete_its_regular_alias() {
 }
 
 #[test]
-fn all_fifteen_workflow_commands_materialise_for_both_providers() {
+fn all_fourteen_workflow_commands_materialise_for_both_providers() {
     let (_guard, root) = hall_with_both_providers();
 
     for provider in ["claude-code", "opencode"] {

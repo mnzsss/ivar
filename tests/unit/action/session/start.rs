@@ -184,7 +184,7 @@ fn materialise_view_dir_symlinks_hall_commands_into_the_config_dir() {
         "commands/ must resolve to the hall's own commands dir"
     );
     assert!(
-        fs::is_file(&commands_link.join("ivar-execute.md")).unwrap(),
+        fs::is_file(&commands_link.join("ivar-plan.md")).unwrap(),
         "a shipped ivar-* command must be reachable through the symlink"
     );
 }
@@ -1434,7 +1434,7 @@ fn omp_session_view_dir_materialises_commands_and_hooks() {
         ".omp/commands must be a symlink pointing at the hall's .omp/commands"
     );
     assert!(
-        crate::infra::fs::is_file(&commands_link.join("ivar-execute.md")).unwrap(),
+        crate::infra::fs::is_file(&commands_link.join("ivar-plan.md")).unwrap(),
         "shipped ivar-*.md commands must be reachable in session view"
     );
 
@@ -1467,7 +1467,7 @@ fn omp_sync_removes_stale_managed_commands_and_preserves_user_files() {
     crate::harness::commands::materialise(&omp_commands).unwrap();
 
     // Shipped commands must exist
-    assert!(crate::infra::fs::is_file(&omp_commands.join("ivar-execute.md")).unwrap());
+    assert!(crate::infra::fs::is_file(&omp_commands.join("ivar-plan.md")).unwrap());
     // User-owned file must survive
     assert!(crate::infra::fs::is_file(&user_file).unwrap());
     assert_eq!(

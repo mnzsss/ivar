@@ -783,6 +783,6 @@ watching. There is no `--yes`.
 a TUI. Everything else prints and exits.
 
 **`ivar feature execute …` manages the Run Receipt lifecycle for an approved
-plan.** The provider coordinates the work; Ivar records the execution boundary.
+plan.** The provider coordinates guided wave execution via the `ivar-execute` skill; Ivar records the execution boundary and Run Receipt evidence.
 Read [Planning and execution](../guides/planning-and-execution.md) before using
 it directly.

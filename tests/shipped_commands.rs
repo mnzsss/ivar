@@ -23,11 +23,10 @@ use common::{hall_root, ivar};
 use predicates::prelude::*;
 
 /// Every shipped command id, as `/ivar-<id>`.
-const SHIPPED_IDS: [&str; 15] = [
+const SHIPPED_IDS: [&str; 14] = [
     "connect",
     "deliver",
     "discovery",
-    "execute",
     "feature-cleanup",
     "feature-create",
     "feature-status",
@@ -214,17 +213,7 @@ fn shipped_commands_encode_wave_completion_and_native_coordination() {
     assert!(plan.contains("Step 1 carries the test's literal source"));
     assert!(plan.contains("**Sketch:**"));
     assert!(plan.contains("Literal Code"));
-    let execute = collapsed(read("execute"));
-    assert!(execute.contains("active provider coordinates its own native subagents"));
-    assert!(execute.contains("wave checkpoint"));
-    assert!(execute.contains("mark the wave complete"));
-    assert!(execute.contains("child Feature"));
-    assert!(!execute.contains("workstream"));
-    assert!(!execute.contains("execute tick"));
-    assert!(!execute.contains("ivar feature execute start"));
-    assert!(!execute.contains("ivar feature execute finish"));
-    assert!(execute.contains("If newly discovered work is outside the approved plan"));
-    assert!(execute.contains("create a child Feature"));
+    assert!(!root.join(".claude/commands/ivar-execute.md").exists());
 }
 
 /// `ivar provider add` materialises the new provider's commands immediately —
@@ -295,6 +284,95 @@ fn sync_restores_a_modified_shipped_command() {
     let restored = std::fs::read_to_string(root.join(".claude/commands/ivar-plan.md")).unwrap();
     assert!(restored.starts_with("---\n"), "was: {restored:?}");
     assert!(restored.contains("description:"), "was: {restored:?}");
+}
+
+/// Provider sync materialises shipped skills (e.g. `ivar-execute/SKILL.md`) for available providers,
+/// removes them when unavailable, and `ivar doctor` inspects them.
+#[test]
+fn sync_materialises_shipped_skills_and_doctor_inspects_them() {
+    let (_guard, root) = hall_root();
+    ivar().current_dir(&root).arg("init").assert().success();
+    ivar()
+        .current_dir(&root)
+        .args(["provider", "add", "opencode"])
+        .assert()
+        .success();
+    ivar()
+        .current_dir(&root)
+        .args(["provider", "add", "omp"])
+        .assert()
+        .success();
+
+    ivar().current_dir(&root).arg("sync").assert().success();
+
+    for dir in [".claude/skills", ".opencode/skills", ".omp/skills"] {
+        assert!(
+            root.join(dir).join("ivar-execute/SKILL.md").is_file(),
+            "expected {dir}/ivar-execute/SKILL.md to exist after sync"
+        );
+    }
+
+    // Doctor on a healthy setup reports no skill findings
+    ivar()
+        .current_dir(&root)
+        .arg("doctor")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("provider.skill_missing").not())
+        .stdout(predicate::str::contains("provider.skill_modified").not());
+
+    // Tamper with a skill file and verify doctor catches it
+    std::fs::write(
+        root.join(".claude/skills/ivar-execute/SKILL.md"),
+        "tampered skill content\n",
+    )
+    .unwrap();
+    ivar()
+        .current_dir(&root)
+        .arg("doctor")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("provider.skill_modified"));
+
+    // Sync repairs it
+    ivar().current_dir(&root).arg("sync").assert().success();
+    let restored =
+        std::fs::read_to_string(root.join(".claude/skills/ivar-execute/SKILL.md")).unwrap();
+    assert!(restored.starts_with("---\n"));
+    assert!(restored.contains("name: ivar-execute"));
+}
+
+/// Shipped skill `ivar-execute` instructions describe guided wave execution:
+/// subagent dispatch, wave lightweight validation, deferred validation failures,
+/// dual-axis review barrier, and gated draft delivery.
+#[test]
+fn shipped_ivar_execute_skill_documents_lifecycle_guarantees() {
+    let skill_path = format!(
+        "{}/src/harness/skills/ivar-execute/SKILL.md",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let content = std::fs::read_to_string(skill_path).unwrap();
+
+    assert!(
+        content.contains("name: ivar-execute"),
+        "skill must have frontmatter name"
+    );
+    assert!(
+        content.contains("lightweight validation"),
+        "skill must document lightweight validation"
+    );
+    assert!(
+        content.contains("Deferred validation failures"),
+        "skill must document deferred validation failures"
+    );
+    assert!(
+        content.contains("Standards review") && content.contains("Spec review"),
+        "skill must document dual-axis Standards and Spec review barrier"
+    );
+    assert!(
+        content.contains("Draft delivery"),
+        "skill must document draft delivery mode"
+    );
 }
 
 /// A fingerprint-matching legacy `plan.md` is removed by sync; a customised
@@ -380,6 +458,21 @@ fn no_shipped_command_tells_the_agent_to_export_ivar_vars() {
     }
 }
 
+#[test]
+fn shipped_commands_do_not_reference_old_slash_execute() {
+    for id in SHIPPED_IDS {
+        let source = format!(
+            "{}/src/harness/commands/{id}.md",
+            env!("CARGO_MANIFEST_DIR")
+        );
+        let body = std::fs::read_to_string(source).unwrap();
+        assert!(
+            !body.contains("/ivar-execute"),
+            "/ivar-{id} still references /ivar-execute"
+        );
+    }
+}
+
 /// The deliver command documents PR metadata: global/scoped syntax,
 /// inline vs file body, title guidance, and land conflict.
 #[test]
@@ -405,6 +498,10 @@ fn deliver_command_documents_pr_metadata() {
     assert!(
         body.contains("--repo web"),
         "deliver should show multiple scoped repos"
+    );
+    assert!(
+        body.contains("--draft"),
+        "deliver should document --draft flag"
     );
     assert!(
         body.contains("./notes.md"),

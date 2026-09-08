@@ -12,7 +12,7 @@ use std::collections::BTreeSet;
 #[test]
 fn catalog_is_complete_unique_and_current() {
     let commands = catalog();
-    assert_eq!(commands.len(), 15);
+    assert_eq!(commands.len(), 14);
 
     let ids = commands
         .iter()
@@ -38,6 +38,27 @@ fn catalog_is_complete_unique_and_current() {
     }
 }
 
+#[test]
+fn execute_is_not_in_shipped_commands_catalog() {
+    let catalog = catalog();
+    assert!(!catalog.iter().any(|c| c.id == "execute"));
+    assert_eq!(catalog.len(), 14);
+}
+
+#[test]
+fn materialise_cleans_up_obsolete_official_execute_command() {
+    let (_guard, dir) = commands_dir();
+    fs::ensure_dir(&dir).unwrap();
+
+    // Simulate pre-existing ivar-execute.md
+    fs::write_text(&dir.join("ivar-execute.md"), "old content").unwrap();
+    let changes = materialise(&dir).unwrap();
+    assert!(changes
+        .iter()
+        .any(|change| change.file_name == "ivar-execute.md" && change.change == Change::Removed));
+    assert!(!fs::exists(&dir.join("ivar-execute.md")).unwrap());
+}
+
 /// `relations`, `feature-cleanup` and `connect` have no Bifrost-era
 /// predecessor, so they carry no legacy fingerprint — and every other command
 /// keeps its exact digest, which is what legacy cleanup still recognises.
@@ -58,7 +79,7 @@ fn commands_without_a_bifrost_predecessor_carry_no_legacy_fingerprint() {
             .iter()
             .filter(|command| command.legacy_sha256.is_some())
             .count(),
-        11,
+        10,
         "every command with a Bifrost-era predecessor must keep its digest"
     );
     for command in commands
@@ -164,7 +185,7 @@ fn materialise_creates_repairs_and_then_becomes_idempotent() {
     let (_guard, dir) = commands_dir();
 
     let first = materialise(&dir).unwrap();
-    assert_eq!(first.len(), 15);
+    assert_eq!(first.len(), 14);
     assert!(first.iter().all(|change| change.change == Change::Created));
 
     fs::write_text(&dir.join("ivar-plan.md"), "changed").unwrap();
@@ -176,7 +197,7 @@ fn materialise_creates_repairs_and_then_becomes_idempotent() {
     );
 
     let third = materialise(&dir).unwrap();
-    assert_eq!(third.len(), 15);
+    assert_eq!(third.len(), 14);
     assert!(
         third
             .iter()
@@ -224,7 +245,7 @@ fn remove_deletes_only_reserved_ivar_commands() {
 
     let changes = remove(&dir).unwrap();
 
-    assert_eq!(changes.len(), 15);
+    assert_eq!(changes.len(), 14);
     assert!(
         changes
             .iter()
@@ -294,7 +315,7 @@ fn inspect_sees_a_healthy_directory_as_current() {
 
     let inspections = inspect(&dir, true).unwrap();
 
-    assert_eq!(inspections.len(), 15);
+    assert_eq!(inspections.len(), 14);
     assert!(
         inspections
             .iter()
@@ -330,7 +351,7 @@ fn inspect_marks_leftover_files_stale_for_a_disabled_provider() {
 
     let inspections = inspect(&dir, false).unwrap();
 
-    assert_eq!(inspections.len(), 15);
+    assert_eq!(inspections.len(), 14);
     assert!(
         inspections
             .iter()
@@ -373,48 +394,6 @@ fn plan_checks_relation_context_at_the_start_of_analysis() {
     assert!(after.contains("never blocks"), "was: {after}");
 }
 
-/// `/ivar-execute` marks each wave complete in `plan.md` at the wave
-/// checkpoint while the active provider coordinates native subagents itself.
-#[test]
-fn execute_marks_waves_complete_and_uses_native_coordination() {
-    let content = embedded("execute");
-
-    for required in [
-        "ivar plan status",
-        "native subagent",
-        "wave checkpoint",
-        "mark the wave complete",
-        "Done",
-        "exit criteria",
-        "✅",
-        "coordinator",
-        "child Feature",
-    ] {
-        assert!(
-            content.contains(required),
-            "missing `{required}`: {content}"
-        );
-    }
-
-    for removed in [
-        "ivar feature execute status",
-        "ivar feature execute start",
-        "ivar feature execute finish",
-        "accept-revision",
-        "--resume",
-        "--restart",
-        "--report-json",
-        "workstream",
-        "write_contract",
-        "Execution Board",
-        "execution graph",
-        "execute tick",
-        "execute prepare",
-    ] {
-        assert!(!content.contains(removed), "stale `{removed}`: {content}");
-    }
-}
-
 #[test]
 fn plan_has_three_approval_gates_and_hands_off_to_execute() {
     let content = embedded("plan");
@@ -422,7 +401,7 @@ fn plan_has_three_approval_gates_and_hands_off_to_execute() {
     assert!(content.contains("approve requirements"), "was: {content}");
     assert!(content.contains("approve analysis"), "was: {content}");
     assert!(content.contains("approve plan"), "was: {content}");
-    assert!(content.contains("/ivar-execute"), "was: {content}");
+    assert!(content.contains("ivar-execute"), "was: {content}");
     assert!(content.contains("Done"), "was: {content}");
     assert!(content.contains("✅"), "was: {content}");
     assert!(!content.contains("approve graph"), "was: {content}");
@@ -526,30 +505,6 @@ fn plan_sketch_escape_is_bounded() {
     assert!(content.contains("exact signature"), "was: {content}");
 }
 
-/// A packet's line references go stale the moment an earlier wave edits the
-/// same file. This run hit it: packet 02 cited `plan.md:173-178` for a table
-/// Wave 1 had already pushed to 182-187.
-#[test]
-fn execute_reanchors_stale_packet_coordinates() {
-    let content = embedded("execute");
-
-    assert!(content.contains("line references"), "was: {content}");
-    assert!(content.contains("stale"), "was: {content}");
-    assert!(content.contains("re-anchor"), "was: {content}");
-}
-
-/// Marking waves complete edits `plan.md`, which invalidates the plan gate.
-/// `deliver` and `integrate` both refuse until it is approved again, so the
-/// command that caused the drift is the one that must name the remedy.
-#[test]
-fn execute_closes_by_reapproving_the_drifted_plan_gate() {
-    let content = embedded("execute");
-
-    assert!(content.contains("ivar plan approve"), "was: {content}");
-    assert!(content.contains("needs-revision"), "was: {content}");
-    assert!(content.contains("integrate"), "was: {content}");
-}
-
 /// The deliver checkpoint sits between preview and apply, and deferring it
 /// neither blocks apply nor invalidates the fingerprint.
 #[test]
@@ -584,22 +539,6 @@ fn feature_create_defines_automatic_nested_creation() {
         content.contains("outside the approved plan"),
         "was: {content}"
     );
-}
-
-/// The execute command identifies the invoking agent as the coordinator and
-/// repeats the same decision tree; it never asks permission before creating a
-/// child, and it marks waves complete at each checkpoint.
-#[test]
-fn execute_defines_provider_native_coordination_and_wave_marking() {
-    let content = embedded("execute");
-
-    assert!(content.contains("provider-native"), "was: {content}");
-    assert!(content.contains("coordinator"), "was: {content}");
-    assert!(content.contains("child Feature"), "was: {content}");
-    assert!(content.contains("wave checkpoint"), "was: {content}");
-    assert!(content.contains("Done"), "was: {content}");
-    assert!(!content.contains("accept-revision"), "was: {content}");
-    assert!(!content.contains("--report-json"), "was: {content}");
 }
 
 /// OpenCode substitutes `$ARGUMENTS` into the command template and drops

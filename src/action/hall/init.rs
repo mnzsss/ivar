@@ -180,6 +180,9 @@ pub fn init(ctx: &Ctx, input: InitInput) -> Outcome<InitOutcome> {
     if let Some(warning) = sync::materialise_commands(&layout, provider) {
         report.warn(warning);
     }
+    if let Some(warning) = sync::materialise_shipped_skills(&layout, provider) {
+        report.warn(warning);
+    }
     Ok(report)
 }
 

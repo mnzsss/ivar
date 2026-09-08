@@ -14,8 +14,11 @@ use crate::domain::name::FeatureName;
 use crate::domain::provider::Provider;
 use crate::error::{Failure, Outcome, Report, WriteHuman};
 use crate::git::{self, Git, TargetState};
-use crate::harness::commands::{self, Inspection, Integrity};
+use crate::harness::commands::{
+    self, Inspection as CommandInspection, Integrity as CommandIntegrity,
+};
 use crate::harness::config::{build_block, instructions};
+use crate::harness::skills::{self, Inspection as SkillInspection, Integrity as SkillIntegrity};
 use crate::infra::fs;
 use crate::store::layout::Layout;
 
@@ -119,6 +122,27 @@ pub fn doctor(ctx: &Ctx) -> Outcome<DoctorOutcome> {
             Err(error) => findings.push(Diagnosis {
                 code: "provider.commands_inspect_failed",
                 what: format!("could not inspect {provider}'s workflow commands: {error}"),
+                fix: "Run `ivar sync` to reconcile them.".to_owned(),
+            }),
+        }
+    }
+    // Shipped workflow skills: a missing or modified official skill is a
+    // problem worth naming, but a *convenience* one — it never changes hall
+    // health and never blocks session start. `ivar sync` is the repair.
+    for provider in Provider::ALL {
+        let enabled = manifest.providers().available().contains(&provider);
+        let dir = layout.skills_dir(&provider);
+        match skills::inspect(&dir, enabled) {
+            Ok(inspections) => {
+                for inspection in inspections {
+                    if let Some(diagnosis) = skill_diagnosis(provider, &inspection, enabled) {
+                        findings.push(diagnosis);
+                    }
+                }
+            }
+            Err(error) => findings.push(Diagnosis {
+                code: "provider.skills_inspect_failed",
+                what: format!("could not inspect {provider}'s workflow skills: {error}"),
                 fix: "Run `ivar sync` to reconcile them.".to_owned(),
             }),
         }
@@ -303,13 +327,13 @@ fn check_legacy_working_docs(
 /// it themselves.
 fn command_diagnosis(
     provider: Provider,
-    inspection: &Inspection,
+    inspection: &CommandInspection,
     enabled: bool,
 ) -> Option<Diagnosis> {
     let file_name = inspection.path.file_name().unwrap_or("file");
     match inspection.integrity {
-        Integrity::Current => None,
-        Integrity::Missing => Some(Diagnosis {
+        CommandIntegrity::Current => None,
+        CommandIntegrity::Missing => Some(Diagnosis {
             code: "provider.command_missing",
             what: format!(
                 "{provider}'s `/ivar-{}` command is missing (`{file_name}`)",
@@ -317,7 +341,7 @@ fn command_diagnosis(
             ),
             fix: "Run `ivar sync` to restore it.".to_owned(),
         }),
-        Integrity::Modified => Some(Diagnosis {
+        CommandIntegrity::Modified => Some(Diagnosis {
             code: "provider.command_modified",
             what: format!(
                 "{provider}'s `/ivar-{}` command has been modified (`{file_name}`)",
@@ -325,20 +349,67 @@ fn command_diagnosis(
             ),
             fix: "Run `ivar sync` to restore it.".to_owned(),
         }),
-        Integrity::LegacyModified => Some(Diagnosis {
+        CommandIntegrity::LegacyModified => Some(Diagnosis {
             code: "provider.legacy_command_modified",
             what: format!(
                 "{provider}'s legacy `{file_name}` command was customised and is preserved"
             ),
             fix: "Review it, then rename or remove it — `ivar sync` keeps it by design.".to_owned(),
         }),
-        Integrity::Stale => Some(Diagnosis {
+        CommandIntegrity::Stale => Some(Diagnosis {
             code: "provider.command_stale",
             what: if enabled {
                 format!("{provider}'s `{file_name}` is not an ivar-shipped command")
             } else {
                 format!("{provider} is no longer listed, but its `{file_name}` command remains")
             },
+            fix: "Run `ivar sync` to remove it.".to_owned(),
+        }),
+    }
+}
+
+/// One diagnosis for a skill directory or file that is not in its target state.
+fn skill_diagnosis(
+    provider: Provider,
+    inspection: &SkillInspection,
+    enabled: bool,
+) -> Option<Diagnosis> {
+    let file_name = inspection.path.file_name().unwrap_or("file");
+    match inspection.integrity {
+        SkillIntegrity::Current => None,
+        SkillIntegrity::Missing => Some(Diagnosis {
+            code: "provider.skill_missing",
+            what: format!(
+                "{provider}'s `ivar-{}` skill is missing (`{}`)",
+                inspection.id, inspection.path
+            ),
+            fix: "Run `ivar sync` to restore it.".to_owned(),
+        }),
+        SkillIntegrity::Modified => Some(Diagnosis {
+            code: "provider.skill_modified",
+            what: format!(
+                "{provider}'s `ivar-{}` skill has been modified (`{}`)",
+                inspection.id, inspection.path
+            ),
+            fix: "Run `ivar sync` to restore it.".to_owned(),
+        }),
+        SkillIntegrity::Stale => Some(Diagnosis {
+            code: "provider.skill_stale",
+            what: if enabled {
+                format!("{provider}'s `{file_name}` is not an ivar-shipped skill")
+            } else {
+                format!(
+                    "{provider} is no longer listed, but its `ivar-{}` skill remains",
+                    inspection.id
+                )
+            },
+            fix: "Run `ivar sync` to remove it.".to_owned(),
+        }),
+        SkillIntegrity::Obsolete => Some(Diagnosis {
+            code: "provider.skill_obsolete",
+            what: format!(
+                "{provider}'s `{file_name}` in the reserved `ivar-*` skill namespace is not recognised"
+            ),
             fix: "Run `ivar sync` to remove it.".to_owned(),
         }),
     }
