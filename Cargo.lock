@@ -1026,6 +1026,7 @@ dependencies = [
  "portable-pty",
  "predicates",
  "ratatui",
+ "regex",
  "rstest",
  "schemars",
  "serde",
