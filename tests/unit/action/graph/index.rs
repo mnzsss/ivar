@@ -249,6 +249,7 @@ fn test_index_lock_contention_and_release() {
         "second lock acquisition must fail while guard1 is held"
     );
 
+    guard1.unlock().expect("unlock guard1");
     drop(guard1);
 
     let second_acquire = guard2.try_lock();

@@ -563,3 +563,34 @@ fn a_path_with_spaces_and_non_ascii_bytes_is_read_as_given() {
         hash::bytes(b"held\n")
     );
 }
+
+#[test]
+fn is_path_ignored_honours_gitignore() {
+    let (_guard, dir) = utf8_temp_dir();
+    let repo = seeded_repo(&dir.join("repo"), "main");
+
+    std::fs::write(repo.join(".gitignore"), "secret.txt\nignored_dir/\n").unwrap();
+
+    assert!(is_path_ignored(&repo, Utf8Path::new("secret.txt")).unwrap());
+    assert!(is_path_ignored(&repo, Utf8Path::new("ignored_dir/sub.txt")).unwrap());
+    assert!(!is_path_ignored(&repo, Utf8Path::new("normal.txt")).unwrap());
+}
+
+#[test]
+fn diff_worktree_files_reports_add_modify_delete() {
+    let (_guard, dir) = utf8_temp_dir();
+    let repo = seeded_repo(&dir.join("repo"), "main");
+    let base = exec::head_commit(&repo).unwrap();
+
+    std::fs::write(repo.join("README.md"), "modified\n").unwrap();
+    std::fs::write(repo.join("new.txt"), "untracked\n").unwrap();
+
+    let diff = diff_worktree_files(&repo, Some(&base)).unwrap();
+    assert!(diff.modified_or_added.iter().any(|p| p == "README.md"));
+    assert!(diff.modified_or_added.iter().any(|p| p == "new.txt"));
+    assert!(diff.deleted.is_empty());
+
+    std::fs::remove_file(repo.join("README.md")).unwrap();
+    let diff2 = diff_worktree_files(&repo, Some(&base)).unwrap();
+    assert!(diff2.deleted.iter().any(|p| p == "README.md"));
+}

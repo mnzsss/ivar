@@ -130,6 +130,15 @@ impl Divergence {
         self.remote_only.len()
     }
 }
+/// Files modified/added/untracked and files deleted between a base commit and
+/// the working tree.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct WorktreeDiff {
+    /// Files added, modified, untracked, or renamed to.
+    pub modified_or_added: Vec<Utf8PathBuf>,
+    /// Files deleted or renamed from.
+    pub deleted: Vec<Utf8PathBuf>,
+}
 
 /// Everything `ivar` asks git to do.
 ///
@@ -539,6 +548,21 @@ pub trait Git {
         branch: &str,
         expected_tip: &str,
     ) -> Result<(), Error>;
+    /// Whether git ignores `path` inside the repository or worktree at
+    /// `worktree` according to `.gitignore` rules and attributes.
+    fn is_path_ignored(&self, worktree: &Utf8Path, path: &Utf8Path) -> Result<bool, Error> {
+        read::is_path_ignored(worktree, path)
+    }
+
+    /// Differences between a base commit's tree (or empty tree if `since_commit` is `None`)
+    /// and the current working directory, including untracked files.
+    fn diff_worktree_files(
+        &self,
+        worktree: &Utf8Path,
+        since_commit: Option<&str>,
+    ) -> Result<WorktreeDiff, Error> {
+        read::diff_worktree_files(worktree, since_commit)
+    }
 }
 
 /// The production [`Git`]: `git2` for reads, the `git` binary for mutations.
@@ -769,6 +793,17 @@ impl Git for System {
         expected_tip: &str,
     ) -> Result<(), Error> {
         exec::delete_remote_branch(git_dir, remote, branch, expected_tip)
+    }
+    fn is_path_ignored(&self, worktree: &Utf8Path, path: &Utf8Path) -> Result<bool, Error> {
+        read::is_path_ignored(worktree, path)
+    }
+
+    fn diff_worktree_files(
+        &self,
+        worktree: &Utf8Path,
+        since_commit: Option<&str>,
+    ) -> Result<WorktreeDiff, Error> {
+        read::diff_worktree_files(worktree, since_commit)
     }
 }
 
