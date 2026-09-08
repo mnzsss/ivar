@@ -27,7 +27,7 @@ pub fn get_callers(
     let conn = db.conn();
     let mut stmt = conn.prepare_cached(
         "SELECT s.id, s.file_id, s.repo, s.name, s.kind, s.scope, s.signature, s.docstring,
-                s.start_line, s.start_col, s.end_line, s.end_col, s.is_exported, f.path,
+                s.start_line, s.start_col, s.end_line, s.end_col, s.is_exported, s.complexity, f.path,
                 e.kind, e.provenance, e.confidence, e.line, e.col
          FROM edges e
          JOIN symbols s ON e.from_symbol_id = s.id
@@ -50,11 +50,11 @@ pub fn get_callers(
         params![symbol_name, repo, min_confidence, cross_repo_int],
         |row| {
             let (caller, caller_file_path) = map_symbol_and_path_row(row)?;
-            let kind_raw: String = row.get(14)?;
-            let provenance_raw: String = row.get(15)?;
-            let confidence: f64 = row.get(16)?;
-            let line: i64 = row.get(17)?;
-            let col: i64 = row.get(18)?;
+            let kind_raw: String = row.get(15)?;
+            let provenance_raw: String = row.get(16)?;
+            let confidence: f64 = row.get(17)?;
+            let line: i64 = row.get(18)?;
+            let col: i64 = row.get(19)?;
 
             Ok(CallerInfo {
                 caller,
@@ -82,7 +82,7 @@ pub fn get_callees(db: &GraphDb, symbol_id: i64) -> Result<Vec<CalleeInfo>, Quer
         "SELECT
             e.to_name,
             s.id, s.file_id, s.repo, s.name, s.kind, s.scope, s.signature, s.docstring,
-            s.start_line, s.start_col, s.end_line, s.end_col, s.is_exported,
+            s.start_line, s.start_col, s.end_line, s.end_col, s.is_exported, s.complexity,
             f.path,
             e.kind, e.provenance, e.confidence, e.line, e.col
          FROM edges e
@@ -108,7 +108,12 @@ pub fn get_callees(db: &GraphDb, symbol_id: i64) -> Result<Vec<CalleeInfo>, Quer
             let end_line: i64 = row.get(11)?;
             let end_col: i64 = row.get(12)?;
             let is_exported: i64 = row.get(13)?;
-            let path: String = row.get(14)?;
+            let complexity: Option<u32> = row
+                .get::<_, Option<i64>>(14)
+                .ok()
+                .flatten()
+                .map(|c| c as u32);
+            let path: String = row.get(15)?;
 
             let sym = Symbol {
                 id: Some(id),
@@ -126,7 +131,7 @@ pub fn get_callees(db: &GraphDb, symbol_id: i64) -> Result<Vec<CalleeInfo>, Quer
                     end_col as usize,
                 ),
                 is_exported: is_exported != 0,
-                complexity: None,
+                complexity,
             };
             (Some(sym), Some(path), name)
         } else {
@@ -134,11 +139,11 @@ pub fn get_callees(db: &GraphDb, symbol_id: i64) -> Result<Vec<CalleeInfo>, Quer
             (None, None, name)
         };
 
-        let kind_raw: String = row.get(15)?;
-        let provenance_raw: String = row.get(16)?;
-        let confidence: f64 = row.get(17)?;
-        let line: i64 = row.get(18)?;
-        let col: i64 = row.get(19)?;
+        let kind_raw: String = row.get(16)?;
+        let provenance_raw: String = row.get(17)?;
+        let confidence: f64 = row.get(18)?;
+        let line: i64 = row.get(19)?;
+        let col: i64 = row.get(20)?;
 
         Ok(CalleeInfo {
             callee_name,
@@ -177,7 +182,7 @@ pub fn get_file_outline(db: &GraphDb, repo: &str, path: &str) -> Result<FileOutl
     // 2. Fetch all symbols in this file
     let mut sym_stmt = conn.prepare_cached(
         "SELECT id, file_id, repo, name, kind, scope, signature, docstring,
-                start_line, start_col, end_line, end_col, is_exported
+                start_line, start_col, end_line, end_col, is_exported, complexity
          FROM symbols
          WHERE file_id = ?1
          ORDER BY start_line ASC, start_col ASC",

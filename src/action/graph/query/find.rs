@@ -24,7 +24,7 @@ pub fn find_symbols(
     {
         let mut stmt = conn.prepare_cached(
             "SELECT s.id, s.file_id, s.repo, s.name, s.kind, s.scope, s.signature, s.docstring,
-                    s.start_line, s.start_col, s.end_line, s.end_col, s.is_exported, f.path
+                    s.start_line, s.start_col, s.end_line, s.end_col, s.is_exported, s.complexity, f.path
              FROM symbols s
              JOIN files f ON s.file_id = f.id
              WHERE s.name = ?1 AND (?2 IS NULL OR s.repo = ?2)
@@ -52,7 +52,7 @@ pub fn find_symbols(
         let prefix_query = format!("{query}%");
         let mut stmt = conn.prepare_cached(
             "SELECT s.id, s.file_id, s.repo, s.name, s.kind, s.scope, s.signature, s.docstring,
-                    s.start_line, s.start_col, s.end_line, s.end_col, s.is_exported, f.path
+                    s.start_line, s.start_col, s.end_line, s.end_col, s.is_exported, s.complexity, f.path
              FROM symbols s
              JOIN files f ON s.file_id = f.id
              WHERE s.name LIKE ?1 AND (?2 IS NULL OR s.repo = ?2)
@@ -84,7 +84,7 @@ pub fn find_symbols(
         let fts_query = format!("\"{}\"", query.replace('"', "\"\""));
         if let Ok(mut stmt) = conn.prepare_cached(
             "SELECT s.id, s.file_id, s.repo, s.name, s.kind, s.scope, s.signature, s.docstring,
-                    s.start_line, s.start_col, s.end_line, s.end_col, s.is_exported, f.path
+                    s.start_line, s.start_col, s.end_line, s.end_col, s.is_exported, s.complexity, f.path
              FROM symbols_fts fts
              JOIN symbols s ON fts.rowid = s.id
              JOIN files f ON s.file_id = f.id
