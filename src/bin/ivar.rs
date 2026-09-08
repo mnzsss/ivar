@@ -57,6 +57,7 @@ use ivar::action::skill::{
     update as skill_update,
 };
 use ivar::action::sync;
+use ivar::cli::graph::GraphCommand;
 use ivar::cli::root::{
     Cli, Command, DiscoveryCommand, ExecuteCommand, FeatureCommand, McpCommand, PlanCommand,
     ProviderCommand, RepoCommand, SessionCommand, SkillCommand,
@@ -827,6 +828,133 @@ fn main() -> ExitCode {
         Command::Mcp(cmd) => match cmd {
             McpCommand::Auth(args) => respond(
                 mcp_auth::auth(&ctx, args.into()),
+                json,
+                &mut stdout,
+                &mut stderr,
+            ),
+        },
+        Command::Graph(cmd) => match cmd {
+            GraphCommand::Explore(args) => respond(
+                ivar::action::graph::explore_cmd(
+                    &ctx,
+                    ivar::action::graph::ExploreInput {
+                        query: args.query,
+                        repo: args.repo,
+                    },
+                ),
+                json,
+                &mut stdout,
+                &mut stderr,
+            ),
+            GraphCommand::Affected(args) => respond(
+                ivar::action::graph::affected_cmd(
+                    &ctx,
+                    ivar::action::graph::AffectedInput {
+                        files: args.files,
+                        stdin: args.stdin,
+                        repo: args.repo,
+                        max_depth: args.max_depth,
+                    },
+                ),
+                json,
+                &mut stdout,
+                &mut stderr,
+            ),
+            GraphCommand::Path(args) => respond(
+                ivar::action::graph::path_cmd(
+                    &ctx,
+                    ivar::action::graph::PathInput {
+                        from: args.from,
+                        to: args.to,
+                        max_hops: args.max_hops,
+                    },
+                ),
+                json,
+                &mut stdout,
+                &mut stderr,
+            ),
+            GraphCommand::Find(args) => respond(
+                ivar::action::graph::find_cmd(
+                    &ctx,
+                    ivar::action::graph::FindInput {
+                        query: args.query,
+                        repo: args.repo,
+                        limit: args.limit,
+                    },
+                ),
+                json,
+                &mut stdout,
+                &mut stderr,
+            ),
+            GraphCommand::Callers(args) => respond(
+                ivar::action::graph::callers_cmd(
+                    &ctx,
+                    ivar::action::graph::CallersInput {
+                        symbol: args.symbol,
+                        repo: args.repo,
+                        cross_repo: args.cross_repo,
+                        min_confidence: args.min_confidence,
+                    },
+                ),
+                json,
+                &mut stdout,
+                &mut stderr,
+            ),
+            GraphCommand::Callees(args) => respond(
+                ivar::action::graph::callees_cmd(
+                    &ctx,
+                    ivar::action::graph::CalleesInput {
+                        symbol_id: args.symbol_id,
+                    },
+                ),
+                json,
+                &mut stdout,
+                &mut stderr,
+            ),
+            GraphCommand::File(args) => respond(
+                ivar::action::graph::file_cmd(
+                    &ctx,
+                    ivar::action::graph::FileInput {
+                        repo: args.repo,
+                        path: args.path,
+                    },
+                ),
+                json,
+                &mut stdout,
+                &mut stderr,
+            ),
+            GraphCommand::Index(args) => respond(
+                ivar::action::graph::index_cmd(
+                    &ctx,
+                    ivar::action::graph::IndexInput {
+                        repo: args.repo,
+                        full: args.full,
+                    },
+                ),
+                json,
+                &mut stdout,
+                &mut stderr,
+            ),
+            GraphCommand::Stats => respond(
+                ivar::action::graph::stats_cmd(&ctx),
+                json,
+                &mut stdout,
+                &mut stderr,
+            ),
+            GraphCommand::Impact(args) => respond(
+                ivar::action::graph::impact_cmd(
+                    &ctx,
+                    ivar::action::graph::ImpactInput {
+                        symbol_id: args.symbol_id,
+                        max_depth: args.max_depth,
+                    },
+                ),
+                json,
+                &mut stdout,
+                &mut stderr,
+            ),
+            GraphCommand::Mcp => respond(
+                ivar::action::graph::mcp_cmd(&ctx),
                 json,
                 &mut stdout,
                 &mut stderr,

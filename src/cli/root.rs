@@ -108,6 +108,9 @@ pub enum Command {
     /// Authenticate the hall's declared MCP servers.
     #[command(subcommand)]
     Mcp(McpCommand),
+    /// Query and index the codebase dependency graph.
+    #[command(subcommand)]
+    Graph(super::graph::GraphCommand),
     /// Guard: evaluate a tool request against the session's writable set.
     Guard(GuardArgs),
     /// Answer git's credential helper protocol on stdin. Registered as
