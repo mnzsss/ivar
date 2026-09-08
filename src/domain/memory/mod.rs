@@ -7,6 +7,7 @@ pub mod handoff;
 pub mod sanitizer;
 pub mod query;
 pub mod topic;
+pub mod writeset;
 pub use config::{MemoryConfig, MemoryScope, ScopeName};
 pub use context::{
     MEMORY_MANAGED_END, MEMORY_MANAGED_START, MemoryBlock, MemoryContext, project_memory_symlink,
@@ -17,3 +18,4 @@ pub use topic::{MemoryTier, MemoryTopic, TopicMetadata, TopicStatus};
 pub use query::{QueryFilter, QueryMatch, ReconcileSummary};
 pub use episode::EpisodePayload;
 pub use handoff::HandoffPayload;
+pub use writeset::MemoryWriteSet;

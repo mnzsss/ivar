@@ -208,3 +208,37 @@ fn stop_emits_human_output() {
     assert!(text.contains("Stopped 1 session"), "was: {text}");
     unguard_worktrees(&root);
 }
+
+#[test]
+fn stop_session_commits_writeset() {
+    let (_guard, root) = hall_with_detached_session();
+    let ctx = Ctx::new(root.clone());
+    let layout = Layout::at(root.clone());
+    let id = session_id_of(&root);
+    let session_id = crate::domain::name::SessionId::new(id.clone()).unwrap();
+    let view_dir = layout.feature_session(&FeatureName::new("checkout").unwrap(), &session_id);
+
+    // Modify memory file
+    let mem_file = root.join("memory/topics/guide.md");
+    crate::infra::fs::ensure_dir(mem_file.parent().unwrap()).unwrap();
+    crate::infra::fs::write_atomic(&mem_file, b"# Guide\n").unwrap();
+
+    // Create writeset JSON file inside session view dir
+    let writeset = crate::domain::memory::writeset::MemoryWriteSet::new(
+        session_id.clone(),
+        vec![Utf8PathBuf::from("memory/topics/guide.md")],
+    );
+    let writeset_path = view_dir.join("writeset.json");
+    crate::infra::fs::write_atomic(&writeset_path, writeset.to_json().unwrap().as_bytes()).unwrap();
+
+    let report = stop(&ctx, StopInput { session: Some(id) }).unwrap();
+    assert_eq!(report.value.stopped, 1);
+
+    // Episode markdown should exist and record the modified file
+    let episode_file = layout.memory_episodes_dir().join(format!("{session_id}.md"));
+    assert!(fs::is_file(&episode_file).unwrap_or(false));
+    let ep_content = fs::read_text(&episode_file).unwrap().unwrap();
+    assert!(ep_content.contains("memory/topics/guide.md"));
+
+    unguard_worktrees(&root);
+}
