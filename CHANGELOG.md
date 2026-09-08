@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.1](https://github.com/mnzsss/ivar/compare/v0.9.0...v0.9.1) - 2026-09-08
+
+### Added
+
+- guided wave execution skill and shipped skill reconciler ([#89](https://github.com/mnzsss/ivar/pull/89))
+- *(cli)* interactive feature selection and batch execution for omitted positionals ([#88](https://github.com/mnzsss/ivar/pull/88))
+- *(session)* kernel-enforced write guard via Landlock LSM ([#87](https://github.com/mnzsss/ivar/pull/87))
+
+### Fixed
+
+- *(skill)* Make status and remove act on the paths sync writes ([#85](https://github.com/mnzsss/ivar/pull/85))
+- authorise structured writes by their target's session ([#83](https://github.com/mnzsss/ivar/pull/83))
+
 ## [0.9.0](https://github.com/mnzsss/ivar/compare/v0.8.0...v0.9.0) - 2026-09-06
 
 ### Added
