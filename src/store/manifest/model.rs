@@ -18,6 +18,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::domain::feature::IntegrationPolicy;
 use crate::domain::mcp::McpServerDef;
+use crate::domain::memory::MemoryConfig;
 use crate::domain::name::{BranchName, HallName, RepoName};
 use crate::domain::provider::Provider;
 
@@ -27,8 +28,9 @@ use super::error::Error;
 /// hall integration defaults and each repo's ordered verification checks; v3
 /// adds `McpServerDef.oauth`, an optional pre-provisioned OAuth client
 /// registration; v4 adds `McpOauth.token_url` and `McpOauth.resource` so
-/// refresh metadata survives across sessions.
-pub(super) const CURRENT_VERSION: u32 = 4;
+/// refresh metadata survives across sessions; v5 adds `MemoryConfig` for
+/// shared memory scopes.
+pub(super) const CURRENT_VERSION: u32 = 5;
 
 /// The hall's identity, committed and team-shared. See the module doc comment
 /// for the full JSON shape, the contract, and how the invariants are
@@ -54,6 +56,9 @@ pub struct Manifest {
     schema: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     mcp: Option<Vec<McpServerDef>>,
+    /// Shared memory configuration for the hall.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    memory: Option<MemoryConfig>,
 }
 
 /// Canonical URL for the Ivar manifest schema.
@@ -84,6 +89,7 @@ impl Manifest {
             skills,
             schema: Some(MANIFEST_SCHEMA_URL.to_owned()),
             mcp: None,
+            memory: None,
         };
         manifest.validate()?;
         Ok(manifest)
@@ -136,6 +142,20 @@ impl Manifest {
     #[must_use]
     pub fn mcp_servers(&self) -> &[McpServerDef] {
         self.mcp.as_deref().unwrap_or_default()
+    }
+
+    /// The hall's shared memory configuration, if configured.
+    #[must_use]
+    pub fn memory(&self) -> Option<&MemoryConfig> {
+        self.memory.as_ref()
+    }
+
+    /// Return a new `Manifest` with `memory` set.
+    pub fn with_memory(&self, memory: Option<MemoryConfig>) -> Result<Self, Error> {
+        let mut manifest = self.clone();
+        manifest.memory = memory;
+        manifest.validate()?;
+        Ok(manifest)
     }
 
     /// Return a new `Manifest` carrying `servers` as its hall-scoped MCP
@@ -227,6 +247,7 @@ impl Manifest {
             skills: self.skills.clone(),
             schema: self.schema.clone(),
             mcp: self.mcp.clone(),
+            memory: self.memory.clone(),
         };
         manifest.validate()?;
         Ok(manifest)
@@ -290,6 +311,15 @@ impl Manifest {
                     })?;
             }
         }
+
+        if let Some(memory) = &self.memory {
+            memory
+                .validate()
+                .map_err(|failure| Error::InvalidMemoryConfig {
+                    reason: failure.to_string(),
+                })?;
+        }
+
         Ok(())
     }
 }

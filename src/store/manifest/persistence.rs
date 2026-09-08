@@ -73,6 +73,17 @@ fn v3_to_v4(value: serde_json::Value) -> Result<serde_json::Value, String> {
     Ok(value)
 }
 
+/// Migrate a manifest from v4 → v5.
+///
+/// v5 adds `memory` — an optional shared memory configuration. The field is
+/// optional and `#[serde(skip_serializing_if = "Option::is_none")]`, so a v4
+/// manifest already deserialises against the v5 shape without help. This step
+/// touches no data; it exists so the chain stays contiguous and
+/// [`Manifest::migrate`] has a registered step to run.
+fn v4_to_v5(value: serde_json::Value) -> Result<serde_json::Value, String> {
+    Ok(value)
+}
+
 /// What migrating `ivar.json` would do. Produced by [`Manifest::plan`], which
 /// never touches the file.
 ///
@@ -218,6 +229,7 @@ impl Manifest {
                 Migration::new(1, 2, v1_to_v2),
                 Migration::new(2, 3, v2_to_v3),
                 Migration::new(3, 4, v3_to_v4),
+                Migration::new(4, 5, v4_to_v5),
             ],
             CURRENT_VERSION,
             Policy::Committed,

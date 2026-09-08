@@ -107,6 +107,7 @@
 use camino::{Utf8Path, Utf8PathBuf};
 
 use crate::domain::feature::RunId;
+use crate::domain::memory::ScopeName;
 use crate::domain::name::{BranchName, FeatureName, RepoName, SessionId};
 use crate::domain::provider::Provider;
 use crate::error::{Failure, FixAction};
@@ -586,6 +587,59 @@ impl Layout {
     #[must_use]
     pub fn ivar_dir(&self) -> Utf8PathBuf {
         self.root.join(IVAR_DIR)
+    }
+
+    /// `<hall>/memory/` — root directory for committed shared memory scopes.
+    #[must_use]
+    pub fn memory_root(&self) -> Utf8PathBuf {
+        self.root.join("memory")
+    }
+
+    /// `<hall>/memory/<scope>/` — directory for a specific memory scope.
+    #[must_use]
+    pub fn memory_scope_dir(&self, scope: &ScopeName) -> Utf8PathBuf {
+        self.memory_root().join(scope.as_str())
+    }
+
+    /// `<hall>/memory/<scope>/<slug>.md` — path to a specific topic markdown file.
+    #[must_use]
+    pub fn memory_topic(&self, scope: &ScopeName, slug: &str) -> Utf8PathBuf {
+        let filename = if slug.ends_with(".md") {
+            slug.to_string()
+        } else {
+            format!("{slug}.md")
+        };
+        self.memory_scope_dir(scope).join(filename)
+    }
+
+    /// `<hall>/memory/sessions/` — committed episodes/sessions directory under memory.
+    #[must_use]
+    pub fn memory_episodes_dir(&self) -> Utf8PathBuf {
+        self.memory_root().join("sessions")
+    }
+
+    /// `<hall>/.ivar/cache/memory.sqlite` — local cached SQLite index for memory.
+    #[must_use]
+    pub fn memory_index_db(&self) -> Utf8PathBuf {
+        self.ivar_dir().join("cache").join("memory.sqlite")
+    }
+
+    /// `<hall>/.ivar/features/<feature>/memory/inbox` — staging inbox for feature memory additions.
+    #[must_use]
+    pub fn feature_memory_inbox(&self, feature: &FeatureName) -> Utf8PathBuf {
+        self.feature_dir(feature).join("memory").join("inbox")
+    }
+
+    /// `<hall>/.ivar/features/<feature>/memory/archive` — archive of published feature memory additions.
+    #[must_use]
+    pub fn feature_memory_archive(&self, feature: &FeatureName) -> Utf8PathBuf {
+        self.feature_dir(feature).join("memory").join("archive")
+    }
+
+    /// `<hall>/.ivar/sessions/<session>/writeset.json` — session memory writeset.
+    #[must_use]
+    pub fn session_memory_writeset(&self, session: &SessionId) -> Utf8PathBuf {
+        self.discovery_session(session).join("writeset.json")
     }
 }
 
