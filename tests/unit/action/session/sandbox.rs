@@ -201,3 +201,24 @@ fn launcher_empty_command_fails_gracefully() {
     let err = result.expect_err("empty command should return error");
     assert_eq!(err.code, "sandbox.launcher_missing_command");
 }
+
+#[test]
+#[cfg(target_os = "linux")]
+fn sandbox_apply_executes_on_linux_without_error() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root.clone());
+    let feature = Feature::read(&layout, &FeatureName::new("checkout").unwrap())
+        .unwrap()
+        .unwrap();
+    let session_id = SessionId::new("6f0c9d5f-0000-4000-8000-000000000000").unwrap();
+    let view_dir = layout.feature_session(&feature.name, &session_id);
+    crate::infra::fs::ensure_dir(&view_dir).unwrap();
+
+    let set = WritableSet::from_session(&layout, &feature, &view_dir).unwrap();
+    let sandbox =
+        Sandbox::from_writable_set(&set, &layout, Some(&feature), Provider::ClaudeCode).unwrap();
+
+    // Verify apply executes successfully or yields Unavailable on kernel boundary without crashing
+    let status = sandbox.apply();
+    assert!(status.is_ok(), "sandbox.apply() failed: {:?}", status.err());
+}

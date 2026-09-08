@@ -86,7 +86,7 @@ pub fn list(ctx: &Ctx) -> Outcome<ListOutcome> {
     let git = git::System;
 
     let features_dir = layout.ivar_dir().join("features");
-    let mut features = Vec::new();
+    let mut loaded_features = Vec::new();
     if fs::is_dir(&features_dir)? {
         for entry in fs::read_dir(&features_dir)? {
             let Some(name) = entry.file_name() else {
@@ -95,11 +95,17 @@ pub fn list(ctx: &Ctx) -> Outcome<ListOutcome> {
             let Some(feature_name) = FeatureName::new(name.to_owned()).ok() else {
                 continue;
             };
-            if let Ok(Some(feature)) = Feature::read(&layout, &feature_name)
-                && let Some(summary) = summary_of(&git, &layout, &manifest, &feature)
-            {
-                features.push(summary);
+            if let Ok(Some(feature)) = Feature::read(&layout, &feature_name) {
+                loaded_features.push(feature);
             }
+        }
+    }
+
+    let map = relations::build_feature_map(&loaded_features);
+    let mut features = Vec::new();
+    for feature in &loaded_features {
+        if let Some(summary) = summary_of(&git, &layout, &manifest, &map, feature) {
+            features.push(summary);
         }
     }
     features.sort_by(|a, b| a.name.cmp(&b.name));
@@ -117,11 +123,12 @@ fn summary_of(
     git: &impl Git,
     layout: &Layout,
     manifest: &Manifest,
+    map: &std::collections::BTreeMap<&FeatureName, &Feature>,
     feature: &Feature,
 ) -> Option<FeatureSummary> {
-    let state = relations::feature_state(git, layout, manifest, feature).ok()?;
-    let depth = relations::depth(layout, feature).ok()?;
-    let blockers = relations::blocking_descendants(git, layout, manifest, feature)
+    let state = relations::feature_state_with_map(git, layout, manifest, map, feature).ok()?;
+    let depth = relations::depth_with_map(map, feature).ok()?;
+    let blockers = relations::blocking_descendants_with_map(git, layout, manifest, map, feature)
         .ok()?
         .into_iter()
         .map(|entry| format!("{} ({})", entry.feature, entry.state))
