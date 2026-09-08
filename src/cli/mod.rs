@@ -15,4 +15,7 @@
 //!
 //! `cli` may import `action` and `error` only.
 
+pub mod graph;
 pub mod root;
+
+pub use graph::{GraphArgs, GraphCommand};
