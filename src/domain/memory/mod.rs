@@ -2,8 +2,10 @@
 
 pub mod config;
 pub mod sanitizer;
+pub mod query;
 pub mod topic;
 
 pub use config::{MemoryConfig, MemoryScope, ScopeName};
 pub use sanitizer::{Sanitized, sanitize_text};
 pub use topic::{MemoryTier, MemoryTopic, TopicMetadata, TopicStatus};
+pub use query::{QueryFilter, QueryMatch, ReconcileSummary};
