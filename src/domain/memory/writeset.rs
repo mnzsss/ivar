@@ -68,7 +68,10 @@ impl MemoryWriteSet {
     /// Deserialize writeset from a JSON string.
     pub fn from_json(json: &str) -> Result<Self, Failure> {
         serde_json::from_str(json).map_err(|err| {
-            Failure::failed("memory.writeset.parse_failed", format!("invalid writeset JSON: {err}"))
+            Failure::failed(
+                "memory.writeset.parse_failed",
+                format!("invalid writeset JSON: {err}"),
+            )
         })
     }
 }

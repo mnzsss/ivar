@@ -1,9 +1,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use crate::domain::memory::config::ScopeName;
-use crate::domain::memory::topic::{
-    MemoryTier, MemoryTopic, TopicMetadata, TopicStatus,
-};
+use crate::domain::memory::topic::{MemoryTier, MemoryTopic, TopicMetadata, TopicStatus};
 
 #[test]
 fn topic_metadata_serialization_and_deserialization() {

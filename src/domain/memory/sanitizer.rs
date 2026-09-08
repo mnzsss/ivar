@@ -33,6 +33,7 @@ impl<T: AsRef<str>> AsRef<str> for Sanitized<T> {
     }
 }
 
+#[allow(clippy::expect_used)]
 static SECRET_PATTERNS: LazyLock<Vec<Regex>> = LazyLock::new(|| {
     vec![
         // GitHub Personal Access Tokens (classic and fine-grained)
@@ -57,7 +58,7 @@ static SECRET_PATTERNS: LazyLock<Vec<Regex>> = LazyLock::new(|| {
 /// Redacts secrets such as API tokens, private keys, AWS/GCP keys, and credentials.
 #[must_use]
 pub fn sanitize_text(input: &str) -> Sanitized<String> {
-    let mut result = input.to_string();
+    let mut result = input.to_owned();
     for pattern in SECRET_PATTERNS.iter() {
         result = pattern.replace_all(&result, "[REDACTED]").into_owned();
     }

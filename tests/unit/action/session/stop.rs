@@ -118,7 +118,13 @@ fn stop_ends_a_live_session_and_removes_the_view_dir() {
 
     assert!(fs::is_dir(&view_dir).unwrap());
 
-    let report = stop(&ctx, StopInput { session: Some(id.clone()) }).unwrap();
+    let report = stop(
+        &ctx,
+        StopInput {
+            session: Some(id.clone()),
+        },
+    )
+    .unwrap();
 
     assert_eq!(report.value.stopped, 1);
     assert!(
@@ -235,7 +241,9 @@ fn stop_session_commits_writeset() {
     assert_eq!(report.value.stopped, 1);
 
     // Episode markdown should exist and record the modified file
-    let episode_file = layout.memory_episodes_dir().join(format!("{session_id}.md"));
+    let episode_file = layout
+        .memory_episodes_dir()
+        .join(format!("{session_id}.md"));
     assert!(fs::is_file(&episode_file).unwrap_or(false));
     let ep_content = fs::read_text(&episode_file).unwrap().unwrap();
     assert!(ep_content.contains("memory/topics/guide.md"));

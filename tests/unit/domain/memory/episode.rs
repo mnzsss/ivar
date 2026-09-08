@@ -1,3 +1,10 @@
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing
+)]
+
 use crate::domain::memory::episode::EpisodePayload;
 use crate::domain::name::{FeatureName, SessionId};
 

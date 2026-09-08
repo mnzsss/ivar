@@ -1,3 +1,10 @@
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing
+)]
+
 use crate::domain::memory::handoff::HandoffPayload;
 use crate::domain::name::SessionId;
 
@@ -7,7 +14,7 @@ fn test_handoff_payload_sanitizes_secrets() {
     let summary = format!("Implemented auth using {raw_secret}");
     let tasks = vec![format!("Revoke token {raw_secret}")];
     let decisions = vec![format!("Do not hardcode {raw_secret}")];
-    let paths = vec!["src/main.rs".to_string()];
+    let paths = vec!["src/main.rs".to_owned()];
 
     let handoff = HandoffPayload::new(
         "handoff-1",

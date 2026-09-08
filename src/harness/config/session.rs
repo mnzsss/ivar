@@ -73,25 +73,25 @@ the hall's feature working directory (`.ivar/features/{feature}/`).
 /// `memory_block` is appended to `instructions`.
 #[must_use]
 pub(crate) fn compose_instructions_with_memory(instructions: &str, memory_block: &str) -> String {
-    if let Some(start_idx) = instructions.find(MEMORY_MANAGED_START) {
-        if let Some(end_rel) = instructions[start_idx..].find(MEMORY_MANAGED_END) {
-            let end_idx = start_idx + end_rel + MEMORY_MANAGED_END.len();
-            let before = &instructions[..start_idx];
-            let after = &instructions[end_idx..];
-            return if memory_block.is_empty() {
-                format!("{before}{after}")
-            } else {
-                format!("{before}{memory_block}{after}")
-            };
-        }
+    if let Some(start_idx) = instructions.find(MEMORY_MANAGED_START)
+        && let Some(end_rel) = instructions[start_idx..].find(MEMORY_MANAGED_END)
+    {
+        let end_idx = start_idx + end_rel + MEMORY_MANAGED_END.len();
+        let before = &instructions[..start_idx];
+        let after = &instructions[end_idx..];
+        return if memory_block.is_empty() {
+            format!("{before}{after}")
+        } else {
+            format!("{before}{memory_block}{after}")
+        };
     }
 
     if memory_block.is_empty() {
-        return instructions.to_string();
+        return instructions.to_owned();
     }
 
     if instructions.is_empty() {
-        memory_block.to_string()
+        memory_block.to_owned()
     } else {
         format!("{instructions}\n\n{memory_block}")
     }

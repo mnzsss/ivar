@@ -58,10 +58,7 @@ fn writeset_filter_existing() {
     crate::infra::fs::ensure_dir(full_existing.parent().unwrap()).unwrap();
     crate::infra::fs::write_atomic(&full_existing, b"exists").unwrap();
 
-    let set = MemoryWriteSet::new(
-        session,
-        vec![existing_rel.clone(), missing_rel],
-    );
+    let set = MemoryWriteSet::new(session, vec![existing_rel.clone(), missing_rel]);
 
     let filtered = set.filter_existing(&root);
     assert_eq!(filtered.modified_paths, vec![existing_rel]);

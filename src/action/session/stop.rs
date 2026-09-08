@@ -109,14 +109,18 @@ fn stop_single_session(layout: &Layout, session: &crate::domain::session::Sessio
     } else {
         layout.session_memory_writeset(&session.id)
     };
-    if fs::is_file(&writeset_path).unwrap_or(false) {
-        if let Ok(Some(content)) = fs::read_text(&writeset_path) {
-            if let Ok(writeset) = crate::domain::memory::writeset::MemoryWriteSet::from_json(&content) {
-                files_touched = writeset.modified_paths.iter().map(|p| p.to_string()).collect();
-                let _ = crate::git::memory_commit::auto_commit_memory(layout, &writeset);
-            } else if let Ok(parsed_files) = serde_json::from_str::<Vec<String>>(&content) {
-                files_touched = parsed_files;
-            }
+    if fs::is_file(&writeset_path).unwrap_or(false)
+        && let Ok(Some(content)) = fs::read_text(&writeset_path)
+    {
+        if let Ok(writeset) = crate::domain::memory::writeset::MemoryWriteSet::from_json(&content) {
+            files_touched = writeset
+                .modified_paths
+                .iter()
+                .map(|p| p.to_string())
+                .collect();
+            let _ = crate::git::memory_commit::auto_commit_memory(layout, &writeset);
+        } else if let Ok(parsed_files) = serde_json::from_str::<Vec<String>>(&content) {
+            files_touched = parsed_files;
         }
     }
 

@@ -8,9 +8,7 @@ use crate::domain::memory::config::{MemoryConfig, MemoryScope, ScopeName};
 use crate::domain::memory::context::{
     MEMORY_MANAGED_END, MEMORY_MANAGED_START, project_memory_symlink, render_memory_context,
 };
-use crate::domain::memory::topic::{
-    MemoryTier, MemoryTopic, TopicMetadata, TopicStatus,
-};
+use crate::domain::memory::topic::{MemoryTier, MemoryTopic, TopicMetadata, TopicStatus};
 use crate::domain::name::{FeatureName, HallName};
 use crate::domain::provider::Provider;
 use crate::store::layout::Layout;
@@ -197,7 +195,11 @@ fn budget_overflow_reports_diagnostic_warning_in_context() {
     .with_memory(Some(memory_cfg))
     .unwrap();
     let ctx = render_memory_context(&layout, &manifest, None, None).unwrap();
-    assert!(ctx.hall_block.contains("exceeds declared budget") || ctx.hall_block.contains("budget overflow") || ctx.hall_block.contains("propose condensation"));
+    assert!(
+        ctx.hall_block.contains("exceeds declared budget")
+            || ctx.hall_block.contains("budget overflow")
+            || ctx.hall_block.contains("propose condensation")
+    );
 }
 
 #[test]

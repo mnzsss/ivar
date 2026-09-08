@@ -22,6 +22,16 @@ pub struct MemoryIndex {
     db_path: Utf8PathBuf,
 }
 
+/// Top-level helper to reconcile or rebuild the SQLite FTS index.
+pub fn reconcile_fts_index(layout: &Layout, rebuild: bool) -> Result<ReconcileSummary, Failure> {
+    let index = MemoryIndex::open(layout)?;
+    if rebuild {
+        index.rebuild(layout)
+    } else {
+        index.reconcile(layout)
+    }
+}
+
 impl MemoryIndex {
     /// Open or create the memory index at `layout.memory_index_db()`.
     pub fn open(layout: &Layout) -> Result<Self, Failure> {
@@ -34,19 +44,13 @@ impl MemoryIndex {
     pub fn reconcile(&self, layout: &Layout) -> Result<ReconcileSummary, Failure> {
         match self.reconcile_inner(layout) {
             Ok(summary) => Ok(summary),
-            Err(err) if Self::is_corruption_error(&err) => {
-                self.rebuild(layout)
-            }
+            Err(err) if Self::is_corruption_error(&err) => self.rebuild(layout),
             Err(err) => Err(err),
         }
     }
 
     /// Execute a full-text search query across indexed documents.
-    pub fn query(
-        &self,
-        query: &str,
-        filter: &QueryFilter,
-    ) -> Result<Vec<QueryMatch>, Failure> {
+    pub fn query(&self, query: &str, filter: &QueryFilter) -> Result<Vec<QueryMatch>, Failure> {
         let formatted_query = format_fts5_query(query);
         if formatted_query.is_empty() {
             return Ok(Vec::new());
@@ -217,7 +221,7 @@ impl MemoryIndex {
                     let topic = read_topic(layout, &scope, slug)?;
                     let content_hash = hash::file(&file_path).map_err(Into::<Failure>::into)?;
                     let rel_path = format!("memory/{}/{}.md", scope.as_str(), slug);
-                    let key = (scope.as_str().to_string(), slug.to_string());
+                    let key = (scope.as_str().to_owned(), slug.to_owned());
 
                     if let Some(old_hash) = existing.remove(&key) {
                         if old_hash != content_hash {

@@ -52,7 +52,7 @@ impl EpisodePayload {
     pub fn render_markdown(&self) -> String {
         let feature_line = match &self.feature {
             Some(f) => format!("- **Feature**: `{f}`"),
-            None => "- **Feature**: _(discovery / none)_".to_string(),
+            None => "- **Feature**: _(discovery / none)_".to_owned(),
         };
 
         let mut lines = Vec::new();
@@ -62,14 +62,14 @@ impl EpisodePayload {
         lines.push(format!("- **Started**: {}", self.started));
         lines.push(format!("- **Stopped**: {}", self.stopped));
         lines.push(String::new());
-        lines.push("## Summary".to_string());
+        lines.push("## Summary".to_owned());
         lines.push(String::new());
-        lines.push(self.summary.trim().to_string());
+        lines.push(self.summary.trim().to_owned());
         lines.push(String::new());
-        lines.push("## Files Touched".to_string());
+        lines.push("## Files Touched".to_owned());
         lines.push(String::new());
         if self.files_touched.is_empty() {
-            lines.push("_(none)_".to_string());
+            lines.push("_(none)_".to_owned());
         } else {
             for file in &self.files_touched {
                 lines.push(format!("- `{file}`"));

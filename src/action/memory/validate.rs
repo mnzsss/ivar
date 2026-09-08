@@ -76,7 +76,10 @@ pub fn validate(ctx: &Ctx, _input: MemoryValidateInput) -> Outcome<MemoryValidat
                 for entry in entries.flatten() {
                     let path = entry.path();
                     if path.extension().is_some_and(|ext| ext == "md") {
-                        let file_stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or_default();
+                        let file_stem = path
+                            .file_stem()
+                            .and_then(|s| s.to_str())
+                            .unwrap_or_default();
                         // Validate and read topic
                         let topic = read_topic(&layout, &scope.id, file_stem)?;
                         topics_checked += 1;

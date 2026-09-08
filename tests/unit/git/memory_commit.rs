@@ -67,14 +67,14 @@ fn auto_commit_memory_preserves_staging_area() {
     crate::infra::fs::write_atomic(&mem_file, b"memory content").unwrap();
 
     let session = SessionId::new("00000000-0000-0000-0000-000000000001").unwrap();
-    let writeset = MemoryWriteSet::new(
-        session,
-        vec![Utf8PathBuf::from("memory/topics/test.md")],
-    );
+    let writeset = MemoryWriteSet::new(session, vec![Utf8PathBuf::from("memory/topics/test.md")]);
 
     let outcome = auto_commit_memory(&layout, &writeset).expect("auto commit memory");
     assert!(outcome.commit_sha.is_some());
-    assert_eq!(outcome.committed_paths, vec![Utf8PathBuf::from("memory/topics/test.md")]);
+    assert_eq!(
+        outcome.committed_paths,
+        vec![Utf8PathBuf::from("memory/topics/test.md")]
+    );
     assert!(!outcome.retry_pending);
 
     // Verify staged_unrelated.txt is still staged in primary index
@@ -139,10 +139,7 @@ fn auto_commit_memory_cas_concurrency() {
     crate::infra::fs::write_atomic(&mem_file, b"memory content").unwrap();
 
     let session = SessionId::new("00000000-0000-0000-0000-000000000001").unwrap();
-    let writeset = MemoryWriteSet::new(
-        session,
-        vec![Utf8PathBuf::from("memory/topics/test.md")],
-    );
+    let writeset = MemoryWriteSet::new(session, vec![Utf8PathBuf::from("memory/topics/test.md")]);
 
     // Initial commit succeeds
     let outcome = auto_commit_memory(&layout, &writeset).unwrap();

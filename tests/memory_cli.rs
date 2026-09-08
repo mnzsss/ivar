@@ -49,7 +49,11 @@ fn memory_reindex_and_validate_cli() {
     let (_guard, root) = hall_root();
 
     ivar().current_dir(&root).arg("init").assert().success();
-    ivar().current_dir(&root).args(["memory", "init"]).assert().success();
+    ivar()
+        .current_dir(&root)
+        .args(["memory", "init"])
+        .assert()
+        .success();
 
     let scope_dir = root.join("memory/tech");
     std::fs::create_dir_all(&scope_dir).unwrap();

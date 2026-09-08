@@ -3,14 +3,14 @@
 //! Renders deterministic, bounded memory blocks for prompt injection (inside
 //! managed markers `<!-- ivar:memory:start -->` and `<!-- ivar:memory:end -->`)
 //! and manages session-view projection of the canonical `memory/` directory.
-use camino::Utf8Path;
-use serde::{Deserialize, Serialize};
 use crate::domain::name::FeatureName;
 use crate::error::Failure;
 use crate::infra::fs;
 use crate::store::layout::Layout;
 use crate::store::manifest::Manifest;
 use crate::store::memory::document::read_topic;
+use camino::Utf8Path;
+use serde::{Deserialize, Serialize};
 
 /// Marker opening the ivar-managed memory region in instructions.
 pub const MEMORY_MANAGED_START: &str = "<!-- ivar:memory:start -->";
@@ -50,10 +50,10 @@ impl MemoryContext {
         if !self.feature_block.is_empty() {
             sections.push(self.feature_block.clone());
         }
-        if let Some(hot) = &self.hot_block {
-            if !hot.is_empty() {
-                sections.push(hot.clone());
-            }
+        if let Some(hot) = &self.hot_block
+            && !hot.is_empty()
+        {
+            sections.push(hot.clone());
         }
 
         if sections.is_empty() {
@@ -102,7 +102,7 @@ pub fn render_memory_context(
                 ));
             }
 
-            rendered_scopes.push(scope_text.trim_end().to_string());
+            rendered_scopes.push(scope_text.trim_end().to_owned());
         }
 
         if !rendered_scopes.is_empty() {
@@ -110,9 +110,7 @@ pub fn render_memory_context(
             total_chars += content.chars().count();
             hall_block = format!(
                 "{}\n## Shared Memory (Hall Context)\n\n{}\n{}",
-                MEMORY_MANAGED_START,
-                content,
-                MEMORY_MANAGED_END
+                MEMORY_MANAGED_START, content, MEMORY_MANAGED_END
             );
         }
     }

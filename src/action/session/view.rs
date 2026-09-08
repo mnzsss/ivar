@@ -123,7 +123,6 @@ pub(crate) fn materialise(
     // Project memory symlink if canonical memory root exists
     crate::domain::memory::project_memory_symlink(layout, view_dir)?;
 
-
     // The harness config dir — `.claude/` for claude-code, `.opencode/` for
     // opencode, `.omp/` for omp — is a real directory inside the view dir, never
     // a symlink to the hall's own (see the module doc for why). Surfaces
@@ -211,7 +210,11 @@ fn materialise_session_instructions(
         if !claimed.is_empty() {
             let mut parts = Vec::new();
             for handoff in claimed {
-                let mut section = format!("### Handoff from Session `{}`\n\n{}\n", handoff.source_session, handoff.summary.trim());
+                let mut section = format!(
+                    "### Handoff from Session `{}`\n\n{}\n",
+                    handoff.source_session,
+                    handoff.summary.trim()
+                );
                 if !handoff.open_tasks.is_empty() {
                     section.push_str("\n#### Open Tasks\n");
                     for task in &handoff.open_tasks {
@@ -230,7 +233,7 @@ fn materialise_session_instructions(
                         section.push_str(&format!("- `{path}`\n"));
                     }
                 }
-                parts.push(section.trim_end().to_string());
+                parts.push(section.trim_end().to_owned());
             }
             hot_handoff_content = Some(parts.join("\n\n"));
         }

@@ -449,15 +449,42 @@ fn memory_accessors_compute_the_documented_paths() {
     let layout = Layout::at("/hall");
     let scope = crate::domain::memory::ScopeName::new("architecture").unwrap();
     let feature = FeatureName::new("shared-memory").unwrap();
-    let session = crate::domain::name::SessionId::new("6f1d9e64-0d1a-4f2b-9a5c-2b7e1d4c8a33").unwrap();
+    let session =
+        crate::domain::name::SessionId::new("6f1d9e64-0d1a-4f2b-9a5c-2b7e1d4c8a33").unwrap();
 
     assert_eq!(layout.memory_root(), Utf8PathBuf::from("/hall/memory"));
-    assert_eq!(layout.memory_scope_dir(&scope), Utf8PathBuf::from("/hall/memory/architecture"));
-    assert_eq!(layout.memory_topic(&scope, "adr-001"), Utf8PathBuf::from("/hall/memory/architecture/adr-001.md"));
-    assert_eq!(layout.memory_topic(&scope, "adr-001.md"), Utf8PathBuf::from("/hall/memory/architecture/adr-001.md"));
-    assert_eq!(layout.memory_episodes_dir(), Utf8PathBuf::from("/hall/memory/sessions"));
-    assert_eq!(layout.memory_index_db(), Utf8PathBuf::from("/hall/.ivar/cache/memory.sqlite"));
-    assert_eq!(layout.feature_memory_inbox(&feature), Utf8PathBuf::from("/hall/.ivar/features/shared-memory/memory/inbox"));
-    assert_eq!(layout.feature_memory_archive(&feature), Utf8PathBuf::from("/hall/.ivar/features/shared-memory/memory/archive"));
-    assert_eq!(layout.session_memory_writeset(&session), Utf8PathBuf::from("/hall/.ivar/sessions/6f1d9e64-0d1a-4f2b-9a5c-2b7e1d4c8a33/writeset.json"));
+    assert_eq!(
+        layout.memory_scope_dir(&scope),
+        Utf8PathBuf::from("/hall/memory/architecture")
+    );
+    assert_eq!(
+        layout.memory_topic(&scope, "adr-001"),
+        Utf8PathBuf::from("/hall/memory/architecture/adr-001.md")
+    );
+    assert_eq!(
+        layout.memory_topic(&scope, "adr-001.md"),
+        Utf8PathBuf::from("/hall/memory/architecture/adr-001.md")
+    );
+    assert_eq!(
+        layout.memory_episodes_dir(),
+        Utf8PathBuf::from("/hall/memory/sessions")
+    );
+    assert_eq!(
+        layout.memory_index_db(),
+        Utf8PathBuf::from("/hall/.ivar/cache/memory.sqlite")
+    );
+    assert_eq!(
+        layout.feature_memory_inbox(&feature),
+        Utf8PathBuf::from("/hall/.ivar/features/shared-memory/memory/inbox")
+    );
+    assert_eq!(
+        layout.feature_memory_archive(&feature),
+        Utf8PathBuf::from("/hall/.ivar/features/shared-memory/memory/archive")
+    );
+    assert_eq!(
+        layout.session_memory_writeset(&session),
+        Utf8PathBuf::from(
+            "/hall/.ivar/sessions/6f1d9e64-0d1a-4f2b-9a5c-2b7e1d4c8a33/writeset.json"
+        )
+    );
 }

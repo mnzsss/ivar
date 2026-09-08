@@ -8,38 +8,30 @@ use crate::infra::fs::{self, SymlinkTarget};
 use crate::store::layout::Layout;
 
 /// Read a canonical topic from disk.
-pub fn read_topic(
-    layout: &Layout,
-    scope: &ScopeName,
-    slug: &str,
-) -> Result<MemoryTopic, Failure> {
+pub fn read_topic(layout: &Layout, scope: &ScopeName, slug: &str) -> Result<MemoryTopic, Failure> {
     validate_slug(slug)?;
     let path = layout.memory_topic(scope, slug);
 
     match fs::read_symlink(&path) {
         Ok(SymlinkTarget::Target(target)) => {
-            return Err(
-                Failure::blocked(
-                    "memory_topic.symlink_rejected",
-                    format!("memory topic at '{path}' is a symlink to '{target}'"),
-                )
-                .fix(FixAction::unsafe_(
-                    "replace_symlink",
-                    "Replace the symlink with a canonical regular file.",
-                )),
-            );
+            return Err(Failure::blocked(
+                "memory_topic.symlink_rejected",
+                format!("memory topic at '{path}' is a symlink to '{target}'"),
+            )
+            .fix(FixAction::unsafe_(
+                "replace_symlink",
+                "Replace the symlink with a canonical regular file.",
+            )));
         }
         Ok(SymlinkTarget::Absent) => {
-            return Err(
-                Failure::blocked(
-                    "memory_topic.not_found",
-                    format!("memory topic '{slug}' does not exist in scope '{scope}'"),
-                )
-                .fix(FixAction::safe(
-                    "create_topic",
-                    "Create the topic before reading.",
-                )),
-            );
+            return Err(Failure::blocked(
+                "memory_topic.not_found",
+                format!("memory topic '{slug}' does not exist in scope '{scope}'"),
+            )
+            .fix(FixAction::safe(
+                "create_topic",
+                "Create the topic before reading.",
+            )));
         }
         Ok(SymlinkTarget::NotASymlink) => {}
         Err(err) => {
@@ -53,16 +45,14 @@ pub fn read_topic(
     let text = match fs::read_text(&path) {
         Ok(Some(text)) => text,
         Ok(None) => {
-            return Err(
-                Failure::blocked(
-                    "memory_topic.not_found",
-                    format!("memory topic '{slug}' does not exist in scope '{scope}'"),
-                )
-                .fix(FixAction::safe(
-                    "create_topic",
-                    "Create the topic before reading.",
-                )),
-            );
+            return Err(Failure::blocked(
+                "memory_topic.not_found",
+                format!("memory topic '{slug}' does not exist in scope '{scope}'"),
+            )
+            .fix(FixAction::safe(
+                "create_topic",
+                "Create the topic before reading.",
+            )));
         }
         Err(err) => {
             return Err(Failure::failed(
@@ -84,16 +74,14 @@ pub fn read_topic(
     })?;
 
     if split.frontmatter.is_none() {
-        return Err(
-            Failure::blocked(
-                "memory_topic.missing_frontmatter",
-                format!("missing frontmatter in topic '{path}'"),
-            )
-            .fix(FixAction::safe(
-                "add_frontmatter",
-                "Add frontmatter header delimited by '---'.",
-            )),
-        );
+        return Err(Failure::blocked(
+            "memory_topic.missing_frontmatter",
+            format!("missing frontmatter in topic '{path}'"),
+        )
+        .fix(FixAction::safe(
+            "add_frontmatter",
+            "Add frontmatter header delimited by '---'.",
+        )));
     }
 
     let metadata: TopicMetadata = frontmatter::parse(&text).map_err(|err| {
@@ -107,7 +95,7 @@ pub fn read_topic(
         ))
     })?;
 
-    let body = split.body.to_string();
+    let body = split.body.to_owned();
 
     Ok(MemoryTopic {
         metadata,
@@ -127,16 +115,14 @@ pub fn write_topic(
 
     match fs::read_symlink(&path) {
         Ok(SymlinkTarget::Target(target)) => {
-            return Err(
-                Failure::blocked(
-                    "memory_topic.symlink_rejected",
-                    format!("memory topic at '{path}' is a symlink to '{target}'"),
-                )
-                .fix(FixAction::unsafe_(
-                    "refuse_symlink",
-                    "Refusing to write to a symlink.",
-                )),
-            );
+            return Err(Failure::blocked(
+                "memory_topic.symlink_rejected",
+                format!("memory topic at '{path}' is a symlink to '{target}'"),
+            )
+            .fix(FixAction::unsafe_(
+                "refuse_symlink",
+                "Refusing to write to a symlink.",
+            )));
         }
         Ok(SymlinkTarget::Absent | SymlinkTarget::NotASymlink) => {}
         Err(err) => {
@@ -173,26 +159,20 @@ pub fn write_topic(
 }
 
 /// Delete a canonical topic from disk.
-pub fn delete_topic(
-    layout: &Layout,
-    scope: &ScopeName,
-    slug: &str,
-) -> Result<(), Failure> {
+pub fn delete_topic(layout: &Layout, scope: &ScopeName, slug: &str) -> Result<(), Failure> {
     validate_slug(slug)?;
     let path = layout.memory_topic(scope, slug);
 
     match fs::read_symlink(&path) {
         Ok(SymlinkTarget::Target(target)) => {
-            return Err(
-                Failure::blocked(
-                    "memory_topic.symlink_rejected",
-                    format!("memory topic at '{path}' is a symlink to '{target}'"),
-                )
-                .fix(FixAction::unsafe_(
-                    "refuse_symlink_delete",
-                    "Refusing to delete a symlink blindly.",
-                )),
-            );
+            return Err(Failure::blocked(
+                "memory_topic.symlink_rejected",
+                format!("memory topic at '{path}' is a symlink to '{target}'"),
+            )
+            .fix(FixAction::unsafe_(
+                "refuse_symlink_delete",
+                "Refusing to delete a symlink blindly.",
+            )));
         }
         Ok(SymlinkTarget::Absent) => {
             // Deleting a non-existent file is success

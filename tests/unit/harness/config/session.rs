@@ -81,10 +81,7 @@ fn compose_instructions_appends_memory_when_markers_absent() {
     let base = "# Hall standing instructions\n\n- rule 1";
     let memory = "<!-- ivar:memory:start -->\n## Shared Memory\n<!-- ivar:memory:end -->";
     let composed = compose_instructions_with_memory(base, memory);
-    assert_eq!(
-        composed,
-        format!("{base}\n\n{memory}")
-    );
+    assert_eq!(composed, format!("{base}\n\n{memory}"));
 }
 
 #[test]
@@ -94,13 +91,11 @@ fn compose_instructions_preserves_content_outside_markers_byte_exact() {
     let after = "\n\n# Suffix content\n- do not modify";
     let full = format!("{before}{old_memory}{after}");
 
-    let new_memory = "<!-- ivar:memory:start -->\nNew shared memory content\n<!-- ivar:memory:end -->";
+    let new_memory =
+        "<!-- ivar:memory:start -->\nNew shared memory content\n<!-- ivar:memory:end -->";
     let composed = compose_instructions_with_memory(&full, new_memory);
 
-    assert_eq!(
-        composed,
-        format!("{before}{new_memory}{after}")
-    );
+    assert_eq!(composed, format!("{before}{new_memory}{after}"));
 }
 
 #[test]

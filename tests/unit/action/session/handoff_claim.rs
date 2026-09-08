@@ -1,4 +1,5 @@
-use camino::Utf8PathBuf;
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
 use crate::action::Ctx;
 use crate::action::feature::create::{self as feature_create, CreateInput};
 use crate::action::feature::promote::{self as feature_promote, PromoteInput};
@@ -12,6 +13,7 @@ use crate::store::layout::Layout;
 use crate::store::manifest::{Manifest, Providers, Repo};
 use crate::store::memory::handoff::persist_handoff;
 use crate::test_support::{hall_root, seeded_repo};
+use camino::Utf8PathBuf;
 
 fn setup_hall_with_feature() -> (tempfile::TempDir, Utf8PathBuf, FeatureName) {
     let (guard, root) = hall_root();
@@ -80,13 +82,18 @@ fn test_view_materialise_claims_handoffs_and_injects_hot_memory() {
         "handoff-xyz",
         SessionId::new("33333333-3333-3333-3333-333333333333").unwrap(),
         "Finished refactoring checkout models",
-        vec!["Add integration tests".to_string()],
-        vec!["Use Postgres JSONB".to_string()],
-        vec!["src/models.rs".to_string()],
+        vec!["Add integration tests".to_owned()],
+        vec!["Use Postgres JSONB".to_owned()],
+        vec!["src/models.rs".to_owned()],
     );
     persist_handoff(&layout, &feature_name, &handoff).unwrap();
 
-    assert!(layout.feature_memory_inbox(&feature_name).join("handoff-xyz.json").exists());
+    assert!(
+        layout
+            .feature_memory_inbox(&feature_name)
+            .join("handoff-xyz.json")
+            .exists()
+    );
 
     // Start a new session on this feature
     let started = session_start::start(
@@ -102,8 +109,18 @@ fn test_view_materialise_claims_handoffs_and_injects_hot_memory() {
     .unwrap();
 
     // The handoff should have been claimed and moved to archive
-    assert!(!layout.feature_memory_inbox(&feature_name).join("handoff-xyz.json").exists());
-    assert!(layout.feature_memory_archive(&feature_name).join("handoff-xyz.json").exists());
+    assert!(
+        !layout
+            .feature_memory_inbox(&feature_name)
+            .join("handoff-xyz.json")
+            .exists()
+    );
+    assert!(
+        layout
+            .feature_memory_archive(&feature_name)
+            .join("handoff-xyz.json")
+            .exists()
+    );
 
     // Check instruction file in session view dir
     let session_id = SessionId::new(started.value.session_id).unwrap();

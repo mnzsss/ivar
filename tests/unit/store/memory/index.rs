@@ -1,13 +1,16 @@
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing
+)]
 
 use camino::Utf8PathBuf;
 use tempfile::tempdir;
 
 use crate::domain::memory::config::ScopeName;
 use crate::domain::memory::query::QueryFilter;
-use crate::domain::memory::topic::{
-    MemoryTier, MemoryTopic, TopicMetadata, TopicStatus,
-};
+use crate::domain::memory::topic::{MemoryTier, MemoryTopic, TopicMetadata, TopicStatus};
 use crate::infra::fs;
 use crate::store::layout::Layout;
 use crate::store::memory::document::{delete_topic, write_topic};
@@ -43,7 +46,9 @@ fn index_reconciles_canonical_documents_and_executes_fts5_queries() {
         scope: None,
         limit: 10,
     };
-    let results = index.query("FTS5 full-text", &filter).expect("query failed");
+    let results = index
+        .query("FTS5 full-text", &filter)
+        .expect("query failed");
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].title, "Storage Engine");
     assert!(results[0].snippet.contains("full-text"));

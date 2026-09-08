@@ -161,7 +161,6 @@ pub(crate) fn discover_hall(ctx: &Ctx) -> Result<Layout, Failure> {
 /// Default shell interpreter for running setup scripts.
 pub(crate) const SETUP_INTERPRETER: &str = "/bin/sh";
 
-
 /// The `IVAR_*` environment core every worktree-scoped command shares: the
 /// five variables ARCHITECTURE.md's "Environment contract" table checks in
 /// both the setup-script and session-hook columns.

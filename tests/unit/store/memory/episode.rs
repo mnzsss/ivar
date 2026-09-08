@@ -1,3 +1,5 @@
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
 use crate::domain::memory::episode::EpisodePayload;
 use crate::domain::name::{FeatureName, SessionId};
 use crate::infra::fs;
@@ -17,12 +19,14 @@ fn test_persist_episode() {
         "2026-09-08T10:00:00Z",
         "2026-09-08T11:00:00Z",
         "Completed task 6",
-        vec!["src/lib.rs".to_string()],
+        vec!["src/lib.rs".to_owned()],
     );
 
     persist_episode(&layout, &episode).unwrap();
 
-    let episode_path = layout.memory_episodes_dir().join("11111111-1111-1111-1111-111111111111.md");
+    let episode_path = layout
+        .memory_episodes_dir()
+        .join("11111111-1111-1111-1111-111111111111.md");
     assert!(episode_path.exists());
 
     let content = fs::read_text(&episode_path).unwrap().unwrap();

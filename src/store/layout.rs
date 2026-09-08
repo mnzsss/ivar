@@ -594,6 +594,11 @@ impl Layout {
     pub fn memory_root(&self) -> Utf8PathBuf {
         self.root.join("memory")
     }
+    /// `<hall>/memory/` — alias for `memory_root()`.
+    #[must_use]
+    pub fn memory_dir(&self) -> Utf8PathBuf {
+        self.memory_root()
+    }
 
     /// `<hall>/memory/<scope>/` — directory for a specific memory scope.
     #[must_use]
@@ -605,7 +610,7 @@ impl Layout {
     #[must_use]
     pub fn memory_topic(&self, scope: &ScopeName, slug: &str) -> Utf8PathBuf {
         let filename = if slug.ends_with(".md") {
-            slug.to_string()
+            slug.to_owned()
         } else {
             format!("{slug}.md")
         };

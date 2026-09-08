@@ -4,9 +4,7 @@ use camino::Utf8PathBuf;
 use tempfile::tempdir;
 
 use crate::domain::memory::config::ScopeName;
-use crate::domain::memory::topic::{
-    MemoryTier, MemoryTopic, TopicMetadata, TopicStatus,
-};
+use crate::domain::memory::topic::{MemoryTier, MemoryTopic, TopicMetadata, TopicStatus};
 use crate::infra::fs;
 use crate::store::layout::Layout;
 use crate::store::memory::document::{delete_topic, read_topic, write_topic};

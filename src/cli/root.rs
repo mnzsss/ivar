@@ -1849,7 +1849,6 @@ impl From<MemoryValidateArgs> for memory_validate::MemoryValidateInput {
     }
 }
 
-
 /// Colour control for the root command. See [`Cli::color`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum ColorMode {

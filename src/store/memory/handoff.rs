@@ -49,7 +49,7 @@ pub fn claim_pending_handoffs(
     let entries = fs::read_dir(&inbox_dir)?;
 
     for entry in entries {
-        let Some(file_name) = entry.file_name().map(|s| s.to_string()) else {
+        let Some(file_name) = entry.file_name().map(|s| s.to_owned()) else {
             continue;
         };
         if !file_name.ends_with(".json") {
@@ -68,11 +68,10 @@ pub fn claim_pending_handoffs(
             return Err(Failure::from(err));
         }
 
-        if let Some(content) = fs::read_text(&target_path)? {
-            match serde_json::from_str::<HandoffPayload>(&content) {
-                Ok(payload) => claimed.push(payload),
-                Err(_) => {}
-            }
+        if let Some(content) = fs::read_text(&target_path)?
+            && let Ok(payload) = serde_json::from_str::<HandoffPayload>(&content)
+        {
+            claimed.push(payload)
         }
     }
 

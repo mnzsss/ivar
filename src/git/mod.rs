@@ -39,9 +39,9 @@
 pub mod credential;
 pub(crate) mod error;
 pub(crate) mod exec;
+pub mod memory_commit;
 pub(crate) mod protect;
 pub(crate) mod read;
-pub mod memory_commit;
 
 pub use self::error::Error;
 pub use self::protect::Protection;
