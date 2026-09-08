@@ -14,7 +14,7 @@ use camino::{Utf8Path, Utf8PathBuf};
 
 use crate::infra::{fs, hash};
 
-use super::{BlobEvidence, CommitInfo, Divergence, Error, TargetState};
+use super::{BlobEvidence, CommitInfo, Divergence, Error, TargetState, WorktreeDiff};
 
 /// What is at `path`: a repository, something git does not recognise, or
 /// nothing.
@@ -364,6 +364,116 @@ fn open(path: &Utf8Path) -> Result<git2::Repository, Error> {
     git2::Repository::open(path).map_err(|source| Error::NotARepository {
         path: path.to_path_buf(),
         detail: source.message().to_owned(),
+    })
+}
+
+/// Whether git ignores `path` inside the worktree at `worktree` according to
+/// its `.gitignore` rules and git attributes.
+pub(crate) fn is_path_ignored(worktree: &Utf8Path, path: &Utf8Path) -> Result<bool, Error> {
+    let repository = open(worktree)?;
+    repository
+        .is_path_ignored(path.as_std_path())
+        .map_err(|source| Error::Refused {
+            command: format!("git -C {worktree} check-ignore {path}"),
+            detail: source.message().to_owned(),
+        })
+}
+
+/// Differences between a base commit's tree (or empty tree if `since_commit` is `None`)
+/// and the current working directory, including untracked files.
+pub(crate) fn diff_worktree_files(
+    worktree: &Utf8Path,
+    since_commit: Option<&str>,
+) -> Result<WorktreeDiff, Error> {
+    let repository = open(worktree)?;
+
+    let base_tree = if let Some(commit_ref) = since_commit {
+        let oid = resolve(&repository, worktree, commit_ref)?;
+        let commit = repository
+            .find_commit(oid)
+            .map_err(|source| Error::Refused {
+                command: format!("git -C {worktree} cat-file commit {oid}"),
+                detail: source.message().to_owned(),
+            })?;
+        Some(commit.tree().map_err(|source| Error::Refused {
+            command: format!("git -C {worktree} rev-parse {oid}^{{tree}}"),
+            detail: source.message().to_owned(),
+        })?)
+    } else {
+        None
+    };
+
+    let mut diff_opts = git2::DiffOptions::new();
+    diff_opts.include_untracked(true);
+    diff_opts.recurse_untracked_dirs(true);
+
+    let diff = repository
+        .diff_tree_to_workdir_with_index(base_tree.as_ref(), Some(&mut diff_opts))
+        .map_err(|source| Error::Refused {
+            command: format!("git -C {worktree} diff"),
+            detail: source.message().to_owned(),
+        })?;
+
+    let mut modified_or_added = Vec::new();
+    let mut deleted = Vec::new();
+    let mut seen_added = std::collections::HashSet::new();
+    let mut seen_deleted = std::collections::HashSet::new();
+
+    diff.foreach(
+        &mut |delta, _| {
+            match delta.status() {
+                git2::Delta::Deleted => {
+                    if let Some(path) = delta.old_file().path()
+                        && let Some(utf8) = Utf8Path::from_path(path)
+                        && seen_deleted.insert(utf8.to_path_buf())
+                    {
+                        deleted.push(utf8.to_path_buf());
+                    }
+                }
+                git2::Delta::Renamed => {
+                    if let Some(old_path) = delta.old_file().path()
+                        && let Some(utf8) = Utf8Path::from_path(old_path)
+                        && seen_deleted.insert(utf8.to_path_buf())
+                    {
+                        deleted.push(utf8.to_path_buf());
+                    }
+                    if let Some(new_path) = delta.new_file().path()
+                        && let Some(utf8) = Utf8Path::from_path(new_path)
+                        && !repository.is_path_ignored(new_path).unwrap_or(false)
+                        && seen_added.insert(utf8.to_path_buf())
+                    {
+                        modified_or_added.push(utf8.to_path_buf());
+                    }
+                }
+                git2::Delta::Added
+                | git2::Delta::Modified
+                | git2::Delta::Untracked
+                | git2::Delta::Typechange
+                | git2::Delta::Copied => {
+                    if let Some(new_path) = delta.new_file().path()
+                        && let Some(utf8) = Utf8Path::from_path(new_path)
+                        && !repository.is_path_ignored(new_path).unwrap_or(false)
+                        && seen_added.insert(utf8.to_path_buf())
+                    {
+                        modified_or_added.push(utf8.to_path_buf());
+                    }
+                }
+                _ => {}
+            }
+            true
+        },
+        None,
+        None,
+        None,
+    )
+    .map_err(|source| Error::Refused {
+        command: format!("git -C {worktree} diff foreach"),
+        detail: source.message().to_owned(),
+    })?;
+
+    Ok(WorktreeDiff {
+        modified_or_added,
+        deleted,
     })
 }
 

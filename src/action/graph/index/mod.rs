@@ -4,19 +4,20 @@
 //! commit OID, parses modified/added files via Tree-sitter, deletes obsolete files/symbols/edges,
 //! and updates dangling references in SQLite.
 
-pub mod git;
 pub mod types;
 
 use std::collections::HashSet;
 use std::path::Path;
 use std::time::Instant;
 
+use camino::Utf8Path;
+
+use crate::git::Git;
 use crate::infra::graph::parser::SupportedLanguage;
 use crate::infra::hash;
 use crate::infra::progress::Progress;
 use crate::store::graph::db::GraphDb;
 use crate::store::graph::extractor::extract_file;
-pub use git::*;
 pub use types::*;
 
 /// Incrementally indexes a git repository into the GraphDb.
@@ -37,22 +38,26 @@ pub fn index_repo(
     progress: &dyn Progress,
 ) -> Result<IndexOutcome, IndexError> {
     let start_time = Instant::now();
-    let git_repo = git2::Repository::open(repo_path)?;
+    let git = crate::git::System;
+    let repo_utf8 = Utf8Path::from_path(repo_path).ok_or_else(|| {
+        crate::git::Error::NotUtf8 {
+            display: repo_path.to_string_lossy().to_string(),
+        }
+    })?;
 
-    let default_branch = git_repo
-        .head()
-        .ok()
-        .and_then(|h| h.shorthand().ok().map(String::from))
-        .unwrap_or_else(|| "main".to_owned());
+    let default_branch = git
+        .head_branch(repo_utf8)
+        .unwrap_or_else(|_| "main".to_owned());
     db.insert_repo(repo_id, &repo_path.to_string_lossy(), &default_branch, None)?;
 
-    let head_oid = get_head_oid(&git_repo);
-    let head_oid_str = head_oid.map(|o| o.to_string());
+    let head_commit = git.head_commit(repo_utf8).ok();
     let last_indexed = db.get_repo_last_commit(repo_id)?;
 
+    // Fast Path: HEAD unchanged and working tree clean
     if !force_full
-        && let (Some(oid), Some(last_commit_str)) = (head_oid, &last_indexed)
-        && is_up_to_date(&git_repo, oid, last_commit_str)?
+        && let (Some(head_sha), Some(last_commit_str)) = (&head_commit, &last_indexed)
+        && head_sha == last_commit_str
+        && !git.worktree_dirty(repo_utf8).unwrap_or(true)
     {
         let duration_ms = start_time.elapsed().as_millis() as u64;
         return Ok(IndexOutcome {
@@ -70,10 +75,50 @@ pub fn index_repo(
     let mut files_to_delete = Vec::new();
 
     if !force_full && let Some(last_head_str) = &last_indexed {
-        let (diff_index, diff_delete) = compute_git_diff(&git_repo, last_head_str)?;
-        files_to_index = diff_index;
-        files_to_delete = diff_delete;
-    } else {
+        match git.diff_worktree_files(repo_utf8, Some(last_head_str)) {
+            Ok(diff) => {
+                for p in diff.modified_or_added {
+                    let p_std = p.as_std_path();
+                    if is_supported_file(p_std) && !is_ignored_path(p_std) {
+                        files_to_index.push(p.to_string());
+                    }
+                }
+                for p in diff.deleted {
+                    let p_std = p.as_std_path();
+                    if is_supported_file(p_std) && !is_ignored_path(p_std) {
+                        files_to_delete.push(p.to_string());
+                    }
+                }
+                if let Some(head_sha) = &head_commit
+                    && head_sha == last_head_str
+                    && files_to_index.is_empty()
+                    && files_to_delete.is_empty()
+                {
+                    let duration_ms = start_time.elapsed().as_millis() as u64;
+                    return Ok(IndexOutcome {
+                        repo: repo_id.to_owned(),
+                        files_indexed: 0,
+                        files_deleted: 0,
+                        symbols_indexed: 0,
+                        edges_indexed: 0,
+                        duration_ms,
+                        skipped_up_to_date: true,
+                    });
+                }
+            }
+            Err(_) => {
+                files_to_index.clear();
+                files_to_delete.clear();
+            }
+        }
+    }
+
+    if force_full
+        || last_indexed.is_none()
+        || (files_to_index.is_empty()
+            && files_to_delete.is_empty()
+            && !matches!(&head_commit, Some(h) if last_indexed.as_deref() == Some(h)))
+    {
         db.delete_repo_files(repo_id)?;
         let mut seen = HashSet::new();
 
@@ -86,7 +131,8 @@ pub fn index_repo(
                 && let Ok(rel) = entry.path().strip_prefix(repo_path)
                 && is_supported_file(rel)
                 && !is_ignored_path(rel)
-                && !git_repo.is_path_ignored(rel).unwrap_or(false)
+                && let Some(rel_utf8) = Utf8Path::from_path(rel)
+                && !git.is_path_ignored(repo_utf8, rel_utf8).unwrap_or(false)
             {
                 let rel_str = rel.to_string_lossy().to_string();
                 if seen.insert(rel_str.clone()) {
@@ -95,7 +141,6 @@ pub fn index_repo(
             }
         }
     }
-
     let num_files_deleted = files_to_delete.len();
     for del in &files_to_delete {
         db.delete_file_cascade(repo_id, del)?;
@@ -186,7 +231,7 @@ pub fn index_repo(
         db.relink_dangling_edges(repo_id)?;
     }
 
-    if let Some(head_str) = &head_oid_str {
+    if let Some(head_str) = &head_commit {
         db.update_repo_commit(repo_id, head_str)?;
     }
 

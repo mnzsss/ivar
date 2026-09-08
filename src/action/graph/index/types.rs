@@ -14,7 +14,7 @@ use crate::store::graph::extractor::ExtractorError;
 #[derive(Debug, Error)]
 pub enum IndexError {
     #[error("Git error: {0}")]
-    Git(#[from] git2::Error),
+    Git(#[from] crate::git::Error),
     #[error("Database error: {0}")]
     Db(#[from] GraphDbError),
     #[error("AST extractor error in `{path}`: {source}")]
