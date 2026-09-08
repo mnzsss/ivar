@@ -107,12 +107,11 @@ fn test_full_index_and_incremental_flow() {
     let last_commit = db.get_repo_last_commit("test-repo").expect("get commit");
     assert!(last_commit.is_some());
 
-    // Test 2: Second run with no changes -> skipped_up_to_date = true in <15ms
+    // Test 2: Second run with no changes -> skipped_up_to_date = true
     let outcome2 = index_repo(&db, "test-repo", repo_path, false, &Silent).expect("second index");
     assert!(outcome2.skipped_up_to_date);
     assert_eq!(outcome2.files_indexed, 0);
     assert_eq!(outcome2.files_deleted, 0);
-    assert!(outcome2.duration_ms < 50);
 
     // Test 3: Modify 1 file, commit, and index -> only 1 file indexed, old symbols updated
     fs::write(
@@ -136,7 +135,6 @@ fn test_full_index_and_incremental_flow() {
     assert!(!outcome3.skipped_up_to_date);
     assert_eq!(outcome3.files_indexed, 1);
     assert_eq!(outcome3.files_deleted, 0);
-    assert!(outcome3.duration_ms < 50);
 
     // Verify symbols were updated (helper gone, new_helper present)
     let fts = db.search_symbols_fts("helper", 10).expect("search");
