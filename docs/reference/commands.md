@@ -765,6 +765,134 @@ Authenticate one MCP server. Resolves the server from `ivar.json`'s `mcp` array 
 | `--all-providers` |  |  | Authenticate every provider the hall lists (`providers.available`), one at a time — never concurrently, since each provider's login command takes over the terminal and waits on a browser. Every provider is attempted even if an earlier one fails; the run is reported as needing attention (not a clean success) the moment any of them does. Conflicts with `--provider` |
 
 
+#### `ivar graph`
+
+Query and index the codebase dependency graph
+
+
+##### `ivar graph explore`
+
+Hero query synthesizing symbol discovery, source snippet, callers, and impact
+
+| argument | required | description |
+| --- | --- | --- |
+| `query` | yes | Symbol name or query pattern to explore |
+
+| flag | value | default | description |
+| --- | --- | --- | --- |
+| `--repo` | `<REPO>` |  | Limit exploration to a specific repository |
+
+
+##### `ivar graph affected`
+
+Find reverse-dependent test files for changed files
+
+| argument | required | description |
+| --- | --- | --- |
+| `files` | no | Changed file paths to find reverse dependencies for |
+
+| flag | value | default | description |
+| --- | --- | --- | --- |
+| `--stdin` |  |  | Read changed file paths from stdin (one per line) |
+| `--repo` | `<REPO>` |  | Restrict search to a specific repository |
+| `--max-depth` | `<MAX_DEPTH>` |  | Maximum search depth hops |
+
+
+##### `ivar graph path`
+
+Find shortest path between two symbols or files
+
+| argument | required | description |
+| --- | --- | --- |
+| `from` | yes | Starting symbol name or file path |
+| `to` | yes | Target symbol name or file path |
+
+| flag | value | default | description |
+| --- | --- | --- | --- |
+| `--max-hops` | `<MAX_HOPS>` |  | Maximum traversal hops |
+
+
+##### `ivar graph find`
+
+Find symbols matching a query name pattern
+
+| argument | required | description |
+| --- | --- | --- |
+| `query` | yes | Symbol name query pattern |
+
+| flag | value | default | description |
+| --- | --- | --- | --- |
+| `--repo` | `<REPO>` |  | Restrict search to a specific repository |
+| `--limit` | `<LIMIT>` |  | Maximum number of matching symbols to return |
+
+
+##### `ivar graph callers`
+
+List all callers of a symbol
+
+| argument | required | description |
+| --- | --- | --- |
+| `symbol` | yes | Symbol name to find callers for |
+
+| flag | value | default | description |
+| --- | --- | --- | --- |
+| `--repo` | `<REPO>` |  | Restrict search to a specific repository |
+| `--cross-repo` |  |  | Search cross-repo callers |
+| `--min-confidence` | `<MIN_CONFIDENCE>` |  | Minimum edge confidence threshold (0.0 - 1.0) |
+
+
+##### `ivar graph callees`
+
+List all outgoing calls (callees) from a symbol
+
+| argument | required | description |
+| --- | --- | --- |
+| `symbol_id` | yes | Symbol ID to find outgoing callees for |
+
+
+##### `ivar graph file`
+
+Show file outline with all defined symbols
+
+| argument | required | description |
+| --- | --- | --- |
+| `repo` | yes | Target repository name |
+| `path` | yes | Target file path within the repository |
+
+
+##### `ivar graph index`
+
+Incrementally update or build the codebase graph index
+
+| flag | value | default | description |
+| --- | --- | --- | --- |
+| `--repo` | `<REPO>` |  | Specific repository to index (indexes all declared repos if omitted) |
+| `--full` |  |  | Force full reindex regardless of last indexed commit |
+
+
+##### `ivar graph stats`
+
+Show overall graph statistics
+
+
+##### `ivar graph impact`
+
+Compute transitive blast-radius impact analysis for a symbol
+
+| argument | required | description |
+| --- | --- | --- |
+| `symbol_id` | yes | Symbol ID to compute blast radius impact for |
+
+| flag | value | default | description |
+| --- | --- | --- | --- |
+| `--max-depth` | `<MAX_DEPTH>` |  | Maximum traversal depth |
+
+
+##### `ivar graph mcp`
+
+Run graph MCP server
+
+
 #### `ivar guard`
 
 Guard: evaluate a tool request against the session's writable set
