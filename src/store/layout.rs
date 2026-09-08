@@ -451,6 +451,15 @@ impl Layout {
         self.root().join(provider.commands_dir())
     }
 
+    /// `<hall>/<provider-dotdir>/skills/` — the provider-native skills directory.
+    ///
+    /// `ivar` owns only directories matching `ivar-*` inside it; every other
+    /// directory belongs to the user and must survive every operation.
+    #[must_use]
+    pub fn skills_dir(&self, provider: &Provider) -> Utf8PathBuf {
+        self.root().join(provider.skills_dir())
+    }
+
     /// `<hall>/.opencode/plugins/` — the provider-native plugin directory.
     /// Returns `None` for providers that have no plugin system (Claude Code).
     #[must_use]
