@@ -158,7 +158,15 @@ impl Sandbox {
                 }
             };
 
-            ruleset = match ruleset.add_rule(PathBeneath::new(path_fd, write_rights)) {
+            // Non-directory file descriptors (like /dev/null or config files) cannot receive
+            // directory-specific write rights (MakeDir, RemoveDir) in Landlock.
+            let rights = if path.is_dir() {
+                write_rights
+            } else {
+                write_rights & (AccessFs::WriteFile | AccessFs::Truncate | AccessFs::Refer)
+            };
+
+            ruleset = match ruleset.add_rule(PathBeneath::new(path_fd, rights)) {
                 Ok(r) => r,
                 Err(err) => {
                     return Err(Failure::failed(

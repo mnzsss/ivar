@@ -115,7 +115,7 @@ pub(crate) fn read_all(layout: &Layout) -> Result<Vec<Feature>, Failure> {
 /// The immediate parent of `feature`, or `None` for a root. A parent name that
 /// does not resolve is a hard refusal — by the time this is called the tree
 /// should have been validated, but a feature can be deleted between a tree
-/// read and this call.
+#[allow(dead_code)]
 pub(crate) fn parent(layout: &Layout, feature: &Feature) -> Result<Option<Feature>, Failure> {
     let Some(parent_name) = &feature.parent else {
         return Ok(None);
@@ -197,7 +197,7 @@ pub(crate) fn blocking_descendants(
 
 /// The derived integration state of one feature, root or child. A root never
 /// has receipts to judge (integration is a child's act), so roots classify as
-/// active until closed.
+#[allow(dead_code)]
 pub(crate) fn feature_state(
     git: &impl Git,
     layout: &Layout,
@@ -207,9 +207,63 @@ pub(crate) fn feature_state(
     let parent_feature = parent(layout, feature)?;
     state_of(git, layout, manifest, feature, parent_feature.as_ref())
 }
+/// Same as [`feature_state`], but uses an existing in-memory map of features.
+pub(crate) fn feature_state_with_map(
+    git: &impl Git,
+    layout: &Layout,
+    manifest: &Manifest,
+    map: &FeatureMap<'_>,
+    feature: &Feature,
+) -> Result<FeatureIntegrationState, Failure> {
+    let parent_feature = feature
+        .parent
+        .as_ref()
+        .and_then(|parent_name| map.get(parent_name))
+        .copied();
+    state_of(git, layout, manifest, feature, parent_feature)
+}
+
+/// Same as [`depth`], but uses an existing in-memory map of features.
+pub(crate) fn depth_with_map(map: &FeatureMap<'_>, feature: &Feature) -> Result<usize, Failure> {
+    let mut depth = 0;
+    let mut current = feature;
+    let mut seen: HashSet<&FeatureName> = HashSet::new();
+    while let Some(parent_name) = &current.parent {
+        let Some(parent_feature) = map.get(parent_name).copied() else {
+            break;
+        };
+        if !seen.insert(&parent_feature.name) {
+            return Err(Failure::blocked(
+                "feature.parent_cycle",
+                format!("feature `{}` is part of a parent cycle", feature.name),
+            )
+            .expected("every parent chain to end at a root")
+            .actual("walking parents revisited a feature"));
+        }
+        depth += 1;
+        current = parent_feature;
+    }
+    Ok(depth)
+}
+
+/// Same as [`blocking_descendants`], but uses an existing in-memory map of features.
+pub(crate) fn blocking_descendants_with_map(
+    git: &impl Git,
+    layout: &Layout,
+    manifest: &Manifest,
+    map: &FeatureMap<'_>,
+    feature: &Feature,
+) -> Result<Vec<TreeEntry>, Failure> {
+    blocking_entries(git, layout, manifest, map, feature)
+}
+
+/// Helper to expose feature_map within crate.
+pub(crate) fn build_feature_map(features: &[Feature]) -> FeatureMap<'_> {
+    feature_map(features)
+}
 
 /// The feature's depth in the tree: 0 for a root, 1 + the parent's depth
-/// otherwise.
+#[allow(dead_code)]
 pub(crate) fn depth(layout: &Layout, feature: &Feature) -> Result<usize, Failure> {
     let mut depth = 0;
     let mut current = feature.clone();
