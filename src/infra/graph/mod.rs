@@ -1,6 +1,8 @@
 //! Graph infrastructure modules: SQLite database layer and schema migrations.
 
 pub mod db;
+pub mod parser;
 pub mod schema;
 
 pub use db::{FileRow, GraphDb, GraphDbError, RepoRow};
+pub use parser::{SupportedLanguage, TreeSitterEngine};
