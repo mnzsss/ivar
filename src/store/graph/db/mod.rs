@@ -10,9 +10,7 @@ use std::path::Path;
 
 use rusqlite::Connection;
 
-pub use crate::domain::graph::{
-    Edge, EdgeKind, GraphStats, Provenance, Span, Symbol, SymbolKind,
-};
+pub use crate::domain::graph::{Edge, EdgeKind, GraphStats, Provenance, Span, Symbol, SymbolKind};
 use crate::store::graph::schema;
 pub use types::*;
 

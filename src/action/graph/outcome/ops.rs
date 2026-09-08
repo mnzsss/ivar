@@ -1,7 +1,7 @@
 //! Outcomes and human-readable formatters for operation and traversal graph subcommands.
 
-use std::io;
 use serde::Serialize;
+use std::io;
 
 use crate::action::graph::index::IndexOutcome;
 use crate::domain::graph::{AffectedResult, ExploreResult, PathResult};

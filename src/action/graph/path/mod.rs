@@ -7,9 +7,9 @@ mod db;
 
 use std::collections::{HashMap, VecDeque};
 
-use thiserror::Error;
 #[cfg(test)]
 use rusqlite::params;
+use thiserror::Error;
 
 use self::db::{get_incoming_edges, get_outgoing_edges, resolve_candidates};
 pub use crate::domain::graph::{PathResult, PathStep};
@@ -38,7 +38,6 @@ pub fn find_shortest_path(
     if max_hops == 0 {
         return Err(PathError::InvalidMaxHops(0));
     }
-
 
     let conn = db.conn();
     let start_candidates = resolve_candidates(conn, from)?;

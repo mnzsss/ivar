@@ -39,10 +39,8 @@ pub fn index_repo(
 ) -> Result<IndexOutcome, IndexError> {
     let start_time = Instant::now();
     let git = crate::git::System;
-    let repo_utf8 = Utf8Path::from_path(repo_path).ok_or_else(|| {
-        crate::git::Error::NotUtf8 {
-            display: repo_path.to_string_lossy().to_string(),
-        }
+    let repo_utf8 = Utf8Path::from_path(repo_path).ok_or_else(|| crate::git::Error::NotUtf8 {
+        display: repo_path.to_string_lossy().to_string(),
     })?;
 
     let default_branch = git
@@ -187,11 +185,10 @@ pub fn index_repo(
                 .map(|d| d.as_nanos() as i64)
                 .unwrap_or(0);
 
-            let content =
-                std::fs::read_to_string(&full_path).map_err(|e| IndexError::Io {
-                    path: rel_path_str.clone(),
-                    source: e,
-                })?;
+            let content = std::fs::read_to_string(&full_path).map_err(|e| IndexError::Io {
+                path: rel_path_str.clone(),
+                source: e,
+            })?;
 
             let content_hash = hash::text(&content);
 
@@ -272,8 +269,7 @@ pub fn index_hall(
             };
 
             if (target_path.join(".git").exists() || target_path.is_dir())
-                && let Ok(outcome) =
-                    index_repo(db, &repo_name, &target_path, force_full, progress)
+                && let Ok(outcome) = index_repo(db, &repo_name, &target_path, force_full, progress)
             {
                 outcomes.push(outcome);
             }
