@@ -2,8 +2,37 @@
 
 use super::*;
 use std::fs;
+use std::sync::Mutex;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use tempfile::tempdir;
 
+use crate::infra::progress::{Progress, Silent};
+
+#[derive(Debug, Default)]
+struct Recording {
+    steps: Mutex<Vec<String>>,
+    clears: AtomicUsize,
+}
+
+impl Recording {
+    fn steps(&self) -> Vec<String> {
+        self.steps.lock().unwrap().clone()
+    }
+
+    fn clears(&self) -> usize {
+        self.clears.load(Ordering::Relaxed)
+    }
+}
+
+impl Progress for Recording {
+    fn step(&self, message: &str) {
+        self.steps.lock().unwrap().push(message.to_owned());
+    }
+
+    fn clear(&self) {
+        self.clears.fetch_add(1, Ordering::Relaxed);
+    }
+}
 fn create_git_commit(repo: &git2::Repository, message: &str) -> Result<git2::Oid, git2::Error> {
     let mut index = repo.index()?;
     index.add_all(["*"], git2::IndexAddOption::DEFAULT, None)?;
@@ -62,7 +91,7 @@ fn test_full_index_and_incremental_flow() {
     let db = GraphDb::open_in_memory().expect("open db");
 
     // Test 1: Full index of initial commit
-    let outcome1 = index_repo(&db, "test-repo", repo_path, false).expect("first index");
+    let outcome1 = index_repo(&db, "test-repo", repo_path, false, &Silent).expect("first index");
     assert_eq!(outcome1.repo, "test-repo");
     assert_eq!(outcome1.files_indexed, 2);
     assert_eq!(outcome1.files_deleted, 0);
@@ -79,7 +108,7 @@ fn test_full_index_and_incremental_flow() {
     assert!(last_commit.is_some());
 
     // Test 2: Second run with no changes -> skipped_up_to_date = true in <15ms
-    let outcome2 = index_repo(&db, "test-repo", repo_path, false).expect("second index");
+    let outcome2 = index_repo(&db, "test-repo", repo_path, false, &Silent).expect("second index");
     assert!(outcome2.skipped_up_to_date);
     assert_eq!(outcome2.files_indexed, 0);
     assert_eq!(outcome2.files_deleted, 0);
@@ -102,7 +131,8 @@ fn test_full_index_and_incremental_flow() {
 
     create_git_commit(&git_repo, "Update main.rs").expect("second commit");
 
-    let outcome3 = index_repo(&db, "test-repo", repo_path, false).expect("incremental index");
+    let outcome3 =
+        index_repo(&db, "test-repo", repo_path, false, &Silent).expect("incremental index");
     assert!(!outcome3.skipped_up_to_date);
     assert_eq!(outcome3.files_indexed, 1);
     assert_eq!(outcome3.files_deleted, 0);
@@ -120,7 +150,7 @@ fn test_full_index_and_incremental_flow() {
     fs::remove_file(&file2).expect("delete utils.ts");
     create_git_commit(&git_repo, "Delete utils.ts").expect("delete commit");
 
-    let outcome4 = index_repo(&db, "test-repo", repo_path, false).expect("delete index");
+    let outcome4 = index_repo(&db, "test-repo", repo_path, false, &Silent).expect("delete index");
     assert!(!outcome4.skipped_up_to_date);
     assert_eq!(outcome4.files_indexed, 0);
     assert_eq!(outcome4.files_deleted, 1);
@@ -183,7 +213,7 @@ fn test_gitignore_and_ignored_directories() {
 
     let db = GraphDb::open_in_memory().expect("open db");
 
-    let outcome = index_repo(&db, "test-repo", repo_path, false).expect("index");
+    let outcome = index_repo(&db, "test-repo", repo_path, false, &Silent).expect("index");
     // Only tracked.rs is indexed!
     assert_eq!(outcome.files_indexed, 1);
     assert_eq!(outcome.files_deleted, 0);
@@ -242,7 +272,7 @@ fn test_force_full_index_rebuilds_unchanged_repo() {
     let db = GraphDb::open_in_memory().expect("open db");
 
     // 1. Initial index (full)
-    let outcome1 = index_repo(&db, "test-repo", repo_path, false).expect("first index");
+    let outcome1 = index_repo(&db, "test-repo", repo_path, false, &Silent).expect("first index");
     assert_eq!(outcome1.files_indexed, 2);
     assert!(!outcome1.skipped_up_to_date);
 
@@ -251,7 +281,7 @@ fn test_force_full_index_rebuilds_unchanged_repo() {
     assert_eq!(stats1.symbol_count, 2);
 
     // 2. Second index without force_full -> skipped_up_to_date
-    let outcome2 = index_repo(&db, "test-repo", repo_path, false).expect("second index");
+    let outcome2 = index_repo(&db, "test-repo", repo_path, false, &Silent).expect("second index");
     assert!(outcome2.skipped_up_to_date);
     assert_eq!(outcome2.files_indexed, 0);
 
@@ -263,12 +293,14 @@ fn test_force_full_index_rebuilds_unchanged_repo() {
     assert_eq!(stats_cleared.symbol_count, 0);
 
     // Running normal incremental index would still think HEAD is unchanged and skip
-    let outcome_skipped = index_repo(&db, "test-repo", repo_path, false).expect("skip index");
+    let outcome_skipped =
+        index_repo(&db, "test-repo", repo_path, false, &Silent).expect("skip index");
     assert!(outcome_skipped.skipped_up_to_date);
     assert_eq!(outcome_skipped.files_indexed, 0);
 
     // 4. Force full index with unchanged HEAD -> must genuinely reparse and rebuild files & symbols
-    let outcome_forced = index_repo(&db, "test-repo", repo_path, true).expect("force full index");
+    let outcome_forced =
+        index_repo(&db, "test-repo", repo_path, true, &Silent).expect("force full index");
     assert!(!outcome_forced.skipped_up_to_date);
     assert_eq!(outcome_forced.files_indexed, 2);
     assert_eq!(outcome_forced.files_deleted, 0);
@@ -286,4 +318,76 @@ fn test_force_full_index_rebuilds_unchanged_repo() {
         .search_symbols_fts("second_symbol", 10)
         .expect("search sym2");
     assert_eq!(sym2.len(), 1);
+}
+
+#[test]
+fn test_index_repo_progress_reporting_and_clearing() {
+    let temp = tempdir().expect("tempdir");
+    let repo_path = temp.path();
+    let git_repo = git2::Repository::init(repo_path).expect("git init");
+
+    let file1 = repo_path.join("a.rs");
+    let file2 = repo_path.join("b.ts");
+    fs::write(&file1, "pub fn a() {}\n").expect("write a.rs");
+    fs::write(&file2, "export function b() {}\n").expect("write b.ts");
+
+    create_git_commit(&git_repo, "Initial commit").expect("commit");
+
+    let db = GraphDb::open_in_memory().expect("open db");
+    let recording = Recording::default();
+
+    // 1. Initial index reports progress for all files and clears when done
+    let outcome = index_repo(&db, "test-repo", repo_path, false, &recording).expect("index");
+    assert_eq!(outcome.files_indexed, 2);
+    assert_eq!(recording.clears(), 1);
+    let steps = recording.steps();
+    assert_eq!(steps.len(), 2);
+    assert!(
+        steps
+            .iter()
+            .any(|s| s.contains("[1/2] test-repo:") || s.contains("[2/2] test-repo:"))
+    );
+    assert!(steps.iter().any(|s| s.contains("a.rs")));
+    assert!(steps.iter().any(|s| s.contains("b.ts")));
+
+    // 2. Up-to-date no-op does not emit any progress steps
+    let recording_noop = Recording::default();
+    let outcome_noop =
+        index_repo(&db, "test-repo", repo_path, false, &recording_noop).expect("noop index");
+    assert!(outcome_noop.skipped_up_to_date);
+    assert_eq!(recording_noop.steps().len(), 0);
+    assert_eq!(recording_noop.clears(), 0);
+}
+
+#[test]
+fn test_index_repo_progress_clears_on_error() {
+    let temp = tempdir().expect("tempdir");
+    let repo_path = temp.path();
+    let git_repo = git2::Repository::init(repo_path).expect("git init");
+
+    let file = repo_path.join("valid.rs");
+    fs::write(&file, "pub fn valid() {}\n").expect("write valid.rs");
+    create_git_commit(&git_repo, "Initial commit").expect("commit");
+
+    let db = GraphDb::open_in_memory().expect("open db");
+
+    // Make the file unreadable to trigger an Io error during extraction
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = fs::metadata(&file).expect("metadata").permissions();
+        perms.set_mode(0o000);
+        fs::set_permissions(&file, perms).expect("set perms");
+
+        let recording = Recording::default();
+        let result = index_repo(&db, "test-repo", repo_path, true, &recording);
+        assert!(result.is_err());
+        assert_eq!(recording.clears(), 1);
+        assert_eq!(recording.steps().len(), 1);
+
+        // Restore permissions for cleanup
+        let mut perms = fs::metadata(&file).expect("metadata").permissions();
+        perms.set_mode(0o644);
+        let _ = fs::set_permissions(&file, perms);
+    }
 }

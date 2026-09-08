@@ -14,6 +14,7 @@ use thiserror::Error;
 
 use crate::infra::graph::parser::SupportedLanguage;
 use crate::infra::hash;
+use crate::infra::progress::Progress;
 use crate::store::graph::db::{GraphDb, GraphDbError};
 use crate::store::graph::extractor::{ExtractorError, extract_file};
 
@@ -63,6 +64,7 @@ pub fn index_repo(
     repo_id: &str,
     repo_path: &Path,
     force_full: bool,
+    progress: &dyn Progress,
 ) -> Result<IndexOutcome, IndexError> {
     let start_time = Instant::now();
 
@@ -261,82 +263,95 @@ pub fn index_repo(
     let mut num_symbols_indexed = 0;
     let mut num_edges_indexed = 0;
     let mut num_files_indexed = 0;
+    let total_to_index = files_to_index.len();
 
-    for rel_path_str in &files_to_index {
-        let full_path = repo_path.join(rel_path_str);
-        if !full_path.exists() {
-            // File might have been deleted in worktree
-            db.delete_file_cascade(repo_id, rel_path_str)?;
-            continue;
-        }
+    let index_res = (|| -> Result<(), IndexError> {
+        for (idx, rel_path_str) in files_to_index.iter().enumerate() {
+            progress.step(&format!(
+                "[{}/{total_to_index}] {repo_id}: {rel_path_str}",
+                idx + 1
+            ));
 
-        let metadata = match full_path.metadata() {
-            Ok(m) => m,
-            Err(_) => continue,
-        };
-        // Skip large generated/bundled files (> 1MB)
-        if metadata.len() > 1024 * 1024 {
-            continue;
-        }
+            let full_path = repo_path.join(rel_path_str);
+            if !full_path.exists() {
+                // File might have been deleted in worktree
+                db.delete_file_cascade(repo_id, rel_path_str)?;
+                continue;
+            }
 
-        let ext = Path::new(rel_path_str)
-            .extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or("");
+            let metadata = match full_path.metadata() {
+                Ok(m) => m,
+                Err(_) => continue,
+            };
+            // Skip large generated/bundled files (> 1MB)
+            if metadata.len() > 1024 * 1024 {
+                continue;
+            }
 
-        let lang = match SupportedLanguage::from_extension(ext) {
-            Some(l) => l,
-            None => continue,
-        };
+            let ext = Path::new(rel_path_str)
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or("");
 
-        let metadata = std::fs::metadata(&full_path).map_err(|e| IndexError::Io {
-            path: rel_path_str.clone(),
-            source: e,
-        })?;
+            let lang = match SupportedLanguage::from_extension(ext) {
+                Some(l) => l,
+                None => continue,
+            };
 
-        let size_bytes = metadata.len() as i64;
-        let mtime_ns = metadata
-            .modified()
-            .ok()
-            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-            .map(|d| d.as_nanos() as i64)
-            .unwrap_or(0);
-
-        let content = std::fs::read_to_string(&full_path).map_err(|e| IndexError::Io {
-            path: rel_path_str.clone(),
-            source: e,
-        })?;
-
-        let content_hash = hash::text(&content);
-
-        // Check if file content is unchanged (e.g. timestamp touched only)
-        if let Some(existing_file) = db.get_file(repo_id, rel_path_str)?
-            && existing_file.content_hash == content_hash
-        {
-            // Same content, skip re-parsing
-            continue;
-        }
-
-        let extracted = extract_file(repo_id, rel_path_str, &content, lang).map_err(|e| {
-            IndexError::Extractor {
+            let metadata = std::fs::metadata(&full_path).map_err(|e| IndexError::Io {
                 path: rel_path_str.clone(),
                 source: e,
+            })?;
+
+            let size_bytes = metadata.len() as i64;
+            let mtime_ns = metadata
+                .modified()
+                .ok()
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|d| d.as_nanos() as i64)
+                .unwrap_or(0);
+
+            let content = std::fs::read_to_string(&full_path).map_err(|e| IndexError::Io {
+                path: rel_path_str.clone(),
+                source: e,
+            })?;
+
+            let content_hash = hash::text(&content);
+
+            // Check if file content is unchanged (e.g. timestamp touched only)
+            if let Some(existing_file) = db.get_file(repo_id, rel_path_str)?
+                && existing_file.content_hash == content_hash
+            {
+                // Same content, skip re-parsing
+                continue;
             }
-        })?;
 
-        let (sym_count, edge_count) = db.index_extracted_file(
-            repo_id,
-            rel_path_str,
-            &content_hash,
-            mtime_ns,
-            size_bytes,
-            &extracted,
-        )?;
+            let extracted = extract_file(repo_id, rel_path_str, &content, lang).map_err(|e| {
+                IndexError::Extractor {
+                    path: rel_path_str.clone(),
+                    source: e,
+                }
+            })?;
 
-        num_symbols_indexed += sym_count;
-        num_edges_indexed += edge_count;
-        num_files_indexed += 1;
-    }
+            let (sym_count, edge_count) = db.index_extracted_file(
+                repo_id,
+                rel_path_str,
+                &content_hash,
+                mtime_ns,
+                size_bytes,
+                &extracted,
+            )?;
+
+            num_symbols_indexed += sym_count;
+            num_edges_indexed += edge_count;
+            num_files_indexed += 1;
+        }
+        Ok(())
+    })();
+
+    progress.clear();
+    index_res?;
+
     // Relink dangling edges across the repository once for the indexed/deleted batch
     if num_files_indexed > 0 || num_files_deleted > 0 {
         db.relink_dangling_edges(repo_id)?;
@@ -346,9 +361,7 @@ pub fn index_repo(
     if let Some(head_str) = &head_oid_str {
         db.update_repo_commit(repo_id, head_str)?;
     }
-
     let duration_ms = start_time.elapsed().as_millis() as u64;
-
     Ok(IndexOutcome {
         repo: repo_id.to_owned(),
         files_indexed: num_files_indexed,
