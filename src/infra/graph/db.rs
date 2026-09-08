@@ -570,7 +570,7 @@ fn now_timestamp() -> i64 {
         .unwrap_or(0)
 }
 
-fn symbol_kind_to_str<'a>(kind: &'a SymbolKind) -> Cow<'a, str> {
+pub fn symbol_kind_to_str<'a>(kind: &'a SymbolKind) -> Cow<'a, str> {
     match kind {
         SymbolKind::Fn => "fn".into(),
         SymbolKind::Method => "method".into(),
@@ -585,7 +585,7 @@ fn symbol_kind_to_str<'a>(kind: &'a SymbolKind) -> Cow<'a, str> {
     }
 }
 
-fn parse_symbol_kind(s: &str) -> SymbolKind {
+pub fn parse_symbol_kind(s: &str) -> SymbolKind {
     match s.to_ascii_lowercase().as_str() {
         "fn" => SymbolKind::Fn,
         "method" => SymbolKind::Method,
@@ -600,7 +600,7 @@ fn parse_symbol_kind(s: &str) -> SymbolKind {
     }
 }
 
-fn edge_kind_to_str<'a>(kind: &'a EdgeKind) -> Cow<'a, str> {
+pub fn edge_kind_to_str<'a>(kind: &'a EdgeKind) -> Cow<'a, str> {
     match kind {
         EdgeKind::Calls => "CALLS".into(),
         EdgeKind::Imports => "IMPORTS".into(),
@@ -612,8 +612,7 @@ fn edge_kind_to_str<'a>(kind: &'a EdgeKind) -> Cow<'a, str> {
     }
 }
 
-#[allow(dead_code)]
-fn parse_edge_kind(s: &str) -> EdgeKind {
+pub fn parse_edge_kind(s: &str) -> EdgeKind {
     match s {
         "CALLS" | "calls" => EdgeKind::Calls,
         "IMPORTS" | "imports" => EdgeKind::Imports,
@@ -625,7 +624,7 @@ fn parse_edge_kind(s: &str) -> EdgeKind {
     }
 }
 
-fn provenance_to_str(p: &Provenance) -> &'static str {
+pub fn provenance_to_str(p: &Provenance) -> &'static str {
     match p {
         Provenance::Extracted => "EXTRACTED",
         Provenance::Inferred => "INFERRED",
@@ -633,8 +632,7 @@ fn provenance_to_str(p: &Provenance) -> &'static str {
     }
 }
 
-#[allow(dead_code)]
-fn parse_provenance(s: &str) -> Provenance {
+pub fn parse_provenance(s: &str) -> Provenance {
     match s {
         "EXTRACTED" | "extracted" => Provenance::Extracted,
         "INFERRED" | "inferred" => Provenance::Inferred,
