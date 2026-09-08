@@ -21,7 +21,7 @@ pub fn bounded_map<T, R, F>(
 where
     T: Sync,
     R: Send,
-    F: Fn(&T) -> Result<R, Failure> + Sync + RefUnwindSafe,
+    F: Fn(&T) -> Result<R, Failure> + Sync,
 {
     if items.is_empty() {
         return Vec::new();
@@ -97,7 +97,7 @@ pub fn run_feature_batch<T, F>(
 ) -> Vec<BatchItemResult<T>>
 where
     T: Send,
-    F: Fn(&str) -> Result<Report<T>, Failure> + Sync + RefUnwindSafe,
+    F: Fn(&str) -> Result<Report<T>, Failure> + Sync,
 {
     let results = bounded_map(features, concurrency, |feat| f(feat.as_str()));
     features

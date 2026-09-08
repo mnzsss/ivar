@@ -23,6 +23,7 @@ use clap::Parser;
 use serde::Serialize;
 
 use ivar::action::Ctx;
+use ivar::action::batch::{BatchItemResult, run_feature_batch};
 use ivar::action::confirm;
 use ivar::action::discovery::amend as discovery_amend;
 use ivar::action::discovery::close as discovery_close;
@@ -30,6 +31,7 @@ use ivar::action::discovery::create as discovery_create;
 use ivar::action::discovery::list as discovery_list;
 use ivar::action::discovery::show as discovery_show;
 use ivar::action::execute::{accept_revision, finish, start, status as execute_status};
+use ivar::action::feature::select::{resolve_multi_features, resolve_single_feature};
 use ivar::action::feature::{
     cleanup, close, create, delete, deliver, demote, integrate, list as feature_list, promote,
     prune as feature_prune, rebase, rename, reparent, status, view, workspace,
@@ -156,120 +158,372 @@ fn main() -> ExitCode {
             FeatureCommand::List => {
                 respond(feature_list::list(&ctx), json, &mut stdout, &mut stderr)
             }
-            FeatureCommand::Promote(args) => respond(
-                promote::promote(&ctx, args.into()),
-                json,
-                &mut stdout,
-                &mut stderr,
-            ),
-            FeatureCommand::Demote(args) => respond(
-                demote::demote(&ctx, args.into()),
-                json,
-                &mut stdout,
-                &mut stderr,
-            ),
-            FeatureCommand::Status(args) => respond(
-                status::status(&ctx, args.into()),
-                json,
-                &mut stdout,
-                &mut stderr,
-            ),
-            FeatureCommand::Reparent(args) => respond(
-                reparent::reparent(&ctx, args.into()),
-                json,
-                &mut stdout,
-                &mut stderr,
-            ),
-            FeatureCommand::Rename(args) => respond(
-                rename::rename(&ctx, args.into()),
-                json,
-                &mut stdout,
-                &mut stderr,
-            ),
-            FeatureCommand::Integrate(args) => respond(
-                integrate::integrate(&ctx, args.into()),
-                json,
-                &mut stdout,
-                &mut stderr,
-            ),
-            FeatureCommand::Execute(cmd) => match cmd {
-                ExecuteCommand::Start(args) => respond(
-                    start::start(&ctx, args.into()),
-                    json,
-                    &mut stdout,
-                    &mut stderr,
-                ),
-                ExecuteCommand::Finish(args) => respond(
-                    finish::finish(&ctx, args.into()),
-                    json,
-                    &mut stdout,
-                    &mut stderr,
-                ),
-                ExecuteCommand::Status(args) => respond(
-                    execute_status::status(&ctx, args.into()),
-                    json,
-                    &mut stdout,
-                    &mut stderr,
-                ),
-                ExecuteCommand::AcceptRevision(args) => respond(
-                    accept_revision::accept_revision(&ctx, args.into()),
-                    json,
-                    &mut stdout,
-                    &mut stderr,
-                ),
-            },
-            FeatureCommand::Deliver(args) => respond(
-                deliver::deliver(&ctx, args.into()),
-                json,
-                &mut stdout,
-                &mut stderr,
-            ),
-            FeatureCommand::Close(args) => respond(
-                close::close(&ctx, args.into()),
-                json,
-                &mut stdout,
-                &mut stderr,
-            ),
-            FeatureCommand::Delete(args) => respond(
-                delete::delete(&ctx, args.into()),
-                json,
-                &mut stdout,
-                &mut stderr,
-            ),
-            FeatureCommand::Cleanup(args) => respond(
-                cleanup::cleanup(&ctx, args.into()),
-                json,
-                &mut stdout,
-                &mut stderr,
-            ),
-            FeatureCommand::Workspace(args) => respond(
-                workspace::workspace(
+            FeatureCommand::Promote(args) => {
+                match resolve_single_feature(&ctx, args.feature, "Select a feature to promote into")
+                {
+                    Ok(feature) => respond(
+                        promote::promote(
+                            &ctx,
+                            promote::PromoteInput {
+                                feature,
+                                repo: args.repo,
+                                base: args.base,
+                            },
+                        ),
+                        json,
+                        &mut stdout,
+                        &mut stderr,
+                    ),
+                    Err(failure) => respond_failure(failure, json, &mut stdout, &mut stderr),
+                }
+            }
+            FeatureCommand::Demote(args) => {
+                match resolve_single_feature(&ctx, args.feature, "Select a feature to demote from")
+                {
+                    Ok(feature) => respond(
+                        demote::demote(
+                            &ctx,
+                            demote::DemoteInput {
+                                feature,
+                                repo: args.repo,
+                            },
+                        ),
+                        json,
+                        &mut stdout,
+                        &mut stderr,
+                    ),
+                    Err(failure) => respond_failure(failure, json, &mut stdout, &mut stderr),
+                }
+            }
+            FeatureCommand::Status(args) => {
+                match resolve_single_feature(&ctx, args.feature, "Select a feature to inspect") {
+                    Ok(feature) => respond(
+                        status::status(
+                            &ctx,
+                            status::StatusInput {
+                                feature,
+                                recursive: args.recursive,
+                            },
+                        ),
+                        json,
+                        &mut stdout,
+                        &mut stderr,
+                    ),
+                    Err(failure) => respond_failure(failure, json, &mut stdout, &mut stderr),
+                }
+            }
+            FeatureCommand::Reparent(args) => {
+                match resolve_single_feature(
                     &ctx,
-                    // The only arm that consults `json` for anything but
-                    // rendering: opening an editor is a human convenience, and
-                    // a machine-shaped run has no window to open into. `From`
-                    // cannot see the flag, so it is applied here.
-                    workspace::WorkspaceInput {
-                        open: !json,
-                        ..args.into()
-                    },
+                    args.child,
+                    "Select a child feature to reparent",
+                ) {
+                    Ok(child) => respond(
+                        reparent::reparent(
+                            &ctx,
+                            reparent::ReparentInput {
+                                child,
+                                parent: args.parent,
+                            },
+                        ),
+                        json,
+                        &mut stdout,
+                        &mut stderr,
+                    ),
+                    Err(failure) => respond_failure(failure, json, &mut stdout, &mut stderr),
+                }
+            }
+            FeatureCommand::Rename(args) => {
+                match resolve_single_feature(&ctx, args.feature, "Select a feature to rename") {
+                    Ok(feature) => respond(
+                        rename::rename(
+                            &ctx,
+                            rename::RenameInput {
+                                feature,
+                                name: args.name,
+                                branch: args.branch,
+                            },
+                        ),
+                        json,
+                        &mut stdout,
+                        &mut stderr,
+                    ),
+                    Err(failure) => respond_failure(failure, json, &mut stdout, &mut stderr),
+                }
+            }
+            FeatureCommand::Integrate(args) => {
+                match resolve_single_feature(&ctx, args.feature, "Select a feature to integrate") {
+                    Ok(feature) => respond(
+                        integrate::integrate(
+                            &ctx,
+                            integrate::IntegrateInput {
+                                feature,
+                                via: args.via,
+                                strategy: args.strategy,
+                            },
+                        ),
+                        json,
+                        &mut stdout,
+                        &mut stderr,
+                    ),
+                    Err(failure) => respond_failure(failure, json, &mut stdout, &mut stderr),
+                }
+            }
+            FeatureCommand::Execute(cmd) => match cmd {
+                ExecuteCommand::Start(args) => {
+                    match resolve_single_feature(
+                        &ctx,
+                        args.feature,
+                        "Select a feature to start execution",
+                    ) {
+                        Ok(feature) => respond(
+                            start::start(
+                                &ctx,
+                                start::StartInput {
+                                    feature,
+                                    plan: args.plan,
+                                    resume: args.resume,
+                                    restart: args.restart,
+                                },
+                            ),
+                            json,
+                            &mut stdout,
+                            &mut stderr,
+                        ),
+                        Err(failure) => respond_failure(failure, json, &mut stdout, &mut stderr),
+                    }
+                }
+                ExecuteCommand::Finish(args) => {
+                    match resolve_single_feature(
+                        &ctx,
+                        args.feature,
+                        "Select a feature to finish execution",
+                    ) {
+                        Ok(feature) => respond(
+                            finish::finish(
+                                &ctx,
+                                finish::FinishInput {
+                                    feature,
+                                    plan: args.plan,
+                                    report_json: args.report_json,
+                                    outcome: args.outcome,
+                                },
+                            ),
+                            json,
+                            &mut stdout,
+                            &mut stderr,
+                        ),
+                        Err(failure) => respond_failure(failure, json, &mut stdout, &mut stderr),
+                    }
+                }
+                ExecuteCommand::Status(args) => {
+                    match resolve_single_feature(
+                        &ctx,
+                        args.feature,
+                        "Select a feature to check execution status",
+                    ) {
+                        Ok(feature) => respond(
+                            execute_status::status(
+                                &ctx,
+                                execute_status::StatusInput {
+                                    feature,
+                                    history: args.history,
+                                    run: args.run,
+                                },
+                            ),
+                            json,
+                            &mut stdout,
+                            &mut stderr,
+                        ),
+                        Err(failure) => respond_failure(failure, json, &mut stdout, &mut stderr),
+                    }
+                }
+                ExecuteCommand::AcceptRevision(args) => {
+                    match resolve_single_feature(
+                        &ctx,
+                        args.feature,
+                        "Select a feature to accept revision",
+                    ) {
+                        Ok(feature) => respond(
+                            accept_revision::accept_revision(
+                                &ctx,
+                                accept_revision::AcceptRevisionInput {
+                                    feature,
+                                    plan: args.plan,
+                                },
+                            ),
+                            json,
+                            &mut stdout,
+                            &mut stderr,
+                        ),
+                        Err(failure) => respond_failure(failure, json, &mut stdout, &mut stderr),
+                    }
+                }
+            },
+            FeatureCommand::Deliver(args) => {
+                match resolve_single_feature(&ctx, args.feature, "Select a feature to deliver") {
+                    Ok(feature) => respond(
+                        deliver::deliver(
+                            &ctx,
+                            deliver::DeliverInput {
+                                feature,
+                                preview: args.preview,
+                                land: args.land,
+                                fingerprint: args.fingerprint,
+                                global_metadata: args.global_metadata,
+                                repo_overrides: args.repo_overrides,
+                            },
+                        ),
+                        json,
+                        &mut stdout,
+                        &mut stderr,
+                    ),
+                    Err(failure) => respond_failure(failure, json, &mut stdout, &mut stderr),
+                }
+            }
+            FeatureCommand::Close(args) => match args.name {
+                Some(name) => respond(
+                    close::close(
+                        &ctx,
+                        close::CloseInput {
+                            name,
+                            outcome: args.outcome,
+                        },
+                    ),
+                    json,
+                    &mut stdout,
+                    &mut stderr,
                 ),
-                json,
-                &mut stdout,
-                &mut stderr,
-            ),
-            FeatureCommand::Rebase(args) => respond(
-                rebase::rebase(&ctx, args.into()),
-                json,
-                &mut stdout,
-                &mut stderr,
-            ),
-            FeatureCommand::View(args) => respond(
-                view::view(&ctx, args.into()),
-                json,
-                &mut stdout,
-                &mut stderr,
-            ),
+                None => match resolve_multi_features(&ctx, None, "Select features to close") {
+                    Ok(targets) => {
+                        let items = run_feature_batch(&targets, 4, |f| {
+                            close::close(
+                                &ctx,
+                                close::CloseInput {
+                                    name: f.to_string(),
+                                    outcome: args.outcome.clone(),
+                                },
+                            )
+                        });
+                        respond_batch(items, json, &mut stdout, &mut stderr)
+                    }
+                    Err(failure) => respond_failure(failure, json, &mut stdout, &mut stderr),
+                },
+            },
+            FeatureCommand::Delete(args) => match args.name {
+                Some(name) => respond(
+                    delete::delete(&ctx, delete::DeleteInput { name }),
+                    json,
+                    &mut stdout,
+                    &mut stderr,
+                ),
+                None => match resolve_multi_features(&ctx, None, "Select features to delete") {
+                    Ok(targets) => {
+                        let items = run_feature_batch(&targets, 4, |f| {
+                            delete::delete(&ctx, delete::DeleteInput { name: f.to_string() })
+                        });
+                        respond_batch(items, json, &mut stdout, &mut stderr)
+                    }
+                    Err(failure) => respond_failure(failure, json, &mut stdout, &mut stderr),
+                },
+            },
+            FeatureCommand::Cleanup(args) => match args.name {
+                Some(feature) => respond(
+                    cleanup::cleanup(
+                        &ctx,
+                        cleanup::CleanupInput {
+                            feature,
+                            preview: args.preview,
+                            record: args.record,
+                        },
+                    ),
+                    json,
+                    &mut stdout,
+                    &mut stderr,
+                ),
+                None => match resolve_multi_features(&ctx, None, "Select features to clean up") {
+                    Ok(targets) => {
+                        let items = run_feature_batch(&targets, 4, |f| {
+                            cleanup::cleanup(
+                                &ctx,
+                                cleanup::CleanupInput {
+                                    feature: f.to_string(),
+                                    preview: args.preview,
+                                    record: args.record.clone(),
+                                },
+                            )
+                        });
+                        respond_batch(items, json, &mut stdout, &mut stderr)
+                    }
+                    Err(failure) => respond_failure(failure, json, &mut stdout, &mut stderr),
+                },
+            },
+            FeatureCommand::Workspace(args) => {
+                match resolve_single_feature(
+                    &ctx,
+                    args.feature,
+                    "Select a feature for workspace",
+                ) {
+                    Ok(feature) => respond(
+                        workspace::workspace(
+                            &ctx,
+                            // The only arm that consults `json` for anything but
+                            // rendering: opening an editor is a human convenience, and
+                            // a machine-shaped run has no window to open into. `From`
+                            // cannot see the flag, so it is applied here.
+                            workspace::WorkspaceInput {
+                                feature,
+                                repos: args.repos,
+                                open: !json,
+                            },
+                        ),
+                        json,
+                        &mut stdout,
+                        &mut stderr,
+                    ),
+                    Err(failure) => respond_failure(failure, json, &mut stdout, &mut stderr),
+                }
+            }
+            FeatureCommand::Rebase(args) => match args.name {
+                Some(name) => respond(
+                    rebase::rebase(
+                        &ctx,
+                        rebase::RebaseInput {
+                            name,
+                            onto: args.onto,
+                        },
+                    ),
+                    json,
+                    &mut stdout,
+                    &mut stderr,
+                ),
+                None => match resolve_multi_features(&ctx, None, "Select features to rebase") {
+                    Ok(targets) => {
+                        let items = run_feature_batch(&targets, 4, |f| {
+                            rebase::rebase(
+                                &ctx,
+                                rebase::RebaseInput {
+                                    name: f.to_string(),
+                                    onto: args.onto.clone(),
+                                },
+                            )
+                        });
+                        respond_batch(items, json, &mut stdout, &mut stderr)
+                    }
+                    Err(failure) => respond_failure(failure, json, &mut stdout, &mut stderr),
+                },
+            },
+            FeatureCommand::View(args) => {
+                match resolve_single_feature(&ctx, args.name, "Select a feature to view") {
+                    Ok(feature) => respond(
+                        view::view(&ctx, view::ViewInput { feature }),
+                        json,
+                        &mut stdout,
+                        &mut stderr,
+                    ),
+                    Err(failure) => respond_failure(failure, json, &mut stdout, &mut stderr),
+                }
+            }
             FeatureCommand::Prune => {
                 respond(feature_prune::prune(&ctx), json, &mut stdout, &mut stderr)
             }
@@ -416,31 +670,84 @@ fn main() -> ExitCode {
             }
         },
         Command::Plan(cmd) => match cmd {
-            PlanCommand::Create(args) => respond(
-                plan_create::create(&ctx, args.into()),
-                json,
-                &mut stdout,
-                &mut stderr,
-            ),
+            PlanCommand::Create(args) => {
+                match resolve_single_feature(
+                    &ctx,
+                    args.feature,
+                    "Select a feature to scaffold plans",
+                ) {
+                    Ok(feature) => respond(
+                        plan_create::create(
+                            &ctx,
+                            plan_create::CreateInput {
+                                feature,
+                                artifacts: args.artifacts,
+                            },
+                        ),
+                        json,
+                        &mut stdout,
+                        &mut stderr,
+                    ),
+                    Err(failure) => respond_failure(failure, json, &mut stdout, &mut stderr),
+                }
+            }
             PlanCommand::List => respond(plan_list::list(&ctx), json, &mut stdout, &mut stderr),
-            PlanCommand::Show(args) => respond(
-                plan_show::show(&ctx, args.into()),
-                json,
-                &mut stdout,
-                &mut stderr,
-            ),
-            PlanCommand::Approve(args) => respond(
-                plan_approve::approve(&ctx, args.into()),
-                json,
-                &mut stdout,
-                &mut stderr,
-            ),
-            PlanCommand::Invalidate(args) => respond(
-                plan_approve::invalidate(&ctx, args.into()),
-                json,
-                &mut stdout,
-                &mut stderr,
-            ),
+            PlanCommand::Show(args) => {
+                match resolve_single_feature(&ctx, args.feature, "Select a feature to show plan") {
+                    Ok(feature) => respond(
+                        plan_show::show(
+                            &ctx,
+                            plan_show::ShowInput {
+                                feature,
+                                artifact: args.artifact,
+                            },
+                        ),
+                        json,
+                        &mut stdout,
+                        &mut stderr,
+                    ),
+                    Err(failure) => respond_failure(failure, json, &mut stdout, &mut stderr),
+                }
+            }
+            PlanCommand::Approve(args) => {
+                match resolve_single_feature(&ctx, args.feature, "Select a feature to approve gate")
+                {
+                    Ok(feature) => respond(
+                        plan_approve::approve(
+                            &ctx,
+                            plan_approve::ApproveInput {
+                                feature,
+                                gate: args.gate,
+                            },
+                        ),
+                        json,
+                        &mut stdout,
+                        &mut stderr,
+                    ),
+                    Err(failure) => respond_failure(failure, json, &mut stdout, &mut stderr),
+                }
+            }
+            PlanCommand::Invalidate(args) => {
+                match resolve_single_feature(
+                    &ctx,
+                    args.feature,
+                    "Select a feature to invalidate gate",
+                ) {
+                    Ok(feature) => respond(
+                        plan_approve::invalidate(
+                            &ctx,
+                            plan_approve::InvalidateInput {
+                                feature,
+                                gate: args.gate,
+                            },
+                        ),
+                        json,
+                        &mut stdout,
+                        &mut stderr,
+                    ),
+                    Err(failure) => respond_failure(failure, json, &mut stdout, &mut stderr),
+                }
+            }
             PlanCommand::Status(args) => respond(
                 plan_status::status(&ctx, args.into()),
                 json,
@@ -581,6 +888,52 @@ where
             exit
         }
         Err(failure) => respond_failure(failure, json, stdout, stderr),
+    }
+}
+
+fn respond_batch<T>(
+    items: Vec<BatchItemResult<T>>,
+    json: bool,
+    stdout: &mut impl io::Write,
+    stderr: &mut impl io::Write,
+) -> ExitCode
+where
+    T: Serialize + WriteHuman,
+{
+    let mut any_failed = false;
+    let mut any_warn = false;
+    for item in items {
+        match item.outcome {
+            Ok(report) => {
+                if !report.is_clean() {
+                    any_warn = true;
+                }
+                if json {
+                    let _ = write_json(stdout, &report);
+                } else {
+                    let palette = stderr_palette();
+                    for warning in &report.warnings {
+                        let _ = warning.write_painted(stderr, &palette);
+                    }
+                    let _ = report.value.write_human(stdout);
+                }
+            }
+            Err(failure) => {
+                any_failed = true;
+                if json {
+                    let _ = write_json(stdout, &failure);
+                } else {
+                    let _ = failure.write_painted(stderr, &stderr_palette());
+                }
+            }
+        }
+    }
+    if any_failed {
+        ExitCode::from(2)
+    } else if any_warn {
+        ExitCode::from(1)
+    } else {
+        ExitCode::SUCCESS
     }
 }
 
