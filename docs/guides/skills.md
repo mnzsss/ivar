@@ -107,26 +107,28 @@ repo builds" — repo-specific instructions belong in the repo.
 There is no hosted skill sync in `ivar`, and no account. The hall's git repo does
 the sharing.
 
-## Not skills: shipped workflow commands
+## Shipped skills and workflow commands
 
-Alongside hall skills, `ivar` ships **workflow commands** — `/ivar-deliver`,
-`/ivar-plan`, `/ivar-sync`, and the other official workflows. They are a
-separate surface with a separate lifecycle:
+Alongside hall skills, `ivar` ships built-in **shipped skills** (such as `ivar-execute`) and **workflow commands** (such as `/ivar-deliver`, `/ivar-plan`, `/ivar-sync`, and other official workflows).
+
+`ivar-execute` is distributed as an official shipped skill rather than a prompt command because complex wave execution, subagent dispatch, review barriers, and delivery gates require rich skill instructions and isolation.
+
+They are a separate surface with a separate lifecycle:
 
 ```
 .ivar/skills/<id>/SKILL.md                 committed hall-owned source
-.claude/skills/<id>/...                    derived hall skill target
-.opencode/skills/<id>/...                  derived hall skill target
-.omp/skills/<id>/...                       derived hall skill target
+.claude/skills/<id>/...                    derived hall skill / shipped skill target
+.opencode/skills/<id>/...                  derived hall skill / shipped skill target
+.omp/skills/<id>/...                       derived hall skill / shipped skill target
 .claude/commands/ivar-<id>.md              derived Ivar workflow command
 .opencode/commands/ivar-<id>.md            derived Ivar workflow command
 .omp/commands/ivar-<id>.md                 derived Ivar workflow command
 ```
 
-Workflow commands are embedded in the binary and materialised by
+Shipped skills and workflow commands are embedded in the binary and materialised by
 `ivar init`, `ivar provider add`, and `ivar sync`; they are local derived
 state, not team-shared files you edit. The `ivar-*` prefix is reserved for
-them — do not name a custom command `/ivar-<something>`, because `ivar sync`
+them — do not name a custom command `/ivar-<something>` or custom skill `ivar-<something>`, because `ivar sync`
 treats anything in that namespace as its own and removes files it did not
-ship. A custom command like `/my-cheatsheet` lives happily next to them and is
+ship. A custom command or skill lives happily next to them and is
 never touched.

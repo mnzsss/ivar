@@ -75,14 +75,27 @@ A Run Receipt is persistent local evidence under
 session and approved plan fingerprint, records an immutable baseline snapshot,
 and attaches the current session and provider to the receipt.
 
-The active provider is the coordinator. It reads `plan.md` and `../../tasks/`, executing the plan wave by wave. For each wave, the coordinator dispatches ONE native subagent per task packet, handing the subagent only its specific task packet context to carry out Red → Green → Refactor steps without modifying `plan.md`. Between waves, a wave checkpoint pauses execution for human approval before the coordinator proceeds to the next wave. Ivar does not schedule work, launch headless provider
+The execution lifecycle is coordinated by the `ivar-execute` skill. The active provider acts strictly as coordinator: it reads `plan.md` and `../../tasks/`, executing the plan wave by wave without modifying code directly.
+
+### Guided wave execution lifecycle
+
+1. **Subagent isolation:** For each wave, the coordinator dispatches ONE native subagent per task packet, handing the subagent only its specific task packet context to carry out Red → Green → Refactor steps. Subagents never edit `plan.md`.
+2. **Wave lightweight validation:** At the end of each wave, the coordinator runs explicit lightweight validation commands (such as scoped unit tests, type checks, or linters) declared in `plan.md`.
+3. **Deferred validation failures:** If a validation check fails, the human chooses between fixing now (dispatching a fix subagent) or deferring the failure. Deferred validation failures are recorded under the wave in `plan.md` and carried forward into the post-wave review and correction cycle.
+4. **Wave checkpoints:** Passing validation (or deferred failures with approval) prompts for explicit human approval before advancing to the next wave.
+5. **Dual-axis review barrier:** After all waves complete, the coordinator dispatches two isolated reviews:
+   - **Standards review:** Evaluates code quality, conventions, and repo standards.
+   - **Spec review:** Verifies implementation against `requirements.md` and `plan.md`.
+   The coordinator barriers on both reports before presenting findings and running a human-guided fix loop.
+6. **Gated delivery gate:** Delivery defaults to Draft delivery (`--preview`, followed by applying delivery in draft mode).
+
+Ivar does not schedule work, launch headless provider
 processes, parse transcripts, or store native-subagent identifiers. Ask a human
 directly when a decision needs their input. If newly discovered work lies outside
 the approved plan and can be isolated, make it a child Feature rather than
 silently expanding this Run.
 
 Check the current receipt at any point:
-
 ```sh
 ivar feature execute status checkout
 ivar feature execute status checkout --history
