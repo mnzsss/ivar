@@ -130,7 +130,7 @@ impl Confirm for Fixed {
     }
 
     fn is_interactive(&self) -> bool {
-        false
+        self.answer
     }
 }
 
