@@ -2,8 +2,8 @@
 
 use rusqlite::params;
 
-use super::types::{Result, parse_symbol_kind, symbol_kind_to_str};
 use super::GraphDb;
+use super::types::{Result, parse_symbol_kind, symbol_kind_to_str};
 use crate::domain::graph::{Span, Symbol};
 
 impl GraphDb {

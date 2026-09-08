@@ -1,7 +1,7 @@
 //! Outcomes and human-readable formatters for query graph subcommands.
 
-use std::io;
 use serde::Serialize;
+use std::io;
 
 use crate::action::graph::query;
 use crate::domain::graph::GraphStats;

@@ -2,10 +2,10 @@
 
 use rusqlite::params;
 
+use super::GraphDb;
 use super::types::{
     Result, edge_kind_to_str, now_timestamp, provenance_to_str, symbol_kind_to_str,
 };
-use super::GraphDb;
 use crate::domain::graph::Span;
 use crate::store::graph::extractor::ExtractedFile;
 

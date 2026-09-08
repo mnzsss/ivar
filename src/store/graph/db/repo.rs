@@ -2,8 +2,8 @@
 
 use rusqlite::{OptionalExtension, params};
 
-use super::types::{FileRow, RepoRow, Result, now_timestamp};
 use super::GraphDb;
+use super::types::{FileRow, RepoRow, Result, now_timestamp};
 
 impl GraphDb {
     /// Inserts or updates repository metadata.

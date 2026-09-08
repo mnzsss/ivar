@@ -2,8 +2,8 @@
 
 use rusqlite::params;
 
-use super::types::{Result, edge_kind_to_str, provenance_to_str};
 use super::GraphDb;
+use super::types::{Result, edge_kind_to_str, provenance_to_str};
 use crate::domain::graph::Edge;
 
 impl GraphDb {

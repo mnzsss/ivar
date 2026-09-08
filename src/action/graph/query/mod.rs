@@ -14,9 +14,7 @@ pub use impact::get_impact;
 pub use types::*;
 
 use crate::domain::graph::{Edge, GraphStats, Span, Symbol};
-use crate::store::graph::db::{
-    GraphDb, parse_edge_kind, parse_provenance, parse_symbol_kind,
-};
+use crate::store::graph::db::{GraphDb, parse_edge_kind, parse_provenance, parse_symbol_kind};
 
 /// Retrieves all callers referencing the given symbol name.
 pub fn get_callers(
@@ -165,7 +163,8 @@ pub fn get_file_outline(db: &GraphDb, repo: &str, path: &str) -> Result<FileOutl
     let conn = db.conn();
 
     // 1. Fetch file ID
-    let mut file_stmt = conn.prepare_cached("SELECT id FROM files WHERE repo = ?1 AND path = ?2")?;
+    let mut file_stmt =
+        conn.prepare_cached("SELECT id FROM files WHERE repo = ?1 AND path = ?2")?;
     let file_id: i64 = file_stmt
         .query_row(params![repo, path], |row| row.get(0))
         .optional()?
