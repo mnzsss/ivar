@@ -15,6 +15,7 @@
 //! file is a pure builder — no I/O, no clock — so identical inputs produce
 //! identical bytes.
 
+use crate::domain::memory::context::{MEMORY_MANAGED_END, MEMORY_MANAGED_START};
 use crate::domain::name::FeatureName;
 
 /// Build the session bootstrap block for `feature`, whose plan is reachable
@@ -60,6 +61,40 @@ The working documents are real: edits in the feature directory land in
 the hall's feature working directory (`.ivar/features/{feature}/`).
 <!-- ivar:session:end -->"#
     )
+}
+
+/// Compose instructions with a rendered memory block.
+///
+/// If `instructions` contains `<!-- ivar:memory:start -->` and
+/// `<!-- ivar:memory:end -->`, the region between (and including) those markers
+/// is replaced with `memory_block`, preserving all content outside byte-exact.
+///
+/// If `instructions` does not contain the markers and `memory_block` is non-empty,
+/// `memory_block` is appended to `instructions`.
+#[must_use]
+pub(crate) fn compose_instructions_with_memory(instructions: &str, memory_block: &str) -> String {
+    if let Some(start_idx) = instructions.find(MEMORY_MANAGED_START) {
+        if let Some(end_rel) = instructions[start_idx..].find(MEMORY_MANAGED_END) {
+            let end_idx = start_idx + end_rel + MEMORY_MANAGED_END.len();
+            let before = &instructions[..start_idx];
+            let after = &instructions[end_idx..];
+            return if memory_block.is_empty() {
+                format!("{before}{after}")
+            } else {
+                format!("{before}{memory_block}{after}")
+            };
+        }
+    }
+
+    if memory_block.is_empty() {
+        return instructions.to_string();
+    }
+
+    if instructions.is_empty() {
+        memory_block.to_string()
+    } else {
+        format!("{instructions}\n\n{memory_block}")
+    }
 }
 
 #[cfg(test)]

@@ -120,6 +120,9 @@ pub(crate) fn materialise(
             fs::clear_write_bits(&worktree)?;
         }
     }
+    // Project memory symlink if canonical memory root exists
+    crate::domain::memory::project_memory_symlink(layout, view_dir)?;
+
 
     // The harness config dir — `.claude/` for claude-code, `.opencode/` for
     // opencode, `.omp/` for omp — is a real directory inside the view dir, never
@@ -143,7 +146,7 @@ pub(crate) fn materialise(
     }
 
     let mut report = MaterialiseReport::default();
-    materialise_session_instructions(layout, provider, feature, view_dir, &mut report)?;
+    materialise_session_instructions(layout, manifest, provider, feature, view_dir, &mut report)?;
 
     Ok(report)
 }
@@ -164,6 +167,7 @@ pub(crate) fn materialise(
 /// an unchanged file is not rewritten.
 fn materialise_session_instructions(
     layout: &Layout,
+    manifest: &Manifest,
     provider: Provider,
     feature: Option<&Feature>,
     view_dir: &Utf8Path,
@@ -189,7 +193,7 @@ fn materialise_session_instructions(
         ));
     }
 
-    let content = match feature {
+    let base_content = match feature {
         Some(feature) => {
             let plan_rel = "../../plan.md";
             let block = config::session::build_session_block(&feature.name, plan_rel);
@@ -202,6 +206,14 @@ fn materialise_session_instructions(
         None => hall,
     };
 
+    let memory_ctx = crate::domain::memory::render_memory_context(
+        layout,
+        manifest,
+        feature.map(|f| &f.name),
+        None,
+    )?;
+    let memory_block = memory_ctx.render_block();
+    let content = config::session::compose_instructions_with_memory(&base_content, &memory_block);
     if content.is_empty() {
         // Discovery with no canonical content: no shared instructions. A
         // stale file from an earlier materialisation is cleared.

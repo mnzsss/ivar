@@ -1037,6 +1037,69 @@ fn feature_sessions_prepend_the_bootstrap_then_the_canonical_content() {
 }
 
 #[test]
+fn materialise_projects_memory_symlink_and_injects_memory_context() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root.clone());
+
+    // Create memory root and a topic
+    let scope = crate::domain::memory::config::ScopeName::new("rules").unwrap();
+    let topic = crate::domain::memory::topic::MemoryTopic {
+        metadata: crate::domain::memory::topic::TopicMetadata {
+            title: "Rules".into(),
+            scope: scope.clone(),
+            description: "Rules desc".into(),
+            tier: crate::domain::memory::topic::MemoryTier::Core,
+            status: crate::domain::memory::topic::TopicStatus::Active,
+            updated: "2026-09-08T00:00:00Z".into(),
+            tags: vec![],
+        },
+        content: "Rule 1: Always be safe.".into(),
+    };
+    crate::store::memory::document::write_topic(&layout, &scope, "rules-topic", &topic).unwrap();
+
+    let memory_cfg = crate::domain::memory::config::MemoryConfig {
+        scopes: vec![crate::domain::memory::config::MemoryScope {
+            id: scope,
+            purpose: "Hall rules".into(),
+            budget: 1000,
+            stable_topics: vec!["rules-topic".into()],
+        }],
+    };
+    let manifest = manifest_of(&root).with_memory(Some(memory_cfg)).unwrap();
+
+    let feature = checkout_feature(&layout);
+    let view_dir = layout.feature_session(
+        &feature.name,
+        &crate::domain::name::SessionId::new(uuid::Uuid::new_v4().to_string()).unwrap(),
+    );
+
+    crate::action::session::view::materialise(
+        &layout,
+        &manifest,
+        Some(&feature),
+        Provider::ClaudeCode,
+        &view_dir,
+    )
+    .unwrap();
+
+    // Check memory symlink
+    let mem_link = view_dir.join("memory");
+    assert!(mem_link.is_symlink());
+    assert_eq!(
+        std::fs::read_link(mem_link.as_std_path()).unwrap(),
+        layout.memory_root().as_std_path()
+    );
+
+    // Check memory context injected in instruction file
+    let instruction_text = fs::read_text(&view_dir.join("CLAUDE.md")).unwrap().unwrap();
+    assert!(instruction_text.contains(crate::domain::memory::MEMORY_MANAGED_START));
+    assert!(instruction_text.contains(crate::domain::memory::MEMORY_MANAGED_END));
+    assert!(instruction_text.contains("Rule 1: Always be safe."));
+
+    unguard_worktrees(&root);
+}
+
+#[test]
 fn the_root_alias_is_irrelevant_to_session_materialisation() {
     let (_guard, root) = hall_with_promoted_feature();
     let layout = Layout::at(root.clone());
