@@ -4,7 +4,7 @@ use super::*;
 
 #[test]
 fn test_symbol_kinds_and_construction() {
-    let kinds = vec![
+    let kinds = [
         SymbolKind::Fn,
         SymbolKind::Method,
         SymbolKind::Struct,
@@ -14,19 +14,19 @@ fn test_symbol_kinds_and_construction() {
         SymbolKind::Enum,
         SymbolKind::Mod,
         SymbolKind::Const,
-        SymbolKind::Other("type_alias".to_string()),
+        SymbolKind::Other("type_alias".to_owned()),
     ];
 
     for kind in kinds {
         let sym = Symbol {
             id: Some(1),
             file_id: Some(42),
-            repo: "ivar".to_string(),
-            name: "test_sym".to_string(),
+            repo: "ivar".to_owned(),
+            name: "test_sym".to_owned(),
             kind: kind.clone(),
-            scope: Some("crate::domain".to_string()),
-            signature: Some("fn test_sym() -> ()".to_string()),
-            docstring: Some("A doc comment".to_string()),
+            scope: Some("crate::domain".to_owned()),
+            signature: Some("fn test_sym() -> ()".to_owned()),
+            docstring: Some("A doc comment".to_owned()),
             span: Span::new(10, 1, 20, 1),
             is_exported: true,
         };
@@ -39,17 +39,17 @@ fn test_symbol_kinds_and_construction() {
 
 #[test]
 fn test_edge_kinds_provenance_and_construction() {
-    let kinds = vec![
+    let kinds = [
         EdgeKind::Calls,
         EdgeKind::Imports,
         EdgeKind::Implements,
         EdgeKind::CrossImports,
         EdgeKind::CrossExecutes,
         EdgeKind::CrossCallsHttp,
-        EdgeKind::Other("dynamic_dispatch".to_string()),
+        EdgeKind::Other("dynamic_dispatch".to_owned()),
     ];
 
-    let provenances = vec![
+    let provenances = [
         Provenance::Extracted,
         Provenance::Inferred,
         Provenance::Ambiguous,
@@ -59,11 +59,11 @@ fn test_edge_kinds_provenance_and_construction() {
         for &prov in &provenances {
             let edge = Edge {
                 id: Some(10),
-                repo: "ivar".to_string(),
+                repo: "ivar".to_owned(),
                 file_id: Some(42),
                 from_symbol_id: Some(1),
                 to_symbol_id: Some(2),
-                to_name: Some("target_fn".to_string()),
+                to_name: Some("target_fn".to_owned()),
                 kind: kind.clone(),
                 provenance: prov,
                 line: 15,
@@ -95,33 +95,33 @@ fn test_graph_stats_json_roundtrip() {
 #[test]
 fn test_explore_result_json_roundtrip() {
     let explore = ExploreResult {
-        query: "Symbol".to_string(),
+        query: "Symbol".to_owned(),
         primary_symbols: vec![SymbolSnippet {
             symbol: Symbol {
                 id: Some(1),
                 file_id: Some(1),
-                repo: "ivar".to_string(),
-                name: "Symbol".to_string(),
+                repo: "ivar".to_owned(),
+                name: "Symbol".to_owned(),
                 kind: SymbolKind::Struct,
                 scope: None,
-                signature: Some("pub struct Symbol".to_string()),
+                signature: Some("pub struct Symbol".to_owned()),
                 docstring: None,
                 span: Span::new(1, 1, 10, 1),
                 is_exported: true,
             },
-            file_path: "src/domain/graph.rs".to_string(),
-            code: "pub struct Symbol { ... }".to_string(),
+            file_path: "src/domain/graph.rs".to_owned(),
+            code: "pub struct Symbol { ... }".to_owned(),
             start_line: 1,
             end_line: 10,
         }],
         call_flows: vec![CallFlowItem {
-            caller: "main".to_string(),
-            callee: "init".to_string(),
+            caller: "main".to_owned(),
+            callee: "init".to_owned(),
             edge_kind: EdgeKind::Calls,
             provenance: Provenance::Extracted,
             line: 42,
         }],
-        impact_summary: Some("Core domain model".to_string()),
+        impact_summary: Some("Core domain model".to_owned()),
     };
 
     let json = serde_json::to_string(&explore).expect("serialize explore");
@@ -132,8 +132,8 @@ fn test_explore_result_json_roundtrip() {
 #[test]
 fn test_affected_result_json_roundtrip() {
     let affected = AffectedResult {
-        changed_files: vec!["src/domain/graph.rs".to_string()],
-        affected_test_files: vec!["tests/graph_test.rs".to_string()],
+        changed_files: vec!["src/domain/graph.rs".to_owned()],
+        affected_test_files: vec!["tests/graph_test.rs".to_owned()],
     };
 
     let json = serde_json::to_string(&affected).expect("serialize affected");
@@ -144,11 +144,11 @@ fn test_affected_result_json_roundtrip() {
 #[test]
 fn test_path_result_json_roundtrip() {
     let path = PathResult {
-        from: "main".to_string(),
-        to: "execute".to_string(),
+        from: "main".to_owned(),
+        to: "execute".to_owned(),
         steps: vec![PathStep {
-            source: "main".to_string(),
-            target: "execute".to_string(),
+            source: "main".to_owned(),
+            target: "execute".to_owned(),
             edge_kind: EdgeKind::Calls,
             line: 55,
         }],

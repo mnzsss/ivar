@@ -1,4 +1,9 @@
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing
+)]
 
 use super::*;
 use std::fs;
@@ -38,17 +43,23 @@ pub fn caller_func() {
     .expect("insert repo");
 
     let file_id = db
-        .upsert_file("test-repo", file_rel_path, "hash1", 1000, file_content.len() as i64)
+        .upsert_file(
+            "test-repo",
+            file_rel_path,
+            "hash1",
+            1000,
+            file_content.len() as i64,
+        )
         .expect("upsert file");
 
     let init_hall_sym = Symbol {
         id: None,
         file_id: Some(file_id),
-        repo: "test-repo".to_string(),
-        name: "init_hall".to_string(),
+        repo: "test-repo".to_owned(),
+        name: "init_hall".to_owned(),
         kind: SymbolKind::Fn,
         scope: None,
-        signature: Some("pub fn init_hall(config: Config) -> Result<Hall>".to_string()),
+        signature: Some("pub fn init_hall(config: Config) -> Result<Hall>".to_owned()),
         docstring: None,
         span: Span::new(2, 1, 6, 2),
         is_exported: true,
@@ -57,11 +68,11 @@ pub fn caller_func() {
     let caller_sym = Symbol {
         id: None,
         file_id: Some(file_id),
-        repo: "test-repo".to_string(),
-        name: "caller_func".to_string(),
+        repo: "test-repo".to_owned(),
+        name: "caller_func".to_owned(),
         kind: SymbolKind::Fn,
         scope: None,
-        signature: Some("pub fn caller_func()".to_string()),
+        signature: Some("pub fn caller_func()".to_owned()),
         docstring: None,
         span: Span::new(8, 1, 10, 2),
         is_exported: true,
@@ -77,10 +88,10 @@ pub fn caller_func() {
     let edge1 = crate::domain::graph::Edge {
         id: None,
         file_id: Some(file_id),
-        repo: "test-repo".to_string(),
+        repo: "test-repo".to_owned(),
         from_symbol_id: Some(caller_func_id),
         to_symbol_id: Some(init_hall_id),
-        to_name: Some("init_hall".to_string()),
+        to_name: Some("init_hall".to_owned()),
         kind: EdgeKind::Calls,
         provenance: Provenance::Extracted,
         line: 9,
@@ -92,10 +103,10 @@ pub fn caller_func() {
     let edge2 = crate::domain::graph::Edge {
         id: None,
         file_id: Some(file_id),
-        repo: "test-repo".to_string(),
+        repo: "test-repo".to_owned(),
         from_symbol_id: Some(init_hall_id),
         to_symbol_id: None,
-        to_name: Some("setup_logging".to_string()),
+        to_name: Some("setup_logging".to_owned()),
         kind: EdgeKind::Calls,
         provenance: Provenance::Extracted,
         line: 4,
@@ -106,8 +117,8 @@ pub fn caller_func() {
     db.insert_edges(&[edge1, edge2]).expect("insert edges");
 
     // Run explore
-    let result = explore(&db, hall_root, "init_hall", Some("test-repo"))
-        .expect("explore should succeed");
+    let result =
+        explore(&db, hall_root, "init_hall", Some("test-repo")).expect("explore should succeed");
 
     assert_eq!(result.query, "init_hall");
     assert_eq!(result.primary_symbols.len(), 1);
@@ -119,17 +130,29 @@ pub fn caller_func() {
     assert_eq!(snippet.end_line, 6);
 
     // Verbatim code lines check
-    assert!(snippet.code.contains("2: pub fn init_hall(config: Config) -> Result<Hall> {"));
+    assert!(
+        snippet
+            .code
+            .contains("2: pub fn init_hall(config: Config) -> Result<Hall> {")
+    );
     assert!(snippet.code.contains("4:     setup_logging(&hall);"));
     assert!(snippet.code.contains("6: }"));
 
     // Call flows check
     assert_eq!(result.call_flows.len(), 2);
-    let caller_flow = result.call_flows.iter().find(|f| f.caller == "caller_func").unwrap();
+    let caller_flow = result
+        .call_flows
+        .iter()
+        .find(|f| f.caller == "caller_func")
+        .unwrap();
     assert_eq!(caller_flow.callee, "init_hall");
     assert_eq!(caller_flow.line, 9);
 
-    let callee_flow = result.call_flows.iter().find(|f| f.callee == "setup_logging").unwrap();
+    let callee_flow = result
+        .call_flows
+        .iter()
+        .find(|f| f.callee == "setup_logging")
+        .unwrap();
     assert_eq!(callee_flow.caller, "init_hall");
     assert_eq!(callee_flow.line, 4);
 
@@ -150,5 +173,10 @@ fn test_explore_empty_or_not_found() {
 
     let not_found_res = explore(&db, temp.path(), "non_existent_func", None).expect("not found");
     assert!(not_found_res.primary_symbols.is_empty());
-    assert!(not_found_res.impact_summary.unwrap().contains("No symbols found"));
+    assert!(
+        not_found_res
+            .impact_summary
+            .unwrap()
+            .contains("No symbols found")
+    );
 }

@@ -1,4 +1,9 @@
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing
+)]
 
 use super::*;
 use crate::domain::graph::{EdgeKind, Provenance, Span, SymbolKind};
@@ -18,24 +23,24 @@ fn setup_test_db() -> (GraphDb, i64, i64, i64) {
         Symbol {
             id: None,
             file_id: Some(file1_id),
-            repo: "ivar".to_string(),
-            name: "helper".to_string(),
+            repo: "ivar".to_owned(),
+            name: "helper".to_owned(),
             kind: SymbolKind::Fn,
             scope: None,
-            signature: Some("fn helper()".to_string()),
-            docstring: Some("A helper function".to_string()),
+            signature: Some("fn helper()".to_owned()),
+            docstring: Some("A helper function".to_owned()),
             span: Span::new(1, 1, 5, 1),
             is_exported: true,
         },
         Symbol {
             id: None,
             file_id: Some(file1_id),
-            repo: "ivar".to_string(),
-            name: "caller_fn".to_string(),
+            repo: "ivar".to_owned(),
+            name: "caller_fn".to_owned(),
             kind: SymbolKind::Fn,
             scope: None,
-            signature: Some("fn caller_fn()".to_string()),
-            docstring: Some("A caller function".to_string()),
+            signature: Some("fn caller_fn()".to_owned()),
+            docstring: Some("A caller function".to_owned()),
             span: Span::new(7, 1, 15, 1),
             is_exported: true,
         },
@@ -53,11 +58,11 @@ fn setup_test_db() -> (GraphDb, i64, i64, i64) {
     let top_syms = vec![Symbol {
         id: None,
         file_id: Some(file2_id),
-        repo: "ivar".to_string(),
-        name: "top_fn".to_string(),
+        repo: "ivar".to_owned(),
+        name: "top_fn".to_owned(),
         kind: SymbolKind::Fn,
         scope: None,
-        signature: Some("fn top_fn()".to_string()),
+        signature: Some("fn top_fn()".to_owned()),
         docstring: None,
         span: Span::new(1, 1, 10, 1),
         is_exported: false,
@@ -72,11 +77,11 @@ fn setup_test_db() -> (GraphDb, i64, i64, i64) {
     let edges = vec![
         Edge {
             id: None,
-            repo: "ivar".to_string(),
+            repo: "ivar".to_owned(),
             file_id: Some(file1_id),
             from_symbol_id: None,
             to_symbol_id: None,
-            to_name: Some("std::io".to_string()),
+            to_name: Some("std::io".to_owned()),
             kind: EdgeKind::Imports,
             provenance: Provenance::Extracted,
             line: 1,
@@ -85,11 +90,11 @@ fn setup_test_db() -> (GraphDb, i64, i64, i64) {
         },
         Edge {
             id: None,
-            repo: "ivar".to_string(),
+            repo: "ivar".to_owned(),
             file_id: Some(file1_id),
             from_symbol_id: Some(caller_fn_id),
             to_symbol_id: Some(helper_id),
-            to_name: Some("helper".to_string()),
+            to_name: Some("helper".to_owned()),
             kind: EdgeKind::Calls,
             provenance: Provenance::Extracted,
             line: 10,
@@ -98,11 +103,11 @@ fn setup_test_db() -> (GraphDb, i64, i64, i64) {
         },
         Edge {
             id: None,
-            repo: "ivar".to_string(),
+            repo: "ivar".to_owned(),
             file_id: Some(file2_id),
             from_symbol_id: Some(top_fn_id),
             to_symbol_id: Some(caller_fn_id),
-            to_name: Some("caller_fn".to_string()),
+            to_name: Some("caller_fn".to_owned()),
             kind: EdgeKind::Calls,
             provenance: Provenance::Extracted,
             line: 5,
@@ -114,7 +119,6 @@ fn setup_test_db() -> (GraphDb, i64, i64, i64) {
 
     (db, helper_id, caller_fn_id, top_fn_id)
 }
-
 
 #[test]
 fn test_find_symbols_exact_and_prefix() {
@@ -163,7 +167,10 @@ fn test_get_callees() {
     let callees = get_callees(&db, caller_fn_id).expect("get callees");
     assert_eq!(callees.len(), 1);
     assert_eq!(callees[0].callee_name, "helper");
-    assert_eq!(callees[0].callee_symbol.as_ref().and_then(|s| s.id), Some(helper_id));
+    assert_eq!(
+        callees[0].callee_symbol.as_ref().and_then(|s| s.id),
+        Some(helper_id)
+    );
     assert_eq!(callees[0].callee_file_path.as_deref(), Some("src/lib.rs"));
     assert_eq!(callees[0].edge_kind, EdgeKind::Calls);
 
@@ -222,11 +229,17 @@ fn test_get_impact_and_cycle_protection() {
 
     assert_eq!(impact.affected_symbols[0].symbol.id, Some(caller_fn_id));
     assert_eq!(impact.affected_symbols[0].depth, 1);
-    assert_eq!(impact.affected_symbols[0].path_via, vec!["helper", "caller_fn"]);
+    assert_eq!(
+        impact.affected_symbols[0].path_via,
+        vec!["helper", "caller_fn"]
+    );
 
     assert_eq!(impact.affected_symbols[1].symbol.id, Some(top_fn_id));
     assert_eq!(impact.affected_symbols[1].depth, 2);
-    assert_eq!(impact.affected_symbols[1].path_via, vec!["helper", "caller_fn", "top_fn"]);
+    assert_eq!(
+        impact.affected_symbols[1].path_via,
+        vec!["helper", "caller_fn", "top_fn"]
+    );
 
     // Impact with max_depth = 1
     let shallow = get_impact(&db, helper_id, 1).expect("shallow impact");
@@ -237,11 +250,11 @@ fn test_get_impact_and_cycle_protection() {
     let file1_id = impact.root_symbol.file_id.unwrap();
     let cycle_edge = Edge {
         id: None,
-        repo: "ivar".to_string(),
+        repo: "ivar".to_owned(),
         file_id: Some(file1_id),
         from_symbol_id: Some(helper_id),
         to_symbol_id: Some(top_fn_id),
-        to_name: Some("top_fn".to_string()),
+        to_name: Some("top_fn".to_owned()),
         kind: EdgeKind::Calls,
         provenance: Provenance::Extracted,
         line: 3,

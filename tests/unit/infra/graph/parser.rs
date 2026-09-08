@@ -2,18 +2,46 @@
 
 use super::*;
 use streaming_iterator::StreamingIterator;
+use tree_sitter::QueryCursor;
 
 #[test]
 fn test_from_extension() {
-    assert_eq!(SupportedLanguage::from_extension("rs"), Some(SupportedLanguage::Rust));
-    assert_eq!(SupportedLanguage::from_extension("RS"), Some(SupportedLanguage::Rust));
-    assert_eq!(SupportedLanguage::from_extension("ts"), Some(SupportedLanguage::TypeScript));
-    assert_eq!(SupportedLanguage::from_extension("js"), Some(SupportedLanguage::TypeScript));
-    assert_eq!(SupportedLanguage::from_extension("tsx"), Some(SupportedLanguage::Tsx));
-    assert_eq!(SupportedLanguage::from_extension("jsx"), Some(SupportedLanguage::Tsx));
-    assert_eq!(SupportedLanguage::from_extension("json"), Some(SupportedLanguage::Json));
-    assert_eq!(SupportedLanguage::from_extension("md"), Some(SupportedLanguage::Markdown));
-    assert_eq!(SupportedLanguage::from_extension("markdown"), Some(SupportedLanguage::Markdown));
+    assert_eq!(
+        SupportedLanguage::from_extension("rs"),
+        Some(SupportedLanguage::Rust)
+    );
+    assert_eq!(
+        SupportedLanguage::from_extension("RS"),
+        Some(SupportedLanguage::Rust)
+    );
+    assert_eq!(
+        SupportedLanguage::from_extension("ts"),
+        Some(SupportedLanguage::TypeScript)
+    );
+    assert_eq!(
+        SupportedLanguage::from_extension("js"),
+        Some(SupportedLanguage::TypeScript)
+    );
+    assert_eq!(
+        SupportedLanguage::from_extension("tsx"),
+        Some(SupportedLanguage::Tsx)
+    );
+    assert_eq!(
+        SupportedLanguage::from_extension("jsx"),
+        Some(SupportedLanguage::Tsx)
+    );
+    assert_eq!(
+        SupportedLanguage::from_extension("json"),
+        Some(SupportedLanguage::Json)
+    );
+    assert_eq!(
+        SupportedLanguage::from_extension("md"),
+        Some(SupportedLanguage::Markdown)
+    );
+    assert_eq!(
+        SupportedLanguage::from_extension("markdown"),
+        Some(SupportedLanguage::Markdown)
+    );
     assert_eq!(SupportedLanguage::from_extension("unknown"), None);
 }
 
@@ -29,7 +57,9 @@ fn test_parse_rust_and_query() {
             test_fn(42);
         }
     "#;
-    let tree = engine.parse(SupportedLanguage::Rust, code).expect("parse rust");
+    let tree = engine
+        .parse(SupportedLanguage::Rust, code)
+        .expect("parse rust");
     assert!(!TreeSitterEngine::has_error(&tree));
 
     let query = compile_rust_query().expect("compile rust query");
@@ -54,7 +84,9 @@ fn test_parse_typescript_and_query() {
             }
         }
     "#;
-    let tree = engine.parse(SupportedLanguage::TypeScript, code).expect("parse ts");
+    let tree = engine
+        .parse(SupportedLanguage::TypeScript, code)
+        .expect("parse ts");
     assert!(!TreeSitterEngine::has_error(&tree));
 
     let query = compile_typescript_query().expect("compile ts query");
@@ -73,7 +105,9 @@ fn test_parse_tsx() {
     let code = r#"
         export const Component = () => <div>Hello</div>;
     "#;
-    let tree = engine.parse(SupportedLanguage::Tsx, code).expect("parse tsx");
+    let tree = engine
+        .parse(SupportedLanguage::Tsx, code)
+        .expect("parse tsx");
     assert!(!TreeSitterEngine::has_error(&tree));
 }
 
@@ -81,7 +115,9 @@ fn test_parse_tsx() {
 fn test_parse_json() {
     let mut engine = TreeSitterEngine::new();
     let code = r#"{"key": "value", "num": 123}"#;
-    let tree = engine.parse(SupportedLanguage::Json, code).expect("parse json");
+    let tree = engine
+        .parse(SupportedLanguage::Json, code)
+        .expect("parse json");
     assert!(!TreeSitterEngine::has_error(&tree));
 }
 
@@ -89,6 +125,8 @@ fn test_parse_json() {
 fn test_parse_markdown() {
     let mut engine = TreeSitterEngine::new();
     let code = "# Title\n\n```rust\nfn main() {}\n```\n";
-    let tree = engine.parse(SupportedLanguage::Markdown, code).expect("parse markdown");
+    let tree = engine
+        .parse(SupportedLanguage::Markdown, code)
+        .expect("parse markdown");
     assert!(!TreeSitterEngine::has_error(&tree));
 }

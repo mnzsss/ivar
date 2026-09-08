@@ -1,4 +1,9 @@
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing
+)]
 
 use super::*;
 use tempfile::tempdir;
@@ -88,12 +93,12 @@ fn test_foreign_key_cascades() {
     let sym = Symbol {
         id: None,
         file_id: Some(file_id),
-        repo: "ivar".to_string(),
-        name: "init".to_string(),
+        repo: "ivar".to_owned(),
+        name: "init".to_owned(),
         kind: SymbolKind::Fn,
         scope: None,
-        signature: Some("pub fn init()".to_string()),
-        docstring: Some("Initializes the system.".to_string()),
+        signature: Some("pub fn init()".to_owned()),
+        docstring: Some("Initializes the system.".to_owned()),
         span: Span::new(1, 1, 10, 1),
         is_exported: true,
     };
@@ -102,11 +107,11 @@ fn test_foreign_key_cascades() {
 
     let edge = Edge {
         id: None,
-        repo: "ivar".to_string(),
+        repo: "ivar".to_owned(),
         file_id: Some(file_id),
         from_symbol_id: Some(sym_id),
         to_symbol_id: None,
-        to_name: Some("sub_init".to_string()),
+        to_name: Some("sub_init".to_owned()),
         kind: EdgeKind::Calls,
         provenance: Provenance::Extracted,
         line: 5,
@@ -140,8 +145,8 @@ fn test_delete_symbols_for_file() {
     let sym = Symbol {
         id: None,
         file_id: Some(file_id),
-        repo: "ivar".to_string(),
-        name: "test_fn".to_string(),
+        repo: "ivar".to_owned(),
+        name: "test_fn".to_owned(),
         kind: SymbolKind::Fn,
         scope: None,
         signature: None,
@@ -154,11 +159,11 @@ fn test_delete_symbols_for_file() {
 
     let edge = Edge {
         id: None,
-        repo: "ivar".to_string(),
+        repo: "ivar".to_owned(),
         file_id: Some(file_id),
         from_symbol_id: Some(sym_id),
         to_symbol_id: None,
-        to_name: Some("callee".to_string()),
+        to_name: Some("callee".to_owned()),
         kind: EdgeKind::Calls,
         provenance: Provenance::Extracted,
         line: 2,
@@ -186,12 +191,12 @@ fn test_fts5_triggers_and_search() {
     let sym = Symbol {
         id: None,
         file_id: Some(file_id),
-        repo: "ivar".to_string(),
-        name: "compute_hash".to_string(),
+        repo: "ivar".to_owned(),
+        name: "compute_hash".to_owned(),
         kind: SymbolKind::Fn,
-        scope: Some("crate::service".to_string()),
-        signature: Some("pub fn compute_hash(data: &[u8]) -> String".to_string()),
-        docstring: Some("Computes SHA256 digest of input payload.".to_string()),
+        scope: Some("module::service".to_owned()),
+        signature: Some("pub fn compute_hash(data: &[u8]) -> String".to_owned()),
+        docstring: Some("Computes SHA256 digest of input payload.".to_owned()),
         span: Span::new(10, 1, 25, 1),
         is_exported: true,
     };
@@ -233,11 +238,11 @@ fn test_relink_dangling_edges() {
     // Insert edge before callee symbol exists (dangling edge with to_symbol_id = NULL)
     let edge = Edge {
         id: None,
-        repo: "ivar".to_string(),
+        repo: "ivar".to_owned(),
         file_id: Some(file_caller),
         from_symbol_id: None,
         to_symbol_id: None,
-        to_name: Some("target_fn".to_string()),
+        to_name: Some("target_fn".to_owned()),
         kind: EdgeKind::Calls,
         provenance: Provenance::Extracted,
         line: 4,
@@ -250,11 +255,11 @@ fn test_relink_dangling_edges() {
     let target_sym = Symbol {
         id: None,
         file_id: Some(file_callee),
-        repo: "ivar".to_string(),
-        name: "target_fn".to_string(),
+        repo: "ivar".to_owned(),
+        name: "target_fn".to_owned(),
         kind: SymbolKind::Fn,
         scope: None,
-        signature: Some("pub fn target_fn()".to_string()),
+        signature: Some("pub fn target_fn()".to_owned()),
         docstring: None,
         span: Span::new(1, 1, 10, 1),
         is_exported: true,
@@ -275,4 +280,140 @@ fn test_relink_dangling_edges() {
         )
         .unwrap();
     assert_eq!(to_sym_id, Some(target_sym_id));
+}
+
+#[test]
+fn test_index_extracted_file_resolves_from_symbol_id() {
+    let db = GraphDb::open_in_memory().expect("open");
+    db.insert_repo("ivar", "/path", "main", None).unwrap();
+
+    let extracted = crate::store::graph::extractor::ExtractedFile {
+        symbols: vec![Symbol {
+            id: None,
+            file_id: None,
+            repo: "ivar".to_owned(),
+            name: "caller_fn".to_owned(),
+            kind: SymbolKind::Fn,
+            scope: None,
+            signature: Some("pub fn caller_fn()".to_owned()),
+            docstring: None,
+            span: Span::new(10, 1, 20, 1),
+            is_exported: true,
+        }],
+        edges: vec![Edge {
+            id: None,
+            repo: "ivar".to_owned(),
+            file_id: None,
+            from_symbol_id: None,
+            to_symbol_id: None,
+            to_name: Some("callee_fn".to_owned()),
+            kind: EdgeKind::Calls,
+            provenance: Provenance::Extracted,
+            line: 15,
+            col: 5,
+            confidence: 0.95,
+        }],
+    };
+
+    db.index_extracted_file("ivar", "src/lib.rs", "h_test", 1, 100, &extracted)
+        .unwrap();
+
+    let (from_sym_id, caller_id): (Option<i64>, i64) = db
+        .conn()
+        .query_row(
+            "SELECT e.from_symbol_id, s.id FROM edges e JOIN symbols s ON s.name = 'caller_fn'",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap();
+
+    assert_eq!(from_sym_id, Some(caller_id));
+}
+
+#[test]
+fn test_index_extracted_file_duplicate_symbol_names_resolves_correct_from_symbol_id() {
+    let db = GraphDb::open_in_memory().expect("open");
+    db.insert_repo("ivar", "/path", "main", None).unwrap();
+
+    let extracted = crate::store::graph::extractor::ExtractedFile {
+        symbols: vec![
+            Symbol {
+                id: None,
+                file_id: None,
+                repo: "ivar".to_owned(),
+                name: "process".to_owned(),
+                kind: SymbolKind::Method,
+                scope: Some("WorkerA".to_owned()),
+                signature: Some("fn process(&self)".to_owned()),
+                docstring: None,
+                span: Span::new(10, 5, 20, 50),
+                is_exported: true,
+            },
+            Symbol {
+                id: None,
+                file_id: None,
+                repo: "ivar".to_owned(),
+                name: "process".to_owned(),
+                kind: SymbolKind::Method,
+                scope: Some("WorkerB".to_owned()),
+                signature: Some("fn process(&self)".to_owned()),
+                docstring: None,
+                span: Span::new(30, 5, 40, 50),
+                is_exported: true,
+            },
+        ],
+        edges: vec![
+            Edge {
+                id: None,
+                repo: "ivar".to_owned(),
+                file_id: None,
+                from_symbol_id: None,
+                to_symbol_id: None,
+                to_name: Some("target_a".to_owned()),
+                kind: EdgeKind::Calls,
+                provenance: Provenance::Extracted,
+                line: 15,
+                col: 10,
+                confidence: 0.95,
+            },
+            Edge {
+                id: None,
+                repo: "ivar".to_owned(),
+                file_id: None,
+                from_symbol_id: None,
+                to_symbol_id: None,
+                to_name: Some("target_b".to_owned()),
+                kind: EdgeKind::Calls,
+                provenance: Provenance::Extracted,
+                line: 35,
+                col: 10,
+                confidence: 0.95,
+            },
+        ],
+    };
+
+    db.index_extracted_file("ivar", "src/workers.rs", "h_test", 1, 100, &extracted)
+        .unwrap();
+
+    let sym_ids: Vec<i64> = db
+        .conn()
+        .prepare("SELECT id FROM symbols WHERE name = 'process' ORDER BY start_line ASC")
+        .unwrap()
+        .query_map([], |r| r.get(0))
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+
+    assert_eq!(sym_ids.len(), 2);
+
+    let from_symbol_ids: Vec<Option<i64>> = db
+        .conn()
+        .prepare("SELECT from_symbol_id FROM edges ORDER BY line ASC")
+        .unwrap()
+        .query_map([], |r| r.get(0))
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+
+    assert_eq!(from_symbol_ids, vec![Some(sym_ids[0]), Some(sym_ids[1])]);
 }

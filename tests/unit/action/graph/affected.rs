@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::domain::graph::{Edge, EdgeKind, Provenance, Span, Symbol, SymbolKind};
-use crate::infra::graph::extractor::ExtractedFile;
+use crate::store::graph::extractor::ExtractedFile;
 
 #[test]
 fn test_is_test_file_heuristics() {
@@ -38,11 +38,11 @@ fn test_find_affected_tests_transitive() -> Result<(), Box<dyn std::error::Error
         symbols: vec![Symbol {
             id: None,
             file_id: None,
-            repo: "test_repo".to_string(),
-            name: "helper_fn".to_string(),
+            repo: "test_repo".to_owned(),
+            name: "helper_fn".to_owned(),
             kind: SymbolKind::Fn,
             scope: None,
-            signature: Some("fn helper_fn()".to_string()),
+            signature: Some("fn helper_fn()".to_owned()),
             docstring: None,
             span: Span::new(1, 1, 5, 1),
             is_exported: true,
@@ -63,22 +63,22 @@ fn test_find_affected_tests_transitive() -> Result<(), Box<dyn std::error::Error
         symbols: vec![Symbol {
             id: None,
             file_id: None,
-            repo: "test_repo".to_string(),
-            name: "core_work".to_string(),
+            repo: "test_repo".to_owned(),
+            name: "core_work".to_owned(),
             kind: SymbolKind::Fn,
             scope: None,
-            signature: Some("fn core_work()".to_string()),
+            signature: Some("fn core_work()".to_owned()),
             docstring: None,
             span: Span::new(1, 1, 10, 1),
             is_exported: true,
         }],
         edges: vec![Edge {
             id: None,
-            repo: "test_repo".to_string(),
+            repo: "test_repo".to_owned(),
             file_id: None,
             from_symbol_id: None,
             to_symbol_id: None,
-            to_name: Some("helper_fn".to_string()),
+            to_name: Some("helper_fn".to_owned()),
             kind: EdgeKind::Calls,
             provenance: Provenance::Extracted,
             line: 5,
@@ -100,22 +100,22 @@ fn test_find_affected_tests_transitive() -> Result<(), Box<dyn std::error::Error
         symbols: vec![Symbol {
             id: None,
             file_id: None,
-            repo: "test_repo".to_string(),
-            name: "test_core_feature".to_string(),
+            repo: "test_repo".to_owned(),
+            name: "test_core_feature".to_owned(),
             kind: SymbolKind::Fn,
             scope: None,
-            signature: Some("fn test_core_feature()".to_string()),
+            signature: Some("fn test_core_feature()".to_owned()),
             docstring: None,
             span: Span::new(1, 1, 8, 1),
             is_exported: false,
         }],
         edges: vec![Edge {
             id: None,
-            repo: "test_repo".to_string(),
+            repo: "test_repo".to_owned(),
             file_id: None,
             from_symbol_id: None,
             to_symbol_id: None,
-            to_name: Some("core_work".to_string()),
+            to_name: Some("core_work".to_owned()),
             kind: EdgeKind::Calls,
             provenance: Provenance::Extracted,
             line: 4,
@@ -133,12 +133,7 @@ fn test_find_affected_tests_transitive() -> Result<(), Box<dyn std::error::Error
     )?;
 
     // Query affected tests for src/utils.rs
-    let result = find_affected_tests(
-        &db,
-        &["src/utils.rs".to_string()],
-        Some("test_repo"),
-        5,
-    )?;
+    let result = find_affected_tests(&db, &["src/utils.rs".to_owned()], Some("test_repo"), 5)?;
 
     assert_eq!(result.changed_files, vec!["src/utils.rs"]);
     assert_eq!(result.affected_test_files, vec!["tests/core_test.rs"]);

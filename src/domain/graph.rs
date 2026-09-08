@@ -31,12 +31,7 @@ pub struct Span {
 }
 
 impl Span {
-    pub const fn new(
-        start_line: usize,
-        start_col: usize,
-        end_line: usize,
-        end_col: usize,
-    ) -> Self {
+    pub const fn new(start_line: usize, start_col: usize, end_line: usize, end_col: usize) -> Self {
         Self {
             start_line,
             start_col,

@@ -10,7 +10,7 @@ use rusqlite::params;
 use thiserror::Error;
 
 use crate::domain::graph::AffectedResult;
-use crate::infra::graph::db::GraphDb;
+use crate::store::graph::db::GraphDb;
 
 /// Error returned during affected test resolution.
 #[derive(Debug, Error)]
@@ -28,7 +28,7 @@ pub fn parse_files_from_reader<R: BufRead>(reader: R) -> Vec<String> {
     reader
         .lines()
         .map_while(Result::ok)
-        .map(|line| line.trim().to_string())
+        .map(|line| line.trim().to_owned())
         .filter(|line| !line.is_empty() && !line.starts_with('#'))
         .collect()
 }
@@ -45,7 +45,10 @@ pub fn is_test_file(path: &str) -> bool {
     let parts: Vec<&str> = normalized.split('/').collect();
 
     // Check directory prefix/components
-    if parts.iter().any(|&p| p == "tests" || p == "__tests__" || p == "test") {
+    if parts
+        .iter()
+        .any(|&p| p == "tests" || p == "__tests__" || p == "test")
+    {
         return true;
     }
 
@@ -62,11 +65,13 @@ pub fn is_test_file(path: &str) -> bool {
             return true;
         }
 
-        if filename.ends_with(".rs") {
-            let stem = &filename[..filename.len() - 3];
-            if stem == "test" || stem.ends_with("_test") || stem.starts_with("test_") || stem.contains("test") {
-                return true;
-            }
+        if let Some(stem) = filename.strip_suffix(".rs")
+            && (stem == "test"
+                || stem.ends_with("_test")
+                || stem.starts_with("test_")
+                || stem.contains("test"))
+        {
+            return true;
         }
     }
 
@@ -153,13 +158,11 @@ pub fn find_affected_tests(
                     e.file_id,
                     rd.depth + 1,
                     rd.visited_files || CAST(e.file_id AS TEXT) || ','
-                FROM edges e
-                JOIN reverse_deps rd ON (
-                    e.to_symbol_id IN (SELECT s.id FROM symbols s WHERE s.file_id = rd.file_id)
-                    OR (
-                        e.to_symbol_id IS NULL
-                        AND e.to_name IN (SELECT s.name FROM symbols s WHERE s.file_id = rd.file_id)
-                    )
+                FROM reverse_deps rd
+                JOIN symbols s ON s.file_id = rd.file_id
+                JOIN edges e ON (
+                    e.to_symbol_id = s.id
+                    OR (e.to_symbol_id IS NULL AND e.to_name = s.name)
                 )
                 WHERE rd.depth < ?2
                   AND e.file_id IS NOT NULL

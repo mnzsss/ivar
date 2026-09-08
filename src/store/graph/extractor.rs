@@ -5,13 +5,13 @@
 //! - Pass 2: Extract invocations (calls) and imports, attaching 5-tier confidence heuristic and provenance.
 
 use std::collections::HashSet;
-use thiserror::Error;
 use streaming_iterator::StreamingIterator;
+use thiserror::Error;
 use tree_sitter::{Node, Query, QueryCursor};
 
 use crate::domain::graph::{Edge, EdgeKind, Provenance, Span, Symbol, SymbolKind};
 use crate::infra::graph::parser::{
-    compile_rust_query, compile_typescript_query, ParserError, SupportedLanguage, TreeSitterEngine,
+    ParserError, SupportedLanguage, TreeSitterEngine, compile_rust_query, compile_typescript_query,
 };
 
 /// Errors produced during AST extraction.
@@ -46,7 +46,12 @@ pub fn extract_file(
     let query = match lang {
         SupportedLanguage::Rust => compile_rust_query()?,
         SupportedLanguage::TypeScript | SupportedLanguage::Tsx => compile_typescript_query()?,
-        _ => return Err(ExtractorError::UnsupportedLanguage(lang)),
+        _ => {
+            return Ok(ExtractedFile {
+                symbols: Vec::new(),
+                edges: Vec::new(),
+            });
+        }
     };
 
     let source_bytes = content.as_bytes();
@@ -89,7 +94,7 @@ fn extract_symbols(
         }
 
         if let (Some(k_node), Some(n_node)) = (kind_node, name_node) {
-            let name = n_node.utf8_text(source_bytes).unwrap_or("").to_string();
+            let name = n_node.utf8_text(source_bytes).unwrap_or("").to_owned();
             if name.is_empty() {
                 continue;
             }
@@ -103,7 +108,7 @@ fn extract_symbols(
             symbols.push(Symbol {
                 id: None,
                 file_id: None,
-                repo: repo.to_string(),
+                repo: repo.to_owned(),
                 name,
                 kind,
                 scope: None,
@@ -142,23 +147,29 @@ fn extract_edges(
     while let Some(m) = matches.next() {
         for cap in m.captures {
             if Some(cap.index) == import_path_idx || Some(cap.index) == import_source_idx {
-                let raw_text = cap.node.utf8_text(source_bytes).unwrap_or("").trim_matches(&['"', '\'', ';', ' '][..]);
+                let raw_text = cap
+                    .node
+                    .utf8_text(source_bytes)
+                    .unwrap_or("")
+                    .trim_matches(&['"', '\'', ';', ' '][..]);
                 let span = node_to_span(cap.node);
-                
+
                 // For Rust use paths (e.g. `foo::bar` or `bar`), record leaf name as imported
-                if let Some(leaf) = raw_text.split("::").last() {
-                    if !leaf.contains('{') && !leaf.contains('*') && !leaf.is_empty() {
-                        imported_names.insert(leaf.trim().to_string());
-                    }
+                if let Some(leaf) = raw_text.split("::").last()
+                    && !leaf.contains('{')
+                    && !leaf.contains('*')
+                    && !leaf.is_empty()
+                {
+                    imported_names.insert(leaf.trim().to_owned());
                 }
 
                 edges.push(Edge {
                     id: None,
-                    repo: repo.to_string(),
+                    repo: repo.to_owned(),
                     file_id: None,
                     from_symbol_id: None,
                     to_symbol_id: None,
-                    to_name: Some(raw_text.to_string()),
+                    to_name: Some(raw_text.to_owned()),
                     kind: EdgeKind::Imports,
                     provenance: Provenance::Extracted,
                     line: span.start_line,
@@ -168,7 +179,7 @@ fn extract_edges(
             } else if Some(cap.index) == import_name_idx {
                 let name = cap.node.utf8_text(source_bytes).unwrap_or("").trim();
                 if !name.is_empty() {
-                    imported_names.insert(name.to_string());
+                    imported_names.insert(name.to_owned());
                 }
             }
         }
@@ -191,7 +202,7 @@ fn extract_edges(
         }
 
         if let Some(t_node) = target_node {
-            let target_name = t_node.utf8_text(source_bytes).unwrap_or("").to_string();
+            let target_name = t_node.utf8_text(source_bytes).unwrap_or("").to_owned();
             if target_name.is_empty() {
                 continue;
             }
@@ -207,7 +218,11 @@ fn extract_edges(
                 (Some(target_name), Provenance::Extracted, 0.95)
             } else if let Some(receiver) = receiver_name {
                 // Tier 3: Method call with receiver
-                (Some(format!("{receiver}.{target_name}")), Provenance::Inferred, 0.85)
+                (
+                    Some(format!("{receiver}.{target_name}")),
+                    Provenance::Inferred,
+                    0.85,
+                )
             } else {
                 // Tier 4: General / dynamic / unresolved call
                 (Some(target_name), Provenance::Inferred, 0.70)
@@ -215,7 +230,7 @@ fn extract_edges(
 
             edges.push(Edge {
                 id: None,
-                repo: repo.to_string(),
+                repo: repo.to_owned(),
                 file_id: None,
                 from_symbol_id: None,
                 to_symbol_id: None,
@@ -241,23 +256,18 @@ fn determine_symbol_kind(node_kind: &str, _lang: SupportedLanguage) -> SymbolKin
         "trait_item" => SymbolKind::Trait,
         "interface_declaration" => SymbolKind::Interface,
         "enum_item" | "enum_declaration" => SymbolKind::Enum,
-        "type_alias_declaration" => SymbolKind::Other("type_alias".to_string()),
-        "impl_item" => SymbolKind::Other("impl".to_string()),
+        "type_alias_declaration" => SymbolKind::Other("type_alias".to_owned()),
+        "impl_item" => SymbolKind::Other("impl".to_owned()),
         "mod_item" => SymbolKind::Mod,
         "const_item" | "static_item" => SymbolKind::Const,
-        other => SymbolKind::Other(other.to_string()),
+        other => SymbolKind::Other(other.to_owned()),
     }
 }
 
 fn node_to_span(node: Node) -> Span {
     let start = node.start_position();
     let end = node.end_position();
-    Span::new(
-        start.row + 1,
-        start.column + 1,
-        end.row + 1,
-        end.column + 1,
-    )
+    Span::new(start.row + 1, start.column + 1, end.row + 1, end.column + 1)
 }
 
 fn check_exported(node: Node, source_bytes: &[u8], lang: SupportedLanguage) -> bool {
@@ -273,10 +283,10 @@ fn check_exported(node: Node, source_bytes: &[u8], lang: SupportedLanguage) -> b
         }
         SupportedLanguage::TypeScript | SupportedLanguage::Tsx => {
             // Check if parent is export_statement or node has export modifier
-            if let Some(parent) = node.parent() {
-                if parent.kind() == "export_statement" {
-                    return true;
-                }
+            if let Some(parent) = node.parent()
+                && parent.kind() == "export_statement"
+            {
+                return true;
             }
             let text = node.utf8_text(source_bytes).unwrap_or("");
             text.starts_with("export ")
@@ -289,16 +299,13 @@ fn extract_signature(node: Node, source_bytes: &[u8]) -> Option<String> {
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
         if child.kind() == "parameters" || child.kind() == "formal_parameters" {
-            let start = node.start_position().row;
-            let p_end = child.end_position().row;
             // If signature spans multiple lines or single line, extract from node start to parameters end
             let node_text = node.utf8_text(source_bytes).ok()?;
             if let Some(brace_pos) = node_text.find('{') {
-                return Some(node_text[..brace_pos].trim().to_string());
+                return Some(node_text[..brace_pos].trim().to_owned());
             } else if let Some(semi_pos) = node_text.find(';') {
-                return Some(node_text[..semi_pos].trim().to_string());
+                return Some(node_text[..semi_pos].trim().to_owned());
             }
-            let _ = (start, p_end);
         }
     }
     None
@@ -310,10 +317,12 @@ fn extract_docstring(node: Node, source_bytes: &[u8], _lang: SupportedLanguage) 
 
     while let Some(sibling) = prev {
         if sibling.kind() == "line_comment" || sibling.kind() == "comment" {
-            if let Ok(comment_text) = sibling.utf8_text(source_bytes) {
-                if comment_text.starts_with("///") || comment_text.starts_with("/**") || comment_text.starts_with("//") {
-                    comments.push(comment_text.trim().to_string());
-                }
+            if let Ok(comment_text) = sibling.utf8_text(source_bytes)
+                && (comment_text.starts_with("///")
+                    || comment_text.starts_with("/**")
+                    || comment_text.starts_with("//"))
+            {
+                comments.push(comment_text.trim().to_owned());
             }
             prev = sibling.prev_sibling();
         } else {
@@ -330,5 +339,5 @@ fn extract_docstring(node: Node, source_bytes: &[u8], _lang: SupportedLanguage) 
 }
 
 #[cfg(test)]
-#[path = "../../../tests/unit/infra/graph/extractor.rs"]
+#[path = "../../../tests/unit/store/graph/extractor.rs"]
 mod tests;

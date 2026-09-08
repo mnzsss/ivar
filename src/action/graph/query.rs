@@ -3,15 +3,13 @@
 //! Provides <1ms symbol discovery, callers/callees lookup, file outline,
 //! graph stats, and transitive blast-radius impact analysis.
 
-use rusqlite::{params, OptionalExtension};
+use rusqlite::{OptionalExtension, params};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::domain::graph::{
-    Edge, EdgeKind, GraphStats, Provenance, Span, Symbol,
-};
-use crate::infra::graph::db::{
-    parse_edge_kind, parse_provenance, parse_symbol_kind, GraphDb, GraphDbError,
+use crate::domain::graph::{Edge, EdgeKind, GraphStats, Provenance, Span, Symbol};
+use crate::store::graph::db::{
+    GraphDb, GraphDbError, parse_edge_kind, parse_provenance, parse_symbol_kind,
 };
 
 /// Error returned during graph query execution.
@@ -186,15 +184,15 @@ pub fn find_symbols(
         let rows = stmt.query_map(params![query, repo, limit as i64], map_symbol_and_path_row)?;
         for row in rows {
             let (sym, path) = row?;
-            if let Some(id) = sym.id {
-                if seen_ids.insert(id) {
-                    results.push(SymbolLocation {
-                        symbol: sym,
-                        file_path: path,
-                    });
-                    if results.len() >= limit {
-                        return Ok(results);
-                    }
+            if let Some(id) = sym.id
+                && seen_ids.insert(id)
+            {
+                results.push(SymbolLocation {
+                    symbol: sym,
+                    file_path: path,
+                });
+                if results.len() >= limit {
+                    return Ok(results);
                 }
             }
         }
@@ -212,18 +210,21 @@ pub fn find_symbols(
              ORDER BY length(s.name) ASC
              LIMIT ?3",
         )?;
-        let rows = stmt.query_map(params![prefix_query, repo, limit as i64], map_symbol_and_path_row)?;
+        let rows = stmt.query_map(
+            params![prefix_query, repo, limit as i64],
+            map_symbol_and_path_row,
+        )?;
         for row in rows {
             let (sym, path) = row?;
-            if let Some(id) = sym.id {
-                if seen_ids.insert(id) {
-                    results.push(SymbolLocation {
-                        symbol: sym,
-                        file_path: path,
-                    });
-                    if results.len() >= limit {
-                        return Ok(results);
-                    }
+            if let Some(id) = sym.id
+                && seen_ids.insert(id)
+            {
+                results.push(SymbolLocation {
+                    symbol: sym,
+                    file_path: path,
+                });
+                if results.len() >= limit {
+                    return Ok(results);
                 }
             }
         }
@@ -241,20 +242,21 @@ pub fn find_symbols(
              WHERE symbols_fts MATCH ?1 AND (?2 IS NULL OR s.repo = ?2)
              ORDER BY rank
              LIMIT ?3",
+        ) && let Ok(rows) = stmt.query_map(
+            params![fts_query, repo, limit as i64],
+            map_symbol_and_path_row,
         ) {
-            if let Ok(rows) = stmt.query_map(params![fts_query, repo, limit as i64], map_symbol_and_path_row) {
-                for row in rows.flatten() {
-                    let (sym, path) = row;
-                    if let Some(id) = sym.id {
-                        if seen_ids.insert(id) {
-                            results.push(SymbolLocation {
-                                symbol: sym,
-                                file_path: path,
-                            });
-                            if results.len() >= limit {
-                                return Ok(results);
-                            }
-                        }
+            for row in rows.flatten() {
+                let (sym, path) = row;
+                if let Some(id) = sym.id
+                    && seen_ids.insert(id)
+                {
+                    results.push(SymbolLocation {
+                        symbol: sym,
+                        file_path: path,
+                    });
+                    if results.len() >= limit {
+                        return Ok(results);
                     }
                 }
             }
@@ -419,8 +421,8 @@ pub fn get_file_outline(db: &GraphDb, repo: &str, path: &str) -> Result<FileOutl
         )
         .optional()?
         .ok_or_else(|| QueryError::FileNotFound {
-            repo: repo.to_string(),
-            path: path.to_string(),
+            repo: repo.to_owned(),
+            path: path.to_owned(),
         })?;
 
     let mut sym_stmt = conn.prepare_cached(
@@ -473,8 +475,8 @@ pub fn get_file_outline(db: &GraphDb, repo: &str, path: &str) -> Result<FileOutl
         .collect::<Result<Vec<_>, _>>()?;
 
     Ok(FileOutline {
-        file_path: path.to_string(),
-        repo: repo.to_string(),
+        file_path: path.to_owned(),
+        repo: repo.to_owned(),
         symbols,
         imports,
     })
@@ -579,7 +581,7 @@ pub fn get_impact(
 
         let path_via = path_names
             .split(" -> ")
-            .map(|s| s.to_string())
+            .map(|s| s.to_owned())
             .collect::<Vec<_>>();
 
         Ok(ImpactItem {
@@ -596,11 +598,11 @@ pub fn get_impact(
 
     for r in rows {
         let item = r?;
-        if let Some(sym_id) = item.symbol.id {
-            if seen_symbols.insert(sym_id) {
-                affected_files_set.insert(item.file_path.clone());
-                affected_symbols.push(item);
-            }
+        if let Some(sym_id) = item.symbol.id
+            && seen_symbols.insert(sym_id)
+        {
+            affected_files_set.insert(item.file_path.clone());
+            affected_symbols.push(item);
         }
     }
 

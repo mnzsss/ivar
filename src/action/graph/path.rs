@@ -9,7 +9,7 @@ use rusqlite::params;
 use thiserror::Error;
 
 use crate::domain::graph::{EdgeKind, PathResult, PathStep};
-use crate::infra::graph::db::{parse_edge_kind, GraphDb};
+use crate::store::graph::db::{GraphDb, parse_edge_kind};
 
 /// Error returned during shortest path traversal.
 #[derive(Debug, Error)]
@@ -53,21 +53,21 @@ pub fn find_shortest_path(
     // 1. Identify start node candidate symbol IDs / names
     let start_symbols = resolve_candidates(conn, from_symbol_or_file)?;
     if start_symbols.is_empty() {
-        return Err(PathError::StartNotFound(from_symbol_or_file.to_string()));
+        return Err(PathError::StartNotFound(from_symbol_or_file.to_owned()));
     }
 
     // 2. Identify target node candidate symbol IDs / names
     let target_symbols = resolve_candidates(conn, to_symbol_or_file)?;
     if target_symbols.is_empty() {
-        return Err(PathError::TargetNotFound(to_symbol_or_file.to_string()));
+        return Err(PathError::TargetNotFound(to_symbol_or_file.to_owned()));
     }
 
     // Check if start and target already overlap
     for start_id in &start_symbols {
         if target_symbols.contains(start_id) {
             return Ok(Some(PathResult {
-                from: from_symbol_or_file.to_string(),
-                to: to_symbol_or_file.to_string(),
+                from: from_symbol_or_file.to_owned(),
+                to: to_symbol_or_file.to_owned(),
                 steps: Vec::new(),
             }));
         }
@@ -96,28 +96,30 @@ pub fn find_shortest_path(
 
     while !forward_queue.is_empty() && !backward_queue.is_empty() {
         // Expand forward frontier
-        if let Some((curr, depth)) = forward_queue.pop_front() {
-            if depth < max_hops {
-                // Find outgoing edges from `curr`
-                let outgoing = get_outgoing_edges(conn, curr)?;
-                for edge in outgoing {
-                    if let Some(next_id) = edge.to_symbol_id {
-                        let step = PathStep {
-                            source: edge.from_name,
-                            target: edge.to_name,
-                            edge_kind: edge.kind,
-                            line: edge.line,
-                        };
+        if let Some((curr, depth)) = forward_queue.pop_front()
+            && depth < max_hops
+        {
+            // Find outgoing edges from `curr`
+            let outgoing = get_outgoing_edges(conn, curr)?;
+            for edge in outgoing {
+                if let Some(next_id) = edge.to_symbol_id {
+                    let step = PathStep {
+                        source: edge.from_name,
+                        target: edge.to_name,
+                        edge_kind: edge.kind,
+                        line: edge.line,
+                    };
 
-                        if !forward_visited.contains_key(&next_id) {
-                            forward_visited.insert(next_id, Some((curr, step.clone())));
-                            forward_queue.push_back((next_id, depth + 1));
-                        }
+                    if let std::collections::hash_map::Entry::Vacant(e) =
+                        forward_visited.entry(next_id)
+                    {
+                        e.insert(Some((curr, step.clone())));
+                        forward_queue.push_back((next_id, depth + 1));
+                    }
 
-                        if backward_visited.contains_key(&next_id) {
-                            meeting_node = Some(next_id);
-                            break;
-                        }
+                    if backward_visited.contains_key(&next_id) {
+                        meeting_node = Some(next_id);
+                        break;
                     }
                 }
             }
@@ -128,28 +130,30 @@ pub fn find_shortest_path(
         }
 
         // Expand backward frontier
-        if let Some((curr, depth)) = backward_queue.pop_front() {
-            if depth < max_hops {
-                // Find incoming edges to `curr`
-                let incoming = get_incoming_edges(conn, curr)?;
-                for edge in incoming {
-                    if let Some(prev_id) = edge.from_symbol_id {
-                        let step = PathStep {
-                            source: edge.from_name,
-                            target: edge.to_name,
-                            edge_kind: edge.kind,
-                            line: edge.line,
-                        };
+        if let Some((curr, depth)) = backward_queue.pop_front()
+            && depth < max_hops
+        {
+            // Find incoming edges to `curr`
+            let incoming = get_incoming_edges(conn, curr)?;
+            for edge in incoming {
+                if let Some(prev_id) = edge.from_symbol_id {
+                    let step = PathStep {
+                        source: edge.from_name,
+                        target: edge.to_name,
+                        edge_kind: edge.kind,
+                        line: edge.line,
+                    };
 
-                        if !backward_visited.contains_key(&prev_id) {
-                            backward_visited.insert(prev_id, Some((curr, step.clone())));
-                            backward_queue.push_back((prev_id, depth + 1));
-                        }
+                    if let std::collections::hash_map::Entry::Vacant(e) =
+                        backward_visited.entry(prev_id)
+                    {
+                        e.insert(Some((curr, step.clone())));
+                        backward_queue.push_back((prev_id, depth + 1));
+                    }
 
-                        if forward_visited.contains_key(&prev_id) {
-                            meeting_node = Some(prev_id);
-                            break;
-                        }
+                    if forward_visited.contains_key(&prev_id) {
+                        meeting_node = Some(prev_id);
+                        break;
                     }
                 }
             }
@@ -190,8 +194,8 @@ pub fn find_shortest_path(
     }
 
     Ok(Some(PathResult {
-        from: from_symbol_or_file.to_string(),
-        to: to_symbol_or_file.to_string(),
+        from: from_symbol_or_file.to_owned(),
+        to: to_symbol_or_file.to_owned(),
         steps,
     }))
 }
