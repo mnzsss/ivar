@@ -1,9 +1,9 @@
 //! Standard-library bounded parallel executor with order preservation and panic safety.
 
-use std::panic::{catch_unwind, AssertUnwindSafe, RefUnwindSafe};
+use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc;
-use std::sync::Arc;
 use std::thread;
 
 use crate::error::{Failure, Report};
@@ -13,11 +13,7 @@ use crate::error::{Failure, Report};
 /// Returns results matching input slice order exactly.
 /// Worker panics are caught with `std::panic::catch_unwind` and translated into
 /// `Err(Failure::failed("batch.worker_panic", ...))` without leaking threads.
-pub fn bounded_map<T, R, F>(
-    items: &[T],
-    limit: usize,
-    f: F,
-) -> Vec<Result<R, Failure>>
+pub fn bounded_map<T, R, F>(items: &[T], limit: usize, f: F) -> Vec<Result<R, Failure>>
 where
     T: Sync,
     R: Send,
@@ -46,7 +42,9 @@ where
                         break;
                     }
 
-                    let item = &items[idx];
+                    let Some(item) = items.get(idx) else {
+                        break;
+                    };
                     let outcome = match catch_unwind(AssertUnwindSafe(|| f(item))) {
                         Ok(res) => res,
                         Err(payload) => {
@@ -55,7 +53,7 @@ where
                             } else if let Some(msg) = payload.downcast_ref::<String>() {
                                 msg.clone()
                             } else {
-                                "unknown panic in batch worker".to_string()
+                                "unknown panic in batch worker".to_owned()
                             };
                             Err(Failure::failed(
                                 "batch.worker_panic",

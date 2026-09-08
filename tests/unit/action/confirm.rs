@@ -110,13 +110,11 @@ fn fixed_confirm_select_one_returns_configured_index() {
 #[test]
 fn fixed_confirm_select_one_returns_none_when_empty() {
     let confirmer = fixed_select_one(true, None);
-    let options = vec![
-        SelectOption {
-            id: "alpha".to_owned(),
-            description: Some("first".to_owned()),
-            path_if_any: "".to_owned(),
-        },
-    ];
+    let options = vec![SelectOption {
+        id: "alpha".to_owned(),
+        description: Some("first".to_owned()),
+        path_if_any: "".to_owned(),
+    }];
     assert_eq!(
         confirmer.select_one("Select a feature", &options).unwrap(),
         None
@@ -126,13 +124,11 @@ fn fixed_confirm_select_one_returns_none_when_empty() {
 #[test]
 fn non_interactive_select_one_always_returns_none() {
     let confirmer = reporter(false);
-    let options = vec![
-        SelectOption {
-            id: "alpha".to_owned(),
-            description: Some("first".to_owned()),
-            path_if_any: "".to_owned(),
-        },
-    ];
+    let options = vec![SelectOption {
+        id: "alpha".to_owned(),
+        description: Some("first".to_owned()),
+        path_if_any: "".to_owned(),
+    }];
     assert_eq!(
         confirmer.select_one("Select a feature", &options).unwrap(),
         None

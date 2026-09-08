@@ -213,11 +213,8 @@ fn main() -> ExitCode {
                 }
             }
             FeatureCommand::Reparent(args) => {
-                match resolve_single_feature(
-                    &ctx,
-                    args.child,
-                    "Select a child feature to reparent",
-                ) {
+                match resolve_single_feature(&ctx, args.child, "Select a child feature to reparent")
+                {
                     Ok(child) => respond(
                         reparent::reparent(
                             &ctx,
@@ -400,7 +397,7 @@ fn main() -> ExitCode {
                             close::close(
                                 &ctx,
                                 close::CloseInput {
-                                    name: f.to_string(),
+                                    name: f.to_owned(),
                                     outcome: args.outcome.clone(),
                                 },
                             )
@@ -420,7 +417,7 @@ fn main() -> ExitCode {
                 None => match resolve_multi_features(&ctx, None, "Select features to delete") {
                     Ok(targets) => {
                         let items = run_feature_batch(&targets, 4, |f| {
-                            delete::delete(&ctx, delete::DeleteInput { name: f.to_string() })
+                            delete::delete(&ctx, delete::DeleteInput { name: f.to_owned() })
                         });
                         respond_batch(items, json, &mut stdout, &mut stderr)
                     }
@@ -447,7 +444,7 @@ fn main() -> ExitCode {
                             cleanup::cleanup(
                                 &ctx,
                                 cleanup::CleanupInput {
-                                    feature: f.to_string(),
+                                    feature: f.to_owned(),
                                     preview: args.preview,
                                     record: args.record.clone(),
                                 },
@@ -459,11 +456,7 @@ fn main() -> ExitCode {
                 },
             },
             FeatureCommand::Workspace(args) => {
-                match resolve_single_feature(
-                    &ctx,
-                    args.feature,
-                    "Select a feature for workspace",
-                ) {
+                match resolve_single_feature(&ctx, args.feature, "Select a feature for workspace") {
                     Ok(feature) => respond(
                         workspace::workspace(
                             &ctx,
@@ -503,7 +496,7 @@ fn main() -> ExitCode {
                             rebase::rebase(
                                 &ctx,
                                 rebase::RebaseInput {
-                                    name: f.to_string(),
+                                    name: f.to_owned(),
                                     onto: args.onto.clone(),
                                 },
                             )

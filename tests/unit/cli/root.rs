@@ -533,7 +533,6 @@ fn session_sandbox_subcommand_is_hidden_from_session_help() {
     );
 }
 
-
 #[test]
 fn parse_optional_feature_positionals_omitted_and_supplied() {
     // 1. workspace
@@ -546,36 +545,62 @@ fn parse_optional_feature_positionals_omitted_and_supplied() {
 
     // 3. rename (source)
     assert!(Cli::try_parse_from(["ivar", "feature", "rename", "--name", "new-name"]).is_ok());
-    assert!(Cli::try_parse_from(["ivar", "feature", "rename", "feat-a", "--name", "new-name"]).is_ok());
+    assert!(
+        Cli::try_parse_from(["ivar", "feature", "rename", "feat-a", "--name", "new-name"]).is_ok()
+    );
 
     // 4. reparent (child)
-    assert!(Cli::try_parse_from(["ivar", "feature", "reparent", "--parent", "parent-feat"]).is_ok());
-    assert!(Cli::try_parse_from(["ivar", "feature", "reparent", "child-feat", "--parent", "parent-feat"]).is_ok());
+    assert!(
+        Cli::try_parse_from(["ivar", "feature", "reparent", "--parent", "parent-feat"]).is_ok()
+    );
+    assert!(
+        Cli::try_parse_from([
+            "ivar",
+            "feature",
+            "reparent",
+            "child-feat",
+            "--parent",
+            "parent-feat"
+        ])
+        .is_ok()
+    );
 
     // 5. promote (optional-before-required positional: [feature] <repo>)
     // When 1 positional is supplied, Clap assigns it to repo; feature remains None.
-    let parsed = Cli::try_parse_from(["ivar", "feature", "promote", "my-repo"]).expect("parse 1 positional");
+    let parsed =
+        Cli::try_parse_from(["ivar", "feature", "promote", "my-repo"]).expect("parse 1 positional");
     if let Command::Feature(FeatureCommand::Promote(args)) = parsed.command {
         assert_eq!(args.feature, None);
         assert_eq!(args.repo, "my-repo");
-    } else { panic!("wrong variant"); }
-    let parsed = Cli::try_parse_from(["ivar", "feature", "promote", "feat-a", "my-repo"]).expect("parse 2 positionals");
+    } else {
+        panic!("wrong variant");
+    }
+    let parsed = Cli::try_parse_from(["ivar", "feature", "promote", "feat-a", "my-repo"])
+        .expect("parse 2 positionals");
     if let Command::Feature(FeatureCommand::Promote(args)) = parsed.command {
-        assert_eq!(args.feature, Some("feat-a".to_string()));
+        assert_eq!(args.feature, Some("feat-a".to_owned()));
         assert_eq!(args.repo, "my-repo");
-    } else { panic!("wrong variant"); }
+    } else {
+        panic!("wrong variant");
+    }
 
     // 6. demote (optional-before-required positional: [feature] <repo>)
-    let parsed = Cli::try_parse_from(["ivar", "feature", "demote", "my-repo"]).expect("parse 1 positional");
+    let parsed =
+        Cli::try_parse_from(["ivar", "feature", "demote", "my-repo"]).expect("parse 1 positional");
     if let Command::Feature(FeatureCommand::Demote(args)) = parsed.command {
         assert_eq!(args.feature, None);
         assert_eq!(args.repo, "my-repo");
-    } else { panic!("wrong variant"); }
-    let parsed = Cli::try_parse_from(["ivar", "feature", "demote", "feat-a", "my-repo"]).expect("parse 2 positionals");
+    } else {
+        panic!("wrong variant");
+    }
+    let parsed = Cli::try_parse_from(["ivar", "feature", "demote", "feat-a", "my-repo"])
+        .expect("parse 2 positionals");
     if let Command::Feature(FeatureCommand::Demote(args)) = parsed.command {
-        assert_eq!(args.feature, Some("feat-a".to_string()));
+        assert_eq!(args.feature, Some("feat-a".to_owned()));
         assert_eq!(args.repo, "my-repo");
-    } else { panic!("wrong variant"); }
+    } else {
+        panic!("wrong variant");
+    }
 
     // 7. status
     assert!(Cli::try_parse_from(["ivar", "feature", "status"]).is_ok());
@@ -590,20 +615,77 @@ fn parse_optional_feature_positionals_omitted_and_supplied() {
     assert!(Cli::try_parse_from(["ivar", "feature", "view", "feat-a"]).is_ok());
 
     // 10. execute start
-    assert!(Cli::try_parse_from(["ivar", "feature", "execute", "start", "--plan", "plan.md"]).is_ok());
-    assert!(Cli::try_parse_from(["ivar", "feature", "execute", "start", "feat-a", "--plan", "plan.md"]).is_ok());
+    assert!(
+        Cli::try_parse_from(["ivar", "feature", "execute", "start", "--plan", "plan.md"]).is_ok()
+    );
+    assert!(
+        Cli::try_parse_from([
+            "ivar", "feature", "execute", "start", "feat-a", "--plan", "plan.md"
+        ])
+        .is_ok()
+    );
 
     // 11. execute finish
-    assert!(Cli::try_parse_from(["ivar", "feature", "execute", "finish", "--plan", "plan.md", "--report-json", "{}", "--outcome", "succeeded"]).is_ok());
-    assert!(Cli::try_parse_from(["ivar", "feature", "execute", "finish", "feat-a", "--plan", "plan.md", "--report-json", "{}", "--outcome", "succeeded"]).is_ok());
+    assert!(
+        Cli::try_parse_from([
+            "ivar",
+            "feature",
+            "execute",
+            "finish",
+            "--plan",
+            "plan.md",
+            "--report-json",
+            "{}",
+            "--outcome",
+            "succeeded"
+        ])
+        .is_ok()
+    );
+    assert!(
+        Cli::try_parse_from([
+            "ivar",
+            "feature",
+            "execute",
+            "finish",
+            "feat-a",
+            "--plan",
+            "plan.md",
+            "--report-json",
+            "{}",
+            "--outcome",
+            "succeeded"
+        ])
+        .is_ok()
+    );
 
     // 12. execute status
     assert!(Cli::try_parse_from(["ivar", "feature", "execute", "status"]).is_ok());
     assert!(Cli::try_parse_from(["ivar", "feature", "execute", "status", "feat-a"]).is_ok());
 
     // 13. execute accept-revision
-    assert!(Cli::try_parse_from(["ivar", "feature", "execute", "accept-revision", "--plan", "plan.md"]).is_ok());
-    assert!(Cli::try_parse_from(["ivar", "feature", "execute", "accept-revision", "feat-a", "--plan", "plan.md"]).is_ok());
+    assert!(
+        Cli::try_parse_from([
+            "ivar",
+            "feature",
+            "execute",
+            "accept-revision",
+            "--plan",
+            "plan.md"
+        ])
+        .is_ok()
+    );
+    assert!(
+        Cli::try_parse_from([
+            "ivar",
+            "feature",
+            "execute",
+            "accept-revision",
+            "feat-a",
+            "--plan",
+            "plan.md"
+        ])
+        .is_ok()
+    );
 
     // 14. plan create
     assert!(Cli::try_parse_from(["ivar", "plan", "create"]).is_ok());
@@ -613,39 +695,66 @@ fn parse_optional_feature_positionals_omitted_and_supplied() {
     let parsed = Cli::try_parse_from(["ivar", "plan", "show", "plan"]).expect("parse 1 positional");
     if let Command::Plan(PlanCommand::Show(args)) = parsed.command {
         assert_eq!(args.feature, None);
-    } else { panic!("wrong variant"); }
-    let parsed = Cli::try_parse_from(["ivar", "plan", "show", "feat-a", "plan"]).expect("parse 2 positionals");
+    } else {
+        panic!("wrong variant");
+    }
+    let parsed = Cli::try_parse_from(["ivar", "plan", "show", "feat-a", "plan"])
+        .expect("parse 2 positionals");
     if let Command::Plan(PlanCommand::Show(args)) = parsed.command {
-        assert_eq!(args.feature, Some("feat-a".to_string()));
-    } else { panic!("wrong variant"); }
+        assert_eq!(args.feature, Some("feat-a".to_owned()));
+    } else {
+        panic!("wrong variant");
+    }
 
     // 16. plan approve (optional-before-required positional: [feature] <gate>)
-    let parsed = Cli::try_parse_from(["ivar", "plan", "approve", "requirements"]).expect("parse 1 positional");
+    let parsed = Cli::try_parse_from(["ivar", "plan", "approve", "requirements"])
+        .expect("parse 1 positional");
     if let Command::Plan(PlanCommand::Approve(args)) = parsed.command {
         assert_eq!(args.feature, None);
         assert_eq!(args.gate, "requirements");
-    } else { panic!("wrong variant"); }
-    let parsed = Cli::try_parse_from(["ivar", "plan", "approve", "feat-a", "requirements"]).expect("parse 2 positionals");
+    } else {
+        panic!("wrong variant");
+    }
+    let parsed = Cli::try_parse_from(["ivar", "plan", "approve", "feat-a", "requirements"])
+        .expect("parse 2 positionals");
     if let Command::Plan(PlanCommand::Approve(args)) = parsed.command {
-        assert_eq!(args.feature, Some("feat-a".to_string()));
+        assert_eq!(args.feature, Some("feat-a".to_owned()));
         assert_eq!(args.gate, "requirements");
-    } else { panic!("wrong variant"); }
+    } else {
+        panic!("wrong variant");
+    }
 
     // 17. plan invalidate (optional-before-required positional: [feature] <gate>)
-    let parsed = Cli::try_parse_from(["ivar", "plan", "invalidate", "analysis"]).expect("parse 1 positional");
+    let parsed = Cli::try_parse_from(["ivar", "plan", "invalidate", "analysis"])
+        .expect("parse 1 positional");
     if let Command::Plan(PlanCommand::Invalidate(args)) = parsed.command {
         assert_eq!(args.feature, None);
         assert_eq!(args.gate, "analysis");
-    } else { panic!("wrong variant"); }
-    let parsed = Cli::try_parse_from(["ivar", "plan", "invalidate", "feat-a", "analysis"]).expect("parse 2 positionals");
+    } else {
+        panic!("wrong variant");
+    }
+    let parsed = Cli::try_parse_from(["ivar", "plan", "invalidate", "feat-a", "analysis"])
+        .expect("parse 2 positionals");
     if let Command::Plan(PlanCommand::Invalidate(args)) = parsed.command {
-        assert_eq!(args.feature, Some("feat-a".to_string()));
+        assert_eq!(args.feature, Some("feat-a".to_owned()));
         assert_eq!(args.gate, "analysis");
-    } else { panic!("wrong variant"); }
+    } else {
+        panic!("wrong variant");
+    }
 
     // 18. close
     assert!(Cli::try_parse_from(["ivar", "feature", "close", "--outcome", "delivered"]).is_ok());
-    assert!(Cli::try_parse_from(["ivar", "feature", "close", "feat-a", "--outcome", "delivered"]).is_ok());
+    assert!(
+        Cli::try_parse_from([
+            "ivar",
+            "feature",
+            "close",
+            "feat-a",
+            "--outcome",
+            "delivered"
+        ])
+        .is_ok()
+    );
 
     // 19. delete
     assert!(Cli::try_parse_from(["ivar", "feature", "delete"]).is_ok());
@@ -662,8 +771,20 @@ fn parse_optional_feature_positionals_omitted_and_supplied() {
 
 #[test]
 fn session_relay_remains_required_positional() {
-    assert!(Cli::try_parse_from(["ivar", "session", "relay", "--provider", "claude-code"]).is_err());
-    assert!(Cli::try_parse_from(["ivar", "session", "relay", "feat-a", "--provider", "claude-code"]).is_ok());
+    assert!(
+        Cli::try_parse_from(["ivar", "session", "relay", "--provider", "claude-code"]).is_err()
+    );
+    assert!(
+        Cli::try_parse_from([
+            "ivar",
+            "session",
+            "relay",
+            "feat-a",
+            "--provider",
+            "claude-code"
+        ])
+        .is_ok()
+    );
 }
 
 #[test]

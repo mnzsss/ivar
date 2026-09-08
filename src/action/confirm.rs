@@ -96,7 +96,11 @@ impl Confirm for NonInteractive {
         )))
     }
 
-    fn select_one(&self, _prompt: &str, _options: &[SelectOption]) -> Result<Option<usize>, Failure> {
+    fn select_one(
+        &self,
+        _prompt: &str,
+        _options: &[SelectOption],
+    ) -> Result<Option<usize>, Failure> {
         Ok(None)
     }
 
@@ -125,7 +129,11 @@ impl Confirm for Fixed {
         }
     }
 
-    fn select_one(&self, _prompt: &str, _options: &[SelectOption]) -> Result<Option<usize>, Failure> {
+    fn select_one(
+        &self,
+        _prompt: &str,
+        _options: &[SelectOption],
+    ) -> Result<Option<usize>, Failure> {
         Ok(self.selection_one)
     }
 
@@ -267,7 +275,12 @@ impl Confirm for Interactive {
                 )
             })?;
         }
-        write!(stderr, "Enter number (1-{}) or press enter to cancel: ", options.len()).map_err(|source| {
+        write!(
+            stderr,
+            "Enter number (1-{}) or press enter to cancel: ",
+            options.len()
+        )
+        .map_err(|source| {
             Failure::failed(
                 "confirm.write_prompt",
                 format!("could not write prompt line: {source}"),

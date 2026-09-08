@@ -21,8 +21,8 @@ fn bounded_map_preserves_input_order() {
 
 #[test]
 fn bounded_map_respects_concurrency_limit() {
-    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::Duration;
 
     let active = Arc::new(AtomicUsize::new(0));
@@ -77,7 +77,11 @@ fn bounded_map_handles_zero_limit_as_sequential() {
 fn test_run_feature_batch_runs_all_targets_even_if_one_fails() {
     use crate::error::Report;
 
-    let features = vec!["feat-1".to_string(), "feat-2".to_string(), "feat-3".to_string()];
+    let features = vec![
+        "feat-1".to_owned(),
+        "feat-2".to_owned(),
+        "feat-3".to_owned(),
+    ];
     let results = run_feature_batch(&features, 2, |feat| {
         if feat == "feat-2" {
             Err(Failure::failed("mock.fail", "failed for feat-2"))
@@ -89,7 +93,10 @@ fn test_run_feature_batch_runs_all_targets_even_if_one_fails() {
     assert_eq!(results.len(), 3);
     assert_eq!(results[0].feature, "feat-1");
     assert!(results[0].outcome.is_ok());
-    assert_eq!(results[0].outcome.as_ref().unwrap().value, "success for feat-1");
+    assert_eq!(
+        results[0].outcome.as_ref().unwrap().value,
+        "success for feat-1"
+    );
 
     assert_eq!(results[1].feature, "feat-2");
     assert!(results[1].outcome.is_err());
@@ -97,17 +104,18 @@ fn test_run_feature_batch_runs_all_targets_even_if_one_fails() {
 
     assert_eq!(results[2].feature, "feat-3");
     assert!(results[2].outcome.is_ok());
-    assert_eq!(results[2].outcome.as_ref().unwrap().value, "success for feat-3");
+    assert_eq!(
+        results[2].outcome.as_ref().unwrap().value,
+        "success for feat-3"
+    );
 }
 
 #[test]
 fn test_run_feature_batch_preserves_order() {
     use crate::error::Report;
 
-    let features = vec!["z".to_string(), "a".to_string(), "m".to_string()];
-    let results = run_feature_batch(&features, 4, |feat| {
-        Ok(Report::new(feat.to_uppercase()))
-    });
+    let features = vec!["z".to_owned(), "a".to_owned(), "m".to_owned()];
+    let results = run_feature_batch(&features, 4, |feat| Ok(Report::new(feat.to_uppercase())));
     let keys: Vec<String> = results.into_iter().map(|r| r.feature).collect();
     assert_eq!(keys, vec!["z", "a", "m"]);
 }

@@ -40,12 +40,13 @@ pub fn resolve_single_feature(
 
     let options: Vec<SelectOption> = features.iter().map(summary_to_select_option).collect();
 
-    let chosen_idx = ctx.confirm.select_one(prompt, &options)?
-        .ok_or_else(|| Failure::blocked("feature.selection_cancelled", "feature selection cancelled"))?;
+    let chosen_idx = ctx.confirm.select_one(prompt, &options)?.ok_or_else(|| {
+        Failure::blocked("feature.selection_cancelled", "feature selection cancelled")
+    })?;
 
-    let selected = options
-        .get(chosen_idx)
-        .ok_or_else(|| Failure::blocked("feature.selection_cancelled", "invalid selection index"))?;
+    let selected = options.get(chosen_idx).ok_or_else(|| {
+        Failure::blocked("feature.selection_cancelled", "invalid selection index")
+    })?;
 
     Ok(selected.id.clone())
 }
