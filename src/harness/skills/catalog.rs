@@ -32,7 +32,7 @@ impl ShippedSkill {
     /// The legacy directory name this skill supersedes: `<id>`.
     #[must_use]
     pub fn legacy_dir_name(self) -> String {
-        self.id.to_string()
+        self.id.to_owned()
     }
 }
 

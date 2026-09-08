@@ -394,7 +394,6 @@ fn plan_checks_relation_context_at_the_start_of_analysis() {
     assert!(after.contains("never blocks"), "was: {after}");
 }
 
-
 #[test]
 fn plan_has_three_approval_gates_and_hands_off_to_execute() {
     let content = embedded("plan");
@@ -506,7 +505,6 @@ fn plan_sketch_escape_is_bounded() {
     assert!(content.contains("exact signature"), "was: {content}");
 }
 
-
 /// The deliver checkpoint sits between preview and apply, and deferring it
 /// neither blocks apply nor invalidates the fingerprint.
 #[test]
@@ -542,7 +540,6 @@ fn feature_create_defines_automatic_nested_creation() {
         "was: {content}"
     );
 }
-
 
 /// OpenCode substitutes `$ARGUMENTS` into the command template and drops
 /// anything the template never references — unlike Claude Code, which appends

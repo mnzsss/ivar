@@ -14,9 +14,11 @@ use crate::domain::name::FeatureName;
 use crate::domain::provider::Provider;
 use crate::error::{Failure, Outcome, Report, WriteHuman};
 use crate::git::{self, Git, TargetState};
-use crate::harness::commands::{self, Inspection as CommandInspection, Integrity as CommandIntegrity};
-use crate::harness::skills::{self, Inspection as SkillInspection, Integrity as SkillIntegrity};
+use crate::harness::commands::{
+    self, Inspection as CommandInspection, Integrity as CommandIntegrity,
+};
 use crate::harness::config::{build_block, instructions};
+use crate::harness::skills::{self, Inspection as SkillInspection, Integrity as SkillIntegrity};
 use crate::infra::fs;
 use crate::store::layout::Layout;
 
@@ -145,7 +147,6 @@ pub fn doctor(ctx: &Ctx) -> Outcome<DoctorOutcome> {
             }),
         }
     }
-
 
     // Root instruction topology: `HALL.md` and every provider alias. Each
     // non-current state is one finding — every applicable one in a single
@@ -397,7 +398,10 @@ fn skill_diagnosis(
             what: if enabled {
                 format!("{provider}'s `{file_name}` is not an ivar-shipped skill")
             } else {
-                format!("{provider} is no longer listed, but its `ivar-{}` skill remains", inspection.id)
+                format!(
+                    "{provider} is no longer listed, but its `ivar-{}` skill remains",
+                    inspection.id
+                )
             },
             fix: "Run `ivar sync` to remove it.".to_owned(),
         }),

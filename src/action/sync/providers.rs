@@ -331,10 +331,7 @@ pub(crate) fn sync_shipped_skills(
     }
 }
 
-pub(crate) fn materialise_shipped_skills(
-    layout: &Layout,
-    provider: Provider,
-) -> Option<Warning> {
+pub(crate) fn materialise_shipped_skills(layout: &Layout, provider: Provider) -> Option<Warning> {
     let path = layout.skills_dir(&provider);
     if let Err(error) = skills::materialise(&path) {
         Some(Warning::new(

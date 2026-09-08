@@ -18,7 +18,10 @@ fn catalog_is_complete_unique_and_current() {
 
     for skill in skills {
         assert_eq!(skill.skill_dir_name(), format!("ivar-{}", skill.id));
-        assert_eq!(skill.skill_file_rel_path(), format!("ivar-{}/SKILL.md", skill.id));
+        assert_eq!(
+            skill.skill_file_rel_path(),
+            format!("ivar-{}/SKILL.md", skill.id)
+        );
         assert!(skill.content.starts_with("---\n"));
         assert!(skill.content.contains("name:"));
         assert!(skill.content.contains("description:"));
@@ -75,7 +78,10 @@ fn inspect_reports_correct_integrity() {
 
 #[test]
 fn ivar_execute_skill_content_satisfies_all_invariants() {
-    let skill = catalog().iter().find(|s| s.id == "execute").expect("skill exists");
+    let skill = catalog()
+        .iter()
+        .find(|s| s.id == "execute")
+        .expect("skill exists");
     let content = skill.content;
 
     // Invariants

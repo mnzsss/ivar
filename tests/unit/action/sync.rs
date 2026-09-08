@@ -797,7 +797,9 @@ fn sync_materialises_shipped_skills_for_available_providers() {
 
     assert!(report.is_clean());
     for provider in Provider::ALL {
-        let skill_path = root.join(provider.skills_dir()).join("ivar-execute/SKILL.md");
+        let skill_path = root
+            .join(provider.skills_dir())
+            .join("ivar-execute/SKILL.md");
         assert!(
             fs::is_file(&skill_path).unwrap(),
             "Skill must exist at {skill_path}"

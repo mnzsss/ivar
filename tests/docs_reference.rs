@@ -300,9 +300,9 @@ fn documentation_reflects_guided_wave_execution_lifecycle() {
     let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let skills_guide = std::fs::read_to_string(manifest_dir.join("docs/guides/skills.md")).unwrap();
     let plan_guide =
-        std::fs::read_to_string(manifest_dir.join("docs/guides/planning-and-execution.md")).unwrap();
-    let cmd_ref =
-        std::fs::read_to_string(manifest_dir.join("docs/reference/commands.md")).unwrap();
+        std::fs::read_to_string(manifest_dir.join("docs/guides/planning-and-execution.md"))
+            .unwrap();
+    let cmd_ref = std::fs::read_to_string(manifest_dir.join("docs/reference/commands.md")).unwrap();
 
     // Skills guide documents ivar-execute as official shipped skill
     assert!(
@@ -310,7 +310,9 @@ fn documentation_reflects_guided_wave_execution_lifecycle() {
         "skills.md must document ivar-execute"
     );
     assert!(
-        skills_guide.contains("shipped skill") || skills_guide.contains("Shipped skill") || skills_guide.contains("shipped skills"),
+        skills_guide.contains("shipped skill")
+            || skills_guide.contains("Shipped skill")
+            || skills_guide.contains("shipped skills"),
         "skills.md must describe shipped skills"
     );
 
@@ -320,11 +322,13 @@ fn documentation_reflects_guided_wave_execution_lifecycle() {
         "planning-and-execution.md must document ivar-execute skill"
     );
     assert!(
-        plan_guide.contains("lightweight validation") || plan_guide.contains("Lightweight validation"),
+        plan_guide.contains("lightweight validation")
+            || plan_guide.contains("Lightweight validation"),
         "planning-and-execution.md must document lightweight validation"
     );
     assert!(
-        plan_guide.contains("Deferred validation failures") || plan_guide.contains("deferred validation"),
+        plan_guide.contains("Deferred validation failures")
+            || plan_guide.contains("deferred validation"),
         "planning-and-execution.md must document deferred validation failures"
     );
     assert!(
@@ -332,7 +336,9 @@ fn documentation_reflects_guided_wave_execution_lifecycle() {
         "planning-and-execution.md must document dual Standards and Spec review barrier"
     );
     assert!(
-        plan_guide.contains("Draft delivery") || plan_guide.contains("draft mode") || plan_guide.contains("draft by default"),
+        plan_guide.contains("Draft delivery")
+            || plan_guide.contains("draft mode")
+            || plan_guide.contains("draft by default"),
         "planning-and-execution.md must document draft delivery"
     );
 
