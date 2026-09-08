@@ -205,12 +205,42 @@ fn materialise_session_instructions(
         }
         None => hall,
     };
+    let mut hot_handoff_content = None;
+    if let Some(feature) = feature {
+        let claimed = crate::store::memory::handoff::claim_pending_handoffs(layout, &feature.name)?;
+        if !claimed.is_empty() {
+            let mut parts = Vec::new();
+            for handoff in claimed {
+                let mut section = format!("### Handoff from Session `{}`\n\n{}\n", handoff.source_session, handoff.summary.trim());
+                if !handoff.open_tasks.is_empty() {
+                    section.push_str("\n#### Open Tasks\n");
+                    for task in &handoff.open_tasks {
+                        section.push_str(&format!("- {task}\n"));
+                    }
+                }
+                if !handoff.decisions.is_empty() {
+                    section.push_str("\n#### Decisions\n");
+                    for decision in &handoff.decisions {
+                        section.push_str(&format!("- {decision}\n"));
+                    }
+                }
+                if !handoff.modified_paths.is_empty() {
+                    section.push_str("\n#### Modified Paths\n");
+                    for path in &handoff.modified_paths {
+                        section.push_str(&format!("- `{path}`\n"));
+                    }
+                }
+                parts.push(section.trim_end().to_string());
+            }
+            hot_handoff_content = Some(parts.join("\n\n"));
+        }
+    }
 
     let memory_ctx = crate::domain::memory::render_memory_context(
         layout,
         manifest,
         feature.map(|f| &f.name),
-        None,
+        hot_handoff_content.as_deref(),
     )?;
     let memory_block = memory_ctx.render_block();
     let content = config::session::compose_instructions_with_memory(&base_content, &memory_block);
@@ -230,3 +260,7 @@ fn materialise_session_instructions(
     }
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "../../../tests/unit/action/session/handoff_claim.rs"]
+mod tests;

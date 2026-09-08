@@ -2,10 +2,11 @@
 
 pub mod config;
 pub mod context;
+pub mod episode;
+pub mod handoff;
 pub mod sanitizer;
 pub mod query;
 pub mod topic;
-
 pub use config::{MemoryConfig, MemoryScope, ScopeName};
 pub use context::{
     MEMORY_MANAGED_END, MEMORY_MANAGED_START, MemoryBlock, MemoryContext, project_memory_symlink,
@@ -14,3 +15,5 @@ pub use context::{
 pub use sanitizer::{Sanitized, sanitize_text};
 pub use topic::{MemoryTier, MemoryTopic, TopicMetadata, TopicStatus};
 pub use query::{QueryFilter, QueryMatch, ReconcileSummary};
+pub use episode::EpisodePayload;
+pub use handoff::HandoffPayload;

@@ -118,13 +118,23 @@ fn stop_ends_a_live_session_and_removes_the_view_dir() {
 
     assert!(fs::is_dir(&view_dir).unwrap());
 
-    let report = stop(&ctx, StopInput { session: Some(id) }).unwrap();
+    let report = stop(&ctx, StopInput { session: Some(id.clone()) }).unwrap();
 
     assert_eq!(report.value.stopped, 1);
     assert!(
         !fs::is_dir(&view_dir).unwrap(),
         "the view dir must be removed"
     );
+
+    let episode_file = layout.memory_episodes_dir().join(format!("{id}.md"));
+    assert!(
+        fs::is_file(&episode_file).unwrap(),
+        "session stop must persist episode markdown"
+    );
+    let content = fs::read_text(&episode_file).unwrap().unwrap();
+    assert!(content.contains(&format!("# Session Episode: {id}")));
+    assert!(content.contains("- **Feature**: `checkout`"));
+
     unguard_worktrees(&root);
 }
 
