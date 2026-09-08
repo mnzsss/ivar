@@ -342,6 +342,39 @@ fn sync_materialises_shipped_skills_and_doctor_inspects_them() {
     assert!(restored.contains("name: ivar-execute"));
 }
 
+/// Shipped skill `ivar-execute` instructions describe guided wave execution:
+/// subagent dispatch, wave lightweight validation, deferred validation failures,
+/// dual-axis review barrier, and gated draft delivery.
+#[test]
+fn shipped_ivar_execute_skill_documents_lifecycle_guarantees() {
+    let skill_path = format!(
+        "{}/src/harness/skills/ivar-execute/SKILL.md",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let content = std::fs::read_to_string(skill_path).unwrap();
+
+    assert!(
+        content.contains("name: ivar-execute"),
+        "skill must have frontmatter name"
+    );
+    assert!(
+        content.contains("lightweight validation"),
+        "skill must document lightweight validation"
+    );
+    assert!(
+        content.contains("Deferred validation failures"),
+        "skill must document deferred validation failures"
+    );
+    assert!(
+        content.contains("Standards review") && content.contains("Spec review"),
+        "skill must document dual-axis Standards and Spec review barrier"
+    );
+    assert!(
+        content.contains("Draft delivery"),
+        "skill must document draft delivery mode"
+    );
+}
+
 /// A fingerprint-matching legacy `plan.md` is removed by sync; a customised
 /// one survives and appears in `ivar doctor`.
 #[test]
