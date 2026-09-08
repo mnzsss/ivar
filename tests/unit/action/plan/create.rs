@@ -252,3 +252,10 @@ fn scaffolded_plan_contains_wave_structure() {
             || plan_content.contains("Red -> Green -> Refactor")
     );
 }
+
+#[test]
+fn plan_template_includes_lightweight_validation_and_deferred_failures() {
+    let template = template_for(Artifact::Plan);
+    assert!(template.contains("#### Lightweight validation"));
+    assert!(template.contains("#### Deferred validation failures"));
+}

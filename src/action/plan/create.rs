@@ -57,13 +57,20 @@ The implementation, split into sequential waves.
 | --- | ---: | --- | --- |
 | `tasks/01-<semantic-name>.md` | 1 | — | <outcome> |
 
+#### Lightweight validation
+
+- `<exact command>` — <observable contract checked>
+
+#### Deferred validation failures
+
+- None.
+
 #### Exit criteria
 
 - [ ] Verification checks pass.
 - [ ] Executed points ≤ 8.
 - [ ] Deviations recorded.
 - [ ] Human approval requested and granted to start Wave 2.
-
 ## Verification
 
 List the checks that demonstrate the change is complete.

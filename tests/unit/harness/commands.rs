@@ -402,7 +402,7 @@ fn plan_has_three_approval_gates_and_hands_off_to_execute() {
     assert!(content.contains("approve requirements"), "was: {content}");
     assert!(content.contains("approve analysis"), "was: {content}");
     assert!(content.contains("approve plan"), "was: {content}");
-    assert!(content.contains("/ivar-execute"), "was: {content}");
+    assert!(content.contains("ivar-execute"), "was: {content}");
     assert!(content.contains("Done"), "was: {content}");
     assert!(content.contains("✅"), "was: {content}");
     assert!(!content.contains("approve graph"), "was: {content}");

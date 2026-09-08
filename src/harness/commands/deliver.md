@@ -25,26 +25,25 @@ Run `ivar feature deliver <feature> --help` for the full flag surface.
 
 ## PR metadata
 
-Use `--name` and `--body` to set the pull request title and body.
+Use `--name`, `--body`, and `--draft` to set the pull request title, body, and draft status.
 
 **Global (applies to every repo):**
 
 ```bash
-ivar feature deliver <feature> --preview \
+ivar feature deliver <feature> --preview --draft \
   --name "feat: add session resume" \
   --body "Closes the gap in session state."
 ```
-
 **Scoped (per repo):**
 
 ```bash
 ivar feature deliver <feature> --preview \
-  --repo api --name "feat: add user endpoint" \
+  --repo api --name "feat: add user endpoint" --draft \
   --repo web --name "feat: add user page"
 ```
 
-A scoped `--name`/`--body` overrides the global value for that repo. A
-scoped repo that omits `--name` or `--body` inherits the global value.
+A scoped `--name`/`--body`/`--draft` overrides the global value for that repo. A
+scoped repo that omits `--name`, `--body`, or `--draft` inherits the global value.
 
 ### Body values
 
@@ -56,13 +55,17 @@ scoped repo that omits `--name` or `--body` inherits the global value.
 A `.md`/`.txt` argument is only read as a file when it is written as a path:
 prefixed `./` or absolute. A bare `notes.md` is used as inline body text.
 
+### Draft guidance
+
+Pass `--draft` to create PRs as drafts (default in guided execution) or convert an existing ready PR to draft. Omitting `--draft` preserves the existing remote PR draft state.
+
 ### Title guidance
 
 Use short, semantic, squash-ready titles in the pattern `<type>: <short message>` — for example `feat: add session resume` or `fix: handle empty checkout`. Avoid Linear issue identifiers in PR titles; link the issue in Linear instead.
 
 ### Land conflict
 
-`--name` and `--body` cannot be used with `--land`. Land mode merges the
+`--name`, `--body`, and `--draft` cannot be used with `--land`. Land mode merges the
 feature into the upstream branch and does not create or update pull requests,
 so PR metadata is rejected.
 

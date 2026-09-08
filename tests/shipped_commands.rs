@@ -425,6 +425,21 @@ fn no_shipped_command_tells_the_agent_to_export_ivar_vars() {
     }
 }
 
+#[test]
+fn shipped_commands_do_not_reference_old_slash_execute() {
+    for id in SHIPPED_IDS {
+        let source = format!(
+            "{}/src/harness/commands/{id}.md",
+            env!("CARGO_MANIFEST_DIR")
+        );
+        let body = std::fs::read_to_string(source).unwrap();
+        assert!(
+            !body.contains("/ivar-execute"),
+            "/ivar-{id} still references /ivar-execute"
+        );
+    }
+}
+
 /// The deliver command documents PR metadata: global/scoped syntax,
 /// inline vs file body, title guidance, and land conflict.
 #[test]
@@ -450,6 +465,10 @@ fn deliver_command_documents_pr_metadata() {
     assert!(
         body.contains("--repo web"),
         "deliver should show multiple scoped repos"
+    );
+    assert!(
+        body.contains("--draft"),
+        "deliver should document --draft flag"
     );
     assert!(
         body.contains("./notes.md"),
