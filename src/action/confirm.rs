@@ -19,12 +19,22 @@ use std::sync::Arc;
 
 use crate::error::{Failure, FixAction};
 
-/// An option for multi-selection.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SelectOption {
     pub id: String,
     pub description: Option<String>,
     pub path_if_any: String,
+}
+
+impl SelectOption {
+    #[must_use]
+    pub fn new(id: impl Into<String>, description: Option<impl Into<String>>) -> Self {
+        Self {
+            id: id.into(),
+            description: description.map(Into::into),
+            path_if_any: String::new(),
+        }
+    }
 }
 
 /// The confirmation seam. Implementations never decide *whether* to ask —
@@ -37,6 +47,15 @@ pub trait Confirm: fmt::Debug + Send + Sync {
     /// Prompt the human to choose zero or more options from `options`.
     /// Returns the chosen 0-based indices.
     fn select_many(&self, prompt: &str, options: &[SelectOption]) -> Result<Vec<usize>, Failure>;
+
+    /// Prompt the human to choose exactly one option from `options`.
+    /// Returns the chosen 0-based index, or `None` if non-interactive, cancelled, or empty.
+    fn select_one(&self, prompt: &str, options: &[SelectOption]) -> Result<Option<usize>, Failure>;
+
+    /// Whether this confirmation seam allows interactive user input.
+    fn is_interactive(&self) -> bool {
+        false
+    }
 }
 
 /// Never asks and never consents. A pipe is not consent.
@@ -76,6 +95,18 @@ impl Confirm for NonInteractive {
             "Pass --path <path> to select a skill to install.",
         )))
     }
+
+    fn select_one(
+        &self,
+        _prompt: &str,
+        _options: &[SelectOption],
+    ) -> Result<Option<usize>, Failure> {
+        Ok(None)
+    }
+
+    fn is_interactive(&self) -> bool {
+        false
+    }
 }
 
 /// A fixed answer, for tests and for callers that already decided.
@@ -83,6 +114,7 @@ impl Confirm for NonInteractive {
 struct Fixed {
     answer: bool,
     selection: Option<Vec<usize>>,
+    selection_one: Option<usize>,
 }
 
 impl Confirm for Fixed {
@@ -95,6 +127,18 @@ impl Confirm for Fixed {
             Some(indices) => Ok(indices.clone()),
             None => Ok((0..options.len()).collect()),
         }
+    }
+
+    fn select_one(
+        &self,
+        _prompt: &str,
+        _options: &[SelectOption],
+    ) -> Result<Option<usize>, Failure> {
+        Ok(self.selection_one)
+    }
+
+    fn is_interactive(&self) -> bool {
+        self.answer
     }
 }
 
@@ -113,7 +157,7 @@ impl Confirm for Interactive {
             writeln!(stderr, "{caveat}").map_err(|source| {
                 Failure::failed(
                     "confirm.write_prompt",
-                    format!("could not write the prompt: {source}"),
+                    format!("could not write caveat: {source}"),
                 )
             })?;
         }
@@ -207,6 +251,69 @@ impl Confirm for Interactive {
         }
         Ok(selected)
     }
+
+    fn select_one(&self, prompt: &str, options: &[SelectOption]) -> Result<Option<usize>, Failure> {
+        if options.is_empty() {
+            return Ok(None);
+        }
+        let mut stderr = std::io::stderr().lock();
+        writeln!(stderr, "{prompt}").map_err(|source| {
+            Failure::failed(
+                "confirm.write_prompt",
+                format!("could not write the prompt: {source}"),
+            )
+        })?;
+        for (i, opt) in options.iter().enumerate() {
+            let desc_str = match &opt.description {
+                Some(d) => format!(" — {d}"),
+                None => String::new(),
+            };
+            writeln!(stderr, "  [{}] {}{desc_str}", i + 1, opt.id).map_err(|source| {
+                Failure::failed(
+                    "confirm.write_prompt",
+                    format!("could not write options: {source}"),
+                )
+            })?;
+        }
+        write!(
+            stderr,
+            "Enter number (1-{}) or press enter to cancel: ",
+            options.len()
+        )
+        .map_err(|source| {
+            Failure::failed(
+                "confirm.write_prompt",
+                format!("could not write prompt line: {source}"),
+            )
+        })?;
+        let _ = stderr.flush();
+
+        let mut answer = String::new();
+        let bytes_read = std::io::stdin().read_line(&mut answer).map_err(|source| {
+            Failure::failed(
+                "confirm.read_answer",
+                format!("could not read your answer: {source}"),
+            )
+        })?;
+
+        let trimmed = answer.trim();
+        if bytes_read == 0 || trimmed.is_empty() || trimmed.eq_ignore_ascii_case("q") {
+            return Ok(None);
+        }
+
+        let idx: usize = match trimmed.parse() {
+            Ok(i) => i,
+            Err(_) => return Ok(None),
+        };
+        if idx == 0 || idx > options.len() {
+            return Ok(None);
+        }
+        Ok(Some(idx - 1))
+    }
+
+    fn is_interactive(&self) -> bool {
+        true
+    }
 }
 
 /// Build the process's confirmer. `enabled` is the startup decision — a run
@@ -231,6 +338,7 @@ pub(crate) fn fixed(answer: bool) -> Arc<dyn Confirm> {
     Arc::new(Fixed {
         answer,
         selection: None,
+        selection_one: None,
     })
 }
 
@@ -244,6 +352,18 @@ pub(crate) fn fixed_select(answer: bool, selection: Vec<usize>) -> Arc<dyn Confi
     Arc::new(Fixed {
         answer,
         selection: Some(selection),
+        selection_one: None,
+    })
+}
+
+/// A confirmer that returns `selection` for single-select, for tests.
+#[cfg(test)]
+#[must_use]
+pub(crate) fn fixed_select_one(_answer: bool, selection: Option<usize>) -> Arc<dyn Confirm> {
+    Arc::new(Fixed {
+        answer: _answer,
+        selection: None,
+        selection_one: selection,
     })
 }
 

@@ -82,6 +82,60 @@ fn fixed_select_returns_preset_indices() {
 }
 
 #[test]
+fn fixed_confirm_select_one_returns_configured_index() {
+    let confirmer = fixed_select_one(true, Some(2));
+    let options = vec![
+        SelectOption {
+            id: "alpha".to_owned(),
+            description: Some("first".to_owned()),
+            path_if_any: "".to_owned(),
+        },
+        SelectOption {
+            id: "beta".to_owned(),
+            description: Some("second".to_owned()),
+            path_if_any: "".to_owned(),
+        },
+        SelectOption {
+            id: "gamma".to_owned(),
+            description: Some("third".to_owned()),
+            path_if_any: "".to_owned(),
+        },
+    ];
+    assert_eq!(
+        confirmer.select_one("Select a feature", &options).unwrap(),
+        Some(2)
+    );
+}
+
+#[test]
+fn fixed_confirm_select_one_returns_none_when_empty() {
+    let confirmer = fixed_select_one(true, None);
+    let options = vec![SelectOption {
+        id: "alpha".to_owned(),
+        description: Some("first".to_owned()),
+        path_if_any: "".to_owned(),
+    }];
+    assert_eq!(
+        confirmer.select_one("Select a feature", &options).unwrap(),
+        None
+    );
+}
+
+#[test]
+fn non_interactive_select_one_always_returns_none() {
+    let confirmer = reporter(false);
+    let options = vec![SelectOption {
+        id: "alpha".to_owned(),
+        description: Some("first".to_owned()),
+        path_if_any: "".to_owned(),
+    }];
+    assert_eq!(
+        confirmer.select_one("Select a feature", &options).unwrap(),
+        None
+    );
+}
+
+#[test]
 fn the_seam_carries_onto_ctx_and_defaults_to_never() {
     let (_tmp, root) = crate::test_support::utf8_temp_dir();
     let ctx = crate::action::Ctx::new(root);

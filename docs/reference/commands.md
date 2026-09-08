@@ -204,7 +204,7 @@ Promote a repo onto a feature's branch and materialise its worktree. A branch th
 
 | argument | required | description |
 | --- | --- | --- |
-| `feature` | yes | The feature to promote into |
+| `feature` | no | The feature to promote into |
 | `repo` | yes | The repo to promote onto the feature's branch |
 
 | flag | value | default | description |
@@ -218,7 +218,7 @@ Remove a repo from a feature. Its worktree stays on disk
 
 | argument | required | description |
 | --- | --- | --- |
-| `feature` | yes | The feature to demote from |
+| `feature` | no | The feature to demote from |
 | `repo` | yes | The repo to demote |
 
 
@@ -228,7 +228,7 @@ Show one feature in detail: every promoted repo and its state, and — with `--r
 
 | argument | required | description |
 | --- | --- | --- |
-| `feature` | yes | The feature to inspect |
+| `feature` | no | The feature to inspect |
 
 | flag | value | default | description |
 | --- | --- | --- | --- |
@@ -241,7 +241,7 @@ Integrate a child into its immediate parent, leaves first: each promoted repo's 
 
 | argument | required | description |
 | --- | --- | --- |
-| `feature` | yes | The child feature to integrate |
+| `feature` | no | The child feature to integrate |
 
 | flag | value | default | description |
 | --- | --- | --- | --- |
@@ -255,7 +255,7 @@ Move a still-pristine child under a different parent, updating its parent and de
 
 | argument | required | description |
 | --- | --- | --- |
-| `child` | yes | The child feature to move |
+| `child` | no | The child feature to move |
 
 | flag | value | default | description |
 | --- | --- | --- | --- |
@@ -268,7 +268,7 @@ Rename a feature, its branch, or both — the one allowed identity transition. E
 
 | argument | required | description |
 | --- | --- | --- |
-| `feature` | yes | The feature to rename |
+| `feature` | no | The feature to rename |
 
 | flag | value | default | description |
 | --- | --- | --- | --- |
@@ -287,7 +287,7 @@ Start a new run, resume a blocked run, or restart a non-terminal run
 
 | argument | required | description |
 | --- | --- | --- |
-| `feature` | yes |  |
+| `feature` | no |  |
 
 | flag | value | default | description |
 | --- | --- | --- | --- |
@@ -302,7 +302,7 @@ Record a coordinator's structured completion report
 
 | argument | required | description |
 | --- | --- | --- |
-| `feature` | yes |  |
+| `feature` | no |  |
 
 | flag | value | default | description |
 | --- | --- | --- | --- |
@@ -317,7 +317,7 @@ Show the current receipt, a receipt by id, or complete history
 
 | argument | required | description |
 | --- | --- | --- |
-| `feature` | yes |  |
+| `feature` | no |  |
 
 | flag | value | default | description |
 | --- | --- | --- | --- |
@@ -331,7 +331,7 @@ Accept an approved plan revision for a diverged run
 
 | argument | required | description |
 | --- | --- | --- |
-| `feature` | yes |  |
+| `feature` | no |  |
 
 | flag | value | default | description |
 | --- | --- | --- | --- |
@@ -344,7 +344,7 @@ Preview, then push, a feature's promoted repos. `--preview` prints the side-effe
 
 | argument | required | description |
 | --- | --- | --- |
-| `feature` | yes | The feature to deliver. |
+| `feature` | no | The feature to deliver. |
 
 | flag | value | default | description |
 | --- | --- | --- | --- |
@@ -363,7 +363,7 @@ Close a feature: stop its executor sessions, remove its execution state, and rec
 
 | argument | required | description |
 | --- | --- | --- |
-| `name` | yes | The feature to close |
+| `name` | no | The feature to close |
 
 | flag | value | default | description |
 | --- | --- | --- | --- |
@@ -376,7 +376,7 @@ Delete a feature: its worktrees, its directory under `.ivar/`, and its plans. Re
 
 | argument | required | description |
 | --- | --- | --- |
-| `name` | yes | The feature to delete |
+| `name` | no | The feature to delete |
 
 
 ##### `ivar feature rebase`
@@ -385,7 +385,7 @@ Rebase every promoted repo's worktree onto its effective base. A dirty worktree 
 
 | argument | required | description |
 | --- | --- | --- |
-| `name` | yes | The feature to rebase |
+| `name` | no | The feature to rebase |
 
 | flag | value | default | description |
 | --- | --- | --- | --- |
@@ -398,7 +398,7 @@ Open an interactive multi-shell view over the feature's promoted repos — one s
 
 | argument | required | description |
 | --- | --- | --- |
-| `name` | yes | The feature to view |
+| `name` | no | The feature to view |
 
 
 ##### `ivar feature prune`
@@ -412,7 +412,7 @@ Authorize and perform a feature's local teardown
 
 | argument | required | description |
 | --- | --- | --- |
-| `name` | yes | The feature to clean up |
+| `name` | no | The feature to clean up |
 
 | flag | value | default | description |
 | --- | --- | --- | --- |
@@ -426,7 +426,7 @@ Generate a multi-root VSCode workspace (.code-workspace) for a feature, opening 
 
 | argument | required | description |
 | --- | --- | --- |
-| `feature` | yes | The feature to generate a workspace for |
+| `feature` | no | The feature to generate a workspace for |
 | `repos` | no | Which declared repos to include; includes all when omitted |
 
 
@@ -608,7 +608,7 @@ Scaffold a feature's SPDD artifacts (requirements, analysis, plan), or only the 
 
 | argument | required | description |
 | --- | --- | --- |
-| `feature` | yes | The feature to scaffold plans for |
+| `feature` | no | The feature to scaffold plans for |
 | `artifacts` | no | Which artifacts to scaffold (`requirements`, `analysis`, `plan`); scaffolds all three when omitted |
 
 
@@ -623,7 +623,7 @@ Print one feature's SPDD artifact
 
 | argument | required | description |
 | --- | --- | --- |
-| `feature` | yes | The feature whose artifact to show |
+| `feature` | no | The feature whose artifact to show |
 | `artifact` | yes | Which artifact: `requirements`, `analysis`, or `plan` |
 
 
@@ -633,7 +633,7 @@ Approve one of a feature's SPDD gates: requirements, analysis, plan. Requires ev
 
 | argument | required | description |
 | --- | --- | --- |
-| `feature` | yes | The feature whose gate to approve |
+| `feature` | no | The feature whose gate to approve |
 | `gate` | yes | The gate: `requirements`, `analysis`, or `plan` |
 
 
@@ -643,7 +643,7 @@ Declare a revision of an approved gate, marking it — and every gate downstream
 
 | argument | required | description |
 | --- | --- | --- |
-| `feature` | yes | The feature whose gate to invalidate |
+| `feature` | no | The feature whose gate to invalidate |
 | `gate` | yes | The gate: `requirements`, `analysis`, or `plan` |
 
 
