@@ -1,7 +1,7 @@
 //! Tree-sitter parser wrapper and query execution engine for multi-language AST extraction.
 
 use thiserror::Error;
-use tree_sitter::{Language, Parser, Query, QueryCursor, QueryError, Tree};
+use tree_sitter::{Language, Parser, Query, QueryError, Tree};
 
 /// Supported languages for AST extraction.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

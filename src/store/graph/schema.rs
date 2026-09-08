@@ -88,7 +88,12 @@ CREATE INDEX IF NOT EXISTS idx_edges_from_symbol ON edges(from_symbol_id);
 CREATE INDEX IF NOT EXISTS idx_edges_to_symbol ON edges(to_symbol_id);
 CREATE INDEX IF NOT EXISTS idx_edges_to_name ON edges(to_name) WHERE to_symbol_id IS NULL;
 CREATE INDEX IF NOT EXISTS idx_files_repo_hash ON files(repo, content_hash);
+CREATE INDEX IF NOT EXISTS idx_files_repo ON files(repo);
+CREATE INDEX IF NOT EXISTS idx_edges_file_id ON edges(file_id);
+CREATE INDEX IF NOT EXISTS idx_edges_repo ON edges(repo);
 CREATE INDEX IF NOT EXISTS idx_edges_provenance ON edges(provenance);
+CREATE INDEX IF NOT EXISTS idx_symbols_name_repo ON symbols(name, repo);
+CREATE INDEX IF NOT EXISTS idx_symbols_scope_repo ON symbols(scope, repo) WHERE scope IS NOT NULL;
 "#;
 
 /// Configures SQLite pragmas for performance and data integrity.

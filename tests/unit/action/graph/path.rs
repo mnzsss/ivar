@@ -1,8 +1,13 @@
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing
+)]
 
 use super::*;
 use crate::domain::graph::{Edge, EdgeKind, Provenance, Span, Symbol, SymbolKind};
-use crate::infra::graph::extractor::ExtractedFile;
+use crate::store::graph::extractor::ExtractedFile;
 
 #[test]
 fn test_shortest_path_same_node() -> Result<(), Box<dyn std::error::Error>> {
@@ -13,18 +18,25 @@ fn test_shortest_path_same_node() -> Result<(), Box<dyn std::error::Error>> {
         symbols: vec![Symbol {
             id: None,
             file_id: None,
-            repo: "repo".to_string(),
-            name: "Solo".to_string(),
+            repo: "repo".to_owned(),
+            name: "Solo".to_owned(),
             kind: SymbolKind::Fn,
             scope: None,
-            signature: Some("fn Solo()".to_string()),
+            signature: Some("fn Solo()".to_owned()),
             docstring: None,
             span: Span::new(1, 1, 5, 1),
             is_exported: true,
         }],
         edges: vec![],
     };
-    db.index_extracted_file("repo", "src/solo.rs", "hash_solo", 100, 100, &file_extracted)?;
+    db.index_extracted_file(
+        "repo",
+        "src/solo.rs",
+        "hash_solo",
+        100,
+        100,
+        &file_extracted,
+    )?;
 
     let res = find_shortest_path(&db, "Solo", "Solo", 5)?;
     assert!(res.is_some());
@@ -58,11 +70,11 @@ fn test_shortest_path_bidirectional_chain() -> Result<(), Box<dyn std::error::Er
             Symbol {
                 id: None,
                 file_id: None,
-                repo: "repo".to_string(),
-                name: "A".to_string(),
+                repo: "repo".to_owned(),
+                name: "A".to_owned(),
                 kind: SymbolKind::Fn,
                 scope: None,
-                signature: Some("fn A()".to_string()),
+                signature: Some("fn A()".to_owned()),
                 docstring: None,
                 span: Span::new(1, 1, 5, 1),
                 is_exported: true,
@@ -70,11 +82,11 @@ fn test_shortest_path_bidirectional_chain() -> Result<(), Box<dyn std::error::Er
             Symbol {
                 id: None,
                 file_id: None,
-                repo: "repo".to_string(),
-                name: "B".to_string(),
+                repo: "repo".to_owned(),
+                name: "B".to_owned(),
                 kind: SymbolKind::Fn,
                 scope: None,
-                signature: Some("fn B()".to_string()),
+                signature: Some("fn B()".to_owned()),
                 docstring: None,
                 span: Span::new(6, 1, 10, 1),
                 is_exported: true,
@@ -82,11 +94,11 @@ fn test_shortest_path_bidirectional_chain() -> Result<(), Box<dyn std::error::Er
             Symbol {
                 id: None,
                 file_id: None,
-                repo: "repo".to_string(),
-                name: "C".to_string(),
+                repo: "repo".to_owned(),
+                name: "C".to_owned(),
                 kind: SymbolKind::Fn,
                 scope: None,
-                signature: Some("fn C()".to_string()),
+                signature: Some("fn C()".to_owned()),
                 docstring: None,
                 span: Span::new(11, 1, 15, 1),
                 is_exported: true,
@@ -94,11 +106,11 @@ fn test_shortest_path_bidirectional_chain() -> Result<(), Box<dyn std::error::Er
             Symbol {
                 id: None,
                 file_id: None,
-                repo: "repo".to_string(),
-                name: "D".to_string(),
+                repo: "repo".to_owned(),
+                name: "D".to_owned(),
                 kind: SymbolKind::Fn,
                 scope: None,
-                signature: Some("fn D()".to_string()),
+                signature: Some("fn D()".to_owned()),
                 docstring: None,
                 span: Span::new(16, 1, 20, 1),
                 is_exported: true,
@@ -107,11 +119,11 @@ fn test_shortest_path_bidirectional_chain() -> Result<(), Box<dyn std::error::Er
         edges: vec![
             Edge {
                 id: None,
-                repo: "repo".to_string(),
+                repo: "repo".to_owned(),
                 file_id: None,
                 from_symbol_id: None,
                 to_symbol_id: None,
-                to_name: Some("B".to_string()),
+                to_name: Some("B".to_owned()),
                 kind: EdgeKind::Calls,
                 provenance: Provenance::Extracted,
                 line: 2,
@@ -120,11 +132,11 @@ fn test_shortest_path_bidirectional_chain() -> Result<(), Box<dyn std::error::Er
             },
             Edge {
                 id: None,
-                repo: "repo".to_string(),
+                repo: "repo".to_owned(),
                 file_id: None,
                 from_symbol_id: None,
                 to_symbol_id: None,
-                to_name: Some("C".to_string()),
+                to_name: Some("C".to_owned()),
                 kind: EdgeKind::Calls,
                 provenance: Provenance::Extracted,
                 line: 7,
@@ -133,11 +145,11 @@ fn test_shortest_path_bidirectional_chain() -> Result<(), Box<dyn std::error::Er
             },
             Edge {
                 id: None,
-                repo: "repo".to_string(),
+                repo: "repo".to_owned(),
                 file_id: None,
                 from_symbol_id: None,
                 to_symbol_id: None,
-                to_name: Some("D".to_string()),
+                to_name: Some("D".to_owned()),
                 kind: EdgeKind::Calls,
                 provenance: Provenance::Extracted,
                 line: 12,
@@ -162,9 +174,18 @@ fn test_shortest_path_bidirectional_chain() -> Result<(), Box<dyn std::error::Er
     let sym_c: i64 = conn.query_row("SELECT id FROM symbols WHERE name = 'C'", [], |r| r.get(0))?;
     let sym_d: i64 = conn.query_row("SELECT id FROM symbols WHERE name = 'D'", [], |r| r.get(0))?;
 
-    conn.execute("UPDATE edges SET from_symbol_id = ?1, to_symbol_id = ?2 WHERE to_name = 'B'", params![sym_a, sym_b])?;
-    conn.execute("UPDATE edges SET from_symbol_id = ?1, to_symbol_id = ?2 WHERE to_name = 'C'", params![sym_b, sym_c])?;
-    conn.execute("UPDATE edges SET from_symbol_id = ?1, to_symbol_id = ?2 WHERE to_name = 'D'", params![sym_c, sym_d])?;
+    conn.execute(
+        "UPDATE edges SET from_symbol_id = ?1, to_symbol_id = ?2 WHERE to_name = 'B'",
+        params![sym_a, sym_b],
+    )?;
+    conn.execute(
+        "UPDATE edges SET from_symbol_id = ?1, to_symbol_id = ?2 WHERE to_name = 'C'",
+        params![sym_b, sym_c],
+    )?;
+    conn.execute(
+        "UPDATE edges SET from_symbol_id = ?1, to_symbol_id = ?2 WHERE to_name = 'D'",
+        params![sym_c, sym_d],
+    )?;
 
     let res = find_shortest_path(&db, "A", "D", 5)?;
     assert!(res.is_some());

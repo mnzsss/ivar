@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 
 use crate::action::graph::query::{self, QueryError};
 use crate::domain::graph::{CallFlowItem, ExploreResult, SymbolSnippet};
-use crate::infra::graph::db::GraphDb;
+use crate::store::graph::db::GraphDb;
 
 /// Errors that can occur during explore synthesis.
 #[derive(Debug, thiserror::Error)]
@@ -16,7 +16,7 @@ pub enum ExploreError {
     #[error("Database query failed: {0}")]
     Query(#[from] QueryError),
     #[error("Database error: {0}")]
-    Db(#[from] crate::infra::graph::db::GraphDbError),
+    Db(#[from] crate::store::graph::db::GraphDbError),
     #[error("I/O error reading source file {path}: {source}")]
     Io {
         path: PathBuf,
@@ -35,7 +35,7 @@ pub fn explore(
     let trimmed_query = query.trim();
     if trimmed_query.is_empty() {
         return Ok(ExploreResult {
-            query: query.to_string(),
+            query: query.to_owned(),
             primary_symbols: Vec::new(),
             call_flows: Vec::new(),
             impact_summary: None,
@@ -52,7 +52,10 @@ pub fn explore(
             if word_clean.len() >= 3 {
                 let word_candidates = query::find_symbols(db, word_clean, repo, 5)?;
                 for c in word_candidates {
-                    if !candidates.iter().any(|existing| existing.symbol.id == c.symbol.id) {
+                    if !candidates
+                        .iter()
+                        .any(|existing| existing.symbol.id == c.symbol.id)
+                    {
                         candidates.push(c);
                         if candidates.len() >= 5 {
                             break;
@@ -68,7 +71,7 @@ pub fn explore(
 
     if candidates.is_empty() {
         return Ok(ExploreResult {
-            query: query.to_string(),
+            query: query.to_owned(),
             primary_symbols: Vec::new(),
             call_flows: Vec::new(),
             impact_summary: Some(format!("No symbols found matching '{query}'.")),
@@ -188,7 +191,7 @@ pub fn explore(
     };
 
     Ok(ExploreResult {
-        query: query.to_string(),
+        query: query.to_owned(),
         primary_symbols,
         call_flows,
         impact_summary,
@@ -202,21 +205,23 @@ fn get_source_snippet(
     start_line: usize,
     end_line: usize,
 ) -> Result<String, ExploreError> {
-    if !cache.contains_key(file_path) {
-        let file = File::open(file_path).map_err(|err| ExploreError::Io {
-            path: file_path.to_path_buf(),
-            source: err,
-        })?;
-        let reader = BufReader::new(file);
-        let lines: Result<Vec<String>, std::io::Error> = reader.lines().collect();
-        let lines = lines.map_err(|err| ExploreError::Io {
-            path: file_path.to_path_buf(),
-            source: err,
-        })?;
-        cache.insert(file_path.to_path_buf(), lines);
-    }
+    let lines = match cache.get(file_path) {
+        Some(lines) => lines,
+        None => {
+            let file = File::open(file_path).map_err(|err| ExploreError::Io {
+                path: file_path.to_path_buf(),
+                source: err,
+            })?;
+            let reader = BufReader::new(file);
+            let lines: Result<Vec<String>, std::io::Error> = reader.lines().collect();
+            let lines = lines.map_err(|err| ExploreError::Io {
+                path: file_path.to_path_buf(),
+                source: err,
+            })?;
+            cache.entry(file_path.to_path_buf()).or_insert(lines)
+        }
+    };
 
-    let lines = cache.get(file_path).unwrap();
     if lines.is_empty() {
         return Ok(String::new());
     }
@@ -230,8 +235,7 @@ fn get_source_snippet(
 
     let mut snippet = Vec::new();
     for line_idx in actual_start..=actual_end {
-        if line_idx <= lines.len() {
-            let line_content = &lines[line_idx - 1];
+        if let Some(line_content) = line_idx.checked_sub(1).and_then(|idx| lines.get(idx)) {
             snippet.push(format!("{line_idx}: {line_content}"));
         }
     }

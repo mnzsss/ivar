@@ -4,10 +4,10 @@ use std::borrow::Cow;
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{Connection, OptionalExtension, params};
 
 use crate::domain::graph::{Edge, EdgeKind, GraphStats, Provenance, Span, Symbol, SymbolKind};
-use crate::infra::graph::schema;
+use crate::store::graph::schema;
 
 /// Error type for database operations.
 #[derive(Debug, thiserror::Error)]
@@ -147,7 +147,6 @@ impl GraphDb {
         Ok(result)
     }
 
-
     /// Inserts or updates file metadata and returns the row ID.
     pub fn upsert_file(
         &self,
@@ -208,6 +207,12 @@ impl GraphDb {
     pub fn delete_file_cascade(&self, repo: &str, path: &str) -> Result<()> {
         self.delete_file(repo, path)
     }
+    /// Deletes all files (and cascading symbols/edges) for a given repo.
+    pub fn delete_repo_files(&self, repo: &str) -> Result<()> {
+        self.conn
+            .execute("DELETE FROM files WHERE repo = ?1", params![repo])?;
+        Ok(())
+    }
 
     /// Indexes an extracted file: upserts file row, replaces symbols and edges, and relinks dangling edges.
     /// Performed inside an IMMEDIATE transaction.
@@ -218,7 +223,7 @@ impl GraphDb {
         content_hash: &str,
         mtime_ns: i64,
         size_bytes: i64,
-        extracted: &crate::infra::graph::extractor::ExtractedFile,
+        extracted: &super::extractor::ExtractedFile,
     ) -> Result<(usize, usize)> {
         self.conn.execute_batch("BEGIN IMMEDIATE;")?;
         let res = (|| -> Result<(usize, usize)> {
@@ -239,16 +244,12 @@ impl GraphDb {
             )?;
 
             // Delete old symbols for this file (cascades to edges from symbols)
-            self.conn.execute(
-                "DELETE FROM symbols WHERE file_id = ?1",
-                params![file_id],
-            )?;
+            self.conn
+                .execute("DELETE FROM symbols WHERE file_id = ?1", params![file_id])?;
 
             // Delete old edges for this file
-            self.conn.execute(
-                "DELETE FROM edges WHERE file_id = ?1",
-                params![file_id],
-            )?;
+            self.conn
+                .execute("DELETE FROM edges WHERE file_id = ?1", params![file_id])?;
 
             // Insert new symbols
             let mut sym_stmt = self.conn.prepare_cached(
@@ -257,6 +258,7 @@ impl GraphDb {
                  RETURNING id",
             )?;
             let mut sym_name_to_id = std::collections::HashMap::new();
+            let mut sym_spans: Vec<(Span, i64)> = Vec::with_capacity(extracted.symbols.len());
             let num_symbols = extracted.symbols.len();
             for sym in &extracted.symbols {
                 let kind_str = symbol_kind_to_str(&sym.kind);
@@ -279,6 +281,7 @@ impl GraphDb {
                     |row| row.get(0),
                 )?;
                 sym_name_to_id.insert(sym.name.clone(), sym_id);
+                sym_spans.push((sym.span, sym_id));
             }
 
             // Insert edges
@@ -291,15 +294,42 @@ impl GraphDb {
                 let kind_str = edge_kind_to_str(&edge.kind);
                 let prov_str = provenance_to_str(&edge.provenance);
 
+                // If from_symbol_id is not set, find smallest enclosing symbol in this file
+                let from_symbol_id = edge.from_symbol_id.or_else(|| {
+                    sym_spans
+                        .iter()
+                        .filter(|(span, _)| {
+                            if edge.line < span.start_line || edge.line > span.end_line {
+                                return false;
+                            }
+                            if edge.line == span.start_line && edge.col < span.start_col {
+                                return false;
+                            }
+                            if edge.line == span.end_line && edge.col > span.end_col {
+                                return false;
+                            }
+                            true
+                        })
+                        .min_by_key(|(span, _)| {
+                            (
+                                span.end_line.saturating_sub(span.start_line),
+                                span.end_col.saturating_sub(span.start_col),
+                            )
+                        })
+                        .map(|(_, id)| *id)
+                });
+
                 // If to_name matches a local symbol in this file, resolve to_symbol_id directly
                 let to_symbol_id = edge.to_symbol_id.or_else(|| {
-                    edge.to_name.as_ref().and_then(|name| sym_name_to_id.get(name).copied())
+                    edge.to_name
+                        .as_ref()
+                        .and_then(|name| sym_name_to_id.get(name).copied())
                 });
 
                 edge_stmt.execute(params![
                     repo_id,
                     file_id,
-                    edge.from_symbol_id,
+                    from_symbol_id,
                     to_symbol_id,
                     &edge.to_name,
                     kind_str.as_ref(),
@@ -309,22 +339,6 @@ impl GraphDb {
                     edge.confidence,
                 ])?;
             }
-
-            // Relink dangling edges across the repo where to_symbol_id IS NULL and to_name matches symbols in this repo
-            self.conn.execute(
-                "UPDATE edges
-                 SET to_symbol_id = (
-                     SELECT s.id FROM symbols s
-                     WHERE s.repo = edges.repo AND s.name = edges.to_name
-                     LIMIT 1
-                 )
-                 WHERE repo = ?1 AND to_symbol_id IS NULL AND to_name IS NOT NULL
-                   AND EXISTS (
-                       SELECT 1 FROM symbols s
-                       WHERE s.repo = edges.repo AND s.name = edges.to_name
-                   )",
-                params![repo_id],
-            )?;
 
             Ok((num_symbols, num_edges))
         })();
@@ -343,10 +357,8 @@ impl GraphDb {
 
     /// Deletes all symbols belonging to a specific file ID (cascades to outbound edges).
     pub fn delete_symbols_for_file(&self, file_id: i64) -> Result<()> {
-        self.conn.execute(
-            "DELETE FROM symbols WHERE file_id = ?1",
-            params![file_id],
-        )?;
+        self.conn
+            .execute("DELETE FROM symbols WHERE file_id = ?1", params![file_id])?;
         Ok(())
     }
 
@@ -365,7 +377,7 @@ impl GraphDb {
             let mut ids = Vec::with_capacity(symbols.len());
             for sym in symbols {
                 let file_id = sym.file_id.ok_or_else(|| {
-                    GraphDbError::Message("symbol missing required file_id".to_string())
+                    GraphDbError::Message("symbol missing required file_id".to_owned())
                 })?;
                 let kind_str = symbol_kind_to_str(&sym.kind);
                 let is_exported = if sym.is_exported { 1 } else { 0 };
@@ -418,7 +430,7 @@ impl GraphDb {
             let mut ids = Vec::with_capacity(edges.len());
             for edge in edges {
                 let file_id = edge.file_id.ok_or_else(|| {
-                    GraphDbError::Message("edge missing required file_id".to_string())
+                    GraphDbError::Message("edge missing required file_id".to_owned())
                 })?;
                 let kind_str = edge_kind_to_str(&edge.kind);
                 let prov_str = provenance_to_str(&edge.provenance);
@@ -596,7 +608,7 @@ pub fn parse_symbol_kind(s: &str) -> SymbolKind {
         "enum" => SymbolKind::Enum,
         "mod" => SymbolKind::Mod,
         "const" => SymbolKind::Const,
-        other => SymbolKind::Other(other.to_string()),
+        other => SymbolKind::Other(other.to_owned()),
     }
 }
 
@@ -620,7 +632,7 @@ pub fn parse_edge_kind(s: &str) -> EdgeKind {
         "CROSS_IMPORTS" | "cross_imports" => EdgeKind::CrossImports,
         "CROSS_EXECUTES" | "cross_executes" => EdgeKind::CrossExecutes,
         "CROSS_CALLS_HTTP" | "cross_calls_http" => EdgeKind::CrossCallsHttp,
-        other => EdgeKind::Other(other.to_string()),
+        other => EdgeKind::Other(other.to_owned()),
     }
 }
 
@@ -642,5 +654,5 @@ pub fn parse_provenance(s: &str) -> Provenance {
 }
 
 #[cfg(test)]
-#[path = "../../../tests/unit/infra/graph/db.rs"]
+#[path = "../../../tests/unit/store/graph/db.rs"]
 mod tests;

@@ -1,4 +1,9 @@
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing
+)]
 
 use super::*;
 use crate::domain::graph::{EdgeKind, Provenance, SymbolKind};
@@ -29,7 +34,11 @@ helper();
     assert!(main_sym.is_exported);
 
     // Check call edge
-    let call_edge = res.edges.iter().find(|e| e.kind == EdgeKind::Calls).expect("call edge");
+    let call_edge = res
+        .edges
+        .iter()
+        .find(|e| e.kind == EdgeKind::Calls)
+        .expect("call edge");
     assert_eq!(call_edge.to_name.as_deref(), Some("helper"));
     assert_eq!(call_edge.provenance, Provenance::Extracted);
     assert!((call_edge.confidence - 1.0).abs() < f64::EPSILON);
@@ -44,8 +53,13 @@ export function execute() {
 run();
 }
 "#;
-    let res = extract_file("ts-repo", "src/index.ts", code, SupportedLanguage::TypeScript)
-        .expect("extraction failed");
+    let res = extract_file(
+        "ts-repo",
+        "src/index.ts",
+        code,
+        SupportedLanguage::TypeScript,
+    )
+    .expect("extraction failed");
 
     assert_eq!(res.symbols.len(), 1);
     let exec_sym = &res.symbols[0];
@@ -54,13 +68,21 @@ run();
     assert!(exec_sym.is_exported);
 
     // Check import edge
-    let import_edge = res.edges.iter().find(|e| e.kind == EdgeKind::Imports).expect("import edge");
+    let import_edge = res
+        .edges
+        .iter()
+        .find(|e| e.kind == EdgeKind::Imports)
+        .expect("import edge");
     assert_eq!(import_edge.to_name.as_deref(), Some("./runner"));
     assert_eq!(import_edge.provenance, Provenance::Extracted);
     assert!((import_edge.confidence - 0.95).abs() < f64::EPSILON);
 
     // Check calls edge to imported function
-    let call_edge = res.edges.iter().find(|e| e.kind == EdgeKind::Calls).expect("call edge");
+    let call_edge = res
+        .edges
+        .iter()
+        .find(|e| e.kind == EdgeKind::Calls)
+        .expect("call edge");
     assert_eq!(call_edge.to_name.as_deref(), Some("run"));
     assert_eq!(call_edge.provenance, Provenance::Extracted);
     assert!((call_edge.confidence - 0.95).abs() < f64::EPSILON);
@@ -76,7 +98,11 @@ runner.execute();
     let res = extract_file("my-repo", "src/lib.rs", code, SupportedLanguage::Rust)
         .expect("extraction failed");
 
-    let call_edge = res.edges.iter().find(|e| e.kind == EdgeKind::Calls).expect("call edge");
+    let call_edge = res
+        .edges
+        .iter()
+        .find(|e| e.kind == EdgeKind::Calls)
+        .expect("call edge");
     assert_eq!(call_edge.to_name.as_deref(), Some("runner.execute"));
     assert_eq!(call_edge.provenance, Provenance::Inferred);
     assert!((call_edge.confidence - 0.85).abs() < f64::EPSILON);
@@ -85,8 +111,8 @@ runner.execute();
 #[test]
 fn test_span_coordinates() {
     let code = "fn foo() {}\n";
-    let res = extract_file("repo", "foo.rs", code, SupportedLanguage::Rust)
-        .expect("extraction failed");
+    let res =
+        extract_file("repo", "foo.rs", code, SupportedLanguage::Rust).expect("extraction failed");
 
     assert_eq!(res.symbols.len(), 1);
     let sym = &res.symbols[0];

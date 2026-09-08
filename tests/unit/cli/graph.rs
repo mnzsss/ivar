@@ -16,7 +16,9 @@ fn test_cli_graph_explore_parsing() {
         other => panic!("expected graph explore, got {other:?}"),
     }
 
-    let cli_with_repo = Cli::try_parse_from(["ivar", "graph", "explore", "init_hall", "--repo", "my-repo"]).unwrap();
+    let cli_with_repo =
+        Cli::try_parse_from(["ivar", "graph", "explore", "init_hall", "--repo", "my-repo"])
+            .unwrap();
     match cli_with_repo.command {
         Command::Graph(GraphCommand::Explore(args)) => {
             assert_eq!(args.query, "init_hall");
@@ -29,7 +31,16 @@ fn test_cli_graph_explore_parsing() {
 #[test]
 fn test_cli_graph_affected_parsing() {
     let cli = Cli::try_parse_from([
-        "ivar", "graph", "affected", "src/foo.rs", "src/bar.rs", "--stdin", "--repo", "my-repo", "--max-depth", "5",
+        "ivar",
+        "graph",
+        "affected",
+        "src/foo.rs",
+        "src/bar.rs",
+        "--stdin",
+        "--repo",
+        "my-repo",
+        "--max-depth",
+        "5",
     ])
     .unwrap();
     match cli.command {
@@ -45,7 +56,16 @@ fn test_cli_graph_affected_parsing() {
 
 #[test]
 fn test_cli_graph_path_parsing() {
-    let cli = Cli::try_parse_from(["ivar", "graph", "path", "from_sym", "to_sym", "--max-hops", "7"]).unwrap();
+    let cli = Cli::try_parse_from([
+        "ivar",
+        "graph",
+        "path",
+        "from_sym",
+        "to_sym",
+        "--max-hops",
+        "7",
+    ])
+    .unwrap();
     match cli.command {
         Command::Graph(GraphCommand::Path(args)) => {
             assert_eq!(args.from, "from_sym");
@@ -58,7 +78,10 @@ fn test_cli_graph_path_parsing() {
 
 #[test]
 fn test_cli_graph_find_parsing() {
-    let cli = Cli::try_parse_from(["ivar", "graph", "find", "handle_*", "--repo", "core", "--limit", "20"]).unwrap();
+    let cli = Cli::try_parse_from([
+        "ivar", "graph", "find", "handle_*", "--repo", "core", "--limit", "20",
+    ])
+    .unwrap();
     match cli.command {
         Command::Graph(GraphCommand::Find(args)) => {
             assert_eq!(args.query, "handle_*");
@@ -72,7 +95,15 @@ fn test_cli_graph_find_parsing() {
 #[test]
 fn test_cli_graph_callers_parsing() {
     let cli = Cli::try_parse_from([
-        "ivar", "graph", "callers", "target_fn", "--repo", "core", "--cross-repo", "--min-confidence", "0.85",
+        "ivar",
+        "graph",
+        "callers",
+        "target_fn",
+        "--repo",
+        "core",
+        "--cross-repo",
+        "--min-confidence",
+        "0.85",
     ])
     .unwrap();
     match cli.command {
@@ -111,7 +142,8 @@ fn test_cli_graph_file_parsing() {
 
 #[test]
 fn test_cli_graph_index_parsing() {
-    let cli = Cli::try_parse_from(["ivar", "graph", "index", "--repo", "my-repo", "--full"]).unwrap();
+    let cli =
+        Cli::try_parse_from(["ivar", "graph", "index", "--repo", "my-repo", "--full"]).unwrap();
     match cli.command {
         Command::Graph(GraphCommand::Index(args)) => {
             assert_eq!(args.repo.as_deref(), Some("my-repo"));

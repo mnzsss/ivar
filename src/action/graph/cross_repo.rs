@@ -5,7 +5,7 @@
 
 use thiserror::Error;
 
-use crate::infra::graph::db::GraphDb;
+use crate::store::graph::db::GraphDb;
 
 /// Error type for cross-repo linking operations.
 #[derive(Debug, Error)]
@@ -13,7 +13,7 @@ pub enum CrossRepoError {
     #[error("Database error: {0}")]
     Db(#[from] rusqlite::Error),
     #[error("Graph DB error: {0}")]
-    GraphDb(#[from] crate::infra::graph::db::GraphDbError),
+    GraphDb(#[from] crate::store::graph::db::GraphDbError),
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
 }
@@ -59,7 +59,7 @@ pub fn link_cross_repo_edges(db: &GraphDb) -> Result<CrossRepoLinkOutcome, Cross
              confidence = 0.90
              WHERE to_symbol_id IS NULL
                AND to_name IS NOT NULL
-               AND (kind = 'IMPORTS' OR kind = 'CALLS' OR kind = 'imports' OR kind = 'calls' OR kind = 'CROSS_IMPORTS' OR kind = 'cross_imports')
+               AND (kind = 'IMPORTS' OR kind = 'imports' OR kind = 'CROSS_IMPORTS' OR kind = 'cross_imports')
                AND EXISTS (
                    SELECT 1 FROM symbols s
                    WHERE s.repo != edges.repo
