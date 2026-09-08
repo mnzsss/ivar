@@ -121,7 +121,7 @@ pub fn find_affected_tests(
 
     for path in &normalized_changed {
         let mut stmt = conn.prepare_cached(
-            "SELECT id, path FROM files WHERE (?1 IS NULL OR repo = ?1) AND (path = ?2 OR path LIKE ?3)",
+            "SELECT id, path FROM files WHERE (?1 IS NULL OR repo = ?1) AND (path = ?2 OR (repo || '/' || path) = ?2 OR path LIKE ?3)",
         )?;
         let like_pattern = format!("%/{}", path);
         let mut rows = stmt.query(params![repo, path, like_pattern])?;
