@@ -22,6 +22,7 @@ pub mod discovery;
 pub mod execute;
 pub mod feature;
 pub mod hall;
+pub mod graph;
 pub mod mcp;
 pub mod plan;
 pub mod provider;

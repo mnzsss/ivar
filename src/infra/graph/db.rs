@@ -100,7 +100,7 @@ impl GraphDb {
              ON CONFLICT(id) DO UPDATE SET
                 root_path = excluded.root_path,
                 default_branch = excluded.default_branch,
-                last_indexed_commit = excluded.last_indexed_commit,
+                last_indexed_commit = COALESCE(excluded.last_indexed_commit, repos.last_indexed_commit),
                 indexed_at = excluded.indexed_at",
             params![id, root_path, default_branch, commit, now],
         )?;
@@ -135,6 +135,18 @@ impl GraphDb {
         )?;
         Ok(())
     }
+    /// Fetches the last indexed commit for a repository, if any.
+    pub fn get_repo_last_commit(&self, repo_id: &str) -> Result<Option<String>> {
+        let mut stmt = self
+            .conn
+            .prepare_cached("SELECT last_indexed_commit FROM repos WHERE id = ?1")?;
+        let result = stmt
+            .query_row(params![repo_id], |row| row.get::<_, Option<String>>(0))
+            .optional()?
+            .flatten();
+        Ok(result)
+    }
+
 
     /// Inserts or updates file metadata and returns the row ID.
     pub fn upsert_file(
@@ -191,6 +203,142 @@ impl GraphDb {
             params![repo, path],
         )?;
         Ok(())
+    }
+    /// Deletes a file and all associated symbols/edges (cascading). Alias for `delete_file`.
+    pub fn delete_file_cascade(&self, repo: &str, path: &str) -> Result<()> {
+        self.delete_file(repo, path)
+    }
+
+    /// Indexes an extracted file: upserts file row, replaces symbols and edges, and relinks dangling edges.
+    /// Performed inside an IMMEDIATE transaction.
+    pub fn index_extracted_file(
+        &self,
+        repo_id: &str,
+        file_path: &str,
+        content_hash: &str,
+        mtime_ns: i64,
+        size_bytes: i64,
+        extracted: &crate::infra::graph::extractor::ExtractedFile,
+    ) -> Result<(usize, usize)> {
+        self.conn.execute_batch("BEGIN IMMEDIATE;")?;
+        let res = (|| -> Result<(usize, usize)> {
+            let now = now_timestamp();
+            let mut file_stmt = self.conn.prepare_cached(
+                "INSERT INTO files (repo, path, content_hash, mtime_ns, size_bytes, indexed_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+                 ON CONFLICT(repo, path) DO UPDATE SET
+                    content_hash = excluded.content_hash,
+                    mtime_ns = excluded.mtime_ns,
+                    size_bytes = excluded.size_bytes,
+                    indexed_at = excluded.indexed_at
+                 RETURNING id",
+            )?;
+            let file_id: i64 = file_stmt.query_row(
+                params![repo_id, file_path, content_hash, mtime_ns, size_bytes, now],
+                |row| row.get(0),
+            )?;
+
+            // Delete old symbols for this file (cascades to edges from symbols)
+            self.conn.execute(
+                "DELETE FROM symbols WHERE file_id = ?1",
+                params![file_id],
+            )?;
+
+            // Delete old edges for this file
+            self.conn.execute(
+                "DELETE FROM edges WHERE file_id = ?1",
+                params![file_id],
+            )?;
+
+            // Insert new symbols
+            let mut sym_stmt = self.conn.prepare_cached(
+                "INSERT INTO symbols (file_id, repo, name, kind, scope, signature, docstring, start_line, start_col, end_line, end_col, is_exported)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+                 RETURNING id",
+            )?;
+            let mut sym_name_to_id = std::collections::HashMap::new();
+            let num_symbols = extracted.symbols.len();
+            for sym in &extracted.symbols {
+                let kind_str = symbol_kind_to_str(&sym.kind);
+                let is_exported = if sym.is_exported { 1 } else { 0 };
+                let sym_id: i64 = sym_stmt.query_row(
+                    params![
+                        file_id,
+                        repo_id,
+                        &sym.name,
+                        kind_str.as_ref(),
+                        &sym.scope,
+                        &sym.signature,
+                        &sym.docstring,
+                        sym.span.start_line as i64,
+                        sym.span.start_col as i64,
+                        sym.span.end_line as i64,
+                        sym.span.end_col as i64,
+                        is_exported,
+                    ],
+                    |row| row.get(0),
+                )?;
+                sym_name_to_id.insert(sym.name.clone(), sym_id);
+            }
+
+            // Insert edges
+            let mut edge_stmt = self.conn.prepare_cached(
+                "INSERT INTO edges (repo, file_id, from_symbol_id, to_symbol_id, to_name, kind, provenance, line, col, confidence)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            )?;
+            let num_edges = extracted.edges.len();
+            for edge in &extracted.edges {
+                let kind_str = edge_kind_to_str(&edge.kind);
+                let prov_str = provenance_to_str(&edge.provenance);
+
+                // If to_name matches a local symbol in this file, resolve to_symbol_id directly
+                let to_symbol_id = edge.to_symbol_id.or_else(|| {
+                    edge.to_name.as_ref().and_then(|name| sym_name_to_id.get(name).copied())
+                });
+
+                edge_stmt.execute(params![
+                    repo_id,
+                    file_id,
+                    edge.from_symbol_id,
+                    to_symbol_id,
+                    &edge.to_name,
+                    kind_str.as_ref(),
+                    prov_str,
+                    edge.line as i64,
+                    edge.col as i64,
+                    edge.confidence,
+                ])?;
+            }
+
+            // Relink dangling edges across the repo where to_symbol_id IS NULL and to_name matches symbols in this repo
+            self.conn.execute(
+                "UPDATE edges
+                 SET to_symbol_id = (
+                     SELECT s.id FROM symbols s
+                     WHERE s.repo = edges.repo AND s.name = edges.to_name
+                     LIMIT 1
+                 )
+                 WHERE repo = ?1 AND to_symbol_id IS NULL AND to_name IS NOT NULL
+                   AND EXISTS (
+                       SELECT 1 FROM symbols s
+                       WHERE s.repo = edges.repo AND s.name = edges.to_name
+                   )",
+                params![repo_id],
+            )?;
+
+            Ok((num_symbols, num_edges))
+        })();
+
+        match res {
+            Ok(counts) => {
+                self.conn.execute_batch("COMMIT;")?;
+                Ok(counts)
+            }
+            Err(e) => {
+                let _ = self.conn.execute_batch("ROLLBACK;");
+                Err(e)
+            }
+        }
     }
 
     /// Deletes all symbols belonging to a specific file ID (cascades to outbound edges).
