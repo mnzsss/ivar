@@ -72,3 +72,18 @@ fn inspect_reports_correct_integrity() {
     assert_eq!(disabled.len(), 1);
     assert_eq!(disabled[0].integrity, Integrity::Stale);
 }
+
+#[test]
+fn ivar_execute_skill_content_satisfies_all_invariants() {
+    let skill = catalog().iter().find(|s| s.id == "execute").expect("skill exists");
+    let content = skill.content;
+
+    // Invariants
+    assert!(content.contains("subagent"));
+    assert!(content.contains("Lightweight validation"));
+    assert!(content.contains("Deferred validation failures"));
+    assert!(content.contains("Standards review"));
+    assert!(content.contains("Spec review"));
+    assert!(content.contains("Ask"));
+    assert!(content.contains("Draft"));
+}
