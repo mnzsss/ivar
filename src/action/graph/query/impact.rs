@@ -15,7 +15,7 @@ pub fn get_impact(
     let conn = db.conn();
     let mut root_stmt = conn.prepare_cached(
         "SELECT id, file_id, repo, name, kind, scope, signature, docstring,
-                start_line, start_col, end_line, end_col, is_exported
+                start_line, start_col, end_line, end_col, is_exported, complexity
          FROM symbols
          WHERE id = ?1",
     )?;

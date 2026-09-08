@@ -31,7 +31,7 @@ fn setup_test_db() -> (GraphDb, i64, i64, i64) {
             docstring: Some("A helper function".to_owned()),
             span: Span::new(1, 1, 5, 1),
             is_exported: true,
-            complexity: None,
+            complexity: Some(2),
         },
         Symbol {
             id: None,
@@ -44,7 +44,7 @@ fn setup_test_db() -> (GraphDb, i64, i64, i64) {
             docstring: Some("A caller function".to_owned()),
             span: Span::new(7, 1, 15, 1),
             is_exported: true,
-            complexity: None,
+            complexity: Some(5),
         },
     ];
     let sym_ids = db.insert_symbols(&symbols).expect("insert symbols");
@@ -68,7 +68,7 @@ fn setup_test_db() -> (GraphDb, i64, i64, i64) {
         docstring: None,
         span: Span::new(1, 1, 10, 1),
         is_exported: false,
-        complexity: None,
+        complexity: Some(8),
     }];
     let top_ids = db.insert_symbols(&top_syms).expect("insert top_fn");
     let top_fn_id = top_ids[0];
@@ -132,6 +132,7 @@ fn test_find_symbols_exact_and_prefix() {
     assert_eq!(exact.len(), 1);
     assert_eq!(exact[0].symbol.id, Some(helper_id));
     assert_eq!(exact[0].symbol.name, "helper");
+    assert_eq!(exact[0].symbol.complexity, Some(2));
     assert_eq!(exact[0].file_path, "src/lib.rs");
 
     // Prefix match
@@ -140,6 +141,7 @@ fn test_find_symbols_exact_and_prefix() {
     assert_eq!(prefix[0].symbol.id, Some(caller_fn_id));
     assert_eq!(prefix[0].symbol.name, "caller_fn");
 
+    assert_eq!(prefix[0].symbol.complexity, Some(5));
     // Non-existent symbol
     let empty = find_symbols(&db, "non_existent", None, 10).expect("find non existent");
     assert!(empty.is_empty());
@@ -154,6 +156,7 @@ fn test_get_callers() {
     assert_eq!(callers[0].caller.id, Some(caller_fn_id));
     assert_eq!(callers[0].caller.name, "caller_fn");
     assert_eq!(callers[0].caller_file_path, "src/lib.rs");
+    assert_eq!(callers[0].caller.complexity, Some(5));
     assert_eq!(callers[0].edge_kind, EdgeKind::Calls);
     assert_eq!(callers[0].line, 10);
     assert_eq!(callers[0].col, 5);
@@ -174,6 +177,13 @@ fn test_get_callees() {
         callees[0].callee_symbol.as_ref().and_then(|s| s.id),
         Some(helper_id)
     );
+    assert_eq!(
+        callees[0]
+            .callee_symbol
+            .as_ref()
+            .and_then(|symbol| symbol.complexity),
+        Some(2)
+    );
     assert_eq!(callees[0].callee_file_path.as_deref(), Some("src/lib.rs"));
     assert_eq!(callees[0].edge_kind, EdgeKind::Calls);
 
@@ -193,6 +203,8 @@ fn test_get_file_outline() {
     assert_eq!(outline.symbols[0].name, "helper");
     assert_eq!(outline.symbols[1].name, "caller_fn");
     assert_eq!(outline.imports.len(), 1);
+    assert_eq!(outline.symbols[0].complexity, Some(2));
+    assert_eq!(outline.symbols[1].complexity, Some(5));
     assert_eq!(outline.imports[0].to_name.as_deref(), Some("std::io"));
 
     // File not found error
@@ -226,11 +238,13 @@ fn test_get_impact_and_cycle_protection() {
     // top_fn calls caller_fn (depth 2)
     let impact = get_impact(&db, helper_id, 5).expect("get impact");
     assert_eq!(impact.root_symbol.id, Some(helper_id));
+    assert_eq!(impact.root_symbol.complexity, Some(2));
     assert_eq!(impact.total_affected, 2);
     assert_eq!(impact.affected_symbols.len(), 2);
     assert_eq!(impact.affected_files, vec!["src/lib.rs", "src/other.rs"]);
 
     assert_eq!(impact.affected_symbols[0].symbol.id, Some(caller_fn_id));
+    assert_eq!(impact.affected_symbols[0].symbol.complexity, Some(5));
     assert_eq!(impact.affected_symbols[0].depth, 1);
     assert_eq!(
         impact.affected_symbols[0].path_via,
@@ -238,6 +252,7 @@ fn test_get_impact_and_cycle_protection() {
     );
 
     assert_eq!(impact.affected_symbols[1].symbol.id, Some(top_fn_id));
+    assert_eq!(impact.affected_symbols[1].symbol.complexity, Some(8));
     assert_eq!(impact.affected_symbols[1].depth, 2);
     assert_eq!(
         impact.affected_symbols[1].path_via,

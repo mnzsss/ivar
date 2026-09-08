@@ -459,3 +459,120 @@ fn test_symbol_complexity_persistence() {
         .unwrap();
     assert_eq!(queried, Some(12));
 }
+
+#[test]
+fn test_index_extracted_file_duplicate_target_names_resolves_or_leaves_unresolved() {
+    let db = GraphDb::open_in_memory().expect("open");
+    db.insert_repo("ivar", "/path", "main", None).unwrap();
+
+    let extracted = crate::store::graph::extractor::ExtractedFile {
+        symbols: vec![
+            Symbol {
+                id: None,
+                file_id: None,
+                repo: "ivar".to_owned(),
+                name: "helper".to_owned(),
+                kind: SymbolKind::Method,
+                scope: Some("WorkerA".to_owned()),
+                signature: Some("fn helper(&self)".to_owned()),
+                docstring: None,
+                span: Span::new(10, 5, 20, 50),
+                is_exported: false,
+                complexity: Some(1),
+            },
+            Symbol {
+                id: None,
+                file_id: None,
+                repo: "ivar".to_owned(),
+                name: "run".to_owned(),
+                kind: SymbolKind::Method,
+                scope: Some("WorkerA".to_owned()),
+                signature: Some("fn run(&self)".to_owned()),
+                docstring: None,
+                span: Span::new(21, 5, 30, 50),
+                is_exported: true,
+                complexity: Some(2),
+            },
+            Symbol {
+                id: None,
+                file_id: None,
+                repo: "ivar".to_owned(),
+                name: "helper".to_owned(),
+                kind: SymbolKind::Method,
+                scope: Some("WorkerB".to_owned()),
+                signature: Some("fn helper(&self)".to_owned()),
+                docstring: None,
+                span: Span::new(40, 5, 50, 50),
+                is_exported: false,
+                complexity: Some(1),
+            },
+            Symbol {
+                id: None,
+                file_id: None,
+                repo: "ivar".to_owned(),
+                name: "external_caller".to_owned(),
+                kind: SymbolKind::Fn,
+                scope: None,
+                signature: Some("fn external_caller()".to_owned()),
+                docstring: None,
+                span: Span::new(60, 1, 70, 50),
+                is_exported: true,
+                complexity: Some(1),
+            },
+        ],
+        edges: vec![
+            // Edge 1: inside WorkerA::run, calling "helper" -> should resolve to WorkerA's helper (not WorkerB's)
+            Edge {
+                id: None,
+                repo: "ivar".to_owned(),
+                file_id: None,
+                from_symbol_id: None,
+                to_symbol_id: None,
+                to_name: Some("helper".to_owned()),
+                kind: EdgeKind::Calls,
+                provenance: Provenance::Extracted,
+                line: 25,
+                col: 10,
+                confidence: 0.95,
+            },
+            // Edge 2: inside external_caller (no matching scope, outside both helper spans), calling "helper"
+            // Under last-write-wins this would wrongly resolve to WorkerB's helper. Here it must remain unresolved (None).
+            Edge {
+                id: None,
+                repo: "ivar".to_owned(),
+                file_id: None,
+                from_symbol_id: None,
+                to_symbol_id: None,
+                to_name: Some("helper".to_owned()),
+                kind: EdgeKind::Calls,
+                provenance: Provenance::Extracted,
+                line: 65,
+                col: 10,
+                confidence: 0.95,
+            },
+        ],
+    };
+
+    db.index_extracted_file("ivar", "src/workers.rs", "h_test", 1, 100, &extracted)
+        .unwrap();
+
+    let worker_a_helper_id: i64 = db
+        .conn()
+        .query_row(
+            "SELECT id FROM symbols WHERE name = 'helper' AND scope = 'WorkerA'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+
+    let edge_to_symbols: Vec<Option<i64>> = db
+        .conn()
+        .prepare("SELECT to_symbol_id FROM edges ORDER BY line ASC")
+        .unwrap()
+        .query_map([], |r| r.get(0))
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+
+    assert_eq!(edge_to_symbols, vec![Some(worker_a_helper_id), None]);
+}
