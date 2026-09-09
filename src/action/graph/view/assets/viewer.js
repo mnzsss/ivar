@@ -220,16 +220,21 @@
         const force = (dist - 80) * kAttract * state.simulation.alpha;
         const fx = (dx / dist) * force;
         const fy = (dy / dist) * force;
-        u.vx -= fx;
-        u.vy -= fy;
-        v.vx += fx;
-        v.vy += fy;
+        u.vx += fx;
+        u.vy += fy;
+        v.vx -= fx;
+        v.vy -= fy;
       }
     });
 
     nodes.forEach(function(u) {
       u.vx += (cx - u.x) * centerAttract * state.simulation.alpha;
       u.vy += (cy - u.y) * centerAttract * state.simulation.alpha;
+      const speed = Math.sqrt(u.vx * u.vx + u.vy * u.vy);
+      if (speed > 40) {
+        u.vx = (u.vx / speed) * 40;
+        u.vy = (u.vy / speed) * 40;
+      }
       u.x += u.vx * 0.85;
       u.y += u.vy * 0.85;
       u.vx *= 0.5;
