@@ -19,19 +19,75 @@ impl WriteHuman for ExploreOutcome {
         if res.primary_symbols.is_empty() {
             writeln!(w, "  No symbols found matching query.")?;
         } else {
-            writeln!(w, "  Primary Symbols:")?;
+            writeln!(w, "  Primary Implementation & Source:")?;
             for sym in &res.primary_symbols {
                 writeln!(
                     w,
-                    "    - {} ({:?}) in {}:{}-{}",
-                    sym.symbol.name, sym.symbol.kind, sym.file_path, sym.start_line, sym.end_line
+                    "    - {} [{}] ({}) in {} ({}:{}-{})",
+                    sym.symbol.name,
+                    sym.symbol.repo,
+                    sym.symbol.kind,
+                    sym.file_path,
+                    sym.file_path,
+                    sym.start_line,
+                    sym.end_line
                 )?;
                 if let Some(sig) = &sym.symbol.signature {
                     writeln!(w, "      Signature: {}", sig)?;
                 }
+                if !sym.code.is_empty() {
+                    writeln!(w, "      Source:")?;
+                    for line in sym.code.lines() {
+                        writeln!(w, "        {}", line)?;
+                    }
+                }
             }
         }
-        if !res.call_flows.is_empty() {
+        if !res.entry_points.is_empty() {
+            writeln!(w, "  Entry Points:")?;
+            for ep in &res.entry_points {
+                let cross_str = if ep.cross_repo { " [cross-repo]" } else { "" };
+                writeln!(
+                    w,
+                    "    - {} [{}:{}:{}] -> {} ({:?}, {:?}, {:.0}% conf{})",
+                    ep.source.symbol_name,
+                    ep.source.repo,
+                    ep.source.file_path,
+                    ep.line,
+                    ep.target.symbol_name,
+                    ep.edge_kind,
+                    ep.provenance,
+                    ep.confidence * 100.0,
+                    cross_str
+                )?;
+            }
+        }
+        if !res.direct_relations.is_empty() {
+            writeln!(w, "  Direct Relations:")?;
+            for rel in &res.direct_relations {
+                let cross_str = if rel.cross_repo { " [cross-repo]" } else { "" };
+                let dir_arrow = match rel.direction {
+                    crate::domain::graph::RelationDirection::Incoming => "<-",
+                    crate::domain::graph::RelationDirection::Outgoing => "->",
+                };
+                writeln!(
+                    w,
+                    "    - {} [{}:{}] {} {} [{}:{}] ({:?}, {:?}, {:.0}% conf, line {}{})",
+                    rel.source.symbol_name,
+                    rel.source.repo,
+                    rel.source.file_path,
+                    dir_arrow,
+                    rel.target.symbol_name,
+                    rel.target.repo,
+                    rel.target.file_path,
+                    rel.edge_kind,
+                    rel.provenance,
+                    rel.confidence * 100.0,
+                    rel.line,
+                    cross_str
+                )?;
+            }
+        } else if !res.call_flows.is_empty() {
             writeln!(w, "  Call Flows:")?;
             for flow in &res.call_flows {
                 writeln!(
@@ -41,8 +97,24 @@ impl WriteHuman for ExploreOutcome {
                 )?;
             }
         }
+        if !res.transitive_consumers.is_empty() {
+            writeln!(w, "  Transitive Consumers:")?;
+            for c in &res.transitive_consumers {
+                let cross_str = if c.cross_repo { " [cross-repo]" } else { "" };
+                let via = if c.path_via.is_empty() {
+                    String::new()
+                } else {
+                    format!(" via {}", c.path_via.join(" -> "))
+                };
+                writeln!(
+                    w,
+                    "    - {} [{}:{}] (depth {}{}{})",
+                    c.symbol_name, c.repo, c.file_path, c.depth, via, cross_str
+                )?;
+            }
+        }
         if let Some(impact) = &res.impact_summary {
-            writeln!(w, "  Impact: {}", impact)?;
+            writeln!(w, "  Impact Summary: {}", impact)?;
         }
         Ok(())
     }
@@ -68,6 +140,35 @@ impl WriteHuman for AffectedOutcome {
         } else {
             for test in &res.affected_test_files {
                 writeln!(w, "  - {}", test)?;
+            }
+        }
+        if !res.recommendations.is_empty() {
+            writeln!(
+                w,
+                "\nVerification recommendations ({}):",
+                res.recommendations.len()
+            )?;
+            for rec in &res.recommendations {
+                writeln!(w, "  • {} ({})", rec.test_file, rec.repo)?;
+                writeln!(w, "    Reason: {}", rec.reason)?;
+                if let Some(cmd) = &rec.command {
+                    writeln!(w, "    Command: {}", cmd)?;
+                }
+                if !rec.causal_path.is_empty() {
+                    let path_desc: Vec<String> = rec
+                        .causal_path
+                        .iter()
+                        .map(|step| {
+                            format!(
+                                "{} --[{}]--> {}",
+                                step.source,
+                                step.edge_kind.as_str(),
+                                step.target
+                            )
+                        })
+                        .collect();
+                    writeln!(w, "    Path: {}", path_desc.join(" -> "))?;
+                }
             }
         }
         Ok(())

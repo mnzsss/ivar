@@ -408,6 +408,36 @@ fn ivar_execute_skill_contains_execute_start_and_finish_commands() {
     );
 }
 
+/// Shipped workflow commands and execution skill document advisory graph guidance with fallback.
+#[test]
+fn shipped_spdd_guidance_documents_graph_use_and_fallbacks() {
+    let base = env!("CARGO_MANIFEST_DIR");
+    let discovery =
+        std::fs::read_to_string(format!("{base}/src/harness/commands/discovery.md")).unwrap();
+    let plan = std::fs::read_to_string(format!("{base}/src/harness/commands/plan.md")).unwrap();
+    let review = std::fs::read_to_string(format!("{base}/src/harness/commands/review.md")).unwrap();
+    let execute =
+        std::fs::read_to_string(format!("{base}/src/harness/skills/ivar-execute/SKILL.md"))
+            .unwrap();
+
+    assert!(
+        discovery.contains("ivar graph explore")
+            && (discovery.contains("fallback") || discovery.contains("fall back"))
+    );
+    assert!(
+        plan.contains("ivar graph explore")
+            && (plan.contains("fallback") || plan.contains("fall back"))
+    );
+    assert!(
+        review.contains("ivar graph affected")
+            && (review.contains("fallback") || review.contains("fall back"))
+    );
+    assert!(
+        execute.contains("ivar graph affected")
+            && (execute.contains("fallback") || execute.contains("fall back"))
+    );
+}
+
 /// A fingerprint-matching legacy `plan.md` is removed by sync; a customised
 /// one survives and appears in `ivar doctor`.
 #[test]

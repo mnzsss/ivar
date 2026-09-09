@@ -184,12 +184,31 @@ fn test_encode_affected() {
     let affected = AffectedResult {
         changed_files: vec!["src/lib.rs".into()],
         affected_test_files: vec!["tests/test_lib.rs".into(), "tests/integration.rs".into()],
+        recommendations: vec![crate::domain::graph::AffectedRecommendation {
+            repo: "ivar".into(),
+            test_file: "tests/test_lib.rs".into(),
+            causal_path: vec![crate::domain::graph::CausalStep {
+                source: "tests/test_lib.rs".into(),
+                target: "src/lib.rs".into(),
+                edge_kind: EdgeKind::Imports,
+                provenance: Provenance::Extracted,
+                confidence: 1.0,
+                line: 1,
+            }],
+            direct_change: false,
+            hop_count: 1,
+            edge_kind: EdgeKind::Imports,
+            provenance: Provenance::Extracted,
+            confidence: 1.0,
+            reason: "imports src/lib.rs (1 hop)".into(),
+            command: Some("cargo test --test test_lib".into()),
+        }],
     };
 
     let compact = affected.to_compact();
     let expected = format!(
-        "{}\ntests/test_lib.rs\ntests/integration.rs",
-        AFFECTED_SCHEMA
+        "{}\ntests/test_lib.rs\ntests/integration.rs\n{}\nivar|tests/test_lib.rs|false|1|imports|extracted|1.00|cargo test --test test_lib|imports src/lib.rs (1 hop)|tests/test_lib.rs -[imports]-> src/lib.rs",
+        AFFECTED_SCHEMA, AFFECTED_RECOMMENDATION_SCHEMA
     );
     assert_eq!(compact, expected);
 
@@ -239,10 +258,43 @@ fn test_encode_explore() {
         }],
         call_flows: vec![],
         impact_summary: None,
+        direct_relations: vec![crate::domain::graph::OperationalRelation {
+            source: crate::domain::graph::RelationEndpoint {
+                repo: "ivar".into(),
+                file_path: "src/main.rs".into(),
+                symbol_name: "main".into(),
+                symbol_kind: Some(SymbolKind::Fn),
+            },
+            target: crate::domain::graph::RelationEndpoint {
+                repo: "ivar".into(),
+                file_path: "src/net.rs".into(),
+                symbol_name: "fetch".into(),
+                symbol_kind: Some(SymbolKind::Fn),
+            },
+            direction: crate::domain::graph::RelationDirection::Incoming,
+            edge_kind: EdgeKind::Calls,
+            provenance: Provenance::Extracted,
+            confidence: 1.0,
+            line: 42,
+            hop_count: 1,
+            cross_repo: false,
+        }],
+        entry_points: vec![],
+        transitive_consumers: vec![crate::domain::graph::ExploreImpact {
+            symbol_name: "caller_func".into(),
+            repo: "ivar-orca".into(),
+            file_path: "src/index.ts".into(),
+            depth: 2,
+            path_via: vec!["main".into(), "caller_func".into()],
+            cross_repo: true,
+        }],
     };
 
     let compact = explore.to_compact();
-    let expected = format!("{}\n10|fetch|fn|src/net.rs|1|0|3", SYMBOL_SCHEMA);
+    let expected = format!(
+        "{}\n10|fetch|fn|src/net.rs|1|0|3\n{}\nmain|ivar|src/main.rs|incoming|fetch|ivar|src/net.rs|calls|extracted|1.00|42|1|false\n{}\ncaller_func|ivar-orca|src/index.ts|2|main -> caller_func|true",
+        SYMBOL_SCHEMA, RELATION_SCHEMA, EXPLORE_IMPACT_SCHEMA
+    );
     assert_eq!(compact, expected);
 
     let json = serde_json::to_string_pretty(&explore).unwrap();

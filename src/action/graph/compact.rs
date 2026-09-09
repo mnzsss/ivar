@@ -14,8 +14,10 @@ pub const CALLER_SCHEMA: &str = "#SCHEMA: caller|kind|file|line|edge_kind|confid
 pub const CALLEE_SCHEMA: &str = "#SCHEMA: callee|kind|file|line|edge_kind|confidence";
 pub const IMPACT_SCHEMA: &str = "#SCHEMA: symbol|kind|file|depth|path_via";
 pub const AFFECTED_SCHEMA: &str = "#SCHEMA: test_file";
+pub const AFFECTED_RECOMMENDATION_SCHEMA: &str = "#SCHEMA: repo|test_file|direct_change|hop_count|edge_kind|provenance|confidence|command|reason|causal_path";
 pub const PATH_SCHEMA: &str = "#SCHEMA: step|symbol|kind|file|edge_kind";
-
+pub const RELATION_SCHEMA: &str = "#SCHEMA: source_symbol|source_repo|source_file|direction|target_symbol|target_repo|target_file|edge_kind|provenance|confidence|line|hop_count|cross_repo";
+pub const EXPLORE_IMPACT_SCHEMA: &str = "#SCHEMA: symbol|repo|file|depth|path_via|cross_repo";
 /// Trait for converting domain types and results to compact pipe-delimited string representations.
 pub trait ToCompact {
     fn to_compact(&self) -> String;
@@ -152,6 +154,40 @@ pub fn encode_affected(affected: &AffectedResult) -> String {
         out.push('\n');
         out.push_str(test_file);
     }
+    if !affected.recommendations.is_empty() {
+        out.push('\n');
+        out.push_str(AFFECTED_RECOMMENDATION_SCHEMA);
+        for rec in &affected.recommendations {
+            let cmd_str = rec.command.as_deref().unwrap_or("");
+            let causal_str: Vec<String> = rec
+                .causal_path
+                .iter()
+                .map(|step| {
+                    format!(
+                        "{} -[{}]-> {}",
+                        step.source,
+                        step.edge_kind.as_str(),
+                        step.target
+                    )
+                })
+                .collect();
+            let causal_path_formatted = causal_str.join(" ; ");
+            out.push('\n');
+            out.push_str(&format!(
+                "{}|{}|{}|{}|{}|{}|{:.2}|{}|{}|{}",
+                rec.repo,
+                rec.test_file,
+                rec.direct_change,
+                rec.hop_count,
+                rec.edge_kind.as_str(),
+                rec.provenance.as_str(),
+                rec.confidence,
+                cmd_str,
+                rec.reason,
+                causal_path_formatted
+            ));
+        }
+    }
     out
 }
 
@@ -169,7 +205,7 @@ pub fn encode_path(path: Option<&PathResult>) -> String {
     out
 }
 
-/// Encodes explore results combining primary symbols and call flows.
+/// Encodes explore results combining primary symbols, entry points, direct relations, and transitive consumers.
 pub fn encode_explore(explore: &ExploreResult) -> String {
     let mut out = String::from(SYMBOL_SCHEMA);
     for sym_snippet in &explore.primary_symbols {
@@ -188,6 +224,51 @@ pub fn encode_explore(explore: &ExploreResult) -> String {
             sym.span.start_col,
             complexity_str
         ));
+    }
+    if !explore.direct_relations.is_empty() {
+        out.push('\n');
+        out.push_str(RELATION_SCHEMA);
+        for rel in &explore.direct_relations {
+            let dir_str = match rel.direction {
+                crate::domain::graph::RelationDirection::Incoming => "incoming",
+                crate::domain::graph::RelationDirection::Outgoing => "outgoing",
+            };
+            let edge_str = rel.edge_kind.as_str();
+            let prov_str = rel.provenance.as_str();
+            out.push('\n');
+            out.push_str(&format!(
+                "{}|{}|{}|{}|{}|{}|{}|{}|{}|{:.2}|{}|{}|{}",
+                rel.source.symbol_name,
+                rel.source.repo,
+                rel.source.file_path,
+                dir_str,
+                rel.target.symbol_name,
+                rel.target.repo,
+                rel.target.file_path,
+                edge_str,
+                prov_str,
+                rel.confidence,
+                rel.line,
+                rel.hop_count,
+                rel.cross_repo
+            ));
+        }
+    }
+    if !explore.transitive_consumers.is_empty() {
+        out.push('\n');
+        out.push_str(EXPLORE_IMPACT_SCHEMA);
+        for c in &explore.transitive_consumers {
+            out.push('\n');
+            out.push_str(&format!(
+                "{}|{}|{}|{}|{}|{}",
+                c.symbol_name,
+                c.repo,
+                c.file_path,
+                c.depth,
+                c.path_via.join(" -> "),
+                c.cross_repo
+            ));
+        }
     }
     out
 }

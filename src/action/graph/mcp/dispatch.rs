@@ -114,8 +114,9 @@ where
             let repo = args.get("repo").and_then(Value::as_str);
             let max_depth = args.get("max_depth").and_then(Value::as_u64).unwrap_or(5) as usize;
 
-            let affected = affected::find_affected_tests(db, &files, repo, max_depth)
-                .map_err(|e| format!("get_affected_tests failed: {e}"))?;
+            let affected =
+                affected::find_affected_tests_with_root(db, hall_root, &files, repo, max_depth)
+                    .map_err(|e| format!("get_affected_tests failed: {e}"))?;
             if args.get("format").and_then(Value::as_str) == Some("compact") {
                 Ok(compact::encode_affected(&affected))
             } else {
