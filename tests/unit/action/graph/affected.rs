@@ -445,3 +445,145 @@ fn test_unrecognized_runner_omits_command() {
     let cmd = derive_test_command(None, "custom_repo", "scripts/test_runner.unknown");
     assert!(cmd.is_none());
 }
+
+#[test]
+fn test_affected_tests_multi_repo_identical_paths() -> Result<(), Box<dyn std::error::Error>> {
+    let db = GraphDb::open_in_memory()?;
+    db.insert_repo("repo_alpha", "/alpha", "main", None)?;
+    db.insert_repo("repo_beta", "/beta", "main", None)?;
+
+    let alpha_src = ExtractedFile {
+        symbols: vec![Symbol {
+            id: None,
+            file_id: None,
+            repo: "repo_alpha".to_owned(),
+            name: "fn_alpha".to_owned(),
+            kind: SymbolKind::Fn,
+            scope: None,
+            signature: Some("fn fn_alpha()".to_owned()),
+            docstring: None,
+            span: Span::new(1, 1, 5, 1),
+            is_exported: true,
+            complexity: None,
+        }],
+        edges: vec![],
+    };
+    db.index_extracted_file("repo_alpha", "src/a.rs", "hash_a", 100, 1000, &alpha_src)?;
+
+    let alpha_test = ExtractedFile {
+        symbols: vec![Symbol {
+            id: None,
+            file_id: None,
+            repo: "repo_alpha".to_owned(),
+            name: "test_alpha".to_owned(),
+            kind: SymbolKind::Fn,
+            scope: None,
+            signature: Some("fn test_alpha()".to_owned()),
+            docstring: None,
+            span: Span::new(1, 1, 8, 1),
+            is_exported: false,
+            complexity: None,
+        }],
+        edges: vec![Edge {
+            id: None,
+            repo: "repo_alpha".to_owned(),
+            file_id: None,
+            from_symbol_id: None,
+            to_symbol_id: None,
+            to_name: Some("fn_alpha".to_owned()),
+            kind: EdgeKind::Calls,
+            provenance: Provenance::Extracted,
+            line: 3,
+            col: 5,
+            confidence: 1.0,
+        }],
+    };
+    db.index_extracted_file(
+        "repo_alpha",
+        "tests/unit/foo_test.rs",
+        "hash_at",
+        101,
+        1000,
+        &alpha_test,
+    )?;
+
+    let beta_src = ExtractedFile {
+        symbols: vec![Symbol {
+            id: None,
+            file_id: None,
+            repo: "repo_beta".to_owned(),
+            name: "fn_beta".to_owned(),
+            kind: SymbolKind::Fn,
+            scope: None,
+            signature: Some("fn fn_beta()".to_owned()),
+            docstring: None,
+            span: Span::new(1, 1, 5, 1),
+            is_exported: true,
+            complexity: None,
+        }],
+        edges: vec![],
+    };
+    db.index_extracted_file("repo_beta", "src/b.rs", "hash_b", 200, 1000, &beta_src)?;
+
+    let beta_test = ExtractedFile {
+        symbols: vec![Symbol {
+            id: None,
+            file_id: None,
+            repo: "repo_beta".to_owned(),
+            name: "test_beta".to_owned(),
+            kind: SymbolKind::Fn,
+            scope: None,
+            signature: Some("fn test_beta()".to_owned()),
+            docstring: None,
+            span: Span::new(1, 1, 8, 1),
+            is_exported: false,
+            complexity: None,
+        }],
+        edges: vec![Edge {
+            id: None,
+            repo: "repo_beta".to_owned(),
+            file_id: None,
+            from_symbol_id: None,
+            to_symbol_id: None,
+            to_name: Some("fn_beta".to_owned()),
+            kind: EdgeKind::Calls,
+            provenance: Provenance::Extracted,
+            line: 4,
+            col: 5,
+            confidence: 1.0,
+        }],
+    };
+    db.index_extracted_file(
+        "repo_beta",
+        "tests/unit/foo_test.rs",
+        "hash_bt",
+        201,
+        1000,
+        &beta_test,
+    )?;
+
+    let result = find_affected_tests(
+        &db,
+        &["src/a.rs".to_owned(), "src/b.rs".to_owned()],
+        None,
+        5,
+    )?;
+
+    assert_eq!(result.changed_files.len(), 2);
+    assert_eq!(result.affected_test_files, vec!["tests/unit/foo_test.rs"]);
+    assert_eq!(
+        result.recommendations.len(),
+        2,
+        "Both repos must be retained in recommendations without one overwriting the other"
+    );
+
+    let repos: Vec<&str> = result
+        .recommendations
+        .iter()
+        .map(|r| r.repo.as_str())
+        .collect();
+    assert!(repos.contains(&"repo_alpha"));
+    assert!(repos.contains(&"repo_beta"));
+
+    Ok(())
+}

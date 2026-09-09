@@ -390,3 +390,43 @@ fn test_index_repo_progress_clears_on_error() {
         let _ = fs::set_permissions(&file, perms);
     }
 }
+
+#[test]
+fn test_force_full_index_error_preserves_existing_db_records() {
+    let temp = tempdir().expect("tempdir");
+    let repo_path = temp.path();
+    let git_repo = git2::Repository::init(repo_path).expect("git init");
+
+    let file = repo_path.join("valid.rs");
+    fs::write(&file, "pub fn valid() {}\n").expect("write valid.rs");
+    create_git_commit(&git_repo, "Initial commit").expect("commit");
+
+    let db = GraphDb::open_in_memory().expect("open db");
+
+    // 1. Initial index succeeds
+    let outcome1 = index_repo(&db, "test-repo", repo_path, false, &Silent).expect("initial index");
+    assert_eq!(outcome1.files_indexed, 1);
+    let stats1 = db.stats().expect("stats1");
+    assert_eq!(stats1.file_count, 1);
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = fs::metadata(&file).expect("metadata").permissions();
+        perms.set_mode(0o000);
+        fs::set_permissions(&file, perms).expect("set perms");
+
+        // 2. Force full index fails due to unreadable file
+        let result = index_repo(&db, "test-repo", repo_path, true, &Silent);
+        assert!(result.is_err());
+
+        // Restore permissions
+        let mut perms = fs::metadata(&file).expect("metadata").permissions();
+        perms.set_mode(0o644);
+        let _ = fs::set_permissions(&file, perms);
+
+        // 3. Existing database records must be preserved rather than wiped
+        let stats_after_failure = db.stats().expect("stats after failure");
+        assert_eq!(stats_after_failure.file_count, 1);
+    }
+}
