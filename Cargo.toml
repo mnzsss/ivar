@@ -157,6 +157,13 @@ debug = "line-tables-only"
 # binary. Linux-only knob; ignored elsewhere.
 split-debuginfo = "unpacked"
 
+[profile.e2e]
+inherits = "dev"
+# Graph E2E indexes the current ivar checkout by invoking the compiled binary.
+# Optimize that runtime without release profile's expensive LTO and stripping.
+opt-level = 2
+debug = false
+
 [profile.dev.package."*"]
 # No debug info for dependencies. Their DWARF costs disk and link time and
 # buys a stack frame nobody steps into. Set this to `true` for the one
