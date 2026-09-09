@@ -1,0 +1,515 @@
+/**
+ * ivar graph view - Zero-dependency Vanilla JS Canvas 2D Graph Visualizer.
+ */
+(function() {
+  'use strict';
+
+  /* State Model */
+  const state = {
+    nodes: new Map(),
+    edges: new Map(),
+    selectedNodeId: null,
+    highlightNodeIds: new Set(),
+    highlightEdgeKeys: new Set(),
+    transform: { x: 0, y: 0, k: 1 },
+    drag: { isDragging: false, startX: 0, startY: 0 },
+    simulation: { alpha: 1.0, settled: false, iterations: 0, maxIterations: 180 },
+    depth: 1,
+    filters: { repo: '', kind: '', provenance: '' }
+  };
+
+  /* DOM Elements */
+  const canvas = document.getElementById('graph-canvas');
+  const ctx = canvas.getContext('2d');
+  const searchInput = document.getElementById('search-input');
+  const searchResults = document.getElementById('search-results');
+  const repoFilter = document.getElementById('repo-filter');
+  const kindFilter = document.getElementById('kind-filter');
+  const provenanceFilter = document.getElementById('provenance-filter');
+  const depthSelect = document.getElementById('depth-select');
+  const fitBtn = document.getElementById('fit-btn');
+  const resetBtn = document.getElementById('reset-btn');
+  const expandBtn = document.getElementById('expand-btn');
+
+  /* Sidebar Elements */
+  const detailName = document.getElementById('detail-name');
+  const detailKind = document.getElementById('detail-kind');
+  const detailRepo = document.getElementById('detail-repo');
+  const detailLocation = document.getElementById('detail-location');
+  const detailMeta = document.getElementById('detail-meta');
+  const detailSignature = document.getElementById('detail-signature');
+  const callersLabel = document.getElementById('callers-label');
+  const callersList = document.getElementById('callers-list');
+  const calleesLabel = document.getElementById('callees-label');
+  const calleesList = document.getElementById('callees-list');
+
+  /* Status elements */
+  const statNodes = document.getElementById('stat-nodes');
+  const statEdges = document.getElementById('stat-edges');
+  const statDepth = document.getElementById('stat-depth');
+
+  /* API Client Layer */
+  function apiFetch(endpoint) {
+    return fetch(endpoint).then(function(res) {
+      if (!res.ok) throw new Error('API error: ' + res.status);
+      return res.json();
+    });
+  }
+
+  function loadInitialGraph() {
+    apiFetch('/api/graph').then(function(graph) {
+      mergeGraphData(graph);
+      restartSimulation();
+    }).catch(function(err) {
+      console.error('Failed to load initial graph:', err);
+    });
+  }
+
+  function fetchNodeDetails(id) {
+    const base = '/api/node';
+    const endpoint = base + '?id=' + encodeURIComponent(id);
+    apiFetch(endpoint).then(function(details) {
+      renderDetails(details);
+    }).catch(function(err) {
+      console.error('Failed to load node details:', err);
+    });
+  }
+
+  function fetchExpansion(id) {
+    const base = '/api/expand';
+    apiFetch(base + '?id=' + encodeURIComponent(id)).then(function(graph) {
+      mergeGraphData(graph);
+      restartSimulation();
+    }).catch(function(err) {
+      console.error('Failed to expand node:', err);
+    });
+  }
+
+  function fetchPath(fromId, toId) {
+    const base = '/api/path';
+    const endpoint = base + '?from=' + encodeURIComponent(fromId) + '&to=' + encodeURIComponent(toId);
+    apiFetch(endpoint).then(function(pathNodes) {
+      state.highlightNodeIds = new Set(pathNodes);
+      render();
+    }).catch(function(err) {
+      console.error('Path search failed:', err);
+    });
+  }
+
+  function fetchImpact(id, direction, depth) {
+    const base = '/api/impact';
+    const endpoint = base + '?id=' + encodeURIComponent(id) +
+      '&direction=' + encodeURIComponent(direction || 'both') +
+      '&depth=' + encodeURIComponent(depth || 2);
+    apiFetch(endpoint).then(function(impactNodes) {
+      state.highlightNodeIds = new Set(impactNodes);
+      render();
+    }).catch(function(err) {
+      console.error('Impact query failed:', err);
+    });
+  }
+
+  function performSearch(query) {
+    if (!query || query.trim().length === 0) {
+      searchResults.hidden = true;
+      searchResults.innerHTML = '';
+      return;
+    }
+    const base = '/api/search';
+    const endpoint = base + '?q=' + encodeURIComponent(query) +
+      '&repo=' + encodeURIComponent(state.filters.repo) +
+      '&kind=' + encodeURIComponent(state.filters.kind) +
+      '&limit=20';
+    apiFetch(endpoint).then(function(results) {
+      renderSearchResults(results);
+    }).catch(function(err) {
+      console.error('Search failed:', err);
+    });
+  }
+
+  /* Graph Merging & Simulation */
+  function mergeGraphData(graph) {
+    if (!graph || !graph.nodes) return;
+
+    graph.nodes.forEach(function(n) {
+      if (!state.nodes.has(n.id)) {
+        const angle = (n.id * 137.5) * (Math.PI / 180);
+        const radius = 60 + (n.id % 20) * 15;
+        state.nodes.set(n.id, {
+          id: n.id,
+          repo: n.repo,
+          name: n.name,
+          kind: n.kind,
+          signature: n.signature,
+          file: n.file,
+          span: n.span,
+          exported: n.exported,
+          complexity: n.complexity,
+          x: Math.cos(angle) * radius + (canvas.width / 2),
+          y: Math.sin(angle) * radius + (canvas.height / 2),
+          vx: 0,
+          vy: 0
+        });
+      }
+    });
+
+    if (graph.edges) {
+      graph.edges.forEach(function(e) {
+        const key = e.from + '->' + e.to + ':' + e.kind;
+        if (!state.edges.has(key)) {
+          state.edges.set(key, e);
+        }
+      });
+    }
+
+    updateStats();
+    updateFilterOptions();
+  }
+
+  function restartSimulation() {
+    state.simulation.alpha = 1.0;
+    state.simulation.settled = false;
+    state.simulation.iterations = 0;
+    requestAnimationFrame(animationLoop);
+  }
+
+  function stepSimulation() {
+    if (state.simulation.settled) return;
+
+    const nodes = Array.from(state.nodes.values());
+    const kRepel = 1200;
+    const kAttract = 0.04;
+    const centerAttract = 0.01;
+    const cx = canvas.width / 2;
+    const cy = canvas.height / 2;
+
+    for (let i = 0; i < nodes.length; i++) {
+      const u = nodes[i];
+      for (let j = i + 1; j < nodes.length; j++) {
+        const v = nodes[j];
+        const dx = v.x - u.x;
+        const dy = v.y - u.y;
+        const distSq = dx * dx + dy * dy + 1;
+        const dist = Math.sqrt(distSq);
+        const force = (kRepel / distSq) * state.simulation.alpha;
+        const fx = (dx / dist) * force;
+        const fy = (dy / dist) * force;
+        u.vx -= fx;
+        u.vy -= fy;
+        v.vx += fx;
+        v.vy += fy;
+      }
+    }
+
+    state.edges.forEach(function(edge) {
+      const u = state.nodes.get(edge.from);
+      const v = state.nodes.get(edge.to);
+      if (u && v) {
+        const dx = v.x - u.x;
+        const dy = v.y - u.y;
+        const dist = Math.sqrt(dx * dx + dy * dy) + 0.1;
+        const force = (dist - 80) * kAttract * state.simulation.alpha;
+        const fx = (dx / dist) * force;
+        const fy = (dy / dist) * force;
+        u.vx -= fx;
+        u.vy -= fy;
+        v.vx += fx;
+        v.vy += fy;
+      }
+    });
+
+    nodes.forEach(function(u) {
+      u.vx += (cx - u.x) * centerAttract * state.simulation.alpha;
+      u.vy += (cy - u.y) * centerAttract * state.simulation.alpha;
+      u.x += u.vx * 0.85;
+      u.y += u.vy * 0.85;
+      u.vx *= 0.5;
+      u.vy *= 0.5;
+    });
+
+    state.simulation.iterations++;
+    state.simulation.alpha *= 0.96;
+    if (state.simulation.alpha < 0.005 || state.simulation.iterations >= state.simulation.maxIterations) {
+      state.simulation.settled = true;
+    }
+  }
+
+  /* Rendering Layer */
+  function render() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.save();
+    ctx.translate(state.transform.x, state.transform.y);
+    ctx.scale(state.transform.k, state.transform.k);
+
+    state.edges.forEach(function(edge) {
+      const u = state.nodes.get(edge.from);
+      const v = state.nodes.get(edge.to);
+      if (!u || !v) return;
+
+      const isAmbiguous = edge.provenance === 'ambiguous' || edge.provenance === 'inferred';
+      const isSelected = state.selectedNodeId === u.id || state.selectedNodeId === v.id;
+
+      ctx.beginPath();
+      ctx.moveTo(u.x, u.y);
+      ctx.lineTo(v.x, v.y);
+
+      if (isAmbiguous) {
+        ctx.setLineDash([4, 4]);
+        ctx.strokeStyle = isSelected ? '#8ba6ff' : '#d97735';
+      } else {
+        ctx.setLineDash([]);
+        ctx.strokeStyle = isSelected ? '#8ba6ff' : 'rgba(242, 235, 221, 0.25)';
+      }
+      ctx.lineWidth = isSelected ? 2 : 1;
+      ctx.stroke();
+    });
+
+    ctx.setLineDash([]);
+
+    state.nodes.forEach(function(node) {
+      const isSelected = state.selectedNodeId === node.id;
+      const isImpact = state.highlightNodeIds.has(node.id);
+
+      ctx.beginPath();
+      ctx.arc(node.x, node.y, isSelected ? 8 : 5, 0, 2 * Math.PI);
+
+      if (isSelected) {
+        ctx.fillStyle = '#8ba6ff';
+      } else if (isImpact) {
+        ctx.fillStyle = '#d97735';
+      } else {
+        ctx.fillStyle = node.exported ? '#f2ebdd' : '#c8c0b2';
+      }
+      ctx.fill();
+
+      ctx.fillStyle = isSelected ? '#8ba6ff' : '#f2ebdd';
+      ctx.font = isSelected ? 'bold 12px Fira Code' : '11px Fira Code';
+      ctx.fillText(node.name, node.x + 9, node.y + 4);
+    });
+
+    ctx.restore();
+  }
+
+  function animationLoop() {
+    if (!state.simulation.settled) {
+      stepSimulation();
+      render();
+      requestAnimationFrame(animationLoop);
+    } else {
+      render();
+    }
+  }
+
+  /* Interaction & Event Handlers */
+  function setupEvents() {
+    window.addEventListener('resize', function() {
+      canvas.width = canvas.parentElement.clientWidth;
+      canvas.height = canvas.parentElement.clientHeight;
+      render();
+    });
+
+    canvas.addEventListener('mousedown', function(e) {
+      const rect = canvas.getBoundingClientRect();
+      const clickX = (e.clientX - rect.left - state.transform.x) / state.transform.k;
+      const clickY = (e.clientY - rect.top - state.transform.y) / state.transform.k;
+
+      let clickedNode = null;
+      state.nodes.forEach(function(node) {
+        const dx = node.x - clickX;
+        const dy = node.y - clickY;
+        if (dx * dx + dy * dy <= 64) {
+          clickedNode = node;
+        }
+      });
+
+      if (clickedNode) {
+        selectNode(clickedNode.id);
+      } else {
+        state.drag.isDragging = true;
+        state.drag.startX = e.clientX - state.transform.x;
+        state.drag.startY = e.clientY - state.transform.y;
+      }
+    });
+
+    window.addEventListener('mousemove', function(e) {
+      if (state.drag.isDragging) {
+        state.transform.x = e.clientX - state.drag.startX;
+        state.transform.y = e.clientY - state.drag.startY;
+        render();
+      }
+    });
+
+    window.addEventListener('mouseup', function() {
+      state.drag.isDragging = false;
+    });
+
+    canvas.addEventListener('wheel', function(e) {
+      e.preventDefault();
+      const zoomFactor = e.deltaY < 0 ? 1.1 : 0.9;
+      state.transform.k = Math.max(0.2, Math.min(4.0, state.transform.k * zoomFactor));
+      render();
+    }, { passive: false });
+
+    fitBtn.addEventListener('click', fitGraphToView);
+    resetBtn.addEventListener('click', resetView);
+    expandBtn.addEventListener('click', function() {
+      if (state.selectedNodeId !== null) {
+        fetchExpansion(state.selectedNodeId);
+      }
+    });
+
+    let searchDebounce = null;
+    searchInput.addEventListener('input', function(e) {
+      clearTimeout(searchDebounce);
+      searchDebounce = setTimeout(function() {
+        performSearch(e.target.value);
+      }, 150);
+    });
+
+    repoFilter.addEventListener('change', function(e) {
+      state.filters.repo = e.target.value;
+      restartSimulation();
+    });
+    kindFilter.addEventListener('change', function(e) {
+      state.filters.kind = e.target.value;
+      render();
+    });
+    provenanceFilter.addEventListener('change', function(e) {
+      state.filters.provenance = e.target.value;
+      render();
+    });
+    depthSelect.addEventListener('change', function(e) {
+      state.depth = parseInt(e.target.value, 10) || 1;
+      statDepth.textContent = 'depth ' + state.depth;
+    });
+  }
+
+  function selectNode(id) {
+    state.selectedNodeId = id;
+    expandBtn.disabled = false;
+    fetchNodeDetails(id);
+    render();
+  }
+
+  function fitGraphToView() {
+    if (state.nodes.size === 0) return;
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    state.nodes.forEach(function(node) {
+      if (node.x < minX) minX = node.x;
+      if (node.x > maxX) maxX = node.x;
+      if (node.y < minY) minY = node.y;
+      if (node.y > maxY) maxY = node.y;
+    });
+    const padding = 60;
+    const gw = (maxX - minX) || 100;
+    const gh = (maxY - minY) || 100;
+    const scale = Math.min((canvas.width - padding * 2) / gw, (canvas.height - padding * 2) / gh, 2.0);
+    state.transform.k = Math.max(0.2, scale);
+    state.transform.x = (canvas.width - gw * state.transform.k) / 2 - minX * state.transform.k;
+    state.transform.y = (canvas.height - gh * state.transform.k) / 2 - minY * state.transform.k;
+    render();
+  }
+
+  function resetView() {
+    state.transform.x = 0;
+    state.transform.y = 0;
+    state.transform.k = 1;
+    restartSimulation();
+  }
+
+  function renderDetails(details) {
+    if (!details || !details.node) return;
+    const node = details.node;
+    detailName.textContent = node.name;
+    detailKind.textContent = node.kind;
+    detailRepo.textContent = node.repo;
+    detailLocation.textContent = node.file + (node.span ? ':' + node.span.start_line : '');
+    detailMeta.textContent = (node.exported ? 'Exported' : 'Private') +
+      (node.complexity ? ' · Complexity ' + node.complexity : '');
+    detailSignature.textContent = node.signature || '-';
+
+    callersList.innerHTML = '';
+    const callers = details.callers || [];
+    callersLabel.textContent = 'Callers (' + callers.length + ')';
+    callers.forEach(function(c) {
+      const li = document.createElement('li');
+      li.className = 'ref-item';
+      li.textContent = c.name + ' (' + c.repo + ')';
+      li.addEventListener('click', function() { selectNode(c.id); });
+      callersList.appendChild(li);
+    });
+
+    calleesList.innerHTML = '';
+    const callees = details.callees || [];
+    calleesLabel.textContent = 'Callees (' + callees.length + ')';
+    callees.forEach(function(c) {
+      const li = document.createElement('li');
+      li.className = 'ref-item';
+      li.textContent = c.name + ' (' + c.repo + ')';
+      li.addEventListener('click', function() { selectNode(c.id); });
+      calleesList.appendChild(li);
+    });
+  }
+
+  function renderSearchResults(results) {
+    searchResults.innerHTML = '';
+    if (!results || results.length === 0) {
+      searchResults.hidden = true;
+      return;
+    }
+    results.forEach(function(r) {
+      const div = document.createElement('div');
+      div.className = 'search-item';
+      div.innerHTML = '<span>' + r.name + '</span><span class="prop-label">' + r.kind + '</span>';
+      div.addEventListener('click', function() {
+        searchResults.hidden = true;
+        selectNode(r.id);
+      });
+      searchResults.appendChild(div);
+    });
+    searchResults.hidden = false;
+  }
+
+  function updateStats() {
+    statNodes.textContent = state.nodes.size + ' nodes';
+    statEdges.textContent = state.edges.size + ' edges';
+    statDepth.textContent = 'depth ' + state.depth;
+  }
+
+  function updateFilterOptions() {
+    const repos = new Set();
+    const kinds = new Set();
+    state.nodes.forEach(function(n) {
+      if (n.repo) repos.add(n.repo);
+      if (n.kind) kinds.add(n.kind);
+    });
+    repoFilter.innerHTML = '<option value="">All Repos</option>';
+    repos.forEach(function(r) {
+      const opt = document.createElement('option');
+      opt.value = r;
+      opt.textContent = r;
+      repoFilter.appendChild(opt);
+    });
+    kindFilter.innerHTML = '<option value="">All Kinds</option>';
+    kinds.forEach(function(k) {
+      const opt = document.createElement('option');
+      opt.value = k;
+      opt.textContent = k;
+      kindFilter.appendChild(opt);
+    });
+  }
+
+  /* Initialization */
+  function init() {
+    canvas.width = canvas.parentElement.clientWidth;
+    canvas.height = canvas.parentElement.clientHeight;
+    setupEvents();
+    loadInitialGraph();
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+})();

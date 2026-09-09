@@ -19,4 +19,7 @@ that carries it, the upstream source and its license. Adapted files also carry
 that attribution in a header, because a root NOTICE does not survive a
 copy-paste. See CONTRIBUTING.md.
 
-(no adapted third-party code at this time)
+- `src/action/graph/view/assets/fira-code-400.woff2`: Fira Code font (Regular 400).
+  Upstream: https://github.com/tonsky/FiraCode / https://fontsource.org/fonts/fira-code
+  Copyright (c) 2014-2020 Nikita Prokopov (fira@tonsky.me) with Reserved Font Name "Fira Code".
+  Licensed under SIL Open Font License Version 1.1 (see `src/action/graph/view/assets/OFL.txt`).

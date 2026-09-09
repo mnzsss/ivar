@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ivar graph view</title>
+  <link rel="stylesheet" href="/viewer.css">
+</head>
+<body>
+  <header role="banner" class="topbar">
+    <div class="brand">
+      <span class="logo">ivar</span>
+      <span class="view-tag">graph view</span>
+    </div>
+    <div class="search-box">
+      <label for="search-input" class="sr-only">Search symbols or files</label>
+      <input type="search" id="search-input" placeholder="Search symbols or files (e.g. action::discovery)..." autocomplete="off" spellcheck="false">
+      <div id="search-results" class="search-dropdown" role="listbox" hidden></div>
+    </div>
+    <div class="filter-controls">
+      <label for="repo-filter" class="sr-only">Filter by repository</label>
+      <select id="repo-filter" aria-label="Repository filter">
+        <option value="">All Repos</option>
+      </select>
+      <label for="kind-filter" class="sr-only">Filter by symbol kind</label>
+      <select id="kind-filter" aria-label="Symbol kind filter">
+        <option value="">All Kinds</option>
+      </select>
+      <label for="provenance-filter" class="sr-only">Filter by provenance</label>
+      <select id="provenance-filter" aria-label="Edge provenance filter">
+        <option value="">All Provenance</option>
+        <option value="extracted">Extracted</option>
+        <option value="inferred">Inferred</option>
+        <option value="ambiguous">Ambiguous</option>
+      </select>
+      <label for="depth-select" class="sr-only">Exploration depth</label>
+      <select id="depth-select" aria-label="Exploration depth">
+        <option value="1">Depth 1</option>
+        <option value="2">Depth 2</option>
+      </select>
+    </div>
+  </header>
+
+  <main role="main" class="layout-container">
+    <div class="canvas-wrapper">
+      <canvas id="graph-canvas" tabindex="0" role="img" aria-label="Interactive codebase dependency and call graph"></canvas>
+      <div id="status-bar" role="status" aria-live="polite" class="status-bar">
+        <span id="stat-nodes">0 nodes</span>
+        <span class="divider">/</span>
+        <span id="stat-edges">0 edges</span>
+        <span class="divider">/</span>
+        <span id="stat-depth">depth 1</span>
+        <div class="action-buttons">
+          <button type="button" id="fit-btn" aria-label="Fit graph to view">Fit</button>
+          <button type="button" id="reset-btn" aria-label="Reset zoom and layout">Reset</button>
+        </div>
+      </div>
+      <div class="canvas-legend" aria-label="Graph legend">
+        <span class="legend-item"><span class="legend-swatch node-primary"></span> Node</span>
+        <span class="legend-item"><span class="legend-swatch node-selected"></span> Selected / Path</span>
+        <span class="legend-item"><span class="legend-swatch node-impact"></span> Impact</span>
+        <span class="legend-item"><span class="legend-line edge-solid"></span> Direct / Extracted</span>
+        <span class="legend-item"><span class="legend-line edge-dashed"></span> Inferred / Ambiguous</span>
+      </div>
+    </div>
+
+    <aside role="complementary" id="details-sidebar" class="sidebar" aria-label="Symbol details">
+      <div class="sidebar-header">
+        <h2 id="detail-name" class="detail-title">No selection</h2>
+        <button type="button" id="expand-btn" class="expand-action" disabled aria-label="Expand 1-hop neighborhood">Expand</button>
+      </div>
+      <div class="sidebar-body">
+        <div class="prop-group">
+          <span class="prop-label">Kind</span>
+          <span id="detail-kind" class="prop-value">-</span>
+        </div>
+        <div class="prop-group">
+          <span class="prop-label">Repository</span>
+          <span id="detail-repo" class="prop-value">-</span>
+        </div>
+        <div class="prop-group">
+          <span class="prop-label">File & Location</span>
+          <span id="detail-location" class="prop-value">-</span>
+        </div>
+        <div class="prop-group">
+          <span class="prop-label">Visibility & Complexity</span>
+          <span id="detail-meta" class="prop-value">-</span>
+        </div>
+        <div class="prop-group">
+          <span class="prop-label">Signature</span>
+          <pre id="detail-signature" class="code-block"><code>-</code></pre>
+        </div>
+        <div class="prop-group">
+          <span class="prop-label" id="callers-label">Callers (0)</span>
+          <ul id="callers-list" class="ref-list"></ul>
+        </div>
+        <div class="prop-group">
+          <span class="prop-label" id="callees-label">Callees (0)</span>
+          <ul id="callees-list" class="ref-list"></ul>
+        </div>
+      </div>
+    </aside>
+  </main>
+
+  <script src="/viewer.js"></script>
+</body>
+</html>

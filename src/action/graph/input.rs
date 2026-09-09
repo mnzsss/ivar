@@ -1,5 +1,7 @@
 //! Input structures for graph action commands.
 
+use crate::action::graph::view::types::ViewSeed;
+
 #[derive(Debug, Clone)]
 pub struct ExploreInput {
     pub query: String,
@@ -82,4 +84,12 @@ pub struct HierarchyInput {
 pub struct VizInput {
     pub output: String,
     pub repo: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct GraphViewInput {
+    pub seed: ViewSeed,
+    pub depth: usize,
+    pub limit: usize,
+    pub no_open: bool,
 }

@@ -1,3 +1,6 @@
+use crate::action::feature::workspace::OpenAttempt;
+use crate::action::graph::view::types::ViewSeed;
+
 use serde::Serialize;
 use std::io;
 use std::path::PathBuf;
@@ -214,5 +217,33 @@ impl ToCompact for VizOutcome {
             self.node_count,
             self.edge_count
         )
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct GraphViewOutcome {
+    pub url: String,
+    pub seed: ViewSeed,
+    #[serde(skip)]
+    pub open: OpenAttempt,
+}
+
+impl WriteHuman for GraphViewOutcome {
+    fn write_human(&self, w: &mut impl io::Write) -> io::Result<()> {
+        writeln!(w, "Serving graph viewer at {}", self.url)?;
+        match &self.open {
+            OpenAttempt::NotRequested => {}
+            OpenAttempt::Opened => writeln!(w, "Opened in default browser.")?,
+            OpenAttempt::Failed { reason } => {
+                writeln!(w, "Warning: could not open browser automatically: {reason}")?;
+            }
+        }
+        writeln!(w, "Press Ctrl+C to stop.")
+    }
+}
+
+impl ToCompact for GraphViewOutcome {
+    fn to_compact(&self) -> String {
+        format!("url={}", self.url)
     }
 }

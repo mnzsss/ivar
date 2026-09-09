@@ -12,6 +12,7 @@ pub mod outcome;
 pub mod path;
 pub mod query;
 pub mod viz;
+pub mod view;
 
 use std::io;
 use std::path::Path;
@@ -38,8 +39,8 @@ pub use query::{
     CalleeInfo, CallerInfo, FileOutline, ImpactItem, ImpactResult, QueryError, SymbolLocation,
     find_symbols, get_callees, get_callers, get_file_outline, get_graph_stats, get_impact,
 };
+pub use view::lifecycle::{execute_view_session, launch_browser, prepare_view_session, ViewSession};
 pub use viz::{VizError, execute_viz};
-
 fn open_graph_db(ctx: &Ctx) -> Result<GraphDb, Failure> {
     let layout = discover_hall(ctx)?;
     let db_path = layout.ivar_dir().join("memory.db");
@@ -306,4 +307,25 @@ pub fn viz_cmd(ctx: &Ctx, args: VizInput) -> Outcome<VizOutcome> {
         node_count: data.nodes.len(),
         edge_count: data.edges.len(),
     }))
+}
+
+// 16. view
+pub fn view_cmd(ctx: &Ctx, input: GraphViewInput) -> Outcome<ViewSession> {
+    let layout = discover_hall(ctx)?;
+    let db_path = layout.ivar_dir().join("memory.db");
+    let db = GraphDb::open_read_only(db_path.as_std_path()).map_err(|err| {
+        Failure::failed(
+            "graph.db_open_failed",
+            format!("Failed to open graph database at {db_path}: {err}"),
+        )
+    })?;
+
+    let session = prepare_view_session(db, input).map_err(|err| {
+        Failure::failed(
+            "graph.view_failed",
+            format!("Failed to start graph viewer: {err}"),
+        )
+    })?;
+
+    Ok(Report::new(session))
 }
