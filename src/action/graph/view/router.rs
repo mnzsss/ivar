@@ -71,7 +71,12 @@ impl HttpResponse {
     }
 
     pub fn not_found() -> Self {
-        Self::new(404, "Not Found", "text/plain; charset=utf-8", b"Not Found".to_vec())
+        Self::new(
+            404,
+            "Not Found",
+            "text/plain; charset=utf-8",
+            b"Not Found".to_vec(),
+        )
     }
 
     pub fn method_not_allowed() -> Self {
@@ -135,7 +140,9 @@ impl HttpResponse {
 
 pub fn parse_http_request(buf: &[u8]) -> Result<HttpRequest, ViewError> {
     if buf.len() > MAX_HEADER_SIZE {
-        return Err(ViewError::InvalidRequest("request exceeds 8 KiB limit".into()));
+        return Err(ViewError::InvalidRequest(
+            "request exceeds 8 KiB limit".into(),
+        ));
     }
 
     let text = std::str::from_utf8(buf)
@@ -150,14 +157,14 @@ pub fn parse_http_request(buf: &[u8]) -> Result<HttpRequest, ViewError> {
     let method = req_parts
         .next()
         .ok_or_else(|| ViewError::InvalidRequest("missing method".into()))?
-        .to_string();
+        .to_owned();
     let raw_path = req_parts
         .next()
         .ok_or_else(|| ViewError::InvalidRequest("missing path".into()))?;
 
     let (path, query_string) = match raw_path.split_once('?') {
-        Some((p, q)) => (p.to_string(), Some(q.to_string())),
-        None => (raw_path.to_string(), None),
+        Some((p, q)) => (p.to_owned(), Some(q.to_owned())),
+        None => (raw_path.to_owned(), None),
     };
 
     let mut headers = HashMap::new();
@@ -166,7 +173,7 @@ pub fn parse_http_request(buf: &[u8]) -> Result<HttpRequest, ViewError> {
             break;
         }
         if let Some((name, val)) = line.split_once(':') {
-            headers.insert(name.trim().to_ascii_lowercase(), val.trim().to_string());
+            headers.insert(name.trim().to_ascii_lowercase(), val.trim().to_owned());
         }
     }
 
@@ -200,17 +207,20 @@ pub fn validate_security_headers(
         let valid_origin_1 = format!("http://127.0.0.1:{port}");
         let valid_origin_2 = format!("http://localhost:{port}");
         if origin != &valid_origin_1 && origin != &valid_origin_2 {
-            return Err(ViewError::Security(format!("invalid origin header: {origin}")));
+            return Err(ViewError::Security(format!(
+                "invalid origin header: {origin}"
+            )));
         }
     }
 
     // Validate Sec-Fetch-Site if present
-    if let Some(sec_fetch_site) = req.headers.get("sec-fetch-site") {
-        if sec_fetch_site != "same-origin" && sec_fetch_site != "none" {
-            return Err(ViewError::Security(format!(
-                "invalid sec-fetch-site: {sec_fetch_site}"
-            )));
-        }
+    if let Some(sec_fetch_site) = req.headers.get("sec-fetch-site")
+        && sec_fetch_site != "same-origin"
+        && sec_fetch_site != "none"
+    {
+        return Err(ViewError::Security(format!(
+            "invalid sec-fetch-site: {sec_fetch_site}"
+        )));
     }
 
     Ok(())
@@ -238,14 +248,11 @@ fn percent_decode(s: &str) -> String {
         if b == b'%' {
             let h1 = chars.next();
             let h2 = chars.next();
-            if let (Some(h1), Some(h2)) = (h1, h2) {
-                if let Ok(val) = u8::from_str_radix(
-                    &format!("{}{}", h1 as char, h2 as char),
-                    16,
-                ) {
-                    bytes.push(val);
-                    continue;
-                }
+            if let (Some(h1), Some(h2)) = (h1, h2)
+                && let Ok(val) = u8::from_str_radix(&format!("{}{}", h1 as char, h2 as char), 16)
+            {
+                bytes.push(val);
+                continue;
             }
         } else if b == b'+' {
             bytes.push(b' ');
@@ -264,9 +271,7 @@ pub fn route_request(req: &HttpRequest, db: &GraphDb, seed: &ViewSeed) -> HttpRe
     let params = parse_query_params(req.query_string.as_deref());
 
     match req.path.as_str() {
-        "/" | "/index.html" => {
-            HttpResponse::ok_html(super::assets::INDEX_HTML.as_bytes().to_vec())
-        }
+        "/" | "/index.html" => HttpResponse::ok_html(super::assets::INDEX_HTML.as_bytes().to_vec()),
         "/app.js" | "/viewer.js" => {
             HttpResponse::ok_js(super::assets::VIEWER_JS.as_bytes().to_vec())
         }

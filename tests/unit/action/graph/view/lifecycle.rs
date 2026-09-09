@@ -1,11 +1,17 @@
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing,
+    clippy::str_to_string
+)]
 
 use tempfile::tempdir;
 
 use crate::action::feature::workspace::OpenAttempt;
 use crate::action::graph::input::GraphViewInput;
 use crate::action::graph::outcome::GraphViewOutcome;
-use crate::action::graph::view::lifecycle::{prepare_view_session, ViewSession};
+use crate::action::graph::view::lifecycle::prepare_view_session;
 use crate::action::graph::view::types::ViewSeed;
 use crate::error::WriteHuman;
 use crate::store::graph::db::GraphDb;
@@ -24,7 +30,10 @@ fn test_prepare_view_session_binds_and_creates_outcome() {
 
     let session = prepare_view_session(db, input).expect("prepares view session");
     assert!(session.url().starts_with("http://127.0.0.1:"));
-    assert_eq!(session.outcome.seed, ViewSeed::Symbol("domain_symbol".into()));
+    assert_eq!(
+        session.outcome.seed,
+        ViewSeed::Symbol("domain_symbol".into())
+    );
     assert!(matches!(session.outcome.open, OpenAttempt::NotRequested));
 }
 

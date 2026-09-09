@@ -1,5 +1,5 @@
+use rusqlite::{Connection, params};
 use std::collections::{HashSet, VecDeque};
-use rusqlite::{params, Connection};
 
 use crate::action::graph::path::{PathResult, find_shortest_path};
 use crate::action::graph::query::{
@@ -137,10 +137,9 @@ pub fn query_impact(
     )?;
     let symbol_id: i64 = stmt
         .query_row(params![symbol, repo], |r| r.get(0))
-        .map_err(|_| ViewError::SeedNotFound(symbol.to_string()))?;
+        .map_err(|_| ViewError::SeedNotFound(symbol.to_owned()))?;
 
-    get_impact(db, symbol_id, max_depth.min(MAX_DEPTH))
-        .map_err(|e| ViewError::Query(e.to_string()))
+    get_impact(db, symbol_id, max_depth.min(MAX_DEPTH)).map_err(|e| ViewError::Query(e.to_string()))
 }
 
 fn map_node_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ViewerNode> {
@@ -248,13 +247,13 @@ fn resolve_seed_nodes(
             Ok(nodes)
         }
         ViewSeed::Symbol(sym) => {
-            if let Some(id_str) = sym.strip_prefix("id:") {
-                if let Ok(id) = id_str.parse::<i64>() {
-                    if let Some(node) = fetch_single_node(conn, id)? {
-                        return Ok(vec![node]);
-                    }
-                    return Ok(Vec::new());
+            if let Some(id_str) = sym.strip_prefix("id:")
+                && let Ok(id) = id_str.parse::<i64>()
+            {
+                if let Some(node) = fetch_single_node(conn, id)? {
+                    return Ok(vec![node]);
                 }
+                return Ok(Vec::new());
             }
 
             let mut stmt = conn.prepare_cached(

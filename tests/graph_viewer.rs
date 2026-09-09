@@ -33,8 +33,8 @@ fn test_graph_viewer_server_endpoints_and_security() {
 
     // Bind server on ephemeral port with default repo seed
     let seed = ViewSeed::Repo(hall.repo_name.clone());
-    let server = ViewerServer::bind(db, seed)
-        .expect("ViewerServer::bind should succeed on ephemeral port");
+    let server =
+        ViewerServer::bind(db, seed).expect("ViewerServer::bind should succeed on ephemeral port");
 
     let url = server.url();
     assert!(url.starts_with("http://127.0.0.1:"));
@@ -265,10 +265,8 @@ fn test_graph_viewer_server_endpoints_and_security() {
 
     // 10. Verify Security: Foreign Host header rejected with 403 Forbidden
     {
-        let req = format!(
-            "GET /api/subgraph HTTP/1.1\r\nHost: evil.com\r\nConnection: close\r\n\r\n"
-        );
-        let resp = exchange(&req);
+        let req = "GET /api/subgraph HTTP/1.1\r\nHost: evil.com\r\nConnection: close\r\n\r\n";
+        let resp = exchange(req);
         assert!(
             resp.starts_with("HTTP/1.1 403 Forbidden"),
             "Foreign Host must be rejected with 403: {resp}"

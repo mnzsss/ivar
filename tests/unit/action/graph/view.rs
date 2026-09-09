@@ -1,12 +1,20 @@
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing,
+    clippy::str_to_string
+)]
+
 use crate::action::graph::view::{
-    MAX_DEPTH, MAX_NODES, ViewError, ViewSeed, ViewerEdge, ViewerGraph, ViewerNode,
-    collect_subgraph, expand_node, get_node_details, search_symbols, query_path, query_impact,
+    MAX_DEPTH, MAX_NODES, ViewError, ViewSeed, collect_subgraph, expand_node, get_node_details,
 };
 use crate::domain::graph::{Edge, EdgeKind, Provenance, Span, Symbol, SymbolKind};
 use crate::store::graph::db::GraphDb;
 
 fn seed_test_graph(db: &GraphDb) -> (i64, i64, i64) {
-    db.insert_repo("repo_a", "/path/to/repo_a", "main", None).expect("insert repo");
+    db.insert_repo("repo_a", "/path/to/repo_a", "main", None)
+        .expect("insert repo");
     let file_id = db
         .upsert_file("repo_a", "src/lib.rs", "hash1", 0, 0)
         .expect("upsert file");
@@ -51,7 +59,9 @@ fn seed_test_graph(db: &GraphDb) -> (i64, i64, i64) {
         complexity: Some(4),
     };
 
-    let ids = db.insert_symbols(&[sym1, sym2, sym3]).expect("insert symbols");
+    let ids = db
+        .insert_symbols(&[sym1, sym2, sym3])
+        .expect("insert symbols");
     let s1 = ids[0];
     let s2 = ids[1];
     let s3 = ids[2];
@@ -90,7 +100,7 @@ fn seed_test_graph(db: &GraphDb) -> (i64, i64, i64) {
 #[test]
 fn test_collect_subgraph_deterministic_bounds_and_provenance() {
     let db = GraphDb::open_in_memory().expect("open db");
-    let (s1, s2, s3) = seed_test_graph(&db);
+    let (s1, s2, _s3) = seed_test_graph(&db);
 
     // Query from seed symbol "alpha" with depth 1
     let graph = collect_subgraph(&db, &ViewSeed::Symbol("alpha".to_string()), 1, 10)

@@ -41,8 +41,14 @@ fn test_open_read_only_does_not_create_file_or_run_migrations() {
 
     // Opening non-existent database in read-only mode fails and does NOT create parent dir or file
     let res = GraphDb::open_read_only(&non_existent);
-    assert!(res.is_err(), "open_read_only on non-existent file must fail");
-    assert!(!non_existent.exists(), "open_read_only must not create file");
+    assert!(
+        res.is_err(),
+        "open_read_only on non-existent file must fail"
+    );
+    assert!(
+        !non_existent.exists(),
+        "open_read_only must not create file"
+    );
 
     // Opening existing database read-only succeeds and permits queries
     let valid_db_path = temp.path().join("valid.db");
