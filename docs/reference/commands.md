@@ -954,6 +954,16 @@ Interactive browser-based codebase graph viewer
 | `--port` | `<PORT>` |  | Optional port to listen on (defaults to an ephemeral loopback port) |
 
 
+##### `ivar graph clean`
+
+Remove indexed repository data or clean the entire graph database
+
+| flag | value | default | description |
+| --- | --- | --- | --- |
+| `--repo` | `<REPO>` |  | Specific repository to remove from the graph index |
+| `--all` |  |  | Remove all repositories and data from the graph database |
+
+
 #### `ivar guard`
 
 Guard: evaluate a tool request against the session's writable set
