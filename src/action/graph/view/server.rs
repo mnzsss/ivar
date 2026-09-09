@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use super::error::ViewError;
-use super::router::{parse_http_request, route_request, validate_security_headers, HttpResponse};
+use super::router::{HttpResponse, parse_http_request, route_request, validate_security_headers};
 use super::types::ViewSeed;
 use crate::store::graph::db::GraphDb;
 
@@ -67,9 +67,7 @@ impl ViewerServer {
     }
 
     pub fn handle_connection(&self, mut stream: TcpStream) -> Result<(), ViewError> {
-        stream
-            .set_nonblocking(false)
-            .map_err(ViewError::Io)?;
+        stream.set_nonblocking(false).map_err(ViewError::Io)?;
         stream
             .set_read_timeout(Some(READ_TIMEOUT))
             .map_err(ViewError::Io)?;
@@ -81,13 +79,18 @@ impl ViewerServer {
         let n = match stream.read(&mut buf) {
             Ok(0) => return Ok(()),
             Ok(n) => n,
-            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock || e.kind() == std::io::ErrorKind::TimedOut => {
+            Err(e)
+                if e.kind() == std::io::ErrorKind::WouldBlock
+                    || e.kind() == std::io::ErrorKind::TimedOut =>
+            {
                 return Ok(());
             }
             Err(e) => return Err(ViewError::Io(e)),
         };
 
-        let req_bytes = &buf[..n];
+        let Some(req_bytes) = buf.get(..n) else {
+            return Ok(());
+        };
         let response = match parse_http_request(req_bytes) {
             Ok(req) => match validate_security_headers(&req, &self.addr) {
                 Ok(()) => match self.db.lock() {

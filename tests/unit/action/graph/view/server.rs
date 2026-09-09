@@ -1,12 +1,21 @@
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing,
+    clippy::str_to_string
+)]
+
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::TcpStream;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use crate::action::graph::view::error::ViewError;
-use crate::action::graph::view::router::{parse_http_request, route_request, validate_security_headers, HttpRequest};
+use crate::action::graph::view::router::{
+    HttpRequest, parse_http_request, route_request, validate_security_headers,
+};
 use crate::action::graph::view::server::ViewerServer;
 use crate::action::graph::view::types::ViewSeed;
 use crate::store::graph::db::GraphDb;
@@ -18,7 +27,10 @@ fn parse_http_request_extracts_method_path_query_and_headers() {
     assert_eq!(req.method, "GET");
     assert_eq!(req.path, "/api/subgraph");
     assert_eq!(req.query_string.as_deref(), Some("depth=2&limit=300"));
-    assert_eq!(req.headers.get("host").map(String::as_str), Some("127.0.0.1:8080"));
+    assert_eq!(
+        req.headers.get("host").map(String::as_str),
+        Some("127.0.0.1:8080")
+    );
 }
 
 #[test]
@@ -143,7 +155,8 @@ fn server_binds_to_ephemeral_loopback_and_serves_valid_api_response() {
         server.serve().unwrap();
     });
 
-    let mut stream = TcpStream::connect_timeout(&addr, Duration::from_secs(2)).expect("connects to server");
+    let mut stream =
+        TcpStream::connect_timeout(&addr, Duration::from_secs(2)).expect("connects to server");
     let request_data = format!(
         "GET /api/subgraph HTTP/1.1\r\nHost: {}\r\nOrigin: http://{}\r\n\r\n",
         addr, addr
@@ -152,7 +165,9 @@ fn server_binds_to_ephemeral_loopback_and_serves_valid_api_response() {
 
     let mut response_buf = Vec::new();
     let mut temp = [0u8; 1024];
-    stream.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+    stream
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .unwrap();
     if let Ok(n) = stream.read(&mut temp) {
         response_buf.extend_from_slice(&temp[..n]);
     }
@@ -162,11 +177,14 @@ fn server_binds_to_ephemeral_loopback_and_serves_valid_api_response() {
     assert!(response_text.contains("Content-Security-Policy:"));
 
     // Also test `/` and `/app.js` routes
-    let mut stream_root = TcpStream::connect_timeout(&addr, Duration::from_secs(2)).expect("connects to server");
+    let mut stream_root =
+        TcpStream::connect_timeout(&addr, Duration::from_secs(2)).expect("connects to server");
     let req_root = format!("GET / HTTP/1.1\r\nHost: {}\r\n\r\n", addr);
     stream_root.write_all(req_root.as_bytes()).unwrap();
     let mut root_buf = Vec::new();
-    stream_root.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+    stream_root
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .unwrap();
     if let Ok(n) = stream_root.read(&mut temp) {
         root_buf.extend_from_slice(&temp[..n]);
     }

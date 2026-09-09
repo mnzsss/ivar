@@ -203,10 +203,15 @@ fn test_cli_graph_view_parsing_defaults() {
 #[test]
 fn test_cli_graph_view_parsing() {
     let cli = Cli::try_parse_from([
-        "ivar", "graph", "view",
-        "--symbol", "explore_query",
-        "--depth", "2",
-        "--limit", "300",
+        "ivar",
+        "graph",
+        "view",
+        "--symbol",
+        "explore_query",
+        "--depth",
+        "2",
+        "--limit",
+        "300",
         "--no-open",
     ])
     .unwrap();
@@ -228,10 +233,26 @@ fn test_cli_graph_view_mutually_exclusive_seeds() {
     assert!(err.is_err(), "repo and symbol must conflict");
 
     // Cannot pass both --symbol and --file
-    let err = Cli::try_parse_from(["ivar", "graph", "view", "--symbol", "foo", "--file", "src/lib.rs"]);
+    let err = Cli::try_parse_from([
+        "ivar",
+        "graph",
+        "view",
+        "--symbol",
+        "foo",
+        "--file",
+        "src/lib.rs",
+    ]);
     assert!(err.is_err(), "symbol and file must conflict");
 
     // Cannot pass both --file and --impact
-    let err = Cli::try_parse_from(["ivar", "graph", "view", "--file", "src/lib.rs", "--impact", "bar"]);
+    let err = Cli::try_parse_from([
+        "ivar",
+        "graph",
+        "view",
+        "--file",
+        "src/lib.rs",
+        "--impact",
+        "bar",
+    ]);
     assert!(err.is_err(), "file and impact must conflict");
 }

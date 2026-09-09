@@ -1016,18 +1016,16 @@ fn main() -> ExitCode {
                 &mut stdout,
                 &mut stderr,
             ),
-            GraphCommand::View(args) => {
-                match ivar::action::graph::view_cmd(&ctx, args.into()) {
-                    Ok(report) => ivar::action::graph::execute_view_session(
-                        report.value,
-                        json,
-                        compact,
-                        &mut stdout,
-                        &mut stderr,
-                    ),
-                    Err(failure) => respond_failure(failure, json, &mut stdout, &mut stderr),
-                }
-            }
+            GraphCommand::View(args) => match ivar::action::graph::view_cmd(&ctx, args.into()) {
+                Ok(report) => ivar::action::graph::execute_view_session(
+                    report.value,
+                    json,
+                    compact,
+                    &mut stdout,
+                    &mut stderr,
+                ),
+                Err(failure) => respond_failure(failure, json, &mut stdout, &mut stderr),
+            },
             GraphCommand::Mcp => respond_graph(
                 ivar::action::graph::mcp_cmd(&ctx),
                 json,
