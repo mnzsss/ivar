@@ -348,3 +348,48 @@ impl ToCompact for GraphViewOutcome {
         format!("url={}", self.url)
     }
 }
+
+#[derive(Debug, Clone, Serialize)]
+pub struct CleanOutcome {
+    pub repo: Option<String>,
+    pub all: bool,
+    pub repos_removed: usize,
+    pub files_removed: usize,
+    pub symbols_removed: usize,
+    pub edges_removed: usize,
+    pub message: String,
+}
+
+impl WriteHuman for CleanOutcome {
+    fn write_human(&self, w: &mut impl io::Write) -> io::Result<()> {
+        writeln!(w, "{}", self.message)?;
+        if self.all {
+            writeln!(
+                w,
+                "  Repositories: {}\n  Files:        {}\n  Symbols:      {}\n  Edges:        {}",
+                self.repos_removed, self.files_removed, self.symbols_removed, self.edges_removed
+            )?;
+        } else if let Some(repo) = &self.repo {
+            writeln!(
+                w,
+                "  Repository:   {}\n  Files:        {}\n  Symbols:      {}\n  Edges:        {}",
+                repo, self.files_removed, self.symbols_removed, self.edges_removed
+            )?;
+        }
+        Ok(())
+    }
+}
+
+impl ToCompact for CleanOutcome {
+    fn to_compact(&self) -> String {
+        format!(
+            "#SCHEMA: repo|all|repos_removed|files_removed|symbols_removed|edges_removed\n{}|{}|{}|{}|{}|{}",
+            self.repo.as_deref().unwrap_or(""),
+            self.all,
+            self.repos_removed,
+            self.files_removed,
+            self.symbols_removed,
+            self.edges_removed
+        )
+    }
+}

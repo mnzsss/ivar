@@ -165,6 +165,126 @@ fn test_foreign_key_cascades() {
 }
 
 #[test]
+fn test_delete_repo_and_clean_all() {
+    let db = GraphDb::open_in_memory().expect("open");
+    db.insert_repo("repo1", "/path1", "main", None).unwrap();
+    db.insert_repo("repo2", "/path2", "main", None).unwrap();
+
+    let f1 = db.upsert_file("repo1", "src/a.rs", "h1", 1, 10).unwrap();
+    let f2 = db.upsert_file("repo2", "src/b.rs", "h2", 2, 20).unwrap();
+
+    let s1 = db
+        .insert_symbols(&[Symbol {
+            id: None,
+            file_id: Some(f1),
+            repo: "repo1".into(),
+            name: "sym1".into(),
+            kind: SymbolKind::Fn,
+            scope: None,
+            signature: None,
+            docstring: None,
+            span: Span::new(1, 1, 2, 1),
+            is_exported: true,
+            complexity: None,
+        }])
+        .unwrap()[0];
+
+    let s2 = db
+        .insert_symbols(&[Symbol {
+            id: None,
+            file_id: Some(f2),
+            repo: "repo2".into(),
+            name: "sym2".into(),
+            kind: SymbolKind::Fn,
+            scope: None,
+            signature: None,
+            docstring: None,
+            span: Span::new(1, 1, 2, 1),
+            is_exported: true,
+            complexity: None,
+        }])
+        .unwrap()[0];
+
+    db.insert_edges(&[
+        Edge {
+            id: None,
+            repo: "repo1".into(),
+            file_id: Some(f1),
+            from_symbol_id: Some(s1),
+            to_symbol_id: None,
+            to_name: Some("sym2".into()),
+            kind: EdgeKind::Calls,
+            provenance: Provenance::Extracted,
+            line: 1,
+            col: 1,
+            confidence: 1.0,
+        },
+        Edge {
+            id: None,
+            repo: "repo2".into(),
+            file_id: Some(f2),
+            from_symbol_id: Some(s2),
+            to_symbol_id: None,
+            to_name: Some("external".into()),
+            kind: EdgeKind::Calls,
+            provenance: Provenance::Extracted,
+            line: 1,
+            col: 1,
+            confidence: 1.0,
+        },
+    ])
+    .unwrap();
+
+    let stats = db.stats().unwrap();
+    assert_eq!(stats.repo_count, 2);
+    assert_eq!(stats.file_count, 2);
+    assert_eq!(stats.symbol_count, 2);
+    assert_eq!(stats.edge_count, 2);
+
+    // Delete repo1
+    let clean_res = db.delete_repo("repo1").unwrap();
+    assert_eq!(
+        clean_res,
+        Some(RepoCleanStats {
+            repo: "repo1".into(),
+            files_removed: 1,
+            symbols_removed: 1,
+            edges_removed: 1,
+        })
+    );
+
+    // Verify repo1 is gone, repo2 remains
+    assert!(db.get_repo("repo1").unwrap().is_none());
+    assert!(db.get_repo("repo2").unwrap().is_some());
+    let stats_after = db.stats().unwrap();
+    assert_eq!(stats_after.repo_count, 1);
+    assert_eq!(stats_after.file_count, 1);
+    assert_eq!(stats_after.symbol_count, 1);
+    assert_eq!(stats_after.edge_count, 1);
+
+    // Deleting repo1 again returns None
+    assert_eq!(db.delete_repo("repo1").unwrap(), None);
+
+    // Clean all
+    let all_res = db.clean_all().unwrap();
+    assert_eq!(
+        all_res,
+        CleanAllStats {
+            repos_removed: 1,
+            files_removed: 1,
+            symbols_removed: 1,
+            edges_removed: 1,
+        }
+    );
+
+    let final_stats = db.stats().unwrap();
+    assert_eq!(final_stats.repo_count, 0);
+    assert_eq!(final_stats.file_count, 0);
+    assert_eq!(final_stats.symbol_count, 0);
+    assert_eq!(final_stats.edge_count, 0);
+}
+
+#[test]
 fn test_delete_symbols_for_file() {
     let db = GraphDb::open_in_memory().expect("open");
     db.insert_repo("ivar", "/path", "main", None).unwrap();

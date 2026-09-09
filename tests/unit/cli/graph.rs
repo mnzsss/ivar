@@ -256,3 +256,24 @@ fn test_cli_graph_view_mutually_exclusive_seeds() {
     ]);
     assert!(err.is_err(), "file and impact must conflict");
 }
+
+#[test]
+fn test_cli_graph_clean_parsing() {
+    let cli = Cli::try_parse_from(["ivar", "graph", "clean", "--repo", "my-repo"]).unwrap();
+    match cli.command {
+        Command::Graph(GraphCommand::Clean(args)) => {
+            assert_eq!(args.repo.as_deref(), Some("my-repo"));
+            assert!(!args.all);
+        }
+        other => panic!("expected graph clean, got {other:?}"),
+    }
+
+    let cli_all = Cli::try_parse_from(["ivar", "graph", "clean", "--all"]).unwrap();
+    match cli_all.command {
+        Command::Graph(GraphCommand::Clean(args)) => {
+            assert_eq!(args.repo, None);
+            assert!(args.all);
+        }
+        other => panic!("expected graph clean, got {other:?}"),
+    }
+}

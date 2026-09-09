@@ -42,6 +42,8 @@ pub enum GraphCommand {
     Viz(GraphVizArgs),
     /// Interactive browser-based codebase graph viewer.
     View(GraphViewArgs),
+    /// Remove indexed repository data or clean the entire graph database.
+    Clean(GraphCleanArgs),
 }
 
 #[derive(Debug, Args)]
@@ -229,6 +231,25 @@ impl From<GraphViewArgs> for crate::action::graph::input::GraphViewInput {
             limit: args.limit.unwrap_or(400),
             no_open: args.no_open,
             port: args.port,
+        }
+    }
+}
+
+#[derive(Debug, Args)]
+pub struct GraphCleanArgs {
+    /// Specific repository to remove from the graph index.
+    #[arg(long)]
+    pub repo: Option<String>,
+    /// Remove all repositories and data from the graph database.
+    #[arg(long)]
+    pub all: bool,
+}
+
+impl From<GraphCleanArgs> for crate::action::graph::input::CleanInput {
+    fn from(args: GraphCleanArgs) -> Self {
+        Self {
+            repo: args.repo,
+            all: args.all,
         }
     }
 }

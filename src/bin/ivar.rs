@@ -1026,6 +1026,13 @@ fn main() -> ExitCode {
                 ),
                 Err(failure) => respond_failure(failure, json, &mut stdout, &mut stderr),
             },
+            GraphCommand::Clean(args) => respond_graph(
+                ivar::action::graph::clean_cmd(&ctx, args.into()),
+                json,
+                compact,
+                &mut stdout,
+                &mut stderr,
+            ),
             GraphCommand::Mcp => respond_graph(
                 ivar::action::graph::mcp_cmd(&ctx),
                 json,

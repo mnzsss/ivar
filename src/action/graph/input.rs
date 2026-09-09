@@ -94,3 +94,9 @@ pub struct GraphViewInput {
     pub no_open: bool,
     pub port: Option<u16>,
 }
+
+#[derive(Debug, Clone)]
+pub struct CleanInput {
+    pub repo: Option<String>,
+    pub all: bool,
+}
