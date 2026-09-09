@@ -141,8 +141,37 @@ fn test_explore_result_json_roundtrip() {
             line: 42,
         }],
         impact_summary: Some("Core domain model".to_owned()),
+        direct_relations: vec![OperationalRelation {
+            source: RelationEndpoint {
+                repo: "ivar".to_owned(),
+                file_path: "src/main.rs".to_owned(),
+                symbol_name: "main".to_owned(),
+                symbol_kind: Some(SymbolKind::Fn),
+            },
+            target: RelationEndpoint {
+                repo: "ivar".to_owned(),
+                file_path: "src/domain/graph.rs".to_owned(),
+                symbol_name: "Symbol".to_owned(),
+                symbol_kind: Some(SymbolKind::Struct),
+            },
+            direction: RelationDirection::Incoming,
+            edge_kind: EdgeKind::Calls,
+            provenance: Provenance::Extracted,
+            confidence: 1.0,
+            line: 42,
+            hop_count: 1,
+            cross_repo: false,
+        }],
+        entry_points: vec![],
+        transitive_consumers: vec![ExploreImpact {
+            symbol_name: "run_all".to_owned(),
+            repo: "ivar-orca".to_owned(),
+            file_path: "src/driver.ts".to_owned(),
+            depth: 2,
+            path_via: vec!["main".to_owned(), "driver".to_owned()],
+            cross_repo: true,
+        }],
     };
-
     let json = serde_json::to_string(&explore).expect("serialize explore");
     let deserialized: ExploreResult = serde_json::from_str(&json).expect("deserialize explore");
     assert_eq!(explore, deserialized);
@@ -153,6 +182,25 @@ fn test_affected_result_json_roundtrip() {
     let affected = AffectedResult {
         changed_files: vec!["src/domain/graph.rs".to_owned()],
         affected_test_files: vec!["tests/graph_test.rs".to_owned()],
+        recommendations: vec![AffectedRecommendation {
+            repo: "ivar".to_owned(),
+            test_file: "tests/graph_test.rs".to_owned(),
+            causal_path: vec![CausalStep {
+                source: "tests/graph_test.rs".to_owned(),
+                target: "src/domain/graph.rs".to_owned(),
+                edge_kind: EdgeKind::Imports,
+                provenance: Provenance::Extracted,
+                confidence: 1.0,
+                line: 3,
+            }],
+            direct_change: false,
+            hop_count: 1,
+            edge_kind: EdgeKind::Imports,
+            provenance: Provenance::Extracted,
+            confidence: 1.0,
+            reason: "imports src/domain/graph.rs (1 hop)".to_owned(),
+            command: Some("cargo test --test graph_test".to_owned()),
+        }],
     };
 
     let json = serde_json::to_string(&affected).expect("serialize affected");

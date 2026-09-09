@@ -178,7 +178,18 @@ fn phase_queries_and_exploration(hall: &GraphHall) {
         !primary_symbols.is_empty(),
         "Explore should return primary_symbols for discover_hall"
     );
-
+    assert!(
+        explore_json["direct_relations"].is_array(),
+        "direct_relations should be array in ExploreResult JSON"
+    );
+    assert!(
+        explore_json["entry_points"].is_array(),
+        "entry_points should be array in ExploreResult JSON"
+    );
+    assert!(
+        explore_json["transitive_consumers"].is_array(),
+        "transitive_consumers should be array in ExploreResult JSON"
+    );
     // 4. `graph callers discover_hall`
     let callers_json = hall.run_json(&["graph", "callers", "discover_hall"]);
     assert_eq!(

@@ -209,8 +209,49 @@ fn test_mcp_tool_call_explore() {
     let resp: Value = serde_json::from_str(text.trim()).expect("parse resp");
     assert_eq!(resp["id"], 10);
     let content = &resp["result"]["content"][0]["text"];
+    let explore_val: Value =
+        serde_json::from_str(content.as_str().unwrap()).expect("json parse explore");
+    assert_eq!(explore_val["query"], "execute");
     assert!(content.as_str().unwrap().contains("execute"));
     assert!(content.as_str().unwrap().contains("helper"));
+    assert!(explore_val["direct_relations"].is_array());
+    assert!(explore_val["entry_points"].is_array());
+    assert!(explore_val["transitive_consumers"].is_array());
+
+    // Explore compact format
+    let compact_input = format!(
+        "{}\n",
+        json!({
+            "jsonrpc": "2.0",
+            "id": 11,
+            "method": "tools/call",
+            "params": {
+                "name": "graph_explore",
+                "arguments": {
+                    "query": "execute",
+                    "format": "compact"
+                }
+            }
+        })
+    );
+    let mut compact_out = Vec::new();
+    run_mcp_server(
+        &db,
+        Some(temp.path()),
+        Cursor::new(compact_input),
+        &mut compact_out,
+        |_| Ok(json!({"status": "ok"})),
+    )
+    .expect("run server compact");
+    let compact_text = String::from_utf8(compact_out).expect("utf8");
+    let compact_resp: Value =
+        serde_json::from_str(compact_text.trim()).expect("parse compact resp");
+    let compact_content = compact_resp["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap();
+    assert!(compact_content.starts_with("#SCHEMA: id|name|kind|file|line|col|complexity"));
+    assert!(compact_content.contains("execute"));
+    assert!(compact_content.contains("#SCHEMA: source_symbol|source_repo|source_file"));
 }
 
 #[test]

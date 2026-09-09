@@ -71,6 +71,7 @@ pub fn explore_cmd(ctx: &Ctx, args: ExploreInput) -> Outcome<ExploreOutcome> {
 // 2. affected
 pub fn affected_cmd(ctx: &Ctx, args: AffectedInput) -> Outcome<AffectedOutcome> {
     let db = open_graph_db(ctx)?;
+    let layout = discover_hall(ctx).ok();
     let mut files = args.files;
     if args.stdin {
         let stdin = io::stdin();
@@ -78,8 +79,10 @@ pub fn affected_cmd(ctx: &Ctx, args: AffectedInput) -> Outcome<AffectedOutcome> 
         files.extend(stdin_files);
     }
     let max_depth = args.max_depth.unwrap_or(5);
-    let result = affected::find_affected_tests(&db, &files, args.repo.as_deref(), max_depth)
-        .map_err(|err| Failure::failed("graph.affected_failed", err.to_string()))?;
+    let root = layout.as_ref().map(|l| l.root().as_std_path());
+    let result =
+        affected::find_affected_tests_with_root(&db, root, &files, args.repo.as_deref(), max_depth)
+            .map_err(|err| Failure::failed("graph.affected_failed", err.to_string()))?;
     Ok(Report::new(AffectedOutcome(result)))
 }
 
