@@ -77,6 +77,7 @@ impl Feature {
             Promotion {
                 worktree: WorktreeState::Pending,
                 base: None,
+                pr_url: None,
                 integration_receipt: None,
             },
         );
@@ -175,6 +176,10 @@ pub struct Promotion {
     /// `feature.json`, which predates this field, still deserialises.
     #[serde(default)]
     pub base: Option<BranchName>,
+    /// The URL of the pull request opened or found for this repo's promotion,
+    /// persisted immediately when `integrate --via pr` runs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pr_url: Option<String>,
     /// The durable receipt of this repo's integration into the feature's
     /// immediate parent, once `ivar feature integrate` has applied it — on
     /// success *and* on a post-parent failure, so partial multi-repo
@@ -182,7 +187,6 @@ pub struct Promotion {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub integration_receipt: Option<IntegrationReceipt>,
 }
-
 /// The state of a feature's worktree for a promoted repo.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

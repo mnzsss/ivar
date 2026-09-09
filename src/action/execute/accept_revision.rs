@@ -3,7 +3,6 @@ use std::io;
 use camino::{Utf8Path, Utf8PathBuf};
 use serde::Serialize;
 
-use crate::action::session::lookup;
 use crate::action::{Ctx, discover_hall};
 use crate::domain::feature::{ApprovalState, Gate, RunReceipt};
 use crate::domain::name::FeatureName;
@@ -34,13 +33,7 @@ pub fn accept_revision(ctx: &Ctx, input: AcceptRevisionInput) -> Outcome<AcceptR
     let feature = FeatureName::new(input.feature)?;
     let plan = ctx.resolve(Utf8Path::new(&input.plan));
     super::import_legacy(&layout, &feature, plan.clone())?;
-    let session = lookup::resolve(&layout, None, Some(feature.as_str()))?;
-    let state = session.state.ok_or_else(|| {
-        Failure::blocked(
-            "execute.session_state_missing",
-            "feature session has no state record",
-        )
-    })?;
+
     let fingerprint = hash::file(&plan)?;
     let approvals = ApprovalState::read(&layout, &feature)?.unwrap_or_else(ApprovalState::fresh);
     if approvals
@@ -54,7 +47,8 @@ pub fn accept_revision(ctx: &Ctx, input: AcceptRevisionInput) -> Outcome<AcceptR
     }
     let mut receipt = RunReceipt::read(&layout, &feature)?
         .ok_or_else(|| Failure::blocked("execute.run_missing", "no current run receipt exists"))?;
-    receipt.accept_revision(fingerprint, session.id, state.provider, rfc3339_now())?;
+    let (session_id, provider) = super::resolve_coordinator(&layout, &feature, &receipt)?;
+    receipt.accept_revision(fingerprint, session_id, provider, rfc3339_now())?;
     receipt.write(&layout)?;
     Ok(Report::new(AcceptRevisionOutcome {
         receipt_path: run::current_path(&layout, &feature),

@@ -40,7 +40,7 @@ use serde::Serialize;
 
 use crate::domain::feature::{
     Feature, FeatureIntegrationState, GateState, IntegrationOverride, IntegrationPolicy,
-    IntegrationStrategy, IntegrationVia, VerificationEvidence,
+    IntegrationStrategy, IntegrationVia, RunReceipt, VerificationEvidence,
 };
 use crate::domain::name::{BranchName, FeatureName, RepoName};
 use crate::domain::session::rfc3339_now;
@@ -250,8 +250,27 @@ pub fn integrate(ctx: &Ctx, input: IntegrateInput) -> Outcome<IntegrateOutcome> 
             format!("Stop the session first, then run `ivar feature integrate {name}` again."),
         )));
     }
+    // 5. If a non-terminal run holds the lock on the child feature, refuse
+    // early before any policy resolution, git preflight, or parent mutation.
+    if let Some(receipt) = RunReceipt::read(&layout, &name)?
+        && receipt.holds_lock()
+    {
+        return Err(Failure::blocked(
+            "integration.run_active",
+            format!(
+                "feature `{name}` has a {} run (`{}`)",
+                receipt.status, receipt.id
+            ),
+        )
+        .expected("a terminal run receipt before integrating the feature")
+        .actual("the current run is still active and holds the feature lock")
+        .fix(FixAction::safe(
+            "execute.finish_or_interrupt",
+            "Finish, accept the revision, or interrupt the run before integrating the feature.",
+        )));
+    }
 
-    // 5. Resolve the policy once. The resolved relationship/base/policy is
+    // 6. Resolve the policy once. The resolved relationship/base/policy is
     // frozen by the first persisted receipt: a rerun reuses each receipt's
     // own via/strategy instead of re-resolving.
     let policy = resolved_policy(
@@ -261,7 +280,7 @@ pub fn integrate(ctx: &Ctx, input: IntegrateInput) -> Outcome<IntegrateOutcome> 
         input.strategy.as_deref(),
     )?;
 
-    // 6. Preflight every repo in two passes, so a later repo's refusal can
+    // 7. Preflight every repo in two passes, so a later repo's refusal can
     // never leave an earlier repo's parent promotion behind. Pass 1 is pure
     // validation — no mutation, no question asked: a stale receipt, an
     // unresumable failed receipt, or a dirty worktree is a hard refusal of
