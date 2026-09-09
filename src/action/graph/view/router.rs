@@ -10,7 +10,7 @@ use crate::store::graph::db::GraphDb;
 
 const MAX_HEADER_SIZE: usize = 8192;
 
-const CSP_HEADER: &str = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none';";
+const CSP_HEADER: &str = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none';";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HttpRequest {

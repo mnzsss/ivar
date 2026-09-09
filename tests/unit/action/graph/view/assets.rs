@@ -68,8 +68,8 @@ fn font_license_carries_sil_open_font_license_notice() {
 
 #[test]
 fn assets_contain_no_external_urls_or_remote_dependencies() {
+    // VIEWER_CSS, VIEWER_JS, CYTOSCAPE_JS remain strictly offline
     for (name, content) in [
-        ("INDEX_HTML", INDEX_HTML),
         ("VIEWER_CSS", VIEWER_CSS),
         ("VIEWER_JS", VIEWER_JS),
         ("CYTOSCAPE_JS", CYTOSCAPE_JS),
@@ -88,6 +88,18 @@ fn assets_contain_no_external_urls_or_remote_dependencies() {
             "{name} must not load third-party CDNs"
         );
     }
+
+    // INDEX_HTML allows Google Fonts CDN for Fira Code, but forbids unapproved third-party CDNs
+    assert!(
+        !INDEX_HTML.contains("unpkg.com")
+            && !INDEX_HTML.contains("jsdelivr.net")
+            && !INDEX_HTML.contains("cdnjs.cloudflare.com"),
+        "INDEX_HTML must not load arbitrary script/style CDNs"
+    );
+    assert!(
+        INDEX_HTML.contains("fonts.googleapis.com"),
+        "INDEX_HTML loads Fira Code from Google Fonts"
+    );
 }
 
 #[test]
