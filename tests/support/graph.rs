@@ -61,6 +61,8 @@ fn create_isolated_ivar_clone(target_path: &Utf8Path) -> (String, Utf8PathBuf) {
         ],
     );
 
+    git(target_path, &["checkout", "-B", &branch, "HEAD"]);
+
     (branch, target_path.to_path_buf())
 }
 
