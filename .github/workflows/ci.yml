@@ -75,6 +75,11 @@ jobs:
       - name: test
         run: cargo test --all-features
 
+      # End-to-end graph simulation tests are marked `#[ignore]` so regular PR
+      # test runs and coverage skip them. They run in CI only on push to main.
+      - name: test graph (main only)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: cargo test --profile e2e --test graph_simulation --all-features -- --ignored
   msrv:
     name: msrv
     if: github.event.pull_request.draft == false
