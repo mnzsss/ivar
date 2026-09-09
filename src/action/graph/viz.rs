@@ -18,6 +18,8 @@ pub enum VizError {
     Io(#[from] std::io::Error),
     #[error("Serialization error: {0}")]
     Json(#[from] serde_json::Error),
+    #[error("Canonical JSON error: {0}")]
+    JsonInfra(#[from] crate::infra::json::Error),
 }
 
 /// A node in the visualization graph.
@@ -131,14 +133,83 @@ pub fn collect_viz_data(db: &GraphDb, repo: Option<&str>) -> Result<VizData, Viz
     Ok(VizData { nodes, edges })
 }
 
-/// Generates a 100% self-contained, air-gapped HTML5 visualizer string for `data`.
+/// Generates a 100% self-contained, air-gapped HTML5 visualizer string for `data` using Cytoscape.js.
 pub fn generate_html(data: &VizData) -> Result<String, VizError> {
-    let raw_json = serde_json::to_string(data)?;
+    use std::collections::BTreeSet;
+
+    // Collect unique repos and files for compound nodes
+    let mut repos = BTreeSet::new();
+    let mut files = BTreeSet::new();
+
+    for node in &data.nodes {
+        repos.insert(node.repo.clone());
+        files.insert((node.repo.clone(), node.file.clone()));
+    }
+
+    let mut elements = Vec::new();
+
+    // 1. Repo compound nodes
+    for repo in &repos {
+        elements.push(serde_json::json!({
+            "data": {
+                "id": format!("repo:{repo}"),
+                "label": repo,
+                "type": "repo"
+            }
+        }));
+    }
+
+    // 2. File compound nodes
+    for (repo, file) in &files {
+        elements.push(serde_json::json!({
+            "data": {
+                "id": format!("file:{repo}:{file}"),
+                "label": file,
+                "parent": format!("repo:{repo}"),
+                "type": "file"
+            }
+        }));
+    }
+
+    // 3. Symbol leaf nodes
+    for node in &data.nodes {
+        elements.push(serde_json::json!({
+            "data": {
+                "id": format!("sym:{}", node.id),
+                "label": node.name,
+                "parent": format!("file:{}:{}", node.repo, node.file),
+                "kind": node.kind,
+                "repo": node.repo,
+                "file": node.file,
+                "line": node.line,
+                "complexity": node.complexity,
+                "is_exported": node.is_exported,
+                "type": "symbol"
+            }
+        }));
+    }
+
+    // 4. Edges
+    for edge in &data.edges {
+        elements.push(serde_json::json!({
+            "data": {
+                "id": format!("e:{}->{}", edge.from, edge.to),
+                "source": format!("sym:{}", edge.from),
+                "target": format!("sym:{}", edge.to),
+                "kind": edge.kind
+            }
+        }));
+    }
+
+    let raw_json = crate::infra::json::to_canonical_string(&elements)?;
     // Escape closing tags and characters that could prematurely terminate HTML script blocks
-    let json_data = raw_json
+    let json_elements = raw_json
         .replace('<', "\\u003c")
         .replace('>', "\\u003e")
         .replace('&', "\\u0026");
+
+    let cytoscape_js = crate::action::graph::view::assets::CYTOSCAPE_JS;
+
     let html = format!(
         r#"<!DOCTYPE html>
 <html lang="en">
@@ -148,18 +219,20 @@ pub fn generate_html(data: &VizData) -> Result<String, VizError> {
 <title>Codebase Graph Visualizer</title>
 <style>
 * {{ box-sizing: border-box; margin: 0; padding: 0; }}
-body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: #0f141c; color: #e1e7ec; height: 100vh; overflow: hidden; display: flex; flex-direction: column; }}
-header {{ height: 52px; background: #161d27; border-bottom: 1px solid #263342; display: flex; align-items: center; justify-content: space-between; padding: 0 16px; gap: 16px; flex-shrink: 0; }}
+body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: #0b0e14; color: #e1e7ec; height: 100vh; overflow: hidden; display: flex; flex-direction: column; }}
+header {{ height: 52px; background: #161d27; border-bottom: 1px solid #263342; display: flex; align-items: center; justify-content: space-between; padding: 0 16px; gap: 16px; flex-shrink: 0; z-index: 10; }}
 .header-left {{ display: flex; align-items: center; gap: 16px; }}
 h1 {{ font-size: 16px; font-weight: 600; color: #f0f6fc; letter-spacing: 0.5px; white-space: nowrap; }}
 .stats-badge {{ font-size: 12px; color: #8b949e; background: #21262d; border: 1px solid #30363d; padding: 3px 8px; border-radius: 12px; }}
 .controls {{ display: flex; align-items: center; gap: 12px; }}
-input[type="text"], select {{ background: #0d1117; border: 1px solid #30363d; color: #c9d1d9; padding: 6px 12px; border-radius: 6px; font-size: 13px; outline: none; }}
+input[type="text"], select, button.btn {{ background: #0d1117; border: 1px solid #30363d; color: #c9d1d9; padding: 6px 12px; border-radius: 6px; font-size: 13px; outline: none; }}
 input[type="text"]:focus, select:focus {{ border-color: #58a6ff; }}
+button.btn {{ cursor: pointer; }}
+button.btn:hover {{ background: #21262d; color: #f0f6fc; }}
 #main-container {{ flex: 1; position: relative; width: 100%; height: calc(100vh - 52px); display: flex; }}
-canvas {{ flex: 1; width: 100%; height: 100%; background: #0b0e14; cursor: grab; }}
-canvas:active {{ cursor: grabbing; }}
-#sidebar {{ width: 340px; background: #161d27; border-left: 1px solid #263342; padding: 20px; overflow-y: auto; display: none; flex-direction: column; gap: 16px; position: absolute; right: 0; top: 0; bottom: 0; box-shadow: -4px 0 16px rgba(0,0,0,0.4); z-index: 10; }}
+#cy {{ flex: 1; width: 100%; height: 100%; background: #0b0e14; }}
+#cy canvas {{ background: transparent !important; }}
+#sidebar {{ width: 340px; background: #161d27; border-left: 1px solid #263342; padding: 20px; overflow-y: auto; display: none; flex-direction: column; gap: 16px; position: absolute; right: 0; top: 0; bottom: 0; box-shadow: -4px 0 16px rgba(0,0,0,0.4); z-index: 20; }}
 #sidebar.active {{ display: flex; }}
 .sidebar-header {{ display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 1px solid #30363d; padding-bottom: 12px; }}
 .sidebar-title {{ font-size: 16px; font-weight: 600; color: #58a6ff; word-break: break-all; }}
@@ -174,8 +247,9 @@ canvas:active {{ cursor: grabbing; }}
 .edge-list {{ list-style: none; display: flex; flex-direction: column; gap: 6px; }}
 .edge-item {{ font-size: 12px; padding: 6px 8px; background: #0d1117; border: 1px solid #30363d; border-radius: 4px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; }}
 .edge-item:hover {{ border-color: #58a6ff; }}
-.instructions {{ position: absolute; left: 16px; bottom: 16px; background: rgba(22, 29, 39, 0.85); border: 1px solid #263342; border-radius: 6px; padding: 8px 12px; font-size: 11px; color: #8b949e; pointer-events: none; }}
+.instructions {{ position: absolute; left: 16px; bottom: 16px; background: rgba(22, 29, 39, 0.85); border: 1px solid #263342; border-radius: 6px; padding: 8px 12px; font-size: 11px; color: #8b949e; pointer-events: none; z-index: 5; }}
 </style>
+<script>{cytoscape_js}</script>
 </head>
 <body>
 <header>
@@ -188,11 +262,13 @@ canvas:active {{ cursor: grabbing; }}
       <option value="">All Kinds</option>
     </select>
     <input type="text" id="search-input" placeholder="Search symbols..." />
+    <button class="btn" id="btn-fit" title="Fit to screen">Fit</button>
+    <button class="btn" id="btn-reset" title="Reset view">Reset</button>
   </div>
 </header>
 <div id="main-container">
-  <canvas id="graph-canvas"></canvas>
-  <div class="instructions">Scroll: Zoom &bull; Drag: Pan &bull; Click Node: Inspect</div>
+  <div id="cy"></div>
+  <div class="instructions">Scroll: Zoom &bull; Drag: Pan &bull; Click Node: Neighborhood & Details</div>
   <div id="sidebar">
     <div class="sidebar-header">
       <div class="sidebar-title" id="node-name">-</div>
@@ -230,28 +306,16 @@ canvas:active {{ cursor: grabbing; }}
 </div>
 
 <script>
-const GRAPH_DATA = {json_data};
+const ELEMENTS = {json_elements};
 
 (function() {{
-  const canvas = document.getElementById('graph-canvas');
-  const ctx = canvas.getContext('2d');
   const searchInput = document.getElementById('search-input');
   const kindFilter = document.getElementById('kind-filter');
   const statsBadge = document.getElementById('stats-badge');
   const sidebar = document.getElementById('sidebar');
   const closeSidebarBtn = document.getElementById('close-sidebar');
-
-  let width = canvas.clientWidth;
-  let height = canvas.clientHeight;
-  canvas.width = width;
-  canvas.height = height;
-
-  window.addEventListener('resize', () => {{
-    width = canvas.clientWidth;
-    height = canvas.clientHeight;
-    canvas.width = width;
-    canvas.height = height;
-  }});
+  const btnFit = document.getElementById('btn-fit');
+  const btnReset = document.getElementById('btn-reset');
 
   const KIND_COLORS = {{
     'Function': '#38bdf8',
@@ -266,24 +330,12 @@ const GRAPH_DATA = {json_data};
     'Module': '#cbd5e1'
   }};
 
-  const nodes = GRAPH_DATA.nodes || [];
-  const edges = GRAPH_DATA.edges || [];
-  const nodeMap = new Map();
+  const symbolElements = ELEMENTS.filter(el => el.data.type === 'symbol');
+  const edgeElements = ELEMENTS.filter(el => !el.data.type && el.data.source);
 
   const kinds = new Set();
-  nodes.forEach((n, idx) => {{
-    kinds.add(n.kind);
-    const angle = (idx / Math.max(1, nodes.length)) * Math.PI * 2;
-    const radius = Math.min(width, height) * 0.35 * Math.sqrt(Math.random());
-    const simNode = {{
-      ...n,
-      x: width / 2 + Math.cos(angle) * radius,
-      y: height / 2 + Math.sin(angle) * radius,
-      vx: (Math.random() - 0.5) * 2,
-      vy: (Math.random() - 0.5) * 2,
-      radius: Math.max(5, Math.min(18, 6 + (n.complexity || 1) * 0.5))
-    }};
-    nodeMap.set(n.id, simNode);
+  symbolElements.forEach(el => {{
+    if (el.data.kind) kinds.add(el.data.kind);
   }});
 
   kinds.forEach(k => {{
@@ -293,291 +345,236 @@ const GRAPH_DATA = {json_data};
     kindFilter.appendChild(opt);
   }});
 
-  statsBadge.textContent = `${{nodes.length}} symbols \u2022 ${{edges.length}} edges`;
+  statsBadge.textContent = `${{symbolElements.length}} symbols \u2022 ${{edgeElements.length}} edges`;
 
-  const simEdges = edges.map(e => ({{
-    source: nodeMap.get(e.from),
-    target: nodeMap.get(e.to),
-    kind: e.kind
-  }})).filter(e => e.source && e.target);
-
-  let transform = {{ x: 0, y: 0, k: 1 }};
-  let selectedNode = null;
-  let hoveredNode = null;
-  let isDragging = false;
-  let dragNode = null;
-  let dragStart = {{ x: 0, y: 0 }};
-
-  function simulate() {{
-    const simNodes = Array.from(nodeMap.values());
-    const alpha = 0.05;
-
-    for (let i = 0; i < simNodes.length; i++) {{
-      for (let j = i + 1; j < simNodes.length; j++) {{
-        const n1 = simNodes[i];
-        const n2 = simNodes[j];
-        const dx = n2.x - n1.x;
-        const dy = n2.y - n1.y;
-        const distSq = dx * dx + dy * dy + 0.01;
-        const dist = Math.sqrt(distSq);
-        if (dist < 300) {{
-          const force = (800 / distSq) * alpha;
-          const fx = (dx / dist) * force;
-          const fy = (dy / dist) * force;
-          n1.vx -= fx;
-          n1.vy -= fy;
-          n2.vx += fx;
-          n2.vy += fy;
+  const cy = cytoscape({{
+    container: document.getElementById('cy'),
+    elements: ELEMENTS,
+    style: [
+      {{
+        selector: 'node',
+        style: {{
+          'background-color': '#475569',
+          'label': 'data(label)',
+          'color': '#cbd5e1',
+          'font-size': '11px',
+          'font-family': 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace',
+          'text-valign': 'center',
+          'text-halign': 'center'
+        }}
+      }},
+      {{
+        selector: 'node[type = "repo"]',
+        style: {{
+          'background-color': '#111827',
+          'background-opacity': 0.6,
+          'border-width': 1,
+          'border-color': '#374151',
+          'border-style': 'solid',
+          'shape': 'roundrectangle',
+          'text-valign': 'top',
+          'text-halign': 'center',
+          'color': '#9ca3af',
+          'font-weight': 'bold',
+          'font-size': '13px',
+          'padding': '16px'
+        }}
+      }},
+      {{
+        selector: 'node[type = "file"]',
+        style: {{
+          'background-color': '#1f2937',
+          'background-opacity': 0.5,
+          'border-width': 1,
+          'border-color': '#4b5563',
+          'border-style': 'dashed',
+          'shape': 'roundrectangle',
+          'text-valign': 'top',
+          'text-halign': 'center',
+          'color': '#9ca3af',
+          'font-size': '11px',
+          'padding': '12px'
+        }}
+      }},
+      {{
+        selector: 'node[type = "symbol"]',
+        style: {{
+          'width': 28,
+          'height': 28,
+          'shape': 'ellipse',
+          'background-color': function(ele) {{
+            const k = ele.data('kind');
+            return KIND_COLORS[k] || '#38bdf8';
+          }},
+          'color': '#f3f4f6',
+          'text-valign': 'bottom',
+          'text-margin-y': 4,
+          'text-background-color': '#0b0e14',
+          'text-background-opacity': 0.7,
+          'text-background-padding': '2px',
+          'text-background-shape': 'roundrectangle'
+        }}
+      }},
+      {{
+        selector: 'edge',
+        style: {{
+          'width': 1.5,
+          'line-color': '#334155',
+          'target-arrow-color': '#334155',
+          'target-arrow-shape': 'triangle',
+          'curve-style': 'bezier',
+          'arrow-scale': 0.8
+        }}
+      }},
+      {{
+        selector: '.highlighted',
+        style: {{
+          'background-color': '#38bdf8',
+          'line-color': '#38bdf8',
+          'target-arrow-color': '#38bdf8',
+          'z-index': 999,
+          'border-width': 2,
+          'border-color': '#93c5fd'
+        }}
+      }},
+      {{
+        selector: '.faded',
+        style: {{
+          'opacity': 0.15
         }}
       }}
+    ],
+    layout: {{
+      name: 'cose',
+      animate: false,
+      nodeDimensionsIncludeLabels: true,
+      padding: 30
     }}
-
-    for (const edge of simEdges) {{
-      const n1 = edge.source;
-      const n2 = edge.target;
-      const dx = n2.x - n1.x;
-      const dy = n2.y - n1.y;
-      const dist = Math.sqrt(dx * dx + dy * dy) + 0.001;
-      const targetDist = 70;
-      const force = (dist - targetDist) * 0.008 * alpha;
-      const fx = (dx / dist) * force;
-      const fy = (dy / dist) * force;
-      n1.vx += fx;
-      n1.vy += fy;
-      n2.vx -= fx;
-      n2.vy -= fy;
-    }}
-
-    const cx = width / 2;
-    const cy = height / 2;
-    for (const n of simNodes) {{
-      n.vx += (cx - n.x) * 0.0005;
-      n.vy += (cy - n.y) * 0.0005;
-
-      n.vx *= 0.88;
-      n.vy *= 0.88;
-
-      if (n !== dragNode) {{
-        n.x += n.vx;
-        n.y += n.vy;
-      }}
-    }}
-  }}
-
-  function render() {{
-    simulate();
-
-    ctx.clearRect(0, 0, width, height);
-    ctx.save();
-    ctx.translate(transform.x, transform.y);
-    ctx.scale(transform.k, transform.k);
-
-    const query = searchInput.value.trim().toLowerCase();
-    const selectedKind = kindFilter.value;
-
-    ctx.lineWidth = 1;
-    for (const edge of simEdges) {{
-      const isConnected = selectedNode && (edge.source.id === selectedNode.id || edge.target.id === selectedNode.id);
-      ctx.beginPath();
-      ctx.moveTo(edge.source.x, edge.source.y);
-      ctx.lineTo(edge.target.x, edge.target.y);
-      if (isConnected) {{
-        ctx.strokeStyle = '#58a6ff';
-        ctx.lineWidth = 2;
-      }} else {{
-        ctx.strokeStyle = '#21262d';
-        ctx.lineWidth = 1;
-      }}
-      ctx.stroke();
-    }}
-
-    const simNodes = Array.from(nodeMap.values());
-    for (const n of simNodes) {{
-      const matchesSearch = !query || n.name.toLowerCase().includes(query) || n.file.toLowerCase().includes(query);
-      const matchesKind = !selectedKind || n.kind === selectedKind;
-      const isMatch = matchesSearch && matchesKind;
-
-      const isSelected = selectedNode && selectedNode.id === n.id;
-      const isHovered = hoveredNode && hoveredNode.id === n.id;
-
-      ctx.beginPath();
-      ctx.arc(n.x, n.y, n.radius, 0, Math.PI * 2);
-
-      const color = KIND_COLORS[n.kind] || '#94a3b8';
-      ctx.fillStyle = isMatch ? color : '#30363d';
-      ctx.globalAlpha = isMatch ? 1.0 : 0.2;
-      ctx.fill();
-
-      if (isSelected || isHovered) {{
-        ctx.strokeStyle = '#f0f6fc';
-        ctx.lineWidth = isSelected ? 3 : 2;
-        ctx.stroke();
-      }}
-
-      ctx.globalAlpha = 1.0;
-
-      if (isMatch && (transform.k > 0.8 || isSelected || isHovered)) {{
-        ctx.font = '11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
-        ctx.fillStyle = isSelected ? '#58a6ff' : '#c9d1d9';
-        ctx.textAlign = 'center';
-        ctx.fillText(n.name, n.x, n.y + n.radius + 12);
-      }}
-    }}
-
-    ctx.restore();
-    requestAnimationFrame(render);
-  }}
-
-  function screenToWorld(sx, sy) {{
-    return {{
-      x: (sx - transform.x) / transform.k,
-      y: (sy - transform.y) / transform.k
-    }};
-  }}
-
-  function getNodeAt(x, y) {{
-    const simNodes = Array.from(nodeMap.values());
-    for (let i = simNodes.length - 1; i >= 0; i--) {{
-      const n = simNodes[i];
-      const dx = n.x - x;
-      const dy = n.y - y;
-      if (dx * dx + dy * dy <= (n.radius + 4) * (n.radius + 4)) {{
-        return n;
-      }}
-    }}
-    return null;
-  }}
+  }});
 
   function inspectNode(node) {{
-    selectedNode = node;
-    if (!node) {{
+    if (!node || node.data('type') !== 'symbol') {{
       sidebar.classList.remove('active');
+      cy.elements().removeClass('highlighted faded');
       return;
     }}
 
-    document.getElementById('node-name').textContent = node.name;
-    document.getElementById('node-kind').textContent = node.kind;
-    document.getElementById('node-visibility').innerHTML = node.is_exported
-      ? '<span class="badge badge-exported">Exported</span>'
-      : '<span class="badge badge-private">Internal</span>';
-    document.getElementById('node-repo').textContent = node.repo;
-    document.getElementById('node-location').textContent = `${{node.file}}:${{node.line}}`;
-    document.getElementById('node-complexity').textContent = node.complexity !== null && node.complexity !== undefined ? node.complexity : 'N/A';
+    const d = node.data();
+    document.getElementById('node-name').textContent = d.label || '-';
+    document.getElementById('node-kind').textContent = d.kind || '-';
+    
+    const visElem = document.getElementById('node-visibility');
+    if (d.is_exported) {{
+      visElem.innerHTML = '<span class="badge badge-exported">Public (Exported)</span>';
+    }} else {{
+      visElem.innerHTML = '<span class="badge badge-private">Private / Internal</span>';
+    }}
 
-    const incoming = edges.filter(e => e.to === node.id);
-    const outgoing = edges.filter(e => e.from === node.id);
+    document.getElementById('node-repo').textContent = d.repo || '-';
+    document.getElementById('node-location').textContent = `${{d.file || '-'}}:${{d.line || 1}}`;
+    document.getElementById('node-complexity').textContent = d.complexity != null ? d.complexity : 'N/A';
 
-    const incList = document.getElementById('incoming-edges');
-    const outList = document.getElementById('outgoing-edges');
-    document.getElementById('incoming-header').textContent = `Incoming References (${{incoming.length}})`;
-    document.getElementById('outgoing-header').textContent = `Outgoing References (${{outgoing.length}})`;
+    const inEdges = node.incomers('edge');
+    const outEdges = node.outgoers('edge');
 
-    incList.innerHTML = '';
-    outgoing.length;
-    incoming.forEach(e => {{
-      const fromNode = nodeMap.get(e.from);
+    document.getElementById('incoming-header').textContent = `Incoming References (${{inEdges.length}})`;
+    const inList = document.getElementById('incoming-edges');
+    inList.innerHTML = '';
+    inEdges.forEach(e => {{
+      const src = e.source();
       const li = document.createElement('li');
       li.className = 'edge-item';
-      li.innerHTML = `<span>${{fromNode ? fromNode.name : '#' + e.from}}</span><span style="color:#8b949e">${{e.kind}}</span>`;
-      if (fromNode) {{
-        li.addEventListener('click', () => inspectNode(fromNode));
-      }}
-      incList.appendChild(li);
+      li.innerHTML = `<span>${{src.data('label') || src.id()}}</span><span style="color:#8b949e;font-size:10px">${{e.data('kind') || ''}}</span>`;
+      li.addEventListener('click', () => {{
+        inspectNode(src);
+        cy.center(src);
+      }});
+      inList.appendChild(li);
     }});
 
+    document.getElementById('outgoing-header').textContent = `Outgoing References (${{outEdges.length}})`;
+    const outList = document.getElementById('outgoing-edges');
     outList.innerHTML = '';
-    outgoing.forEach(e => {{
-      const toNode = nodeMap.get(e.to);
+    outEdges.forEach(e => {{
+      const tgt = e.target();
       const li = document.createElement('li');
       li.className = 'edge-item';
-      li.innerHTML = `<span>${{toNode ? toNode.name : '#' + e.to}}</span><span style="color:#8b949e">${{e.kind}}</span>`;
-      if (toNode) {{
-        li.addEventListener('click', () => inspectNode(toNode));
-      }}
+      li.innerHTML = `<span>${{tgt.data('label') || tgt.id()}}</span><span style="color:#8b949e;font-size:10px">${{e.data('kind') || ''}}</span>`;
+      li.addEventListener('click', () => {{
+        inspectNode(tgt);
+        cy.center(tgt);
+      }});
       outList.appendChild(li);
     }});
+
+    // Highlight neighborhood
+    cy.elements().addClass('faded');
+    node.removeClass('faded').addClass('highlighted');
+    const neighborhood = node.neighborhood();
+    neighborhood.removeClass('faded');
+    neighborhood.nodes().addClass('highlighted');
+    neighborhood.edges().addClass('highlighted');
 
     sidebar.classList.add('active');
   }}
 
-  canvas.addEventListener('mousedown', e => {{
-    const rect = canvas.getBoundingClientRect();
-    const sx = e.clientX - rect.left;
-    const sy = e.clientY - rect.top;
-    const wpos = screenToWorld(sx, sy);
-    const hit = getNodeAt(wpos.x, wpos.y);
+  cy.on('tap', 'node', function(evt) {{
+    inspectNode(evt.target);
+  }});
 
-    if (hit) {{
-      dragNode = hit;
-      dragNode.vx = 0;
-      dragNode.vy = 0;
-    }} else {{
-      isDragging = true;
-      dragStart = {{ x: sx - transform.x, y: sy - transform.y }};
+  cy.on('tap', function(evt) {{
+    if (evt.target === cy) {{
+      inspectNode(null);
     }}
   }});
-
-  canvas.addEventListener('mousemove', e => {{
-    const rect = canvas.getBoundingClientRect();
-    const sx = e.clientX - rect.left;
-    const sy = e.clientY - rect.top;
-    const wpos = screenToWorld(sx, sy);
-
-    if (dragNode) {{
-      dragNode.x = wpos.x;
-      dragNode.y = wpos.y;
-      dragNode.vx = 0;
-      dragNode.vy = 0;
-    }} else if (isDragging) {{
-      transform.x = sx - dragStart.x;
-      transform.y = sy - dragStart.y;
-    }} else {{
-      hoveredNode = getNodeAt(wpos.x, wpos.y);
-    }}
-  }});
-
-  window.addEventListener('mouseup', () => {{
-    dragNode = null;
-    isDragging = false;
-  }});
-
-  canvas.addEventListener('click', e => {{
-    const rect = canvas.getBoundingClientRect();
-    const sx = e.clientX - rect.left;
-    const sy = e.clientY - rect.top;
-    const wpos = screenToWorld(sx, sy);
-    const hit = getNodeAt(wpos.x, wpos.y);
-    inspectNode(hit);
-  }});
-
-  canvas.addEventListener('wheel', e => {{
-    e.preventDefault();
-    const rect = canvas.getBoundingClientRect();
-    const sx = e.clientX - rect.left;
-    const sy = e.clientY - rect.top;
-    const zoomFactor = e.deltaY < 0 ? 1.1 : 0.9;
-    const newK = Math.max(0.1, Math.min(5, transform.k * zoomFactor));
-
-    transform.x = sx - (sx - transform.x) * (newK / transform.k);
-    transform.y = sy - (sy - transform.y) * (newK / transform.k);
-    transform.k = newK;
-  }}, {{ passive: false }});
 
   closeSidebarBtn.addEventListener('click', () => {{
     inspectNode(null);
   }});
 
-  requestAnimationFrame(render);
+  btnFit.addEventListener('click', () => {{
+    cy.fit(undefined, 30);
+  }});
+
+  btnReset.addEventListener('click', () => {{
+    cy.reset();
+    cy.fit(undefined, 30);
+  }});
+
+  function applyFilter() {{
+    const term = searchInput.value.toLowerCase().trim();
+    const kind = kindFilter.value;
+
+    cy.batch(() => {{
+      cy.nodes('[type = "symbol"]').forEach(n => {{
+        const name = (n.data('label') || '').toLowerCase();
+        const nKind = n.data('kind') || '';
+        const matchText = !term || name.includes(term);
+        const matchKind = !kind || nKind === kind;
+
+        if (matchText && matchKind) {{
+          n.style('display', 'element');
+        }} else {{
+          n.style('display', 'none');
+        }}
+      }});
+    }});
+  }}
+
+  searchInput.addEventListener('input', applyFilter);
+  kindFilter.addEventListener('change', applyFilter);
 }})();
 </script>
 </body>
 </html>
 "#,
-        json_data = json_data
+        cytoscape_js = cytoscape_js,
+        json_elements = json_elements
     );
 
     Ok(html)
 }
+
 
 /// Collects data from `db`, generates the standalone HTML visualizer, and writes it to `output_path`.
 /// Returns the collected `VizData` and the canonicalized (or resolved) path to the written file.

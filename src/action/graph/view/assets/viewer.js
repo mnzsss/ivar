@@ -1,22 +1,24 @@
-/**
- * ivar graph view - Zero-dependency Vanilla JS Canvas 2D Graph Visualizer.
+/*
+ * ivar graph view - Cytoscape.js Graph Visualizer with Compound Hierarchy & Dual Layouts.
  */
 (function() {
   'use strict';
 
   /* State Model */
-  const state = {
+  var state = {
     nodes: new Map(),
     edges: new Map(),
     selectedNodeId: null,
     highlightNodeIds: new Set(),
     highlightEdgeKeys: new Set(),
-    transform: { x: 0, y: 0, k: 1 },
-    drag: { isDragging: false, startX: 0, startY: 0 },
-    simulation: { alpha: 1.0, settled: false, iterations: 0, maxIterations: 180 },
     depth: 1,
-    filters: { repo: '', kind: '', provenance: '' }
+    currentLayout: 'dagre',
+    filters: { repo: '', kind: '', provenance: '', search: '' },
+    tracing: { active: false, sourceNode: null, targetNode: null },
+    simulation: { alpha: 0.0, settled: true, iterations: 0 }
   };
+
+  var cy = null;
 
   function normalizeKind(k) {
     if (!k) return '';
@@ -26,34 +28,34 @@
   }
 
   /* DOM Elements */
-  const canvas = document.getElementById('graph-canvas');
-  const ctx = canvas.getContext('2d');
-  const searchInput = document.getElementById('search-input');
-  const searchResults = document.getElementById('search-results');
-  const repoFilter = document.getElementById('repo-filter');
-  const kindFilter = document.getElementById('kind-filter');
-  const provenanceFilter = document.getElementById('provenance-filter');
-  const depthSelect = document.getElementById('depth-select');
-  const fitBtn = document.getElementById('fit-btn');
-  const resetBtn = document.getElementById('reset-btn');
-  const expandBtn = document.getElementById('expand-btn');
-
+  var cyContainer = document.getElementById('cy');
+  var searchInput = document.getElementById('search-input');
+  var searchResults = document.getElementById('search-results');
+  var repoFilter = document.getElementById('repo-filter');
+  var kindFilter = document.getElementById('kind-filter');
+  var provenanceFilter = document.getElementById('provenance-filter');
+  var depthSelect = document.getElementById('depth-select');
+  var layoutSelect = document.getElementById('layout-select');
+  var traceBtn = document.getElementById('trace-btn');
+  var fitBtn = document.getElementById('fit-btn');
+  var resetBtn = document.getElementById('reset-btn');
+  var expandBtn = document.getElementById('expand-btn');
   /* Sidebar Elements */
-  const detailName = document.getElementById('detail-name');
-  const detailKind = document.getElementById('detail-kind');
-  const detailRepo = document.getElementById('detail-repo');
-  const detailLocation = document.getElementById('detail-location');
-  const detailMeta = document.getElementById('detail-meta');
-  const detailSignature = document.getElementById('detail-signature');
-  const callersLabel = document.getElementById('callers-label');
-  const callersList = document.getElementById('callers-list');
-  const calleesLabel = document.getElementById('callees-label');
-  const calleesList = document.getElementById('callees-list');
+  var detailName = document.getElementById('detail-name');
+  var detailKind = document.getElementById('detail-kind');
+  var detailRepo = document.getElementById('detail-repo');
+  var detailLocation = document.getElementById('detail-location');
+  var detailMeta = document.getElementById('detail-meta');
+  var detailSignature = document.getElementById('detail-signature');
+  var callersLabel = document.getElementById('callers-label');
+  var callersList = document.getElementById('callers-list');
+  var calleesLabel = document.getElementById('callees-label');
+  var calleesList = document.getElementById('callees-list');
 
   /* Status elements */
-  const statNodes = document.getElementById('stat-nodes');
-  const statEdges = document.getElementById('stat-edges');
-  const statDepth = document.getElementById('stat-depth');
+  var statNodes = document.getElementById('stat-nodes');
+  var statEdges = document.getElementById('stat-edges');
+  var statDepth = document.getElementById('stat-depth');
 
   /* API Client Layer */
   function apiFetch(endpoint) {
@@ -64,18 +66,23 @@
   }
 
   function loadInitialGraph() {
-    apiFetch('/api/graph').then(function(graph) {
-      mergeGraphData(graph);
-      restartSimulation();
-      setTimeout(fitGraphToView, 250);
+    var depth = state.depth || 1;
+    var base = '/api/subgraph';
+    apiFetch(base + '?depth=' + encodeURIComponent(depth)).then(function(graph) {
+      applyGraphData(graph);
     }).catch(function(err) {
-      console.error('Failed to load initial graph:', err);
+      /* Fallback to /api/graph if /api/subgraph fails */
+      apiFetch('/api/graph').then(function(graph) {
+        applyGraphData(graph);
+      }).catch(function(e) {
+        console.error('Failed to load initial graph:', e);
+      });
     });
   }
 
   function fetchNodeDetails(id) {
-    const base = '/api/node';
-    const endpoint = base + '?id=' + encodeURIComponent(id);
+    var base = '/api/node';
+    var endpoint = base + '?id=' + encodeURIComponent(id);
     apiFetch(endpoint).then(function(details) {
       renderDetails(details);
     }).catch(function(err) {
@@ -84,34 +91,33 @@
   }
 
   function fetchExpansion(id) {
-    const base = '/api/expand';
+    var base = '/api/expand';
     apiFetch(base + '?id=' + encodeURIComponent(id)).then(function(graph) {
       mergeGraphData(graph);
-      restartSimulation();
     }).catch(function(err) {
       console.error('Failed to expand node:', err);
     });
   }
 
   function fetchPath(fromId, toId) {
-    const base = '/api/path';
-    const endpoint = base + '?from=' + encodeURIComponent(fromId) + '&to=' + encodeURIComponent(toId);
+    var base = '/api/path';
+    var endpoint = base + '?from=' + encodeURIComponent(fromId) + '&to=' + encodeURIComponent(toId);
     apiFetch(endpoint).then(function(pathNodes) {
       state.highlightNodeIds = new Set(pathNodes);
-      render();
+      updateHighlights();
     }).catch(function(err) {
       console.error('Path search failed:', err);
     });
   }
 
   function fetchImpact(id, direction, depth) {
-    const base = '/api/impact';
-    const endpoint = base + '?id=' + encodeURIComponent(id) +
+    var base = '/api/impact';
+    var endpoint = base + '?id=' + encodeURIComponent(id) +
       '&direction=' + encodeURIComponent(direction || 'both') +
       '&depth=' + encodeURIComponent(depth || 2);
     apiFetch(endpoint).then(function(impactNodes) {
       state.highlightNodeIds = new Set(impactNodes);
-      render();
+      updateHighlights();
     }).catch(function(err) {
       console.error('Impact query failed:', err);
     });
@@ -123,8 +129,8 @@
       searchResults.innerHTML = '';
       return;
     }
-    const base = '/api/search';
-    const endpoint = base + '?q=' + encodeURIComponent(query) +
+    var base = '/api/search';
+    var endpoint = base + '?q=' + encodeURIComponent(query) +
       '&repo=' + encodeURIComponent(state.filters.repo) +
       '&kind=' + encodeURIComponent(state.filters.kind) +
       '&limit=20';
@@ -135,379 +141,636 @@
     });
   }
 
-  /* Graph Merging & Simulation */
-  function mergeGraphData(graph) {
-    if (!graph || !graph.nodes) return;
+  /* Cytoscape Initialization & Styling */
+  function initCytoscape() {
+    if (!window.cytoscape) {
+      console.error('Cytoscape library not loaded');
+      return;
+    }
 
-    graph.nodes.forEach(function(n) {
-      if (!state.nodes.has(n.id)) {
-        const angle = (n.id * 137.5) * (Math.PI / 180);
-        const radius = 60 + (n.id % 20) * 15;
-        state.nodes.set(n.id, {
-          id: n.id,
-          repo: n.repo,
-          name: n.name,
-          kind: normalizeKind(n.kind),
-          signature: n.signature,
-          file: n.file,
-          span: n.span,
-          exported: n.exported,
-          complexity: n.complexity,
-          x: Math.cos(angle) * radius + (canvas.width / 2),
-          y: Math.sin(angle) * radius + (canvas.height / 2),
-          vx: 0,
-          vy: 0
-        });
+    window._cyCore = cy = window.cytoscape({
+      container: cyContainer,
+      boxSelectionEnabled: false,
+      autounselectify: false,
+      minZoom: 0.05,
+      maxZoom: 3.5,
+      wheelSensitivity: 0.3,
+      style: [
+        /* Base compound parent styling (Repo & File) */
+        {
+          selector: ':parent',
+          style: {
+            'background-color': '#1a1a1a',
+            'background-opacity': 0.7,
+            'border-width': 1,
+            'border-color': '#2e2e2e',
+            'border-opacity': 0.9,
+            'shape': 'roundrectangle',
+            'corner-radius': '6px',
+            'padding': '14px',
+            'color': '#c8c0b2',
+            'font-family': 'Fira Code, monospace',
+            'font-size': '11px',
+            'text-valign': 'top',
+            'text-halign': 'center',
+            'text-margin-y': -4
+          }
+        },
+        /* Repo compound container */
+        {
+          selector: 'node[type = "repo"]',
+          style: {
+            'background-color': '#171717',
+            'border-color': '#3a3a3a',
+            'border-width': 1.5,
+            'color': '#f2ebdd',
+            'font-weight': 'bold',
+            'font-size': '12px'
+          }
+        },
+        /* File compound container */
+        {
+          selector: 'node[type = "file"]',
+          style: {
+            'background-color': '#202020',
+            'border-color': '#2a2a2a',
+            'border-width': 1,
+            'color': '#a0988c',
+            'font-size': '10px'
+          }
+        },
+        /* Symbol leaf nodes */
+        {
+          selector: 'node[type = "symbol"]',
+          style: {
+            'width': 28,
+            'height': 28,
+            'background-color': '#2a2a2a',
+            'border-width': 2,
+            'border-color': '#8ba6ff',
+            'label': 'data(label)',
+            'color': '#f2ebdd',
+            'font-family': 'Fira Code, monospace',
+            'font-size': '11px',
+            'text-valign': 'bottom',
+            'text-halign': 'center',
+            'text-margin-y': 4,
+            'text-background-color': '#151515',
+            'text-background-opacity': 0.8,
+            'text-background-padding': '2px',
+            'text-background-shape': 'roundrectangle',
+            'transition-property': 'background-color, border-color, width, height',
+            'transition-duration': '0.15s'
+          }
+        },
+        /* Symbol exported / private styling */
+        {
+          selector: 'node[type = "symbol"][?exported]',
+          style: {
+            'border-color': '#8ba6ff',
+            'border-width': 2.5
+          }
+        },
+        {
+          selector: 'node[type = "symbol"][!exported]',
+          style: {
+            'border-color': '#5a554c',
+            'border-width': 1.5,
+            'border-style': 'dashed'
+          }
+        },
+        /* Symbol kind color variations */
+        {
+          selector: 'node[kind = "function"], node[kind = "method"]',
+          style: {
+            'background-color': '#232b38',
+            'shape': 'ellipse'
+          }
+        },
+        {
+          selector: 'node[kind = "struct"], node[kind = "class"], node[kind = "type"]',
+          style: {
+            'background-color': '#2b2620',
+            'shape': 'round-rectangle',
+            'border-color': '#d97735'
+          }
+        },
+        {
+          selector: 'node[kind = "trait"], node[kind = "interface"]',
+          style: {
+            'background-color': '#26222e',
+            'shape': 'diamond',
+            'border-color': '#c084fc'
+          }
+        },
+        {
+          selector: 'node[kind = "enum"], node[kind = "constant"], node[kind = "module"]',
+          style: {
+            'background-color': '#1f2d27',
+            'shape': 'hexagon',
+            'border-color': '#4ade80'
+          }
+        },
+        /* Selection & Highlight & Dim & Path States */
+        {
+          selector: 'node:selected, node.selected',
+          style: {
+            'border-color': '#f2ebdd',
+            'border-width': 3,
+            'background-color': '#3e4c6b',
+            'shadow-blur': 12,
+            'shadow-color': '#8ba6ff',
+            'shadow-opacity': 0.6
+          }
+        },
+        {
+          selector: 'node.highlighted',
+          style: {
+            'border-color': '#d97735',
+            'border-width': 3,
+            'background-color': '#4a2e1d',
+            'shadow-blur': 10,
+            'shadow-color': '#d97735',
+            'shadow-opacity': 0.5,
+            'opacity': 1.0
+          }
+        },
+        {
+          selector: 'node.dimmed',
+          style: {
+            'opacity': 0.15
+          }
+        },
+        {
+          selector: 'node.path-highlight',
+          style: {
+            'border-color': '#38bdf8',
+            'border-width': 4,
+            'background-color': '#0369a1',
+            'shadow-blur': 14,
+            'shadow-color': '#38bdf8',
+            'shadow-opacity': 0.8,
+            'opacity': 1.0,
+            'z-index': 9999
+          }
+        },
+        /* Edge Styling */
+        {
+          selector: 'edge',
+          style: {
+            'width': 1.5,
+            'line-color': '#4a4844',
+            'target-arrow-color': '#4a4844',
+            'target-arrow-shape': 'triangle',
+            'arrow-scale': 0.8,
+            'curve-style': 'bezier',
+            'opacity': 0.8
+          }
+        },
+        /* Edge Provenance Semantics */
+        {
+          selector: 'edge[provenance = "extracted"]',
+          style: {
+            'line-style': 'solid',
+            'line-color': '#5e5a52',
+            'target-arrow-color': '#5e5a52'
+          }
+        },
+        {
+          selector: 'edge[provenance = "inferred"]',
+          style: {
+            'line-style': 'dashed',
+            'line-dash-pattern': [6, 4],
+            'line-color': '#7c6f50',
+            'target-arrow-color': '#7c6f50'
+          }
+        },
+        {
+          selector: 'edge[provenance = "ambiguous"]',
+          style: {
+            'line-style': 'dashed',
+            'line-dash-pattern': [4, 4],
+            'line-color': '#d97735',
+            'target-arrow-color': '#d97735',
+            'opacity': 0.9
+          }
+        },
+        {
+          selector: 'edge.highlighted',
+          style: {
+            'width': 3,
+            'line-color': '#8ba6ff',
+            'target-arrow-color': '#8ba6ff',
+            'opacity': 1.0,
+            'z-index': 999
+          }
+        },
+        {
+          selector: 'edge.dimmed',
+          style: {
+            'opacity': 0.15
+          }
+        },
+        {
+          selector: 'edge.path-highlight',
+          style: {
+            'width': 4,
+            'line-color': '#38bdf8',
+            'target-arrow-color': '#38bdf8',
+            'opacity': 1.0,
+            'z-index': 9999
+          }
+        }
+      ],
+      elements: []
+    });
+    window.cy = cy;
+    window.state = state;
+
+    cy.on('tap', 'node[type = "symbol"]', function(evt) {
+      var node = evt.target;
+      var rawId = node.data('rawId');
+      if (rawId === undefined || rawId === null) return;
+
+      if (state.tracing.active) {
+        handlePathTracingTap(node);
+      } else {
+        selectNode(rawId);
       }
     });
 
-    if (graph.edges) {
-      graph.edges.forEach(function(e) {
-        const key = e.from + '->' + e.to + ':' + e.kind;
-        if (!state.edges.has(key)) {
-          state.edges.set(key, e);
+    cy.on('tap', function(evt) {
+      if (evt.target === cy) {
+        clearSelection();
+      }
+    });
+  }
+
+  function getLayoutConfig(layoutName) {
+    var name = layoutName || state.currentLayout;
+    if (name === 'dagre') {
+      return {
+        name: 'dagre',
+        rankDir: 'TB',
+        nodeSep: 50,
+        rankSep: 70,
+        edgeSep: 20,
+        animate: false,
+        fit: true,
+        padding: 40
+      };
+    } else {
+      return {
+        name: 'cose',
+        animate: false,
+        randomize: true,
+        fit: true,
+        padding: 40,
+        componentSpacing: 60,
+        nodeRepulsion: function(node) {
+          return node.isParent() ? 1000 : 2048;
+        },
+        nodeOverlap: 4,
+        idealEdgeLength: function(edge) { return 32; },
+        edgeElasticity: function(edge) { return 32; },
+        nestingFactor: 1.2,
+        gravity: 1.5,
+        numIter: 400,
+        initialTemp: 200,
+        coolingFactor: 0.95,
+        minTemp: 1.0
+      };
+    }
+  }
+
+  function runLayout(layoutName) {
+    if (!cy) return;
+    var config = getLayoutConfig(layoutName);
+    var layout = cy.layout(config);
+    layout.run();
+  }
+
+  function transformToCytoscapeElements(nodesMap, edgesMap) {
+    var elements = [];
+    var reposSeen = new Set();
+    var filesSeen = new Set();
+
+    nodesMap.forEach(function(node) {
+      var repoId = 'repo:' + node.repo;
+      if (node.repo && !reposSeen.has(repoId)) {
+        reposSeen.add(repoId);
+        elements.push({
+          group: 'nodes',
+          data: {
+            id: repoId,
+            label: node.repo,
+            type: 'repo'
+          }
+        });
+      }
+
+      var fileParent = repoId;
+      var fileId = 'file:' + node.repo + ':' + (node.file || 'unknown');
+      if (node.file && !filesSeen.has(fileId)) {
+        filesSeen.add(fileId);
+        var shortPath = node.file.split('/').pop() || node.file;
+        elements.push({
+          group: 'nodes',
+          data: {
+            id: fileId,
+            label: shortPath,
+            type: 'file',
+            parent: node.repo ? repoId : undefined
+          }
+        });
+      }
+
+      var symbolId = 'sym:' + node.id;
+      var parentId = filesSeen.has(fileId) ? fileId : (reposSeen.has(repoId) ? repoId : undefined);
+
+      elements.push({
+        group: 'nodes',
+        data: {
+          id: symbolId,
+          rawId: node.id,
+          label: node.name,
+          kind: normalizeKind(node.kind),
+          exported: Boolean(node.exported),
+          complexity: node.complexity,
+          type: 'symbol',
+          parent: parentId
         }
       });
+    });
+
+    edgesMap.forEach(function(edge) {
+      var sourceId = 'sym:' + edge.from;
+      var targetId = 'sym:' + edge.to;
+      var edgeId = 'e:' + edge.from + '->' + edge.to + ':' + edge.kind;
+      elements.push({
+        group: 'edges',
+        data: {
+          id: edgeId,
+          source: sourceId,
+          target: targetId,
+          kind: edge.kind,
+          provenance: edge.provenance,
+          confidence: edge.confidence
+        }
+      });
+    });
+
+    return elements;
+  }
+
+  function applyGraphData(graph) {
+    state.nodes.clear();
+    state.edges.clear();
+    if (!graph || !graph.nodes) return;
+
+    graph.nodes.forEach(function(n) {
+      state.nodes.set(n.id, n);
+    });
+    if (graph.edges) {
+      graph.edges.forEach(function(e) {
+        var key = e.from + '->' + e.to + ':' + e.kind;
+        state.edges.set(key, e);
+      });
+    }
+
+    if (cy) {
+      var elements = transformToCytoscapeElements(state.nodes, state.edges);
+      cy.elements().remove();
+      cy.add(elements);
+      applyFilterVisibility();
+      cy.resize();
+      runLayout(state.currentLayout);
     }
 
     updateStats();
     updateFilterOptions();
   }
 
-  function restartSimulation() {
-    state.simulation.alpha = 1.0;
-    state.simulation.settled = false;
-    state.simulation.iterations = 0;
-    requestAnimationFrame(animationLoop);
-  }
+  function mergeGraphData(graph) {
+    if (!graph || !graph.nodes) return;
 
-  function stepSimulation() {
-    if (state.simulation.settled) return;
-
-    const nodes = Array.from(state.nodes.values());
-    const kRepel = 1200;
-    const kAttract = 0.04;
-    const centerAttract = 0.01;
-    const cx = canvas.width > 0 ? canvas.width / 2 : 400;
-    const cy = canvas.height > 0 ? canvas.height / 2 : 300;
-
-    for (let i = 0; i < nodes.length; i++) {
-      const u = nodes[i];
-      for (let j = i + 1; j < nodes.length; j++) {
-        const v = nodes[j];
-        const dx = v.x - u.x;
-        const dy = v.y - u.y;
-        const distSq = dx * dx + dy * dy + 1;
-        if (distSq > 90000) continue;
-        const dist = Math.sqrt(distSq);
-        const force = (kRepel / distSq) * state.simulation.alpha;
-        const fx = (dx / dist) * force;
-        const fy = (dy / dist) * force;
-        u.vx -= fx;
-        u.vy -= fy;
-        v.vx += fx;
-        v.vy += fy;
+    var newNodes = 0;
+    graph.nodes.forEach(function(n) {
+      if (!state.nodes.has(n.id)) {
+        state.nodes.set(n.id, n);
+        newNodes++;
       }
+    });
+
+    if (graph.edges) {
+      graph.edges.forEach(function(e) {
+        var key = e.from + '->' + e.to + ':' + e.kind;
+        state.edges.set(key, e);
+      });
     }
 
-    state.edges.forEach(function(edge) {
-      const u = state.nodes.get(edge.from);
-      const v = state.nodes.get(edge.to);
-      if (u && v) {
-        const dx = v.x - u.x;
-        const dy = v.y - u.y;
-        const dist = Math.sqrt(dx * dx + dy * dy) + 0.1;
-        const force = (dist - 80) * kAttract * state.simulation.alpha;
-        const fx = (dx / dist) * force;
-        const fy = (dy / dist) * force;
-        u.vx += fx;
-        u.vy += fy;
-        v.vx -= fx;
-        v.vy -= fy;
-      }
-    });
-
-    nodes.forEach(function(u) {
-      u.vx += (cx - u.x) * centerAttract * state.simulation.alpha;
-      u.vy += (cy - u.y) * centerAttract * state.simulation.alpha;
-      const speed = Math.sqrt(u.vx * u.vx + u.vy * u.vy);
-      if (speed > 40) {
-        u.vx = (u.vx / speed) * 40;
-        u.vy = (u.vy / speed) * 40;
-      }
-      u.x += u.vx * 0.85;
-      u.y += u.vy * 0.85;
-      u.vx *= 0.5;
-      u.vy *= 0.5;
-    });
-
-    state.simulation.iterations++;
-    state.simulation.alpha *= 0.94;
-    if (state.simulation.alpha < 0.005 || state.simulation.iterations >= 90) {
-      state.simulation.settled = true;
+    if (cy) {
+      var elements = transformToCytoscapeElements(state.nodes, state.edges);
+      cy.elements().remove();
+      cy.add(elements);
+      applyFilterVisibility();
+      runLayout(state.currentLayout);
     }
+
+    updateStats();
+    updateFilterOptions();
   }
 
-  /* Rendering Layer */
-  function render() {
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.save();
-    ctx.translate(state.transform.x, state.transform.y);
-    ctx.scale(state.transform.k, state.transform.k);
+  function applyFilterVisibility() {
+    if (!cy) return;
+    var repoF = state.filters.repo;
+    var kindF = state.filters.kind;
+    var provF = state.filters.provenance;
+    var searchQ = (state.filters.search || '').toLowerCase().trim();
 
-    /* 1. Regular direct edges (batched) */
-    ctx.beginPath();
-    ctx.setLineDash([]);
-    ctx.lineWidth = 1;
-    ctx.strokeStyle = 'rgba(242, 235, 221, 0.25)';
-    state.edges.forEach(function(edge) {
-      const u = state.nodes.get(edge.from);
-      const v = state.nodes.get(edge.to);
-      if (!u || !v) return;
-      const isAmbiguous = edge.provenance === 'ambiguous' || edge.provenance === 'inferred';
-      const isSelected = state.selectedNodeId === u.id || state.selectedNodeId === v.id;
-      if (isAmbiguous || isSelected) return;
+    cy.batch(function() {
+      cy.nodes('[type = "symbol"]').forEach(function(node) {
+        var rawId = node.data('rawId');
+        var rawNode = state.nodes.get(rawId);
+        var visible = true;
 
-      const uMatch = (!state.filters.repo || u.repo === state.filters.repo) && (!state.filters.kind || u.kind === state.filters.kind);
-      const vMatch = (!state.filters.repo || v.repo === state.filters.repo) && (!state.filters.kind || v.kind === state.filters.kind);
-      const provMatch = !state.filters.provenance || edge.provenance === state.filters.provenance;
-      if (!uMatch || !vMatch || !provMatch) return; /* skip filtered */
+        if (rawNode) {
+          if (repoF && rawNode.repo !== repoF) visible = false;
+          if (kindF && normalizeKind(rawNode.kind) !== kindF) visible = false;
+          if (searchQ) {
+            var nameMatch = rawNode.name && rawNode.name.toLowerCase().indexOf(searchQ) !== -1;
+            var fileMatch = rawNode.file && rawNode.file.toLowerCase().indexOf(searchQ) !== -1;
+            if (!nameMatch && !fileMatch) {
+              visible = false;
+            }
+          }
+        }
 
-      ctx.moveTo(u.x, u.y);
-      ctx.lineTo(v.x, v.y);
-    });
-    ctx.stroke();
-
-    /* 2. Ambiguous / inferred edges (batched dashed) */
-    ctx.beginPath();
-    ctx.setLineDash([4, 4]);
-    ctx.lineWidth = 1;
-    ctx.strokeStyle = '#d97735';
-    state.edges.forEach(function(edge) {
-      const u = state.nodes.get(edge.from);
-      const v = state.nodes.get(edge.to);
-      if (!u || !v) return;
-      const isAmbiguous = edge.provenance === 'ambiguous' || edge.provenance === 'inferred';
-      const isSelected = state.selectedNodeId === u.id || state.selectedNodeId === v.id;
-      if (!isAmbiguous || isSelected) return;
-
-      const uMatch = (!state.filters.repo || u.repo === state.filters.repo) && (!state.filters.kind || u.kind === state.filters.kind);
-      const vMatch = (!state.filters.repo || v.repo === state.filters.repo) && (!state.filters.kind || v.kind === state.filters.kind);
-      const provMatch = !state.filters.provenance || edge.provenance === state.filters.provenance;
-      if (!uMatch || !vMatch || !provMatch) return;
-
-      ctx.moveTo(u.x, u.y);
-      ctx.lineTo(v.x, v.y);
-    });
-    ctx.stroke();
-
-    /* 3. Highlighted / selected edges */
-    if (state.selectedNodeId !== null) {
-      ctx.beginPath();
-      ctx.setLineDash([]);
-      ctx.lineWidth = 2;
-      ctx.strokeStyle = '#8ba6ff';
-      state.edges.forEach(function(edge) {
-        const u = state.nodes.get(edge.from);
-        const v = state.nodes.get(edge.to);
-        if (!u || !v) return;
-        if (state.selectedNodeId === u.id || state.selectedNodeId === v.id) {
-          ctx.moveTo(u.x, u.y);
-          ctx.lineTo(v.x, v.y);
+        if (visible) {
+          node.style('display', 'element');
+        } else {
+          node.style('display', 'none');
         }
       });
-      ctx.stroke();
-    }
-    ctx.setLineDash([]);
 
-    /* 4. Primary / default nodes (batched) */
-    ctx.fillStyle = '#f2ebdd';
-    ctx.beginPath();
-    state.nodes.forEach(function(node) {
-      const isSelected = state.selectedNodeId === node.id;
-      const isImpact = state.highlightNodeIds.has(node.id);
-      if (isSelected || isImpact) return;
-      const matchesRepo = !state.filters.repo || node.repo === state.filters.repo;
-      const matchesKind = !state.filters.kind || node.kind === state.filters.kind;
-      if (!matchesRepo || !matchesKind) return;
-      ctx.moveTo(node.x + 5, node.y);
-      ctx.arc(node.x, node.y, 5, 0, 2 * Math.PI);
-    });
-    ctx.fill();
-
-    /* 5. Impact nodes (batched) */
-    if (state.highlightNodeIds.size > 0) {
-      ctx.fillStyle = '#d97735';
-      ctx.beginPath();
-      state.nodes.forEach(function(node) {
-        const isImpact = state.highlightNodeIds.has(node.id);
-        const isSelected = state.selectedNodeId === node.id;
-        if (!isImpact || isSelected) return;
-        ctx.moveTo(node.x + 6, node.y);
-        ctx.arc(node.x, node.y, 6, 0, 2 * Math.PI);
+      cy.edges().forEach(function(edge) {
+        var prov = edge.data('provenance');
+        if (provF && prov !== provF) {
+          edge.style('display', 'none');
+        } else {
+          edge.style('display', 'element');
+        }
       });
-      ctx.fill();
-    }
-
-    /* 6. Selected node */
-    if (state.selectedNodeId !== null) {
-      const sel = state.nodes.get(state.selectedNodeId);
-      if (sel) {
-        ctx.fillStyle = '#8ba6ff';
-        ctx.beginPath();
-        ctx.arc(sel.x, sel.y, 8, 0, 2 * Math.PI);
-        ctx.fill();
-      }
-    }
-
-    /* 7. Text labels */
-    ctx.font = '11px Fira Code';
-    state.nodes.forEach(function(node) {
-      const isSelected = state.selectedNodeId === node.id;
-      const isImpact = state.highlightNodeIds.has(node.id);
-      const matchesRepo = !state.filters.repo || node.repo === state.filters.repo;
-      const matchesKind = !state.filters.kind || node.kind === state.filters.kind;
-      if (!matchesRepo || !matchesKind) return;
-
-      if (state.transform.k >= 0.45 || isSelected || isImpact) {
-        ctx.fillStyle = isSelected ? '#8ba6ff' : (isImpact ? '#d97735' : '#f2ebdd');
-        ctx.fillText(node.name, node.x + 9, node.y + 4);
-      }
     });
-
-    ctx.restore();
   }
 
-  function animationLoop() {
-    if (!state.simulation.settled) {
-      stepSimulation();
-      render();
-      requestAnimationFrame(animationLoop);
+  function updateHighlights() {
+    if (!cy) return;
+    cy.batch(function() {
+      cy.elements().removeClass('highlighted');
+      state.highlightNodeIds.forEach(function(id) {
+        var symNode = cy.getElementById('sym:' + id);
+        if (symNode && symNode.length > 0) {
+          symNode.addClass('highlighted');
+        }
+      });
+    });
+  }
+
+  function isolateNeighborhood(node) {
+    if (!cy || !node) return;
+    var neighborhood = node.closedNeighborhood();
+    cy.batch(function() {
+      cy.elements().removeClass('highlighted dimmed path-highlight');
+      cy.nodes('[type = "symbol"]').not(neighborhood).addClass('dimmed');
+      cy.edges().not(neighborhood).addClass('dimmed');
+      neighborhood.addClass('highlighted');
+    });
+  }
+
+  function handlePathTracingTap(node) {
+    if (!cy || !node) return;
+    if (!state.tracing.sourceNode) {
+      state.tracing.sourceNode = node;
+      cy.batch(function() {
+        cy.elements().removeClass('highlighted dimmed path-highlight');
+        node.addClass('path-highlight');
+      });
     } else {
-      render();
+      state.tracing.targetNode = node;
+      var dijkstra = cy.elements().dijkstra({
+        root: state.tracing.sourceNode,
+        directed: true
+      });
+      var path = dijkstra.pathTo(node);
+      cy.batch(function() {
+        cy.elements().removeClass('highlighted dimmed path-highlight');
+        if (path && path.length > 0) {
+          cy.nodes('[type = "symbol"]').not(path).addClass('dimmed');
+          cy.edges().not(path).addClass('dimmed');
+          path.addClass('path-highlight');
+          cy.fit(path, 50);
+        } else {
+          state.tracing.sourceNode.addClass('path-highlight');
+          node.addClass('path-highlight');
+        }
+      });
+      /* Reset tracing source/target after trace completes */
+      state.tracing.sourceNode = null;
+      state.tracing.targetNode = null;
     }
   }
 
-  /* Interaction & Event Handlers */
-  function setupEvents() {
-    window.addEventListener('resize', function() {
-      canvas.width = canvas.parentElement.clientWidth;
-      canvas.height = canvas.parentElement.clientHeight;
-      render();
-    });
-
-    canvas.addEventListener('mousedown', function(e) {
-      const rect = canvas.getBoundingClientRect();
-      const clickX = (e.clientX - rect.left - state.transform.x) / state.transform.k;
-      const clickY = (e.clientY - rect.top - state.transform.y) / state.transform.k;
-
-      let clickedNode = null;
-      state.nodes.forEach(function(node) {
-        const dx = node.x - clickX;
-        const dy = node.y - clickY;
-        if (dx * dx + dy * dy <= 64) {
-          clickedNode = node;
-        }
-      });
-
-      if (clickedNode) {
-        selectNode(clickedNode.id);
+  function togglePathTracing() {
+    state.tracing.active = !state.tracing.active;
+    state.tracing.sourceNode = null;
+    state.tracing.targetNode = null;
+    if (traceBtn) {
+      if (state.tracing.active) {
+        traceBtn.classList.add('active');
+        traceBtn.textContent = 'Tracing...';
       } else {
-        state.drag.isDragging = true;
-        state.drag.startX = e.clientX - state.transform.x;
-        state.drag.startY = e.clientY - state.transform.y;
+        traceBtn.classList.remove('active');
+        traceBtn.textContent = 'Trace Path';
       }
-    });
+    }
+    clearHighlights();
+  }
 
-    window.addEventListener('mousemove', function(e) {
-      if (state.drag.isDragging) {
-        state.transform.x = e.clientX - state.drag.startX;
-        state.transform.y = e.clientY - state.drag.startY;
-        render();
-      }
-    });
-
-    window.addEventListener('mouseup', function() {
-      state.drag.isDragging = false;
-    });
-
-    canvas.addEventListener('wheel', function(e) {
-      e.preventDefault();
-      const zoomFactor = e.deltaY < 0 ? 1.1 : 0.9;
-      state.transform.k = Math.max(0.2, Math.min(4.0, state.transform.k * zoomFactor));
-      render();
-    }, { passive: false });
-
-    fitBtn.addEventListener('click', fitGraphToView);
-    resetBtn.addEventListener('click', resetView);
-    expandBtn.addEventListener('click', function() {
-      if (state.selectedNodeId !== null) {
-        fetchExpansion(state.selectedNodeId);
-      }
-    });
-
-    let searchDebounce = null;
-    searchInput.addEventListener('input', function(e) {
-      clearTimeout(searchDebounce);
-      searchDebounce = setTimeout(function() {
-        performSearch(e.target.value);
-      }, 150);
-    });
-
-    repoFilter.addEventListener('change', function(e) {
-      state.filters.repo = e.target.value;
-      restartSimulation();
-    });
-    kindFilter.addEventListener('change', function(e) {
-      state.filters.kind = e.target.value;
-      render();
-    });
-    provenanceFilter.addEventListener('change', function(e) {
-      state.filters.provenance = e.target.value;
-      render();
-    });
-    depthSelect.addEventListener('change', function(e) {
-      state.depth = parseInt(e.target.value, 10) || 1;
-      statDepth.textContent = 'depth ' + state.depth;
+  function clearHighlights() {
+    if (!cy) return;
+    cy.batch(function() {
+      cy.elements().removeClass('highlighted dimmed path-highlight');
     });
   }
 
   function selectNode(id) {
     state.selectedNodeId = id;
     expandBtn.disabled = false;
+
+    if (cy) {
+      var symNode = cy.getElementById('sym:' + id);
+      if (symNode && symNode.length > 0) {
+        cy.nodes().removeClass('selected');
+        symNode.addClass('selected');
+        isolateNeighborhood(symNode);
+        var neighborhood = symNode.closedNeighborhood();
+        cy.animate({
+          fit: {
+            eles: neighborhood,
+            padding: 80
+          },
+          duration: 300
+        });
+      }
+    }
     fetchNodeDetails(id);
-    render();
+  }
+
+  function clearSelection() {
+    state.selectedNodeId = null;
+    expandBtn.disabled = true;
+    if (cy) {
+      cy.nodes().removeClass('selected');
+      clearHighlights();
+    }
+    detailName.textContent = 'No selection';
+    detailKind.textContent = '-';
+    detailRepo.textContent = '-';
+    detailLocation.textContent = '-';
+    detailMeta.textContent = '-';
+    detailSignature.textContent = '-';
+    callersLabel.textContent = 'Callers (0)';
+    callersList.innerHTML = '';
+    calleesLabel.textContent = 'Callees (0)';
+    calleesList.innerHTML = '';
   }
 
   function fitGraphToView() {
-    if (state.nodes.size === 0) return;
-    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-    state.nodes.forEach(function(node) {
-      if (node.x < minX) minX = node.x;
-      if (node.x > maxX) maxX = node.x;
-      if (node.y < minY) minY = node.y;
-      if (node.y > maxY) maxY = node.y;
-    });
-    const padding = 60;
-    const gw = (maxX - minX) || 100;
-    const gh = (maxY - minY) || 100;
-    const scale = Math.min((canvas.width - padding * 2) / gw, (canvas.height - padding * 2) / gh, 2.0);
-    state.transform.k = Math.max(0.2, scale);
-    state.transform.x = (canvas.width - gw * state.transform.k) / 2 - minX * state.transform.k;
-    state.transform.y = (canvas.height - gh * state.transform.k) / 2 - minY * state.transform.k;
-    render();
+    if (cy) {
+      cy.resize();
+      if (state.selectedNodeId !== null) {
+        var sel = cy.getElementById('sym:' + state.selectedNodeId);
+        if (sel && sel.length > 0) {
+          cy.fit(sel.closedNeighborhood(), 80);
+          return;
+        }
+      }
+      cy.fit(undefined, 40);
+    }
   }
 
   function resetView() {
-    state.transform.x = 0;
-    state.transform.y = 0;
-    state.transform.k = 1;
-    restartSimulation();
+    if (cy) {
+      clearSelection();
+      cy.resize();
+      cy.reset();
+      runLayout(state.currentLayout);
+    }
   }
-
   function renderDetails(details) {
     if (!details || !details.node) return;
-    const node = details.node;
+    var node = details.node;
     detailName.textContent = node.name;
     detailKind.textContent = normalizeKind(node.kind);
     detailRepo.textContent = node.repo;
@@ -517,24 +780,44 @@
     detailSignature.textContent = node.signature || '-';
 
     callersList.innerHTML = '';
-    const callers = details.callers || [];
+    var callers = details.callers || [];
     callersLabel.textContent = 'Callers (' + callers.length + ')';
     callers.forEach(function(c) {
-      const li = document.createElement('li');
+      var sym = c.caller || c.caller_symbol || c;
+      var name = sym.name || c.caller_name || 'unknown';
+      var repo = sym.repo || c.caller_repo || c.repo || '';
+      var id = sym.id || c.caller_id || (sym !== c ? sym.id : null);
+      var li = document.createElement('li');
       li.className = 'ref-item';
-      li.textContent = c.name + ' (' + c.repo + ')';
-      li.addEventListener('click', function() { selectNode(c.id); });
+      li.textContent = name + (repo ? ' (' + repo + ')' : '');
+      if (id) {
+        li.style.cursor = 'pointer';
+        li.addEventListener('click', function() { selectNode(id); });
+      } else {
+        li.style.opacity = '0.6';
+        li.style.cursor = 'default';
+      }
       callersList.appendChild(li);
     });
 
     calleesList.innerHTML = '';
-    const callees = details.callees || [];
+    var callees = details.callees || [];
     calleesLabel.textContent = 'Callees (' + callees.length + ')';
     callees.forEach(function(c) {
-      const li = document.createElement('li');
+      var sym = c.callee_symbol || c.callee || c;
+      var name = sym.name || c.callee_name || 'unknown';
+      var repo = sym.repo || c.callee_repo || c.repo || '';
+      var id = sym.id || c.callee_id || (sym !== c ? sym.id : null);
+      var li = document.createElement('li');
       li.className = 'ref-item';
-      li.textContent = c.name + ' (' + c.repo + ')';
-      li.addEventListener('click', function() { selectNode(c.id); });
+      li.textContent = name + (repo ? ' (' + repo + ')' : '');
+      if (id) {
+        li.style.cursor = 'pointer';
+        li.addEventListener('click', function() { selectNode(id); });
+      } else {
+        li.style.opacity = '0.6';
+        li.style.cursor = 'default';
+      }
       calleesList.appendChild(li);
     });
   }
@@ -546,8 +829,8 @@
       return;
     }
     results.forEach(function(item) {
-      const s = item.symbol || item;
-      const div = document.createElement('div');
+      var s = item.symbol || item;
+      var div = document.createElement('div');
       div.className = 'search-item';
       div.innerHTML = '<span>' + s.name + '</span><span class="prop-label">' + normalizeKind(s.kind) + '</span>';
       div.addEventListener('click', function() {
@@ -566,15 +849,15 @@
   }
 
   function updateFilterOptions() {
-    const repos = new Set();
-    const kinds = new Set();
+    var repos = new Set();
+    var kinds = new Set();
     state.nodes.forEach(function(n) {
       if (n.repo) repos.add(n.repo);
       if (n.kind) kinds.add(normalizeKind(n.kind));
     });
     repoFilter.innerHTML = '<option value="">All Repos</option>';
     repos.forEach(function(r) {
-      const opt = document.createElement('option');
+      var opt = document.createElement('option');
       opt.value = r;
       opt.textContent = r;
       if (state.filters.repo === r) opt.selected = true;
@@ -582,7 +865,7 @@
     });
     kindFilter.innerHTML = '<option value="">All Kinds</option>';
     kinds.forEach(function(k) {
-      const opt = document.createElement('option');
+      var opt = document.createElement('option');
       opt.value = k;
       opt.textContent = k;
       if (state.filters.kind === k) opt.selected = true;
@@ -590,13 +873,64 @@
     });
   }
 
+  /* Interaction & Event Handlers */
+  function setupEvents() {
+    if (traceBtn) {
+      traceBtn.addEventListener('click', togglePathTracing);
+    }
+    fitBtn.addEventListener('click', fitGraphToView);
+    resetBtn.addEventListener('click', resetView);
+    expandBtn.addEventListener('click', function() {
+      if (state.selectedNodeId !== null) {
+        fetchExpansion(state.selectedNodeId);
+      }
+    });
+
+    if (layoutSelect) {
+      layoutSelect.addEventListener('change', function(e) {
+        state.currentLayout = e.target.value;
+        runLayout(state.currentLayout);
+      });
+    }
+
+    var searchDebounce = null;
+    searchInput.addEventListener('input', function(e) {
+      state.filters.search = e.target.value;
+      applyFilterVisibility();
+      clearTimeout(searchDebounce);
+      searchDebounce = setTimeout(function() {
+        performSearch(e.target.value);
+      }, 150);
+    });
+
+    repoFilter.addEventListener('change', function(e) {
+      state.filters.repo = e.target.value;
+      applyFilterVisibility();
+    });
+    kindFilter.addEventListener('change', function(e) {
+      state.filters.kind = e.target.value;
+      applyFilterVisibility();
+    });
+    provenanceFilter.addEventListener('change', function(e) {
+      state.filters.provenance = e.target.value;
+      applyFilterVisibility();
+    });
+    depthSelect.addEventListener('change', function(e) {
+      state.depth = parseInt(e.target.value, 10) || 1;
+      statDepth.textContent = 'depth ' + state.depth;
+      loadInitialGraph();
+    });
+
+    window.addEventListener('resize', function() {
+      if (cy) {
+        cy.resize();
+      }
+    });
+  }
 
   /* Initialization */
   function init() {
-    const w = (canvas.parentElement && canvas.parentElement.clientWidth) || window.innerWidth || 800;
-    const h = (canvas.parentElement && canvas.parentElement.clientHeight) || (window.innerHeight - 48) || 600;
-    canvas.width = w;
-    canvas.height = h;
+    initCytoscape();
     setupEvents();
     loadInitialGraph();
   }

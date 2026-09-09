@@ -7,7 +7,7 @@
 )]
 
 use crate::action::graph::view::assets::{
-    FONT_LICENSE, FONT_WOFF2, INDEX_HTML, VIEWER_CSS, VIEWER_JS,
+    CYTOSCAPE_JS, FONT_LICENSE, FONT_WOFF2, INDEX_HTML, VIEWER_CSS, VIEWER_JS,
 };
 
 #[test]
@@ -21,10 +21,21 @@ fn assets_are_embedded_and_non_empty() {
         "VIEWER_CSS must not be empty"
     );
     assert!(!VIEWER_JS.trim().is_empty(), "VIEWER_JS must not be empty");
+    assert!(
+        !CYTOSCAPE_JS.trim().is_empty(),
+        "CYTOSCAPE_JS must not be empty"
+    );
     assert!(!FONT_WOFF2.is_empty(), "FONT_WOFF2 must not be empty");
     assert!(
         !FONT_LICENSE.trim().is_empty(),
         "FONT_LICENSE must not be empty"
+    );
+
+    // Envelope check for binary/bundle footprint (NFR-BINARY-FOOTPRINT < 500 KB)
+    assert!(
+        CYTOSCAPE_JS.len() < 500_000,
+        "CYTOSCAPE_JS footprint must remain under 500 KB, got {} bytes",
+        CYTOSCAPE_JS.len()
     );
 }
 
@@ -61,6 +72,7 @@ fn assets_contain_no_external_urls_or_remote_dependencies() {
         ("INDEX_HTML", INDEX_HTML),
         ("VIEWER_CSS", VIEWER_CSS),
         ("VIEWER_JS", VIEWER_JS),
+        ("CYTOSCAPE_JS", CYTOSCAPE_JS),
     ] {
         assert!(
             !content.contains("http://")
@@ -92,7 +104,7 @@ fn html_contains_required_dom_structure_and_accessibility_attributes() {
     // Linked local assets
     assert!(INDEX_HTML.contains(r#"href="/viewer.css""#));
     assert!(INDEX_HTML.contains(r#"src="/viewer.js""#));
-
+    assert!(INDEX_HTML.contains(r#"src="/cytoscape.js""#));
     // ARIA landmarks and controls
     assert!(INDEX_HTML.contains(r#"role="banner""#) || INDEX_HTML.contains("<header"));
     assert!(INDEX_HTML.contains(r#"role="main""#) || INDEX_HTML.contains("<main"));
@@ -100,15 +112,17 @@ fn html_contains_required_dom_structure_and_accessibility_attributes() {
     assert!(
         INDEX_HTML.contains(r#"role="status""#) || INDEX_HTML.contains(r#"aria-live="polite""#)
     );
+    assert!(INDEX_HTML.contains(r#"id="cy""#));
     assert!(INDEX_HTML.contains(r#"id="graph-canvas""#));
+    assert!(INDEX_HTML.contains(r#"id="layout-select""#));
     assert!(INDEX_HTML.contains(r#"aria-label="#));
-
     // Key interactive controls
     assert!(INDEX_HTML.contains(r#"id="search-input""#));
     assert!(INDEX_HTML.contains(r#"id="repo-filter""#));
     assert!(INDEX_HTML.contains(r#"id="kind-filter""#));
     assert!(INDEX_HTML.contains(r#"id="provenance-filter""#));
     assert!(INDEX_HTML.contains(r#"id="depth-select""#));
+    assert!(INDEX_HTML.contains(r#"id="trace-btn""#));
     assert!(INDEX_HTML.contains(r#"id="fit-btn""#));
     assert!(INDEX_HTML.contains(r#"id="reset-btn""#));
     assert!(INDEX_HTML.contains(r#"id="expand-btn""#));
@@ -166,5 +180,9 @@ fn js_uses_fixed_api_routes_and_no_continuous_animation() {
         VIEWER_JS.contains("alpha")
             || VIEWER_JS.contains("stepSimulation")
             || VIEWER_JS.contains("settled")
+    );
+    assert!(
+        VIEWER_JS.contains("dijkstra"),
+        "VIEWER_JS must support Dijkstra shortest-path tracing"
     );
 }

@@ -110,7 +110,10 @@ fn test_graph_viewer_server_endpoints_and_security() {
         assert!(resp.contains("X-Content-Type-Options: nosniff"));
         assert!(resp.contains("X-Frame-Options: DENY"));
         assert!(resp.contains("<!DOCTYPE html>"));
-        assert!(resp.contains("<canvas id=\"graph-canvas\""));
+        assert!(resp.contains(r#"id="cy""#) || resp.contains(r#"<div id="cy""#));
+        assert!(resp.contains(r#"src="/cytoscape.js""#));
+        assert!(resp.contains(r#"id="layout-select""#));
+        assert!(resp.contains(r#"id="trace-btn""#));
 
         let req_index = format!(
             "GET /index.html HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n"
@@ -118,9 +121,35 @@ fn test_graph_viewer_server_endpoints_and_security() {
         let resp_index = exchange(&req_index);
         assert!(resp_index.starts_with("HTTP/1.1 200 OK"));
         assert!(resp_index.contains("Content-Type: text/html; charset=utf-8"));
+        assert!(resp_index.contains("Content-Security-Policy: default-src 'self'"));
+        assert!(resp_index.contains("X-Content-Type-Options: nosniff"));
+        assert!(resp_index.contains("X-Frame-Options: DENY"));
+        assert!(resp_index.contains(r#"id="cy""#));
     }
 
-    // 2. Verify GET /app.js and /viewer.js immutable static JS assets
+    // 2. Verify GET /cytoscape.js and /cytoscape.min.js immutable bundled library assets
+    {
+        for path in &["/cytoscape.js", "/cytoscape.min.js"] {
+            let req = format!(
+                "GET {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n"
+            );
+            let resp = exchange(&req);
+            assert!(
+                resp.starts_with("HTTP/1.1 200 OK"),
+                "Expected 200 OK for {path}"
+            );
+            assert!(resp.contains("Content-Type: application/javascript; charset=utf-8"));
+            assert!(resp.contains("Content-Security-Policy: default-src 'self'"));
+            assert!(resp.contains("X-Content-Type-Options: nosniff"));
+            assert!(resp.contains("X-Frame-Options: DENY"));
+            assert!(
+                resp.to_lowercase().contains("cytoscape"),
+                "{path} must contain cytoscape bundle contents"
+            );
+        }
+    }
+
+    // 3. Verify GET /app.js and /viewer.js immutable static JS assets
     {
         for path in &["/app.js", "/viewer.js"] {
             let req = format!(
@@ -134,10 +163,11 @@ fn test_graph_viewer_server_endpoints_and_security() {
             assert!(resp.contains("Content-Type: application/javascript; charset=utf-8"));
             assert!(resp.contains("Content-Security-Policy: default-src 'self'"));
             assert!(resp.contains("X-Content-Type-Options: nosniff"));
+            assert!(resp.contains("X-Frame-Options: DENY"));
         }
     }
 
-    // 3. Verify GET /app.css and /viewer.css static CSS assets
+    // 4. Verify GET /app.css and /viewer.css static CSS assets
     {
         for path in &["/app.css", "/viewer.css"] {
             let req = format!(
@@ -151,10 +181,11 @@ fn test_graph_viewer_server_endpoints_and_security() {
             assert!(resp.contains("Content-Type: text/css; charset=utf-8"));
             assert!(resp.contains("Content-Security-Policy: default-src 'self'"));
             assert!(resp.contains("X-Content-Type-Options: nosniff"));
+            assert!(resp.contains("X-Frame-Options: DENY"));
         }
     }
 
-    // 4. Verify GET /font.woff2 and /fonts/fira-code-400.woff2 binary font assets
+    // 5. Verify GET /font.woff2 and /fonts/fira-code-400.woff2 binary font assets
     {
         for path in &["/font.woff2", "/fonts/fira-code-400.woff2"] {
             let req = format!(
@@ -178,7 +209,7 @@ fn test_graph_viewer_server_endpoints_and_security() {
         }
     }
 
-    // 5. Verify GET /api/subgraph and /api/graph return bounded JSON graph
+    // 6. Verify GET /api/subgraph and /api/graph return bounded JSON graph
     {
         for path in &["/api/subgraph", "/api/graph"] {
             let req = format!(
