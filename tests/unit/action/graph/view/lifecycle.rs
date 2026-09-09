@@ -26,6 +26,7 @@ fn test_prepare_view_session_binds_and_creates_outcome() {
         depth: 2,
         limit: 400,
         no_open: true,
+        port: None,
     };
 
     let session = prepare_view_session(db, input).expect("prepares view session");
