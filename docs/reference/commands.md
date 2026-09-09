@@ -951,6 +951,7 @@ Interactive browser-based codebase graph viewer
 | `--depth` | `<DEPTH>` |  | Maximum neighborhood depth hops (1..=2) |
 | `--limit` | `<LIMIT>` |  | Maximum number of nodes to load initially (1..=500) |
 | `--no-open` |  |  | Start the server without opening the browser automatically |
+| `--port` | `<PORT>` |  | Optional port to listen on (defaults to an ephemeral loopback port) |
 
 
 #### `ivar guard`

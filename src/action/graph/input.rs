@@ -92,4 +92,5 @@ pub struct GraphViewInput {
     pub depth: usize,
     pub limit: usize,
     pub no_open: bool,
+    pub port: Option<u16>,
 }

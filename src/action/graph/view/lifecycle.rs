@@ -50,7 +50,11 @@ pub fn launch_browser(url: &str) -> OpenAttempt {
 }
 
 pub fn prepare_view_session(db: GraphDb, input: GraphViewInput) -> Result<ViewSession, ViewError> {
-    let server = ViewerServer::bind(db, input.seed.clone())?;
+    let bind_addr = match input.port {
+        Some(port) => format!("127.0.0.1:{port}"),
+        None => "127.0.0.1:0".to_owned(),
+    };
+    let server = ViewerServer::bind_loopback(db, input.seed.clone(), &bind_addr)?;
     let url = server.url();
 
     let open = if input.no_open {

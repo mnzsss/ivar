@@ -204,6 +204,9 @@ pub struct GraphViewArgs {
     /// Start the server without opening the browser automatically.
     #[arg(long)]
     pub no_open: bool,
+    /// Optional port to listen on (defaults to an ephemeral loopback port).
+    #[arg(long)]
+    pub port: Option<u16>,
 }
 
 impl From<GraphViewArgs> for crate::action::graph::input::GraphViewInput {
@@ -225,6 +228,7 @@ impl From<GraphViewArgs> for crate::action::graph::input::GraphViewInput {
             depth: args.depth.unwrap_or(1),
             limit: args.limit.unwrap_or(400),
             no_open: args.no_open,
+            port: args.port,
         }
     }
 }
