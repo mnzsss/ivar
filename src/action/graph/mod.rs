@@ -1,4 +1,5 @@
 pub mod affected;
+pub mod clean;
 pub mod compact;
 pub mod complexity;
 pub mod cross_repo;
@@ -24,6 +25,7 @@ use crate::error::{Failure, Outcome, Report};
 use crate::store::graph::db::GraphDb;
 
 pub use affected::{AffectedError, find_affected_tests, is_test_file, parse_files_from_reader};
+pub use clean::clean_cmd;
 pub use compact::ToCompact;
 pub use complexity::{ComplexityError, execute_complexity};
 pub use cross_repo::{CrossRepoLinkOutcome, link_cross_repo_edges};

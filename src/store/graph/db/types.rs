@@ -42,6 +42,24 @@ pub struct FileRow {
     pub indexed_at: i64,
 }
 
+/// Statistics from cleaning a single repository from the graph.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RepoCleanStats {
+    pub repo: String,
+    pub files_removed: usize,
+    pub symbols_removed: usize,
+    pub edges_removed: usize,
+}
+
+/// Statistics from cleaning all data from the graph database.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CleanAllStats {
+    pub repos_removed: usize,
+    pub files_removed: usize,
+    pub symbols_removed: usize,
+    pub edges_removed: usize,
+}
+
 pub(super) fn now_timestamp() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)

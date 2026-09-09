@@ -3,7 +3,7 @@
 use rusqlite::{OptionalExtension, params};
 
 use super::GraphDb;
-use super::types::{FileRow, RepoRow, Result, now_timestamp};
+use super::types::{CleanAllStats, FileRow, RepoCleanStats, RepoRow, Result, now_timestamp};
 
 impl GraphDb {
     /// Inserts or updates repository metadata.
@@ -164,5 +164,66 @@ impl GraphDb {
     /// Alias for deleting all files for a given repository.
     pub fn delete_repo_files(&self, repo: &str) -> Result<()> {
         self.delete_files_for_repo(repo)
+    }
+
+    /// Deletes a repository and all associated files, symbols, and edges (via foreign key cascades).
+    /// Returns the counts of removed items, or None if the repository was not found.
+    pub fn delete_repo(&self, repo: &str) -> Result<Option<RepoCleanStats>> {
+        let exists: bool = self.conn.query_row(
+            "SELECT COUNT(*) > 0 FROM repos WHERE id = ?1",
+            params![repo],
+            |r| r.get(0),
+        )?;
+        if !exists {
+            return Ok(None);
+        }
+
+        let files_count: usize = self.conn.query_row(
+            "SELECT COUNT(*) FROM files WHERE repo = ?1",
+            params![repo],
+            |r| r.get(0),
+        )?;
+        let symbols_count: usize = self.conn.query_row(
+            "SELECT COUNT(*) FROM symbols WHERE repo = ?1",
+            params![repo],
+            |r| r.get(0),
+        )?;
+        let edges_count: usize = self.conn.query_row(
+            "SELECT COUNT(*) FROM edges WHERE repo = ?1",
+            params![repo],
+            |r| r.get(0),
+        )?;
+
+        // Deleting from repos cascades to files, symbols, edges; symbols_ad cleans symbols_fts
+        self.conn.execute("DELETE FROM repos WHERE id = ?1", params![repo])?;
+
+        Ok(Some(RepoCleanStats {
+            repo: repo.to_owned(),
+            files_removed: files_count,
+            symbols_removed: symbols_count,
+            edges_removed: edges_count,
+        }))
+    }
+
+    /// Cleans all data from the graph database (repos, files, symbols, edges).
+    pub fn clean_all(&self) -> Result<CleanAllStats> {
+        let repos_count: usize = self.conn.query_row("SELECT COUNT(*) FROM repos", [], |r| r.get(0))?;
+        let files_count: usize = self.conn.query_row("SELECT COUNT(*) FROM files", [], |r| r.get(0))?;
+        let symbols_count: usize = self.conn.query_row("SELECT COUNT(*) FROM symbols", [], |r| r.get(0))?;
+        let edges_count: usize = self.conn.query_row("SELECT COUNT(*) FROM edges", [], |r| r.get(0))?;
+
+        self.conn.execute_batch(
+            "DELETE FROM repos;
+             DELETE FROM files;
+             DELETE FROM symbols;
+             DELETE FROM edges;"
+        )?;
+
+        Ok(CleanAllStats {
+            repos_removed: repos_count,
+            files_removed: files_count,
+            symbols_removed: symbols_count,
+            edges_removed: edges_count,
+        })
     }
 }

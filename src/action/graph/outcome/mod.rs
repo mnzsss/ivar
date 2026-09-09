@@ -4,8 +4,8 @@ pub mod ops;
 pub mod query;
 
 pub use ops::{
-    AffectedOutcome, ExploreOutcome, GraphViewOutcome, IndexBatchOutcome, McpOutcome, PathOutcome,
-    VizOutcome,
+    AffectedOutcome, CleanOutcome, ExploreOutcome, GraphViewOutcome, IndexBatchOutcome, McpOutcome,
+    PathOutcome, VizOutcome,
 };
 pub use query::{
     CalleesOutcome, CallersOutcome, ComplexityOutcome, DeadCodeOutcome, FileOutcome, FindOutcome,
