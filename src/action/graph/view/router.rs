@@ -74,8 +74,8 @@ impl HttpResponse {
         Self::new(
             404,
             "Not Found",
-            "text/plain; charset=utf-8",
-            b"Not Found".to_vec(),
+            "text/html; charset=utf-8",
+            b"<!DOCTYPE html><html lang=\"en\"><head><meta charset=\"utf-8\"><title>404 Not Found</title></head><body><main><h1>404 Not Found</h1><p>The requested resource does not exist.</p><p><a href=\"/\">Return to Graph Viewer</a></p></main></body></html>".to_vec(),
         )
     }
 
@@ -272,6 +272,18 @@ pub fn route_request(req: &HttpRequest, db: &GraphDb, seed: &ViewSeed) -> HttpRe
 
     match req.path.as_str() {
         "/" | "/index.html" => HttpResponse::ok_html(super::assets::INDEX_HTML.as_bytes().to_vec()),
+        "/robots.txt" => HttpResponse::new(
+            200,
+            "OK",
+            "text/plain; charset=utf-8",
+            b"User-agent: *\nDisallow: /\n".to_vec(),
+        ),
+        "/favicon.svg" | "/favicon.ico" => HttpResponse::new(
+            200,
+            "OK",
+            "image/svg+xml",
+            br##"<svg viewBox="0 0 32 32"><circle cx="16" cy="16" r="14" fill="#151515" stroke="#f2ebdd" stroke-width="2"/><circle cx="10" cy="12" r="3" fill="#00d8b4"/><circle cx="22" cy="12" r="3" fill="#ff79c6"/><circle cx="16" cy="22" r="3" fill="#bd93f9"/><line x1="10" y1="12" x2="16" y2="22" stroke="#6272a4" stroke-width="1.5"/><line x1="22" y1="12" x2="16" y2="22" stroke="#6272a4" stroke-width="1.5"/></svg>"##.to_vec(),
+        ),
         "/app.js" | "/viewer.js" => {
             HttpResponse::ok_js(super::assets::VIEWER_JS.as_bytes().to_vec())
         }

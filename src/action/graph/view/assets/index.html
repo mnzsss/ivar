@@ -3,15 +3,25 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ivar graph view</title>
+  <title>ivar graph view — Codebase Architecture Visualizer</title>
+  <meta name="description" content="Interactive codebase dependency, architecture, and call graph visualizer for ivar orchestration halls. Fast AST analysis with zero external dependencies.">
+  <meta name="robots" content="noindex, nofollow">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="ivar">
+  <meta property="og:title" content="ivar graph view — Codebase Architecture Visualizer">
+  <meta property="og:description" content="Interactive codebase dependency, architecture, and call graph visualizer for ivar orchestration halls. Fast AST analysis with zero external dependencies.">
+  <meta property="og:url" content="/">
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="ivar graph view — Codebase Architecture Visualizer">
+  <meta name="twitter:description" content="Interactive codebase dependency, architecture, and call graph visualizer for ivar orchestration halls. Fast AST analysis with zero external dependencies.">
   <link rel="stylesheet" href="/viewer.css">
   <script src="/cytoscape.js"></script>
 </head>
 <body>
   <header role="banner" class="topbar">
     <div class="brand">
-      <span class="logo">ivar</span>
-      <span class="view-tag">graph view</span>
+      <h1 class="logo">ivar <span class="view-tag">graph view</span></h1>
     </div>
     <div class="search-box">
       <label for="search-input" class="sr-only">Search symbols or files</label>
@@ -48,6 +58,7 @@
   </header>
 
   <main role="main" class="layout-container">
+    <p class="sr-only">Interactive codebase architecture, call graph, and dependency visualizer with fast AST extraction, blast radius analysis, and shortest path tracing.</p>
     <div class="canvas-wrapper">
       <div id="cy" role="region" aria-label="Interactive codebase dependency and call graph"></div>
       <canvas id="graph-canvas" tabindex="0" role="img" aria-label="Interactive codebase dependency and call graph" hidden></canvas>

@@ -74,6 +74,10 @@ body {
   font-weight: 700;
   color: var(--graph-ink);
   letter-spacing: -0.5px;
+  margin: 0;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
 }
 
 .view-tag {
