@@ -284,13 +284,14 @@ pub fn find_affected_tests_with_root(
         }
     }
 
-    let mut recommendations_map: BTreeMap<String, AffectedRecommendation> = BTreeMap::new();
+    let mut recommendations_map: BTreeMap<(String, String), AffectedRecommendation> =
+        BTreeMap::new();
     let mut affected_tests_set = HashSet::new();
 
     // Direct test changes: if a test file itself changed, it is directly affected
     for tf in &target_files {
         if is_test_file(&tf.path) {
-            affected_tests_set.insert(tf.path.clone());
+            affected_tests_set.insert((tf.repo.clone(), tf.path.clone()));
             let cmd = derive_test_command(hall_root, &tf.repo, &tf.path);
             let rec = AffectedRecommendation {
                 repo: tf.repo.clone(),
@@ -304,7 +305,7 @@ pub fn find_affected_tests_with_root(
                 reason: "direct change to test file".to_owned(),
                 command: cmd,
             };
-            recommendations_map.insert(tf.path.clone(), rec);
+            recommendations_map.insert((tf.repo.clone(), tf.path.clone()), rec);
         }
     }
 
@@ -418,8 +419,7 @@ pub fn find_affected_tests_with_root(
                     let hops = next_path.len();
 
                     if is_test_file(&edge.from_path) {
-                        affected_tests_set.insert(edge.from_path.clone());
-
+                        affected_tests_set.insert((edge.from_repo.clone(), edge.from_path.clone()));
                         let Some(primary_step) = next_path.first() else {
                             continue;
                         };
@@ -456,7 +456,8 @@ pub fn find_affected_tests_with_root(
                         // 1. Shorter hop_count wins
                         // 2. Higher confidence wins
                         // 3. Lexicographical tie-breaker
-                        let should_replace = match recommendations_map.get(&edge.from_path) {
+                        let key = (edge.from_repo.clone(), edge.from_path.clone());
+                        let should_replace = match recommendations_map.get(&key) {
                             None => true,
                             Some(existing) => {
                                 if existing.direct_change {
@@ -480,7 +481,7 @@ pub fn find_affected_tests_with_root(
                         };
 
                         if should_replace {
-                            recommendations_map.insert(edge.from_path.clone(), candidate);
+                            recommendations_map.insert(key, candidate);
                         }
                     }
 
@@ -498,13 +499,21 @@ pub fn find_affected_tests_with_root(
         }
     }
 
-    let mut affected_test_files: Vec<String> = affected_tests_set.into_iter().collect();
+    let mut affected_test_files: Vec<String> = affected_tests_set
+        .into_iter()
+        .map(|(_repo, path)| path)
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect();
     affected_test_files.sort();
 
     let mut recommendations: Vec<AffectedRecommendation> =
         recommendations_map.into_values().collect();
-    recommendations.sort_by(|a, b| a.test_file.cmp(&b.test_file));
-
+    recommendations.sort_by(|a, b| {
+        a.test_file
+            .cmp(&b.test_file)
+            .then_with(|| a.repo.cmp(&b.repo))
+    });
     Ok(AffectedResult {
         changed_files: normalized_changed,
         affected_test_files,

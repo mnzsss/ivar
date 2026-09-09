@@ -258,3 +258,57 @@ fn test_execute_viz_writes_file_to_disk() {
     assert!(content.contains("Server"));
     assert!(content.contains("<!DOCTYPE html>"));
 }
+
+#[test]
+fn test_generate_html_parallel_edges_have_unique_ids() {
+    let data = VizData {
+        nodes: vec![
+            VizNode {
+                id: 1,
+                name: "Caller".to_owned(),
+                kind: "fn".to_owned(),
+                file: "src/lib.rs".to_owned(),
+                repo: "repo_1".to_owned(),
+                line: 10,
+                complexity: None,
+                is_exported: true,
+            },
+            VizNode {
+                id: 2,
+                name: "Callee".to_owned(),
+                kind: "fn".to_owned(),
+                file: "src/lib.rs".to_owned(),
+                repo: "repo_1".to_owned(),
+                line: 20,
+                complexity: None,
+                is_exported: true,
+            },
+        ],
+        edges: vec![
+            VizEdge {
+                from: 1,
+                to: 2,
+                kind: "calls".to_owned(),
+            },
+            VizEdge {
+                from: 1,
+                to: 2,
+                kind: "calls".to_owned(),
+            },
+        ],
+    };
+
+    let html = generate_html(&data).expect("generate html");
+    assert!(
+        html.contains(r#""id": "e:1-\u003e2:0""#)
+            || html.contains(r#""id":"e:1-\u003e2:0""#)
+            || html.contains(r#""id": "e:1->2:0""#)
+            || html.contains(r#""id":"e:1->2:0""#)
+    );
+    assert!(
+        html.contains(r#""id": "e:1-\u003e2:1""#)
+            || html.contains(r#""id":"e:1-\u003e2:1""#)
+            || html.contains(r#""id": "e:1->2:1""#)
+            || html.contains(r#""id":"e:1->2:1""#)
+    );
+}

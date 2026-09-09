@@ -117,7 +117,8 @@ pub fn index_repo(
             && files_to_delete.is_empty()
             && !matches!(&head_commit, Some(h) if last_indexed.as_deref() == Some(h)))
     {
-        db.delete_repo_files(repo_id)?;
+        files_to_index.clear();
+        files_to_delete.clear();
         let mut seen = HashSet::new();
 
         for entry in walkdir::WalkDir::new(repo_path)
@@ -138,11 +139,15 @@ pub fn index_repo(
                 }
             }
         }
+
+        let existing_files = db.get_files_for_repo(repo_id)?;
+        for existing in existing_files {
+            if !seen.contains(&existing.path) {
+                files_to_delete.push(existing.path);
+            }
+        }
     }
     let num_files_deleted = files_to_delete.len();
-    for del in &files_to_delete {
-        db.delete_file_cascade(repo_id, del)?;
-    }
 
     let total_to_index = files_to_index.len();
     let mut num_files_indexed = 0;
@@ -192,7 +197,8 @@ pub fn index_repo(
 
             let content_hash = hash::text(&content);
 
-            if let Some(existing_file) = db.get_file(repo_id, rel_path_str)?
+            if !force_full
+                && let Some(existing_file) = db.get_file(repo_id, rel_path_str)?
                 && existing_file.content_hash == content_hash
             {
                 continue;
@@ -217,6 +223,9 @@ pub fn index_repo(
             num_symbols_indexed += sym_count;
             num_edges_indexed += edge_count;
             num_files_indexed += 1;
+        }
+        for del in &files_to_delete {
+            db.delete_file_cascade(repo_id, del)?;
         }
         Ok(())
     })();

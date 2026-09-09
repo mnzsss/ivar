@@ -190,10 +190,10 @@ pub fn generate_html(data: &VizData) -> Result<String, VizError> {
     }
 
     // 4. Edges
-    for edge in &data.edges {
+    for (idx, edge) in data.edges.iter().enumerate() {
         elements.push(serde_json::json!({
             "data": {
-                "id": format!("e:{}->{}", edge.from, edge.to),
+                "id": format!("e:{}->{}:{}", edge.from, edge.to, idx),
                 "source": format!("sym:{}", edge.from),
                 "target": format!("sym:{}", edge.to),
                 "kind": edge.kind
