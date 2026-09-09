@@ -44,17 +44,28 @@ fn test_generate_html_structure_and_no_external_links() {
     let html = generate_html(&data).expect("generate html");
 
     assert!(html.contains("<!DOCTYPE html>"));
-    assert!(html.contains("<canvas id=\"graph-canvas\"></canvas>"));
+    assert!(html.contains("<div id=\"cy\"></div>") || html.contains("id=\"cy\""));
     assert!(html.contains("<style>"));
     assert!(html.contains("<script>"));
-    assert!(html.contains("const GRAPH_DATA ="));
-    assert!(html.contains("\"name\":\"Foo\""));
-    assert!(html.contains("\"name\":\"bar\""));
-    assert!(html.contains("\"kind\":\"calls\""));
+    assert!(html.contains("cytoscape("));
+    assert!(html.contains("const ELEMENTS ="));
+    assert!(html.contains(r#""id": "repo:test_repo""#) || html.contains(r#""id":"repo:test_repo""#));
+    assert!(html.contains(r#""id": "file:test_repo:src/foo.rs""#) || html.contains(r#""id":"file:test_repo:src/foo.rs""#));
+    assert!(html.contains(r#""parent": "repo:test_repo""#) || html.contains(r#""parent":"repo:test_repo""#));
+    assert!(html.contains(r#""parent": "file:test_repo:src/foo.rs""#) || html.contains(r#""parent":"file:test_repo:src/foo.rs""#));
+    assert!(html.contains(r#""id": "sym:1""#) || html.contains(r#""id":"sym:1""#));
+    assert!(html.contains(r#""id": "sym:2""#) || html.contains(r#""id":"sym:2""#));
+    assert!(html.contains(r#""id": "e:1-\u003e2""#) || html.contains(r#""id":"e:1-\u003e2""#) || html.contains("e:1"));
+    assert!(html.contains(r#""label": "Foo""#) || html.contains(r#""label":"Foo""#));
+    assert!(html.contains(r#""label": "bar""#) || html.contains(r#""label":"bar""#));
+    assert!(html.contains(r#""kind": "calls""#) || html.contains(r#""kind":"calls""#));
 
     // Verify generated HTML contains zero external network requests
     assert!(!html.contains("http://"), "HTML must not contain http://");
     assert!(!html.contains("https://"), "HTML must not contain https://");
+    assert!(!html.contains("//unpkg.com"), "HTML must not contain unpkg");
+    assert!(!html.contains("//cdnjs"), "HTML must not contain cdnjs");
+    assert!(!html.contains("//cdn.jsdelivr.net"), "HTML must not contain jsdelivr");
 }
 
 #[test]

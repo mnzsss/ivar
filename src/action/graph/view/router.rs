@@ -275,6 +275,9 @@ pub fn route_request(req: &HttpRequest, db: &GraphDb, seed: &ViewSeed) -> HttpRe
         "/app.js" | "/viewer.js" => {
             HttpResponse::ok_js(super::assets::VIEWER_JS.as_bytes().to_vec())
         }
+        "/cytoscape.js" | "/cytoscape.min.js" => {
+            HttpResponse::ok_js(super::assets::CYTOSCAPE_JS.as_bytes().to_vec())
+        }
         "/app.css" | "/viewer.css" => {
             HttpResponse::ok_css(super::assets::VIEWER_CSS.as_bytes().to_vec())
         }

@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ivar graph view</title>
   <link rel="stylesheet" href="/viewer.css">
+  <script src="/cytoscape.js"></script>
 </head>
 <body>
   <header role="banner" class="topbar">
@@ -38,12 +39,18 @@
         <option value="1">Depth 1</option>
         <option value="2">Depth 2</option>
       </select>
+      <label for="layout-select" class="sr-only">Layout engine</label>
+      <select id="layout-select" aria-label="Layout engine">
+        <option value="dagre">Hierarchical (Dagre)</option>
+        <option value="cose">Architectural (CoSE)</option>
+      </select>
     </div>
   </header>
 
   <main role="main" class="layout-container">
     <div class="canvas-wrapper">
-      <canvas id="graph-canvas" tabindex="0" role="img" aria-label="Interactive codebase dependency and call graph"></canvas>
+      <div id="cy" role="region" aria-label="Interactive codebase dependency and call graph"></div>
+      <canvas id="graph-canvas" tabindex="0" role="img" aria-label="Interactive codebase dependency and call graph" hidden></canvas>
       <div id="status-bar" role="status" aria-live="polite" class="status-bar">
         <span id="stat-nodes">0 nodes</span>
         <span class="divider">/</span>
@@ -51,6 +58,7 @@
         <span class="divider">/</span>
         <span id="stat-depth">depth 1</span>
         <div class="action-buttons">
+          <button type="button" id="trace-btn" aria-label="Toggle shortest path tracing mode">Trace Path</button>
           <button type="button" id="fit-btn" aria-label="Fit graph to view">Fit</button>
           <button type="button" id="reset-btn" aria-label="Reset zoom and layout">Reset</button>
         </div>

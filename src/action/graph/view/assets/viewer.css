@@ -141,10 +141,16 @@ select, button {
   border-radius: 4px;
   cursor: pointer;
 }
-
 button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+button.active {
+  background: var(--graph-structure);
+  color: var(--graph-ground);
+  font-weight: 600;
+  border-color: var(--graph-structure);
 }
 
 /* Main Layout */
@@ -157,21 +163,27 @@ button:disabled {
 
 .canvas-wrapper {
   flex: 1;
+  min-width: 0;
   position: relative;
-  display: flex;
   height: 100%;
+  overflow: hidden;
 }
 
-canvas {
+#cy {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
   width: 100%;
   height: 100%;
   display: block;
   background: var(--graph-ground);
-  cursor: grab;
+  outline: none;
 }
 
-canvas:active {
-  cursor: grabbing;
+#cy canvas {
+  background: transparent !important;
 }
 
 .status-bar {
@@ -233,6 +245,18 @@ canvas:active {
 .edge-solid { background: var(--graph-ink-muted); }
 .edge-dashed { background: repeating-linear-gradient(90deg, var(--graph-functional), var(--graph-functional) 3px, transparent 3px, transparent 6px); }
 
+/* Graph Element Highlight / Dim / Path Classes */
+.dimmed {
+  opacity: 0.15;
+}
+
+.highlighted {
+  opacity: 1.0;
+}
+
+.path-highlight {
+  opacity: 1.0;
+}
 /* Sidebar */
 .sidebar {
   width: 360px;
