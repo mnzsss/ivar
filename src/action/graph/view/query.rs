@@ -29,7 +29,17 @@ pub fn collect_subgraph(
     }
 
     let conn = db.conn();
-    let seed_nodes = resolve_seed_nodes(conn, seed, limit)?;
+    let seed_limit = match seed {
+        ViewSeed::Default | ViewSeed::Repo(_) => {
+            if depth > 0 {
+                (limit / 4).clamp(10, 80).min(limit)
+            } else {
+                limit
+            }
+        }
+        _ => limit,
+    };
+    let seed_nodes = resolve_seed_nodes(conn, seed, seed_limit)?;
     if seed_nodes.is_empty() {
         return Ok(ViewerGraph {
             nodes: Vec::new(),
@@ -199,7 +209,9 @@ fn resolve_seed_nodes(
                         s.is_exported, s.complexity, f.path
                  FROM symbols s
                  JOIN files f ON s.file_id = f.id
-                 ORDER BY s.is_exported DESC, s.id ASC
+                 LEFT JOIN edges e ON (e.from_symbol_id = s.id OR e.to_symbol_id = s.id)
+                 GROUP BY s.id
+                 ORDER BY count(e.id) DESC, s.is_exported DESC, s.id ASC
                  LIMIT ?1",
             )?;
             let rows = stmt.query_map(params![limit as i64], map_node_row)?;
@@ -216,8 +228,10 @@ fn resolve_seed_nodes(
                         s.is_exported, s.complexity, f.path
                  FROM symbols s
                  JOIN files f ON s.file_id = f.id
+                 LEFT JOIN edges e ON (e.from_symbol_id = s.id OR e.to_symbol_id = s.id)
                  WHERE s.repo = ?1
-                 ORDER BY s.is_exported DESC, s.id ASC
+                 GROUP BY s.id
+                 ORDER BY count(e.id) DESC, s.is_exported DESC, s.id ASC
                  LIMIT ?2",
             )?;
             let rows = stmt.query_map(params![repo, limit as i64], map_node_row)?;
