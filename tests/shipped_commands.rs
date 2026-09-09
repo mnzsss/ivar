@@ -375,6 +375,39 @@ fn shipped_ivar_execute_skill_documents_lifecycle_guarantees() {
     );
 }
 
+/// Shipped skill `ivar-execute` aligns with the execution run receipt lifecycle
+/// and completion branching: starting the run in preparation, finishing before
+/// completion, and branching to integrate for subfeatures or deliver for root features.
+#[test]
+fn ivar_execute_skill_contains_execute_start_and_finish_commands() {
+    let skill_path = format!(
+        "{}/src/harness/skills/ivar-execute/SKILL.md",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let content = std::fs::read_to_string(skill_path).unwrap();
+
+    assert!(
+        content.contains("ivar feature execute start"),
+        "skill must document starting the run receipt during preparation"
+    );
+    assert!(
+        content.contains("ivar feature execute finish"),
+        "skill must document finishing the run receipt before integration/delivery"
+    );
+    assert!(
+        content.contains("ivar feature integrate"),
+        "skill must document integrating subfeatures upon completion"
+    );
+    assert!(
+        content.contains("ivar feature deliver"),
+        "skill must document delivering root features upon completion"
+    );
+    assert!(
+        content.contains("is_subfeature"),
+        "skill must document branching on subfeature status"
+    );
+}
+
 /// A fingerprint-matching legacy `plan.md` is removed by sync; a customised
 /// one survives and appears in `ivar doctor`.
 #[test]
