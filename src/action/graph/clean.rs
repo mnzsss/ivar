@@ -37,7 +37,10 @@ pub fn clean_cmd(ctx: &Ctx, args: CleanInput) -> Outcome<CleanOutcome> {
             edges_removed: stats.edges_removed,
             message: format!(
                 "Successfully cleaned entire graph database ({} repos, {} files, {} symbols, {} edges removed).",
-                stats.repos_removed, stats.files_removed, stats.symbols_removed, stats.edges_removed
+                stats.repos_removed,
+                stats.files_removed,
+                stats.symbols_removed,
+                stats.edges_removed
             ),
         }))
     } else if let Some(repo) = args.repo {

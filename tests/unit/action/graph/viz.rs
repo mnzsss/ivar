@@ -49,13 +49,28 @@ fn test_generate_html_structure_and_no_external_links() {
     assert!(html.contains("<script>"));
     assert!(html.contains("cytoscape("));
     assert!(html.contains("const ELEMENTS ="));
-    assert!(html.contains(r#""id": "repo:test_repo""#) || html.contains(r#""id":"repo:test_repo""#));
-    assert!(html.contains(r#""id": "file:test_repo:src/foo.rs""#) || html.contains(r#""id":"file:test_repo:src/foo.rs""#));
-    assert!(html.contains(r#""parent": "repo:test_repo""#) || html.contains(r#""parent":"repo:test_repo""#));
-    assert!(html.contains(r#""parent": "file:test_repo:src/foo.rs""#) || html.contains(r#""parent":"file:test_repo:src/foo.rs""#));
+    assert!(
+        html.contains(r#""id": "repo:test_repo""#) || html.contains(r#""id":"repo:test_repo""#)
+    );
+    assert!(
+        html.contains(r#""id": "file:test_repo:src/foo.rs""#)
+            || html.contains(r#""id":"file:test_repo:src/foo.rs""#)
+    );
+    assert!(
+        html.contains(r#""parent": "repo:test_repo""#)
+            || html.contains(r#""parent":"repo:test_repo""#)
+    );
+    assert!(
+        html.contains(r#""parent": "file:test_repo:src/foo.rs""#)
+            || html.contains(r#""parent":"file:test_repo:src/foo.rs""#)
+    );
     assert!(html.contains(r#""id": "sym:1""#) || html.contains(r#""id":"sym:1""#));
     assert!(html.contains(r#""id": "sym:2""#) || html.contains(r#""id":"sym:2""#));
-    assert!(html.contains(r#""id": "e:1-\u003e2""#) || html.contains(r#""id":"e:1-\u003e2""#) || html.contains("e:1"));
+    assert!(
+        html.contains(r#""id": "e:1-\u003e2""#)
+            || html.contains(r#""id":"e:1-\u003e2""#)
+            || html.contains("e:1")
+    );
     assert!(html.contains(r#""label": "Foo""#) || html.contains(r#""label":"Foo""#));
     assert!(html.contains(r#""label": "bar""#) || html.contains(r#""label":"bar""#));
     assert!(html.contains(r#""kind": "calls""#) || html.contains(r#""kind":"calls""#));
@@ -65,7 +80,10 @@ fn test_generate_html_structure_and_no_external_links() {
     assert!(!html.contains("https://"), "HTML must not contain https://");
     assert!(!html.contains("//unpkg.com"), "HTML must not contain unpkg");
     assert!(!html.contains("//cdnjs"), "HTML must not contain cdnjs");
-    assert!(!html.contains("//cdn.jsdelivr.net"), "HTML must not contain jsdelivr");
+    assert!(
+        !html.contains("//cdn.jsdelivr.net"),
+        "HTML must not contain jsdelivr"
+    );
 }
 
 #[test]

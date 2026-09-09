@@ -575,7 +575,6 @@ const ELEMENTS = {json_elements};
     Ok(html)
 }
 
-
 /// Collects data from `db`, generates the standalone HTML visualizer, and writes it to `output_path`.
 /// Returns the collected `VizData` and the canonicalized (or resolved) path to the written file.
 pub fn execute_viz(
