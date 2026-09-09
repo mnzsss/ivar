@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 /// The kind of a code symbol.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(into = "String", from = "String")]
 pub enum SymbolKind {
     Fn,
     Method,
@@ -19,6 +19,76 @@ pub enum SymbolKind {
     Mod,
     Const,
     Other(String),
+}
+
+impl SymbolKind {
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::Fn => "fn",
+            Self::Method => "method",
+            Self::Struct => "struct",
+            Self::Class => "class",
+            Self::Trait => "trait",
+            Self::Interface => "interface",
+            Self::Enum => "enum",
+            Self::Mod => "mod",
+            Self::Const => "const",
+            Self::Other(s) => s.as_str(),
+        }
+    }
+}
+
+impl std::fmt::Display for SymbolKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
+}
+
+impl From<SymbolKind> for String {
+    fn from(k: SymbolKind) -> Self {
+        k.as_str().to_owned()
+    }
+}
+
+impl From<&SymbolKind> for String {
+    fn from(k: &SymbolKind) -> Self {
+        k.as_str().to_owned()
+    }
+}
+
+impl From<String> for SymbolKind {
+    fn from(s: String) -> Self {
+        match s.to_ascii_lowercase().as_str() {
+            "fn" => Self::Fn,
+            "method" => Self::Method,
+            "struct" => Self::Struct,
+            "class" => Self::Class,
+            "trait" => Self::Trait,
+            "interface" => Self::Interface,
+            "enum" => Self::Enum,
+            "mod" => Self::Mod,
+            "const" => Self::Const,
+            _ => Self::Other(s),
+        }
+    }
+}
+
+impl From<&str> for SymbolKind {
+    fn from(s: &str) -> Self {
+        match s.to_ascii_lowercase().as_str() {
+            "fn" => Self::Fn,
+            "method" => Self::Method,
+            "struct" => Self::Struct,
+            "class" => Self::Class,
+            "trait" => Self::Trait,
+            "interface" => Self::Interface,
+            "enum" => Self::Enum,
+            "mod" => Self::Mod,
+            "const" => Self::Const,
+            _ => Self::Other(s.to_owned()),
+        }
+    }
 }
 
 /// A source code span.
@@ -60,7 +130,7 @@ pub struct Symbol {
 
 /// The kind of relationship between symbols or code units.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(into = "String", from = "String")]
 pub enum EdgeKind {
     Calls,
     Imports,
@@ -70,6 +140,70 @@ pub enum EdgeKind {
     CrossExecutes,
     CrossCallsHttp,
     Other(String),
+}
+
+impl EdgeKind {
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::Calls => "calls",
+            Self::Imports => "imports",
+            Self::Implements => "implements",
+            Self::Inherits => "inherits",
+            Self::CrossImports => "cross_imports",
+            Self::CrossExecutes => "cross_executes",
+            Self::CrossCallsHttp => "cross_calls_http",
+            Self::Other(s) => s.as_str(),
+        }
+    }
+}
+
+impl std::fmt::Display for EdgeKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
+}
+
+impl From<EdgeKind> for String {
+    fn from(k: EdgeKind) -> Self {
+        k.as_str().to_owned()
+    }
+}
+
+impl From<&EdgeKind> for String {
+    fn from(k: &EdgeKind) -> Self {
+        k.as_str().to_owned()
+    }
+}
+
+impl From<String> for EdgeKind {
+    fn from(s: String) -> Self {
+        match s.to_ascii_lowercase().as_str() {
+            "calls" => Self::Calls,
+            "imports" => Self::Imports,
+            "implements" => Self::Implements,
+            "inherits" => Self::Inherits,
+            "cross_imports" => Self::CrossImports,
+            "cross_executes" => Self::CrossExecutes,
+            "cross_calls_http" => Self::CrossCallsHttp,
+            _ => Self::Other(s),
+        }
+    }
+}
+
+impl From<&str> for EdgeKind {
+    fn from(s: &str) -> Self {
+        match s.to_ascii_lowercase().as_str() {
+            "calls" => Self::Calls,
+            "imports" => Self::Imports,
+            "implements" => Self::Implements,
+            "inherits" => Self::Inherits,
+            "cross_imports" => Self::CrossImports,
+            "cross_executes" => Self::CrossExecutes,
+            "cross_calls_http" => Self::CrossCallsHttp,
+            _ => Self::Other(s.to_owned()),
+        }
+    }
 }
 
 /// How a relationship/edge was discovered or inferred.

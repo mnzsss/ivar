@@ -36,6 +36,13 @@ fn test_symbol_kinds_and_construction() {
         assert!(sym.is_exported);
         assert_eq!(sym.span.start_line, 10);
         assert_eq!(sym.span.end_line, 20);
+        let json = serde_json::to_string(&sym.kind).expect("serialize kind");
+        assert!(
+            json.starts_with('"') && json.ends_with('"'),
+            "Kind must serialize as string: {json}"
+        );
+        let deserialized_kind: SymbolKind = serde_json::from_str(&json).expect("deserialize kind");
+        assert_eq!(deserialized_kind, sym.kind);
     }
 }
 
@@ -76,6 +83,14 @@ fn test_edge_kinds_provenance_and_construction() {
             assert_eq!(edge.kind, kind);
             assert_eq!(edge.provenance, prov);
             assert!((edge.confidence - 0.95).abs() < f64::EPSILON);
+            let json = serde_json::to_string(&edge.kind).expect("serialize edge kind");
+            assert!(
+                json.starts_with('"') && json.ends_with('"'),
+                "Edge kind must serialize as string: {json}"
+            );
+            let deserialized_edge_kind: EdgeKind =
+                serde_json::from_str(&json).expect("deserialize edge kind");
+            assert_eq!(deserialized_edge_kind, edge.kind);
         }
     }
 }
