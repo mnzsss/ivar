@@ -195,7 +195,8 @@ impl GraphDb {
         )?;
 
         // Deleting from repos cascades to files, symbols, edges; symbols_ad cleans symbols_fts
-        self.conn.execute("DELETE FROM repos WHERE id = ?1", params![repo])?;
+        self.conn
+            .execute("DELETE FROM repos WHERE id = ?1", params![repo])?;
 
         Ok(Some(RepoCleanStats {
             repo: repo.to_owned(),
@@ -207,16 +208,24 @@ impl GraphDb {
 
     /// Cleans all data from the graph database (repos, files, symbols, edges).
     pub fn clean_all(&self) -> Result<CleanAllStats> {
-        let repos_count: usize = self.conn.query_row("SELECT COUNT(*) FROM repos", [], |r| r.get(0))?;
-        let files_count: usize = self.conn.query_row("SELECT COUNT(*) FROM files", [], |r| r.get(0))?;
-        let symbols_count: usize = self.conn.query_row("SELECT COUNT(*) FROM symbols", [], |r| r.get(0))?;
-        let edges_count: usize = self.conn.query_row("SELECT COUNT(*) FROM edges", [], |r| r.get(0))?;
+        let repos_count: usize = self
+            .conn
+            .query_row("SELECT COUNT(*) FROM repos", [], |r| r.get(0))?;
+        let files_count: usize = self
+            .conn
+            .query_row("SELECT COUNT(*) FROM files", [], |r| r.get(0))?;
+        let symbols_count: usize =
+            self.conn
+                .query_row("SELECT COUNT(*) FROM symbols", [], |r| r.get(0))?;
+        let edges_count: usize = self
+            .conn
+            .query_row("SELECT COUNT(*) FROM edges", [], |r| r.get(0))?;
 
         self.conn.execute_batch(
             "DELETE FROM repos;
              DELETE FROM files;
              DELETE FROM symbols;
-             DELETE FROM edges;"
+             DELETE FROM edges;",
         )?;
 
         Ok(CleanAllStats {

@@ -1,6 +1,11 @@
 //! Unit tests for graph clean action.
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing
+)]
 
 use camino::Utf8PathBuf;
 use tempfile::tempdir;
@@ -21,7 +26,9 @@ fn populate_hall_with_graph(hall_root: &std::path::Path) -> GraphDb {
 
     // Insert files
     let f1 = db.upsert_file("repo1", "src/lib.rs", "h1", 1, 100).unwrap();
-    let f2 = db.upsert_file("repo2", "src/main.rs", "h2", 2, 200).unwrap();
+    let f2 = db
+        .upsert_file("repo2", "src/main.rs", "h2", 2, 200)
+        .unwrap();
 
     // Insert symbols
     let s1 = db
