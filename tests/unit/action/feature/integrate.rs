@@ -17,11 +17,10 @@ use crate::action::feature::promote::{self, PromoteInput};
 use crate::action::hall::{self, InitInput};
 use crate::action::plan::approve as plan_approve;
 use crate::action::plan::create as plan_create;
-use crate::domain::feature::{Feature, WorktreeState};
-use crate::domain::name::{BranchName, HallName, RepoName};
+use crate::domain::feature::{Feature, RunBaseline, RunId, RunReceipt, WorktreeState};
+use crate::domain::name::{BranchName, HallName, RepoName, SessionId};
 use crate::domain::provider::Provider;
 use crate::error::Status;
-use crate::store::layout::Layout;
 use crate::store::manifest::{Manifest, Providers, Repo};
 use crate::test_support::{git, hall_root, seeded_repo};
 
@@ -585,6 +584,44 @@ fn a_live_session_blocks_the_first_successful_receipt() {
         .unwrap()
         .unwrap();
     assert!(child.promotions[&api()].integration_receipt.is_none());
+}
+
+#[test]
+fn an_active_run_receipt_blocks_integration_and_preserves_parent_state() {
+    let (_guard, root) = seeded_child_hall(&["true"]);
+    let ctx = Ctx::new(root.clone());
+    let layout = Layout::at(&root);
+    let child = FeatureName::new("child").unwrap();
+
+    let parent_before = crate::git::System
+        .revision_commit(&layout.repo_bare(&api()), "parent")
+        .unwrap();
+
+    RunReceipt::start(
+        RunId::new("00000000-0000-0000-0000-000000000001").unwrap(),
+        child.clone(),
+        "plans/child/plan.md",
+        "fingerprint",
+        RunBaseline::default(),
+        SessionId::new("00000000-0000-0000-0000-000000000002").unwrap(),
+        Provider::ClaudeCode,
+        "2026-01-01T00:00:00Z",
+    )
+    .write(&layout)
+    .unwrap();
+
+    let failure = integrate(&ctx, integrate_input("child")).unwrap_err();
+    assert_eq!(failure.code, "integration.run_active");
+
+    let child_feature = Feature::read(&layout, &child).unwrap().unwrap();
+    assert!(child_feature.promotions[&api()].integration_receipt.is_none());
+    assert_eq!(
+        crate::git::System
+            .revision_commit(&layout.repo_bare(&api()), "parent")
+            .unwrap(),
+        parent_before,
+        "parent branch must remain untouched when run receipt holds lock"
+    );
 }
 
 // -- partial multi-repo resume ------------------------------------------------
