@@ -1776,6 +1776,7 @@ fn preflight_pr_check_only_runs_when_branch_is_published() {
         crate::domain::feature::Promotion {
             worktree: crate::domain::feature::WorktreeState::Ready,
             base: Some(BranchName::new("main").unwrap()),
+            pr_url: None,
             integration_receipt: None,
         },
     );

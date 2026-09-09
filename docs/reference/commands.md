@@ -338,6 +338,15 @@ Accept an approved plan revision for a diverged run
 | `--plan` | `<PLAN>` |  |  |
 
 
+###### `ivar feature execute interrupt`
+
+Abandon an active or blocked run, transitioning it to interrupted
+
+| argument | required | description |
+| --- | --- | --- |
+| `feature` | no |  |
+
+
 ##### `ivar feature deliver`
 
 Preview, then push, a feature's promoted repos. `--preview` prints the side-effect-free summary (with its fingerprint) and pushes nothing; applying with `--fingerprint` is refused if the state has drifted

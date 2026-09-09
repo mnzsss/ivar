@@ -6,15 +6,16 @@ use std::io;
 use camino::Utf8PathBuf;
 use serde::Serialize;
 
-use crate::domain::feature::{Feature, WorktreeState, effective_base};
-use crate::domain::name::{BranchName, FeatureName, RepoName};
-use crate::error::{Failure, FixAction, Outcome, Report, WriteHuman};
-use crate::git::{self, Git, TargetState};
-
 use super::super::{discover_hall, read_manifest};
 use super::base;
 use super::relations::TreeEntry;
 use crate::action::Ctx;
+use crate::domain::feature::{
+    ApprovalState, Feature, Gate, GateState, WorktreeState, effective_base,
+};
+use crate::domain::name::{BranchName, FeatureName, RepoName};
+use crate::error::{Failure, FixAction, Outcome, Report, WriteHuman};
+use crate::git::{self, Git, TargetState};
 
 /// One promoted repo's status within a feature.
 #[derive(Debug, Clone, Serialize)]
@@ -36,8 +37,11 @@ pub struct RepoDetail {
     /// `feature.base_absent` warning covers, surfaced here where it does not
     /// scroll off screen.
     pub base_diverged: bool,
+    /// The URL of the pull request opened or found for this repo's promotion,
+    /// or from the integration receipt if already integrated.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pr_url: Option<String>,
 }
-
 /// What `ivar feature status` found.
 #[derive(Debug, Clone, Serialize)]
 pub struct StatusOutcome {
@@ -47,6 +51,13 @@ pub struct StatusOutcome {
     pub name: FeatureName,
     /// The branch every promoted repo's worktree is on.
     pub branch: String,
+    /// Whether this feature is a subfeature of another feature.
+    pub is_subfeature: bool,
+    /// The parent feature, if this is a subfeature.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent: Option<FeatureName>,
+    /// Whether the feature's plan has been approved.
+    pub plan_approved: bool,
     /// One entry per promoted repo, in name order.
     pub repos: Vec<RepoDetail>,
     /// The feature's whole subtree, in deterministic pre-order, when
@@ -55,7 +66,6 @@ pub struct StatusOutcome {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tree: Option<Vec<TreeEntry>>,
 }
-
 impl WriteHuman for StatusOutcome {
     fn write_human(&self, w: &mut impl io::Write) -> io::Result<()> {
         writeln!(
@@ -172,12 +182,20 @@ pub fn status(ctx: &Ctx, input: StatusInput) -> Outcome<StatusOutcome> {
             None => (promotion.base.clone(), false),
         };
 
+        let pr_url = promotion.pr_url.clone().or_else(|| {
+            promotion
+                .integration_receipt
+                .as_ref()
+                .and_then(|r| r.pr_url.clone())
+        });
+
         repos.push(RepoDetail {
             repo: repo.clone(),
             state: promotion.worktree,
             worktree_present: present,
             base,
             base_diverged,
+            pr_url,
         });
     }
     repos.sort_by(|a, b| a.repo.cmp(&b.repo));
@@ -190,10 +208,18 @@ pub fn status(ctx: &Ctx, input: StatusInput) -> Outcome<StatusOutcome> {
         None
     };
 
+    let plan_approved = ApprovalState::read(&layout, &name)?
+        .and_then(|s| s.state(Gate::Plan))
+        .map(|state| state == GateState::Approved)
+        .unwrap_or(false);
+
     Ok(Report::new(StatusOutcome {
         root: layout.root().to_path_buf(),
         name,
         branch: feature.branch.to_string(),
+        is_subfeature: feature.parent.is_some(),
+        parent: feature.parent,
+        plan_approved,
         repos,
         tree,
     }))

@@ -77,6 +77,43 @@ fn a_v1_promotion_with_no_base_field_still_deserialises() {
 }
 
 #[test]
+fn a_v1_promotion_with_no_pr_url_field_still_deserialises() {
+    let raw = r#"{"version":1,"name":"checkout","branch":"feat/checkout","promotions":{"api":{"worktree":"pending"}}}"#;
+
+    let parsed: Feature = serde_json::from_str(raw).unwrap();
+
+    assert_eq!(
+        parsed
+            .promotions
+            .get(&RepoName::new("api").unwrap())
+            .unwrap()
+            .pr_url,
+        None
+    );
+}
+
+#[test]
+fn promotion_pr_url_round_trips_and_omits_when_none() {
+    let repo = RepoName::new("api").unwrap();
+    let mut feature = feature();
+    feature.promote(repo.clone());
+
+    let raw_none = serde_json::to_string(&feature).unwrap();
+    assert!(!raw_none.contains("\"pr_url\""));
+
+    feature.promotions.get_mut(&repo).unwrap().pr_url =
+        Some("https://github.com/org/repo/pull/123".into());
+    let raw_some = serde_json::to_string(&feature).unwrap();
+    assert!(raw_some.contains("\"pr_url\":\"https://github.com/org/repo/pull/123\""));
+
+    let parsed: Feature = serde_json::from_str(&raw_some).unwrap();
+    assert_eq!(
+        parsed.promotions.get(&repo).unwrap().pr_url.as_deref(),
+        Some("https://github.com/org/repo/pull/123")
+    );
+}
+
+#[test]
 fn a_new_feature_has_no_parent_and_no_integration_override() {
     let feature = feature();
     assert_eq!(feature.parent, None);

@@ -30,7 +30,7 @@ use ivar::action::discovery::close as discovery_close;
 use ivar::action::discovery::create as discovery_create;
 use ivar::action::discovery::list as discovery_list;
 use ivar::action::discovery::show as discovery_show;
-use ivar::action::execute::{accept_revision, finish, start, status as execute_status};
+use ivar::action::execute::{accept_revision, finish, interrupt, start, status as execute_status};
 use ivar::action::feature::select::{resolve_multi_features, resolve_single_feature};
 use ivar::action::feature::{
     cleanup, close, create, delete, deliver, demote, integrate, list as feature_list, promote,
@@ -349,6 +349,21 @@ fn main() -> ExitCode {
                                     plan: args.plan,
                                 },
                             ),
+                            json,
+                            &mut stdout,
+                            &mut stderr,
+                        ),
+                        Err(failure) => respond_failure(failure, json, &mut stdout, &mut stderr),
+                    }
+                }
+                ExecuteCommand::Interrupt(args) => {
+                    match resolve_single_feature(
+                        &ctx,
+                        args.feature,
+                        "Select a feature to interrupt execution",
+                    ) {
+                        Ok(feature) => respond(
+                            interrupt::interrupt(&ctx, interrupt::InterruptInput { feature }),
                             json,
                             &mut stdout,
                             &mut stderr,

@@ -245,6 +245,11 @@ pub(crate) fn integrate_pr(
         )?,
     };
 
+    let mut updated = child.clone();
+    if let Some(promotion) = updated.promotions.get_mut(repo) {
+        promotion.pr_url = Some(pr.url.clone());
+    }
+    updated.write(layout)?;
     // The PR's head must still be the recorded source — `gh` enforces this at
     // merge time too via `--match-head-commit`, but refusing early is clearer.
     if let Some(head_oid) = &pr.head_oid

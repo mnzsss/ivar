@@ -457,6 +457,8 @@ pub enum ExecuteCommand {
     Status(ExecuteStatusArgs),
     /// Accept an approved plan revision for a diverged run.
     AcceptRevision(ExecuteAcceptRevisionArgs),
+    /// Abandon an active or blocked run, transitioning it to interrupted.
+    Interrupt(ExecuteInterruptArgs),
 }
 
 /// Arguments for `ivar feature execute start`.
@@ -499,6 +501,12 @@ pub struct ExecuteAcceptRevisionArgs {
     pub feature: Option<String>,
     #[arg(long)]
     pub plan: String,
+}
+
+/// Arguments for `ivar feature execute interrupt`.
+#[derive(Debug, Args)]
+pub struct ExecuteInterruptArgs {
+    pub feature: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
