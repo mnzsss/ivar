@@ -34,15 +34,15 @@ fn detect_current_branch(repo_path: &Utf8Path) -> String {
         .current_dir(repo_path)
         .output();
 
-    if let Ok(out) = output {
-        if out.status.success() {
-            let branch = String::from_utf8_lossy(&out.stdout).trim().to_string();
-            if !branch.is_empty() && branch != "HEAD" {
-                return branch;
-            }
+    if let Ok(out) = output
+        && out.status.success()
+    {
+        let branch = String::from_utf8_lossy(&out.stdout).trim().to_owned();
+        if !branch.is_empty() && branch != "HEAD" {
+            return branch;
         }
     }
-    "main".to_string()
+    "main".to_owned()
 }
 
 /// Create a non-destructive, isolated local clone of the current ivar checkout
@@ -84,7 +84,7 @@ impl GraphHall {
         let origin_path = clone_temp_dir.join("ivar-origin");
 
         let (current_branch, origin) = create_isolated_ivar_clone(&origin_path);
-        let repo_name = "ivar".to_string();
+        let repo_name = "ivar".to_owned();
 
         // 1. Initialize hall
         let mut init_cmd = ivar();
