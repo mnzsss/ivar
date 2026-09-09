@@ -103,7 +103,7 @@ fn execute_finish_succeeds_without_live_session_view_dir() {
             feature: feature.to_string(),
             plan: plan_path.to_string(),
             report_json: report_path.to_string(),
-            outcome: "succeeded".to_string(),
+            outcome: "succeeded".to_owned(),
         },
     )
     .expect("finish should fallback to receipt coordinator when no live session exists");
@@ -163,7 +163,7 @@ fn execute_finish_tolerates_checked_boxes_without_plan_diverged() {
             feature: feature.to_string(),
             plan: plan_path.to_string(),
             report_json: report_path.to_string(),
-            outcome: "succeeded".to_string(),
+            outcome: "succeeded".to_owned(),
         },
     )
     .expect("finish should succeed when only checkbox states changed");
@@ -216,7 +216,7 @@ fn execute_finish_detects_semantic_plan_divergence() {
             feature: feature.to_string(),
             plan: plan_path.to_string(),
             report_json: report_path.to_string(),
-            outcome: "succeeded".to_string(),
+            outcome: "succeeded".to_owned(),
         },
     )
     .expect_err("finish should fail when plan text changed");

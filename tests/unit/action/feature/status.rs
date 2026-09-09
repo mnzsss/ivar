@@ -411,7 +411,7 @@ fn feature_status_falls_back_to_integration_receipt_pr_url() {
             name: child.to_string(),
             branch: None,
             base: None,
-            parent: Some("checkout".to_string()),
+            parent: Some("checkout".to_owned()),
             via: None,
             strategy: None,
         },
