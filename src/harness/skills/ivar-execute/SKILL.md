@@ -20,6 +20,11 @@ For every question with selectable choices:
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │ 1. Validate Feature State & Plan                           │
+│    ├─ Verify plan approval via ivar feature status --json   │
+│    ├─ Verify wave lightweight validation contracts         │
+│    └─ Initialize/resume execution run receipt:             │
+│         ivar feature execute start <feature>               │
+│         (pass --plan <plan-path> if not default)           │
 └──────────────────────────────┬──────────────────────────────┘
                                │
                                ▼
@@ -50,10 +55,16 @@ For every question with selectable choices:
                                │
                                ▼
 ┌─────────────────────────────────────────────────────────────┐
-│ 4. Gated Delivery Gate                                      │
-│    ├─ Default choice: Draft delivery                        │
-│    ├─ Run ivar feature deliver <feature> --preview          │
-│    └─ Apply delivery with confirmed fingerprint             │
+│ 4. Completion & Delivery / Integration Gate                 │
+│    ├─ Close active execution run:                           │
+│    │    ivar feature execute finish <feature>               │
+│    ├─ Inspect is_subfeature via ivar feature status --json  │
+│    ├─ Subfeature (is_subfeature == true):                   │
+│    │    ivar feature integrate <feature> [--via pr]         │
+│    └─ Root feature (is_subfeature == false):                │
+│         ├─ Default choice: Draft delivery                   │
+│         ├─ Run ivar feature deliver <feature> --preview     │
+│         └─ Apply delivery with confirmed fingerprint        │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -70,7 +81,9 @@ For every question with selectable choices:
    - Inspect every wave defined in `plan.md`.
    - **Lightweight validation requirement:** Every wave MUST explicitly define lightweight validation commands (such as scoped unit tests, type checks, or targeted linter commands).
    - If any wave lacks explicit lightweight validation commands, stop execution immediately and require the plan to be updated and re-approved before proceeding.
-
+4. **Initialize or resume run receipt:**
+   - Run `ivar feature execute start <feature>` (or `ivar feature execute start <feature> --plan <plan-path>` if using a non-default plan location).
+   - This initializes or resumes the active execution run receipt for the feature, capturing the plan fingerprint and state tracking before execution tasks begin.
 ---
 
 ### Phase 2: Wave execution loop
@@ -128,24 +141,45 @@ Once all planned waves are approved, execute the final dual-axis review:
 
 ---
 
-### Phase 4: Delivery gate
+### Phase 4: Completion & delivery / integration gate
 
-Before applying any delivery changes or pushing branches:
+Before completing the execution workflow or applying delivery / integration changes:
 
-1. **Prompt delivery choice:**
-   - Ask the human to choose the delivery mode:
-     - **(a) Draft delivery (Default):** Create or update pull requests in draft mode.
-     - **(b) Ready for review:** Create or update pull requests ready for review.
-     - **(c) Cancel / Defer:** Exit without making changes.
-2. **Preview delivery:**
-   - Run side-effect-free preview:
+1. **Finish execution run:**
+   - Close the active execution run receipt before proceeding to integration or delivery:
      ```bash
-     ivar feature deliver <feature> --preview
+     ivar feature execute finish <feature>
      ```
-   - Present the preview output and content fingerprint `<fp>` to the human.
-3. **Apply delivery:**
-   - With explicit human confirmation, apply delivery using the reviewed fingerprint:
+   - An agent following this workflow must never attempt integration or delivery while an execution run remains active.
+
+2. **Branch on feature hierarchy:**
+   - Inspect the feature status from `ivar feature status <feature> --json`.
+   - Check the `is_subfeature` field:
+
+3. **Branch A: Subfeature (`is_subfeature == true`):**
+   - Subfeatures integrate into their parent feature rather than delivering directly to remotes.
+   - Run:
      ```bash
-     ivar feature deliver <feature> --fingerprint <fp>
+     ivar feature integrate <feature>
      ```
-   - If Draft delivery was selected, ensure PRs are submitted in draft mode.
+     (or `ivar feature integrate <feature> --via pr` if integration via PR is configured / requested).
+
+4. **Branch B: Root feature (`is_subfeature == false`):**
+   - Root features deliver to remote repositories through the gated delivery workflow:
+     - **(a) Prompt delivery choice:**
+       - Ask the human to choose the delivery mode:
+         - **(1) Draft delivery (Default):** Create or update pull requests in draft mode.
+         - **(2) Ready for review:** Create or update pull requests ready for review.
+         - **(3) Cancel / Defer:** Exit without making changes.
+     - **(b) Preview delivery:**
+       - Run side-effect-free preview:
+         ```bash
+         ivar feature deliver <feature> --preview
+         ```
+       - Present the preview output and content fingerprint `<fp>` to the human.
+     - **(c) Apply delivery:**
+       - With explicit human confirmation, apply delivery using the reviewed fingerprint:
+         ```bash
+         ivar feature deliver <feature> --fingerprint <fp>
+         ```
+       - If Draft delivery was selected, ensure PRs are submitted in draft mode.
