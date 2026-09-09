@@ -182,3 +182,56 @@ fn test_cli_graph_mcp_parsing() {
         other => panic!("expected graph mcp, got {other:?}"),
     }
 }
+
+#[test]
+fn test_cli_graph_view_parsing_defaults() {
+    let cli = Cli::try_parse_from(["ivar", "graph", "view"]).expect("parses default graph view");
+    match cli.command {
+        Command::Graph(GraphCommand::View(args)) => {
+            assert!(args.repo.is_none());
+            assert!(args.symbol.is_none());
+            assert!(args.file.is_none());
+            assert!(args.impact.is_none());
+            assert_eq!(args.depth, None);
+            assert_eq!(args.limit, None);
+            assert!(!args.no_open);
+        }
+        other => panic!("expected graph view, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_cli_graph_view_parsing() {
+    let cli = Cli::try_parse_from([
+        "ivar", "graph", "view",
+        "--symbol", "explore_query",
+        "--depth", "2",
+        "--limit", "300",
+        "--no-open",
+    ])
+    .unwrap();
+    match cli.command {
+        Command::Graph(GraphCommand::View(args)) => {
+            assert_eq!(args.symbol.as_deref(), Some("explore_query"));
+            assert_eq!(args.depth, Some(2));
+            assert_eq!(args.limit, Some(300));
+            assert!(args.no_open);
+        }
+        other => panic!("expected graph view, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_cli_graph_view_mutually_exclusive_seeds() {
+    // Cannot pass both --repo and --symbol
+    let err = Cli::try_parse_from(["ivar", "graph", "view", "--repo", "ivar", "--symbol", "foo"]);
+    assert!(err.is_err(), "repo and symbol must conflict");
+
+    // Cannot pass both --symbol and --file
+    let err = Cli::try_parse_from(["ivar", "graph", "view", "--symbol", "foo", "--file", "src/lib.rs"]);
+    assert!(err.is_err(), "symbol and file must conflict");
+
+    // Cannot pass both --file and --impact
+    let err = Cli::try_parse_from(["ivar", "graph", "view", "--file", "src/lib.rs", "--impact", "bar"]);
+    assert!(err.is_err(), "file and impact must conflict");
+}

@@ -45,6 +45,20 @@ impl GraphDb {
         Ok(Self { conn })
     }
 
+    /// Opens an existing database in read-only mode.
+    /// Does not create directories, does not mutate journal mode, and does not apply migrations.
+    pub fn open_read_only(path: &Path) -> Result<Self> {
+        let conn = Connection::open_with_flags(
+            path,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )?;
+        conn.execute_batch(
+            "PRAGMA query_only = ON;
+             PRAGMA foreign_keys = ON;",
+        )?;
+        Ok(Self { conn })
+    }
+
     /// Borrows the underlying SQLite connection.
     pub fn conn(&self) -> &Connection {
         &self.conn

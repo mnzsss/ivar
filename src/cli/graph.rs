@@ -40,6 +40,8 @@ pub enum GraphCommand {
     Hierarchy(GraphHierarchyArgs),
     /// Generate a standalone zero-dependency HTML interactive graph visualizer.
     Viz(GraphVizArgs),
+    /// Interactive browser-based codebase graph viewer.
+    View(GraphViewArgs),
 }
 
 #[derive(Debug, Args)]
@@ -177,6 +179,54 @@ pub struct GraphVizArgs {
     /// Limit visualization to a specific repository.
     #[arg(long)]
     pub repo: Option<String>,
+}
+
+#[derive(Debug, Args)]
+pub struct GraphViewArgs {
+    /// Start graph visualization focused on a specific repository.
+    #[arg(long, group = "seed")]
+    pub repo: Option<String>,
+    /// Start graph visualization focused on a specific symbol.
+    #[arg(long, group = "seed")]
+    pub symbol: Option<String>,
+    /// Start graph visualization focused on a specific file path.
+    #[arg(long, group = "seed")]
+    pub file: Option<String>,
+    /// Start graph visualization focused on transitive impact of a symbol.
+    #[arg(long, group = "seed")]
+    pub impact: Option<String>,
+    /// Maximum neighborhood depth hops (1..=2).
+    #[arg(long)]
+    pub depth: Option<usize>,
+    /// Maximum number of nodes to load initially (1..=500).
+    #[arg(long)]
+    pub limit: Option<usize>,
+    /// Start the server without opening the browser automatically.
+    #[arg(long)]
+    pub no_open: bool,
+}
+
+impl From<GraphViewArgs> for crate::action::graph::input::GraphViewInput {
+    fn from(args: GraphViewArgs) -> Self {
+        let seed = if let Some(repo) = args.repo {
+            crate::action::graph::view::types::ViewSeed::Repo(repo)
+        } else if let Some(symbol) = args.symbol {
+            crate::action::graph::view::types::ViewSeed::Symbol(symbol)
+        } else if let Some(file) = args.file {
+            crate::action::graph::view::types::ViewSeed::File(file)
+        } else if let Some(impact) = args.impact {
+            crate::action::graph::view::types::ViewSeed::Impact(impact)
+        } else {
+            crate::action::graph::view::types::ViewSeed::Default
+        };
+
+        Self {
+            seed,
+            depth: args.depth.unwrap_or(1),
+            limit: args.limit.unwrap_or(400),
+            no_open: args.no_open,
+        }
+    }
 }
 
 #[cfg(test)]

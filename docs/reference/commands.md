@@ -938,6 +938,21 @@ Generate a standalone zero-dependency HTML interactive graph visualizer
 | `--repo` | `<REPO>` |  | Limit visualization to a specific repository |
 
 
+##### `ivar graph view`
+
+Interactive browser-based codebase graph viewer
+
+| flag | value | default | description |
+| --- | --- | --- | --- |
+| `--repo` | `<REPO>` |  | Start graph visualization focused on a specific repository |
+| `--symbol` | `<SYMBOL>` |  | Start graph visualization focused on a specific symbol |
+| `--file` | `<FILE>` |  | Start graph visualization focused on a specific file path |
+| `--impact` | `<IMPACT>` |  | Start graph visualization focused on transitive impact of a symbol |
+| `--depth` | `<DEPTH>` |  | Maximum neighborhood depth hops (1..=2) |
+| `--limit` | `<LIMIT>` |  | Maximum number of nodes to load initially (1..=500) |
+| `--no-open` |  |  | Start the server without opening the browser automatically |
+
+
 #### `ivar guard`
 
 Guard: evaluate a tool request against the session's writable set

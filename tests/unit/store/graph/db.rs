@@ -35,6 +35,29 @@ fn test_open_on_disk() {
 }
 
 #[test]
+fn test_open_read_only_does_not_create_file_or_run_migrations() {
+    let temp = tempdir().expect("tempdir");
+    let non_existent = temp.path().join("does_not_exist.db");
+
+    // Opening non-existent database in read-only mode fails and does NOT create parent dir or file
+    let res = GraphDb::open_read_only(&non_existent);
+    assert!(res.is_err(), "open_read_only on non-existent file must fail");
+    assert!(!non_existent.exists(), "open_read_only must not create file");
+
+    // Opening existing database read-only succeeds and permits queries
+    let valid_db_path = temp.path().join("valid.db");
+    {
+        let db = GraphDb::open(&valid_db_path).expect("open to create");
+        let stats = db.stats().expect("stats");
+        assert_eq!(stats.symbol_count, 0);
+    }
+
+    let ro_db = GraphDb::open_read_only(&valid_db_path).expect("open read only");
+    let ro_stats = ro_db.stats().expect("stats from ro db");
+    assert_eq!(ro_stats.symbol_count, 0);
+}
+
+#[test]
 fn test_repo_and_file_crud() {
     let db = GraphDb::open_in_memory().expect("open");
     db.insert_repo("ivar", "/path/to/ivar", "main", Some("abcdef012345"))
