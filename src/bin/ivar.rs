@@ -363,10 +363,7 @@ fn main() -> ExitCode {
                         "Select a feature to interrupt execution",
                     ) {
                         Ok(feature) => respond(
-                            interrupt::interrupt(
-                                &ctx,
-                                interrupt::InterruptInput { feature },
-                            ),
+                            interrupt::interrupt(&ctx, interrupt::InterruptInput { feature }),
                             json,
                             &mut stdout,
                             &mut stderr,

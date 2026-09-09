@@ -46,7 +46,11 @@ pub(crate) fn normalize_checkboxes(text: &str) -> String {
             out.push_str("* [ ] ");
             out.push_str(rest);
         } else if line.contains("| [x] |") || line.contains("| [X] |") {
-            out.push_str(&line.replace("| [x] |", "| [ ] |").replace("| [X] |", "| [ ] |"));
+            out.push_str(
+                &line
+                    .replace("| [x] |", "| [ ] |")
+                    .replace("| [X] |", "| [ ] |"),
+            );
         } else {
             out.push_str(line);
         }
@@ -76,56 +80,5 @@ pub(crate) fn normalized_plan_fingerprint(path: &Utf8Path) -> Result<String, Fai
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn normalize_checkboxes_handles_dash_star_table_and_indentation() {
-        let input = "\
-# Plan
-
-- [ ] Unchecked task
-- [x] Checked task lower
-- [X] Checked task upper
-  - [x] Indented checked task
-    * [x] Deeply indented star checked
-* [ ] Star unchecked
-* [x] Star checked lower
-* [X] Star checked upper
-| [x] | Table checked lower |
-| [X] | Table checked upper |
-| [ ] | Table unchecked |
-Regular paragraph text with [x] in middle
-";
-
-        let expected = "\
-# Plan
-
-- [ ] Unchecked task
-- [ ] Checked task lower
-- [ ] Checked task upper
-  - [ ] Indented checked task
-    * [ ] Deeply indented star checked
-* [ ] Star unchecked
-* [ ] Star checked lower
-* [ ] Star checked upper
-| [ ] | Table checked lower |
-| [ ] | Table checked upper |
-| [ ] | Table unchecked |
-Regular paragraph text with [x] in middle
-";
-
-        assert_eq!(normalize_checkboxes(input), expected);
-    }
-
-    #[test]
-    fn normalize_checkboxes_preserves_trailing_newline_or_lack_thereof() {
-        let with_nl = "- [x] task\n";
-        assert_eq!(normalize_checkboxes(with_nl), "- [ ] task\n");
-
-        let without_nl = "- [x] task";
-        assert_eq!(normalize_checkboxes(without_nl), "- [ ] task");
-
-        assert_eq!(normalize_checkboxes(""), "");
-    }
-}
+#[path = "../../../tests/unit/action/execute/plan_fingerprint.rs"]
+mod tests;

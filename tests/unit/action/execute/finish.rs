@@ -129,7 +129,8 @@ fn execute_finish_tolerates_checked_boxes_without_plan_diverged() {
     let plan_path = layout.plan_dir(&feature).join("plan.md");
     let initial_plan = "# Plan\n\n### Wave 1\n- [ ] Task 1\n  - [ ] Subtask 1\n* [ ] Star task 2\n| [ ] | Table Task |\n";
     fs::write_text(&plan_path, initial_plan).unwrap();
-    let plan_fingerprint = crate::action::execute::plan_fingerprint::normalized_plan_fingerprint(&plan_path).unwrap();
+    let plan_fingerprint =
+        crate::action::execute::plan_fingerprint::normalized_plan_fingerprint(&plan_path).unwrap();
 
     let run_id = RunId::new("00000000-0000-4000-8000-000000000001").unwrap();
     let sess_id = SessionId::new("00000000-0000-4000-8000-000000000002").unwrap();
@@ -181,7 +182,8 @@ fn execute_finish_detects_semantic_plan_divergence() {
     let plan_path = layout.plan_dir(&feature).join("plan.md");
     let initial_plan = "# Plan\n\n- [ ] Original Task Description\n";
     fs::write_text(&plan_path, initial_plan).unwrap();
-    let plan_fingerprint = crate::action::execute::plan_fingerprint::normalized_plan_fingerprint(&plan_path).unwrap();
+    let plan_fingerprint =
+        crate::action::execute::plan_fingerprint::normalized_plan_fingerprint(&plan_path).unwrap();
 
     let run_id = RunId::new("00000000-0000-4000-8000-000000000001").unwrap();
     let sess_id = SessionId::new("00000000-0000-4000-8000-000000000002").unwrap();

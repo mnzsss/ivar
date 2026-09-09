@@ -6,14 +6,16 @@ use std::io;
 use camino::Utf8PathBuf;
 use serde::Serialize;
 
-use crate::domain::feature::{ApprovalState, Feature, Gate, GateState, WorktreeState, effective_base};
-use crate::domain::name::{BranchName, FeatureName, RepoName};
-use crate::error::{Failure, FixAction, Outcome, Report, WriteHuman};
-use crate::git::{self, Git, TargetState};
 use super::super::{discover_hall, read_manifest};
 use super::base;
 use super::relations::TreeEntry;
 use crate::action::Ctx;
+use crate::domain::feature::{
+    ApprovalState, Feature, Gate, GateState, WorktreeState, effective_base,
+};
+use crate::domain::name::{BranchName, FeatureName, RepoName};
+use crate::error::{Failure, FixAction, Outcome, Report, WriteHuman};
+use crate::git::{self, Git, TargetState};
 
 /// One promoted repo's status within a feature.
 #[derive(Debug, Clone, Serialize)]
@@ -180,10 +182,12 @@ pub fn status(ctx: &Ctx, input: StatusInput) -> Outcome<StatusOutcome> {
             None => (promotion.base.clone(), false),
         };
 
-        let pr_url = promotion
-            .pr_url
-            .clone()
-            .or_else(|| promotion.integration_receipt.as_ref().and_then(|r| r.pr_url.clone()));
+        let pr_url = promotion.pr_url.clone().or_else(|| {
+            promotion
+                .integration_receipt
+                .as_ref()
+                .and_then(|r| r.pr_url.clone())
+        });
 
         repos.push(RepoDetail {
             repo: repo.clone(),

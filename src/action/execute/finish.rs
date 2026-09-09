@@ -53,13 +53,7 @@ pub fn finish(ctx: &Ctx, input: FinishInput) -> Outcome<FinishOutcome> {
     let diff = snapshot::diff(&receipt.baseline)?;
     let now = rfc3339_now();
     if plan_fingerprint != receipt.plan_fingerprint {
-        receipt.diverge(
-            plan_fingerprint,
-            Some(report),
-            session_id,
-            provider,
-            now,
-        )?;
+        receipt.diverge(plan_fingerprint, Some(report), session_id, provider, now)?;
         receipt.write(&layout)?;
         return Err(Failure::blocked(
             "execute.plan_diverged",

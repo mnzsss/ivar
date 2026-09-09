@@ -614,7 +614,11 @@ fn an_active_run_receipt_blocks_integration_and_preserves_parent_state() {
     assert_eq!(failure.code, "integration.run_active");
 
     let child_feature = Feature::read(&layout, &child).unwrap().unwrap();
-    assert!(child_feature.promotions[&api()].integration_receipt.is_none());
+    assert!(
+        child_feature.promotions[&api()]
+            .integration_receipt
+            .is_none()
+    );
     assert_eq!(
         crate::git::System
             .revision_commit(&layout.repo_bare(&api()), "parent")
