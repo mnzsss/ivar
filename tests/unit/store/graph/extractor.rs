@@ -387,6 +387,52 @@ export function AdminPage() {
 }
 
 #[test]
+fn test_awaited_generic_calls_are_calls_and_http_requests() {
+    let code = r#"
+import { apiRequest } from './client';
+
+export async function fetchCurrentUser() {
+    const user = await apiRequest<User>('/auth/me');
+    return user;
+}
+
+export async function login(credentials: LoginCredentials) {
+    const result = await apiRequest<AuthResponse>('/auth/login', {
+        method: 'POST',
+        body: JSON.stringify(credentials),
+    });
+    return result;
+}
+"#;
+    let res = extract_file(
+        "web",
+        "src/api/authApi.ts",
+        code,
+        SupportedLanguage::TypeScript,
+    )
+    .expect("extract");
+
+    let mut calls: Vec<(&str, usize)> = res
+        .edges
+        .iter()
+        .filter(|e| e.kind == EdgeKind::Calls)
+        .filter_map(|e| e.to_name.as_deref().map(|name| (name, e.line)))
+        .filter(|(name, _)| *name == "apiRequest")
+        .collect();
+    calls.sort_unstable();
+    assert_eq!(calls, vec![("apiRequest", 5), ("apiRequest", 10)]);
+
+    let mut requests: Vec<&str> = res
+        .edges
+        .iter()
+        .filter(|e| e.kind == EdgeKind::CrossCallsHttp)
+        .filter_map(|e| e.to_name.as_deref())
+        .collect();
+    requests.sort_unstable();
+    assert_eq!(requests, vec!["GET /auth/me", "POST /auth/login"]);
+}
+
+#[test]
 fn test_http_client_calls_become_edges_to_method_and_path() {
     let code = r#"
 export function listProjects() {
