@@ -208,12 +208,48 @@ fn test_mcp_tool_call_explore() {
     let text = String::from_utf8(output).expect("utf8");
     let resp: Value = serde_json::from_str(text.trim()).expect("parse resp");
     assert_eq!(resp["id"], 10);
-    let content = &resp["result"]["content"][0]["text"];
-    let explore_val: Value =
-        serde_json::from_str(content.as_str().unwrap()).expect("json parse explore");
+
+    // The default is decision-oriented Markdown: over MCP the consumer is a model
+    // picking what to read next, and it ignored the serialised struct.
+    let rendered = resp["result"]["content"][0]["text"]
+        .as_str()
+        .expect("text content");
+    assert!(rendered.contains("**Exploration: execute**"));
+    assert!(rendered.contains("execute"));
+    assert!(rendered.contains("helper"));
+
+    // `format: "json"` still returns the structure, for callers that parse it.
+    let json_input = format!(
+        "{}\n",
+        json!({
+            "jsonrpc": "2.0",
+            "id": 12,
+            "method": "tools/call",
+            "params": {
+                "name": "graph_explore",
+                "arguments": { "query": "execute", "format": "json" }
+            }
+        })
+    );
+    let mut json_output = Vec::new();
+    run_mcp_server(
+        &db,
+        Some(temp.path()),
+        Cursor::new(json_input),
+        &mut json_output,
+        |_| Ok(json!({"status": "ok"})),
+    )
+    .expect("run server");
+    let json_resp: Value =
+        serde_json::from_str(String::from_utf8(json_output).expect("utf8").trim())
+            .expect("parse resp");
+    let explore_val: Value = serde_json::from_str(
+        json_resp["result"]["content"][0]["text"]
+            .as_str()
+            .expect("text content"),
+    )
+    .expect("json parse explore");
     assert_eq!(explore_val["query"], "execute");
-    assert!(content.as_str().unwrap().contains("execute"));
-    assert!(content.as_str().unwrap().contains("helper"));
     assert!(explore_val["direct_relations"].is_array());
     assert!(explore_val["entry_points"].is_array());
     assert!(explore_val["transitive_consumers"].is_array());
@@ -490,4 +526,229 @@ fn test_mcp_tool_call_dead_code_complexity_hierarchy_and_compact() {
         .as_str()
         .unwrap();
     assert!(hier_compact_text.starts_with("#SCHEMA: symbol|kind|file|bases|implementations"));
+}
+
+#[test]
+fn test_mcp_tool_call_impact_compatibility() {
+    let (db, temp) = setup_test_mcp_db();
+
+    let input = format!(
+        "{}\n{}\n{}\n{}\n",
+        json!({
+            "jsonrpc": "2.0",
+            "id": 201,
+            "method": "tools/call",
+            "params": {
+                "name": "get_impact",
+                "arguments": {
+                    "symbol": "helper"
+                }
+            }
+        }),
+        json!({
+            "jsonrpc": "2.0",
+            "id": 202,
+            "method": "tools/call",
+            "params": {
+                "name": "get_impact",
+                "arguments": {
+                    "symbol_name": "helper"
+                }
+            }
+        }),
+        json!({
+            "jsonrpc": "2.0",
+            "id": 203,
+            "method": "tools/call",
+            "params": {
+                "name": "get_impact",
+                "arguments": {
+                    "symbol_id": 2
+                }
+            }
+        }),
+        json!({
+            "jsonrpc": "2.0",
+            "id": 204,
+            "method": "tools/call",
+            "params": {
+                "name": "get_impact",
+                "arguments": {}
+            }
+        })
+    );
+
+    let mut output = Vec::new();
+    run_mcp_server(
+        &db,
+        Some(temp.path()),
+        Cursor::new(input),
+        &mut output,
+        |_| Ok(json!({"status": "ok"})),
+    )
+    .expect("run server");
+
+    let lines: Vec<String> = String::from_utf8(output)
+        .expect("utf8")
+        .lines()
+        .map(|s| s.to_owned())
+        .collect();
+
+    assert_eq!(lines.len(), 4);
+
+    // 1. Calling with "symbol"
+    let resp_symbol: Value = serde_json::from_str(&lines[0]).expect("parse symbol");
+    assert_eq!(resp_symbol["id"], 201);
+    assert!(!resp_symbol["result"]["isError"].as_bool().unwrap_or(false));
+    let text_symbol = resp_symbol["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap();
+    assert!(text_symbol.contains("affected_symbols"));
+
+    // 2. Calling with "symbol_name"
+    let resp_symbol_name: Value = serde_json::from_str(&lines[1]).expect("parse symbol_name");
+    assert_eq!(resp_symbol_name["id"], 202);
+    assert!(
+        !resp_symbol_name["result"]["isError"]
+            .as_bool()
+            .unwrap_or(false)
+    );
+    let text_symbol_name = resp_symbol_name["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap();
+    assert_eq!(text_symbol, text_symbol_name);
+
+    // 3. Calling with "symbol_id"
+    let resp_symbol_id: Value = serde_json::from_str(&lines[2]).expect("parse symbol_id");
+    assert_eq!(resp_symbol_id["id"], 203);
+    assert!(
+        !resp_symbol_id["result"]["isError"]
+            .as_bool()
+            .unwrap_or(false)
+    );
+
+    // 4. Missing all three params returns error mentioning all options
+    let resp_err: Value = serde_json::from_str(&lines[3]).expect("parse err");
+    assert_eq!(resp_err["id"], 204);
+    assert!(resp_err["result"]["isError"].as_bool().unwrap_or(false));
+    let err_text = resp_err["result"]["content"][0]["text"].as_str().unwrap();
+    assert!(err_text.contains("Either 'symbol_id', 'symbol_name', or 'symbol' must be provided"));
+}
+#[test]
+fn test_mcp_format_guidance_and_compact_no_source() {
+    let (db, temp) = setup_test_mcp_db();
+
+    // ── 1. Instructions recommend markdown/omit for discovery ──────────
+    let init_input = format!(
+        "{}\n",
+        json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}),
+    );
+    let mut init_out = Vec::new();
+    run_mcp_server(
+        &db,
+        Some(temp.path()),
+        Cursor::new(init_input),
+        &mut init_out,
+        |_| Ok(json!({"status": "ok"})),
+    )
+    .expect("run server");
+    let init_resp: Value = serde_json::from_str(String::from_utf8(init_out).expect("utf8").trim())
+        .expect("parse init");
+    let instructions = init_resp["result"]["instructions"]
+        .as_str()
+        .expect("instructions");
+    // Markdown/omit is the recommended discovery path
+    assert!(
+        instructions.contains("omit the format parameter"),
+        "instructions should tell agents to omit format for discovery"
+    );
+    assert!(
+        instructions.contains("format=\"markdown\""),
+        "instructions should mention format=markdown as the discovery-friendly option"
+    );
+    // Compact is explicitly scoped to programmatic parsing and flagged as source-free
+    assert!(
+        instructions.contains("format=\"compact\""),
+        "instructions should still name compact so agents can find it"
+    );
+    assert!(
+        instructions.contains("omits source"),
+        "instructions should warn that compact drops source snippets"
+    );
+
+    // ── 2. Tool description carries the same distinction ───────────────
+    let list_input = format!(
+        "{}\n",
+        json!({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}}),
+    );
+    let mut list_out = Vec::new();
+    run_mcp_server(
+        &db,
+        Some(temp.path()),
+        Cursor::new(list_input),
+        &mut list_out,
+        |_| Ok(json!({"status": "ok"})),
+    )
+    .expect("run server");
+    let list_resp: Value = serde_json::from_str(String::from_utf8(list_out).expect("utf8").trim())
+        .expect("parse list");
+    let tools = list_resp["result"]["tools"]
+        .as_array()
+        .expect("tools array");
+    let explore_tool = tools
+        .iter()
+        .find(|t| t["name"].as_str() == Some("graph_explore"))
+        .expect("graph_explore tool present");
+    let format_desc = explore_tool["inputSchema"]["properties"]["format"]["description"]
+        .as_str()
+        .expect("format description");
+    assert!(
+        format_desc.contains("source snippets"),
+        "format param should mention source snippets"
+    );
+    assert!(
+        format_desc.contains("no source"),
+        "compact variant should say 'no source'"
+    );
+
+    // ── 3. Compact output actually omits source ────────────────────────
+    let explore_input = format!(
+        "{}\n",
+        json!({
+            "jsonrpc": "2.0",
+            "id": 10,
+            "method": "tools/call",
+            "params": {
+                "name": "graph_explore",
+                "arguments": {"query": "execute", "format": "compact"}
+            }
+        }),
+    );
+    let mut exp_out = Vec::new();
+    run_mcp_server(
+        &db,
+        Some(temp.path()),
+        Cursor::new(explore_input),
+        &mut exp_out,
+        |_| Ok(json!({"status": "ok"})),
+    )
+    .expect("run server explore");
+    let exp_resp: Value = serde_json::from_str(String::from_utf8(exp_out).expect("utf8").trim())
+        .expect("parse explore resp");
+    let compact_body = exp_resp["result"]["content"][0]["text"]
+        .as_str()
+        .expect("text content");
+    // Compact is pipe-delimited metadata — no verbatim source blocks
+    assert!(
+        compact_body.starts_with("#SCHEMA: id|name|"),
+        "compact should start with symbol schema header"
+    );
+    assert!(
+        !compact_body.contains("```"),
+        "compact must not contain markdown fenced source blocks"
+    );
+    assert!(
+        !compact_body.contains("pub fn"),
+        "compact must not contain verbatim source lines"
+    );
 }

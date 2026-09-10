@@ -6,20 +6,20 @@ pub fn list_tools() -> Value {
     json!([
         {
             "name": "graph_explore",
-            "description": "Multi-hop context explorer that returns exact code snippets, callers, and callees for an intent/query.",
+            "description": "START HERE for any structural question. One query returns matching symbols, their verbatim source with line numbers, callers, callees, and blast radius — replacing a grep-then-read-several-files loop. Query intent ('session enforcement') or an identifier; search is fuzzy. Follows cross-repo and dynamic-dispatch edges grep cannot see.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "query": { "type": "string", "description": "Search query or symbol name" },
                     "repo": { "type": "string", "description": "Optional repository filter" },
-                    "format": { "type": "string", "enum": ["json", "compact"], "description": "Output format: 'json' (default) or 'compact' (token-efficient pipe-delimited)" }
+                    "format": { "type": "string", "enum": ["markdown", "json", "compact"], "description": "Output format: 'markdown' (default, includes source snippets — best for discovery and replacing grep+read), 'json' for raw struct, or 'compact' (pipe-delimited, no source — for programmatic parsing of large results)" }
                 },
                 "required": ["query"]
             }
         },
         {
             "name": "get_callers",
-            "description": "Find all incoming callers of a symbol across repositories.",
+            "description": "Every incoming call site of a symbol, across repos. Use instead of grepping for the symbol name: this resolves imports and aliases, and skips matches in comments and unrelated identifiers.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -34,7 +34,7 @@ pub fn list_tools() -> Value {
         },
         {
             "name": "get_callees",
-            "description": "Find all outgoing targets/callees called by a symbol.",
+            "description": "Every outgoing call a symbol makes. Use to learn what a function depends on without reading its body and chasing each import by hand.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -46,7 +46,7 @@ pub fn list_tools() -> Value {
         },
         {
             "name": "get_file_outline",
-            "description": "Get structural outline of symbols and imports in a file.",
+            "description": "All symbols and imports declared in one file, with line numbers. Cheaper than reading the file when you only need its shape before deciding what to open.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -58,7 +58,7 @@ pub fn list_tools() -> Value {
         },
         {
             "name": "get_affected_tests",
-            "description": "Find test files transitively affected by changes to given source files.",
+            "description": "Test files transitively reachable from the source files you changed. Use to pick which tests to run instead of running the whole suite or guessing by filename.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -76,7 +76,7 @@ pub fn list_tools() -> Value {
         },
         {
             "name": "get_path",
-            "description": "Find shortest path between two symbols in the call graph.",
+            "description": "Shortest call/import chain connecting two symbols, hop by hop. Use to answer 'how does A reach B' across layers or repos, which grep cannot reconstruct.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -90,12 +90,13 @@ pub fn list_tools() -> Value {
         },
         {
             "name": "get_impact",
-            "description": "Transitive blast-radius impact analysis of changing a symbol.",
+            "description": "Everything transitively affected by changing a symbol: which consumers, how deep, in which files. Run this BEFORE editing a shared symbol to find the callers you would otherwise miss.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "symbol_id": { "type": "integer", "description": "Symbol row ID" },
                     "symbol_name": { "type": "string", "description": "Symbol name (if ID unknown)" },
+                    "symbol": { "type": "string", "description": "Alias for symbol_name" },
                     "max_depth": { "type": "integer", "description": "Maximum depth (default 5)" },
                     "format": { "type": "string", "enum": ["json", "compact"], "description": "Output format: 'json' (default) or 'compact' (token-efficient pipe-delimited)" }
                 }
@@ -103,7 +104,7 @@ pub fn list_tools() -> Value {
         },
         {
             "name": "refresh_index",
-            "description": "Incrementally index a repository or all repositories.",
+            "description": "Re-index after you edit code. The graph is a snapshot: call this before trusting a structural answer that must reflect your latest changes.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
