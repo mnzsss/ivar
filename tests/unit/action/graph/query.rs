@@ -529,3 +529,33 @@ fn test_explore_find_candidates_matches_a_singular_term_to_a_plural_path() {
     let found: Vec<&str> = candidates.iter().map(|c| c.file_path.as_str()).collect();
     assert_eq!(found, vec!["src/auth/sessions.ts"]);
 }
+
+#[test]
+fn test_explore_find_candidates_resolves_a_directory_given_with_its_workspace_prefix() {
+    let db = GraphDb::open_in_memory().expect("open in-memory db");
+    db.insert_repo("api", "/workspace/api", "main", None)
+        .expect("insert repo");
+    for (path, name) in [
+        ("src/routes/auth.ts", "authRoutes"),
+        ("src/routes/admin.ts", "adminRoutes"),
+        ("src/lib/noise.ts", "formatBytes"),
+    ] {
+        let file_id = db
+            .upsert_file("api", path, "h", 10, 100)
+            .expect("upsert file");
+        db.insert_symbols(&[function_symbol(file_id, "api", name, 10)])
+            .expect("insert symbol");
+    }
+
+    let candidates = find::explore_find_candidates(&db, "services/api/src/routes", None)
+        .expect("search candidates");
+
+    let found: std::collections::BTreeSet<&str> =
+        candidates.iter().map(|c| c.file_path.as_str()).collect();
+    assert_eq!(
+        found,
+        ["src/routes/admin.ts", "src/routes/auth.ts"]
+            .into_iter()
+            .collect()
+    );
+}
