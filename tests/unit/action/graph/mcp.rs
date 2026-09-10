@@ -246,9 +246,16 @@ fn graph_explore_takes_a_path_argument_and_answers_a_missing_query_with_guidance
     let (db, temp) = setup_test_mcp_db();
     let root = temp.path();
 
-    let (explore, failed) = call_tool(&db, root, "graph_explore", json!({"path": "src/main.rs"}));
-    assert!(!failed, "got: {explore}");
-    assert!(explore.contains("`execute`"), "got: {explore}");
+    for args in [
+        json!({"path": "src/main.rs"}),
+        json!({"intent": "execute"}),
+        json!({"paths": ["src/main.rs"]}),
+        json!({"queries": ["execute", "helper"]}),
+    ] {
+        let (explore, failed) = call_tool(&db, root, "graph_explore", args.clone());
+        assert!(!failed, "{args}: {explore}");
+        assert!(explore.contains("`execute`"), "{args}: {explore}");
+    }
 
     let (missing, missing_failed) = call_tool(&db, root, "graph_explore", json!({}));
     assert!(!missing_failed, "got: {missing}");
