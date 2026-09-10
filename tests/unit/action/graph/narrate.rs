@@ -3,7 +3,9 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use super::*;
-use crate::action::graph::query::{CalleeInfo, CallerInfo, FileOutline, ImpactItem, ImpactResult};
+use crate::action::graph::query::{
+    CalleeInfo, CallerInfo, FileOutline, ImpactItem, ImpactResult, ReferenceSite, SymbolLocation,
+};
 use crate::domain::graph::{
     Edge, EdgeKind, ExploreImpact, OperationalRelation, Provenance, RelationDirection,
     RelationEndpoint, SourceExcerpt, SourceFile, Span, Symbol, SymbolKind, SymbolSnippet,
@@ -440,7 +442,7 @@ fn callers_render_one_line_each_and_flag_uncertain_edges() {
         ),
     ];
 
-    let out = narrate_callers("evaluateAccess", &callers);
+    let out = narrate_callers("evaluateAccess", &[], &callers, &[]);
 
     assert!(
         out.contains("**Callers of `evaluateAccess`: 2**"),
@@ -453,9 +455,43 @@ fn callers_render_one_line_each_and_flag_uncertain_edges() {
 
 #[test]
 fn no_callers_names_the_likely_causes() {
-    let out = narrate_callers("orphan", &[]);
+    let out = narrate_callers("orphan", &[], &[], &[]);
     assert!(out.contains("No callers of `orphan`"), "got: {out}");
     assert!(out.contains("refresh_index"));
+}
+
+/// An agent given only call sites grepped the name to find the definition and
+/// the imports, two turns and 19K characters per discovery run in `tokens2`.
+#[test]
+fn callers_name_the_definition_type_uses_and_module_level_references() {
+    let definitions = vec![SymbolLocation {
+        symbol: symbol("Session", "web", 8),
+        file_path: "src/auth/access.ts".into(),
+    }];
+    let mut type_use = caller(
+        "AuthContextType",
+        "src/components/AuthProvider.tsx",
+        8,
+        Provenance::Extracted,
+    );
+    type_use.edge_kind = EdgeKind::References;
+    let references = vec![ReferenceSite {
+        repo: "web".into(),
+        file_path: "src/api/client.ts".into(),
+        line: 1,
+    }];
+
+    let out = narrate_callers("Session", &definitions, &[type_use], &references);
+
+    assert!(
+        out.contains("Defined at src/auth/access.ts:8 (web)"),
+        "got: {out}"
+    );
+    assert!(
+        out.contains("`AuthContextType` in src/components/AuthProvider.tsx:8 · type use"),
+        "got: {out}"
+    );
+    assert!(out.contains("src/api/client.ts:1"), "got: {out}");
 }
 
 #[test]

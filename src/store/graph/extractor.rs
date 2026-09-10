@@ -313,6 +313,20 @@ fn extract_edges(
                 let name = cap.node.utf8_text(source_bytes).unwrap_or("").trim();
                 if !name.is_empty() {
                     imported_names.insert(name.to_owned());
+                    let span = node_to_span(cap.node);
+                    edges.push(Edge {
+                        id: None,
+                        repo: repo.to_owned(),
+                        file_id: None,
+                        from_symbol_id: None,
+                        to_symbol_id: None,
+                        to_name: Some(name.to_owned()),
+                        kind: EdgeKind::References,
+                        provenance: Provenance::Extracted,
+                        line: span.start_line,
+                        col: span.start_col,
+                        confidence: 0.95,
+                    });
                 }
             }
         }

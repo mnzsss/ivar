@@ -75,6 +75,39 @@ pub fn get_callers(
     Ok(callers)
 }
 
+/// Lists references to a symbol that sit outside any symbol body, such as imports.
+pub fn get_references(
+    db: &GraphDb,
+    symbol_name: &str,
+    repo: Option<&str>,
+) -> Result<Vec<ReferenceSite>, QueryError> {
+    let conn = db.conn();
+    let mut stmt = conn.prepare_cached(
+        "SELECT DISTINCT f.repo, f.path, e.line
+         FROM edges e
+         JOIN files f ON e.file_id = f.id
+         WHERE e.from_symbol_id IS NULL
+           AND e.kind IN ('REFERENCES', 'references')
+           AND (
+               e.to_symbol_id IN (
+                   SELECT id FROM symbols WHERE name = ?1 AND (?2 IS NULL OR repo = ?2)
+               )
+               OR (e.to_symbol_id IS NULL AND e.to_name = ?1 AND (?2 IS NULL OR e.repo = ?2))
+           )
+         ORDER BY f.repo, f.path, e.line",
+    )?;
+    let sites = stmt
+        .query_map(params![symbol_name, repo], |row| {
+            Ok(ReferenceSite {
+                repo: row.get(0)?,
+                file_path: row.get(1)?,
+                line: row.get::<_, i64>(2)? as usize,
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(sites)
+}
+
 /// Retrieves all outgoing calls/callees from a specific symbol ID.
 pub fn get_callees(db: &GraphDb, symbol_id: i64) -> Result<Vec<CalleeInfo>, QueryError> {
     let conn = db.conn();

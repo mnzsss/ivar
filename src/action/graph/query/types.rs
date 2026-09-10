@@ -38,6 +38,14 @@ pub struct CallerInfo {
     pub col: usize,
 }
 
+/// A reference to a symbol from outside any symbol body, such as an import.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct ReferenceSite {
+    pub repo: String,
+    pub file_path: String,
+    pub line: usize,
+}
+
 /// Information about an outgoing call/target from a symbol.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct CalleeInfo {

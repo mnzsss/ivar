@@ -11,8 +11,10 @@
 
 use std::fmt::Write as _;
 
-use crate::action::graph::query::{CalleeInfo, CallerInfo, FileOutline, ImpactResult};
-use crate::domain::graph::{ExploreResult, Provenance, SourceFile, SymbolSnippet};
+use crate::action::graph::query::{
+    CalleeInfo, CallerInfo, FileOutline, ImpactResult, ReferenceSite, SymbolLocation,
+};
+use crate::domain::graph::{EdgeKind, ExploreResult, Provenance, SourceFile, SymbolSnippet};
 use crate::store::graph::db::edge_kind_to_str;
 
 /// Callers listed per symbol before the rest are summarised as a count.
@@ -70,8 +72,14 @@ pub fn narrate_explore(res: &ExploreResult) -> String {
     out
 }
 
-/// Renders the call sites of a symbol, one line each.
-pub fn narrate_callers(symbol: &str, callers: &[CallerInfo]) -> String {
+/// Renders where a symbol is defined, its call sites and type uses, and the
+/// files that import it, so the answer leaves nothing for a grep to add.
+pub fn narrate_callers(
+    symbol: &str,
+    definitions: &[SymbolLocation],
+    callers: &[CallerInfo],
+    references: &[ReferenceSite],
+) -> String {
     let mut seen = std::collections::BTreeSet::new();
     let unique: Vec<&CallerInfo> = callers
         .iter()
@@ -86,12 +94,13 @@ pub fn narrate_callers(symbol: &str, callers: &[CallerInfo]) -> String {
         .collect();
 
     let mut out = String::new();
-    if unique.is_empty() {
+    if unique.is_empty() && references.is_empty() {
         let _ = writeln!(
             out,
             "No callers of `{symbol}` in the index. It may be unused, reached only through \
              dynamic dispatch, or newer than the last `refresh_index`."
         );
+        push_definitions(&mut out, definitions);
         return out;
     }
 
@@ -102,12 +111,16 @@ pub fn narrate_callers(symbol: &str, callers: &[CallerInfo]) -> String {
         .len()
         > 1;
     let _ = writeln!(out, "**Callers of `{symbol}`: {}**\n", unique.len());
+    push_definitions(&mut out, definitions);
     for c in unique.iter().take(MAX_LIST_ITEMS) {
         let _ = write!(
             out,
             "- `{}` in {}:{}",
             c.caller.name, c.caller_file_path, c.line
         );
+        if matches!(c.edge_kind, EdgeKind::References) {
+            out.push_str(" · type use");
+        }
         if several_repos {
             let _ = write!(out, " [repo `{}`]", c.caller.repo);
         }
@@ -122,7 +135,38 @@ pub fn narrate_callers(symbol: &str, callers: &[CallerInfo]) -> String {
         out.push('\n');
     }
     push_remainder(&mut out, unique.len());
+
+    if !references.is_empty() {
+        let sites: Vec<String> = references
+            .iter()
+            .take(MAX_LIST_ITEMS)
+            .map(|r| format!("{}:{}", r.file_path, r.line))
+            .collect();
+        let _ = writeln!(
+            out,
+            "\nImported or referenced outside a function at {} site{}: {}",
+            references.len(),
+            plural(references.len()),
+            sites.join(", ")
+        );
+    }
+    out.push_str(
+        "\nThis covers every indexed file; a grep would only add files outside the index.\n",
+    );
     out
+}
+
+fn push_definitions(out: &mut String, definitions: &[SymbolLocation]) {
+    for d in definitions.iter().take(MAX_RELATIONS_PER_SYMBOL) {
+        let _ = writeln!(
+            out,
+            "Defined at {}:{} ({})",
+            d.file_path, d.symbol.span.start_line, d.symbol.repo
+        );
+    }
+    if !definitions.is_empty() {
+        out.push('\n');
+    }
 }
 
 /// Renders the calls a symbol makes and where each one lands.

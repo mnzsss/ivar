@@ -70,7 +70,21 @@ where
             match args.get("format").and_then(Value::as_str) {
                 Some("compact") => Ok(compact::encode_callers(&callers)),
                 Some("json") => serde_json::to_string_pretty(&callers).map_err(|e| e.to_string()),
-                _ => Ok(narrate::narrate_callers(sym, &callers)),
+                _ => {
+                    let definitions: Vec<_> = query::find_symbols(db, sym, repo, 5)
+                        .map_err(|e| format!("get_callers failed: {e}"))?
+                        .into_iter()
+                        .filter(|found| found.symbol.name == sym)
+                        .collect();
+                    let references = query::get_references(db, sym, repo)
+                        .map_err(|e| format!("get_callers failed: {e}"))?;
+                    Ok(narrate::narrate_callers(
+                        sym,
+                        &definitions,
+                        &callers,
+                        &references,
+                    ))
+                }
             }
         }
 

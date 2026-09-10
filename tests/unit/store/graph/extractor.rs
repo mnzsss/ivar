@@ -365,6 +365,32 @@ export function handler() {
     assert!(!names.contains(&"callback"), "local closure, got {names:?}");
 }
 #[test]
+fn test_typescript_imported_names_are_references_at_their_import_line() {
+    let code = r#"
+import { Session, evaluateAccess } from '../auth/access';
+import React from 'react';
+
+export function guard(s: Session) {
+    return evaluateAccess(s);
+}
+"#;
+    let res =
+        extract_file("web", "src/guard.ts", code, SupportedLanguage::TypeScript).expect("extract");
+
+    let mut imported: Vec<(&str, usize)> = res
+        .edges
+        .iter()
+        .filter(|e| e.kind == EdgeKind::References && e.line <= 3)
+        .filter_map(|e| e.to_name.as_deref().map(|name| (name, e.line)))
+        .collect();
+    imported.sort_unstable();
+    assert_eq!(
+        imported,
+        vec![("React", 3), ("Session", 2), ("evaluateAccess", 2)]
+    );
+}
+
+#[test]
 fn test_http_route_symbols_extraction() {
     let code = r#"
 import { FastifyInstance } from 'fastify';
