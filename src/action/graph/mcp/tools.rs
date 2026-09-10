@@ -20,7 +20,7 @@ pub fn list_tools() -> Value {
         },
         {
             "name": "get_callers",
-            "description": "Every incoming call site of a symbol, across repos. Use instead of grepping for the symbol name: this resolves imports and aliases, and skips matches in comments and unrelated identifiers.",
+            "description": "Every call site and type use of a symbol across repos, plus where it is defined and which files import it. Use instead of grepping for the symbol name: this covers every indexed file, resolves imports and aliases, and skips matches in comments and unrelated identifiers.",
             "annotations": { "readOnlyHint": true },
             "inputSchema": {
                 "type": "object",

@@ -531,6 +531,56 @@ fn test_explore_find_candidates_matches_a_singular_term_to_a_plural_path() {
 }
 
 #[test]
+fn test_get_references_lists_module_level_imports_of_a_symbol() {
+    use crate::domain::graph::{Edge, EdgeKind, Provenance};
+
+    let db = GraphDb::open_in_memory().expect("open in-memory db");
+    db.insert_repo("web", "/workspace/web", "main", None)
+        .expect("insert repo");
+    let access = db
+        .upsert_file("web", "src/auth/access.ts", "h", 10, 100)
+        .expect("upsert access");
+    let client = db
+        .upsert_file("web", "src/api/client.ts", "h", 10, 100)
+        .expect("upsert client");
+    let session_id = db
+        .insert_symbols(&[function_symbol(access, "web", "Session", 8)])
+        .expect("insert symbol")
+        .into_iter()
+        .next()
+        .expect("symbol id");
+    let edge = |to_symbol_id, to_name: &str, kind, line| Edge {
+        id: None,
+        repo: "web".to_owned(),
+        file_id: Some(client),
+        from_symbol_id: None,
+        to_symbol_id,
+        to_name: Some(to_name.to_owned()),
+        kind,
+        provenance: Provenance::Extracted,
+        line,
+        col: 10,
+        confidence: 0.95,
+    };
+    db.insert_edges(&[
+        edge(Some(session_id), "Session", EdgeKind::References, 1),
+        edge(None, "../auth/session", EdgeKind::Imports, 2),
+    ])
+    .expect("insert edges");
+
+    let sites = get_references(&db, "Session", None).expect("references");
+
+    assert_eq!(
+        sites,
+        vec![ReferenceSite {
+            repo: "web".to_owned(),
+            file_path: "src/api/client.ts".to_owned(),
+            line: 1,
+        }]
+    );
+}
+
+#[test]
 fn test_explore_find_candidates_resolves_a_directory_given_with_its_workspace_prefix() {
     let db = GraphDb::open_in_memory().expect("open in-memory db");
     db.insert_repo("api", "/workspace/api", "main", None)
