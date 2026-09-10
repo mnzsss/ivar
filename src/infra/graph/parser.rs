@@ -119,6 +119,12 @@ pub fn typescript_query_str() -> &'static str {
     include_str!("queries/typescript.scm")
 }
 
+/// Returns the vendored JSX query string, valid only against the TSX grammar.
+#[must_use]
+pub fn jsx_query_str() -> &'static str {
+    include_str!("queries/jsx.scm")
+}
+
 /// Compiles the vendored Rust query.
 pub fn compile_rust_query() -> Result<Query, QueryError> {
     compile_query(SupportedLanguage::Rust, rust_query_str())
@@ -133,9 +139,13 @@ pub fn compile_typescript_query() -> Result<Query, QueryError> {
 ///
 /// A `Query` matches only trees of the grammar it compiled against, because
 /// tree-sitter interns node kinds as per-language ids. TSX has its own grammar,
-/// so the TypeScript-compiled query matches no node in a `.tsx` tree.
+/// so the TypeScript-compiled query matches no node in a `.tsx` tree. The JSX
+/// patterns are appended here because the TypeScript grammar has no JSX nodes.
 pub fn compile_tsx_query() -> Result<Query, QueryError> {
-    compile_query(SupportedLanguage::Tsx, typescript_query_str())
+    compile_query(
+        SupportedLanguage::Tsx,
+        &format!("{}\n{}", typescript_query_str(), jsx_query_str()),
+    )
 }
 
 #[cfg(test)]
