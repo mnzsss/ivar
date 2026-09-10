@@ -385,3 +385,40 @@ fn removing_mcp_when_there_is_nothing_to_remove_is_unchanged() {
         "a file with no mcp key is not rewritten"
     );
 }
+
+// -- materialise_mcp: OMP -----------------------------------------------
+
+#[test]
+fn omp_writes_local_and_http_servers_to_a_hall_root_mcp_document() {
+    let (_guard, dir) = utf8_temp_dir();
+    let mcp_path = dir.join(Provider::Omp.mcp_config_path());
+    assert_eq!(
+        Provider::Omp.mcp_config_path(),
+        "mcp.json",
+        "OMP reads its servers from mcp.json at the hall root"
+    );
+
+    let servers = vec![
+        McpServerDef::new("graph", "local")
+            .command("ivar")
+            .args(vec!["graph".to_owned(), "mcp".to_owned()]),
+        McpServerDef::new("figma", "http").url("https://mcp.figma.com/mcp"),
+    ];
+    materialise_mcp(&mcp_path, Provider::Omp, &servers, &hall()).unwrap();
+
+    let parsed: serde_json::Value =
+        serde_json::from_str(&fs::read_text(&mcp_path).unwrap().unwrap()).unwrap();
+    let mcp_servers = &parsed["mcpServers"];
+
+    assert_eq!(mcp_servers["acme-graph"]["type"], "stdio");
+    assert_eq!(mcp_servers["acme-graph"]["command"], "ivar");
+    assert_eq!(
+        mcp_servers["acme-graph"]["args"],
+        serde_json::json!(["graph", "mcp"])
+    );
+    assert_eq!(mcp_servers["acme-figma"]["type"], "http");
+    assert_eq!(
+        mcp_servers["acme-figma"]["url"],
+        "https://mcp.figma.com/mcp"
+    );
+}
