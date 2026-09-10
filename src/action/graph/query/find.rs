@@ -236,12 +236,33 @@ pub fn resolve_query_paths(
                    )
                  LIMIT 50",
             )?;
-            let dir_matches: Vec<(i64, String, String)> = dir_stmt
+            let mut dir_matches: Vec<(i64, String, String)> = dir_stmt
                 .query_map(params![repo, clean_dir], |r| {
                     Ok((r.get(0)?, r.get(1)?, r.get(2)?))
                 })?
                 .filter_map(|r| r.ok())
                 .collect();
+
+            // Agents pass directories relative to the workspace (`services/api/src/routes`),
+            // so drop leading segments until the rest is a repo-relative directory.
+            if dir_matches.is_empty() {
+                let mut subtree_stmt = conn.prepare_cached(
+                    "SELECT id, repo, path FROM files
+                     WHERE (?1 IS NULL OR repo = ?1) AND path LIKE ?2 || '/%' ESCAPE '\\'
+                     LIMIT 50",
+                )?;
+                for (slash, _) in clean_dir.match_indices('/') {
+                    dir_matches = subtree_stmt
+                        .query_map(params![repo, &clean_dir[slash + 1..]], |r| {
+                            Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+                        })?
+                        .filter_map(|r| r.ok())
+                        .collect();
+                    if !dir_matches.is_empty() {
+                        break;
+                    }
+                }
+            }
 
             if !dir_matches.is_empty() {
                 resolved_paths.push(ResolvedPath::DirectorySubtree { files: dir_matches });
