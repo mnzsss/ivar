@@ -190,6 +190,20 @@ pub fn index_repo(
                 .map(|d| d.as_nanos() as i64)
                 .unwrap_or(0);
 
+            let existing_file = if force_full {
+                None
+            } else {
+                db.get_file(repo_id, rel_path_str)?
+            };
+            // Same size and modification time means unchanged, the check git trusts
+            // for its own index, so an unchanged file is neither read nor hashed.
+            if existing_file
+                .as_ref()
+                .is_some_and(|file| file.size_bytes == size_bytes && file.mtime_ns == mtime_ns)
+            {
+                continue;
+            }
+
             let content = std::fs::read_to_string(&full_path).map_err(|e| IndexError::Io {
                 path: rel_path_str.clone(),
                 source: e,
@@ -197,10 +211,7 @@ pub fn index_repo(
 
             let content_hash = hash::text(&content);
 
-            if !force_full
-                && let Some(existing_file) = db.get_file(repo_id, rel_path_str)?
-                && existing_file.content_hash == content_hash
-            {
+            if existing_file.is_some_and(|file| file.content_hash == content_hash) {
                 continue;
             }
 

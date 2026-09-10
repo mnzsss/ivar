@@ -52,6 +52,32 @@ fn create_git_commit(repo: &git2::Repository, message: &str) -> Result<git2::Oid
 }
 
 #[test]
+fn a_file_with_unchanged_size_and_modification_time_is_not_read_again() {
+    let temp = tempdir().expect("tempdir");
+    let repo_path = temp.path();
+    let file = repo_path.join("lib.rs");
+    fs::write(&file, "pub fn alpha() {}\n").expect("write lib.rs");
+    let db = GraphDb::open_in_memory().expect("open db");
+    let first = index_repo(&db, "stat-repo", repo_path, false, &Silent).expect("first index");
+    assert_eq!(first.files_indexed, 1);
+    let indexed_mtime = fs::metadata(&file)
+        .expect("metadata")
+        .modified()
+        .expect("mtime");
+
+    fs::write(&file, "pub fn gamma() {}\n").expect("rewrite with the same size");
+    fs::File::options()
+        .write(true)
+        .open(&file)
+        .expect("open lib.rs")
+        .set_modified(indexed_mtime)
+        .expect("restore mtime");
+    let second = index_repo(&db, "stat-repo", repo_path, false, &Silent).expect("second index");
+
+    assert_eq!(second.files_indexed, 0);
+}
+
+#[test]
 fn test_full_index_and_incremental_flow() {
     let temp = tempdir().expect("tempdir");
     let repo_path = temp.path();

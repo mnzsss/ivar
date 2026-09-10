@@ -4,7 +4,10 @@
 //! - Pass 1: Extract definitions (symbols) and record their spans, signatures, docstrings, and visibility.
 //! - Pass 2: Extract invocations (calls) and imports, attaching 5-tier confidence heuristic and provenance.
 
+use std::cell::RefCell;
 use std::collections::HashSet;
+use std::sync::OnceLock;
+
 use streaming_iterator::StreamingIterator;
 use thiserror::Error;
 use tree_sitter::{Node, Query, QueryCursor};
@@ -33,6 +36,10 @@ pub struct ExtractedFile {
     pub edges: Vec<Edge>,
 }
 
+thread_local! {
+    static PARSER: RefCell<TreeSitterEngine> = RefCell::new(TreeSitterEngine::new());
+}
+
 /// Extracts symbols, imports, and calls from a source file using Tree-sitter AST queries.
 pub fn extract_file(
     repo: &str,
@@ -40,35 +47,46 @@ pub fn extract_file(
     content: &str,
     lang: SupportedLanguage,
 ) -> Result<ExtractedFile, ExtractorError> {
-    let mut engine = TreeSitterEngine::new();
-    let tree = engine.parse(lang, content)?;
-    let root = tree.root_node();
-
-    let query = match lang {
-        SupportedLanguage::Rust => compile_rust_query()?,
-        SupportedLanguage::TypeScript => compile_typescript_query()?,
-        SupportedLanguage::Tsx => compile_tsx_query()?,
-        _ => {
-            return Ok(ExtractedFile {
-                symbols: Vec::new(),
-                edges: Vec::new(),
-            });
-        }
+    let Some(query) = cached_query(lang)? else {
+        return Ok(ExtractedFile::default());
     };
+    let tree = PARSER.with_borrow_mut(|engine| engine.parse(lang, content))?;
+    let root = tree.root_node();
 
     let source_bytes = content.as_bytes();
 
     // Pass 1: Extract definitions
-    let mut symbols = extract_symbols(repo, root, &query, source_bytes, lang);
+    let mut symbols = extract_symbols(repo, root, query, source_bytes, lang);
     let (route_symbols, http_edges) = extract_http(repo, root, source_bytes, lang);
     symbols.extend(route_symbols);
     let local_symbols: HashSet<String> = symbols.iter().map(|s| s.name.clone()).collect();
 
     // Pass 2: Extract imports and calls
-    let mut edges = extract_edges(repo, root, &query, source_bytes, lang, &local_symbols);
+    let mut edges = extract_edges(repo, root, query, source_bytes, lang, &local_symbols);
     edges.extend(http_edges);
 
     Ok(ExtractedFile { symbols, edges })
+}
+
+type QueryCompiler = fn() -> Result<Query, tree_sitter::QueryError>;
+
+/// Compiles each language's query once per process instead of once per file.
+fn cached_query(lang: SupportedLanguage) -> Result<Option<&'static Query>, ExtractorError> {
+    static RUST: OnceLock<Query> = OnceLock::new();
+    static TYPESCRIPT: OnceLock<Query> = OnceLock::new();
+    static TSX: OnceLock<Query> = OnceLock::new();
+
+    let (cell, compile): (&'static OnceLock<Query>, QueryCompiler) = match lang {
+        SupportedLanguage::Rust => (&RUST, compile_rust_query),
+        SupportedLanguage::TypeScript => (&TYPESCRIPT, compile_typescript_query),
+        SupportedLanguage::Tsx => (&TSX, compile_tsx_query),
+        _ => return Ok(None),
+    };
+    if let Some(query) = cell.get() {
+        return Ok(Some(query));
+    }
+    let query = compile()?;
+    Ok(Some(cell.get_or_init(|| query)))
 }
 
 fn extract_symbols(
@@ -385,13 +403,21 @@ fn extract_edges(
     let import_name_idx = query.capture_index_for_name("import.name");
     let type_ref_idx = query.capture_index_for_name("type.ref");
 
-    let mut edges = Vec::new();
+    let mut import_edges = Vec::new();
     let mut imported_names: HashSet<String> = HashSet::new();
+    let mut call_sites: Vec<(String, Span, Option<&str>)> = Vec::new();
+    let mut type_ref_edges = Vec::new();
+    let mut seen_type_refs: HashSet<(usize, usize, String)> = HashSet::new();
 
-    // First collect imports and build edges + imported_names set
+    // One pass over the matches collects every capture. Calls are resolved after
+    // it, once every import in the file is known.
     while let Some(m) = matches.next() {
+        let mut target_node = None;
+        let mut receiver_node = None;
+
         for cap in m.captures {
-            if Some(cap.index) == import_path_idx || Some(cap.index) == import_source_idx {
+            let index = Some(cap.index);
+            if index == import_path_idx || index == import_source_idx {
                 let raw_text = cap
                     .node
                     .utf8_text(source_bytes)
@@ -408,7 +434,7 @@ fn extract_edges(
                     imported_names.insert(leaf.trim().to_owned());
                 }
 
-                edges.push(Edge {
+                import_edges.push(Edge {
                     id: None,
                     repo: repo.to_owned(),
                     file_id: None,
@@ -421,12 +447,12 @@ fn extract_edges(
                     col: span.start_col,
                     confidence: 0.95,
                 });
-            } else if Some(cap.index) == import_name_idx {
+            } else if index == import_name_idx {
                 let name = cap.node.utf8_text(source_bytes).unwrap_or("").trim();
                 if !name.is_empty() {
                     imported_names.insert(name.to_owned());
                     let span = node_to_span(cap.node);
-                    edges.push(Edge {
+                    import_edges.push(Edge {
                         id: None,
                         repo: repo.to_owned(),
                         file_id: None,
@@ -440,125 +466,102 @@ fn extract_edges(
                         confidence: 0.95,
                     });
                 }
+            } else if index == call_target_idx {
+                target_node = Some(cap.node);
+            } else if index == call_receiver_idx {
+                receiver_node = Some(cap.node);
+            } else if index == type_ref_idx {
+                let node = cap.node;
+                let parent_kind = node.parent().map(|p| p.kind());
+
+                if matches!(
+                    parent_kind,
+                    Some("interface_declaration")
+                        | Some("type_alias_declaration")
+                        | Some("class_declaration")
+                        | Some("enum_declaration")
+                ) && let Some(parent) = node.parent()
+                    && let Some(name_node) = parent.child_by_field_name("name")
+                    && name_node.id() == node.id()
+                {
+                    continue;
+                }
+
+                if let Ok(raw_name) = node.utf8_text(source_bytes) {
+                    let name = raw_name.trim();
+                    if !name.is_empty() {
+                        let span = node_to_span(node);
+                        let key = (span.start_line, span.start_col, name.to_owned());
+                        if !seen_type_refs.insert(key) {
+                            continue;
+                        }
+
+                        type_ref_edges.push(Edge {
+                            id: None,
+                            repo: repo.to_owned(),
+                            file_id: None,
+                            from_symbol_id: None,
+                            to_symbol_id: None,
+                            to_name: Some(name.to_owned()),
+                            kind: EdgeKind::References,
+                            provenance: Provenance::Extracted,
+                            line: span.start_line,
+                            col: span.start_col,
+                            confidence: 0.95,
+                        });
+                    }
+                }
             }
+        }
+
+        if let Some(t_node) = target_node
+            && let Ok(target_name) = t_node.utf8_text(source_bytes)
+            && !target_name.is_empty()
+        {
+            let receiver_name = receiver_node.and_then(|r| r.utf8_text(source_bytes).ok());
+            call_sites.push((target_name.to_owned(), node_to_span(t_node), receiver_name));
         }
     }
 
-    // Now collect calls
-    let mut cursor2 = QueryCursor::new();
-    let mut matches2 = cursor2.matches(query, root, source_bytes);
-
-    while let Some(m) = matches2.next() {
-        let mut target_node = None;
-        let mut receiver_node = None;
-
-        for cap in m.captures {
-            if Some(cap.index) == call_target_idx {
-                target_node = Some(cap.node);
-            } else if Some(cap.index) == call_receiver_idx {
-                receiver_node = Some(cap.node);
-            }
-        }
-
-        if let Some(t_node) = target_node {
-            let target_name = t_node.utf8_text(source_bytes).unwrap_or("").to_owned();
-            if target_name.is_empty() {
-                continue;
-            }
-
-            let span = node_to_span(t_node);
-            let receiver_name = receiver_node.and_then(|r| r.utf8_text(source_bytes).ok());
-
+    let call_edges = call_sites
+        .into_iter()
+        .map(|(target_name, span, receiver_name)| {
             let (to_name, provenance, confidence) = if local_symbols.contains(&target_name) {
                 // Tier 1: Local definition
-                (Some(target_name), Provenance::Extracted, 1.0)
+                (target_name, Provenance::Extracted, 1.0)
             } else if imported_names.contains(&target_name) {
                 // Tier 2: Imported symbol
-                (Some(target_name), Provenance::Extracted, 0.95)
+                (target_name, Provenance::Extracted, 0.95)
             } else if let Some(receiver) = receiver_name {
                 // Tier 3: Method call with receiver
                 (
-                    Some(format!("{receiver}.{target_name}")),
+                    format!("{receiver}.{target_name}"),
                     Provenance::Inferred,
                     0.85,
                 )
             } else {
                 // Tier 4: General / dynamic / unresolved call
-                (Some(target_name), Provenance::Inferred, 0.70)
+                (target_name, Provenance::Inferred, 0.70)
             };
-
-            edges.push(Edge {
+            Edge {
                 id: None,
                 repo: repo.to_owned(),
                 file_id: None,
                 from_symbol_id: None,
                 to_symbol_id: None,
-                to_name,
+                to_name: Some(to_name),
                 kind: EdgeKind::Calls,
                 provenance,
                 line: span.start_line,
                 col: span.start_col,
                 confidence,
-            });
-        }
-    }
-
-    if let Some(t_idx) = type_ref_idx {
-        let mut cursor3 = QueryCursor::new();
-        let mut matches3 = cursor3.matches(query, root, source_bytes);
-        let mut seen_type_refs: HashSet<(usize, usize, String)> = HashSet::new();
-
-        while let Some(m) = matches3.next() {
-            for cap in m.captures {
-                if cap.index == t_idx {
-                    let node = cap.node;
-                    let parent_kind = node.parent().map(|p| p.kind());
-
-                    if matches!(
-                        parent_kind,
-                        Some("interface_declaration")
-                            | Some("type_alias_declaration")
-                            | Some("class_declaration")
-                            | Some("enum_declaration")
-                    ) && let Some(parent) = node.parent()
-                        && let Some(name_node) = parent.child_by_field_name("name")
-                        && name_node.id() == node.id()
-                    {
-                        continue;
-                    }
-
-                    if let Ok(raw_name) = node.utf8_text(source_bytes) {
-                        let name = raw_name.trim();
-                        if !name.is_empty() {
-                            let span = node_to_span(node);
-                            let key = (span.start_line, span.start_col, name.to_owned());
-                            if !seen_type_refs.insert(key) {
-                                continue;
-                            }
-
-                            edges.push(Edge {
-                                id: None,
-                                repo: repo.to_owned(),
-                                file_id: None,
-                                from_symbol_id: None,
-                                to_symbol_id: None,
-                                to_name: Some(name.to_owned()),
-                                kind: EdgeKind::References,
-                                provenance: Provenance::Extracted,
-                                line: span.start_line,
-                                col: span.start_col,
-                                confidence: 0.95,
-                            });
-                        }
-                    }
-                }
             }
-        }
-    }
+        });
 
-    let hierarchy_edges = extract_hierarchy_edges(repo, root, source_bytes, lang);
-    edges.extend(hierarchy_edges);
-
+    let mut edges = import_edges;
+    edges.extend(call_edges);
+    edges.extend(type_ref_edges);
+    edges.extend(extract_hierarchy_edges(repo, root, source_bytes, lang));
     edges
 }
 
