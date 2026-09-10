@@ -48,32 +48,9 @@ pub fn explore(
         });
     }
 
-    // Step 1: Match query against symbols
-    let mut candidates = query::find_symbols(db, trimmed_query, repo, 5)?;
-
-    // If no direct matches, try fallback to individual words in the query
-    if candidates.is_empty() {
-        for word in trimmed_query.split_whitespace() {
-            let word_clean = word.trim_matches(|c: char| !c.is_alphanumeric() && c != '_');
-            if word_clean.len() >= 3 {
-                let word_candidates = query::find_symbols(db, word_clean, repo, 5)?;
-                for c in word_candidates {
-                    if !candidates
-                        .iter()
-                        .any(|existing| existing.symbol.id == c.symbol.id)
-                    {
-                        candidates.push(c);
-                        if candidates.len() >= 5 {
-                            break;
-                        }
-                    }
-                }
-            }
-            if candidates.len() >= 5 {
-                break;
-            }
-        }
-    }
+    // Step 1: Match query against symbols via structured exploration retrieval pipeline
+    // (path pinning, weighted OR terms, per-file limits).
+    let candidates = query::find::explore_find_candidates(db, trimmed_query, repo)?;
 
     if candidates.is_empty() {
         return Ok(ExploreResult {

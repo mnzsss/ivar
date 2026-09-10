@@ -330,3 +330,137 @@ fn test_explore_empty_or_not_found() {
             .contains("No symbols found")
     );
 }
+
+#[test]
+fn a_file_path_query_resolves_to_that_file_symbols() {
+    // Agents address `explore` with paths far more often than with bare names,
+    // and they write the path they see in their workspace
+    // (`services/api/src/routes/auth.ts`) while the graph stores it relative to
+    // its repo (`src/routes/auth.ts`). Neither is a suffix of the other in a
+    // fixed direction, so both are tried.
+    let temp = tempdir().expect("create temp dir");
+    let hall_root = temp.path();
+    let repo_dir = hall_root.join("api");
+    fs::create_dir_all(repo_dir.join("src/routes")).expect("create dirs");
+
+    let file_rel_path = "src/routes/auth.ts";
+    let file_content = "export const authRoutes = async (fastify) => {};\n";
+    fs::write(repo_dir.join(file_rel_path), file_content).expect("write source");
+
+    let db = GraphDb::open_in_memory().expect("open memory db");
+    db.insert_repo("api", repo_dir.to_str().unwrap(), "main", None)
+        .expect("insert repo");
+    let file_id = db
+        .upsert_file("api", file_rel_path, "h", 1, file_content.len() as i64)
+        .expect("upsert file");
+    db.insert_symbols(&[Symbol {
+        id: None,
+        file_id: Some(file_id),
+        repo: "api".to_owned(),
+        name: "authRoutes".to_owned(),
+        kind: SymbolKind::Fn,
+        scope: None,
+        signature: None,
+        docstring: None,
+        span: Span::new(1, 1, 1, 49),
+        is_exported: true,
+        complexity: None,
+    }])
+    .expect("insert symbol");
+
+    for query in [
+        "src/routes/auth.ts",
+        "services/api/src/routes/auth.ts",
+        "./src/routes/auth.ts",
+    ] {
+        let res = explore(&db, hall_root, query, None).expect("explore");
+        assert_eq!(
+            res.primary_symbols
+                .iter()
+                .map(|s| s.symbol.name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["authRoutes"],
+            "query `{query}` must resolve to the file's symbols"
+        );
+    }
+}
+#[test]
+fn test_explore_routes_aggregate_query() {
+    let temp = tempdir().expect("create temp dir");
+    let hall_root = temp.path();
+    let repo_dir = hall_root.join("api");
+    fs::create_dir_all(repo_dir.join("src/routes")).expect("create dirs");
+
+    let file_rel_path = "src/routes/api.ts";
+    let file_content = r#"
+export async function apiRoutes(fastify) {
+  fastify.get('/health', async () => ({ status: 'ok' }));
+  fastify.post('/users', async () => ({ id: 1 }));
+}
+"#;
+    fs::write(repo_dir.join(file_rel_path), file_content).expect("write source");
+
+    let db = GraphDb::open_in_memory().expect("open memory db");
+    db.insert_repo("api", repo_dir.to_str().unwrap(), "main", None)
+        .expect("insert repo");
+    let file_id = db
+        .upsert_file("api", file_rel_path, "h", 1, file_content.len() as i64)
+        .expect("upsert file");
+
+    db.insert_symbols(&[
+        Symbol {
+            id: None,
+            file_id: Some(file_id),
+            repo: "api".to_owned(),
+            name: "GET /health".to_owned(),
+            kind: SymbolKind::Other("route".to_owned()),
+            scope: None,
+            signature: None,
+            docstring: None,
+            span: Span::new(3, 3, 3, 58),
+            is_exported: false,
+            complexity: None,
+        },
+        Symbol {
+            id: None,
+            file_id: Some(file_id),
+            repo: "api".to_owned(),
+            name: "POST /users".to_owned(),
+            kind: SymbolKind::Other("route".to_owned()),
+            scope: None,
+            signature: None,
+            docstring: None,
+            span: Span::new(4, 3, 4, 51),
+            is_exported: false,
+            complexity: None,
+        },
+    ])
+    .expect("insert symbols");
+
+    for query in ["API routes endpoints", "routes", "endpoints"] {
+        let res = explore(&db, hall_root, query, None).expect("explore");
+        let matched_names: Vec<&str> = res
+            .primary_symbols
+            .iter()
+            .map(|s| s.symbol.name.as_str())
+            .collect();
+        assert!(
+            matched_names.contains(&"GET /health"),
+            "query `{query}` should find GET /health, got {matched_names:?}"
+        );
+        assert!(
+            matched_names.contains(&"POST /users"),
+            "query `{query}` should find POST /users, got {matched_names:?}"
+        );
+        // Verify code snippet is present
+        let health_sym = res
+            .primary_symbols
+            .iter()
+            .find(|s| s.symbol.name == "GET /health")
+            .unwrap();
+        assert!(
+            health_sym.code.contains("/health"),
+            "snippet should include line content"
+        );
+    }
+}

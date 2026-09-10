@@ -285,3 +285,154 @@ fn test_get_impact_and_cycle_protection() {
     let cycle_impact = get_impact(&db, helper_id, 10).expect("cycle impact");
     assert_eq!(cycle_impact.total_affected, 2);
 }
+
+fn function_symbol(file_id: i64, repo: &str, name: &str, start_line: usize) -> Symbol {
+    Symbol {
+        id: None,
+        file_id: Some(file_id),
+        repo: repo.to_owned(),
+        name: name.to_owned(),
+        kind: SymbolKind::Fn,
+        scope: None,
+        signature: Some(format!("fn {name}()")),
+        docstring: None,
+        span: Span::new(start_line, 1, start_line + 5, 1),
+        is_exported: true,
+        complexity: None,
+    }
+}
+
+#[test]
+fn test_explore_find_candidates_path_pinning_and_per_file_limits() {
+    let db = GraphDb::open_in_memory().expect("open in-memory db");
+    db.insert_repo("myrepo", "/workspace/myrepo", "main", None)
+        .expect("insert repo");
+
+    // File 1: src/auth/handler.rs
+    let file1_id = db
+        .upsert_file("myrepo", "src/auth/handler.rs", "h1", 100, 1000)
+        .expect("upsert file 1");
+
+    // Insert 10 symbols into file 1
+    let mut syms_f1 = Vec::new();
+    for i in 1..=10 {
+        syms_f1.push(function_symbol(
+            file1_id,
+            "myrepo",
+            &format!("login_step_{i}"),
+            i * 10,
+        ));
+    }
+    db.insert_symbols(&syms_f1).expect("insert f1 symbols");
+
+    // File 2: src/auth/middleware.rs
+    let file2_id = db
+        .upsert_file("myrepo", "src/auth/middleware.rs", "h2", 100, 1000)
+        .expect("upsert file 2");
+
+    let mut syms_f2 = Vec::new();
+    for i in 1..=8 {
+        syms_f2.push(function_symbol(
+            file2_id,
+            "myrepo",
+            &format!("auth_mw_step_{i}"),
+            i * 10,
+        ));
+    }
+    db.insert_symbols(&syms_f2).expect("insert f2 symbols");
+
+    // 1. Exact file pinning (single file matched) -> can return up to MAX_EXPLORE_CANDIDATES (all 10 symbols)
+    let c_exact =
+        find::explore_find_candidates(&db, "src/auth/handler.rs", None).expect("explore exact");
+    assert_eq!(c_exact.len(), 10);
+    assert!(c_exact.iter().all(|s| s.file_path == "src/auth/handler.rs"));
+    // Verify source line order is preserved
+    for i in 0..9 {
+        assert!(c_exact[i].symbol.span.start_line < c_exact[i + 1].symbol.span.start_line);
+    }
+
+    // 2. Unambiguous basename pinning -> "handler.rs" resolves to src/auth/handler.rs
+    let c_base =
+        find::explore_find_candidates(&db, "handler.rs login", None).expect("explore basename");
+    assert_eq!(c_base.len(), 10);
+    assert!(c_base.iter().all(|s| s.file_path == "src/auth/handler.rs"));
+
+    // 3. Workspace-relative path pinning -> "myrepo/src/auth/middleware.rs"
+    let c_ws = find::explore_find_candidates(&db, "myrepo/src/auth/middleware.rs", None)
+        .expect("explore ws path");
+    assert_eq!(c_ws.len(), 8);
+    assert!(c_ws.iter().all(|s| s.file_path == "src/auth/middleware.rs"));
+
+    // 4. Directory subtree query -> "src/auth" matches both files.
+    // Because multiple files match, each file is capped at MAX_SYMBOLS_PER_FILE (6).
+    let c_dir = find::explore_find_candidates(&db, "src/auth", None).expect("explore dir");
+    assert_eq!(c_dir.len(), 12); // 6 from handler.rs + 6 from middleware.rs
+    let f1_count = c_dir
+        .iter()
+        .filter(|s| s.file_path == "src/auth/handler.rs")
+        .count();
+    let f2_count = c_dir
+        .iter()
+        .filter(|s| s.file_path == "src/auth/middleware.rs")
+        .count();
+    assert_eq!(f1_count, 6);
+    assert_eq!(f2_count, 6);
+}
+
+#[test]
+fn test_explore_find_candidates_keeps_best_match_past_file_cap() {
+    let db = GraphDb::open_in_memory().expect("open in-memory db");
+    db.insert_repo("bigrepo", "/workspace/bigrepo", "main", None)
+        .expect("insert repo");
+
+    let file_id = db
+        .upsert_file("bigrepo", "src/big.rs", "h", 10, 100)
+        .expect("upsert file");
+
+    let mut symbols: Vec<Symbol> = (1..=find::MAX_EXPLORE_CANDIDATES + 6)
+        .map(|i| function_symbol(file_id, "bigrepo", &format!("step_{i}"), i * 10))
+        .collect();
+    symbols.push(function_symbol(file_id, "bigrepo", "authenticate", 10_000));
+    db.insert_symbols(&symbols).expect("insert symbols");
+
+    let candidates = find::explore_find_candidates(&db, "src/big.rs authenticate", None)
+        .expect("search candidates");
+
+    assert_eq!(candidates.len(), find::MAX_EXPLORE_CANDIDATES);
+    assert!(candidates.iter().any(|c| c.symbol.name == "authenticate"));
+}
+
+#[test]
+fn test_explore_find_candidates_weighted_scoring_and_terms() {
+    let db = GraphDb::open_in_memory().expect("open in-memory db");
+    db.insert_repo("testrepo", "/workspace/testrepo", "main", None)
+        .expect("insert repo");
+
+    let file_id = db
+        .upsert_file("testrepo", "src/auth.rs", "h", 10, 100)
+        .expect("upsert file");
+
+    let sym_exact = Symbol {
+        docstring: Some("Perform user authentication".to_owned()),
+        ..function_symbol(file_id, "testrepo", "authenticate", 10)
+    };
+    let sym_prefix = function_symbol(file_id, "testrepo", "authenticate_with_token", 20);
+    let sym_doc_only = Symbol {
+        docstring: Some("Checks if user authentication is valid".to_owned()),
+        ..function_symbol(file_id, "testrepo", "validate_session", 30)
+    };
+
+    db.insert_symbols(&[sym_exact, sym_prefix, sym_doc_only])
+        .expect("insert symbols");
+
+    // Search "authenticate" with path "src/auth.rs"
+    let candidates = find::explore_find_candidates(&db, "src/auth.rs authenticate", None)
+        .expect("search candidates");
+
+    assert_eq!(candidates.len(), 3);
+    // The exact match and prefix match should be present
+    let names: Vec<_> = candidates.iter().map(|c| c.symbol.name.as_str()).collect();
+    assert!(names.contains(&"authenticate"));
+    assert!(names.contains(&"authenticate_with_token"));
+    assert!(names.contains(&"validate_session"));
+}
