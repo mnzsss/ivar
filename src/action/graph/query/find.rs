@@ -252,8 +252,16 @@ pub fn resolve_query_paths(
                      LIMIT 50",
                 )?;
                 for (slash, _) in clean_dir.match_indices('/') {
+                    // `services/api/src/routes` names the repo `api` before its
+                    // repo-relative directory; other repos may share `src/routes`.
+                    let named_repo = match clean_dir[..slash].rsplit('/').next() {
+                        Some(segment) if repo.is_none() && db.get_repo(segment)?.is_some() => {
+                            Some(segment)
+                        }
+                        _ => None,
+                    };
                     dir_matches = subtree_stmt
-                        .query_map(params![repo, &clean_dir[slash + 1..]], |r| {
+                        .query_map(params![repo.or(named_repo), &clean_dir[slash + 1..]], |r| {
                             Ok((r.get(0)?, r.get(1)?, r.get(2)?))
                         })?
                         .filter_map(|r| r.ok())

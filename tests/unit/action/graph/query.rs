@@ -531,6 +531,34 @@ fn test_explore_find_candidates_matches_a_singular_term_to_a_plural_path() {
 }
 
 #[test]
+fn test_explore_find_candidates_keeps_a_workspace_directory_inside_the_repo_it_names() {
+    let db = GraphDb::open_in_memory().expect("open in-memory db");
+    for repo in ["api", "web"] {
+        db.insert_repo(repo, &format!("/workspace/{repo}"), "main", None)
+            .expect("insert repo");
+    }
+    for (repo, path, name) in [
+        ("api", "src/routes/auth.ts", "authRoutes"),
+        ("web", "src/routes/registry.ts", "ROUTES"),
+    ] {
+        let file_id = db
+            .upsert_file(repo, path, "h", 10, 100)
+            .expect("upsert file");
+        db.insert_symbols(&[function_symbol(file_id, repo, name, 10)])
+            .expect("insert symbol");
+    }
+
+    let candidates = find::explore_find_candidates(&db, "services/api/src/routes", None)
+        .expect("search candidates");
+
+    let found: Vec<(&str, &str)> = candidates
+        .iter()
+        .map(|c| (c.symbol.repo.as_str(), c.file_path.as_str()))
+        .collect();
+    assert_eq!(found, vec![("api", "src/routes/auth.ts")]);
+}
+
+#[test]
 fn test_explore_find_candidates_finds_a_word_inside_a_camel_case_name() {
     let db = GraphDb::open_in_memory().expect("open in-memory db");
     db.insert_repo("api", "/workspace/api", "main", None)
