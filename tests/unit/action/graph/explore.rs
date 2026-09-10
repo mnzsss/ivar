@@ -464,3 +464,100 @@ export async function apiRoutes(fastify) {
         );
     }
 }
+
+fn fn_symbol(file_id: i64, name: &str, start: usize, end: usize) -> Symbol {
+    Symbol {
+        id: None,
+        file_id: Some(file_id),
+        repo: "api".to_owned(),
+        name: name.to_owned(),
+        kind: SymbolKind::Fn,
+        scope: None,
+        signature: None,
+        docstring: None,
+        span: Span::new(start, 1, end, 1),
+        is_exported: true,
+        complexity: None,
+    }
+}
+
+fn index_single_file(
+    content: &str,
+    path: &str,
+    symbols: &[(&str, usize, usize)],
+) -> (GraphDb, tempfile::TempDir) {
+    let temp = tempdir().expect("create temp dir");
+    let repo_dir = temp.path().join("api");
+    fs::create_dir_all(repo_dir.join("src")).expect("create dirs");
+    fs::write(repo_dir.join(path), content).expect("write source");
+
+    let db = GraphDb::open_in_memory().expect("open memory db");
+    db.insert_repo("api", repo_dir.to_str().unwrap(), "main", None)
+        .expect("insert repo");
+    let file_id = db
+        .upsert_file("api", path, "h", 1, content.len() as i64)
+        .expect("upsert file");
+    let symbols: Vec<Symbol> = symbols
+        .iter()
+        .map(|(name, start, end)| fn_symbol(file_id, name, *start, *end))
+        .collect();
+    db.insert_symbols(&symbols).expect("insert symbols");
+    (db, temp)
+}
+
+#[test]
+fn a_small_file_is_returned_whole_once_even_with_several_matches() {
+    let content = "import { db } from './db';\n\nexport function createSession() {\n  return db.insert();\n}\n\nexport function getSession(id) {\n  return db.get(id);\n}\n";
+    let (db, temp) = index_single_file(
+        content,
+        "src/sessions.ts",
+        &[("createSession", 3, 5), ("getSession", 7, 9)],
+    );
+
+    let res = explore(&db, temp.path(), "src/sessions.ts", None).expect("explore");
+
+    assert_eq!(res.sources.len(), 1);
+    let source = &res.sources[0];
+    assert_eq!(
+        (
+            source.repo.as_str(),
+            source.file_path.as_str(),
+            source.line_count
+        ),
+        ("api", "src/sessions.ts", 9)
+    );
+    assert_eq!(source.excerpts.len(), 1);
+    assert_eq!(
+        (source.excerpts[0].start_line, source.excerpts[0].end_line),
+        (1, 9)
+    );
+    assert!(
+        source.excerpts[0]
+            .code
+            .starts_with("1: import { db } from './db';"),
+        "lines outside every symbol belong to the file too"
+    );
+}
+
+#[test]
+fn a_large_file_is_returned_as_merged_excerpts_around_the_matches() {
+    let content: String = (1..=400).map(|n| format!("// line {n}\n")).collect();
+    let (db, temp) = index_single_file(
+        &content,
+        "src/big.ts",
+        &[("first", 10, 12), ("second", 18, 20), ("far", 300, 305)],
+    );
+
+    let res = explore(&db, temp.path(), "src/big.ts", None).expect("explore");
+
+    assert_eq!(res.sources.len(), 1);
+    let source = &res.sources[0];
+    assert_eq!(source.line_count, 400);
+    let ranges: Vec<(usize, usize)> = source
+        .excerpts
+        .iter()
+        .map(|e| (e.start_line, e.end_line))
+        .collect();
+    assert_eq!(ranges, vec![(10, 20), (300, 305)]);
+    assert!(source.excerpts[0].code.contains("15: // line 15"));
+}

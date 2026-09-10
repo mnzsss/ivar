@@ -323,6 +323,24 @@ pub struct ExploreImpact {
     pub cross_repo: bool,
 }
 
+/// Source explore shows for one file: the whole file, or merged excerpts around
+/// the matched symbols when the file is large.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct SourceFile {
+    pub repo: String,
+    pub file_path: String,
+    pub line_count: usize,
+    pub excerpts: Vec<SourceExcerpt>,
+}
+
+/// A contiguous run of numbered source lines.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct SourceExcerpt {
+    pub start_line: usize,
+    pub end_line: usize,
+    pub code: String,
+}
+
 /// Result of an exploration query across the graph.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct ExploreResult {
@@ -336,6 +354,8 @@ pub struct ExploreResult {
     pub entry_points: Vec<OperationalRelation>,
     #[serde(default)]
     pub transitive_consumers: Vec<ExploreImpact>,
+    #[serde(default)]
+    pub sources: Vec<SourceFile>,
 }
 /// A causal step linking a changed dependency or symbol to an affected test.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]

@@ -141,6 +141,7 @@ fn test_explore_result_json_roundtrip() {
             line: 42,
         }],
         impact_summary: Some("Core domain model".to_owned()),
+        sources: Vec::new(),
         direct_relations: vec![OperationalRelation {
             source: RelationEndpoint {
                 repo: "ivar".to_owned(),
