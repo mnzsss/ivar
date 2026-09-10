@@ -400,7 +400,7 @@ pub fn explore_find_candidates(
             }
         }
 
-        // Tier B: Prefix symbol name match (+40.0)
+        // Tier B: Prefix symbol name match (+40.0 at a word boundary, +10.0 inside a word)
         if term.len() >= 3 {
             let prefix_pat = format!("{term}%");
             let mut stmt = conn.prepare_cached(
@@ -417,7 +417,34 @@ pub fn explore_find_candidates(
                 .query_map(params![prefix_pat, term, repo], map_symbol_and_path_row)?
                 .filter_map(|r| r.ok());
             for (symbol, file_path) in rows {
-                add_score(&mut file_candidates, symbol, file_path, 40.0);
+                let at_word_boundary = match symbol.name.get(term.len()..) {
+                    Some(rest) => rest.chars().next().is_none_or(|next| {
+                        next.is_ascii_uppercase() || next.is_ascii_digit() || next == '_'
+                    }),
+                    None => false,
+                };
+                let score = if at_word_boundary { 40.0 } else { 10.0 };
+                add_score(&mut file_candidates, symbol, file_path, score);
+            }
+        }
+
+        // Path tier: the term names a directory or file in the symbol's path (+60.0)
+        {
+            let mut stmt = conn.prepare_cached(
+                "SELECT s.id, s.file_id, s.repo, s.name, s.kind, s.scope, s.signature, s.docstring,
+                        s.start_line, s.start_col, s.end_line, s.end_col, s.is_exported, s.complexity, f.path
+                 FROM symbols s
+                 JOIN files f ON s.file_id = f.id
+                 WHERE (instr('/' || lower(f.path), '/' || lower(?1) || '/') > 0
+                        OR instr('/' || lower(f.path), '/' || lower(?1) || '.') > 0)
+                   AND (?2 IS NULL OR s.repo = ?2)
+                 LIMIT 200",
+            )?;
+            let rows = stmt
+                .query_map(params![term, repo], map_symbol_and_path_row)?
+                .filter_map(|r| r.ok());
+            for (symbol, file_path) in rows {
+                add_score(&mut file_candidates, symbol, file_path, 60.0);
             }
         }
 
@@ -523,6 +550,11 @@ pub fn explore_find_candidates(
             .then_with(|| a.repo.cmp(&b.repo))
             .then_with(|| a.path.cmp(&b.path))
     });
+
+    // Files far below the best match were decoys sharing a name prefix, and each
+    // one costs a whole file of source in the answer.
+    let floor = ranked_files.first().map_or(0.0, |top| top.score * 0.25);
+    ranked_files.retain(|file| file.score >= floor);
 
     // Split the budget across files so every file the query names keeps a slot.
     let max_per_file = match ranked_files.len() {
