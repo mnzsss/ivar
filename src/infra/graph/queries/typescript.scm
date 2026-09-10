@@ -44,3 +44,6 @@
 
 (import_clause
   (identifier) @import.name)
+
+;; Type References
+((type_identifier) @type.ref)
