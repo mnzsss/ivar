@@ -15,8 +15,7 @@ pub fn list_tools() -> Value {
                     "query": { "type": "string", "description": "Search query, symbol names, or file and directory paths (several at once) whose source you need" },
                     "repo": { "type": "string", "description": "Optional repository filter" },
                     "format": { "type": "string", "enum": ["markdown", "json", "compact"], "description": "Output format: 'markdown' (default, includes source snippets — best for discovery and replacing grep+read), 'json' for raw struct, or 'compact' (pipe-delimited, no source — for programmatic parsing of large results)" }
-                },
-                "required": ["query"]
+                }
             }
         },
         {
@@ -58,8 +57,7 @@ pub fn list_tools() -> Value {
                     "file": { "type": "string", "description": "File path, as shown in the workspace or relative to its repository" },
                     "repo": { "type": "string", "description": "Optional repository name, when the path alone is ambiguous" },
                     "format": { "type": "string", "enum": ["markdown", "json"], "description": "Output format: 'markdown' (default) or 'json' for raw struct" }
-                },
-                "required": ["file"]
+                }
             }
         },
         {
