@@ -8,6 +8,7 @@ use super::types::{
 };
 use crate::domain::graph::Span;
 use crate::store::graph::extractor::ExtractedFile;
+use crate::store::graph::schema::name_words;
 
 impl GraphDb {
     /// Indexes an extracted file's symbols and edges inside a transaction.
@@ -53,8 +54,8 @@ impl GraphDb {
 
             // Insert new symbols
             let mut sym_stmt = self.conn.prepare_cached(
-                "INSERT INTO symbols (file_id, repo, name, kind, scope, signature, docstring, start_line, start_col, end_line, end_col, is_exported, complexity)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
+                "INSERT INTO symbols (file_id, repo, name, kind, scope, signature, docstring, start_line, start_col, end_line, end_col, is_exported, complexity, name_words)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
                  RETURNING id",
             )?;
             struct IndexedSymbolInfo {
@@ -86,6 +87,7 @@ impl GraphDb {
                         sym.span.end_col as i64,
                         is_exported,
                         sym.complexity.map(|c| c as i64),
+                        name_words(&sym.name),
                     ],
                     |row| row.get(0),
                 )?;

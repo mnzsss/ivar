@@ -124,6 +124,56 @@ fn test_existing_v1_database_migration() {
 }
 
 #[test]
+fn name_words_split_identifiers_the_way_people_search_for_them() {
+    assert_eq!(name_words("enforceSession"), "enforce session");
+    assert_eq!(name_words("HTTPServer"), "http server");
+    assert_eq!(name_words("get_user_by_id"), "get user by id");
+    assert_eq!(name_words("GET /projects/:id"), "get projects id");
+    assert_eq!(name_words("v2Api"), "v2 api");
+}
+
+#[test]
+fn a_database_from_before_word_search_backfills_words_and_forces_a_reindex() {
+    let conn = Connection::open_in_memory().expect("open in memory db");
+    apply_pragmas(&conn, false).expect("apply pragmas");
+    apply_migrations(&conn).expect("first migration");
+    conn.execute_batch(
+        "INSERT INTO repos (id, root_path, default_branch, last_indexed_commit, indexed_at)
+             VALUES ('api', '/api', 'main', 'abc123', 0);
+         INSERT INTO files (id, repo, path, content_hash, mtime_ns, size_bytes, indexed_at)
+             VALUES (1, 'api', 'src/guard.ts', 'hash1', 5, 10, 0);
+         INSERT INTO symbols (file_id, repo, name, kind, start_line, start_col, end_line, end_col)
+             VALUES (1, 'api', 'enforceSession', 'fn', 1, 1, 3, 1);
+         PRAGMA user_version = 2;",
+    )
+    .expect("seed a database from before word search");
+
+    apply_migrations(&conn).expect("migrate");
+
+    let words: String = conn
+        .query_row("SELECT name_words FROM symbols", [], |row| row.get(0))
+        .expect("name words");
+    assert_eq!(words, "enforce session");
+    let matches: i64 = conn
+        .query_row(
+            "SELECT count(*) FROM symbols_fts WHERE symbols_fts MATCH 'name_words : session'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("word search");
+    assert_eq!(matches, 1);
+    let (hash, mtime, commit): (String, i64, Option<String>) = conn
+        .query_row(
+            "SELECT f.content_hash, f.mtime_ns, r.last_indexed_commit
+             FROM files f JOIN repos r ON r.id = f.repo",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .expect("file and repo rows");
+    assert_eq!((hash.as_str(), mtime, commit), ("", -1, None));
+}
+
+#[test]
 fn test_migration_idempotence() {
     let conn = Connection::open_in_memory().expect("open in memory db");
     apply_pragmas(&conn, false).expect("apply pragmas");

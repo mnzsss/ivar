@@ -5,6 +5,7 @@ use rusqlite::params;
 use super::GraphDb;
 use super::types::{Result, parse_symbol_kind, symbol_kind_to_str};
 use crate::domain::graph::{Span, Symbol};
+use crate::store::graph::schema::name_words;
 
 impl GraphDb {
     /// Deletes all symbols belonging to a specific file ID (cascades to outbound edges).
@@ -22,8 +23,8 @@ impl GraphDb {
         self.conn.execute_batch("BEGIN IMMEDIATE;")?;
         let res = (|| -> Result<Vec<i64>> {
             let mut stmt = self.conn.prepare_cached(
-                "INSERT INTO symbols (file_id, repo, name, kind, scope, signature, docstring, start_line, start_col, end_line, end_col, is_exported, complexity)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
+                "INSERT INTO symbols (file_id, repo, name, kind, scope, signature, docstring, start_line, start_col, end_line, end_col, is_exported, complexity, name_words)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
                  RETURNING id",
             )?;
             let mut ids = Vec::with_capacity(symbols.len());
@@ -45,6 +46,7 @@ impl GraphDb {
                         sym.span.end_col as i64,
                         is_exported,
                         sym.complexity.map(|c| c as i64),
+                        name_words(&sym.name),
                     ],
                     |row| row.get(0),
                 )?;
