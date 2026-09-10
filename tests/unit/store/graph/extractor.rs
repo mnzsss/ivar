@@ -364,3 +364,248 @@ export function handler() {
     assert!(!names.contains(&"temporary"), "local value, got {names:?}");
     assert!(!names.contains(&"callback"), "local closure, got {names:?}");
 }
+#[test]
+fn test_http_route_symbols_extraction() {
+    let code = r#"
+import { FastifyInstance } from 'fastify';
+
+export async function routes(fastify: FastifyInstance) {
+  fastify.get('/health', handler);
+  fastify.post('/auth/login', async (req, reply) => {
+    return { status: 'ok' };
+  });
+  fastify.put('/users/:id', updateUser);
+  fastify.patch('/users/:id', patchUser);
+  fastify.delete('/users/:id', deleteUser);
+  fastify.options('/cors', corsHandler);
+  fastify.head('/ping', pingHandler);
+
+  // Negative cases:
+  fastify.customMethod('/not-http', handler);
+  fastify.get(dynamicPath, handler);
+  fastify.get();
+  doSomething('/not-a-route');
+}
+"#;
+    let res = extract_file("repo", "src/routes.ts", code, SupportedLanguage::TypeScript)
+        .expect("extract");
+
+    let route_symbols: Vec<&Symbol> = res
+        .symbols
+        .iter()
+        .filter(|s| matches!(&s.kind, SymbolKind::Other(k) if k == "route"))
+        .collect();
+
+    let route_names: Vec<&str> = route_symbols.iter().map(|s| s.name.as_str()).collect();
+
+    assert!(
+        route_names.contains(&"GET /health"),
+        "expected GET /health, got {route_names:?}"
+    );
+    assert!(
+        route_names.contains(&"POST /auth/login"),
+        "expected POST /auth/login, got {route_names:?}"
+    );
+    assert!(
+        route_names.contains(&"PUT /users/:id"),
+        "expected PUT /users/:id, got {route_names:?}"
+    );
+    assert!(
+        route_names.contains(&"PATCH /users/:id"),
+        "expected PATCH /users/:id, got {route_names:?}"
+    );
+    assert!(
+        route_names.contains(&"DELETE /users/:id"),
+        "expected DELETE /users/:id, got {route_names:?}"
+    );
+    assert!(
+        route_names.contains(&"OPTIONS /cors"),
+        "expected OPTIONS /cors, got {route_names:?}"
+    );
+    assert!(
+        route_names.contains(&"HEAD /ping"),
+        "expected HEAD /ping, got {route_names:?}"
+    );
+
+    // Negatives
+    assert!(
+        !route_names.iter().any(|n| n.contains("/not-http")),
+        "should not extract non-http methods: {route_names:?}"
+    );
+    assert!(
+        !route_names.iter().any(|n| n.contains("dynamicPath")),
+        "should not extract dynamic paths: {route_names:?}"
+    );
+    assert!(
+        !route_names.iter().any(|n| n.contains("/not-a-route")),
+        "should not extract plain calls: {route_names:?}"
+    );
+
+    // Symbol properties
+    let health = route_symbols
+        .iter()
+        .find(|s| s.name == "GET /health")
+        .unwrap();
+    assert_eq!(health.kind, SymbolKind::Other("route".to_owned()));
+    assert!(!health.is_exported);
+    assert!(health.span.start_line > 0);
+
+    // Ensure no duplicates
+    assert_eq!(
+        route_symbols.len(),
+        7,
+        "expected exactly 7 routes, got {route_names:?}"
+    );
+}
+
+#[test]
+fn test_typescript_type_references_extraction() {
+    let code = r#"
+import { Session, User, Config } from './types';
+
+export interface ServiceConfig {
+    session: Session;
+}
+
+export function handleSession(s: Session): Promise<User> {
+    const currentSession: Session = s;
+    const users: Array<User> = [];
+    const cfg: Config = { timeout: 1000 };
+    return Promise.resolve(users[0]);
+}
+
+export class AuthHandler {
+    private session: Session;
+    constructor(s: Session) {
+        this.session = s;
+    }
+    getSession(): Session {
+        return this.session;
+    }
+}
+"#;
+    let res =
+        extract_file("repo", "src/auth.ts", code, SupportedLanguage::TypeScript).expect("extract");
+
+    let ref_edges: Vec<_> = res
+        .edges
+        .iter()
+        .filter(|e| e.kind == EdgeKind::References)
+        .collect();
+
+    assert!(!ref_edges.is_empty(), "expected type references edges");
+
+    // Check that Session is referenced
+    let session_refs: Vec<_> = ref_edges
+        .iter()
+        .filter(|e| e.to_name.as_deref() == Some("Session"))
+        .collect();
+    assert!(!session_refs.is_empty(), "expected references to Session");
+    for edge in &session_refs {
+        assert_eq!(edge.provenance, Provenance::Extracted);
+        assert!((edge.confidence - 0.95).abs() < f64::EPSILON);
+        assert!(edge.line > 0);
+        assert!(edge.col > 0);
+    }
+
+    // Check User references (generic in Promise<User> and Array<User>)
+    let user_refs: Vec<_> = ref_edges
+        .iter()
+        .filter(|e| e.to_name.as_deref() == Some("User"))
+        .collect();
+    assert!(!user_refs.is_empty(), "expected references to User");
+
+    // Check Promise and Array type references
+    let promise_refs: Vec<_> = ref_edges
+        .iter()
+        .filter(|e| e.to_name.as_deref() == Some("Promise"))
+        .collect();
+    assert!(!promise_refs.is_empty(), "expected references to Promise");
+
+    // Check Config reference
+    let config_refs: Vec<_> = ref_edges
+        .iter()
+        .filter(|e| e.to_name.as_deref() == Some("Config"))
+        .collect();
+    assert!(!config_refs.is_empty(), "expected references to Config");
+
+    // Check that interface definition name itself ('ServiceConfig') is NOT extracted as a reference
+    let self_decl_refs: Vec<_> = ref_edges
+        .iter()
+        .filter(|e| e.to_name.as_deref() == Some("ServiceConfig"))
+        .collect();
+    assert!(
+        self_decl_refs.is_empty(),
+        "interface declaration name should not be a reference"
+    );
+
+    // Check that class declaration name itself ('AuthHandler') is NOT extracted as a reference
+    let class_decl_refs: Vec<_> = ref_edges
+        .iter()
+        .filter(|e| e.to_name.as_deref() == Some("AuthHandler"))
+        .collect();
+    assert!(
+        class_decl_refs.is_empty(),
+        "class declaration name should not be a reference"
+    );
+
+    // Verify no exact duplicate edges (same line, col, to_name)
+    let mut seen = std::collections::HashSet::new();
+    for edge in &ref_edges {
+        let key = (edge.line, edge.col, edge.to_name.clone());
+        assert!(seen.insert(key), "duplicate reference edge found: {edge:?}");
+    }
+}
+
+#[test]
+fn test_tsx_type_references_extraction() {
+    let code = r#"
+import React from 'react';
+import { Session, Theme } from './types';
+
+export interface ButtonProps {
+    session: Session;
+    theme?: Theme;
+}
+
+export const Button: React.FC<ButtonProps> = ({ session, theme }: ButtonProps) => {
+    const current: Session = session;
+    return <button>{current.toString()}</button>;
+};
+"#;
+    let res =
+        extract_file("repo", "src/Button.tsx", code, SupportedLanguage::Tsx).expect("extract");
+
+    let ref_edges: Vec<_> = res
+        .edges
+        .iter()
+        .filter(|e| e.kind == EdgeKind::References)
+        .collect();
+
+    let session_refs: Vec<_> = ref_edges
+        .iter()
+        .filter(|e| e.to_name.as_deref() == Some("Session"))
+        .collect();
+    assert!(
+        !session_refs.is_empty(),
+        "expected references to Session in TSX"
+    );
+
+    let theme_refs: Vec<_> = ref_edges
+        .iter()
+        .filter(|e| e.to_name.as_deref() == Some("Theme"))
+        .collect();
+    assert!(
+        !theme_refs.is_empty(),
+        "expected references to Theme in TSX"
+    );
+
+    let button_props_refs: Vec<_> = ref_edges
+        .iter()
+        .filter(|e| e.to_name.as_deref() == Some("ButtonProps"))
+        .collect();
+    assert!(
+        !button_props_refs.is_empty(),
+        "expected references to ButtonProps in TSX"
+    );
+}

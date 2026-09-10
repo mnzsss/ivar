@@ -59,7 +59,8 @@ pub fn extract_file(
     let source_bytes = content.as_bytes();
 
     // Pass 1: Extract definitions
-    let symbols = extract_symbols(repo, root, &query, source_bytes, lang);
+    let mut symbols = extract_symbols(repo, root, &query, source_bytes, lang);
+    symbols.extend(extract_http_route_symbols(repo, root, source_bytes, lang));
     let local_symbols: HashSet<String> = symbols.iter().map(|s| s.name.clone()).collect();
 
     // Pass 2: Extract imports and calls
@@ -138,6 +139,80 @@ fn extract_symbols(
     symbols
 }
 
+fn is_http_route_method(method: &str) -> Option<&'static str> {
+    match method {
+        "get" => Some("GET"),
+        "post" => Some("POST"),
+        "put" => Some("PUT"),
+        "patch" => Some("PATCH"),
+        "delete" => Some("DELETE"),
+        "options" => Some("OPTIONS"),
+        "head" => Some("HEAD"),
+        _ => None,
+    }
+}
+
+fn extract_http_route_symbols(
+    repo: &str,
+    root: Node,
+    source_bytes: &[u8],
+    lang: SupportedLanguage,
+) -> Vec<Symbol> {
+    if !matches!(lang, SupportedLanguage::TypeScript | SupportedLanguage::Tsx) {
+        return Vec::new();
+    }
+
+    let mut symbols = Vec::new();
+    let mut seen_routes = HashSet::new();
+    let mut stack = vec![root];
+
+    while let Some(node) = stack.pop() {
+        if node.kind() == "call_expression"
+            && let Some(func_node) = node.child_by_field_name("function")
+            && func_node.kind() == "member_expression"
+            && let Some(prop_node) = func_node.child_by_field_name("property")
+            && let Ok(method_name) = prop_node.utf8_text(source_bytes)
+            && let Some(http_method) = is_http_route_method(method_name)
+            && let Some(path_node) = node
+                .child_by_field_name("arguments")
+                .and_then(|args| args.named_child(0))
+            && path_node.kind() == "string"
+            && let Ok(raw_path) = path_node.utf8_text(source_bytes)
+        {
+            let path_str = raw_path
+                .trim_matches(|c| c == '\'' || c == '"' || c == '`')
+                .trim();
+
+            let symbol_name = format!("{http_method} {path_str}");
+            let span = node_to_span(node);
+
+            let route_key = (symbol_name.clone(), span.start_line, span.start_col);
+            if seen_routes.insert(route_key) {
+                symbols.push(Symbol {
+                    id: None,
+                    file_id: None,
+                    repo: repo.to_owned(),
+                    name: symbol_name,
+                    kind: SymbolKind::Other("route".to_owned()),
+                    scope: None,
+                    signature: None,
+                    docstring: None,
+                    span,
+                    is_exported: false,
+                    complexity: None,
+                });
+            }
+        }
+
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            stack.push(child);
+        }
+    }
+
+    symbols
+}
+
 fn cyclomatic_complexity(root: Node<'_>, source_bytes: &[u8]) -> u32 {
     let mut complexity = 1u32;
     let mut stack = vec![root];
@@ -196,6 +271,7 @@ fn extract_edges(
     let import_path_idx = query.capture_index_for_name("import.path");
     let import_source_idx = query.capture_index_for_name("import.source");
     let import_name_idx = query.capture_index_for_name("import.name");
+    let type_ref_idx = query.capture_index_for_name("type.ref");
 
     let mut edges = Vec::new();
     let mut imported_names: HashSet<String> = HashSet::new();
@@ -298,6 +374,59 @@ fn extract_edges(
                 col: span.start_col,
                 confidence,
             });
+        }
+    }
+
+    if let Some(t_idx) = type_ref_idx {
+        let mut cursor3 = QueryCursor::new();
+        let mut matches3 = cursor3.matches(query, root, source_bytes);
+        let mut seen_type_refs: HashSet<(usize, usize, String)> = HashSet::new();
+
+        while let Some(m) = matches3.next() {
+            for cap in m.captures {
+                if cap.index == t_idx {
+                    let node = cap.node;
+                    let parent_kind = node.parent().map(|p| p.kind());
+
+                    if matches!(
+                        parent_kind,
+                        Some("interface_declaration")
+                            | Some("type_alias_declaration")
+                            | Some("class_declaration")
+                            | Some("enum_declaration")
+                    ) && let Some(parent) = node.parent()
+                        && let Some(name_node) = parent.child_by_field_name("name")
+                        && name_node.id() == node.id()
+                    {
+                        continue;
+                    }
+
+                    if let Ok(raw_name) = node.utf8_text(source_bytes) {
+                        let name = raw_name.trim();
+                        if !name.is_empty() {
+                            let span = node_to_span(node);
+                            let key = (span.start_line, span.start_col, name.to_owned());
+                            if !seen_type_refs.insert(key) {
+                                continue;
+                            }
+
+                            edges.push(Edge {
+                                id: None,
+                                repo: repo.to_owned(),
+                                file_id: None,
+                                from_symbol_id: None,
+                                to_symbol_id: None,
+                                to_name: Some(name.to_owned()),
+                                kind: EdgeKind::References,
+                                provenance: Provenance::Extracted,
+                                line: span.start_line,
+                                col: span.start_col,
+                                confidence: 0.95,
+                            });
+                        }
+                    }
+                }
+            }
         }
     }
 
