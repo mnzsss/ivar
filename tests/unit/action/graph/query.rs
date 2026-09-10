@@ -506,3 +506,26 @@ fn test_explore_find_candidates_prefers_a_matching_directory_over_prefix_decoys(
         "a name that only starts with the term does not match it: {found:?}"
     );
 }
+
+#[test]
+fn test_explore_find_candidates_matches_a_singular_term_to_a_plural_path() {
+    let db = GraphDb::open_in_memory().expect("open in-memory db");
+    db.insert_repo("api", "/workspace/api", "main", None)
+        .expect("insert repo");
+    for (path, name) in [
+        ("src/auth/sessions.ts", "createSession"),
+        ("src/lib/noise.ts", "formatBytes"),
+    ] {
+        let file_id = db
+            .upsert_file("api", path, "h", 10, 100)
+            .expect("upsert file");
+        db.insert_symbols(&[function_symbol(file_id, "api", name, 10)])
+            .expect("insert symbol");
+    }
+
+    let candidates =
+        find::explore_find_candidates(&db, "session", None).expect("search candidates");
+
+    let found: Vec<&str> = candidates.iter().map(|c| c.file_path.as_str()).collect();
+    assert_eq!(found, vec!["src/auth/sessions.ts"]);
+}
