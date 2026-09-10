@@ -24,12 +24,7 @@ where
 {
     match name {
         "graph_explore" => {
-            let Some(q) = args
-                .get("query")
-                .or_else(|| args.get("symbol"))
-                .or_else(|| args.get("path"))
-                .and_then(Value::as_str)
-            else {
+            let Some(q) = explore_query(args) else {
                 return Ok(
                     "`graph_explore` needs `query`: symbol names, an intent such as \"session \
                      enforcement\", or file and directory paths separated by spaces."
@@ -41,7 +36,7 @@ where
             let root = hall_root
                 .ok_or_else(|| "Hall root is required for explore snippet reading".to_owned())?;
             let mut res =
-                explore::explore(db, root, q, repo).map_err(|e| format!("explore failed: {e}"))?;
+                explore::explore(db, root, &q, repo).map_err(|e| format!("explore failed: {e}"))?;
             // A model reads this over MCP to pick its next file, so Markdown is the
             // default; see `narrate`.
             match args.get("format").and_then(Value::as_str) {
@@ -338,6 +333,26 @@ fn several_files(file: &str, paths: &[String]) -> String {
             String::new()
         },
     )
+}
+
+/// In tokens4, 3 of 6 agents sent the explore argument as `intent`, `queries` or
+/// `paths` and spent a turn repeating the call, so every such shape is one query.
+fn explore_query(args: &Value) -> Option<String> {
+    ["query", "symbol", "path", "intent"]
+        .iter()
+        .find_map(|key| args.get(*key).and_then(Value::as_str))
+        .map(str::to_owned)
+        .or_else(|| {
+            ["queries", "paths", "symbols"].iter().find_map(|key| {
+                let items: Vec<&str> = args
+                    .get(*key)?
+                    .as_array()?
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .collect();
+                (!items.is_empty()).then(|| items.join(" "))
+            })
+        })
 }
 
 /// Agents name the symbol argument differently from one call to the next
