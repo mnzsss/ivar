@@ -9,6 +9,7 @@ pub mod hierarchy;
 pub mod index;
 pub mod input;
 pub mod mcp;
+pub mod narrate;
 pub mod outcome;
 pub mod path;
 pub mod query;

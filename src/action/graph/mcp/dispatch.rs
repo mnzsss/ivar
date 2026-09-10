@@ -5,7 +5,7 @@ use std::path::Path;
 use serde_json::Value;
 
 use crate::action::graph::{
-    affected, compact, complexity, dead_code, explore, hierarchy, path, query,
+    affected, compact, complexity, dead_code, explore, hierarchy, narrate, path, query,
 };
 use crate::store::graph::db::GraphDb;
 
@@ -31,10 +31,12 @@ where
                 .ok_or_else(|| "Hall root is required for explore snippet reading".to_owned())?;
             let res =
                 explore::explore(db, root, q, repo).map_err(|e| format!("explore failed: {e}"))?;
-            if args.get("format").and_then(Value::as_str) == Some("compact") {
-                Ok(compact::encode_explore(&res))
-            } else {
-                serde_json::to_string_pretty(&res).map_err(|e| e.to_string())
+            // A model reads this over MCP to pick its next file, so Markdown is the
+            // default; see `narrate`.
+            match args.get("format").and_then(Value::as_str) {
+                Some("compact") => Ok(compact::encode_explore(&res)),
+                Some("json") => serde_json::to_string_pretty(&res).map_err(|e| e.to_string()),
+                _ => Ok(narrate::narrate_explore(&res)),
             }
         }
 
@@ -148,7 +150,11 @@ where
             let max_depth = args.get("max_depth").and_then(Value::as_u64).unwrap_or(5) as usize;
             let symbol_id = if let Some(id) = args.get("symbol_id").and_then(Value::as_i64) {
                 id
-            } else if let Some(sym_name) = args.get("symbol_name").and_then(Value::as_str) {
+            } else if let Some(sym_name) = args
+                .get("symbol_name")
+                .or_else(|| args.get("symbol"))
+                .and_then(Value::as_str)
+            {
                 let syms = query::find_symbols(db, sym_name, None, 1)
                     .map_err(|e| format!("failed to find symbol {sym_name}: {e}"))?;
                 if let Some(first) = syms.first() {
@@ -157,7 +163,9 @@ where
                     return Err(format!("Symbol '{sym_name}' not found"));
                 }
             } else {
-                return Err("Either 'symbol_id' or 'symbol_name' must be provided".to_owned());
+                return Err(
+                    "Either 'symbol_id', 'symbol_name', or 'symbol' must be provided".to_owned(),
+                );
             };
 
             let impact = query::get_impact(db, symbol_id, max_depth)
