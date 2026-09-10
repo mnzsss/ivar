@@ -161,7 +161,7 @@ fn test_mcp_initialize_and_tools_list() {
     let tools = list_resp["result"]["tools"]
         .as_array()
         .expect("tools array");
-    assert_eq!(tools.len(), 12);
+    assert_eq!(tools.len(), 11);
     let tool_names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
     assert!(tool_names.contains(&"graph_explore"));
     assert!(tool_names.contains(&"get_callers"));
@@ -171,10 +171,126 @@ fn test_mcp_initialize_and_tools_list() {
     assert!(tool_names.contains(&"get_path"));
     assert!(tool_names.contains(&"get_impact"));
     assert!(tool_names.contains(&"refresh_index"));
-    assert!(tool_names.contains(&"get_graph_stats"));
     assert!(tool_names.contains(&"get_dead_code"));
     assert!(tool_names.contains(&"get_complexity"));
     assert!(tool_names.contains(&"get_hierarchy"));
+    assert!(
+        !tool_names.contains(&"get_graph_stats"),
+        "get_graph_stats stays out of the tool list"
+    );
+
+    let explore = tools
+        .iter()
+        .find(|t| t["name"] == "graph_explore")
+        .expect("graph_explore");
+    assert_eq!(explore["_meta"]["anthropic/alwaysLoad"], true);
+    assert_eq!(explore["annotations"]["readOnlyHint"], true);
+}
+
+fn call_tool(db: &GraphDb, root: &std::path::Path, name: &str, arguments: Value) -> (String, bool) {
+    let input = format!(
+        "{}\n",
+        json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": { "name": name, "arguments": arguments }
+        })
+    );
+    let mut output = Vec::new();
+    run_mcp_server(db, Some(root), Cursor::new(input), &mut output, |_| {
+        Ok(json!({"status": "ok"}))
+    })
+    .expect("run server");
+    let resp: Value =
+        serde_json::from_str(String::from_utf8(output).expect("utf8").trim()).expect("parse resp");
+    (
+        resp["result"]["content"][0]["text"]
+            .as_str()
+            .expect("text content")
+            .to_owned(),
+        resp["result"]["isError"].as_bool().unwrap_or(false),
+    )
+}
+
+#[test]
+fn callers_callees_impact_and_outline_default_to_markdown_and_keep_json_on_request() {
+    let (db, temp) = setup_test_mcp_db();
+    let root = temp.path();
+
+    let (callers, _) = call_tool(&db, root, "get_callers", json!({"symbol": "helper"}));
+    assert!(
+        callers.starts_with("**Callers of `helper`: 1**"),
+        "got: {callers}"
+    );
+    let (callees, _) = call_tool(&db, root, "get_callees", json!({"symbol": "execute"}));
+    assert!(
+        callees.starts_with("**Calls made by `execute`: 1**"),
+        "got: {callees}"
+    );
+    let (impact, _) = call_tool(&db, root, "get_impact", json!({"symbol": "helper"}));
+    assert!(impact.starts_with("**Impact of `helper`"), "got: {impact}");
+    let (outline, _) = call_tool(
+        &db,
+        root,
+        "get_file_outline",
+        json!({"file": "src/main.rs", "repo": "my-repo"}),
+    );
+    assert!(
+        outline.starts_with("**Outline of `src/main.rs` (my-repo)**"),
+        "got: {outline}"
+    );
+
+    let (callers_json, _) = call_tool(
+        &db,
+        root,
+        "get_callers",
+        json!({"symbol": "helper", "format": "json"}),
+    );
+    let parsed: Value = serde_json::from_str(&callers_json).expect("json on request");
+    assert_eq!(parsed[0]["caller"]["name"], "execute");
+}
+
+#[test]
+fn argument_names_agents_guess_are_accepted() {
+    let (db, temp) = setup_test_mcp_db();
+    let root = temp.path();
+
+    let (explore, explore_failed) =
+        call_tool(&db, root, "graph_explore", json!({"symbol": "execute"}));
+    assert!(!explore_failed, "got: {explore}");
+    assert!(explore.contains("**Exploration: execute**"));
+
+    let (outline, outline_failed) = call_tool(
+        &db,
+        root,
+        "get_file_outline",
+        json!({"file_path": "my-repo/src/main.rs"}),
+    );
+    assert!(!outline_failed, "got: {outline}");
+    assert!(outline.contains("`execute`"), "got: {outline}");
+}
+
+#[test]
+fn unknown_symbols_and_files_answer_with_guidance_instead_of_an_error() {
+    let (db, temp) = setup_test_mcp_db();
+    let root = temp.path();
+
+    for (tool, args) in [
+        ("get_impact", json!({"symbol": "missing_symbol"})),
+        ("get_callees", json!({"symbol": "missing_symbol"})),
+        ("get_file_outline", json!({"file": "src/missing.rs"})),
+    ] {
+        let (text, is_error) = call_tool(&db, root, tool, args);
+        assert!(
+            !is_error,
+            "{tool} must not teach the agent to give up: {text}"
+        );
+        assert!(
+            text.contains("graph_explore"),
+            "{tool} must name the next call: {text}"
+        );
+    }
 }
 
 #[test]
@@ -603,7 +719,10 @@ fn test_mcp_tool_call_impact_compatibility() {
     let text_symbol = resp_symbol["result"]["content"][0]["text"]
         .as_str()
         .unwrap();
-    assert!(text_symbol.contains("affected_symbols"));
+    assert!(
+        text_symbol.starts_with("**Impact of `helper`"),
+        "got: {text_symbol}"
+    );
 
     // 2. Calling with "symbol_name"
     let resp_symbol_name: Value = serde_json::from_str(&lines[1]).expect("parse symbol_name");

@@ -4,6 +4,8 @@ use std::path::Path;
 
 use serde_json::Value;
 
+use crate::action::graph::query::QueryError;
+use crate::action::graph::query::find::resolve_query_paths;
 use crate::action::graph::{
     affected, compact, complexity, dead_code, explore, hierarchy, narrate, path, query,
 };
@@ -23,6 +25,7 @@ where
         "graph_explore" => {
             let q = args
                 .get("query")
+                .or_else(|| args.get("symbol"))
                 .and_then(Value::as_str)
                 .ok_or_else(|| "Missing required parameter 'query'".to_owned())?;
             let repo = args.get("repo").and_then(Value::as_str);
@@ -57,50 +60,61 @@ where
 
             let callers = query::get_callers(db, sym, repo, cross_repo, min_confidence)
                 .map_err(|e| format!("get_callers failed: {e}"))?;
-            if args.get("format").and_then(Value::as_str) == Some("compact") {
-                Ok(compact::encode_callers(&callers))
-            } else {
-                serde_json::to_string_pretty(&callers).map_err(|e| e.to_string())
+            match args.get("format").and_then(Value::as_str) {
+                Some("compact") => Ok(compact::encode_callers(&callers)),
+                Some("json") => serde_json::to_string_pretty(&callers).map_err(|e| e.to_string()),
+                _ => Ok(narrate::narrate_callers(sym, &callers)),
             }
         }
 
         "get_callees" => {
-            let symbol_id = if let Some(id) = args.get("symbol_id").and_then(Value::as_i64) {
-                id
-            } else if let Some(sym) = args.get("symbol").and_then(Value::as_str) {
-                let syms = query::find_symbols(db, sym, None, 1)
-                    .map_err(|e| format!("failed to find symbol {sym}: {e}"))?;
-                if let Some(first) = syms.first() {
-                    first.symbol.id.unwrap_or(0)
+            let (symbol_id, symbol_label) =
+                if let Some(id) = args.get("symbol_id").and_then(Value::as_i64) {
+                    (id, format!("symbol #{id}"))
+                } else if let Some(sym) = args.get("symbol").and_then(Value::as_str) {
+                    let syms = query::find_symbols(db, sym, None, 1)
+                        .map_err(|e| format!("failed to find symbol {sym}: {e}"))?;
+                    match syms.first().and_then(|s| s.symbol.id) {
+                        Some(id) => (id, sym.to_owned()),
+                        None => return Ok(unknown_symbol(sym)),
+                    }
                 } else {
-                    return Err(format!("Symbol '{sym}' not found"));
-                }
-            } else {
-                return Err("Either 'symbol_id' or 'symbol' must be provided".to_owned());
-            };
+                    return Err("Either 'symbol_id' or 'symbol' must be provided".to_owned());
+                };
 
             let callees = query::get_callees(db, symbol_id)
                 .map_err(|e| format!("get_callees failed: {e}"))?;
-            if args.get("format").and_then(Value::as_str) == Some("compact") {
-                Ok(compact::encode_callees(&callees))
-            } else {
-                serde_json::to_string_pretty(&callees).map_err(|e| e.to_string())
+            match args.get("format").and_then(Value::as_str) {
+                Some("compact") => Ok(compact::encode_callees(&callees)),
+                Some("json") => serde_json::to_string_pretty(&callees).map_err(|e| e.to_string()),
+                _ => Ok(narrate::narrate_callees(&symbol_label, &callees)),
             }
         }
 
         "get_file_outline" => {
             let file = args
                 .get("file")
+                .or_else(|| args.get("file_path"))
+                .or_else(|| args.get("path"))
                 .and_then(Value::as_str)
                 .ok_or_else(|| "Missing required parameter 'file'".to_owned())?;
-            let repo = args
-                .get("repo")
-                .and_then(Value::as_str)
-                .ok_or_else(|| "Missing required parameter 'repo'".to_owned())?;
+            let repo = args.get("repo").and_then(Value::as_str);
 
-            let outline = query::get_file_outline(db, repo, file)
-                .map_err(|e| format!("get_file_outline failed: {e}"))?;
-            serde_json::to_string_pretty(&outline).map_err(|e| e.to_string())
+            let (repo, path) = match (locate_file(db, file, repo)?, repo) {
+                (Some(target), _) => target,
+                (None, Some(repo)) => (repo.to_owned(), file.to_owned()),
+                (None, None) => return Ok(unknown_file(file)),
+            };
+            let outline = match query::get_file_outline(db, &repo, &path) {
+                Ok(outline) => outline,
+                Err(QueryError::FileNotFound { .. }) => return Ok(unknown_file(file)),
+                Err(e) => return Err(format!("get_file_outline failed: {e}")),
+            };
+            if args.get("format").and_then(Value::as_str) == Some("json") {
+                serde_json::to_string_pretty(&outline).map_err(|e| e.to_string())
+            } else {
+                Ok(narrate::narrate_outline(&outline))
+            }
         }
 
         "get_affected_tests" => {
@@ -157,10 +171,9 @@ where
             {
                 let syms = query::find_symbols(db, sym_name, None, 1)
                     .map_err(|e| format!("failed to find symbol {sym_name}: {e}"))?;
-                if let Some(first) = syms.first() {
-                    first.symbol.id.unwrap_or(0)
-                } else {
-                    return Err(format!("Symbol '{sym_name}' not found"));
+                match syms.first().and_then(|s| s.symbol.id) {
+                    Some(id) => id,
+                    None => return Ok(unknown_symbol(sym_name)),
                 }
             } else {
                 return Err(
@@ -170,10 +183,10 @@ where
 
             let impact = query::get_impact(db, symbol_id, max_depth)
                 .map_err(|e| format!("get_impact failed: {e}"))?;
-            if args.get("format").and_then(Value::as_str) == Some("compact") {
-                Ok(compact::encode_impact(&impact))
-            } else {
-                serde_json::to_string_pretty(&impact).map_err(|e| e.to_string())
+            match args.get("format").and_then(Value::as_str) {
+                Some("compact") => Ok(compact::encode_impact(&impact)),
+                Some("json") => serde_json::to_string_pretty(&impact).map_err(|e| e.to_string()),
+                _ => Ok(narrate::narrate_impact(&impact)),
             }
         }
 
@@ -230,4 +243,37 @@ where
 
         _ => Err(format!("Unknown tool: {name}")),
     }
+}
+
+/// Maps a file argument to the `(repo, path)` pair the index stores. Agents pass
+/// the path they see in the workspace, which rarely matches the repo-relative one.
+fn locate_file(
+    db: &GraphDb,
+    file: &str,
+    repo: Option<&str>,
+) -> Result<Option<(String, String)>, String> {
+    let parsed =
+        resolve_query_paths(db, file, repo).map_err(|e| format!("get_file_outline failed: {e}"))?;
+    Ok(parsed
+        .resolved_paths
+        .iter()
+        .find(|resolved| resolved.is_pinned())
+        .and_then(|resolved| resolved.files().into_iter().next())
+        .map(|(_, repo, path)| (repo, path)))
+}
+
+// Misses answer as normal text: an `isError` early in a session teaches the
+// agent to stop calling the graph altogether.
+fn unknown_symbol(name: &str) -> String {
+    format!(
+        "No symbol named `{name}` is in the index. Search for it with `graph_explore`, or call \
+         `refresh_index` if it was added after the last index."
+    )
+}
+
+fn unknown_file(file: &str) -> String {
+    format!(
+        "No indexed file matches `{file}`. Find it with `graph_explore`, or call `refresh_index` \
+         if the file is new."
+    )
 }
