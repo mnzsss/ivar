@@ -471,6 +471,25 @@ pub fn explore_find_candidates(
             }
         }
 
+        // Word tier: the term, or its plural, is a whole word inside a camelCase or
+        // snake_case name (+30.0). A prefix would let `auth` match `authenticity`.
+        let word_query = format!("name_words : (\"{term}\" OR \"{term}s\")");
+        if let Ok(mut stmt) = conn.prepare_cached(
+            "SELECT s.id, s.file_id, s.repo, s.name, s.kind, s.scope, s.signature, s.docstring,
+                    s.start_line, s.start_col, s.end_line, s.end_col, s.is_exported, s.complexity, f.path
+             FROM symbols_fts fts
+             JOIN symbols s ON fts.rowid = s.id
+             JOIN files f ON s.file_id = f.id
+             WHERE symbols_fts MATCH ?1
+               AND (?2 IS NULL OR s.repo = ?2)
+             LIMIT 50",
+        ) && let Ok(rows) = stmt.query_map(params![word_query, repo], map_symbol_and_path_row)
+        {
+            for (symbol, file_path) in rows.filter_map(|r| r.ok()) {
+                add_score(&mut file_candidates, symbol, file_path, 30.0);
+            }
+        }
+
         // Tier C: FTS5 full-text index (+15.0)
         let fts_query = format!("\"{term}\"*");
         if let Ok(mut stmt) = conn.prepare_cached(
@@ -544,6 +563,10 @@ pub fn explore_find_candidates(
         score: f64,
     }
 
+    let asks_for_tests = parsed.search_terms.iter().any(|term| {
+        let term = term.to_ascii_lowercase();
+        term.starts_with("test") || term.starts_with("spec")
+    });
     let mut ranked_files: Vec<FileScore> = file_candidates
         .iter()
         .map(|((r, p), cands)| {
@@ -554,6 +577,11 @@ pub fn explore_find_candidates(
             let mut sum_score = 0.0;
             for c in cands {
                 sum_score += c.score;
+            }
+            // Test files repeat the names they exercise, so without a discount a
+            // large test file outranks the code under test.
+            if !asks_for_tests && is_test_path(p) {
+                sum_score *= 0.5;
             }
             // Bonus for pinned files
             let base = if is_pinned { 10000.0 } else { 0.0 };
@@ -608,6 +636,15 @@ pub fn explore_find_candidates(
     }
 
     Ok(final_candidates)
+}
+
+fn is_test_path(path: &str) -> bool {
+    let path = path.to_ascii_lowercase();
+    path.split('/')
+        .any(|segment| matches!(segment, "test" | "tests" | "__tests__" | "spec" | "e2e"))
+        || [".test.", ".spec.", "_test."]
+            .iter()
+            .any(|marker| path.contains(marker))
 }
 
 /// Finds symbols by exact name, prefix, and full-text search.

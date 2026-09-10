@@ -531,6 +531,56 @@ fn test_explore_find_candidates_matches_a_singular_term_to_a_plural_path() {
 }
 
 #[test]
+fn test_explore_find_candidates_finds_a_word_inside_a_camel_case_name() {
+    let db = GraphDb::open_in_memory().expect("open in-memory db");
+    db.insert_repo("api", "/workspace/api", "main", None)
+        .expect("insert repo");
+    for (path, name) in [
+        ("src/plugins/guard.ts", "enforceSession"),
+        ("src/lib/noise.ts", "formatBytes"),
+    ] {
+        let file_id = db
+            .upsert_file("api", path, "h", 10, 100)
+            .expect("upsert file");
+        db.insert_symbols(&[function_symbol(file_id, "api", name, 10)])
+            .expect("insert symbol");
+    }
+
+    let candidates =
+        find::explore_find_candidates(&db, "session", None).expect("search candidates");
+
+    let found: Vec<&str> = candidates.iter().map(|c| c.symbol.name.as_str()).collect();
+    assert_eq!(found, vec!["enforceSession"]);
+}
+
+#[test]
+fn test_explore_find_candidates_ranks_a_test_file_below_the_code_it_tests() {
+    let db = GraphDb::open_in_memory().expect("open in-memory db");
+    db.insert_repo("api", "/workspace/api", "main", None)
+        .expect("insert repo");
+    let test_file = db
+        .upsert_file("api", "tests/auth/session.test.ts", "h", 10, 100)
+        .expect("upsert test file");
+    let source_file = db
+        .upsert_file("api", "src/auth/session.ts", "h", 10, 100)
+        .expect("upsert source file");
+    db.insert_symbols(&[
+        function_symbol(test_file, "api", "createSession", 10),
+        function_symbol(test_file, "api", "createSessionFixture", 20),
+        function_symbol(source_file, "api", "createSession", 10),
+    ])
+    .expect("insert symbols");
+
+    let candidates =
+        find::explore_find_candidates(&db, "createSession", None).expect("search candidates");
+
+    assert_eq!(
+        candidates.first().map(|c| c.file_path.as_str()),
+        Some("src/auth/session.ts")
+    );
+}
+
+#[test]
 fn test_get_references_lists_module_level_imports_of_a_symbol() {
     use crate::domain::graph::{Edge, EdgeKind, Provenance};
 
