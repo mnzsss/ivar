@@ -495,7 +495,13 @@ fn index_single_file(
     db.insert_repo("api", repo_dir.to_str().unwrap(), "main", None)
         .expect("insert repo");
     let file_id = db
-        .upsert_file("api", path, "h", 1, content.len() as i64)
+        .upsert_file(
+            "api",
+            path,
+            &crate::infra::hash::text(content),
+            1,
+            content.len() as i64,
+        )
         .expect("upsert file");
     let symbols: Vec<Symbol> = symbols
         .iter()
@@ -560,4 +566,31 @@ fn a_large_file_is_returned_as_merged_excerpts_around_the_matches() {
         .collect();
     assert_eq!(ranges, vec![(10, 20), (300, 305)]);
     assert!(source.excerpts[0].code.contains("15: // line 15"));
+    assert!(!source.changed_since_index);
+}
+
+#[test]
+fn a_large_file_changed_since_the_index_is_returned_whole_and_flagged() {
+    let indexed: String = (1..=400).map(|n| format!("// line {n}\n")).collect();
+    let (db, temp) = index_single_file(
+        &indexed,
+        "src/big.ts",
+        &[("first", 10, 12), ("far", 300, 305)],
+    );
+    fs::write(
+        temp.path().join("api/src/big.ts"),
+        format!("// a new first line\n{indexed}"),
+    )
+    .expect("edit source");
+
+    let res = explore(&db, temp.path(), "src/big.ts", None).expect("explore");
+
+    let source = &res.sources[0];
+    assert!(source.changed_since_index);
+    let ranges: Vec<(usize, usize)> = source
+        .excerpts
+        .iter()
+        .map(|e| (e.start_line, e.end_line))
+        .collect();
+    assert_eq!(ranges, vec![(1, 401)]);
 }
