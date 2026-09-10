@@ -153,7 +153,7 @@ fn test_mcp_initialize_and_tools_list() {
         init_resp["result"]["instructions"]
             .as_str()
             .unwrap()
-            .contains("codebase dependency graph")
+            .contains("graph_explore is Read-equivalent")
     );
 
     let list_resp: Value = serde_json::from_str(&lines[1]).expect("parse list");
@@ -188,6 +188,18 @@ fn test_mcp_initialize_and_tools_list() {
 }
 
 #[test]
+fn the_default_tool_surface_lists_only_graph_explore() {
+    let tools = super::tools::list_tools(super::tools::ToolSurface::default());
+    let names: Vec<&str> = tools
+        .as_array()
+        .expect("tools array")
+        .iter()
+        .filter_map(|tool| tool["name"].as_str())
+        .collect();
+    assert_eq!(names, vec!["graph_explore"]);
+}
+
+#[test]
 fn symbol_tools_take_the_names_agents_guess_and_guide_a_missing_symbol() {
     let (db, temp) = setup_test_mcp_db();
     let root = temp.path();
@@ -209,7 +221,7 @@ fn symbol_tools_take_the_names_agents_guess_and_guide_a_missing_symbol() {
 
 #[test]
 fn explore_outline_and_symbol_schemas_leave_argument_names_to_the_server() {
-    let tools = super::tools::list_tools();
+    let tools = super::tools::list_tools(super::tools::ToolSurface::All);
     for name in [
         "graph_explore",
         "get_file_outline",
@@ -834,23 +846,14 @@ fn test_mcp_format_guidance_and_compact_no_source() {
     let instructions = init_resp["result"]["instructions"]
         .as_str()
         .expect("instructions");
-    // Markdown/omit is the recommended discovery path
+    // The instructions carry what changes behaviour; formats live in the schema
     assert!(
-        instructions.contains("omit the format parameter"),
-        "instructions should tell agents to omit format for discovery"
+        instructions.contains("do not Read those files again"),
+        "instructions should tell agents to treat explore source as read: {instructions}"
     );
     assert!(
-        instructions.contains("format=\"markdown\""),
-        "instructions should mention format=markdown as the discovery-friendly option"
-    );
-    // Compact is explicitly scoped to programmatic parsing and flagged as source-free
-    assert!(
-        instructions.contains("format=\"compact\""),
-        "instructions should still name compact so agents can find it"
-    );
-    assert!(
-        instructions.contains("omits source"),
-        "instructions should warn that compact drops source snippets"
+        instructions.contains("\"Not shown\""),
+        "instructions should point agents from the not-shown list to another explore"
     );
 
     // ── 2. Tool description carries the same distinction ───────────────

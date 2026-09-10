@@ -2,17 +2,47 @@
 
 use serde_json::{Value, json};
 
-pub fn list_tools() -> Value {
+/// Which tools `tools/list` advertises.
+///
+/// Hosts such as omp list every MCP tool as a line of the system prompt. With
+/// only `graph_explore` listed, an agent chains explore calls instead of mixing
+/// in callers, greps and reads; CodeGraph ships the same default.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, clap::ValueEnum)]
+pub enum ToolSurface {
+    /// Only `graph_explore`.
+    #[default]
+    Explore,
+    /// Every graph tool.
+    All,
+}
+
+pub fn list_tools(surface: ToolSurface) -> Value {
+    let tools = all_tools();
+    match surface {
+        ToolSurface::All => tools,
+        ToolSurface::Explore => Value::Array(
+            tools
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter(|tool| tool["name"] == "graph_explore")
+                .cloned()
+                .collect(),
+        ),
+    }
+}
+
+fn all_tools() -> Value {
     json!([
         {
             "name": "graph_explore",
-            "description": "START HERE for any structural question. One query returns matching symbols, their verbatim source with line numbers, callers, callees, and blast radius — replacing a grep-then-read-several-files loop. Query intent ('session enforcement') or an identifier; search is fuzzy. Follows cross-repo and dynamic-dispatch edges grep cannot see.",
+            "description": "PRIMARY TOOL, call it first for any question about this code and before any edit: it returns the verbatim, line-numbered source of the relevant files (treat it as already Read), who depends on them, and the call path between the symbols you name. Query with symbol names, file or directory paths, or a short intent, several at once. When an answer lists files under \"Not shown\", call graph_explore again with those paths or names instead of reading the files.",
             "_meta": { "anthropic/alwaysLoad": true },
             "annotations": { "readOnlyHint": true },
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "query": { "type": "string", "description": "Search query, symbol names, or file and directory paths (several at once) whose source you need" },
+                    "query": { "type": "string", "description": "Symbol names, file or directory paths, or a short intent, several at once (e.g. \"login apiRequest\" or \"services/api/src/routes/auth.ts services/api/src/routes/admin.ts\")" },
                     "repo": { "type": "string", "description": "Optional repository filter" },
                     "format": { "type": "string", "enum": ["markdown", "json", "compact"], "description": "Output format: 'markdown' (default, includes source snippets — best for discovery and replacing grep+read), 'json' for raw struct, or 'compact' (pipe-delimited, no source — for programmatic parsing of large results)" }
                 }
