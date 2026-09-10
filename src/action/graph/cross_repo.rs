@@ -3,6 +3,9 @@
 //! Synchronously detects cross-repo dependencies, imports, CLI executions, and HTTP calls
 //! across all mounted repositories in the hall.
 
+use std::collections::HashMap;
+
+use rusqlite::params;
 use thiserror::Error;
 
 use crate::store::graph::db::GraphDb;
@@ -123,6 +126,39 @@ pub fn link_cross_repo_edges(db: &GraphDb) -> Result<CrossRepoLinkOutcome, Cross
         )?;
         out.cross_calls_http = cross_calls_http;
 
+        // 4. Client calls with path parameters, in any repo: the client's
+        // `GET /projects/:param` reaches the server's `GET /projects/:id`.
+        let mut route_by_key: HashMap<String, i64> = HashMap::new();
+        {
+            let mut stmt = conn.prepare("SELECT id, name FROM symbols WHERE kind = 'route'")?;
+            let routes = stmt.query_map([], |row| {
+                Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+            })?;
+            for route in routes {
+                let (id, name) = route?;
+                route_by_key.entry(route_key(&name)).or_insert(id);
+            }
+        }
+        let calls: Vec<(i64, String)> = conn
+            .prepare(
+                "SELECT id, to_name FROM edges
+                 WHERE to_symbol_id IS NULL
+                   AND to_name IS NOT NULL
+                   AND kind IN ('CROSS_CALLS_HTTP', 'cross_calls_http')",
+            )?
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+            .collect::<Result<_, _>>()?;
+        let mut link = conn.prepare(
+            "UPDATE edges SET to_symbol_id = ?1, provenance = 'INFERRED', confidence = 0.80
+             WHERE id = ?2",
+        )?;
+        for (edge_id, to_name) in calls {
+            if let Some(route_id) = route_by_key.get(&route_key(&to_name)) {
+                link.execute(params![route_id, edge_id])?;
+                out.cross_calls_http += 1;
+            }
+        }
+
         out.total_linked = out.cross_imports + out.cross_executes + out.cross_calls_http;
         Ok(out)
     })();
@@ -137,6 +173,24 @@ pub fn link_cross_repo_edges(db: &GraphDb) -> Result<CrossRepoLinkOutcome, Cross
             Err(e)
         }
     }
+}
+
+/// Writes every path parameter as `*`, so `GET /projects/:id`,
+/// `GET /projects/{id}` and a client's `GET /projects/:param` share one key.
+fn route_key(name: &str) -> String {
+    let (method, path) = name.split_once(' ').unwrap_or(("", name));
+    let segments: Vec<&str> = path
+        .trim_end_matches('/')
+        .split('/')
+        .map(|segment| {
+            if segment.starts_with(':') || segment.starts_with('{') || segment == "*" {
+                "*"
+            } else {
+                segment
+            }
+        })
+        .collect();
+    format!("{} {}", method.to_ascii_uppercase(), segments.join("/"))
 }
 
 #[cfg(test)]

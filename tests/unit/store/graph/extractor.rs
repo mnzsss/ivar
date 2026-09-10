@@ -365,6 +365,83 @@ export function handler() {
     assert!(!names.contains(&"callback"), "local closure, got {names:?}");
 }
 #[test]
+fn test_tsx_component_elements_are_calls_and_dom_elements_are_not() {
+    let code = r#"
+import { UserList } from './UserList';
+
+export function AdminPage() {
+    return <div><UserList users={[]} /><Header>title</Header></div>;
+}
+"#;
+    let res =
+        extract_file("web", "src/AdminPage.tsx", code, SupportedLanguage::Tsx).expect("extract");
+
+    let mut called: Vec<&str> = res
+        .edges
+        .iter()
+        .filter(|e| e.kind == EdgeKind::Calls)
+        .filter_map(|e| e.to_name.as_deref())
+        .collect();
+    called.sort_unstable();
+    assert_eq!(called, vec!["Header", "UserList"]);
+}
+
+#[test]
+fn test_http_client_calls_become_edges_to_method_and_path() {
+    let code = r#"
+export function listProjects() {
+    return apiRequest<Project[]>('/projects');
+}
+export function createProject(body: NewProject) {
+    return apiRequest<Project>('/projects', { method: 'POST', body: JSON.stringify(body) });
+}
+export function getProject(id: string) {
+    return apiRequest(`/projects/${id}?expand=owner`);
+}
+export function health() {
+    return fetch('/health');
+}
+export function removeUser(id: string) {
+    return axios.delete(`/admin/users/${id}`);
+}
+export function notHttp() {
+    return formatLabel('/not/a/request');
+}
+"#;
+    let res = extract_file(
+        "web",
+        "src/api/projects.ts",
+        code,
+        SupportedLanguage::TypeScript,
+    )
+    .expect("extract");
+
+    let mut requests: Vec<&str> = res
+        .edges
+        .iter()
+        .filter(|e| e.kind == EdgeKind::CrossCallsHttp)
+        .filter_map(|e| e.to_name.as_deref())
+        .collect();
+    requests.sort_unstable();
+    assert_eq!(
+        requests,
+        vec![
+            "DELETE /admin/users/:param",
+            "GET /health",
+            "GET /projects",
+            "GET /projects/:param",
+            "POST /projects",
+        ]
+    );
+    assert!(
+        !res.symbols
+            .iter()
+            .any(|s| matches!(&s.kind, SymbolKind::Other(k) if k == "route")),
+        "a client call is not a route definition"
+    );
+}
+
+#[test]
 fn test_typescript_imported_names_are_references_at_their_import_line() {
     let code = r#"
 import { Session, evaluateAccess } from '../auth/access';

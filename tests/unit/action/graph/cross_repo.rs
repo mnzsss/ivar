@@ -10,6 +10,100 @@ use crate::domain::graph::{EdgeKind, Provenance, Span, Symbol, SymbolKind};
 use crate::store::graph::extractor::ExtractedFile;
 
 #[test]
+fn test_http_client_calls_link_to_routes_with_path_parameters() {
+    let db = GraphDb::open_in_memory().expect("open_in_memory");
+    db.insert_repo("api", "/path/to/api", "main", None)
+        .expect("insert api repo");
+    db.insert_repo("web", "/path/to/web", "main", None)
+        .expect("insert web repo");
+
+    let symbol = |repo: &str, name: &str, kind: SymbolKind, line| Symbol {
+        id: None,
+        file_id: None,
+        repo: repo.to_owned(),
+        name: name.to_owned(),
+        kind,
+        scope: None,
+        signature: None,
+        docstring: None,
+        span: Span::new(line, 1, line + 5, 1),
+        is_exported: false,
+        complexity: None,
+    };
+    let route = || SymbolKind::Other("route".to_owned());
+    db.index_extracted_file(
+        "api",
+        "src/routes/projects.ts",
+        "h1",
+        1,
+        10,
+        &ExtractedFile {
+            symbols: vec![
+                symbol("api", "GET /projects", route(), 1),
+                symbol("api", "GET /projects/:id", route(), 10),
+            ],
+            edges: vec![],
+        },
+    )
+    .expect("index api");
+
+    let request = |to_name: &str, line| crate::domain::graph::Edge {
+        id: None,
+        repo: "web".to_owned(),
+        file_id: None,
+        from_symbol_id: None,
+        to_symbol_id: None,
+        to_name: Some(to_name.to_owned()),
+        kind: EdgeKind::CrossCallsHttp,
+        provenance: Provenance::Inferred,
+        line,
+        col: 10,
+        confidence: 0.8,
+    };
+    db.index_extracted_file(
+        "web",
+        "src/api/projects.ts",
+        "h2",
+        1,
+        10,
+        &ExtractedFile {
+            symbols: vec![symbol("web", "projectsApi", SymbolKind::Fn, 1)],
+            edges: vec![
+                request("GET /projects/:param", 3),
+                request("GET /projects", 5),
+            ],
+        },
+    )
+    .expect("index web");
+
+    link_cross_repo_edges(&db).expect("link");
+
+    let linked: Vec<(String, String)> = db
+        .conn()
+        .prepare(
+            "SELECT e.to_name, s.name FROM edges e
+             JOIN symbols s ON s.id = e.to_symbol_id
+             WHERE e.repo = 'web'
+             ORDER BY e.line",
+        )
+        .expect("prepare")
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+        .expect("query")
+        .collect::<Result<_, _>>()
+        .expect("rows");
+    assert_eq!(
+        linked,
+        vec![
+            (
+                "GET /projects/:param".to_owned(),
+                "GET /projects/:id".to_owned()
+            ),
+            ("GET /projects".to_owned(), "GET /projects".to_owned()),
+        ]
+    );
+}
+
+#[test]
 fn test_cross_repo_import_linking() {
     let db = GraphDb::open_in_memory().expect("open_in_memory");
 
