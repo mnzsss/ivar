@@ -51,10 +51,9 @@ where
         }
 
         "get_callers" => {
-            let sym = args
-                .get("symbol")
-                .and_then(Value::as_str)
-                .ok_or_else(|| "Missing required parameter 'symbol'".to_owned())?;
+            let Some(sym) = symbol_arg(args) else {
+                return Ok(missing_symbol("get_callers"));
+            };
             let repo = args.get("repo").and_then(Value::as_str);
             let cross_repo = args
                 .get("cross_repo")
@@ -92,7 +91,7 @@ where
             let (symbol_id, symbol_label) =
                 if let Some(id) = args.get("symbol_id").and_then(Value::as_i64) {
                     (id, format!("symbol #{id}"))
-                } else if let Some(sym) = args.get("symbol").and_then(Value::as_str) {
+                } else if let Some(sym) = symbol_arg(args) {
                     let syms = query::find_symbols(db, sym, None, 1)
                         .map_err(|e| format!("failed to find symbol {sym}: {e}"))?;
                     match syms.first().and_then(|s| s.symbol.id) {
@@ -100,7 +99,7 @@ where
                         None => return Ok(unknown_symbol(sym)),
                     }
                 } else {
-                    return Err("Either 'symbol_id' or 'symbol' must be provided".to_owned());
+                    return Ok(missing_symbol("get_callees"));
                 };
 
             let callees = query::get_callees(db, symbol_id)
@@ -192,11 +191,7 @@ where
             let max_depth = args.get("max_depth").and_then(Value::as_u64).unwrap_or(5) as usize;
             let symbol_id = if let Some(id) = args.get("symbol_id").and_then(Value::as_i64) {
                 id
-            } else if let Some(sym_name) = args
-                .get("symbol_name")
-                .or_else(|| args.get("symbol"))
-                .and_then(Value::as_str)
-            {
+            } else if let Some(sym_name) = symbol_arg(args) {
                 let syms = query::find_symbols(db, sym_name, None, 1)
                     .map_err(|e| format!("failed to find symbol {sym_name}: {e}"))?;
                 match syms.first().and_then(|s| s.symbol.id) {
@@ -204,9 +199,7 @@ where
                     None => return Ok(unknown_symbol(sym_name)),
                 }
             } else {
-                return Err(
-                    "Either 'symbol_id', 'symbol_name', or 'symbol' must be provided".to_owned(),
-                );
+                return Ok(missing_symbol("get_impact"));
             };
 
             let impact = query::get_impact(db, symbol_id, max_depth)
@@ -255,10 +248,9 @@ where
         }
 
         "get_hierarchy" => {
-            let sym = args
-                .get("symbol")
-                .and_then(Value::as_str)
-                .ok_or_else(|| "Missing required parameter 'symbol'".to_owned())?;
+            let Some(sym) = symbol_arg(args) else {
+                return Ok(missing_symbol("get_hierarchy"));
+            };
             let repo = args.get("repo").and_then(Value::as_str);
             let item = hierarchy::execute_hierarchy(db, sym, repo)
                 .map_err(|e| format!("get_hierarchy failed: {e}"))?;
@@ -324,6 +316,21 @@ fn several_files(file: &str, paths: &[String]) -> String {
         } else {
             String::new()
         },
+    )
+}
+
+/// Agents name the symbol argument differently from one call to the next
+/// (`symbol`, `name`, `query`), so every symbol tool accepts all of them.
+fn symbol_arg(args: &Value) -> Option<&str> {
+    ["symbol", "symbol_name", "name", "query"]
+        .iter()
+        .find_map(|key| args.get(*key).and_then(Value::as_str))
+}
+
+fn missing_symbol(tool: &str) -> String {
+    format!(
+        "`{tool}` needs `symbol`: the name of a function, type or route, such as \
+         `evaluateAccess` or `GET /auth/me`."
     )
 }
 

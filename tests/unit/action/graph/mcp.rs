@@ -188,9 +188,34 @@ fn test_mcp_initialize_and_tools_list() {
 }
 
 #[test]
-fn explore_and_outline_schemas_leave_argument_names_to_the_server() {
+fn symbol_tools_take_the_names_agents_guess_and_guide_a_missing_symbol() {
+    let (db, temp) = setup_test_mcp_db();
+    let root = temp.path();
+
+    for args in [json!({"query": "helper"}), json!({"name": "helper"})] {
+        let (callers, failed) = call_tool(&db, root, "get_callers", args);
+        assert!(!failed, "got: {callers}");
+        assert!(
+            callers.starts_with("**Callers of `helper`: 1**"),
+            "got: {callers}"
+        );
+    }
+    for tool in ["get_callers", "get_callees", "get_impact", "get_hierarchy"] {
+        let (text, failed) = call_tool(&db, root, tool, json!({}));
+        assert!(!failed, "{tool}: {text}");
+        assert!(text.contains("`symbol`"), "{tool}: {text}");
+    }
+}
+
+#[test]
+fn explore_outline_and_symbol_schemas_leave_argument_names_to_the_server() {
     let tools = super::tools::list_tools();
-    for name in ["graph_explore", "get_file_outline"] {
+    for name in [
+        "graph_explore",
+        "get_file_outline",
+        "get_callers",
+        "get_hierarchy",
+    ] {
         let tool = tools
             .as_array()
             .expect("tools array")
@@ -777,12 +802,14 @@ fn test_mcp_tool_call_impact_compatibility() {
             .unwrap_or(false)
     );
 
-    // 4. Missing all three params returns error mentioning all options
-    let resp_err: Value = serde_json::from_str(&lines[3]).expect("parse err");
-    assert_eq!(resp_err["id"], 204);
-    assert!(resp_err["result"]["isError"].as_bool().unwrap_or(false));
-    let err_text = resp_err["result"]["content"][0]["text"].as_str().unwrap();
-    assert!(err_text.contains("Either 'symbol_id', 'symbol_name', or 'symbol' must be provided"));
+    // 4. Missing every param answers with guidance, not an error
+    let resp_missing: Value = serde_json::from_str(&lines[3]).expect("parse missing");
+    assert_eq!(resp_missing["id"], 204);
+    assert!(!resp_missing["result"]["isError"].as_bool().unwrap_or(false));
+    let missing_text = resp_missing["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap();
+    assert!(missing_text.contains("`symbol`"), "got: {missing_text}");
 }
 #[test]
 fn test_mcp_format_guidance_and_compact_no_source() {
