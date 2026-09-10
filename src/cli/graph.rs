@@ -31,7 +31,7 @@ pub enum GraphCommand {
     /// Compute transitive blast-radius impact analysis for a symbol.
     Impact(GraphImpactArgs),
     /// Run graph MCP server.
-    Mcp,
+    Mcp(GraphMcpArgs),
     /// Find unreferenced private symbols and dead code.
     DeadCode(GraphDeadCodeArgs),
     /// Find functions and methods ranked descending by cyclomatic complexity.
@@ -139,6 +139,13 @@ pub struct GraphImpactArgs {
     /// Maximum traversal depth.
     #[arg(long)]
     pub max_depth: Option<usize>,
+}
+
+#[derive(Debug, Args)]
+pub struct GraphMcpArgs {
+    /// Tools to advertise: `explore` lists only `graph_explore`, `all` lists every graph tool.
+    #[arg(long, value_enum, default_value_t = crate::action::graph::mcp::ToolSurface::Explore)]
+    pub tools: crate::action::graph::mcp::ToolSurface,
 }
 
 #[derive(Debug, Args)]

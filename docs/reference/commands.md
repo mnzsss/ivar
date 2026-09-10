@@ -893,6 +893,10 @@ Compute transitive blast-radius impact analysis for a symbol
 
 Run graph MCP server
 
+| flag | value | default | description |
+| --- | --- | --- | --- |
+| `--tools` | `<TOOLS>` | `explore` | Tools to advertise: `explore` lists only `graph_explore`, `all` lists every graph tool |
+
 
 ##### `ivar graph dead-code`
 

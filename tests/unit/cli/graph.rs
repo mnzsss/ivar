@@ -6,6 +6,23 @@ use crate::cli::graph::*;
 use crate::cli::root::{Cli, Command};
 
 #[test]
+fn graph_mcp_lists_only_explore_unless_asked_for_all_tools() {
+    use crate::action::graph::mcp::ToolSurface;
+
+    let default = Cli::try_parse_from(["ivar", "graph", "mcp"]).unwrap();
+    match default.command {
+        Command::Graph(GraphCommand::Mcp(args)) => assert_eq!(args.tools, ToolSurface::Explore),
+        other => panic!("expected graph mcp, got {other:?}"),
+    }
+
+    let all = Cli::try_parse_from(["ivar", "graph", "mcp", "--tools", "all"]).unwrap();
+    match all.command {
+        Command::Graph(GraphCommand::Mcp(args)) => assert_eq!(args.tools, ToolSurface::All),
+        other => panic!("expected graph mcp, got {other:?}"),
+    }
+}
+
+#[test]
 fn test_cli_graph_explore_parsing() {
     let cli = Cli::try_parse_from(["ivar", "graph", "explore", "init_hall"]).unwrap();
     match cli.command {
@@ -178,7 +195,7 @@ fn test_cli_graph_impact_parsing() {
 fn test_cli_graph_mcp_parsing() {
     let cli = Cli::try_parse_from(["ivar", "graph", "mcp"]).unwrap();
     match cli.command {
-        Command::Graph(GraphCommand::Mcp) => {}
+        Command::Graph(GraphCommand::Mcp(_)) => {}
         other => panic!("expected graph mcp, got {other:?}"),
     }
 }

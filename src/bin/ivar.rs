@@ -1033,8 +1033,8 @@ fn main() -> ExitCode {
                 &mut stdout,
                 &mut stderr,
             ),
-            GraphCommand::Mcp => respond_graph(
-                ivar::action::graph::mcp_cmd(&ctx),
+            GraphCommand::Mcp(args) => respond_graph(
+                ivar::action::graph::mcp_cmd(&ctx, args.tools),
                 json,
                 compact,
                 &mut stdout,

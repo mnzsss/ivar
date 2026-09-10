@@ -250,16 +250,17 @@ pub fn impact_cmd(ctx: &Ctx, args: ImpactInput) -> Outcome<ImpactOutcome> {
 }
 
 // 11. mcp
-pub fn mcp_cmd(ctx: &Ctx) -> Outcome<McpOutcome> {
+pub fn mcp_cmd(ctx: &Ctx, tools: mcp::ToolSurface) -> Outcome<McpOutcome> {
     let db = open_graph_db(ctx)?;
     let layout = discover_hall(ctx)?;
     let stdin = io::stdin();
     let stdout = io::stdout();
     let stdin_lock = stdin.lock();
     let stdout_lock = stdout.lock();
-    mcp::run_mcp_server(
+    mcp::run_mcp_server_with_tools(
         &db,
         Some(layout.root().as_std_path()),
+        tools,
         stdin_lock,
         stdout_lock,
         |repo| {
