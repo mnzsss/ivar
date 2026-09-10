@@ -17,6 +17,11 @@
 (enum_declaration
   name: (identifier) @symbol.name) @symbol.kind
 
+;; `const x = () => {}`, `const x = function () {}`, `const x = { ... }`.
+;; React components, Fastify plugins, hooks, and schema objects use this form.
+(variable_declarator
+  name: (identifier) @symbol.name) @symbol.kind
+
 ;; Calls
 (call_expression
   function: [

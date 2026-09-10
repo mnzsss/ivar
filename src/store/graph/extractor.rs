@@ -11,7 +11,8 @@ use tree_sitter::{Node, Query, QueryCursor};
 
 use crate::domain::graph::{Edge, EdgeKind, Provenance, Span, Symbol, SymbolKind};
 use crate::infra::graph::parser::{
-    ParserError, SupportedLanguage, TreeSitterEngine, compile_rust_query, compile_typescript_query,
+    ParserError, SupportedLanguage, TreeSitterEngine, compile_rust_query, compile_tsx_query,
+    compile_typescript_query,
 };
 
 /// Errors produced during AST extraction.
@@ -45,7 +46,8 @@ pub fn extract_file(
 
     let query = match lang {
         SupportedLanguage::Rust => compile_rust_query()?,
-        SupportedLanguage::TypeScript | SupportedLanguage::Tsx => compile_typescript_query()?,
+        SupportedLanguage::TypeScript => compile_typescript_query()?,
+        SupportedLanguage::Tsx => compile_tsx_query()?,
         _ => {
             return Ok(ExtractedFile {
                 symbols: Vec::new(),
@@ -99,7 +101,17 @@ fn extract_symbols(
                 continue;
             }
 
-            let kind = determine_symbol_kind(k_node.kind(), lang);
+            // `variable_declarator` also matches locals inside function bodies;
+            // only module-level bindings are definitions.
+            if k_node.kind() == "variable_declarator" && !is_module_scope_declarator(k_node) {
+                continue;
+            }
+
+            let kind = if k_node.kind() == "variable_declarator" {
+                declarator_kind(k_node)
+            } else {
+                determine_symbol_kind(k_node.kind(), lang)
+            };
             let span = node_to_span(k_node);
             let is_exported = check_exported(k_node, source_bytes, lang);
             let signature = extract_signature(k_node, source_bytes);
@@ -467,6 +479,51 @@ fn determine_symbol_kind(node_kind: &str, _lang: SupportedLanguage) -> SymbolKin
     }
 }
 
+/// True when a `variable_declarator` sits at the top level of a module.
+///
+/// The chain is `variable_declarator` -> `lexical_declaration` (or
+/// `variable_declaration`) -> optional `export_statement` -> `program`. Anything
+/// deeper is a local binding inside a function or block.
+fn is_module_scope_declarator(node: Node) -> bool {
+    let Some(declaration) = node.parent() else {
+        return false;
+    };
+    if !matches!(
+        declaration.kind(),
+        "lexical_declaration" | "variable_declaration"
+    ) {
+        return false;
+    }
+    let Some(container) = declaration.parent() else {
+        return false;
+    };
+    match container.kind() {
+        "program" => true,
+        "export_statement" => container
+            .parent()
+            .is_some_and(|outer| outer.kind() == "program"),
+        _ => false,
+    }
+}
+
+/// Classifies a module-level `const`/`let` by the value it binds.
+///
+/// Arrow functions and function expressions count as functions, so they get
+/// callers, callees, and complexity like a declared function.
+fn declarator_kind(node: Node) -> SymbolKind {
+    let is_function = node.child_by_field_name("value").is_some_and(|value| {
+        matches!(
+            value.kind(),
+            "arrow_function" | "function_expression" | "function"
+        )
+    });
+    if is_function {
+        SymbolKind::Fn
+    } else {
+        SymbolKind::Const
+    }
+}
+
 fn node_to_span(node: Node) -> Span {
     let start = node.start_position();
     let end = node.end_position();
@@ -485,11 +542,20 @@ fn check_exported(node: Node, source_bytes: &[u8], lang: SupportedLanguage) -> b
             false
         }
         SupportedLanguage::TypeScript | SupportedLanguage::Tsx => {
-            // Check if parent is export_statement or node has export modifier
-            if let Some(parent) = node.parent()
-                && parent.kind() == "export_statement"
-            {
-                return true;
+            // A declaration sits directly under `export_statement`, but a
+            // `variable_declarator` is one level deeper: the `export` keyword
+            // belongs to the enclosing `lexical_declaration`. Walk both.
+            let mut ancestor = node.parent();
+            for _ in 0..2 {
+                match ancestor {
+                    Some(a) if a.kind() == "export_statement" => return true,
+                    Some(a)
+                        if matches!(a.kind(), "lexical_declaration" | "variable_declaration") =>
+                    {
+                        ancestor = a.parent();
+                    }
+                    _ => break,
+                }
             }
             let text = node.utf8_text(source_bytes).unwrap_or("");
             text.starts_with("export ")

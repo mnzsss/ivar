@@ -129,6 +129,15 @@ pub fn compile_typescript_query() -> Result<Query, QueryError> {
     compile_query(SupportedLanguage::TypeScript, typescript_query_str())
 }
 
+/// Compiles the vendored TypeScript query against the TSX grammar.
+///
+/// A `Query` matches only trees of the grammar it compiled against, because
+/// tree-sitter interns node kinds as per-language ids. TSX has its own grammar,
+/// so the TypeScript-compiled query matches no node in a `.tsx` tree.
+pub fn compile_tsx_query() -> Result<Query, QueryError> {
+    compile_query(SupportedLanguage::Tsx, typescript_query_str())
+}
+
 #[cfg(test)]
 #[path = "../../../tests/unit/infra/graph/parser.rs"]
 mod tests;

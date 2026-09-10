@@ -281,3 +281,86 @@ export interface Cat extends Animal, Pet {
         "implements edge to Serializable"
     );
 }
+
+#[test]
+fn a_tsx_component_file_yields_its_symbols() {
+    // A `Query` is bound to the grammar it compiled against, so a
+    // TypeScript-compiled query over a TSX tree matches nothing at all. That
+    // silence is indistinguishable from an empty file to every graph query.
+    let code = r#"
+import React from 'react';
+
+export interface CardProps {
+  title: string;
+}
+
+export const Card = ({ title }: CardProps) => {
+  return <div className="card">{title}</div>;
+};
+
+export function useCard() {
+  return null;
+}
+"#;
+    let res = extract_file("repo", "src/Card.tsx", code, SupportedLanguage::Tsx).expect("extract");
+
+    let names: Vec<&str> = res.symbols.iter().map(|s| s.name.as_str()).collect();
+    assert!(names.contains(&"CardProps"), "interface, got {names:?}");
+    assert!(names.contains(&"Card"), "arrow component, got {names:?}");
+    assert!(names.contains(&"useCard"), "hook, got {names:?}");
+}
+
+#[test]
+fn a_module_level_const_arrow_function_is_a_function_symbol() {
+    let code = r#"
+export const authRoutes = async (fastify) => {
+  fastify.post('/auth/login', handler);
+};
+
+export const SESSION_COOKIE = 'sid';
+"#;
+    let res = extract_file("repo", "src/routes.ts", code, SupportedLanguage::TypeScript)
+        .expect("extract");
+
+    let routes = res
+        .symbols
+        .iter()
+        .find(|s| s.name == "authRoutes")
+        .expect("arrow-function const is a symbol");
+    assert_eq!(routes.kind, SymbolKind::Fn, "it binds a function");
+    assert!(routes.is_exported, "the enclosing declaration is exported");
+
+    let cookie = res
+        .symbols
+        .iter()
+        .find(|s| s.name == "SESSION_COOKIE")
+        .expect("value const is a symbol");
+    assert_eq!(cookie.kind, SymbolKind::Const, "it binds a value");
+}
+
+#[test]
+fn a_local_binding_inside_a_function_is_not_a_symbol() {
+    // Every `const` in every function body would bury the real definitions.
+    let code = r#"
+export function handler() {
+  const temporary = 1;
+  const callback = () => temporary;
+  return callback();
+}
+"#;
+    let res = extract_file(
+        "repo",
+        "src/handler.ts",
+        code,
+        SupportedLanguage::TypeScript,
+    )
+    .expect("extract");
+
+    let names: Vec<&str> = res.symbols.iter().map(|s| s.name.as_str()).collect();
+    assert!(
+        names.contains(&"handler"),
+        "the function itself, got {names:?}"
+    );
+    assert!(!names.contains(&"temporary"), "local value, got {names:?}");
+    assert!(!names.contains(&"callback"), "local closure, got {names:?}");
+}
