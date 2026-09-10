@@ -2,8 +2,6 @@
 //! immediate call flows, and blast-radius impact analysis.
 
 use std::collections::HashMap;
-use std::fs::File;
-use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 
 use crate::action::graph::query::{self, QueryError};
@@ -11,6 +9,7 @@ use crate::domain::graph::{
     CallFlowItem, ExploreImpact, ExploreResult, OperationalRelation, RelationDirection,
     RelationEndpoint, SourceExcerpt, SourceFile, SymbolSnippet,
 };
+use crate::infra::hash;
 use crate::store::graph::db::GraphDb;
 
 /// Files up to this many lines are returned whole: an agent shown a slice of a
@@ -37,6 +36,11 @@ struct FileSpans {
     file_path: String,
     absolute_path: PathBuf,
     spans: Vec<(usize, usize)>,
+}
+
+struct CachedFile {
+    lines: Vec<String>,
+    content_hash: String,
 }
 
 /// Explores the codebase graph for a given query string, returning matched symbols with
@@ -79,7 +83,7 @@ pub fn explore(
     }
 
     // Step 2: Fetch source snippets surgically
-    let mut file_cache: HashMap<PathBuf, Vec<String>> = HashMap::new();
+    let mut file_cache: HashMap<PathBuf, CachedFile> = HashMap::new();
     let mut primary_symbols = Vec::new();
     let mut file_spans: Vec<FileSpans> = Vec::new();
 
@@ -124,7 +128,7 @@ pub fn explore(
         });
     }
 
-    let sources = collect_sources(&file_cache, file_spans);
+    let sources = collect_sources(db, &file_cache, file_spans)?;
 
     // Step 3: Immediate call flows & operational relations (for primary symbols)
     let mut call_flows = Vec::new();
@@ -355,38 +359,48 @@ pub fn explore(
 }
 
 fn collect_sources(
-    cache: &HashMap<PathBuf, Vec<String>>,
+    db: &GraphDb,
+    cache: &HashMap<PathBuf, CachedFile>,
     files: Vec<FileSpans>,
-) -> Vec<SourceFile> {
-    files
-        .into_iter()
-        .filter_map(|file| {
-            let lines = cache
-                .get(&file.absolute_path)
-                .filter(|lines| !lines.is_empty())?;
-            let ranges = if lines.len() <= WHOLE_FILE_MAX_LINES {
-                vec![(1, lines.len())]
-            } else {
-                merge_spans(file.spans)
-            };
-            let excerpts = ranges
-                .into_iter()
-                .map(|(start, end)| (start.max(1), end.min(lines.len())))
-                .filter(|(start, end)| start <= end)
-                .map(|(start, end)| SourceExcerpt {
-                    start_line: start,
-                    end_line: end,
-                    code: number_lines(lines, start, end),
-                })
-                .collect();
-            Some(SourceFile {
-                repo: file.repo,
-                file_path: file.file_path,
-                line_count: lines.len(),
-                excerpts,
+) -> Result<Vec<SourceFile>, ExploreError> {
+    let mut sources = Vec::with_capacity(files.len());
+    for file in files {
+        let Some(cached) = cache
+            .get(&file.absolute_path)
+            .filter(|cached| !cached.lines.is_empty())
+        else {
+            continue;
+        };
+        let lines = &cached.lines;
+        // Spans come from the last index. Once the file changed they can cut a
+        // function in half, so a changed file is served whole.
+        let changed_since_index = db
+            .get_file(&file.repo, &file.file_path)?
+            .is_some_and(|row| row.content_hash != cached.content_hash);
+        let ranges = if changed_since_index || lines.len() <= WHOLE_FILE_MAX_LINES {
+            vec![(1, lines.len())]
+        } else {
+            merge_spans(file.spans)
+        };
+        let excerpts = ranges
+            .into_iter()
+            .map(|(start, end)| (start.max(1), end.min(lines.len())))
+            .filter(|(start, end)| start <= end)
+            .map(|(start, end)| SourceExcerpt {
+                start_line: start,
+                end_line: end,
+                code: number_lines(lines, start, end),
             })
-        })
-        .collect()
+            .collect();
+        sources.push(SourceFile {
+            repo: file.repo,
+            file_path: file.file_path,
+            line_count: lines.len(),
+            excerpts,
+            changed_since_index,
+        });
+    }
+    Ok(sources)
 }
 
 fn merge_spans(mut spans: Vec<(usize, usize)>) -> Vec<(usize, usize)> {
@@ -403,29 +417,26 @@ fn merge_spans(mut spans: Vec<(usize, usize)>) -> Vec<(usize, usize)> {
 
 /// Reads source lines `[start_line, end_line]` (1-indexed, inclusive) and formats with line numbers.
 fn get_source_snippet(
-    cache: &mut HashMap<PathBuf, Vec<String>>,
+    cache: &mut HashMap<PathBuf, CachedFile>,
     file_path: &Path,
     start_line: usize,
     end_line: usize,
 ) -> Result<String, ExploreError> {
-    let lines = match cache.get(file_path) {
-        Some(lines) => lines,
+    let cached = match cache.get(file_path) {
+        Some(cached) => cached,
         None => {
-            let file = File::open(file_path).map_err(|err| ExploreError::Io {
+            let content = std::fs::read_to_string(file_path).map_err(|err| ExploreError::Io {
                 path: file_path.to_path_buf(),
                 source: err,
             })?;
-            let reader = BufReader::new(file);
-            let lines: Result<Vec<String>, std::io::Error> = reader.lines().collect();
-            let lines = lines.map_err(|err| ExploreError::Io {
-                path: file_path.to_path_buf(),
-                source: err,
-            })?;
-            cache.entry(file_path.to_path_buf()).or_insert(lines)
+            cache.entry(file_path.to_path_buf()).or_insert(CachedFile {
+                lines: content.lines().map(str::to_owned).collect(),
+                content_hash: hash::text(&content),
+            })
         }
     };
 
-    Ok(number_lines(lines, start_line, end_line))
+    Ok(number_lines(&cached.lines, start_line, end_line))
 }
 
 fn number_lines(lines: &[String], start_line: usize, end_line: usize) -> String {

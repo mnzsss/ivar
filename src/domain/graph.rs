@@ -331,6 +331,8 @@ pub struct SourceFile {
     pub file_path: String,
     pub line_count: usize,
     pub excerpts: Vec<SourceExcerpt>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub changed_since_index: bool,
 }
 
 /// A contiguous run of numbered source lines.

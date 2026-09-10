@@ -544,6 +544,15 @@ fn file_block(file: &FileMatches<'_>, source: Option<&SourceFile>) -> String {
     let mut block = String::new();
     let _ = write!(block, "`{}` ({}", file.path, file.repo);
     match source {
+        Some(source) if source.changed_since_index => {
+            let _ = write!(
+                block,
+                " · whole file, {} line{}, changed since the last index so the symbol lines \
+                 below may have moved",
+                source.line_count,
+                plural(source.line_count)
+            );
+        }
         Some(source) if is_whole_file(source) => {
             let _ = write!(
                 block,

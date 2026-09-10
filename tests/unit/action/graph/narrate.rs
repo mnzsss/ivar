@@ -56,7 +56,22 @@ fn source(repo: &str, file: &str, lines: usize) -> SourceFile {
             end_line: lines,
             code,
         }],
+        changed_since_index: false,
     }
+}
+
+#[test]
+fn a_file_changed_since_the_index_warns_that_symbol_lines_may_have_moved() {
+    let mut res = result("getSession");
+    res.primary_symbols
+        .push(snippet("getSession", "api", "src/auth/sessions.ts", 27));
+    let mut changed = source("api", "src/auth/sessions.ts", 40);
+    changed.changed_since_index = true;
+    res.sources.push(changed);
+
+    let out = narrate_explore(&res);
+
+    assert!(out.contains("changed since the last index"), "got: {out}");
 }
 
 fn relation(
