@@ -237,8 +237,19 @@ fn extract_http(
     (symbols, edges)
 }
 
+/// The TypeScript grammar parses `await apiRequest<User>('/me')` with the `await`
+/// inside the callee, as `call_expression(function: await_expression(identifier))`.
+fn callee(call: Node) -> Option<Node> {
+    let function = call.child_by_field_name("function")?;
+    if function.kind() == "await_expression" {
+        function.named_child(0)
+    } else {
+        Some(function)
+    }
+}
+
 fn http_route_definition(node: Node, source_bytes: &[u8]) -> Option<String> {
-    let function = node.child_by_field_name("function")?;
+    let function = callee(node)?;
     if function.kind() != "member_expression" {
         return None;
     }
@@ -263,7 +274,7 @@ fn http_route_definition(node: Node, source_bytes: &[u8]) -> Option<String> {
 /// `axios.delete(`/users/${id}`)`, returning `METHOD /path` with every template
 /// substitution written as `:param`.
 fn http_client_call(node: Node, source_bytes: &[u8]) -> Option<String> {
-    let function = node.child_by_field_name("function")?;
+    let function = callee(node)?;
     let arguments = node.child_by_field_name("arguments")?;
     let method = match function.kind() {
         "identifier" => {

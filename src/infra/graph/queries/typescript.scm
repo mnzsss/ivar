@@ -22,7 +22,7 @@
 (variable_declarator
   name: (identifier) @symbol.name) @symbol.kind
 
-;; Calls
+;; Calls. The grammar parses `await f<T>(x)` with the `await` inside the callee.
 (call_expression
   function: [
     (identifier) @call.target
@@ -33,6 +33,16 @@
         (member_expression) @call.receiver
       ]
       property: (property_identifier) @call.target)
+    (await_expression
+      (identifier) @call.target)
+    (await_expression
+      (member_expression
+        object: [
+          (identifier) @call.receiver
+          (this) @call.receiver
+          (member_expression) @call.receiver
+        ]
+        property: (property_identifier) @call.target))
   ])
 
 ;; Imports
