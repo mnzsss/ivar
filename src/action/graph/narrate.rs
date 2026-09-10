@@ -64,6 +64,7 @@ pub fn narrate_explore(res: &ExploreResult) -> String {
         plural(files.len()),
     );
 
+    narrate_named_flows(&mut out, res);
     narrate_blast_radius(&mut out, res);
     narrate_consumers(&mut out, res);
     narrate_flows(&mut out, res);
@@ -300,6 +301,28 @@ fn files_in_rank_order(res: &ExploreResult) -> Vec<FileMatches<'_>> {
         }
     }
     files
+}
+
+/// Leads with the path between the symbols a query named together.
+fn narrate_named_flows(out: &mut String, res: &ExploreResult) {
+    if res.flows.is_empty() {
+        return;
+    }
+    out.push_str("**Flow between the symbols you named**\n\n");
+    for flow in &res.flows {
+        let _ = write!(out, "- `{}`", flow.from);
+        for step in &flow.steps {
+            let _ = write!(
+                out,
+                " → `{}` ({} at line {})",
+                step.target,
+                step.edge_kind.as_str(),
+                step.line
+            );
+        }
+        out.push('\n');
+    }
+    out.push('\n');
 }
 
 /// Lists the incoming callers of each symbol.

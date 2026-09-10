@@ -4,9 +4,10 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use crate::action::graph::query::{self, QueryError};
+use crate::action::graph::path::{self, PathError};
+use crate::action::graph::query::{self, QueryError, SymbolLocation};
 use crate::domain::graph::{
-    CallFlowItem, ExploreImpact, ExploreResult, OperationalRelation, RelationDirection,
+    CallFlowItem, ExploreImpact, ExploreResult, OperationalRelation, PathResult, RelationDirection,
     RelationEndpoint, SourceExcerpt, SourceFile, SymbolSnippet,
 };
 use crate::infra::hash;
@@ -16,12 +17,18 @@ use crate::store::graph::db::GraphDb;
 /// small file reads the whole file anyway, which costs more than sending it once.
 const WHOLE_FILE_MAX_LINES: usize = 250;
 const EXCERPT_MERGE_GAP: usize = 8;
+/// Names in one query that explore connects; every pair runs two path searches.
+const MAX_NAMED_FLOW_SYMBOLS: usize = 4;
+/// One symbol between two named ones at most, so a flow never fans out through a hub.
+const MAX_NAMED_FLOW_HOPS: usize = 2;
 
 /// Errors that can occur during explore synthesis.
 #[derive(Debug, thiserror::Error)]
 pub enum ExploreError {
     #[error("Database query failed: {0}")]
     Query(#[from] QueryError),
+    #[error("Path search failed: {0}")]
+    Path(#[from] PathError),
     #[error("Database error: {0}")]
     Db(#[from] crate::store::graph::db::GraphDbError),
     #[error("I/O error reading source file {path}: {source}")]
@@ -62,6 +69,7 @@ pub fn explore(
             entry_points: Vec::new(),
             transitive_consumers: Vec::new(),
             sources: Vec::new(),
+            flows: Vec::new(),
         });
     }
 
@@ -79,6 +87,7 @@ pub fn explore(
             entry_points: Vec::new(),
             transitive_consumers: Vec::new(),
             sources: Vec::new(),
+            flows: Vec::new(),
         });
     }
 
@@ -129,6 +138,7 @@ pub fn explore(
     }
 
     let sources = collect_sources(db, &file_cache, file_spans)?;
+    let flows = named_flows(db, trimmed_query, &candidates)?;
 
     // Step 3: Immediate call flows & operational relations (for primary symbols)
     let mut call_flows = Vec::new();
@@ -355,7 +365,45 @@ pub fn explore(
         entry_points,
         transitive_consumers,
         sources,
+        flows,
     })
+}
+
+/// Finds the call path between symbols the query names together, the question a
+/// query like `handleLogin saveSession` usually asks.
+fn named_flows(
+    db: &GraphDb,
+    query: &str,
+    candidates: &[SymbolLocation],
+) -> Result<Vec<PathResult>, ExploreError> {
+    let mut named: Vec<&str> = Vec::new();
+    for token in query.split_whitespace() {
+        let name = token.trim_matches(|c: char| !c.is_alphanumeric() && c != '_');
+        if !named.contains(&name) && candidates.iter().any(|c| c.symbol.name == name) {
+            named.push(name);
+        }
+    }
+    named.truncate(MAX_NAMED_FLOW_SYMBOLS);
+
+    let mut flows = Vec::new();
+    for (index, from) in named.iter().enumerate() {
+        for to in named.iter().skip(index + 1) {
+            let flow = match shortest_flow(db, from, to)? {
+                Some(flow) => Some(flow),
+                None => shortest_flow(db, to, from)?,
+            };
+            flows.extend(flow);
+        }
+    }
+    Ok(flows)
+}
+
+fn shortest_flow(db: &GraphDb, from: &str, to: &str) -> Result<Option<PathResult>, ExploreError> {
+    match path::find_shortest_path(db, from, to, MAX_NAMED_FLOW_HOPS) {
+        Ok(found) => Ok(found.filter(|flow| !flow.steps.is_empty())),
+        Err(PathError::StartNotFound(_) | PathError::TargetNotFound(_)) => Ok(None),
+        Err(err) => Err(err.into()),
+    }
 }
 
 fn collect_sources(

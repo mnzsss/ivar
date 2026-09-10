@@ -358,6 +358,8 @@ pub struct ExploreResult {
     pub transitive_consumers: Vec<ExploreImpact>,
     #[serde(default)]
     pub sources: Vec<SourceFile>,
+    #[serde(default)]
+    pub flows: Vec<PathResult>,
 }
 /// A causal step linking a changed dependency or symbol to an affected test.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]

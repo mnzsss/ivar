@@ -7,8 +7,9 @@ use crate::action::graph::query::{
     CalleeInfo, CallerInfo, FileOutline, ImpactItem, ImpactResult, ReferenceSite, SymbolLocation,
 };
 use crate::domain::graph::{
-    Edge, EdgeKind, ExploreImpact, OperationalRelation, Provenance, RelationDirection,
-    RelationEndpoint, SourceExcerpt, SourceFile, Span, Symbol, SymbolKind, SymbolSnippet,
+    Edge, EdgeKind, ExploreImpact, OperationalRelation, PathResult, PathStep, Provenance,
+    RelationDirection, RelationEndpoint, SourceExcerpt, SourceFile, Span, Symbol, SymbolKind,
+    SymbolSnippet,
 };
 
 fn symbol(name: &str, repo: &str, line: usize) -> Symbol {
@@ -74,6 +75,44 @@ fn a_file_changed_since_the_index_warns_that_symbol_lines_may_have_moved() {
     assert!(out.contains("changed since the last index"), "got: {out}");
 }
 
+#[test]
+fn the_path_between_named_symbols_leads_the_answer() {
+    let mut res = result("handleLogin saveSession");
+    res.primary_symbols
+        .push(snippet("handleLogin", "api", "src/routes/auth.ts", 3));
+    res.flows.push(PathResult {
+        from: "handleLogin".into(),
+        to: "saveSession".into(),
+        steps: vec![
+            PathStep {
+                source: "handleLogin".into(),
+                target: "createSession".into(),
+                edge_kind: EdgeKind::Calls,
+                line: 5,
+            },
+            PathStep {
+                source: "createSession".into(),
+                target: "saveSession".into(),
+                edge_kind: EdgeKind::Calls,
+                line: 12,
+            },
+        ],
+    });
+
+    let out = narrate_explore(&res);
+
+    assert!(
+        out.contains(
+            "- `handleLogin` → `createSession` (calls at line 5) → `saveSession` (calls at line 12)"
+        ),
+        "got: {out}"
+    );
+    assert!(
+        out.find("Flow between").expect("flow section")
+            < out.find("**Source**").expect("source section")
+    );
+}
+
 fn relation(
     caller: &str,
     caller_file: &str,
@@ -120,6 +159,7 @@ fn result(query: &str) -> ExploreResult {
         entry_points: Vec::new(),
         transitive_consumers: Vec::new(),
         sources: Vec::new(),
+        flows: Vec::new(),
     }
 }
 
