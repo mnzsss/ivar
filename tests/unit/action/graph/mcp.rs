@@ -187,6 +187,37 @@ fn test_mcp_initialize_and_tools_list() {
     assert_eq!(explore["annotations"]["readOnlyHint"], true);
 }
 
+#[test]
+fn explore_and_outline_schemas_leave_argument_names_to_the_server() {
+    let tools = super::tools::list_tools();
+    for name in ["graph_explore", "get_file_outline"] {
+        let tool = tools
+            .as_array()
+            .expect("tools array")
+            .iter()
+            .find(|t| t["name"] == name)
+            .expect("tool listed");
+        assert!(
+            tool["inputSchema"].get("required").is_none(),
+            "a host that validates `required` rejects aliases before dispatch sees them: {name}"
+        );
+    }
+}
+
+#[test]
+fn graph_explore_takes_a_path_argument_and_answers_a_missing_query_with_guidance() {
+    let (db, temp) = setup_test_mcp_db();
+    let root = temp.path();
+
+    let (explore, failed) = call_tool(&db, root, "graph_explore", json!({"path": "src/main.rs"}));
+    assert!(!failed, "got: {explore}");
+    assert!(explore.contains("`execute`"), "got: {explore}");
+
+    let (missing, missing_failed) = call_tool(&db, root, "graph_explore", json!({}));
+    assert!(!missing_failed, "got: {missing}");
+    assert!(missing.contains("`query`"), "got: {missing}");
+}
+
 fn call_tool(db: &GraphDb, root: &std::path::Path, name: &str, arguments: Value) -> (String, bool) {
     let input = format!(
         "{}\n",

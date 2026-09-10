@@ -23,11 +23,18 @@ where
 {
     match name {
         "graph_explore" => {
-            let q = args
+            let Some(q) = args
                 .get("query")
                 .or_else(|| args.get("symbol"))
+                .or_else(|| args.get("path"))
                 .and_then(Value::as_str)
-                .ok_or_else(|| "Missing required parameter 'query'".to_owned())?;
+            else {
+                return Ok(
+                    "`graph_explore` needs `query`: symbol names, an intent such as \"session \
+                     enforcement\", or file and directory paths separated by spaces."
+                        .to_owned(),
+                );
+            };
             let repo = args.get("repo").and_then(Value::as_str);
 
             let root = hall_root
@@ -92,12 +99,18 @@ where
         }
 
         "get_file_outline" => {
-            let file = args
+            let Some(file) = args
                 .get("file")
                 .or_else(|| args.get("file_path"))
                 .or_else(|| args.get("path"))
                 .and_then(Value::as_str)
-                .ok_or_else(|| "Missing required parameter 'file'".to_owned())?;
+            else {
+                return Ok(
+                    "`get_file_outline` needs `file`: a file path as shown in the workspace. For \
+                     a directory or several files, call `graph_explore` with the paths."
+                        .to_owned(),
+                );
+            };
             let repo = args.get("repo").and_then(Value::as_str);
 
             let (repo, path) = match (locate_file(db, file, repo)?, repo) {
