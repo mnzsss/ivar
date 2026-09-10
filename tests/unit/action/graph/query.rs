@@ -531,6 +531,38 @@ fn test_explore_find_candidates_matches_a_singular_term_to_a_plural_path() {
 }
 
 #[test]
+fn test_explore_find_keeps_source_to_the_best_files_and_names_the_rest() {
+    let db = GraphDb::open_in_memory().expect("open in-memory db");
+    db.insert_repo("api", "/workspace/api", "main", None)
+        .expect("insert repo");
+    for i in 0..6 {
+        let file_id = db
+            .upsert_file("api", &format!("src/routes/r{i}.ts"), "h", 10, 100)
+            .expect("upsert file");
+        db.insert_symbols(&[function_symbol(
+            file_id,
+            "api",
+            &format!("route{i}Handler"),
+            10,
+        )])
+        .expect("insert symbol");
+    }
+
+    let found = find::explore_find(&db, "src/routes", None, 4).expect("explore find");
+
+    let shown: std::collections::BTreeSet<&str> =
+        found.symbols.iter().map(|c| c.file_path.as_str()).collect();
+    assert_eq!(shown.len(), 4);
+    assert_eq!(found.not_shown.len(), 2);
+    assert!(
+        found
+            .not_shown
+            .iter()
+            .all(|file| { !shown.contains(file.file_path.as_str()) && !file.symbols.is_empty() })
+    );
+}
+
+#[test]
 fn test_explore_find_candidates_keeps_a_workspace_directory_inside_the_repo_it_names() {
     let db = GraphDb::open_in_memory().expect("open in-memory db");
     for repo in ["api", "web"] {

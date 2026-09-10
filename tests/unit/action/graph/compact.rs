@@ -260,6 +260,7 @@ fn test_encode_explore() {
         impact_summary: None,
         sources: vec![],
         flows: vec![],
+        not_shown: vec![],
         direct_relations: vec![crate::domain::graph::OperationalRelation {
             source: crate::domain::graph::RelationEndpoint {
                 repo: "ivar".into(),

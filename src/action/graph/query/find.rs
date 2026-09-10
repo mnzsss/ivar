@@ -6,8 +6,15 @@ use std::collections::HashMap;
 use rusqlite::params;
 
 use super::types::{QueryError, SymbolLocation, map_symbol_and_path_row};
-use crate::domain::graph::Symbol;
+use crate::domain::graph::{FileMention, MentionedSymbol, Symbol};
 use crate::store::graph::db::GraphDb;
+
+/// Symbols an explore answer shows source for, and the matching files it leaves out.
+#[derive(Debug, Clone, Default)]
+pub struct ExploreCandidates {
+    pub symbols: Vec<SymbolLocation>,
+    pub not_shown: Vec<FileMention>,
+}
 
 /// Maximum candidates returned for hero explore.
 pub const MAX_EXPLORE_CANDIDATES: usize = 24;
@@ -347,6 +354,18 @@ pub fn explore_find_candidates(
     query: &str,
     repo: Option<&str>,
 ) -> Result<Vec<SymbolLocation>, QueryError> {
+    Ok(explore_find(db, query, repo, usize::MAX)?.symbols)
+}
+
+/// Ranks files for an exploration the way [`explore_find_candidates`] does, keeps
+/// candidates from the best `max_files` files, and names the other matching files
+/// with their best symbols.
+pub fn explore_find(
+    db: &GraphDb,
+    query: &str,
+    repo: Option<&str>,
+    max_files: usize,
+) -> Result<ExploreCandidates, QueryError> {
     let parsed = resolve_query_paths(db, query, repo)?;
     let conn = db.conn();
 
@@ -561,7 +580,7 @@ pub fn explore_find_candidates(
     }
 
     if file_candidates.is_empty() {
-        return Ok(Vec::new());
+        return Ok(ExploreCandidates::default());
     }
 
     // Step 3: Compute aggregate score per file and rank files.
@@ -616,34 +635,53 @@ pub fn explore_find_candidates(
     ranked_files.retain(|file| file.score >= floor);
 
     // Split the budget across files so every file the query names keeps a slot.
-    let max_per_file = match ranked_files.len() {
+    let shown_files = ranked_files.len().min(max_files);
+    let max_per_file = match shown_files {
         1 => MAX_EXPLORE_CANDIDATES,
         files => (MAX_EXPLORE_CANDIDATES / files).clamp(1, MAX_SYMBOLS_PER_FILE),
     };
 
     // Step 4: Collect symbols respecting per-file caps and preserve source line order.
     let mut final_candidates = Vec::new();
+    let mut not_shown = Vec::new();
 
-    for file_info in ranked_files {
-        if final_candidates.len() >= MAX_EXPLORE_CANDIDATES {
-            break;
-        }
-
+    for (rank, file_info) in ranked_files.into_iter().enumerate() {
         let key = (file_info.repo, file_info.path);
-        if let Some(mut cands) = file_candidates.remove(&key) {
-            // Cap by score before restoring source order, or a strong match late in
-            // the file never survives the cap.
-            cands.sort_by(|a, b| b.score.total_cmp(&a.score));
+        let Some(mut cands) = file_candidates.remove(&key) else {
+            continue;
+        };
+        // Cap by score before restoring source order, or a strong match late in
+        // the file never survives the cap.
+        cands.sort_by(|a, b| b.score.total_cmp(&a.score));
+        if rank < shown_files && final_candidates.len() < MAX_EXPLORE_CANDIDATES {
             cands.truncate((MAX_EXPLORE_CANDIDATES - final_candidates.len()).min(max_per_file));
             cands.sort_by_key(|c| (c.symbol.span.start_line, c.symbol.span.start_col));
             final_candidates.extend(cands.into_iter().map(|sc| SymbolLocation {
                 symbol: sc.symbol,
                 file_path: sc.file_path,
             }));
+        } else {
+            cands.truncate(MAX_SYMBOLS_PER_FILE);
+            cands.sort_by_key(|c| (c.symbol.span.start_line, c.symbol.span.start_col));
+            let (repo, file_path) = key;
+            not_shown.push(FileMention {
+                repo,
+                file_path,
+                symbols: cands
+                    .into_iter()
+                    .map(|sc| MentionedSymbol {
+                        line: sc.symbol.span.start_line,
+                        name: sc.symbol.name,
+                    })
+                    .collect(),
+            });
         }
     }
 
-    Ok(final_candidates)
+    Ok(ExploreCandidates {
+        symbols: final_candidates,
+        not_shown,
+    })
 }
 
 fn is_test_path(path: &str) -> bool {

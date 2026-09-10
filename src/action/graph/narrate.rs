@@ -14,18 +14,25 @@ use std::fmt::Write as _;
 use crate::action::graph::query::{
     CalleeInfo, CallerInfo, FileOutline, ImpactResult, ReferenceSite, SymbolLocation,
 };
-use crate::domain::graph::{EdgeKind, ExploreResult, Provenance, SourceFile, SymbolSnippet};
-use crate::store::graph::db::edge_kind_to_str;
+use crate::domain::graph::{
+    EdgeKind, ExploreResult, FileMention, MentionedSymbol, Provenance, SourceFile, SymbolSnippet,
+};
 
-/// Callers listed per symbol before the rest are summarised as a count.
+/// Definitions listed for a symbol before the rest are left out.
 const MAX_RELATIONS_PER_SYMBOL: usize = 6;
-/// Transitive consumers listed before the rest are summarised as a count.
-const MAX_CONSUMERS: usize = 10;
+/// Symbols the blast radius names before counting the rest.
+const MAX_BLAST_SYMBOLS: usize = 8;
+/// Caller files named on one blast-radius line.
+const MAX_CALLER_FILES: usize = 3;
+/// Files the "not shown" list names before counting the rest.
+const MAX_NOT_SHOWN_FILES: usize = 10;
+/// Symbol names listed for one file that got no source.
+const MAX_NAMES_PER_FILE: usize = 6;
 /// Entries a callers, callees or impact answer lists before counting the rest.
 const MAX_LIST_ITEMS: usize = 40;
-/// Hosts save a tool result longer than about 25K characters to a file the agent
-/// then has to Read, which costs more tokens than the answer saves.
-const MAX_OUTPUT_CHARS: usize = 24_000;
+/// Every later turn repeats an answer, so it stays well under the ~25K characters
+/// at which hosts save a tool result to a file the agent then has to Read.
+const MAX_OUTPUT_CHARS: usize = 18_000;
 /// Source keeps this much room even after long relation sections.
 const MIN_SOURCE_CHARS: usize = 8_000;
 
@@ -66,9 +73,8 @@ pub fn narrate_explore(res: &ExploreResult) -> String {
 
     narrate_named_flows(&mut out, res);
     narrate_blast_radius(&mut out, res);
-    narrate_consumers(&mut out, res);
-    narrate_flows(&mut out, res);
-    narrate_source(&mut out, res, &files);
+    let left_out = narrate_source(&mut out, res, &files);
+    narrate_not_shown(&mut out, &left_out, &res.not_shown);
 
     out
 }
@@ -325,27 +331,16 @@ fn narrate_named_flows(out: &mut String, res: &ExploreResult) {
     out.push('\n');
 }
 
-/// Lists the incoming callers of each symbol.
+/// Names what depends on each matched symbol, one line per symbol: how many
+/// callers and in which files.
 ///
 /// Grouped by symbol *name*, because that is the precision the resolver has:
-/// `query::get_callers` matches on name, so when several definitions share one
-/// (`session` in `store`, `harness::config`, and `action`) their callers are
-/// indistinguishable. Rendering one entry per definition would print the same
-/// callers three times and imply a certainty the index does not hold, so the
-/// candidate definitions are listed together and the ambiguity is stated.
+/// `query::get_callers` matches on name, so the callers of same-named definitions
+/// are indistinguishable. One line per name, with the ambiguity stated, avoids
+/// repeating the same callers and implying a certainty the index does not hold.
 fn narrate_blast_radius(out: &mut String, res: &ExploreResult) {
-    let has_callers = res.primary_symbols.iter().any(|snippet| {
-        res.direct_relations
-            .iter()
-            .any(|r| r.target.symbol_name == snippet.symbol.name)
-    });
-    if !has_callers {
-        return;
-    }
-
-    out.push_str("**Blast radius — what depends on these (check before editing)**\n\n");
-
-    let mut rendered: std::collections::BTreeSet<&str> = std::collections::BTreeSet::new();
+    let mut lines = Vec::new();
+    let mut rendered = std::collections::BTreeSet::new();
 
     for snippet in &res.primary_symbols {
         let name = snippet.symbol.name.as_str();
@@ -371,164 +366,85 @@ fn narrate_blast_radius(out: &mut String, res: &ExploreResult) {
             continue;
         }
 
-        let definitions: Vec<&SymbolSnippet> = res
+        let files: std::collections::BTreeSet<&str> = relations
+            .iter()
+            .map(|r| r.source.file_path.as_str())
+            .collect();
+        let named: Vec<String> = files
+            .iter()
+            .take(MAX_CALLER_FILES)
+            .map(|file| format!("`{file}`"))
+            .collect();
+        let mut line = format!(
+            "- `{name}` ({}:{}) — {} caller{} in {}",
+            snippet.file_path,
+            snippet.symbol.span.start_line,
+            relations.len(),
+            plural(relations.len()),
+            named.join(", "),
+        );
+        if files.len() > MAX_CALLER_FILES {
+            let _ = write!(line, " +{} more files", files.len() - MAX_CALLER_FILES);
+        }
+        let cross = relations.iter().filter(|r| r.cross_repo).count();
+        if cross > 0 {
+            let _ = write!(line, "; {cross} from other repos");
+        }
+        let definitions = res
             .primary_symbols
             .iter()
             .filter(|s| s.symbol.name == name)
-            .collect();
-
-        let _ = write!(
-            out,
-            "- `{name}` — {} caller{}",
-            relations.len(),
-            plural(relations.len()),
-        );
-        let cross = relations.iter().filter(|r| r.cross_repo).count();
-        if cross > 0 {
-            let _ = write!(out, ", {cross} across repos");
-        }
-        out.push('\n');
-
-        if definitions.len() > 1 {
-            let _ = writeln!(
-                out,
-                "    Defined in {} places; callers are resolved by name, so these counts \
-                 cover all of them — confirm which one a caller means before editing:",
-                definitions.len(),
-            );
-            for d in &definitions {
-                let _ = writeln!(
-                    out,
-                    "      - {}:{} ({})",
-                    d.file_path, d.symbol.span.start_line, d.symbol.repo,
-                );
-            }
-        } else {
-            let _ = writeln!(
-                out,
-                "    Defined at {}:{}",
-                snippet.file_path, snippet.symbol.span.start_line,
-            );
-        }
-
-        for r in relations.iter().take(MAX_RELATIONS_PER_SYMBOL) {
+            .count();
+        if definitions > 1 {
             let _ = write!(
-                out,
-                "    - `{}` in {}:{}",
-                r.source.symbol_name, r.source.file_path, r.line,
-            );
-            if r.cross_repo {
-                let _ = write!(out, " [repo `{}`]", r.source.repo);
-            }
-            if !matches!(r.provenance, Provenance::Extracted) {
-                let _ = write!(
-                    out,
-                    " — {} ({:.2}), verify this line before relying on it",
-                    provenance_word(r.provenance),
-                    r.confidence,
-                );
-            }
-            out.push('\n');
-        }
-        if relations.len() > MAX_RELATIONS_PER_SYMBOL {
-            let _ = writeln!(
-                out,
-                "    - …and {} more",
-                relations.len() - MAX_RELATIONS_PER_SYMBOL
+                line,
+                "; {definitions} definitions share this name, so confirm which one a caller means"
             );
         }
+        let uncertain = relations
+            .iter()
+            .filter(|r| !matches!(r.provenance, Provenance::Extracted))
+            .count();
+        if uncertain > 0 {
+            let _ = write!(
+                line,
+                "; {uncertain} {}, verify before relying on them",
+                provenance_word(Provenance::Inferred)
+            );
+        }
+        lines.push(line);
     }
-    out.push('\n');
-}
 
-/// Reports reach beyond the direct callers.
-fn narrate_consumers(out: &mut String, res: &ExploreResult) {
-    if res.transitive_consumers.is_empty() {
-        if let Some(summary) = &res.impact_summary {
-            let _ = writeln!(out, "**Impact**: {summary}\n");
-        }
+    if lines.is_empty() {
         return;
     }
-
-    let _ = writeln!(
-        out,
-        "**Reaches {} symbol{} transitively**\n",
-        res.transitive_consumers.len(),
-        plural(res.transitive_consumers.len()),
-    );
-
-    for c in res.transitive_consumers.iter().take(MAX_CONSUMERS) {
-        let _ = write!(
-            out,
-            "- `{}` ({}:{}) at depth {}",
-            c.symbol_name, c.repo, c.file_path, c.depth,
-        );
-        if c.cross_repo {
-            out.push_str(" [cross-repo]");
-        }
-        if !c.path_via.is_empty() {
-            let _ = write!(out, " via {}", c.path_via.join(" -> "));
-        }
-        out.push('\n');
+    out.push_str("**Blast radius — what depends on these (check before editing)**\n\n");
+    for line in lines.iter().take(MAX_BLAST_SYMBOLS) {
+        let _ = writeln!(out, "{line}");
     }
-    if res.transitive_consumers.len() > MAX_CONSUMERS {
+    if lines.len() > MAX_BLAST_SYMBOLS {
         let _ = writeln!(
             out,
-            "- …and {} more",
-            res.transitive_consumers.len() - MAX_CONSUMERS
+            "- …and {} more symbols with callers",
+            lines.len() - MAX_BLAST_SYMBOLS
         );
     }
     out.push('\n');
 }
 
-/// Renders the entry points and call flows that reach the matched symbols.
-fn narrate_flows(out: &mut String, res: &ExploreResult) {
-    if !res.entry_points.is_empty() {
-        out.push_str("**Entry points**\n\n");
-        for e in res.entry_points.iter().take(MAX_CONSUMERS) {
-            let _ = writeln!(
-                out,
-                "- `{}` ({}:{}) -> `{}` [{}]",
-                e.source.symbol_name,
-                e.source.file_path,
-                e.line,
-                e.target.symbol_name,
-                edge_kind_to_str(&e.edge_kind),
-            );
-        }
-        out.push('\n');
-    }
-
-    let leaves_index: std::collections::BTreeSet<(&str, &str)> = res
-        .direct_relations
-        .iter()
-        .filter(|r| {
-            matches!(
-                r.direction,
-                crate::domain::graph::RelationDirection::Outgoing
-            ) && r.target.file_path.is_empty()
-        })
-        .map(|r| (r.source.symbol_name.as_str(), r.target.symbol_name.as_str()))
-        .collect();
-    let flows: Vec<_> = res
-        .call_flows
-        .iter()
-        .filter(|f| !leaves_index.contains(&(f.caller.as_str(), f.callee.as_str())))
-        .collect();
-    if flows.is_empty() {
-        return;
-    }
-    out.push_str("**Call flows**\n\n");
-    for f in flows.iter().take(MAX_CONSUMERS) {
-        let _ = writeln!(out, "- `{}` -> `{}`", f.caller, f.callee);
-    }
-    out.push('\n');
-}
-
-/// Emits verbatim source last, one block per file, within the output budget.
-fn narrate_source(out: &mut String, res: &ExploreResult, files: &[FileMatches<'_>]) {
+/// Emits verbatim source, one block per file, within the output budget, and
+/// returns the files that did not fit.
+fn narrate_source(
+    out: &mut String,
+    res: &ExploreResult,
+    files: &[FileMatches<'_>],
+) -> Vec<FileMention> {
     out.push_str("**Source**\n\n");
-    out.push_str("> Verbatim from disk — current as of this read. The content below is already read and equal to a Read on this file; do not re-read the same file. Line numbers are real — cite them directly.\n\n");
+    out.push_str(
+        "> The code below is the verbatim, current on-disk source, line-numbered like the Read \
+         tool. Treat each block as a Read you have already performed: do not Read a file shown \
+         here.\n\n",
+    );
 
     let limit = MAX_OUTPUT_CHARS.max(out.len() + MIN_SOURCE_CHARS);
     let mut emitted = false;
@@ -549,16 +465,51 @@ fn narrate_source(out: &mut String, res: &ExploreResult, files: &[FileMatches<'_
             ));
             emitted = true;
         } else {
-            left_out.push(format!("`{}`", file.path));
+            left_out.push(FileMention {
+                repo: file.repo.to_owned(),
+                file_path: file.path.to_owned(),
+                symbols: file
+                    .symbols
+                    .iter()
+                    .map(|s| MentionedSymbol {
+                        name: s.symbol.name.clone(),
+                        line: s.symbol.span.start_line,
+                    })
+                    .collect(),
+            });
         }
     }
+    left_out
+}
 
-    if !left_out.is_empty() {
+/// Names the matching files that got no source, so the next step is another
+/// `graph_explore` with those names instead of a Read.
+fn narrate_not_shown(out: &mut String, left_out: &[FileMention], not_shown: &[FileMention]) {
+    let files: Vec<&FileMention> = left_out.iter().chain(not_shown).collect();
+    if files.is_empty() {
+        return;
+    }
+    out.push_str(
+        "**Not shown above — call `graph_explore` with these paths or names for their source**\n\n",
+    );
+    for file in files.iter().take(MAX_NOT_SHOWN_FILES) {
+        let names: Vec<String> = file
+            .symbols
+            .iter()
+            .take(MAX_NAMES_PER_FILE)
+            .map(|s| format!("{}:{}", s.name, s.line))
+            .collect();
+        let _ = write!(out, "- {}: {}", file.file_path, names.join(", "));
+        if file.symbols.len() > MAX_NAMES_PER_FILE {
+            let _ = write!(out, ", +{} more", file.symbols.len() - MAX_NAMES_PER_FILE);
+        }
+        out.push('\n');
+    }
+    if files.len() > MAX_NOT_SHOWN_FILES {
         let _ = writeln!(
             out,
-            "Not shown, to keep this answer under the size limit: {}. Call `graph_explore` with \
-             those paths to see their source.",
-            left_out.join(", ")
+            "- …and {} more files",
+            files.len() - MAX_NOT_SHOWN_FILES
         );
     }
 }
@@ -606,10 +557,21 @@ fn file_block(file: &FileMatches<'_>, source: Option<&SourceFile>) -> String {
         .collect();
     let _ = writeln!(block, ") · {}\n", names.join(", "));
 
+    let language = fence_language(file.path);
     for excerpt in source.map(|s| s.excerpts.as_slice()).unwrap_or_default() {
-        let _ = writeln!(block, "```\n{}\n```\n", excerpt.code.trim_end());
+        let _ = writeln!(block, "```{language}\n{}\n```\n", excerpt.code.trim_end());
     }
     block
+}
+
+fn fence_language(path: &str) -> &'static str {
+    match path.rsplit('.').next() {
+        Some("ts" | "mts" | "cts") => "typescript",
+        Some("tsx") => "tsx",
+        Some("js" | "mjs" | "cjs" | "jsx") => "javascript",
+        Some("rs") => "rust",
+        _ => "",
+    }
 }
 
 fn is_whole_file(source: &SourceFile) -> bool {
@@ -626,7 +588,7 @@ fn truncate_block(block: &str, max_len: usize) -> String {
         cut.push_str(line);
         cut.push('\n');
         if let Some(n) = line
-            .split_once(": ")
+            .split_once('\t')
             .and_then(|(n, _)| n.parse::<usize>().ok())
         {
             last_line = Some(n);
@@ -638,7 +600,8 @@ fn truncate_block(block: &str, max_len: usize) -> String {
     if let Some(n) = last_line {
         let _ = writeln!(
             cut,
-            "\n…truncated after line {n}. Call `graph_explore` with a narrower query to see the rest."
+            "\n…truncated after line {n}. Call `graph_explore` with the names in this file for \
+             the rest; do not Read it."
         );
     }
     cut
