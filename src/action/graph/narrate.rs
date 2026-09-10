@@ -1,8 +1,8 @@
-//! Decision-oriented Markdown rendering of an [`ExploreResult`].
+//! Decision-oriented Markdown rendering of graph answers for MCP.
 //!
-//! Over MCP, a model reads `graph_explore` output to decide what to open next.
-//! The serialised struct spends its tokens on `file_id`, `scope: null`, and
-//! `end_col`; this rendering spends them on the callers a change would break.
+//! Over MCP, a model reads these answers to decide what to open next. The
+//! serialised structs spend their tokens on `file_id`, `scope: null`, and
+//! `end_col`; these renderings spend them on callers, source and consequences.
 //! In `benchmark2`, an agent given the raw JSON issued one `graph_explore` and
 //! went back to grep.
 //!
@@ -11,15 +11,27 @@
 
 use std::fmt::Write as _;
 
-use crate::domain::graph::{ExploreResult, Provenance};
-use crate::store::graph::db::{edge_kind_to_str, symbol_kind_to_str};
+use crate::action::graph::query::{CalleeInfo, CallerInfo, FileOutline, ImpactResult};
+use crate::domain::graph::{ExploreResult, Provenance, SourceFile, SymbolSnippet};
+use crate::store::graph::db::edge_kind_to_str;
 
 /// Callers listed per symbol before the rest are summarised as a count.
 const MAX_RELATIONS_PER_SYMBOL: usize = 6;
-/// Symbols rendered with their full source before the rest are summarised.
-const MAX_SNIPPETS: usize = 8;
 /// Transitive consumers listed before the rest are summarised as a count.
 const MAX_CONSUMERS: usize = 10;
+/// Entries a callers, callees or impact answer lists before counting the rest.
+const MAX_LIST_ITEMS: usize = 40;
+/// Hosts save a tool result longer than about 25K characters to a file the agent
+/// then has to Read, which costs more tokens than the answer saves.
+const MAX_OUTPUT_CHARS: usize = 24_000;
+/// Source keeps this much room even after long relation sections.
+const MIN_SOURCE_CHARS: usize = 8_000;
+
+struct FileMatches<'a> {
+    repo: &'a str,
+    path: &'a str,
+    symbols: Vec<&'a SymbolSnippet>,
+}
 
 /// Renders an exploration as Markdown that leads with consequences.
 ///
@@ -40,11 +52,7 @@ pub fn narrate_explore(res: &ExploreResult) -> String {
         return out;
     }
 
-    let files: std::collections::BTreeSet<&str> = res
-        .primary_symbols
-        .iter()
-        .map(|s| s.file_path.as_str())
-        .collect();
+    let files = files_in_rank_order(res);
     let _ = writeln!(
         out,
         "Found {} symbol{} across {} file{}.\n",
@@ -57,9 +65,197 @@ pub fn narrate_explore(res: &ExploreResult) -> String {
     narrate_blast_radius(&mut out, res);
     narrate_consumers(&mut out, res);
     narrate_flows(&mut out, res);
-    narrate_source(&mut out, res);
+    narrate_source(&mut out, res, &files);
 
     out
+}
+
+/// Renders the call sites of a symbol, one line each.
+pub fn narrate_callers(symbol: &str, callers: &[CallerInfo]) -> String {
+    let mut seen = std::collections::BTreeSet::new();
+    let unique: Vec<&CallerInfo> = callers
+        .iter()
+        .filter(|c| {
+            seen.insert((
+                c.caller.repo.as_str(),
+                c.caller_file_path.as_str(),
+                c.caller.name.as_str(),
+                c.line,
+            ))
+        })
+        .collect();
+
+    let mut out = String::new();
+    if unique.is_empty() {
+        let _ = writeln!(
+            out,
+            "No callers of `{symbol}` in the index. It may be unused, reached only through \
+             dynamic dispatch, or newer than the last `refresh_index`."
+        );
+        return out;
+    }
+
+    let several_repos = unique
+        .iter()
+        .map(|c| c.caller.repo.as_str())
+        .collect::<std::collections::BTreeSet<_>>()
+        .len()
+        > 1;
+    let _ = writeln!(out, "**Callers of `{symbol}`: {}**\n", unique.len());
+    for c in unique.iter().take(MAX_LIST_ITEMS) {
+        let _ = write!(
+            out,
+            "- `{}` in {}:{}",
+            c.caller.name, c.caller_file_path, c.line
+        );
+        if several_repos {
+            let _ = write!(out, " [repo `{}`]", c.caller.repo);
+        }
+        if !matches!(c.provenance, Provenance::Extracted) {
+            let _ = write!(
+                out,
+                " — {} ({:.2}), verify this line before relying on it",
+                provenance_word(c.provenance),
+                c.confidence,
+            );
+        }
+        out.push('\n');
+    }
+    push_remainder(&mut out, unique.len());
+    out
+}
+
+/// Renders the calls a symbol makes and where each one lands.
+pub fn narrate_callees(symbol: &str, callees: &[CalleeInfo]) -> String {
+    let mut out = String::new();
+    if callees.is_empty() {
+        let _ = writeln!(
+            out,
+            "`{symbol}` makes no calls the index recorded. If it was edited recently, call \
+             `refresh_index` first."
+        );
+        return out;
+    }
+
+    let _ = writeln!(out, "**Calls made by `{symbol}`: {}**\n", callees.len());
+    for c in callees.iter().take(MAX_LIST_ITEMS) {
+        let _ = write!(out, "- line {} → `{}`", c.line, c.callee_name);
+        match (&c.callee_symbol, &c.callee_file_path) {
+            (Some(target), Some(path)) => {
+                let _ = write!(out, " in {path}:{}", target.span.start_line);
+            }
+            _ => out.push_str(" (not in the index)"),
+        }
+        if !matches!(c.provenance, Provenance::Extracted) {
+            let _ = write!(
+                out,
+                " — {} ({:.2})",
+                provenance_word(c.provenance),
+                c.confidence
+            );
+        }
+        out.push('\n');
+    }
+    push_remainder(&mut out, callees.len());
+    out
+}
+
+/// Renders what a change to a symbol reaches, grouped by distance.
+pub fn narrate_impact(res: &ImpactResult) -> String {
+    let root = &res.root_symbol;
+    let mut out = String::new();
+    let _ = writeln!(
+        out,
+        "**Impact of `{}`: {} symbol{} in {} file{}**\n",
+        root.name,
+        res.total_affected,
+        plural(res.total_affected),
+        res.affected_files.len(),
+        plural(res.affected_files.len()),
+    );
+    if res.affected_symbols.is_empty() {
+        let _ = writeln!(out, "Nothing in the index depends on `{}`.", root.name);
+        return out;
+    }
+
+    let mut items: Vec<_> = res.affected_symbols.iter().collect();
+    items.sort_by_key(|item| item.depth);
+    let mut depth = 0;
+    for item in items.iter().take(MAX_LIST_ITEMS) {
+        if item.depth != depth {
+            depth = item.depth;
+            let _ = writeln!(out, "Depth {depth}");
+        }
+        let _ = write!(
+            out,
+            "- `{}` {}:{}",
+            item.symbol.name, item.file_path, item.symbol.span.start_line
+        );
+        if item.path_via.len() > 2 {
+            let _ = write!(out, " via {}", item.path_via.join(" -> "));
+        }
+        out.push('\n');
+    }
+    push_remainder(&mut out, items.len());
+    out
+}
+
+/// Renders the symbols and imports declared in one file.
+pub fn narrate_outline(outline: &FileOutline) -> String {
+    let mut out = String::new();
+    let _ = writeln!(
+        out,
+        "**Outline of `{}` ({})**: {} symbol{}, {} import{}\n",
+        outline.file_path,
+        outline.repo,
+        outline.symbols.len(),
+        plural(outline.symbols.len()),
+        outline.imports.len(),
+        plural(outline.imports.len()),
+    );
+    for symbol in &outline.symbols {
+        let _ = write!(
+            out,
+            "- `{}` {} {}-{}",
+            symbol.name,
+            symbol.kind.as_str(),
+            symbol.span.start_line,
+            symbol.span.end_line
+        );
+        if symbol.is_exported {
+            out.push_str(" [exported]");
+        }
+        out.push('\n');
+    }
+    let imports: Vec<String> = outline
+        .imports
+        .iter()
+        .filter_map(|edge| edge.to_name.as_deref())
+        .map(|name| format!("`{name}`"))
+        .collect();
+    if !imports.is_empty() {
+        let _ = writeln!(out, "\nImports: {}", imports.join(", "));
+    }
+    out
+}
+
+/// Groups matched symbols by file in the order explore ranked them.
+fn files_in_rank_order(res: &ExploreResult) -> Vec<FileMatches<'_>> {
+    let mut files: Vec<FileMatches<'_>> = Vec::new();
+    for snippet in &res.primary_symbols {
+        match files
+            .iter_mut()
+            .find(|f| f.repo == snippet.symbol.repo && f.path == snippet.file_path)
+        {
+            Some(file) => file.symbols.push(snippet),
+            None => files.push(FileMatches {
+                repo: &snippet.symbol.repo,
+                path: &snippet.file_path,
+                symbols: vec![snippet],
+            }),
+        }
+    }
+    files
 }
 
 /// Lists the incoming callers of each symbol.
@@ -71,7 +267,12 @@ pub fn narrate_explore(res: &ExploreResult) -> String {
 /// callers three times and imply a certainty the index does not hold, so the
 /// candidate definitions are listed together and the ambiguity is stated.
 fn narrate_blast_radius(out: &mut String, res: &ExploreResult) {
-    if res.direct_relations.is_empty() {
+    let has_callers = res.primary_symbols.iter().any(|snippet| {
+        res.direct_relations
+            .iter()
+            .any(|r| r.target.symbol_name == snippet.symbol.name)
+    });
+    if !has_callers {
         return;
     }
 
@@ -103,7 +304,7 @@ fn narrate_blast_radius(out: &mut String, res: &ExploreResult) {
             continue;
         }
 
-        let definitions: Vec<&crate::domain::graph::SymbolSnippet> = res
+        let definitions: Vec<&SymbolSnippet> = res
             .primary_symbols
             .iter()
             .filter(|s| s.symbol.name == name)
@@ -231,54 +432,145 @@ fn narrate_flows(out: &mut String, res: &ExploreResult) {
         out.push('\n');
     }
 
-    if res.call_flows.is_empty() {
+    let leaves_index: std::collections::BTreeSet<(&str, &str)> = res
+        .direct_relations
+        .iter()
+        .filter(|r| {
+            matches!(
+                r.direction,
+                crate::domain::graph::RelationDirection::Outgoing
+            ) && r.target.file_path.is_empty()
+        })
+        .map(|r| (r.source.symbol_name.as_str(), r.target.symbol_name.as_str()))
+        .collect();
+    let flows: Vec<_> = res
+        .call_flows
+        .iter()
+        .filter(|f| !leaves_index.contains(&(f.caller.as_str(), f.callee.as_str())))
+        .collect();
+    if flows.is_empty() {
         return;
     }
     out.push_str("**Call flows**\n\n");
-    for f in res.call_flows.iter().take(MAX_CONSUMERS) {
+    for f in flows.iter().take(MAX_CONSUMERS) {
         let _ = writeln!(out, "- `{}` -> `{}`", f.caller, f.callee);
     }
     out.push('\n');
 }
 
-/// Emits verbatim source last, with real line numbers for citation.
-fn narrate_source(out: &mut String, res: &ExploreResult) {
+/// Emits verbatim source last, one block per file, within the output budget.
+fn narrate_source(out: &mut String, res: &ExploreResult, files: &[FileMatches<'_>]) {
     out.push_str("**Source**\n\n");
     out.push_str("> Verbatim from disk — current as of this read. The content below is already read and equal to a Read on this file; do not re-read the same file. Line numbers are real — cite them directly.\n\n");
 
-    for snippet in res.primary_symbols.iter().take(MAX_SNIPPETS) {
-        let sym = &snippet.symbol;
-        let _ = write!(
-            out,
-            "`{}` — {} in `{}` ({}:{}-{})",
-            sym.name,
-            symbol_kind_to_str(&sym.kind),
-            snippet.file_path,
-            sym.repo,
-            snippet.start_line,
-            snippet.end_line,
-        );
-        if sym.is_exported {
-            out.push_str(" [exported]");
+    let limit = MAX_OUTPUT_CHARS.max(out.len() + MIN_SOURCE_CHARS);
+    let mut emitted = false;
+    let mut left_out = Vec::new();
+    for file in files {
+        let source = res
+            .sources
+            .iter()
+            .find(|s| s.repo == file.repo && s.file_path == file.path);
+        let block = file_block(file, source);
+        if out.len() + block.len() <= limit {
+            out.push_str(&block);
+            emitted = true;
+        } else if !emitted {
+            out.push_str(&truncate_block(
+                &block,
+                limit.saturating_sub(out.len() + 160),
+            ));
+            emitted = true;
+        } else {
+            left_out.push(format!("`{}`", file.path));
         }
-        out.push_str("\n\n");
-
-        if let Some(doc) = &sym.docstring
-            && !doc.trim().is_empty()
-        {
-            let _ = writeln!(out, "{}\n", doc.trim());
-        }
-
-        let _ = writeln!(out, "```\n{}\n```\n", snippet.code.trim_end());
     }
 
-    if res.primary_symbols.len() > MAX_SNIPPETS {
-        let rest = res.primary_symbols.len() - MAX_SNIPPETS;
+    if !left_out.is_empty() {
         let _ = writeln!(
             out,
-            "…and {rest} more match{} not shown. Narrow the query, or pass `repo` to scope it.",
-            if rest == 1 { "" } else { "es" },
+            "Not shown, to keep this answer under the size limit: {}. Call `graph_explore` with \
+             those paths to see their source.",
+            left_out.join(", ")
         );
+    }
+}
+
+fn file_block(file: &FileMatches<'_>, source: Option<&SourceFile>) -> String {
+    let mut block = String::new();
+    let _ = write!(block, "`{}` ({}", file.path, file.repo);
+    match source {
+        Some(source) if is_whole_file(source) => {
+            let _ = write!(
+                block,
+                " · whole file, {} line{}",
+                source.line_count,
+                plural(source.line_count)
+            );
+        }
+        Some(source) => {
+            let ranges: Vec<String> = source
+                .excerpts
+                .iter()
+                .map(|e| format!("{}-{}", e.start_line, e.end_line))
+                .collect();
+            let _ = write!(
+                block,
+                " · lines {} of {}",
+                ranges.join(", "),
+                source.line_count
+            );
+        }
+        None => block.push_str(" · source unavailable"),
+    }
+    let names: Vec<String> = file
+        .symbols
+        .iter()
+        .map(|s| format!("`{}` {}", s.symbol.name, s.symbol.span.start_line))
+        .collect();
+    let _ = writeln!(block, ") · {}\n", names.join(", "));
+
+    for excerpt in source.map(|s| s.excerpts.as_slice()).unwrap_or_default() {
+        let _ = writeln!(block, "```\n{}\n```\n", excerpt.code.trim_end());
+    }
+    block
+}
+
+fn is_whole_file(source: &SourceFile) -> bool {
+    matches!(source.excerpts.as_slice(), [only] if only.start_line == 1 && only.end_line == source.line_count)
+}
+
+fn truncate_block(block: &str, max_len: usize) -> String {
+    let mut cut = String::new();
+    let mut last_line = None;
+    for line in block.lines() {
+        if cut.len() + line.len() + 1 > max_len {
+            break;
+        }
+        cut.push_str(line);
+        cut.push('\n');
+        if let Some(n) = line
+            .split_once(": ")
+            .and_then(|(n, _)| n.parse::<usize>().ok())
+        {
+            last_line = Some(n);
+        }
+    }
+    if cut.matches("```").count() % 2 == 1 {
+        cut.push_str("```\n");
+    }
+    if let Some(n) = last_line {
+        let _ = writeln!(
+            cut,
+            "\n…truncated after line {n}. Call `graph_explore` with a narrower query to see the rest."
+        );
+    }
+    cut
+}
+
+fn push_remainder(out: &mut String, total: usize) {
+    if total > MAX_LIST_ITEMS {
+        let _ = writeln!(out, "- …and {} more", total - MAX_LIST_ITEMS);
     }
 }
 

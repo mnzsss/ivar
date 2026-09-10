@@ -436,3 +436,35 @@ fn test_explore_find_candidates_weighted_scoring_and_terms() {
     assert!(names.contains(&"authenticate_with_token"));
     assert!(names.contains(&"validate_session"));
 }
+
+#[test]
+fn test_explore_find_candidates_admits_every_pinned_file() {
+    let db = GraphDb::open_in_memory().expect("open in-memory db");
+    db.insert_repo("api", "/workspace/api", "main", None)
+        .expect("insert repo");
+
+    let mut paths = Vec::new();
+    for f in 0..7 {
+        let path = format!("src/routes/r{f}.ts");
+        let file_id = db
+            .upsert_file("api", &path, "h", 10, 100)
+            .expect("upsert file");
+        let symbols: Vec<Symbol> = (1..=8)
+            .map(|i| function_symbol(file_id, "api", &format!("r{f}_handler{i}"), i * 10))
+            .collect();
+        db.insert_symbols(&symbols).expect("insert symbols");
+        paths.push(path);
+    }
+
+    let candidates =
+        find::explore_find_candidates(&db, &paths.join(" "), None).expect("search candidates");
+
+    let files: std::collections::BTreeSet<&str> =
+        candidates.iter().map(|c| c.file_path.as_str()).collect();
+    assert_eq!(
+        files.len(),
+        7,
+        "every file the query names must be represented"
+    );
+    assert!(candidates.len() <= find::MAX_EXPLORE_CANDIDATES);
+}

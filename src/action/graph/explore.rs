@@ -9,9 +9,14 @@ use std::path::{Path, PathBuf};
 use crate::action::graph::query::{self, QueryError};
 use crate::domain::graph::{
     CallFlowItem, ExploreImpact, ExploreResult, OperationalRelation, RelationDirection,
-    RelationEndpoint, SymbolSnippet,
+    RelationEndpoint, SourceExcerpt, SourceFile, SymbolSnippet,
 };
 use crate::store::graph::db::GraphDb;
+
+/// Files up to this many lines are returned whole: an agent shown a slice of a
+/// small file reads the whole file anyway, which costs more than sending it once.
+const WHOLE_FILE_MAX_LINES: usize = 250;
+const EXCERPT_MERGE_GAP: usize = 8;
 
 /// Errors that can occur during explore synthesis.
 #[derive(Debug, thiserror::Error)]
@@ -25,6 +30,13 @@ pub enum ExploreError {
         path: PathBuf,
         source: std::io::Error,
     },
+}
+
+struct FileSpans {
+    repo: String,
+    file_path: String,
+    absolute_path: PathBuf,
+    spans: Vec<(usize, usize)>,
 }
 
 /// Explores the codebase graph for a given query string, returning matched symbols with
@@ -45,6 +57,7 @@ pub fn explore(
             direct_relations: Vec::new(),
             entry_points: Vec::new(),
             transitive_consumers: Vec::new(),
+            sources: Vec::new(),
         });
     }
 
@@ -61,12 +74,14 @@ pub fn explore(
             direct_relations: Vec::new(),
             entry_points: Vec::new(),
             transitive_consumers: Vec::new(),
+            sources: Vec::new(),
         });
     }
 
     // Step 2: Fetch source snippets surgically
     let mut file_cache: HashMap<PathBuf, Vec<String>> = HashMap::new();
     let mut primary_symbols = Vec::new();
+    let mut file_spans: Vec<FileSpans> = Vec::new();
 
     for candidate in &candidates {
         let repo_root = if let Some(repo_row) = db.get_repo(&candidate.symbol.repo)? {
@@ -87,6 +102,19 @@ pub fn explore(
             }
         };
 
+        match file_spans
+            .iter_mut()
+            .find(|f| f.repo == candidate.symbol.repo && f.file_path == candidate.file_path)
+        {
+            Some(entry) => entry.spans.push((start_line, end_line)),
+            None => file_spans.push(FileSpans {
+                repo: candidate.symbol.repo.clone(),
+                file_path: candidate.file_path.clone(),
+                absolute_path: file_path.clone(),
+                spans: vec![(start_line, end_line)],
+            }),
+        }
+
         primary_symbols.push(SymbolSnippet {
             symbol: candidate.symbol.clone(),
             file_path: candidate.file_path.clone(),
@@ -95,6 +123,8 @@ pub fn explore(
             end_line,
         });
     }
+
+    let sources = collect_sources(&file_cache, file_spans);
 
     // Step 3: Immediate call flows & operational relations (for primary symbols)
     let mut call_flows = Vec::new();
@@ -320,7 +350,55 @@ pub fn explore(
         direct_relations,
         entry_points,
         transitive_consumers,
+        sources,
     })
+}
+
+fn collect_sources(
+    cache: &HashMap<PathBuf, Vec<String>>,
+    files: Vec<FileSpans>,
+) -> Vec<SourceFile> {
+    files
+        .into_iter()
+        .filter_map(|file| {
+            let lines = cache
+                .get(&file.absolute_path)
+                .filter(|lines| !lines.is_empty())?;
+            let ranges = if lines.len() <= WHOLE_FILE_MAX_LINES {
+                vec![(1, lines.len())]
+            } else {
+                merge_spans(file.spans)
+            };
+            let excerpts = ranges
+                .into_iter()
+                .map(|(start, end)| (start.max(1), end.min(lines.len())))
+                .filter(|(start, end)| start <= end)
+                .map(|(start, end)| SourceExcerpt {
+                    start_line: start,
+                    end_line: end,
+                    code: number_lines(lines, start, end),
+                })
+                .collect();
+            Some(SourceFile {
+                repo: file.repo,
+                file_path: file.file_path,
+                line_count: lines.len(),
+                excerpts,
+            })
+        })
+        .collect()
+}
+
+fn merge_spans(mut spans: Vec<(usize, usize)>) -> Vec<(usize, usize)> {
+    spans.sort_unstable();
+    let mut merged: Vec<(usize, usize)> = Vec::with_capacity(spans.len());
+    for (start, end) in spans {
+        match merged.last_mut() {
+            Some(last) if start <= last.1 + EXCERPT_MERGE_GAP + 1 => last.1 = last.1.max(end),
+            _ => merged.push((start, end)),
+        }
+    }
+    merged
 }
 
 /// Reads source lines `[start_line, end_line]` (1-indexed, inclusive) and formats with line numbers.
@@ -347,25 +425,20 @@ fn get_source_snippet(
         }
     };
 
-    if lines.is_empty() {
-        return Ok(String::new());
-    }
+    Ok(number_lines(lines, start_line, end_line))
+}
 
-    let actual_start = if start_line == 0 { 1 } else { start_line };
-    let actual_end = if end_line < actual_start {
-        actual_start
-    } else {
-        end_line
-    };
-
-    let mut snippet = Vec::new();
-    for line_idx in actual_start..=actual_end {
-        if let Some(line_content) = line_idx.checked_sub(1).and_then(|idx| lines.get(idx)) {
-            snippet.push(format!("{line_idx}: {line_content}"));
-        }
-    }
-
-    Ok(snippet.join("\n"))
+fn number_lines(lines: &[String], start_line: usize, end_line: usize) -> String {
+    let start = start_line.max(1);
+    let end = end_line.max(start);
+    (start..=end)
+        .filter_map(|n| {
+            n.checked_sub(1)
+                .and_then(|idx| lines.get(idx))
+                .map(|line| format!("{n}: {line}"))
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 #[cfg(test)]

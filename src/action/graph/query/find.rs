@@ -524,11 +524,10 @@ pub fn explore_find_candidates(
             .then_with(|| a.path.cmp(&b.path))
     });
 
-    let single_file_match = ranked_files.len() == 1;
-    let max_per_file = if single_file_match {
-        MAX_EXPLORE_CANDIDATES
-    } else {
-        MAX_SYMBOLS_PER_FILE
+    // Split the budget across files so every file the query names keeps a slot.
+    let max_per_file = match ranked_files.len() {
+        1 => MAX_EXPLORE_CANDIDATES,
+        files => (MAX_EXPLORE_CANDIDATES / files).clamp(1, MAX_SYMBOLS_PER_FILE),
     };
 
     // Step 4: Collect symbols respecting per-file caps and preserve source line order.

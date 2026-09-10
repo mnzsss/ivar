@@ -258,6 +258,7 @@ fn test_encode_explore() {
         }],
         call_flows: vec![],
         impact_summary: None,
+        sources: vec![],
         direct_relations: vec![crate::domain::graph::OperationalRelation {
             source: crate::domain::graph::RelationEndpoint {
                 repo: "ivar".into(),
