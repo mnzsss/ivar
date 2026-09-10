@@ -5,6 +5,7 @@
 
 pub mod dispatch;
 pub mod tools;
+pub mod workspace;
 
 use std::io::{self, BufRead, Write};
 use std::path::Path;

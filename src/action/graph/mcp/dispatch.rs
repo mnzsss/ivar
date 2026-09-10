@@ -4,6 +4,7 @@ use std::path::Path;
 
 use serde_json::Value;
 
+use super::workspace::WorkspacePaths;
 use crate::action::graph::query::QueryError;
 use crate::action::graph::query::find::resolve_query_paths;
 use crate::action::graph::{
@@ -39,14 +40,17 @@ where
 
             let root = hall_root
                 .ok_or_else(|| "Hall root is required for explore snippet reading".to_owned())?;
-            let res =
+            let mut res =
                 explore::explore(db, root, q, repo).map_err(|e| format!("explore failed: {e}"))?;
             // A model reads this over MCP to pick its next file, so Markdown is the
             // default; see `narrate`.
             match args.get("format").and_then(Value::as_str) {
                 Some("compact") => Ok(compact::encode_explore(&res)),
                 Some("json") => serde_json::to_string_pretty(&res).map_err(|e| e.to_string()),
-                _ => Ok(narrate::narrate_explore(&res)),
+                _ => {
+                    WorkspacePaths::from_current_dir().rewrite_explore(db, &mut res);
+                    Ok(narrate::narrate_explore(&res))
+                }
             }
         }
 
@@ -70,13 +74,20 @@ where
                 Some("compact") => Ok(compact::encode_callers(&callers)),
                 Some("json") => serde_json::to_string_pretty(&callers).map_err(|e| e.to_string()),
                 _ => {
-                    let definitions: Vec<_> = query::find_symbols(db, sym, repo, 5)
+                    let mut definitions: Vec<_> = query::find_symbols(db, sym, repo, 5)
                         .map_err(|e| format!("get_callers failed: {e}"))?
                         .into_iter()
                         .filter(|found| found.symbol.name == sym)
                         .collect();
-                    let references = query::get_references(db, sym, repo)
+                    let mut references = query::get_references(db, sym, repo)
                         .map_err(|e| format!("get_callers failed: {e}"))?;
+                    let mut callers = callers;
+                    WorkspacePaths::from_current_dir().rewrite_callers(
+                        db,
+                        &mut definitions,
+                        &mut callers,
+                        &mut references,
+                    );
                     Ok(narrate::narrate_callers(
                         sym,
                         &definitions,
@@ -107,7 +118,11 @@ where
             match args.get("format").and_then(Value::as_str) {
                 Some("compact") => Ok(compact::encode_callees(&callees)),
                 Some("json") => serde_json::to_string_pretty(&callees).map_err(|e| e.to_string()),
-                _ => Ok(narrate::narrate_callees(&symbol_label, &callees)),
+                _ => {
+                    let mut callees = callees;
+                    WorkspacePaths::from_current_dir().rewrite_callees(db, &mut callees);
+                    Ok(narrate::narrate_callees(&symbol_label, &callees))
+                }
             }
         }
 
@@ -140,6 +155,8 @@ where
             if args.get("format").and_then(Value::as_str) == Some("json") {
                 serde_json::to_string_pretty(&outline).map_err(|e| e.to_string())
             } else {
+                let mut outline = outline;
+                WorkspacePaths::from_current_dir().rewrite_outline(db, &mut outline);
                 Ok(narrate::narrate_outline(&outline))
             }
         }
@@ -207,7 +224,11 @@ where
             match args.get("format").and_then(Value::as_str) {
                 Some("compact") => Ok(compact::encode_impact(&impact)),
                 Some("json") => serde_json::to_string_pretty(&impact).map_err(|e| e.to_string()),
-                _ => Ok(narrate::narrate_impact(&impact)),
+                _ => {
+                    let mut impact = impact;
+                    WorkspacePaths::from_current_dir().rewrite_impact(db, &mut impact);
+                    Ok(narrate::narrate_impact(&impact))
+                }
             }
         }
 
