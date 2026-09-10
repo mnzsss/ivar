@@ -468,3 +468,41 @@ fn test_explore_find_candidates_admits_every_pinned_file() {
     );
     assert!(candidates.len() <= find::MAX_EXPLORE_CANDIDATES);
 }
+
+#[test]
+fn test_explore_find_candidates_prefers_a_matching_directory_over_prefix_decoys() {
+    let db = GraphDb::open_in_memory().expect("open in-memory db");
+    db.insert_repo("api", "/workspace/api", "main", None)
+        .expect("insert repo");
+
+    let files: [(&str, &[&str]); 3] = [
+        (
+            "src/auth/sessions.ts",
+            &["createSession", "getSession", "destroySession"],
+        ),
+        ("src/auth/credentials.ts", &["verifyCredentials"]),
+        ("src/lib/noise.ts", &["authorizePayment", "formatBytes"]),
+    ];
+    for (path, names) in files {
+        let file_id = db
+            .upsert_file("api", path, "h", 10, 100)
+            .expect("upsert file");
+        let symbols: Vec<Symbol> = names
+            .iter()
+            .enumerate()
+            .map(|(i, name)| function_symbol(file_id, "api", name, (i + 1) * 10))
+            .collect();
+        db.insert_symbols(&symbols).expect("insert symbols");
+    }
+
+    let candidates = find::explore_find_candidates(&db, "auth", None).expect("search candidates");
+
+    let found: std::collections::BTreeSet<&str> =
+        candidates.iter().map(|c| c.file_path.as_str()).collect();
+    assert!(found.contains("src/auth/sessions.ts"), "got {found:?}");
+    assert!(found.contains("src/auth/credentials.ts"), "got {found:?}");
+    assert!(
+        !found.contains("src/lib/noise.ts"),
+        "a name that only starts with the term does not match it: {found:?}"
+    );
+}
