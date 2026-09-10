@@ -101,9 +101,10 @@ where
             let repo = args.get("repo").and_then(Value::as_str);
 
             let (repo, path) = match (locate_file(db, file, repo)?, repo) {
-                (Some(target), _) => target,
-                (None, Some(repo)) => (repo.to_owned(), file.to_owned()),
-                (None, None) => return Ok(unknown_file(file)),
+                (FileTarget::One(repo, path), _) => (repo, path),
+                (FileTarget::Several(paths), _) => return Ok(several_files(file, &paths)),
+                (FileTarget::Unknown, Some(repo)) => (repo.to_owned(), file.to_owned()),
+                (FileTarget::Unknown, None) => return Ok(unknown_file(file)),
             };
             let outline = match query::get_file_outline(db, &repo, &path) {
                 Ok(outline) => outline,
@@ -245,21 +246,58 @@ where
     }
 }
 
+enum FileTarget {
+    One(String, String),
+    Several(Vec<String>),
+    Unknown,
+}
+
 /// Maps a file argument to the `(repo, path)` pair the index stores. Agents pass
-/// the path they see in the workspace, which rarely matches the repo-relative one.
-fn locate_file(
-    db: &GraphDb,
-    file: &str,
-    repo: Option<&str>,
-) -> Result<Option<(String, String)>, String> {
+/// the path they see in the workspace, which rarely matches the repo-relative one,
+/// and sometimes a directory.
+fn locate_file(db: &GraphDb, file: &str, repo: Option<&str>) -> Result<FileTarget, String> {
     let parsed =
         resolve_query_paths(db, file, repo).map_err(|e| format!("get_file_outline failed: {e}"))?;
-    Ok(parsed
+    if let Some((_, repo, path)) = parsed
         .resolved_paths
         .iter()
         .find(|resolved| resolved.is_pinned())
         .and_then(|resolved| resolved.files().into_iter().next())
-        .map(|(_, repo, path)| (repo, path)))
+    {
+        return Ok(FileTarget::One(repo, path));
+    }
+    let paths: Vec<String> = parsed
+        .resolved_paths
+        .iter()
+        .flat_map(|resolved| resolved.files())
+        .map(|(_, _, path)| path)
+        .collect();
+    Ok(if paths.is_empty() {
+        FileTarget::Unknown
+    } else {
+        FileTarget::Several(paths)
+    })
+}
+
+fn several_files(file: &str, paths: &[String]) -> String {
+    let names: Vec<String> = paths
+        .iter()
+        .take(20)
+        .map(|path| format!("`{path}`"))
+        .collect();
+    let more = paths.len() - names.len();
+    format!(
+        "`{file}` matches {} indexed file{}: {}{}. Call `graph_explore` with `{file}` to get \
+         their source in one answer, or `get_file_outline` with one of them.",
+        paths.len(),
+        if paths.len() == 1 { "" } else { "s" },
+        names.join(", "),
+        if more > 0 {
+            format!(" and {more} more")
+        } else {
+            String::new()
+        },
+    )
 }
 
 // Misses answer as normal text: an `isError` early in a session teaches the

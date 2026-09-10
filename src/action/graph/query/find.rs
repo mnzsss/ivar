@@ -428,7 +428,7 @@ pub fn explore_find_candidates(
             }
         }
 
-        // Path tier: the term names a directory or file in the symbol's path (+60.0)
+        // Path tier: the term, or its plural, names a directory or file in the symbol's path (+60.0)
         {
             let mut stmt = conn.prepare_cached(
                 "SELECT s.id, s.file_id, s.repo, s.name, s.kind, s.scope, s.signature, s.docstring,
@@ -436,7 +436,9 @@ pub fn explore_find_candidates(
                  FROM symbols s
                  JOIN files f ON s.file_id = f.id
                  WHERE (instr('/' || lower(f.path), '/' || lower(?1) || '/') > 0
-                        OR instr('/' || lower(f.path), '/' || lower(?1) || '.') > 0)
+                        OR instr('/' || lower(f.path), '/' || lower(?1) || '.') > 0
+                        OR instr('/' || lower(f.path), '/' || lower(?1) || 's/') > 0
+                        OR instr('/' || lower(f.path), '/' || lower(?1) || 's.') > 0)
                    AND (?2 IS NULL OR s.repo = ?2)
                  LIMIT 200",
             )?;

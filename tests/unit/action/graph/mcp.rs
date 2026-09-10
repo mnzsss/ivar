@@ -871,3 +871,19 @@ fn test_mcp_format_guidance_and_compact_no_source() {
         "compact must not contain verbatim source lines"
     );
 }
+
+#[test]
+fn a_directory_given_to_the_outline_lists_its_files_and_points_to_explore() {
+    let (db, temp) = setup_test_mcp_db();
+
+    let (text, is_error) = call_tool(
+        &db,
+        temp.path(),
+        "get_file_outline",
+        json!({"path": "src/"}),
+    );
+
+    assert!(!is_error, "got: {text}");
+    assert!(text.contains("`src/main.rs`"), "got: {text}");
+    assert!(text.contains("graph_explore"), "got: {text}");
+}
