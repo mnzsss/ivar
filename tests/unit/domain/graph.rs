@@ -114,6 +114,7 @@ fn test_graph_stats_json_roundtrip() {
 fn test_explore_result_json_roundtrip() {
     let explore = ExploreResult {
         query: "Symbol".to_owned(),
+        flows: Vec::new(),
         primary_symbols: vec![SymbolSnippet {
             symbol: Symbol {
                 id: Some(1),

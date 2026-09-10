@@ -594,3 +594,55 @@ fn a_large_file_changed_since_the_index_is_returned_whole_and_flagged() {
         .collect();
     assert_eq!(ranges, vec![(1, 401)]);
 }
+
+#[test]
+fn symbols_named_together_come_with_the_call_path_between_them() {
+    let content: String = (1..=30).map(|n| format!("// line {n}\n")).collect();
+    let (db, temp) = index_single_file(
+        &content,
+        "src/flow.ts",
+        &[
+            ("handleLogin", 1, 5),
+            ("createSession", 10, 15),
+            ("saveSession", 20, 25),
+        ],
+    );
+    let file_id = db
+        .get_file("api", "src/flow.ts")
+        .expect("get file")
+        .expect("file row")
+        .id;
+    let id = |name: &str| {
+        crate::action::graph::query::find_symbols(&db, name, None, 1).expect("find symbol")[0]
+            .symbol
+            .id
+            .expect("symbol id")
+    };
+    let call = |from: &str, to: &str, line| crate::domain::graph::Edge {
+        id: None,
+        repo: "api".to_owned(),
+        file_id: Some(file_id),
+        from_symbol_id: Some(id(from)),
+        to_symbol_id: Some(id(to)),
+        to_name: Some(to.to_owned()),
+        kind: EdgeKind::Calls,
+        provenance: Provenance::Extracted,
+        line,
+        col: 3,
+        confidence: 1.0,
+    };
+    db.insert_edges(&[
+        call("handleLogin", "createSession", 3),
+        call("createSession", "saveSession", 12),
+    ])
+    .expect("insert edges");
+
+    let res = explore(&db, temp.path(), "handleLogin saveSession", None).expect("explore");
+
+    let hops: Vec<Vec<&str>> = res
+        .flows
+        .iter()
+        .map(|flow| flow.steps.iter().map(|step| step.target.as_str()).collect())
+        .collect();
+    assert_eq!(hops, vec![vec!["createSession", "saveSession"]]);
+}
