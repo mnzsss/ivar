@@ -30,8 +30,7 @@ pub fn list_tools() -> Value {
                     "cross_repo": { "type": "boolean", "description": "Whether to search cross-repository edges" },
                     "min_confidence": { "type": "number", "description": "Minimum edge confidence score (0.0 - 1.0)" },
                     "format": { "type": "string", "enum": ["markdown", "json", "compact"], "description": "Output format: 'markdown' (default, one line per call site), 'json' for raw struct, or 'compact' (pipe-delimited)" }
-                },
-                "required": ["symbol"]
+                }
             }
         },
         {
@@ -156,8 +155,7 @@ pub fn list_tools() -> Value {
                     "symbol": { "type": "string", "description": "Symbol name to query hierarchy for" },
                     "repo": { "type": "string", "description": "Optional repository filter" },
                     "format": { "type": "string", "enum": ["json", "compact"], "description": "Output format: 'json' (default) or 'compact' (token-efficient pipe-delimited)" }
-                },
-                "required": ["symbol"]
+                }
             }
         }
     ])
