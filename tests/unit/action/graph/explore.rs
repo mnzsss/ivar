@@ -135,10 +135,10 @@ pub fn caller_func() {
     assert!(
         snippet
             .code
-            .contains("2: pub fn init_hall(config: Config) -> Result<Hall> {")
+            .contains("2\tpub fn init_hall(config: Config) -> Result<Hall> {")
     );
-    assert!(snippet.code.contains("4:     setup_logging(&hall);"));
-    assert!(snippet.code.contains("6: }"));
+    assert!(snippet.code.contains("4\t    setup_logging(&hall);"));
+    assert!(snippet.code.contains("6\t}"));
 
     // Call flows check
     assert_eq!(result.call_flows.len(), 2);
@@ -540,7 +540,7 @@ fn a_small_file_is_returned_whole_once_even_with_several_matches() {
     assert!(
         source.excerpts[0]
             .code
-            .starts_with("1: import { db } from './db';"),
+            .starts_with("1\timport { db } from './db';"),
         "lines outside every symbol belong to the file too"
     );
 }
@@ -565,7 +565,7 @@ fn a_large_file_is_returned_as_merged_excerpts_around_the_matches() {
         .map(|e| (e.start_line, e.end_line))
         .collect();
     assert_eq!(ranges, vec![(10, 20), (300, 305)]);
-    assert!(source.excerpts[0].code.contains("15: // line 15"));
+    assert!(source.excerpts[0].code.contains("15\t// line 15"));
     assert!(!source.changed_since_index);
 }
 

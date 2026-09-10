@@ -70,12 +70,15 @@ pub fn explore(
             transitive_consumers: Vec::new(),
             sources: Vec::new(),
             flows: Vec::new(),
+            not_shown: Vec::new(),
         });
     }
 
     // Step 1: Match query against symbols via structured exploration retrieval pipeline
     // (path pinning, weighted OR terms, per-file limits).
-    let candidates = query::find::explore_find_candidates(db, trimmed_query, repo)?;
+    let found = query::find::explore_find(db, trimmed_query, repo, max_source_files(db)?)?;
+    let candidates = found.symbols;
+    let not_shown = found.not_shown;
 
     if candidates.is_empty() {
         return Ok(ExploreResult {
@@ -88,6 +91,7 @@ pub fn explore(
             transitive_consumers: Vec::new(),
             sources: Vec::new(),
             flows: Vec::new(),
+            not_shown: Vec::new(),
         });
     }
 
@@ -366,6 +370,22 @@ pub fn explore(
         transitive_consumers,
         sources,
         flows,
+        not_shown,
+    })
+}
+
+/// Files an answer shows source for; the rest are named for the next call.
+/// CodeGraph sends 4 files on repositories under 150 files and 5 under 500, and
+/// with it agents stopped reading files.
+fn max_source_files(db: &GraphDb) -> Result<usize, ExploreError> {
+    let files: i64 = db
+        .conn()
+        .query_row("SELECT count(*) FROM files", [], |row| row.get(0))
+        .map_err(QueryError::from)?;
+    Ok(match files {
+        ..150 => 4,
+        150..500 => 5,
+        _ => 6,
     })
 }
 
@@ -494,7 +514,7 @@ fn number_lines(lines: &[String], start_line: usize, end_line: usize) -> String 
         .filter_map(|n| {
             n.checked_sub(1)
                 .and_then(|idx| lines.get(idx))
-                .map(|line| format!("{n}: {line}"))
+                .map(|line| format!("{n}\t{line}"))
         })
         .collect::<Vec<_>>()
         .join("\n")

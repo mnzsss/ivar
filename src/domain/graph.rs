@@ -343,6 +343,22 @@ pub struct SourceExcerpt {
     pub code: String,
 }
 
+/// A file that matched an exploration but got no source in the answer, named
+/// with the symbols an agent can explore next.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct FileMention {
+    pub repo: String,
+    pub file_path: String,
+    pub symbols: Vec<MentionedSymbol>,
+}
+
+/// A symbol named in a [`FileMention`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct MentionedSymbol {
+    pub name: String,
+    pub line: usize,
+}
+
 /// Result of an exploration query across the graph.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct ExploreResult {
@@ -360,6 +376,8 @@ pub struct ExploreResult {
     pub sources: Vec<SourceFile>,
     #[serde(default)]
     pub flows: Vec<PathResult>,
+    #[serde(default)]
+    pub not_shown: Vec<FileMention>,
 }
 /// A causal step linking a changed dependency or symbol to an affected test.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]

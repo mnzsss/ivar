@@ -7,9 +7,9 @@ use crate::action::graph::query::{
     CalleeInfo, CallerInfo, FileOutline, ImpactItem, ImpactResult, ReferenceSite, SymbolLocation,
 };
 use crate::domain::graph::{
-    Edge, EdgeKind, ExploreImpact, OperationalRelation, PathResult, PathStep, Provenance,
-    RelationDirection, RelationEndpoint, SourceExcerpt, SourceFile, Span, Symbol, SymbolKind,
-    SymbolSnippet,
+    Edge, EdgeKind, ExploreImpact, FileMention, MentionedSymbol, OperationalRelation, PathResult,
+    PathStep, Provenance, RelationDirection, RelationEndpoint, SourceExcerpt, SourceFile, Span,
+    Symbol, SymbolKind, SymbolSnippet,
 };
 
 fn symbol(name: &str, repo: &str, line: usize) -> Symbol {
@@ -37,7 +37,7 @@ fn snippet(name: &str, repo: &str, file: &str, line: usize) -> SymbolSnippet {
     SymbolSnippet {
         symbol: symbol(name, repo, line),
         file_path: file.into(),
-        code: format!("{line}: fn {name}() {{}}"),
+        code: format!("{line}\tfn {name}() {{}}"),
         start_line: line,
         end_line: line + 2,
     }
@@ -45,7 +45,7 @@ fn snippet(name: &str, repo: &str, file: &str, line: usize) -> SymbolSnippet {
 
 fn source(repo: &str, file: &str, lines: usize) -> SourceFile {
     let code = (1..=lines)
-        .map(|n| format!("{n}: line {n} of {file}"))
+        .map(|n| format!("{n}\tline {n} of {file}"))
         .collect::<Vec<_>>()
         .join("\n");
     SourceFile {
@@ -160,6 +160,7 @@ fn result(query: &str) -> ExploreResult {
         transitive_consumers: Vec::new(),
         sources: Vec::new(),
         flows: Vec::new(),
+        not_shown: Vec::new(),
     }
 }
 
@@ -201,7 +202,12 @@ fn blast_radius_precedes_source() {
     let source = out.find("**Source**").expect("source section");
 
     assert!(radius < source, "consequences must lead the answer");
-    assert!(out.contains("`requireAuth` in src/auth/helpers.ts:14"));
+    assert!(
+        out.contains(
+            "- `getSession` (src/auth/sessions.ts:27) — 1 caller in `src/auth/helpers.ts`"
+        ),
+        "got: {out}"
+    );
 }
 
 /// Callers are resolved by name, so one definition per name is rendered and the
@@ -227,14 +233,15 @@ fn same_name_definitions_collapse_into_one_entry_naming_the_ambiguity() {
     let out = narrate_explore(&res);
 
     assert_eq!(
-        out.matches("`run_session` in src/action/session.rs:40")
-            .count(),
+        out.matches("- `session` (").count(),
         1,
-        "a caller must be listed once, not once per same-named definition"
+        "same-named definitions share one line, got: {out}"
     );
-    assert!(out.contains("Defined in 2 places"));
-    assert!(out.contains("src/store/mod.rs:16"));
-    assert!(out.contains("src/action/mod.rs:29"));
+    assert!(
+        out.contains("1 caller in `src/action/session.rs`"),
+        "got: {out}"
+    );
+    assert!(out.contains("2 definitions share this name"), "got: {out}");
 }
 
 /// One caller reached through several candidates must not inflate the count.
@@ -256,7 +263,10 @@ fn duplicate_relations_are_counted_once() {
     }
 
     let out = narrate_explore(&res);
-    assert!(out.contains("1 caller\n"), "got: {out}");
+    assert!(
+        out.contains("1 caller in `src/auth/helpers.ts`\n"),
+        "got: {out}"
+    );
 }
 
 /// A heuristic edge must carry its caution inline; a bare enum name in JSON was
@@ -277,9 +287,10 @@ fn uncertain_edges_are_flagged_for_verification() {
     ));
 
     let out = narrate_explore(&res);
-    assert!(out.contains("ambiguous"), "got: {out}");
-    assert!(out.contains("verify this line"));
-    assert!(out.contains("0.55"));
+    assert!(
+        out.contains("1 inferred, not certain, verify before relying on them"),
+        "got: {out}"
+    );
 
     let mut certain = result("handler");
     certain
@@ -295,7 +306,7 @@ fn uncertain_edges_are_flagged_for_verification() {
         Provenance::Extracted,
     ));
     assert!(
-        !narrate_explore(&certain).contains("verify this line"),
+        !narrate_explore(&certain).contains("verify before relying"),
         "an AST-extracted edge needs no caveat"
     );
 }
@@ -317,8 +328,7 @@ fn cross_repo_callers_are_marked_with_their_repo() {
     ));
 
     let out = narrate_explore(&res);
-    assert!(out.contains("1 across repos"));
-    assert!(out.contains("[repo `web`]"));
+    assert!(out.contains("1 from other repos"), "got: {out}");
 }
 
 /// An empty result must route the reader forward rather than dead-end.
@@ -342,7 +352,7 @@ fn long_caller_lists_report_the_untruncated_total() {
     for i in 0..20 {
         res.direct_relations.push(relation(
             &format!("caller{i}"),
-            "tests/unit/run.rs",
+            &format!("src/callers/c{i:02}.rs"),
             "api",
             "session",
             "src/store/mod.rs",
@@ -352,29 +362,75 @@ fn long_caller_lists_report_the_untruncated_total() {
     }
 
     let out = narrate_explore(&res);
-    assert!(out.contains("20 callers"), "the total must stay visible");
-    assert!(out.contains("…and 14 more"));
+    assert!(
+        out.contains("20 callers in"),
+        "the total must stay visible: {out}"
+    );
+    assert!(out.contains("+17 more files"), "got: {out}");
 }
 
-/// Transitive reach answers "what else could this break" beyond direct callers.
+/// CodeGraph leaves relation sections out on small repositories. In tokens3,
+/// entry points, call flows and transitive consumers took 1K to 4.5K characters
+/// of every ivar answer, and every later turn paid for them again.
 #[test]
-fn transitive_consumers_are_reported_with_their_path() {
-    let mut res = result("getSession");
+fn relation_sections_other_than_the_blast_radius_stay_out_of_the_answer() {
+    let mut res = result("requireAuth");
     res.primary_symbols
-        .push(snippet("getSession", "api", "src/auth/sessions.ts", 27));
+        .push(snippet("requireAuth", "api", "src/auth/helpers.ts", 3));
+    res.call_flows.push(crate::domain::graph::CallFlowItem {
+        caller: "requireAuth".into(),
+        callee: "getSession".into(),
+        edge_kind: EdgeKind::Calls,
+        provenance: Provenance::Extracted,
+        line: 4,
+    });
     res.transitive_consumers.push(ExploreImpact {
         symbol_name: "adminRoute".into(),
         repo: "api".into(),
         file_path: "src/routes/admin.ts".into(),
         depth: 2,
-        path_via: vec!["getSession".into(), "requireAuth".into()],
+        path_via: vec!["requireAuth".into(), "adminRoute".into()],
         cross_repo: false,
     });
 
     let out = narrate_explore(&res);
-    assert!(out.contains("Reaches 1 symbol transitively"));
-    assert!(out.contains("`adminRoute`"));
-    assert!(out.contains("getSession -> requireAuth"));
+
+    for section in [
+        "**Call flows**",
+        "**Entry points**",
+        "transitively",
+        "**Impact**",
+    ] {
+        assert!(!out.contains(section), "{section} leaked into: {out}");
+    }
+}
+
+/// With a per-call file budget, the files left out are named with their symbols
+/// so the next call is another explore instead of a Read.
+#[test]
+fn files_left_out_are_named_with_their_symbols_for_the_next_explore() {
+    let mut res = result("routes");
+    res.primary_symbols
+        .push(snippet("authRoutes", "api", "src/routes/auth.ts", 6));
+    res.sources.push(source("api", "src/routes/auth.ts", 20));
+    res.not_shown.push(FileMention {
+        repo: "api".into(),
+        file_path: "src/routes/admin.ts".into(),
+        symbols: vec![MentionedSymbol {
+            name: "adminRoutes".into(),
+            line: 7,
+        }],
+    });
+
+    let out = narrate_explore(&res);
+
+    let not_shown = out.find("**Not shown above").expect("not shown section");
+    assert!(out.find("**Source**").expect("source section") < not_shown);
+    assert!(
+        out.contains("- src/routes/admin.ts: adminRoutes:7"),
+        "got: {out}"
+    );
+    assert!(!out.contains("use Read"));
 }
 
 /// The Source block must tell the consumer the snippet is current and already
@@ -392,13 +448,13 @@ fn source_block_declares_source_is_current_and_no_re_read_needed() {
     let source_text = &out[source..];
 
     assert!(
-        source_text.contains("already read") || source_text.contains("already been read"),
+        source_text.contains("a Read you have already performed"),
         "Source block must declare the snippet is equivalent to a Read already done, \
          but got: {}",
         &source_text[..source_text.len().min(300)],
     );
     assert!(
-        source_text.contains("do not re-read"),
+        source_text.contains("do not Read a file shown here"),
         "Source block must explicitly prohibit re-reading the displayed file, \
          but got: {}",
         &source_text[..source_text.len().min(300)],
@@ -424,11 +480,11 @@ fn source_is_grouped_by_file_and_shown_once() {
     );
     assert_eq!(
         source_text
-            .matches("1: line 1 of src/auth/sessions.ts")
+            .matches("1\tline 1 of src/auth/sessions.ts")
             .count(),
         1
     );
-    assert!(source_text.contains("40: line 40 of src/auth/sessions.ts"));
+    assert!(source_text.contains("40\tline 40 of src/auth/sessions.ts"));
     assert!(source_text.contains("`createSession` 8"));
     assert!(source_text.contains("`getSession` 27"));
 }
@@ -448,10 +504,10 @@ fn source_stays_under_the_output_limit_and_names_the_files_left_out() {
     let out = narrate_explore(&res);
 
     assert!(out.len() <= MAX_OUTPUT_CHARS + 600, "len {}", out.len());
-    assert!(out.contains("1: line 1 of src/routes/r0.ts"));
+    assert!(out.contains("1\tline 1 of src/routes/r0.ts"));
     assert!(
-        out.contains("`src/routes/r11.ts`"),
-        "left-out files must still be named"
+        out.contains("- src/routes/r11.ts: route11:1"),
+        "left-out files must still be named, got: {out}"
     );
     assert!(out.contains("graph_explore"));
     assert!(!out.contains("use Read"));
@@ -670,27 +726,4 @@ fn blast_radius_is_omitted_when_nothing_calls_the_matches() {
     let out = narrate_explore(&res);
 
     assert!(!out.contains("Blast radius"), "got: {out}");
-}
-
-#[test]
-fn call_flows_leave_out_calls_that_resolve_to_nothing_in_the_index() {
-    let mut res = result("requireAuth");
-    res.primary_symbols
-        .push(snippet("requireAuth", "api", "src/auth/helpers.ts", 3));
-    for (callee, file) in [("reply.code", ""), ("getSession", "src/auth/sessions.ts")] {
-        res.direct_relations
-            .push(outgoing("requireAuth", callee, file));
-        res.call_flows.push(crate::domain::graph::CallFlowItem {
-            caller: "requireAuth".into(),
-            callee: callee.into(),
-            edge_kind: EdgeKind::Calls,
-            provenance: Provenance::Extracted,
-            line: 4,
-        });
-    }
-
-    let out = narrate_explore(&res);
-
-    assert!(out.contains("`requireAuth` -> `getSession`"), "got: {out}");
-    assert!(!out.contains("reply.code"), "got: {out}");
 }
