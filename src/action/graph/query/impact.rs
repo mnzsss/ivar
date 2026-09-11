@@ -50,7 +50,10 @@ pub fn get_impact(
                 cg.visited_ids || CAST(s.id AS TEXT) || ',',
                 cg.path_names || ' -> ' || s.name
             FROM edges e
-            JOIN caller_graph cg ON (e.to_symbol_id = cg.symbol_id OR e.to_name = cg.symbol_name)
+            JOIN caller_graph cg ON (
+                e.to_symbol_id = cg.symbol_id
+                OR (e.to_symbol_id IS NULL AND e.to_name = cg.symbol_name)
+            )
             JOIN symbols s ON e.from_symbol_id = s.id
             WHERE cg.depth < ?2
               AND e.from_symbol_id IS NOT NULL
