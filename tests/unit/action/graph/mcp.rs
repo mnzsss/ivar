@@ -262,6 +262,28 @@ fn graph_explore_takes_a_path_argument_and_answers_a_missing_query_with_guidance
     assert!(missing.contains("`query`"), "got: {missing}");
 }
 
+#[test]
+fn graph_explore_joins_every_argument_an_agent_splits_its_query_across() {
+    let (db, temp) = setup_test_mcp_db();
+    let root = temp.path();
+
+    for args in [
+        json!({"intent": "helper", "paths": ["tests/exec_test.rs"]}),
+        json!({"symbols": ["helper"], "files": ["tests/exec_test.rs"]}),
+    ] {
+        let (explore, failed) = call_tool(&db, root, "graph_explore", args.clone());
+        assert!(!failed, "{args}: {explore}");
+        assert!(
+            explore.starts_with("**Exploration: helper tests/exec_test.rs**"),
+            "{args}: {explore}"
+        );
+        assert!(
+            explore.contains("`tests/exec_test.rs` ("),
+            "the named file's source is part of the answer: {args}: {explore}"
+        );
+    }
+}
+
 fn call_tool(db: &GraphDb, root: &std::path::Path, name: &str, arguments: Value) -> (String, bool) {
     let input = format!(
         "{}\n",
