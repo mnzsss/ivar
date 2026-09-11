@@ -286,6 +286,72 @@ fn test_get_impact_and_cycle_protection() {
     assert_eq!(cycle_impact.total_affected, 2);
 }
 
+#[test]
+fn impact_ignores_references_resolved_to_another_symbol_with_the_same_name() {
+    let db = GraphDb::open_in_memory().expect("open in-memory db");
+    for repo in ["api", "web"] {
+        db.insert_repo(repo, &format!("/workspace/{repo}"), "main", None)
+            .expect("insert repo");
+    }
+    let api_types = db
+        .upsert_file("api", "src/types.ts", "h", 10, 100)
+        .expect("upsert api types");
+    let web_access = db
+        .upsert_file("web", "src/auth/access.ts", "h", 10, 100)
+        .expect("upsert web access");
+    let ids = db
+        .insert_symbols(&[
+            function_symbol(api_types, "api", "Session", 1),
+            function_symbol(api_types, "api", "requireSession", 10),
+            function_symbol(web_access, "web", "Session", 1),
+            function_symbol(web_access, "web", "evaluateAccess", 10),
+            function_symbol(web_access, "web", "guessSession", 20),
+        ])
+        .expect("insert symbols");
+    let [
+        api_session,
+        api_user,
+        web_session,
+        web_user,
+        unresolved_user,
+    ] = ids[..]
+    else {
+        panic!("expected five symbol ids, got {ids:?}");
+    };
+    let reference = |repo: &str, file_id, from, to_symbol_id| Edge {
+        id: None,
+        repo: repo.to_owned(),
+        file_id: Some(file_id),
+        from_symbol_id: Some(from),
+        to_symbol_id,
+        to_name: Some("Session".to_owned()),
+        kind: EdgeKind::References,
+        provenance: Provenance::Extracted,
+        line: 12,
+        col: 5,
+        confidence: 0.95,
+    };
+    db.insert_edges(&[
+        reference("api", api_types, api_user, Some(api_session)),
+        reference("web", web_access, web_user, Some(web_session)),
+        reference("web", web_access, unresolved_user, None),
+    ])
+    .expect("insert edges");
+
+    let impact = get_impact(&db, api_session, 5).expect("impact");
+
+    let affected: std::collections::BTreeSet<i64> = impact
+        .affected_symbols
+        .iter()
+        .filter_map(|item| item.symbol.id)
+        .collect();
+    assert_eq!(
+        affected,
+        [api_user, unresolved_user].into_iter().collect(),
+        "a reference resolved to the web Session is not a consumer of the api Session"
+    );
+}
+
 fn function_symbol(file_id: i64, repo: &str, name: &str, start_line: usize) -> Symbol {
     Symbol {
         id: None,
