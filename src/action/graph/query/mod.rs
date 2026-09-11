@@ -29,12 +29,12 @@ pub fn get_callers(
         "SELECT s.id, s.file_id, s.repo, s.name, s.kind, s.scope, s.signature, s.docstring,
                 s.start_line, s.start_col, s.end_line, s.end_col, s.is_exported, s.complexity, f.path,
                 e.kind, e.provenance, e.confidence, e.line, e.col
-         FROM edges e
-         JOIN symbols s ON e.from_symbol_id = s.id
-         JOIN files f ON s.file_id = f.id
+         FROM visible_edges e
+         JOIN visible_symbols s ON e.from_symbol_id = s.id
+         JOIN visible_files f ON s.file_id = f.id
          WHERE (
              e.to_symbol_id IN (
-                 SELECT id FROM symbols WHERE name = ?1 AND (?2 IS NULL OR repo = ?2)
+                 SELECT id FROM visible_symbols WHERE name = ?1 AND (?2 IS NULL OR repo = ?2)
              )
              OR (
                  e.to_symbol_id IS NULL AND e.to_name = ?1 AND (?2 IS NULL OR e.repo = ?2)
@@ -87,13 +87,13 @@ pub fn get_references(
     // indexes return the same rows in under a millisecond.
     let mut stmt = conn.prepare_cached(
         "SELECT DISTINCT f.repo, f.path, e.line
-         FROM edges e
-         JOIN files f ON e.file_id = f.id
+         FROM visible_edges e
+         JOIN visible_files f ON e.file_id = f.id
          WHERE +e.from_symbol_id IS NULL
            AND e.kind IN ('REFERENCES', 'references')
            AND (
                e.to_symbol_id IN (
-                   SELECT id FROM symbols WHERE name = ?1 AND (?2 IS NULL OR repo = ?2)
+                   SELECT id FROM visible_symbols WHERE name = ?1 AND (?2 IS NULL OR repo = ?2)
                )
                OR (e.to_symbol_id IS NULL AND e.to_name = ?1 AND (?2 IS NULL OR e.repo = ?2))
            )
@@ -121,9 +121,9 @@ pub fn get_callees(db: &GraphDb, symbol_id: i64) -> Result<Vec<CalleeInfo>, Quer
             s.start_line, s.start_col, s.end_line, s.end_col, s.is_exported, s.complexity,
             f.path,
             e.kind, e.provenance, e.confidence, e.line, e.col
-         FROM edges e
-         LEFT JOIN symbols s ON e.to_symbol_id = s.id
-         LEFT JOIN files f ON s.file_id = f.id
+         FROM visible_edges e
+         LEFT JOIN visible_symbols s ON e.to_symbol_id = s.id
+         LEFT JOIN visible_files f ON s.file_id = f.id
          WHERE e.from_symbol_id = ?1
          ORDER BY e.line ASC, e.col ASC",
     )?;
@@ -206,7 +206,7 @@ pub fn get_file_outline(db: &GraphDb, repo: &str, path: &str) -> Result<FileOutl
 
     // 1. Fetch file ID
     let mut file_stmt =
-        conn.prepare_cached("SELECT id FROM files WHERE repo = ?1 AND path = ?2")?;
+        conn.prepare_cached("SELECT id FROM visible_files WHERE repo = ?1 AND path = ?2")?;
     let file_id: i64 = file_stmt
         .query_row(params![repo, path], |row| row.get(0))
         .optional()?
@@ -219,7 +219,7 @@ pub fn get_file_outline(db: &GraphDb, repo: &str, path: &str) -> Result<FileOutl
     let mut sym_stmt = conn.prepare_cached(
         "SELECT id, file_id, repo, name, kind, scope, signature, docstring,
                 start_line, start_col, end_line, end_col, is_exported, complexity
-         FROM symbols
+         FROM visible_symbols
          WHERE file_id = ?1
          ORDER BY start_line ASC, start_col ASC",
     )?;
@@ -231,7 +231,7 @@ pub fn get_file_outline(db: &GraphDb, repo: &str, path: &str) -> Result<FileOutl
     let mut edge_stmt = conn.prepare_cached(
         "SELECT id, repo, file_id, from_symbol_id, to_symbol_id, to_name,
                 kind, provenance, line, col, confidence
-         FROM edges
+         FROM visible_edges
          WHERE file_id = ?1
            AND kind IN ('IMPORTS', 'CROSS_IMPORTS', 'imports', 'cross_imports')
          ORDER BY line ASC, col ASC",
@@ -282,3 +282,7 @@ pub fn get_graph_stats(db: &GraphDb) -> Result<GraphStats, QueryError> {
 #[cfg(test)]
 #[path = "../../../../tests/unit/action/graph/query.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "../../../../tests/unit/action/graph/query_views.rs"]
+mod query_views_tests;

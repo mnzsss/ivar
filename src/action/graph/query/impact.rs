@@ -16,7 +16,7 @@ pub fn get_impact(
     let mut root_stmt = conn.prepare_cached(
         "SELECT id, file_id, repo, name, kind, scope, signature, docstring,
                 start_line, start_col, end_line, end_col, is_exported, complexity
-         FROM symbols
+         FROM visible_symbols
          WHERE id = ?1",
     )?;
     let root_symbol = root_stmt
@@ -37,7 +37,7 @@ pub fn get_impact(
         "WITH RECURSIVE caller_graph(symbol_id, symbol_name, depth, visited_ids, path_names) AS (
             -- Base case: the initial symbol
             SELECT s.id, s.name, 0, ',' || CAST(s.id AS TEXT) || ',', s.name
-            FROM symbols s
+            FROM visible_symbols s
             WHERE s.id = ?1
 
             UNION ALL
@@ -49,12 +49,12 @@ pub fn get_impact(
                 cg.depth + 1,
                 cg.visited_ids || CAST(s.id AS TEXT) || ',',
                 cg.path_names || ' -> ' || s.name
-            FROM edges e
+            FROM visible_edges e
             JOIN caller_graph cg ON (
                 e.to_symbol_id = cg.symbol_id
                 OR (e.to_symbol_id IS NULL AND e.to_name = cg.symbol_name)
             )
-            JOIN symbols s ON e.from_symbol_id = s.id
+            JOIN visible_symbols s ON e.from_symbol_id = s.id
             WHERE cg.depth < ?2
               AND e.from_symbol_id IS NOT NULL
               AND instr(cg.visited_ids, ',' || CAST(s.id AS TEXT) || ',') = 0
@@ -64,8 +64,8 @@ pub fn get_impact(
                s.start_line, s.start_col, s.end_line, s.end_col, s.is_exported, s.complexity,
                f.path
         FROM caller_graph cg
-        JOIN symbols s ON cg.symbol_id = s.id
-        JOIN files f ON s.file_id = f.id
+        JOIN visible_symbols s ON cg.symbol_id = s.id
+        JOIN visible_files f ON s.file_id = f.id
         WHERE cg.symbol_id != ?1
         ORDER BY cg.depth ASC, s.name ASC",
     )?;

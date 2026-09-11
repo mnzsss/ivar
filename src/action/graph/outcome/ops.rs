@@ -352,6 +352,7 @@ impl ToCompact for GraphViewOutcome {
 #[derive(Debug, Clone, Serialize)]
 pub struct CleanOutcome {
     pub repo: Option<String>,
+    pub feature: Option<String>,
     pub all: bool,
     pub repos_removed: usize,
     pub files_removed: usize,
@@ -369,6 +370,12 @@ impl WriteHuman for CleanOutcome {
                 "  Repositories: {}\n  Files:        {}\n  Symbols:      {}\n  Edges:        {}",
                 self.repos_removed, self.files_removed, self.symbols_removed, self.edges_removed
             )?;
+        } else if let Some(feature) = &self.feature {
+            writeln!(
+                w,
+                "  Feature:      {}\n  Layers:       {}",
+                feature, self.repos_removed
+            )?;
         } else if let Some(repo) = &self.repo {
             writeln!(
                 w,
@@ -383,8 +390,9 @@ impl WriteHuman for CleanOutcome {
 impl ToCompact for CleanOutcome {
     fn to_compact(&self) -> String {
         format!(
-            "#SCHEMA: repo|all|repos_removed|files_removed|symbols_removed|edges_removed\n{}|{}|{}|{}|{}|{}",
+            "#SCHEMA: repo|feature|all|repos_removed|files_removed|symbols_removed|edges_removed\n{}|{}|{}|{}|{}|{}|{}",
             self.repo.as_deref().unwrap_or(""),
+            self.feature.as_deref().unwrap_or(""),
             self.all,
             self.repos_removed,
             self.files_removed,

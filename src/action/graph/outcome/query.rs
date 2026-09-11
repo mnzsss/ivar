@@ -151,6 +151,16 @@ impl WriteHuman for StatsOutcome {
         writeln!(w, "  Symbols:      {}", s.symbol_count)?;
         writeln!(w, "  Edges:        {}", s.edge_count)?;
         writeln!(w, "  DB Size:      {} bytes", s.db_size_bytes)?;
+        if !s.layers.is_empty() {
+            writeln!(w, "\nFeature Layers ({}):", s.layers.len())?;
+            for layer in &s.layers {
+                writeln!(
+                    w,
+                    "  - [{}] repo: {}, files: {}, base: {}",
+                    layer.feature, layer.repo, layer.file_count, layer.base_commit
+                )?;
+            }
+        }
         Ok(())
     }
 }

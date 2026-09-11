@@ -46,6 +46,24 @@ impl GraphDb {
             .optional()?;
         Ok(result)
     }
+    /// Fetches repository metadata from the `visible_repos` view by repository ID.
+    pub fn get_visible_repo(&self, id: &str) -> Result<Option<RepoRow>> {
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT id, root_path, default_branch, last_indexed_commit FROM visible_repos WHERE id = ?1",
+        )?;
+        let result = stmt
+            .query_row(params![id], |row| {
+                Ok(RepoRow {
+                    id: row.get(0)?,
+                    root_path: row.get(1)?,
+                    default_branch: row.get(2)?,
+                    last_indexed_commit: row.get(3)?,
+                    indexed_at: 0,
+                })
+            })
+            .optional()?;
+        Ok(result)
+    }
 
     /// Updates the last indexed commit and timestamp for a repository.
     pub fn update_repo_commit(&self, id: &str, commit: &str) -> Result<()> {

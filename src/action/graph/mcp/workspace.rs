@@ -107,7 +107,7 @@ impl WorkspacePaths {
         }
         // A path is only a display aid, so a failed lookup keeps the repo-relative path.
         let root = db
-            .get_repo(repo)
+            .get_visible_repo(repo)
             .ok()
             .flatten()
             .map(|row| PathBuf::from(row.root_path));

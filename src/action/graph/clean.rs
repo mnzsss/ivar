@@ -8,16 +8,19 @@ use crate::error::{Failure, Outcome, Report};
 
 /// Executes the graph clean action.
 pub fn clean_cmd(ctx: &Ctx, args: CleanInput) -> Outcome<CleanOutcome> {
-    if !args.all && args.repo.is_none() {
+    let target_count = usize::from(args.all)
+        + usize::from(args.repo.is_some())
+        + usize::from(args.feature.is_some());
+    if target_count == 0 {
         return Err(Failure::blocked(
             "graph.clean_target_required",
-            "Must specify either `--repo <NAME>` to clean a repository or `--all` to clean the entire graph.",
+            "Must specify either `--repo <NAME>` to clean a repository, `--feature <NAME>` to clean feature layers, or `--all` to clean the entire graph.",
         ));
     }
-    if args.all && args.repo.is_some() {
+    if target_count > 1 {
         return Err(Failure::blocked(
             "graph.clean_conflict",
-            "Cannot specify both `--repo` and `--all`.",
+            "Cannot specify more than one of `--repo`, `--feature`, and `--all`.",
         ));
     }
 
@@ -30,6 +33,7 @@ pub fn clean_cmd(ctx: &Ctx, args: CleanInput) -> Outcome<CleanOutcome> {
 
         Ok(Report::new(CleanOutcome {
             repo: None,
+            feature: None,
             all: true,
             repos_removed: stats.repos_removed,
             files_removed: stats.files_removed,
@@ -43,6 +47,20 @@ pub fn clean_cmd(ctx: &Ctx, args: CleanInput) -> Outcome<CleanOutcome> {
                 stats.edges_removed
             ),
         }))
+    } else if let Some(feature) = &args.feature {
+        let count = db
+            .drop_feature_layers(feature)
+            .map_err(|err| Failure::failed("graph.clean_failed", err.to_string()))?;
+        Ok(Report::new(CleanOutcome {
+            repo: None,
+            feature: Some(feature.clone()),
+            all: false,
+            repos_removed: count,
+            files_removed: 0,
+            symbols_removed: 0,
+            edges_removed: 0,
+            message: format!("Successfully removed feature layers for '{feature}' ({count} layers removed)."),
+        }))
     } else if let Some(repo) = args.repo {
         match db
             .delete_repo(&repo)
@@ -50,6 +68,7 @@ pub fn clean_cmd(ctx: &Ctx, args: CleanInput) -> Outcome<CleanOutcome> {
         {
             Some(stats) => Ok(Report::new(CleanOutcome {
                 repo: Some(repo.clone()),
+                feature: None,
                 all: false,
                 repos_removed: 1,
                 files_removed: stats.files_removed,

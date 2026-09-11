@@ -10,7 +10,8 @@
     clippy::expect_used,
     clippy::panic,
     clippy::indexing_slicing,
-    dead_code
+    dead_code,
+    unreachable_pub
 )]
 
 use assert_cmd::Command;
@@ -20,7 +21,7 @@ use serde_json::Value;
 use std::process::Command as StdCommand;
 use tempfile::TempDir;
 
-use crate::common::{declare_repos, git, hall_root, ivar, utf8_temp_dir};
+use crate::common::{declare_repos, empty_repo, git, hall_root, ivar, utf8_temp_dir};
 
 /// Locate the current ivar source checkout root from `CARGO_MANIFEST_DIR`.
 fn current_ivar_source_dir() -> Utf8PathBuf {
@@ -206,5 +207,129 @@ impl GraphHall {
         let mut modified = original;
         modified.push_str(suffix);
         self.write_worktree_file(relative_path, &modified);
+    }
+}
+
+pub struct TestHall {
+    _hall_guard: TempDir,
+    pub hall_root: Utf8PathBuf,
+}
+
+impl TestHall {
+    pub fn new() -> Self {
+        let (hall_guard, hall_dir) = hall_root();
+        let mut cmd = ivar();
+        cmd.current_dir(&hall_dir).arg("init");
+        cmd.assert().success().code(0);
+        Self {
+            _hall_guard: hall_guard,
+            hall_root: hall_dir,
+        }
+    }
+
+    pub fn root(&self) -> &Utf8Path {
+        &self.hall_root
+    }
+
+    pub fn commit_base(&self, repo: &str, files: &[(&str, &str)]) -> String {
+        let origins_dir = self.hall_root.parent().unwrap().join("origins");
+        let repo_origin = origins_dir.join(repo);
+        std::fs::create_dir_all(&repo_origin).unwrap();
+        empty_repo(&repo_origin, "main");
+
+        for (path, content) in files {
+            let full_path = repo_origin.join(path);
+            if let Some(parent) = full_path.parent() {
+                std::fs::create_dir_all(parent).unwrap();
+            }
+            std::fs::write(&full_path, content).unwrap();
+            git(&repo_origin, &["add", path]);
+        }
+
+        git(&repo_origin, &["commit", "-m", "initial"]);
+        let output = StdCommand::new("git")
+            .args(["rev-parse", "HEAD"])
+            .current_dir(&repo_origin)
+            .output()
+            .unwrap();
+        let commit_hash = String::from_utf8(output.stdout).unwrap().trim().to_owned();
+
+        declare_repos(&self.hall_root, &[(repo, &repo_origin, "main")]);
+
+        let mut sync_cmd = ivar();
+        sync_cmd.current_dir(&self.hall_root).arg("sync");
+        sync_cmd.assert().success().code(0);
+
+        commit_hash
+    }
+
+    pub fn promote(&self, feature: &str, repo: &str) -> Utf8PathBuf {
+        let mut create_cmd = ivar();
+        create_cmd.current_dir(&self.hall_root).args(["feature", "create", feature]);
+        create_cmd.assert().success().code(0);
+
+        let mut promote_cmd = ivar();
+        promote_cmd.current_dir(&self.hall_root).args(["feature", "promote", feature, repo]);
+        promote_cmd.assert().success().code(0);
+
+        let worktree = self.hall_root.join(".ivar/repos").join(repo).join(feature);
+        assert!(worktree.exists(), "Promoted worktree should exist at {worktree}");
+        worktree
+    }
+
+    pub fn write(&self, root: &Utf8Path, path: &str, content: &str) {
+        let full_path = root.join(path);
+        if let Some(parent) = full_path.parent() {
+            std::fs::create_dir_all(parent).unwrap();
+        }
+        std::fs::write(&full_path, content).unwrap();
+    }
+
+    pub fn commit(&self, worktree: &Utf8Path, message: &str) {
+        git(worktree, &["add", "-A"]);
+        git(worktree, &["commit", "-m", message]);
+    }
+
+    pub fn connect_view(&self, feature: &str) -> Utf8PathBuf {
+        let mut cmd = ivar();
+        cmd.current_dir(&self.hall_root).args(["session", "start", feature, "--detached", "--json"]);
+        let assert = cmd.assert().success().code(0);
+        let stdout = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
+        let val: Value = serde_json::from_str(&stdout).unwrap();
+        let view_dir = val["view_dir"].as_str().expect("view_dir in session start output");
+        Utf8PathBuf::from(view_dir)
+    }
+
+    pub fn graph_command(&self, cwd: &Utf8Path, args: &[&str]) -> Value {
+        let mut cmd = ivar();
+        cmd.current_dir(cwd).arg("graph").args(args);
+        let assert = cmd.assert().success().code(0);
+        let stdout = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
+        let mut val: Value = serde_json::from_str(&stdout).unwrap_or(Value::Null);
+
+        if let Some(symbols) = val.get("symbols").and_then(|s| s.as_array()) {
+            val["matches"] = serde_json::json!(symbols.iter().map(|s| {
+                serde_json::json!({
+                    "name": s.get("symbol").and_then(|sym| sym.get("name")).cloned().unwrap_or(Value::Null),
+                    "file_path": s.get("file_path").cloned().unwrap_or(Value::Null),
+                })
+            }).collect::<Vec<_>>());
+        }
+
+        if let Some(primary) = val.get("primary_symbols").and_then(|p| p.as_array()) {
+            val["sources"] = serde_json::json!(primary.iter().map(|s| {
+                serde_json::json!({
+                    "content": s.get("code").cloned().unwrap_or(Value::Null),
+                    "file_path": s.get("file_path").cloned().unwrap_or(Value::Null),
+                })
+            }).collect::<Vec<_>>());
+        }
+
+        val
+    }
+}
+impl Default for TestHall {
+    fn default() -> Self {
+        Self::new()
     }
 }

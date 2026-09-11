@@ -4,16 +4,19 @@ pub mod compact;
 pub mod complexity;
 pub mod cross_repo;
 pub mod dead_code;
+pub mod freshness;
 pub mod explore;
 pub mod hierarchy;
 pub mod index;
 pub mod input;
+pub mod layer;
 pub mod mcp;
 pub mod narrate;
 pub mod outcome;
 pub mod path;
 pub mod query;
 pub mod view;
+pub mod session;
 pub mod viz;
 
 use std::io;
@@ -49,12 +52,15 @@ pub use viz::{VizError, execute_viz};
 fn open_graph_db(ctx: &Ctx) -> Result<GraphDb, Failure> {
     let layout = discover_hall(ctx)?;
     let db_path = layout.ivar_dir().join("memory.db");
-    GraphDb::open(db_path.as_std_path()).map_err(|err| {
+    let db = GraphDb::open(db_path.as_std_path()).map_err(|err| {
         Failure::failed(
             "graph.db_open_failed",
             format!("Failed to open graph database at {db_path}: {err}"),
         )
-    })
+    })?;
+    let view = session::resolve_session_view(&layout, &ctx.cwd)?;
+    freshness::ensure_session_freshness(&db, &layout, &view)?;
+    Ok(db)
 }
 
 // 1. explore
@@ -338,3 +344,11 @@ pub fn view_cmd(ctx: &Ctx, input: GraphViewInput) -> Outcome<ViewSession> {
 
     Ok(Report::new(session))
 }
+
+#[cfg(test)]
+#[path = "../../../tests/unit/action/graph/explore_source.rs"]
+mod explore_source_tests;
+
+#[cfg(test)]
+#[path = "../../../tests/unit/action/graph/clean_stats.rs"]
+mod clean_stats_tests;
