@@ -82,11 +82,14 @@ pub fn get_references(
     repo: Option<&str>,
 ) -> Result<Vec<ReferenceSite>, QueryError> {
     let conn = db.conn();
+    // The unary `+` keeps SQLite off `idx_edges_from_symbol`. Most edges in a hall
+    // have no source symbol, so that index matches over a million rows; the target
+    // indexes return the same rows in under a millisecond.
     let mut stmt = conn.prepare_cached(
         "SELECT DISTINCT f.repo, f.path, e.line
          FROM edges e
          JOIN files f ON e.file_id = f.id
-         WHERE e.from_symbol_id IS NULL
+         WHERE +e.from_symbol_id IS NULL
            AND e.kind IN ('REFERENCES', 'references')
            AND (
                e.to_symbol_id IN (
