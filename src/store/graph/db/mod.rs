@@ -1,8 +1,8 @@
 //! Pure synchronous SQLite database layer for codebase graph storage and querying.
 
 pub mod edges;
-pub mod layer;
 pub mod index;
+pub mod layer;
 pub mod repo;
 pub mod symbols;
 pub mod types;
@@ -79,18 +79,26 @@ impl GraphDb {
 
     /// Returns high-level statistics of the indexed codebase graph.
     pub fn stats(&self) -> Result<GraphStats> {
-        let repo_count: i64 = self
-            .conn
-            .query_row("SELECT COUNT(*) FROM repos WHERE id NOT LIKE '%/%'", [], |r| r.get(0))?;
-        let file_count: i64 = self
-            .conn
-            .query_row("SELECT COUNT(*) FROM files WHERE repo NOT LIKE '%/%'", [], |r| r.get(0))?;
-        let symbol_count: i64 = self
-            .conn
-            .query_row("SELECT COUNT(*) FROM symbols WHERE repo NOT LIKE '%/%'", [], |r| r.get(0))?;
-        let edge_count: i64 = self
-            .conn
-            .query_row("SELECT COUNT(*) FROM edges WHERE repo NOT LIKE '%/%'", [], |r| r.get(0))?;
+        let repo_count: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM repos WHERE id NOT LIKE '%/%'",
+            [],
+            |r| r.get(0),
+        )?;
+        let file_count: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM files WHERE repo NOT LIKE '%/%'",
+            [],
+            |r| r.get(0),
+        )?;
+        let symbol_count: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM symbols WHERE repo NOT LIKE '%/%'",
+            [],
+            |r| r.get(0),
+        )?;
+        let edge_count: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM edges WHERE repo NOT LIKE '%/%'",
+            [],
+            |r| r.get(0),
+        )?;
         let page_count: i64 = self
             .conn
             .query_row("PRAGMA page_count", [], |r| r.get(0))

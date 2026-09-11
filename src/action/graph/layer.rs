@@ -1,8 +1,8 @@
 //! Layer delta build, fingerprint computation, per-feature locking, and layer indexing.
 
-use std::path::Path;
 use camino::Utf8Path;
 use sha2::{Digest, Sha256};
+use std::path::Path;
 
 use crate::error::Failure;
 use crate::git::{Git, System as GitSystem};
@@ -28,11 +28,16 @@ pub fn compute_layer_fingerprint(
 ) -> Result<String, Failure> {
     let git = GitSystem;
     let head = git.head_commit(worktree).map_err(|error| {
-        Failure::failed("graph.layer_error", format!("Git HEAD read failed: {error}"))
+        Failure::failed(
+            "graph.layer_error",
+            format!("Git HEAD read failed: {error}"),
+        )
     })?;
-    let diff = git.diff_worktree_files(worktree, Some(base_commit)).map_err(|error| {
-        Failure::failed("graph.layer_error", format!("Git diff failed: {error}"))
-    })?;
+    let diff = git
+        .diff_worktree_files(worktree, Some(base_commit))
+        .map_err(|error| {
+            Failure::failed("graph.layer_error", format!("Git diff failed: {error}"))
+        })?;
 
     let mut hasher = Sha256::new();
     hasher.update(base_commit.as_bytes());
@@ -75,34 +80,54 @@ pub fn ensure_layer_indexed(
 ) -> Result<LayerBuildResult, Failure> {
     // 1. Acquire per-feature lock to prevent concurrent layer indexing races without blocking base indexing
     let locks_dir = layout.ivar_dir().join("locks");
-    std::fs::create_dir_all(&locks_dir).map_err(|e| Failure::failed("graph.layer_error", format!("Failed to create locks dir: {e}")))?;
+    std::fs::create_dir_all(&locks_dir).map_err(|e| {
+        Failure::failed(
+            "graph.layer_error",
+            format!("Failed to create locks dir: {e}"),
+        )
+    })?;
     let lock_path = locks_dir.join(format!("{feature}.lock"));
     let _lock_file = std::fs::OpenOptions::new()
         .write(true)
         .create(true)
         .truncate(false)
         .open(&lock_path)
-        .map_err(|e| Failure::failed("graph.layer_error", format!("Failed to acquire feature lock {lock_path}: {e}")))?;
+        .map_err(|e| {
+            Failure::failed(
+                "graph.layer_error",
+                format!("Failed to acquire feature lock {lock_path}: {e}"),
+            )
+        })?;
 
     // 2. Ensure layer record in DB
-    let layer_id = db.ensure_layer_record(feature, repo_name, worktree.as_str(), base_commit)
-        .map_err(|e| Failure::failed("graph.layer_error", format!("Failed to ensure layer record: {e}")))?;
+    let layer_id = db
+        .ensure_layer_record(feature, repo_name, worktree.as_str(), base_commit)
+        .map_err(|e| {
+            Failure::failed(
+                "graph.layer_error",
+                format!("Failed to ensure layer record: {e}"),
+            )
+        })?;
     let layer_repo = format!("{repo_name}/{layer_id}");
 
     let git = GitSystem;
     let head_commit = git.head_commit(worktree).ok();
 
     // 3. Diff worktree against base commit
-    let diff = git.diff_worktree_files(worktree, Some(base_commit))
+    let diff = git
+        .diff_worktree_files(worktree, Some(base_commit))
         .map_err(|e| Failure::failed("graph.layer_error", format!("Git diff error: {e}")))?;
 
     // 4. Content hashing detects changes even when mtime is preserved
     let fingerprint = compute_layer_fingerprint(worktree, base_commit)?;
 
     // 5. Check cache: if fingerprint matches existing record, skip build.
-    if let Some(existing) = db.get_layer_record(feature, repo_name)
-        .map_err(|e| Failure::failed("graph.layer_error", format!("Failed to get layer record: {e}")))?
-        && existing.fingerprint.as_deref() == Some(&fingerprint)
+    if let Some(existing) = db.get_layer_record(feature, repo_name).map_err(|e| {
+        Failure::failed(
+            "graph.layer_error",
+            format!("Failed to get layer record: {e}"),
+        )
+    })? && existing.fingerprint.as_deref() == Some(&fingerprint)
     {
         return Ok(LayerBuildResult {
             layer_id,
@@ -114,15 +139,38 @@ pub fn ensure_layer_indexed(
 
     // 6. Apply layer indexing: clear old layer rows in pseudo-repo
     let conn = db.conn();
-    conn.execute("DELETE FROM repos WHERE id = ?1", rusqlite::params![layer_repo])
-        .map_err(|e| Failure::failed("graph.layer_error", format!("Failed to delete layer repo: {e}")))?;
-    db.insert_repo(&layer_repo, worktree.as_str(), feature, head_commit.as_deref())
-        .map_err(|e| Failure::failed("graph.layer_error", format!("Failed to insert layer repo: {e}")))?;
+    conn.execute(
+        "DELETE FROM repos WHERE id = ?1",
+        rusqlite::params![layer_repo],
+    )
+    .map_err(|e| {
+        Failure::failed(
+            "graph.layer_error",
+            format!("Failed to delete layer repo: {e}"),
+        )
+    })?;
+    db.insert_repo(
+        &layer_repo,
+        worktree.as_str(),
+        feature,
+        head_commit.as_deref(),
+    )
+    .map_err(|e| {
+        Failure::failed(
+            "graph.layer_error",
+            format!("Failed to insert layer repo: {e}"),
+        )
+    })?;
 
     // Record tombstones
     let tombstone_strs: Vec<&str> = diff.deleted.iter().map(|p| p.as_str()).collect();
     db.set_layer_tombstones(layer_id, &tombstone_strs)
-        .map_err(|e| Failure::failed("graph.layer_error", format!("Failed to set layer tombstones: {e}")))?;
+        .map_err(|e| {
+            Failure::failed(
+                "graph.layer_error",
+                format!("Failed to set layer tombstones: {e}"),
+            )
+        })?;
 
     // Index modified or added files
     let mut indexed_count = 0;
@@ -147,9 +195,14 @@ pub fn ensure_layer_indexed(
             Err(_) => continue,
         };
 
-        let meta = std::fs::metadata(&full_path)
-            .map_err(|e| Failure::failed("graph.layer_error", format!("Failed to read metadata for {rel_path}: {e}")))?;
-        let mtime_ns = meta.modified()
+        let meta = std::fs::metadata(&full_path).map_err(|e| {
+            Failure::failed(
+                "graph.layer_error",
+                format!("Failed to read metadata for {rel_path}: {e}"),
+            )
+        })?;
+        let mtime_ns = meta
+            .modified()
             .ok()
             .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
             .map(|d| d.as_nanos() as i64)
@@ -163,8 +216,13 @@ pub fn ensure_layer_indexed(
             use std::fmt::Write;
             let _ = write!(hash, "{b:02x}");
         }
-        let extracted = extract_file(&layer_repo, rel_path.as_str(), &content, lang)
-            .map_err(|e| Failure::failed("graph.layer_error", format!("Failed to extract {rel_path}: {e}")))?;
+        let extracted =
+            extract_file(&layer_repo, rel_path.as_str(), &content, lang).map_err(|e| {
+                Failure::failed(
+                    "graph.layer_error",
+                    format!("Failed to extract {rel_path}: {e}"),
+                )
+            })?;
 
         db.index_extracted_file(
             &layer_repo,
@@ -173,14 +231,25 @@ pub fn ensure_layer_indexed(
             mtime_ns,
             size_bytes,
             &extracted,
-        ).map_err(|e| Failure::failed("graph.layer_error", format!("Failed to index {rel_path}: {e}")))?;
+        )
+        .map_err(|e| {
+            Failure::failed(
+                "graph.layer_error",
+                format!("Failed to index {rel_path}: {e}"),
+            )
+        })?;
 
         indexed_count += 1;
     }
 
     // 7. Update layer record fingerprint
     db.update_layer_fingerprint_and_head(layer_id, &fingerprint, head_commit.as_deref())
-        .map_err(|e| Failure::failed("graph.layer_error", format!("Failed to update layer fingerprint: {e}")))?;
+        .map_err(|e| {
+            Failure::failed(
+                "graph.layer_error",
+                format!("Failed to update layer fingerprint: {e}"),
+            )
+        })?;
 
     Ok(LayerBuildResult {
         layer_id,
@@ -189,3 +258,7 @@ pub fn ensure_layer_indexed(
         skipped: false,
     })
 }
+
+#[cfg(test)]
+#[path = "../../../tests/unit/action/graph/layer.rs"]
+mod tests;

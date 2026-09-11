@@ -59,7 +59,9 @@ pub fn clean_cmd(ctx: &Ctx, args: CleanInput) -> Outcome<CleanOutcome> {
             files_removed: 0,
             symbols_removed: 0,
             edges_removed: 0,
-            message: format!("Successfully removed feature layers for '{feature}' ({count} layers removed)."),
+            message: format!(
+                "Successfully removed feature layers for '{feature}' ({count} layers removed)."
+            ),
         }))
     } else if let Some(repo) = args.repo {
         match db

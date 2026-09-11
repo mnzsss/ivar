@@ -1,8 +1,15 @@
-use tempfile::tempdir;
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing
+)]
+
 use crate::action::graph::affected::find_affected_tests_with_root;
 use crate::action::graph::explore::explore;
 use crate::domain::graph::{Span, Symbol, SymbolKind};
 use crate::store::graph::db::GraphDb;
+use tempfile::tempdir;
 
 #[test]
 fn test_explore_reads_source_and_affected_from_promoted_worktree() {
@@ -41,15 +48,17 @@ fn test_explore_reads_source_and_affected_from_promoted_worktree() {
     db.insert_repo("core/1", feat_dir.to_str().unwrap(), "feat", Some("c2"))
         .unwrap();
 
-    let f2 = db.upsert_file("core/1", "src/lib.rs", "h2", 200, 200).unwrap();
+    let f2 = db
+        .upsert_file("core/1", "src/lib.rs", "h2", 200, 200)
+        .unwrap();
     db.insert_symbols(&[Symbol {
         id: None,
         file_id: Some(f2),
-        repo: "core/1".to_string(),
-        name: "compute".to_string(),
+        repo: "core/1".to_owned(),
+        name: "compute".to_owned(),
         kind: SymbolKind::Fn,
         scope: None,
-        signature: Some("pub fn compute()".to_string()),
+        signature: Some("pub fn compute()".to_owned()),
         docstring: None,
         span: Span::new(1, 1, 1, 55),
         is_exported: true,
@@ -61,7 +70,10 @@ fn test_explore_reads_source_and_affected_from_promoted_worktree() {
 
     // 1. Explore snippet reading
     let res = explore(&db, temp.path(), "compute", None).unwrap();
-    assert!(!res.primary_symbols.is_empty(), "Primary symbols compute must be found");
+    assert!(
+        !res.primary_symbols.is_empty(),
+        "Primary symbols compute must be found"
+    );
     assert!(!res.sources.is_empty(), "Sources must be populated");
     let snippet = &res.sources[0].excerpts[0].code;
     assert!(
@@ -84,7 +96,7 @@ fn test_explore_reads_source_and_affected_from_promoted_worktree() {
     let affected = find_affected_tests_with_root(
         &db,
         Some(temp.path()),
-        &["src/lib.rs".to_string()],
+        &["src/lib.rs".to_owned()],
         Some("core"),
         5,
     )

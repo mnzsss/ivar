@@ -282,11 +282,7 @@ pub fn find_affected_tests_with_root(
                 .ok()
                 .flatten()
                 .map(|r| std::path::PathBuf::from(r.root_path));
-            let cmd = derive_test_command(
-                repo_root.as_deref().or(hall_root),
-                &tf.repo,
-                &tf.path,
-            );
+            let cmd = derive_test_command(repo_root.as_deref().or(hall_root), &tf.repo, &tf.path);
             let rec = AffectedRecommendation {
                 repo: tf.repo.clone(),
                 test_file: tf.path.clone(),

@@ -151,7 +151,7 @@ fn apply_layer_migration(conn: &Connection) -> rusqlite::Result<()> {
             layer_id INTEGER NOT NULL REFERENCES layers(id) ON DELETE CASCADE,
             path TEXT NOT NULL,
             PRIMARY KEY(layer_id, path)
-        );"
+        );",
     )?;
     let version: i64 = conn.query_row("PRAGMA user_version;", [], |row| row.get(0))?;
     if version < SEARCH_SCHEMA_VERSION {

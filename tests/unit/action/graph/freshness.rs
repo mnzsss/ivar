@@ -44,9 +44,10 @@ fn feature_freshness_rebuilds_after_a_same_size_content_edit() {
         .current_dir(&worktree)
         .output()
         .unwrap();
-    let base_commit = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    let base_commit = String::from_utf8_lossy(&out.stdout).trim().to_owned();
 
-    db.insert_repo("core", worktree.as_str(), "main", Some(&base_commit)).unwrap();
+    db.insert_repo("core", worktree.as_str(), "main", Some(&base_commit))
+        .unwrap();
 
     let view = SessionView::FeatureSession {
         feature_name: "payments".into(),
@@ -61,13 +62,26 @@ fn feature_freshness_rebuilds_after_a_same_size_content_edit() {
 
     std::fs::write(worktree.join("src/lib.rs"), "pub fn bravo() {}\n").unwrap();
     ensure_session_freshness(&db, &layout, &view).unwrap();
-    let first = db.get_layer_record("payments", "core").unwrap().unwrap().fingerprint.unwrap();
+    let first = db
+        .get_layer_record("payments", "core")
+        .unwrap()
+        .unwrap()
+        .fingerprint
+        .unwrap();
 
     std::fs::write(worktree.join("src/lib.rs"), "pub fn delta() {}\n").unwrap();
     ensure_session_freshness(&db, &layout, &view).unwrap();
-    let second = db.get_layer_record("payments", "core").unwrap().unwrap().fingerprint.unwrap();
+    let second = db
+        .get_layer_record("payments", "core")
+        .unwrap()
+        .unwrap()
+        .fingerprint
+        .unwrap();
 
-    assert_ne!(first, second, "same-size content changes must invalidate the layer");
+    assert_ne!(
+        first, second,
+        "same-size content changes must invalidate the layer"
+    );
 }
 
 #[test]

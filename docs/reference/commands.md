@@ -965,6 +965,7 @@ Remove indexed repository data or clean the entire graph database
 | flag | value | default | description |
 | --- | --- | --- | --- |
 | `--repo` | `<REPO>` |  | Specific repository to remove from the graph index |
+| `--feature` | `<FEATURE>` |  | Specific feature whose layers should be removed from the graph index |
 | `--all` |  |  | Remove all repositories and data from the graph database |
 
 

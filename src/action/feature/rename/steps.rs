@@ -267,7 +267,8 @@ pub(super) fn perform_step(
             if db_path.is_file()
                 && let Ok(db) = crate::store::graph::db::GraphDb::open(db_path.as_std_path())
             {
-                let _ = db.rename_feature_layers(plan.old_feature.name.as_str(), plan.new_name.as_str());
+                let _ = db
+                    .rename_feature_layers(plan.old_feature.name.as_str(), plan.new_name.as_str());
             }
             Ok(Step::MoveSessions)
         }
@@ -338,7 +339,8 @@ pub(super) fn undo_step(
             if db_path.is_file()
                 && let Ok(db) = crate::store::graph::db::GraphDb::open(db_path.as_std_path())
             {
-                let _ = db.rename_feature_layers(plan.new_name.as_str(), plan.old_feature.name.as_str());
+                let _ = db
+                    .rename_feature_layers(plan.new_name.as_str(), plan.old_feature.name.as_str());
             }
             Ok(Step::UpdateChildren)
         }
