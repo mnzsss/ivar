@@ -335,24 +335,24 @@ fn several_files(file: &str, paths: &[String]) -> String {
     )
 }
 
-/// In tokens4, 3 of 6 agents sent the explore argument as `intent`, `queries` or
-/// `paths` and spent a turn repeating the call, so every such shape is one query.
+/// Agents send one explore request under any of these keys, several in the same call
+/// (an intent with the paths to read), so `explore_query` joins all their values.
+const EXPLORE_QUERY_KEYS: [&str; 9] = [
+    "query", "queries", "intent", "symbol", "symbols", "path", "paths", "file", "files",
+];
+
 fn explore_query(args: &Value) -> Option<String> {
-    ["query", "symbol", "path", "intent"]
+    let terms: Vec<&str> = EXPLORE_QUERY_KEYS
         .iter()
-        .find_map(|key| args.get(*key).and_then(Value::as_str))
-        .map(str::to_owned)
-        .or_else(|| {
-            ["queries", "paths", "symbols"].iter().find_map(|key| {
-                let items: Vec<&str> = args
-                    .get(*key)?
-                    .as_array()?
-                    .iter()
-                    .filter_map(Value::as_str)
-                    .collect();
-                (!items.is_empty()).then(|| items.join(" "))
-            })
+        .filter_map(|key| args.get(*key))
+        .flat_map(|value| match value {
+            Value::String(term) => vec![term.as_str()],
+            Value::Array(items) => items.iter().filter_map(Value::as_str).collect(),
+            _ => Vec::new(),
         })
+        .filter(|term| !term.trim().is_empty())
+        .collect();
+    (!terms.is_empty()).then(|| terms.join(" "))
 }
 
 /// Agents name the symbol argument differently from one call to the next
