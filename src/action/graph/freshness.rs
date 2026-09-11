@@ -1,8 +1,8 @@
 //! Freshness check and automatic layer refresh for graph database sessions.
 
-use crate::error::Failure;
 use crate::action::graph::layer::ensure_layer_indexed;
 use crate::action::graph::session::SessionView;
+use crate::error::Failure;
 use crate::store::graph::db::GraphDb;
 use crate::store::layout::Layout;
 
@@ -18,7 +18,10 @@ pub fn ensure_session_freshness(
 ) -> Result<(), Failure> {
     match view {
         SessionView::Base { .. } => db.clear_session_layers().map_err(|e| {
-            Failure::failed("graph.freshness_error", format!("Failed to clear session layers: {e}"))
+            Failure::failed(
+                "graph.freshness_error",
+                format!("Failed to clear session layers: {e}"),
+            )
         }),
         SessionView::FeatureSession {
             feature_name,
@@ -28,7 +31,10 @@ pub fn ensure_session_freshness(
             let mut active = Vec::new();
             for repo in repos.iter().filter(|repo| repo.is_layer) {
                 let base_commit = match db.get_repo_last_commit(&repo.repo_name).map_err(|e| {
-                    Failure::failed("graph.freshness_error", format!("Failed to get repo last commit: {e}"))
+                    Failure::failed(
+                        "graph.freshness_error",
+                        format!("Failed to get repo last commit: {e}"),
+                    )
                 })? {
                     Some(commit) => commit,
                     None => match &repo.base_commit {
@@ -59,9 +65,16 @@ pub fn ensure_session_freshness(
                 .map(|(repo, layer)| (repo.as_str(), layer.as_str()))
                 .collect();
             db.configure_session_mode(&refs).map_err(|e| {
-                Failure::failed("graph.freshness_error", format!("Failed to configure session mode: {e}"))
+                Failure::failed(
+                    "graph.freshness_error",
+                    format!("Failed to configure session mode: {e}"),
+                )
             })?;
             Ok(())
         }
     }
 }
+
+#[cfg(test)]
+#[path = "../../../tests/unit/action/graph/freshness.rs"]
+mod tests;

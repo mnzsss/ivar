@@ -181,8 +181,12 @@ where
             };
 
             if let Some(root) = hall_root {
-                let layout = Layout::at(camino::Utf8PathBuf::from_path_buf(root.to_path_buf()).unwrap_or_default());
-                let cwd = camino::Utf8PathBuf::from_path_buf(std::env::current_dir().unwrap_or_default()).unwrap_or_default();
+                let layout = Layout::at(
+                    camino::Utf8PathBuf::from_path_buf(root.to_path_buf()).unwrap_or_default(),
+                );
+                let cwd =
+                    camino::Utf8PathBuf::from_path_buf(std::env::current_dir().unwrap_or_default())
+                        .unwrap_or_default();
                 if let Ok(view) = resolve_session_view(&layout, &cwd) {
                     let _ = ensure_session_freshness(db, &layout, &view);
                 }

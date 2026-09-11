@@ -1,9 +1,9 @@
 //! Layer records, tombstones CRUD, session_layers temp table, and visible_* views.
 
-use rusqlite::{params, Connection, OptionalExtension};
 use super::GraphDb;
-use crate::domain::graph::LayerStats;
 use super::types::{Result, now_timestamp};
+use crate::domain::graph::LayerStats;
+use rusqlite::{Connection, OptionalExtension, params};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LayerRecord {
@@ -111,7 +111,13 @@ impl GraphDb {
         Ok(())
     }
 
-    pub fn ensure_layer_record(&self, feature: &str, repo: &str, worktree: &str, base_commit: &str) -> Result<i64> {
+    pub fn ensure_layer_record(
+        &self,
+        feature: &str,
+        repo: &str,
+        worktree: &str,
+        base_commit: &str,
+    ) -> Result<i64> {
         let now = now_timestamp();
         let mut stmt = self.conn.prepare_cached(
             "INSERT INTO layers (feature, repo, worktree, base_commit, indexed_at)
@@ -120,46 +126,55 @@ impl GraphDb {
                 worktree = excluded.worktree,
                 base_commit = excluded.base_commit,
                 indexed_at = excluded.indexed_at
-             RETURNING id"
+             RETURNING id",
         )?;
-        let id: i64 = stmt.query_row(params![feature, repo, worktree, base_commit, now], |row| row.get(0))?;
+        let id: i64 = stmt
+            .query_row(params![feature, repo, worktree, base_commit, now], |row| {
+                row.get(0)
+            })?;
         Ok(id)
     }
 
     pub fn get_layer_record(&self, feature: &str, repo: &str) -> Result<Option<LayerRecord>> {
         let mut stmt = self.conn.prepare_cached(
             "SELECT id, feature, repo, worktree, base_commit, head_commit, fingerprint, indexed_at
-             FROM layers WHERE feature = ?1 AND repo = ?2"
+             FROM layers WHERE feature = ?1 AND repo = ?2",
         )?;
-        let record = stmt.query_row(params![feature, repo], |row| {
-            Ok(LayerRecord {
-                id: row.get(0)?,
-                feature: row.get(1)?,
-                repo: row.get(2)?,
-                worktree: row.get(3)?,
-                base_commit: row.get(4)?,
-                head_commit: row.get(5)?,
-                fingerprint: row.get(6)?,
-                indexed_at: row.get(7)?,
+        let record = stmt
+            .query_row(params![feature, repo], |row| {
+                Ok(LayerRecord {
+                    id: row.get(0)?,
+                    feature: row.get(1)?,
+                    repo: row.get(2)?,
+                    worktree: row.get(3)?,
+                    base_commit: row.get(4)?,
+                    head_commit: row.get(5)?,
+                    fingerprint: row.get(6)?,
+                    indexed_at: row.get(7)?,
+                })
             })
-        }).optional()?;
+            .optional()?;
         Ok(record)
     }
 
     pub fn get_layer_tombstones(&self, layer_id: i64) -> Result<Vec<String>> {
         let mut stmt = self.conn.prepare_cached(
-            "SELECT path FROM layer_tombstones WHERE layer_id = ?1 ORDER BY path"
+            "SELECT path FROM layer_tombstones WHERE layer_id = ?1 ORDER BY path",
         )?;
-        let paths = stmt.query_map(params![layer_id], |row| row.get(0))?
+        let paths = stmt
+            .query_map(params![layer_id], |row| row.get(0))?
             .collect::<std::result::Result<Vec<String>, _>>()?;
         Ok(paths)
     }
 
     pub fn set_layer_tombstones(&self, layer_id: i64, paths: &[&str]) -> Result<()> {
-        self.conn.execute("DELETE FROM layer_tombstones WHERE layer_id = ?1", params![layer_id])?;
-        let mut stmt = self.conn.prepare_cached(
-            "INSERT INTO layer_tombstones (layer_id, path) VALUES (?1, ?2)"
+        self.conn.execute(
+            "DELETE FROM layer_tombstones WHERE layer_id = ?1",
+            params![layer_id],
         )?;
+        let mut stmt = self
+            .conn
+            .prepare_cached("INSERT INTO layer_tombstones (layer_id, path) VALUES (?1, ?2)")?;
         for p in paths {
             stmt.execute(params![layer_id, p])?;
         }
@@ -167,11 +182,17 @@ impl GraphDb {
     }
 
     pub fn delete_layer_record(&self, layer_id: i64) -> Result<()> {
-        self.conn.execute("DELETE FROM layers WHERE id = ?1", params![layer_id])?;
+        self.conn
+            .execute("DELETE FROM layers WHERE id = ?1", params![layer_id])?;
         Ok(())
     }
 
-    pub fn update_layer_fingerprint_and_head(&self, layer_id: i64, fingerprint: &str, head_commit: Option<&str>) -> Result<()> {
+    pub fn update_layer_fingerprint_and_head(
+        &self,
+        layer_id: i64,
+        fingerprint: &str,
+        head_commit: Option<&str>,
+    ) -> Result<()> {
         let now = now_timestamp();
         self.conn.execute(
             "UPDATE layers SET fingerprint = ?1, head_commit = ?2, indexed_at = ?3 WHERE id = ?4",
@@ -190,7 +211,9 @@ impl GraphDb {
 
     pub fn drop_feature_layers(&self, feature: &str) -> Result<usize> {
         let layer_ids: Vec<(i64, String)> = {
-            let mut stmt = self.conn.prepare("SELECT id, repo FROM layers WHERE feature = ?1")?;
+            let mut stmt = self
+                .conn
+                .prepare("SELECT id, repo FROM layers WHERE feature = ?1")?;
             let rows = stmt.query_map([feature], |r| Ok((r.get(0)?, r.get(1)?)))?;
             let mut items = Vec::new();
             for item in rows {
@@ -201,7 +224,9 @@ impl GraphDb {
         for (id, repo) in &layer_ids {
             let layer_repo = format!("{repo}/{id}");
             let _ = self.delete_repo(&layer_repo);
-            let _ = self.conn.execute("DELETE FROM layer_tombstones WHERE layer_id = ?1", [id]);
+            let _ = self
+                .conn
+                .execute("DELETE FROM layer_tombstones WHERE layer_id = ?1", [id]);
             let _ = self.conn.execute("DELETE FROM layers WHERE id = ?1", [id]);
         }
         Ok(layer_ids.len())
@@ -232,7 +257,7 @@ impl GraphDb {
              FROM layers l
              LEFT JOIN files f ON f.repo = l.repo || '/' || l.id
              GROUP BY l.id
-             ORDER BY l.feature, l.repo"
+             ORDER BY l.feature, l.repo",
         )?;
         let rows = stmt.query_map([], |r| {
             Ok(LayerStats {

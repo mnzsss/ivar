@@ -265,15 +265,22 @@ impl TestHall {
 
     pub fn promote(&self, feature: &str, repo: &str) -> Utf8PathBuf {
         let mut create_cmd = ivar();
-        create_cmd.current_dir(&self.hall_root).args(["feature", "create", feature]);
+        create_cmd
+            .current_dir(&self.hall_root)
+            .args(["feature", "create", feature]);
         create_cmd.assert().success().code(0);
 
         let mut promote_cmd = ivar();
-        promote_cmd.current_dir(&self.hall_root).args(["feature", "promote", feature, repo]);
+        promote_cmd
+            .current_dir(&self.hall_root)
+            .args(["feature", "promote", feature, repo]);
         promote_cmd.assert().success().code(0);
 
         let worktree = self.hall_root.join(".ivar/repos").join(repo).join(feature);
-        assert!(worktree.exists(), "Promoted worktree should exist at {worktree}");
+        assert!(
+            worktree.exists(),
+            "Promoted worktree should exist at {worktree}"
+        );
         worktree
     }
 
@@ -292,11 +299,19 @@ impl TestHall {
 
     pub fn connect_view(&self, feature: &str) -> Utf8PathBuf {
         let mut cmd = ivar();
-        cmd.current_dir(&self.hall_root).args(["session", "start", feature, "--detached", "--json"]);
+        cmd.current_dir(&self.hall_root).args([
+            "session",
+            "start",
+            feature,
+            "--detached",
+            "--json",
+        ]);
         let assert = cmd.assert().success().code(0);
         let stdout = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
         let val: Value = serde_json::from_str(&stdout).unwrap();
-        let view_dir = val["view_dir"].as_str().expect("view_dir in session start output");
+        let view_dir = val["view_dir"]
+            .as_str()
+            .expect("view_dir in session start output");
         Utf8PathBuf::from(view_dir)
     }
 
@@ -317,12 +332,17 @@ impl TestHall {
         }
 
         if let Some(primary) = val.get("primary_symbols").and_then(|p| p.as_array()) {
-            val["sources"] = serde_json::json!(primary.iter().map(|s| {
-                serde_json::json!({
-                    "content": s.get("code").cloned().unwrap_or(Value::Null),
-                    "file_path": s.get("file_path").cloned().unwrap_or(Value::Null),
-                })
-            }).collect::<Vec<_>>());
+            val["sources"] = serde_json::json!(
+                primary
+                    .iter()
+                    .map(|s| {
+                        serde_json::json!({
+                            "content": s.get("code").cloned().unwrap_or(Value::Null),
+                            "file_path": s.get("file_path").cloned().unwrap_or(Value::Null),
+                        })
+                    })
+                    .collect::<Vec<_>>()
+            );
         }
 
         val

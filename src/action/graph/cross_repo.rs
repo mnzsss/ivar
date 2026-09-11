@@ -136,7 +136,9 @@ pub fn link_cross_repo_edges(db: &GraphDb) -> Result<CrossRepoLinkOutcome, Cross
         // `GET /projects/:param` reaches the server's `GET /projects/:id`.
         let mut route_by_key: HashMap<String, i64> = HashMap::new();
         {
-            let mut stmt = conn.prepare("SELECT id, name FROM symbols WHERE kind = 'route' AND repo NOT LIKE '%/%'")?;
+            let mut stmt = conn.prepare(
+                "SELECT id, name FROM symbols WHERE kind = 'route' AND repo NOT LIKE '%/%'",
+            )?;
             let routes = stmt.query_map([], |row| {
                 Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
             })?;

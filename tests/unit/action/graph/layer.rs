@@ -1,7 +1,14 @@
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing
+)]
+
+use crate::action::graph::layer::ensure_layer_indexed;
+use crate::store::graph::db::GraphDb;
+use crate::store::layout::Layout;
 use camino::Utf8PathBuf;
-use ivar::action::graph::layer::ensure_layer_indexed;
-use ivar::store::graph::db::GraphDb;
-use ivar::store::layout::Layout;
 use tempfile::tempdir;
 
 #[test]
@@ -38,7 +45,7 @@ fn test_ensure_layer_indexed_builds_delta_and_tombstones() {
         .current_dir(&wt)
         .output()
         .unwrap();
-    let base_commit = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    let base_commit = String::from_utf8_lossy(&out.stdout).trim().to_owned();
 
     // Modify base.rs, delete to_delete.rs, add new.rs
     std::fs::write(wt.join("base.rs"), "pub fn base_modified() {}\n").unwrap();

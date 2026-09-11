@@ -20,7 +20,10 @@ fn test_resolve_session_view_base_when_outside_session() {
     let layout = Layout::at(root.clone());
     std::fs::create_dir_all(layout.features_dir()).unwrap();
 
-    let core_repo = layout.repo_worktree(&RepoName::new("core").unwrap(), &BranchName::new("main").unwrap());
+    let core_repo = layout.repo_worktree(
+        &RepoName::new("core").unwrap(),
+        &BranchName::new("main").unwrap(),
+    );
     std::fs::create_dir_all(&core_repo).unwrap();
 
     let view = resolve_session_view(&layout, &root).unwrap();
@@ -53,7 +56,11 @@ fn test_resolve_session_view_feature_inside_worktree() {
 
     let view = resolve_session_view(&layout, &core_feat_wt).unwrap();
     match view {
-        SessionView::FeatureSession { feature_name, repos, .. } => {
+        SessionView::FeatureSession {
+            feature_name,
+            repos,
+            ..
+        } => {
             assert_eq!(feature_name, "add-auth");
             assert_eq!(repos.len(), 1);
             assert_eq!(repos[0].repo_name, "core");
