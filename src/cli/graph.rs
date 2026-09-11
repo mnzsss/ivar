@@ -247,6 +247,9 @@ pub struct GraphCleanArgs {
     /// Specific repository to remove from the graph index.
     #[arg(long)]
     pub repo: Option<String>,
+    /// Specific feature whose layers should be removed from the graph index.
+    #[arg(long)]
+    pub feature: Option<String>,
     /// Remove all repositories and data from the graph database.
     #[arg(long)]
     pub all: bool,
@@ -256,6 +259,7 @@ impl From<GraphCleanArgs> for crate::action::graph::input::CleanInput {
     fn from(args: GraphCleanArgs) -> Self {
         Self {
             repo: args.repo,
+            feature: args.feature,
             all: args.all,
         }
     }

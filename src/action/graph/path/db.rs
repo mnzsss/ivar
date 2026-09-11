@@ -25,7 +25,7 @@ pub(super) fn resolve_candidates(
     let mut candidates = HashSet::new();
 
     // Try matching symbol name directly
-    let mut sym_stmt = conn.prepare_cached("SELECT id FROM symbols WHERE name = ?1")?;
+    let mut sym_stmt = conn.prepare_cached("SELECT id FROM visible_symbols WHERE name = ?1")?;
     let mut rows = sym_stmt.query(params![name_or_file])?;
     while let Some(row) = rows.next()? {
         candidates.insert(row.get(0)?);
@@ -36,8 +36,8 @@ pub(super) fn resolve_candidates(
         let normalized = name_or_file.replace('\\', "/");
         let like_pattern = format!("%/{}", normalized);
         let mut file_stmt = conn.prepare_cached(
-            "SELECT s.id FROM symbols s
-             JOIN files f ON s.file_id = f.id
+            "SELECT s.id FROM visible_symbols s
+             JOIN visible_files f ON s.file_id = f.id
              WHERE f.path = ?1 OR (f.repo || '/' || f.path) = ?1 OR f.path LIKE ?2",
         )?;
         let mut rows = file_stmt.query(params![normalized, like_pattern])?;
@@ -61,9 +61,9 @@ pub(super) fn get_outgoing_edges(
             COALESCE(s_to.name, e.to_name) AS to_name,
             e.kind,
             e.line
-         FROM edges e
-         JOIN symbols s_from ON e.from_symbol_id = s_from.id
-         LEFT JOIN symbols s_to ON (e.to_symbol_id = s_to.id OR (e.to_symbol_id IS NULL AND e.to_name = s_to.name))
+         FROM visible_edges e
+         JOIN visible_symbols s_from ON e.from_symbol_id = s_from.id
+         LEFT JOIN visible_symbols s_to ON (e.to_symbol_id = s_to.id OR (e.to_symbol_id IS NULL AND e.to_name = s_to.name))
          WHERE e.from_symbol_id = ?1",
     )?;
 
@@ -104,10 +104,10 @@ pub(super) fn get_incoming_edges(
             COALESCE(s_to.name, e.to_name) AS to_name,
             e.kind,
             e.line
-         FROM edges e
-         JOIN symbols s_from ON e.from_symbol_id = s_from.id
-         LEFT JOIN symbols s_to ON s_to.id = ?1
-         WHERE (e.to_symbol_id = ?1 OR (e.to_symbol_id IS NULL AND e.to_name = (SELECT name FROM symbols WHERE id = ?1)))",
+         FROM visible_edges e
+         JOIN visible_symbols s_from ON e.from_symbol_id = s_from.id
+         LEFT JOIN visible_symbols s_to ON s_to.id = ?1
+         WHERE (e.to_symbol_id = ?1 OR (e.to_symbol_id IS NULL AND e.to_name = (SELECT name FROM visible_symbols WHERE id = ?1)))",
     )?;
 
     let mut records = Vec::new();

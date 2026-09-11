@@ -42,3 +42,7 @@ pub mod workspace;
 pub(crate) use mutation::{ensure_not_fully_integrated, ensure_unrestricted_session_allowed};
 
 pub mod select;
+
+#[cfg(test)]
+#[path = "../../../tests/unit/action/feature/lifecycle_graph.rs"]
+mod lifecycle_graph_tests;

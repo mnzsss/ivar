@@ -106,22 +106,7 @@ pub fn derive_test_command(
 
     // 1. Rust / Cargo
     if norm_path.ends_with(".rs") {
-        let is_cargo_repo = if let Some(root) = repo_root {
-            root.join("Cargo.toml").is_file()
-                || root.join(repo_name).join("Cargo.toml").is_file()
-                || root
-                    .join(".ivar/repos")
-                    .join(repo_name)
-                    .join("main/Cargo.toml")
-                    .is_file()
-                || root
-                    .join(".ivar/repos")
-                    .join(repo_name)
-                    .join("Cargo.toml")
-                    .is_file()
-        } else {
-            true
-        };
+        let is_cargo_repo = true;
 
         if is_cargo_repo {
             // Check integration test file under `tests/`
@@ -292,7 +277,16 @@ pub fn find_affected_tests_with_root(
     for tf in &target_files {
         if is_test_file(&tf.path) {
             affected_tests_set.insert((tf.repo.clone(), tf.path.clone()));
-            let cmd = derive_test_command(hall_root, &tf.repo, &tf.path);
+            let repo_root = db
+                .get_visible_repo(&tf.repo)
+                .ok()
+                .flatten()
+                .map(|r| std::path::PathBuf::from(r.root_path));
+            let cmd = derive_test_command(
+                repo_root.as_deref().or(hall_root),
+                &tf.repo,
+                &tf.path,
+            );
             let rec = AffectedRecommendation {
                 repo: tf.repo.clone(),
                 test_file: tf.path.clone(),
@@ -437,7 +431,16 @@ pub fn find_affected_tests_with_root(
                             )
                         };
 
-                        let cmd = derive_test_command(hall_root, &edge.from_repo, &edge.from_path);
+                        let repo_root = db
+                            .get_visible_repo(&edge.from_repo)
+                            .ok()
+                            .flatten()
+                            .map(|r| std::path::PathBuf::from(r.root_path));
+                        let cmd = derive_test_command(
+                            repo_root.as_deref().or(hall_root),
+                            &edge.from_repo,
+                            &edge.from_path,
+                        );
 
                         let candidate = AffectedRecommendation {
                             repo: edge.from_repo.clone(),

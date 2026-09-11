@@ -26,8 +26,9 @@ pub(super) enum Step {
     RemoteOps = 3,
     MoveFeatureDir = 4,
     UpdateChildren = 5,
-    MoveSessions = 6,
-    Finish = 7,
+    UpdateFeatureLayers = 6,
+    MoveSessions = 7,
+    Finish = 8,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -259,6 +260,15 @@ pub(super) fn perform_step(
                     }
                 }
             }
+            Ok(Step::UpdateFeatureLayers)
+        }
+        Step::UpdateFeatureLayers => {
+            let db_path = layout.ivar_dir().join("memory.db");
+            if db_path.is_file()
+                && let Ok(db) = crate::store::graph::db::GraphDb::open(db_path.as_std_path())
+            {
+                let _ = db.rename_feature_layers(plan.old_feature.name.as_str(), plan.new_name.as_str());
+            }
             Ok(Step::MoveSessions)
         }
         Step::MoveSessions => {
@@ -320,6 +330,15 @@ pub(super) fn undo_step(
                         &session_ref.view_dir,
                     )?;
                 }
+            }
+            Ok(Step::UpdateFeatureLayers)
+        }
+        Step::UpdateFeatureLayers => {
+            let db_path = layout.ivar_dir().join("memory.db");
+            if db_path.is_file()
+                && let Ok(db) = crate::store::graph::db::GraphDb::open(db_path.as_std_path())
+            {
+                let _ = db.rename_feature_layers(plan.new_name.as_str(), plan.old_feature.name.as_str());
             }
             Ok(Step::UpdateChildren)
         }

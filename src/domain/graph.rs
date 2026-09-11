@@ -252,14 +252,24 @@ pub struct Edge {
     pub confidence: f64,
 }
 
+/// High-level statistics for a feature layer.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+pub struct LayerStats {
+    pub feature: String,
+    pub repo: String,
+    pub file_count: usize,
+    pub base_commit: String,
+}
+
 /// High-level statistics for the indexed codebase graph.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 pub struct GraphStats {
     pub repo_count: usize,
     pub file_count: usize,
     pub symbol_count: usize,
     pub edge_count: usize,
     pub db_size_bytes: u64,
+    pub layers: Vec<LayerStats>,
 }
 
 /// Snippet of code around a primary symbol.

@@ -101,7 +101,7 @@ pub fn explore(
     let mut file_spans: Vec<FileSpans> = Vec::new();
 
     for candidate in &candidates {
-        let repo_root = if let Some(repo_row) = db.get_repo(&candidate.symbol.repo)? {
+        let repo_root = if let Some(repo_row) = db.get_visible_repo(&candidate.symbol.repo)? {
             PathBuf::from(repo_row.root_path)
         } else {
             hall_root.join(&candidate.symbol.repo)
@@ -380,7 +380,7 @@ pub fn explore(
 fn max_source_files(db: &GraphDb) -> Result<usize, ExploreError> {
     let files: i64 = db
         .conn()
-        .query_row("SELECT count(*) FROM files", [], |row| row.get(0))
+        .query_row("SELECT count(*) FROM visible_files", [], |row| row.get(0))
         .map_err(QueryError::from)?;
     Ok(match files {
         ..150 => 4,

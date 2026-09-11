@@ -1,6 +1,7 @@
 //! Pure synchronous SQLite database layer for codebase graph storage and querying.
 
 pub mod edges;
+pub mod layer;
 pub mod index;
 pub mod repo;
 pub mod symbols;
@@ -37,7 +38,9 @@ impl GraphDb {
         conn.busy_timeout(std::time::Duration::from_secs(10))?;
         schema::apply_pragmas(&conn, true)?;
         schema::apply_migrations(&conn)?;
-        Ok(Self { conn })
+        let db = Self { conn };
+        db.ensure_views_base_mode()?;
+        Ok(db)
     }
 
     /// Opens an in-memory SQLite database initialized with the graph schema.
@@ -45,9 +48,10 @@ impl GraphDb {
         let conn = Connection::open_in_memory()?;
         schema::apply_pragmas(&conn, false)?;
         schema::apply_migrations(&conn)?;
-        Ok(Self { conn })
+        let db = Self { conn };
+        db.ensure_views_base_mode()?;
+        Ok(db)
     }
-
     /// Opens an existing database in read-only mode.
     /// Does not create directories, does not mutate journal mode, and does not apply migrations.
     pub fn open_read_only(path: &Path) -> Result<Self> {
@@ -55,13 +59,14 @@ impl GraphDb {
             path,
             rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
         )?;
-        conn.execute_batch(
+        let db = Self { conn };
+        let _ = db.ensure_views_base_mode();
+        db.conn.execute_batch(
             "PRAGMA query_only = ON;
              PRAGMA foreign_keys = ON;",
         )?;
-        Ok(Self { conn })
+        Ok(db)
     }
-
     /// Borrows the underlying SQLite connection.
     pub fn conn(&self) -> &Connection {
         &self.conn
@@ -76,16 +81,16 @@ impl GraphDb {
     pub fn stats(&self) -> Result<GraphStats> {
         let repo_count: i64 = self
             .conn
-            .query_row("SELECT COUNT(*) FROM repos", [], |r| r.get(0))?;
+            .query_row("SELECT COUNT(*) FROM repos WHERE id NOT LIKE '%/%'", [], |r| r.get(0))?;
         let file_count: i64 = self
             .conn
-            .query_row("SELECT COUNT(*) FROM files", [], |r| r.get(0))?;
+            .query_row("SELECT COUNT(*) FROM files WHERE repo NOT LIKE '%/%'", [], |r| r.get(0))?;
         let symbol_count: i64 = self
             .conn
-            .query_row("SELECT COUNT(*) FROM symbols", [], |r| r.get(0))?;
+            .query_row("SELECT COUNT(*) FROM symbols WHERE repo NOT LIKE '%/%'", [], |r| r.get(0))?;
         let edge_count: i64 = self
             .conn
-            .query_row("SELECT COUNT(*) FROM edges", [], |r| r.get(0))?;
+            .query_row("SELECT COUNT(*) FROM edges WHERE repo NOT LIKE '%/%'", [], |r| r.get(0))?;
         let page_count: i64 = self
             .conn
             .query_row("PRAGMA page_count", [], |r| r.get(0))
@@ -94,6 +99,7 @@ impl GraphDb {
             .conn
             .query_row("PRAGMA page_size", [], |r| r.get(0))
             .unwrap_or(4096);
+        let layers = self.get_all_layer_stats().unwrap_or_default();
 
         Ok(GraphStats {
             repo_count: repo_count as usize,
@@ -101,6 +107,7 @@ impl GraphDb {
             symbol_count: symbol_count as usize,
             edge_count: edge_count as usize,
             db_size_bytes: (page_count * page_size) as u64,
+            layers,
         })
     }
 }
@@ -108,3 +115,7 @@ impl GraphDb {
 #[cfg(test)]
 #[path = "../../../../tests/unit/store/graph/db.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "../../../../tests/unit/store/graph/views.rs"]
+mod views_tests;

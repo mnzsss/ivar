@@ -103,6 +103,7 @@ fn test_graph_stats_json_roundtrip() {
         symbol_count: 1500,
         edge_count: 4200,
         db_size_bytes: 1048576,
+        layers: Vec::new(),
     };
 
     let json = serde_json::to_string(&stats).expect("serialize stats");

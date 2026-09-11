@@ -184,7 +184,7 @@ pub fn resolve_query_paths(
 
             // 1. Check exact match: f.path = ?
             let mut exact_stmt = conn.prepare_cached(
-                "SELECT id, repo, path FROM files WHERE (?1 IS NULL OR repo = ?1) AND path = ?2 LIMIT 2",
+                "SELECT id, repo, path FROM visible_files WHERE (?1 IS NULL OR repo = ?1) AND path = ?2 LIMIT 2",
             )?;
             let exact_matches: Vec<(i64, String, String)> = exact_stmt
                 .query_map(params![repo, trimmed], |r| {
@@ -204,7 +204,7 @@ pub fn resolve_query_paths(
 
             // 2. Check workspace-relative / suffix match
             let mut rel_stmt = conn.prepare_cached(
-                "SELECT id, repo, path FROM files
+                "SELECT id, repo, path FROM visible_files
                  WHERE (?1 IS NULL OR repo = ?1)
                    AND (
                      path = ?2
@@ -235,7 +235,7 @@ pub fn resolve_query_paths(
             // 3. Basename or Directory/Subtree match
             let clean_dir = trimmed.trim_end_matches('/');
             let mut dir_stmt = conn.prepare_cached(
-                "SELECT id, repo, path FROM files
+                "SELECT id, repo, path FROM visible_files
                  WHERE (?1 IS NULL OR repo = ?1)
                    AND (
                      path LIKE ?2 || '/%' ESCAPE '\\'
@@ -254,7 +254,7 @@ pub fn resolve_query_paths(
             // so drop leading segments until the rest is a repo-relative directory.
             if dir_matches.is_empty() {
                 let mut subtree_stmt = conn.prepare_cached(
-                    "SELECT id, repo, path FROM files
+                    "SELECT id, repo, path FROM visible_files
                      WHERE (?1 IS NULL OR repo = ?1) AND path LIKE ?2 || '/%' ESCAPE '\\'
                      LIMIT 50",
                 )?;
@@ -286,7 +286,7 @@ pub fn resolve_query_paths(
 
             // 4. Basename lookup across database
             let mut base_stmt = conn.prepare_cached(
-                "SELECT id, repo, path FROM files
+                "SELECT id, repo, path FROM visible_files
                  WHERE (?1 IS NULL OR repo = ?1)
                    AND (path = ?2 OR path LIKE '%/' || ?2 ESCAPE '\\')
                  LIMIT 10",
@@ -386,8 +386,8 @@ pub fn explore_find(
             let mut stmt = conn.prepare_cached(
                 "SELECT s.id, s.file_id, s.repo, s.name, s.kind, s.scope, s.signature, s.docstring,
                         s.start_line, s.start_col, s.end_line, s.end_col, s.is_exported, s.complexity, f.path
-                 FROM symbols s
-                 JOIN files f ON s.file_id = f.id
+                 FROM visible_symbols s
+                 JOIN visible_files f ON s.file_id = f.id
                  WHERE s.file_id = ?1
                  ORDER BY s.start_line ASC, s.start_col ASC
                  LIMIT 50",
@@ -434,8 +434,8 @@ pub fn explore_find(
             let mut stmt = conn.prepare_cached(
                 "SELECT s.id, s.file_id, s.repo, s.name, s.kind, s.scope, s.signature, s.docstring,
                         s.start_line, s.start_col, s.end_line, s.end_col, s.is_exported, s.complexity, f.path
-                 FROM symbols s
-                 JOIN files f ON s.file_id = f.id
+                 FROM visible_symbols s
+                 JOIN visible_files f ON s.file_id = f.id
                  WHERE s.name = ?1
                    AND (?2 IS NULL OR s.repo = ?2)
                  LIMIT 50",
@@ -454,8 +454,8 @@ pub fn explore_find(
             let mut stmt = conn.prepare_cached(
                 "SELECT s.id, s.file_id, s.repo, s.name, s.kind, s.scope, s.signature, s.docstring,
                         s.start_line, s.start_col, s.end_line, s.end_col, s.is_exported, s.complexity, f.path
-                 FROM symbols s
-                 JOIN files f ON s.file_id = f.id
+                 FROM visible_symbols s
+                 JOIN visible_files f ON s.file_id = f.id
                  WHERE s.name LIKE ?1
                    AND s.name != ?2
                    AND (?3 IS NULL OR s.repo = ?3)
@@ -481,8 +481,8 @@ pub fn explore_find(
             let mut stmt = conn.prepare_cached(
                 "SELECT s.id, s.file_id, s.repo, s.name, s.kind, s.scope, s.signature, s.docstring,
                         s.start_line, s.start_col, s.end_line, s.end_col, s.is_exported, s.complexity, f.path
-                 FROM symbols s
-                 JOIN files f ON s.file_id = f.id
+                 FROM visible_symbols s
+                 JOIN visible_files f ON s.file_id = f.id
                  WHERE (instr('/' || lower(f.path), '/' || lower(?1) || '/') > 0
                         OR instr('/' || lower(f.path), '/' || lower(?1) || '.') > 0
                         OR instr('/' || lower(f.path), '/' || lower(?1) || 's/') > 0
@@ -542,8 +542,8 @@ pub fn explore_find(
         let mut stmt = conn.prepare_cached(
             "SELECT s.id, s.file_id, s.repo, s.name, s.kind, s.scope, s.signature, s.docstring,
                     s.start_line, s.start_col, s.end_line, s.end_col, s.is_exported, s.complexity, f.path
-             FROM symbols s
-             JOIN files f ON s.file_id = f.id
+             FROM visible_symbols s
+             JOIN visible_files f ON s.file_id = f.id
              WHERE lower(s.kind) = 'route'
                AND (?1 IS NULL OR s.repo = ?1)
              ORDER BY f.path ASC, s.start_line ASC
@@ -713,8 +713,8 @@ pub fn find_symbols(
         let mut stmt = conn.prepare_cached(
             "SELECT s.id, s.file_id, s.repo, s.name, s.kind, s.scope, s.signature, s.docstring,
                     s.start_line, s.start_col, s.end_line, s.end_col, s.is_exported, s.complexity, f.path
-             FROM symbols s
-             JOIN files f ON s.file_id = f.id
+             FROM visible_symbols s
+             JOIN visible_files f ON s.file_id = f.id
              WHERE s.name = ?1 AND (?2 IS NULL OR s.repo = ?2)
              LIMIT ?3",
         )?;
@@ -741,8 +741,8 @@ pub fn find_symbols(
         let mut stmt = conn.prepare_cached(
             "SELECT s.id, s.file_id, s.repo, s.name, s.kind, s.scope, s.signature, s.docstring,
                     s.start_line, s.start_col, s.end_line, s.end_col, s.is_exported, s.complexity, f.path
-             FROM symbols s
-             JOIN files f ON s.file_id = f.id
+             FROM visible_symbols s
+             JOIN visible_files f ON s.file_id = f.id
              WHERE s.name LIKE ?1 AND (?2 IS NULL OR s.repo = ?2)
              ORDER BY length(s.name) ASC
              LIMIT ?3",
@@ -774,8 +774,8 @@ pub fn find_symbols(
             "SELECT s.id, s.file_id, s.repo, s.name, s.kind, s.scope, s.signature, s.docstring,
                     s.start_line, s.start_col, s.end_line, s.end_col, s.is_exported, s.complexity, f.path
              FROM symbols_fts fts
-             JOIN symbols s ON fts.rowid = s.id
-             JOIN files f ON s.file_id = f.id
+             JOIN visible_symbols s ON fts.rowid = s.id
+             JOIN visible_files f ON s.file_id = f.id
              WHERE symbols_fts MATCH ?1 AND (?2 IS NULL OR s.repo = ?2)
              ORDER BY rank
              LIMIT ?3",

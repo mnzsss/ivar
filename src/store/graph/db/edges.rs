@@ -76,10 +76,11 @@ impl GraphDb {
                  ORDER BY s.is_exported DESC, s.id ASC
                  LIMIT 1
              )
-             WHERE repo = ?1
-               AND to_symbol_id IS NULL
-               AND to_name IS NOT NULL
-               AND EXISTS (
+            WHERE repo = ?1
+              AND edges.repo NOT LIKE '%/%'
+              AND to_symbol_id IS NULL
+              AND to_name IS NOT NULL
+              AND EXISTS (
                  SELECT 1 FROM symbols s
                  WHERE s.repo = edges.repo
                    AND s.name = edges.to_name

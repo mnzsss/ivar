@@ -12,10 +12,12 @@ use std::path::Path;
 
 use serde_json::{Value, json};
 
+use crate::action::graph::freshness::ensure_session_freshness;
+use crate::action::graph::session::resolve_session_view;
 use crate::store::graph::db::GraphDb;
+use crate::store::layout::Layout;
 pub use dispatch::*;
 pub use tools::*;
-
 /// Sent on `initialize`. Hosts that show MCP tools as one-line devices (omp) may
 /// never put it in front of the model, so the `graph_explore` description and
 /// every answer repeat the parts that change behaviour.
@@ -177,6 +179,14 @@ where
                     }));
                 }
             };
+
+            if let Some(root) = hall_root {
+                let layout = Layout::at(camino::Utf8PathBuf::from_path_buf(root.to_path_buf()).unwrap_or_default());
+                let cwd = camino::Utf8PathBuf::from_path_buf(std::env::current_dir().unwrap_or_default()).unwrap_or_default();
+                if let Ok(view) = resolve_session_view(&layout, &cwd) {
+                    let _ = ensure_session_freshness(db, &layout, &view);
+                }
+            }
 
             match dispatch_tool_call(db, hall_root, name, &tool_args, refresh_index) {
                 Ok(text_content) => Some(json!({

@@ -431,6 +431,12 @@ fn apply_cleanup(
         )
     })?;
 
+    let db_path = layout.ivar_dir().join("memory.db");
+    if db_path.is_file()
+        && let Ok(db) = crate::store::graph::db::GraphDb::open(db_path.as_std_path())
+    {
+        let _ = db.drop_feature_layers(feature.name.as_str());
+    }
     let apply_outcome = CleanupApplyOutcome {
         feature: feature.name.clone(),
         branch: feature.branch.clone(),

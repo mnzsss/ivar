@@ -73,7 +73,7 @@ impl GraphDb {
             "SELECT s.id, s.file_id, s.repo, s.name, s.kind, s.scope, s.signature, s.docstring,
                     s.start_line, s.start_col, s.end_line, s.end_col, s.is_exported, s.complexity
              FROM symbols_fts fts
-             JOIN symbols s ON fts.rowid = s.id
+             JOIN visible_symbols s ON fts.rowid = s.id
              WHERE symbols_fts MATCH ?1
              ORDER BY rank
              LIMIT ?2",
@@ -132,8 +132,8 @@ impl GraphDb {
                 "SELECT s.id, s.file_id, s.repo, s.name, s.kind, s.scope, s.signature, s.docstring,
                         s.start_line, s.start_col, s.end_line, s.end_col, s.is_exported, s.complexity,
                         f.path
-                 FROM symbols s
-                 JOIN files f ON s.file_id = f.id
+                 FROM visible_symbols s
+                 JOIN visible_files f ON s.file_id = f.id
                  WHERE s.repo = ?1
                    AND s.is_exported = 0
                    AND s.kind IN ('fn', 'method')
@@ -141,12 +141,12 @@ impl GraphDb {
                    AND s.name NOT LIKE 'test_%'
                    AND s.name NOT LIKE '%_test'
                    AND NOT EXISTS (
-                       SELECT 1 FROM edges e
+                       SELECT 1 FROM visible_edges e
                        WHERE e.to_symbol_id = s.id
                          AND e.kind IN ('CALLS', 'IMPLEMENTS', 'INHERITS')
                    )
                    AND NOT EXISTS (
-                       SELECT 1 FROM edges e
+                       SELECT 1 FROM visible_edges e
                        WHERE e.to_name = s.name
                          AND e.kind IN ('CALLS', 'IMPLEMENTS', 'INHERITS')
                    )
@@ -157,20 +157,20 @@ impl GraphDb {
                 "SELECT s.id, s.file_id, s.repo, s.name, s.kind, s.scope, s.signature, s.docstring,
                         s.start_line, s.start_col, s.end_line, s.end_col, s.is_exported, s.complexity,
                         f.path
-                 FROM symbols s
-                 JOIN files f ON s.file_id = f.id
+                 FROM visible_symbols s
+                 JOIN visible_files f ON s.file_id = f.id
                  WHERE s.is_exported = 0
                    AND s.kind IN ('fn', 'method')
                    AND s.name NOT IN ('main', 'run', 'start', 'init', 'test', 'new')
                    AND s.name NOT LIKE 'test_%'
                    AND s.name NOT LIKE '%_test'
                    AND NOT EXISTS (
-                       SELECT 1 FROM edges e
+                       SELECT 1 FROM visible_edges e
                        WHERE e.to_symbol_id = s.id
                          AND e.kind IN ('CALLS', 'IMPLEMENTS', 'INHERITS')
                    )
                    AND NOT EXISTS (
-                       SELECT 1 FROM edges e
+                       SELECT 1 FROM visible_edges e
                        WHERE e.to_name = s.name
                          AND e.kind IN ('CALLS', 'IMPLEMENTS', 'INHERITS')
                    )
@@ -247,8 +247,8 @@ impl GraphDb {
                 "SELECT s.id, s.file_id, s.repo, s.name, s.kind, s.scope, s.signature, s.docstring,
                         s.start_line, s.start_col, s.end_line, s.end_col, s.is_exported, s.complexity,
                         f.path
-                 FROM symbols s
-                 JOIN files f ON s.file_id = f.id
+                 FROM visible_symbols s
+                 JOIN visible_files f ON s.file_id = f.id
                  WHERE s.complexity >= ?1 AND s.repo = ?2
                  ORDER BY s.complexity DESC, s.name ASC
                  LIMIT ?3"
@@ -257,8 +257,8 @@ impl GraphDb {
                 "SELECT s.id, s.file_id, s.repo, s.name, s.kind, s.scope, s.signature, s.docstring,
                         s.start_line, s.start_col, s.end_line, s.end_col, s.is_exported, s.complexity,
                         f.path
-                 FROM symbols s
-                 JOIN files f ON s.file_id = f.id
+                 FROM visible_symbols s
+                 JOIN visible_files f ON s.file_id = f.id
                  WHERE s.complexity >= ?1
                  ORDER BY s.complexity DESC, s.name ASC
                  LIMIT ?2"

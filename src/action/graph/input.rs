@@ -98,5 +98,6 @@ pub struct GraphViewInput {
 #[derive(Debug, Clone)]
 pub struct CleanInput {
     pub repo: Option<String>,
+    pub feature: Option<String>,
     pub all: bool,
 }

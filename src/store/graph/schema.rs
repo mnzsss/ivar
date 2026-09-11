@@ -102,7 +102,7 @@ END;
 
 /// Databases below this `user_version` lack word search, and their rows predate
 /// import references, JSX and HTTP client edges, so every file is re-extracted.
-const SEARCH_SCHEMA_VERSION: i64 = 3;
+const SEARCH_SCHEMA_VERSION: i64 = 4;
 
 /// Configures SQLite pragmas for performance and data integrity.
 pub fn apply_pragmas(conn: &Connection, is_disk: bool) -> rusqlite::Result<()> {
@@ -129,7 +129,35 @@ pub fn apply_migrations(conn: &Connection) -> rusqlite::Result<()> {
         "CREATE INDEX IF NOT EXISTS idx_symbols_complexity ON symbols(complexity) WHERE complexity IS NOT NULL;",
     )?;
 
-    apply_search_migration(conn)
+    apply_search_migration(conn)?;
+    apply_layer_migration(conn)
+}
+
+fn apply_layer_migration(conn: &Connection) -> rusqlite::Result<()> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS layers (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            feature TEXT NOT NULL,
+            repo TEXT NOT NULL,
+            worktree TEXT NOT NULL,
+            base_commit TEXT NOT NULL,
+            head_commit TEXT,
+            fingerprint TEXT,
+            indexed_at INTEGER NOT NULL,
+            UNIQUE(feature, repo)
+        );
+
+        CREATE TABLE IF NOT EXISTS layer_tombstones (
+            layer_id INTEGER NOT NULL REFERENCES layers(id) ON DELETE CASCADE,
+            path TEXT NOT NULL,
+            PRIMARY KEY(layer_id, path)
+        );"
+    )?;
+    let version: i64 = conn.query_row("PRAGMA user_version;", [], |row| row.get(0))?;
+    if version < SEARCH_SCHEMA_VERSION {
+        conn.execute_batch(&format!("PRAGMA user_version = {SEARCH_SCHEMA_VERSION};"))?;
+    }
+    Ok(())
 }
 
 fn apply_search_migration(conn: &Connection) -> rusqlite::Result<()> {

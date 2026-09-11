@@ -53,6 +53,7 @@ pub fn link_cross_repo_edges(db: &GraphDb) -> Result<CrossRepoLinkOutcome, Cross
              SET to_symbol_id = (
                  SELECT s.id FROM symbols s
                  WHERE s.repo != edges.repo
+                   AND s.repo NOT LIKE '%/%'
                    AND s.is_exported = 1
                    AND s.name = edges.to_name
                  LIMIT 1
@@ -66,6 +67,7 @@ pub fn link_cross_repo_edges(db: &GraphDb) -> Result<CrossRepoLinkOutcome, Cross
                AND EXISTS (
                    SELECT 1 FROM symbols s
                    WHERE s.repo != edges.repo
+                     AND s.repo NOT LIKE '%/%'
                      AND s.is_exported = 1
                      AND s.name = edges.to_name
                )",
@@ -83,6 +85,7 @@ pub fn link_cross_repo_edges(db: &GraphDb) -> Result<CrossRepoLinkOutcome, Cross
              SET to_symbol_id = (
                  SELECT s.id FROM symbols s
                  WHERE s.repo != edges.repo
+                   AND s.repo NOT LIKE '%/%'
                    AND s.name = edges.to_name
                  LIMIT 1
              ),
@@ -95,6 +98,7 @@ pub fn link_cross_repo_edges(db: &GraphDb) -> Result<CrossRepoLinkOutcome, Cross
                AND EXISTS (
                    SELECT 1 FROM symbols s
                    WHERE s.repo != edges.repo
+                     AND s.repo NOT LIKE '%/%'
                      AND s.name = edges.to_name
                )",
             [],
@@ -108,6 +112,7 @@ pub fn link_cross_repo_edges(db: &GraphDb) -> Result<CrossRepoLinkOutcome, Cross
              SET to_symbol_id = (
                  SELECT s.id FROM symbols s
                  WHERE s.repo != edges.repo
+                   AND s.repo NOT LIKE '%/%'
                    AND (s.name = edges.to_name OR s.scope = edges.to_name)
                  LIMIT 1
              ),
@@ -120,6 +125,7 @@ pub fn link_cross_repo_edges(db: &GraphDb) -> Result<CrossRepoLinkOutcome, Cross
                AND EXISTS (
                    SELECT 1 FROM symbols s
                    WHERE s.repo != edges.repo
+                     AND s.repo NOT LIKE '%/%'
                      AND (s.name = edges.to_name OR s.scope = edges.to_name)
                )",
             [],
@@ -130,7 +136,7 @@ pub fn link_cross_repo_edges(db: &GraphDb) -> Result<CrossRepoLinkOutcome, Cross
         // `GET /projects/:param` reaches the server's `GET /projects/:id`.
         let mut route_by_key: HashMap<String, i64> = HashMap::new();
         {
-            let mut stmt = conn.prepare("SELECT id, name FROM symbols WHERE kind = 'route'")?;
+            let mut stmt = conn.prepare("SELECT id, name FROM symbols WHERE kind = 'route' AND repo NOT LIKE '%/%'")?;
             let routes = stmt.query_map([], |row| {
                 Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
             })?;

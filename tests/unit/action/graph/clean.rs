@@ -122,6 +122,7 @@ fn test_clean_cmd_validation_errors() {
         &ctx,
         CleanInput {
             repo: None,
+            feature: None,
             all: false,
         },
     );
@@ -134,6 +135,7 @@ fn test_clean_cmd_validation_errors() {
         &ctx,
         CleanInput {
             repo: Some("repo1".into()),
+            feature: None,
             all: true,
         },
     );
@@ -152,6 +154,7 @@ fn test_clean_cmd_repo_not_found() {
         &ctx,
         CleanInput {
             repo: Some("nonexistent".into()),
+            feature: None,
             all: false,
         },
     );
@@ -178,6 +181,7 @@ fn test_clean_cmd_removes_repo_and_then_clean_all() {
         &ctx,
         CleanInput {
             repo: Some("repo1".into()),
+            feature: None,
             all: false,
         },
     )
@@ -202,6 +206,7 @@ fn test_clean_cmd_removes_repo_and_then_clean_all() {
         &ctx,
         CleanInput {
             repo: None,
+            feature: None,
             all: true,
         },
     )
