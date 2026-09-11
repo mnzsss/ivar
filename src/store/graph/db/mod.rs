@@ -32,6 +32,9 @@ impl GraphDb {
             std::fs::create_dir_all(parent)?;
         }
         let conn = Connection::open(path)?;
+        // Sessions of every feature share one hall database: wait out another
+        // session's migration or index write instead of failing to open.
+        conn.busy_timeout(std::time::Duration::from_secs(10))?;
         schema::apply_pragmas(&conn, true)?;
         schema::apply_migrations(&conn)?;
         Ok(Self { conn })
