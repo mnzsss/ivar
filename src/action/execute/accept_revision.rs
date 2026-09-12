@@ -34,21 +34,22 @@ pub fn accept_revision(ctx: &Ctx, input: AcceptRevisionInput) -> Outcome<AcceptR
     let plan = ctx.resolve(Utf8Path::new(&input.plan));
     super::import_legacy(&layout, &feature, plan.clone())?;
 
-    let fingerprint = hash::file(&plan)?;
+    let approval_fingerprint = hash::file(&plan)?;
     let approvals = ApprovalState::read(&layout, &feature)?.unwrap_or_else(ApprovalState::fresh);
     if approvals
         .record(Gate::Plan)
-        .is_none_or(|record| record.artifact_fingerprint.as_deref() != Some(&fingerprint))
+        .is_none_or(|record| record.artifact_fingerprint.as_deref() != Some(&approval_fingerprint))
     {
         return Err(Failure::blocked(
             "execute.plan_not_approved",
             "the supplied plan is not currently approved",
         ));
     }
+    let plan_fingerprint = super::plan_fingerprint::normalized_plan_fingerprint(&plan)?;
     let mut receipt = RunReceipt::read(&layout, &feature)?
         .ok_or_else(|| Failure::blocked("execute.run_missing", "no current run receipt exists"))?;
     let (session_id, provider) = super::resolve_coordinator(&layout, &feature, &receipt)?;
-    receipt.accept_revision(fingerprint, session_id, provider, rfc3339_now())?;
+    receipt.accept_revision(plan_fingerprint, session_id, provider, rfc3339_now())?;
     receipt.write(&layout)?;
     Ok(Report::new(AcceptRevisionOutcome {
         receipt_path: run::current_path(&layout, &feature),
@@ -56,3 +57,7 @@ pub fn accept_revision(ctx: &Ctx, input: AcceptRevisionInput) -> Outcome<AcceptR
         receipt,
     }))
 }
+
+#[cfg(test)]
+#[path = "../../../tests/unit/action/execute/accept_revision.rs"]
+mod tests;
