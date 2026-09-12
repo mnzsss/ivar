@@ -17,8 +17,8 @@ use crate::domain::feature::RunStatus;
 use crate::domain::name::SessionId;
 use crate::domain::provider::Provider;
 use crate::domain::session::SessionState;
-use crate::store::layout::Layout;
 use crate::infra::fs;
+use crate::store::layout::Layout;
 use crate::test_support::hall_root;
 
 fn seeded_execution_hall() -> (tempfile::TempDir, Utf8PathBuf) {
@@ -68,10 +68,7 @@ fn write_feature_session(layout: &Layout, feature: &FeatureName) {
     state.write(&view_dir).unwrap();
 }
 
-fn write_report(
-    layout: &Layout,
-    feature: &FeatureName,
-) -> Utf8PathBuf {
+fn write_report(layout: &Layout, feature: &FeatureName) -> Utf8PathBuf {
     let report_path = layout.feature_dir(feature).join("report.json");
     let report = crate::domain::feature::CoordinatorReport {
         summary: "done".to_owned(),
@@ -94,12 +91,7 @@ fn write_report(
     report_path
 }
 
-fn start_run(
-    ctx: &Ctx,
-    feature: &FeatureName,
-    plan: &Utf8Path,
-    resume: bool,
-) {
+fn start_run(ctx: &Ctx, feature: &FeatureName, plan: &Utf8Path, resume: bool) {
     execute_start::start(
         ctx,
         execute_start::StartInput {
