@@ -15,6 +15,9 @@
 //! (ARCHITECTURE.md, "1. `action` is the unit, and it has one output
 //! shape").
 
+#[path = "ivar/graph_dispatch.rs"]
+mod graph_dispatch;
+
 use std::io::{self, Write};
 use std::process::ExitCode;
 
@@ -57,7 +60,6 @@ use ivar::action::skill::{
     update as skill_update,
 };
 use ivar::action::sync;
-use ivar::cli::graph::GraphCommand;
 use ivar::cli::root::{
     Cli, Command, DiscoveryCommand, ExecuteCommand, FeatureCommand, McpCommand, PlanCommand,
     ProviderCommand, RepoCommand, SessionCommand, SkillCommand,
@@ -833,214 +835,9 @@ fn main() -> ExitCode {
                 &mut stderr,
             ),
         },
-        Command::Graph(cmd) => match cmd {
-            GraphCommand::Explore(args) => respond_graph(
-                ivar::action::graph::explore_cmd(
-                    &ctx,
-                    ivar::action::graph::ExploreInput {
-                        query: args.query,
-                        repo: args.repo,
-                    },
-                ),
-                json,
-                compact,
-                &mut stdout,
-                &mut stderr,
-            ),
-            GraphCommand::Affected(args) => respond_graph(
-                ivar::action::graph::affected_cmd(
-                    &ctx,
-                    ivar::action::graph::AffectedInput {
-                        files: args.files,
-                        stdin: args.stdin,
-                        repo: args.repo,
-                        max_depth: args.max_depth,
-                    },
-                ),
-                json,
-                compact,
-                &mut stdout,
-                &mut stderr,
-            ),
-            GraphCommand::Path(args) => respond_graph(
-                ivar::action::graph::path_cmd(
-                    &ctx,
-                    ivar::action::graph::PathInput {
-                        from: args.from,
-                        to: args.to,
-                        max_hops: args.max_hops,
-                    },
-                ),
-                json,
-                compact,
-                &mut stdout,
-                &mut stderr,
-            ),
-            GraphCommand::Find(args) => respond_graph(
-                ivar::action::graph::find_cmd(
-                    &ctx,
-                    ivar::action::graph::FindInput {
-                        query: args.query,
-                        repo: args.repo,
-                        limit: args.limit,
-                    },
-                ),
-                json,
-                compact,
-                &mut stdout,
-                &mut stderr,
-            ),
-            GraphCommand::Callers(args) => respond_graph(
-                ivar::action::graph::callers_cmd(
-                    &ctx,
-                    ivar::action::graph::CallersInput {
-                        symbol: args.symbol,
-                        repo: args.repo,
-                        cross_repo: args.cross_repo,
-                        min_confidence: args.min_confidence,
-                    },
-                ),
-                json,
-                compact,
-                &mut stdout,
-                &mut stderr,
-            ),
-            GraphCommand::Callees(args) => respond_graph(
-                ivar::action::graph::callees_cmd(
-                    &ctx,
-                    ivar::action::graph::CalleesInput {
-                        symbol_id: args.symbol_id,
-                    },
-                ),
-                json,
-                compact,
-                &mut stdout,
-                &mut stderr,
-            ),
-            GraphCommand::File(args) => respond_graph(
-                ivar::action::graph::file_cmd(
-                    &ctx,
-                    ivar::action::graph::FileInput {
-                        repo: args.repo,
-                        path: args.path,
-                    },
-                ),
-                json,
-                compact,
-                &mut stdout,
-                &mut stderr,
-            ),
-            GraphCommand::Index(args) => respond_graph(
-                ivar::action::graph::index_cmd(
-                    &ctx,
-                    ivar::action::graph::IndexInput {
-                        repo: args.repo,
-                        full: args.full,
-                    },
-                ),
-                json,
-                compact,
-                &mut stdout,
-                &mut stderr,
-            ),
-            GraphCommand::Stats => respond_graph(
-                ivar::action::graph::stats_cmd(&ctx),
-                json,
-                compact,
-                &mut stdout,
-                &mut stderr,
-            ),
-            GraphCommand::Impact(args) => respond_graph(
-                ivar::action::graph::impact_cmd(
-                    &ctx,
-                    ivar::action::graph::ImpactInput {
-                        symbol_id: args.symbol_id,
-                        max_depth: args.max_depth,
-                    },
-                ),
-                json,
-                compact,
-                &mut stdout,
-                &mut stderr,
-            ),
-            GraphCommand::DeadCode(args) => respond_graph(
-                ivar::action::graph::dead_code_cmd(
-                    &ctx,
-                    ivar::action::graph::DeadCodeInput {
-                        repo: args.repo,
-                        limit: args.limit,
-                    },
-                ),
-                json,
-                compact,
-                &mut stdout,
-                &mut stderr,
-            ),
-            GraphCommand::Complexity(args) => respond_graph(
-                ivar::action::graph::complexity_cmd(
-                    &ctx,
-                    ivar::action::graph::ComplexityInput {
-                        threshold: args.threshold,
-                        repo: args.repo,
-                        limit: args.limit,
-                    },
-                ),
-                json,
-                compact,
-                &mut stdout,
-                &mut stderr,
-            ),
-            GraphCommand::Hierarchy(args) => respond_graph(
-                ivar::action::graph::hierarchy_cmd(
-                    &ctx,
-                    ivar::action::graph::HierarchyInput {
-                        symbol: args.symbol,
-                        repo: args.repo,
-                    },
-                ),
-                json,
-                compact,
-                &mut stdout,
-                &mut stderr,
-            ),
-            GraphCommand::Viz(args) => respond_graph(
-                ivar::action::graph::viz_cmd(
-                    &ctx,
-                    ivar::action::graph::VizInput {
-                        output: args.output,
-                        repo: args.repo,
-                    },
-                ),
-                json,
-                compact,
-                &mut stdout,
-                &mut stderr,
-            ),
-            GraphCommand::View(args) => match ivar::action::graph::view_cmd(&ctx, args.into()) {
-                Ok(report) => ivar::action::graph::execute_view_session(
-                    report.value,
-                    json,
-                    compact,
-                    &mut stdout,
-                    &mut stderr,
-                ),
-                Err(failure) => respond_failure(failure, json, &mut stdout, &mut stderr),
-            },
-            GraphCommand::Clean(args) => respond_graph(
-                ivar::action::graph::clean_cmd(&ctx, args.into()),
-                json,
-                compact,
-                &mut stdout,
-                &mut stderr,
-            ),
-            GraphCommand::Mcp(args) => respond_graph(
-                ivar::action::graph::mcp_cmd(&ctx, args.tools),
-                json,
-                compact,
-                &mut stdout,
-                &mut stderr,
-            ),
-        },
+        Command::Graph(cmd) => {
+            graph_dispatch::dispatch_graph(cmd, &ctx, json, compact, &mut stdout, &mut stderr)
+        }
         // Git's credential protocol is raw on stdin/stdout — it must not pass
         // through `respond`, which would render a `Report` on top of it.
         Command::GitCredential(args) => {
@@ -1071,31 +868,6 @@ fn exit_code_for<T>(report: &Report<T>) -> ExitCode {
 /// being threaded through every dispatch arm.
 fn stderr_palette() -> Palette {
     Palette::from_decision(term::colour_for(term::Stream::Stderr, None))
-}
-
-fn respond_graph<T>(
-    result: Outcome<T>,
-    json: bool,
-    compact: bool,
-    stdout: &mut impl io::Write,
-    stderr: &mut impl io::Write,
-) -> ExitCode
-where
-    T: Serialize + WriteHuman + ivar::action::graph::ToCompact,
-{
-    if json {
-        respond(result, true, stdout, stderr)
-    } else if compact {
-        match result {
-            Ok(report) => {
-                let _ = writeln!(stdout, "{}", report.value.to_compact());
-                ExitCode::SUCCESS
-            }
-            Err(failure) => respond_failure(failure, false, stdout, stderr),
-        }
-    } else {
-        respond(result, false, stdout, stderr)
-    }
 }
 
 /// Render whatever an action returned, and pick the exit code.
