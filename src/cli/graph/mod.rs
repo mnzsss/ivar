@@ -266,5 +266,5 @@ impl From<GraphCleanArgs> for crate::action::graph::input::CleanInput {
 }
 
 #[cfg(test)]
-#[path = "../../tests/unit/cli/graph.rs"]
+#[path = "../../../tests/unit/cli/graph.rs"]
 mod tests;
