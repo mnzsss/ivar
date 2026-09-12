@@ -12,6 +12,7 @@ pub mod gitignore;
 pub mod layout;
 pub mod manifest;
 pub mod mcp_secrets;
+pub mod memory;
 pub mod render;
 pub mod session;
 pub mod setup_receipt;

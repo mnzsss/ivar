@@ -38,6 +38,10 @@ use ivar::action::feature::{
 };
 use ivar::action::hall;
 use ivar::action::mcp::auth as mcp_auth;
+use ivar::action::memory::{
+    init as memory_init, query as memory_query, reindex as memory_reindex,
+    validate as memory_validate,
+};
 use ivar::action::plan::approve::{self as plan_approve};
 use ivar::action::plan::{
     create as plan_create, list as plan_list, show as plan_show, status as plan_status,
@@ -58,8 +62,8 @@ use ivar::action::skill::{
 };
 use ivar::action::sync;
 use ivar::cli::root::{
-    Cli, Command, DiscoveryCommand, ExecuteCommand, FeatureCommand, McpCommand, PlanCommand,
-    ProviderCommand, RepoCommand, SessionCommand, SkillCommand,
+    Cli, Command, DiscoveryCommand, ExecuteCommand, FeatureCommand, McpCommand, MemoryCommand,
+    PlanCommand, ProviderCommand, RepoCommand, SessionCommand, SkillCommand,
 };
 use ivar::domain::discovery::DiscoveryStatus;
 use ivar::error::{Failure, Outcome, Palette, Report, WriteHuman};
@@ -827,6 +831,32 @@ fn main() -> ExitCode {
         Command::Mcp(cmd) => match cmd {
             McpCommand::Auth(args) => respond(
                 mcp_auth::auth(&ctx, args.into()),
+                json,
+                &mut stdout,
+                &mut stderr,
+            ),
+        },
+        Command::Memory(cmd) => match cmd {
+            MemoryCommand::Init(args) => respond(
+                memory_init::init(&ctx, args.into()),
+                json,
+                &mut stdout,
+                &mut stderr,
+            ),
+            MemoryCommand::Query(args) => respond(
+                memory_query::query(&ctx, args.into()),
+                json,
+                &mut stdout,
+                &mut stderr,
+            ),
+            MemoryCommand::Reindex(args) => respond(
+                memory_reindex::reindex(&ctx, args.into()),
+                json,
+                &mut stdout,
+                &mut stderr,
+            ),
+            MemoryCommand::Validate(args) => respond(
+                memory_validate::validate(&ctx, args.into()),
                 json,
                 &mut stdout,
                 &mut stderr,

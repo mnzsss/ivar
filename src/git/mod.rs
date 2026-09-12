@@ -39,12 +39,14 @@
 pub mod credential;
 pub(crate) mod error;
 pub(crate) mod exec;
+pub mod memory_commit;
 pub(crate) mod protect;
 pub(crate) mod read;
 
 pub use self::error::Error;
 pub use self::protect::Protection;
 
+pub use self::memory_commit::{MemoryCommitOutcome, auto_commit_memory};
 use camino::{Utf8Path, Utf8PathBuf};
 
 /// What is at a path, as far as git is concerned.

@@ -27,7 +27,7 @@ pub fn generate() -> Value {
     schema["title"] = json!("ivar.json");
     schema["description"] = json!(
         "The hall configuration file for ivar: identity, providers, repos, \
-         integration defaults, skills, and MCP server definitions."
+         integration defaults, skills, MCP server definitions, and shared memory."
     );
 
     // ── version: const CURRENT_VERSION (not minimum: 1) ──────────────

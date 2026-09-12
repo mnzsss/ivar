@@ -19,6 +19,10 @@ use crate::action::feature::{
 };
 use crate::action::hall::InitInput;
 use crate::action::mcp::auth as mcp_auth;
+use crate::action::memory::{
+    init as memory_init, query as memory_query, reindex as memory_reindex,
+    validate as memory_validate,
+};
 use crate::action::plan::approve as plan_approve;
 use crate::action::plan::{create as plan_create, show as plan_show, status as plan_status};
 use crate::action::provider::add as provider_add;
@@ -105,6 +109,9 @@ pub enum Command {
     /// Manage skills.
     #[command(subcommand)]
     Skill(SkillCommand),
+    /// Manage shared memory.
+    #[command(subcommand)]
+    Memory(MemoryCommand),
     /// Authenticate the hall's declared MCP servers.
     #[command(subcommand)]
     Mcp(McpCommand),
@@ -1057,6 +1064,52 @@ pub struct SkillDetachArgs {
     pub skill: String,
 }
 
+/// The `ivar memory` surface: managing shared memory.
+#[derive(Debug, Subcommand)]
+pub enum MemoryCommand {
+    /// Initialise shared memory directory structure in the hall.
+    Init(MemoryInitArgs),
+    /// Query the shared memory store.
+    Query(MemoryQueryArgs),
+    /// Reindex or rebuild the shared memory search index.
+    Reindex(MemoryReindexArgs),
+    /// Validate memory configuration, topic documents, and character budgets.
+    Validate(MemoryValidateArgs),
+}
+
+/// Arguments for `ivar memory init`.
+#[derive(Debug, Args)]
+pub struct MemoryInitArgs {
+    /// Optional path to initialise.
+    #[arg(long)]
+    pub path: Option<Utf8PathBuf>,
+}
+
+/// Arguments for `ivar memory query`.
+#[derive(Debug, Args)]
+pub struct MemoryQueryArgs {
+    /// Query terms to search for.
+    pub query: String,
+    /// Restrict search to a specific memory scope.
+    #[arg(long)]
+    pub scope: Option<String>,
+    /// Maximum number of search results to return.
+    #[arg(long)]
+    pub limit: Option<usize>,
+}
+
+/// Arguments for `ivar memory reindex`.
+#[derive(Debug, Args)]
+pub struct MemoryReindexArgs {
+    /// Force a complete rebuild of the index database from scratch.
+    #[arg(long)]
+    pub force: bool,
+}
+
+/// Arguments for `ivar memory validate`.
+#[derive(Debug, Args, Default)]
+pub struct MemoryValidateArgs {}
+
 /// Arguments for `ivar provider add`.
 #[derive(Debug, Args)]
 pub struct ProviderAddArgs {
@@ -1767,6 +1820,40 @@ impl From<SkillDetachArgs> for skill_detach::DetachInput {
     fn from(args: SkillDetachArgs) -> Self {
         let SkillDetachArgs { skill } = args;
         Self { skill }
+    }
+}
+impl From<MemoryInitArgs> for memory_init::MemoryInitInput {
+    fn from(args: MemoryInitArgs) -> Self {
+        let MemoryInitArgs { path } = args;
+        Self { path }
+    }
+}
+
+impl From<MemoryQueryArgs> for memory_query::MemoryQueryInput {
+    fn from(args: MemoryQueryArgs) -> Self {
+        let MemoryQueryArgs {
+            query,
+            scope,
+            limit,
+        } = args;
+        Self {
+            query,
+            scope,
+            limit,
+        }
+    }
+}
+
+impl From<MemoryReindexArgs> for memory_reindex::MemoryReindexInput {
+    fn from(args: MemoryReindexArgs) -> Self {
+        let MemoryReindexArgs { force } = args;
+        Self { force }
+    }
+}
+
+impl From<MemoryValidateArgs> for memory_validate::MemoryValidateInput {
+    fn from(_args: MemoryValidateArgs) -> Self {
+        Self {}
     }
 }
 

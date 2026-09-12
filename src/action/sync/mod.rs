@@ -325,6 +325,11 @@ pub fn sync(ctx: &Ctx, input: SyncInput) -> Outcome<SyncOutcome> {
     // Built once, not once per provider: the block every provider gets is the
     // same bytes, and `Provider::ALL` will only grow.
     sync_providers(&layout, &manifest, &mut entries, &mut warnings);
+    if manifest.memory().is_some()
+        || crate::infra::fs::exists(&layout.memory_dir()).unwrap_or(false)
+    {
+        sync_memory(&layout, &mut entries, &mut warnings);
+    }
 
     Ok(Report::with_warnings(
         SyncOutcome {
@@ -353,6 +358,42 @@ fn ensure_skeleton(layout: &Layout) -> Result<Entry, Failure> {
             Change::Unchanged
         },
     ))
+}
+fn sync_memory(layout: &Layout, entries: &mut Vec<Entry>, warnings: &mut Vec<Warning>) {
+    let memory_dir = layout.memory_dir();
+    if let Err(err) = fs::ensure_dir(&memory_dir) {
+        record_failure(entries, warnings, "memory", "directory", err.into());
+        return;
+    }
+
+    match crate::domain::memory::conflict::list_pending_conflicts(layout) {
+        Ok(conflicts) => {
+            if !conflicts.is_empty() {
+                warnings.push(Warning::new(
+                    "memory.conflict",
+                    "memory",
+                    format!("{} unresolved conflict(s) in memory/", conflicts.len()),
+                ));
+            }
+        }
+        Err(err) => {
+            record_failure(entries, warnings, "memory", "conflicts", err);
+        }
+    }
+
+    match crate::store::memory::index::reconcile_fts_index(layout, false) {
+        Ok(summary) => {
+            let change = if summary.indexed > 0 || summary.updated > 0 || summary.removed > 0 {
+                Change::Updated
+            } else {
+                Change::Unchanged
+            };
+            entries.push(Entry::new("memory", "index", change));
+        }
+        Err(err) => {
+            record_failure(entries, warnings, "memory", "index", err);
+        }
+    }
 }
 
 fn repo_names(manifest: &Manifest) -> Vec<RepoName> {

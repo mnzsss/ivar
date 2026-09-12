@@ -14,6 +14,7 @@ pub mod feature;
 pub mod guard;
 pub mod health;
 pub mod mcp;
+pub mod memory;
 pub mod name;
 pub mod provider;
 pub mod session;

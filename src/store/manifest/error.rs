@@ -76,6 +76,10 @@ pub enum Error {
     /// An MCP server definition violates its transport invariants.
     #[error("MCP server `{name}` has an invalid configuration: {reason}")]
     InvalidMcpServerDefinition { name: String, reason: String },
+
+    /// A memory configuration violates its invariants.
+    #[error("memory configuration is invalid: {reason}")]
+    InvalidMemoryConfig { reason: String },
 }
 
 impl From<Error> for Failure {
@@ -175,6 +179,16 @@ impl From<Error> for Failure {
             .fix(FixAction::safe(
                 "manifest.fix_mcp_definition",
                 format!("Fix the configuration for `{name}`."),
+            )),
+            Error::InvalidMemoryConfig { reason } => Failure::blocked(
+                "manifest.invalid_memory_config",
+                what,
+            )
+            .expected("a valid memory configuration with unique scopes and positive budgets")
+            .actual(reason)
+            .fix(FixAction::safe(
+                "manifest.fix_memory_config",
+                "Fix the memory configuration in ivar.json.",
             )),
         }
     }

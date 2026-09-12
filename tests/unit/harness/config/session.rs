@@ -75,3 +75,37 @@ fn the_block_depends_on_its_feature_and_plan_path() {
     assert!(other.contains("feature `web`"));
     assert!(other.contains("../../plan.md"));
 }
+
+#[test]
+fn compose_instructions_appends_memory_when_markers_absent() {
+    let base = "# Hall standing instructions\n\n- rule 1";
+    let memory = "<!-- ivar:memory:start -->\n## Shared Memory\n<!-- ivar:memory:end -->";
+    let composed = compose_instructions_with_memory(base, memory);
+    assert_eq!(composed, format!("{base}\n\n{memory}"));
+}
+
+#[test]
+fn compose_instructions_preserves_content_outside_markers_byte_exact() {
+    let before = "# Prefix content\n\n";
+    let old_memory = "<!-- ivar:memory:start -->\nOld content\n<!-- ivar:memory:end -->";
+    let after = "\n\n# Suffix content\n- do not modify";
+    let full = format!("{before}{old_memory}{after}");
+
+    let new_memory =
+        "<!-- ivar:memory:start -->\nNew shared memory content\n<!-- ivar:memory:end -->";
+    let composed = compose_instructions_with_memory(&full, new_memory);
+
+    assert_eq!(composed, format!("{before}{new_memory}{after}"));
+}
+
+#[test]
+fn compose_instructions_with_empty_memory_is_noop_or_removes_markers() {
+    let base = "# Hall instructions";
+    assert_eq!(compose_instructions_with_memory(base, ""), base);
+
+    let with_markers = "Header\n<!-- ivar:memory:start -->content<!-- ivar:memory:end -->\nFooter";
+    assert_eq!(
+        compose_instructions_with_memory(with_markers, ""),
+        "Header\n\nFooter"
+    );
+}

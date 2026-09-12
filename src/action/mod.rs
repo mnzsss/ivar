@@ -8,13 +8,11 @@
 //! ```
 //!
 //! `Outcome_` is `Serialize`. `--json` prints it; the human surface formats
-//! the *same value*. There is exactly one code path that computes what to
-//! show, so the two surfaces cannot drift. `action` returns data — it never
-//! prints; rendering is `bin/ivar.rs`'s job.
+//! it via [`WriteHuman`]. A verb never calls `println!` itself, never writes
+//! JSON directly, and never reaches for stdout or stderr.
 //!
-//! `action` may import anything below it (`domain`, `store`, `git`,
-//! `harness`, `tui`, `infra`) but never `cli` — see `tests/architecture.rs`,
-//! which enforces this lexically over every file in this directory.
+//! The error envelope ([`Failure`]) and the warning channel ([`Report`])
+//! are shared across every verb — see [`crate::error`].
 
 pub mod batch;
 pub mod confirm;
@@ -23,6 +21,7 @@ pub mod execute;
 pub mod feature;
 pub mod hall;
 pub mod mcp;
+pub mod memory;
 pub mod plan;
 pub mod provider;
 pub mod repo;
@@ -36,23 +35,18 @@ use std::sync::Arc;
 use camino::{Utf8Path, Utf8PathBuf};
 use serde::Serialize;
 
+use self::confirm::Confirm;
 use crate::error::{Failure, FixAction, WriteHuman};
 use crate::infra::proc;
 use crate::infra::progress::{self, Progress};
 
-use self::confirm::Confirm;
-
-/// The interpreter a setup script or session hook runs under.
+/// A typed outcome for verbs that have nothing to return on success beyond
+/// having done their work.
 ///
-/// Named explicitly rather than executing the script directly, so a script does
-/// not need its executable bit set — a `.sh` file arriving through a `git
-/// clone` on a filesystem that drops modes would otherwise fail with "permission
-/// denied", which names the wrong problem. The script's own shebang is
-/// advisory; this is what actually runs it.
-pub(crate) const SETUP_INTERPRETER: &str = "bash";
-
-/// The outcome of a verb that has nothing to report — it simply completed.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+/// Implements [`WriteHuman`] with an empty body so the human surface emits
+/// nothing by default, and `Serialize` with an empty JSON object (`{}`) for
+/// `--json` consumers that want a machine-readable "ok".
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize)]
 pub struct Done;
 
 impl WriteHuman for Done {
@@ -164,6 +158,8 @@ pub(crate) fn discover_hall(ctx: &Ctx) -> Result<Layout, Failure> {
         .fix(FixAction::safe("hall.init", "Create a hall here first.").command("ivar init"))
     })
 }
+/// Default shell interpreter for running setup scripts.
+pub(crate) const SETUP_INTERPRETER: &str = "/bin/sh";
 
 /// The `IVAR_*` environment core every worktree-scoped command shares: the
 /// five variables ARCHITECTURE.md's "Environment contract" table checks in

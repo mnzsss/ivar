@@ -12,10 +12,10 @@ use serde::Serialize;
 use crate::action::Ctx;
 use crate::error::{Outcome, Report, WriteHuman};
 use crate::infra::fs;
+use crate::store::layout::Layout;
 
 use super::super::discover_hall;
 use super::lookup;
-
 /// What `ivar session stop` needs.
 #[derive(Debug, Clone)]
 pub struct StopInput {
@@ -56,10 +56,9 @@ pub fn stop(ctx: &Ctx, input: StopInput) -> Outcome<StopOutcome> {
                 }
                 Err(failure) => return Err(failure),
             };
-            let stopped = remove_view_dir(&session.view_dir);
-            Ok(Report::new(StopOutcome {
-                stopped: if stopped { 1 } else { 0 },
-            }))
+
+            stop_single_session(&layout, &session);
+            Ok(Report::new(StopOutcome { stopped: 1 }))
         }
         None => {
             // All-sessions stop: enumerate every session, remove each View Dir.
@@ -67,7 +66,7 @@ pub fn stop(ctx: &Ctx, input: StopInput) -> Outcome<StopOutcome> {
 
             // Discovery sessions.
             for session in lookup::list_discovery(&layout)? {
-                if remove_view_dir(&session.view_dir) {
+                if stop_single_session(&layout, &session) {
                     count += 1;
                 }
             }
@@ -82,7 +81,7 @@ pub fn stop(ctx: &Ctx, input: StopInput) -> Outcome<StopOutcome> {
                         continue;
                     };
                     for session in lookup::list_feature(&layout, &feature_name)? {
-                        if remove_view_dir(&session.view_dir) {
+                        if stop_single_session(&layout, &session) {
                             count += 1;
                         }
                     }
@@ -92,6 +91,51 @@ pub fn stop(ctx: &Ctx, input: StopInput) -> Outcome<StopOutcome> {
             Ok(Report::new(StopOutcome { stopped: count }))
         }
     }
+}
+
+fn stop_single_session(layout: &Layout, session: &crate::domain::session::SessionRef) -> bool {
+    let started = session
+        .state
+        .as_ref()
+        .map(|s| s.started_at.clone())
+        .unwrap_or_else(crate::domain::session::rfc3339_now);
+    let stopped = crate::domain::session::rfc3339_now();
+    let summary = format!("Session {} stopped", session.id);
+
+    let mut files_touched = Vec::new();
+    let writeset_path = session.view_dir.join("writeset.json");
+    let writeset_path = if fs::is_file(&writeset_path).unwrap_or(false) {
+        writeset_path
+    } else {
+        layout.session_memory_writeset(&session.id)
+    };
+    if fs::is_file(&writeset_path).unwrap_or(false)
+        && let Ok(Some(content)) = fs::read_text(&writeset_path)
+    {
+        if let Ok(writeset) = crate::domain::memory::writeset::MemoryWriteSet::from_json(&content) {
+            files_touched = writeset
+                .modified_paths
+                .iter()
+                .map(|p| p.to_string())
+                .collect();
+            let _ = crate::git::memory_commit::auto_commit_memory(layout, &writeset);
+        } else if let Ok(parsed_files) = serde_json::from_str::<Vec<String>>(&content) {
+            files_touched = parsed_files;
+        }
+    }
+
+    let episode = crate::domain::memory::EpisodePayload::new(
+        session.id.clone(),
+        session.feature.clone(),
+        started,
+        stopped,
+        summary,
+        files_touched,
+    );
+
+    let _ = crate::store::memory::episode::persist_episode(layout, &episode);
+
+    remove_view_dir(&session.view_dir)
 }
 
 /// Remove the View Dir. Returns whether it existed and was removed.

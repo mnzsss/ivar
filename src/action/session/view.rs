@@ -120,6 +120,8 @@ pub(crate) fn materialise(
             fs::clear_write_bits(&worktree)?;
         }
     }
+    // Project memory symlink if canonical memory root exists
+    crate::domain::memory::project_memory_symlink(layout, view_dir)?;
 
     // The harness config dir — `.claude/` for claude-code, `.opencode/` for
     // opencode, `.omp/` for omp — is a real directory inside the view dir, never
@@ -143,7 +145,7 @@ pub(crate) fn materialise(
     }
 
     let mut report = MaterialiseReport::default();
-    materialise_session_instructions(layout, provider, feature, view_dir, &mut report)?;
+    materialise_session_instructions(layout, manifest, provider, feature, view_dir, &mut report)?;
 
     Ok(report)
 }
@@ -164,6 +166,7 @@ pub(crate) fn materialise(
 /// an unchanged file is not rewritten.
 fn materialise_session_instructions(
     layout: &Layout,
+    manifest: &Manifest,
     provider: Provider,
     feature: Option<&Feature>,
     view_dir: &Utf8Path,
@@ -189,7 +192,7 @@ fn materialise_session_instructions(
         ));
     }
 
-    let content = match feature {
+    let base_content = match feature {
         Some(feature) => {
             let plan_rel = "../../plan.md";
             let block = config::session::build_session_block(&feature.name, plan_rel);
@@ -201,7 +204,49 @@ fn materialise_session_instructions(
         }
         None => hall,
     };
+    let mut hot_handoff_content = None;
+    if let Some(feature) = feature {
+        let claimed = crate::store::memory::handoff::claim_pending_handoffs(layout, &feature.name)?;
+        if !claimed.is_empty() {
+            let mut parts = Vec::new();
+            for handoff in claimed {
+                let mut section = format!(
+                    "### Handoff from Session `{}`\n\n{}\n",
+                    handoff.source_session,
+                    handoff.summary.trim()
+                );
+                if !handoff.open_tasks.is_empty() {
+                    section.push_str("\n#### Open Tasks\n");
+                    for task in &handoff.open_tasks {
+                        section.push_str(&format!("- {task}\n"));
+                    }
+                }
+                if !handoff.decisions.is_empty() {
+                    section.push_str("\n#### Decisions\n");
+                    for decision in &handoff.decisions {
+                        section.push_str(&format!("- {decision}\n"));
+                    }
+                }
+                if !handoff.modified_paths.is_empty() {
+                    section.push_str("\n#### Modified Paths\n");
+                    for path in &handoff.modified_paths {
+                        section.push_str(&format!("- `{path}`\n"));
+                    }
+                }
+                parts.push(section.trim_end().to_owned());
+            }
+            hot_handoff_content = Some(parts.join("\n\n"));
+        }
+    }
 
+    let memory_ctx = crate::domain::memory::render_memory_context(
+        layout,
+        manifest,
+        feature.map(|f| &f.name),
+        hot_handoff_content.as_deref(),
+    )?;
+    let memory_block = memory_ctx.render_block();
+    let content = config::session::compose_instructions_with_memory(&base_content, &memory_block);
     if content.is_empty() {
         // Discovery with no canonical content: no shared instructions. A
         // stale file from an earlier materialisation is cleared.
@@ -218,3 +263,7 @@ fn materialise_session_instructions(
     }
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "../../../tests/unit/action/session/handoff_claim.rs"]
+mod tests;

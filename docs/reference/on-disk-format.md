@@ -27,7 +27,8 @@ half-understood state file is worse than no state file.
   HALL.md                       committed    the canonical standing instructions
   CLAUDE.md AGENTS.md           committed    provider root aliases — relative
                                              symlinks to HALL.md (CLAUDE.md for Claude
-                                             Code; AGENTS.md for OpenCode and OMP)
+  memory/                       committed    canonical markdown memory topics
+  .ivar/memory/index.db         local        derived SQLite FTS5 search index
   .ivar/skills/                 committed    skills the team shares
   .ivar/setups/<repo>.sh        committed    per-repo worktree bootstrap
   .ivar/setups/<repo>.session.sh committed   per-repo session hook
