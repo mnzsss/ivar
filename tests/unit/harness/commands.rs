@@ -591,3 +591,40 @@ fn plan_reviewer_checks_literal_code() {
     assert!(checklist.contains("**Sketch:**"), "was: {checklist}");
     assert!(checklist.contains("reason"), "was: {checklist}");
 }
+
+#[test]
+fn discovery_uses_graph_explore_with_fallback() {
+    let content = embedded("discovery");
+    assert!(content.contains("ivar graph explore"), "was: {content}");
+    assert!(content.contains("advisory"), "was: {content}");
+    assert!(
+        content.contains("fallback") || content.contains("fall back"),
+        "was: {content}"
+    );
+}
+
+#[test]
+fn plan_uses_graph_evidence_with_fallback_and_no_approval_bypass() {
+    let content = embedded("plan");
+    assert!(content.contains("ivar graph explore"), "was: {content}");
+    assert!(content.contains("advisory"), "was: {content}");
+    assert!(
+        content.contains("fallback") || content.contains("fall back"),
+        "was: {content}"
+    );
+    assert!(
+        content.contains("never creates, approves, or bypasses"),
+        "was: {content}"
+    );
+}
+
+#[test]
+fn review_checks_affected_consumers_with_fallback() {
+    let content = embedded("review");
+    assert!(content.contains("ivar graph affected"), "was: {content}");
+    assert!(content.contains("advisory"), "was: {content}");
+    assert!(
+        content.contains("fallback") || content.contains("fall back"),
+        "was: {content}"
+    );
+}

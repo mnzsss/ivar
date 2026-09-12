@@ -75,6 +75,10 @@ jobs:
       - name: test
         run: cargo test --all-features
 
+      # The graph simulation is ignored by regular test and coverage runs.
+      - name: test graph
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: cargo test --profile e2e --test graph_simulation --all-features -- --ignored
   msrv:
     name: msrv
     if: github.event.pull_request.draft == false

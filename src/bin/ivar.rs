@@ -15,6 +15,9 @@
 //! (ARCHITECTURE.md, "1. `action` is the unit, and it has one output
 //! shape").
 
+#[path = "ivar/graph_dispatch.rs"]
+mod graph_dispatch;
+
 use std::io::{self, Write};
 use std::process::ExitCode;
 
@@ -69,7 +72,7 @@ use ivar::infra::term;
 fn main() -> ExitCode {
     let cli = Cli::parse();
     let json = cli.json;
-
+    let compact = cli.compact;
     // Prime both per-stream colour decisions with the flag, before any output
     // exists to render. `term`'s caches take their value from the first call
     // and ignore the argument afterwards, which is what lets `respond` and
@@ -832,6 +835,9 @@ fn main() -> ExitCode {
                 &mut stderr,
             ),
         },
+        Command::Graph(cmd) => {
+            graph_dispatch::dispatch_graph(cmd, &ctx, json, compact, &mut stdout, &mut stderr)
+        }
         // Git's credential protocol is raw on stdin/stdout — it must not pass
         // through `respond`, which would render a `Report` on top of it.
         Command::GitCredential(args) => {

@@ -110,3 +110,21 @@ fn a_public_client_renders_an_auth_block_without_a_client_secret() {
         "a public client has no secret to reference"
     );
 }
+
+#[test]
+fn local_server_renders_stdio_type_command_args_and_env() {
+    let mut env = std::collections::BTreeMap::new();
+    env.insert("GRAPH_ENV".to_owned(), "1".to_owned());
+    let server = McpServerDef::new("graph", "local")
+        .command("ivar")
+        .args(vec!["graph".to_owned(), "mcp".to_owned()])
+        .env(env);
+
+    let doc = server_doc("acme-graph", &server, McpTransport::Local);
+    assert_eq!(doc["type"], "stdio");
+    assert_eq!(doc["command"], "ivar");
+    assert_eq!(doc["args"], serde_json::json!(["graph", "mcp"]));
+    assert_eq!(doc["env"]["GRAPH_ENV"], "1");
+    assert!(doc.get("auth").is_none());
+    assert!(doc.get("url").is_none());
+}

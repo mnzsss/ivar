@@ -1,0 +1,727 @@
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing
+)]
+
+use super::*;
+use tempfile::tempdir;
+
+#[test]
+fn test_open_in_memory_and_stats() {
+    let db = GraphDb::open_in_memory().expect("failed to open in memory db");
+    let stats = db.stats().expect("failed to get stats");
+    assert_eq!(stats.repo_count, 0);
+    assert_eq!(stats.file_count, 0);
+    assert_eq!(stats.symbol_count, 0);
+    assert_eq!(stats.edge_count, 0);
+}
+
+#[test]
+fn test_open_on_disk() {
+    let dir = tempdir().expect("tempdir");
+    let db_path = dir.path().join("sub").join("graph.db");
+    let db = GraphDb::open(&db_path).expect("failed to open on-disk db");
+    let stats = db.stats().expect("stats");
+    assert_eq!(stats.repo_count, 0);
+
+    // Verify foreign_keys enabled
+    let fk: i64 = db
+        .conn()
+        .query_row("PRAGMA foreign_keys;", [], |r| r.get(0))
+        .expect("pragma fk");
+    assert_eq!(fk, 1);
+}
+
+#[test]
+fn test_open_read_only_does_not_create_file_or_run_migrations() {
+    let temp = tempdir().expect("tempdir");
+    let non_existent = temp.path().join("does_not_exist.db");
+
+    // Opening non-existent database in read-only mode fails and does NOT create parent dir or file
+    let res = GraphDb::open_read_only(&non_existent);
+    assert!(
+        res.is_err(),
+        "open_read_only on non-existent file must fail"
+    );
+    assert!(
+        !non_existent.exists(),
+        "open_read_only must not create file"
+    );
+
+    // Opening existing database read-only succeeds and permits queries
+    let valid_db_path = temp.path().join("valid.db");
+    {
+        let db = GraphDb::open(&valid_db_path).expect("open to create");
+        let stats = db.stats().expect("stats");
+        assert_eq!(stats.symbol_count, 0);
+    }
+
+    let ro_db = GraphDb::open_read_only(&valid_db_path).expect("open read only");
+    let ro_stats = ro_db.stats().expect("stats from ro db");
+    assert_eq!(ro_stats.symbol_count, 0);
+}
+
+#[test]
+fn test_repo_and_file_crud() {
+    let db = GraphDb::open_in_memory().expect("open");
+    db.insert_repo("ivar", "/path/to/ivar", "main", Some("abcdef012345"))
+        .expect("insert repo");
+
+    let repo = db.get_repo("ivar").expect("get repo").expect("exists");
+    assert_eq!(repo.id, "ivar");
+    assert_eq!(repo.root_path, "/path/to/ivar");
+    assert_eq!(repo.default_branch, "main");
+    assert_eq!(repo.last_indexed_commit.as_deref(), Some("abcdef012345"));
+
+    db.update_repo_commit("ivar", "112233445566")
+        .expect("update repo commit");
+    let repo_updated = db.get_repo("ivar").expect("get repo").expect("exists");
+    assert_eq!(
+        repo_updated.last_indexed_commit.as_deref(),
+        Some("112233445566")
+    );
+
+    let file_id = db
+        .upsert_file("ivar", "src/main.rs", "hash_abc", 1000, 2048)
+        .expect("upsert file");
+    assert!(file_id > 0);
+
+    let file = db
+        .get_file("ivar", "src/main.rs")
+        .expect("get file")
+        .expect("exists");
+    assert_eq!(file.id, file_id);
+    assert_eq!(file.repo, "ivar");
+    assert_eq!(file.path, "src/main.rs");
+    assert_eq!(file.content_hash, "hash_abc");
+
+    // Re-upsert file updates existing row
+    let file_id_2 = db
+        .upsert_file("ivar", "src/main.rs", "hash_def", 2000, 4096)
+        .expect("upsert updated file");
+    assert_eq!(file_id, file_id_2);
+
+    let file2 = db
+        .get_file("ivar", "src/main.rs")
+        .expect("get file")
+        .expect("exists");
+    assert_eq!(file2.content_hash, "hash_def");
+    assert_eq!(file2.size_bytes, 4096);
+}
+
+#[test]
+fn test_foreign_key_cascades() {
+    let db = GraphDb::open_in_memory().expect("open");
+    db.insert_repo("ivar", "/path", "main", None).unwrap();
+    let file_id = db
+        .upsert_file("ivar", "src/lib.rs", "hash1", 1, 100)
+        .unwrap();
+
+    let sym = Symbol {
+        id: None,
+        file_id: Some(file_id),
+        repo: "ivar".to_owned(),
+        name: "init".to_owned(),
+        kind: SymbolKind::Fn,
+        scope: None,
+        signature: Some("pub fn init()".to_owned()),
+        docstring: Some("Initializes the system.".to_owned()),
+        span: Span::new(1, 1, 10, 1),
+        is_exported: true,
+        complexity: Some(1),
+    };
+    let sym_ids = db.insert_symbols(&[sym]).unwrap();
+    let sym_id = sym_ids[0];
+
+    let edge = Edge {
+        id: None,
+        repo: "ivar".to_owned(),
+        file_id: Some(file_id),
+        from_symbol_id: Some(sym_id),
+        to_symbol_id: None,
+        to_name: Some("sub_init".to_owned()),
+        kind: EdgeKind::Calls,
+        provenance: Provenance::Extracted,
+        line: 5,
+        col: 9,
+        confidence: 1.0,
+    };
+    db.insert_edges(&[edge]).unwrap();
+
+    let stats = db.stats().unwrap();
+    assert_eq!(stats.file_count, 1);
+    assert_eq!(stats.symbol_count, 1);
+    assert_eq!(stats.edge_count, 1);
+
+    // Deleting file should cascade delete symbol and edge
+    db.delete_file("ivar", "src/lib.rs").unwrap();
+
+    let stats_after = db.stats().unwrap();
+    assert_eq!(stats_after.file_count, 0);
+    assert_eq!(stats_after.symbol_count, 0);
+    assert_eq!(stats_after.edge_count, 0);
+}
+
+#[test]
+fn test_delete_repo_and_clean_all() {
+    let db = GraphDb::open_in_memory().expect("open");
+    db.insert_repo("repo1", "/path1", "main", None).unwrap();
+    db.insert_repo("repo2", "/path2", "main", None).unwrap();
+
+    let f1 = db.upsert_file("repo1", "src/a.rs", "h1", 1, 10).unwrap();
+    let f2 = db.upsert_file("repo2", "src/b.rs", "h2", 2, 20).unwrap();
+
+    let s1 = db
+        .insert_symbols(&[Symbol {
+            id: None,
+            file_id: Some(f1),
+            repo: "repo1".into(),
+            name: "sym1".into(),
+            kind: SymbolKind::Fn,
+            scope: None,
+            signature: None,
+            docstring: None,
+            span: Span::new(1, 1, 2, 1),
+            is_exported: true,
+            complexity: None,
+        }])
+        .unwrap()[0];
+
+    let s2 = db
+        .insert_symbols(&[Symbol {
+            id: None,
+            file_id: Some(f2),
+            repo: "repo2".into(),
+            name: "sym2".into(),
+            kind: SymbolKind::Fn,
+            scope: None,
+            signature: None,
+            docstring: None,
+            span: Span::new(1, 1, 2, 1),
+            is_exported: true,
+            complexity: None,
+        }])
+        .unwrap()[0];
+
+    db.insert_edges(&[
+        Edge {
+            id: None,
+            repo: "repo1".into(),
+            file_id: Some(f1),
+            from_symbol_id: Some(s1),
+            to_symbol_id: None,
+            to_name: Some("sym2".into()),
+            kind: EdgeKind::Calls,
+            provenance: Provenance::Extracted,
+            line: 1,
+            col: 1,
+            confidence: 1.0,
+        },
+        Edge {
+            id: None,
+            repo: "repo2".into(),
+            file_id: Some(f2),
+            from_symbol_id: Some(s2),
+            to_symbol_id: None,
+            to_name: Some("external".into()),
+            kind: EdgeKind::Calls,
+            provenance: Provenance::Extracted,
+            line: 1,
+            col: 1,
+            confidence: 1.0,
+        },
+    ])
+    .unwrap();
+
+    let stats = db.stats().unwrap();
+    assert_eq!(stats.repo_count, 2);
+    assert_eq!(stats.file_count, 2);
+    assert_eq!(stats.symbol_count, 2);
+    assert_eq!(stats.edge_count, 2);
+
+    // Delete repo1
+    let clean_res = db.delete_repo("repo1").unwrap();
+    assert_eq!(
+        clean_res,
+        Some(RepoCleanStats {
+            repo: "repo1".into(),
+            files_removed: 1,
+            symbols_removed: 1,
+            edges_removed: 1,
+        })
+    );
+
+    // Verify repo1 is gone, repo2 remains
+    assert!(db.get_repo("repo1").unwrap().is_none());
+    assert!(db.get_repo("repo2").unwrap().is_some());
+    let stats_after = db.stats().unwrap();
+    assert_eq!(stats_after.repo_count, 1);
+    assert_eq!(stats_after.file_count, 1);
+    assert_eq!(stats_after.symbol_count, 1);
+    assert_eq!(stats_after.edge_count, 1);
+
+    // Deleting repo1 again returns None
+    assert_eq!(db.delete_repo("repo1").unwrap(), None);
+
+    // Clean all
+    let all_res = db.clean_all().unwrap();
+    assert_eq!(
+        all_res,
+        CleanAllStats {
+            repos_removed: 1,
+            files_removed: 1,
+            symbols_removed: 1,
+            edges_removed: 1,
+        }
+    );
+
+    let final_stats = db.stats().unwrap();
+    assert_eq!(final_stats.repo_count, 0);
+    assert_eq!(final_stats.file_count, 0);
+    assert_eq!(final_stats.symbol_count, 0);
+    assert_eq!(final_stats.edge_count, 0);
+}
+
+#[test]
+fn test_delete_symbols_for_file() {
+    let db = GraphDb::open_in_memory().expect("open");
+    db.insert_repo("ivar", "/path", "main", None).unwrap();
+    let file_id = db
+        .upsert_file("ivar", "src/lib.rs", "hash1", 1, 100)
+        .unwrap();
+
+    let sym = Symbol {
+        id: None,
+        file_id: Some(file_id),
+        repo: "ivar".to_owned(),
+        name: "test_fn".to_owned(),
+        kind: SymbolKind::Fn,
+        scope: None,
+        signature: None,
+        docstring: None,
+        span: Span::new(1, 1, 5, 1),
+        is_exported: false,
+        complexity: None,
+    };
+    let sym_ids = db.insert_symbols(&[sym]).unwrap();
+    let sym_id = sym_ids[0];
+
+    let edge = Edge {
+        id: None,
+        repo: "ivar".to_owned(),
+        file_id: Some(file_id),
+        from_symbol_id: Some(sym_id),
+        to_symbol_id: None,
+        to_name: Some("callee".to_owned()),
+        kind: EdgeKind::Calls,
+        provenance: Provenance::Extracted,
+        line: 2,
+        col: 5,
+        confidence: 1.0,
+    };
+    db.insert_edges(&[edge]).unwrap();
+
+    db.delete_symbols_for_file(file_id).unwrap();
+
+    let stats = db.stats().unwrap();
+    assert_eq!(stats.file_count, 1);
+    assert_eq!(stats.symbol_count, 0);
+    assert_eq!(stats.edge_count, 0);
+}
+
+#[test]
+fn test_fts5_triggers_and_search() {
+    let db = GraphDb::open_in_memory().expect("open");
+    db.insert_repo("ivar", "/path", "main", None).unwrap();
+    let file_id = db
+        .upsert_file("ivar", "src/service.rs", "hash_srv", 1, 500)
+        .unwrap();
+
+    let sym = Symbol {
+        id: None,
+        file_id: Some(file_id),
+        repo: "ivar".to_owned(),
+        name: "compute_hash".to_owned(),
+        kind: SymbolKind::Fn,
+        scope: Some("module::service".to_owned()),
+        signature: Some("pub fn compute_hash(data: &[u8]) -> String".to_owned()),
+        docstring: Some("Computes SHA256 digest of input payload.".to_owned()),
+        span: Span::new(10, 1, 25, 1),
+        is_exported: true,
+        complexity: Some(2),
+    };
+    db.insert_symbols(&[sym]).unwrap();
+
+    // Search by symbol name
+    let results = db.search_symbols_fts("compute_hash", 10).unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].name, "compute_hash");
+    assert_eq!(results[0].kind, SymbolKind::Fn);
+    assert!(results[0].is_exported);
+
+    // Search by docstring token
+    let results_doc = db.search_symbols_fts("SHA256", 10).unwrap();
+    assert_eq!(results_doc.len(), 1);
+    assert_eq!(results_doc[0].name, "compute_hash");
+
+    // Search by signature token
+    let results_sig = db.search_symbols_fts("payload", 10).unwrap();
+    assert_eq!(results_sig.len(), 1);
+
+    // Delete symbol and check FTS index updated
+    db.delete_symbols_for_file(file_id).unwrap();
+    let results_after = db.search_symbols_fts("compute_hash", 10).unwrap();
+    assert_eq!(results_after.len(), 0);
+}
+
+#[test]
+fn test_relink_dangling_edges() {
+    let db = GraphDb::open_in_memory().expect("open");
+    db.insert_repo("ivar", "/path", "main", None).unwrap();
+    let file_caller = db
+        .upsert_file("ivar", "src/caller.rs", "h1", 1, 100)
+        .unwrap();
+    let file_callee = db
+        .upsert_file("ivar", "src/callee.rs", "h2", 1, 100)
+        .unwrap();
+
+    // Insert edge before callee symbol exists (dangling edge with to_symbol_id = NULL)
+    let edge = Edge {
+        id: None,
+        repo: "ivar".to_owned(),
+        file_id: Some(file_caller),
+        from_symbol_id: None,
+        to_symbol_id: None,
+        to_name: Some("target_fn".to_owned()),
+        kind: EdgeKind::Calls,
+        provenance: Provenance::Extracted,
+        line: 4,
+        col: 10,
+        confidence: 1.0,
+    };
+    db.insert_edges(&[edge]).unwrap();
+
+    // Now insert target symbol
+    let target_sym = Symbol {
+        id: None,
+        file_id: Some(file_callee),
+        repo: "ivar".to_owned(),
+        name: "target_fn".to_owned(),
+        kind: SymbolKind::Fn,
+        scope: None,
+        signature: Some("pub fn target_fn()".to_owned()),
+        docstring: None,
+        span: Span::new(1, 1, 10, 1),
+        is_exported: true,
+        complexity: Some(1),
+    };
+    let sym_ids = db.insert_symbols(&[target_sym]).unwrap();
+    let target_sym_id = sym_ids[0];
+
+    let relinked = db.relink_dangling_edges("ivar").unwrap();
+    assert_eq!(relinked, 1);
+
+    // Verify edge now points to target_sym_id
+    let to_sym_id: Option<i64> = db
+        .conn()
+        .query_row(
+            "SELECT to_symbol_id FROM edges WHERE repo = 'ivar' AND to_name = 'target_fn'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(to_sym_id, Some(target_sym_id));
+}
+
+#[test]
+fn test_index_extracted_file_resolves_from_symbol_id() {
+    let db = GraphDb::open_in_memory().expect("open");
+    db.insert_repo("ivar", "/path", "main", None).unwrap();
+
+    let extracted = crate::store::graph::extractor::ExtractedFile {
+        symbols: vec![Symbol {
+            id: None,
+            file_id: None,
+            repo: "ivar".to_owned(),
+            name: "caller_fn".to_owned(),
+            kind: SymbolKind::Fn,
+            scope: None,
+            signature: Some("pub fn caller_fn()".to_owned()),
+            docstring: None,
+            span: Span::new(10, 1, 20, 1),
+            is_exported: true,
+            complexity: Some(3),
+        }],
+        edges: vec![Edge {
+            id: None,
+            repo: "ivar".to_owned(),
+            file_id: None,
+            from_symbol_id: None,
+            to_symbol_id: None,
+            to_name: Some("callee_fn".to_owned()),
+            kind: EdgeKind::Calls,
+            provenance: Provenance::Extracted,
+            line: 15,
+            col: 5,
+            confidence: 0.95,
+        }],
+    };
+
+    db.index_extracted_file("ivar", "src/lib.rs", "h_test", 1, 100, &extracted)
+        .unwrap();
+
+    let (from_sym_id, caller_id): (Option<i64>, i64) = db
+        .conn()
+        .query_row(
+            "SELECT e.from_symbol_id, s.id FROM edges e JOIN symbols s ON s.name = 'caller_fn'",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap();
+
+    assert_eq!(from_sym_id, Some(caller_id));
+}
+
+#[test]
+fn test_index_extracted_file_duplicate_symbol_names_resolves_correct_from_symbol_id() {
+    let db = GraphDb::open_in_memory().expect("open");
+    db.insert_repo("ivar", "/path", "main", None).unwrap();
+
+    let extracted = crate::store::graph::extractor::ExtractedFile {
+        symbols: vec![
+            Symbol {
+                id: None,
+                file_id: None,
+                repo: "ivar".to_owned(),
+                name: "process".to_owned(),
+                kind: SymbolKind::Method,
+                scope: Some("WorkerA".to_owned()),
+                signature: Some("fn process(&self)".to_owned()),
+                docstring: None,
+                span: Span::new(10, 5, 20, 50),
+                is_exported: true,
+                complexity: Some(2),
+            },
+            Symbol {
+                id: None,
+                file_id: None,
+                repo: "ivar".to_owned(),
+                name: "process".to_owned(),
+                kind: SymbolKind::Method,
+                scope: Some("WorkerB".to_owned()),
+                signature: Some("fn process(&self)".to_owned()),
+                docstring: None,
+                span: Span::new(30, 5, 40, 50),
+                is_exported: true,
+                complexity: Some(4),
+            },
+        ],
+        edges: vec![
+            Edge {
+                id: None,
+                repo: "ivar".to_owned(),
+                file_id: None,
+                from_symbol_id: None,
+                to_symbol_id: None,
+                to_name: Some("target_a".to_owned()),
+                kind: EdgeKind::Calls,
+                provenance: Provenance::Extracted,
+                line: 15,
+                col: 10,
+                confidence: 0.95,
+            },
+            Edge {
+                id: None,
+                repo: "ivar".to_owned(),
+                file_id: None,
+                from_symbol_id: None,
+                to_symbol_id: None,
+                to_name: Some("target_b".to_owned()),
+                kind: EdgeKind::Calls,
+                provenance: Provenance::Extracted,
+                line: 35,
+                col: 10,
+                confidence: 0.95,
+            },
+        ],
+    };
+
+    db.index_extracted_file("ivar", "src/workers.rs", "h_test", 1, 100, &extracted)
+        .unwrap();
+
+    let sym_ids: Vec<i64> = db
+        .conn()
+        .prepare("SELECT id FROM symbols WHERE name = 'process' ORDER BY start_line ASC")
+        .unwrap()
+        .query_map([], |r| r.get(0))
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+
+    assert_eq!(sym_ids.len(), 2);
+
+    let from_symbol_ids: Vec<Option<i64>> = db
+        .conn()
+        .prepare("SELECT from_symbol_id FROM edges ORDER BY line ASC")
+        .unwrap()
+        .query_map([], |r| r.get(0))
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+
+    assert_eq!(from_symbol_ids, vec![Some(sym_ids[0]), Some(sym_ids[1])]);
+}
+
+#[test]
+fn test_symbol_complexity_persistence() {
+    let db = GraphDb::open_in_memory().expect("open");
+    db.insert_repo("ivar", "/path", "main", None).unwrap();
+    let file_id = db
+        .upsert_file("ivar", "src/math.rs", "h_math", 1, 100)
+        .unwrap();
+
+    let sym = Symbol {
+        id: None,
+        file_id: Some(file_id),
+        repo: "ivar".to_owned(),
+        name: "complex_calc".to_owned(),
+        kind: SymbolKind::Fn,
+        scope: None,
+        signature: Some("fn complex_calc()".to_owned()),
+        docstring: None,
+        span: Span::new(1, 1, 50, 1),
+        is_exported: true,
+        complexity: Some(12),
+    };
+    let ids = db.insert_symbols(&[sym]).unwrap();
+    assert_eq!(ids.len(), 1);
+
+    let queried: Option<i64> = db
+        .conn()
+        .query_row(
+            "SELECT complexity FROM symbols WHERE id = ?1",
+            [ids[0]],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(queried, Some(12));
+}
+
+#[test]
+fn test_index_extracted_file_duplicate_target_names_resolves_or_leaves_unresolved() {
+    let db = GraphDb::open_in_memory().expect("open");
+    db.insert_repo("ivar", "/path", "main", None).unwrap();
+
+    let extracted = crate::store::graph::extractor::ExtractedFile {
+        symbols: vec![
+            Symbol {
+                id: None,
+                file_id: None,
+                repo: "ivar".to_owned(),
+                name: "helper".to_owned(),
+                kind: SymbolKind::Method,
+                scope: Some("WorkerA".to_owned()),
+                signature: Some("fn helper(&self)".to_owned()),
+                docstring: None,
+                span: Span::new(10, 5, 20, 50),
+                is_exported: false,
+                complexity: Some(1),
+            },
+            Symbol {
+                id: None,
+                file_id: None,
+                repo: "ivar".to_owned(),
+                name: "run".to_owned(),
+                kind: SymbolKind::Method,
+                scope: Some("WorkerA".to_owned()),
+                signature: Some("fn run(&self)".to_owned()),
+                docstring: None,
+                span: Span::new(21, 5, 30, 50),
+                is_exported: true,
+                complexity: Some(2),
+            },
+            Symbol {
+                id: None,
+                file_id: None,
+                repo: "ivar".to_owned(),
+                name: "helper".to_owned(),
+                kind: SymbolKind::Method,
+                scope: Some("WorkerB".to_owned()),
+                signature: Some("fn helper(&self)".to_owned()),
+                docstring: None,
+                span: Span::new(40, 5, 50, 50),
+                is_exported: false,
+                complexity: Some(1),
+            },
+            Symbol {
+                id: None,
+                file_id: None,
+                repo: "ivar".to_owned(),
+                name: "external_caller".to_owned(),
+                kind: SymbolKind::Fn,
+                scope: None,
+                signature: Some("fn external_caller()".to_owned()),
+                docstring: None,
+                span: Span::new(60, 1, 70, 50),
+                is_exported: true,
+                complexity: Some(1),
+            },
+        ],
+        edges: vec![
+            // Edge 1: inside WorkerA::run, calling "helper" -> should resolve to WorkerA's helper (not WorkerB's)
+            Edge {
+                id: None,
+                repo: "ivar".to_owned(),
+                file_id: None,
+                from_symbol_id: None,
+                to_symbol_id: None,
+                to_name: Some("helper".to_owned()),
+                kind: EdgeKind::Calls,
+                provenance: Provenance::Extracted,
+                line: 25,
+                col: 10,
+                confidence: 0.95,
+            },
+            // Edge 2: inside external_caller (no matching scope, outside both helper spans), calling "helper"
+            // Under last-write-wins this would wrongly resolve to WorkerB's helper. Here it must remain unresolved (None).
+            Edge {
+                id: None,
+                repo: "ivar".to_owned(),
+                file_id: None,
+                from_symbol_id: None,
+                to_symbol_id: None,
+                to_name: Some("helper".to_owned()),
+                kind: EdgeKind::Calls,
+                provenance: Provenance::Extracted,
+                line: 65,
+                col: 10,
+                confidence: 0.95,
+            },
+        ],
+    };
+
+    db.index_extracted_file("ivar", "src/workers.rs", "h_test", 1, 100, &extracted)
+        .unwrap();
+
+    let worker_a_helper_id: i64 = db
+        .conn()
+        .query_row(
+            "SELECT id FROM symbols WHERE name = 'helper' AND scope = 'WorkerA'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+
+    let edge_to_symbols: Vec<Option<i64>> = db
+        .conn()
+        .prepare("SELECT to_symbol_id FROM edges ORDER BY line ASC")
+        .unwrap()
+        .query_map([], |r| r.get(0))
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+
+    assert_eq!(edge_to_symbols, vec![Some(worker_a_helper_id), None]);
+}

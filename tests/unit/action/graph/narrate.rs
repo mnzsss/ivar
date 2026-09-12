@@ -1,0 +1,729 @@
+//! Unit tests for decision-oriented exploration rendering.
+
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
+use super::*;
+use crate::action::graph::query::{
+    CalleeInfo, CallerInfo, FileOutline, ImpactItem, ImpactResult, ReferenceSite, SymbolLocation,
+};
+use crate::domain::graph::{
+    Edge, EdgeKind, ExploreImpact, FileMention, MentionedSymbol, OperationalRelation, PathResult,
+    PathStep, Provenance, RelationDirection, RelationEndpoint, SourceExcerpt, SourceFile, Span,
+    Symbol, SymbolKind, SymbolSnippet,
+};
+
+fn symbol(name: &str, repo: &str, line: usize) -> Symbol {
+    Symbol {
+        id: Some(1),
+        file_id: Some(1),
+        repo: repo.into(),
+        name: name.into(),
+        kind: SymbolKind::Fn,
+        scope: None,
+        signature: None,
+        docstring: None,
+        span: Span {
+            start_line: line,
+            start_col: 0,
+            end_line: line + 2,
+            end_col: 1,
+        },
+        is_exported: true,
+        complexity: None,
+    }
+}
+
+fn snippet(name: &str, repo: &str, file: &str, line: usize) -> SymbolSnippet {
+    SymbolSnippet {
+        symbol: symbol(name, repo, line),
+        file_path: file.into(),
+        code: format!("{line}\tfn {name}() {{}}"),
+        start_line: line,
+        end_line: line + 2,
+    }
+}
+
+fn source(repo: &str, file: &str, lines: usize) -> SourceFile {
+    let code = (1..=lines)
+        .map(|n| format!("{n}\tline {n} of {file}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    SourceFile {
+        repo: repo.into(),
+        file_path: file.into(),
+        line_count: lines,
+        excerpts: vec![SourceExcerpt {
+            start_line: 1,
+            end_line: lines,
+            code,
+        }],
+        changed_since_index: false,
+    }
+}
+
+#[test]
+fn a_file_changed_since_the_index_warns_that_symbol_lines_may_have_moved() {
+    let mut res = result("getSession");
+    res.primary_symbols
+        .push(snippet("getSession", "api", "src/auth/sessions.ts", 27));
+    let mut changed = source("api", "src/auth/sessions.ts", 40);
+    changed.changed_since_index = true;
+    res.sources.push(changed);
+
+    let out = narrate_explore(&res);
+
+    assert!(out.contains("changed since the last index"), "got: {out}");
+}
+
+#[test]
+fn the_path_between_named_symbols_leads_the_answer() {
+    let mut res = result("handleLogin saveSession");
+    res.primary_symbols
+        .push(snippet("handleLogin", "api", "src/routes/auth.ts", 3));
+    res.flows.push(PathResult {
+        from: "handleLogin".into(),
+        to: "saveSession".into(),
+        steps: vec![
+            PathStep {
+                source: "handleLogin".into(),
+                target: "createSession".into(),
+                edge_kind: EdgeKind::Calls,
+                line: 5,
+            },
+            PathStep {
+                source: "createSession".into(),
+                target: "saveSession".into(),
+                edge_kind: EdgeKind::Calls,
+                line: 12,
+            },
+        ],
+    });
+
+    let out = narrate_explore(&res);
+
+    assert!(
+        out.contains(
+            "- `handleLogin` → `createSession` (calls at line 5) → `saveSession` (calls at line 12)"
+        ),
+        "got: {out}"
+    );
+    assert!(
+        out.find("Flow between").expect("flow section")
+            < out.find("**Source**").expect("source section")
+    );
+}
+
+fn relation(
+    caller: &str,
+    caller_file: &str,
+    caller_repo: &str,
+    target: &str,
+    target_file: &str,
+    line: usize,
+    provenance: Provenance,
+) -> OperationalRelation {
+    OperationalRelation {
+        source: RelationEndpoint {
+            repo: caller_repo.into(),
+            file_path: caller_file.into(),
+            symbol_name: caller.into(),
+            symbol_kind: Some(SymbolKind::Fn),
+        },
+        target: RelationEndpoint {
+            repo: "api".into(),
+            file_path: target_file.into(),
+            symbol_name: target.into(),
+            symbol_kind: Some(SymbolKind::Fn),
+        },
+        direction: RelationDirection::Incoming,
+        edge_kind: EdgeKind::Calls,
+        provenance,
+        confidence: if matches!(provenance, Provenance::Extracted) {
+            1.0
+        } else {
+            0.55
+        },
+        line,
+        hop_count: 1,
+        cross_repo: caller_repo != "api",
+    }
+}
+
+fn result(query: &str) -> ExploreResult {
+    ExploreResult {
+        query: query.into(),
+        primary_symbols: Vec::new(),
+        call_flows: Vec::new(),
+        impact_summary: None,
+        direct_relations: Vec::new(),
+        entry_points: Vec::new(),
+        transitive_consumers: Vec::new(),
+        sources: Vec::new(),
+        flows: Vec::new(),
+        not_shown: Vec::new(),
+    }
+}
+
+fn caller(name: &str, file: &str, line: usize, provenance: Provenance) -> CallerInfo {
+    CallerInfo {
+        caller: symbol(name, "web", 1),
+        caller_file_path: file.into(),
+        edge_kind: EdgeKind::Calls,
+        provenance,
+        confidence: if matches!(provenance, Provenance::Extracted) {
+            0.95
+        } else {
+            0.7
+        },
+        line,
+        col: 5,
+    }
+}
+
+/// The callers a change would break must appear before the source, since a
+/// model reading top-down decides whether to edit from the first screen.
+#[test]
+fn blast_radius_precedes_source() {
+    let mut res = result("getSession");
+    res.primary_symbols
+        .push(snippet("getSession", "api", "src/auth/sessions.ts", 27));
+    res.direct_relations.push(relation(
+        "requireAuth",
+        "src/auth/helpers.ts",
+        "api",
+        "getSession",
+        "src/auth/sessions.ts",
+        14,
+        Provenance::Extracted,
+    ));
+
+    let out = narrate_explore(&res);
+    let radius = out.find("Blast radius").expect("blast radius section");
+    let source = out.find("**Source**").expect("source section");
+
+    assert!(radius < source, "consequences must lead the answer");
+    assert!(
+        out.contains(
+            "- `getSession` (src/auth/sessions.ts:27) — 1 caller in `src/auth/helpers.ts`"
+        ),
+        "got: {out}"
+    );
+}
+
+/// Callers are resolved by name, so one definition per name is rendered and the
+/// ambiguity is stated. Printing per-definition entries repeated identical
+/// caller lists and implied a precision the index does not have.
+#[test]
+fn same_name_definitions_collapse_into_one_entry_naming_the_ambiguity() {
+    let mut res = result("session");
+    res.primary_symbols
+        .push(snippet("session", "ivar", "src/store/mod.rs", 16));
+    res.primary_symbols
+        .push(snippet("session", "ivar", "src/action/mod.rs", 29));
+    res.direct_relations.push(relation(
+        "run_session",
+        "src/action/session.rs",
+        "api",
+        "session",
+        "src/store/mod.rs",
+        40,
+        Provenance::Extracted,
+    ));
+
+    let out = narrate_explore(&res);
+
+    assert_eq!(
+        out.matches("- `session` (").count(),
+        1,
+        "same-named definitions share one line, got: {out}"
+    );
+    assert!(
+        out.contains("1 caller in `src/action/session.rs`"),
+        "got: {out}"
+    );
+    assert!(out.contains("2 definitions share this name"), "got: {out}");
+}
+
+/// One caller reached through several candidates must not inflate the count.
+#[test]
+fn duplicate_relations_are_counted_once() {
+    let mut res = result("getSession");
+    res.primary_symbols
+        .push(snippet("getSession", "api", "src/auth/sessions.ts", 27));
+    for _ in 0..3 {
+        res.direct_relations.push(relation(
+            "requireAuth",
+            "src/auth/helpers.ts",
+            "api",
+            "getSession",
+            "src/auth/sessions.ts",
+            14,
+            Provenance::Extracted,
+        ));
+    }
+
+    let out = narrate_explore(&res);
+    assert!(
+        out.contains("1 caller in `src/auth/helpers.ts`\n"),
+        "got: {out}"
+    );
+}
+
+/// A heuristic edge must carry its caution inline; a bare enum name in JSON was
+/// silently treated as fact.
+#[test]
+fn uncertain_edges_are_flagged_for_verification() {
+    let mut res = result("handler");
+    res.primary_symbols
+        .push(snippet("handler", "api", "src/routes.ts", 10));
+    res.direct_relations.push(relation(
+        "dispatch",
+        "src/router.ts",
+        "api",
+        "handler",
+        "src/routes.ts",
+        88,
+        Provenance::Ambiguous,
+    ));
+
+    let out = narrate_explore(&res);
+    assert!(
+        out.contains("1 inferred, not certain, verify before relying on them"),
+        "got: {out}"
+    );
+
+    let mut certain = result("handler");
+    certain
+        .primary_symbols
+        .push(snippet("handler", "api", "src/routes.ts", 10));
+    certain.direct_relations.push(relation(
+        "dispatch",
+        "src/router.ts",
+        "api",
+        "handler",
+        "src/routes.ts",
+        88,
+        Provenance::Extracted,
+    ));
+    assert!(
+        !narrate_explore(&certain).contains("verify before relying"),
+        "an AST-extracted edge needs no caveat"
+    );
+}
+
+/// Cross-repo callers are the edges grep cannot find, so they are marked.
+#[test]
+fn cross_repo_callers_are_marked_with_their_repo() {
+    let mut res = result("createSession");
+    res.primary_symbols
+        .push(snippet("createSession", "api", "src/auth/sessions.ts", 8));
+    res.direct_relations.push(relation(
+        "login",
+        "src/pages/Login.tsx",
+        "web",
+        "createSession",
+        "src/auth/sessions.ts",
+        22,
+        Provenance::Extracted,
+    ));
+
+    let out = narrate_explore(&res);
+    assert!(out.contains("1 from other repos"), "got: {out}");
+}
+
+/// An empty result must route the reader forward rather than dead-end.
+#[test]
+fn empty_result_explains_the_next_move() {
+    let out = narrate_explore(&result("nonexistent"));
+    assert!(out.contains("No symbols matched"));
+    assert!(
+        out.contains("refresh_index"),
+        "a stale index is the likely cause and the fix must be named"
+    );
+}
+
+/// Long caller lists are truncated with the remainder counted, so the answer
+/// stays bounded without hiding scale.
+#[test]
+fn long_caller_lists_report_the_untruncated_total() {
+    let mut res = result("session");
+    res.primary_symbols
+        .push(snippet("session", "ivar", "src/store/mod.rs", 16));
+    for i in 0..20 {
+        res.direct_relations.push(relation(
+            &format!("caller{i}"),
+            &format!("src/callers/c{i:02}.rs"),
+            "api",
+            "session",
+            "src/store/mod.rs",
+            100 + i,
+            Provenance::Extracted,
+        ));
+    }
+
+    let out = narrate_explore(&res);
+    assert!(
+        out.contains("20 callers in"),
+        "the total must stay visible: {out}"
+    );
+    assert!(out.contains("+17 more files"), "got: {out}");
+}
+
+/// CodeGraph leaves relation sections out on small repositories. In tokens3,
+/// entry points, call flows and transitive consumers took 1K to 4.5K characters
+/// of every ivar answer, and every later turn paid for them again.
+#[test]
+fn relation_sections_other_than_the_blast_radius_stay_out_of_the_answer() {
+    let mut res = result("requireAuth");
+    res.primary_symbols
+        .push(snippet("requireAuth", "api", "src/auth/helpers.ts", 3));
+    res.call_flows.push(crate::domain::graph::CallFlowItem {
+        caller: "requireAuth".into(),
+        callee: "getSession".into(),
+        edge_kind: EdgeKind::Calls,
+        provenance: Provenance::Extracted,
+        line: 4,
+    });
+    res.transitive_consumers.push(ExploreImpact {
+        symbol_name: "adminRoute".into(),
+        repo: "api".into(),
+        file_path: "src/routes/admin.ts".into(),
+        depth: 2,
+        path_via: vec!["requireAuth".into(), "adminRoute".into()],
+        cross_repo: false,
+    });
+
+    let out = narrate_explore(&res);
+
+    for section in [
+        "**Call flows**",
+        "**Entry points**",
+        "transitively",
+        "**Impact**",
+    ] {
+        assert!(!out.contains(section), "{section} leaked into: {out}");
+    }
+}
+
+/// With a per-call file budget, the files left out are named with their symbols
+/// so the next call is another explore instead of a Read.
+#[test]
+fn files_left_out_are_named_with_their_symbols_for_the_next_explore() {
+    let mut res = result("routes");
+    res.primary_symbols
+        .push(snippet("authRoutes", "api", "src/routes/auth.ts", 6));
+    res.sources.push(source("api", "src/routes/auth.ts", 20));
+    res.not_shown.push(FileMention {
+        repo: "api".into(),
+        file_path: "src/routes/admin.ts".into(),
+        symbols: vec![MentionedSymbol {
+            name: "adminRoutes".into(),
+            line: 7,
+        }],
+    });
+
+    let out = narrate_explore(&res);
+
+    let not_shown = out.find("**Not shown above").expect("not shown section");
+    assert!(out.find("**Source**").expect("source section") < not_shown);
+    assert!(
+        out.contains("- src/routes/admin.ts: adminRoutes:7"),
+        "got: {out}"
+    );
+    assert!(!out.contains("use Read"));
+}
+
+/// The Source block must tell the consumer the snippet is current and already
+/// equivalent to a Read — without this, models re-read the same file, wasting
+/// tokens that the indexed graph was designed to avoid.
+#[test]
+fn source_block_declares_source_is_current_and_no_re_read_needed() {
+    let mut res = result("getSession");
+    res.primary_symbols
+        .push(snippet("getSession", "api", "src/auth/sessions.ts", 27));
+    res.sources.push(source("api", "src/auth/sessions.ts", 40));
+
+    let out = narrate_explore(&res);
+    let source = out.find("**Source**").expect("source section");
+    let source_text = &out[source..];
+
+    assert!(
+        source_text.contains("a Read you have already performed"),
+        "Source block must declare the snippet is equivalent to a Read already done, \
+         but got: {}",
+        &source_text[..source_text.len().min(300)],
+    );
+    assert!(
+        source_text.contains("do not Read a file shown here"),
+        "Source block must explicitly prohibit re-reading the displayed file, \
+         but got: {}",
+        &source_text[..source_text.len().min(300)],
+    );
+}
+
+#[test]
+fn source_is_grouped_by_file_and_shown_once() {
+    let mut res = result("session");
+    res.primary_symbols
+        .push(snippet("createSession", "api", "src/auth/sessions.ts", 8));
+    res.primary_symbols
+        .push(snippet("getSession", "api", "src/auth/sessions.ts", 27));
+    res.sources.push(source("api", "src/auth/sessions.ts", 40));
+
+    let out = narrate_explore(&res);
+    let source_text = &out[out.find("**Source**").expect("source section")..];
+
+    assert_eq!(
+        source_text.matches("`src/auth/sessions.ts`").count(),
+        1,
+        "got: {source_text}"
+    );
+    assert_eq!(
+        source_text
+            .matches("1\tline 1 of src/auth/sessions.ts")
+            .count(),
+        1
+    );
+    assert!(source_text.contains("40\tline 40 of src/auth/sessions.ts"));
+    assert!(source_text.contains("`createSession` 8"));
+    assert!(source_text.contains("`getSession` 27"));
+}
+
+/// Hosts save a tool result above ~25K characters to a file the agent then has
+/// to Read, so source stops at a file boundary and names what it left out.
+#[test]
+fn source_stays_under_the_output_limit_and_names_the_files_left_out() {
+    let mut res = result("routes");
+    for i in 0..12 {
+        let file = format!("src/routes/r{i}.ts");
+        res.primary_symbols
+            .push(snippet(&format!("route{i}"), "api", &file, 1));
+        res.sources.push(source("api", &file, 120));
+    }
+
+    let out = narrate_explore(&res);
+
+    assert!(out.len() <= MAX_OUTPUT_CHARS + 600, "len {}", out.len());
+    assert!(out.contains("1\tline 1 of src/routes/r0.ts"));
+    assert!(
+        out.contains("- src/routes/r11.ts: route11:1"),
+        "left-out files must still be named, got: {out}"
+    );
+    assert!(out.contains("graph_explore"));
+    assert!(!out.contains("use Read"));
+}
+
+#[test]
+fn a_file_larger_than_the_limit_is_cut_at_a_line() {
+    let mut res = result("huge");
+    res.primary_symbols
+        .push(snippet("huge", "api", "src/huge.ts", 1));
+    res.sources.push(source("api", "src/huge.ts", 2_000));
+
+    let out = narrate_explore(&res);
+
+    assert!(out.len() <= MAX_OUTPUT_CHARS + 200, "len {}", out.len());
+    assert_eq!(
+        out.matches("```").count() % 2,
+        0,
+        "every code fence is closed"
+    );
+    assert!(
+        out.contains("truncated after line"),
+        "got tail: {}",
+        &out[out.len() - 200..]
+    );
+}
+
+/// The JSON form spent its tokens on ids, spans and nulls the model never used.
+#[test]
+fn callers_render_one_line_each_and_flag_uncertain_edges() {
+    let callers = vec![
+        caller(
+            "useAccessControl",
+            "src/hooks/useAccessControl.ts",
+            12,
+            Provenance::Extracted,
+        ),
+        caller(
+            "ProtectedRoute",
+            "src/components/ProtectedRoute.tsx",
+            9,
+            Provenance::Inferred,
+        ),
+    ];
+
+    let out = narrate_callers("evaluateAccess", &[], &callers, &[]);
+
+    assert!(
+        out.contains("**Callers of `evaluateAccess`: 2**"),
+        "got: {out}"
+    );
+    assert!(out.contains("`useAccessControl` in src/hooks/useAccessControl.ts:12"));
+    assert!(out.contains("verify this line"));
+    assert!(out.len() * 3 < serde_json::to_string_pretty(&callers).unwrap().len());
+}
+
+#[test]
+fn no_callers_names_the_likely_causes() {
+    let out = narrate_callers("orphan", &[], &[], &[]);
+    assert!(out.contains("No callers of `orphan`"), "got: {out}");
+    assert!(out.contains("refresh_index"));
+}
+
+/// An agent given only call sites grepped the name to find the definition and
+/// the imports, two turns and 19K characters per discovery run in `tokens2`.
+#[test]
+fn callers_name_the_definition_type_uses_and_module_level_references() {
+    let definitions = vec![SymbolLocation {
+        symbol: symbol("Session", "web", 8),
+        file_path: "src/auth/access.ts".into(),
+    }];
+    let mut type_use = caller(
+        "AuthContextType",
+        "src/components/AuthProvider.tsx",
+        8,
+        Provenance::Extracted,
+    );
+    type_use.edge_kind = EdgeKind::References;
+    let references = vec![ReferenceSite {
+        repo: "web".into(),
+        file_path: "src/api/client.ts".into(),
+        line: 1,
+    }];
+
+    let out = narrate_callers("Session", &definitions, &[type_use], &references);
+
+    assert!(
+        out.contains("Defined at src/auth/access.ts:8 (web)"),
+        "got: {out}"
+    );
+    assert!(
+        out.contains("`AuthContextType` in src/components/AuthProvider.tsx:8 · type use"),
+        "got: {out}"
+    );
+    assert!(out.contains("src/api/client.ts:1"), "got: {out}");
+}
+
+#[test]
+fn callees_show_where_each_call_lands() {
+    let callees = vec![
+        CalleeInfo {
+            callee_name: "getSession".into(),
+            callee_symbol: Some(symbol("getSession", "api", 27)),
+            callee_file_path: Some("src/auth/sessions.ts".into()),
+            edge_kind: EdgeKind::Calls,
+            provenance: Provenance::Extracted,
+            confidence: 1.0,
+            line: 14,
+            col: 3,
+        },
+        CalleeInfo {
+            callee_name: "reply.send".into(),
+            callee_symbol: None,
+            callee_file_path: None,
+            edge_kind: EdgeKind::Calls,
+            provenance: Provenance::Inferred,
+            confidence: 0.85,
+            line: 20,
+            col: 3,
+        },
+    ];
+
+    let out = narrate_callees("requireAuth", &callees);
+
+    assert!(
+        out.contains("**Calls made by `requireAuth`: 2**"),
+        "got: {out}"
+    );
+    assert!(out.contains("line 14 → `getSession` in src/auth/sessions.ts:27"));
+    assert!(out.contains("line 20 → `reply.send` (not in the index)"));
+}
+
+#[test]
+fn impact_groups_consumers_by_depth_in_a_fraction_of_the_json() {
+    let affected_symbols: Vec<ImpactItem> = (0..30)
+        .map(|i| ImpactItem {
+            symbol: symbol(&format!("consumer{i}"), "api", 10 + i),
+            file_path: format!("src/c{}.ts", i % 5),
+            depth: 1 + i % 2,
+            path_via: vec!["Session".into(), format!("consumer{i}")],
+        })
+        .collect();
+    let res = ImpactResult {
+        root_symbol: symbol("Session", "api", 8),
+        affected_files: (0..5).map(|i| format!("src/c{i}.ts")).collect(),
+        total_affected: affected_symbols.len(),
+        affected_symbols,
+    };
+
+    let out = narrate_impact(&res);
+
+    assert!(
+        out.contains("**Impact of `Session`: 30 symbols in 5 files**"),
+        "got: {out}"
+    );
+    assert!(out.contains("Depth 1"));
+    assert!(out.contains("Depth 2"));
+    assert!(out.contains("`consumer0` src/c0.ts:10"));
+    assert!(out.len() * 4 < serde_json::to_string_pretty(&res).unwrap().len());
+}
+
+#[test]
+fn outline_lists_symbols_with_their_lines_and_imports() {
+    let outline = FileOutline {
+        file_path: "src/routes/registry.ts".into(),
+        repo: "web".into(),
+        symbols: vec![symbol("routes", "web", 3), symbol("findRoute", "web", 42)],
+        imports: vec![Edge {
+            id: None,
+            repo: "web".into(),
+            file_id: Some(1),
+            from_symbol_id: None,
+            to_symbol_id: None,
+            to_name: Some("./pages/Admin".into()),
+            kind: EdgeKind::Imports,
+            provenance: Provenance::Extracted,
+            line: 1,
+            col: 1,
+            confidence: 0.95,
+        }],
+    };
+
+    let out = narrate_outline(&outline);
+
+    assert!(
+        out.contains("**Outline of `src/routes/registry.ts` (web)**: 2 symbols, 1 import"),
+        "got: {out}"
+    );
+    assert!(out.contains("`routes` fn 3-5 [exported]"));
+    assert!(out.contains("`./pages/Admin`"));
+}
+
+fn outgoing(caller: &str, callee: &str, callee_file: &str) -> OperationalRelation {
+    OperationalRelation {
+        direction: RelationDirection::Outgoing,
+        ..relation(
+            caller,
+            "src/auth/helpers.ts",
+            "api",
+            callee,
+            callee_file,
+            4,
+            Provenance::Extracted,
+        )
+    }
+}
+
+#[test]
+fn blast_radius_is_omitted_when_nothing_calls_the_matches() {
+    let mut res = result("adminRoutes");
+    res.primary_symbols
+        .push(snippet("adminRoutes", "api", "src/routes/admin.ts", 5));
+    res.direct_relations
+        .push(outgoing("adminRoutes", "reply.code", ""));
+
+    let out = narrate_explore(&res);
+
+    assert!(!out.contains("Blast radius"), "got: {out}");
+}

@@ -47,6 +47,10 @@ pub struct Cli {
     #[arg(long, global = true)]
     pub json: bool,
 
+    /// Output token-optimized compact pipe-delimited records with schema header.
+    #[arg(long, global = true)]
+    pub compact: bool,
+
     /// When to colour output.
     ///
     /// `auto` follows `NO_COLOR`, then `FORCE_COLOR`, then whether the stream
@@ -108,6 +112,9 @@ pub enum Command {
     /// Authenticate the hall's declared MCP servers.
     #[command(subcommand)]
     Mcp(McpCommand),
+    /// Query and index the codebase dependency graph.
+    #[command(subcommand)]
+    Graph(super::graph::GraphCommand),
     /// Guard: evaluate a tool request against the session's writable set.
     Guard(GuardArgs),
     /// Answer git's credential helper protocol on stdin. Registered as

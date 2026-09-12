@@ -247,6 +247,12 @@ pub fn delete(ctx: &Ctx, input: DeleteInput) -> Outcome<DeleteOutcome> {
         )
     })?;
 
+    let db_path = layout.ivar_dir().join("memory.db");
+    if db_path.is_file()
+        && let Ok(db) = crate::store::graph::db::GraphDb::open(db_path.as_std_path())
+    {
+        let _ = db.drop_feature_layers(name.as_str());
+    }
     Ok(Report::with_warnings(
         DeleteOutcome {
             root: layout.root().to_path_buf(),

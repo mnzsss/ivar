@@ -105,11 +105,12 @@ pub fn start(ctx: &Ctx, input: StartInput) -> Outcome<StartOutcome> {
         })
         .collect::<BTreeMap<_, _>>();
     let baseline = snapshot::baseline(&worktrees)?;
+    let plan_fingerprint = super::plan_fingerprint::normalized_plan_fingerprint(&plan)?;
     let receipt = RunReceipt::start(
         crate::domain::feature::RunId::new(uuid::Uuid::new_v4().to_string())?,
         feature.clone(),
         plan,
-        fingerprint,
+        plan_fingerprint,
         baseline,
         session.id,
         state.provider,

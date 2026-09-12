@@ -87,6 +87,15 @@ base64 = "0.22"
 walkdir = "2"
 uuid = { version = "1", features = ["v4"] }
 
+# --- graph & code intelligence ---------------------------------------------
+rusqlite = { version = "0.32", features = ["bundled", "vtab"] }
+tree-sitter = "0.24"
+streaming-iterator = "0.1"
+tree-sitter-rust = "0.23"
+tree-sitter-typescript = "0.23"
+tree-sitter-json = "0.24"
+tree-sitter-md = "=0.3.2"
+
 [target.'cfg(target_os = "linux")'.dependencies]
 landlock = "0.4"
 
@@ -147,6 +156,13 @@ debug = "line-tables-only"
 # Keep debug info in separate object files rather than inside the rlibs and the
 # binary. Linux-only knob; ignored elsewhere.
 split-debuginfo = "unpacked"
+
+[profile.e2e]
+inherits = "dev"
+# Graph E2E indexes the current ivar checkout by invoking the compiled binary.
+# Optimize that runtime without release profile's expensive LTO and stripping.
+opt-level = 2
+debug = false
 
 [profile.dev.package."*"]
 # No debug info for dependencies. Their DWARF costs disk and link time and

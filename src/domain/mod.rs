@@ -11,6 +11,7 @@
 
 pub mod discovery;
 pub mod feature;
+pub mod graph;
 pub mod guard;
 pub mod health;
 pub mod mcp;

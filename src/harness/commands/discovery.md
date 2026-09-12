@@ -41,6 +41,8 @@ to a Feature.
 
 3. **Discover**
    - Ask one question at a time. Never ask multiple questions in a single turn.
+   - Use `ivar graph explore <query>` (or `ivar graph explore <query> --repo <repo>`) to inspect likely symbols, entry points, and relation evidence before broad file reading.
+   - Graph evidence is advisory: if a graph query is missing, stale, empty, unsupported, or fails, fall back directly to source search and file reading.
    - Read files, search the codebase (each repo is mounted at the session
      path's own root, as `<name>/` — there is no `repos/` level), run
      read-only commands.
@@ -51,7 +53,6 @@ to a Feature.
      - Initial scope boundaries
      - Likely affected repos
      - Risks and blocking open questions
-
 4. **Conversion readiness check**
    Once you have identified all of the following, you may offer conversion:
    - Problem or opportunity statement

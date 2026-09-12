@@ -48,7 +48,8 @@ pub fn accept_revision(ctx: &Ctx, input: AcceptRevisionInput) -> Outcome<AcceptR
     let mut receipt = RunReceipt::read(&layout, &feature)?
         .ok_or_else(|| Failure::blocked("execute.run_missing", "no current run receipt exists"))?;
     let (session_id, provider) = super::resolve_coordinator(&layout, &feature, &receipt)?;
-    receipt.accept_revision(fingerprint, session_id, provider, rfc3339_now())?;
+    let plan_fingerprint = super::plan_fingerprint::normalized_plan_fingerprint(&plan)?;
+    receipt.accept_revision(plan_fingerprint, session_id, provider, rfc3339_now())?;
     receipt.write(&layout)?;
     Ok(Report::new(AcceptRevisionOutcome {
         receipt_path: run::current_path(&layout, &feature),

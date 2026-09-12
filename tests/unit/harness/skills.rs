@@ -93,3 +93,16 @@ fn ivar_execute_skill_content_satisfies_all_invariants() {
     assert!(content.contains("Ask"));
     assert!(content.contains("Draft"));
 }
+
+#[test]
+fn ivar_execute_skill_documents_affected_graph_guidance_and_fallback() {
+    let skill = catalog()
+        .iter()
+        .find(|s| s.id == "execute")
+        .expect("skill exists");
+    let content = skill.content;
+
+    assert!(content.contains("ivar graph affected"));
+    assert!(content.contains("advisory"));
+    assert!(content.contains("fallback") || content.contains("fall back"));
+}
