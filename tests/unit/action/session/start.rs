@@ -333,6 +333,31 @@ fn detached_start_reports_enforced_launch_command() {
     assert!(human_output.contains(&expected_cmd));
 }
 
+/// Without a terminal there is nothing to hold the provider open, so a start
+/// from a pipe or an agent's shell must leave a live, connectable session.
+#[test]
+fn start_without_a_tty_leaves_a_detached_session() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let ctx = Ctx::new(root);
+
+    let report = start(
+        &ctx,
+        StartInput {
+            feature: Some("checkout".to_owned()),
+            resume: false,
+            provider: None,
+            detached: false,
+            relay: false,
+        },
+    )
+    .unwrap();
+
+    assert!(report.value.detached);
+    let mut buf = Vec::new();
+    report.value.write_human(&mut buf).unwrap();
+    assert!(!String::from_utf8(buf).unwrap().contains("ended"));
+}
+
 // -- discovery sessions ----------------------------------------------------
 
 /// No feature named: the session materialises in the hall's own session
