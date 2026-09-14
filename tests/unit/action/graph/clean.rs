@@ -95,12 +95,13 @@ fn populate_hall_with_graph(hall_root: &std::path::Path) -> GraphDb {
     .unwrap();
     // Also write a minimal ivar.json in hall_root so discover_hall succeeds
     let ivar_json = r#"{
-        "schema_version": "1.0",
-        "hall": "test-hall",
-        "repos": {
-            "repo1": { "url": "https://github.com/example/repo1" },
-            "repo2": { "url": "https://github.com/example/repo2" }
-        }
+        "name": "test-hall",
+        "providers": { "available": ["claude-code"], "default": "claude-code" },
+        "repos": [
+            { "default_branch": "main", "name": "repo1", "url": "https://github.com/example/repo1" },
+            { "default_branch": "main", "name": "repo2", "url": "https://github.com/example/repo2" }
+        ],
+        "version": 1
     }"#;
     std::fs::write(hall_root.join("ivar.json"), ivar_json).unwrap();
 

@@ -5,10 +5,11 @@ use camino::{Utf8Path, Utf8PathBuf};
 use crate::action::session::env::SessionEnv;
 use crate::action::session::lookup;
 use crate::domain::feature::Feature;
-use crate::domain::name::{BranchName, FeatureName, RepoName};
+use crate::domain::name::{FeatureName, RepoName};
 use crate::error::Failure;
 use crate::infra::fs;
 use crate::store::layout::Layout;
+use crate::store::manifest::{Manifest, Repo};
 
 /// Information about a repository in a session view.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -77,22 +78,40 @@ fn detect_feature_from_worktree_path(layout: &Layout, cwd: &Utf8Path) -> Option<
     let mut components = rel.components();
     let _repo_name = components.next()?.as_str();
     let branch_or_feat = components.next()?.as_str();
-    if branch_or_feat == "main" || branch_or_feat == "master" {
-        return None;
-    }
     let feat_name = FeatureName::new(branch_or_feat).ok()?;
     Feature::read(layout, &feat_name).ok().flatten()
 }
 
-fn default_branch_fallback() -> Result<BranchName, Failure> {
-    BranchName::new("main")
-        .or_else(|_| BranchName::new("master"))
-        .map_err(|e| {
-            Failure::failed(
-                "graph.session_error",
-                format!("invalid default branch: {e}"),
-            )
-        })
+fn mounted_repos(layout: &Layout) -> Result<Vec<RepoName>, Failure> {
+    let repos_dir = layout.repos_dir();
+    let mut names = Vec::new();
+    if fs::is_dir(&repos_dir)? {
+        for child in fs::read_dir(&repos_dir)? {
+            if fs::is_dir(&child)?
+                && let Some(Ok(name)) = child.file_name().map(RepoName::new)
+            {
+                names.push(name);
+            }
+        }
+    }
+    names.sort();
+    Ok(names)
+}
+
+fn declared_repos(layout: &Layout) -> Result<Vec<Repo>, Failure> {
+    let manifest = Manifest::read(layout)
+        .map_err(|e| Failure::failed("graph.session_error", e.to_string()))?;
+    Ok(manifest.map(|m| m.repos().to_vec()).unwrap_or_default())
+}
+
+fn base_repo_view(layout: &Layout, declared: &[Repo], name: &RepoName) -> Option<RepoViewInfo> {
+    let repo = declared.iter().find(|repo| repo.name() == name)?;
+    Some(RepoViewInfo {
+        repo_name: name.to_string(),
+        worktree_path: layout.repo_worktree(name, repo.default_branch()),
+        is_layer: false,
+        base_commit: None,
+    })
 }
 
 fn build_feature_session_view(
@@ -100,41 +119,19 @@ fn build_feature_session_view(
     feature: &Feature,
     session_id: Option<String>,
 ) -> Result<SessionView, Failure> {
-    let mut repos = Vec::new();
-    let repos_dir = layout.repos_dir();
-    if fs::is_dir(&repos_dir)? {
-        for child in fs::read_dir(&repos_dir)? {
-            if !fs::is_dir(&child)? {
-                continue;
-            }
-            let Some(repo_str) = child.file_name() else {
-                continue;
-            };
-            let Ok(repo_name) = RepoName::new(repo_str) else {
-                continue;
-            };
-
-            if let Some(promotion) = feature.promotions.get(&repo_name) {
-                let wt = layout.repo_worktree(&repo_name, &feature.branch);
-                repos.push(RepoViewInfo {
-                    repo_name: repo_str.to_owned(),
-                    worktree_path: wt,
-                    is_layer: true,
-                    base_commit: promotion.base.as_ref().map(|b| b.as_str().to_owned()),
-                });
-            } else {
-                let default_branch = default_branch_fallback()?;
-                let wt = layout.repo_worktree(&repo_name, &default_branch);
-                repos.push(RepoViewInfo {
-                    repo_name: repo_str.to_owned(),
-                    worktree_path: wt,
-                    is_layer: false,
-                    base_commit: None,
-                });
-            }
-        }
-    }
-    repos.sort_by(|a, b| a.repo_name.cmp(&b.repo_name));
+    let declared = declared_repos(layout)?;
+    let repos = mounted_repos(layout)?
+        .iter()
+        .filter_map(|name| match feature.promotions.get(name) {
+            Some(promotion) => Some(RepoViewInfo {
+                repo_name: name.to_string(),
+                worktree_path: layout.repo_worktree(name, &feature.branch),
+                is_layer: true,
+                base_commit: promotion.base.as_ref().map(|b| b.as_str().to_owned()),
+            }),
+            None => base_repo_view(layout, &declared, name),
+        })
+        .collect();
     Ok(SessionView::FeatureSession {
         feature_name: feature.name.to_string(),
         session_id,
@@ -143,30 +140,11 @@ fn build_feature_session_view(
 }
 
 fn build_base_session_view(layout: &Layout) -> Result<SessionView, Failure> {
-    let mut repos = Vec::new();
-    let repos_dir = layout.repos_dir();
-    if fs::is_dir(&repos_dir)? {
-        for child in fs::read_dir(&repos_dir)? {
-            if !fs::is_dir(&child)? {
-                continue;
-            }
-            let Some(repo_str) = child.file_name() else {
-                continue;
-            };
-            let Ok(repo_name) = RepoName::new(repo_str) else {
-                continue;
-            };
-            let default_branch = default_branch_fallback()?;
-            let wt = layout.repo_worktree(&repo_name, &default_branch);
-            repos.push(RepoViewInfo {
-                repo_name: repo_str.to_owned(),
-                worktree_path: wt,
-                is_layer: false,
-                base_commit: None,
-            });
-        }
-    }
-    repos.sort_by(|a, b| a.repo_name.cmp(&b.repo_name));
+    let declared = declared_repos(layout)?;
+    let repos = mounted_repos(layout)?
+        .iter()
+        .filter_map(|name| base_repo_view(layout, &declared, name))
+        .collect();
     Ok(SessionView::Base { repos })
 }
 

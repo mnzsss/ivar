@@ -13,12 +13,30 @@ use crate::domain::feature::Feature;
 use crate::domain::name::{BranchName, FeatureName, RepoName};
 use crate::store::layout::Layout;
 
+fn declare_repos(root: &Utf8PathBuf, repos: &[(&str, &str)]) {
+    let entries = repos
+        .iter()
+        .map(|(name, branch)| {
+            format!(r#"{{"default_branch":"{branch}","name":"{name}","url":"https://example.com/{name}.git"}}"#)
+        })
+        .collect::<Vec<_>>()
+        .join(",");
+    std::fs::write(
+        root.join("ivar.json"),
+        format!(
+            r#"{{"name":"acme","providers":{{"available":["claude-code"],"default":"claude-code"}},"repos":[{entries}],"version":1}}"#
+        ),
+    )
+    .unwrap();
+}
+
 #[test]
 fn test_resolve_session_view_base_when_outside_session() {
     let tmp = tempdir().unwrap();
     let root = Utf8PathBuf::from_path_buf(tmp.path().to_path_buf()).unwrap();
     let layout = Layout::at(root.clone());
     std::fs::create_dir_all(layout.features_dir()).unwrap();
+    declare_repos(&root, &[("core", "main")]);
 
     let core_repo = layout.repo_worktree(
         &RepoName::new("core").unwrap(),
@@ -44,6 +62,7 @@ fn test_resolve_session_view_feature_inside_worktree() {
     let root = Utf8PathBuf::from_path_buf(tmp.path().to_path_buf()).unwrap();
     let layout = Layout::at(root.clone());
     std::fs::create_dir_all(layout.features_dir()).unwrap();
+    declare_repos(&root, &[("core", "main")]);
 
     let feat_name = FeatureName::new("add-auth").unwrap();
     let feat_branch = BranchName::new("add-auth").unwrap();
@@ -69,4 +88,34 @@ fn test_resolve_session_view_feature_inside_worktree() {
         }
         _ => panic!("Expected FeatureSession view when inside feature worktree"),
     }
+}
+
+#[test]
+fn test_feature_session_view_maps_unpromoted_repo_to_declared_default_branch() {
+    let tmp = tempdir().unwrap();
+    let root = Utf8PathBuf::from_path_buf(tmp.path().to_path_buf()).unwrap();
+    let layout = Layout::at(root.clone());
+    std::fs::create_dir_all(layout.features_dir()).unwrap();
+    declare_repos(&root, &[("core", "trunk"), ("web", "main")]);
+
+    let feat_branch = BranchName::new("add-auth").unwrap();
+    let mut feat = Feature::new(FeatureName::new("add-auth").unwrap(), feat_branch.clone());
+    feat.promote(RepoName::new("web").unwrap());
+    feat.write(&layout).unwrap();
+
+    let core_trunk = layout.repo_worktree(
+        &RepoName::new("core").unwrap(),
+        &BranchName::new("trunk").unwrap(),
+    );
+    std::fs::create_dir_all(&core_trunk).unwrap();
+    let web_feat_wt = layout.repo_worktree(&RepoName::new("web").unwrap(), &feat_branch);
+    std::fs::create_dir_all(&web_feat_wt).unwrap();
+
+    let view = resolve_session_view(&layout, &web_feat_wt).unwrap();
+    let SessionView::FeatureSession { repos, .. } = view else {
+        panic!("Expected FeatureSession view inside a feature worktree");
+    };
+    assert_eq!(repos[0].repo_name, "core");
+    assert_eq!(repos[0].worktree_path, core_trunk);
+    assert!(!repos[0].is_layer);
 }

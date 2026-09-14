@@ -232,10 +232,14 @@ impl TestHall {
     }
 
     pub fn commit_base(&self, repo: &str, files: &[(&str, &str)]) -> String {
+        self.commit_base_on(repo, "main", files)
+    }
+
+    pub fn commit_base_on(&self, repo: &str, branch: &str, files: &[(&str, &str)]) -> String {
         let origins_dir = self.hall_root.parent().unwrap().join("origins");
         let repo_origin = origins_dir.join(repo);
         std::fs::create_dir_all(&repo_origin).unwrap();
-        empty_repo(&repo_origin, "main");
+        empty_repo(&repo_origin, branch);
 
         for (path, content) in files {
             let full_path = repo_origin.join(path);
@@ -254,7 +258,7 @@ impl TestHall {
             .unwrap();
         let commit_hash = String::from_utf8(output.stdout).unwrap().trim().to_owned();
 
-        declare_repos(&self.hall_root, &[(repo, &repo_origin, "main")]);
+        declare_repos(&self.hall_root, &[(repo, &repo_origin, branch)]);
 
         let mut sync_cmd = ivar();
         sync_cmd.current_dir(&self.hall_root).arg("sync");

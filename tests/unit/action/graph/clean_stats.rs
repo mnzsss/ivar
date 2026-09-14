@@ -16,7 +16,11 @@ use tempfile::tempdir;
 #[test]
 fn test_clean_feature_and_stats_reporting() {
     let hall_dir = tempdir().unwrap();
-    std::fs::write(hall_dir.path().join("ivar.json"), "{}").unwrap();
+    std::fs::write(
+        hall_dir.path().join("ivar.json"),
+        r#"{"name":"acme","providers":{"available":["claude-code"],"default":"claude-code"},"repos":[],"version":1}"#,
+    )
+    .unwrap();
     let root_path = Utf8PathBuf::from_path_buf(hall_dir.path().to_path_buf()).unwrap();
     let db_path = hall_dir.path().join(".ivar/memory.db");
     std::fs::create_dir_all(db_path.parent().unwrap()).unwrap();
