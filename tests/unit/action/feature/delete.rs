@@ -195,8 +195,7 @@ fn delete_removes_read_only_files_inside_writable_directories() {
     fs::ensure_dir(&objects).unwrap();
     let object = objects.join("cdef");
     fs::write_text(&object, "blob").unwrap();
-    fs_err::set_permissions(object.as_std_path(), std::fs::Permissions::from_mode(0o444))
-        .unwrap();
+    fs_err::set_permissions(object.as_std_path(), std::fs::Permissions::from_mode(0o444)).unwrap();
 
     let report = delete(&ctx, delete_input("checkout")).unwrap();
 

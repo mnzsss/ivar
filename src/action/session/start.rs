@@ -222,7 +222,8 @@ pub fn start(ctx: &Ctx, input: StartInput) -> Outcome<StartOutcome> {
     // 4. The agent command — skipped entirely for a detached session, and
     //    also when stdout is not a tty (there is no TUI to run it under, and
     //    spawning without one just leaves an agent with no one attached).
-    let detached = input.detached || !crate::infra::term::is_tty(crate::infra::term::Stream::Stdout);
+    let detached =
+        input.detached || !crate::infra::term::is_tty(crate::infra::term::Stream::Stdout);
     if !detached {
         let env = SessionEnv::build(
             &layout,
