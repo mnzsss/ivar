@@ -160,7 +160,7 @@ pub fn delete(ctx: &Ctx, input: DeleteInput) -> Outcome<DeleteOutcome> {
                 blockers.len()
             ),
         )
-        .expected("every path under the feature directory to be writable and searchable")
+        .expected("every directory under the feature directory to be writable and searchable")
         .actual(format!(
             "{} path(s) could not be removed — see details for paths, modes, and owners",
             blockers.len()
@@ -266,11 +266,10 @@ pub fn delete(ctx: &Ctx, input: DeleteInput) -> Outcome<DeleteOutcome> {
 
 /// Walk `root` and report every path that cannot be removed.
 ///
-/// A path is removable when it is writable and, if a directory, searchable —
-/// checked against the mode bits directly (rather than an `access(2)` probe),
-/// which is what lets the check report *why* with the mode, uid, and gid, and
-/// what keeps it honest when the process runs as root, where permission
-/// checks always answer yes.
+/// A file is removable when its parent directory is writable and searchable, so only
+/// directories are checked. The check reads mode bits directly rather than probing
+/// `access(2)`, which lets it report why (mode, uid, gid) and keeps it honest as root,
+/// where permission checks always answer yes.
 pub(crate) fn collect_blockers(root: &Utf8Path) -> Vec<DeleteBlocker> {
     use std::os::unix::fs::MetadataExt as _;
 
@@ -295,9 +294,12 @@ pub(crate) fn collect_blockers(root: &Utf8Path) -> Vec<DeleteBlocker> {
 
         match fs_err::symlink_metadata(&std_path) {
             Ok(metadata) => {
+                if !metadata.is_dir() {
+                    continue;
+                }
                 let mode = metadata.mode();
                 let writable = mode & 0o222 != 0;
-                let searchable = !metadata.is_dir() || mode & 0o111 != 0;
+                let searchable = mode & 0o111 != 0;
                 if writable && searchable {
                     continue;
                 }
@@ -306,7 +308,7 @@ pub(crate) fn collect_blockers(root: &Utf8Path) -> Vec<DeleteBlocker> {
                     error: Some(if !writable {
                         "not writable".to_owned()
                     } else {
-                        "directory not searchable".to_owned()
+                        "not searchable".to_owned()
                     }),
                     mode: Some(mode),
                     uid: Some(metadata.uid()),

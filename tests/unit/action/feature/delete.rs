@@ -183,6 +183,28 @@ fn delete_preflight_blocks_on_an_unwritable_path_and_mutates_nothing() {
 }
 
 #[test]
+fn delete_removes_read_only_files_inside_writable_directories() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let ctx = Ctx::new(root.clone());
+    let name = FeatureName::new("checkout").unwrap();
+    let layout = Layout::at(root.clone());
+
+    // Git writes loose objects as 0444; unlinking them only needs the parent
+    // directory to be writable.
+    let objects = layout.feature_dir(&name).join("clone/.git/objects/ab");
+    fs::ensure_dir(&objects).unwrap();
+    let object = objects.join("cdef");
+    fs::write_text(&object, "blob").unwrap();
+    fs_err::set_permissions(object.as_std_path(), std::fs::Permissions::from_mode(0o444))
+        .unwrap();
+
+    let report = delete(&ctx, delete_input("checkout")).unwrap();
+
+    assert!(report.value.feature_removed);
+    assert!(!fs::exists(&layout.feature_dir(&name)).unwrap());
+}
+
+#[test]
 fn delete_after_a_successful_delete_is_a_clean_refusal() {
     let (_guard, root) = hall_with_promoted_feature();
     let ctx = Ctx::new(root.clone());

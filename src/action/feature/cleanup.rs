@@ -297,7 +297,7 @@ fn apply_cleanup(
                 blockers.len()
             ),
         )
-        .expected("every path under the feature directory to be writable and searchable")
+        .expected("every directory under the feature directory to be writable and searchable")
         .actual(format!(
             "{} path(s) could not be removed — see details for paths, modes, and owners",
             blockers.len()
