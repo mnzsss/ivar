@@ -185,3 +185,76 @@ fn test_migration_idempotence() {
     // Third call
     apply_migrations(&conn).expect("third migration run");
 }
+
+#[test]
+fn a_database_at_the_search_version_gains_the_later_tables_and_the_current_version() {
+    let conn = Connection::open_in_memory().expect("open in memory db");
+    conn.execute_batch(MIGRATION_V1).expect("v1 tables");
+    conn.execute_batch("PRAGMA user_version = 4;")
+        .expect("mark as search version");
+
+    apply_migrations(&conn).expect("migrate");
+
+    let version: i64 = conn
+        .query_row("PRAGMA user_version;", [], |row| row.get(0))
+        .expect("version");
+    assert_eq!(version, SCHEMA_VERSION);
+    conn.query_row("SELECT count(*) FROM layers", [], |row| {
+        row.get::<_, i64>(0)
+    })
+    .expect("layers table exists");
+}
+
+#[test]
+fn migrations_wait_for_the_write_lock_another_connection_holds() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let path = temp.path().join("graph.db");
+    let holder = Connection::open(&path).expect("open holder");
+    apply_pragmas(&holder, true).expect("pragmas");
+    holder
+        .execute_batch("BEGIN IMMEDIATE;")
+        .expect("hold write lock");
+
+    let migrator = Connection::open(&path).expect("open migrator");
+    migrator
+        .busy_timeout(std::time::Duration::from_millis(50))
+        .expect("busy timeout");
+    let blocked = apply_migrations(&migrator);
+    assert!(
+        blocked.is_err(),
+        "migration must not run without the write lock"
+    );
+
+    holder.execute_batch("COMMIT;").expect("release write lock");
+    apply_migrations(&migrator).expect("migrate once the lock is free");
+}
+
+#[test]
+fn concurrent_openers_of_an_old_database_both_end_up_migrated() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let path = temp.path().join("graph.db");
+    {
+        let conn = Connection::open(&path).expect("seed");
+        conn.execute_batch(MIGRATION_V1).expect("v1 tables");
+        conn.execute_batch("PRAGMA user_version = 2;")
+            .expect("old version");
+    }
+
+    std::thread::scope(|scope| {
+        for _ in 0..4 {
+            scope.spawn(|| {
+                let conn = Connection::open(&path).expect("open");
+                conn.busy_timeout(std::time::Duration::from_secs(10))
+                    .expect("busy timeout");
+                apply_pragmas(&conn, true).expect("pragmas");
+                apply_migrations(&conn).expect("migrate");
+            });
+        }
+    });
+
+    let conn = Connection::open(&path).expect("reopen");
+    let version: i64 = conn
+        .query_row("PRAGMA user_version;", [], |row| row.get(0))
+        .expect("version");
+    assert_eq!(version, SCHEMA_VERSION);
+}

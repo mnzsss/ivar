@@ -1,6 +1,6 @@
 //! SQLite schema, DDL migration definitions, and pragma configuration for the codebase graph.
 
-use rusqlite::{Connection, params};
+use rusqlite::{Connection, Transaction, TransactionBehavior, params};
 
 /// Initial schema migration for the codebase graph (v1).
 pub const MIGRATION_V1: &str = r#"
@@ -104,6 +104,9 @@ END;
 /// import references, JSX and HTTP client edges, so every file is re-extracted.
 const SEARCH_SCHEMA_VERSION: i64 = 4;
 
+/// The `user_version` a database carries once every migration below has run.
+pub const SCHEMA_VERSION: i64 = 5;
+
 /// Configures SQLite pragmas for performance and data integrity.
 pub fn apply_pragmas(conn: &Connection, is_disk: bool) -> rusqlite::Result<()> {
     conn.execute_batch("PRAGMA foreign_keys = ON;")?;
@@ -117,8 +120,24 @@ pub fn apply_pragmas(conn: &Connection, is_disk: bool) -> rusqlite::Result<()> {
     Ok(())
 }
 
-/// Applies initial database migrations and index creation.
+/// Applies database migrations under a write lock, so two processes opening an
+/// old database never migrate it at the same time.
 pub fn apply_migrations(conn: &Connection) -> rusqlite::Result<()> {
+    if user_version(conn)? >= SCHEMA_VERSION {
+        return Ok(());
+    }
+    let tx = Transaction::new_unchecked(conn, TransactionBehavior::Immediate)?;
+    if user_version(&tx)? < SCHEMA_VERSION {
+        migrate(&tx)?;
+    }
+    tx.commit()
+}
+
+fn user_version(conn: &Connection) -> rusqlite::Result<i64> {
+    conn.query_row("PRAGMA user_version;", [], |row| row.get(0))
+}
+
+fn migrate(conn: &Connection) -> rusqlite::Result<()> {
     conn.execute_batch(MIGRATION_V1)?;
 
     // Migration V2: Ensure complexity column exists on symbols table for existing DBs
@@ -153,49 +172,41 @@ fn apply_layer_migration(conn: &Connection) -> rusqlite::Result<()> {
             PRIMARY KEY(layer_id, path)
         );",
     )?;
-    let version: i64 = conn.query_row("PRAGMA user_version;", [], |row| row.get(0))?;
-    if version < SEARCH_SCHEMA_VERSION {
-        conn.execute_batch(&format!("PRAGMA user_version = {SEARCH_SCHEMA_VERSION};"))?;
-    }
-    Ok(())
+    conn.execute_batch(&format!("PRAGMA user_version = {SCHEMA_VERSION};"))
 }
 
 fn apply_search_migration(conn: &Connection) -> rusqlite::Result<()> {
-    let version: i64 = conn.query_row("PRAGMA user_version;", [], |row| row.get(0))?;
-    if version >= SEARCH_SCHEMA_VERSION {
+    if user_version(conn)? >= SEARCH_SCHEMA_VERSION {
         return Ok(());
     }
 
-    let tx = conn.unchecked_transaction()?;
     // External-content FTS deletes must repeat the indexed values, so the words
     // are backfilled while no trigger and no index exist.
-    tx.execute_batch(
+    conn.execute_batch(
         "DROP TRIGGER IF EXISTS symbols_ai;
          DROP TRIGGER IF EXISTS symbols_ad;
          DROP TRIGGER IF EXISTS symbols_au;
          DROP TABLE IF EXISTS symbols_fts;",
     )?;
-    if !has_column(&tx, "symbols", "name_words")? {
-        tx.execute_batch("ALTER TABLE symbols ADD COLUMN name_words TEXT;")?;
+    if !has_column(conn, "symbols", "name_words")? {
+        conn.execute_batch("ALTER TABLE symbols ADD COLUMN name_words TEXT;")?;
     }
-    let names: Vec<(i64, String)> = tx
+    let names: Vec<(i64, String)> = conn
         .prepare("SELECT id, name FROM symbols")?
         .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
         .collect::<rusqlite::Result<_>>()?;
     {
-        let mut update = tx.prepare("UPDATE symbols SET name_words = ?1 WHERE id = ?2")?;
+        let mut update = conn.prepare("UPDATE symbols SET name_words = ?1 WHERE id = ?2")?;
         for (id, name) in &names {
             update.execute(params![name_words(name), id])?;
         }
     }
-    tx.execute_batch(SYMBOLS_FTS)?;
-    tx.execute_batch(&format!(
+    conn.execute_batch(SYMBOLS_FTS)?;
+    conn.execute_batch(
         "INSERT INTO symbols_fts(symbols_fts) VALUES('rebuild');
          UPDATE files SET content_hash = '', mtime_ns = -1;
-         UPDATE repos SET last_indexed_commit = NULL;
-         PRAGMA user_version = {SEARCH_SCHEMA_VERSION};"
-    ))?;
-    tx.commit()
+         UPDATE repos SET last_indexed_commit = NULL;",
+    )
 }
 
 fn has_column(conn: &Connection, table: &str, column: &str) -> rusqlite::Result<bool> {
