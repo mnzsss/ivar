@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0](https://github.com/mnzsss/ivar/compare/v0.9.1...v0.10.0) - 2026-09-14
+
+### Added
+
+- add codebase graph ([#92](https://github.com/mnzsss/ivar/pull/92))
+- *(repo)* Add repository creation ([#96](https://github.com/mnzsss/ivar/pull/96))
+- *(execute)* harden execution and integration lifecycle ([#94](https://github.com/mnzsss/ivar/pull/94))
+
+### Fixed
+
+- *(execute)* keep plan fingerprints consistent ([#95](https://github.com/mnzsss/ivar/pull/95))
+- *(session,feature)* address audit findings for Landlock rules and list scaling ([#90](https://github.com/mnzsss/ivar/pull/90))
+
 ## [0.9.1](https://github.com/mnzsss/ivar/compare/v0.9.0...v0.9.1) - 2026-09-08
 
 ### Added
