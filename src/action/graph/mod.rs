@@ -11,6 +11,7 @@ pub mod index;
 pub mod input;
 pub mod layer;
 pub mod mcp;
+pub mod mcp_registration;
 pub mod narrate;
 pub mod outcome;
 pub mod path;
@@ -259,11 +260,22 @@ pub fn index_cmd(ctx: &Ctx, args: IndexInput) -> Outcome<IndexBatchOutcome> {
         0
     };
 
-    Ok(Report::new(IndexBatchOutcome {
-        repos: hall.repos,
-        repos_failed: hall.repos_failed,
-        cross_edges_linked,
-    }))
+    let (mcp_registration, warning) = if args.register_mcp {
+        mcp_registration::register_graph_mcp(&layout, &manifest)
+    } else {
+        (McpRegistration::Skipped, None)
+    };
+
+    Ok(Report::with_warnings(
+        IndexBatchOutcome {
+            repos: hall.repos,
+            repos_failed: hall.repos_failed,
+            cross_edges_linked,
+            mcp_registration,
+            next_command: (mcp_registration == McpRegistration::Registered).then_some("ivar sync"),
+        },
+        warning.into_iter().collect(),
+    ))
 }
 
 // 9. stats
@@ -303,6 +315,7 @@ pub fn mcp_cmd(ctx: &Ctx, tools: mcp::ToolSurface) -> Outcome<McpOutcome> {
                 IndexInput {
                     repo: repo.map(str::to_owned),
                     full: false,
+                    register_mcp: false,
                 },
             )
             .map_err(|err| err.to_string())?;

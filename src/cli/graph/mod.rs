@@ -130,6 +130,9 @@ pub struct GraphIndexArgs {
     /// Force full reindex regardless of last indexed commit.
     #[arg(long)]
     pub full: bool,
+    /// Do not declare the graph MCP server in ivar.json.
+    #[arg(long)]
+    pub no_mcp: bool,
 }
 
 #[derive(Debug, Args)]

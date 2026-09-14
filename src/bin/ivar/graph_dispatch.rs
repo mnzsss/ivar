@@ -211,6 +211,7 @@ pub(super) fn dispatch_graph(
                 IndexInput {
                     repo: args.repo,
                     full: args.full,
+                    register_mcp: !args.no_mcp,
                 },
             ),
             json,

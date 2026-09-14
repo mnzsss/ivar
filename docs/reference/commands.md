@@ -885,6 +885,7 @@ Incrementally update or build the codebase graph index
 | --- | --- | --- | --- |
 | `--repo` | `<REPO>` |  | Specific repository to index (indexes all declared repos if omitted) |
 | `--full` |  |  | Force full reindex regardless of last indexed commit |
+| `--no-mcp` |  |  | Do not declare the graph MCP server in ivar.json |
 
 
 ##### `ivar graph stats`
@@ -1007,6 +1008,14 @@ is there to answer.** Run either with output piped and they print what they
 *would* do and change nothing. That is deliberate: neither deletion nor a
 rewrite of a committed file should be reachable by a script that nobody is
 watching. There is no `--yes`.
+
+**`ivar graph index` declares the graph MCP server.** When no `mcp` entry in
+`ivar.json` already runs `ivar graph mcp`, it adds
+`{"name":"graph","type":"local","command":"ivar","args":["graph","mcp"]}` and
+reports `mcp_registration` (`registered`, `already_declared`, `name_clash`,
+`failed` or `skipped`), with `next_command: "ivar sync"` after a registration. It never runs `ivar sync`: run it yourself so providers
+pick the server up. A different server already named `graph` is left alone
+with a warning; `--no-mcp` skips registration entirely.
 
 **`ivar session start` is the one verb that takes over your terminal.** It opens
 a TUI. Everything else prints and exits.

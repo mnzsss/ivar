@@ -5,7 +5,7 @@ pub mod query;
 
 pub use ops::{
     AffectedOutcome, CleanOutcome, ExploreOutcome, GraphViewOutcome, IndexBatchOutcome, McpOutcome,
-    PathOutcome, VizOutcome,
+    McpRegistration, PathOutcome, VizOutcome,
 };
 pub use query::{
     CalleesOutcome, CallersOutcome, ComplexityOutcome, DeadCodeOutcome, FileOutcome, FindOutcome,

@@ -10,6 +10,7 @@
 //! - [`session_readers`] — viewer, affected, hierarchy, viz and explore through session views
 //! - [`simulation`] — ignored end-to-end lifecycle over a clone of this repository
 //! - [`viewer`] — `ivar graph view` server endpoints and security
+//! - [`mcp_registration`] — `ivar graph index` declaring the graph MCP server in `ivar.json`
 
 #![allow(
     clippy::unwrap_used,
@@ -36,3 +37,6 @@ mod simulation;
 
 #[path = "graph/viewer.rs"]
 mod viewer;
+
+#[path = "graph/mcp_registration.rs"]
+mod mcp_registration;

@@ -209,6 +209,19 @@ pub struct IndexBatchOutcome {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub repos_failed: Vec<RepoFailure>,
     pub cross_edges_linked: usize,
+    pub mcp_registration: McpRegistration,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_command: Option<&'static str>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum McpRegistration {
+    Registered,
+    AlreadyDeclared,
+    NameClash,
+    Failed,
+    Skipped,
 }
 
 impl WriteHuman for IndexBatchOutcome {
@@ -242,6 +255,12 @@ impl WriteHuman for IndexBatchOutcome {
         }
         if self.cross_edges_linked > 0 {
             writeln!(w, "  Linked {} cross-repo edges.", self.cross_edges_linked)?;
+        }
+        if self.mcp_registration == McpRegistration::Registered {
+            writeln!(
+                w,
+                "  Registered the `graph` MCP server in ivar.json; run `ivar sync` so providers pick it up."
+            )?;
         }
         Ok(())
     }

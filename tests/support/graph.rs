@@ -21,6 +21,9 @@ use serde_json::Value;
 use std::process::Command as StdCommand;
 use tempfile::TempDir;
 
+use ivar::store::layout::Layout;
+use ivar::store::manifest::Manifest;
+
 use crate::common::{declare_repos, empty_repo, git, hall_root, ivar, utf8_temp_dir};
 
 /// Locate the current ivar source checkout root from `CARGO_MANIFEST_DIR`.
@@ -95,7 +98,7 @@ impl GraphHall {
         init_cmd.assert().success().code(0);
 
         // 2. Declare repository
-        declare_repos(&hall_dir, &[(&repo_name, &origin, &current_branch)]);
+        declare_current_repos(&hall_dir, &[(&repo_name, &origin, &current_branch)]);
 
         // 3. Sync repository into the hall
         let mut sync_cmd = ivar();
@@ -210,6 +213,11 @@ impl GraphHall {
     }
 }
 
+fn declare_current_repos(root: &Utf8Path, repos: &[(&str, &Utf8Path, &str)]) {
+    declare_repos(root, repos);
+    Manifest::migrate(&Layout::at(root)).expect("migrate ivar.json");
+}
+
 pub struct TestHall {
     _hall_guard: TempDir,
     pub hall_root: Utf8PathBuf,
@@ -258,7 +266,7 @@ impl TestHall {
             .unwrap();
         let commit_hash = String::from_utf8(output.stdout).unwrap().trim().to_owned();
 
-        declare_repos(&self.hall_root, &[(repo, &repo_origin, branch)]);
+        declare_current_repos(&self.hall_root, &[(repo, &repo_origin, branch)]);
 
         let mut sync_cmd = ivar();
         sync_cmd.current_dir(&self.hall_root).arg("sync");

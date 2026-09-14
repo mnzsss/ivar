@@ -53,6 +53,7 @@ pub struct FileInput {
 pub struct IndexInput {
     pub repo: Option<String>,
     pub full: bool,
+    pub register_mcp: bool,
 }
 
 #[derive(Debug, Clone)]
