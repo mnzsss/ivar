@@ -1,25 +1,12 @@
 //! End-to-end integration tests for `ivar graph view` server endpoints,
 //! security headers, route filtering, and read-only graph access.
 
-#![allow(
-    clippy::unwrap_used,
-    clippy::expect_used,
-    clippy::panic,
-    clippy::indexing_slicing
-)]
-
-#[path = "support/integration.rs"]
-mod common;
-
-#[path = "support/graph.rs"]
-mod graph_support;
-
 use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
-use graph_support::GraphHall;
+use crate::support::graph::GraphHall;
 use ivar::action::graph::view::{ViewSeed, ViewerServer};
 use ivar::store::graph::db::GraphDb;
 

@@ -1,21 +1,11 @@
-#![allow(
-    clippy::unwrap_used,
-    clippy::expect_used,
-    clippy::panic,
-    clippy::indexing_slicing
-)]
-
-mod support;
-
 use camino::{Utf8Path, Utf8PathBuf};
 use serde_json::Value;
 
+use crate::support::graph::TestHall;
 use ivar::action::Ctx;
 use ivar::action::graph::input::GraphViewInput;
 use ivar::action::graph::view::{ViewSeed, ViewerGraph, parse_http_request};
 use ivar::action::graph::view_cmd;
-use support::common;
-use support::graph::TestHall;
 
 const BASE_LIB: &str = "pub trait Shape {}\npub struct Circle;\nimpl Shape for Circle {}\npub fn alpha_fn() -> i32 { 10 }\npub fn keep_fn() -> i32 { alpha_fn() }\n";
 const FEATURE_LIB: &str = "pub trait Shape {}\npub struct Square;\nimpl Shape for Square {}\npub fn beta_fn() -> i32 { 20 }\npub fn keep_fn() -> i32 { beta_fn() }\n";

@@ -13,27 +13,14 @@
 //! - **Ignored by Default for Fast Local & PR CI**: The lifecycle scenario is marked `#[ignore = "..."]`
 //!   so broad `cargo test --all-features` skips it. To execute graph simulation E2E tests locally:
 //!   ```bash
-//!   cargo test --profile e2e --all-features --test graph_simulation -- --ignored
+//!   cargo test --profile e2e --all-features --test graph simulation -- --ignored
 //!   ```
 
-#![allow(
-    clippy::unwrap_used,
-    clippy::expect_used,
-    clippy::panic,
-    clippy::indexing_slicing
-)]
-
-#[path = "support/integration.rs"]
-mod common;
-
-#[path = "support/graph.rs"]
-mod graph_support;
-
-use graph_support::GraphHall;
+use crate::support::graph::GraphHall;
 use predicates::prelude::predicate;
 
 #[test]
-#[ignore = "graph simulation E2E scenario (run explicitly with `cargo test --profile e2e --all-features --test graph_simulation -- --ignored`)"]
+#[ignore = "graph simulation E2E scenario (run explicitly with `cargo test --profile e2e --all-features --test graph simulation -- --ignored`)"]
 fn test_graph_simulation_e2e_lifecycle() {
     let hall = GraphHall::from_current_repo();
 

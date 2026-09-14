@@ -1,14 +1,5 @@
-#![allow(
-    clippy::unwrap_used,
-    clippy::expect_used,
-    clippy::panic,
-    clippy::indexing_slicing
-)]
-
-mod support;
-
-use support::common;
-use support::graph::TestHall;
+use crate::support::common;
+use crate::support::graph::TestHall;
 
 #[test]
 fn e2e_feature_session_reads_its_checkout_and_refreshes_dirty_edits() {

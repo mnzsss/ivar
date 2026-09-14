@@ -1,14 +1,5 @@
-#![allow(
-    clippy::unwrap_used,
-    clippy::expect_used,
-    clippy::panic,
-    clippy::indexing_slicing
-)]
-
-mod support;
-
-use support::common;
-use support::graph::TestHall;
+use crate::support::common;
+use crate::support::graph::TestHall;
 
 #[test]
 fn e2e_graph_indexes_and_checks_the_declared_default_branch_worktree() {
