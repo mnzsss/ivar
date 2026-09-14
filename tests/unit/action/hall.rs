@@ -1262,3 +1262,59 @@ fn the_human_surface_of_status_names_the_health() {
         "Hall at /hall — operational\n  api  cloned  worktree ok\n"
     );
 }
+
+// -- doctor: codebase graph -----------------------------------------------
+
+fn hall_with_indexed_graph() -> (tempfile::TempDir, Utf8PathBuf) {
+    let (guard, root) = hall_with_repo();
+    let ctx = Ctx::new(root.clone());
+    crate::action::sync::sync(&ctx, Default::default()).unwrap();
+    drop(
+        crate::store::graph::db::GraphDb::open(root.join(".ivar/memory.db").as_std_path()).unwrap(),
+    );
+    crate::action::sync::sync(&ctx, Default::default()).unwrap();
+    (guard, root)
+}
+
+#[test]
+fn doctor_finds_nothing_in_a_graph_indexed_at_head() {
+    let (_guard, root) = hall_with_indexed_graph();
+
+    let report = doctor(&Ctx::new(root)).unwrap();
+
+    assert!(
+        report.value.findings.is_empty(),
+        "{:?}",
+        report.value.findings
+    );
+}
+
+#[test]
+fn doctor_names_a_repo_whose_graph_lags_its_worktree_head() {
+    let (_guard, root) = hall_with_indexed_graph();
+    let db =
+        crate::store::graph::db::GraphDb::open(root.join(".ivar/memory.db").as_std_path()).unwrap();
+    db.update_repo_commit("api", "0000000000000000000000000000000000000000")
+        .unwrap();
+    drop(db);
+
+    let report = doctor(&Ctx::new(root)).unwrap();
+
+    let finding = finding(&report.value, "graph.repo_stale");
+    assert!(finding.what.contains("api"), "was: {}", finding.what);
+    assert!(finding.fix.contains("ivar graph index"));
+}
+
+#[test]
+fn doctor_names_a_graph_schema_other_than_the_expected_one() {
+    let (_guard, root) = hall_with_indexed_graph();
+    rusqlite::Connection::open(root.join(".ivar/memory.db").as_std_path())
+        .unwrap()
+        .execute_batch("PRAGMA user_version = 4;")
+        .unwrap();
+
+    let report = doctor(&Ctx::new(root)).unwrap();
+
+    let finding = finding(&report.value, "graph.schema_mismatch");
+    assert!(finding.what.contains('4'), "was: {}", finding.what);
+}

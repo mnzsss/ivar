@@ -45,6 +45,7 @@ Mount the repos a feature spans into one directory, on one branch, for one agent
 | flag | value | default | description |
 | --- | --- | --- | --- |
 | `--json` |  |  | Emit machine-readable output. Prints exactly the value the command computed. The human-readable text is a rendering of that same value, so the two can never tell you different things — script against this. |
+| `--compact` |  |  | Output token-optimized compact pipe-delimited records with schema header |
 | `--color` | `<COLOR>` | `auto` | When to colour output. `auto` follows `NO_COLOR`, then `FORCE_COLOR`, then whether the stream is a terminal — a pipe or a redirect gets none. `always` and `never` override all of that. Only labels are ever coloured; values never are, so `--json` is unaffected either way. |
 
 
@@ -781,6 +782,210 @@ Authenticate one MCP server. Resolves the server from `ivar.json`'s `mcp` array 
 | `--all-providers` |  |  | Authenticate every provider the hall lists (`providers.available`), one at a time — never concurrently, since each provider's login command takes over the terminal and waits on a browser. Every provider is attempted even if an earlier one fails; the run is reported as needing attention (not a clean success) the moment any of them does. Conflicts with `--provider` |
 
 
+#### `ivar graph`
+
+Query and index the codebase dependency graph
+
+
+##### `ivar graph explore`
+
+Hero query synthesizing symbol discovery, source snippet, callers, and impact
+
+| argument | required | description |
+| --- | --- | --- |
+| `query` | yes | Symbol name or query pattern to explore |
+
+| flag | value | default | description |
+| --- | --- | --- | --- |
+| `--repo` | `<REPO>` |  | Limit exploration to a specific repository |
+
+
+##### `ivar graph affected`
+
+Find reverse-dependent test files for changed files
+
+| argument | required | description |
+| --- | --- | --- |
+| `files` | no | Changed file paths to find reverse dependencies for |
+
+| flag | value | default | description |
+| --- | --- | --- | --- |
+| `--stdin` |  |  | Read changed file paths from stdin (one per line) |
+| `--repo` | `<REPO>` |  | Restrict search to a specific repository |
+| `--max-depth` | `<MAX_DEPTH>` |  | Maximum search depth hops |
+
+
+##### `ivar graph path`
+
+Find shortest path between two symbols or files
+
+| argument | required | description |
+| --- | --- | --- |
+| `from` | yes | Starting symbol name or file path |
+| `to` | yes | Target symbol name or file path |
+
+| flag | value | default | description |
+| --- | --- | --- | --- |
+| `--max-hops` | `<MAX_HOPS>` |  | Maximum traversal hops |
+
+
+##### `ivar graph find`
+
+Find symbols matching a query name pattern
+
+| argument | required | description |
+| --- | --- | --- |
+| `query` | yes | Symbol name query pattern |
+
+| flag | value | default | description |
+| --- | --- | --- | --- |
+| `--repo` | `<REPO>` |  | Restrict search to a specific repository |
+| `--limit` | `<LIMIT>` |  | Maximum number of matching symbols to return |
+
+
+##### `ivar graph callers`
+
+List all callers of a symbol
+
+| argument | required | description |
+| --- | --- | --- |
+| `symbol` | yes | Symbol name to find callers for |
+
+| flag | value | default | description |
+| --- | --- | --- | --- |
+| `--repo` | `<REPO>` |  | Restrict search to a specific repository |
+| `--cross-repo` |  |  | Search cross-repo callers |
+| `--min-confidence` | `<MIN_CONFIDENCE>` |  | Minimum edge confidence threshold (0.0 - 1.0) |
+
+
+##### `ivar graph callees`
+
+List all outgoing calls (callees) from a symbol
+
+| argument | required | description |
+| --- | --- | --- |
+| `symbol_id` | yes | Symbol ID to find outgoing callees for |
+
+
+##### `ivar graph file`
+
+Show file outline with all defined symbols
+
+| argument | required | description |
+| --- | --- | --- |
+| `repo` | yes | Target repository name |
+| `path` | yes | Target file path within the repository |
+
+
+##### `ivar graph index`
+
+Incrementally update or build the codebase graph index
+
+| flag | value | default | description |
+| --- | --- | --- | --- |
+| `--repo` | `<REPO>` |  | Specific repository to index (indexes all declared repos if omitted) |
+| `--full` |  |  | Force full reindex regardless of last indexed commit |
+| `--no-mcp` |  |  | Do not declare the graph MCP server in ivar.json |
+
+
+##### `ivar graph stats`
+
+Show overall graph statistics
+
+
+##### `ivar graph impact`
+
+Compute transitive blast-radius impact analysis for a symbol
+
+| argument | required | description |
+| --- | --- | --- |
+| `symbol_id` | yes | Symbol ID to compute blast radius impact for |
+
+| flag | value | default | description |
+| --- | --- | --- | --- |
+| `--max-depth` | `<MAX_DEPTH>` |  | Maximum traversal depth |
+
+
+##### `ivar graph mcp`
+
+Run graph MCP server
+
+| flag | value | default | description |
+| --- | --- | --- | --- |
+| `--tools` | `<TOOLS>` | `explore` | Tools to advertise: `explore` lists only `graph_explore`, `all` lists every graph tool |
+
+
+##### `ivar graph dead-code`
+
+Find unreferenced private symbols and dead code
+
+| flag | value | default | description |
+| --- | --- | --- | --- |
+| `--repo` | `<REPO>` |  | Limit search to a specific repository |
+| `--limit` | `<LIMIT>` |  | Maximum number of dead code items to return |
+
+
+##### `ivar graph complexity`
+
+Find functions and methods ranked descending by cyclomatic complexity
+
+| flag | value | default | description |
+| --- | --- | --- | --- |
+| `--threshold` | `<THRESHOLD>` | `10` | Minimum cyclomatic complexity threshold |
+| `--repo` | `<REPO>` |  | Limit search to a specific repository |
+| `--limit` | `<LIMIT>` |  | Maximum number of items to return |
+
+
+##### `ivar graph hierarchy`
+
+Analyze class, struct, and trait inheritance/implementation hierarchy
+
+| argument | required | description |
+| --- | --- | --- |
+| `symbol` | yes | Symbol name to analyze inheritance/implementation hierarchy for |
+
+| flag | value | default | description |
+| --- | --- | --- | --- |
+| `--repo` | `<REPO>` |  | Limit search to a specific repository |
+
+
+##### `ivar graph viz`
+
+Generate a standalone zero-dependency HTML interactive graph visualizer
+
+| flag | value | default | description |
+| --- | --- | --- | --- |
+| `--output` / `-o` | `<OUTPUT>` | `graph.html` | Output file path for the standalone HTML visualizer |
+| `--repo` | `<REPO>` |  | Limit visualization to a specific repository |
+
+
+##### `ivar graph view`
+
+Interactive browser-based codebase graph viewer
+
+| flag | value | default | description |
+| --- | --- | --- | --- |
+| `--repo` | `<REPO>` |  | Start graph visualization focused on a specific repository |
+| `--symbol` | `<SYMBOL>` |  | Start graph visualization focused on a specific symbol |
+| `--file` | `<FILE>` |  | Start graph visualization focused on a specific file path |
+| `--impact` | `<IMPACT>` |  | Start graph visualization focused on transitive impact of a symbol |
+| `--depth` | `<DEPTH>` |  | Maximum neighborhood depth hops (1..=2) |
+| `--limit` | `<LIMIT>` |  | Maximum number of nodes to load initially (1..=500) |
+| `--no-open` |  |  | Start the server without opening the browser automatically |
+| `--port` | `<PORT>` |  | Optional port to listen on (defaults to an ephemeral loopback port) |
+
+
+##### `ivar graph clean`
+
+Remove indexed repository data or clean the entire graph database
+
+| flag | value | default | description |
+| --- | --- | --- | --- |
+| `--repo` | `<REPO>` |  | Specific repository to remove from the graph index |
+| `--feature` | `<FEATURE>` |  | Specific feature whose layers should be removed from the graph index |
+| `--all` |  |  | Remove all repositories and data from the graph database |
+
+
 #### `ivar guard`
 
 Guard: evaluate a tool request against the session's writable set
@@ -803,6 +1008,17 @@ is there to answer.** Run either with output piped and they print what they
 *would* do and change nothing. That is deliberate: neither deletion nor a
 rewrite of a committed file should be reachable by a script that nobody is
 watching. There is no `--yes`.
+
+**`ivar graph index` declares the graph MCP server.** When no `mcp` entry in
+`ivar.json` already runs `ivar graph mcp`, it adds
+`{"name":"graph","type":"local","command":"ivar","args":["graph","mcp"]}` and
+reports `mcp_registration` (`registered`, `already_declared`, `name_clash`,
+`needs_migration`, `failed` or `skipped`), with `next_command: "ivar sync"`
+after a registration. It never runs `ivar sync`: run it yourself so providers
+pick the server up. A different server already named `graph` is left alone
+with a warning; an `ivar.json` that still needs `ivar migrate` is left alone
+without one, so indexing still exits cleanly; `--no-mcp` skips registration
+entirely.
 
 **`ivar session start` is the one verb that takes over your terminal.** It opens
 a TUI. Everything else prints and exits.

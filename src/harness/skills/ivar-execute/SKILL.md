@@ -97,7 +97,7 @@ For each wave:
    - **Coordinator isolation invariant:** The coordinator NEVER writes or edits feature code directly. All code edits, refactors, and test additions MUST be performed by subagents.
 2. **Execute lightweight validation:**
    - Run the explicit lightweight validation commands declared for this wave in `plan.md`.
-3. **Handle validation results:**
+   - When validating changed files across touched repos, query `ivar graph affected <files...>` to discover affected tests and runnable commands. Graph recommendations are advisory: use them to focus verification, and fall back directly to declared wave commands, project test runners, or targeted file execution when graph queries return empty results, fail, or lack runner configuration.
    - **Case A: Validation Passes**
      - Present the wave result, completed tasks, and validation output.
      - Prompt the human for explicit approval to complete the wave.

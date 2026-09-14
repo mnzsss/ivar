@@ -9,6 +9,7 @@
 pub mod discovery;
 pub mod feature;
 pub mod gitignore;
+pub mod graph;
 pub mod layout;
 pub mod manifest;
 pub mod mcp_secrets;

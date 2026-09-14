@@ -325,6 +325,7 @@ pub fn sync(ctx: &Ctx, input: SyncInput) -> Outcome<SyncOutcome> {
     // Built once, not once per provider: the block every provider gets is the
     // same bytes, and `Provider::ALL` will only grow.
     sync_providers(&layout, &manifest, &mut entries, &mut warnings);
+    refresh_graph(ctx, &layout, &manifest, &mut warnings);
 
     Ok(Report::with_warnings(
         SyncOutcome {
@@ -333,6 +334,37 @@ pub fn sync(ctx: &Ctx, input: SyncInput) -> Outcome<SyncOutcome> {
         },
         warnings,
     ))
+}
+
+/// A graph the hall already uses follows the repositories sync just moved; a
+/// failure here only warns, because the graph is a cache of the checkouts.
+fn refresh_graph(ctx: &Ctx, layout: &Layout, manifest: &Manifest, warnings: &mut Vec<Warning>) {
+    match crate::action::graph::refresh_base_graph(layout, manifest, ctx.progress()) {
+        Ok(None) => {}
+        Ok(Some(hall)) => {
+            for failure in hall.repos_failed {
+                warnings.push(Warning::new(
+                    "sync.graph_index_failed",
+                    failure.repo,
+                    failure.reason,
+                ));
+            }
+            for outcome in hall.repos {
+                for failure in outcome.files_failed {
+                    warnings.push(Warning::new(
+                        "sync.graph_file_skipped",
+                        format!("{}/{}", outcome.repo, failure.path),
+                        failure.reason,
+                    ));
+                }
+            }
+        }
+        Err(failure) => warnings.push(Warning::new(
+            "sync.graph_index_failed",
+            "graph",
+            failure.what,
+        )),
+    }
 }
 
 fn ensure_skeleton(layout: &Layout) -> Result<Entry, Failure> {

@@ -101,7 +101,8 @@ blocks approval of this artifact. This checkpoint never edits `HALL.md`;
    - Trade-offs between approaches
    - Risks and mitigations
    - Recommendations
-
+   
+   Query `ivar graph explore <query>` to inspect repo-qualified relations, provenance, confidence, entry points, and bounded dependency flow. Graph evidence is advisory: if graph queries are stale, empty, unsupported, or unavailable, fall back directly to source search and file reading. Graph evidence supplements source inspection and never creates, approves, or bypasses an approval gate.
 3. Write the Analysis artifact to `../../analysis.md` (relative to `$IVAR_SESSION_PATH`).
 
 4. **Pause for human approval.** Show the analysis to the user. Only proceed
@@ -131,6 +132,8 @@ after they approve.
      stating a count, a fixture — is verified by reading it.
    - **Norms** — coding conventions this feature follows. Every behavioural task is Test-Driven (Red → Green → Refactor).
    - **Safeguards** — things to watch out for
+
+   Use `ivar graph explore <query>` to check direct and transitive consumers, relation paths, and blast radius when populating task readers, interfaces, and safeguards. Fall back to direct source grep and file reads when graph evidence is absent, empty, or unmodeled.
 
    When Requirements and Analysis exist, reference them near the top of the
    canvas (for example `Requirements: ../../requirements.md

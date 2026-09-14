@@ -20,7 +20,10 @@ use crate::harness::commands::{
 use crate::harness::config::{build_block, instructions};
 use crate::harness::skills::{self, Inspection as SkillInspection, Integrity as SkillIntegrity};
 use crate::infra::fs;
+use crate::store::graph::db::GraphDb;
+use crate::store::graph::schema::SCHEMA_VERSION;
 use crate::store::layout::Layout;
+use crate::store::manifest::Manifest;
 
 use super::Ctx;
 use super::{discover_hall, read_manifest};
@@ -193,6 +196,8 @@ pub fn doctor(ctx: &Ctx) -> Outcome<DoctorOutcome> {
         }),
     }
 
+    findings.extend(graph_diagnoses(&layout, &manifest, &git));
+
     // In-flight run receipts: `active` means a coordinator is attached and
     // work is in flight, so the coordinating session must be alive. When its
     // View Dir is gone the run is stranded — it still holds the feature's
@@ -325,6 +330,61 @@ fn check_legacy_working_docs(
 /// `legacy_command_modified`, where sync preserves the customized file by
 /// design, so the way out is the user reviewing it and renaming or removing
 /// it themselves.
+/// Graph freshness: every indexed base repo against its worktree HEAD, and the
+/// schema against the one this binary migrates to. A hall that never built a
+/// graph has nothing to report.
+fn graph_diagnoses(layout: &Layout, manifest: &Manifest, git: &impl Git) -> Vec<Diagnosis> {
+    let db_path = layout.ivar_dir().join("memory.db");
+    if !db_path.as_std_path().exists() {
+        return Vec::new();
+    }
+    let db = match GraphDb::open_read_only(db_path.as_std_path()) {
+        Ok(db) => db,
+        Err(error) => {
+            return vec![Diagnosis {
+                code: "graph.open_failed",
+                what: format!("could not open the graph database at `{db_path}`: {error}"),
+                fix: "Remove it and run `ivar graph index` to rebuild it.".to_owned(),
+            }];
+        }
+    };
+
+    let mut findings = Vec::new();
+    let version: i64 = db
+        .conn()
+        .query_row("PRAGMA user_version;", [], |row| row.get(0))
+        .unwrap_or(0);
+    if version != SCHEMA_VERSION {
+        findings.push(Diagnosis {
+            code: "graph.schema_mismatch",
+            what: format!("graph schema is version {version}, this ivar expects {SCHEMA_VERSION}"),
+            fix: "Run `ivar graph index` to migrate it, or upgrade ivar if it is newer.".to_owned(),
+        });
+    }
+
+    for repo in manifest.repos() {
+        let Ok(Some(row)) = db.get_repo(repo.name().as_str()) else {
+            continue;
+        };
+        let worktree = layout.repo_worktree(repo.name(), repo.default_branch());
+        let Ok(head) = git.head_commit(&worktree) else {
+            continue;
+        };
+        if row.last_indexed_commit.as_deref() != Some(head.as_str()) {
+            let indexed = row.last_indexed_commit.as_deref().unwrap_or("nothing");
+            findings.push(Diagnosis {
+                code: "graph.repo_stale",
+                what: format!(
+                    "graph for `{}` is indexed at {indexed} but its worktree HEAD is {head}",
+                    repo.name()
+                ),
+                fix: format!("Run `ivar graph index --repo {}`.", repo.name()),
+            });
+        }
+    }
+    findings
+}
+
 fn command_diagnosis(
     provider: Provider,
     inspection: &CommandInspection,
