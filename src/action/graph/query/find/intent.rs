@@ -229,7 +229,9 @@ pub fn resolve_query_paths(
                 )?;
                 for (slash, _) in clean_dir.match_indices('/') {
                     let named_repo = match clean_dir[..slash].rsplit('/').next() {
-                        Some(segment) if repo.is_none() && db.get_repo(segment)?.is_some() => {
+                        Some(segment)
+                            if repo.is_none() && db.get_visible_repo(segment)?.is_some() =>
+                        {
                             Some(segment)
                         }
                         _ => None,

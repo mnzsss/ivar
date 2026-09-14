@@ -253,7 +253,7 @@ pub fn find_affected_tests_with_root(
 
     for path in &normalized_changed {
         let mut stmt = conn.prepare_cached(
-            "SELECT id, repo, path FROM files WHERE (?1 IS NULL OR repo = ?1) AND (path = ?2 OR (repo || '/' || path) = ?2 OR path LIKE ?3)",
+            "SELECT id, repo, path FROM visible_files WHERE (?1 IS NULL OR repo = ?1) AND (path = ?2 OR (repo || '/' || path) = ?2 OR path LIKE ?3)",
         )?;
         let like_pattern = format!("%/{}", path);
         let mut rows = stmt.query(params![repo, path, like_pattern])?;
@@ -316,14 +316,15 @@ pub fn find_affected_tests_with_root(
                 e.provenance,
                 e.confidence,
                 e.line
-            FROM edges e
-            JOIN files f_from ON e.file_id = f_from.id
-            LEFT JOIN symbols s_from ON e.from_symbol_id = s_from.id
-            LEFT JOIN symbols s_to ON (
+            FROM visible_edges e
+            JOIN visible_files f_from ON e.file_id = f_from.id
+            LEFT JOIN visible_symbols s_from ON e.from_symbol_id = s_from.id
+            LEFT JOIN visible_symbols s_to ON (
                 e.to_symbol_id = s_to.id
                 OR (e.to_symbol_id IS NULL AND e.to_name = s_to.name)
+                OR (e.to_symbol_id IN (SELECT id FROM hidden_symbols) AND e.to_name = s_to.name)
             )
-            JOIN files f_to ON s_to.file_id = f_to.id
+            JOIN visible_files f_to ON s_to.file_id = f_to.id
             WHERE s_to.file_id = ?1
               AND (?2 IS NULL OR e.repo = ?2)
         ";

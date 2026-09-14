@@ -198,8 +198,8 @@ pub fn explore_find(
             "SELECT s.id, s.file_id, s.repo, s.name, s.kind, s.scope, s.signature, s.docstring,
                     s.start_line, s.start_col, s.end_line, s.end_col, s.is_exported, s.complexity, f.path
              FROM symbols_fts fts
-             JOIN symbols s ON fts.rowid = s.id
-             JOIN files f ON s.file_id = f.id
+             JOIN visible_symbols s ON fts.rowid = s.id
+             JOIN visible_files f ON s.file_id = f.id
              WHERE symbols_fts MATCH ?1
                AND (?2 IS NULL OR s.repo = ?2)
              LIMIT 50",
@@ -216,8 +216,8 @@ pub fn explore_find(
             "SELECT s.id, s.file_id, s.repo, s.name, s.kind, s.scope, s.signature, s.docstring,
                     s.start_line, s.start_col, s.end_line, s.end_col, s.is_exported, s.complexity, f.path
              FROM symbols_fts fts
-             JOIN symbols s ON fts.rowid = s.id
-             JOIN files f ON s.file_id = f.id
+             JOIN visible_symbols s ON fts.rowid = s.id
+             JOIN visible_files f ON s.file_id = f.id
              WHERE symbols_fts MATCH ?1
                AND (?2 IS NULL OR s.repo = ?2)
              ORDER BY fts.rank

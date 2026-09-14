@@ -105,8 +105,8 @@ impl GraphDb {
                     "SELECT s.id, s.file_id, s.repo, s.name, s.kind, s.scope, s.signature, s.docstring,
                             s.start_line, s.start_col, s.end_line, s.end_col, s.is_exported, s.complexity,
                             f.path
-                     FROM symbols s
-                     JOIN files f ON s.file_id = f.id
+                     FROM visible_symbols s
+                     JOIN visible_files f ON s.file_id = f.id
                      WHERE s.name = ?1 AND s.repo = ?2
                      ORDER BY s.is_exported DESC, s.id ASC
                      LIMIT 1",
@@ -157,8 +157,8 @@ impl GraphDb {
                     "SELECT s.id, s.file_id, s.repo, s.name, s.kind, s.scope, s.signature, s.docstring,
                             s.start_line, s.start_col, s.end_line, s.end_col, s.is_exported, s.complexity,
                             f.path
-                     FROM symbols s
-                     JOIN files f ON s.file_id = f.id
+                     FROM visible_symbols s
+                     JOIN visible_files f ON s.file_id = f.id
                      WHERE s.name = ?1
                      ORDER BY s.is_exported DESC, s.id ASC
                      LIMIT 1",
@@ -216,8 +216,8 @@ impl GraphDb {
         // Find bases (what this symbol implements or inherits from)
         let mut stmt_bases = self.conn.prepare(
             "SELECT DISTINCT COALESCE(s2.name, e.to_name)
-             FROM edges e
-             LEFT JOIN symbols s2 ON e.to_symbol_id = s2.id
+             FROM visible_edges e
+             LEFT JOIN visible_symbols s2 ON e.to_symbol_id = s2.id
              WHERE e.from_symbol_id = ?1
                AND e.kind IN ('IMPLEMENTS', 'INHERITS')
                AND COALESCE(s2.name, e.to_name) IS NOT NULL",
@@ -231,8 +231,8 @@ impl GraphDb {
         // Find implementations/subtypes (what implements or inherits from this symbol)
         let mut stmt_derived = self.conn.prepare(
             "SELECT DISTINCT s2.name
-             FROM edges e
-             JOIN symbols s2 ON e.from_symbol_id = s2.id
+             FROM visible_edges e
+             JOIN visible_symbols s2 ON e.from_symbol_id = s2.id
              WHERE (e.to_symbol_id = ?1 OR e.to_name = ?2)
                AND e.kind IN ('IMPLEMENTS', 'INHERITS')",
         )?;

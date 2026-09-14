@@ -57,22 +57,26 @@ pub fn collect_viz_data(db: &GraphDb, repo: Option<&str>) -> Result<VizData, Viz
     let (symbol_query, edge_query) = match repo {
         Some(_) => (
             "SELECT s.id, s.name, s.kind, f.path, s.repo, s.start_line, s.complexity, s.is_exported \
-             FROM symbols s \
-             JOIN files f ON s.file_id = f.id \
+             FROM visible_symbols s \
+             JOIN visible_files f ON s.file_id = f.id \
              WHERE s.repo = ?1 \
              ORDER BY s.id ASC",
-            "SELECT from_symbol_id, to_symbol_id, kind \
-             FROM edges \
-             WHERE repo = ?1 AND from_symbol_id IS NOT NULL AND to_symbol_id IS NOT NULL",
+            "SELECT e.from_symbol_id, COALESCE(t.id, e.to_symbol_id), e.kind \
+             FROM visible_edges e \
+             LEFT JOIN visible_symbols t ON e.to_symbol_id IN (SELECT id FROM hidden_symbols) \
+                 AND t.name = e.to_name AND t.repo = e.repo \
+             WHERE e.repo = ?1 AND e.from_symbol_id IS NOT NULL AND e.to_symbol_id IS NOT NULL",
         ),
         None => (
             "SELECT s.id, s.name, s.kind, f.path, s.repo, s.start_line, s.complexity, s.is_exported \
-             FROM symbols s \
-             JOIN files f ON s.file_id = f.id \
+             FROM visible_symbols s \
+             JOIN visible_files f ON s.file_id = f.id \
              ORDER BY s.id ASC",
-            "SELECT from_symbol_id, to_symbol_id, kind \
-             FROM edges \
-             WHERE from_symbol_id IS NOT NULL AND to_symbol_id IS NOT NULL",
+            "SELECT e.from_symbol_id, COALESCE(t.id, e.to_symbol_id), e.kind \
+             FROM visible_edges e \
+             LEFT JOIN visible_symbols t ON e.to_symbol_id IN (SELECT id FROM hidden_symbols) \
+                 AND t.name = e.to_name AND t.repo = e.repo \
+             WHERE e.from_symbol_id IS NOT NULL AND e.to_symbol_id IS NOT NULL",
         ),
     };
 
