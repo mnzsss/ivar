@@ -57,8 +57,8 @@ pub(crate) fn collect_sources(
         // Spans come from the last index. Once the file changed they can cut a
         // function in half, so a changed file is served whole.
         let changed_since_index = db
-            .get_file(&file.repo, &file.file_path)?
-            .is_some_and(|row| row.content_hash != cached.content_hash);
+            .get_visible_file_hash(&file.repo, &file.file_path)?
+            .is_some_and(|hash| hash != cached.content_hash);
         let ranges = if changed_since_index || lines.len() <= WHOLE_FILE_MAX_LINES {
             vec![(1, lines.len())]
         } else {

@@ -135,6 +135,16 @@ impl GraphDb {
         Ok(result)
     }
 
+    /// Content hash of the file the current session sees, layer row first.
+    pub fn get_visible_file_hash(&self, repo: &str, path: &str) -> Result<Option<String>> {
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT content_hash FROM visible_files WHERE repo = ?1 AND path = ?2",
+        )?;
+        Ok(stmt
+            .query_row(params![repo, path], |row| row.get(0))
+            .optional()?)
+    }
+
     /// Fetches all indexed files for a repository.
     pub fn get_files_for_repo(&self, repo: &str) -> Result<Vec<FileRow>> {
         let mut stmt = self.conn.prepare_cached(

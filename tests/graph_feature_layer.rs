@@ -93,3 +93,81 @@ fn e2e_feature_session_reads_its_checkout_and_refreshes_dirty_edits() {
             .all(|layer| layer["feature"] != "rename-feat")
     );
 }
+
+#[test]
+fn e2e_feature_session_mcp_serves_uncommitted_files_from_its_checkout() {
+    let hall = TestHall::new();
+    hall.commit_base(
+        "api",
+        &[("src/access.ts", "export function evaluateAccess() {}\n")],
+    );
+    hall.graph_command(hall.root(), &["index", "--repo", "api"]);
+
+    let worktree = hall.promote("rename", "api");
+    hall.write(
+        &worktree,
+        "src/access.ts",
+        "export function checkAccess() {}\n",
+    );
+    hall.commit(&worktree, "rename evaluateAccess");
+    hall.write(
+        &worktree,
+        "src/session.ts",
+        "export function revokeSession() {}\n",
+    );
+    let view = hall.connect_view("rename");
+
+    assert_eq!(
+        hall.graph_command(&view, &["find", "revokeSession", "--json"])["matches"][0]["name"],
+        "revokeSession"
+    );
+    assert!(
+        hall.graph_command(hall.root(), &["find", "revokeSession", "--json"])["matches"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+
+    hall.write(
+        &worktree,
+        "src/session.ts",
+        "export function endSession() {}\n",
+    );
+    let calls = [
+        serde_json::json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+            "params": {"name": "refresh_index", "arguments": {}}}),
+        serde_json::json!({"jsonrpc": "2.0", "id": 2, "method": "tools/call",
+            "params": {"name": "graph_explore", "arguments": {"query": "endSession"}}}),
+        serde_json::json!({"jsonrpc": "2.0", "id": 3, "method": "tools/call",
+            "params": {"name": "graph_explore", "arguments": {"query": "checkAccess"}}}),
+    ];
+    let stdin: String = calls.iter().map(|call| format!("{call}\n")).collect();
+    let output = common::ivar()
+        .current_dir(&view)
+        .args(["graph", "mcp"])
+        .write_stdin(stdin)
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let responses: Vec<serde_json::Value> = String::from_utf8(output)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    let text = |id: i64| {
+        let response = responses.iter().find(|r| r["id"] == id).unwrap();
+        assert!(response["result"]["isError"] != true, "{response}");
+        response["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .to_owned()
+    };
+
+    text(1);
+    assert!(text(2).contains("export function endSession"));
+    let check_access = text(3);
+    assert!(check_access.contains("export function checkAccess"));
+    assert!(!check_access.contains("evaluateAccess"));
+}
