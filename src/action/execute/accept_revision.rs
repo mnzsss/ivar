@@ -34,18 +34,17 @@ pub fn accept_revision(ctx: &Ctx, input: AcceptRevisionInput) -> Outcome<AcceptR
     let plan = ctx.resolve(Utf8Path::new(&input.plan));
     super::import_legacy(&layout, &feature, plan.clone())?;
 
-    let approval_fingerprint = hash::file(&plan)?;
     let approvals = ApprovalState::read(&layout, &feature)?.unwrap_or_else(ApprovalState::fresh);
-    if approvals
-        .record(Gate::Plan)
-        .is_none_or(|record| record.artifact_fingerprint.as_deref() != Some(&approval_fingerprint))
-    {
+    let plan_fingerprint = super::plan_fingerprint::normalized_plan_fingerprint(&plan)?;
+    let raw_fingerprint = hash::file(&plan)?;
+    if approvals.record(Gate::Plan).is_none_or(|record| {
+        !matches!(record.artifact_fingerprint.as_deref(), Some(fp) if fp == plan_fingerprint || fp == raw_fingerprint)
+    }) {
         return Err(Failure::blocked(
             "execute.plan_not_approved",
             "the supplied plan is not currently approved",
         ));
     }
-    let plan_fingerprint = super::plan_fingerprint::normalized_plan_fingerprint(&plan)?;
     let mut receipt = RunReceipt::read(&layout, &feature)?
         .ok_or_else(|| Failure::blocked("execute.run_missing", "no current run receipt exists"))?;
     let (session_id, provider) = super::resolve_coordinator(&layout, &feature, &receipt)?;

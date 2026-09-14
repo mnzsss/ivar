@@ -61,17 +61,16 @@ pub fn start(ctx: &Ctx, input: StartInput) -> Outcome<StartOutcome> {
     })?;
     crate::action::feature::ensure_unrestricted_session_allowed(&layout, &feature_record)?;
     let approvals = ApprovalState::read(&layout, &feature)?.unwrap_or_else(ApprovalState::fresh);
-    let approval_fingerprint = hash::file(&plan)?;
-    if approvals
-        .record(Gate::Plan)
-        .is_none_or(|record| record.artifact_fingerprint.as_deref() != Some(&approval_fingerprint))
-    {
+    let plan_fingerprint = super::plan_fingerprint::normalized_plan_fingerprint(&plan)?;
+    let raw_fingerprint = hash::file(&plan)?;
+    if approvals.record(Gate::Plan).is_none_or(|record| {
+        !matches!(record.artifact_fingerprint.as_deref(), Some(fp) if fp == plan_fingerprint || fp == raw_fingerprint)
+    }) {
         return Err(Failure::blocked(
             "execute.plan_not_approved",
             "the supplied plan is not the currently approved plan",
         ));
     }
-    let plan_fingerprint = super::plan_fingerprint::normalized_plan_fingerprint(&plan)?;
     let now = rfc3339_now();
     if let Some(mut receipt) = RunReceipt::read(&layout, &feature)? {
         if input.restart && receipt.holds_lock() {

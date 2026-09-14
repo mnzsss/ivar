@@ -1,10 +1,11 @@
 //! Deterministic plan fingerprint calculation.
 //!
 //! Canonicalizes task checkbox state (e.g. `[ ]`, `[x]`, `[X]`) across markdown
-//! task list items and table cells so checking off tasks during wave execution
-//! does not alter the plan fingerprint. Any other modifications (instructions,
-//! task descriptions, headings, structure) alter the fingerprint and trigger
-//! divergence detection.
+//! task list items and table cells, and strips the trailing wave-complete
+//! marker (` ✅`) that the plan skill appends to a wave heading, so recording
+//! progress during wave execution does not alter the plan fingerprint. Any
+//! other modifications (instructions, task descriptions, headings, structure)
+//! alter the fingerprint and trigger divergence detection.
 
 use camino::Utf8Path;
 
@@ -17,6 +18,7 @@ use crate::infra::{fs, hash};
 /// - Indented and unindented list task items starting with `- [ ]`, `- [x]`, `- [X]`
 /// - Indented and unindented list task items starting with `* [ ]`, `* [x]`, `* [X]`
 /// - Table cells containing `| [ ] |`, `| [x] |`, `| [X] |`
+/// - Heading lines (`#...`) carrying a trailing ` ✅` wave-complete marker
 ///
 /// Preserves exact content, indentation, and newlines outside checkbox markers.
 pub(crate) fn normalize_checkboxes(text: &str) -> String {
@@ -29,7 +31,10 @@ pub(crate) fn normalize_checkboxes(text: &str) -> String {
         let indent_len = line.len() - trimmed.len();
         let indent = &line[..indent_len];
 
-        if let Some(rest) = trimmed
+        if trimmed.starts_with('#') {
+            out.push_str(indent);
+            out.push_str(trimmed.strip_suffix(" ✅").unwrap_or(trimmed));
+        } else if let Some(rest) = trimmed
             .strip_prefix("- [x] ")
             .or_else(|| trimmed.strip_prefix("- [X] "))
             .or_else(|| trimmed.strip_prefix("- [ ] "))

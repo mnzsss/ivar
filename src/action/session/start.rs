@@ -54,7 +54,7 @@ use crate::providers;
 use crate::store::layout::Layout;
 use crate::store::manifest::Manifest;
 use crate::tui;
-use crate::tui::driver::{Driver, Pty, ShellSpec};
+use crate::tui::driver::{Driver, ShellSpec};
 use crate::tui::pty::PtsPty;
 
 use super::super::{discover_hall, read_manifest};
@@ -123,11 +123,14 @@ impl WriteHuman for StartOutcome {
 
 /// Start a session: materialise the view dir, spawn the agent, run the TUI.
 ///
-/// The TUI part is skipped when the process is not a tty (a pipe, a CI
-/// run): the agent still spawns, and the caller is told where the view dir
-/// is instead. That keeps `session start` scriptable without faking a
-/// terminal. A **detached** session skips the spawn entirely — the View Dir
-/// persists, discoverable by `session connect`, until an explicit stop.
+/// Without a tty (a pipe, a CI run, an agent's own shell) there is no
+/// terminal to run the TUI in, so the start behaves as detached: nothing
+/// spawns, and the caller is told where the view dir is and how to launch
+/// the provider under a write guard instead. That keeps `session start`
+/// scriptable without faking a terminal. A **detached** session (whether
+/// requested or forced by a missing tty) skips the spawn entirely — the
+/// View Dir persists, discoverable by `session connect`, until an explicit
+/// stop.
 pub fn start(ctx: &Ctx, input: StartInput) -> Outcome<StartOutcome> {
     let layout = discover_hall(ctx)?;
     let manifest = read_manifest(&layout)?;
@@ -216,8 +219,12 @@ pub fn start(ctx: &Ctx, input: StartInput) -> Outcome<StartOutcome> {
         ));
     }
 
-    // 4. The agent command — skipped entirely for a detached session.
-    if !input.detached {
+    // 4. The agent command — skipped entirely for a detached session, and
+    //    also when stdout is not a tty (there is no TUI to run it under, and
+    //    spawning without one just leaves an agent with no one attached).
+    let detached =
+        input.detached || !crate::infra::term::is_tty(crate::infra::term::Stream::Stdout);
+    if !detached {
         let env = SessionEnv::build(
             &layout,
             &session_id,
@@ -244,19 +251,10 @@ pub fn start(ctx: &Ctx, input: StartInput) -> Outcome<StartOutcome> {
         let width = crate::infra::term::width();
         let height = 24;
 
-        // If we are on a tty, run the TUI; otherwise spawn without it.
-        if crate::infra::term::is_tty(crate::infra::term::Stream::Stdout) {
-            run_tui(command, &view_dir, &layout, width, height)?;
-        } else {
-            // Not a tty: the agent still starts (best-effort) so the view dir is
-            // genuinely usable, but the interactive loop is skipped.
-            let mut pty = PtsPty::new();
-            pty.spawn(&command, &view_dir, width, height)?;
-            let _ = pty;
-        }
+        run_tui(command, &view_dir, &layout, width, height)?;
     }
 
-    let launch_command = if input.detached {
+    let launch_command = if detached {
         let provider_bin = match provider {
             Provider::ClaudeCode => "claude",
             Provider::OpenCode => "opencode",
@@ -275,7 +273,7 @@ pub fn start(ctx: &Ctx, input: StartInput) -> Outcome<StartOutcome> {
             feature: feature.map(|feature| feature.name),
             provider,
             session_id: session_id.to_string(),
-            detached: input.detached,
+            detached,
             launch_command,
         },
         warnings,

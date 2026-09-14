@@ -359,6 +359,68 @@ fn closing_a_feature_preserves_the_plan_approval_across_its_own_stamp() {
     );
 }
 
+/// The plan gate's approval fingerprint is checkbox/marker-normalized (see
+/// `action::execute::plan_fingerprint::normalize_checkboxes`), so a plan
+/// approved with `[x]` checkboxes and wave-completion markers must still
+/// reseal across the close stamp, not just a plan with plain text.
+#[test]
+fn closing_a_feature_preserves_the_plan_approval_when_the_plan_has_checkboxes_and_markers() {
+    let (_guard, root) = seeded_hall();
+    let ctx = Ctx::new(root.clone());
+    let layout = Layout::at(&root);
+    let feature = FeatureName::new("checkout").unwrap();
+
+    crate::action::plan::create::create(
+        &ctx,
+        crate::action::plan::create::CreateInput {
+            feature: "checkout".to_owned(),
+            artifacts: vec![crate::action::plan::Artifact::Plan],
+        },
+    )
+    .unwrap();
+
+    let plan_path = layout.plan_dir(&feature).join("plan.md");
+    let body = crate::infra::fs::read_text(&plan_path).unwrap().unwrap();
+    crate::infra::fs::write_text(
+        &plan_path,
+        &format!("{body}\n- [x] done\n\n### Wave 1 — ship it ✅\n"),
+    )
+    .unwrap();
+
+    crate::action::plan::approve::approve(
+        &ctx,
+        crate::action::plan::approve::ApproveInput {
+            feature: "checkout".to_owned(),
+            gate: "plan".to_owned(),
+        },
+    )
+    .unwrap();
+
+    close(&ctx, close_input("delivered")).unwrap();
+
+    let approvals = crate::domain::feature::ApprovalState::read(&layout, &feature)
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        approvals.state(crate::domain::feature::Gate::Plan),
+        Some(crate::domain::feature::GateState::Approved),
+        "the close stamp must not read as a revision on a checkbox/marker plan"
+    );
+    assert_eq!(
+        approvals
+            .record(crate::domain::feature::Gate::Plan)
+            .unwrap()
+            .artifact_fingerprint
+            .as_deref(),
+        Some(
+            crate::action::execute::plan_fingerprint::normalized_plan_fingerprint(&plan_path)
+                .unwrap()
+                .as_str()
+        ),
+        "the fingerprint must be resealed against the stamped file's normalized content"
+    );
+}
+
 /// Resealing an approval is not granting one. A plan a human edited before the
 /// close was already drifted, and closing must not launder that away.
 #[test]

@@ -52,6 +52,10 @@ pub(super) fn artifact_path(layout: &Layout, feature: &FeatureName, gate: Gate) 
 /// SHA-256 of the gate's artifact content. `Ok(None)` when the artifact does
 /// not exist — a vanished artifact is drift, not an error, until a human
 /// either restores it or re-approves.
+///
+/// The `Plan` gate hashes checkbox-normalized content: `ivar execute` marks
+/// task progress directly on the plan file, and that bookkeeping must not
+/// read as drift on an approval a human already granted.
 pub(super) fn artifact_fingerprint(
     layout: &Layout,
     feature: &FeatureName,
@@ -61,7 +65,10 @@ pub(super) fn artifact_fingerprint(
     if !fs::is_file(&path)? {
         return Ok(None);
     }
-    Ok(Some(hash::file(&path)?))
+    Ok(Some(match gate {
+        Gate::Plan => crate::action::execute::plan_fingerprint::normalized_plan_fingerprint(&path)?,
+        Gate::Requirements | Gate::Analysis => hash::file(&path)?,
+    }))
 }
 
 /// Whether `gate`'s artifact exists on disk.
