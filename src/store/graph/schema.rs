@@ -111,13 +111,33 @@ pub const SCHEMA_VERSION: i64 = 6;
 pub fn apply_pragmas(conn: &Connection, is_disk: bool) -> rusqlite::Result<()> {
     conn.execute_batch("PRAGMA foreign_keys = ON;")?;
     if is_disk {
+        switch_to_wal(conn)?;
         conn.execute_batch(
-            "PRAGMA journal_mode = WAL;
-             PRAGMA synchronous = NORMAL;
+            "PRAGMA synchronous = NORMAL;
              PRAGMA cache_size = -64000;",
         )?;
     }
     Ok(())
+}
+
+// SQLite returns SQLITE_BUSY from a journal mode change without calling the
+// busy handler, so sessions opening the same database at once retry it here.
+fn switch_to_wal(conn: &Connection) -> rusqlite::Result<()> {
+    const WAL_SWITCH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+    let deadline = std::time::Instant::now() + WAL_SWITCH_TIMEOUT;
+    loop {
+        match conn.query_row("PRAGMA journal_mode = WAL;", [], |row| {
+            row.get::<_, String>(0)
+        }) {
+            Err(rusqlite::Error::SqliteFailure(error, _))
+                if error.code == rusqlite::ErrorCode::DatabaseBusy
+                    && std::time::Instant::now() < deadline =>
+            {
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+            result => return result.map(|_| ()),
+        }
+    }
 }
 
 /// Applies database migrations under a write lock, so two processes opening an

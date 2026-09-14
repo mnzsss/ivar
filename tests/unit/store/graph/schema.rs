@@ -258,3 +258,28 @@ fn concurrent_openers_of_an_old_database_both_end_up_migrated() {
         .expect("version");
     assert_eq!(version, SCHEMA_VERSION);
 }
+
+#[test]
+fn many_sessions_opening_an_old_database_at_once_all_succeed() {
+    for _ in 0..30 {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let path = temp.path().join("graph.db");
+        {
+            let conn = Connection::open(&path).expect("seed");
+            conn.execute_batch(MIGRATION_V1).expect("v1 tables");
+            conn.execute_batch("PRAGMA user_version = 2;")
+                .expect("old version");
+        }
+        std::thread::scope(|scope| {
+            for _ in 0..8 {
+                scope.spawn(|| {
+                    let conn = Connection::open(&path).expect("open");
+                    conn.busy_timeout(std::time::Duration::from_secs(10))
+                        .expect("busy timeout");
+                    apply_pragmas(&conn, true).expect("pragmas");
+                    apply_migrations(&conn).expect("migrate");
+                });
+            }
+        });
+    }
+}
