@@ -419,57 +419,49 @@ pub(crate) fn diff_worktree_files(
     let mut seen_added = std::collections::HashSet::new();
     let mut seen_deleted = std::collections::HashSet::new();
 
-    diff.foreach(
-        &mut |delta, _| {
-            match delta.status() {
-                git2::Delta::Deleted => {
-                    if let Some(path) = delta.old_file().path()
-                        && let Some(utf8) = Utf8Path::from_path(path)
-                        && seen_deleted.insert(utf8.to_path_buf())
-                    {
-                        deleted.push(utf8.to_path_buf());
-                    }
+    // Iterating deltas directly, unlike `Diff::foreach`, never loads blob
+    // contents for binary detection, which dominated the call's cost.
+    for delta in diff.deltas() {
+        match delta.status() {
+            git2::Delta::Deleted => {
+                if let Some(path) = delta.old_file().path()
+                    && let Some(utf8) = Utf8Path::from_path(path)
+                    && seen_deleted.insert(utf8.to_path_buf())
+                {
+                    deleted.push(utf8.to_path_buf());
                 }
-                git2::Delta::Renamed => {
-                    if let Some(old_path) = delta.old_file().path()
-                        && let Some(utf8) = Utf8Path::from_path(old_path)
-                        && seen_deleted.insert(utf8.to_path_buf())
-                    {
-                        deleted.push(utf8.to_path_buf());
-                    }
-                    if let Some(new_path) = delta.new_file().path()
-                        && let Some(utf8) = Utf8Path::from_path(new_path)
-                        && !repository.is_path_ignored(new_path).unwrap_or(false)
-                        && seen_added.insert(utf8.to_path_buf())
-                    {
-                        modified_or_added.push(utf8.to_path_buf());
-                    }
-                }
-                git2::Delta::Added
-                | git2::Delta::Modified
-                | git2::Delta::Untracked
-                | git2::Delta::Typechange
-                | git2::Delta::Copied => {
-                    if let Some(new_path) = delta.new_file().path()
-                        && let Some(utf8) = Utf8Path::from_path(new_path)
-                        && !repository.is_path_ignored(new_path).unwrap_or(false)
-                        && seen_added.insert(utf8.to_path_buf())
-                    {
-                        modified_or_added.push(utf8.to_path_buf());
-                    }
-                }
-                _ => {}
             }
-            true
-        },
-        None,
-        None,
-        None,
-    )
-    .map_err(|source| Error::Refused {
-        command: format!("git -C {worktree} diff foreach"),
-        detail: source.message().to_owned(),
-    })?;
+            git2::Delta::Renamed => {
+                if let Some(old_path) = delta.old_file().path()
+                    && let Some(utf8) = Utf8Path::from_path(old_path)
+                    && seen_deleted.insert(utf8.to_path_buf())
+                {
+                    deleted.push(utf8.to_path_buf());
+                }
+                if let Some(new_path) = delta.new_file().path()
+                    && let Some(utf8) = Utf8Path::from_path(new_path)
+                    && !repository.is_path_ignored(new_path).unwrap_or(false)
+                    && seen_added.insert(utf8.to_path_buf())
+                {
+                    modified_or_added.push(utf8.to_path_buf());
+                }
+            }
+            git2::Delta::Added
+            | git2::Delta::Modified
+            | git2::Delta::Untracked
+            | git2::Delta::Typechange
+            | git2::Delta::Copied => {
+                if let Some(new_path) = delta.new_file().path()
+                    && let Some(utf8) = Utf8Path::from_path(new_path)
+                    && !repository.is_path_ignored(new_path).unwrap_or(false)
+                    && seen_added.insert(utf8.to_path_buf())
+                {
+                    modified_or_added.push(utf8.to_path_buf());
+                }
+            }
+            _ => {}
+        }
+    }
 
     Ok(WorktreeDiff {
         modified_or_added,
