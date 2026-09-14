@@ -748,3 +748,34 @@ fn blast_radius_is_omitted_when_nothing_calls_the_matches() {
 
     assert!(!out.contains("Blast radius"), "got: {out}");
 }
+
+#[test]
+fn an_intent_answer_never_exceeds_the_character_cap() {
+    let query = (0..600)
+        .map(|n| format!("services/api/src/file{n}.ts"))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let mut res = result(&query);
+    for n in 0..20 {
+        let file = format!("src/module{n}.ts");
+        res.primary_symbols
+            .push(snippet(&format!("handler{n}"), "api", &file, 1));
+        res.sources.push(source("api", &file, 400));
+    }
+    res.not_shown = (0..15)
+        .map(|n| FileMention {
+            repo: "api".into(),
+            file_path: format!("services/api/src/deeply/nested/directory/not_shown_{n}.ts"),
+            symbols: (0..8)
+                .map(|s| MentionedSymbol {
+                    name: format!("aLongDescriptiveSymbolName{s}"),
+                    line: s,
+                })
+                .collect(),
+        })
+        .collect();
+
+    let out = narrate_explore(&res);
+
+    assert!(out.len() <= 24_000, "answer has {} chars", out.len());
+}

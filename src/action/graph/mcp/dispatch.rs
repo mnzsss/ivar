@@ -6,7 +6,7 @@ use serde_json::Value;
 
 use super::workspace::WorkspacePaths;
 use crate::action::graph::query::QueryError;
-use crate::action::graph::query::find::resolve_query_paths;
+use crate::action::graph::query::find::{is_path_like, resolve_query_paths};
 use crate::action::graph::{
     affected, compact, complexity, dead_code, explore, hierarchy, narrate, path, query,
 };
@@ -35,7 +35,7 @@ where
 
             let root = hall_root
                 .ok_or_else(|| "Hall root is required for explore snippet reading".to_owned())?;
-            let requests_files = args.get("paths").is_some() || args.get("files").is_some();
+            let (requests_files, unindexed) = file_request(db, args, &q, repo)?;
             let mut res = if requests_files {
                 explore::explore_files(db, root, &q, repo)
             } else {
@@ -50,7 +50,17 @@ where
                 _ => {
                     WorkspacePaths::from_current_dir().rewrite_explore(db, &mut res);
                     Ok(if requests_files {
-                        narrate::narrate_requested_files(&res)
+                        let mut answer = narrate::narrate_requested_files(&res);
+                        if !unindexed.is_empty() {
+                            let names: Vec<String> =
+                                unindexed.iter().map(|path| format!("`{path}`")).collect();
+                            answer.push_str(&format!(
+                                "\nNot indexed: {}. No indexed file matches, so Read it directly \
+                                 or call `refresh_index` if it is new.\n",
+                                names.join(", ")
+                            ));
+                        }
+                        answer
                     } else {
                         narrate::narrate_explore(&res)
                     })
@@ -362,6 +372,40 @@ fn explore_query(args: &Value) -> Option<String> {
         .filter(|term| !term.trim().is_empty())
         .collect();
     (!terms.is_empty()).then(|| terms.join(" "))
+}
+
+/// Paths mode serves `paths`/`files` arguments, and a query made only of path
+/// tokens: agents often list the files they want as free text. Returns whether
+/// to serve files whole and the path tokens no indexed file matches.
+fn file_request(
+    db: &GraphDb,
+    args: &Value,
+    query: &str,
+    repo: Option<&str>,
+) -> Result<(bool, Vec<String>), String> {
+    let explicit = args.get("paths").is_some() || args.get("files").is_some();
+    let tokens: Vec<&str> = query
+        .split_whitespace()
+        .map(|token| token.trim_matches([',', ';', ':', '"', '\'']))
+        .filter(|token| !token.is_empty())
+        .collect();
+    let all_paths = tokens.iter().all(|token| is_path_like(token));
+    if !explicit && !all_paths {
+        return Ok((false, Vec::new()));
+    }
+    let mut unindexed = Vec::new();
+    for token in tokens.iter().filter(|token| is_path_like(token)) {
+        let parsed =
+            resolve_query_paths(db, token, repo).map_err(|e| format!("explore failed: {e}"))?;
+        if parsed.resolved_paths.is_empty() {
+            unindexed.push((*token).to_owned());
+        }
+    }
+    let serve_files = explicit || unindexed.len() < tokens.len();
+    Ok((
+        serve_files,
+        if serve_files { unindexed } else { Vec::new() },
+    ))
 }
 
 /// Agents name the symbol argument differently from one call to the next

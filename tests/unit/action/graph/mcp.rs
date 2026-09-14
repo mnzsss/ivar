@@ -284,6 +284,83 @@ fn graph_explore_joins_every_argument_an_agent_splits_its_query_across() {
     }
 }
 
+fn index_file(db: &GraphDb, root: &std::path::Path, path: &str, content: &str, symbol: &str) {
+    std::fs::write(root.join("my-repo").join(path), content).expect("write source");
+    let file_id = db
+        .upsert_file(
+            "my-repo",
+            path,
+            &crate::infra::hash::text(content),
+            100,
+            100,
+        )
+        .expect("upsert file");
+    db.insert_symbols(&[Symbol {
+        id: None,
+        file_id: Some(file_id),
+        repo: "my-repo".to_owned(),
+        name: symbol.to_owned(),
+        kind: SymbolKind::Fn,
+        scope: None,
+        signature: None,
+        docstring: None,
+        span: Span::new(1, 1, 3, 1),
+        is_exported: true,
+        complexity: None,
+    }])
+    .expect("insert symbol");
+}
+
+fn long_file() -> String {
+    let body: String = (4..=300).map(|n| format!("// line {n}\n")).collect();
+    format!("pub fn bulky() {{\n}}\n\n{body}")
+}
+
+#[test]
+fn a_query_listing_file_paths_returns_those_files_whole_and_names_unindexed_ones() {
+    let (db, temp) = setup_test_mcp_db();
+    let root = temp.path();
+    index_file(&db, root, "src/bulky.rs", &long_file(), "bulky");
+
+    let (answer, failed) = call_tool(
+        &db,
+        root,
+        "graph_explore",
+        json!({"query": "my-repo/src/bulky.rs src/main.rs tests/exec_test.rs verify.mjs"}),
+    );
+
+    assert!(!failed, "{answer}");
+    assert!(
+        answer.contains("// line 300"),
+        "whole file expected: {answer}"
+    );
+    assert!(answer.contains("fn test_exec()"), "{answer}");
+    assert!(answer.contains("pub fn helper()"), "{answer}");
+    assert!(
+        answer.contains("Not indexed: `verify.mjs`"),
+        "unresolved path is named: {answer}"
+    );
+}
+
+#[test]
+fn a_query_mixing_words_and_paths_keeps_intent_behavior() {
+    let (db, temp) = setup_test_mcp_db();
+    let root = temp.path();
+    index_file(&db, root, "src/bulky.rs", &long_file(), "bulky");
+
+    let (answer, failed) = call_tool(
+        &db,
+        root,
+        "graph_explore",
+        json!({"query": "bulky src/bulky.rs"}),
+    );
+
+    assert!(!failed, "{answer}");
+    assert!(answer.contains("`bulky`"), "{answer}");
+    assert!(!answer.contains("// line 300"), "intent slices: {answer}");
+    assert!(!answer.contains("Not indexed"), "{answer}");
+}
+
 fn call_tool(db: &GraphDb, root: &std::path::Path, name: &str, arguments: Value) -> (String, bool) {
     let input = format!(
         "{}\n",

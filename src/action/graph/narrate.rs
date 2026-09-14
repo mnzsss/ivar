@@ -36,6 +36,9 @@ const MAX_LIST_ITEMS: usize = 40;
 const MAX_OUTPUT_CHARS: usize = 18_000;
 /// A `paths` answer may run longer, still under the ~25K-character threshold.
 const MAX_REQUESTED_OUTPUT_CHARS: usize = 24_000;
+/// Room kept after the source for the not-shown list and the next call, so no
+/// answer passes [`MAX_REQUESTED_OUTPUT_CHARS`].
+const NOT_SHOWN_RESERVE_CHARS: usize = 4_000;
 /// Source keeps this much room even after long relation sections.
 const MIN_SOURCE_CHARS: usize = 8_000;
 
@@ -500,7 +503,9 @@ fn narrate_source(
          here.\n\n",
     );
 
-    let limit = max_chars.max(out.len() + MIN_SOURCE_CHARS);
+    let limit = max_chars
+        .max(out.len() + MIN_SOURCE_CHARS)
+        .min(MAX_REQUESTED_OUTPUT_CHARS - NOT_SHOWN_RESERVE_CHARS);
     let mut emitted = false;
     let mut left_out = Vec::new();
     for file in files {
