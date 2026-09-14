@@ -62,24 +62,21 @@ fn feature_freshness_rebuilds_after_a_same_size_content_edit() {
 
     std::fs::write(worktree.join("src/lib.rs"), "pub fn bravo() {}\n").unwrap();
     ensure_session_freshness(&db, &layout, &view).unwrap();
-    let first = db
-        .get_layer_record("payments", "core")
-        .unwrap()
-        .unwrap()
-        .fingerprint
-        .unwrap();
 
     std::fs::write(worktree.join("src/lib.rs"), "pub fn delta() {}\n").unwrap();
     ensure_session_freshness(&db, &layout, &view).unwrap();
-    let second = db
-        .get_layer_record("payments", "core")
+    let layer_names: Vec<String> = db
+        .conn()
+        .prepare("SELECT name FROM symbols WHERE repo LIKE 'core/%' ORDER BY name")
         .unwrap()
+        .query_map([], |row| row.get(0))
         .unwrap()
-        .fingerprint
+        .collect::<Result<_, _>>()
         .unwrap();
 
-    assert_ne!(
-        first, second,
+    assert_eq!(
+        layer_names,
+        vec!["delta"],
         "same-size content changes must invalidate the layer"
     );
 }

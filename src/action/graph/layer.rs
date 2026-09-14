@@ -2,12 +2,11 @@
 
 use camino::Utf8Path;
 use sha2::{Digest, Sha256};
-use std::path::Path;
 
 use crate::error::Failure;
 use crate::git::{Git, System as GitSystem, WorktreeDiff};
 use crate::infra::graph::parser::SupportedLanguage;
-use crate::store::graph::db::GraphDb;
+use crate::store::graph::db::{FileRow, GraphDb};
 use crate::store::graph::extractor::extract_file;
 use crate::store::layout::Layout;
 
@@ -20,37 +19,35 @@ pub struct LayerBuildResult {
     pub skipped: bool,
 }
 
-/// Computes a content-aware layer fingerprint combining base commit, head commit,
-/// deleted files, and sha256 digests of modified/added files.
-fn compute_layer_fingerprint(
-    worktree: &Utf8Path,
-    base_commit: &str,
-    head: Option<&str>,
-    diff: &WorktreeDiff,
-) -> String {
+/// Fingerprints the diff's shape: base commit, head commit and the changed
+/// and deleted path sets. Content changes within that shape are caught by the
+/// per-file stat and hash comparison against the layer's file rows.
+fn compute_layer_fingerprint(base_commit: &str, head: Option<&str>, diff: &WorktreeDiff) -> String {
     let mut hasher = Sha256::new();
     hasher.update(base_commit.as_bytes());
     hasher.update(head.unwrap_or_default().as_bytes());
-
     for path in &diff.deleted {
         hasher.update(b"deleted\0");
         hasher.update(path.as_str().as_bytes());
     }
-
     for path in &diff.modified_or_added {
         hasher.update(b"changed\0");
         hasher.update(path.as_str().as_bytes());
-        let full_path = worktree.join(path);
-        if let Ok(bytes) = std::fs::read(&full_path) {
-            hasher.update(Sha256::digest(bytes));
-        }
     }
+    hex(&hasher.finalize())
+}
+
+fn hex(bytes: &[u8]) -> String {
     use std::fmt::Write;
-    let mut hex = String::with_capacity(32);
-    for b in hasher.finalize().as_slice() {
-        let _ = write!(hex, "{b:02x}");
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for b in bytes {
+        let _ = write!(out, "{b:02x}");
     }
-    hex
+    out
+}
+
+fn layer_error(message: String) -> Failure {
+    Failure::failed("graph.layer_error", message)
 }
 
 /// Ensures a feature layer is indexed into the GraphDb for the given worktree and base commit.
@@ -108,151 +105,142 @@ pub fn ensure_layer_indexed(
     let git = GitSystem;
     let head_commit = git.head_commit(worktree).ok();
 
-    // 3. Diff worktree against base commit
     let diff = git
         .diff_worktree_files(worktree, Some(base_commit))
         .map_err(|e| Failure::failed("graph.layer_error", format!("Git diff error: {e}")))?;
 
-    // 4. Content hashing detects changes even when mtime is preserved
-    let fingerprint =
-        compute_layer_fingerprint(worktree, base_commit, head_commit.as_deref(), &diff);
+    let fingerprint = compute_layer_fingerprint(base_commit, head_commit.as_deref(), &diff);
+    let fingerprint_matches = db
+        .get_layer_record(feature, repo_name)
+        .map_err(|e| layer_error(format!("Failed to get layer record: {e}")))?
+        .is_some_and(|existing| existing.fingerprint.as_deref() == Some(&fingerprint));
 
-    // 5. Check cache: if fingerprint matches existing record, skip build.
-    if let Some(existing) = db.get_layer_record(feature, repo_name).map_err(|e| {
-        Failure::failed(
-            "graph.layer_error",
-            format!("Failed to get layer record: {e}"),
+    let mut stale: std::collections::HashMap<String, FileRow> = db
+        .get_files_for_repo(&layer_repo)
+        .map_err(|e| layer_error(format!("Failed to list layer files: {e}")))?
+        .into_iter()
+        .map(|row| (row.path.clone(), row))
+        .collect();
+
+    if !fingerprint_matches {
+        db.insert_repo(
+            &layer_repo,
+            worktree.as_str(),
+            feature,
+            head_commit.as_deref(),
         )
-    })? && existing.fingerprint.as_deref() == Some(&fingerprint)
-    {
-        return Ok(LayerBuildResult {
-            layer_id,
-            indexed_files: 0,
-            tombstoned_files: 0,
-            skipped: true,
-        });
+        .map_err(|e| layer_error(format!("Failed to insert layer repo: {e}")))?;
+        let tombstones: Vec<&str> = diff.deleted.iter().map(|p| p.as_str()).collect();
+        db.set_layer_tombstones(layer_id, &tombstones)
+            .map_err(|e| layer_error(format!("Failed to set layer tombstones: {e}")))?;
     }
 
-    // 6. Apply layer indexing: clear old layer rows in pseudo-repo
-    let conn = db.conn();
-    conn.execute(
-        "DELETE FROM repos WHERE id = ?1",
-        rusqlite::params![layer_repo],
-    )
-    .map_err(|e| {
-        Failure::failed(
-            "graph.layer_error",
-            format!("Failed to delete layer repo: {e}"),
-        )
-    })?;
-    db.insert_repo(
-        &layer_repo,
-        worktree.as_str(),
-        feature,
-        head_commit.as_deref(),
-    )
-    .map_err(|e| {
-        Failure::failed(
-            "graph.layer_error",
-            format!("Failed to insert layer repo: {e}"),
-        )
-    })?;
-
-    // Record tombstones
-    let tombstone_strs: Vec<&str> = diff.deleted.iter().map(|p| p.as_str()).collect();
-    db.set_layer_tombstones(layer_id, &tombstone_strs)
-        .map_err(|e| {
-            Failure::failed(
-                "graph.layer_error",
-                format!("Failed to set layer tombstones: {e}"),
-            )
-        })?;
-
-    // Index modified or added files
     let mut indexed_count = 0;
     for rel_path in &diff.modified_or_added {
-        let full_path = worktree.join(rel_path);
-        if !full_path.exists() || !full_path.is_file() {
-            continue;
+        let existing = stale.remove(rel_path.as_str());
+        if index_layer_file(db, &layer_repo, worktree, rel_path, existing.as_ref())? {
+            indexed_count += 1;
         }
-
-        let ext = Path::new(rel_path.as_str())
-            .extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or("");
-
-        let lang = match SupportedLanguage::from_extension(ext) {
-            Some(l) => l,
-            None => continue,
-        };
-
-        let content = match std::fs::read_to_string(&full_path) {
-            Ok(c) => c,
-            Err(_) => continue,
-        };
-
-        let meta = std::fs::metadata(&full_path).map_err(|e| {
-            Failure::failed(
-                "graph.layer_error",
-                format!("Failed to read metadata for {rel_path}: {e}"),
-            )
-        })?;
-        let mtime_ns = meta
-            .modified()
-            .ok()
-            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-            .map(|d| d.as_nanos() as i64)
-            .unwrap_or(0);
-        let size_bytes = meta.len() as i64;
-
-        let mut content_hasher = Sha256::new();
-        content_hasher.update(content.as_bytes());
-        let mut hash = String::with_capacity(32);
-        for b in content_hasher.finalize().as_slice() {
-            use std::fmt::Write;
-            let _ = write!(hash, "{b:02x}");
-        }
-        let extracted =
-            extract_file(&layer_repo, rel_path.as_str(), &content, lang).map_err(|e| {
-                Failure::failed(
-                    "graph.layer_error",
-                    format!("Failed to extract {rel_path}: {e}"),
-                )
-            })?;
-
-        db.index_extracted_file(
-            &layer_repo,
-            rel_path.as_str(),
-            &hash,
-            mtime_ns,
-            size_bytes,
-            &extracted,
-        )
-        .map_err(|e| {
-            Failure::failed(
-                "graph.layer_error",
-                format!("Failed to index {rel_path}: {e}"),
-            )
-        })?;
-
-        indexed_count += 1;
     }
 
-    // 7. Update layer record fingerprint
-    db.update_layer_fingerprint_and_head(layer_id, &fingerprint, head_commit.as_deref())
-        .map_err(|e| {
-            Failure::failed(
-                "graph.layer_error",
-                format!("Failed to update layer fingerprint: {e}"),
-            )
-        })?;
+    let removed_count = stale.len();
+    for path in stale.keys() {
+        db.delete_file(&layer_repo, path)
+            .map_err(|e| layer_error(format!("Failed to drop layer file {path}: {e}")))?;
+    }
+
+    if !fingerprint_matches {
+        db.update_layer_fingerprint_and_head(layer_id, &fingerprint, head_commit.as_deref())
+            .map_err(|e| layer_error(format!("Failed to update layer fingerprint: {e}")))?;
+    }
 
     Ok(LayerBuildResult {
         layer_id,
         indexed_files: indexed_count,
-        tombstoned_files: tombstone_strs.len(),
-        skipped: false,
+        tombstoned_files: diff.deleted.len(),
+        skipped: fingerprint_matches && indexed_count == 0 && removed_count == 0,
     })
+}
+
+/// Same rule as git's racy-clean check: a file modified within the second
+/// its row was recorded may have been rewritten again without a visible
+/// mtime change, so its content must be hashed.
+fn is_stat_trustworthy(row: &FileRow) -> bool {
+    row.mtime_ns.div_euclid(1_000_000_000) < row.indexed_at
+}
+
+fn mtime_ns(meta: &std::fs::Metadata) -> i64 {
+    meta.modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_nanos() as i64)
+        .unwrap_or(0)
+}
+
+/// Brings one changed file's layer rows up to date and reports whether it
+/// was re-extracted. Files that are not indexable are removed from the layer.
+fn index_layer_file(
+    db: &GraphDb,
+    layer_repo: &str,
+    worktree: &Utf8Path,
+    rel_path: &Utf8Path,
+    existing: Option<&FileRow>,
+) -> Result<bool, Failure> {
+    let full_path = worktree.join(rel_path);
+    let lang = rel_path
+        .extension()
+        .and_then(SupportedLanguage::from_extension);
+    let meta = std::fs::metadata(&full_path).ok().filter(|m| m.is_file());
+    let (Some(lang), Some(meta)) = (lang, meta) else {
+        return drop_layer_file(db, layer_repo, rel_path, existing);
+    };
+    let mtime_ns = mtime_ns(&meta);
+    let size_bytes = meta.len() as i64;
+    if let Some(row) = existing
+        && row.mtime_ns == mtime_ns
+        && row.size_bytes == size_bytes
+        && is_stat_trustworthy(row)
+    {
+        return Ok(false);
+    }
+
+    let Ok(content) = std::fs::read_to_string(&full_path) else {
+        return drop_layer_file(db, layer_repo, rel_path, existing);
+    };
+    let hash = hex(&Sha256::digest(content.as_bytes()));
+    if let Some(row) = existing
+        && row.content_hash == hash
+    {
+        db.upsert_file(layer_repo, rel_path.as_str(), &hash, mtime_ns, size_bytes)
+            .map_err(|e| layer_error(format!("Failed to refresh stat for {rel_path}: {e}")))?;
+        return Ok(false);
+    }
+
+    let extracted = extract_file(layer_repo, rel_path.as_str(), &content, lang)
+        .map_err(|e| layer_error(format!("Failed to extract {rel_path}: {e}")))?;
+    db.index_extracted_file(
+        layer_repo,
+        rel_path.as_str(),
+        &hash,
+        mtime_ns,
+        size_bytes,
+        &extracted,
+    )
+    .map_err(|e| layer_error(format!("Failed to index {rel_path}: {e}")))?;
+    Ok(true)
+}
+
+fn drop_layer_file(
+    db: &GraphDb,
+    layer_repo: &str,
+    rel_path: &Utf8Path,
+    existing: Option<&FileRow>,
+) -> Result<bool, Failure> {
+    if existing.is_some() {
+        db.delete_file(layer_repo, rel_path.as_str())
+            .map_err(|e| layer_error(format!("Failed to drop layer file {rel_path}: {e}")))?;
+    }
+    Ok(false)
 }
 
 #[cfg(test)]
