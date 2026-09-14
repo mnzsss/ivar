@@ -77,10 +77,12 @@ pub fn index_repo(
 
     let mut files_to_index = Vec::new();
     let mut files_to_delete = Vec::new();
+    let mut listed_by_git_diff = false;
 
     if !force_full && let Some(last_head_str) = &last_indexed {
         match git.diff_worktree_files(repo_utf8, Some(last_head_str)) {
             Ok(diff) => {
+                listed_by_git_diff = true;
                 for p in diff.modified_or_added {
                     let p_std = p.as_std_path();
                     if is_supported_file(p_std) && !is_ignored_path(p_std) {
@@ -124,6 +126,7 @@ pub fn index_repo(
             && files_to_delete.is_empty()
             && !matches!(&head_commit, Some(h) if last_indexed.as_deref() == Some(h)))
     {
+        listed_by_git_diff = false;
         files_to_index.clear();
         files_to_delete.clear();
         let mut seen = HashSet::new();
@@ -201,9 +204,13 @@ pub fn index_repo(
             };
             // Same size and modification time means unchanged, the check git trusts
             // for its own index, so an unchanged file is neither read nor hashed.
-            if existing_file
-                .as_ref()
-                .is_some_and(|file| file.size_bytes == size_bytes && file.mtime_ns == mtime_ns)
+            // A path git's diff reports as changed is hashed regardless.
+            if !listed_by_git_diff
+                && existing_file.as_ref().is_some_and(|file| {
+                    file.size_bytes == size_bytes
+                        && file.mtime_ns == mtime_ns
+                        && file.is_stat_trustworthy()
+                })
             {
                 continue;
             }

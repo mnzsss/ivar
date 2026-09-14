@@ -162,13 +162,6 @@ pub fn ensure_layer_indexed(
     })
 }
 
-/// Same rule as git's racy-clean check: a file modified within the second
-/// its row was recorded may have been rewritten again without a visible
-/// mtime change, so its content must be hashed.
-fn is_stat_trustworthy(row: &FileRow) -> bool {
-    row.mtime_ns.div_euclid(1_000_000_000) < row.indexed_at
-}
-
 fn mtime_ns(meta: &std::fs::Metadata) -> i64 {
     meta.modified()
         .ok()
@@ -199,7 +192,7 @@ fn index_layer_file(
     if let Some(row) = existing
         && row.mtime_ns == mtime_ns
         && row.size_bytes == size_bytes
-        && is_stat_trustworthy(row)
+        && row.is_stat_trustworthy()
     {
         return Ok(false);
     }

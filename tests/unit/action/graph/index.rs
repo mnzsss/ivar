@@ -57,24 +57,67 @@ fn a_file_with_unchanged_size_and_modification_time_is_not_read_again() {
     let repo_path = temp.path();
     let file = repo_path.join("lib.rs");
     fs::write(&file, "pub fn alpha() {}\n").expect("write lib.rs");
+    set_mtime(&file, long_ago());
     let db = GraphDb::open_in_memory().expect("open db");
     let first = index_repo(&db, "stat-repo", repo_path, false, &Silent).expect("first index");
     assert_eq!(first.files_indexed, 1);
-    let indexed_mtime = fs::metadata(&file)
-        .expect("metadata")
-        .modified()
-        .expect("mtime");
 
     fs::write(&file, "pub fn gamma() {}\n").expect("rewrite with the same size");
-    fs::File::options()
-        .write(true)
-        .open(&file)
-        .expect("open lib.rs")
-        .set_modified(indexed_mtime)
-        .expect("restore mtime");
+    set_mtime(&file, long_ago());
     let second = index_repo(&db, "stat-repo", repo_path, false, &Silent).expect("second index");
 
     assert_eq!(second.files_indexed, 0);
+}
+
+fn long_ago() -> std::time::SystemTime {
+    std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_000_000_000)
+}
+
+fn set_mtime(file: &Path, mtime: std::time::SystemTime) {
+    fs::File::options()
+        .write(true)
+        .open(file)
+        .expect("open file")
+        .set_modified(mtime)
+        .expect("set mtime");
+}
+
+#[test]
+fn a_file_modified_within_the_second_it_was_indexed_is_hashed_again() {
+    let temp = tempdir().expect("tempdir");
+    let repo_path = temp.path();
+    let file = repo_path.join("lib.rs");
+    let racy_mtime = std::time::SystemTime::now() + std::time::Duration::from_secs(3600);
+    fs::write(&file, "pub fn alpha() {}\n").expect("write lib.rs");
+    set_mtime(&file, racy_mtime);
+    let db = GraphDb::open_in_memory().expect("open db");
+    index_repo(&db, "racy-repo", repo_path, false, &Silent).expect("first index");
+
+    fs::write(&file, "pub fn gamma() {}\n").expect("rewrite with the same size");
+    set_mtime(&file, racy_mtime);
+    let second = index_repo(&db, "racy-repo", repo_path, false, &Silent).expect("second index");
+
+    assert_eq!(second.files_indexed, 1);
+}
+
+#[test]
+fn a_committed_change_with_preserved_size_and_mtime_is_extracted_again() {
+    let temp = tempdir().expect("tempdir");
+    let repo_path = temp.path();
+    let git_repo = git2::Repository::init(repo_path).expect("git init");
+    let file = repo_path.join("lib.rs");
+    fs::write(&file, "pub fn alpha() {}\n").expect("write lib.rs");
+    set_mtime(&file, long_ago());
+    create_git_commit(&git_repo, "alpha").expect("commit alpha");
+    let db = GraphDb::open_in_memory().expect("open db");
+    index_repo(&db, "diff-repo", repo_path, false, &Silent).expect("first index");
+
+    fs::write(&file, "pub fn gamma() {}\n").expect("rewrite with the same size");
+    set_mtime(&file, long_ago());
+    create_git_commit(&git_repo, "gamma").expect("commit gamma");
+    let second = index_repo(&db, "diff-repo", repo_path, false, &Silent).expect("second index");
+
+    assert_eq!(second.files_indexed, 1);
 }
 
 #[test]

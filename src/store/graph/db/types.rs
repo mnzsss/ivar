@@ -42,6 +42,15 @@ pub struct FileRow {
     pub indexed_at: i64,
 }
 
+impl FileRow {
+    /// Same rule as git's racy-clean check: a file modified within the second
+    /// its row was recorded may have been rewritten again without a visible
+    /// mtime change, so its content must be hashed.
+    pub fn is_stat_trustworthy(&self) -> bool {
+        self.mtime_ns.div_euclid(1_000_000_000) < self.indexed_at
+    }
+}
+
 /// Statistics from cleaning a single repository from the graph.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RepoCleanStats {
