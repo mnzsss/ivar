@@ -53,6 +53,7 @@ pub fn get_impact(
             JOIN caller_graph cg ON (
                 e.to_symbol_id = cg.symbol_id
                 OR (e.to_symbol_id IS NULL AND e.to_name = cg.symbol_name)
+                OR (e.to_symbol_id IN (SELECT id FROM hidden_symbols) AND e.to_name = cg.symbol_name)
             )
             JOIN visible_symbols s ON e.from_symbol_id = s.id
             WHERE cg.depth < ?2
@@ -64,7 +65,7 @@ pub fn get_impact(
                s.start_line, s.start_col, s.end_line, s.end_col, s.is_exported, s.complexity,
                f.path
         FROM caller_graph cg
-        JOIN visible_symbols s ON cg.symbol_id = s.id
+        CROSS JOIN visible_symbols s ON cg.symbol_id = s.id
         JOIN visible_files f ON s.file_id = f.id
         WHERE cg.symbol_id != ?1
         ORDER BY cg.depth ASC, s.name ASC",

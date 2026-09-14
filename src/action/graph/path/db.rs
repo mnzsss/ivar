@@ -56,14 +56,17 @@ pub(super) fn get_outgoing_edges(
     let mut stmt = conn.prepare_cached(
         "SELECT
             e.from_symbol_id,
-            COALESCE(e.to_symbol_id, s_to.id) AS resolved_to_id,
+            COALESCE(s_to.id, e.to_symbol_id) AS resolved_to_id,
             s_from.name AS from_name,
             COALESCE(s_to.name, e.to_name) AS to_name,
             e.kind,
             e.line
          FROM visible_edges e
          JOIN visible_symbols s_from ON e.from_symbol_id = s_from.id
-         LEFT JOIN visible_symbols s_to ON (e.to_symbol_id = s_to.id OR (e.to_symbol_id IS NULL AND e.to_name = s_to.name))
+         LEFT JOIN visible_symbols s_to ON (
+             e.to_symbol_id = s_to.id
+             OR ((e.to_symbol_id IS NULL OR e.to_symbol_id IN (SELECT id FROM hidden_symbols)) AND e.to_name = s_to.name)
+         )
          WHERE e.from_symbol_id = ?1",
     )?;
 
@@ -99,7 +102,7 @@ pub(super) fn get_incoming_edges(
     let mut stmt = conn.prepare_cached(
         "SELECT
             e.from_symbol_id,
-            COALESCE(e.to_symbol_id, ?1) AS resolved_to_id,
+            ?1 AS resolved_to_id,
             s_from.name AS from_name,
             COALESCE(s_to.name, e.to_name) AS to_name,
             e.kind,
@@ -107,7 +110,11 @@ pub(super) fn get_incoming_edges(
          FROM visible_edges e
          JOIN visible_symbols s_from ON e.from_symbol_id = s_from.id
          LEFT JOIN visible_symbols s_to ON s_to.id = ?1
-         WHERE (e.to_symbol_id = ?1 OR (e.to_symbol_id IS NULL AND e.to_name = (SELECT name FROM visible_symbols WHERE id = ?1)))",
+         WHERE (
+             e.to_symbol_id = ?1
+             OR (e.to_symbol_id IS NULL AND e.to_name = (SELECT name FROM visible_symbols WHERE id = ?1))
+             OR (e.to_symbol_id IN (SELECT id FROM hidden_symbols) AND e.to_name = (SELECT name FROM visible_symbols WHERE id = ?1))
+         )",
     )?;
 
     let mut records = Vec::new();

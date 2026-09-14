@@ -17,85 +17,133 @@ pub struct LayerRecord {
     pub indexed_at: i64,
 }
 
-pub fn setup_views(conn: &Connection) -> Result<()> {
-    conn.execute_batch(r#"
-        CREATE TEMP TABLE IF NOT EXISTS session_layers (
-            repo TEXT PRIMARY KEY,
-            layer_repo TEXT NOT NULL
-        );
+const SESSION_TABLES: &str = "
+    CREATE TEMP TABLE IF NOT EXISTS session_layers (
+        repo TEXT PRIMARY KEY,
+        layer_repo TEXT NOT NULL UNIQUE
+    );
+    CREATE TEMP TABLE IF NOT EXISTS hidden_files (id INTEGER PRIMARY KEY);
+    CREATE TEMP TABLE IF NOT EXISTS hidden_symbols (id INTEGER PRIMARY KEY);
+";
 
-        DROP VIEW IF EXISTS visible_edges;
-        DROP VIEW IF EXISTS visible_symbols;
-        DROP VIEW IF EXISTS visible_files;
-        DROP VIEW IF EXISTS visible_repos;
+const DROP_VIEWS: &str = "
+    DROP VIEW IF EXISTS visible_edges;
+    DROP VIEW IF EXISTS visible_symbols;
+    DROP VIEW IF EXISTS visible_files;
+    DROP VIEW IF EXISTS visible_repos;
+";
 
-        CREATE TEMP VIEW visible_repos AS
-        SELECT r.id, r.root_path, r.default_branch, r.last_indexed_commit
-        FROM repos r
-        WHERE r.id NOT LIKE '%/%'
-          AND r.id NOT IN (SELECT repo FROM session_layers)
-        UNION ALL
-        SELECT sl.repo AS id, r.root_path, r.default_branch, r.last_indexed_commit
-        FROM session_layers sl
-        JOIN repos r ON r.id = sl.layer_repo;
+/// Base views select straight from the tables so every outer predicate keeps
+/// its index; base rows never reference layer rows, so nothing needs hiding.
+const BASE_VIEWS: &str = "
+    CREATE TEMP VIEW visible_repos AS
+    SELECT r.id, r.root_path, r.default_branch, r.last_indexed_commit
+    FROM repos r WHERE r.id NOT LIKE '%/%';
 
-        CREATE TEMP VIEW visible_files AS
-        SELECT f.id, f.repo, f.path, f.content_hash, f.mtime_ns, f.size_bytes
-        FROM files f
-        WHERE f.repo NOT LIKE '%/%'
-          AND NOT EXISTS (
-              SELECT 1 FROM session_layers sl
-              LEFT JOIN layer_tombstones lt ON lt.path = f.path AND lt.layer_id IN (
-                  SELECT l.id FROM layers l WHERE l.repo = sl.repo AND sl.layer_repo = sl.repo || '/' || l.id
-              )
-              LEFT JOIN files lf ON lf.repo = sl.layer_repo AND lf.path = f.path
-              WHERE sl.repo = f.repo AND (lt.path IS NOT NULL OR lf.id IS NOT NULL)
-          )
-        UNION ALL
-        SELECT f.id, sl.repo AS repo, f.path, f.content_hash, f.mtime_ns, f.size_bytes
-        FROM session_layers sl
-        JOIN files f ON f.repo = sl.layer_repo;
+    CREATE TEMP VIEW visible_files AS
+    SELECT f.id, f.repo, f.path, f.content_hash, f.mtime_ns, f.size_bytes
+    FROM files f WHERE f.repo NOT LIKE '%/%';
 
-        CREATE TEMP VIEW visible_symbols AS
-        SELECT s.id, s.file_id, s.repo, s.name, s.kind, s.scope, s.signature, s.docstring, s.start_line, s.start_col, s.end_line, s.end_col, s.is_exported, s.complexity, s.name_words
-        FROM symbols s
-        JOIN visible_files vf ON s.file_id = vf.id
-        WHERE vf.repo NOT LIKE '%/%' AND s.repo NOT LIKE '%/%'
-        UNION ALL
-        SELECT s.id, s.file_id, sl.repo AS repo, s.name, s.kind, s.scope, s.signature, s.docstring, s.start_line, s.start_col, s.end_line, s.end_col, s.is_exported, s.complexity, s.name_words
-        FROM session_layers sl
-        JOIN files f ON f.repo = sl.layer_repo
-        JOIN symbols s ON s.file_id = f.id;
+    CREATE TEMP VIEW visible_symbols AS
+    SELECT s.id, s.file_id, s.repo, s.name, s.kind, s.scope, s.signature, s.docstring, s.start_line, s.start_col, s.end_line, s.end_col, s.is_exported, s.complexity, s.name_words
+    FROM symbols s WHERE s.repo NOT LIKE '%/%';
 
-        CREATE TEMP VIEW visible_edges AS
-        SELECT e.id, e.repo, e.file_id, e.from_symbol_id,
-               CASE WHEN to_s.id IS NULL AND e.to_symbol_id IS NOT NULL THEN NULL ELSE e.to_symbol_id END AS to_symbol_id,
-               e.to_name, e.kind, e.provenance, e.line, e.col, e.confidence
-        FROM edges e
-        JOIN visible_files vf ON e.file_id = vf.id
-        LEFT JOIN visible_symbols to_s ON e.to_symbol_id = to_s.id
-        WHERE e.repo NOT LIKE '%/%'
-        UNION ALL
-        SELECT e.id, sl.repo AS repo, e.file_id, e.from_symbol_id,
-               CASE WHEN to_s.id IS NULL AND e.to_symbol_id IS NOT NULL THEN NULL ELSE e.to_symbol_id END AS to_symbol_id,
-               e.to_name, e.kind, e.provenance, e.line, e.col, e.confidence
-        FROM session_layers sl
-        JOIN files f ON f.repo = sl.layer_repo
-        JOIN edges e ON e.file_id = f.id
-        LEFT JOIN visible_symbols to_s ON e.to_symbol_id = to_s.id;
-    "#)?;
+    CREATE TEMP VIEW visible_edges AS
+    SELECT e.id, e.repo, e.file_id, e.from_symbol_id, e.to_symbol_id, e.to_name, e.kind, e.provenance, e.line, e.col, e.confidence
+    FROM edges e WHERE e.repo NOT LIKE '%/%';
+";
+
+/// Session views stay single-table so SQLite flattens them into the outer
+/// query; shadowed base rows come from `hidden_files`/`hidden_symbols`,
+/// materialised once per session configuration. An edge whose target is in
+/// `hidden_symbols` counts as unresolved: queries match it by `to_name`.
+const SESSION_VIEWS: &str = "
+    CREATE TEMP VIEW visible_repos AS
+    SELECT r.id, r.root_path, r.default_branch, r.last_indexed_commit
+    FROM repos r
+    WHERE r.id NOT LIKE '%/%' AND r.id NOT IN (SELECT repo FROM session_layers)
+    UNION ALL
+    SELECT sl.repo AS id, r.root_path, r.default_branch, r.last_indexed_commit
+    FROM session_layers sl JOIN repos r ON r.id = sl.layer_repo;
+
+    CREATE TEMP VIEW visible_files AS
+    SELECT f.id, COALESCE((SELECT sl.repo FROM session_layers sl WHERE sl.layer_repo = f.repo), f.repo) AS repo,
+           f.path, f.content_hash, f.mtime_ns, f.size_bytes
+    FROM files f
+    WHERE (f.repo NOT LIKE '%/%' OR f.repo IN (SELECT layer_repo FROM session_layers))
+      AND f.id NOT IN (SELECT id FROM hidden_files);
+
+    CREATE TEMP VIEW visible_symbols AS
+    SELECT s.id, s.file_id, COALESCE((SELECT sl.repo FROM session_layers sl WHERE sl.layer_repo = s.repo), s.repo) AS repo,
+           s.name, s.kind, s.scope, s.signature, s.docstring, s.start_line, s.start_col, s.end_line, s.end_col, s.is_exported, s.complexity, s.name_words
+    FROM symbols s
+    WHERE (s.repo NOT LIKE '%/%' OR s.repo IN (SELECT layer_repo FROM session_layers))
+      AND s.id NOT IN (SELECT id FROM hidden_symbols);
+
+    CREATE TEMP VIEW visible_edges AS
+    SELECT e.id, COALESCE((SELECT sl.repo FROM session_layers sl WHERE sl.layer_repo = e.repo), e.repo) AS repo,
+           e.file_id, e.from_symbol_id, e.to_symbol_id, e.to_name, e.kind, e.provenance, e.line, e.col, e.confidence
+    FROM edges e
+    WHERE (e.repo NOT LIKE '%/%' OR e.repo IN (SELECT layer_repo FROM session_layers))
+      AND e.file_id NOT IN (SELECT id FROM hidden_files);
+";
+
+const HIDE_SHADOWED_ROWS: &str = "
+    DELETE FROM hidden_files;
+    DELETE FROM hidden_symbols;
+    INSERT OR IGNORE INTO hidden_files (id)
+    SELECT f.id FROM session_layers sl
+    JOIN files lf ON lf.repo = sl.layer_repo
+    JOIN files f ON f.repo = sl.repo AND f.path = lf.path;
+    INSERT OR IGNORE INTO hidden_files (id)
+    SELECT f.id FROM session_layers sl
+    JOIN layers l ON l.repo = sl.repo AND sl.layer_repo = sl.repo || '/' || l.id
+    JOIN layer_tombstones lt ON lt.layer_id = l.id
+    JOIN files f ON f.repo = sl.repo AND f.path = lt.path;
+    INSERT INTO hidden_symbols (id)
+    SELECT s.id FROM hidden_files h JOIN symbols s ON s.file_id = h.id;
+";
+
+#[derive(PartialEq)]
+enum ViewMode {
+    Base,
+    Session,
+}
+
+fn install_views(conn: &Connection, mode: ViewMode) -> Result<()> {
+    conn.execute_batch(SESSION_TABLES)?;
+    let installed: Option<String> = conn
+        .query_row(
+            "SELECT sql FROM sqlite_temp_master WHERE type = 'view' AND name = 'visible_files'",
+            [],
+            |row| row.get(0),
+        )
+        .optional()?;
+    let installed_mode = installed.map(|sql| {
+        if sql.contains("hidden_files") {
+            ViewMode::Session
+        } else {
+            ViewMode::Base
+        }
+    });
+    if installed_mode.as_ref() == Some(&mode) {
+        return Ok(());
+    }
+    conn.execute_batch(DROP_VIEWS)?;
+    conn.execute_batch(match mode {
+        ViewMode::Base => BASE_VIEWS,
+        ViewMode::Session => SESSION_VIEWS,
+    })?;
     Ok(())
 }
 
 impl GraphDb {
     pub fn ensure_views_base_mode(&self) -> Result<()> {
-        setup_views(&self.conn)?;
-        self.conn.execute_batch("DELETE FROM session_layers;")?;
-        Ok(())
+        self.clear_session_layers()
     }
 
     pub fn configure_session_mode(&self, layers: &[(&str, &str)]) -> Result<()> {
-        setup_views(&self.conn)?;
+        install_views(&self.conn, ViewMode::Session)?;
         self.conn.execute_batch("DELETE FROM session_layers;")?;
         let mut stmt = self.conn.prepare_cached(
             "INSERT INTO session_layers (repo, layer_repo) VALUES (?1, ?2) ON CONFLICT(repo) DO UPDATE SET layer_repo = excluded.layer_repo"
@@ -103,11 +151,15 @@ impl GraphDb {
         for (repo, layer_repo) in layers {
             stmt.execute(params![repo, layer_repo])?;
         }
+        self.conn.execute_batch(HIDE_SHADOWED_ROWS)?;
         Ok(())
     }
 
     pub fn clear_session_layers(&self) -> Result<()> {
-        self.conn.execute_batch("DELETE FROM session_layers;")?;
+        install_views(&self.conn, ViewMode::Base)?;
+        self.conn.execute_batch(
+            "DELETE FROM session_layers; DELETE FROM hidden_files; DELETE FROM hidden_symbols;",
+        )?;
         Ok(())
     }
 

@@ -39,6 +39,9 @@ pub fn get_callers(
              OR (
                  e.to_symbol_id IS NULL AND e.to_name = ?1 AND (?2 IS NULL OR e.repo = ?2)
              )
+             OR (
+                 e.to_symbol_id IN (SELECT id FROM hidden_symbols) AND e.to_name = ?1 AND (?2 IS NULL OR e.repo = ?2)
+             )
          )
          AND e.confidence >= ?3
          AND (?4 = 1 OR ?2 IS NULL OR s.repo = ?2)
@@ -69,6 +72,7 @@ pub fn get_callers_of(
          WHERE (
              e.to_symbol_id = ?1
              OR (e.to_symbol_id IS NULL AND e.to_name = (SELECT name FROM visible_symbols WHERE id = ?1))
+             OR (e.to_symbol_id IN (SELECT id FROM hidden_symbols) AND e.to_name = (SELECT name FROM visible_symbols WHERE id = ?1))
          )
          AND e.confidence >= ?2
          ORDER BY e.confidence DESC, s.name ASC",
@@ -113,6 +117,7 @@ pub fn get_references(
                    SELECT id FROM visible_symbols WHERE name = ?1 AND (?2 IS NULL OR repo = ?2)
                )
                OR (e.to_symbol_id IS NULL AND e.to_name = ?1 AND (?2 IS NULL OR e.repo = ?2))
+               OR (e.to_symbol_id IN (SELECT id FROM hidden_symbols) AND e.to_name = ?1 AND (?2 IS NULL OR e.repo = ?2))
            )
          ORDER BY f.repo, f.path, e.line",
     )?;
@@ -133,6 +138,7 @@ pub fn get_references_of(db: &GraphDb, symbol_id: i64) -> Result<Vec<ReferenceSi
            AND (
                e.to_symbol_id = ?1
                OR (e.to_symbol_id IS NULL AND e.to_name = (SELECT name FROM visible_symbols WHERE id = ?1))
+               OR (e.to_symbol_id IN (SELECT id FROM hidden_symbols) AND e.to_name = (SELECT name FROM visible_symbols WHERE id = ?1))
            )
          ORDER BY f.repo, f.path, e.line",
     )?;
@@ -268,8 +274,9 @@ pub fn get_file_outline(db: &GraphDb, repo: &str, path: &str) -> Result<FileOutl
 
     // 3. Fetch import edges
     let mut edge_stmt = conn.prepare_cached(
-        "SELECT id, repo, file_id, from_symbol_id, to_symbol_id, to_name,
-                kind, provenance, line, col, confidence
+        "SELECT id, repo, file_id, from_symbol_id,
+                CASE WHEN to_symbol_id IN (SELECT id FROM hidden_symbols) THEN NULL ELSE to_symbol_id END,
+                to_name, kind, provenance, line, col, confidence
          FROM visible_edges
          WHERE file_id = ?1
            AND kind IN ('IMPORTS', 'CROSS_IMPORTS', 'imports', 'cross_imports')
@@ -325,3 +332,7 @@ mod tests;
 #[cfg(test)]
 #[path = "../../../../tests/unit/action/graph/query_views.rs"]
 mod query_views_tests;
+
+#[cfg(test)]
+#[path = "../../../../tests/unit/action/graph/view_scans.rs"]
+mod view_scans_tests;

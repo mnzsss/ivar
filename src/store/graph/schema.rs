@@ -105,7 +105,7 @@ END;
 const SEARCH_SCHEMA_VERSION: i64 = 4;
 
 /// The `user_version` a database carries once every migration below has run.
-pub const SCHEMA_VERSION: i64 = 5;
+pub const SCHEMA_VERSION: i64 = 6;
 
 /// Configures SQLite pragmas for performance and data integrity.
 pub fn apply_pragmas(conn: &Connection, is_disk: bool) -> rusqlite::Result<()> {
@@ -149,7 +149,11 @@ fn migrate(conn: &Connection) -> rusqlite::Result<()> {
     )?;
 
     apply_search_migration(conn)?;
-    apply_layer_migration(conn)
+    apply_layer_migration(conn)?;
+    // Session views project layer rows under their base repo name, so a file
+    // lookup there can only seek on the path.
+    conn.execute_batch("CREATE INDEX IF NOT EXISTS idx_files_path ON files(path);")?;
+    conn.execute_batch(&format!("PRAGMA user_version = {SCHEMA_VERSION};"))
 }
 
 fn apply_layer_migration(conn: &Connection) -> rusqlite::Result<()> {
@@ -171,8 +175,7 @@ fn apply_layer_migration(conn: &Connection) -> rusqlite::Result<()> {
             path TEXT NOT NULL,
             PRIMARY KEY(layer_id, path)
         );",
-    )?;
-    conn.execute_batch(&format!("PRAGMA user_version = {SCHEMA_VERSION};"))
+    )
 }
 
 fn apply_search_migration(conn: &Connection) -> rusqlite::Result<()> {

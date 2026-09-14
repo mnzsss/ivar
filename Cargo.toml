@@ -89,7 +89,7 @@ uuid = { version = "1", features = ["v4"] }
 tempfile = "3"
 
 # --- graph & code intelligence ---------------------------------------------
-rusqlite = { version = "0.32", features = ["bundled", "vtab"] }
+rusqlite = { version = "0.32", features = ["bundled", "hooks", "vtab"] }
 tree-sitter = "0.24"
 streaming-iterator = "0.1"
 tree-sitter-rust = "0.23"
