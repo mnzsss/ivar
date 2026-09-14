@@ -12,6 +12,7 @@
 //! materialised where".
 
 pub mod add;
+pub mod create;
 pub mod list;
 pub mod pull;
 pub mod remove;

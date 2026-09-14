@@ -93,7 +93,10 @@ pub(crate) fn ensure_bare(
             if let Some(parent) = bare.parent() {
                 fs::ensure_dir(parent)?;
             }
-            git.clone_bare(repo.url(), bare)?;
+            match repo.ref_prefix() {
+                Some(prefix) => git.clone_bare_prefixed(repo.url(), bare, prefix)?,
+                None => git.clone_bare(repo.url(), bare)?,
+            }
             Ok(Change::Created)
         }
     }

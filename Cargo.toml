@@ -86,6 +86,7 @@ sha2 = "0.11"
 base64 = "0.22"
 walkdir = "2"
 uuid = { version = "1", features = ["v4"] }
+tempfile = "3"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 landlock = "0.4"
@@ -94,7 +95,6 @@ landlock = "0.4"
 # Real temp git repos, real filesystem, real subprocesses. Internal code is
 # never mocked; external systems are faked at a trait seam. wiremock is
 # deliberately absent — it is async and would pull tokio into the test profile.
-tempfile = "3"
 assert_cmd = "2"
 insta = { version = "1", features = ["json"] }
 rstest = "0.26"

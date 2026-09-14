@@ -22,7 +22,9 @@ use crate::action::mcp::auth as mcp_auth;
 use crate::action::plan::approve as plan_approve;
 use crate::action::plan::{create as plan_create, show as plan_show, status as plan_status};
 use crate::action::provider::add as provider_add;
-use crate::action::repo::{add, pull, remove, setup as repo_setup, upstream as repo_upstream};
+use crate::action::repo::{
+    add, create as repo_create, pull, remove, setup as repo_setup, upstream as repo_upstream,
+};
 use crate::action::session::{
     connect as session_connect, conversion as session_conversion, env_cmd as session_env_cmd,
     guard_cmd, relay as session_relay, start as session_start, stop as session_stop,
@@ -164,6 +166,9 @@ pub enum RepoCommand {
     /// Declare a repo in ivar.json, clone it bare, and materialise its
     /// default-branch worktree.
     Add(RepoAddArgs),
+    /// Create a brand-new repo — stored in the hall's origin (`--local`) or on
+    /// GitHub (`--remote`) — and declare it in ivar.json.
+    Create(RepoCreateArgs),
     /// Remove a repo from ivar.json and tear down its files. Refuses while
     /// the repo is promoted in a feature or referenced by a live session;
     /// `--force` lifts both gates and cascades.
@@ -192,6 +197,26 @@ pub struct RepoAddArgs {
     /// Delete an existing bare clone (and its worktree) and clone anew.
     #[arg(long, conflicts_with = "reuse")]
     pub fresh: bool,
+}
+
+/// Arguments for `ivar repo create`.
+#[derive(Debug, Args)]
+#[command(group(clap::ArgGroup::new("mode").required(true).args(["local", "remote"])))]
+pub struct RepoCreateArgs {
+    /// The repo's name — one path segment, unique within the hall.
+    pub name: String,
+    /// Store the repo under `refs/heads/repos/<name>/` in the hall's origin.
+    #[arg(long)]
+    pub local: bool,
+    /// Create the repo on GitHub with `gh`.
+    #[arg(long)]
+    pub remote: bool,
+    /// Make the GitHub repo public. Only with `--remote`.
+    #[arg(long, requires = "remote", conflicts_with = "local")]
+    pub public: bool,
+    /// The branch the initial commit lands on. Defaults to `main`.
+    #[arg(long)]
+    pub default_branch: Option<String>,
 }
 
 /// Arguments for `ivar repo remove`.
@@ -1162,6 +1187,24 @@ impl From<RepoAddArgs> for add::AddInput {
             url,
             default_branch,
             reuse_existing,
+            ref_prefix: None,
+        }
+    }
+}
+
+impl From<RepoCreateArgs> for repo_create::CreateInput {
+    fn from(args: RepoCreateArgs) -> Self {
+        let mode = if args.remote {
+            repo_create::CreateMode::Remote {
+                public: args.public,
+            }
+        } else {
+            repo_create::CreateMode::Local
+        };
+        Self {
+            name: args.name,
+            mode,
+            default_branch: args.default_branch,
         }
     }
 }

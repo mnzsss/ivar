@@ -44,7 +44,8 @@ use ivar::action::plan::{
 };
 use ivar::action::provider::{add as provider_add, list as provider_list};
 use ivar::action::repo::{
-    add, list as repo_list, pull, remove, setup as repo_setup, upstream as repo_upstream,
+    add, create as repo_create, list as repo_list, pull, remove, setup as repo_setup,
+    upstream as repo_upstream,
 };
 use ivar::action::session::{
     connect as session_connect, conversion as session_conversion, env_cmd as session_env_cmd,
@@ -123,6 +124,12 @@ fn main() -> ExitCode {
             RepoCommand::Add(args) => {
                 respond(add::add(&ctx, args.into()), json, &mut stdout, &mut stderr)
             }
+            RepoCommand::Create(args) => respond(
+                repo_create::create(&ctx, args.into()),
+                json,
+                &mut stdout,
+                &mut stderr,
+            ),
             RepoCommand::Remove(args) => respond(
                 remove::remove(&ctx, args.into()),
                 json,

@@ -87,6 +87,27 @@ pub(super) fn run(command: proc::Command) -> Result<String, Error> {
 /// Fetching into `refs/remotes/*` rather than `refs/heads/*` is also what makes
 /// the refspec safe here: git refuses to fetch into a branch that is checked
 /// out in a worktree, and in a hall every branch is.
+pub(crate) const REF_PREFIX_KEY: &str = "ivar.refprefix";
+
+fn ref_prefix(git_dir: &Utf8Path) -> String {
+    run(git()
+        .arg("--git-dir")
+        .arg(git_dir.as_str())
+        .arg("config")
+        .arg("--get")
+        .arg(REF_PREFIX_KEY))
+    .map(|s| s.trim().to_owned())
+    .unwrap_or_default()
+}
+
+fn remote_branch_ref(git_dir: &Utf8Path, branch: &str) -> String {
+    format!("refs/heads/{}{branch}", ref_prefix(git_dir))
+}
+
+fn tracking_refspec(prefix: &str) -> String {
+    format!("+refs/heads/{prefix}*:refs/remotes/origin/*")
+}
+
 const REMOTE_TRACKING_REFSPEC: &str = "+refs/heads/*:refs/remotes/origin/*";
 
 /// `git clone --bare <url> <dest>`.
@@ -106,24 +127,57 @@ const REMOTE_TRACKING_REFSPEC: &str = "+refs/heads/*:refs/remotes/origin/*";
 /// which is the property that matters and the reason a helper is registered
 /// instead of a credential stored.
 pub(crate) fn clone_bare(url: &str, dest: &Utf8Path) -> Result<(), Error> {
-    let mut command = git()
+    let mut cmd = git()
         .arg("clone")
         .arg("--bare")
         .arg("-c")
         .arg(format!("remote.origin.fetch={REMOTE_TRACKING_REFSPEC}"));
     if crate::infra::github::is_github_https(url) {
-        // The helper is invoked by git only when it needs a credential; for a
-        // public repo it is never called, so the `-c` has no observable cost.
-        command = command
-            .arg("-c")
-            .arg("credential.helper=!ivar git-credential");
+        cmd = cmd.arg("-c").arg("credential.helper=!ivar git-credential");
     }
-    command = command.arg(url).arg(dest.as_str());
-    run(command)?;
+    cmd = cmd.arg(url).arg(dest.as_str());
+    run(cmd)?;
     Ok(())
 }
 
-/// Point `git_dir`'s origin at [`REMOTE_TRACKING_REFSPEC`], whatever it was
+pub(crate) fn clone_bare_prefixed(url: &str, dest: &Utf8Path, prefix: &str) -> Result<(), Error> {
+    let created = !fs::exists(dest).unwrap_or(false);
+    let result = (|| {
+        run(git().arg("init").arg("--bare").arg(dest.as_str()))?;
+        let config = |key: &str, value: &str| {
+            run(git()
+                .arg("--git-dir")
+                .arg(dest.as_str())
+                .arg("config")
+                .arg(key)
+                .arg(value))
+        };
+        config("remote.origin.url", url)?;
+        config("remote.origin.fetch", &tracking_refspec(prefix))?;
+        if !prefix.is_empty() {
+            config(REF_PREFIX_KEY, prefix)?;
+        }
+        if crate::infra::github::is_github_https(url) {
+            config("credential.helper", "!ivar git-credential")?;
+        }
+        run(git()
+            .arg("--git-dir")
+            .arg(dest.as_str())
+            .arg("fetch")
+            .arg("--quiet")
+            .arg("origin")
+            .arg(format!("+refs/heads/{prefix}*:refs/heads/*"))
+            .arg(tracking_refspec(prefix)))?;
+        Ok(())
+    })();
+
+    if result.is_err() && created {
+        let _ = fs::remove_path(dest);
+    }
+    result
+}
+
+/// Point `git_dir`'s origin at the tracking refspec, whatever it was
 /// set to before.
 ///
 /// The repair path for halls cloned by a build that did not configure it.
@@ -142,7 +196,7 @@ pub(crate) fn ensure_remote_tracking(git_dir: &Utf8Path) -> Result<(), Error> {
         .arg("config")
         .arg("--replace-all")
         .arg("remote.origin.fetch")
-        .arg(REMOTE_TRACKING_REFSPEC))?;
+        .arg(tracking_refspec(&ref_prefix(git_dir))))?;
     Ok(())
 }
 
@@ -170,7 +224,8 @@ pub(crate) fn add_worktree(git_dir: &Utf8Path, dest: &Utf8Path, branch: &str) ->
 /// exits zero just like a fetch that pulled commits; with `--quiet` there is
 /// no way to tell them apart, and the caller does not need to.
 ///
-/// What it moves is `refs/remotes/origin/*`, via [`REMOTE_TRACKING_REFSPEC`].
+/// What it moves is `refs/remotes/origin/*`, via the configured
+/// `remote.origin.fetch` refspec.
 /// No branch a worktree has checked out is touched, and `--prune` drops
 /// tracking refs for branches the remote deleted — never a local branch.
 pub(crate) fn fetch(git_dir: &Utf8Path) -> Result<(), Error> {
@@ -214,18 +269,26 @@ pub(crate) fn create_branch_and_worktree(
 /// deliberate next step, and a feature worktree sharing this bare's refs is
 /// untouched by a default-branch refresh.
 ///
-/// [`REMOTE_TRACKING_REFSPEC`] still applies: git updates
+/// The tracking refspec still applies: git updates
 /// `refs/remotes/origin/<branch>` opportunistically alongside `FETCH_HEAD`, so
 /// a `--force-with-lease` from this worktree has something to lease against
 /// after a `repo pull`.
 pub(crate) fn fetch_branch(worktree: &Utf8Path, branch: &str) -> Result<(), Error> {
+    let prefix = run(git()
+        .cwd(worktree)
+        .arg("config")
+        .arg("--get")
+        .arg(REF_PREFIX_KEY))
+    .map(|s| s.trim().to_owned())
+    .unwrap_or_default();
+
     run(git()
         .cwd(worktree)
         .arg("fetch")
         .arg("--prune")
         .arg("--quiet")
         .arg("origin")
-        .arg(branch))?;
+        .arg(format!("{prefix}{branch}")))?;
     Ok(())
 }
 
@@ -578,27 +641,32 @@ pub(crate) fn remote_branch_tip(
         .arg(git_dir.as_str())
         .arg("ls-remote")
         .arg(remote)
-        .arg(format!("refs/heads/{branch}")))?;
+        .arg(remote_branch_ref(git_dir, branch)))?;
     Ok(stdout.split_whitespace().next().map(str::to_owned))
 }
 
-/// `git --git-dir <git_dir> push <remote> <from>:<to>`.
+/// `git --git-dir <git_dir> push <remote> <from>:<mapped>`.
 ///
 /// Pushes from the bare clone, which holds every worktree's refs — the feature
 /// branch's tip lives there whether or not a worktree is checked out. `remote`
 /// is the URL from the manifest, so preview and apply agree on what "the
-/// remote" means; `to` is the full ref the branch lands at.
+/// remote" means; `to` is the full ref or branch name the branch lands at.
+/// For prefixed repositories, `to` is mapped under [`REF_PREFIX_KEY`] to its
+/// resolved remote ref before pushing.
 ///
 /// Naming a URL rather than a remote is what makes that agreement possible and
 /// is also why [`record_push`] exists: git moves a remote-tracking ref only
 /// for a push that named a remote, and writes nothing at all for this one.
 pub(crate) fn push(git_dir: &Utf8Path, remote: &str, from: &str, to: &str) -> Result<(), Error> {
+    let mapped = to
+        .strip_prefix("refs/heads/")
+        .map_or_else(|| to.to_owned(), |b| remote_branch_ref(git_dir, b));
     run(git()
         .arg("--git-dir")
         .arg(git_dir.as_str())
         .arg("push")
         .arg(remote)
-        .arg(format!("{from}:{to}")))?;
+        .arg(format!("{from}:{mapped}")))?;
     record_push(git_dir, remote, from, to);
     Ok(())
 }
@@ -724,20 +792,24 @@ pub(crate) fn publish_remote_branch(
     at: &str,
 ) -> Result<(), Error> {
     let to = format!("refs/heads/{branch}");
+    let mapped = remote_branch_ref(git_dir, branch);
     run(git()
         .arg("--git-dir")
         .arg(git_dir.as_str())
         .arg("push")
-        .arg(format!("--force-with-lease=refs/heads/{branch}:"))
+        .arg(format!("--force-with-lease={mapped}:"))
         .arg(remote)
-        .arg(format!("{at}:{to}")))?;
+        .arg(format!("{at}:{mapped}")))?;
     record_push(git_dir, remote, at, &to);
     Ok(())
 }
 
 /// Delete `branch` on `remote`, refused if it moved past `expected_tip` —
-/// `git push --force-with-lease="refs/heads/<branch>:<expected_tip>"
-/// <remote> :refs/heads/<branch>`.
+/// `git push --force-with-lease="<mapped>:<expected_tip>"
+/// <remote> :<mapped>`.
+///
+/// For prefixed repositories, `branch` is resolved to `<mapped>` under
+/// [`REF_PREFIX_KEY`] (`refs/heads/<prefix><branch>`).
 ///
 /// The non-empty expected-tip is git's own compare-and-delete: the push is
 /// refused ("stale info") if the remote branch is not exactly at
@@ -752,15 +824,14 @@ pub(crate) fn delete_remote_branch(
     branch: &str,
     expected_tip: &str,
 ) -> Result<(), Error> {
+    let mapped = remote_branch_ref(git_dir, branch);
     run(git()
         .arg("--git-dir")
         .arg(git_dir.as_str())
         .arg("push")
-        .arg(format!(
-            "--force-with-lease=refs/heads/{branch}:{expected_tip}"
-        ))
+        .arg(format!("--force-with-lease={mapped}:{expected_tip}"))
         .arg(remote)
-        .arg(format!(":refs/heads/{branch}")))?;
+        .arg(format!(":{mapped}")))?;
     record_delete(git_dir, remote, branch);
     Ok(())
 }

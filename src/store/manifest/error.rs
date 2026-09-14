@@ -53,6 +53,9 @@ pub enum Error {
     #[error("repo `{name}` has an empty `url`")]
     EmptyRepoUrl { name: RepoName },
 
+    #[error("repo `{name}` has ref_prefix `{prefix}`, expected `repos/{name}/`")]
+    InvalidRefPrefix { name: RepoName, prefix: String },
+
     /// A repo's `checks` list contains a blank command. A blank entry would
     /// run nothing and be recorded as a silent pass — the difference between
     /// naming the offending entry and believing an integration was verified
@@ -127,6 +130,13 @@ impl From<Error> for Failure {
             .fix(FixAction::safe(
                 "manifest.set_repo_url",
                 format!("Set `url` on the `{name}` entry in `repos` to its git remote, or remove the entry."),
+            )),
+            Error::InvalidRefPrefix { name, prefix } => Failure::blocked("manifest.invalid_ref_prefix", what)
+            .expected(format!("`repos/{name}/`"))
+            .actual(format!("`{prefix}`"))
+            .fix(FixAction::safe(
+                "manifest.set_ref_prefix",
+                format!("Set `ref_prefix` on `{name}` to `repos/{name}/`, or remove it."),
             )),
             Error::EmptyRepoCheck { name, index } => {
                 Failure::blocked("manifest.empty_repo_check", what)
