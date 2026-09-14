@@ -13,3 +13,7 @@ pub use rank::{
     explore_find_candidates, is_test_path,
 };
 pub use search::find_symbols;
+
+#[cfg(test)]
+#[path = "../../../../../tests/unit/action/graph/find_scans.rs"]
+mod find_scans_tests;

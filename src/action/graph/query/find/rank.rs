@@ -4,6 +4,7 @@ use rusqlite::params;
 
 use super::candidate::{ScoredCandidate, add_score};
 use super::intent::resolve_query_paths;
+use super::search::{NAME_PREFIX_MATCH, prefix_casings};
 use crate::action::graph::query::types::{QueryError, SymbolLocation, map_symbol_and_path_row};
 use crate::domain::graph::{FileMention, MentionedSymbol, Symbol};
 use crate::store::graph::db::GraphDb;
@@ -14,6 +15,27 @@ pub struct ExploreCandidates {
     pub symbols: Vec<SymbolLocation>,
     pub not_shown: Vec<FileMention>,
 }
+
+/// Symbols in files whose path names the term `?1` or its plural, repo `?2`.
+pub(super) const PATH_TIER_SQL: &str = "WITH matched_files AS MATERIALIZED (
+         SELECT id, path FROM visible_files
+         WHERE (instr('/' || lower(path), '/' || lower(?1) || '/') > 0
+                OR instr('/' || lower(path), '/' || lower(?1) || '.') > 0
+                OR instr('/' || lower(path), '/' || lower(?1) || 's/') > 0
+                OR instr('/' || lower(path), '/' || lower(?1) || 's.') > 0)
+           AND (?2 IS NULL OR repo = ?2)
+     ),
+     matched_symbols AS MATERIALIZED (
+         SELECT * FROM visible_symbols
+         WHERE file_id IN (SELECT id FROM matched_files)
+           AND (?2 IS NULL OR repo = ?2)
+     )
+     SELECT m.id, m.file_id, m.repo, m.name, m.kind, m.scope, m.signature, m.docstring,
+            m.start_line, m.start_col, m.end_line, m.end_col, m.is_exported, m.complexity, f.path
+     FROM matched_symbols m
+     JOIN matched_files f ON f.id = m.file_id
+     ORDER BY m.id ASC
+     LIMIT 200";
 
 /// Maximum candidates returned for hero explore.
 pub const MAX_EXPLORE_CANDIDATES: usize = 24;
@@ -132,19 +154,20 @@ pub fn explore_find(
 
         // Tier B: Prefix symbol name match (+40.0 at a word boundary, +10.0 inside a word)
         if term.len() >= 3 {
-            let prefix_pat = format!("{term}%");
-            let mut stmt = conn.prepare_cached(
+            let mut stmt = conn.prepare_cached(&format!(
                 "SELECT s.id, s.file_id, s.repo, s.name, s.kind, s.scope, s.signature, s.docstring,
                         s.start_line, s.start_col, s.end_line, s.end_col, s.is_exported, s.complexity, f.path
                  FROM visible_symbols s
                  JOIN visible_files f ON s.file_id = f.id
-                 WHERE s.name LIKE ?1
-                   AND s.name != ?2
-                   AND (?3 IS NULL OR s.repo = ?3)
+                 WHERE {NAME_PREFIX_MATCH}
+                   AND s.name != ?5
+                   AND (?6 IS NULL OR s.repo = ?6)
+                 ORDER BY s.id ASC
                  LIMIT 50",
-            )?;
+            ))?;
+            let [c1, c2, c3, c4] = prefix_casings(term);
             let rows = stmt
-                .query_map(params![prefix_pat, term, repo], map_symbol_and_path_row)?
+                .query_map(params![c1, c2, c3, c4, term, repo], map_symbol_and_path_row)?
                 .filter_map(|r| r.ok());
             for (symbol, file_path) in rows {
                 let at_word_boundary = match symbol.name.get(term.len()..) {
@@ -160,18 +183,7 @@ pub fn explore_find(
 
         // Path tier: the term, or its plural, names a directory or file in the symbol's path (+60.0)
         {
-            let mut stmt = conn.prepare_cached(
-                "SELECT s.id, s.file_id, s.repo, s.name, s.kind, s.scope, s.signature, s.docstring,
-                        s.start_line, s.start_col, s.end_line, s.end_col, s.is_exported, s.complexity, f.path
-                 FROM visible_symbols s
-                 JOIN visible_files f ON s.file_id = f.id
-                 WHERE (instr('/' || lower(f.path), '/' || lower(?1) || '/') > 0
-                        OR instr('/' || lower(f.path), '/' || lower(?1) || '.') > 0
-                        OR instr('/' || lower(f.path), '/' || lower(?1) || 's/') > 0
-                        OR instr('/' || lower(f.path), '/' || lower(?1) || 's.') > 0)
-                   AND (?2 IS NULL OR s.repo = ?2)
-                 LIMIT 200",
-            )?;
+            let mut stmt = conn.prepare_cached(PATH_TIER_SQL)?;
             let rows = stmt
                 .query_map(params![term, repo], map_symbol_and_path_row)?
                 .filter_map(|r| r.ok());
