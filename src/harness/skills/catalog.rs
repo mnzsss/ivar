@@ -61,9 +61,15 @@ pub const fn catalog() -> &'static [ShippedSkill] {
 
 const SKILLS: &[ShippedSkill] = &[ShippedSkill {
     id: "execute",
-    files: &[SkillFile {
-        path: "SKILL.md",
-        content: include_str!("ivar-execute/SKILL.md"),
-    }],
+    files: &[
+        SkillFile {
+            path: "SKILL.md",
+            content: include_str!("ivar-execute/SKILL.md"),
+        },
+        SkillFile {
+            path: "references/subagent.md",
+            content: include_str!("ivar-execute/references/subagent.md"),
+        },
+    ],
     legacy_sha256: None,
 }];

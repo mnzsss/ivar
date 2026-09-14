@@ -173,3 +173,29 @@ fn inspect_reports_modified_for_a_missing_declared_file_or_an_undeclared_one() {
     materialise(dir).unwrap();
     assert_eq!(integrity(dir), Integrity::Current);
 }
+
+#[test]
+fn ivar_execute_ships_a_subagent_template_with_absolute_context() {
+    let skill = catalog().iter().find(|s| s.id == "execute").unwrap();
+    let template = skill
+        .files
+        .iter()
+        .find(|file| file.path == "references/subagent.md")
+        .expect("subagent template shipped")
+        .content;
+
+    for field in [
+        "Working directory",
+        "Repository",
+        "Worktree root",
+        "Task packet",
+        "Plan",
+        "Requirements",
+        "Allowed files",
+        "Allowed commands",
+        "absolute",
+    ] {
+        assert!(template.contains(field), "template is missing `{field}`");
+    }
+    assert!(skill.skill_md().contains("references/subagent.md"));
+}
