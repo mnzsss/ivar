@@ -977,3 +977,67 @@ fn a_directory_given_to_the_outline_lists_its_files_and_points_to_explore() {
     assert!(text.contains("`src/main.rs`"), "got: {text}");
     assert!(text.contains("graph_explore"), "got: {text}");
 }
+
+fn call_tool_at(db: &GraphDb, root: &std::path::Path, cwd: &camino::Utf8Path) -> (String, bool) {
+    let req = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": { "name": "graph_explore", "arguments": { "query": "execute" } }
+    });
+    let resp = handle_json_rpc_at(db, Some(root), cwd, ToolSurface::All, &req, &mut |_| {
+        Ok(json!({"status": "ok"}))
+    })
+    .expect("response");
+    (
+        resp["result"]["content"][0]["text"]
+            .as_str()
+            .expect("text content")
+            .to_owned(),
+        resp["result"]["isError"].as_bool().unwrap_or(false),
+    )
+}
+
+#[test]
+fn a_feature_session_whose_layer_cannot_refresh_answers_with_an_error() {
+    use crate::domain::feature::Feature;
+    use crate::domain::name::{BranchName, FeatureName, RepoName};
+    use crate::store::layout::Layout;
+
+    let (db, temp) = setup_test_mcp_db();
+    let root = camino::Utf8PathBuf::from_path_buf(temp.path().to_path_buf()).unwrap();
+    let layout = Layout::at(root.clone());
+    std::fs::create_dir_all(layout.features_dir()).unwrap();
+    let branch = BranchName::new("add-auth").unwrap();
+    let mut feature = Feature::new(FeatureName::new("add-auth").unwrap(), branch.clone());
+    feature.promote(RepoName::new("core").unwrap());
+    feature.write(&layout).unwrap();
+    let worktree = layout.repo_worktree(&RepoName::new("core").unwrap(), &branch);
+    std::fs::create_dir_all(&worktree).unwrap();
+
+    let (text, is_error) = call_tool_at(&db, temp.path(), &worktree);
+
+    assert!(is_error, "got: {text}");
+    assert!(text.starts_with("Error:"), "got: {text}");
+    assert!(text.contains("feature layer"), "got: {text}");
+    assert!(text.contains("base graph index missing"), "got: {text}");
+}
+
+#[cfg(unix)]
+#[test]
+fn an_unresolvable_session_answers_with_an_error_instead_of_the_base_graph() {
+    use crate::store::layout::Layout;
+    use std::os::unix::fs::PermissionsExt;
+
+    let (db, temp) = setup_test_mcp_db();
+    let root = camino::Utf8PathBuf::from_path_buf(temp.path().to_path_buf()).unwrap();
+    let repos_dir = Layout::at(root.clone()).repos_dir();
+    std::fs::create_dir_all(&repos_dir).unwrap();
+    std::fs::set_permissions(&repos_dir, std::fs::Permissions::from_mode(0o000)).unwrap();
+
+    let (text, is_error) = call_tool_at(&db, temp.path(), &root);
+    std::fs::set_permissions(&repos_dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+    assert!(is_error, "got: {text}");
+    assert!(text.contains("session"), "got: {text}");
+}

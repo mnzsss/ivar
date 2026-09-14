@@ -13,7 +13,7 @@ use std::path::Path;
 use serde_json::{Value, json};
 
 use crate::action::graph::freshness::ensure_session_freshness;
-use crate::action::graph::session::resolve_session_view;
+use crate::action::graph::session::{SessionView, resolve_session_view};
 use crate::store::graph::db::GraphDb;
 use crate::store::layout::Layout;
 pub use dispatch::*;
@@ -117,6 +117,22 @@ pub fn handle_json_rpc<F>(
 where
     F: FnMut(Option<&str>) -> Result<Value, String>,
 {
+    let cwd = camino::Utf8PathBuf::from_path_buf(std::env::current_dir().unwrap_or_default())
+        .unwrap_or_default();
+    handle_json_rpc_at(db, hall_root, &cwd, tools, req, refresh_index)
+}
+
+fn handle_json_rpc_at<F>(
+    db: &GraphDb,
+    hall_root: Option<&Path>,
+    cwd: &camino::Utf8Path,
+    tools: ToolSurface,
+    req: &Value,
+    refresh_index: &mut F,
+) -> Option<Value>
+where
+    F: FnMut(Option<&str>) -> Result<Value, String>,
+{
     let id = req.get("id").cloned();
     let method = req.get("method").and_then(Value::as_str)?;
 
@@ -184,11 +200,8 @@ where
                 let layout = Layout::at(
                     camino::Utf8PathBuf::from_path_buf(root.to_path_buf()).unwrap_or_default(),
                 );
-                let cwd =
-                    camino::Utf8PathBuf::from_path_buf(std::env::current_dir().unwrap_or_default())
-                        .unwrap_or_default();
-                if let Ok(view) = resolve_session_view(&layout, &cwd) {
-                    let _ = ensure_session_freshness(db, &layout, &view);
+                if let Err(err_msg) = refresh_session(db, &layout, cwd) {
+                    return Some(tool_error(id, &err_msg));
                 }
             }
 
@@ -205,19 +218,7 @@ where
                         ]
                     }
                 })),
-                Err(err_msg) => Some(json!({
-                    "jsonrpc": "2.0",
-                    "id": id,
-                    "result": {
-                        "content": [
-                            {
-                                "type": "text",
-                                "text": format!("Error: {err_msg}")
-                            }
-                        ],
-                        "isError": true
-                    }
-                })),
+                Err(err_msg) => Some(tool_error(id, &err_msg)),
             }
         }
 
@@ -230,6 +231,33 @@ where
             }
         })),
     }
+}
+
+fn refresh_session(db: &GraphDb, layout: &Layout, cwd: &camino::Utf8Path) -> Result<(), String> {
+    let view = resolve_session_view(layout, cwd)
+        .map_err(|err| format!("could not resolve the ivar session for this call: {err}"))?;
+    ensure_session_freshness(db, layout, &view).map_err(|err| match view {
+        SessionView::Base { .. } => format!("could not reset the graph to the base view: {err}"),
+        SessionView::FeatureSession { feature_name, .. } => format!(
+            "the feature layer for `{feature_name}` could not be refreshed, so the graph would answer from stale or base code: {err}"
+        ),
+    })
+}
+
+fn tool_error(id: Option<Value>, err_msg: &str) -> Value {
+    json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "result": {
+            "content": [
+                {
+                    "type": "text",
+                    "text": format!("Error: {err_msg}")
+                }
+            ],
+            "isError": true
+        }
+    })
 }
 
 #[cfg(test)]
