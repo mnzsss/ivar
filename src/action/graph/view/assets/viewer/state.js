@@ -5,7 +5,7 @@ var state = {
   selectedNodeId: null,
   highlightNodeIds: new Set(),
   highlightEdgeKeys: new Set(),
-  depth: 1,
+  depth: null,
   currentLayout: 'dagre',
   filters: { repo: '', kind: '', provenance: '', search: '' },
   tracing: { active: false, sourceNode: null, targetNode: null },

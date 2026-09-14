@@ -5,7 +5,9 @@ use crate::action::feature::workspace::OpenAttempt;
 use crate::action::graph::input::GraphViewInput;
 use crate::action::graph::outcome::GraphViewOutcome;
 use crate::action::graph::view::error::ViewError;
+use crate::action::graph::view::query::validate_bounds;
 use crate::action::graph::view::server::ViewerServer;
+use crate::action::graph::view::types::InitialView;
 use crate::error::WriteHuman;
 use crate::infra::proc;
 use crate::store::graph::db::GraphDb;
@@ -54,7 +56,13 @@ pub fn prepare_view_session(db: GraphDb, input: GraphViewInput) -> Result<ViewSe
         Some(port) => format!("127.0.0.1:{port}"),
         None => "127.0.0.1:0".to_owned(),
     };
-    let server = ViewerServer::bind_loopback(db, input.seed.clone(), &bind_addr)?;
+    let initial = InitialView {
+        depth: input.depth,
+        limit: input.limit,
+    };
+    validate_bounds(initial.depth, initial.limit)?;
+    let server =
+        ViewerServer::bind_loopback(db, input.seed.clone(), &bind_addr)?.with_initial_view(initial);
     let url = server.url();
 
     let open = if input.no_open {

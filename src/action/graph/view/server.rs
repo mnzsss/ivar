@@ -6,8 +6,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use super::error::ViewError;
-use super::router::{HttpResponse, parse_http_request, route_request, validate_security_headers};
-use super::types::ViewSeed;
+use super::router::{
+    HttpRequest, HttpResponse, parse_http_request, route_request, validate_security_headers,
+};
+use super::types::{InitialView, ViewSeed};
 use crate::store::graph::db::GraphDb;
 
 const READ_TIMEOUT: Duration = Duration::from_secs(2);
@@ -20,6 +22,7 @@ pub struct ViewerServer {
     shutdown: Arc<AtomicBool>,
     db: Arc<Mutex<GraphDb>>,
     seed: ViewSeed,
+    initial: InitialView,
 }
 
 impl ViewerServer {
@@ -43,7 +46,13 @@ impl ViewerServer {
             shutdown: Arc::new(AtomicBool::new(false)),
             db: Arc::new(Mutex::new(db)),
             seed,
+            initial: InitialView::default(),
         })
+    }
+
+    pub fn with_initial_view(mut self, initial: InitialView) -> Self {
+        self.initial = initial;
+        self
     }
 
     pub fn url(&self) -> String {
@@ -93,10 +102,7 @@ impl ViewerServer {
         };
         let response = match parse_http_request(req_bytes) {
             Ok(req) => match validate_security_headers(&req, &self.addr) {
-                Ok(()) => match self.db.lock() {
-                    Ok(guard) => route_request(&req, &guard, &self.seed),
-                    Err(poisoned) => route_request(&req, &poisoned.into_inner(), &self.seed),
-                },
+                Ok(()) => self.respond(&req),
                 Err(ViewError::Security(msg)) => HttpResponse::forbidden(&msg),
                 Err(err) => HttpResponse::bad_request(&err.to_string()),
             },
@@ -108,6 +114,13 @@ impl ViewerServer {
         let _ = stream.write_all(&resp_bytes);
         let _ = stream.flush();
         Ok(())
+    }
+
+    pub fn respond(&self, req: &HttpRequest) -> HttpResponse {
+        match self.db.lock() {
+            Ok(guard) => route_request(req, &guard, &self.seed, self.initial),
+            Err(poisoned) => route_request(req, &poisoned.into_inner(), &self.seed, self.initial),
+        }
     }
 
     pub fn serve(mut self) -> Result<(), ViewError> {

@@ -17,16 +17,7 @@ pub fn collect_subgraph(
     depth: usize,
     limit: usize,
 ) -> Result<ViewerGraph, ViewError> {
-    if depth == 0 || depth > MAX_DEPTH {
-        return Err(ViewError::InvalidParam(format!(
-            "depth must be between 1 and {MAX_DEPTH}"
-        )));
-    }
-    if limit == 0 || limit > MAX_NODES {
-        return Err(ViewError::InvalidParam(format!(
-            "limit must be between 1 and {MAX_NODES}"
-        )));
-    }
+    validate_bounds(depth, limit)?;
 
     let conn = db.conn();
     let seed_limit = match seed {
@@ -98,6 +89,20 @@ pub fn collect_subgraph(
     })
 }
 
+pub fn validate_bounds(depth: usize, limit: usize) -> Result<(), ViewError> {
+    if depth == 0 || depth > MAX_DEPTH {
+        return Err(ViewError::InvalidParam(format!(
+            "depth must be between 1 and {MAX_DEPTH}"
+        )));
+    }
+    if limit == 0 || limit > MAX_NODES {
+        return Err(ViewError::InvalidParam(format!(
+            "limit must be between 1 and {MAX_NODES}"
+        )));
+    }
+    Ok(())
+}
+
 pub fn expand_node(db: &GraphDb, symbol_id: i64, limit: usize) -> Result<ViewerGraph, ViewError> {
     let cap = limit.min(MAX_NODES);
     collect_subgraph(db, &ViewSeed::Symbol(format!("id:{symbol_id}")), 1, cap)
@@ -143,7 +148,7 @@ pub fn query_impact(
     // Resolve symbol id first
     let conn = db.conn();
     let mut stmt = conn.prepare_cached(
-        "SELECT id FROM symbols WHERE name = ?1 AND (?2 IS NULL OR repo = ?2) ORDER BY is_exported DESC, id ASC LIMIT 1",
+        "SELECT id FROM visible_symbols WHERE name = ?1 AND (?2 IS NULL OR repo = ?2) ORDER BY is_exported DESC, id ASC LIMIT 1",
     )?;
     let symbol_id: i64 = stmt
         .query_row(params![symbol, repo], |r| r.get(0))
@@ -184,8 +189,8 @@ fn fetch_single_node(conn: &Connection, symbol_id: i64) -> Result<Option<ViewerN
         "SELECT s.id, s.repo, s.name, s.kind, s.signature,
                 s.start_line, s.start_col, s.end_line, s.end_col,
                 s.is_exported, s.complexity, f.path
-         FROM symbols s
-         JOIN files f ON s.file_id = f.id
+         FROM visible_symbols s
+         JOIN visible_files f ON s.file_id = f.id
          WHERE s.id = ?1",
     )?;
     let mut rows = stmt.query(params![symbol_id])?;
@@ -207,9 +212,9 @@ fn resolve_seed_nodes(
                 "SELECT s.id, s.repo, s.name, s.kind, s.signature,
                         s.start_line, s.start_col, s.end_line, s.end_col,
                         s.is_exported, s.complexity, f.path
-                 FROM symbols s
-                 JOIN files f ON s.file_id = f.id
-                 LEFT JOIN edges e ON (e.from_symbol_id = s.id OR e.to_symbol_id = s.id)
+                 FROM visible_symbols s
+                 JOIN visible_files f ON s.file_id = f.id
+                 LEFT JOIN visible_edges e ON (e.from_symbol_id = s.id OR e.to_symbol_id = s.id)
                  GROUP BY s.id
                  ORDER BY count(e.id) DESC, s.is_exported DESC, s.id ASC
                  LIMIT ?1",
@@ -226,9 +231,9 @@ fn resolve_seed_nodes(
                 "SELECT s.id, s.repo, s.name, s.kind, s.signature,
                         s.start_line, s.start_col, s.end_line, s.end_col,
                         s.is_exported, s.complexity, f.path
-                 FROM symbols s
-                 JOIN files f ON s.file_id = f.id
-                 LEFT JOIN edges e ON (e.from_symbol_id = s.id OR e.to_symbol_id = s.id)
+                 FROM visible_symbols s
+                 JOIN visible_files f ON s.file_id = f.id
+                 LEFT JOIN visible_edges e ON (e.from_symbol_id = s.id OR e.to_symbol_id = s.id)
                  WHERE s.repo = ?1
                  GROUP BY s.id
                  ORDER BY count(e.id) DESC, s.is_exported DESC, s.id ASC
@@ -246,8 +251,8 @@ fn resolve_seed_nodes(
                 "SELECT s.id, s.repo, s.name, s.kind, s.signature,
                         s.start_line, s.start_col, s.end_line, s.end_col,
                         s.is_exported, s.complexity, f.path
-                 FROM symbols s
-                 JOIN files f ON s.file_id = f.id
+                 FROM visible_symbols s
+                 JOIN visible_files f ON s.file_id = f.id
                  WHERE f.path = ?1 OR f.path LIKE ?2
                  ORDER BY s.is_exported DESC, s.id ASC
                  LIMIT ?3",
@@ -274,8 +279,8 @@ fn resolve_seed_nodes(
                 "SELECT s.id, s.repo, s.name, s.kind, s.signature,
                         s.start_line, s.start_col, s.end_line, s.end_col,
                         s.is_exported, s.complexity, f.path
-                 FROM symbols s
-                 JOIN files f ON s.file_id = f.id
+                 FROM visible_symbols s
+                 JOIN visible_files f ON s.file_id = f.id
                  WHERE s.name = ?1
                  ORDER BY s.is_exported DESC, s.id ASC
                  LIMIT ?2",
@@ -292,8 +297,8 @@ fn resolve_seed_nodes(
                 "SELECT s.id, s.repo, s.name, s.kind, s.signature,
                         s.start_line, s.start_col, s.end_line, s.end_col,
                         s.is_exported, s.complexity, f.path
-                 FROM symbols s
-                 JOIN files f ON s.file_id = f.id
+                 FROM visible_symbols s
+                 JOIN visible_files f ON s.file_id = f.id
                  WHERE s.name = ?1
                  ORDER BY s.is_exported DESC, s.id ASC
                  LIMIT ?2",
@@ -314,12 +319,23 @@ fn fetch_neighbor_nodes(conn: &Connection, node_id: i64) -> Result<Vec<ViewerNod
                 s.start_line, s.start_col, s.end_line, s.end_col,
                 s.is_exported, s.complexity, f.path
          FROM (
-             SELECT to_symbol_id AS neighbor_id FROM edges WHERE from_symbol_id = ?1 AND to_symbol_id IS NOT NULL
+             SELECT e.to_symbol_id AS neighbor_id FROM visible_edges e
+             WHERE e.from_symbol_id = ?1 AND e.to_symbol_id IS NOT NULL
              UNION
-             SELECT from_symbol_id AS neighbor_id FROM edges WHERE to_symbol_id = ?1 AND from_symbol_id IS NOT NULL
+             SELECT t.id FROM visible_edges e
+             JOIN visible_symbols t ON t.name = e.to_name AND t.repo = e.repo
+             WHERE e.from_symbol_id = ?1 AND e.to_symbol_id IN (SELECT id FROM hidden_symbols)
+             UNION
+             SELECT e.from_symbol_id FROM visible_edges e
+             WHERE e.to_symbol_id = ?1 AND e.from_symbol_id IS NOT NULL
+             UNION
+             SELECT e.from_symbol_id FROM visible_edges e
+             WHERE e.to_symbol_id IN (SELECT id FROM hidden_symbols)
+               AND e.to_name = (SELECT name FROM visible_symbols WHERE id = ?1)
+               AND e.from_symbol_id IS NOT NULL
          ) n
-         JOIN symbols s ON n.neighbor_id = s.id
-         JOIN files f ON s.file_id = f.id
+         JOIN visible_symbols s ON n.neighbor_id = s.id
+         JOIN visible_files f ON s.file_id = f.id
          ORDER BY s.is_exported DESC, s.id ASC",
     )?;
     let rows = stmt.query_map(params![node_id], map_node_row)?;
@@ -346,11 +362,13 @@ fn fetch_connecting_edges(
     for chunk in sorted_ids.chunks(400) {
         let placeholders = chunk.iter().map(|_| "?").collect::<Vec<_>>().join(",");
         let sql = format!(
-            "SELECT from_symbol_id, to_symbol_id, kind, provenance, confidence
-             FROM edges
-             WHERE from_symbol_id IN ({placeholders})
-               AND to_symbol_id IS NOT NULL
-             ORDER BY id ASC"
+            "SELECT e.from_symbol_id, COALESCE(t.id, e.to_symbol_id), e.kind, e.provenance, e.confidence
+             FROM visible_edges e
+             LEFT JOIN visible_symbols t ON e.to_symbol_id IN (SELECT id FROM hidden_symbols)
+                 AND t.name = e.to_name AND t.repo = e.repo
+             WHERE e.from_symbol_id IN ({placeholders})
+               AND e.to_symbol_id IS NOT NULL
+             ORDER BY e.id ASC"
         );
         let mut stmt = conn.prepare(&sql)?;
         let rows = stmt.query_map(rusqlite::params_from_iter(chunk.iter()), |row| {

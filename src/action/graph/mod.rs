@@ -354,14 +354,7 @@ pub fn viz_cmd(ctx: &Ctx, args: VizInput) -> Outcome<VizOutcome> {
 
 // 16. view
 pub fn view_cmd(ctx: &Ctx, input: GraphViewInput) -> Outcome<ViewSession> {
-    let layout = discover_hall(ctx)?;
-    let db_path = layout.ivar_dir().join("memory.db");
-    let db = GraphDb::open_read_only(db_path.as_std_path()).map_err(|err| {
-        Failure::failed(
-            "graph.db_open_failed",
-            format!("Failed to open graph database at {db_path}: {err}"),
-        )
-    })?;
+    let db = open_graph_db(ctx)?;
 
     let session = prepare_view_session(db, input).map_err(|err| {
         Failure::failed(

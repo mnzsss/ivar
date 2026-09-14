@@ -7,6 +7,8 @@ use crate::domain::graph::{EdgeKind, Provenance, Span, SymbolKind};
 
 pub const MAX_DEPTH: usize = 2;
 pub const MAX_NODES: usize = 500;
+pub const DEFAULT_DEPTH: usize = 1;
+pub const DEFAULT_LIMIT: usize = 400;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "value")]
@@ -16,6 +18,21 @@ pub enum ViewSeed {
     Symbol(String),
     File(String),
     Impact(String),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct InitialView {
+    pub depth: usize,
+    pub limit: usize,
+}
+
+impl Default for InitialView {
+    fn default() -> Self {
+        Self {
+            depth: DEFAULT_DEPTH,
+            limit: DEFAULT_LIMIT,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]

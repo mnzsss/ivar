@@ -5,7 +5,7 @@ use super::error::ViewError;
 use super::query::{
     collect_subgraph, expand_node, get_node_details, query_impact, query_path, search_symbols,
 };
-use super::types::ViewSeed;
+use super::types::{InitialView, ViewSeed};
 use crate::store::graph::db::GraphDb;
 
 const MAX_HEADER_SIZE: usize = 8192;
@@ -263,7 +263,12 @@ fn percent_decode(s: &str) -> String {
     String::from_utf8_lossy(&bytes).to_string()
 }
 
-pub fn route_request(req: &HttpRequest, db: &GraphDb, seed: &ViewSeed) -> HttpResponse {
+pub fn route_request(
+    req: &HttpRequest,
+    db: &GraphDb,
+    seed: &ViewSeed,
+    initial: InitialView,
+) -> HttpResponse {
     if req.method != "GET" {
         return HttpResponse::method_not_allowed();
     }
@@ -300,11 +305,11 @@ pub fn route_request(req: &HttpRequest, db: &GraphDb, seed: &ViewSeed) -> HttpRe
             let depth = params
                 .get("depth")
                 .and_then(|v| v.parse::<usize>().ok())
-                .unwrap_or(1);
+                .unwrap_or(initial.depth);
             let limit = params
                 .get("limit")
                 .and_then(|v| v.parse::<usize>().ok())
-                .unwrap_or(400);
+                .unwrap_or(initial.limit);
 
             // If seed params are in query, prefer them; otherwise fallback to server seed
             let active_seed = if let Some(repo) = params.get("repo") {

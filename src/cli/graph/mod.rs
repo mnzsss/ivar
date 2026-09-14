@@ -234,8 +234,12 @@ impl From<GraphViewArgs> for crate::action::graph::input::GraphViewInput {
 
         Self {
             seed,
-            depth: args.depth.unwrap_or(1),
-            limit: args.limit.unwrap_or(400),
+            depth: args
+                .depth
+                .unwrap_or(crate::action::graph::view::types::DEFAULT_DEPTH),
+            limit: args
+                .limit
+                .unwrap_or(crate::action::graph::view::types::DEFAULT_LIMIT),
             no_open: args.no_open,
             port: args.port,
         }

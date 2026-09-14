@@ -17,7 +17,7 @@ use crate::action::graph::view::router::{
     HttpRequest, parse_http_request, route_request, validate_security_headers,
 };
 use crate::action::graph::view::server::ViewerServer;
-use crate::action::graph::view::types::ViewSeed;
+use crate::action::graph::view::types::{InitialView, ViewSeed};
 use crate::store::graph::db::GraphDb;
 
 #[test]
@@ -106,7 +106,7 @@ fn route_request_rejects_non_get_method_with_405() {
         headers: HashMap::new(),
     };
 
-    let resp = route_request(&req, &db, &ViewSeed::Default);
+    let resp = route_request(&req, &db, &ViewSeed::Default, InitialView::default());
     assert_eq!(resp.status_code, 405);
 }
 
@@ -123,7 +123,7 @@ fn route_request_returns_security_headers_and_not_found_on_unknown_path() {
         headers: HashMap::new(),
     };
 
-    let resp = route_request(&req, &db, &ViewSeed::Default);
+    let resp = route_request(&req, &db, &ViewSeed::Default, InitialView::default());
     assert_eq!(resp.status_code, 404);
     let has_csp = resp
         .extra_headers

@@ -7,9 +7,11 @@ function apiFetch(endpoint) {
 }
 
 function loadInitialGraph() {
-  var depth = state.depth || 1;
-  var base = '/api/subgraph';
-  apiFetch(base + '?depth=' + encodeURIComponent(depth)).then(function(graph) {
+  var endpoint = '/api/subgraph';
+  if (state.depth) endpoint += '?depth=' + encodeURIComponent(state.depth);
+  apiFetch(endpoint).then(function(graph) {
+    state.depth = graph.depth;
+    depthSelect.value = String(graph.depth);
     applyGraphData(graph);
   }).catch(function(err) {
     /* Fallback to /api/graph if /api/subgraph fails */
