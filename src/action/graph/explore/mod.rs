@@ -17,6 +17,7 @@ pub use error::ExploreError;
 
 use self::flow::named_flows;
 use self::impact::{collect_impact, collect_relations};
+pub use self::source::MAX_REQUESTED_FILES;
 use self::source::{CachedFile, FileSpans, collect_sources, get_source_snippet, max_source_files};
 
 /// Explores the codebase graph for a given query string, returning matched symbols with
@@ -26,6 +27,27 @@ pub fn explore(
     hall_root: &Path,
     query: &str,
     repo: Option<&str>,
+) -> Result<ExploreResult, ExploreError> {
+    explore_within(db, hall_root, query, repo, false)
+}
+
+/// Explores files the agent named, returning up to [`MAX_REQUESTED_FILES`] of
+/// them whole: the agent asked for those files, and a slice sends it to Read them.
+pub fn explore_files(
+    db: &GraphDb,
+    hall_root: &Path,
+    query: &str,
+    repo: Option<&str>,
+) -> Result<ExploreResult, ExploreError> {
+    explore_within(db, hall_root, query, repo, true)
+}
+
+fn explore_within(
+    db: &GraphDb,
+    hall_root: &Path,
+    query: &str,
+    repo: Option<&str>,
+    whole_files: bool,
 ) -> Result<ExploreResult, ExploreError> {
     let trimmed_query = query.trim();
     if trimmed_query.is_empty() {
@@ -45,7 +67,12 @@ pub fn explore(
 
     // Step 1: Match query against symbols via structured exploration retrieval pipeline
     // (path pinning, weighted OR terms, per-file limits).
-    let found = query::find::explore_find(db, trimmed_query, repo, max_source_files(db)?)?;
+    let max_files = if whole_files {
+        MAX_REQUESTED_FILES
+    } else {
+        max_source_files(db)?
+    };
+    let found = query::find::explore_find(db, trimmed_query, repo, max_files)?;
     let candidates = found.symbols;
     let not_shown = found.not_shown;
 
@@ -110,7 +137,7 @@ pub fn explore(
         });
     }
 
-    let sources = collect_sources(db, &file_cache, file_spans)?;
+    let sources = collect_sources(db, &file_cache, file_spans, whole_files)?;
     let flows = named_flows(db, trimmed_query, &candidates)?;
 
     // Step 3: Immediate call flows & operational relations (for primary symbols)

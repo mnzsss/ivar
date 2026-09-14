@@ -109,3 +109,88 @@ fn explore_answers_name_files_the_way_the_agent_sees_them() {
         "services/api/src/routes/admin.ts"
     );
 }
+
+fn index_session_files(workspace: &Path, count: usize) -> GraphDb {
+    let repo_root = workspace.join("services/api");
+    std::fs::create_dir_all(repo_root.join("src")).expect("create repo dir");
+    let db = GraphDb::open_in_memory().expect("open db");
+    db.insert_repo("api", repo_root.to_str().expect("utf8 path"), "main", None)
+        .expect("insert repo");
+    for n in 0..count {
+        let path = format!("src/session{n}.ts");
+        let content = format!("export function session{n}() {{\n  return {n};\n}}\n");
+        std::fs::write(repo_root.join(&path), &content).expect("write source");
+        let file_id = db
+            .upsert_file("api", &path, &crate::infra::hash::text(&content), 1, 1)
+            .expect("upsert file");
+        db.insert_symbols(&[Symbol {
+            id: None,
+            file_id: Some(file_id),
+            repo: "api".into(),
+            name: format!("session{n}"),
+            kind: SymbolKind::Fn,
+            scope: None,
+            signature: None,
+            docstring: None,
+            span: Span::new(1, 1, 3, 1),
+            is_exported: true,
+            complexity: None,
+        }])
+        .expect("insert symbols");
+    }
+    db
+}
+
+fn next_call_args(answer: &str) -> serde_json::Value {
+    let line = answer
+        .lines()
+        .find(|line| line.starts_with("Next: call `graph_explore` with "))
+        .unwrap_or_else(|| panic!("no next call in: {answer}"));
+    let json = &line[line.find('{').expect("args start")..=line.rfind('}').expect("args end")];
+    serde_json::from_str(json).expect("parseable args")
+}
+
+#[test]
+fn an_answer_that_leaves_files_out_hands_over_the_explore_call_that_returns_them() {
+    use crate::action::graph::{explore, narrate};
+
+    let workspace = tempdir().expect("workspace");
+    let db = index_session_files(workspace.path(), 8);
+    let mut paths = WorkspacePaths::new(Some(workspace.path().to_path_buf()));
+
+    let mut res = explore::explore(&db, workspace.path(), "session", None).expect("explore");
+    paths.rewrite_explore(&db, &mut res);
+    let answer = narrate::narrate_explore(&res);
+
+    let shown: Vec<&str> = res.sources.iter().map(|s| s.file_path.as_str()).collect();
+    let mut omitted: Vec<String> = (0..8)
+        .map(|n| format!("services/api/src/session{n}.ts"))
+        .filter(|path| !shown.contains(&path.as_str()))
+        .collect();
+    assert!(!omitted.is_empty(), "the intent budget leaves files out");
+    let args = next_call_args(&answer);
+    let mut suggested: Vec<String> = args["paths"]
+        .as_array()
+        .expect("paths array")
+        .iter()
+        .map(|p| p.as_str().expect("path").to_owned())
+        .collect();
+    suggested.sort();
+    omitted.sort();
+    assert_eq!(suggested, omitted);
+
+    let mut follow_up =
+        explore::explore_files(&db, workspace.path(), &suggested.join(" "), None).expect("paths");
+    paths.rewrite_explore(&db, &mut follow_up);
+    let answer = narrate::narrate_requested_files(&follow_up);
+    for path in &suggested {
+        let source = follow_up
+            .sources
+            .iter()
+            .find(|s| &s.file_path == path)
+            .unwrap_or_else(|| panic!("{path} missing from the follow-up"));
+        assert!(source.excerpts[0].code.contains("export function session"));
+        assert!(answer.contains(&format!("`{path}`")));
+    }
+    assert!(!answer.contains("Next: call"));
+}

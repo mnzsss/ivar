@@ -11,6 +11,8 @@ use super::error::ExploreError;
 /// Files up to this many lines are returned whole: an agent shown a slice of a
 /// small file reads the whole file anyway, which costs more than sending it once.
 const WHOLE_FILE_MAX_LINES: usize = 250;
+/// Files one `paths` request returns whole.
+pub const MAX_REQUESTED_FILES: usize = 12;
 const EXCERPT_MERGE_GAP: usize = 8;
 
 pub(crate) struct FileSpans {
@@ -44,6 +46,7 @@ pub(crate) fn collect_sources(
     db: &GraphDb,
     cache: &HashMap<PathBuf, CachedFile>,
     files: Vec<FileSpans>,
+    whole_files: bool,
 ) -> Result<Vec<SourceFile>, ExploreError> {
     let mut sources = Vec::with_capacity(files.len());
     for file in files {
@@ -59,7 +62,7 @@ pub(crate) fn collect_sources(
         let changed_since_index = db
             .get_visible_file_hash(&file.repo, &file.file_path)?
             .is_some_and(|hash| hash != cached.content_hash);
-        let ranges = if changed_since_index || lines.len() <= WHOLE_FILE_MAX_LINES {
+        let ranges = if whole_files || changed_since_index || lines.len() <= WHOLE_FILE_MAX_LINES {
             vec![(1, lines.len())]
         } else {
             merge_spans(file.spans)

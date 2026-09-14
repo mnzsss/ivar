@@ -36,13 +36,14 @@ fn all_tools() -> Value {
     json!([
         {
             "name": "graph_explore",
-            "description": "PRIMARY TOOL, call it first for any question about this code and before any edit: it returns the verbatim, line-numbered source of the relevant files (treat it as already Read), who depends on them, and the call path between the symbols you name. Query with symbol names, file or directory paths, or a short intent, several at once. When an answer lists files under \"Not shown\", call graph_explore again with those paths or names instead of reading the files.",
+            "description": "PRIMARY TOOL, call it first for any question about this code and before any edit: it returns the verbatim, line-numbered source of the relevant files (treat it as already Read), who depends on them, and the call path between the symbols you name. Query with symbol names, file or directory paths, or a short intent, several at once. When an answer lists files under \"Not shown\", send the `Next:` call it gives. Files requested via `paths` come back as full source, cheaper than reading them one by one.",
             "_meta": { "anthropic/alwaysLoad": true },
             "annotations": { "readOnlyHint": true },
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "query": { "type": "string", "description": "Symbol names, file or directory paths, or a short intent, several at once (e.g. \"login apiRequest\" or \"services/api/src/routes/auth.ts services/api/src/routes/admin.ts\")" },
+                    "paths": { "type": "array", "items": { "type": "string" }, "description": "Files to return whole, as the paths an answer names" },
                     "repo": { "type": "string", "description": "Optional repository filter" },
                     "format": { "type": "string", "enum": ["markdown", "json", "compact"], "description": "Output format: 'markdown' (default, includes source snippets — best for discovery and replacing grep+read), 'json' for raw struct, or 'compact' (pipe-delimited, no source — for programmatic parsing of large results)" }
                 }

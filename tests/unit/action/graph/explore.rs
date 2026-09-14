@@ -715,3 +715,36 @@ fn same_name_definitions_in_different_repos_keep_their_consumers_apart() {
         "type use missing: {api_incoming:?}"
     );
 }
+
+#[test]
+fn requested_paths_come_back_whole_beyond_the_intent_budget() {
+    let temp = tempdir().expect("create temp dir");
+    let repo_dir = temp.path().join("api");
+    fs::create_dir_all(repo_dir.join("src")).expect("create dirs");
+    let db = GraphDb::open_in_memory().expect("open memory db");
+    db.insert_repo("api", repo_dir.to_str().unwrap(), "main", None)
+        .expect("insert repo");
+    let content: String = (1..=400).map(|n| format!("// line {n}\n")).collect();
+    let paths: Vec<String> = (0..8).map(|n| format!("src/file{n}.ts")).collect();
+    for (n, path) in paths.iter().enumerate() {
+        fs::write(repo_dir.join(path), &content).expect("write source");
+        let file_id = db
+            .upsert_file("api", path, &crate::infra::hash::text(&content), 1, 1)
+            .expect("upsert file");
+        db.insert_symbols(&[fn_symbol(file_id, &format!("f{n}"), 10, 12)])
+            .expect("insert symbols");
+    }
+
+    let res = explore_files(&db, temp.path(), &paths.join(" "), None).expect("explore");
+
+    assert!(res.not_shown.is_empty());
+    assert_eq!(res.sources.len(), paths.len());
+    for source in &res.sources {
+        let ranges: Vec<(usize, usize)> = source
+            .excerpts
+            .iter()
+            .map(|e| (e.start_line, e.end_line))
+            .collect();
+        assert_eq!(ranges, vec![(1, 400)], "{} is whole", source.file_path);
+    }
+}

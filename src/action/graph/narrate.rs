@@ -11,6 +11,7 @@
 
 use std::fmt::Write as _;
 
+use crate::action::graph::explore::MAX_REQUESTED_FILES;
 use crate::action::graph::query::{
     CalleeInfo, CallerInfo, FileOutline, ImpactResult, ReferenceSite, SymbolLocation,
 };
@@ -33,6 +34,8 @@ const MAX_LIST_ITEMS: usize = 40;
 /// Every later turn repeats an answer, so it stays well under the ~25K characters
 /// at which hosts save a tool result to a file the agent then has to Read.
 const MAX_OUTPUT_CHARS: usize = 18_000;
+/// A `paths` answer may run longer, still under the ~25K-character threshold.
+const MAX_REQUESTED_OUTPUT_CHARS: usize = 24_000;
 /// Source keeps this much room even after long relation sections.
 const MIN_SOURCE_CHARS: usize = 8_000;
 
@@ -47,6 +50,24 @@ struct FileMatches<'a> {
 /// The blast radius comes before the source: a model reading top-down learns
 /// what its edit would break before it learns what the code looks like.
 pub fn narrate_explore(res: &ExploreResult) -> String {
+    narrate_explore_within(res, MAX_OUTPUT_CHARS)
+}
+
+/// Renders an exploration of files the agent named, with the larger budget of
+/// [`crate::action::graph::explore::explore_files`].
+pub fn narrate_requested_files(res: &ExploreResult) -> String {
+    let mut out = narrate_explore_within(res, MAX_REQUESTED_OUTPUT_CHARS);
+    if out.contains("\nNext: call `graph_explore`") {
+        let _ = writeln!(
+            out,
+            "One call returns at most {MAX_REQUESTED_FILES} files and \
+             {MAX_REQUESTED_OUTPUT_CHARS} characters."
+        );
+    }
+    out
+}
+
+fn narrate_explore_within(res: &ExploreResult, max_chars: usize) -> String {
     let mut out = String::with_capacity(4096);
 
     let _ = writeln!(out, "**Exploration: {}**\n", res.query);
@@ -73,7 +94,7 @@ pub fn narrate_explore(res: &ExploreResult) -> String {
 
     narrate_named_flows(&mut out, res);
     narrate_blast_radius(&mut out, res);
-    let left_out = narrate_source(&mut out, res, &files);
+    let left_out = narrate_source(&mut out, res, &files, max_chars);
     narrate_not_shown(&mut out, &left_out, &res.not_shown);
 
     out
@@ -470,6 +491,7 @@ fn narrate_source(
     out: &mut String,
     res: &ExploreResult,
     files: &[FileMatches<'_>],
+    max_chars: usize,
 ) -> Vec<FileMention> {
     out.push_str("**Source**\n\n");
     out.push_str(
@@ -478,7 +500,7 @@ fn narrate_source(
          here.\n\n",
     );
 
-    let limit = MAX_OUTPUT_CHARS.max(out.len() + MIN_SOURCE_CHARS);
+    let limit = max_chars.max(out.len() + MIN_SOURCE_CHARS);
     let mut emitted = false;
     let mut left_out = Vec::new();
     for file in files {
@@ -544,6 +566,28 @@ fn narrate_not_shown(out: &mut String, left_out: &[FileMention], not_shown: &[Fi
             files.len() - MAX_NOT_SHOWN_FILES
         );
     }
+    narrate_next_call(out, &files);
+}
+
+/// Agents Read left-out files one per turn, each turn repeating the whole
+/// prompt, unless the answer spells out the single call that returns them.
+fn narrate_next_call(out: &mut String, files: &[&FileMention]) {
+    let batch: Vec<&str> = files
+        .iter()
+        .take(MAX_REQUESTED_FILES)
+        .map(|file| file.file_path.as_str())
+        .collect();
+    let args = serde_json::json!({ "paths": batch });
+    let _ = write!(
+        out,
+        "\nNext: call `graph_explore` with {args} for their full source, one call instead of {} Reads.",
+        batch.len()
+    );
+    let rest = files.len() - batch.len();
+    if rest > 0 {
+        let _ = write!(out, " Then call it again for the {rest} files after them.");
+    }
+    out.push('\n');
 }
 
 fn file_block(file: &FileMatches<'_>, source: Option<&SourceFile>) -> String {

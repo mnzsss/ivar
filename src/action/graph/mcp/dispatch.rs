@@ -35,8 +35,13 @@ where
 
             let root = hall_root
                 .ok_or_else(|| "Hall root is required for explore snippet reading".to_owned())?;
-            let mut res =
-                explore::explore(db, root, &q, repo).map_err(|e| format!("explore failed: {e}"))?;
+            let requests_files = args.get("paths").is_some() || args.get("files").is_some();
+            let mut res = if requests_files {
+                explore::explore_files(db, root, &q, repo)
+            } else {
+                explore::explore(db, root, &q, repo)
+            }
+            .map_err(|e| format!("explore failed: {e}"))?;
             // A model reads this over MCP to pick its next file, so Markdown is the
             // default; see `narrate`.
             match args.get("format").and_then(Value::as_str) {
@@ -44,7 +49,11 @@ where
                 Some("json") => serde_json::to_string_pretty(&res).map_err(|e| e.to_string()),
                 _ => {
                     WorkspacePaths::from_current_dir().rewrite_explore(db, &mut res);
-                    Ok(narrate::narrate_explore(&res))
+                    Ok(if requests_files {
+                        narrate::narrate_requested_files(&res)
+                    } else {
+                        narrate::narrate_explore(&res)
+                    })
                 }
             }
         }
