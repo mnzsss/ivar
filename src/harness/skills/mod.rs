@@ -8,7 +8,7 @@ use crate::infra::{fs, hash};
 
 mod catalog;
 
-pub use catalog::{ShippedSkill, catalog};
+pub use catalog::{ShippedSkill, SkillFile, catalog};
 
 /// What happened to one skill during reconciliation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -97,30 +97,7 @@ pub fn materialise(skills_dir: &Utf8Path) -> Result<Vec<SkillChange>, Error> {
 
     for skill in catalog() {
         let dir_name = skill.skill_dir_name();
-        let target_dir = skills_dir.join(&dir_name);
-        let skill_file = target_dir.join("SKILL.md");
-
-        fs::ensure_dir(&target_dir).map_err(|source| Error::Fs {
-            path: target_dir.clone(),
-            source,
-        })?;
-
-        let existing = fs::read_bytes(&skill_file).map_err(|source| Error::Fs {
-            path: skill_file.clone(),
-            source,
-        })?;
-
-        let change = match existing {
-            Some(bytes) if bytes == skill.content.as_bytes() => Change::Unchanged,
-            Some(_) => {
-                write_skill(&skill_file, skill.content)?;
-                Change::Updated
-            }
-            None => {
-                write_skill(&skill_file, skill.content)?;
-                Change::Created
-            }
-        };
+        let change = materialise_skill(&skills_dir.join(&dir_name), *skill)?;
 
         changes.push(SkillChange {
             id: skill.id.to_owned(),
@@ -213,7 +190,7 @@ pub fn inspect(skills_dir: &Utf8Path, enabled: bool) -> Result<Vec<Inspection>, 
 
         let integrity = match present.iter().find(|(name, _, _)| name == &dir_name) {
             Some((_, _, _)) if !enabled => Some((skill_file, Integrity::Stale)),
-            Some((_, _, Some(bytes))) if bytes == skill.content.as_bytes() => {
+            Some((_, _, Some(bytes))) if bytes == skill.skill_md().as_bytes() => {
                 Some((skill_file, Integrity::Current))
             }
             Some((_, _, _)) => Some((skill_file, Integrity::Modified)),
@@ -243,6 +220,69 @@ pub fn inspect(skills_dir: &Utf8Path, enabled: bool) -> Result<Vec<Inspection>, 
     }
 
     Ok(inspections)
+}
+
+fn materialise_skill(target_dir: &Utf8Path, skill: ShippedSkill) -> Result<Change, Error> {
+    let created = !fs::is_dir(target_dir).map_err(|source| Error::Fs {
+        path: target_dir.to_owned(),
+        source,
+    })?;
+    let mut written = false;
+    for file in skill.files {
+        let path = target_dir.join(file.path);
+        let parent = path.parent().unwrap_or(target_dir);
+        fs::ensure_dir(parent).map_err(|source| Error::Fs {
+            path: parent.to_owned(),
+            source,
+        })?;
+        let existing = fs::read_bytes(&path).map_err(|source| Error::Fs {
+            path: path.clone(),
+            source,
+        })?;
+        if existing.as_deref() != Some(file.content.as_bytes()) {
+            write_skill(&path, file.content)?;
+            written = true;
+        }
+    }
+    let undeclared = undeclared_files(target_dir, target_dir, skill)?;
+    for path in &undeclared {
+        fs::remove_file(path).map_err(|source| Error::Fs {
+            path: path.clone(),
+            source,
+        })?;
+    }
+    Ok(if created {
+        Change::Created
+    } else if written || !undeclared.is_empty() {
+        Change::Updated
+    } else {
+        Change::Unchanged
+    })
+}
+
+fn undeclared_files(
+    root: &Utf8Path,
+    dir: &Utf8Path,
+    skill: ShippedSkill,
+) -> Result<Vec<Utf8PathBuf>, Error> {
+    let mut found = Vec::new();
+    for entry in directory_entries(dir)? {
+        let is_dir = fs::is_dir(&entry).map_err(|source| Error::Fs {
+            path: entry.clone(),
+            source,
+        })?;
+        if is_dir {
+            found.extend(undeclared_files(root, &entry, skill)?);
+        } else if let Ok(relative) = entry.strip_prefix(root)
+            && !skill
+                .files
+                .iter()
+                .any(|file| Utf8Path::new(file.path) == relative)
+        {
+            found.push(entry);
+        }
+    }
+    Ok(found)
 }
 
 fn write_skill(path: &Utf8Path, content: &str) -> Result<(), Error> {

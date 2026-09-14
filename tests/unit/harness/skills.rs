@@ -22,9 +22,9 @@ fn catalog_is_complete_unique_and_current() {
             skill.skill_file_rel_path(),
             format!("ivar-{}/SKILL.md", skill.id)
         );
-        assert!(skill.content.starts_with("---\n"));
-        assert!(skill.content.contains("name:"));
-        assert!(skill.content.contains("description:"));
+        assert!(skill.skill_md().starts_with("---\n"));
+        assert!(skill.skill_md().contains("name:"));
+        assert!(skill.skill_md().contains("description:"));
     }
 }
 
@@ -82,7 +82,7 @@ fn ivar_execute_skill_content_satisfies_all_invariants() {
         .iter()
         .find(|s| s.id == "execute")
         .expect("skill exists");
-    let content = skill.content;
+    let content = skill.skill_md();
 
     // Invariants
     assert!(content.contains("subagent"));
@@ -100,9 +100,49 @@ fn ivar_execute_skill_documents_affected_graph_guidance_and_fallback() {
         .iter()
         .find(|s| s.id == "execute")
         .expect("skill exists");
-    let content = skill.content;
+    let content = skill.skill_md();
 
     assert!(content.contains("ivar graph affected"));
     assert!(content.contains("advisory"));
     assert!(content.contains("fallback") || content.contains("fall back"));
+}
+
+#[test]
+fn materialise_writes_every_declared_file() {
+    let temp = tempfile::tempdir().unwrap();
+    let dir = camino::Utf8Path::from_path(temp.path()).unwrap();
+
+    materialise(dir).expect("materialise succeeds");
+
+    for skill in catalog() {
+        assert!(skill.files.iter().any(|file| file.path == "SKILL.md"));
+        for file in skill.files {
+            let path = dir.join(skill.skill_dir_name()).join(file.path);
+            assert_eq!(
+                std::fs::read_to_string(&path).unwrap(),
+                file.content,
+                "{path}"
+            );
+        }
+    }
+}
+
+#[test]
+fn materialise_prunes_undeclared_files_inside_a_shipped_skill() {
+    let temp = tempfile::tempdir().unwrap();
+    let dir = camino::Utf8Path::from_path(temp.path()).unwrap();
+    materialise(dir).expect("first materialise succeeds");
+
+    let stray = dir.join("ivar-execute/references/retired.md");
+    std::fs::create_dir_all(stray.parent().unwrap()).unwrap();
+    std::fs::write(&stray, "retired").unwrap();
+
+    let changes = materialise(dir).expect("second materialise succeeds");
+
+    assert!(!stray.exists());
+    let execute = changes
+        .iter()
+        .find(|change| change.id == "execute")
+        .unwrap();
+    assert_eq!(execute.change, Change::Updated);
 }
