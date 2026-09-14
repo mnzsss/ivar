@@ -5,7 +5,7 @@ use sha2::{Digest, Sha256};
 use std::path::Path;
 
 use crate::error::Failure;
-use crate::git::{Git, System as GitSystem};
+use crate::git::{Git, System as GitSystem, WorktreeDiff};
 use crate::infra::graph::parser::SupportedLanguage;
 use crate::store::graph::db::GraphDb;
 use crate::store::graph::extractor::extract_file;
@@ -22,26 +22,15 @@ pub struct LayerBuildResult {
 
 /// Computes a content-aware layer fingerprint combining base commit, head commit,
 /// deleted files, and sha256 digests of modified/added files.
-pub fn compute_layer_fingerprint(
+fn compute_layer_fingerprint(
     worktree: &Utf8Path,
     base_commit: &str,
-) -> Result<String, Failure> {
-    let git = GitSystem;
-    let head = git.head_commit(worktree).map_err(|error| {
-        Failure::failed(
-            "graph.layer_error",
-            format!("Git HEAD read failed: {error}"),
-        )
-    })?;
-    let diff = git
-        .diff_worktree_files(worktree, Some(base_commit))
-        .map_err(|error| {
-            Failure::failed("graph.layer_error", format!("Git diff failed: {error}"))
-        })?;
-
+    head: Option<&str>,
+    diff: &WorktreeDiff,
+) -> String {
     let mut hasher = Sha256::new();
     hasher.update(base_commit.as_bytes());
-    hasher.update(head.as_bytes());
+    hasher.update(head.unwrap_or_default().as_bytes());
 
     for path in &diff.deleted {
         hasher.update(b"deleted\0");
@@ -61,7 +50,7 @@ pub fn compute_layer_fingerprint(
     for b in hasher.finalize().as_slice() {
         let _ = write!(hex, "{b:02x}");
     }
-    Ok(hex)
+    hex
 }
 
 /// Ensures a feature layer is indexed into the GraphDb for the given worktree and base commit.
@@ -87,7 +76,7 @@ pub fn ensure_layer_indexed(
         )
     })?;
     let lock_path = locks_dir.join(format!("{feature}.lock"));
-    let _lock_file = std::fs::OpenOptions::new()
+    let lock_file = std::fs::OpenOptions::new()
         .write(true)
         .create(true)
         .truncate(false)
@@ -95,9 +84,15 @@ pub fn ensure_layer_indexed(
         .map_err(|e| {
             Failure::failed(
                 "graph.layer_error",
-                format!("Failed to acquire feature lock {lock_path}: {e}"),
+                format!("Failed to open feature lock {lock_path}: {e}"),
             )
         })?;
+    lock_file.lock().map_err(|e| {
+        Failure::failed(
+            "graph.layer_error",
+            format!("Failed to acquire feature lock {lock_path}: {e}"),
+        )
+    })?;
 
     // 2. Ensure layer record in DB
     let layer_id = db
@@ -119,7 +114,8 @@ pub fn ensure_layer_indexed(
         .map_err(|e| Failure::failed("graph.layer_error", format!("Git diff error: {e}")))?;
 
     // 4. Content hashing detects changes even when mtime is preserved
-    let fingerprint = compute_layer_fingerprint(worktree, base_commit)?;
+    let fingerprint =
+        compute_layer_fingerprint(worktree, base_commit, head_commit.as_deref(), &diff);
 
     // 5. Check cache: if fingerprint matches existing record, skip build.
     if let Some(existing) = db.get_layer_record(feature, repo_name).map_err(|e| {
