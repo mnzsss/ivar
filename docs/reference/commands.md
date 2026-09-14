@@ -117,6 +117,22 @@ Declare a repo in ivar.json, clone it bare, and materialise its default-branch w
 | `--fresh` |  |  | Delete an existing bare clone (and its worktree) and clone anew |
 
 
+##### `ivar repo create`
+
+Create a brand-new repo — stored in the hall's origin (`--local`) or on GitHub (`--remote`) — and declare it in ivar.json
+
+| argument | required | description |
+| --- | --- | --- |
+| `name` | yes | The repo's name — one path segment, unique within the hall |
+
+| flag | value | default | description |
+| --- | --- | --- | --- |
+| `--local` |  |  | Store the repo under `refs/heads/repos/<name>/` in the hall's origin |
+| `--remote` |  |  | Create the repo on GitHub with `gh` |
+| `--public` |  |  | Make the GitHub repo public. Only with `--remote` |
+| `--default-branch` | `<DEFAULT_BRANCH>` |  | The branch the initial commit lands on. Defaults to `main` |
+
+
 ##### `ivar repo remove`
 
 Remove a repo from ivar.json and tear down its files. Refuses while the repo is promoted in a feature or referenced by a live session; `--force` lifts both gates and cascades

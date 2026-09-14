@@ -43,6 +43,8 @@ pub struct AddInput {
     /// How to treat a bare clone that already exists: `Some(true)` reuses it,
     /// `Some(false)` deletes and re-clones, `None` blocks and asks.
     pub reuse_existing: Option<bool>,
+    /// Hall-local namespace prefix for branches.
+    pub ref_prefix: Option<String>,
 }
 
 /// What `ivar repo add` did.
@@ -125,7 +127,11 @@ pub fn add(ctx: &Ctx, input: AddInput) -> Outcome<AddOutcome> {
     }
 
     // Collision 2: the URL must not already be tracked under another name.
-    if let Some(existing) = manifest.repos().iter().find(|r| r.url() == input.url) {
+    if let Some(existing) = manifest
+        .repos()
+        .iter()
+        .find(|r| r.url() == input.url && r.ref_prefix() == input.ref_prefix.as_deref())
+    {
         return Err(Failure::blocked(
             "repo.url_exists",
             format!(
@@ -164,7 +170,7 @@ pub fn add(ctx: &Ctx, input: AddInput) -> Outcome<AddOutcome> {
                 // `target_state` probe can recognise.
                 fs::remove_path(&bare)?;
                 fs::remove_path(&worktree)?;
-                ensure_bare(&git, &input.url, &bare)?;
+                ensure_bare(&git, &input.url, input.ref_prefix.as_deref(), &bare)?;
                 false
             }
             None => {
@@ -184,7 +190,7 @@ pub fn add(ctx: &Ctx, input: AddInput) -> Outcome<AddOutcome> {
             )));
         }
         TargetState::Absent => {
-            ensure_bare(&git, &input.url, &bare)?;
+            ensure_bare(&git, &input.url, input.ref_prefix.as_deref(), &bare)?;
             false
         }
     };
@@ -193,11 +199,12 @@ pub fn add(ctx: &Ctx, input: AddInput) -> Outcome<AddOutcome> {
 
     // The clone landed — now the declaration. Both in this order, so a failed
     // clone never leaves a dangling manifest entry.
-    let updated = manifest.with_repo_added(Repo::new(
-        name.clone(),
-        input.url.clone(),
-        default_branch.clone(),
-    ))?;
+    let declared = Repo::new(name.clone(), input.url.clone(), default_branch.clone());
+    let declared = match &input.ref_prefix {
+        Some(prefix) => declared.with_ref_prefix(prefix.clone()),
+        None => declared,
+    };
+    let updated = manifest.with_repo_added(declared)?;
     Manifest::write(&layout, &updated)?;
 
     Ok(Report::new(AddOutcome {
@@ -230,11 +237,19 @@ fn bare_exists_ask(path: &camino::Utf8Path) -> Failure {
 }
 
 /// Clone `url` into `bare` as a bare repository, creating parents first.
-fn ensure_bare(git: &impl git::Git, url: &str, bare: &camino::Utf8Path) -> Result<(), Failure> {
+fn ensure_bare(
+    git: &impl git::Git,
+    url: &str,
+    prefix: Option<&str>,
+    bare: &camino::Utf8Path,
+) -> Result<(), Failure> {
     if let Some(parent) = bare.parent() {
         fs::ensure_dir(parent)?;
     }
-    git.clone_bare(url, bare)?;
+    match prefix {
+        Some(prefix) => git.clone_bare_prefixed(url, bare, prefix)?,
+        None => git.clone_bare(url, bare)?,
+    }
     Ok(())
 }
 

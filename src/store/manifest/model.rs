@@ -258,6 +258,14 @@ impl Manifest {
                     name: repo.name.clone(),
                 });
             }
+            if let Some(prefix) = &repo.ref_prefix
+                && *prefix != local_ref_prefix(&repo.name)
+            {
+                return Err(Error::InvalidRefPrefix {
+                    name: repo.name.clone(),
+                    prefix: prefix.clone(),
+                });
+            }
             for (index, check) in repo.checks.iter().enumerate() {
                 if check.trim().is_empty() {
                     return Err(Error::EmptyRepoCheck {
@@ -353,6 +361,10 @@ pub struct Repo {
     /// the on-disk shape. `#[serde(default)]` so a v1 repo still deserialises.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     checks: Vec<String>,
+    /// Optional explicit prefix that remaps the local git branches under `refs/heads/`.
+    /// Must match `repos/<name>/` when provided.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    ref_prefix: Option<String>,
 }
 
 impl Repo {
@@ -376,6 +388,7 @@ impl Repo {
             url: url.into(),
             default_branch,
             checks: Vec::new(),
+            ref_prefix: None,
         }
     }
 
@@ -416,6 +429,22 @@ impl Repo {
         self.checks = checks;
         self
     }
+
+    #[must_use]
+    pub fn ref_prefix(&self) -> Option<&str> {
+        self.ref_prefix.as_deref()
+    }
+
+    #[must_use]
+    pub fn with_ref_prefix(mut self, prefix: impl Into<String>) -> Self {
+        self.ref_prefix = Some(prefix.into());
+        self
+    }
+}
+
+#[must_use]
+pub fn local_ref_prefix(name: &RepoName) -> String {
+    format!("repos/{name}/")
 }
 
 /// A hall's shared skill home: which harnesses skills materialise for.

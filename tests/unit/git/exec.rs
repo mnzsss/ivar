@@ -541,3 +541,71 @@ fn ref_exists(git_dir: &Utf8Path, refname: &str) -> bool {
         .unwrap()
         .success()
 }
+
+fn hall_origin_with_two_repos(dir: &Utf8Path) -> Utf8PathBuf {
+    let origin = seeded_repo(&dir.join("hall"), "main");
+    crate::test_support::git(&origin, &["branch", "repos/notes/main"]);
+    crate::test_support::git(&origin, &["branch", "unrelated"]);
+    origin
+}
+
+#[test]
+fn a_prefixed_clone_holds_only_its_namespace_as_plain_branches() {
+    let (_guard, dir) = utf8_temp_dir();
+    let origin = hall_origin_with_two_repos(&dir);
+    let bare = dir.join("notes.bare");
+
+    clone_bare_prefixed(origin.as_str(), &bare, "repos/notes/").unwrap();
+
+    assert!(ref_exists(&bare, "refs/heads/main"));
+    assert!(!ref_exists(&bare, "refs/heads/unrelated"));
+    assert!(!ref_exists(&bare, "refs/heads/repos/notes/main"));
+    assert_eq!(
+        config_value(&bare, REF_PREFIX_KEY).as_deref(),
+        Some("repos/notes/")
+    );
+    assert_eq!(
+        config_value(&bare, "remote.origin.fetch").as_deref(),
+        Some("+refs/heads/repos/notes/*:refs/remotes/origin/*")
+    );
+}
+
+#[test]
+fn remote_ops_on_a_prefixed_bare_land_under_the_prefix() {
+    let (_guard, dir) = utf8_temp_dir();
+    let origin = hall_origin_with_two_repos(&dir);
+    let bare = dir.join("notes.bare");
+    clone_bare_prefixed(origin.as_str(), &bare, "repos/notes/").unwrap();
+    let origin_git = origin.join(".git");
+
+    push(&bare, origin.as_str(), "main", "refs/heads/feat").unwrap();
+    assert!(ref_exists(&origin_git, "refs/heads/repos/notes/feat"));
+    assert!(!ref_exists(&origin_git, "refs/heads/feat"));
+
+    let tip = remote_branch_tip(&bare, origin.as_str(), "feat").unwrap();
+    assert_eq!(tip, ref_value(&origin_git, "refs/heads/repos/notes/feat"));
+
+    delete_remote_branch(&bare, origin.as_str(), "feat", tip.as_deref().unwrap()).unwrap();
+    assert!(!ref_exists(&origin_git, "refs/heads/repos/notes/feat"));
+
+    ensure_remote_tracking(&bare).unwrap();
+    assert_eq!(
+        config_value(&bare, "remote.origin.fetch").as_deref(),
+        Some("+refs/heads/repos/notes/*:refs/remotes/origin/*")
+    );
+}
+
+#[test]
+fn clone_bare_prefixed_cleans_up_destination_on_failure() {
+    let (_guard, dir) = utf8_temp_dir();
+    let invalid_url = dir.join("nonexistent_origin");
+    let bare = dir.join("notes.bare");
+
+    assert!(!fs::exists(&bare).unwrap());
+    let err = clone_bare_prefixed(invalid_url.as_str(), &bare, "repos/notes/").unwrap_err();
+    assert!(matches!(err, Error::Refused { .. }));
+    assert!(
+        !fs::exists(&bare).unwrap(),
+        "partial bare repository was cleaned up"
+    );
+}

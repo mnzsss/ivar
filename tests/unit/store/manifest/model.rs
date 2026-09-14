@@ -517,3 +517,48 @@ fn a_blank_repo_check_is_refused_on_build() {
         other => panic!("expected EmptyRepoCheck, got {other:?}"),
     }
 }
+
+#[test]
+fn a_repo_ref_prefix_round_trips_and_is_omitted_when_absent() {
+    let plain = Repo::new(
+        RepoName::new("api").unwrap(),
+        "url-a",
+        BranchName::new("main").unwrap(),
+    );
+    assert_eq!(
+        serde_json::to_value(&plain).unwrap().get("ref_prefix"),
+        None
+    );
+
+    let local = Repo::new(
+        RepoName::new("notes").unwrap(),
+        "url-hall",
+        BranchName::new("main").unwrap(),
+    )
+    .with_ref_prefix("repos/notes/");
+    let json = serde_json::to_string(&local).unwrap();
+    let back: Repo = serde_json::from_str(&json).unwrap();
+    assert_eq!(back.ref_prefix(), Some("repos/notes/"));
+    assert_eq!(super::local_ref_prefix(back.name()), "repos/notes/");
+}
+
+#[test]
+fn a_ref_prefix_that_is_not_repos_slash_name_is_refused() {
+    let error = sample_manifest()
+        .with_repo_added(
+            Repo::new(
+                RepoName::new("notes").unwrap(),
+                "url-hall",
+                BranchName::new("main").unwrap(),
+            )
+            .with_ref_prefix("feature/"),
+        )
+        .unwrap_err();
+    match error {
+        Error::InvalidRefPrefix { name, prefix } => {
+            assert_eq!(name.as_str(), "notes");
+            assert_eq!(prefix, "feature/");
+        }
+        other => panic!("expected InvalidRefPrefix, got {other:?}"),
+    }
+}

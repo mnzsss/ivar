@@ -174,6 +174,10 @@ pub trait Git {
     /// that.
     fn clone_bare(&self, url: &str, dest: &Utf8Path) -> Result<(), Error>;
 
+    fn clone_bare_prefixed(&self, url: &str, dest: &Utf8Path, prefix: &str) -> Result<(), Error> {
+        exec::clone_bare_prefixed(url, dest, prefix)
+    }
+
     /// Configure the bare repository at `git_dir` to keep remote-tracking refs
     /// under `refs/remotes/origin/*`.
     ///
@@ -564,6 +568,10 @@ impl Git for System {
 
     fn clone_bare(&self, url: &str, dest: &Utf8Path) -> Result<(), Error> {
         exec::clone_bare(url, dest)
+    }
+
+    fn clone_bare_prefixed(&self, url: &str, dest: &Utf8Path, prefix: &str) -> Result<(), Error> {
+        exec::clone_bare_prefixed(url, dest, prefix)
     }
 
     fn ensure_remote_tracking(&self, git_dir: &Utf8Path) -> Result<(), Error> {

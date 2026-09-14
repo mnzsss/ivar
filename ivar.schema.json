@@ -146,6 +146,13 @@
           ],
           "type": "string"
         },
+        "ref_prefix": {
+          "description": "Optional explicit prefix that remaps the local git branches under `refs/heads/`.\nMust match `repos/<name>/` when provided.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "url": {
           "description": "The git remote URL to clone from. Must not be empty.",
           "examples": [

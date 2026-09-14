@@ -13,7 +13,7 @@ use crate::domain::name::RepoName;
 use crate::error::{Failure, FixAction};
 use crate::git::{self, TargetState};
 use crate::store::layout::Layout;
-use crate::store::manifest::Manifest;
+use crate::store::manifest::{Manifest, Repo};
 
 use super::super::base;
 use super::super::pull_requests::existing_pr;
@@ -138,9 +138,7 @@ pub(crate) fn build_repos(
         // which a PR opened between them yields `NewPr` paired with
         // `ConvertToDraft` — and apply would then create a second PR.
         // A non-GitHub remote or land mode observes nothing and calls no `gh`.
-        let existing = if mode == DeliveryMode::Push
-            && crate::infra::github::is_github_https(declared.url())
-        {
+        let existing = if mode == DeliveryMode::Push && opens_pull_requests(declared) {
             existing_pr(&bare, feature.branch.as_str())
         } else {
             None
@@ -148,7 +146,7 @@ pub(crate) fn build_repos(
 
         let action = match mode {
             DeliveryMode::Push => {
-                if !crate::infra::github::is_github_https(declared.url()) {
+                if !opens_pull_requests(declared) {
                     DeliveryAction::PushOnly
                 } else if existing.is_some() {
                     DeliveryAction::UpdatePr
@@ -213,8 +211,7 @@ pub(crate) fn build_repos(
             .unwrap_or_default();
 
         let draft_action = metadata.draft.and_then(|d| {
-            if mode == DeliveryMode::Land || !crate::infra::github::is_github_https(declared.url())
-            {
+            if mode == DeliveryMode::Land || !opens_pull_requests(declared) {
                 return None;
             }
             if d {
@@ -313,4 +310,8 @@ pub(crate) fn order_by_dependencies(repos: &mut Vec<DeliveryRepo>) {
     }
 
     *repos = ordered;
+}
+
+pub(super) fn opens_pull_requests(repo: &Repo) -> bool {
+    repo.ref_prefix().is_none() && crate::infra::github::is_github_https(repo.url())
 }
