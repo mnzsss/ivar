@@ -87,3 +87,26 @@ fn github_repo_in_land_mode_creates_no_pull_request() {
         "land mode must not create a PR URL"
     );
 }
+
+#[test]
+fn only_unprefixed_github_repos_open_pull_requests() {
+    use crate::domain::name::{BranchName, RepoName};
+    use crate::store::manifest::Repo;
+    let main = BranchName::new("main").unwrap();
+    let github = Repo::new(
+        RepoName::new("api").unwrap(),
+        "https://github.com/acme/api",
+        main.clone(),
+    );
+    let hall_local = Repo::new(
+        RepoName::new("notes").unwrap(),
+        "https://github.com/acme/hall",
+        main.clone(),
+    )
+    .with_ref_prefix("repos/notes/");
+    let elsewhere = Repo::new(RepoName::new("web").unwrap(), "/tmp/origins/web", main);
+
+    assert!(super::repos::opens_pull_requests(&github));
+    assert!(!super::repos::opens_pull_requests(&hall_local));
+    assert!(!super::repos::opens_pull_requests(&elsewhere));
+}

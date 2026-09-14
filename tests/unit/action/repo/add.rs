@@ -5,6 +5,8 @@
     clippy::indexing_slicing
 )]
 
+use camino::Utf8Path;
+
 use super::*;
 use crate::action::hall::{self, InitInput};
 use crate::error::Status;
@@ -33,7 +35,16 @@ fn input(url: &str) -> AddInput {
         url: url.to_owned(),
         default_branch: None,
         reuse_existing: None,
+        ref_prefix: None,
     }
+}
+
+fn hall_origin_holding(root: &Utf8Path, names: &[&str]) -> String {
+    let origin = seeded_repo(&root.parent().unwrap().join("origins").join("hall"), "main");
+    for name in names {
+        crate::test_support::git(&origin, &["branch", &format!("repos/{name}/main")]);
+    }
+    origin.as_str().to_owned()
 }
 
 #[test]
@@ -174,10 +185,10 @@ fn reuse_keeps_the_existing_bare_clone() {
             url,
             default_branch: None,
             reuse_existing: Some(true),
+            ref_prefix: None,
         },
     )
     .unwrap();
-
     assert!(report.value.bare_clone_reused);
     assert!(root.join(".ivar/repos/api/.bare/HEAD").is_file());
 }
@@ -201,10 +212,10 @@ fn fresh_replaces_the_existing_bare_clone() {
             url,
             default_branch: None,
             reuse_existing: Some(false),
+            ref_prefix: None,
         },
     )
     .unwrap();
-
     assert!(!report.value.bare_clone_reused);
     assert!(root.join(".ivar/repos/api/.bare/HEAD").is_file());
 }
@@ -240,10 +251,10 @@ fn add_rejects_an_invalid_name() {
             url: "git@example.com:acme/api.git".to_owned(),
             default_branch: None,
             reuse_existing: None,
+            ref_prefix: None,
         },
     )
     .unwrap_err();
-
     assert_eq!(failure.status, Status::Blocked);
     assert_eq!(failure.code, "name.not_a_segment");
 }
@@ -294,6 +305,7 @@ fn reuse_configures_the_remote_tracking_refspec_on_the_adopted_bare() {
             url,
             default_branch: None,
             reuse_existing: Some(true),
+            ref_prefix: None,
         },
     )
     .unwrap();
@@ -308,4 +320,59 @@ fn reuse_configures_the_remote_tracking_refspec_on_the_adopted_bare() {
         String::from_utf8_lossy(&configured.stdout).trim(),
         "+refs/heads/*:refs/remotes/origin/*"
     );
+}
+
+#[test]
+fn add_with_a_ref_prefix_clones_only_that_namespace_and_records_it() {
+    let (_guard, root, _) = seeded_hall();
+    let hall_url = hall_origin_holding(&root, &["notes", "wiki"]);
+    let ctx = Ctx::new(root.clone());
+
+    for name in ["notes", "wiki"] {
+        let report = add(
+            &ctx,
+            AddInput {
+                name: name.to_owned(),
+                ref_prefix: Some(format!("repos/{name}/")),
+                ..input(&hall_url)
+            },
+        )
+        .unwrap();
+        assert!(report.is_clean());
+    }
+
+    assert!(root.join(".ivar/repos/notes/main/README.md").is_file());
+    let layout = Layout::at(root.clone());
+    let manifest = Manifest::read(&layout).unwrap().unwrap();
+    assert_eq!(manifest.repos()[0].ref_prefix(), Some("repos/notes/"));
+    assert_eq!(manifest.repos()[1].ref_prefix(), Some("repos/wiki/"));
+}
+
+#[test]
+fn add_allows_same_url_with_distinct_prefixes() {
+    let (_guard, root, _) = seeded_hall();
+    let hall_url = hall_origin_holding(&root, &["notes", "wiki"]);
+    let ctx = Ctx::new(root.clone());
+
+    let report1 = add(
+        &ctx,
+        AddInput {
+            name: "notes".to_owned(),
+            ref_prefix: Some("repos/notes/".to_owned()),
+            ..input(&hall_url)
+        },
+    )
+    .unwrap();
+    assert!(report1.is_clean());
+
+    let report2 = add(
+        &ctx,
+        AddInput {
+            name: "wiki".to_owned(),
+            ref_prefix: Some("repos/wiki/".to_owned()),
+            ..input(&hall_url)
+        },
+    )
+    .unwrap();
+    assert!(report2.is_clean());
 }

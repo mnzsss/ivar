@@ -792,3 +792,31 @@ fn feature_create_remains_required_positional() {
     assert!(Cli::try_parse_from(["ivar", "feature", "create"]).is_err());
     assert!(Cli::try_parse_from(["ivar", "feature", "create", "feat-a"]).is_ok());
 }
+
+#[test]
+fn repo_create_requires_exactly_one_mode_and_maps_public() {
+    assert!(Cli::try_parse_from(["ivar", "repo", "create", "notes"]).is_err());
+    assert!(
+        Cli::try_parse_from(["ivar", "repo", "create", "notes", "--local", "--remote"]).is_err()
+    );
+    assert!(
+        Cli::try_parse_from(["ivar", "repo", "create", "notes", "--local", "--public"]).is_err()
+    );
+
+    let cli =
+        Cli::try_parse_from(["ivar", "repo", "create", "notes", "--remote", "--public"]).unwrap();
+    let Command::Repo(RepoCommand::Create(args)) = cli.command else {
+        panic!("expected repo create")
+    };
+    let input: repo_create::CreateInput = args.into();
+    assert_eq!(input.mode, repo_create::CreateMode::Remote { public: true });
+    assert_eq!(input.default_branch, None);
+
+    let cli_local = Cli::try_parse_from(["ivar", "repo", "create", "notes", "--local"]).unwrap();
+    let Command::Repo(RepoCommand::Create(args_local)) = cli_local.command else {
+        panic!("expected repo create")
+    };
+    let input_local: repo_create::CreateInput = args_local.into();
+    assert_eq!(input_local.mode, repo_create::CreateMode::Local);
+    assert_eq!(input_local.default_branch, None);
+}

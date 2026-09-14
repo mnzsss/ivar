@@ -51,6 +51,32 @@ pub(crate) struct FakeGh {
 const FAKE_GH: &str = r#"#!/bin/sh
 printf '%s\n' "$*" >> "$GH_FAKE_LOG"
 
+if [ "$1" = "api" ] && [ "$2" = "user" ]; then
+  printf '%s\n' "${FAKE_GH_LOGIN:-acme}"
+  exit 0
+fi
+
+if [ "$1" = "repo" ] && [ "$2" = "view" ]; then
+  repo_target="$3"
+  if [ -n "$FAKE_GH_REPOS" ] && [ -d "$FAKE_GH_REPOS/$repo_target" ]; then
+    printf '{"name":"%s"}\n' "$repo_target"
+    exit 0
+  else
+    printf 'repo %s not found\n' "$repo_target" >&2
+    exit 1
+  fi
+fi
+
+if [ "$1" = "repo" ] && [ "$2" = "create" ]; then
+  repo_target="$3"
+  if [ -n "$FAKE_GH_REPOS" ]; then
+    mkdir -p "$FAKE_GH_REPOS/$repo_target"
+    git init --bare -q "$FAKE_GH_REPOS/$repo_target"
+  fi
+  printf 'https://github.com/%s\n' "$repo_target"
+  exit 0
+fi
+
 sub="$1 $2"
 shift 2
 

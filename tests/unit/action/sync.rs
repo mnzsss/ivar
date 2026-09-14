@@ -1349,3 +1349,101 @@ fn protection_outlives_a_setup_script_that_rewrites_hooks_path() {
         "a later hook manager must not disarm protection"
     );
 }
+
+#[test]
+fn repeated_sync_preserves_prefixed_repo_refspec_and_config() {
+    let (guard, root) = hall_root();
+    let ctx = Ctx::new(root.clone());
+    hall::init(
+        &ctx,
+        InitInput {
+            path: Utf8PathBuf::from("."),
+            name: Some("acme".to_owned()),
+            provider: None,
+        },
+    )
+    .unwrap();
+
+    let origins = root.parent().unwrap().join("origins");
+    let origin = seeded_repo(&origins.join("hall_origin"), "main");
+    crate::test_support::git(&origin, &["branch", "repos/notes/main"]);
+
+    let repo = Repo::new(
+        RepoName::new("notes").unwrap(),
+        origin.as_str(),
+        BranchName::new("main").unwrap(),
+    )
+    .with_ref_prefix("repos/notes/");
+
+    let layout = Layout::at(root.clone());
+    let manifest = Manifest::new(
+        HallName::new("acme").unwrap(),
+        Providers::new(vec![Provider::ClaudeCode], Provider::ClaudeCode),
+        vec![repo],
+        None,
+    )
+    .unwrap();
+    Manifest::write(&layout, &manifest).unwrap();
+
+    // First sync clones the prefixed repo.
+    let report1 = sync(&ctx, SyncInput::default()).unwrap();
+    assert!(report1.is_clean());
+
+    let bare = root.join(".ivar/repos/notes/.bare");
+    let get_fetch = || {
+        std::process::Command::new("git")
+            .args([
+                "--git-dir",
+                bare.as_str(),
+                "config",
+                "--get",
+                "remote.origin.fetch",
+            ])
+            .output()
+            .unwrap()
+    };
+    let get_prefix = || {
+        std::process::Command::new("git")
+            .args([
+                "--git-dir",
+                bare.as_str(),
+                "config",
+                "--get",
+                "ivar.refprefix",
+            ])
+            .output()
+            .unwrap()
+    };
+
+    let fetch_out1 = get_fetch();
+    assert!(fetch_out1.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&fetch_out1.stdout).trim(),
+        "+refs/heads/repos/notes/*:refs/remotes/origin/*"
+    );
+    let prefix_out1 = get_prefix();
+    assert!(prefix_out1.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&prefix_out1.stdout).trim(),
+        "repos/notes/"
+    );
+
+    // Second sync: ensures ensure_remote_tracking preserves the custom prefix refspec
+    let report2 = sync(&ctx, SyncInput::default()).unwrap();
+    assert!(report2.is_clean());
+
+    let fetch_out2 = get_fetch();
+    assert!(fetch_out2.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&fetch_out2.stdout).trim(),
+        "+refs/heads/repos/notes/*:refs/remotes/origin/*"
+    );
+    let prefix_out2 = get_prefix();
+    assert!(prefix_out2.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&prefix_out2.stdout).trim(),
+        "repos/notes/"
+    );
+
+    let _ = guard;
+}
