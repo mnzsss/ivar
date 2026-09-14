@@ -385,7 +385,7 @@ fn test_index_repo_progress_reporting_and_clearing() {
 }
 
 #[test]
-fn test_index_repo_progress_clears_on_error() {
+fn test_index_repo_progress_clears_when_a_file_fails() {
     let temp = tempdir().expect("tempdir");
     let repo_path = temp.path();
     let git_repo = git2::Repository::init(repo_path).expect("git init");
@@ -406,7 +406,7 @@ fn test_index_repo_progress_clears_on_error() {
 
         let recording = Recording::default();
         let result = index_repo(&db, "test-repo", repo_path, true, &recording);
-        assert!(result.is_err());
+        assert_eq!(result.expect("index").files_failed.len(), 1);
         assert_eq!(recording.clears(), 1);
         assert_eq!(recording.steps().len(), 1);
 
@@ -418,7 +418,7 @@ fn test_index_repo_progress_clears_on_error() {
 }
 
 #[test]
-fn test_force_full_index_error_preserves_existing_db_records() {
+fn test_force_full_index_file_failure_preserves_existing_db_records() {
     let temp = tempdir().expect("tempdir");
     let repo_path = temp.path();
     let git_repo = git2::Repository::init(repo_path).expect("git init");
@@ -444,7 +444,7 @@ fn test_force_full_index_error_preserves_existing_db_records() {
 
         // 2. Force full index fails due to unreadable file
         let result = index_repo(&db, "test-repo", repo_path, true, &Silent);
-        assert!(result.is_err());
+        assert_eq!(result.expect("index").files_failed.len(), 1);
 
         // Restore permissions
         let mut perms = fs::metadata(&file).expect("metadata").permissions();
@@ -455,4 +455,54 @@ fn test_force_full_index_error_preserves_existing_db_records() {
         let stats_after_failure = db.stats().expect("stats after failure");
         assert_eq!(stats_after_failure.file_count, 1);
     }
+}
+
+#[test]
+fn an_unreadable_file_is_reported_while_the_rest_of_the_repo_indexes() {
+    let temp = tempdir().expect("tempdir");
+    let repo_path = temp.path();
+    let git_repo = git2::Repository::init(repo_path).expect("init");
+    fs::write(repo_path.join("good.rs"), "pub fn good() {}\n").expect("write good.rs");
+    fs::write(repo_path.join("bad.rs"), b"pub fn \xff\xfe() {}\n").expect("write bad.rs");
+    fs::write(repo_path.join("other.ts"), "export function other() {}\n").expect("write other.ts");
+    let head = create_git_commit(&git_repo, "Initial commit").expect("commit");
+    let db = GraphDb::open_in_memory().expect("open db");
+
+    let outcome = index_repo(&db, "mixed", repo_path, false, &Silent).expect("index");
+
+    let [failure] = outcome.files_failed.as_slice() else {
+        panic!("expected one failed file, got {:?}", outcome.files_failed);
+    };
+    assert_eq!(outcome.files_indexed, 2);
+    assert_eq!(failure.path, "bad.rs");
+    assert!(!failure.reason.is_empty());
+    assert_eq!(
+        db.get_repo_last_commit("mixed").expect("last commit"),
+        Some(head.to_string())
+    );
+}
+
+#[test]
+fn parallel_extraction_indexes_every_file_once() {
+    let temp = tempdir().expect("tempdir");
+    let repo_path = temp.path();
+    for n in 0..64 {
+        fs::write(
+            repo_path.join(format!("mod_{n}.rs")),
+            format!("pub fn function_{n}() {{}}\n"),
+        )
+        .expect("write file");
+    }
+    let db = GraphDb::open_in_memory().expect("open db");
+    let recording = Recording::default();
+
+    let outcome = index_repo(&db, "wide", repo_path, false, &recording).expect("index");
+
+    assert_eq!(outcome.files_indexed, 64);
+    assert!(outcome.files_failed.is_empty());
+    assert_eq!(db.stats().expect("stats").file_count, 64);
+    let steps = recording.steps();
+    assert_eq!(steps.len(), 64);
+    assert!(steps.iter().any(|step| step.starts_with("[64/64] wide:")));
+    assert_eq!(recording.clears(), 1);
 }

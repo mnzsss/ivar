@@ -8,7 +8,6 @@ use thiserror::Error;
 
 use crate::infra::graph::parser::SupportedLanguage;
 use crate::store::graph::db::GraphDbError;
-use crate::store::graph::extractor::ExtractorError;
 
 /// Error encountered during repository indexing.
 #[derive(Debug, Error)]
@@ -17,16 +16,6 @@ pub enum IndexError {
     Git(#[from] crate::git::Error),
     #[error("Database error: {0}")]
     Db(#[from] GraphDbError),
-    #[error("AST extractor error in `{path}`: {source}")]
-    Extractor {
-        path: String,
-        source: ExtractorError,
-    },
-    #[error("IO error in `{path}`: {source}")]
-    Io {
-        path: String,
-        source: std::io::Error,
-    },
 }
 
 /// Statistics and outcome of an indexing run.
@@ -39,6 +28,38 @@ pub struct IndexOutcome {
     pub edges_indexed: usize,
     pub duration_ms: u64,
     pub skipped_up_to_date: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub files_failed: Vec<FileFailure>,
+}
+
+/// A file the indexer could not read or parse, left out of this run.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct FileFailure {
+    pub path: String,
+    pub reason: String,
+}
+
+/// A repository whose indexing run failed as a whole.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct RepoFailure {
+    pub repo: String,
+    pub reason: String,
+}
+
+/// Every base repository indexed across a hall.
+#[derive(Debug, Default)]
+pub struct HallIndex {
+    pub repos: Vec<IndexOutcome>,
+    pub repos_failed: Vec<RepoFailure>,
+}
+
+impl FileFailure {
+    pub fn new(path: &str, reason: impl std::fmt::Display) -> Self {
+        Self {
+            path: path.to_owned(),
+            reason: reason.to_string(),
+        }
+    }
 }
 
 pub fn is_supported_file(path: &Path) -> bool {

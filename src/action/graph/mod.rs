@@ -26,7 +26,10 @@ use crate::action::Ctx;
 use crate::action::discover_hall;
 use crate::action::read_manifest;
 use crate::error::{Failure, Outcome, Report};
+use crate::infra::progress::Progress;
 use crate::store::graph::db::GraphDb;
+use crate::store::layout::Layout;
+use crate::store::manifest::Manifest;
 
 pub use affected::{AffectedError, find_affected_tests, is_test_file, parse_files_from_reader};
 pub use clean::clean_cmd;
@@ -36,7 +39,7 @@ pub use cross_repo::{CrossRepoLinkOutcome, link_cross_repo_edges};
 pub use dead_code::{DeadCodeError, execute_dead_code};
 pub use explore::{ExploreError, explore};
 pub use hierarchy::{HierarchyError, execute_hierarchy};
-pub use index::{IndexOutcome, index_repo};
+pub use index::{HallIndex, IndexOutcome, index_hall, index_repo};
 pub use input::*;
 pub use mcp::run_mcp_server;
 pub use outcome::*;
@@ -152,9 +155,7 @@ pub fn file_cmd(ctx: &Ctx, args: FileInput) -> Outcome<FileOutcome> {
     Ok(Report::new(FileOutcome(outline)))
 }
 
-// 8. index
-pub fn index_cmd(ctx: &Ctx, args: IndexInput) -> Outcome<IndexBatchOutcome> {
-    let layout = discover_hall(ctx)?;
+fn lock_index(layout: &Layout) -> Result<std::fs::File, Failure> {
     let lock_path = layout.ivar_dir().join("memory.lock");
     let lock_file = std::fs::File::create(lock_path.as_std_path()).map_err(|err| {
         Failure::failed(
@@ -168,13 +169,48 @@ pub fn index_cmd(ctx: &Ctx, args: IndexInput) -> Outcome<IndexBatchOutcome> {
             format!("Failed to acquire exclusive lock on {lock_path}: {err}"),
         )
     })?;
+    Ok(lock_file)
+}
+
+/// Incrementally reindexes the base repositories of a hall that already has a
+/// graph database. Returns `None` when the hall never built one.
+pub fn refresh_base_graph(
+    layout: &Layout,
+    manifest: &Manifest,
+    progress: &dyn Progress,
+) -> Result<Option<HallIndex>, Failure> {
+    let db_path = layout.ivar_dir().join("memory.db");
+    if !db_path.as_std_path().exists() {
+        return Ok(None);
+    }
+    let _lock = lock_index(layout)?;
+    let db = GraphDb::open(db_path.as_std_path()).map_err(|err| {
+        Failure::failed(
+            "graph.db_open_failed",
+            format!("Failed to open graph database at {db_path}: {err}"),
+        )
+    })?;
+    let hall = index::index_hall(&db, layout, manifest, false, progress);
+    if hall
+        .repos
+        .iter()
+        .any(|outcome| outcome.files_indexed > 0 || outcome.files_deleted > 0)
+    {
+        cross_repo::link_cross_repo_edges(&db)
+            .map_err(|err| Failure::failed("graph.cross_repo_failed", err.to_string()))?;
+    }
+    Ok(Some(hall))
+}
+
+// 8. index
+pub fn index_cmd(ctx: &Ctx, args: IndexInput) -> Outcome<IndexBatchOutcome> {
+    let layout = discover_hall(ctx)?;
+    let _lock = lock_index(&layout)?;
 
     let db = open_graph_db(ctx)?;
     let manifest = read_manifest(&layout)?;
 
-    let mut outcomes = Vec::new();
-
-    if let Some(target_repo) = args.repo {
+    let hall = if let Some(target_repo) = args.repo {
         let repo_decl = manifest
             .repos()
             .iter()
@@ -202,26 +238,17 @@ pub fn index_cmd(ctx: &Ctx, args: IndexInput) -> Outcome<IndexBatchOutcome> {
             ctx.progress(),
         )
         .map_err(|err| Failure::failed("graph.index_failed", err.to_string()))?;
-        outcomes.push(outcome);
-    } else {
-        for repo_decl in manifest.repos() {
-            let repo_path = layout.repo_worktree(repo_decl.name(), repo_decl.default_branch());
-            if Path::new(repo_path.as_std_path()).exists() {
-                let outcome = index::index_repo(
-                    &db,
-                    repo_decl.name().as_str(),
-                    repo_path.as_std_path(),
-                    args.full,
-                    ctx.progress(),
-                )
-                .map_err(|err| Failure::failed("graph.index_failed", err.to_string()))?;
-                outcomes.push(outcome);
-            }
+        HallIndex {
+            repos: vec![outcome],
+            repos_failed: Vec::new(),
         }
-    }
+    } else {
+        index::index_hall(&db, &layout, &manifest, args.full, ctx.progress())
+    };
 
     // Relink only after the graph changed; dirty unsupported files must remain a no-op.
-    let should_link = outcomes
+    let should_link = hall
+        .repos
         .iter()
         .any(|outcome| outcome.files_indexed > 0 || outcome.files_deleted > 0);
     let cross_edges_linked = if should_link {
@@ -233,7 +260,8 @@ pub fn index_cmd(ctx: &Ctx, args: IndexInput) -> Outcome<IndexBatchOutcome> {
     };
 
     Ok(Report::new(IndexBatchOutcome {
-        repos: outcomes,
+        repos: hall.repos,
+        repos_failed: hall.repos_failed,
         cross_edges_linked,
     }))
 }

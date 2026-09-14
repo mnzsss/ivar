@@ -6,7 +6,7 @@ use std::io;
 use std::path::PathBuf;
 
 use crate::action::graph::compact::{self, ToCompact};
-use crate::action::graph::index::IndexOutcome;
+use crate::action::graph::index::{IndexOutcome, RepoFailure};
 use crate::domain::graph::{AffectedResult, ExploreResult, PathResult};
 use crate::error::WriteHuman;
 #[derive(Debug, Clone, Serialize)]
@@ -206,6 +206,8 @@ impl WriteHuman for PathOutcome {
 #[derive(Debug, Clone, Serialize)]
 pub struct IndexBatchOutcome {
     pub repos: Vec<IndexOutcome>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub repos_failed: Vec<RepoFailure>,
     pub cross_edges_linked: usize,
 }
 
@@ -231,6 +233,12 @@ impl WriteHuman for IndexBatchOutcome {
                     outcome.duration_ms
                 )?;
             }
+            for failure in &outcome.files_failed {
+                writeln!(w, "    ! skipped {}: {}", failure.path, failure.reason)?;
+            }
+        }
+        for failure in &self.repos_failed {
+            writeln!(w, "  - {}: failed: {}", failure.repo, failure.reason)?;
         }
         if self.cross_edges_linked > 0 {
             writeln!(w, "  Linked {} cross-repo edges.", self.cross_edges_linked)?;
@@ -287,18 +295,23 @@ impl ToCompact for PathOutcome {
 
 impl ToCompact for IndexBatchOutcome {
     fn to_compact(&self) -> String {
-        let mut out =
-            String::from("#SCHEMA: repo|files_indexed|symbols_indexed|edges_indexed|duration_ms");
+        let mut out = String::from(
+            "#SCHEMA: repo|files_indexed|symbols_indexed|edges_indexed|duration_ms|files_failed",
+        );
         for outcome in &self.repos {
             out.push('\n');
             out.push_str(&format!(
-                "{}|{}|{}|{}|{}",
+                "{}|{}|{}|{}|{}|{}",
                 outcome.repo,
                 outcome.files_indexed,
                 outcome.symbols_indexed,
                 outcome.edges_indexed,
-                outcome.duration_ms
+                outcome.duration_ms,
+                outcome.files_failed.len()
             ));
+        }
+        for failure in &self.repos_failed {
+            out.push_str(&format!("\n{}|failed|{}", failure.repo, failure.reason));
         }
         out
     }

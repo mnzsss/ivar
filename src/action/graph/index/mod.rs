@@ -7,7 +7,10 @@
 pub mod types;
 
 use std::collections::HashSet;
-use std::path::Path;
+use std::num::NonZeroUsize;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::mpsc;
 use std::time::Instant;
 
 use camino::Utf8Path;
@@ -17,7 +20,9 @@ use crate::infra::graph::parser::SupportedLanguage;
 use crate::infra::hash;
 use crate::infra::progress::Progress;
 use crate::store::graph::db::GraphDb;
-use crate::store::graph::extractor::extract_file;
+use crate::store::graph::extractor::{ExtractedFile, extract_file};
+use crate::store::layout::Layout;
+use crate::store::manifest::Manifest;
 pub use types::*;
 
 /// Incrementally indexes a git repository into the GraphDb.
@@ -66,6 +71,7 @@ pub fn index_repo(
             edges_indexed: 0,
             duration_ms,
             skipped_up_to_date: true,
+            files_failed: Vec::new(),
         });
     }
 
@@ -101,6 +107,7 @@ pub fn index_repo(
                         edges_indexed: 0,
                         duration_ms,
                         skipped_up_to_date: true,
+                        files_failed: Vec::new(),
                     });
                 }
             }
@@ -149,38 +156,35 @@ pub fn index_repo(
     }
     let num_files_deleted = files_to_delete.len();
 
-    let total_to_index = files_to_index.len();
     let mut num_files_indexed = 0;
     let mut num_symbols_indexed = 0;
     let mut num_edges_indexed = 0;
+    let mut files_failed = Vec::new();
 
     let index_res = (|| -> Result<(), IndexError> {
-        for (idx, rel_path_str) in files_to_index.iter().enumerate() {
-            progress.step(&format!(
-                "[{}/{total_to_index}] {repo_id}: {rel_path_str}",
-                idx + 1
-            ));
-
-            let full_path = repo_path.join(rel_path_str);
+        let mut jobs = Vec::new();
+        for rel_path in &files_to_index {
+            let full_path = repo_path.join(rel_path);
             if !full_path.exists() {
-                db.delete_file_cascade(repo_id, rel_path_str)?;
+                db.delete_file_cascade(repo_id, rel_path)?;
                 continue;
             }
 
-            let ext = Path::new(rel_path_str)
+            let Some(lang) = Path::new(rel_path)
                 .extension()
                 .and_then(|e| e.to_str())
-                .unwrap_or("");
-
-            let lang = match SupportedLanguage::from_extension(ext) {
-                Some(l) => l,
-                None => continue,
+                .and_then(SupportedLanguage::from_extension)
+            else {
+                continue;
             };
 
-            let metadata = std::fs::metadata(&full_path).map_err(|e| IndexError::Io {
-                path: rel_path_str.clone(),
-                source: e,
-            })?;
+            let metadata = match std::fs::metadata(&full_path) {
+                Ok(metadata) => metadata,
+                Err(error) => {
+                    files_failed.push(FileFailure::new(rel_path, error));
+                    continue;
+                }
+            };
 
             let size_bytes = metadata.len() as i64;
             let mtime_ns = metadata
@@ -193,7 +197,7 @@ pub fn index_repo(
             let existing_file = if force_full {
                 None
             } else {
-                db.get_file(repo_id, rel_path_str)?
+                db.get_file(repo_id, rel_path)?
             };
             // Same size and modification time means unchanged, the check git trusts
             // for its own index, so an unchanged file is neither read nor hashed.
@@ -204,37 +208,70 @@ pub fn index_repo(
                 continue;
             }
 
-            let content = std::fs::read_to_string(&full_path).map_err(|e| IndexError::Io {
-                path: rel_path_str.clone(),
-                source: e,
-            })?;
-
-            let content_hash = hash::text(&content);
-
-            if existing_file.is_some_and(|file| file.content_hash == content_hash) {
-                continue;
-            }
-
-            let extracted = extract_file(repo_id, rel_path_str, &content, lang).map_err(|e| {
-                IndexError::Extractor {
-                    path: rel_path_str.clone(),
-                    source: e,
-                }
-            })?;
-
-            let (sym_count, edge_count) = db.index_extracted_file(
-                repo_id,
-                rel_path_str,
-                &content_hash,
-                mtime_ns,
+            jobs.push(ExtractJob {
+                rel_path: rel_path.clone(),
+                full_path,
+                lang,
                 size_bytes,
-                &extracted,
-            )?;
-
-            num_symbols_indexed += sym_count;
-            num_edges_indexed += edge_count;
-            num_files_indexed += 1;
+                mtime_ns,
+                known_hash: existing_file.map(|file| file.content_hash),
+            });
         }
+
+        let total = jobs.len();
+        let workers = std::thread::available_parallelism()
+            .map_or(1, NonZeroUsize::get)
+            .min(total);
+        let next_job = AtomicUsize::new(0);
+        std::thread::scope(|scope| -> Result<(), IndexError> {
+            // SQLite writes stay on this thread; the bound keeps extracted files
+            // from piling up in memory while the writer catches up.
+            let (sender, receiver) = mpsc::sync_channel(workers * 2);
+            for _ in 0..workers {
+                let sender = sender.clone();
+                let (jobs, next_job) = (&jobs, &next_job);
+                scope.spawn(move || {
+                    while let Some(job) = jobs.get(next_job.fetch_add(1, Ordering::Relaxed)) {
+                        if sender.send((job, extract_job(repo_id, job))).is_err() {
+                            break;
+                        }
+                    }
+                });
+            }
+            drop(sender);
+
+            for (done, (job, extraction)) in receiver.into_iter().enumerate() {
+                progress.step(&format!(
+                    "[{}/{total}] {repo_id}: {}",
+                    done + 1,
+                    job.rel_path
+                ));
+                match extraction {
+                    Extraction::Unchanged => {}
+                    Extraction::Failed(reason) => files_failed.push(FileFailure {
+                        path: job.rel_path.clone(),
+                        reason,
+                    }),
+                    Extraction::Extracted {
+                        content_hash,
+                        extracted,
+                    } => {
+                        let (sym_count, edge_count) = db.index_extracted_file(
+                            repo_id,
+                            &job.rel_path,
+                            &content_hash,
+                            job.mtime_ns,
+                            job.size_bytes,
+                            &extracted,
+                        )?;
+                        num_symbols_indexed += sym_count;
+                        num_edges_indexed += edge_count;
+                        num_files_indexed += 1;
+                    }
+                }
+            }
+            Ok(())
+        })?;
         for del in &files_to_delete {
             db.delete_file_cascade(repo_id, del)?;
         }
@@ -261,42 +298,76 @@ pub fn index_repo(
         edges_indexed: num_edges_indexed,
         duration_ms,
         skipped_up_to_date: false,
+        files_failed,
     })
 }
 
-/// Indexes all mounted repositories in an ivar hall.
+struct ExtractJob {
+    rel_path: String,
+    full_path: PathBuf,
+    lang: SupportedLanguage,
+    size_bytes: i64,
+    mtime_ns: i64,
+    known_hash: Option<String>,
+}
+
+enum Extraction {
+    Unchanged,
+    Extracted {
+        content_hash: String,
+        extracted: ExtractedFile,
+    },
+    Failed(String),
+}
+
+fn extract_job(repo_id: &str, job: &ExtractJob) -> Extraction {
+    let content = match std::fs::read_to_string(&job.full_path) {
+        Ok(content) => content,
+        Err(error) => return Extraction::Failed(error.to_string()),
+    };
+    let content_hash = hash::text(&content);
+    if job.known_hash.as_deref() == Some(content_hash.as_str()) {
+        return Extraction::Unchanged;
+    }
+    match extract_file(repo_id, &job.rel_path, &content, job.lang) {
+        Ok(extracted) => Extraction::Extracted {
+            content_hash,
+            extracted,
+        },
+        Err(error) => Extraction::Failed(error.to_string()),
+    }
+}
+
+/// Indexes every base repository of the hall whose default-branch worktree
+/// exists. A repository that fails is recorded and the rest still index.
 pub fn index_hall(
     db: &GraphDb,
-    hall_root: &Path,
+    layout: &Layout,
+    manifest: &Manifest,
     force_full: bool,
     progress: &dyn Progress,
-) -> Result<Vec<IndexOutcome>, IndexError> {
-    let repos_dir = hall_root.join(".ivar").join("repos");
-    let mut outcomes = Vec::new();
-
-    if repos_dir.exists() && repos_dir.is_dir() {
-        let entries = std::fs::read_dir(&repos_dir).map_err(|e| IndexError::Io {
-            path: repos_dir.to_string_lossy().to_string(),
-            source: e,
-        })?;
-        for entry in entries.filter_map(std::result::Result::ok) {
-            let repo_name = entry.file_name().to_string_lossy().to_string();
-            let repo_worktree = entry.path().join("main");
-            let target_path = if repo_worktree.exists() {
-                repo_worktree
-            } else {
-                entry.path()
-            };
-
-            if (target_path.join(".git").exists() || target_path.is_dir())
-                && let Ok(outcome) = index_repo(db, &repo_name, &target_path, force_full, progress)
-            {
-                outcomes.push(outcome);
-            }
+) -> HallIndex {
+    let mut hall = HallIndex::default();
+    for repo in manifest.repos() {
+        let worktree = layout.repo_worktree(repo.name(), repo.default_branch());
+        if !worktree.as_std_path().exists() {
+            continue;
+        }
+        match index_repo(
+            db,
+            repo.name().as_str(),
+            worktree.as_std_path(),
+            force_full,
+            progress,
+        ) {
+            Ok(outcome) => hall.repos.push(outcome),
+            Err(error) => hall.repos_failed.push(RepoFailure {
+                repo: repo.name().to_string(),
+                reason: error.to_string(),
+            }),
         }
     }
-
-    Ok(outcomes)
+    hall
 }
 
 #[cfg(test)]
