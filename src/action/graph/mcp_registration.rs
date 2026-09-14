@@ -3,7 +3,7 @@ use std::path::Path;
 use crate::domain::mcp::McpServerDef;
 use crate::error::Warning;
 use crate::store::layout::Layout;
-use crate::store::manifest::Manifest;
+use crate::store::manifest::{Manifest, MigrationPlan};
 
 use super::outcome::McpRegistration;
 
@@ -42,6 +42,12 @@ pub fn register_graph_mcp(
              \"command\":\"ivar\",\"args\":[\"graph\",\"mcp\"]}` to `mcp` by hand, then run `ivar sync`",
         );
         return (McpRegistration::NameClash, Some(warning));
+    }
+    if !matches!(
+        Manifest::plan(layout),
+        Ok(Some(MigrationPlan::Current { .. }))
+    ) {
+        return (McpRegistration::NeedsMigration, None);
     }
     let mut updated = servers.to_vec();
     updated.push(graph_server());

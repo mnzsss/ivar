@@ -123,7 +123,7 @@ fn no_mcp_leaves_ivar_json_untouched() {
 }
 
 #[test]
-fn a_manifest_that_cannot_be_written_warns_without_failing_the_index() {
+fn a_manifest_awaiting_migration_skips_registration_and_indexes_cleanly() {
     let hall = TestHall::new();
     common::declare_repos(hall.root(), &[]);
     let before = read_manifest_text(&hall);
@@ -135,11 +135,12 @@ fn a_manifest_that_cannot_be_written_warns_without_failing_the_index() {
         .unwrap();
     let outcome: Value = serde_json::from_slice(&output.stdout).unwrap();
 
-    assert_eq!(outcome["mcp_registration"], "failed", "{outcome}");
+    assert!(output.status.success(), "{outcome}");
+    assert_eq!(outcome["mcp_registration"], "needs_migration", "{outcome}");
     assert!(outcome["repos"].is_array(), "{outcome}");
-    assert_eq!(
-        outcome["warnings"][0]["code"],
-        "graph.mcp_registration_failed"
+    assert!(
+        outcome["warnings"].as_array().is_none_or(Vec::is_empty),
+        "{outcome}"
     );
     assert_eq!(read_manifest_text(&hall), before);
 }

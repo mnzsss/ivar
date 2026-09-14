@@ -1013,9 +1013,12 @@ watching. There is no `--yes`.
 `ivar.json` already runs `ivar graph mcp`, it adds
 `{"name":"graph","type":"local","command":"ivar","args":["graph","mcp"]}` and
 reports `mcp_registration` (`registered`, `already_declared`, `name_clash`,
-`failed` or `skipped`), with `next_command: "ivar sync"` after a registration. It never runs `ivar sync`: run it yourself so providers
+`needs_migration`, `failed` or `skipped`), with `next_command: "ivar sync"`
+after a registration. It never runs `ivar sync`: run it yourself so providers
 pick the server up. A different server already named `graph` is left alone
-with a warning; `--no-mcp` skips registration entirely.
+with a warning; an `ivar.json` that still needs `ivar migrate` is left alone
+without one, so indexing still exits cleanly; `--no-mcp` skips registration
+entirely.
 
 **`ivar session start` is the one verb that takes over your terminal.** It opens
 a TUI. Everything else prints and exits.

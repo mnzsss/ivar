@@ -220,6 +220,7 @@ pub enum McpRegistration {
     Registered,
     AlreadyDeclared,
     NameClash,
+    NeedsMigration,
     Failed,
     Skipped,
 }
@@ -260,6 +261,12 @@ impl WriteHuman for IndexBatchOutcome {
             writeln!(
                 w,
                 "  Registered the `graph` MCP server in ivar.json; run `ivar sync` so providers pick it up."
+            )?;
+        }
+        if self.mcp_registration == McpRegistration::NeedsMigration {
+            writeln!(
+                w,
+                "  Did not register the `graph` MCP server: run `ivar migrate`, then index again to add it to ivar.json."
             )?;
         }
         Ok(())
