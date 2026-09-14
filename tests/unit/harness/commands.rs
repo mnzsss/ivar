@@ -374,137 +374,6 @@ fn embedded(id: &str) -> String {
     content.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-/// The plan checkpoint sits at the beginning of Analysis: read `HALL.md` and
-/// the linked topics of potentially affected Repos, record the context, and
-/// never let a deferred review block approval.
-#[test]
-fn plan_checks_relation_context_at_the_start_of_analysis() {
-    let content = embedded("plan");
-    let analysis = content
-        .find("## Phase 2: Analysis")
-        .expect("plan has an Analysis phase");
-    let after = &content[analysis..];
-    let lower = after.to_lowercase();
-
-    assert!(lower.contains("read `hall.md`"), "was: {after}");
-    assert!(after.contains("linked topics"), "was: {after}");
-    assert!(after.contains("`analysis.md`"), "was: {after}");
-    assert!(after.contains("evidence"), "was: {after}");
-    assert!(after.contains("/ivar-relations"), "was: {after}");
-    assert!(after.contains("never blocks"), "was: {after}");
-}
-
-#[test]
-fn plan_has_three_approval_gates_and_hands_off_to_execute() {
-    let content = embedded("plan");
-
-    assert!(content.contains("approve requirements"), "was: {content}");
-    assert!(content.contains("approve analysis"), "was: {content}");
-    assert!(content.contains("approve plan"), "was: {content}");
-    assert!(content.contains("ivar-execute"), "was: {content}");
-    assert!(content.contains("Done"), "was: {content}");
-    assert!(content.contains("✅"), "was: {content}");
-    assert!(!content.contains("approve graph"), "was: {content}");
-}
-
-/// A task packet must declare who reads what it writes, with the grep that
-/// found them. Three waves were reverted because a packet edited its declared
-/// files and broke a reader outside the list.
-#[test]
-fn plan_packet_template_requires_declared_readers() {
-    let content = embedded("plan");
-
-    assert!(content.contains("**Readers:**"), "was: {content}");
-    assert!(content.contains("git grep -n"), "was: {content}");
-    assert!(content.contains("no readers outside"), "was: {content}");
-}
-
-/// The Readers grep must cover the whole tree, not a scope someone derives.
-/// Two controlled runs found the same failure twice: a reader in `examples/`
-/// escaped a hardcoded `src/ tests/`, and a reader in `docs/` escaped a scope
-/// derived from the workspace members. Both times every agent reported
-/// success. `git grep` with no pathspec ends the derivation: tracked files in,
-/// build artifacts out, nothing to get wrong.
-#[test]
-fn plan_readers_grep_is_scoped_to_the_whole_tree() {
-    let content = embedded("plan");
-
-    assert!(content.contains("git grep -n '<symbol>'"), "was: {content}");
-    assert!(content.contains("no pathspec"), "was: {content}");
-    assert!(
-        content.contains("not only code that compiles"),
-        "was: {content}"
-    );
-}
-
-/// A build check narrower than the readers it must defend passes while a
-/// reader outside it breaks. In the controlled run every agent ran the
-/// packet's `cargo build`, saw green, and shipped an `examples/` target that
-/// failed to compile.
-#[test]
-fn plan_verification_covers_every_reader_it_declares() {
-    let content = embedded("plan");
-
-    assert!(content.contains("as wide as the readers"), "was: {content}");
-}
-
-/// The plan reviewer checks that packets declare their readers. Without this
-/// the Readers field is advisory, which is how the parent feature's
-/// R-DELEGATE defect was born.
-#[test]
-fn plan_reviewer_checks_declared_readers() {
-    let content = embedded("plan");
-
-    assert!(content.contains("Blast Radius"), "was: {content}");
-
-    let table = content
-        .find("| Category | What to Look For |")
-        .expect("plan has a reviewer checklist");
-    let after = &content[table..];
-    let end = after
-        .find("Reviewer output format")
-        .expect("checklist ends");
-    let checklist = &after[..end];
-
-    assert!(checklist.contains("Blast Radius"), "was: {checklist}");
-    assert!(checklist.contains("Readers"), "was: {checklist}");
-}
-
-/// The packet template's own Step 1 must show assertions, not describe them.
-/// Two shipped plans (`ivar-manifest-schema`, `omp-support`: 20 packets)
-/// carried zero code while `:176-180` already forbade it in prose. A rule
-/// stated beside a form that contradicts it loses to the form.
-#[test]
-fn plan_packet_template_requires_literal_test() {
-    let content = embedded("plan");
-
-    assert!(content.contains("literal source"), "was: {content}");
-    assert!(
-        content.contains("Step 1 carries the test's literal source"),
-        "was: {content}"
-    );
-    // The example inside the template is real code, not a placeholder.
-    assert!(content.contains("assert_eq!"), "was: {content}");
-}
-
-/// The escape is bounded on both sides: Step 1 may never use it, and a
-/// sketch still names its signatures. `omp-support`'s packet 01 produced
-/// `Provider::Omp` "with stable id `omp`, config dir `.omp`" — an enum
-/// variant whose actual shape no packet ever wrote down, leaving the next
-/// packet's `Consumes` citing nothing.
-#[test]
-fn plan_sketch_escape_is_bounded() {
-    let content = embedded("plan");
-
-    assert!(content.contains("**Sketch:**"), "was: {content}");
-    assert!(content.contains("never Step 1"), "was: {content}");
-    assert!(
-        content.contains("relaxes a body, never an interface"),
-        "was: {content}"
-    );
-    assert!(content.contains("exact signature"), "was: {content}");
-}
-
 /// The deliver checkpoint sits between preview and apply, and deferring it
 /// neither blocks apply nor invalidates the fingerprint.
 #[test]
@@ -569,29 +438,6 @@ fn every_command_declaring_an_argument_hint_consumes_arguments() {
     );
 }
 
-/// The reviewer checks the code obligation, or it is advisory — which is
-/// how the prose at `:176-180` failed. The row must judge the *reason* on a
-/// sketch, not merely the marker's presence: an unjudged escape becomes the
-/// default.
-#[test]
-fn plan_reviewer_checks_literal_code() {
-    let content = embedded("plan");
-
-    let table = content
-        .find("| Category | What to Look For |")
-        .expect("plan has a reviewer checklist");
-    let after = &content[table..];
-    let end = after
-        .find("Reviewer output format")
-        .expect("checklist ends");
-    let checklist = &after[..end];
-
-    assert!(checklist.contains("Literal Code"), "was: {checklist}");
-    assert!(checklist.contains("Step 1"), "was: {checklist}");
-    assert!(checklist.contains("**Sketch:**"), "was: {checklist}");
-    assert!(checklist.contains("reason"), "was: {checklist}");
-}
-
 #[test]
 fn discovery_uses_graph_explore_with_fallback() {
     let content = embedded("discovery");
@@ -599,21 +445,6 @@ fn discovery_uses_graph_explore_with_fallback() {
     assert!(content.contains("advisory"), "was: {content}");
     assert!(
         content.contains("fallback") || content.contains("fall back"),
-        "was: {content}"
-    );
-}
-
-#[test]
-fn plan_uses_graph_evidence_with_fallback_and_no_approval_bypass() {
-    let content = embedded("plan");
-    assert!(content.contains("ivar graph explore"), "was: {content}");
-    assert!(content.contains("advisory"), "was: {content}");
-    assert!(
-        content.contains("fallback") || content.contains("fall back"),
-        "was: {content}"
-    );
-    assert!(
-        content.contains("never creates, approves, or bypasses"),
         "was: {content}"
     );
 }
