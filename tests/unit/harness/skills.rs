@@ -61,19 +61,19 @@ fn inspect_reports_correct_integrity() {
 
     // Before materialise, enabled inspection reports Missing
     let before = inspect(dir, true).expect("inspect succeeds");
-    assert_eq!(before.len(), 1);
-    assert_eq!(before[0].integrity, Integrity::Missing);
+    assert_eq!(before.len(), catalog().len());
+    assert!(before.iter().all(|i| i.integrity == Integrity::Missing));
 
     // After materialise, enabled inspection reports Current
     materialise(dir).expect("materialise succeeds");
     let after = inspect(dir, true).expect("inspect succeeds");
-    assert_eq!(after.len(), 1);
-    assert_eq!(after[0].integrity, Integrity::Current);
+    assert_eq!(after.len(), catalog().len());
+    assert!(after.iter().all(|i| i.integrity == Integrity::Current));
 
     // Disabled inspection reports Stale
     let disabled = inspect(dir, false).expect("inspect succeeds");
-    assert_eq!(disabled.len(), 1);
-    assert_eq!(disabled[0].integrity, Integrity::Stale);
+    assert_eq!(disabled.len(), catalog().len());
+    assert!(disabled.iter().all(|i| i.integrity == Integrity::Stale));
 }
 
 #[test]
@@ -145,4 +145,31 @@ fn materialise_prunes_undeclared_files_inside_a_shipped_skill() {
         .find(|change| change.id == "execute")
         .unwrap();
     assert_eq!(execute.change, Change::Updated);
+}
+
+#[test]
+fn inspect_reports_modified_for_a_missing_declared_file_or_an_undeclared_one() {
+    let temp = tempfile::tempdir().unwrap();
+    let dir = camino::Utf8Path::from_path(temp.path()).unwrap();
+    let integrity = |dir: &camino::Utf8Path| {
+        inspect(dir, true)
+            .unwrap()
+            .into_iter()
+            .find(|inspection| inspection.id == "execute")
+            .unwrap()
+            .integrity
+    };
+
+    materialise(dir).unwrap();
+    std::fs::remove_file(dir.join("ivar-execute/SKILL.md")).unwrap();
+    assert_eq!(integrity(dir), Integrity::Modified);
+
+    materialise(dir).unwrap();
+    let stray = dir.join("ivar-execute/references/retired.md");
+    std::fs::create_dir_all(stray.parent().unwrap()).unwrap();
+    std::fs::write(&stray, "retired").unwrap();
+    assert_eq!(integrity(dir), Integrity::Modified);
+
+    materialise(dir).unwrap();
+    assert_eq!(integrity(dir), Integrity::Current);
 }

@@ -172,42 +172,29 @@ pub fn inspect(skills_dir: &Utf8Path, enabled: bool) -> Result<Vec<Inspection>, 
         Vec::new()
     };
 
-    let mut present = Vec::new();
-    for entry in present_entries {
-        let name = entry.file_name().unwrap_or("").to_owned();
-        let skill_file = entry.join("SKILL.md");
-        let bytes = fs::read_bytes(&skill_file).map_err(|source| Error::Fs {
-            path: skill_file.clone(),
+    for skill in catalog() {
+        let target_dir = skills_dir.join(skill.skill_dir_name());
+        let path = target_dir.join("SKILL.md");
+        let present = fs::is_dir(&target_dir).map_err(|source| Error::Fs {
+            path: target_dir.clone(),
             source,
         })?;
-        present.push((name, entry, bytes));
-    }
-
-    for skill in catalog() {
-        let dir_name = skill.skill_dir_name();
-        let target_dir = skills_dir.join(&dir_name);
-        let skill_file = target_dir.join("SKILL.md");
-
-        let integrity = match present.iter().find(|(name, _, _)| name == &dir_name) {
-            Some((_, _, _)) if !enabled => Some((skill_file, Integrity::Stale)),
-            Some((_, _, Some(bytes))) if bytes == skill.skill_md().as_bytes() => {
-                Some((skill_file, Integrity::Current))
-            }
-            Some((_, _, _)) => Some((skill_file, Integrity::Modified)),
-            None if enabled => Some((skill_file, Integrity::Missing)),
-            None => None,
+        let integrity = match (present, enabled) {
+            (true, false) => Integrity::Stale,
+            (false, true) => Integrity::Missing,
+            (false, false) => continue,
+            (true, true) if skill_is_intact(&target_dir, *skill)? => Integrity::Current,
+            (true, true) => Integrity::Modified,
         };
-
-        if let Some((path, integrity)) = integrity {
-            inspections.push(Inspection {
-                id: skill.id.to_owned(),
-                path,
-                integrity,
-            });
-        }
+        inspections.push(Inspection {
+            id: skill.id.to_owned(),
+            path,
+            integrity,
+        });
     }
 
-    for (name, path, _) in &present {
+    for path in &present_entries {
+        let name = path.file_name().unwrap_or("");
         if let Some(id) = ivar_id(name)
             && catalog().iter().all(|s| s.id != id)
         {
@@ -220,6 +207,20 @@ pub fn inspect(skills_dir: &Utf8Path, enabled: bool) -> Result<Vec<Inspection>, 
     }
 
     Ok(inspections)
+}
+
+fn skill_is_intact(target_dir: &Utf8Path, skill: ShippedSkill) -> Result<bool, Error> {
+    for file in skill.files {
+        let path = target_dir.join(file.path);
+        let bytes = fs::read_bytes(&path).map_err(|source| Error::Fs {
+            path: path.clone(),
+            source,
+        })?;
+        if bytes.as_deref() != Some(file.content.as_bytes()) {
+            return Ok(false);
+        }
+    }
+    Ok(undeclared_files(target_dir, target_dir, skill)?.is_empty())
 }
 
 fn materialise_skill(target_dir: &Utf8Path, skill: ShippedSkill) -> Result<Change, Error> {
