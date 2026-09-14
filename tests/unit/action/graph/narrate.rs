@@ -210,38 +210,59 @@ fn blast_radius_precedes_source() {
     );
 }
 
-/// Callers are resolved by name, so one definition per name is rendered and the
-/// ambiguity is stated. Printing per-definition entries repeated identical
-/// caller lists and implied a precision the index does not have.
 #[test]
-fn same_name_definitions_collapse_into_one_entry_naming_the_ambiguity() {
-    let mut res = result("session");
+fn same_name_definitions_list_their_own_consumers() {
+    let mut res = result("Session");
     res.primary_symbols
-        .push(snippet("session", "ivar", "src/store/mod.rs", 16));
+        .push(snippet("Session", "api", "src/session.ts", 3));
     res.primary_symbols
-        .push(snippet("session", "ivar", "src/action/mod.rs", 29));
+        .push(snippet("Session", "web", "src/session.ts", 8));
     res.direct_relations.push(relation(
-        "run_session",
-        "src/action/session.rs",
+        "login",
+        "src/login.ts",
         "api",
-        "session",
-        "src/store/mod.rs",
-        40,
+        "Session",
+        "src/session.ts",
+        12,
         Provenance::Extracted,
     ));
+    let mut web_caller = relation(
+        "render",
+        "src/page.ts",
+        "web",
+        "Session",
+        "src/session.ts",
+        20,
+        Provenance::Extracted,
+    );
+    web_caller.target.repo = "web".into();
+    web_caller.cross_repo = false;
+    res.direct_relations.push(web_caller);
+    let mut api_type_use = relation(
+        "",
+        "src/types.ts",
+        "api",
+        "Session",
+        "src/session.ts",
+        2,
+        Provenance::Extracted,
+    );
+    api_type_use.edge_kind = EdgeKind::References;
+    res.direct_relations.push(api_type_use);
 
     let out = narrate_explore(&res);
 
-    assert_eq!(
-        out.matches("- `session` (").count(),
-        1,
-        "same-named definitions share one line, got: {out}"
-    );
     assert!(
-        out.contains("1 caller in `src/action/session.rs`"),
+        out.contains(
+            "- `Session` (src/session.ts:3) — 1 caller in `src/login.ts`; 1 type use at `src/types.ts:2`\n"
+        ),
         "got: {out}"
     );
-    assert!(out.contains("2 definitions share this name"), "got: {out}");
+    assert!(
+        out.contains("- `Session` (src/session.ts:8) — 1 caller in `src/page.ts`\n"),
+        "got: {out}"
+    );
+    assert!(!out.contains("definitions share this name"), "got: {out}");
 }
 
 /// One caller reached through several candidates must not inflate the count.
@@ -348,7 +369,7 @@ fn empty_result_explains_the_next_move() {
 fn long_caller_lists_report_the_untruncated_total() {
     let mut res = result("session");
     res.primary_symbols
-        .push(snippet("session", "ivar", "src/store/mod.rs", 16));
+        .push(snippet("session", "api", "src/store/mod.rs", 16));
     for i in 0..20 {
         res.direct_relations.push(relation(
             &format!("caller{i}"),

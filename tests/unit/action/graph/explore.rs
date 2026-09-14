@@ -646,3 +646,72 @@ fn symbols_named_together_come_with_the_call_path_between_them() {
         .collect();
     assert_eq!(hops, vec![vec!["createSession", "saveSession"]]);
 }
+
+#[test]
+fn same_name_definitions_in_different_repos_keep_their_consumers_apart() {
+    let temp = tempdir().expect("create temp dir");
+    let hall_root = temp.path();
+    let db = GraphDb::open_in_memory().expect("open memory db");
+
+    for repo in ["api", "web"] {
+        let repo_dir = hall_root.join(repo);
+        fs::create_dir_all(repo_dir.join("src")).expect("create src dir");
+        let content = "pub struct Session;\nfn consume() {}\n";
+        fs::write(repo_dir.join("src/session.rs"), content).expect("write source");
+        db.insert_repo(repo, repo_dir.to_str().unwrap(), "main", None)
+            .expect("insert repo");
+        let file_id = db
+            .upsert_file(repo, "src/session.rs", repo, 100, content.len() as i64)
+            .expect("upsert file");
+        let mut session = fn_symbol(file_id, "Session", 1, 1);
+        session.repo = repo.to_owned();
+        session.kind = SymbolKind::Struct;
+        let mut consumer = fn_symbol(file_id, &format!("{repo}_consumer"), 2, 2);
+        consumer.repo = repo.to_owned();
+        let ids = db
+            .insert_symbols(&[session, consumer])
+            .expect("insert symbols");
+        let edge = |from: Option<i64>, kind: EdgeKind, line: usize| crate::domain::graph::Edge {
+            id: None,
+            file_id: Some(file_id),
+            repo: repo.to_owned(),
+            from_symbol_id: from,
+            to_symbol_id: Some(ids[0]),
+            to_name: Some("Session".to_owned()),
+            kind,
+            provenance: Provenance::Extracted,
+            line,
+            col: 1,
+            confidence: 1.0,
+        };
+        db.insert_edges(&[
+            edge(Some(ids[1]), EdgeKind::Calls, 2),
+            edge(None, EdgeKind::References, 1),
+        ])
+        .expect("insert edges");
+    }
+
+    let result = explore(&db, hall_root, "Session", None).expect("explore");
+
+    let api_incoming: Vec<_> = result
+        .direct_relations
+        .iter()
+        .filter(|r| r.target.repo == "api" && r.target.symbol_name == "Session")
+        .collect();
+    assert!(
+        api_incoming.iter().all(|r| r.source.repo == "api"),
+        "web consumers leaked into api: {api_incoming:?}"
+    );
+    assert!(
+        api_incoming
+            .iter()
+            .any(|r| r.source.symbol_name == "api_consumer"),
+        "got: {api_incoming:?}"
+    );
+    assert!(
+        api_incoming
+            .iter()
+            .any(|r| r.edge_kind == EdgeKind::References && r.source.symbol_name.is_empty()),
+        "type use missing: {api_incoming:?}"
+    );
+}

@@ -48,31 +48,48 @@ pub fn get_callers(
     let cross_repo_int = if cross_repo { 1 } else { 0 };
     let rows = stmt.query_map(
         params![symbol_name, repo, min_confidence, cross_repo_int],
-        |row| {
-            let (caller, caller_file_path) = map_symbol_and_path_row(row)?;
-            let kind_raw: String = row.get(15)?;
-            let provenance_raw: String = row.get(16)?;
-            let confidence: f64 = row.get(17)?;
-            let line: i64 = row.get(18)?;
-            let col: i64 = row.get(19)?;
-
-            Ok(CallerInfo {
-                caller,
-                caller_file_path,
-                edge_kind: parse_edge_kind(&kind_raw),
-                provenance: parse_provenance(&provenance_raw),
-                confidence,
-                line: line as usize,
-                col: col as usize,
-            })
-        },
+        map_caller_row,
     )?;
+    Ok(rows.collect::<Result<Vec<_>, _>>()?)
+}
 
-    let mut callers = Vec::new();
-    for r in rows {
-        callers.push(r?);
-    }
-    Ok(callers)
+/// Retrieves the callers of one definition, plus unresolved edges naming it.
+pub fn get_callers_of(
+    db: &GraphDb,
+    symbol_id: i64,
+    min_confidence: f64,
+) -> Result<Vec<CallerInfo>, QueryError> {
+    let mut stmt = db.conn().prepare_cached(
+        "SELECT s.id, s.file_id, s.repo, s.name, s.kind, s.scope, s.signature, s.docstring,
+                s.start_line, s.start_col, s.end_line, s.end_col, s.is_exported, s.complexity, f.path,
+                e.kind, e.provenance, e.confidence, e.line, e.col
+         FROM visible_edges e
+         JOIN visible_symbols s ON e.from_symbol_id = s.id
+         JOIN visible_files f ON s.file_id = f.id
+         WHERE (
+             e.to_symbol_id = ?1
+             OR (e.to_symbol_id IS NULL AND e.to_name = (SELECT name FROM visible_symbols WHERE id = ?1))
+         )
+         AND e.confidence >= ?2
+         ORDER BY e.confidence DESC, s.name ASC",
+    )?;
+    let rows = stmt.query_map(params![symbol_id, min_confidence], map_caller_row)?;
+    Ok(rows.collect::<Result<Vec<_>, _>>()?)
+}
+
+fn map_caller_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<CallerInfo> {
+    let (caller, caller_file_path) = map_symbol_and_path_row(row)?;
+    let kind_raw: String = row.get(15)?;
+    let provenance_raw: String = row.get(16)?;
+    Ok(CallerInfo {
+        caller,
+        caller_file_path,
+        edge_kind: parse_edge_kind(&kind_raw),
+        provenance: parse_provenance(&provenance_raw),
+        confidence: row.get(17)?,
+        line: row.get::<_, i64>(18)? as usize,
+        col: row.get::<_, i64>(19)? as usize,
+    })
 }
 
 /// Lists references to a symbol that sit outside any symbol body, such as imports.
@@ -100,15 +117,37 @@ pub fn get_references(
          ORDER BY f.repo, f.path, e.line",
     )?;
     let sites = stmt
-        .query_map(params![symbol_name, repo], |row| {
-            Ok(ReferenceSite {
-                repo: row.get(0)?,
-                file_path: row.get(1)?,
-                line: row.get::<_, i64>(2)? as usize,
-            })
-        })?
+        .query_map(params![symbol_name, repo], map_reference_row)?
         .collect::<Result<Vec<_>, _>>()?;
     Ok(sites)
+}
+
+/// Lists references to one definition that sit outside any symbol body, such as imports.
+pub fn get_references_of(db: &GraphDb, symbol_id: i64) -> Result<Vec<ReferenceSite>, QueryError> {
+    let mut stmt = db.conn().prepare_cached(
+        "SELECT DISTINCT f.repo, f.path, e.line
+         FROM visible_edges e
+         JOIN visible_files f ON e.file_id = f.id
+         WHERE +e.from_symbol_id IS NULL
+           AND e.kind IN ('REFERENCES', 'references')
+           AND (
+               e.to_symbol_id = ?1
+               OR (e.to_symbol_id IS NULL AND e.to_name = (SELECT name FROM visible_symbols WHERE id = ?1))
+           )
+         ORDER BY f.repo, f.path, e.line",
+    )?;
+    let sites = stmt
+        .query_map(params![symbol_id], map_reference_row)?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(sites)
+}
+
+fn map_reference_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ReferenceSite> {
+    Ok(ReferenceSite {
+        repo: row.get(0)?,
+        file_path: row.get(1)?,
+        line: row.get::<_, i64>(2)? as usize,
+    })
 }
 
 /// Retrieves all outgoing calls/callees from a specific symbol ID.

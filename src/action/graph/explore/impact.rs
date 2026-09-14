@@ -2,7 +2,8 @@ use std::collections::HashSet;
 
 use crate::action::graph::query::{self, SymbolLocation};
 use crate::domain::graph::{
-    CallFlowItem, ExploreImpact, OperationalRelation, RelationDirection, RelationEndpoint,
+    CallFlowItem, EdgeKind, ExploreImpact, OperationalRelation, Provenance, RelationDirection,
+    RelationEndpoint,
 };
 use crate::store::graph::db::GraphDb;
 
@@ -33,8 +34,10 @@ pub(crate) fn collect_relations(
             symbol_kind: Some(candidate.symbol.kind.clone()),
         };
 
-        // Query callers (incoming)
-        let callers = query::get_callers(db, &candidate.symbol.name, repo, true, 0.7)?;
+        let callers = match candidate.symbol.id {
+            Some(id) => query::get_callers_of(db, id, 0.7)?,
+            None => query::get_callers(db, &candidate.symbol.name, repo, true, 0.7)?,
+        };
         for caller in callers {
             let flow_key = (
                 caller.caller.name.clone(),
@@ -91,8 +94,38 @@ pub(crate) fn collect_relations(
             }
         }
 
-        // Query callees (outgoing)
         if let Some(sym_id) = candidate.symbol.id {
+            for site in query::get_references_of(db, sym_id)? {
+                let rel_key = (
+                    site.repo.clone(),
+                    site.file_path.clone(),
+                    String::new(),
+                    candidate_endpoint.repo.clone(),
+                    candidate_endpoint.file_path.clone(),
+                    candidate_endpoint.symbol_name.clone(),
+                    site.line,
+                    EdgeKind::References,
+                );
+                if seen_relations.insert(rel_key) {
+                    direct_relations.push(OperationalRelation {
+                        cross_repo: site.repo != candidate.symbol.repo,
+                        source: RelationEndpoint {
+                            repo: site.repo,
+                            file_path: site.file_path,
+                            symbol_name: String::new(),
+                            symbol_kind: None,
+                        },
+                        target: candidate_endpoint.clone(),
+                        direction: RelationDirection::Incoming,
+                        edge_kind: EdgeKind::References,
+                        provenance: Provenance::Extracted,
+                        confidence: 1.0,
+                        line: site.line,
+                        hop_count: 1,
+                    });
+                }
+            }
+
             let callees = query::get_callees(db, sym_id)?;
             for callee in callees {
                 let flow_key = (

@@ -331,20 +331,29 @@ fn narrate_named_flows(out: &mut String, res: &ExploreResult) {
     out.push('\n');
 }
 
-/// Names what depends on each matched symbol, one line per symbol: how many
-/// callers and in which files.
+/// Names what depends on each matched symbol, one line per definition: how many
+/// callers, in which files, and where its type is used outside any symbol body.
 ///
-/// Grouped by symbol *name*, because that is the precision the resolver has:
-/// `query::get_callers` matches on name, so the callers of same-named definitions
-/// are indistinguishable. One line per name, with the ambiguity stated, avoids
-/// repeating the same callers and implying a certainty the index does not hold.
+/// A symbol with an index id owns only the relations whose target is its exact
+/// repo, file and name, so same-named definitions keep their consumers apart.
+/// A symbol without an id falls back to grouping by name, the only precision the
+/// name-based resolver has.
 fn narrate_blast_radius(out: &mut String, res: &ExploreResult) {
     let mut lines = Vec::new();
     let mut rendered = std::collections::BTreeSet::new();
 
     for snippet in &res.primary_symbols {
         let name = snippet.symbol.name.as_str();
-        if !rendered.insert(name) {
+        let exact = snippet.symbol.id.is_some();
+        let key = if exact {
+            (
+                Some((snippet.symbol.repo.as_str(), snippet.file_path.as_str())),
+                name,
+            )
+        } else {
+            (None, name)
+        };
+        if !rendered.insert(key) {
             continue;
         }
 
@@ -354,6 +363,11 @@ fn narrate_blast_radius(out: &mut String, res: &ExploreResult) {
             .iter()
             .filter(|r| r.target.symbol_name == name)
             .filter(|r| {
+                !exact
+                    || (r.target.repo == snippet.symbol.repo
+                        && r.target.file_path == snippet.file_path)
+            })
+            .filter(|r| {
                 seen.insert((
                     r.source.repo.as_str(),
                     r.source.file_path.as_str(),
@@ -362,11 +376,14 @@ fn narrate_blast_radius(out: &mut String, res: &ExploreResult) {
                 ))
             })
             .collect();
-        if relations.is_empty() {
+        let (type_uses, callers): (Vec<_>, Vec<_>) = relations.into_iter().partition(|r| {
+            exact && r.edge_kind == EdgeKind::References && r.source.symbol_name.is_empty()
+        });
+        if callers.is_empty() && type_uses.is_empty() {
             continue;
         }
 
-        let files: std::collections::BTreeSet<&str> = relations
+        let files: std::collections::BTreeSet<&str> = callers
             .iter()
             .map(|r| r.source.file_path.as_str())
             .collect();
@@ -376,17 +393,32 @@ fn narrate_blast_radius(out: &mut String, res: &ExploreResult) {
             .map(|file| format!("`{file}`"))
             .collect();
         let mut line = format!(
-            "- `{name}` ({}:{}) — {} caller{} in {}",
+            "- `{name}` ({}:{}) — {} caller{}",
             snippet.file_path,
             snippet.symbol.span.start_line,
-            relations.len(),
-            plural(relations.len()),
-            named.join(", "),
+            callers.len(),
+            plural(callers.len()),
         );
+        if !named.is_empty() {
+            let _ = write!(line, " in {}", named.join(", "));
+        }
         if files.len() > MAX_CALLER_FILES {
             let _ = write!(line, " +{} more files", files.len() - MAX_CALLER_FILES);
         }
-        let cross = relations.iter().filter(|r| r.cross_repo).count();
+        if !type_uses.is_empty() {
+            let sites: Vec<String> = type_uses
+                .iter()
+                .map(|r| format!("`{}:{}`", r.source.file_path, r.line))
+                .collect();
+            let _ = write!(
+                line,
+                "; {} type use{} at {}",
+                type_uses.len(),
+                plural(type_uses.len()),
+                sites.join(", ")
+            );
+        }
+        let cross = callers.iter().filter(|r| r.cross_repo).count();
         if cross > 0 {
             let _ = write!(line, "; {cross} from other repos");
         }
@@ -395,13 +427,13 @@ fn narrate_blast_radius(out: &mut String, res: &ExploreResult) {
             .iter()
             .filter(|s| s.symbol.name == name)
             .count();
-        if definitions > 1 {
+        if !exact && definitions > 1 {
             let _ = write!(
                 line,
                 "; {definitions} definitions share this name, so confirm which one a caller means"
             );
         }
-        let uncertain = relations
+        let uncertain = callers
             .iter()
             .filter(|r| !matches!(r.provenance, Provenance::Extracted))
             .count();
