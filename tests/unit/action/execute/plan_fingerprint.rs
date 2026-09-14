@@ -47,6 +47,14 @@ Regular paragraph text with [x] in middle
 }
 
 #[test]
+fn normalize_checkboxes_ignores_the_wave_complete_marker() {
+    assert_eq!(
+        normalize_checkboxes("### Wave 1 — ship it ✅\n"),
+        normalize_checkboxes("### Wave 1 — ship it\n")
+    );
+}
+
+#[test]
 fn normalize_checkboxes_preserves_trailing_newline_or_lack_thereof() {
     let with_nl = "- [x] task\n";
     assert_eq!(normalize_checkboxes(with_nl), "- [ ] task\n");

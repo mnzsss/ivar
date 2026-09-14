@@ -87,14 +87,24 @@ fn reseal_plan_approval(
         return Ok(());
     };
     approvals.normalize();
+    let normalized_before = crate::action::execute::plan_fingerprint::normalize_checkboxes(before);
     let matches_before = approvals.record(Gate::Plan).is_some_and(|record| {
         record.state == GateState::Approved
-            && record.artifact_fingerprint.as_deref() == Some(hash::text(before).as_str())
+            && matches!(
+                record.artifact_fingerprint.as_deref(),
+                Some(fp) if fp == hash::text(&normalized_before).as_str()
+                    || fp == hash::text(before).as_str()
+            )
     });
     if !matches_before {
         return Ok(());
     }
-    approvals.set(Gate::Plan, GateState::Approved, Some(hash::text(after)));
+    let normalized_after = crate::action::execute::plan_fingerprint::normalize_checkboxes(after);
+    approvals.set(
+        Gate::Plan,
+        GateState::Approved,
+        Some(hash::text(&normalized_after)),
+    );
     approvals.write(layout, feature)?;
     Ok(())
 }

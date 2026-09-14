@@ -128,3 +128,27 @@ fn execute_start_pins_normalized_plan_fingerprint() {
 
     assert_eq!(outcome.value.receipt.status, RunStatus::Succeeded);
 }
+
+#[test]
+fn execute_restart_accepts_an_approved_plan_with_recorded_progress() {
+    let (_guard, root) = seeded_execution_hall();
+    let ctx = Ctx::new(root.clone());
+    let layout = discover_hall(&ctx).unwrap();
+    let feature = FeatureName::new("child-feature").unwrap();
+    let plan = layout.plan_dir(&feature).join("plan.md");
+    fs::write_text(&plan, "# Plan\n\n### Wave 1 — ship it\n\n- [ ] Execute task\n").unwrap();
+    approve_plan(&ctx);
+    write_feature_session(&layout, &feature);
+    let start_input = |restart| execute_start::StartInput {
+        feature: feature.to_string(),
+        plan: plan.to_string(),
+        resume: false,
+        restart,
+    };
+    execute_start::start(&ctx, start_input(false)).unwrap();
+
+    fs::write_text(&plan, "# Plan\n\n### Wave 1 — ship it ✅\n\n- [x] Execute task\n").unwrap();
+
+    execute_start::start(&ctx, start_input(true))
+        .expect("recorded wave progress must not revoke the plan approval");
+}
