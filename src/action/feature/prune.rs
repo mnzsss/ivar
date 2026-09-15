@@ -166,7 +166,12 @@ fn classify(
             let clone_exists = matches!(git.target_state(&bare), Ok(TargetState::Repository));
             let mut inspection_error = None;
             let unmerged_commits = if clone_exists {
-                match git.commits_ahead(&bare, effective_base.as_str(), feature.branch.as_str()) {
+                match base::unmerged_commits(
+                    git,
+                    &bare,
+                    effective_base.as_str(),
+                    feature.branch.as_str(),
+                ) {
                     Ok(ahead) => Some(ahead),
                     Err(error) => {
                         inspection_error = Some(error.to_string());
