@@ -54,7 +54,7 @@ pub enum Integrity {
 pub struct Inspection {
     /// The skill's id.
     pub id: String,
-    /// The path to the skill directory or SKILL.md.
+    /// The path to the skill directory.
     pub path: Utf8PathBuf,
     /// How the skill's integrity compares with its target state.
     pub integrity: Integrity,
@@ -174,7 +174,6 @@ pub fn inspect(skills_dir: &Utf8Path, enabled: bool) -> Result<Vec<Inspection>, 
 
     for skill in catalog() {
         let target_dir = skills_dir.join(skill.skill_dir_name());
-        let path = target_dir.join("SKILL.md");
         let present = fs::is_dir(&target_dir).map_err(|source| Error::Fs {
             path: target_dir.clone(),
             source,
@@ -188,7 +187,7 @@ pub fn inspect(skills_dir: &Utf8Path, enabled: bool) -> Result<Vec<Inspection>, 
         };
         inspections.push(Inspection {
             id: skill.id.to_owned(),
-            path,
+            path: target_dir,
             integrity,
         });
     }
@@ -200,7 +199,7 @@ pub fn inspect(skills_dir: &Utf8Path, enabled: bool) -> Result<Vec<Inspection>, 
         {
             inspections.push(Inspection {
                 id: id.to_owned(),
-                path: path.join("SKILL.md"),
+                path: path.clone(),
                 integrity: Integrity::Obsolete,
             });
         }
@@ -252,6 +251,7 @@ fn materialise_skill(target_dir: &Utf8Path, skill: ShippedSkill) -> Result<Chang
             source,
         })?;
     }
+    remove_empty_subdirs(target_dir)?;
     Ok(if created {
         Change::Created
     } else if written || !undeclared.is_empty() {
@@ -268,7 +268,8 @@ fn undeclared_files(
 ) -> Result<Vec<Utf8PathBuf>, Error> {
     let mut found = Vec::new();
     for entry in directory_entries(dir)? {
-        let is_dir = fs::is_dir(&entry).map_err(|source| Error::Fs {
+        // Never follow a symlink: it is an undeclared entry, unlinked as itself.
+        let is_dir = fs::is_real_dir(&entry).map_err(|source| Error::Fs {
             path: entry.clone(),
             source,
         })?;
@@ -284,6 +285,25 @@ fn undeclared_files(
         }
     }
     Ok(found)
+}
+
+fn remove_empty_subdirs(dir: &Utf8Path) -> Result<(), Error> {
+    for entry in directory_entries(dir)? {
+        let is_dir = fs::is_real_dir(&entry).map_err(|source| Error::Fs {
+            path: entry.clone(),
+            source,
+        })?;
+        if is_dir {
+            remove_empty_subdirs(&entry)?;
+            if directory_entries(&entry)?.is_empty() {
+                fs::remove_path(&entry).map_err(|source| Error::Fs {
+                    path: entry.clone(),
+                    source,
+                })?;
+            }
+        }
+    }
+    Ok(())
 }
 
 fn write_skill(path: &Utf8Path, content: &str) -> Result<(), Error> {

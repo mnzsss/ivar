@@ -137,14 +137,87 @@ fn materialise_prunes_undeclared_files_inside_a_shipped_skill() {
     std::fs::create_dir_all(stray.parent().unwrap()).unwrap();
     std::fs::write(&stray, "retired").unwrap();
 
+    let deep = dir.join("ivar-plan/extra/deep/x.md");
+    std::fs::create_dir_all(deep.parent().unwrap()).unwrap();
+    std::fs::write(&deep, "stray").unwrap();
+
     let changes = materialise(dir).expect("second materialise succeeds");
 
     assert!(!stray.exists());
+    assert!(!deep.exists());
+    assert!(!dir.join("ivar-plan/extra").exists());
+    assert!(dir.join("ivar-plan").is_dir());
     let execute = changes
         .iter()
         .find(|change| change.id == "execute")
         .unwrap();
     assert_eq!(execute.change, Change::Updated);
+}
+
+#[cfg(unix)]
+#[test]
+fn materialise_unlinks_a_symlink_inside_a_skill_without_touching_its_target() {
+    let temp = tempfile::tempdir().unwrap();
+    let dir = camino::Utf8Path::from_path(temp.path()).unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    let outside_file = outside.path().join("keep.md");
+    std::fs::write(&outside_file, "keep").unwrap();
+    materialise(dir).unwrap();
+
+    let link = dir.join("ivar-execute/linked");
+    std::os::unix::fs::symlink(outside.path(), &link).unwrap();
+
+    materialise(dir).unwrap();
+
+    assert!(outside_file.exists());
+    assert!(std::fs::symlink_metadata(&link).is_err());
+}
+
+#[test]
+fn materialise_restores_a_modified_declared_file() {
+    let temp = tempfile::tempdir().unwrap();
+    let dir = camino::Utf8Path::from_path(temp.path()).unwrap();
+    let plan_change = |dir: &camino::Utf8Path| {
+        materialise(dir)
+            .unwrap()
+            .into_iter()
+            .find(|change| change.id == "plan")
+            .unwrap()
+            .change
+    };
+    materialise(dir).unwrap();
+    let template = dir.join("ivar-plan/references/task-template.md");
+    std::fs::write(&template, "edited").unwrap();
+
+    assert_eq!(plan_change(dir), Change::Updated);
+    let expected = catalog()
+        .iter()
+        .find(|s| s.id == "plan")
+        .unwrap()
+        .files
+        .iter()
+        .find(|file| file.path == "references/task-template.md")
+        .unwrap()
+        .content;
+    assert_eq!(std::fs::read_to_string(&template).unwrap(), expected);
+    assert_eq!(plan_change(dir), Change::Unchanged);
+}
+
+#[test]
+fn inspect_reports_the_skill_directory_for_a_modified_skill() {
+    let temp = tempfile::tempdir().unwrap();
+    let dir = camino::Utf8Path::from_path(temp.path()).unwrap();
+    materialise(dir).unwrap();
+    std::fs::write(dir.join("ivar-execute/SKILL.md"), "edited").unwrap();
+
+    let execute = inspect(dir, true)
+        .unwrap()
+        .into_iter()
+        .find(|inspection| inspection.id == "execute")
+        .unwrap();
+
+    assert_eq!(execute.integrity, Integrity::Modified);
+    assert_eq!(execute.path, dir.join("ivar-execute"));
 }
 
 #[test]
