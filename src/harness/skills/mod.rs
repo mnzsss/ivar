@@ -160,11 +160,12 @@ pub fn inspect(skills_dir: &Utf8Path, enabled: bool) -> Result<Vec<Inspection>, 
     for skill in catalog() {
         let target_dir = skills_dir.join(skill.skill_dir_name());
         let present = fs::is_dir(&target_dir).map_err(fs_error(&target_dir))?;
+        let real_dir = fs::is_real_dir(&target_dir).map_err(fs_error(&target_dir))?;
         let integrity = match (present, enabled) {
             (true, false) => Integrity::Stale,
             (false, true) => Integrity::Missing,
             (false, false) => continue,
-            (true, true) if skill_is_intact(&target_dir, *skill)? => Integrity::Current,
+            (true, true) if real_dir && skill_is_intact(&target_dir, *skill)? => Integrity::Current,
             (true, true) => Integrity::Modified,
         };
         inspections.push(Inspection {
@@ -202,12 +203,17 @@ fn skill_is_intact(target_dir: &Utf8Path, skill: ShippedSkill) -> Result<bool, E
 }
 
 fn materialise_skill(target_dir: &Utf8Path, skill: ShippedSkill) -> Result<Change, Error> {
-    let created = !fs::is_dir(target_dir).map_err(fs_error(target_dir))?;
+    let created = ensure_real_dir(target_dir)?;
     let mut written = false;
     for file in skill.files {
         let path = target_dir.join(file.path);
-        let parent = path.parent().unwrap_or(target_dir);
-        fs::ensure_dir(parent).map_err(fs_error(parent))?;
+        if let Some(relative_parent) = Utf8Path::new(file.path).parent() {
+            let mut parent = target_dir.to_owned();
+            for component in relative_parent.components() {
+                parent.push(component);
+                ensure_real_dir(&parent)?;
+            }
+        }
         let existing = fs::read_bytes(&path).map_err(fs_error(&path))?;
         if existing.as_deref() != Some(file.content.as_bytes()) {
             write_skill(&path, file.content)?;
@@ -218,10 +224,10 @@ fn materialise_skill(target_dir: &Utf8Path, skill: ShippedSkill) -> Result<Chang
     for path in &undeclared {
         fs::remove_file(path).map_err(fs_error(path))?;
     }
-    remove_empty_subdirs(target_dir)?;
+    let pruned_dirs = remove_empty_subdirs(target_dir)?;
     Ok(if created {
         Change::Created
-    } else if written || !undeclared.is_empty() {
+    } else if written || pruned_dirs || !undeclared.is_empty() {
         Change::Updated
     } else {
         Change::Unchanged
@@ -251,17 +257,31 @@ fn undeclared_files(
     Ok(found)
 }
 
-fn remove_empty_subdirs(dir: &Utf8Path) -> Result<(), Error> {
+/// Make `dir` a real directory, returning whether it had to be created.
+fn ensure_real_dir(dir: &Utf8Path) -> Result<bool, Error> {
+    if fs::is_real_dir(dir).map_err(fs_error(dir))? {
+        return Ok(false);
+    }
+    // A symlink or file here would redirect writes outside the skill folder,
+    // so it is unlinked as itself and replaced by a real directory.
+    fs::remove_path(dir).map_err(fs_error(dir))?;
+    fs::ensure_dir(dir).map_err(fs_error(dir))?;
+    Ok(true)
+}
+
+fn remove_empty_subdirs(dir: &Utf8Path) -> Result<bool, Error> {
+    let mut removed = false;
     for entry in directory_entries(dir)? {
         let is_dir = fs::is_real_dir(&entry).map_err(fs_error(&entry))?;
         if is_dir {
-            remove_empty_subdirs(&entry)?;
+            removed |= remove_empty_subdirs(&entry)?;
             if directory_entries(&entry)?.is_empty() {
                 fs::remove_path(&entry).map_err(fs_error(&entry))?;
+                removed = true;
             }
         }
     }
-    Ok(())
+    Ok(removed)
 }
 
 fn write_skill(path: &Utf8Path, content: &str) -> Result<(), Error> {

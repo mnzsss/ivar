@@ -480,3 +480,101 @@ fn plan_uses_graph_evidence_with_fallback_and_no_approval_bypass() {
         "was: {content}"
     );
 }
+
+fn change_for(dir: &camino::Utf8Path, id: &str) -> Change {
+    materialise(dir)
+        .unwrap()
+        .into_iter()
+        .find(|change| change.id == id)
+        .unwrap()
+        .change
+}
+
+fn catalog_content(id: &str, path: &str) -> &'static str {
+    catalog()
+        .iter()
+        .find(|s| s.id == id)
+        .unwrap()
+        .files
+        .iter()
+        .find(|file| file.path == path)
+        .unwrap()
+        .content
+}
+
+#[test]
+fn materialise_reports_updated_when_only_empty_subdirs_are_removed() {
+    let temp = tempfile::tempdir().unwrap();
+    let dir = camino::Utf8Path::from_path(temp.path()).unwrap();
+    materialise(dir).unwrap();
+    let empty = dir.join("ivar-plan/extra/empty");
+    std::fs::create_dir_all(&empty).unwrap();
+
+    assert_eq!(change_for(dir, "plan"), Change::Updated);
+    assert!(!dir.join("ivar-plan/extra").exists());
+    assert_eq!(change_for(dir, "plan"), Change::Unchanged);
+}
+
+#[cfg(unix)]
+#[test]
+fn materialise_replaces_a_symlinked_skill_dir_without_touching_its_target() {
+    let temp = tempfile::tempdir().unwrap();
+    let dir = camino::Utf8Path::from_path(temp.path()).unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    let outside_file = outside.path().join("SKILL.md");
+    std::fs::write(&outside_file, "outside").unwrap();
+    let skill_dir = dir.join("ivar-execute");
+    std::os::unix::fs::symlink(outside.path(), &skill_dir).unwrap();
+
+    assert_eq!(change_for(dir, "execute"), Change::Created);
+
+    assert_eq!(std::fs::read_to_string(&outside_file).unwrap(), "outside");
+    assert!(std::fs::symlink_metadata(&skill_dir).unwrap().is_dir());
+    assert_eq!(
+        std::fs::read_to_string(skill_dir.join("SKILL.md")).unwrap(),
+        catalog_content("execute", "SKILL.md")
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn materialise_replaces_a_symlinked_declared_parent_without_touching_its_target() {
+    let temp = tempfile::tempdir().unwrap();
+    let dir = camino::Utf8Path::from_path(temp.path()).unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    materialise(dir).unwrap();
+    let references = dir.join("ivar-execute/references");
+    std::fs::remove_dir_all(&references).unwrap();
+    std::os::unix::fs::symlink(outside.path(), &references).unwrap();
+
+    materialise(dir).unwrap();
+
+    assert!(!outside.path().join("subagent.md").exists());
+    assert!(std::fs::symlink_metadata(&references).unwrap().is_dir());
+    assert_eq!(
+        std::fs::read_to_string(references.join("subagent.md")).unwrap(),
+        catalog_content("execute", "references/subagent.md")
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn inspect_reports_a_symlinked_skill_dir_as_modified() {
+    let temp = tempfile::tempdir().unwrap();
+    let dir = camino::Utf8Path::from_path(temp.path()).unwrap();
+    let intact = tempfile::tempdir().unwrap();
+    let intact_dir = camino::Utf8Path::from_path(intact.path()).unwrap();
+    materialise(intact_dir).unwrap();
+    materialise(dir).unwrap();
+    let skill_dir = dir.join("ivar-execute");
+    std::fs::remove_dir_all(&skill_dir).unwrap();
+    std::os::unix::fs::symlink(intact_dir.join("ivar-execute"), &skill_dir).unwrap();
+
+    let execute = inspect(dir, true)
+        .unwrap()
+        .into_iter()
+        .find(|inspection| inspection.id == "execute")
+        .unwrap();
+
+    assert_eq!(execute.integrity, Integrity::Modified);
+}
