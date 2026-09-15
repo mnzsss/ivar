@@ -68,7 +68,7 @@ pub struct CommandChange {
     /// The command's id — the catalog id for a shipped command, the stripped
     /// `ivar-<id>` stem for a removed file in the reserved namespace.
     pub id: String,
-    /// The file this entry is about, e.g. `ivar-plan.md`.
+    /// The file this entry is about, e.g. `ivar-deliver.md`.
     pub file_name: String,
     /// What happened to it.
     pub change: Change,
@@ -400,7 +400,7 @@ fn directory_entries(commands_dir: &Utf8Path) -> Result<Option<Vec<Utf8PathBuf>>
 }
 
 /// The catalog id a file name carries, when it is in the reserved `ivar-*`
-/// namespace: `ivar-plan.md` → `Some("plan")`. `ivar.md` (no hyphen) is not
+/// namespace: `ivar-deliver.md` → `Some("deliver")`. `ivar.md` (no hyphen) is not
 /// reserved.
 fn ivar_id(file_name: &str) -> Option<&str> {
     file_name.strip_prefix("ivar-")?.strip_suffix(".md")

@@ -1,6 +1,6 @@
 ---
+name: ivar-plan
 description: Conduct the SPDD planning process — Requirements, Analysis, Plan, and approval gates.
-argument-hint: <feature-name>
 ---
 
 # Plan
@@ -8,8 +8,8 @@ argument-hint: <feature-name>
 `/ivar-plan` runs the SPDD planning process for a feature. It has three planning
 phases, each followed by a human approval gate.
 
-The feature to plan is `$ARGUMENTS`. When that is empty, fall back to
-`$IVAR_FEATURE`; with neither, ask which feature to plan. Every `<feature>`
+The feature to plan is the one the user named; when none was named, fall back
+to `$IVAR_FEATURE`; with neither, ask which feature to plan. Every `<feature>`
 below is that resolved name.
 
 ## Prerequisites
@@ -112,99 +112,11 @@ after they approve.
 
 ## Phase 3: Plan
 
-1. Synthesize into the REASONS canvas — the sections `ivar plan create`
-   scaffolds in `plan.md`:
-   - **Entities** — domain model, delta only
-   - **Approach** — the chosen design, and what was rejected
-   - **Structure** — file/module organization
-   - **Changes** — implementation organized into sequential waves (`### Wave N — <outcome>`)
-     with point budget (`**Budget:** 0 / 8 points`, ceiling 8 per wave), prerequisites, a
-     task table (`| Task | Points | Blocked by | Outcome | Done |` — `[x]` when a task is
-     complete, `[ ]` while pending), checkboxed exit criteria (`- [ ]`, flipped to `- [x]`
-     as each is met), and a wave-complete marker (`### Wave N — <outcome> ✅` once every
-     exit criterion is met).
-   - **Lightweight validation** — per-wave executable commands verifying observable contracts.
-   - **Deferred validation failures** — documented failures carried forward.
-   - **Verification** — the checks that demonstrate the change is complete.
-     Each build or test check must be at least as wide as the readers the
-     packets declare: a check narrower than its blast radius reports green
-     while a reader outside it breaks. A reader no command can check — prose
-     stating a count, a fixture — is verified by reading it.
-   - **Norms** — coding conventions this feature follows. Every behavioural task is Test-Driven (Red → Green → Refactor).
-   - **Safeguards** — things to watch out for
-
-   Use `ivar graph explore <query>` to check direct and transitive consumers, relation paths, and blast radius when populating task readers, interfaces, and safeguards. Fall back to direct source grep and file reads when graph evidence is absent, empty, or unmodeled.
-
-   When Requirements and Analysis exist, reference them near the top of the
-   canvas (for example `Requirements: ../../requirements.md
-   (approved).`) rather than repeating their content.
+1. Synthesize the REASONS canvas following `references/plan-template.md`.
 
 2. Write the Plan artifact to `../../plan.md` (relative to `$IVAR_SESSION_PATH`).
 
-3. Generate task packets into `../../tasks/NN-<semantic-task-name>.md` for
-   every task in `plan.md`. Name files with a two-digit order prefix (e.g.
-   `01-pin-scaffold.md`). Each task packet must follow this structure:
-
-   ````
-   ### Task N: [Component Name]
-   **Files:**
-   - Create: `exact/path.rs`
-   - Modify: `exact/path.rs:123-145`
-   - Test: `tests/exact/path.rs`
-   **Readers:**
-   - For each symbol this packet writes, paste the output of
-     `git grep -n '<symbol>'`. Run it from the repo root with no pathspec:
-     it covers every tracked file and no build artifact, so the scope is a
-     fact about the repo rather than a list someone has to derive. A reader
-     is anything that asserts something about the symbol — a doc stating a
-     count, a fixture, a CI config — not only code that compiles.
-   - A symbol reached through a re-export answers to a name this grep never
-     sees; grep that name too.
-   - Name the constraint each reader imposes (an assertion, a caller, a config
-     consumer)
-   - When the grep finds nothing outside the declared files, write
-     `no readers outside the declared files` and paste the command, so the
-     claim is falsifiable
-   **Interfaces:**
-   - Consumes: [exact signatures from earlier tasks]
-   - Produces: [exact function names + types later tasks rely on]
-   - [ ] **Step 1: Write the failing test** — the test's literal source:
-
-     ```rust
-     #[test]
-     fn rejects_a_transport_the_schema_does_not_define() {
-         let error = McpServerDef::parse(r#"{"type":"sse","url":"http://x"}"#)
-             .expect_err("sse is not a canonical transport");
-         assert_eq!(error.field(), "type");
-     }
-     ```
-   - [ ] **Step 2: Run test to verify it fails**  Run: `...`  Expected: FAIL ...
-   - [ ] **Step 3: Write minimal implementation**
-   - [ ] **Step 4: Run test to verify it passes**  Run: `...`  Expected: PASS
-   - [ ] **Step 5: Commit**
-   ````
-
-   Step 1 carries the test's literal source: the assertions themselves, not a
-   description of them. It is the executable specification and it is short, so
-   there is never a volume argument for describing it instead. Step 3 carries
-   literal source at every point that decides behaviour — the exact call,
-   signature, option set, or type.
-
-   Volume that follows mechanically from a decision point may be described
-   instead, marked `**Sketch:** <reason>` where the reason states why literal
-   code is inappropriate for that volume. The escape is Step 3's alone, never
-   Step 1's. A sketch relaxes a body, never an interface: it still names every
-   symbol it produces with its exact signature, so a later packet's `Consumes`
-   cites something real.
-
-   A packet whose Step 1 shows no source, or whose described step carries no
-   `**Sketch:**`, is incomplete in the same way a missing Readers section is.
-
-   No placeholders anywhere: no `TBD`/`TODO`, no "implement later", no "add error handling",
-   no "similar to Task N", no step that says what to do without showing how, no reference to a
-   symbol defined nowhere. Steps 1–2 are Red (write failing test, run to verify FAIL),
-   Steps 3–4 are Green (minimal code, run to verify PASS). Refactoring is permitted between
-   Step 4 and Step 5.
+3. Generate task packets into `../../tasks/NN-<semantic-task-name>.md` following `references/task-template.md`.
 
 4. Dispatch a plan-document reviewer subagent to review `../../plan.md` and `../../tasks/`.
    **Run it on the smallest capable model this harness offers, never the

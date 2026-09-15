@@ -94,6 +94,7 @@ For each wave:
 
 1. **Subagent dispatch:**
    - Dispatch the wave's task packets exclusively to implementation subagent(s).
+   - Build every dispatch prompt from `references/subagent.md`, filling each field with absolute paths. A dispatch missing the working directory, worktree root, or artifact paths is incomplete.
    - **Coordinator isolation invariant:** The coordinator NEVER writes or edits feature code directly. All code edits, refactors, and test additions MUST be performed by subagents.
 2. **Execute lightweight validation:**
    - Run the explicit lightweight validation commands declared for this wave in `plan.md`.

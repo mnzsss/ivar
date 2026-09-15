@@ -12,7 +12,7 @@ use std::collections::BTreeSet;
 #[test]
 fn catalog_is_complete_unique_and_current() {
     let commands = catalog();
-    assert_eq!(commands.len(), 14);
+    assert_eq!(commands.len(), 13);
 
     let ids = commands
         .iter()
@@ -42,7 +42,7 @@ fn catalog_is_complete_unique_and_current() {
 fn execute_is_not_in_shipped_commands_catalog() {
     let catalog = catalog();
     assert!(!catalog.iter().any(|c| c.id == "execute"));
-    assert_eq!(catalog.len(), 14);
+    assert_eq!(catalog.len(), 13);
 }
 
 #[test]
@@ -57,6 +57,29 @@ fn materialise_cleans_up_obsolete_official_execute_command() {
         .iter()
         .any(|change| change.file_name == "ivar-execute.md" && change.change == Change::Removed));
     assert!(!fs::exists(&dir.join("ivar-execute.md")).unwrap());
+}
+
+#[test]
+fn plan_is_a_shipped_skill_not_a_command() {
+    assert!(!catalog().iter().any(|command| command.id == "plan"));
+    assert!(
+        crate::harness::skills::catalog()
+            .iter()
+            .any(|skill| skill.id == "plan")
+    );
+    assert_eq!(catalog().len(), 13);
+}
+
+#[test]
+fn materialise_removes_the_retired_plan_command() {
+    let (_guard, dir) = commands_dir();
+    fs::ensure_dir(&dir).unwrap();
+    fs::write_text(&dir.join("ivar-plan.md"), "old plan").unwrap();
+
+    let changes = materialise(&dir).unwrap();
+
+    assert_eq!(change(&changes, "ivar-plan.md").change, Change::Removed);
+    assert!(!fs::exists(&dir.join("ivar-plan.md")).unwrap());
 }
 
 /// `relations`, `feature-cleanup` and `connect` have no Bifrost-era
@@ -79,7 +102,7 @@ fn commands_without_a_bifrost_predecessor_carry_no_legacy_fingerprint() {
             .iter()
             .filter(|command| command.legacy_sha256.is_some())
             .count(),
-        10,
+        9,
         "every command with a Bifrost-era predecessor must keep its digest"
     );
     for command in commands
@@ -185,19 +208,25 @@ fn materialise_creates_repairs_and_then_becomes_idempotent() {
     let (_guard, dir) = commands_dir();
 
     let first = materialise(&dir).unwrap();
-    assert_eq!(first.len(), 14);
+    assert_eq!(first.len(), 13);
     assert!(first.iter().all(|change| change.change == Change::Created));
 
-    fs::write_text(&dir.join("ivar-plan.md"), "changed").unwrap();
+    fs::write_text(&dir.join("ivar-deliver.md"), "changed").unwrap();
     let repaired = materialise(&dir).unwrap();
-    assert_eq!(change(&repaired, "ivar-plan.md").change, Change::Updated);
+    assert_eq!(change(&repaired, "ivar-deliver.md").change, Change::Updated);
     assert_eq!(
-        fs::read_text(&dir.join("ivar-plan.md")).unwrap().unwrap(),
-        catalog().iter().find(|c| c.id == "plan").unwrap().content
+        fs::read_text(&dir.join("ivar-deliver.md"))
+            .unwrap()
+            .unwrap(),
+        catalog()
+            .iter()
+            .find(|c| c.id == "deliver")
+            .unwrap()
+            .content
     );
 
     let third = materialise(&dir).unwrap();
-    assert_eq!(third.len(), 14);
+    assert_eq!(third.len(), 13);
     assert!(
         third
             .iter()
@@ -205,8 +234,14 @@ fn materialise_creates_repairs_and_then_becomes_idempotent() {
         "expected everything unchanged, got {third:?}"
     );
     assert_eq!(
-        fs::read_text(&dir.join("ivar-plan.md")).unwrap().unwrap(),
-        catalog().iter().find(|c| c.id == "plan").unwrap().content
+        fs::read_text(&dir.join("ivar-deliver.md"))
+            .unwrap()
+            .unwrap(),
+        catalog()
+            .iter()
+            .find(|c| c.id == "deliver")
+            .unwrap()
+            .content
     );
 }
 
@@ -245,7 +280,7 @@ fn remove_deletes_only_reserved_ivar_commands() {
 
     let changes = remove(&dir).unwrap();
 
-    assert_eq!(changes.len(), 14);
+    assert_eq!(changes.len(), 13);
     assert!(
         changes
             .iter()
@@ -315,7 +350,7 @@ fn inspect_sees_a_healthy_directory_as_current() {
 
     let inspections = inspect(&dir, true).unwrap();
 
-    assert_eq!(inspections.len(), 14);
+    assert_eq!(inspections.len(), 13);
     assert!(
         inspections
             .iter()
@@ -327,16 +362,16 @@ fn inspect_sees_a_healthy_directory_as_current() {
 fn inspect_reports_missing_and_modified_shipped_commands() {
     let (_guard, dir) = commands_dir();
     materialise(&dir).unwrap();
-    fs::remove_file(&dir.join("ivar-plan.md")).unwrap();
+    fs::remove_file(&dir.join("ivar-deliver.md")).unwrap();
     fs::write_text(&dir.join("ivar-sync.md"), "tampered\n").unwrap();
 
     let inspections = inspect(&dir, true).unwrap();
 
-    let plan = inspections
+    let deliver = inspections
         .iter()
-        .find(|inspection| inspection.id == "plan")
+        .find(|inspection| inspection.id == "deliver")
         .unwrap();
-    assert_eq!(plan.integrity, Integrity::Missing);
+    assert_eq!(deliver.integrity, Integrity::Missing);
     let sync = inspections
         .iter()
         .find(|inspection| inspection.id == "sync")
@@ -351,7 +386,7 @@ fn inspect_marks_leftover_files_stale_for_a_disabled_provider() {
 
     let inspections = inspect(&dir, false).unwrap();
 
-    assert_eq!(inspections.len(), 14);
+    assert_eq!(inspections.len(), 13);
     assert!(
         inspections
             .iter()
@@ -372,137 +407,6 @@ fn embedded(id: &str) -> String {
         .unwrap_or_else(|| panic!("no `{id}` in the catalog"))
         .content;
     content.split_whitespace().collect::<Vec<_>>().join(" ")
-}
-
-/// The plan checkpoint sits at the beginning of Analysis: read `HALL.md` and
-/// the linked topics of potentially affected Repos, record the context, and
-/// never let a deferred review block approval.
-#[test]
-fn plan_checks_relation_context_at_the_start_of_analysis() {
-    let content = embedded("plan");
-    let analysis = content
-        .find("## Phase 2: Analysis")
-        .expect("plan has an Analysis phase");
-    let after = &content[analysis..];
-    let lower = after.to_lowercase();
-
-    assert!(lower.contains("read `hall.md`"), "was: {after}");
-    assert!(after.contains("linked topics"), "was: {after}");
-    assert!(after.contains("`analysis.md`"), "was: {after}");
-    assert!(after.contains("evidence"), "was: {after}");
-    assert!(after.contains("/ivar-relations"), "was: {after}");
-    assert!(after.contains("never blocks"), "was: {after}");
-}
-
-#[test]
-fn plan_has_three_approval_gates_and_hands_off_to_execute() {
-    let content = embedded("plan");
-
-    assert!(content.contains("approve requirements"), "was: {content}");
-    assert!(content.contains("approve analysis"), "was: {content}");
-    assert!(content.contains("approve plan"), "was: {content}");
-    assert!(content.contains("ivar-execute"), "was: {content}");
-    assert!(content.contains("Done"), "was: {content}");
-    assert!(content.contains("✅"), "was: {content}");
-    assert!(!content.contains("approve graph"), "was: {content}");
-}
-
-/// A task packet must declare who reads what it writes, with the grep that
-/// found them. Three waves were reverted because a packet edited its declared
-/// files and broke a reader outside the list.
-#[test]
-fn plan_packet_template_requires_declared_readers() {
-    let content = embedded("plan");
-
-    assert!(content.contains("**Readers:**"), "was: {content}");
-    assert!(content.contains("git grep -n"), "was: {content}");
-    assert!(content.contains("no readers outside"), "was: {content}");
-}
-
-/// The Readers grep must cover the whole tree, not a scope someone derives.
-/// Two controlled runs found the same failure twice: a reader in `examples/`
-/// escaped a hardcoded `src/ tests/`, and a reader in `docs/` escaped a scope
-/// derived from the workspace members. Both times every agent reported
-/// success. `git grep` with no pathspec ends the derivation: tracked files in,
-/// build artifacts out, nothing to get wrong.
-#[test]
-fn plan_readers_grep_is_scoped_to_the_whole_tree() {
-    let content = embedded("plan");
-
-    assert!(content.contains("git grep -n '<symbol>'"), "was: {content}");
-    assert!(content.contains("no pathspec"), "was: {content}");
-    assert!(
-        content.contains("not only code that compiles"),
-        "was: {content}"
-    );
-}
-
-/// A build check narrower than the readers it must defend passes while a
-/// reader outside it breaks. In the controlled run every agent ran the
-/// packet's `cargo build`, saw green, and shipped an `examples/` target that
-/// failed to compile.
-#[test]
-fn plan_verification_covers_every_reader_it_declares() {
-    let content = embedded("plan");
-
-    assert!(content.contains("as wide as the readers"), "was: {content}");
-}
-
-/// The plan reviewer checks that packets declare their readers. Without this
-/// the Readers field is advisory, which is how the parent feature's
-/// R-DELEGATE defect was born.
-#[test]
-fn plan_reviewer_checks_declared_readers() {
-    let content = embedded("plan");
-
-    assert!(content.contains("Blast Radius"), "was: {content}");
-
-    let table = content
-        .find("| Category | What to Look For |")
-        .expect("plan has a reviewer checklist");
-    let after = &content[table..];
-    let end = after
-        .find("Reviewer output format")
-        .expect("checklist ends");
-    let checklist = &after[..end];
-
-    assert!(checklist.contains("Blast Radius"), "was: {checklist}");
-    assert!(checklist.contains("Readers"), "was: {checklist}");
-}
-
-/// The packet template's own Step 1 must show assertions, not describe them.
-/// Two shipped plans (`ivar-manifest-schema`, `omp-support`: 20 packets)
-/// carried zero code while `:176-180` already forbade it in prose. A rule
-/// stated beside a form that contradicts it loses to the form.
-#[test]
-fn plan_packet_template_requires_literal_test() {
-    let content = embedded("plan");
-
-    assert!(content.contains("literal source"), "was: {content}");
-    assert!(
-        content.contains("Step 1 carries the test's literal source"),
-        "was: {content}"
-    );
-    // The example inside the template is real code, not a placeholder.
-    assert!(content.contains("assert_eq!"), "was: {content}");
-}
-
-/// The escape is bounded on both sides: Step 1 may never use it, and a
-/// sketch still names its signatures. `omp-support`'s packet 01 produced
-/// `Provider::Omp` "with stable id `omp`, config dir `.omp`" — an enum
-/// variant whose actual shape no packet ever wrote down, leaving the next
-/// packet's `Consumes` citing nothing.
-#[test]
-fn plan_sketch_escape_is_bounded() {
-    let content = embedded("plan");
-
-    assert!(content.contains("**Sketch:**"), "was: {content}");
-    assert!(content.contains("never Step 1"), "was: {content}");
-    assert!(
-        content.contains("relaxes a body, never an interface"),
-        "was: {content}"
-    );
-    assert!(content.contains("exact signature"), "was: {content}");
 }
 
 /// The deliver checkpoint sits between preview and apply, and deferring it
@@ -569,29 +473,6 @@ fn every_command_declaring_an_argument_hint_consumes_arguments() {
     );
 }
 
-/// The reviewer checks the code obligation, or it is advisory — which is
-/// how the prose at `:176-180` failed. The row must judge the *reason* on a
-/// sketch, not merely the marker's presence: an unjudged escape becomes the
-/// default.
-#[test]
-fn plan_reviewer_checks_literal_code() {
-    let content = embedded("plan");
-
-    let table = content
-        .find("| Category | What to Look For |")
-        .expect("plan has a reviewer checklist");
-    let after = &content[table..];
-    let end = after
-        .find("Reviewer output format")
-        .expect("checklist ends");
-    let checklist = &after[..end];
-
-    assert!(checklist.contains("Literal Code"), "was: {checklist}");
-    assert!(checklist.contains("Step 1"), "was: {checklist}");
-    assert!(checklist.contains("**Sketch:**"), "was: {checklist}");
-    assert!(checklist.contains("reason"), "was: {checklist}");
-}
-
 #[test]
 fn discovery_uses_graph_explore_with_fallback() {
     let content = embedded("discovery");
@@ -599,21 +480,6 @@ fn discovery_uses_graph_explore_with_fallback() {
     assert!(content.contains("advisory"), "was: {content}");
     assert!(
         content.contains("fallback") || content.contains("fall back"),
-        "was: {content}"
-    );
-}
-
-#[test]
-fn plan_uses_graph_evidence_with_fallback_and_no_approval_bypass() {
-    let content = embedded("plan");
-    assert!(content.contains("ivar graph explore"), "was: {content}");
-    assert!(content.contains("advisory"), "was: {content}");
-    assert!(
-        content.contains("fallback") || content.contains("fall back"),
-        "was: {content}"
-    );
-    assert!(
-        content.contains("never creates, approves, or bypasses"),
         "was: {content}"
     );
 }

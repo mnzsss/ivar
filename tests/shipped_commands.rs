@@ -23,14 +23,13 @@ use common::{hall_root, ivar};
 use predicates::prelude::*;
 
 /// Every shipped command id, as `/ivar-<id>`.
-const SHIPPED_IDS: [&str; 14] = [
+const SHIPPED_IDS: [&str; 13] = [
     "connect",
     "deliver",
     "discovery",
     "feature-cleanup",
     "feature-create",
     "feature-status",
-    "plan",
     "promote",
     "relations",
     "repo-list",
@@ -40,107 +39,24 @@ const SHIPPED_IDS: [&str; 14] = [
     "workspace",
 ];
 
-/// The exact bytes of the Bifrost-era `plan` command — its SHA-256 is the
-/// catalog's legacy fingerprint for `plan`, which is what lets `sync` remove
-/// the unprefixed file (and only the file whose digest matches).
-const LEGACY_PLAN: &str = r#"---
-description: Conduct the SPDD planning process — Requirements, Analysis, Plan, and approval gates.
-argument-hint: <feature-name>
----
-
-Run the full SPDD planning process for a feature. This skill conducts three planning phases with human approval gates between each.
-
-## Prerequisites
-
-- You must be inside a **Feature Session** (`BIFROST_FEATURE` must be set).
-- The feature must exist (`bifrost hall feature list`).
-- Start a new SPDD flow with `bifrost hall plan init --feature <name>` to scaffold the planning artifacts.
-
-## Process Overview
-
-The SPDD planning lifecycle has three artifacts with four approval gates:
-
-```
-Requirements → [approve-requirements] → Analysis → [approve-analysis] → Plan → [approve-plan] → Graph → [approve-graph] → Execution
-```
-
-Each artifact lives committed under `<hall>/plans/<feature>/`. Once an artifact is approved, changing it cascades invalidation to downstream artifacts.
-
-## Phase 1: Requirements
-
-1. Research the feature and its context (repos, existing code, user needs).
-
-2. Write the Requirements artifact to `plans/<feature>/requirements.md`. Include:
-   - Functional requirements (R-* IDs: R-LOGIN, R-AUTH, etc.)
-   - Non-functional requirements (performance, security)
-   - Constraints
-
-3. Call `bifrost hall plan submit --feature <name> --artifact requirements`.
-
-4. **Pause for human approval.** Show the requirements to the user. Only proceed after they approve.
-
-5. Call `bifrost hall plan approve-requirements --feature <name>`.
-
-## Phase 2: Analysis
-
-1. With approved Requirements as context, analyze the codebase to determine:
-   - Affected modules (repo + path + impact level)
-   - Trade-offs between approaches
-   - Risks and mitigations
-   - Recommendations
-
-2. Write the Analysis artifact to `plans/<feature>/analysis.md`.
-
-3. Call `bifrost hall plan submit --feature <name> --artifact analysis`.
-
-4. **Pause for human approval.** Show the analysis to the user. Only proceed after they approve.
-
-5. Call `bifrost hall plan approve-analysis --feature <name>`.
-
-## Phase 3: Plan
-
-1. Synthesize the Requirements and Analysis into a structured plan. Include:
-   - **Requirements** section referencing the artifact
-   - **Entities** — domain model (delta only; reference CONTEXT.md)
-   - **Approach** — the chosen design approach
-   - **Structure** — file/module organization
-   - **Operations** — concrete, testable steps with OP-* IDs:
-     - Each operation has: id, title, description, dependsOn, touches, tests, doneWhen
-     - Operation IDs follow the format `OP-<SLUG>` (e.g., `OP-API-CONTRACT`)
-     - Touch sets are file paths identifying what files are affected
-   - **Norms** — coding conventions to follow
-   - **Safeguards** — things to watch out for
-
-2. Write the Plan artifact to `plans/<feature>/plan.md`.
-
-3. Call `bifrost hall plan submit --feature <name> --artifact plan`.
-
-4. **Pause for human approval.** Show the plan to the user. Only proceed after they approve.
-
-5. Call `bifrost hall plan approve-plan --feature <name>`.
-
-## Phase 4: Execution Graph
-
-After the plan is approved, the execution graph must be approved separately:
-
-1. Call `bifrost hall feature execute prepare --feature <name> --plan <plan-path> --graph-json <path>`.
-2. When `status=awaiting_approval`, show the generated graph to the user.
-3. After approval, call `bifrost hall plan approve-graph --feature <name>` or `bifrost hall feature execute approve --feature <name>`.
-
-## Checking Status
-
-At any point, check approval gate status:
-`bifrost hall plan status --feature <name>`
-
-## Important
-
-- **Never hand-edit** approvals in `.features/<name>/planning/approvals.json`. Always use the CLI commands.
-- Changing an upstream artifact (Requirements → Analysis → Plan) automatically marks downstream gates as `needs_revision`.
-- Behavior-changing plan edits (Operations or Approach changes) require re-approval of affected gates.
-- The plan skill respects the **REASONS Canvas** format: design sections reference standing sources and record only the feature's delta.
-- **Replan mode**: If execution is in-flight and the Plan needs structural changes, use `bifrost hall plan submit --artifact plan` to produce a new revision. Behavior-changing revisions pause affected workstreams until each acknowledges via `bifrost hall feature execute ack-revision --feature <name> --workstream <id>`. Execution resumes only after all affected workstreams acknowledge.
-- **Reconcile mode**: For local code divergence confined to an operation's implementation, record the deviation in the execution journal and update the Plan via submit. Requires user acceptance before writing.
-"#;
+/// The exact bytes of the Bifrost-era `repo-list` command — its SHA-256 is the
+/// catalog's legacy fingerprint for `repo-list`, which is what lets `sync`
+/// remove the unprefixed file (and only the file whose digest matches).
+const LEGACY_REPO_LIST: &str = "# Repo List\n\
+        \n\
+        List all repositories registered in the hall manifest, along with active sessions\n\
+        and promoted repos.\n\
+        \n\
+        ## Usage\n\
+        \n\
+        ```bash\n\
+        bifrost hall status\n\
+        ```\n\
+        \n\
+        ## Output\n\
+        \n\
+        Shows all repos with their name, default branch, and URL. Also shows features,\n\
+        sessions, lifecycle state, and promoted repos per feature.\n";
 
 /// Rewrite a hall's `ivar.json` to list exactly `available` providers, no
 /// repos. Hand-written because the manifest being hand-editable is the
@@ -206,13 +122,25 @@ fn shipped_commands_encode_wave_completion_and_native_coordination() {
     assert!(feature_create.contains("announce"));
     assert!(feature_create.contains("do not ask permission"));
 
-    let plan = collapsed(read("plan"));
+    let plan_dir = root.join(".claude/skills/ivar-plan");
+    let plan = collapsed(
+        [
+            "SKILL.md",
+            "references/plan-template.md",
+            "references/task-template.md",
+        ]
+        .iter()
+        .map(|file| std::fs::read_to_string(plan_dir.join(file)).unwrap())
+        .collect::<Vec<_>>()
+        .join("\n"),
+    );
     assert!(plan.contains("three planning phases"));
     assert!(plan.contains("[approve plan] → Execution"));
     assert!(!plan.contains("approve graph"));
     assert!(plan.contains("Step 1 carries the test's literal source"));
     assert!(plan.contains("**Sketch:**"));
     assert!(plan.contains("Literal Code"));
+    assert!(!root.join(".claude/commands/ivar-plan.md").exists());
     assert!(!root.join(".claude/commands/ivar-execute.md").exists());
 }
 
@@ -262,7 +190,7 @@ fn a_user_command_survives_sync_and_provider_removal() {
     rewrite_manifest(&root, &["claude-code"]);
     ivar().current_dir(&root).arg("sync").assert().success();
     assert!(
-        !root.join(".opencode/commands/ivar-plan.md").exists(),
+        !root.join(".opencode/commands/ivar-deliver.md").exists(),
         "a dropped provider's shipped commands must be removed"
     );
     assert_eq!(
@@ -277,11 +205,11 @@ fn a_user_command_survives_sync_and_provider_removal() {
 fn sync_restores_a_modified_shipped_command() {
     let (_guard, root) = hall_root();
     ivar().current_dir(&root).arg("init").assert().success();
-    std::fs::write(root.join(".claude/commands/ivar-plan.md"), "tampered\n").unwrap();
+    std::fs::write(root.join(".claude/commands/ivar-deliver.md"), "tampered\n").unwrap();
 
     ivar().current_dir(&root).arg("sync").assert().success();
 
-    let restored = std::fs::read_to_string(root.join(".claude/commands/ivar-plan.md")).unwrap();
+    let restored = std::fs::read_to_string(root.join(".claude/commands/ivar-deliver.md")).unwrap();
     assert!(restored.starts_with("---\n"), "was: {restored:?}");
     assert!(restored.contains("description:"), "was: {restored:?}");
 }
@@ -414,7 +342,8 @@ fn shipped_spdd_guidance_documents_graph_use_and_fallbacks() {
     let base = env!("CARGO_MANIFEST_DIR");
     let discovery =
         std::fs::read_to_string(format!("{base}/src/harness/commands/discovery.md")).unwrap();
-    let plan = std::fs::read_to_string(format!("{base}/src/harness/commands/plan.md")).unwrap();
+    let plan =
+        std::fs::read_to_string(format!("{base}/src/harness/skills/ivar-plan/SKILL.md")).unwrap();
     let review = std::fs::read_to_string(format!("{base}/src/harness/commands/review.md")).unwrap();
     let execute =
         std::fs::read_to_string(format!("{base}/src/harness/skills/ivar-execute/SKILL.md"))
@@ -438,7 +367,7 @@ fn shipped_spdd_guidance_documents_graph_use_and_fallbacks() {
     );
 }
 
-/// A fingerprint-matching legacy `plan.md` is removed by sync; a customised
+/// A fingerprint-matching legacy `repo-list.md` is removed by sync; a customised
 /// one survives and appears in `ivar doctor`.
 #[test]
 fn fingerprint_matching_legacy_command_is_removed_and_modified_one_is_diagnosed() {
@@ -446,22 +375,22 @@ fn fingerprint_matching_legacy_command_is_removed_and_modified_one_is_diagnosed(
     ivar().current_dir(&root).arg("init").assert().success();
 
     // The exact official artifact: sync removes it.
-    std::fs::write(root.join(".claude/commands/plan.md"), LEGACY_PLAN).unwrap();
+    std::fs::write(root.join(".claude/commands/repo-list.md"), LEGACY_REPO_LIST).unwrap();
     ivar().current_dir(&root).arg("sync").assert().success();
     assert!(
-        !root.join(".claude/commands/plan.md").exists(),
+        !root.join(".claude/commands/repo-list.md").exists(),
         "a fingerprint-matching legacy command must be removed"
     );
 
     // A customised one is preserved, and doctor names it.
     std::fs::write(
-        root.join(".claude/commands/plan.md"),
-        format!("{LEGACY_PLAN}x"),
+        root.join(".claude/commands/repo-list.md"),
+        format!("{LEGACY_REPO_LIST}x"),
     )
     .unwrap();
     ivar().current_dir(&root).arg("sync").assert().success();
     assert!(
-        root.join(".claude/commands/plan.md").is_file(),
+        root.join(".claude/commands/repo-list.md").is_file(),
         "a customised legacy command must survive sync"
     );
     ivar()
@@ -478,7 +407,7 @@ fn fingerprint_matching_legacy_command_is_removed_and_modified_one_is_diagnosed(
 fn status_stays_operational_when_a_shipped_command_is_missing() {
     let (_guard, root) = hall_root();
     ivar().current_dir(&root).arg("init").assert().success();
-    std::fs::remove_file(root.join(".claude/commands/ivar-plan.md")).unwrap();
+    std::fs::remove_file(root.join(".claude/commands/ivar-deliver.md")).unwrap();
 
     ivar()
         .current_dir(&root)
@@ -615,7 +544,7 @@ mod cited_invocations {
     /// Pull every `` `ivar ...` `` span out of `text`.
     ///
     /// Matches a backtick, the literal `ivar`, then a space — so `ivar.json`
-    /// and `ivar-plan.md` never match — up to the closing backtick. A span
+    /// and `ivar-deliver.md` never match — up to the closing backtick. A span
     /// with a newline in it is a wrapped sentence, not an invocation, and is
     /// skipped.
     fn citations(source: &str, text: &str) -> Vec<Citation> {

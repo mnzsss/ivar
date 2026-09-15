@@ -205,6 +205,18 @@ pub fn is_dir(path: &Utf8Path) -> Result<bool, Error> {
     }
 }
 
+/// Whether `path` is a directory itself, not a symlink to one. `false` if absent.
+pub fn is_real_dir(path: &Utf8Path) -> Result<bool, Error> {
+    match fs_err::symlink_metadata(path.as_std_path()) {
+        Ok(metadata) => Ok(metadata.is_dir()),
+        Err(source) if is_not_found(&source) => Ok(false),
+        Err(source) => Err(Error::Metadata {
+            path: path.to_owned(),
+            source,
+        }),
+    }
+}
+
 /// Full metadata for `path` (following symlinks). `Ok(None)` if absent.
 pub fn stat(path: &Utf8Path) -> Result<Option<std::fs::Metadata>, Error> {
     match fs_err::metadata(path.as_std_path()) {
