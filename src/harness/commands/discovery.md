@@ -93,8 +93,9 @@ to a Feature.
         to choose a new or existing feature — the name follows from the brief,
         and `ivar feature create` beforehand is unnecessary.
      4. Parse the output. Export the binding env vars.
-     5. After successful conversion, check if `/ivar-plan` is installed (look
-        in `.claude/commands/` or `.opencode/commands/` for `ivar-plan.md`):
+     5. After successful conversion, check if the `ivar-plan` skill is installed
+        (look in `.claude/skills/`, `.opencode/skills/` or `.omp/skills/` for
+        `ivar-plan/SKILL.md`):
         - If installed, offer: "Would you like to create a plan for this
           Feature? Run `/ivar-plan`."
         - Do not run `/ivar-plan` automatically.

@@ -148,7 +148,7 @@ delta rather than restating them. *Canvas* names the format, not the artifact.
 
 **Operations and Operation details** — the concrete implementation steps in a
 plan. `Operations` identifies the work to do; `Operation details` provides the
-executor-facing detail. `/ivar-plan` carries the exact shape.
+executor-facing detail. `ivar-plan` (skill) and its references/task-template.md carry the exact shape.
 
 **Approval gate** — an explicit human decision that moves a feature through the
 lifecycle. Three exist: requirements, analysis, and plan. Each refuses until the

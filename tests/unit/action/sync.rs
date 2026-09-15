@@ -783,7 +783,7 @@ fn sync_materialises_shipped_commands_for_available_providers() {
     // OpenCode's commands come from this sync — init only bootstrapped the
     // default provider, Claude Code.
     assert_eq!(
-        entry(&report.value, "opencode", "command ivar-plan.md").change,
+        entry(&report.value, "opencode", "command ivar-deliver.md").change,
         Change::Created
     );
 }
@@ -844,7 +844,7 @@ fn second_sync_reports_commands_unchanged_without_rewriting() {
         assert_eq!(&mtime, before_mtime, "{path} must not be rewritten");
     }
     assert_eq!(
-        entry(&report.value, "claude-code", "command ivar-plan.md").change,
+        entry(&report.value, "claude-code", "command ivar-deliver.md").change,
         Change::Unchanged
     );
 }
@@ -857,19 +857,19 @@ fn sync_repairs_modified_shipped_command_and_preserves_custom_command() {
 
     let custom = root.join(".claude/commands/custom.md");
     fs::write_text(&custom, "mine\n").unwrap();
-    fs::write_text(&root.join(".claude/commands/ivar-plan.md"), "changed\n").unwrap();
+    fs::write_text(&root.join(".claude/commands/ivar-deliver.md"), "changed\n").unwrap();
 
     let report = sync(&ctx, SyncInput::default()).unwrap();
 
     assert_eq!(
-        entry(&report.value, "claude-code", "command ivar-plan.md").change,
+        entry(&report.value, "claude-code", "command ivar-deliver.md").change,
         Change::Updated
     );
     assert_eq!(
-        fs::read_text(&root.join(".claude/commands/ivar-plan.md"))
+        fs::read_text(&root.join(".claude/commands/ivar-deliver.md"))
             .unwrap()
             .unwrap(),
-        embedded("plan")
+        embedded("deliver")
     );
     assert_eq!(fs::read_text(&custom).unwrap().unwrap(), "mine\n");
 }
@@ -897,11 +897,11 @@ fn sync_removes_only_shipped_commands_for_unavailable_provider() {
     let report = sync(&ctx, SyncInput::default()).unwrap();
 
     assert_eq!(
-        entry(&report.value, "opencode", "command ivar-plan.md").change,
+        entry(&report.value, "opencode", "command ivar-deliver.md").change,
         Change::Removed
     );
     assert!(
-        !fs::exists(&root.join(".opencode/commands/ivar-plan.md")).unwrap(),
+        !fs::exists(&root.join(".opencode/commands/ivar-deliver.md")).unwrap(),
         "a dropped provider's shipped commands must be removed"
     );
     assert_eq!(
@@ -942,7 +942,7 @@ fn command_write_failure_warns_and_other_provider_steps_continue() {
         report.warnings
     );
     // The other provider's commands and config completed regardless.
-    assert!(fs::is_file(&root.join(".claude/commands/ivar-plan.md")).unwrap());
+    assert!(fs::is_file(&root.join(".claude/commands/ivar-deliver.md")).unwrap());
     assert!(fs::is_file(&root.join("CLAUDE.md")).unwrap());
     // OpenCode's own non-command config still landed.
     assert!(fs::is_file(&root.join("AGENTS.md")).unwrap());
@@ -1040,7 +1040,7 @@ fn a_conflict_does_not_abort_repo_mcp_or_command_reconciliation() {
         Change::Created
     );
     assert!(fs::is_file(&root.join(".mcp.json")).unwrap());
-    assert!(fs::is_file(&root.join(".opencode/commands/ivar-plan.md")).unwrap());
+    assert!(fs::is_file(&root.join(".opencode/commands/ivar-deliver.md")).unwrap());
     assert!(fs::is_file(&root.join("CLAUDE.md")).unwrap());
     assert!(fs::is_file(&root.join("HALL.md")).unwrap());
 }

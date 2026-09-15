@@ -12,7 +12,7 @@ use std::collections::BTreeSet;
 #[test]
 fn catalog_is_complete_unique_and_current() {
     let commands = catalog();
-    assert_eq!(commands.len(), 14);
+    assert_eq!(commands.len(), 13);
 
     let ids = commands
         .iter()
@@ -42,7 +42,7 @@ fn catalog_is_complete_unique_and_current() {
 fn execute_is_not_in_shipped_commands_catalog() {
     let catalog = catalog();
     assert!(!catalog.iter().any(|c| c.id == "execute"));
-    assert_eq!(catalog.len(), 14);
+    assert_eq!(catalog.len(), 13);
 }
 
 #[test]
@@ -57,6 +57,29 @@ fn materialise_cleans_up_obsolete_official_execute_command() {
         .iter()
         .any(|change| change.file_name == "ivar-execute.md" && change.change == Change::Removed));
     assert!(!fs::exists(&dir.join("ivar-execute.md")).unwrap());
+}
+
+#[test]
+fn plan_is_a_shipped_skill_not_a_command() {
+    assert!(!catalog().iter().any(|command| command.id == "plan"));
+    assert!(
+        crate::harness::skills::catalog()
+            .iter()
+            .any(|skill| skill.id == "plan")
+    );
+    assert_eq!(catalog().len(), 13);
+}
+
+#[test]
+fn materialise_removes_the_retired_plan_command() {
+    let (_guard, dir) = commands_dir();
+    fs::ensure_dir(&dir).unwrap();
+    fs::write_text(&dir.join("ivar-plan.md"), "old plan").unwrap();
+
+    let changes = materialise(&dir).unwrap();
+
+    assert_eq!(change(&changes, "ivar-plan.md").change, Change::Removed);
+    assert!(!fs::exists(&dir.join("ivar-plan.md")).unwrap());
 }
 
 /// `relations`, `feature-cleanup` and `connect` have no Bifrost-era
@@ -79,7 +102,7 @@ fn commands_without_a_bifrost_predecessor_carry_no_legacy_fingerprint() {
             .iter()
             .filter(|command| command.legacy_sha256.is_some())
             .count(),
-        10,
+        9,
         "every command with a Bifrost-era predecessor must keep its digest"
     );
     for command in commands
@@ -185,19 +208,25 @@ fn materialise_creates_repairs_and_then_becomes_idempotent() {
     let (_guard, dir) = commands_dir();
 
     let first = materialise(&dir).unwrap();
-    assert_eq!(first.len(), 14);
+    assert_eq!(first.len(), 13);
     assert!(first.iter().all(|change| change.change == Change::Created));
 
-    fs::write_text(&dir.join("ivar-plan.md"), "changed").unwrap();
+    fs::write_text(&dir.join("ivar-deliver.md"), "changed").unwrap();
     let repaired = materialise(&dir).unwrap();
-    assert_eq!(change(&repaired, "ivar-plan.md").change, Change::Updated);
+    assert_eq!(change(&repaired, "ivar-deliver.md").change, Change::Updated);
     assert_eq!(
-        fs::read_text(&dir.join("ivar-plan.md")).unwrap().unwrap(),
-        catalog().iter().find(|c| c.id == "plan").unwrap().content
+        fs::read_text(&dir.join("ivar-deliver.md"))
+            .unwrap()
+            .unwrap(),
+        catalog()
+            .iter()
+            .find(|c| c.id == "deliver")
+            .unwrap()
+            .content
     );
 
     let third = materialise(&dir).unwrap();
-    assert_eq!(third.len(), 14);
+    assert_eq!(third.len(), 13);
     assert!(
         third
             .iter()
@@ -205,8 +234,14 @@ fn materialise_creates_repairs_and_then_becomes_idempotent() {
         "expected everything unchanged, got {third:?}"
     );
     assert_eq!(
-        fs::read_text(&dir.join("ivar-plan.md")).unwrap().unwrap(),
-        catalog().iter().find(|c| c.id == "plan").unwrap().content
+        fs::read_text(&dir.join("ivar-deliver.md"))
+            .unwrap()
+            .unwrap(),
+        catalog()
+            .iter()
+            .find(|c| c.id == "deliver")
+            .unwrap()
+            .content
     );
 }
 
@@ -245,7 +280,7 @@ fn remove_deletes_only_reserved_ivar_commands() {
 
     let changes = remove(&dir).unwrap();
 
-    assert_eq!(changes.len(), 14);
+    assert_eq!(changes.len(), 13);
     assert!(
         changes
             .iter()
@@ -315,7 +350,7 @@ fn inspect_sees_a_healthy_directory_as_current() {
 
     let inspections = inspect(&dir, true).unwrap();
 
-    assert_eq!(inspections.len(), 14);
+    assert_eq!(inspections.len(), 13);
     assert!(
         inspections
             .iter()
@@ -327,16 +362,16 @@ fn inspect_sees_a_healthy_directory_as_current() {
 fn inspect_reports_missing_and_modified_shipped_commands() {
     let (_guard, dir) = commands_dir();
     materialise(&dir).unwrap();
-    fs::remove_file(&dir.join("ivar-plan.md")).unwrap();
+    fs::remove_file(&dir.join("ivar-deliver.md")).unwrap();
     fs::write_text(&dir.join("ivar-sync.md"), "tampered\n").unwrap();
 
     let inspections = inspect(&dir, true).unwrap();
 
-    let plan = inspections
+    let deliver = inspections
         .iter()
-        .find(|inspection| inspection.id == "plan")
+        .find(|inspection| inspection.id == "deliver")
         .unwrap();
-    assert_eq!(plan.integrity, Integrity::Missing);
+    assert_eq!(deliver.integrity, Integrity::Missing);
     let sync = inspections
         .iter()
         .find(|inspection| inspection.id == "sync")
@@ -351,7 +386,7 @@ fn inspect_marks_leftover_files_stale_for_a_disabled_provider() {
 
     let inspections = inspect(&dir, false).unwrap();
 
-    assert_eq!(inspections.len(), 14);
+    assert_eq!(inspections.len(), 13);
     assert!(
         inspections
             .iter()

@@ -24,14 +24,13 @@ use common::{hall_root, ivar, seeded_repo};
 use predicates::prelude::*;
 
 /// The fourteen shipped command ids.
-const SHIPPED_IDS: [&str; 14] = [
+const SHIPPED_IDS: [&str; 13] = [
     "connect",
     "deliver",
     "discovery",
     "feature-cleanup",
     "feature-create",
     "feature-status",
-    "plan",
     "promote",
     "relations",
     "repo-list",
