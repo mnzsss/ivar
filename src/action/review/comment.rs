@@ -6,7 +6,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::Serialize;
 
-use crate::action::{Ctx, discover_hall};
+use crate::action::{Ctx, discover_hall, read_manifest};
 use crate::domain::feature::Feature;
 use crate::domain::name::{FeatureName, RepoName};
 use crate::error::{Failure, Outcome, Report, WriteHuman};
@@ -71,11 +71,13 @@ impl WriteHuman for ListOutcome {
 pub fn add(ctx: &Ctx, input: AddInput) -> Outcome<ReviewComment> {
     let (layout, name) = feature_in_hall(ctx, &input.feature)?;
     let (line_start, line_end) = parse_lines(&input.lines)?;
+    let repo = declared_repo(&layout, input.repo)?;
+    validate_file(&input.file)?;
     let mut stored = ReviewComments::read(&layout, &name)?;
-    let next = stored.next_id.max(1);
+    let next = stored.next_id;
     let comment = ReviewComment {
         id: format!("c{next}"),
-        repo: RepoName::new(input.repo)?,
+        repo,
         file: input.file,
         line_start,
         line_end,
@@ -92,10 +94,11 @@ pub fn add(ctx: &Ctx, input: AddInput) -> Outcome<ReviewComment> {
 
 pub fn list(ctx: &Ctx, input: ListInput) -> Outcome<ListOutcome> {
     let (layout, name) = feature_in_hall(ctx, &input.feature)?;
+    let repo = input.repo.map(RepoName::new).transpose()?;
     let comments = ReviewComments::read(&layout, &name)?
         .comments
         .into_iter()
-        .filter(|c| input.repo.as_deref().is_none_or(|r| c.repo.as_str() == r))
+        .filter(|c| repo.as_ref().is_none_or(|r| &c.repo == r))
         .filter(|c| input.status.is_none_or(|s| c.status == s))
         .collect();
     Ok(Report::new(ListOutcome { comments }))
@@ -131,6 +134,35 @@ fn feature_in_hall(ctx: &Ctx, feature: &str) -> Result<(Layout, FeatureName), Fa
         )
     })?;
     Ok((layout, name))
+}
+
+fn declared_repo(layout: &Layout, repo: String) -> Result<RepoName, Failure> {
+    let repo = RepoName::new(repo)?;
+    if read_manifest(layout)?
+        .repos()
+        .iter()
+        .any(|r| r.name() == &repo)
+    {
+        return Ok(repo);
+    }
+    Err(Failure::blocked(
+        "review.unknown_repo",
+        format!("repo `{repo}` is not declared in this hall"),
+    ))
+}
+
+fn validate_file(file: &str) -> Result<(), Failure> {
+    let path = std::path::Path::new(file);
+    let traverses = path
+        .components()
+        .any(|c| c == std::path::Component::ParentDir);
+    if file.is_empty() || path.has_root() || traverses {
+        return Err(Failure::blocked(
+            "review.invalid_file",
+            format!("`{file}` must be a non-empty path relative to the repo root without `..`"),
+        ));
+    }
+    Ok(())
 }
 
 fn parse_lines(lines: &str) -> Result<(u32, u32), Failure> {

@@ -5,6 +5,9 @@ use camino::Utf8PathBuf;
 use super::*;
 use crate::action::feature::create::{self as feature_create, CreateInput};
 use crate::action::hall::{self, InitInput};
+use crate::domain::name::{BranchName, HallName};
+use crate::domain::provider::Provider;
+use crate::store::manifest::{Manifest, Providers, Repo};
 use crate::test_support::hall_root;
 
 fn hall_with_checkout() -> (tempfile::TempDir, Ctx) {
@@ -19,6 +22,19 @@ fn hall_with_checkout() -> (tempfile::TempDir, Ctx) {
         },
     )
     .unwrap();
+    let layout = Layout::at(ctx.cwd.clone());
+    let manifest = Manifest::new(
+        HallName::new("acme").unwrap(),
+        Providers::new(vec![Provider::ClaudeCode], Provider::ClaudeCode),
+        vec![Repo::new(
+            RepoName::new("api").unwrap(),
+            "https://example.com/api.git",
+            BranchName::new("main").unwrap(),
+        )],
+        None,
+    )
+    .unwrap();
+    Manifest::write(&layout, &manifest).unwrap();
     feature_create::create(
         &ctx,
         CreateInput {
@@ -97,4 +113,58 @@ fn rejects_unknown_feature_bad_lines_and_unknown_id() {
         },
     );
     assert_eq!(bad_id.unwrap_err().code, "review.comment_not_found");
+}
+
+#[test]
+fn rejects_a_repo_not_declared_in_the_hall() {
+    let (_guard, ctx) = hall_with_checkout();
+    let input = AddInput {
+        repo: "web".to_owned(),
+        ..add_input("checkout", "1")
+    };
+    assert_eq!(add(&ctx, input).unwrap_err().code, "review.unknown_repo");
+}
+
+#[test]
+fn rejects_empty_absolute_or_traversing_files() {
+    let (_guard, ctx) = hall_with_checkout();
+    for file in ["", "/etc/passwd", "../other/lib.rs", "src/../../x"] {
+        let input = AddInput {
+            file: file.to_owned(),
+            ..add_input("checkout", "1")
+        };
+        assert_eq!(
+            add(&ctx, input).unwrap_err().code,
+            "review.invalid_file",
+            "{file}"
+        );
+    }
+}
+
+#[test]
+fn list_rejects_an_invalid_repo_name() {
+    let (_guard, ctx) = hall_with_checkout();
+    let listed = list(
+        &ctx,
+        ListInput {
+            feature: "checkout".to_owned(),
+            repo: Some("../api".to_owned()),
+            status: None,
+        },
+    );
+    assert!(listed.is_err());
+}
+
+#[test]
+fn parse_lines_accepts_single_and_ranges_only() {
+    for (raw, expected) in [
+        ("3", Some((3, 3))),
+        ("3-5", Some((3, 5))),
+        ("0", None),
+        ("5-3", None),
+        ("a", None),
+        ("3-", None),
+    ] {
+        assert_eq!(parse_lines(raw).ok(), expected, "{raw}");
+    }
 }
