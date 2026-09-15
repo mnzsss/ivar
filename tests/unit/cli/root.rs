@@ -836,14 +836,18 @@ fn parses_review_comment_add() {
         "--lines",
         "3-5",
         "--body",
-        "rename",
+        "- rename this",
     ])
     .unwrap();
     let Command::Review(ReviewCommand::Comment(CommentCommand::Add(args))) = parsed.command else {
         panic!("expected review comment add")
     };
     assert_eq!(
-        (args.feature.as_str(), args.lines.as_str()),
-        ("checkout", "3-5")
+        (
+            args.feature.as_str(),
+            args.lines.as_str(),
+            args.body.as_str()
+        ),
+        ("checkout", "3-5", "- rename this")
     );
 }

@@ -993,13 +993,13 @@ pub struct CommentAddArgs {
     #[arg(long)]
     pub repo: String,
     /// The file path, relative to the repo root.
-    #[arg(long)]
+    #[arg(long, allow_hyphen_values = true)]
     pub file: String,
     /// `<n>` or `<n>-<m>`, 1-based and inclusive.
     #[arg(long)]
     pub lines: String,
     /// The comment text.
-    #[arg(long)]
+    #[arg(long, allow_hyphen_values = true)]
     pub body: String,
 }
 
