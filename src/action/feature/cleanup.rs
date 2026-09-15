@@ -553,14 +553,18 @@ fn collect_repo_facts(
         let feature_head = revision(git, &bare, feature.branch.as_str(), &mut inspection_error);
         let base_head = revision(git, &bare, effective_base.as_str(), &mut inspection_error);
         let local_branch_exists = feature_head.is_some();
-        let unmerged_commits =
-            match git.commits_ahead(&bare, effective_base.as_str(), feature.branch.as_str()) {
-                Ok(commits) => Some(commits),
-                Err(error) => {
-                    inspection_error.get_or_insert_with(|| error.to_string());
-                    None
-                }
-            };
+        let unmerged_commits = match base::unmerged_commits(
+            git,
+            &bare,
+            effective_base.as_str(),
+            feature.branch.as_str(),
+        ) {
+            Ok(commits) => Some(commits),
+            Err(error) => {
+                inspection_error.get_or_insert_with(|| error.to_string());
+                None
+            }
+        };
         (
             feature_head,
             base_head,
