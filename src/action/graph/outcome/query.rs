@@ -172,22 +172,19 @@ impl WriteHuman for StatsOutcome {
                 "  {:<12} {:<4} {:>7} {:>6} {:>6} {:>7} {:>7} {:>11}",
                 "command", "src", "count", "empty", "errors", "p50_ms", "p95_ms", "last_used"
             )?;
+            let now = unix_now();
             for u in &s.usage {
-                let empty = match u.source {
-                    UsageSource::Mcp => "-".to_owned(),
-                    UsageSource::Cli => u.empty_count.to_string(),
-                };
                 writeln!(
                     w,
                     "  {:<12} {:<4} {:>7} {:>6} {:>6} {:>7} {:>7} {:>11}",
                     u.command,
-                    source_label(u),
+                    u.source.as_str(),
                     u.count,
-                    empty,
+                    empty_label(u),
                     u.error_count,
                     u.p50_ms,
                     u.p95_ms,
-                    u.last_used
+                    relative_age(now, u.last_used)
                 )?;
             }
         }
@@ -195,10 +192,26 @@ impl WriteHuman for StatsOutcome {
     }
 }
 
-fn source_label(u: &UsageStats) -> &'static str {
+fn empty_label(u: &UsageStats) -> String {
     match u.source {
-        UsageSource::Cli => "cli",
-        UsageSource::Mcp => "mcp",
+        UsageSource::Mcp => "-".to_owned(),
+        UsageSource::Cli => u.empty_count.to_string(),
+    }
+}
+
+fn unix_now() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| i64::try_from(d.as_secs()).unwrap_or(i64::MAX))
+}
+
+fn relative_age(now: i64, then: i64) -> String {
+    let secs = now.saturating_sub(then).max(0);
+    match secs {
+        0..60 => format!("{secs}s ago"),
+        60..3_600 => format!("{}m ago", secs / 60),
+        3_600..86_400 => format!("{}h ago", secs / 3_600),
+        _ => format!("{}d ago", secs / 86_400),
     }
 }
 
@@ -362,10 +375,10 @@ impl ToCompact for StatsOutcome {
             out.push_str(&format!(
                 "\n{}|{}|{}|{}|{}|{}|{}|{}",
                 u.command,
-                source_label(u),
+                u.source.as_str(),
                 u.count,
                 u.last_used,
-                u.empty_count,
+                empty_label(u),
                 u.error_count,
                 u.p50_ms,
                 u.p95_ms
@@ -398,3 +411,7 @@ impl ToCompact for HierarchyOutcome {
         compact::encode_hierarchy(self.0.as_ref())
     }
 }
+
+#[cfg(test)]
+#[path = "../../../../tests/unit/action/graph/outcome_query.rs"]
+mod tests;

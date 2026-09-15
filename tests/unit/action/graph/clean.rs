@@ -218,6 +218,7 @@ fn test_clean_cmd_removes_repo_and_then_clean_all() {
     assert_eq!(all_report.value.files_removed, 1);
     assert_eq!(all_report.value.symbols_removed, 1);
     assert_eq!(all_report.value.edges_removed, 1);
+    assert_eq!(all_report.value.usage_removed, 0);
 
     // Final DB stats
     let final_stats = db.stats().unwrap();

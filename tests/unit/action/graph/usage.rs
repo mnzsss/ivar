@@ -29,4 +29,24 @@ fn recording_outside_a_hall_does_not_panic() {
             error: false,
         },
     );
+    assert!(!dir.path().join(".ivar/memory.db").exists());
+    assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
+}
+
+#[test]
+fn recording_against_a_missing_database_creates_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join(".ivar").join("memory.db");
+    record_usage_at(
+        &db_path,
+        &UsageEvent {
+            command: "find".to_owned(),
+            source: UsageSource::Cli,
+            duration_ms: 1,
+            result_count: Some(0),
+            error: false,
+        },
+    );
+    assert!(!db_path.exists());
+    assert!(!dir.path().join(".ivar").exists());
 }

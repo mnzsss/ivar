@@ -197,19 +197,20 @@ where
                 }
             };
 
-            if let Some(root) = hall_root {
-                let layout = Layout::at(
-                    camino::Utf8PathBuf::from_path_buf(root.to_path_buf()).unwrap_or_default(),
-                );
-                if let Err(err_msg) = refresh_session(db, &layout, cwd) {
-                    return Some(tool_error(id, &err_msg));
-                }
-            }
-
             let started = std::time::Instant::now();
-            let outcome = dispatch_tool_call(db, hall_root, name, &tool_args, refresh_index);
+            let refreshed = match hall_root {
+                Some(root) => {
+                    let layout = Layout::at(
+                        camino::Utf8PathBuf::from_path_buf(root.to_path_buf()).unwrap_or_default(),
+                    );
+                    refresh_session(db, &layout, cwd)
+                }
+                None => Ok(()),
+            };
+            let outcome = refreshed
+                .and_then(|()| dispatch_tool_call(db, hall_root, name, &tool_args, refresh_index));
             let _ = db.record_usage(&UsageEvent {
-                command: name.to_owned(),
+                command: usage_command(name),
                 source: UsageSource::Mcp,
                 duration_ms: u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
                 result_count: None,
@@ -241,6 +242,13 @@ where
             }
         })),
     }
+}
+
+fn usage_command(name: &str) -> String {
+    let known = list_tools(ToolSurface::All)
+        .as_array()
+        .is_some_and(|tools| tools.iter().any(|tool| tool["name"] == name));
+    if known { name } else { "unknown" }.to_owned()
 }
 
 fn refresh_session(db: &GraphDb, layout: &Layout, cwd: &camino::Utf8Path) -> Result<(), String> {

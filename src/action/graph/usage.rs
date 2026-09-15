@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use crate::action::Ctx;
 use crate::action::discover_hall;
 use crate::action::graph::outcome::{
@@ -15,35 +17,82 @@ pub fn record_usage(ctx: &Ctx, event: &UsageEvent) {
     let Ok(layout) = discover_hall(ctx) else {
         return;
     };
-    let db_path = layout.ivar_dir().join("memory.db");
-    if let Ok(db) = GraphDb::open(db_path.as_std_path()) {
+    record_usage_at(layout.ivar_dir().join("memory.db").as_std_path(), event);
+}
+
+pub fn record_usage_at(db_path: &Path, event: &UsageEvent) {
+    if !db_path.exists() {
+        return;
+    }
+    if let Ok(db) = GraphDb::open_for_usage(db_path) {
         let _ = db.record_usage(event);
     }
 }
 
-macro_rules! count_by {
-    ($($outcome:ty => |$o:ident| $count:expr;)*) => {
-        $(impl ResultCount for $outcome {
-            fn result_count(&self) -> Option<usize> {
-                let $o = self;
-                Some($count)
-            }
-        })*
-    };
+impl ResultCount for ExploreOutcome {
+    fn result_count(&self) -> Option<usize> {
+        Some(self.0.primary_symbols.len())
+    }
 }
 
-count_by! {
-    ExploreOutcome => |o| o.0.primary_symbols.len();
-    AffectedOutcome => |o| o.0.affected_test_files.len();
-    PathOutcome => |o| usize::from(o.0.is_some());
-    FindOutcome => |o| o.symbols.len();
-    CallersOutcome => |o| o.callers.len();
-    CalleesOutcome => |o| o.callees.len();
-    FileOutcome => |o| o.0.symbols.len();
-    ImpactOutcome => |o| o.0.affected_symbols.len();
-    DeadCodeOutcome => |o| o.0.len();
-    ComplexityOutcome => |o| o.0.len();
-    HierarchyOutcome => |o| usize::from(o.0.is_some());
+impl ResultCount for AffectedOutcome {
+    fn result_count(&self) -> Option<usize> {
+        Some(self.0.affected_test_files.len())
+    }
+}
+
+impl ResultCount for PathOutcome {
+    fn result_count(&self) -> Option<usize> {
+        Some(usize::from(self.0.is_some()))
+    }
+}
+
+impl ResultCount for FindOutcome {
+    fn result_count(&self) -> Option<usize> {
+        Some(self.symbols.len())
+    }
+}
+
+impl ResultCount for CallersOutcome {
+    fn result_count(&self) -> Option<usize> {
+        Some(self.callers.len())
+    }
+}
+
+impl ResultCount for CalleesOutcome {
+    fn result_count(&self) -> Option<usize> {
+        Some(self.callees.len())
+    }
+}
+
+impl ResultCount for FileOutcome {
+    fn result_count(&self) -> Option<usize> {
+        Some(self.0.symbols.len())
+    }
+}
+
+impl ResultCount for ImpactOutcome {
+    fn result_count(&self) -> Option<usize> {
+        Some(self.0.affected_symbols.len())
+    }
+}
+
+impl ResultCount for DeadCodeOutcome {
+    fn result_count(&self) -> Option<usize> {
+        Some(self.0.len())
+    }
+}
+
+impl ResultCount for ComplexityOutcome {
+    fn result_count(&self) -> Option<usize> {
+        Some(self.0.len())
+    }
+}
+
+impl ResultCount for HierarchyOutcome {
+    fn result_count(&self) -> Option<usize> {
+        Some(usize::from(self.0.is_some()))
+    }
 }
 
 #[cfg(test)]

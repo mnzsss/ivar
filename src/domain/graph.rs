@@ -269,6 +269,27 @@ pub enum UsageSource {
     Mcp,
 }
 
+impl UsageSource {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Cli => "cli",
+            Self::Mcp => "mcp",
+        }
+    }
+}
+
+impl TryFrom<&str> for UsageSource {
+    type Error = String;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        match value {
+            "cli" => Ok(Self::Cli),
+            "mcp" => Ok(Self::Mcp),
+            other => Err(format!("unknown usage source: {other}")),
+        }
+    }
+}
+
 /// One recorded graph query invocation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UsageEvent {

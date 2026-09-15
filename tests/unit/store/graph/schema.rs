@@ -295,4 +295,16 @@ fn a_database_at_version_six_gains_the_usage_table() {
 
     conn.query_row("SELECT count(*) FROM usage", [], |row| row.get::<_, i64>(0))
         .expect("usage table exists");
+    let version: i64 = conn
+        .query_row("PRAGMA user_version", [], |row| row.get(0))
+        .expect("user_version");
+    assert_eq!(version, SCHEMA_VERSION);
+    let index_count: i64 = conn
+        .query_row(
+            "SELECT count(*) FROM sqlite_master WHERE type = 'index' AND name = 'idx_usage_command_source'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("query index");
+    assert_eq!(index_count, 1);
 }

@@ -275,6 +275,7 @@ fn test_delete_repo_and_clean_all() {
             files_removed: 1,
             symbols_removed: 1,
             edges_removed: 1,
+            usage_removed: 0,
         }
     );
 
@@ -789,7 +790,7 @@ fn clean_all_removes_usage() {
     let db = GraphDb::open_in_memory().unwrap();
     db.record_usage(&event("find", UsageSource::Cli, 1, Some(1), false))
         .unwrap();
-    db.clean_all().unwrap();
+    assert_eq!(db.clean_all().unwrap().usage_removed, 1);
     assert!(db.usage_summary().unwrap().is_empty());
 }
 
@@ -806,29 +807,48 @@ fn stats_include_recorded_usage() {
 }
 
 #[test]
-fn stats_human_output_lists_usage_or_says_none() {
-    use crate::action::graph::outcome::StatsOutcome;
-    use crate::error::WriteHuman;
-
+fn usage_summary_skips_rows_with_an_unknown_source() {
     let db = GraphDb::open_in_memory().unwrap();
-    let mut empty = Vec::new();
-    StatsOutcome(db.stats().unwrap())
-        .write_human(&mut empty)
+    db.conn()
+        .execute(
+            "INSERT INTO usage (command, source, ts, duration_ms, result_count, error)
+             VALUES ('find', 'web', 1, 1, 1, 0)",
+            [],
+        )
         .unwrap();
-    assert!(
-        String::from_utf8(empty)
-            .unwrap()
-            .contains("Usage: none recorded")
-    );
+    assert!(db.usage_summary().unwrap().is_empty());
+}
 
-    db.record_usage(&event("explore", UsageSource::Mcp, 9, None, false))
+#[test]
+fn opening_for_usage_never_creates_a_missing_database() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("memory.db");
+    assert!(GraphDb::open_for_usage(&path).is_err());
+    assert!(!path.exists());
+}
+
+#[test]
+fn opening_for_usage_rejects_an_unmigrated_database() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("memory.db");
+    rusqlite::Connection::open(&path)
+        .unwrap()
+        .execute_batch("PRAGMA user_version = 6;")
         .unwrap();
-    let mut out = Vec::new();
-    StatsOutcome(db.stats().unwrap())
-        .write_human(&mut out)
+    assert!(GraphDb::open_for_usage(&path).is_err());
+}
+
+#[test]
+fn opening_for_usage_records_into_a_migrated_database() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("memory.db");
+    drop(GraphDb::open(&path).unwrap());
+    GraphDb::open_for_usage(&path)
+        .unwrap()
+        .record_usage(&event("find", UsageSource::Cli, 1, Some(1), false))
         .unwrap();
-    let text = String::from_utf8(out).unwrap();
-    assert!(text.contains("Usage:"), "got: {text}");
-    assert!(text.contains("explore"), "got: {text}");
-    assert!(text.contains("mcp"), "got: {text}");
+    assert_eq!(
+        GraphDb::open(&path).unwrap().usage_summary().unwrap().len(),
+        1
+    );
 }
