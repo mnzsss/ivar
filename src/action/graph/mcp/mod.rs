@@ -14,6 +14,7 @@ use serde_json::{Value, json};
 
 use crate::action::graph::freshness::ensure_session_freshness;
 use crate::action::graph::session::{SessionView, resolve_session_view};
+use crate::domain::graph::{UsageEvent, UsageSource};
 use crate::store::graph::db::GraphDb;
 use crate::store::layout::Layout;
 pub use dispatch::*;
@@ -205,7 +206,16 @@ where
                 }
             }
 
-            match dispatch_tool_call(db, hall_root, name, &tool_args, refresh_index) {
+            let started = std::time::Instant::now();
+            let outcome = dispatch_tool_call(db, hall_root, name, &tool_args, refresh_index);
+            let _ = db.record_usage(&UsageEvent {
+                command: name.to_owned(),
+                source: UsageSource::Mcp,
+                duration_ms: u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
+                result_count: None,
+                error: outcome.is_err(),
+            });
+            match outcome {
                 Ok(text_content) => Some(json!({
                     "jsonrpc": "2.0",
                     "id": id,
