@@ -792,3 +792,43 @@ fn clean_all_removes_usage() {
     db.clean_all().unwrap();
     assert!(db.usage_summary().unwrap().is_empty());
 }
+
+#[test]
+fn stats_include_recorded_usage() {
+    let db = GraphDb::open_in_memory().unwrap();
+    db.record_usage(&event("callers", UsageSource::Cli, 4, Some(2), false))
+        .unwrap();
+
+    let stats = db.stats().unwrap();
+
+    assert_eq!(stats.usage.len(), 1);
+    assert_eq!(stats.usage[0].command, "callers");
+}
+
+#[test]
+fn stats_human_output_lists_usage_or_says_none() {
+    use crate::action::graph::outcome::StatsOutcome;
+    use crate::error::WriteHuman;
+
+    let db = GraphDb::open_in_memory().unwrap();
+    let mut empty = Vec::new();
+    StatsOutcome(db.stats().unwrap())
+        .write_human(&mut empty)
+        .unwrap();
+    assert!(
+        String::from_utf8(empty)
+            .unwrap()
+            .contains("Usage: none recorded")
+    );
+
+    db.record_usage(&event("explore", UsageSource::Mcp, 9, None, false))
+        .unwrap();
+    let mut out = Vec::new();
+    StatsOutcome(db.stats().unwrap())
+        .write_human(&mut out)
+        .unwrap();
+    let text = String::from_utf8(out).unwrap();
+    assert!(text.contains("Usage:"), "got: {text}");
+    assert!(text.contains("explore"), "got: {text}");
+    assert!(text.contains("mcp"), "got: {text}");
+}

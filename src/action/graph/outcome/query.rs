@@ -3,7 +3,9 @@ use std::io;
 
 use crate::action::graph::compact::{self, ToCompact};
 use crate::action::graph::query;
-use crate::domain::graph::{ComplexityItem, DeadCodeItem, GraphStats, HierarchyItem};
+use crate::domain::graph::{
+    ComplexityItem, DeadCodeItem, GraphStats, HierarchyItem, UsageSource, UsageStats,
+};
 use crate::error::WriteHuman;
 #[derive(Debug, Clone, Serialize)]
 pub struct FindOutcome {
@@ -161,7 +163,42 @@ impl WriteHuman for StatsOutcome {
                 )?;
             }
         }
+        if s.usage.is_empty() {
+            writeln!(w, "\nUsage: none recorded")?;
+        } else {
+            writeln!(w, "\nUsage:")?;
+            writeln!(
+                w,
+                "  {:<12} {:<4} {:>7} {:>6} {:>6} {:>7} {:>7} {:>11}",
+                "command", "src", "count", "empty", "errors", "p50_ms", "p95_ms", "last_used"
+            )?;
+            for u in &s.usage {
+                let empty = match u.source {
+                    UsageSource::Mcp => "-".to_owned(),
+                    UsageSource::Cli => u.empty_count.to_string(),
+                };
+                writeln!(
+                    w,
+                    "  {:<12} {:<4} {:>7} {:>6} {:>6} {:>7} {:>7} {:>11}",
+                    u.command,
+                    source_label(u),
+                    u.count,
+                    empty,
+                    u.error_count,
+                    u.p50_ms,
+                    u.p95_ms,
+                    u.last_used
+                )?;
+            }
+        }
         Ok(())
+    }
+}
+
+fn source_label(u: &UsageStats) -> &'static str {
+    match u.source {
+        UsageSource::Cli => "cli",
+        UsageSource::Mcp => "mcp",
     }
 }
 
@@ -312,14 +349,29 @@ impl ToCompact for FileOutcome {
 
 impl ToCompact for StatsOutcome {
     fn to_compact(&self) -> String {
-        format!(
+        let mut out = format!(
             "#SCHEMA: repos|files|symbols|edges|db_size_bytes\n{}|{}|{}|{}|{}",
             self.0.repo_count,
             self.0.file_count,
             self.0.symbol_count,
             self.0.edge_count,
             self.0.db_size_bytes
-        )
+        );
+        out.push_str("\n#SCHEMA: command|source|count|last_used|empty|errors|p50_ms|p95_ms");
+        for u in &self.0.usage {
+            out.push_str(&format!(
+                "\n{}|{}|{}|{}|{}|{}|{}|{}",
+                u.command,
+                source_label(u),
+                u.count,
+                u.last_used,
+                u.empty_count,
+                u.error_count,
+                u.p50_ms,
+                u.p95_ms
+            ));
+        }
+        out
     }
 }
 

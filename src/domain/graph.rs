@@ -301,6 +301,8 @@ pub struct GraphStats {
     pub edge_count: usize,
     pub db_size_bytes: u64,
     pub layers: Vec<LayerStats>,
+    #[serde(default)]
+    pub usage: Vec<UsageStats>,
 }
 
 /// Snippet of code around a primary symbol.

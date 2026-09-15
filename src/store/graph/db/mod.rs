@@ -109,6 +109,7 @@ impl GraphDb {
             .query_row("PRAGMA page_size", [], |r| r.get(0))
             .unwrap_or(4096);
         let layers = self.get_all_layer_stats().unwrap_or_default();
+        let usage = self.usage_summary().unwrap_or_default();
 
         Ok(GraphStats {
             repo_count: repo_count as usize,
@@ -117,6 +118,7 @@ impl GraphDb {
             edge_count: edge_count as usize,
             db_size_bytes: (page_count * page_size) as u64,
             layers,
+            usage,
         })
     }
 }
