@@ -1,6 +1,6 @@
 //! Review comments on disk: `features/<name>/review/comments.json`.
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::domain::name::{FeatureName, RepoName};
 use crate::error::Failure;
@@ -29,10 +29,25 @@ pub struct ReviewComment {
     pub resolved_at: Option<u64>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ReviewComments {
+    #[serde(deserialize_with = "at_least_one")]
     pub next_id: u64,
     pub comments: Vec<ReviewComment>,
+}
+
+impl Default for ReviewComments {
+    fn default() -> Self {
+        Self {
+            next_id: 1,
+            comments: Vec::new(),
+        }
+    }
+}
+
+/// Early files were written with `next_id: 0`; ids are 1-based.
+fn at_least_one<'de, D: Deserializer<'de>>(deserializer: D) -> Result<u64, D::Error> {
+    Ok(u64::deserialize(deserializer)?.max(1))
 }
 
 // ponytail: no file lock, last rename wins; add an flock if concurrent harnesses write comments.
@@ -54,9 +69,8 @@ impl ReviewComments {
             .unwrap_or_default())
     }
 
-    /// Write the feature's review comments, creating the review directory.
+    /// Write the feature's review comments; the store creates parent directories.
     pub fn write(&self, layout: &Layout, name: &FeatureName) -> Result<(), Failure> {
-        crate::infra::fs::ensure_dir(&layout.feature_dir(name).join("review"))?;
         review_store(layout, name)
             .write(self)
             .map_err(Failure::from)
