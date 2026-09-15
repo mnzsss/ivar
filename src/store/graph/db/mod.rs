@@ -6,6 +6,7 @@ pub mod layer;
 pub mod repo;
 pub mod symbols;
 pub mod types;
+pub mod usage;
 
 use std::path::Path;
 

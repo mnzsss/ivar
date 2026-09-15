@@ -6,6 +6,7 @@
 )]
 
 use super::*;
+use crate::domain::graph::{UsageEvent, UsageSource};
 use tempfile::tempdir;
 
 #[test]
@@ -724,4 +725,70 @@ fn test_index_extracted_file_duplicate_target_names_resolves_or_leaves_unresolve
         .unwrap();
 
     assert_eq!(edge_to_symbols, vec![Some(worker_a_helper_id), None]);
+}
+
+fn event(
+    command: &str,
+    source: UsageSource,
+    ms: u64,
+    count: Option<usize>,
+    error: bool,
+) -> UsageEvent {
+    UsageEvent {
+        command: command.to_owned(),
+        source,
+        duration_ms: ms,
+        result_count: count,
+        error,
+    }
+}
+
+#[test]
+fn usage_summary_groups_by_command_and_source() {
+    let db = GraphDb::open_in_memory().unwrap();
+    for ms in [10, 20, 30, 40, 100] {
+        db.record_usage(&event("explore", UsageSource::Cli, ms, Some(3), false))
+            .unwrap();
+    }
+    db.record_usage(&event("explore", UsageSource::Cli, 5, Some(0), false))
+        .unwrap();
+    db.record_usage(&event("explore", UsageSource::Mcp, 7, None, true))
+        .unwrap();
+
+    let summary = db.usage_summary().unwrap();
+
+    let cli = summary
+        .iter()
+        .find(|s| s.source == UsageSource::Cli)
+        .unwrap();
+    assert_eq!(cli.command, "explore");
+    assert_eq!(cli.count, 6);
+    assert_eq!(cli.empty_count, 1);
+    assert_eq!(cli.error_count, 0);
+    assert_eq!(cli.p50_ms, 20);
+    assert_eq!(cli.p95_ms, 100);
+    assert!(cli.last_used > 0);
+
+    let mcp = summary
+        .iter()
+        .find(|s| s.source == UsageSource::Mcp)
+        .unwrap();
+    assert_eq!(mcp.count, 1);
+    assert_eq!(mcp.empty_count, 0);
+    assert_eq!(mcp.error_count, 1);
+}
+
+#[test]
+fn usage_summary_is_empty_without_events() {
+    let db = GraphDb::open_in_memory().unwrap();
+    assert!(db.usage_summary().unwrap().is_empty());
+}
+
+#[test]
+fn clean_all_removes_usage() {
+    let db = GraphDb::open_in_memory().unwrap();
+    db.record_usage(&event("find", UsageSource::Cli, 1, Some(1), false))
+        .unwrap();
+    db.clean_all().unwrap();
+    assert!(db.usage_summary().unwrap().is_empty());
 }

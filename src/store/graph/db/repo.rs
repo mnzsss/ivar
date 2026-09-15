@@ -253,7 +253,8 @@ impl GraphDb {
             "DELETE FROM repos;
              DELETE FROM files;
              DELETE FROM symbols;
-             DELETE FROM edges;",
+             DELETE FROM edges;
+             DELETE FROM usage;",
         )?;
 
         Ok(CleanAllStats {
