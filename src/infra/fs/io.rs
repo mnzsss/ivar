@@ -373,8 +373,50 @@ pub fn copy_dir(src: &Utf8Path, dst: &Utf8Path) -> Result<(), Error> {
             })?;
             let link_target_utf8 =
                 Utf8Path::from_path(&link_target).ok_or_else(|| not_utf8(link_target.clone()))?;
-            super::create_symlink(&target_path, link_target_utf8)?;
+            let resolved = entry
+                .path()
+                .parent()
+                .map(|parent| lexically_normalise(&parent.join(&link_target)))
+                .unwrap_or_default();
+            let src_normalised = lexically_normalise(src.as_std_path());
+            if link_target.is_relative() && resolved.starts_with(&src_normalised) {
+                super::create_symlink(link_target_utf8, &target_path)?;
+            } else if src_normalised.starts_with(&resolved) {
+                return Err(Error::Read {
+                    path: Utf8PathBuf::from_path_buf(entry.path().to_path_buf())
+                        .unwrap_or_default(),
+                    source: std::io::Error::other(
+                        "symlink points at an ancestor of the copied tree",
+                    ),
+                });
+            } else if resolved.is_dir() {
+                let resolved_utf8 =
+                    Utf8Path::from_path(&resolved).ok_or_else(|| not_utf8(resolved.clone()))?;
+                copy_dir(resolved_utf8, &target_path)?;
+            } else if resolved.is_file() {
+                fs_err::copy(&resolved, target_path.as_std_path()).map_err(|source| {
+                    Error::Write {
+                        path: target_path,
+                        source,
+                    }
+                })?;
+            }
         }
     }
     Ok(())
+}
+
+fn lexically_normalise(path: &std::path::Path) -> std::path::PathBuf {
+    use std::path::Component;
+    let mut normalised = std::path::PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                normalised.pop();
+            }
+            other => normalised.push(other),
+        }
+    }
+    normalised
 }
