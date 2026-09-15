@@ -27,6 +27,7 @@ pub mod mcp;
 pub mod plan;
 pub mod provider;
 pub mod repo;
+pub mod review;
 pub mod session;
 pub mod skill;
 pub mod sync;

@@ -110,6 +110,7 @@ fn status_reports_a_promoted_repo_as_ready_with_its_worktree_present() {
     assert!(detail.worktree_present);
     assert_eq!(detail.base, Some(BranchName::new("main").unwrap()));
     assert!(!detail.base_diverged);
+    assert_eq!(detail.worktree, root.join(".ivar/repos/api/checkout"));
 }
 
 #[test]
@@ -141,6 +142,7 @@ fn the_human_surface_lists_repos_and_their_states() {
         plan_approved: false,
         repos: vec![RepoDetail {
             repo: RepoName::new("api").unwrap(),
+            worktree: Utf8PathBuf::from("/hall/.ivar/repos/api/checkout"),
             state: WorktreeState::Ready,
             worktree_present: true,
             base: Some(BranchName::new("main").unwrap()),
@@ -169,6 +171,7 @@ fn the_human_surface_marks_a_diverged_base() {
         plan_approved: false,
         repos: vec![RepoDetail {
             repo: RepoName::new("api").unwrap(),
+            worktree: Utf8PathBuf::from("/hall/.ivar/repos/api/checkout"),
             state: WorktreeState::Ready,
             worktree_present: true,
             base: Some(BranchName::new("main").unwrap()),
@@ -382,6 +385,7 @@ fn feature_status_json_omits_none_parent_and_none_pr_url() {
         plan_approved: false,
         repos: vec![RepoDetail {
             repo: RepoName::new("api").unwrap(),
+            worktree: Utf8PathBuf::from("/hall/.ivar/repos/api/checkout"),
             state: WorktreeState::Ready,
             worktree_present: true,
             base: Some(BranchName::new("main").unwrap()),

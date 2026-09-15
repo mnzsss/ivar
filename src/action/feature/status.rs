@@ -22,6 +22,8 @@ use crate::git::{self, Git, TargetState};
 pub struct RepoDetail {
     /// The repo's name.
     pub repo: RepoName,
+    /// Absolute path of this repo's feature worktree.
+    pub worktree: Utf8PathBuf,
     /// The recorded worktree state.
     pub state: WorktreeState,
     /// Whether the worktree actually exists on disk right now.
@@ -191,6 +193,7 @@ pub fn status(ctx: &Ctx, input: StatusInput) -> Outcome<StatusOutcome> {
 
         repos.push(RepoDetail {
             repo: repo.clone(),
+            worktree,
             state: promotion.worktree,
             worktree_present: present,
             base,

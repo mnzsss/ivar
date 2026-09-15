@@ -14,6 +14,7 @@ pub mod layout;
 pub mod manifest;
 pub mod mcp_secrets;
 pub mod render;
+pub mod review;
 pub mod session;
 pub mod setup_receipt;
 pub mod skill;

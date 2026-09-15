@@ -50,6 +50,7 @@ use ivar::action::repo::{
     add, create as repo_create, list as repo_list, pull, remove, setup as repo_setup,
     upstream as repo_upstream,
 };
+use ivar::action::review::comment as review_comment;
 use ivar::action::session::{
     connect as session_connect, conversion as session_conversion, env_cmd as session_env_cmd,
     guard_cmd as session_guard_cmd, prune as session_prune, relay as session_relay,
@@ -62,8 +63,8 @@ use ivar::action::skill::{
 };
 use ivar::action::sync;
 use ivar::cli::root::{
-    Cli, Command, DiscoveryCommand, ExecuteCommand, FeatureCommand, McpCommand, PlanCommand,
-    ProviderCommand, RepoCommand, SessionCommand, SkillCommand,
+    Cli, Command, CommentCommand, DiscoveryCommand, ExecuteCommand, FeatureCommand, McpCommand,
+    PlanCommand, ProviderCommand, RepoCommand, ReviewCommand, SessionCommand, SkillCommand,
 };
 use ivar::domain::discovery::DiscoveryStatus;
 use ivar::error::{Failure, Outcome, Palette, Report, WriteHuman};
@@ -686,6 +687,26 @@ fn main() -> ExitCode {
                     &mut stderr,
                 )
             }
+        },
+        Command::Review(ReviewCommand::Comment(cmd)) => match cmd {
+            CommentCommand::Add(args) => respond(
+                review_comment::add(&ctx, args.into()),
+                json,
+                &mut stdout,
+                &mut stderr,
+            ),
+            CommentCommand::List(args) => respond(
+                review_comment::list(&ctx, args.into()),
+                json,
+                &mut stdout,
+                &mut stderr,
+            ),
+            CommentCommand::Resolve(args) => respond(
+                review_comment::resolve(&ctx, args.into()),
+                json,
+                &mut stdout,
+                &mut stderr,
+            ),
         },
         Command::Plan(cmd) => match cmd {
             PlanCommand::Create(args) => {

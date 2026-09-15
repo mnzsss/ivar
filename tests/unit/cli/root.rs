@@ -820,3 +820,34 @@ fn repo_create_requires_exactly_one_mode_and_maps_public() {
     assert_eq!(input_local.mode, repo_create::CreateMode::Local);
     assert_eq!(input_local.default_branch, None);
 }
+
+#[test]
+fn parses_review_comment_add() {
+    let parsed = Cli::try_parse_from([
+        "ivar",
+        "review",
+        "comment",
+        "add",
+        "checkout",
+        "--repo",
+        "api",
+        "--file",
+        "src/lib.rs",
+        "--lines",
+        "3-5",
+        "--body",
+        "- rename this",
+    ])
+    .unwrap();
+    let Command::Review(ReviewCommand::Comment(CommentCommand::Add(args))) = parsed.command else {
+        panic!("expected review comment add")
+    };
+    assert_eq!(
+        (
+            args.feature.as_str(),
+            args.lines.as_str(),
+            args.body.as_str()
+        ),
+        ("checkout", "3-5", "- rename this")
+    );
+}
