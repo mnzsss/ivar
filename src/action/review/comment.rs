@@ -47,14 +47,16 @@ pub struct ListOutcome {
 
 impl WriteHuman for ReviewComment {
     fn write_human(&self, w: &mut impl io::Write) -> io::Result<()> {
-        let status = match self.status {
-            CommentStatus::Open => "open",
-            CommentStatus::Resolved => "resolved",
-        };
         writeln!(
             w,
-            "{}  {}:{}:{}-{}  {status}  {}",
-            self.id, self.repo, self.file, self.line_start, self.line_end, self.body
+            "{}  {}:{}:{}-{}  {}  {}",
+            self.id,
+            self.repo,
+            self.file,
+            self.line_start,
+            self.line_end,
+            self.status.as_str(),
+            self.body
         )
     }
 }
@@ -117,8 +119,10 @@ pub fn resolve(ctx: &Ctx, input: ResolveInput) -> Outcome<ReviewComment> {
                 format!("no comment `{}` on feature `{name}`", input.id),
             )
         })?;
-    comment.status = CommentStatus::Resolved;
-    comment.resolved_at = Some(unix_now());
+    if comment.status == CommentStatus::Open {
+        comment.status = CommentStatus::Resolved;
+        comment.resolved_at = Some(unix_now());
+    }
     let resolved = comment.clone();
     stored.write(&layout, &name)?;
     Ok(Report::new(resolved))

@@ -99,6 +99,30 @@ fn add_list_and_resolve_a_range_comment() {
 }
 
 #[test]
+fn resolving_twice_keeps_the_first_resolution_time() {
+    let (_guard, ctx) = hall_with_checkout();
+    add(&ctx, add_input("checkout", "3-5")).unwrap();
+    let layout = discover_hall(&ctx).unwrap();
+    let name = FeatureName::new("checkout").unwrap();
+    let mut stored = ReviewComments::read(&layout, &name).unwrap();
+    let comment = stored.comments.get_mut(0).unwrap();
+    comment.status = CommentStatus::Resolved;
+    comment.resolved_at = Some(42);
+    stored.write(&layout, &name).unwrap();
+
+    let resolved = resolve(
+        &ctx,
+        ResolveInput {
+            feature: "checkout".to_owned(),
+            id: "c1".to_owned(),
+        },
+    )
+    .unwrap()
+    .value;
+    assert_eq!(resolved.resolved_at, Some(42));
+}
+
+#[test]
 fn rejects_unknown_feature_bad_lines_and_unknown_id() {
     let (_guard, ctx) = hall_with_checkout();
     let bad_feature = add(&ctx, add_input("nope", "1"));
