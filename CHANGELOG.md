@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0](https://github.com/mnzsss/ivar/compare/v0.10.0...v0.11.0) - 2026-09-15
+
+### Added
+
+- *(graph)* report query usage in graph stats ([#103](https://github.com/mnzsss/ivar/pull/103))
+- add review comments and worktree paths ([#102](https://github.com/mnzsss/ivar/pull/102))
+- ship multi-file skills with plan and execute templates ([#99](https://github.com/mnzsss/ivar/pull/99))
+
+### Fixed
+
+- treat squash-merged branches as delivered ([#101](https://github.com/mnzsss/ivar/pull/101))
+- copy symlinks correctly when adding skills ([#100](https://github.com/mnzsss/ivar/pull/100))
+- Unblock feature teardown, plan progress, and non-tty session start ([#97](https://github.com/mnzsss/ivar/pull/97))
+
 ## [0.10.0](https://github.com/mnzsss/ivar/compare/v0.9.1...v0.10.0) - 2026-09-14
 
 ### Added
