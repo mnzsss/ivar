@@ -1,6 +1,6 @@
 //! Review comments on disk: `features/<name>/review/comments.json`.
 
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Serialize};
 
 use crate::domain::name::{FeatureName, RepoName};
 use crate::error::Failure;
@@ -14,6 +14,15 @@ const REVIEW_COMMENTS_VERSION: u32 = 1;
 pub enum CommentStatus {
     Open,
     Resolved,
+}
+
+impl CommentStatus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Open => "open",
+            Self::Resolved => "resolved",
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -31,7 +40,6 @@ pub struct ReviewComment {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ReviewComments {
-    #[serde(deserialize_with = "at_least_one")]
     pub next_id: u64,
     pub comments: Vec<ReviewComment>,
 }
@@ -43,11 +51,6 @@ impl Default for ReviewComments {
             comments: Vec::new(),
         }
     }
-}
-
-/// Early files were written with `next_id: 0`; ids are 1-based.
-fn at_least_one<'de, D: Deserializer<'de>>(deserializer: D) -> Result<u64, D::Error> {
-    Ok(u64::deserialize(deserializer)?.max(1))
 }
 
 // ponytail: no file lock, last rename wins; add an flock if concurrent harnesses write comments.
