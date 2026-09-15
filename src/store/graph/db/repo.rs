@@ -248,12 +248,16 @@ impl GraphDb {
         let edges_count: usize = self
             .conn
             .query_row("SELECT COUNT(*) FROM edges", [], |r| r.get(0))?;
+        let usage_count: usize = self
+            .conn
+            .query_row("SELECT COUNT(*) FROM usage", [], |r| r.get(0))?;
 
         self.conn.execute_batch(
             "DELETE FROM repos;
              DELETE FROM files;
              DELETE FROM symbols;
-             DELETE FROM edges;",
+             DELETE FROM edges;
+             DELETE FROM usage;",
         )?;
 
         Ok(CleanAllStats {
@@ -261,6 +265,7 @@ impl GraphDb {
             files_removed: files_count,
             symbols_removed: symbols_count,
             edges_removed: edges_count,
+            usage_removed: usage_count,
         })
     }
 }

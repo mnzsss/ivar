@@ -283,3 +283,28 @@ fn many_sessions_opening_an_old_database_at_once_all_succeed() {
         });
     }
 }
+
+#[test]
+fn a_database_at_version_six_gains_the_usage_table() {
+    let conn = Connection::open_in_memory().expect("open in memory db");
+    conn.execute_batch(MIGRATION_V1).expect("v1 tables");
+    conn.execute_batch("PRAGMA user_version = 6;")
+        .expect("mark as v6");
+
+    apply_migrations(&conn).expect("migrate");
+
+    conn.query_row("SELECT count(*) FROM usage", [], |row| row.get::<_, i64>(0))
+        .expect("usage table exists");
+    let version: i64 = conn
+        .query_row("PRAGMA user_version", [], |row| row.get(0))
+        .expect("user_version");
+    assert_eq!(version, SCHEMA_VERSION);
+    let index_count: i64 = conn
+        .query_row(
+            "SELECT count(*) FROM sqlite_master WHERE type = 'index' AND name = 'idx_usage_command_source'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("query index");
+    assert_eq!(index_count, 1);
+}

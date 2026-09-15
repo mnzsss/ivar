@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS repos (
 );
 
 CREATE TABLE IF NOT EXISTS files (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id INTEGER PRIMARY KEY,
     repo TEXT NOT NULL REFERENCES repos(id) ON DELETE CASCADE,
     path TEXT NOT NULL,
     content_hash TEXT NOT NULL,
@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS files (
 );
 
 CREATE TABLE IF NOT EXISTS symbols (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id INTEGER PRIMARY KEY,
     file_id INTEGER NOT NULL REFERENCES files(id) ON DELETE CASCADE,
     repo TEXT NOT NULL REFERENCES repos(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
@@ -41,7 +41,7 @@ CREATE TABLE IF NOT EXISTS symbols (
 );
 
 CREATE TABLE IF NOT EXISTS edges (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id INTEGER PRIMARY KEY,
     repo TEXT NOT NULL REFERENCES repos(id) ON DELETE CASCADE,
     file_id INTEGER NOT NULL REFERENCES files(id) ON DELETE CASCADE,
     from_symbol_id INTEGER REFERENCES symbols(id) ON DELETE CASCADE,
@@ -105,7 +105,7 @@ END;
 const SEARCH_SCHEMA_VERSION: i64 = 4;
 
 /// The `user_version` a database carries once every migration below has run.
-pub const SCHEMA_VERSION: i64 = 6;
+pub const SCHEMA_VERSION: i64 = 7;
 
 /// Configures SQLite pragmas for performance and data integrity.
 pub fn apply_pragmas(conn: &Connection, is_disk: bool) -> rusqlite::Result<()> {
@@ -170,16 +170,32 @@ fn migrate(conn: &Connection) -> rusqlite::Result<()> {
 
     apply_search_migration(conn)?;
     apply_layer_migration(conn)?;
+    apply_usage_migration(conn)?;
     // Session views project layer rows under their base repo name, so a file
     // lookup there can only seek on the path.
     conn.execute_batch("CREATE INDEX IF NOT EXISTS idx_files_path ON files(path);")?;
     conn.execute_batch(&format!("PRAGMA user_version = {SCHEMA_VERSION};"))
 }
 
+fn apply_usage_migration(conn: &Connection) -> rusqlite::Result<()> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS usage (
+            id INTEGER PRIMARY KEY,
+            command TEXT NOT NULL,
+            source TEXT NOT NULL,
+            ts INTEGER NOT NULL,
+            duration_ms INTEGER NOT NULL,
+            result_count INTEGER,
+            error INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_usage_command_source ON usage(command, source, duration_ms);",
+    )
+}
+
 fn apply_layer_migration(conn: &Connection) -> rusqlite::Result<()> {
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS layers (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id INTEGER PRIMARY KEY,
             feature TEXT NOT NULL,
             repo TEXT NOT NULL,
             worktree TEXT NOT NULL,

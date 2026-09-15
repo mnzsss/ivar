@@ -39,12 +39,14 @@ pub fn clean_cmd(ctx: &Ctx, args: CleanInput) -> Outcome<CleanOutcome> {
             files_removed: stats.files_removed,
             symbols_removed: stats.symbols_removed,
             edges_removed: stats.edges_removed,
+            usage_removed: stats.usage_removed,
             message: format!(
-                "Successfully cleaned entire graph database ({} repos, {} files, {} symbols, {} edges removed).",
+                "Successfully cleaned entire graph database ({} repos, {} files, {} symbols, {} edges, {} usage events removed).",
                 stats.repos_removed,
                 stats.files_removed,
                 stats.symbols_removed,
-                stats.edges_removed
+                stats.edges_removed,
+                stats.usage_removed
             ),
         }))
     } else if let Some(feature) = &args.feature {
@@ -59,6 +61,7 @@ pub fn clean_cmd(ctx: &Ctx, args: CleanInput) -> Outcome<CleanOutcome> {
             files_removed: 0,
             symbols_removed: 0,
             edges_removed: 0,
+            usage_removed: 0,
             message: format!(
                 "Successfully removed feature layers for '{feature}' ({count} layers removed)."
             ),
@@ -76,6 +79,7 @@ pub fn clean_cmd(ctx: &Ctx, args: CleanInput) -> Outcome<CleanOutcome> {
                 files_removed: stats.files_removed,
                 symbols_removed: stats.symbols_removed,
                 edges_removed: stats.edges_removed,
+                usage_removed: 0,
                 message: format!(
                     "Successfully removed repository '{repo}' from graph ({} files, {} symbols, {} edges removed).",
                     stats.files_removed, stats.symbols_removed, stats.edges_removed

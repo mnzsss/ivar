@@ -17,6 +17,7 @@ pub mod outcome;
 pub mod path;
 pub mod query;
 pub mod session;
+pub mod usage;
 pub mod view;
 pub mod viz;
 
@@ -49,6 +50,7 @@ pub use query::{
     CalleeInfo, CallerInfo, FileOutline, ImpactItem, ImpactResult, QueryError, SymbolLocation,
     find_symbols, get_callees, get_callers, get_file_outline, get_graph_stats, get_impact,
 };
+pub use usage::{ResultCount, record_usage};
 pub use view::lifecycle::{
     ViewSession, execute_view_session, launch_browser, prepare_view_session,
 };

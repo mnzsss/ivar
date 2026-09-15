@@ -272,6 +272,20 @@ fn phase_human_output_formatting(hall: &GraphHall) {
         .stdout(predicate::str::contains("Codebase Graph Statistics:"))
         .stdout(predicate::str::contains("Repositories: 1"))
         .stdout(predicate::str::contains("Files:"));
+
+    hall.run_human(&["graph", "find", "definitely_no_such_symbol_zz"]);
+    let stats = hall.run_json(&["graph", "stats"]);
+    let usage = stats["usage"].as_array().expect("usage array");
+    let find = usage
+        .iter()
+        .find(|u| u["command"] == "find" && u["source"] == "cli")
+        .expect("find usage recorded");
+    assert!(find["count"].as_u64().unwrap() >= 1);
+    assert!(find["empty_count"].as_u64().unwrap() >= 1);
+    assert!(
+        usage.iter().all(|u| u["command"] != "stats"),
+        "stats must not record itself"
+    );
 }
 
 fn phase_incremental_indexing_and_dirty_worktree(hall: &GraphHall) {

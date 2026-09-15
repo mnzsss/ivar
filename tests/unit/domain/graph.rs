@@ -104,9 +104,20 @@ fn test_graph_stats_json_roundtrip() {
         edge_count: 4200,
         db_size_bytes: 1048576,
         layers: Vec::new(),
+        usage: vec![UsageStats {
+            command: "explore".to_owned(),
+            source: UsageSource::Mcp,
+            count: 2,
+            last_used: 1_700_000_000,
+            empty_count: 0,
+            error_count: 1,
+            p50_ms: 12,
+            p95_ms: 40,
+        }],
     };
 
     let json = serde_json::to_string(&stats).expect("serialize stats");
+    assert!(json.contains(r#""source":"mcp""#), "got: {json}");
     let deserialized: GraphStats = serde_json::from_str(&json).expect("deserialize stats");
     assert_eq!(stats, deserialized);
 }
@@ -298,4 +309,12 @@ fn test_analysis_items_json_roundtrip() {
     let deserialized: HierarchyItem =
         serde_json::from_str(&json).expect("deserialize hierarchy_item");
     assert_eq!(hierarchy_item, deserialized);
+}
+
+#[test]
+fn usage_source_round_trips_through_its_stored_name() {
+    for source in [UsageSource::Cli, UsageSource::Mcp] {
+        assert_eq!(UsageSource::try_from(source.as_str()), Ok(source));
+    }
+    assert!(UsageSource::try_from("web").is_err());
 }

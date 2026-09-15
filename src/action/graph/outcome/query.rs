@@ -3,7 +3,9 @@ use std::io;
 
 use crate::action::graph::compact::{self, ToCompact};
 use crate::action::graph::query;
-use crate::domain::graph::{ComplexityItem, DeadCodeItem, GraphStats, HierarchyItem};
+use crate::domain::graph::{
+    ComplexityItem, DeadCodeItem, GraphStats, HierarchyItem, UsageSource, UsageStats,
+};
 use crate::error::WriteHuman;
 #[derive(Debug, Clone, Serialize)]
 pub struct FindOutcome {
@@ -161,7 +163,55 @@ impl WriteHuman for StatsOutcome {
                 )?;
             }
         }
+        if s.usage.is_empty() {
+            writeln!(w, "\nUsage: none recorded")?;
+        } else {
+            writeln!(w, "\nUsage:")?;
+            writeln!(
+                w,
+                "  {:<12} {:<4} {:>7} {:>6} {:>6} {:>7} {:>7} {:>11}",
+                "command", "src", "count", "empty", "errors", "p50_ms", "p95_ms", "last_used"
+            )?;
+            let now = unix_now();
+            for u in &s.usage {
+                writeln!(
+                    w,
+                    "  {:<12} {:<4} {:>7} {:>6} {:>6} {:>7} {:>7} {:>11}",
+                    u.command,
+                    u.source.as_str(),
+                    u.count,
+                    empty_label(u),
+                    u.error_count,
+                    u.p50_ms,
+                    u.p95_ms,
+                    relative_age(now, u.last_used)
+                )?;
+            }
+        }
         Ok(())
+    }
+}
+
+fn empty_label(u: &UsageStats) -> String {
+    match u.source {
+        UsageSource::Mcp => "-".to_owned(),
+        UsageSource::Cli => u.empty_count.to_string(),
+    }
+}
+
+fn unix_now() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| i64::try_from(d.as_secs()).unwrap_or(i64::MAX))
+}
+
+fn relative_age(now: i64, then: i64) -> String {
+    let secs = now.saturating_sub(then).max(0);
+    match secs {
+        0..60 => format!("{secs}s ago"),
+        60..3_600 => format!("{}m ago", secs / 60),
+        3_600..86_400 => format!("{}h ago", secs / 3_600),
+        _ => format!("{}d ago", secs / 86_400),
     }
 }
 
@@ -312,14 +362,29 @@ impl ToCompact for FileOutcome {
 
 impl ToCompact for StatsOutcome {
     fn to_compact(&self) -> String {
-        format!(
+        let mut out = format!(
             "#SCHEMA: repos|files|symbols|edges|db_size_bytes\n{}|{}|{}|{}|{}",
             self.0.repo_count,
             self.0.file_count,
             self.0.symbol_count,
             self.0.edge_count,
             self.0.db_size_bytes
-        )
+        );
+        out.push_str("\n#SCHEMA: command|source|count|last_used|empty|errors|p50_ms|p95_ms");
+        for u in &self.0.usage {
+            out.push_str(&format!(
+                "\n{}|{}|{}|{}|{}|{}|{}|{}",
+                u.command,
+                u.source.as_str(),
+                u.count,
+                u.last_used,
+                empty_label(u),
+                u.error_count,
+                u.p50_ms,
+                u.p95_ms
+            ));
+        }
+        out
     }
 }
 
@@ -346,3 +411,7 @@ impl ToCompact for HierarchyOutcome {
         compact::encode_hierarchy(self.0.as_ref())
     }
 }
+
+#[cfg(test)]
+#[path = "../../../../tests/unit/action/graph/outcome_query.rs"]
+mod tests;

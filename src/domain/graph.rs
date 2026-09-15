@@ -261,6 +261,58 @@ pub struct LayerStats {
     pub base_commit: String,
 }
 
+/// Where a graph query was issued from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum UsageSource {
+    Cli,
+    Mcp,
+}
+
+impl UsageSource {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Cli => "cli",
+            Self::Mcp => "mcp",
+        }
+    }
+}
+
+impl TryFrom<&str> for UsageSource {
+    type Error = String;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        match value {
+            "cli" => Ok(Self::Cli),
+            "mcp" => Ok(Self::Mcp),
+            other => Err(format!("unknown usage source: {other}")),
+        }
+    }
+}
+
+/// One recorded graph query invocation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UsageEvent {
+    pub command: String,
+    pub source: UsageSource,
+    pub duration_ms: u64,
+    pub result_count: Option<usize>,
+    pub error: bool,
+}
+
+/// Aggregated usage for one command and source.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+pub struct UsageStats {
+    pub command: String,
+    pub source: UsageSource,
+    pub count: u64,
+    pub last_used: i64,
+    pub empty_count: u64,
+    pub error_count: u64,
+    pub p50_ms: u64,
+    pub p95_ms: u64,
+}
+
 /// High-level statistics for the indexed codebase graph.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 pub struct GraphStats {
@@ -270,6 +322,8 @@ pub struct GraphStats {
     pub edge_count: usize,
     pub db_size_bytes: u64,
     pub layers: Vec<LayerStats>,
+    #[serde(default)]
+    pub usage: Vec<UsageStats>,
 }
 
 /// Snippet of code around a primary symbol.

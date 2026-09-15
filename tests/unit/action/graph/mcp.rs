@@ -1117,4 +1117,57 @@ fn an_unresolvable_session_answers_with_an_error_instead_of_the_base_graph() {
 
     assert!(is_error, "got: {text}");
     assert!(text.contains("session"), "got: {text}");
+    let summary = db.usage_summary().unwrap();
+    let explore = summary
+        .iter()
+        .find(|s| s.command == "graph_explore")
+        .expect("failed refresh still records usage");
+    assert_eq!(explore.error_count, 1);
+}
+
+#[test]
+fn a_tool_call_records_mcp_usage_without_a_result_count() {
+    let (db, temp) = setup_test_mcp_db();
+
+    let (_text, is_error) = call_tool(&db, temp.path(), "graph_explore", json!({"query": "main"}));
+    assert!(!is_error);
+
+    let summary = db.usage_summary().unwrap();
+    let explore = summary
+        .iter()
+        .find(|s| s.command == "graph_explore")
+        .expect("graph_explore usage recorded");
+    assert_eq!(explore.source, crate::domain::graph::UsageSource::Mcp);
+    assert_eq!(explore.count, 1);
+    assert_eq!(explore.empty_count, 0);
+    assert_eq!(explore.error_count, 0);
+}
+
+#[test]
+fn a_failing_tool_call_records_an_error() {
+    let (db, temp) = setup_test_mcp_db();
+
+    let (_text, is_error) = call_tool(&db, temp.path(), "no_such_tool", json!({}));
+    assert!(is_error);
+
+    let summary = db.usage_summary().unwrap();
+    assert_eq!(
+        summary
+            .iter()
+            .find(|s| s.command == "unknown")
+            .unwrap()
+            .error_count,
+        1
+    );
+}
+
+#[test]
+fn an_unknown_tool_name_is_never_recorded_verbatim() {
+    let (db, temp) = setup_test_mcp_db();
+
+    call_tool(&db, temp.path(), "arbitrary client text", json!({}));
+
+    let summary = db.usage_summary().unwrap();
+    assert!(summary.iter().all(|s| s.command != "arbitrary client text"));
+    assert_eq!(summary.iter().filter(|s| s.command == "unknown").count(), 1);
 }

@@ -14,6 +14,7 @@ use serde_json::{Value, json};
 
 use crate::action::graph::freshness::ensure_session_freshness;
 use crate::action::graph::session::{SessionView, resolve_session_view};
+use crate::domain::graph::{UsageEvent, UsageSource};
 use crate::store::graph::db::GraphDb;
 use crate::store::layout::Layout;
 pub use dispatch::*;
@@ -196,16 +197,26 @@ where
                 }
             };
 
-            if let Some(root) = hall_root {
-                let layout = Layout::at(
-                    camino::Utf8PathBuf::from_path_buf(root.to_path_buf()).unwrap_or_default(),
-                );
-                if let Err(err_msg) = refresh_session(db, &layout, cwd) {
-                    return Some(tool_error(id, &err_msg));
+            let started = std::time::Instant::now();
+            let refreshed = match hall_root {
+                Some(root) => {
+                    let layout = Layout::at(
+                        camino::Utf8PathBuf::from_path_buf(root.to_path_buf()).unwrap_or_default(),
+                    );
+                    refresh_session(db, &layout, cwd)
                 }
-            }
-
-            match dispatch_tool_call(db, hall_root, name, &tool_args, refresh_index) {
+                None => Ok(()),
+            };
+            let outcome = refreshed
+                .and_then(|()| dispatch_tool_call(db, hall_root, name, &tool_args, refresh_index));
+            let _ = db.record_usage(&UsageEvent {
+                command: usage_command(name),
+                source: UsageSource::Mcp,
+                duration_ms: u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
+                result_count: None,
+                error: outcome.is_err(),
+            });
+            match outcome {
                 Ok(text_content) => Some(json!({
                     "jsonrpc": "2.0",
                     "id": id,
@@ -231,6 +242,13 @@ where
             }
         })),
     }
+}
+
+fn usage_command(name: &str) -> String {
+    let known = list_tools(ToolSurface::All)
+        .as_array()
+        .is_some_and(|tools| tools.iter().any(|tool| tool["name"] == name));
+    if known { name } else { "unknown" }.to_owned()
 }
 
 fn refresh_session(db: &GraphDb, layout: &Layout, cwd: &camino::Utf8Path) -> Result<(), String> {

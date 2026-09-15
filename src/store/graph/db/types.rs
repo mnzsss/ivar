@@ -67,6 +67,7 @@ pub struct CleanAllStats {
     pub files_removed: usize,
     pub symbols_removed: usize,
     pub edges_removed: usize,
+    pub usage_removed: usize,
 }
 
 pub(super) fn now_timestamp() -> i64 {

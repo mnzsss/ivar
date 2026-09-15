@@ -6,6 +6,7 @@ pub mod layer;
 pub mod repo;
 pub mod symbols;
 pub mod types;
+pub mod usage;
 
 use std::path::Path;
 
@@ -41,6 +42,23 @@ impl GraphDb {
         let db = Self { conn };
         db.ensure_views_base_mode()?;
         Ok(db)
+    }
+
+    /// Opens an existing, fully migrated database for a best-effort usage write.
+    /// Never creates the file, switches journal mode, or runs migrations.
+    pub fn open_for_usage(path: &Path) -> Result<Self> {
+        let conn = Connection::open_with_flags(
+            path,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )?;
+        conn.busy_timeout(usage::USAGE_BUSY_TIMEOUT)?;
+        let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+        if version < schema::SCHEMA_VERSION {
+            return Err(GraphDbError::Message(format!(
+                "graph database at schema version {version} is not migrated"
+            )));
+        }
+        Ok(Self { conn })
     }
 
     /// Opens an in-memory SQLite database initialized with the graph schema.
@@ -108,6 +126,7 @@ impl GraphDb {
             .query_row("PRAGMA page_size", [], |r| r.get(0))
             .unwrap_or(4096);
         let layers = self.get_all_layer_stats().unwrap_or_default();
+        let usage = self.usage_summary().unwrap_or_default();
 
         Ok(GraphStats {
             repo_count: repo_count as usize,
@@ -116,6 +135,7 @@ impl GraphDb {
             edge_count: edge_count as usize,
             db_size_bytes: (page_count * page_size) as u64,
             layers,
+            usage,
         })
     }
 }
