@@ -5,12 +5,13 @@ use std::process::ExitCode;
 use ivar::action::Ctx;
 use ivar::action::graph::{
     AffectedInput, CalleesInput, CallersInput, ComplexityInput, DeadCodeInput, ExploreInput,
-    FileInput, FindInput, HierarchyInput, ImpactInput, IndexInput, PathInput, ToCompact, VizInput,
-    affected_cmd, callees_cmd, callers_cmd, clean_cmd, complexity_cmd, dead_code_cmd,
-    execute_view_session, explore_cmd, file_cmd, find_cmd, hierarchy_cmd, impact_cmd, index_cmd,
-    mcp_cmd, path_cmd, stats_cmd, view_cmd, viz_cmd,
+    FileInput, FindInput, HierarchyInput, ImpactInput, IndexInput, PathInput, ResultCount,
+    ToCompact, VizInput, affected_cmd, callees_cmd, callers_cmd, clean_cmd, complexity_cmd,
+    dead_code_cmd, execute_view_session, explore_cmd, file_cmd, find_cmd, hierarchy_cmd,
+    impact_cmd, index_cmd, mcp_cmd, path_cmd, record_usage, stats_cmd, view_cmd, viz_cmd,
 };
 use ivar::cli::graph::GraphCommand;
+use ivar::domain::graph::{UsageEvent, UsageSource};
 use ivar::error::{Failure, Outcome, Palette, Report, WriteHuman};
 use ivar::infra::term;
 
@@ -100,6 +101,39 @@ where
     }
 }
 
+fn respond_query<T>(
+    command: &'static str,
+    ctx: &Ctx,
+    run: impl FnOnce() -> Outcome<T>,
+    json: bool,
+    compact: bool,
+    stdout: &mut impl io::Write,
+    stderr: &mut impl io::Write,
+) -> ExitCode
+where
+    T: Serialize + WriteHuman + ToCompact + ResultCount,
+{
+    let started = std::time::Instant::now();
+    let result = run();
+    let duration_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
+    let (result_count, error) = match &result {
+        Ok(report) => (report.value.result_count(), false),
+        Err(_) => (None, true),
+    };
+    let exit = respond_graph(result, json, compact, stdout, stderr);
+    record_usage(
+        ctx,
+        &UsageEvent {
+            command: command.to_owned(),
+            source: UsageSource::Cli,
+            duration_ms,
+            result_count,
+            error,
+        },
+    );
+    exit
+}
+
 pub(super) fn dispatch_graph(
     cmd: GraphCommand,
     ctx: &Ctx,
@@ -109,97 +143,125 @@ pub(super) fn dispatch_graph(
     stderr: &mut impl io::Write,
 ) -> ExitCode {
     match cmd {
-        GraphCommand::Explore(args) => respond_graph(
-            explore_cmd(
-                ctx,
-                ExploreInput {
-                    query: args.query,
-                    repo: args.repo,
-                },
-            ),
+        GraphCommand::Explore(args) => respond_query(
+            "explore",
+            ctx,
+            || {
+                explore_cmd(
+                    ctx,
+                    ExploreInput {
+                        query: args.query,
+                        repo: args.repo,
+                    },
+                )
+            },
             json,
             compact,
             stdout,
             stderr,
         ),
-        GraphCommand::Affected(args) => respond_graph(
-            affected_cmd(
-                ctx,
-                AffectedInput {
-                    files: args.files,
-                    stdin: args.stdin,
-                    repo: args.repo,
-                    max_depth: args.max_depth,
-                },
-            ),
+        GraphCommand::Affected(args) => respond_query(
+            "affected",
+            ctx,
+            || {
+                affected_cmd(
+                    ctx,
+                    AffectedInput {
+                        files: args.files,
+                        stdin: args.stdin,
+                        repo: args.repo,
+                        max_depth: args.max_depth,
+                    },
+                )
+            },
             json,
             compact,
             stdout,
             stderr,
         ),
-        GraphCommand::Path(args) => respond_graph(
-            path_cmd(
-                ctx,
-                PathInput {
-                    from: args.from,
-                    to: args.to,
-                    max_hops: args.max_hops,
-                },
-            ),
+        GraphCommand::Path(args) => respond_query(
+            "path",
+            ctx,
+            || {
+                path_cmd(
+                    ctx,
+                    PathInput {
+                        from: args.from,
+                        to: args.to,
+                        max_hops: args.max_hops,
+                    },
+                )
+            },
             json,
             compact,
             stdout,
             stderr,
         ),
-        GraphCommand::Find(args) => respond_graph(
-            find_cmd(
-                ctx,
-                FindInput {
-                    query: args.query,
-                    repo: args.repo,
-                    limit: args.limit,
-                },
-            ),
+        GraphCommand::Find(args) => respond_query(
+            "find",
+            ctx,
+            || {
+                find_cmd(
+                    ctx,
+                    FindInput {
+                        query: args.query,
+                        repo: args.repo,
+                        limit: args.limit,
+                    },
+                )
+            },
             json,
             compact,
             stdout,
             stderr,
         ),
-        GraphCommand::Callers(args) => respond_graph(
-            callers_cmd(
-                ctx,
-                CallersInput {
-                    symbol: args.symbol,
-                    repo: args.repo,
-                    cross_repo: args.cross_repo,
-                    min_confidence: args.min_confidence,
-                },
-            ),
+        GraphCommand::Callers(args) => respond_query(
+            "callers",
+            ctx,
+            || {
+                callers_cmd(
+                    ctx,
+                    CallersInput {
+                        symbol: args.symbol,
+                        repo: args.repo,
+                        cross_repo: args.cross_repo,
+                        min_confidence: args.min_confidence,
+                    },
+                )
+            },
             json,
             compact,
             stdout,
             stderr,
         ),
-        GraphCommand::Callees(args) => respond_graph(
-            callees_cmd(
-                ctx,
-                CalleesInput {
-                    symbol_id: args.symbol_id,
-                },
-            ),
+        GraphCommand::Callees(args) => respond_query(
+            "callees",
+            ctx,
+            || {
+                callees_cmd(
+                    ctx,
+                    CalleesInput {
+                        symbol_id: args.symbol_id,
+                    },
+                )
+            },
             json,
             compact,
             stdout,
             stderr,
         ),
-        GraphCommand::File(args) => respond_graph(
-            file_cmd(
-                ctx,
-                FileInput {
-                    repo: args.repo,
-                    path: args.path,
-                },
-            ),
+        GraphCommand::File(args) => respond_query(
+            "file",
+            ctx,
+            || {
+                file_cmd(
+                    ctx,
+                    FileInput {
+                        repo: args.repo,
+                        path: args.path,
+                    },
+                )
+            },
             json,
             compact,
             stdout,
@@ -220,54 +282,70 @@ pub(super) fn dispatch_graph(
             stderr,
         ),
         GraphCommand::Stats => respond_graph(stats_cmd(ctx), json, compact, stdout, stderr),
-        GraphCommand::Impact(args) => respond_graph(
-            impact_cmd(
-                ctx,
-                ImpactInput {
-                    symbol_id: args.symbol_id,
-                    max_depth: args.max_depth,
-                },
-            ),
+        GraphCommand::Impact(args) => respond_query(
+            "impact",
+            ctx,
+            || {
+                impact_cmd(
+                    ctx,
+                    ImpactInput {
+                        symbol_id: args.symbol_id,
+                        max_depth: args.max_depth,
+                    },
+                )
+            },
             json,
             compact,
             stdout,
             stderr,
         ),
-        GraphCommand::DeadCode(args) => respond_graph(
-            dead_code_cmd(
-                ctx,
-                DeadCodeInput {
-                    repo: args.repo,
-                    limit: args.limit,
-                },
-            ),
+        GraphCommand::DeadCode(args) => respond_query(
+            "dead-code",
+            ctx,
+            || {
+                dead_code_cmd(
+                    ctx,
+                    DeadCodeInput {
+                        repo: args.repo,
+                        limit: args.limit,
+                    },
+                )
+            },
             json,
             compact,
             stdout,
             stderr,
         ),
-        GraphCommand::Complexity(args) => respond_graph(
-            complexity_cmd(
-                ctx,
-                ComplexityInput {
-                    threshold: args.threshold,
-                    repo: args.repo,
-                    limit: args.limit,
-                },
-            ),
+        GraphCommand::Complexity(args) => respond_query(
+            "complexity",
+            ctx,
+            || {
+                complexity_cmd(
+                    ctx,
+                    ComplexityInput {
+                        threshold: args.threshold,
+                        repo: args.repo,
+                        limit: args.limit,
+                    },
+                )
+            },
             json,
             compact,
             stdout,
             stderr,
         ),
-        GraphCommand::Hierarchy(args) => respond_graph(
-            hierarchy_cmd(
-                ctx,
-                HierarchyInput {
-                    symbol: args.symbol,
-                    repo: args.repo,
-                },
-            ),
+        GraphCommand::Hierarchy(args) => respond_query(
+            "hierarchy",
+            ctx,
+            || {
+                hierarchy_cmd(
+                    ctx,
+                    HierarchyInput {
+                        symbol: args.symbol,
+                        repo: args.repo,
+                    },
+                )
+            },
             json,
             compact,
             stdout,
