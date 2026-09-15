@@ -8,8 +8,8 @@ description: Conduct the SPDD planning process — Requirements, Analysis, Plan,
 `/ivar-plan` runs the SPDD planning process for a feature. It has three planning
 phases, each followed by a human approval gate.
 
-The feature to plan is `$ARGUMENTS`. When that is empty, fall back to
-`$IVAR_FEATURE`; with neither, ask which feature to plan. Every `<feature>`
+The feature to plan is the one the user named; when none was named, fall back
+to `$IVAR_FEATURE`; with neither, ask which feature to plan. Every `<feature>`
 below is that resolved name.
 
 ## Prerequisites

@@ -88,10 +88,7 @@ impl From<Error> for Failure {
 
 /// Bring `skills_dir` in line with the shipped catalog.
 pub fn materialise(skills_dir: &Utf8Path) -> Result<Vec<SkillChange>, Error> {
-    fs::ensure_dir(skills_dir).map_err(|source| Error::Fs {
-        path: skills_dir.to_owned(),
-        source,
-    })?;
+    fs::ensure_dir(skills_dir).map_err(fs_error(skills_dir))?;
 
     let mut changes = Vec::new();
 
@@ -114,10 +111,7 @@ pub fn materialise(skills_dir: &Utf8Path) -> Result<Vec<SkillChange>, Error> {
                 if catalog().iter().any(|s| s.id == id) {
                     continue;
                 }
-                fs::remove_path(&entry).map_err(|source| Error::Fs {
-                    path: entry.clone(),
-                    source,
-                })?;
+                fs::remove_path(&entry).map_err(fs_error(&entry))?;
                 changes.push(SkillChange {
                     id: id.to_owned(),
                     dir_name: name,
@@ -132,10 +126,7 @@ pub fn materialise(skills_dir: &Utf8Path) -> Result<Vec<SkillChange>, Error> {
 
 /// Remove all shipped skills from `skills_dir`.
 pub fn remove(skills_dir: &Utf8Path) -> Result<Vec<SkillChange>, Error> {
-    if !fs::is_dir(skills_dir).map_err(|source| Error::Fs {
-        path: skills_dir.to_owned(),
-        source,
-    })? {
+    if !fs::is_dir(skills_dir).map_err(fs_error(skills_dir))? {
         return Ok(Vec::new());
     }
 
@@ -145,10 +136,7 @@ pub fn remove(skills_dir: &Utf8Path) -> Result<Vec<SkillChange>, Error> {
         let Some(id) = ivar_id(&dir_name) else {
             continue;
         };
-        fs::remove_path(&entry).map_err(|source| Error::Fs {
-            path: entry.clone(),
-            source,
-        })?;
+        fs::remove_path(&entry).map_err(fs_error(&entry))?;
         changes.push(SkillChange {
             id: id.to_owned(),
             dir_name,
@@ -163,10 +151,7 @@ pub fn remove(skills_dir: &Utf8Path) -> Result<Vec<SkillChange>, Error> {
 pub fn inspect(skills_dir: &Utf8Path, enabled: bool) -> Result<Vec<Inspection>, Error> {
     let mut inspections = Vec::new();
 
-    let present_entries = if fs::is_dir(skills_dir).map_err(|source| Error::Fs {
-        path: skills_dir.to_owned(),
-        source,
-    })? {
+    let present_entries = if fs::is_dir(skills_dir).map_err(fs_error(skills_dir))? {
         directory_entries(skills_dir)?
     } else {
         Vec::new()
@@ -174,10 +159,7 @@ pub fn inspect(skills_dir: &Utf8Path, enabled: bool) -> Result<Vec<Inspection>, 
 
     for skill in catalog() {
         let target_dir = skills_dir.join(skill.skill_dir_name());
-        let present = fs::is_dir(&target_dir).map_err(|source| Error::Fs {
-            path: target_dir.clone(),
-            source,
-        })?;
+        let present = fs::is_dir(&target_dir).map_err(fs_error(&target_dir))?;
         let integrity = match (present, enabled) {
             (true, false) => Integrity::Stale,
             (false, true) => Integrity::Missing,
@@ -211,10 +193,7 @@ pub fn inspect(skills_dir: &Utf8Path, enabled: bool) -> Result<Vec<Inspection>, 
 fn skill_is_intact(target_dir: &Utf8Path, skill: ShippedSkill) -> Result<bool, Error> {
     for file in skill.files {
         let path = target_dir.join(file.path);
-        let bytes = fs::read_bytes(&path).map_err(|source| Error::Fs {
-            path: path.clone(),
-            source,
-        })?;
+        let bytes = fs::read_bytes(&path).map_err(fs_error(&path))?;
         if bytes.as_deref() != Some(file.content.as_bytes()) {
             return Ok(false);
         }
@@ -223,22 +202,13 @@ fn skill_is_intact(target_dir: &Utf8Path, skill: ShippedSkill) -> Result<bool, E
 }
 
 fn materialise_skill(target_dir: &Utf8Path, skill: ShippedSkill) -> Result<Change, Error> {
-    let created = !fs::is_dir(target_dir).map_err(|source| Error::Fs {
-        path: target_dir.to_owned(),
-        source,
-    })?;
+    let created = !fs::is_dir(target_dir).map_err(fs_error(target_dir))?;
     let mut written = false;
     for file in skill.files {
         let path = target_dir.join(file.path);
         let parent = path.parent().unwrap_or(target_dir);
-        fs::ensure_dir(parent).map_err(|source| Error::Fs {
-            path: parent.to_owned(),
-            source,
-        })?;
-        let existing = fs::read_bytes(&path).map_err(|source| Error::Fs {
-            path: path.clone(),
-            source,
-        })?;
+        fs::ensure_dir(parent).map_err(fs_error(parent))?;
+        let existing = fs::read_bytes(&path).map_err(fs_error(&path))?;
         if existing.as_deref() != Some(file.content.as_bytes()) {
             write_skill(&path, file.content)?;
             written = true;
@@ -246,10 +216,7 @@ fn materialise_skill(target_dir: &Utf8Path, skill: ShippedSkill) -> Result<Chang
     }
     let undeclared = undeclared_files(target_dir, target_dir, skill)?;
     for path in &undeclared {
-        fs::remove_file(path).map_err(|source| Error::Fs {
-            path: path.clone(),
-            source,
-        })?;
+        fs::remove_file(path).map_err(fs_error(path))?;
     }
     remove_empty_subdirs(target_dir)?;
     Ok(if created {
@@ -269,10 +236,7 @@ fn undeclared_files(
     let mut found = Vec::new();
     for entry in directory_entries(dir)? {
         // Never follow a symlink: it is an undeclared entry, unlinked as itself.
-        let is_dir = fs::is_real_dir(&entry).map_err(|source| Error::Fs {
-            path: entry.clone(),
-            source,
-        })?;
+        let is_dir = fs::is_real_dir(&entry).map_err(fs_error(&entry))?;
         if is_dir {
             found.extend(undeclared_files(root, &entry, skill)?);
         } else if let Ok(relative) = entry.strip_prefix(root)
@@ -289,17 +253,11 @@ fn undeclared_files(
 
 fn remove_empty_subdirs(dir: &Utf8Path) -> Result<(), Error> {
     for entry in directory_entries(dir)? {
-        let is_dir = fs::is_real_dir(&entry).map_err(|source| Error::Fs {
-            path: entry.clone(),
-            source,
-        })?;
+        let is_dir = fs::is_real_dir(&entry).map_err(fs_error(&entry))?;
         if is_dir {
             remove_empty_subdirs(&entry)?;
             if directory_entries(&entry)?.is_empty() {
-                fs::remove_path(&entry).map_err(|source| Error::Fs {
-                    path: entry.clone(),
-                    source,
-                })?;
+                fs::remove_path(&entry).map_err(fs_error(&entry))?;
             }
         }
     }
@@ -307,17 +265,18 @@ fn remove_empty_subdirs(dir: &Utf8Path) -> Result<(), Error> {
 }
 
 fn write_skill(path: &Utf8Path, content: &str) -> Result<(), Error> {
-    fs::write_atomic(path, content.as_bytes()).map_err(|source| Error::Fs {
-        path: path.to_owned(),
-        source,
-    })
+    fs::write_atomic(path, content.as_bytes()).map_err(fs_error(path))
 }
 
 fn directory_entries(dir: &Utf8Path) -> Result<Vec<Utf8PathBuf>, Error> {
-    fs::read_dir(dir).map_err(|source| Error::Fs {
-        path: dir.to_owned(),
+    fs::read_dir(dir).map_err(fs_error(dir))
+}
+
+fn fs_error(path: &Utf8Path) -> impl FnOnce(fs::Error) -> Error + '_ {
+    |source| Error::Fs {
+        path: path.to_owned(),
         source,
-    })
+    }
 }
 
 fn ivar_id(name: &str) -> Option<&str> {
