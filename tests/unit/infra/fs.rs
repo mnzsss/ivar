@@ -828,3 +828,59 @@ fn write_sensitive_atomic_overwrites_existing_atomically() {
         assert_eq!(mode & 0o777, 0o600);
     }
 }
+
+#[test]
+fn copy_dir_recreates_internal_relative_symlinks_inside_the_destination() {
+    let (_dir, root) = utf8_temp_dir();
+    let src = root.join("src");
+    let dst = root.join("dst");
+    ensure_dir(&src).unwrap();
+    write_atomic(&src.join("SKILL.md"), b"body").unwrap();
+    create_symlink(Utf8Path::new("SKILL.md"), &src.join("AGENTS.md")).unwrap();
+    create_symlink(Utf8Path::new("SKILL.md"), &src.join("CLAUDE.md")).unwrap();
+
+    copy_dir(&src, &dst).unwrap();
+
+    for name in ["AGENTS.md", "CLAUDE.md"] {
+        assert_eq!(
+            read_symlink(&dst.join(name)).unwrap(),
+            SymlinkTarget::Target(Utf8PathBuf::from("SKILL.md"))
+        );
+        assert_eq!(read_text(&dst.join(name)).unwrap().as_deref(), Some("body"));
+    }
+    assert_eq!(
+        read_symlink(&root.join("SKILL.md")).unwrap(),
+        SymlinkTarget::Absent
+    );
+}
+
+#[test]
+fn copy_dir_materialises_symlinks_that_escape_the_source_tree() {
+    let (_dir, root) = utf8_temp_dir();
+    let src = root.join("src");
+    let dst = root.join("dst");
+    ensure_dir(&src).unwrap();
+    write_atomic(&root.join("outside.md"), b"outside").unwrap();
+    create_symlink(Utf8Path::new("../outside.md"), &src.join("link.md")).unwrap();
+
+    copy_dir(&src, &dst).unwrap();
+
+    assert_eq!(
+        read_symlink(&dst.join("link.md")).unwrap(),
+        SymlinkTarget::NotASymlink
+    );
+    assert_eq!(
+        read_text(&dst.join("link.md")).unwrap().as_deref(),
+        Some("outside")
+    );
+}
+
+#[test]
+fn copy_dir_rejects_a_symlink_to_an_ancestor_instead_of_recursing_forever() {
+    let (_dir, root) = utf8_temp_dir();
+    let src = root.join("src");
+    ensure_dir(&src).unwrap();
+    create_symlink(Utf8Path::new(".."), &src.join("loop")).unwrap();
+
+    assert!(copy_dir(&src, &root.join("dst")).is_err());
+}
