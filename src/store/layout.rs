@@ -209,6 +209,15 @@ impl Layout {
         self.features_dir().join(feature.as_str())
     }
 
+    /// `<hall>/.ivar/features/<feature>/review/comments.json` — local review
+    /// comments on the feature's changes.
+    #[must_use]
+    pub fn review_comments_file(&self, feature: &FeatureName) -> Utf8PathBuf {
+        self.feature_dir(feature)
+            .join("review")
+            .join("comments.json")
+    }
+
     /// `<hall>/.ivar/features/<feature>/<feature>.code-workspace` — multi-root
     /// workspace file opening promoted repos writable and context repos read-only.
     #[must_use]
