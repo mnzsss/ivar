@@ -723,6 +723,9 @@ pub struct SessionSandboxArgs {
     #[arg(long)]
     pub session: String,
 
+    /// Resume the provider's previous conversation, where it supports it.
+    #[arg(long)]
+    pub resume: bool,
     /// The command line to execute after applying the sandbox.
     #[arg(last = true, allow_hyphen_values = true)]
     pub command: Vec<String>,
