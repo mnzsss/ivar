@@ -181,6 +181,14 @@ impl Command {
         &self.program
     }
 
+    /// The working directory the runners set, if any. Exposed for the same
+    /// reason as [`Self::program`]: a caller that builds a launch has to be
+    /// able to assert where it runs.
+    #[must_use]
+    pub fn working_dir(&self) -> Option<&camino::Utf8Path> {
+        self.cwd.as_deref()
+    }
+
     /// The arguments, in order.
     #[must_use]
     pub fn arguments(&self) -> &[String] {
