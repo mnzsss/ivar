@@ -129,7 +129,7 @@ fn sandbox_discovery_session_derives_roots_without_feature() {
     let view_dir = layout.discovery_session(&session_id);
     crate::infra::fs::ensure_dir(&view_dir).unwrap();
 
-    let set = WritableSet::from_discovery(&view_dir).unwrap();
+    let set = WritableSet::from_discovery(&layout, &view_dir).unwrap();
     let sandbox = Sandbox::from_writable_set(&set, &layout, None, Provider::Omp).unwrap();
     let roots = sandbox.roots();
 
@@ -139,6 +139,42 @@ fn sandbox_discovery_session_derives_roots_without_feature() {
             "missing discovery WritableSet root {r}"
         );
     }
+}
+
+#[test]
+fn discovery_sandbox_contains_canonical_hall_sources() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root);
+    let view_dir =
+        layout.discovery_session(&SessionId::new("6f0c9d5f-0000-4000-8000-000000000004").unwrap());
+    crate::infra::fs::ensure_dir(&view_dir).unwrap();
+    crate::infra::fs::write_text(&layout.root().join("HALL.md"), "# Hall\n").unwrap();
+    crate::infra::fs::ensure_dir(&layout.hall_skills()).unwrap();
+    crate::infra::fs::ensure_dir(&layout.hall_skills_local()).unwrap();
+
+    let set = WritableSet::from_discovery(&layout, &view_dir).unwrap();
+    let sandbox = Sandbox::from_writable_set(&set, &layout, None, Provider::ClaudeCode).unwrap();
+
+    assert!(
+        sandbox
+            .roots()
+            .contains(&layout.root().join("HALL.md").canonicalize_utf8().unwrap())
+    );
+    assert!(
+        sandbox
+            .roots()
+            .contains(&layout.hall_skills().canonicalize_utf8().unwrap())
+    );
+    assert!(
+        sandbox
+            .roots()
+            .contains(&layout.hall_skills_local().canonicalize_utf8().unwrap())
+    );
+    assert!(
+        !sandbox
+            .roots()
+            .contains(&layout.root().canonicalize_utf8().unwrap())
+    );
 }
 
 #[test]

@@ -119,7 +119,7 @@ fn discovery_session_writable_set_does_not_include_any_feature_dir() {
     let view_dir = layout.discovery_session(&session_id);
     crate::infra::fs::ensure_dir(&view_dir).unwrap();
 
-    let set = WritableSet::from_discovery(&view_dir).unwrap();
+    let set = WritableSet::from_discovery(&layout, &view_dir).unwrap();
 
     // The view dir itself is writable.
     assert!(set.allows(&view_dir));
@@ -144,7 +144,63 @@ fn discovery_session_writable_set_does_not_include_any_feature_dir() {
 }
 
 #[test]
-fn writable_set_roots_returns_view_dir_feature_dir_and_promoted_worktrees() {
+fn discovery_and_feature_sessions_allow_only_canonical_hall_sources() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root.clone());
+    let feature = Feature::read(&layout, &FeatureName::new("checkout").unwrap())
+        .unwrap()
+        .unwrap();
+    let discovery_view =
+        layout.discovery_session(&SessionId::new("6f0c9d5f-0000-4000-8000-000000000001").unwrap());
+    let feature_view = layout.feature_session(
+        &feature.name,
+        &SessionId::new("6f0c9d5f-0000-4000-8000-000000000002").unwrap(),
+    );
+    crate::infra::fs::ensure_dir(&discovery_view).unwrap();
+    crate::infra::fs::ensure_dir(&feature_view).unwrap();
+
+    let discovery = WritableSet::from_discovery(&layout, &discovery_view).unwrap();
+    let feature_set = WritableSet::from_session(&layout, &feature, &feature_view).unwrap();
+
+    for set in [&discovery, &feature_set] {
+        assert!(set.allows(&layout.root().join("HALL.md")));
+        assert!(set.allows(&layout.hall_skills().join("custom/SKILL.md")));
+        assert!(set.allows(&layout.hall_skills_local().join("private/SKILL.md")));
+        assert!(!set.allows(&layout.state()));
+        assert!(!set.allows(&layout.root().join(".claude/skills/custom/SKILL.md")));
+        assert!(!set.allows(&layout.root().join("ivar.json")));
+    }
+
+    let default_worktree = layout.repo_worktree(
+        &RepoName::new("api").unwrap(),
+        &BranchName::new("main").unwrap(),
+    );
+    assert!(!discovery.allows(&default_worktree.join("src/lib.rs")));
+}
+
+#[cfg(unix)]
+#[test]
+fn canonical_hall_source_symlink_cannot_escape_to_a_default_worktree() {
+    use std::os::unix::fs::symlink;
+
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root);
+    let view =
+        layout.discovery_session(&SessionId::new("6f0c9d5f-0000-4000-8000-000000000003").unwrap());
+    crate::infra::fs::ensure_dir(&view).unwrap();
+    crate::infra::fs::ensure_dir(&layout.hall_skills()).unwrap();
+    let default_worktree = layout.repo_worktree(
+        &RepoName::new("api").unwrap(),
+        &BranchName::new("main").unwrap(),
+    );
+    symlink(&default_worktree, layout.hall_skills().join("escaped")).unwrap();
+
+    let set = WritableSet::from_discovery(&layout, &view).unwrap();
+    assert!(!set.allows(&layout.hall_skills().join("escaped/src/lib.rs")));
+}
+
+#[test]
+fn writable_set_roots_include_canonical_hall_sources() {
     let (_guard, root) = hall_with_promoted_feature();
     let layout = Layout::at(root.clone());
     let feature = Feature::read(&layout, &FeatureName::new("checkout").unwrap())
@@ -153,39 +209,96 @@ fn writable_set_roots_returns_view_dir_feature_dir_and_promoted_worktrees() {
     let session_id = SessionId::new("6f0c9d5f-0000-4000-8000-000000000000").unwrap();
     let view_dir = layout.feature_session(&feature.name, &session_id);
     crate::infra::fs::ensure_dir(&view_dir).unwrap();
+    crate::infra::fs::ensure_dir(&layout.hall_skills()).unwrap();
+    crate::infra::fs::ensure_dir(&layout.hall_skills_local()).unwrap();
 
     let set = WritableSet::from_session(&layout, &feature, &view_dir).unwrap();
     let roots = set.roots();
 
-    let expected_view = view_dir.canonicalize_utf8().unwrap();
-    let expected_feat = layout
-        .feature_dir(&feature.name)
-        .canonicalize_utf8()
-        .unwrap();
-    let expected_wt = layout
-        .repo_worktree(&RepoName::new("api").unwrap(), &feature.branch)
-        .canonicalize_utf8()
-        .unwrap();
-
-    assert!(roots.contains(&expected_view.as_path()));
-    assert!(roots.contains(&expected_feat.as_path()));
-    assert!(roots.contains(&expected_wt.as_path()));
-    assert_eq!(roots.len(), 3);
+    assert!(
+        roots.contains(
+            &layout
+                .root()
+                .join("HALL.md")
+                .canonicalize_utf8()
+                .unwrap()
+                .as_path()
+        )
+    );
+    assert!(roots.contains(&layout.hall_skills().canonicalize_utf8().unwrap().as_path()));
+    assert!(
+        roots.contains(
+            &layout
+                .hall_skills_local()
+                .canonicalize_utf8()
+                .unwrap()
+                .as_path()
+        )
+    );
+    assert_eq!(roots.len(), 6);
 }
 
 #[test]
-fn discovery_writable_set_roots_contains_only_view_dir() {
+fn discovery_writable_set_roots_include_only_view_and_canonical_hall_sources() {
     let (_guard, root) = hall_with_promoted_feature();
     let layout = Layout::at(root.clone());
     let session_id = SessionId::new("6f0c9d5f-0000-4000-8000-000000000000").unwrap();
     let view_dir = layout.discovery_session(&session_id);
     crate::infra::fs::ensure_dir(&view_dir).unwrap();
+    crate::infra::fs::ensure_dir(&layout.hall_skills()).unwrap();
+    crate::infra::fs::ensure_dir(&layout.hall_skills_local()).unwrap();
 
-    let set = WritableSet::from_discovery(&view_dir).unwrap();
+    let set = WritableSet::from_discovery(&layout, &view_dir).unwrap();
     let roots = set.roots();
 
-    let expected_view = view_dir.canonicalize_utf8().unwrap();
-    assert_eq!(roots, vec![expected_view.as_path()]);
+    assert_eq!(roots.len(), 4);
+    assert!(roots.contains(&view_dir.canonicalize_utf8().unwrap().as_path()));
+    assert!(
+        roots.contains(
+            &layout
+                .root()
+                .join("HALL.md")
+                .canonicalize_utf8()
+                .unwrap()
+                .as_path()
+        )
+    );
+    assert!(roots.contains(&layout.hall_skills().canonicalize_utf8().unwrap().as_path()));
+    assert!(
+        roots.contains(
+            &layout
+                .hall_skills_local()
+                .canonicalize_utf8()
+                .unwrap()
+                .as_path()
+        )
+    );
+}
+
+#[test]
+fn discovery_guard_allows_canonical_source_and_denies_generated_mirror() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root.clone());
+    let session_id = SessionId::new("6f0c9d5f-1111-4000-8000-000000000005").unwrap();
+    let view_dir = layout.discovery_session(&session_id);
+    crate::infra::fs::ensure_dir(&view_dir).unwrap();
+    crate::domain::session::SessionState::new(Provider::Omp, "2026-09-16T00:00:00Z")
+        .write(&view_dir)
+        .unwrap();
+
+    let allow = serde_json::json!({
+        "tool": "write",
+        "args": { "filePath": layout.hall_skills().join("custom/SKILL.md") },
+        "cwd": view_dir,
+    });
+    assert!(guard(Provider::Omp, &allow.to_string()).unwrap().exit_zero);
+
+    let deny = serde_json::json!({
+        "tool": "write",
+        "args": { "filePath": layout.root().join(".omp/skills/custom/SKILL.md") },
+        "cwd": layout.discovery_session(&session_id),
+    });
+    assert!(!guard(Provider::Omp, &deny.to_string()).unwrap().exit_zero);
 }
 
 // ---------------------------------------------------------------------------
