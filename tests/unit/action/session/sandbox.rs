@@ -283,3 +283,20 @@ fn sandbox_apply_executes_on_linux_without_error() {
     let status = sandbox.apply();
     assert!(status.is_ok(), "sandbox.apply() failed: {:?}", status.err());
 }
+
+// Note on `sandbox.process_failed` testability at this seam:
+// Finding 2 requested test coverage for the non-zero exit branch returning `sandbox.process_failed`.
+// At this unit test seam (`run_launcher`), the command is built via `launch::provider_command`
+// from the session provider recorded in `state.json`. `ensure_provider_binary` strictly guards
+// that `argv[0]` matches the session provider (`claude` / `opencode` / `omp`), while `provider_command`
+// uses the provider's fixed binary name. Therefore, reaching `crate::infra::proc::exec` would attempt
+// to spawn the real provider executable on the host system (e.g. `claude`).
+// In unit tests:
+// 1. We cannot rely on `claude` or `opencode` binaries existing on arbitrary test runners.
+// 2. We must never spawn or execute a real provider during unit testing.
+// 3. Even if a fake binary were placed on PATH, on Linux `exec` replaces the test process via `execve`.
+// 4. On non-Linux targets (`#[cfg(not(target_os = "linux"))]`), `exec` falls back to `status().code()`,
+//    but still requires spawning a real executable that exits non-zero without being able to mock
+//    `provider_command`'s binary name without violating `ensure_provider_binary`.
+// Thus, `sandbox.process_failed` cannot be driven from `run_launcher` in unit tests without executing
+// a real provider binary or introducing test-only seams into production code.

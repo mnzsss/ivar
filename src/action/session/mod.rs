@@ -2,10 +2,12 @@
 //! repos, an agent running in it, and the TUI that ties them together.
 //!
 //! This slice's additions: `connect` (re-bind to a live session),
-//! `conversion` (bind a discovery session to a feature, one-way), the shared
-//! `lookup` (finding sessions on disk by id-prefix and/or feature), the
-//! lifecycle pair `stop` (end a detached session) and `prune` (remove dead
-//! sessions), and the `relay` verb (a thin alias over `start --relay`).
+//! `conversion` (bind a discovery session to a feature, one-way), `launch` (the
+//! single provider-launch builder both the TUI path and the sandbox launcher go
+//! through, plus the binary guard), the shared `lookup` (finding sessions on
+//! disk by id-prefix and/or feature), the lifecycle pair `stop` (end a detached
+//! session) and `prune` (remove dead sessions), and the `relay` verb (a thin
+//! alias over `start --relay`).
 
 pub mod connect;
 pub mod conversion;

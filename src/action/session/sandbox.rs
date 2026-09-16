@@ -334,7 +334,13 @@ pub fn run_launcher(
         Some(code) => Err(Failure::failed(
             "sandbox.process_failed",
             format!("`{program}` exited with {code}"),
-        )),
+        )
+        .expected("the provider process to exit successfully with 0")
+        .actual(format!("exit code {code}"))
+        .fix(crate::error::FixAction::safe(
+            "session.inspect_provider_output",
+            "Inspect the provider output printed above for errors or diagnostics.",
+        ))),
     }
 }
 #[cfg(test)]
