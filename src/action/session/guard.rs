@@ -55,7 +55,6 @@ fn hall_sources(layout: &Layout) -> Vec<Utf8PathBuf> {
     .collect()
 }
 
-
 impl WritableSet {
     /// Build the writable set from the session's view dir, the feature's
     /// directory, and the feature's promoted repos. The view dir, feature dir,
@@ -98,10 +97,7 @@ impl WritableSet {
 
     /// Build the writable set for a discovery session: the view dir and
     /// canonical hall sources.
-    pub(crate) fn from_discovery(
-        layout: &Layout,
-        view_dir: &Utf8Path,
-    ) -> Result<Self, Failure> {
+    pub(crate) fn from_discovery(layout: &Layout, view_dir: &Utf8Path) -> Result<Self, Failure> {
         let view_dir = view_dir.canonicalize_utf8().map_err(|source| {
             Failure::failed(
                 "guard.unresolvable_view_dir",
@@ -116,7 +112,6 @@ impl WritableSet {
             hall_sources: hall_sources(layout),
         })
     }
-
 
     /// Whether `path` is inside the view dir, canonical hall sources, feature
     /// directory when applicable, or one of the promoted worktrees.

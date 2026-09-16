@@ -150,9 +150,8 @@ fn discovery_and_feature_sessions_allow_only_canonical_hall_sources() {
     let feature = Feature::read(&layout, &FeatureName::new("checkout").unwrap())
         .unwrap()
         .unwrap();
-    let discovery_view = layout.discovery_session(
-        &SessionId::new("6f0c9d5f-0000-4000-8000-000000000001").unwrap(),
-    );
+    let discovery_view =
+        layout.discovery_session(&SessionId::new("6f0c9d5f-0000-4000-8000-000000000001").unwrap());
     let feature_view = layout.feature_session(
         &feature.name,
         &SessionId::new("6f0c9d5f-0000-4000-8000-000000000002").unwrap(),
@@ -186,9 +185,8 @@ fn canonical_hall_source_symlink_cannot_escape_to_a_default_worktree() {
 
     let (_guard, root) = hall_with_promoted_feature();
     let layout = Layout::at(root);
-    let view = layout.discovery_session(
-        &SessionId::new("6f0c9d5f-0000-4000-8000-000000000003").unwrap(),
-    );
+    let view =
+        layout.discovery_session(&SessionId::new("6f0c9d5f-0000-4000-8000-000000000003").unwrap());
     crate::infra::fs::ensure_dir(&view).unwrap();
     crate::infra::fs::ensure_dir(&layout.hall_skills()).unwrap();
     let default_worktree = layout.repo_worktree(
@@ -217,9 +215,26 @@ fn writable_set_roots_include_canonical_hall_sources() {
     let set = WritableSet::from_session(&layout, &feature, &view_dir).unwrap();
     let roots = set.roots();
 
-    assert!(roots.contains(&layout.root().join("HALL.md").canonicalize_utf8().unwrap().as_path()));
+    assert!(
+        roots.contains(
+            &layout
+                .root()
+                .join("HALL.md")
+                .canonicalize_utf8()
+                .unwrap()
+                .as_path()
+        )
+    );
     assert!(roots.contains(&layout.hall_skills().canonicalize_utf8().unwrap().as_path()));
-    assert!(roots.contains(&layout.hall_skills_local().canonicalize_utf8().unwrap().as_path()));
+    assert!(
+        roots.contains(
+            &layout
+                .hall_skills_local()
+                .canonicalize_utf8()
+                .unwrap()
+                .as_path()
+        )
+    );
     assert_eq!(roots.len(), 6);
 }
 
@@ -238,9 +253,26 @@ fn discovery_writable_set_roots_include_only_view_and_canonical_hall_sources() {
 
     assert_eq!(roots.len(), 4);
     assert!(roots.contains(&view_dir.canonicalize_utf8().unwrap().as_path()));
-    assert!(roots.contains(&layout.root().join("HALL.md").canonicalize_utf8().unwrap().as_path()));
+    assert!(
+        roots.contains(
+            &layout
+                .root()
+                .join("HALL.md")
+                .canonicalize_utf8()
+                .unwrap()
+                .as_path()
+        )
+    );
     assert!(roots.contains(&layout.hall_skills().canonicalize_utf8().unwrap().as_path()));
-    assert!(roots.contains(&layout.hall_skills_local().canonicalize_utf8().unwrap().as_path()));
+    assert!(
+        roots.contains(
+            &layout
+                .hall_skills_local()
+                .canonicalize_utf8()
+                .unwrap()
+                .as_path()
+        )
+    );
 }
 
 #[test]
