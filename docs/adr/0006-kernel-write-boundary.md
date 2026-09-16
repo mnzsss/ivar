@@ -27,11 +27,18 @@ receipts) and driving the TUI, `ivar` itself cannot be restricted.
 
 Because `portable-pty`'s `CommandBuilder` does not offer a `pre_exec` hook, and standard
 library `pre_exec` requires `unsafe`, `ivar session start` spawns a hidden re-exec
-launcher: `ivar session sandbox --session <id> -- <provider> [args...]`.
-This launcher child process resolves the session's authoritative `WritableSet` from disk,
-builds and applies the Landlock ruleset to itself, and then calls
-`std::os::unix::process::CommandExt::exec`. Calling `exec()` is 100% safe Rust, replaces
-the launcher with the provider process, and preserves the Landlock sandbox across `execve`.
+launcher: `ivar session sandbox --session <id> [--resume] -- <provider> [args...]`.
+The launcher child resolves the session's record and its authoritative `WritableSet`
+from disk, rebuilds the provider's own invocation from them — provider-native
+arguments, the `IVAR_*` session environment, MCP secrets, and the View Dir as the
+working directory — then builds and applies the Landlock ruleset to itself and calls
+`std::os::unix::process::CommandExt::exec` through `infra::proc::exec`. Calling
+`exec()` is 100% safe Rust, replaces the launcher with the provider process, and
+preserves the Landlock sandbox across `execve`.
+
+The launcher is the one place that knows what launching a provider means, so a
+session started detached and one started under the TUI run the same command. It
+accepts only the session provider's own binary; any other program is refused.
 
 ### D2 — Write-only handled access rights
 

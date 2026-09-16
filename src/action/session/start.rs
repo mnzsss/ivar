@@ -58,7 +58,7 @@ use crate::tui::driver::{Driver, ShellSpec};
 use crate::tui::pty::PtsPty;
 
 use super::super::{discover_hall, read_manifest};
-use super::{env::SessionEnv, hook, lookup, view};
+use super::{hook, lookup, view};
 
 /// What `ivar session start` needs.
 #[derive(Debug, Clone)]
@@ -225,29 +225,7 @@ pub fn start(ctx: &Ctx, input: StartInput) -> Outcome<StartOutcome> {
     let detached =
         input.detached || !crate::infra::term::is_tty(crate::infra::term::Stream::Stdout);
     if !detached {
-        let env = SessionEnv::build(
-            &layout,
-            &session_id,
-            &view_dir,
-            provider,
-            feature.as_ref().map(|f| &f.name),
-        );
-        let hall_name = manifest.name().clone();
-        let mut allowlist: Vec<String> = manifest
-            .mcp_servers()
-            .iter()
-            .map(|server| server.materialised_name(&hall_name))
-            .collect();
-        allowlist.sort();
-        allowlist.dedup();
-        let command = env.apply(crate::providers::start_command(
-            provider,
-            input.resume,
-            &allowlist,
-        )?);
-        let command =
-            crate::action::mcp::inject_session_mcp_secrets(command, &layout, &manifest, provider);
-        let command = wrap_with_sandbox(command, &session_id)?;
+        let command = wrap_with_sandbox(provider, &session_id, input.resume)?;
         let width = crate::infra::term::width();
         let height = 24;
 
@@ -255,13 +233,10 @@ pub fn start(ctx: &Ctx, input: StartInput) -> Outcome<StartOutcome> {
     }
 
     let launch_command = if detached {
-        let provider_bin = match provider {
-            Provider::ClaudeCode => "claude",
-            Provider::OpenCode => "opencode",
-            Provider::Omp => "omp",
-        };
+        let binary = crate::providers::launch_contract(provider).binary;
+        let resume_flag = if input.resume { " --resume" } else { "" };
         Some(format!(
-            "ivar session sandbox --session {session_id} -- {provider_bin}"
+            "ivar session sandbox --session {session_id}{resume_flag} -- {binary}"
         ))
     } else {
         None
@@ -376,12 +351,17 @@ fn check_relay(
     Ok(())
 }
 
-/// Wrap a provider command so it re-executes through the hidden `ivar session sandbox` launcher.
+/// The wrapper that re-executes this binary as the hidden
+/// `ivar session sandbox` launcher (ADR-0006 D1).
 ///
-/// Preserves all environment variables and configuration from the original command.
+/// It names the session, whether to resume, and the provider's binary —
+/// nothing more. The provider's own arguments, the session environment and
+/// the MCP secrets are built by the launcher from the session record, so
+/// that the detached launch and this one are the same launch.
 pub(crate) fn wrap_with_sandbox(
-    command: Command,
+    provider: Provider,
     session_id: &SessionId,
+    resume: bool,
 ) -> Result<Command, Failure> {
     let exe_path = std::env::current_exe().map_err(|e| {
         Failure::failed(
@@ -401,13 +381,11 @@ pub(crate) fn wrap_with_sandbox(
     wrapped = wrapped.arg("sandbox");
     wrapped = wrapped.arg("--session");
     wrapped = wrapped.arg(session_id.as_str());
-    wrapped = wrapped.arg("--");
-    wrapped = wrapped.arg(command.program());
-    wrapped = wrapped.args(command.arguments());
-
-    for (k, v) in command.envs() {
-        wrapped = wrapped.env(k, v);
+    if resume {
+        wrapped = wrapped.arg("--resume");
     }
+    wrapped = wrapped.arg("--");
+    wrapped = wrapped.arg(crate::providers::launch_contract(provider).binary);
 
     Ok(wrapped)
 }

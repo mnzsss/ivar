@@ -15,6 +15,7 @@ use crate::action::feature::promote::{self as feature_promote, PromoteInput};
 use crate::action::hall::{self, InitInput};
 use crate::action::plan::create::{self as plan_create, CreateInput as PlanCreateInput};
 use crate::action::session::conversion::{self, ConvertInput};
+use crate::action::session::env::SessionEnv;
 use crate::domain::name::{BranchName, HallName, RepoName};
 use crate::domain::provider::Provider;
 use crate::store::manifest::{Manifest, Providers, Repo};
@@ -325,12 +326,39 @@ fn detached_start_reports_enforced_launch_command() {
         Some(expected_cmd.as_str())
     );
 
-    // Verify human-readable rendering includes the launch command
     let mut buf = Vec::new();
     outcome.write_human(&mut buf).unwrap();
     let human_output = String::from_utf8(buf).unwrap();
     assert!(human_output.contains("To launch provider under write guard:"));
     assert!(human_output.contains(&expected_cmd));
+}
+
+#[test]
+fn a_detached_resume_reports_a_launch_command_that_resumes() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let ctx = Ctx::new(root);
+
+    let report = start(
+        &ctx,
+        StartInput {
+            feature: Some("checkout".to_owned()),
+            resume: true,
+            provider: Some("claude-code".to_owned()),
+            detached: true,
+            relay: false,
+        },
+    )
+    .unwrap();
+
+    let outcome = report.value;
+    let expected_cmd = format!(
+        "ivar session sandbox --session {} --resume -- claude",
+        outcome.session_id
+    );
+    assert_eq!(
+        outcome.launch_command.as_deref(),
+        Some(expected_cmd.as_str())
+    );
 }
 
 /// Without a terminal there is nothing to hold the provider open, so a start
@@ -1275,14 +1303,12 @@ fn start_command_carries_the_session_environment() {
 }
 
 #[test]
-fn start_command_is_wrapped_with_sandbox_launcher() {
+fn the_sandbox_wrapper_names_the_provider_and_nothing_else() {
     let session_id = SessionId::new("6f0c9d5f-0000-4000-8000-000000000000").unwrap();
-    let mut original = crate::infra::proc::Command::new("claude");
-    original = original.arg("--resume");
-    original = original.env("FOO", "BAR");
 
-    let wrapped = crate::action::session::start::wrap_with_sandbox(original, &session_id)
-        .expect("wrapping with sandbox must succeed");
+    let wrapped =
+        crate::action::session::start::wrap_with_sandbox(Provider::ClaudeCode, &session_id, false)
+            .expect("wrapping with sandbox must succeed");
 
     let current_exe = std::env::current_exe()
         .ok()
@@ -1298,11 +1324,32 @@ fn start_command_is_wrapped_with_sandbox_launcher() {
             "--session",
             "6f0c9d5f-0000-4000-8000-000000000000",
             "--",
-            "claude",
-            "--resume"
+            "claude"
+        ],
+        "the launcher builds the provider's own arguments; the wrapper must not"
+    );
+}
+
+#[test]
+fn a_resumed_session_wraps_with_the_resume_flag() {
+    let session_id = SessionId::new("6f0c9d5f-0000-4000-8000-000000000000").unwrap();
+
+    let wrapped =
+        crate::action::session::start::wrap_with_sandbox(Provider::OpenCode, &session_id, true)
+            .expect("wrapping with sandbox must succeed");
+
+    assert_eq!(
+        wrapped.arguments(),
+        &[
+            "session",
+            "sandbox",
+            "--session",
+            "6f0c9d5f-0000-4000-8000-000000000000",
+            "--resume",
+            "--",
+            "opencode"
         ]
     );
-    assert!(wrapped.envs().iter().any(|(k, v)| k == "FOO" && v == "BAR"));
 }
 
 /// A feature session does not link `work` into the view dir.
