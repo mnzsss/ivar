@@ -45,6 +45,10 @@ impl Sandbox {
         feature: Option<&Feature>,
         provider: Provider,
     ) -> Result<Self, Failure> {
+        // Ensure canonical hall skill directories exist before filtering nonexistent paths.
+        crate::infra::fs::ensure_dir(&layout.hall_skills())?;
+        crate::infra::fs::ensure_dir(&layout.hall_skills_local())?;
+
         let mut candidate_roots: Vec<Utf8PathBuf> = Vec::new();
 
         // 1. Primary write roots from the WritableSet (view dir, feature dir, promoted worktrees).
@@ -293,7 +297,7 @@ pub fn run_launcher(session_id_str: &str, argv: &[String]) -> Result<(), Failure
 
     let set = match &feature {
         Some(feat) => WritableSet::from_session(&layout, feat, &session_ref.view_dir)?,
-        None => WritableSet::from_discovery(&session_ref.view_dir)?,
+        None => WritableSet::from_discovery(&layout, &session_ref.view_dir)?,
     };
 
     let sandbox = Sandbox::from_writable_set(&set, &layout, feature.as_ref(), state.provider)?;

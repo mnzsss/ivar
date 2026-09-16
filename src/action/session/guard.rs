@@ -8,30 +8,53 @@ use crate::store::layout::Layout;
 use camino::{Utf8Path, Utf8PathBuf};
 
 /// The set of paths a session is allowed to write into: its view dir, its
-/// feature directory (for feature sessions), plus the worktrees of promoted repos.
+/// feature directory (for feature sessions), the worktrees of promoted repos,
+/// and the hall's canonical sources (HALL.md, .ivar/skills, .ivar/skills-local).
 #[derive(Debug, Clone)]
 pub(crate) struct WritableSet {
     view_dir: Utf8PathBuf,
     feature_dir: Option<Utf8PathBuf>,
     sessions_dir: Option<Utf8PathBuf>,
     worktrees: Vec<Utf8PathBuf>,
+    hall_sources: Vec<Utf8PathBuf>,
 }
 
 /// Leniently canonicalise `path`. If canonicalisation fails (e.g. for a
-/// file that does not exist yet), try canonicalising its parent and appending
-/// the file name, falling back to the raw path if parent canonicalisation also
-/// fails.
+/// file that does not exist yet), walk to the nearest existing ancestor,
+/// canonicalise it, and append the remaining non-existent components,
+/// falling back to the raw path if no ancestor canonicalises.
 fn canonicalize_lenient(path: &Utf8Path) -> Utf8PathBuf {
-    if let Ok(canonical) = path.canonicalize_utf8() {
-        return canonical;
+    let mut existing = path;
+    let mut tail = Vec::new();
+    while !existing.exists() {
+        let Some(name) = existing.file_name() else {
+            break;
+        };
+        tail.push(name);
+        let Some(parent) = existing.parent() else {
+            break;
+        };
+        existing = parent;
     }
-    if let (Some(parent), Some(file_name)) = (path.parent(), path.file_name())
-        && let Ok(canonical_parent) = parent.canonicalize_utf8()
-    {
-        return canonical_parent.join(file_name);
+    if let Ok(mut canonical) = existing.canonicalize_utf8() {
+        for name in tail.into_iter().rev() {
+            canonical.push(name);
+        }
+        return canonical;
     }
     path.to_path_buf()
 }
+fn hall_sources(layout: &Layout) -> Vec<Utf8PathBuf> {
+    [
+        layout.root().join("HALL.md"),
+        layout.hall_skills(),
+        layout.hall_skills_local(),
+    ]
+    .into_iter()
+    .map(|path| canonicalize_lenient(&path))
+    .collect()
+}
+
 
 impl WritableSet {
     /// Build the writable set from the session's view dir, the feature's
@@ -69,17 +92,16 @@ impl WritableSet {
             feature_dir: Some(feature_dir),
             sessions_dir: Some(sessions_dir),
             worktrees,
+            hall_sources: hall_sources(layout),
         })
     }
 
     /// Build the writable set for a discovery session: the view dir and
-    /// nothing else.
-    ///
-    /// A discovery session binds no feature and promotes no repo, so the set is
-    /// empty by construction — not absent. The difference is the whole point:
-    /// an absent set once meant "the guard has nothing to say", which left every
-    /// read-only worktree mounted under the view dir writable.
-    pub(crate) fn from_discovery(view_dir: &Utf8Path) -> Result<Self, Failure> {
+    /// canonical hall sources.
+    pub(crate) fn from_discovery(
+        layout: &Layout,
+        view_dir: &Utf8Path,
+    ) -> Result<Self, Failure> {
         let view_dir = view_dir.canonicalize_utf8().map_err(|source| {
             Failure::failed(
                 "guard.unresolvable_view_dir",
@@ -91,8 +113,10 @@ impl WritableSet {
             feature_dir: None,
             sessions_dir: None,
             worktrees: Vec::new(),
+            hall_sources: hall_sources(layout),
         })
     }
+
 
     /// Whether `path` is inside the view dir or one of the promoted worktrees.
     /// The input path is canonicalised (with parent fallback for not-yet-existing
@@ -115,7 +139,16 @@ impl WritableSet {
         {
             return true;
         }
-        self.worktrees.iter().any(|wt| canonical.starts_with(wt))
+        if self.worktrees.iter().any(|wt| canonical.starts_with(wt)) {
+            return true;
+        }
+        self.hall_sources.iter().any(|root| {
+            if root.file_name() == Some("HALL.md") {
+                canonical == *root
+            } else {
+                canonical.starts_with(root)
+            }
+        })
     }
 
     /// The view dir — the canonical root of this set.
@@ -128,15 +161,17 @@ impl WritableSet {
     /// boundary under `feature_dir` and is not a root.
     #[allow(dead_code)]
     pub(crate) fn roots(&self) -> Vec<&Utf8Path> {
-        let mut roots =
-            Vec::with_capacity(1 + usize::from(self.feature_dir.is_some()) + self.worktrees.len());
+        let mut roots = Vec::with_capacity(
+            1 + usize::from(self.feature_dir.is_some())
+                + self.worktrees.len()
+                + self.hall_sources.len(),
+        );
         roots.push(self.view_dir.as_path());
         if let Some(feature_dir) = &self.feature_dir {
             roots.push(feature_dir.as_path());
         }
-        for wt in &self.worktrees {
-            roots.push(wt.as_path());
-        }
+        roots.extend(self.worktrees.iter().map(Utf8PathBuf::as_path));
+        roots.extend(self.hall_sources.iter().map(Utf8PathBuf::as_path));
         roots
     }
 
@@ -158,6 +193,7 @@ impl WritableSet {
             feature_dir,
             sessions_dir,
             worktrees,
+            hall_sources: Vec::new(),
         }
     }
 }
@@ -222,6 +258,7 @@ pub(crate) fn decide(set: Option<&WritableSet>, req: &ToolRequest) -> GuardDecis
                 std::iter::once(set.view_dir().to_string())
                     .chain(set.feature_dir.as_ref().map(|f| f.to_string()))
                     .chain(set.worktrees.iter().map(|w| w.to_string()))
+                    .chain(set.hall_sources.iter().map(|h| h.to_string()))
                     .collect::<Vec<_>>()
                     .join(", ")
             ),
@@ -333,10 +370,10 @@ pub fn guard(provider: Provider, stdin_json: &str) -> Result<GuardOutcome, Failu
 /// resolves to a set holding the view dir alone. Returning `None` there would
 /// disarm the guard in the one session that may write nothing.
 fn resolve_writable_set(env: &crate::action::session::env::SessionEnv) -> Option<WritableSet> {
-    let Some(feature_name) = env.feature.as_ref() else {
-        return WritableSet::from_discovery(&env.view_dir).ok();
-    };
     let layout = Layout::discover(&env.view_dir).ok()??;
+    let Some(feature_name) = env.feature.as_ref() else {
+        return WritableSet::from_discovery(&layout, &env.view_dir).ok();
+    };
     let feature = Feature::read(&layout, feature_name).ok()??;
     WritableSet::from_session(&layout, &feature, &env.view_dir).ok()
 }
