@@ -162,6 +162,7 @@ fn discovery_sandbox_contains_canonical_hall_sources() {
     assert!(sandbox.roots().contains(&layout.hall_skills_local().canonicalize_utf8().unwrap()));
     assert!(!sandbox.roots().contains(&layout.root().canonicalize_utf8().unwrap()));
 }
+
 #[test]
 fn sandbox_status_enum_variants_and_predicates() {
     use crate::action::session::sandbox::SandboxStatus;

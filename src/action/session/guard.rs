@@ -118,7 +118,8 @@ impl WritableSet {
     }
 
 
-    /// Whether `path` is inside the view dir or one of the promoted worktrees.
+    /// Whether `path` is inside the view dir, canonical hall sources, feature
+    /// directory when applicable, or one of the promoted worktrees.
     /// The input path is canonicalised (with parent fallback for not-yet-existing
     /// files) so symlinks cannot escape the set on platforms like macOS where
     /// `/tmp` or `/var` are symlinks.
@@ -156,9 +157,9 @@ impl WritableSet {
         &self.view_dir
     }
 
-    /// Return the write-allowed root paths: view dir, feature dir (if present),
-    /// and every promoted repo worktree. Note that `sessions_dir` is an exclusion
-    /// boundary under `feature_dir` and is not a root.
+    /// Return the write-allowed root paths: view dir, canonical hall sources,
+    /// feature dir (if present), and every promoted repo worktree. Note that
+    /// `sessions_dir` is an exclusion boundary under `feature_dir` and is not a root.
     #[allow(dead_code)]
     pub(crate) fn roots(&self) -> Vec<&Utf8Path> {
         let mut roots = Vec::with_capacity(
