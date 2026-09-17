@@ -189,7 +189,6 @@ today).
 
 ```json
 {
-  "$schema": "https://ivar.run/ivar.schema.json",
   "version": 3,
   "mcp": [
     {
@@ -344,12 +343,12 @@ key under which env vars are expressed differ.
 ### Editor schema discovery
 
 Every newly generated `ivar.json` begins with the `$schema` property pointing
-at the stable public URL:
+at the document for the version it was written as:
 
 ```json
 {
-  "$schema": "https://ivar.run/ivar.schema.json",
-  "version": 3,
+  "$schema": "https://ivar.run/schema/4.json",
+  "version": 4,
   …
 }
 ```
@@ -358,12 +357,30 @@ An editor that supports JSON Schema (VS Code, Cursor, Zed, OpenCode) uses that
 reference to validate the file, offer completion for every field and enum value,
 and flag a typo or a stale transport spelling before `ivar` ever sees the file.
 
-The same file is checked in at the repository root, packaged in the crate, and
-attached to every GitHub release as `ivar.schema.json` — pinned to that tag,
-where the `$schema` URL and a branch are not. It is generated from the manifest
-types by `cargo run --example generate-manifest-schema`, and a test fails the
-build when the checked-in copy and the types disagree, so there is no second
-copy to drift.
+The URL carries the version because the document pins `version` with `const`.
+One document could only describe one version, and an editor fetching it for any
+other version would report an error on a file that is correct. `ivar` never
+reads the value on disk: a write stamps the URL for the version it just wrote,
+so a hall that predates the property, or carries the old unversioned URL, is
+corrected by the next command that touches its manifest.
+
+The same documents are checked in under `schema/`, packaged in the crate, and
+attached to every GitHub release as `ivar.schema.<version>.json` — pinned to
+that tag, where a branch is not. They are generated from the manifest types by
+`cargo run --example generate-manifest-schema`, and a test fails the build when
+the checked-in copy and the types disagree, so there is no second copy to
+drift.
+
+Documents begin at version 4, the first version whose schema was ever
+published; `ivar.run/schema/1.json` through `3.json` answer 404 because no
+such document exists.
+
+**A published document is frozen.** Once a version's document has shipped in a
+release, its bytes never change — halls on that version resolve their
+`$schema` against the copy that shipped, and an edit would invalidate them
+silently. A correction ships as a new manifest version, never as an edit to a
+released document. Nothing enforces this mechanically; `git log -- schema/` is
+the audit.
 
 ### Claude approval boundary
 

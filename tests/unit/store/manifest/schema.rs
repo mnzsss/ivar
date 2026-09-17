@@ -72,13 +72,27 @@ fn schema_has_id_and_title() {
     let s = schema();
     assert_eq!(
         s.get("$id").and_then(Value::as_str),
-        Some("https://ivar.run/ivar.schema.json"),
-        "$id must match the canonical URL"
+        Some("https://ivar.run/schema/4.json"),
+        "$id must match the canonical URL for the version this document pins"
     );
     assert_eq!(
         s.get("title").and_then(Value::as_str),
         Some("ivar.json"),
         "title must be the file name"
+    );
+    // An editor resolves the document by `$id` and validates the file's
+    // `$schema` line against the `const`. When those two disagree, a correct
+    // manifest is reported as wrong on the line that points at this document.
+    assert_eq!(
+        s.get("$id"),
+        s.pointer("/properties/$schema/const"),
+        "the document must be served under the name it tells files to use"
+    );
+    assert_eq!(
+        s.pointer("/properties/version/const")
+            .and_then(Value::as_u64),
+        Some(4),
+        "the URL's version segment and the pinned version must be the same version"
     );
 }
 
@@ -623,9 +637,23 @@ fn schema_defs_cover_manifest_reachable_types() {
 
 // -- Task 5: drift gate and package inclusion ------------------------------
 
+/// The version the generated document pins — the same number its filename
+/// and its `$id` carry. Read out of the document rather than imported from
+/// `CURRENT_VERSION`, which is `pub(super)` and should stay that way.
+fn schema_artifact_version() -> u64 {
+    generate()
+        .pointer("/properties/version/const")
+        .and_then(Value::as_u64)
+        .expect("generated schema must pin a version")
+}
+
+fn schema_artifact_relative_path() -> String {
+    format!("schema/{}.json", schema_artifact_version())
+}
+
 fn schema_artifact_path() -> std::path::PathBuf {
     let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    manifest_dir.join("ivar.schema.json")
+    manifest_dir.join(schema_artifact_relative_path())
 }
 
 #[test]
@@ -637,9 +665,11 @@ fn schema_artifact_matches_model() {
     let expected = std::fs::read_to_string(&path)
         .unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()));
     assert_eq!(
-        generated, expected,
-        "generated schema must exactly match checked-in ivar.schema.json \
-         (run `cargo run --example generate-manifest-schema` to update)"
+        generated,
+        expected,
+        "generated schema must exactly match the checked-in {} \
+         (run `cargo run --example generate-manifest-schema` to update)",
+        schema_artifact_relative_path()
     );
 }
 
@@ -651,8 +681,9 @@ fn schema_artifact_is_package_included() {
         .output()
         .expect("cargo package --list must run");
     let stdout = String::from_utf8_lossy(&output.stdout);
+    let expected = schema_artifact_relative_path();
     assert!(
-        stdout.contains("ivar.schema.json"),
-        "ivar.schema.json must be included in cargo package output, got:\n{stdout}"
+        stdout.contains(&expected),
+        "{expected} must be included in cargo package output, got:\n{stdout}"
     );
 }

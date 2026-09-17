@@ -61,10 +61,12 @@ jobs:
           git config --global user.name "ivar ci"
           git config --global user.email "ci@ivar.invalid"
 
-      - name: install script
+      - name: shell scripts
         run: |
           sh -n scripts/install.sh
           sh scripts/install.test.sh
+          sh -n scripts/verify-schema-documents.sh
+          sh scripts/verify-schema-documents.test.sh
 
       - name: fmt
         run: cargo fmt --all --check

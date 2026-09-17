@@ -201,13 +201,13 @@
       "type": "object"
     }
   },
-  "$id": "https://ivar.run/ivar.schema.json",
+  "$id": "https://ivar.run/schema/4.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "description": "The hall configuration file for ivar: identity, providers, repos, integration defaults, skills, and MCP server definitions.",
   "properties": {
     "$schema": {
-      "const": "https://ivar.run/ivar.schema.json",
+      "const": "https://ivar.run/schema/4.json",
       "description": "URL of the JSON Schema for this file.",
       "type": "string"
     },
