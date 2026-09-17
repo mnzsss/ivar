@@ -1473,8 +1473,14 @@ impl From<ExecuteStartArgs> for start::StartInput {
     }
 }
 
-impl From<ExecuteFinishArgs> for finish::FinishInput {
-    fn from(args: ExecuteFinishArgs) -> Self {
+/// `--report-json` and `--outcome` are optional to clap only so that
+/// `--print-schema` can stand alone; every other invocation carries both.
+/// Converting refuses rather than substituting empty strings, so a clap
+/// surface that stops enforcing that says so instead of failing downstream.
+impl TryFrom<ExecuteFinishArgs> for finish::FinishInput {
+    type Error = Failure;
+
+    fn try_from(args: ExecuteFinishArgs) -> Result<Self, Failure> {
         let ExecuteFinishArgs {
             feature,
             plan,
@@ -1482,12 +1488,18 @@ impl From<ExecuteFinishArgs> for finish::FinishInput {
             outcome,
             print_schema: _,
         } = args;
-        Self {
+        let (Some(report_json), Some(outcome)) = (report_json, outcome) else {
+            return Err(Failure::blocked(
+                "execute.finish_arguments_required",
+                "`ivar feature execute finish` needs both `--report-json` and `--outcome`",
+            ));
+        };
+        Ok(Self {
             feature: feature.unwrap_or_default(),
             plan,
-            report_json: report_json.unwrap_or_default(),
-            outcome: outcome.unwrap_or_default(),
-        }
+            report_json,
+            outcome,
+        })
     }
 }
 
