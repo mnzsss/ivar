@@ -152,6 +152,14 @@ impl WritableSet {
         &self.view_dir
     }
 
+    /// The session's scratch dir — where an agent's temporary files belong.
+    ///
+    /// Derived, never stored: `Layout::session_scratch` is the single owner
+    /// of the path, and this set already holds the canonical view dir.
+    pub(crate) fn scratch_dir(&self) -> Utf8PathBuf {
+        Layout::session_scratch(&self.view_dir)
+    }
+
     /// Return the write-allowed root paths: view dir, canonical hall sources,
     /// feature dir (if present), and every promoted repo worktree. Note that
     /// `sessions_dir` is an exclusion boundary under `feature_dir` and is not a root.
@@ -250,13 +258,14 @@ pub(crate) fn decide(set: Option<&WritableSet>, req: &ToolRequest) -> GuardDecis
         (Some(set), Some(path)) if set.allows(path) => GuardDecision::Allow,
         (Some(set), _) => GuardDecision::Deny {
             reason: format!(
-                "writable set: {}",
+                "writable set: {}; temporary files belong in {}",
                 std::iter::once(set.view_dir().to_string())
                     .chain(set.feature_dir.as_ref().map(|f| f.to_string()))
                     .chain(set.worktrees.iter().map(|w| w.to_string()))
                     .chain(set.hall_sources.iter().map(|h| h.to_string()))
                     .collect::<Vec<_>>()
-                    .join(", ")
+                    .join(", "),
+                set.scratch_dir(),
             ),
         },
         (None, _) => GuardDecision::Deny {

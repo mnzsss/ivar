@@ -1052,3 +1052,45 @@ fn a_write_inside_the_scratch_dir_is_allowed() {
     assert!(out.exit_zero);
     assert_eq!(out.body, "");
 }
+
+/// The message that started this feature: a denial has to say where a write
+/// *does* belong, not only where it does not.
+#[test]
+fn a_resolved_denial_names_the_scratch_dir_and_keeps_the_writable_set() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root.clone());
+    let feature = Feature::read(&layout, &FeatureName::new("checkout").unwrap())
+        .unwrap()
+        .unwrap();
+    let session_id = SessionId::new("6f0c9d5f-0000-4000-8000-000000000000").unwrap();
+    let view_dir = layout.feature_session(&feature.name, &session_id);
+    crate::infra::fs::ensure_dir(&view_dir).unwrap();
+    let mut state =
+        crate::domain::session::SessionState::new(Provider::Omp, "2026-08-29T00:00:00Z");
+    state.bind(feature.name.clone(), "2026-08-29T00:00:00Z");
+    state.write(&view_dir).unwrap();
+
+    // cwd inside the view dir resolves the session, so the set is Resolved;
+    // the target sits at the hall root, outside every root of that set —
+    // `hall_sources` admits `HALL.md` by exact match only — so it is denied.
+    let payload = serde_json::json!({
+        "tool": "write",
+        "args": { "filePath": root.join("elsewhere.md") },
+        "cwd": view_dir,
+    });
+
+    let out = guard(Provider::Omp, &payload.to_string()).unwrap();
+    assert!(!out.exit_zero);
+    assert!(
+        out.body.contains("writable set:"),
+        "the existing prefix is load-bearing: {}",
+        out.body
+    );
+    assert!(
+        out.body
+            .contains(Layout::session_scratch(&view_dir).as_str()),
+        "the denial must name the scratch dir: {}",
+        out.body
+    );
+}
+
