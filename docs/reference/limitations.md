@@ -140,6 +140,7 @@ Protection operates in two distinct tiers:
    opaque OS permission error. When no session resolves from the cwd or the target path,
    the guard names the scratch directory of each live session instead, so an agent
    that has nowhere to write is told where it may.
+
 On platforms without Landlock (e.g. macOS), the advisory hook is the primary line of
 defense for structured tools. Its effectiveness depends on the provider honouring the
 hook protocol:
