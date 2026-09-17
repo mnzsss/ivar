@@ -611,3 +611,10 @@ fn a_command_without_a_working_directory_does_not_invent_a_pwd() {
 
     assert_eq!(pwd, inherited);
 }
+
+#[test]
+fn exec_reports_a_program_that_never_ran() {
+    let error = exec(&Command::new("ivar-no-such-program-4f1c"))
+        .expect_err("a program that is not on PATH never replaces this process");
+    assert!(matches!(error, Error::Spawn { .. }), "{error:?}");
+}

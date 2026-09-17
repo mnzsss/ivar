@@ -233,9 +233,34 @@ fn launcher_resolves_session_from_disk_and_builds_sandbox() {
 
 #[test]
 fn launcher_empty_command_fails_gracefully() {
-    let result = crate::action::session::sandbox::run_launcher("some-session", &[]);
+    let ctx = crate::action::Ctx::new(Utf8PathBuf::from("/tmp"));
+    let result = crate::action::session::sandbox::run_launcher(&ctx, "some-session", false, &[]);
     let err = result.expect_err("empty command should return error");
     assert_eq!(err.code, "sandbox.launcher_missing_command");
+}
+
+#[test]
+fn launcher_refuses_a_program_that_is_not_the_session_provider() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root.clone());
+    let feature = FeatureName::new("checkout").unwrap();
+    let session_id = SessionId::new("6f0c9d5f-0000-4000-8000-000000000000").unwrap();
+    let view_dir = layout.feature_session(&feature, &session_id);
+    crate::infra::fs::ensure_dir(&view_dir).unwrap();
+    SessionState::new(Provider::ClaudeCode, "2026-08-07T12:34:56.000000000Z")
+        .write(&view_dir)
+        .unwrap();
+
+    let ctx = crate::action::Ctx::new(root);
+    let error = crate::action::session::sandbox::run_launcher(
+        &ctx,
+        session_id.as_str(),
+        false,
+        &["opencode".to_owned()],
+    )
+    .expect_err("the launcher runs this session's provider, nothing else");
+
+    assert_eq!(error.code, "sandbox.launcher_foreign_program");
 }
 
 #[test]
@@ -258,3 +283,20 @@ fn sandbox_apply_executes_on_linux_without_error() {
     let status = sandbox.apply();
     assert!(status.is_ok(), "sandbox.apply() failed: {:?}", status.err());
 }
+
+// Note on `sandbox.process_failed` testability at this seam:
+// Finding 2 requested test coverage for the non-zero exit branch returning `sandbox.process_failed`.
+// At this unit test seam (`run_launcher`), the command is built via `launch::provider_command`
+// from the session provider recorded in `state.json`. `ensure_provider_binary` strictly guards
+// that `argv[0]` matches the session provider (`claude` / `opencode` / `omp`), while `provider_command`
+// uses the provider's fixed binary name. Therefore, reaching `crate::infra::proc::exec` would attempt
+// to spawn the real provider executable on the host system (e.g. `claude`).
+// In unit tests:
+// 1. We cannot rely on `claude` or `opencode` binaries existing on arbitrary test runners.
+// 2. We must never spawn or execute a real provider during unit testing.
+// 3. Even if a fake binary were placed on PATH, on Linux `exec` replaces the test process via `execve`.
+// 4. On non-Linux targets (`#[cfg(not(target_os = "linux"))]`), `exec` falls back to `status().code()`,
+//    but still requires spawning a real executable that exits non-zero without being able to mock
+//    `provider_command`'s binary name without violating `ensure_provider_binary`.
+// Thus, `sandbox.process_failed` cannot be driven from `run_launcher` in unit tests without executing
+// a real provider binary or introducing test-only seams into production code.

@@ -261,26 +261,28 @@ fn provider_runtime_roots(provider: Provider) -> Vec<Utf8PathBuf> {
     dirs
 }
 
-#[cfg(target_os = "linux")]
-use std::os::unix::process::CommandExt;
-
-/// Run the internal launcher: resolve session by id from disk, apply sandbox, and exec target command.
+/// Run the internal launcher: resolve the session from disk, rebuild its
+/// provider launch, apply the sandbox, and exec the provider.
+///
+/// The launch is built before the ruleset is applied: building it reads the
+/// manifest and the secret store, and there is no reason to do either under
+/// a write restriction.
 #[allow(clippy::print_stderr)]
-pub fn run_launcher(session_id_str: &str, argv: &[String]) -> Result<(), Failure> {
-    if argv.is_empty() {
+pub fn run_launcher(
+    ctx: &crate::action::Ctx,
+    session_id_str: &str,
+    resume: bool,
+    argv: &[String],
+) -> Result<(), Failure> {
+    let Some((program, user_args)) = argv.split_first() else {
         return Err(Failure::blocked(
             "sandbox.launcher_missing_command",
             "no command specified to run inside sandbox",
         ));
-    }
-    let cwd = Utf8PathBuf::try_from(std::env::current_dir().map_err(|e| {
-        Failure::failed("fs.current_dir_failed", format!("could not get cwd: {e}"))
-    })?)
-    .map_err(|e| Failure::failed("fs.utf8_error", format!("non-UTF8 cwd: {e}")))?;
+    };
 
-    let layout = Layout::discover(&cwd)?.ok_or_else(|| {
-        Failure::blocked("hall.not_found", "no hall found from current directory")
-    })?;
+    let layout = crate::action::discover_hall(ctx)?;
+    let manifest = crate::action::read_manifest(&layout)?;
 
     let session_ref = crate::action::session::lookup::resolve(&layout, Some(session_id_str), None)?;
     let state = session_ref.state.as_ref().ok_or_else(|| {
@@ -289,11 +291,23 @@ pub fn run_launcher(session_id_str: &str, argv: &[String]) -> Result<(), Failure
             format!("session `{session_id_str}` has no state.json record"),
         )
     })?;
+    super::launch::ensure_provider_binary(state.provider, program)?;
 
     let feature = match &session_ref.feature {
         Some(feat_name) => Feature::read(&layout, feat_name)?,
         None => None,
     };
+
+    let command = super::launch::provider_command(
+        &layout,
+        &manifest,
+        state.provider,
+        &session_ref.view_dir,
+        &session_ref.id,
+        session_ref.feature.as_ref(),
+        resume,
+        user_args,
+    )?;
 
     let set = match &feature {
         Some(feat) => WritableSet::from_session(&layout, feat, &session_ref.view_dir)?,
@@ -315,50 +329,18 @@ pub fn run_launcher(session_id_str: &str, argv: &[String]) -> Result<(), Failure
         }
     }
 
-    #[cfg(target_os = "linux")]
-    {
-        let prog = argv.first().ok_or_else(|| {
-            Failure::blocked("sandbox.missing_argv", "no program specified to execute")
-        })?;
-        let mut cmd = std::process::Command::new(prog);
-        if let Some(args) = argv.get(1..) {
-            cmd.args(args);
-        }
-        let err = cmd.exec();
-        Err(Failure::failed(
-            "sandbox.exec_failed",
-            format!("failed to exec `{prog}`: {err}"),
-        ))
-    }
-
-    #[cfg(not(target_os = "linux"))]
-    {
-        let prog = argv.first().ok_or_else(|| {
-            Failure::blocked("sandbox.missing_argv", "no program specified to execute")
-        })?;
-        let mut cmd = std::process::Command::new(prog);
-        if let Some(args) = argv.get(1..) {
-            cmd.args(args);
-        }
-        let mut child = cmd.spawn().map_err(|e| {
-            Failure::failed(
-                "sandbox.spawn_failed",
-                format!("failed to spawn `{prog}`: {e}"),
-            )
-        })?;
-        let status = child.wait().map_err(|e| {
-            Failure::failed(
-                "sandbox.wait_failed",
-                format!("failed to wait on `{prog}`: {e}"),
-            )
-        })?;
-        if !status.success() {
-            return Err(Failure::failed(
-                "sandbox.process_failed",
-                format!("process `{prog}` exited with {status}"),
-            ));
-        }
-        Ok(())
+    match crate::infra::proc::exec(&command)? {
+        Some(0) | None => Ok(()),
+        Some(code) => Err(Failure::failed(
+            "sandbox.process_failed",
+            format!("`{program}` exited with {code}"),
+        )
+        .expected("the provider process to exit successfully with 0")
+        .actual(format!("exit code {code}"))
+        .fix(crate::error::FixAction::safe(
+            "session.inspect_provider_output",
+            "Inspect the provider output printed above for errors or diagnostics.",
+        ))),
     }
 }
 #[cfg(test)]

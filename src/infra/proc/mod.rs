@@ -58,6 +58,9 @@ use std::io;
 use std::io::Write;
 use std::process::{Command as StdCommand, Stdio};
 
+#[cfg(target_os = "linux")]
+use std::os::unix::process::CommandExt;
+
 use camino::Utf8PathBuf;
 
 use crate::error::{Failure, FixAction};
@@ -179,6 +182,14 @@ impl Command {
     #[must_use]
     pub fn program(&self) -> &str {
         &self.program
+    }
+
+    /// The working directory the runners set, if any. Exposed for the same
+    /// reason as [`Self::program`]: a caller that builds a launch has to be
+    /// able to assert where it runs.
+    #[must_use]
+    pub fn working_dir(&self) -> Option<&camino::Utf8Path> {
+        self.cwd.as_deref()
     }
 
     /// The arguments, in order.
@@ -353,6 +364,34 @@ pub fn detach(command: &Command) -> Result<(), Error> {
         .map_err(|source| spawn_error(command, source))?;
 
     Ok(())
+}
+
+/// Replace this process with `command`.
+///
+/// The launcher case (ADR-0006 D1): a child that has applied a Landlock
+/// ruleset to itself hands the restricted process to the provider, and
+/// `CommandExt::exec` does that in safe Rust — the ruleset survives
+/// `execve` and no `pre_exec` is needed.
+///
+/// On Linux a successful call never returns, so `Err` is the only way back:
+/// `exec` returns an `io::Error` exactly when the program never ran. On
+/// platforms without `exec` the command is spawned, waited on, and its exit
+/// code returned — the code the calling process would have carried anyway.
+pub fn exec(command: &Command) -> Result<Option<i32>, Error> {
+    #[cfg(target_os = "linux")]
+    {
+        let source = command.to_std().exec();
+        Err(spawn_error(command, source))
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    {
+        let status = command
+            .to_std()
+            .status()
+            .map_err(|source| spawn_error(command, source))?;
+        Ok(status.code())
+    }
 }
 
 fn spawn_error(command: &Command, source: io::Error) -> Error {
