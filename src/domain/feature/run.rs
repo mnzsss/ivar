@@ -40,6 +40,7 @@ use std::collections::BTreeMap;
 use std::fmt;
 
 use camino::Utf8PathBuf;
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::domain::name::{FeatureName, SessionId};
@@ -516,7 +517,7 @@ impl RunDiff {
 // ---------------------------------------------------------------------------
 
 /// One task the coordinator's subagents carried out.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct TaskResult {
     /// What the task was.
@@ -528,7 +529,7 @@ pub struct TaskResult {
 }
 
 /// How one reported task ended.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum TaskStatus {
     /// Finished, with its work landed.
@@ -542,7 +543,7 @@ pub enum TaskStatus {
 }
 
 /// One verification the coordinator ran.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct VerificationCheck {
     /// What was run — a command line, or the name of the check.
@@ -554,7 +555,7 @@ pub struct VerificationCheck {
 }
 
 /// How one verification ended.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum CheckStatus {
     /// Ran and passed.
@@ -570,7 +571,7 @@ pub enum CheckStatus {
 /// A *role* and a *status*, never a native child id: the identifier is
 /// provider-specific, unstable, and worthless to anyone reading the receipt
 /// later, which is exactly the coupling this feature removes.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct AgentRole {
     /// What the subagent was asked to be — "reviewer", "test-writer".
@@ -585,7 +586,7 @@ pub struct AgentRole {
 /// it is what stops a provider envelope, a transcript excerpt, or a native
 /// session id from being smuggled in as an extra key and quietly becoming
 /// ivar domain state.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct CoordinatorReport {
     /// What happened, in prose. Required and non-blank.

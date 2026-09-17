@@ -900,3 +900,55 @@ fn execute_verbs_parse_without_plan_and_status_accepts_plan() {
         other => panic!("expected execute status, got {other:?}"),
     }
 }
+
+#[test]
+fn execute_finish_print_schema_needs_no_report_or_outcome() {
+    match Cli::try_parse_from(["ivar", "feature", "execute", "finish", "--print-schema"])
+        .unwrap()
+        .command
+    {
+        Command::Feature(FeatureCommand::Execute(ExecuteCommand::Finish(args))) => {
+            assert!(args.print_schema);
+            assert_eq!(args.report_json, None);
+            assert_eq!(args.outcome, None);
+        }
+        other => panic!("expected execute finish, got {other:?}"),
+    }
+    assert!(
+        Cli::try_parse_from([
+            "ivar",
+            "feature",
+            "execute",
+            "finish",
+            "--outcome",
+            "succeeded"
+        ])
+        .is_err(),
+        "without --print-schema, --report-json stays required"
+    );
+}
+
+#[test]
+fn execute_finish_help_points_to_print_schema() {
+    let mut cli = Cli::command();
+    let finish = cli
+        .find_subcommand_mut("feature")
+        .unwrap()
+        .find_subcommand_mut("execute")
+        .unwrap()
+        .find_subcommand_mut("finish")
+        .unwrap();
+    let report_help = finish
+        .get_arguments()
+        .find(|arg| arg.get_id() == "report_json")
+        .and_then(|arg| arg.get_help())
+        .unwrap()
+        .to_string();
+    assert!(report_help.contains("--print-schema"), "{report_help}");
+    assert!(
+        finish
+            .render_long_help()
+            .to_string()
+            .contains("--print-schema")
+    );
+}

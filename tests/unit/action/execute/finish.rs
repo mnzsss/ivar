@@ -223,3 +223,33 @@ fn execute_finish_detects_semantic_plan_divergence() {
 
     assert_eq!(err.code, "execute.plan_diverged");
 }
+
+#[test]
+fn report_schema_describes_the_report_and_lists_every_outcome() {
+    let schema = serde_json::to_value(ReportSchema::current()).unwrap();
+
+    assert_eq!(
+        schema["outcomes"],
+        serde_json::json!(["succeeded", "failed", "blocked"])
+    );
+    let report = &schema["report"];
+    for field in [
+        "summary",
+        "tasks",
+        "verification",
+        "agents",
+        "deviations",
+        "blockers",
+        "follow_ups",
+    ] {
+        assert!(
+            report["properties"].get(field).is_some(),
+            "schema is missing `{field}`: {report}"
+        );
+    }
+    assert_eq!(
+        report["required"],
+        serde_json::json!(["summary", "tasks", "verification"])
+    );
+    assert_eq!(report["additionalProperties"], false);
+}

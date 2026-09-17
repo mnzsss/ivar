@@ -301,6 +301,12 @@ fn main() -> ExitCode {
                         Err(failure) => respond_failure(failure, json, &mut stdout, &mut stderr),
                     }
                 }
+                ExecuteCommand::Finish(args) if args.print_schema => respond(
+                    Ok(Report::new(finish::ReportSchema::current())),
+                    json,
+                    &mut stdout,
+                    &mut stderr,
+                ),
                 ExecuteCommand::Finish(args) => {
                     match resolve_single_feature(
                         &ctx,
@@ -313,8 +319,8 @@ fn main() -> ExitCode {
                                 finish::FinishInput {
                                     feature,
                                     plan: args.plan,
-                                    report_json: args.report_json,
-                                    outcome: args.outcome,
+                                    report_json: args.report_json.unwrap_or_default(),
+                                    outcome: args.outcome.unwrap_or_default(),
                                 },
                             ),
                             json,

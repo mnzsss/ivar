@@ -32,6 +32,37 @@ impl WriteHuman for FinishOutcome {
     }
 }
 
+/// The contract a coordinator report must satisfy, printed by `--print-schema`.
+#[derive(Debug, Clone, Serialize)]
+pub struct ReportSchema {
+    pub report: schemars::Schema,
+    pub outcomes: Vec<String>,
+}
+
+impl ReportSchema {
+    #[must_use]
+    pub fn current() -> Self {
+        Self {
+            report: schemars::schema_for!(CoordinatorReport),
+            outcomes: [
+                RunOutcome::Succeeded,
+                RunOutcome::Failed,
+                RunOutcome::Blocked,
+            ]
+            .iter()
+            .map(ToString::to_string)
+            .collect(),
+        }
+    }
+}
+
+impl WriteHuman for ReportSchema {
+    fn write_human(&self, w: &mut impl io::Write) -> io::Result<()> {
+        let rendered = serde_json::to_string_pretty(self).map_err(io::Error::other)?;
+        writeln!(w, "{rendered}")
+    }
+}
+
 pub fn finish(ctx: &Ctx, input: FinishInput) -> Outcome<FinishOutcome> {
     let layout = discover_hall(ctx)?;
     let feature = FeatureName::new(input.feature)?;

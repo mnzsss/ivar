@@ -487,7 +487,7 @@ pub struct FeatureStatusArgs {
 pub enum ExecuteCommand {
     /// Start a new run, resume a blocked run, or restart a non-terminal run.
     Start(ExecuteStartArgs),
-    /// Record a coordinator's structured completion report.
+    /// Record a coordinator's structured completion report (see `--print-schema`).
     Finish(ExecuteFinishArgs),
     /// Show the current receipt, a receipt by id, or complete history.
     Status(ExecuteStatusArgs),
@@ -517,10 +517,15 @@ pub struct ExecuteFinishArgs {
     /// Plan file; defaults to `.ivar/features/<feature>/plan.md`.
     #[arg(long)]
     pub plan: Option<String>,
-    #[arg(long)]
-    pub report_json: String,
-    #[arg(long)]
-    pub outcome: String,
+    /// Path to the coordinator report JSON. Run with `--print-schema` for its shape.
+    #[arg(long, required_unless_present = "print_schema")]
+    pub report_json: Option<String>,
+    /// How the run ended: succeeded, failed or blocked.
+    #[arg(long, required_unless_present = "print_schema")]
+    pub outcome: Option<String>,
+    /// Print the coordinator report JSON schema and the accepted `--outcome` values, then exit.
+    #[arg(long, conflicts_with_all = ["report_json", "outcome"])]
+    pub print_schema: bool,
 }
 
 /// Arguments for `ivar feature execute status`.
@@ -1461,12 +1466,13 @@ impl From<ExecuteFinishArgs> for finish::FinishInput {
             plan,
             report_json,
             outcome,
+            print_schema: _,
         } = args;
         Self {
             feature: feature.unwrap_or_default(),
             plan,
-            report_json,
-            outcome,
+            report_json: report_json.unwrap_or_default(),
+            outcome: outcome.unwrap_or_default(),
         }
     }
 }

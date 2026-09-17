@@ -315,7 +315,7 @@ Start a new run, resume a blocked run, or restart a non-terminal run
 
 ###### `ivar feature execute finish`
 
-Record a coordinator's structured completion report
+Record a coordinator's structured completion report (see `--print-schema`)
 
 | argument | required | description |
 | --- | --- | --- |
@@ -324,8 +324,9 @@ Record a coordinator's structured completion report
 | flag | value | default | description |
 | --- | --- | --- | --- |
 | `--plan` | `<PLAN>` |  | Plan file; defaults to `.ivar/features/<feature>/plan.md` |
-| `--report-json` | `<REPORT_JSON>` |  |  |
-| `--outcome` | `<OUTCOME>` |  |  |
+| `--report-json` | `<REPORT_JSON>` |  | Path to the coordinator report JSON. Run with `--print-schema` for its shape |
+| `--outcome` | `<OUTCOME>` |  | How the run ended: succeeded, failed or blocked |
+| `--print-schema` |  |  | Print the coordinator report JSON schema and the accepted `--outcome` values, then exit |
 
 
 ###### `ivar feature execute status`
