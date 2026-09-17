@@ -179,30 +179,10 @@ fn reports_live_session_dirty_and_missing_worktree() {
 }
 
 #[test]
-fn reports_missing_clone_and_unmerged_commits() {
+fn reports_missing_clone() {
     let (_guard, root) = hall_with_feature(&["api"], None);
     let layout = Layout::at(root.clone());
     let repo = RepoName::new("api").unwrap();
-    let worktree = layout.repo_worktree(&repo, &BranchName::new("checkout").unwrap());
-    test_git(
-        &worktree,
-        &["commit", "--allow-empty", "-m", "feature change"],
-    );
-
-    let manifest = read_manifest(&layout).unwrap();
-    let feature = Feature::read(&layout, &FeatureName::new("checkout").unwrap())
-        .unwrap()
-        .unwrap();
-    let preview = preview_cleanup(&git::System, &layout, &manifest, &feature, None)
-        .unwrap()
-        .preview;
-    assert!(
-        preview
-            .blockers
-            .iter()
-            .any(|blocker| matches!(blocker, CleanupBlocker::UnmergedCommits { .. }))
-    );
-
     remove_dir_all(layout.repo_bare(&repo)).unwrap();
     let preview = run_preview(&root);
     assert!(
@@ -877,24 +857,6 @@ fn preview_still_blocks_on_other_live_sessions() {
     );
 }
 
-fn ahead_by_one(root: &Utf8PathBuf) -> (Layout, Manifest, Feature, String) {
-    let layout = Layout::at(root.clone());
-    let repo = RepoName::new("api").unwrap();
-    let branch = BranchName::new("checkout").unwrap();
-    test_git(
-        &layout.repo_worktree(&repo, &branch),
-        &["commit", "--allow-empty", "-m", "squashed elsewhere"],
-    );
-    let head = git::System
-        .revision_commit(&layout.repo_bare(&repo), branch.as_str())
-        .unwrap();
-    let manifest = read_manifest(&layout).unwrap();
-    let feature = Feature::read(&layout, &FeatureName::new("checkout").unwrap())
-        .unwrap()
-        .unwrap();
-    (layout, manifest, feature, head)
-}
-
 fn pull_request(state: &str, head_oid: Option<&str>) -> PullRequest {
     PullRequest {
         url: "https://example.test/pr/7".to_owned(),
@@ -904,13 +866,6 @@ fn pull_request(state: &str, head_oid: Option<&str>) -> PullRequest {
         merge_commit: None,
         is_draft: false,
     }
-}
-
-fn unmerged_forge_detail(preview: &CleanupPreview) -> Option<Option<String>> {
-    preview.blockers.iter().find_map(|blocker| match blocker {
-        CleanupBlocker::UnmergedCommits { forge, .. } => Some(forge.clone()),
-        _ => None,
-    })
 }
 
 #[test]
@@ -977,44 +932,32 @@ fn a_repo_with_nothing_ahead_never_asks_the_forge() {
 }
 
 #[test]
-fn a_repo_ahead_rests_on_a_forge_answer_and_keeps_its_blocker() {
-    let (_guard, root) = hall_with_feature(&["api"], None);
-    let (layout, manifest, feature, _head) = ahead_by_one(&root);
-
-    let previewed = preview_cleanup(&git::System, &layout, &manifest, &feature, None).unwrap();
-
-    assert!(
-        previewed.forge_consulted,
-        "a repo local git cannot prove delivered must consult the forge"
-    );
-    assert!(!previewed.preview.repos[0].is_delivered);
-    assert!(unmerged_forge_detail(&previewed.preview).unwrap().is_some());
-}
-
-#[test]
 fn forge_answer_text_does_not_move_the_cleanup_fingerprint() {
-    let (_guard, root) = hall_with_feature(&["api"], None);
-    let (layout, manifest, feature, _head) = ahead_by_one(&root);
+    let feature = FeatureName::new("checkout").unwrap();
+    let branch = BranchName::new("checkout").unwrap();
     let fingerprint_with = |forge: ForgeDelivery| {
-        let mut facts = collect_repo_facts(
-            &git::System,
-            &layout,
-            &manifest,
-            &feature,
-            feature.promotions.keys().next().unwrap(),
-            feature.promotions.values().next().unwrap(),
-        );
-        facts.forge_delivery = Some(forge);
         let facts = CleanupFacts {
-            repos: vec![facts],
+            repos: vec![CleanupRepoFacts {
+                repo: RepoName::new("api").unwrap(),
+                effective_base: Some(BranchName::new("main").unwrap()),
+                feature_head: Some("abc".to_owned()),
+                base_head: Some("def".to_owned()),
+                local_branch_exists: true,
+                worktree_exists: true,
+                clone_exists: true,
+                dirty_worktree: Some(false),
+                unmerged_commits: Some(1),
+                in_manifest: true,
+                inspection_error: None,
+                forge_delivery: Some(forge),
+            }],
             live_sessions: Vec::new(),
             descendants: Vec::new(),
             session_inspection_error: None,
         };
         let blockers = classify_cleanup(&facts).blockers;
         let repos: Vec<_> = facts.repos.iter().filter_map(cleanup_repo).collect();
-        let fingerprint =
-            fingerprint_for(&feature.name, &feature.branch, &repos, &blockers, &[]).unwrap();
+        let fingerprint = fingerprint_for(&feature, &branch, &repos, &blockers, &[]).unwrap();
         (blockers, fingerprint)
     };
 

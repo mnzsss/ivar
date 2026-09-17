@@ -376,6 +376,24 @@ impl FakeGh {
         .unwrap();
     }
 
+    /// Seed a pre-existing PR in `state` (`OPEN`, `MERGED`, `CLOSED`), so
+    /// `pr list` run from `cwd` returns it for `branch`.
+    pub(crate) fn set_existing_pr(
+        &self,
+        cwd: &camino::Utf8Path,
+        branch: &str,
+        url: &str,
+        base: &str,
+        state: &str,
+    ) {
+        let mut content = std::fs::read_to_string(&self.state).unwrap_or_default();
+        if !content.is_empty() && !content.ends_with('\n') {
+            content.push('\n');
+        }
+        content.push_str(&format!("{cwd}|{branch}|{url}|{base}|{state}|||||\n"));
+        std::fs::write(&self.state, content).unwrap();
+    }
+
     /// Seed a pre-existing draft PR in the fake state, so `pr list` returns
     /// it as an open draft for `branch`. This bypasses `pr create` — it is
     /// for tests that need a PR to already exist before delivery runs.
