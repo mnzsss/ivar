@@ -24,7 +24,14 @@ INSTALLER="$SCRIPT_DIR/install.sh"
 
 # ── scratch space ──────────────────────────────────────────────────────
 
+# A physical path, resolved the same way scripts/install.sh resolves the
+# paths it prints. On macOS $TMPDIR is /var/folders/… and /var is a symlink
+# to /private/var, so a logical $WORK makes every assertion that compares
+# installer output against a $WORK-derived path compare a resolved path
+# against an unresolved one. That is a test defect, and it only ever shows
+# up on macOS.
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/ivar-install-test.XXXXXX")"
+WORK="$(CDPATH= cd -P -- "$WORK" && pwd -P)"
 trap 'rm -rf "$WORK"' EXIT HUP INT TERM
 
 FAKE_BIN="$WORK/fake-bin"          # fake executables, injected via PATH
