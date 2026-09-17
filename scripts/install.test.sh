@@ -294,6 +294,51 @@ else
 fi
 
 
+# A binary that will not report a version does not undo an install whose
+# bytes already verified. 126 is what a refused exec returns, which is the
+# shape of the macOS-quarantine case; the install must still succeed and the
+# output must name the path that refused to answer.
+mkdir -p "$WORK/mute-art"
+printf '#!/bin/sh\nexit 126\n' > "$WORK/mute-art/ivar"
+chmod +x "$WORK/mute-art/ivar"
+hash_file "$WORK/mute-art/ivar" > "$WORK/mute-art/ivar.sha256"
+
+run_installer FAKE_UNAME_S="Linux" FAKE_UNAME_M="x86_64" \
+    IVAR_BASE_URL="https://dl.example.test/ivar" \
+    IVAR_INSTALL_DIR="$DEST" \
+    FAKE_BIN_FILE="$WORK/mute-art/ivar" \
+    FAKE_SHA_FILE="$WORK/mute-art/ivar.sha256"
+if [ "$RUN_RC" -eq 0 ] \
+    && [ -x "$DEST/ivar" ] \
+    && grep -qF "installed ivar (linux-x86_64) into $DEST" "$WORK/run.out" \
+    && grep -qF "could not read the installed version: $DEST/ivar --version reported nothing" "$WORK/run.out"; then
+    ok "unreadable version degrades to a named path, install still succeeds"
+else
+    bad "version degrade (rc=$RUN_RC: $(cat "$WORK/run.out"))"
+fi
+
+# A binary that answers `--version` with something that is not clap's
+# `ivar <version>` is treated as unreadable rather than parsed hopefully:
+# losing the line is recoverable, printing a wrong version is what this
+# whole feature exists to prevent.
+mkdir -p "$WORK/odd-art"
+printf '#!/bin/sh\nprintf "not-ivar-at-all\\n"\n' > "$WORK/odd-art/ivar"
+chmod +x "$WORK/odd-art/ivar"
+hash_file "$WORK/odd-art/ivar" > "$WORK/odd-art/ivar.sha256"
+
+run_installer FAKE_UNAME_S="Linux" FAKE_UNAME_M="x86_64" \
+    IVAR_BASE_URL="https://dl.example.test/ivar" \
+    IVAR_INSTALL_DIR="$DEST" \
+    FAKE_BIN_FILE="$WORK/odd-art/ivar" \
+    FAKE_SHA_FILE="$WORK/odd-art/ivar.sha256"
+if [ "$RUN_RC" -eq 0 ] \
+    && grep -qF "could not read the installed version: $DEST/ivar --version reported nothing" "$WORK/run.out" \
+    && ! grep -qF "not-ivar-at-all" "$WORK/run.out"; then
+    ok "an unexpected --version shape is treated as unreadable"
+else
+    bad "version shape guard (rc=$RUN_RC: $(cat "$WORK/run.out"))"
+fi
+
 # ── summary ────────────────────────────────────────────────────────────
 
 if [ "$FAIL" -ne 0 ]; then

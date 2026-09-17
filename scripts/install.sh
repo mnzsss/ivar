@@ -116,7 +116,16 @@ main() {
     mv "$tmpdir/ivar" "$IVAR_INSTALL_DIR/ivar"
 
     version="$(installed_version "$IVAR_INSTALL_DIR/ivar")"
-    printf 'installed ivar %s (%s) into %s\n' "$version" "$platform" "$IVAR_INSTALL_DIR"
+    if [ -n "$version" ]; then
+        printf 'installed ivar %s (%s) into %s\n' "$version" "$platform" "$IVAR_INSTALL_DIR"
+    else
+        # The checksum already proved these bytes, so a probe that cannot run
+        # is a reporting failure, not an install failure. Naming the path is
+        # what lets the user run it themselves and see why.
+        printf 'installed ivar (%s) into %s\n' "$platform" "$IVAR_INSTALL_DIR"
+        printf 'could not read the installed version: %s --version reported nothing\n' \
+            "$IVAR_INSTALL_DIR/ivar"
+    fi
 
     case ":$PATH:" in
         *":$IVAR_INSTALL_DIR:"*)
