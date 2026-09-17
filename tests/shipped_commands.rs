@@ -336,6 +336,31 @@ fn ivar_execute_skill_contains_execute_start_and_finish_commands() {
     );
 }
 
+/// Wave progress goes into the run receipt; editing `plan.md` mid-run moves
+/// its fingerprint and diverges the run.
+#[test]
+fn ivar_execute_skill_records_progress_through_execute_checkpoint_only() {
+    let base = env!("CARGO_MANIFEST_DIR");
+    let execute =
+        std::fs::read_to_string(format!("{base}/src/harness/skills/ivar-execute/SKILL.md"))
+            .unwrap();
+    let plan =
+        std::fs::read_to_string(format!("{base}/src/harness/skills/ivar-plan/SKILL.md")).unwrap();
+
+    assert!(execute.contains("ivar feature execute checkpoint"));
+    assert!(execute.contains("Never edit `plan.md` during a run"));
+    for stale in [
+        "records progress and deferred validation failures in `plan.md`",
+        "record in plan.md",
+        "record completed wave in plan.md",
+        "for this wave in `plan.md`",
+        "update `plan.md`",
+    ] {
+        assert!(!execute.contains(stale), "ivar-execute still says: {stale}");
+    }
+    assert!(!plan.contains("marks each wave complete in"));
+}
+
 /// Shipped workflow commands and execution skill document advisory graph guidance with fallback.
 #[test]
 fn shipped_spdd_guidance_documents_graph_use_and_fallbacks() {

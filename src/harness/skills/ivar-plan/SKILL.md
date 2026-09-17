@@ -167,5 +167,5 @@ After the Plan gate is approved, offer execution — do not start it:
 are two decisions, and the human makes both. `/ivar-discovery` states the same
 rule for its own phase transition: it offers `/ivar-plan` and never runs it.
 
-That workflow executes the plan wave by wave and marks each wave complete in
-`plan.md` at each wave checkpoint.
+That workflow executes the plan wave by wave and records each approved wave in
+the run receipt with `ivar feature execute checkpoint`, leaving `plan.md` untouched.
