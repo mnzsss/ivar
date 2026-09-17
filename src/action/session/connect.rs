@@ -216,10 +216,6 @@ fn attach_or_create(
 /// A repo that fails to promote is a warning, not a refused connect: a
 /// half-promoted session is recoverable with `ivar feature promote`, a
 /// refused connect blocks all work.
-///
-/// Promotions are announced on stderr: stdout is `eval`-ed by the caller's
-/// shell and may carry nothing but `export` lines.
-#[allow(clippy::print_stderr)]
 fn promote_declared_repos(
     ctx: &Ctx,
     layout: &Layout,
@@ -261,7 +257,6 @@ fn promote_declared_repos(
         ) {
             Ok(report) => {
                 warnings.extend(report.warnings);
-                eprintln!("[ivar] promoted {repo}");
                 promoted.push(repo);
             }
             Err(failure) => warnings.push(Warning::new(
