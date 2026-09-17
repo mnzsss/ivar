@@ -351,19 +351,29 @@ fn require_runnable_commands(
         return Ok(());
     }
 
+    let repo_names: Vec<String> = repos.iter().map(|repo| repo.name().to_string()).collect();
     let mut findings = Vec::new();
     for file in plan_command_files(layout, feature)? {
         let Some(source) = fs::read_text(&file)? else {
             continue;
         };
-        for command in scan_shell_commands(&source) {
-            if let Some(reason) = command_problem(&command.kind, &roots)? {
-                findings.push(CommandFinding {
+        let mut created: Vec<Utf8PathBuf> = Vec::new();
+        for command in scan_shell_commands(&source, &repo_names) {
+            let dir = match &command.kind {
+                CommandKind::ChangeDir { dir } | CommandKind::RunScript { dir, .. } => dir,
+            };
+            if created.iter().any(|new_dir| dir.starts_with(new_dir)) {
+                continue;
+            }
+            match command_problem(&command.kind, &roots)? {
+                CommandCheck::Runs => {}
+                CommandCheck::CreatedByPlan(dir) => created.push(dir),
+                CommandCheck::Refused(reason) => findings.push(CommandFinding {
                     file: file.clone(),
                     line: command.line,
                     command: command.command,
                     reason,
-                });
+                }),
             }
         }
     }
@@ -408,17 +418,33 @@ fn plan_command_files(layout: &Layout, feature: &FeatureName) -> Result<Vec<Utf8
     Ok(files)
 }
 
-/// Why `kind` cannot run under any of `roots`, or `None` when it can — or
-/// when there is not enough on disk to tell.
-fn command_problem(kind: &CommandKind, roots: &[Utf8PathBuf]) -> Result<Option<String>, Failure> {
+enum CommandCheck {
+    /// It runs, or there is not enough on disk to tell.
+    Runs,
+    /// A `cd` into a directory that does not exist yet but whose parent does:
+    /// the plan most likely creates it, so what runs inside it is unknowable.
+    CreatedByPlan(Utf8PathBuf),
+    Refused(String),
+}
+
+fn command_problem(kind: &CommandKind, roots: &[Utf8PathBuf]) -> Result<CommandCheck, Failure> {
     match kind {
         CommandKind::ChangeDir { dir } => {
             for root in roots {
                 if fs::is_dir(&root.join(dir))? {
-                    return Ok(None);
+                    return Ok(CommandCheck::Runs);
                 }
             }
-            Ok(Some(format!("`{dir}` does not exist in any declared repo")))
+            for root in roots {
+                if let Some(parent) = root.join(dir).parent()
+                    && fs::is_dir(parent)?
+                {
+                    return Ok(CommandCheck::CreatedByPlan(dir.clone()));
+                }
+            }
+            Ok(CommandCheck::Refused(format!(
+                "`{dir}` does not exist in any declared repo"
+            )))
         }
         CommandKind::RunScript { dir, script } => {
             let mut saw_package = false;
@@ -427,7 +453,7 @@ fn command_problem(kind: &CommandKind, roots: &[Utf8PathBuf]) -> Result<Option<S
                     continue;
                 };
                 let Ok(package) = serde_json::from_str::<serde_json::Value>(&text) else {
-                    return Ok(None);
+                    continue;
                 };
                 saw_package = true;
                 if package
@@ -435,11 +461,17 @@ fn command_problem(kind: &CommandKind, roots: &[Utf8PathBuf]) -> Result<Option<S
                     .and_then(|scripts| scripts.get(script))
                     .is_some()
                 {
-                    return Ok(None);
+                    return Ok(CommandCheck::Runs);
                 }
             }
-            Ok(saw_package
-                .then(|| format!("no `{script}` script in `{}`", dir.join("package.json"))))
+            Ok(if saw_package {
+                CommandCheck::Refused(format!(
+                    "no `{script}` script in `{}`",
+                    dir.join("package.json")
+                ))
+            } else {
+                CommandCheck::Runs
+            })
         }
     }
 }

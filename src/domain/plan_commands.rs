@@ -7,7 +7,8 @@
 use camino::Utf8PathBuf;
 
 const SHELL_FENCES: &[&str] = &["sh", "bash", "shell", "console"];
-const RUNNERS: &[&str] = &["npm", "pnpm", "yarn"];
+/// `yarn run` also runs package binaries, so a missing script proves nothing.
+const RUNNERS: &[&str] = &["npm", "pnpm"];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ShellCommand {
@@ -42,28 +43,53 @@ impl CommandFinding {
 
 enum Fence {
     Outside,
-    Other,
+    Other(Marker),
     /// `None` once a command made the directory in effect unknowable.
-    Shell(Option<Utf8PathBuf>),
+    Shell(Marker, Option<Utf8PathBuf>),
 }
 
+#[derive(Clone, Copy)]
+struct Marker {
+    char: char,
+    len: usize,
+}
+
+impl Marker {
+    fn parse(line: &str) -> Option<(Self, &str)> {
+        let char = line.chars().next().filter(|c| matches!(c, '`' | '~'))?;
+        let len = line.chars().take_while(|&c| c == char).count();
+        (len >= 3).then(|| (Self { char, len }, &line[len..]))
+    }
+
+    fn closes(self, opener: Self) -> bool {
+        self.char == opener.char && self.len >= opener.len
+    }
+}
+
+/// `repos` are the declared repo names: a `cd` into one of them from the hall
+/// root cannot be resolved against a single repo's worktree.
 #[must_use]
-pub fn scan_shell_commands(source: &str) -> Vec<ShellCommand> {
+pub fn scan_shell_commands(source: &str, repos: &[String]) -> Vec<ShellCommand> {
     let mut commands = Vec::new();
     let mut fence = Fence::Outside;
     for (index, raw) in source.lines().enumerate() {
         let line = raw.trim();
-        if let Some(info) = line.strip_prefix("```") {
-            fence = match fence {
+        if let Some((marker, info)) = Marker::parse(line) {
+            let next = match &fence {
                 Fence::Outside if SHELL_FENCES.contains(&info.trim()) => {
-                    Fence::Shell(Some(Utf8PathBuf::new()))
+                    Some(Fence::Shell(marker, Some(Utf8PathBuf::new())))
                 }
-                Fence::Outside => Fence::Other,
-                Fence::Other | Fence::Shell(_) => Fence::Outside,
+                Fence::Outside => Some(Fence::Other(marker)),
+                Fence::Other(opener) | Fence::Shell(opener, _) => {
+                    marker.closes(*opener).then_some(Fence::Outside)
+                }
             };
-            continue;
+            if let Some(next) = next {
+                fence = next;
+                continue;
+            }
         }
-        let Fence::Shell(cwd) = &mut fence else {
+        let Fence::Shell(_, cwd) = &mut fence else {
             continue;
         };
         let text = line.strip_prefix("$ ").unwrap_or(line);
@@ -74,8 +100,8 @@ pub fn scan_shell_commands(source: &str) -> Vec<ShellCommand> {
             let words: Vec<&str> = segment.split_whitespace().collect();
             let command = segment.trim().to_owned();
             match words.as_slice() {
-                ["cd", target] if is_literal_repo_path(target) => {
-                    dir.push(target);
+                ["cd", target] if is_literal_repo_path(target, repos) => {
+                    dir.push(target.trim_start_matches("./"));
                     commands.push(ShellCommand {
                         line: index + 1,
                         command,
@@ -83,7 +109,12 @@ pub fn scan_shell_commands(source: &str) -> Vec<ShellCommand> {
                     });
                 }
                 ["cd", ..] => *cwd = None,
-                [runner, "run", script, ..] if RUNNERS.contains(runner) && is_literal(script) => {
+                [runner, "run", script, ..]
+                    if RUNNERS.contains(runner)
+                        && is_literal(script)
+                        && !script.starts_with('-')
+                        && !words.iter().any(|word| is_scope_flag(word)) =>
+                {
                     commands.push(ShellCommand {
                         line: index + 1,
                         command,
@@ -100,14 +131,33 @@ pub fn scan_shell_commands(source: &str) -> Vec<ShellCommand> {
     commands
 }
 
+/// Flags that make the runner resolve the script somewhere other than the
+/// current directory.
+fn is_scope_flag(word: &str) -> bool {
+    const SCOPE_FLAGS: &[&str] = &[
+        "-w",
+        "--workspace",
+        "--filter",
+        "-C",
+        "--prefix",
+        "-r",
+        "--recursive",
+    ];
+    let name = word.split_once('=').map_or(word, |(name, _)| name);
+    SCOPE_FLAGS.contains(&name)
+}
+
 fn is_literal(word: &str) -> bool {
     !word.is_empty() && !word.contains(['$', '*', '?', '~', '<', '>', '`', '\'', '"', '\\'])
 }
 
-fn is_literal_repo_path(path: &str) -> bool {
+fn is_literal_repo_path(path: &str, repos: &[String]) -> bool {
+    let path = path.trim_start_matches("./");
+    let first = path.split('/').next().unwrap_or_default();
     is_literal(path)
-        && !path.starts_with('/')
+        && !path.starts_with(['/', '-'])
         && !path.starts_with(".ivar")
+        && !repos.iter().any(|repo| repo == first)
         && !path.split('/').any(|component| component == "..")
 }
 

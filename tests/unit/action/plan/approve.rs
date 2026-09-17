@@ -854,7 +854,7 @@ fn approve_plan_refuses_commands_that_cannot_run_in_a_declared_repo() {
     api_worktree_with_web_package(&root);
     write_light_plan(
         &root,
-        "---\nrepos: [api]\n---\n# Plan\n\n```bash\ncd packages/mobile\n```\n\n```bash\ncd packages/web\npnpm run deploy\npnpm run build\n```\n",
+        "---\nrepos: [api]\n---\n# Plan\n\n```bash\ncd apps/mobile\n```\n\n```bash\ncd packages/web\npnpm run deploy\npnpm run build\n```\n",
     );
     let tasks = plan_file(&root, "tasks");
     fs::ensure_dir(&tasks).unwrap();
@@ -876,10 +876,7 @@ fn approve_plan_refuses_commands_that_cannot_run_in_a_declared_repo() {
     assert_eq!(failure.status, Status::Blocked);
     assert_eq!(failure.code, "plan.invalid_commands");
     let actual = failure.actual.unwrap();
-    assert!(
-        actual.contains("plan.md:7: `cd packages/mobile`"),
-        "{actual}"
-    );
+    assert!(actual.contains("plan.md:7: `cd apps/mobile`"), "{actual}");
     assert!(actual.contains("plan.md:12: `pnpm run deploy`"), "{actual}");
     assert!(actual.contains("01-web.md:4: `npm run lint`"), "{actual}");
     assert!(!actual.contains("plan.md:11:"), "{actual}");
@@ -905,6 +902,79 @@ fn approve_plan_accepts_commands_that_resolve_in_a_declared_repo() {
         },
     )
     .unwrap();
+
+    assert_eq!(
+        report.value.approvals.state(Gate::Plan),
+        Some(GateState::Approved)
+    );
+}
+
+fn declare_api_and_web_repos(root: &Utf8PathBuf) {
+    let layout = Layout::at(root.clone());
+    let repo = |name: &str| {
+        Repo::new(
+            RepoName::new(name).unwrap(),
+            format!("https://example.invalid/{name}.git"),
+            BranchName::new("main").unwrap(),
+        )
+    };
+    let manifest = Manifest::new(
+        HallName::new("acme").unwrap(),
+        Providers::new(vec![Provider::ClaudeCode], Provider::ClaudeCode),
+        vec![repo("api"), repo("web")],
+        None,
+    )
+    .unwrap();
+    Manifest::write(&layout, &manifest).unwrap();
+}
+
+fn approve_plan(root: &Utf8PathBuf) -> Outcome<ApproveOutcome> {
+    approve(
+        &Ctx::new(root.clone()),
+        ApproveInput {
+            feature: "checkout".to_owned(),
+            gate: "plan".to_owned(),
+        },
+    )
+}
+
+#[test]
+fn approve_plan_still_checks_scripts_when_another_repo_has_an_unparseable_package_json() {
+    let (_guard, root) = seeded_hall();
+    declare_api_and_web_repos(&root);
+    let layout = Layout::at(root.clone());
+    let main = BranchName::new("main").unwrap();
+    let api = layout.repo_worktree(&RepoName::new("api").unwrap(), &main);
+    let web = layout.repo_worktree(&RepoName::new("web").unwrap(), &main);
+    fs::ensure_dir(&api).unwrap();
+    fs::ensure_dir(&web).unwrap();
+    fs::write_text(&api.join("package.json"), "{ not json").unwrap();
+    fs::write_text(&web.join("package.json"), r#"{"scripts":{"build":"tsc"}}"#).unwrap();
+    write_light_plan(
+        &root,
+        "---\nrepos: [api, web]\n---\n# Plan\n\n```sh\nnpm run deploy\n```\n",
+    );
+
+    let failure = approve_plan(&root).unwrap_err();
+
+    assert_eq!(failure.code, "plan.invalid_commands");
+    assert!(
+        failure.actual.unwrap().contains("`npm run deploy`"),
+        "the parsed package.json must still be checked"
+    );
+}
+
+#[test]
+fn approve_plan_accepts_a_cd_into_a_directory_the_plan_creates() {
+    let (_guard, root) = seeded_hall();
+    declare_api_repo(&root);
+    api_worktree_with_web_package(&root);
+    write_light_plan(
+        &root,
+        "---\nrepos: [api]\n---\n# Plan\n\n```sh\ncd packages/mobile\ncd src\nnpm run anything\n```\n",
+    );
+
+    let report = approve_plan(&root).unwrap();
 
     assert_eq!(
         report.value.approvals.state(Gate::Plan),
