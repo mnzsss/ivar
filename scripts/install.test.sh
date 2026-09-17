@@ -9,8 +9,11 @@
 # Covers: four accepted platforms; Windows / unknown OS / unknown arch
 # refused before any download; placeholder URL failing without calling curl
 # or creating an executable; bad checksum refusing to install; good checksum
-# installing into $IVAR_INSTALL_DIR; temp dir cleaned up; PATH hint printed
-# when the destination is missing from PATH.
+# installing into $IVAR_INSTALL_DIR; temp dir cleaned up; the version read
+# back out of the installed binary, and the degrade path when it cannot be;
+# which `ivar` the shell resolves after the install. Every run gets a PATH
+# with no host `ivar` on it, so the resolution cases read the same on a
+# clean runner and on a machine with ivar installed.
 #
 # Usage: sh scripts/install.test.sh
 
@@ -116,7 +119,7 @@ bad() { FAIL=$((FAIL + 1)); printf 'FAIL %s\n' "$1"; }
 run_installer() {
     : > "$CURL_LOG"
     set +e
-    RUN_OUT="$(env PATH="$FAKE_BIN:$SAVED_PATH" "$@" sh "$INSTALLER" 2>&1)"
+    RUN_OUT="$(env PATH="$FAKE_BIN:$BASE_PATH" "$@" sh "$INSTALLER" 2>&1)"
     RUN_RC=$?
     set -e
     printf '%s\n' "$RUN_OUT" > "$WORK/run.out"
@@ -151,8 +154,56 @@ EOF
     chmod +x "$1/ivar"
     hash_file "$1/ivar" > "$1/ivar.sha256"
 }
+# path_without_ivar PATHVALUE — print PATHVALUE with every entry that holds
+# an executable `ivar` removed.
+#
+# The installer resolves `command -v ivar` to tell the user which binary
+# their shell will run. A developer machine has ivar installed, so without
+# this filter the resolution tests below would read the host's install
+# instead of their own fixtures — passing on a clean runner and failing on
+# the machine of anyone who uses the tool.
+#
+# `$SAVED_PATH` itself is left alone: the fake sha256sum/shasum/mv delegate
+# to the host's real tools through it.
+path_without_ivar() { # pathvalue
+    _out=""
+    _rest="$1:"
+    while [ -n "$_rest" ]; do
+        _entry="${_rest%%:*}"
+        _rest="${_rest#*:}"
+        # An `[ … ] && continue` guard would be the last command in the loop
+        # body, so its non-zero status would trip `set -e`.
+        if [ -n "$_entry" ] && [ ! -x "$_entry/ivar" ]; then
+            if [ -z "$_out" ]; then
+                _out="$_entry"
+            else
+                _out="$_out:$_entry"
+            fi
+        fi
+    done
+    printf '%s\n' "$_out"
+}
+
+BASE_PATH="$(path_without_ivar "$SAVED_PATH")"
+export BASE_PATH
+
 
 # ── tests ──────────────────────────────────────────────────────────────
+# The installer now asks the shell which `ivar` wins, so the host's own
+# install would answer the resolution tests instead of the fixtures they set
+# up. This is the filter those tests depend on, asserted directly rather
+# than through the behaviour it protects.
+mkdir -p "$WORK/planted" "$WORK/plain"
+printf '#!/bin/sh\nprintf "ivar 0.0.0\\n"\n' > "$WORK/planted/ivar"
+chmod +x "$WORK/planted/ivar"
+
+FILTERED="$(path_without_ivar "$WORK/planted:$WORK/plain")"
+if [ "$FILTERED" = "$WORK/plain" ]; then
+    ok "path_without_ivar drops entries holding an executable ivar"
+else
+    bad "path_without_ivar returned '$FILTERED'"
+fi
+
 
 # The four supported platforms reach the placeholder guard (exit 1 with the
 # placeholder message) — never the OS/arch refusal. That proves the pair was
