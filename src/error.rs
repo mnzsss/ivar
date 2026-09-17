@@ -196,19 +196,11 @@ impl FixAction {
     }
 }
 
-fn serialize_not_ok<S: serde::Serializer>(_: &(), serializer: S) -> Result<S::Ok, S::Error> {
-    serializer.serialize_bool(false)
-}
-
-fn serialize_ok<S: serde::Serializer>(_: &(), serializer: S) -> Result<S::Ok, S::Error> {
-    serializer.serialize_bool(true)
-}
-
 /// The one shape every reported failure takes.
 #[derive(Debug, Clone, Serialize)]
 pub struct Failure {
-    #[serde(serialize_with = "serialize_not_ok")]
-    ok: (),
+    /// Always `false` — the JSON surface's success flag.
+    ok: bool,
     /// Drives the exit code and the human label; `"kind"` on the JSON surface.
     #[serde(rename(serialize = "kind"))]
     pub status: Status,
@@ -245,7 +237,7 @@ impl Failure {
 
     fn new(status: Status, code: &'static str, what: impl Into<String>) -> Self {
         Self {
-            ok: (),
+            ok: false,
             status,
             code,
             what: what.into(),
@@ -395,8 +387,8 @@ impl fmt::Display for Warning {
 /// attention.
 #[derive(Debug, Clone, Serialize)]
 pub struct Report<T> {
-    #[serde(serialize_with = "serialize_ok")]
-    ok: (),
+    /// Always `true` — the JSON surface's success flag.
+    ok: bool,
     #[serde(flatten)]
     pub value: T,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -408,7 +400,7 @@ impl<T> Report<T> {
     #[must_use]
     pub fn new(value: T) -> Self {
         Self {
-            ok: (),
+            ok: true,
             value,
             warnings: Vec::new(),
         }
@@ -418,7 +410,7 @@ impl<T> Report<T> {
     #[must_use]
     pub fn with_warnings(value: T, warnings: Vec<Warning>) -> Self {
         Self {
-            ok: (),
+            ok: true,
             value,
             warnings,
         }
@@ -439,7 +431,7 @@ impl<T> Report<T> {
     #[must_use]
     pub fn map<U>(self, f: impl FnOnce(T) -> U) -> Report<U> {
         Report {
-            ok: (),
+            ok: true,
             value: f(self.value),
             warnings: self.warnings,
         }

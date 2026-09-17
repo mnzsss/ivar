@@ -686,6 +686,12 @@ fn record_fingerprint_mismatch_refused() {
     .unwrap_err();
 
     assert_eq!(err.code, "feature.cleanup_fingerprint_mismatch");
+    assert!(
+        !err.fix_actions
+            .iter()
+            .any(|fix| fix.code == "feature.cleanup_forge_moved"),
+        "a feature local git can judge must not blame the forge: {err:?}"
+    );
 }
 
 #[test]
@@ -921,7 +927,7 @@ fn a_merged_pull_request_for_the_local_head_counts_as_delivered() {
         None,
         &|_, branch| {
             assert_eq!(branch, "checkout");
-            Ok(Some(pull_request("MERGED", Some(&head))))
+            Ok(vec![pull_request("MERGED", Some(&head))])
         },
     )
     .unwrap();
@@ -936,10 +942,10 @@ fn a_merged_pull_request_for_another_head_keeps_the_blocker() {
     let (layout, manifest, feature, _head) = ahead_by_one(&root);
 
     let preview = preview_for(&git::System, &layout, &manifest, &feature, None, &|_, _| {
-        Ok(Some(pull_request(
+        Ok(vec![pull_request(
             "MERGED",
             Some("0000000000000000000000000000000000000000"),
-        )))
+        )])
     })
     .unwrap();
 
@@ -967,12 +973,48 @@ fn a_forge_failure_or_missing_pull_request_keeps_the_blocker_with_its_reason() {
     assert!(!failed.repos[0].is_delivered);
 
     let missing = preview_for(&git::System, &layout, &manifest, &feature, None, &|_, _| {
-        Ok(None)
+        Ok(Vec::new())
     })
     .unwrap();
-    let detail = unmerged_forge_detail(&missing).unwrap().unwrap();
-    assert!(detail.contains("no pull request"), "{detail}");
+    assert_eq!(unmerged_forge_detail(&missing), Some(None));
     assert!(!missing.repos[0].is_delivered);
+}
+
+#[test]
+fn drift_is_attributed_to_the_forge_only_when_a_lookup_answered() {
+    let (_guard, root) = hall_with_feature(&["api"], None);
+    let (layout, manifest, feature, head) = ahead_by_one(&root);
+
+    let (_, consulted) =
+        preview_and_forge_use(&git::System, &layout, &manifest, &feature, None, &|_, _| {
+            Ok(vec![pull_request("OPEN", Some(&head))])
+        })
+        .unwrap();
+    assert!(consulted);
+
+    let (_, silent) =
+        preview_and_forge_use(&git::System, &layout, &manifest, &feature, None, &|_, _| {
+            Ok(Vec::new())
+        })
+        .unwrap();
+    assert!(!silent);
+}
+
+#[test]
+fn the_merged_pull_request_for_the_local_head_wins_over_an_earlier_record() {
+    let (_guard, root) = hall_with_feature(&["api"], None);
+    let (layout, manifest, feature, head) = ahead_by_one(&root);
+
+    let preview = preview_for(&git::System, &layout, &manifest, &feature, None, &|_, _| {
+        Ok(vec![
+            pull_request("CLOSED", Some("0000000000000000000000000000000000000000")),
+            pull_request("MERGED", Some(&head)),
+        ])
+    })
+    .unwrap();
+
+    assert_eq!(unmerged_forge_detail(&preview), None);
+    assert!(preview.repos[0].is_delivered);
 }
 
 #[test]

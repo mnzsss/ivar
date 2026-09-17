@@ -34,7 +34,10 @@ fn human_form_orders_fixes_and_marks_the_unsafe_one() {
 #[test]
 fn empty_optional_fields_stay_out_of_the_json() {
     let json = serde_json::to_string(&Failure::blocked("a.b", "c")).unwrap();
-    assert_eq!(json, r#"{"ok":false,"kind":"blocked","code":"a.b","what":"c"}"#);
+    assert_eq!(
+        json,
+        r#"{"ok":false,"kind":"blocked","code":"a.b","what":"c"}"#
+    );
 }
 
 #[test]

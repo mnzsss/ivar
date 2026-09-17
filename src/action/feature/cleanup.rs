@@ -137,7 +137,7 @@ pub fn cleanup(ctx: &Ctx, input: CleanupInput) -> Outcome<CleanupOutcome> {
 fn apply_cleanup(
     ctx: &Ctx,
     feature_arg: &str,
-    record_path: &camino::Utf8Path,
+    record_path: &Utf8Path,
     own_session: Option<&str>,
 ) -> Result<Report<CleanupOutcome>, Failure> {
     let layout = discover_hall(ctx)?;
@@ -211,7 +211,7 @@ fn apply_cleanup(
         )
     })?;
     let git = git::System;
-    let preview = preview_for(
+    let (preview, forge_consulted) = preview_and_forge_use(
         &git,
         &layout,
         &manifest,
@@ -233,7 +233,7 @@ fn apply_cleanup(
 
     // 6. Check fingerprint comparison
     if record.fingerprint != preview.fingerprint {
-        return Err(Failure::blocked(
+        let mut failure = Failure::blocked(
             "feature.cleanup_fingerprint_mismatch",
             format!(
                 "the state of feature `{}` has drifted since the cleanup record was written",
@@ -251,7 +251,14 @@ fn apply_cleanup(
                 "Rerun `/ivar-feature-cleanup {}` to update the docs and record with the new fingerprint.",
                 preview.feature
             ),
-        )));
+        ));
+        if forge_consulted {
+            failure = failure.fix(FixAction::safe(
+                "feature.cleanup_forge_moved",
+                "A repo's delivery rests on a pull-request lookup, and the forge now answers differently than it did for the record. Re-run the preview to see the forge's current answer.",
+            ));
+        }
+        return Err(failure);
     }
 
     // 7. Check approvals: delivery & teardown
@@ -498,6 +505,20 @@ fn preview_for(
     own_session: Option<&str>,
     find_pr: PullRequestLookup<'_>,
 ) -> Result<CleanupPreview, Failure> {
+    preview_and_forge_use(git, layout, manifest, feature, own_session, find_pr)
+        .map(|(preview, _)| preview)
+}
+
+/// The preview, plus whether any repo's verdict rested on a forge answer — a
+/// live lookup that can move between the preview run and the apply run.
+fn preview_and_forge_use(
+    git: &impl Git,
+    layout: &crate::store::layout::Layout,
+    manifest: &crate::store::manifest::Manifest,
+    feature: &Feature,
+    own_session: Option<&str>,
+    find_pr: PullRequestLookup<'_>,
+) -> Result<(CleanupPreview, bool), Failure> {
     let (live_sessions, session_inspection_error) =
         match session_lookup::list_feature(layout, &feature.name) {
             Ok(sessions) => (
@@ -548,14 +569,19 @@ fn preview_for(
         &paths_to_remove,
     )?;
 
-    Ok(CleanupPreview {
-        feature: feature.name.clone(),
-        branch: feature.branch.clone(),
-        repos,
-        blockers: verdict.blockers,
-        paths_to_remove,
-        fingerprint,
-    })
+    let forge_consulted = facts.repos.iter().any(|repo| repo.forge_delivery.is_some());
+
+    Ok((
+        CleanupPreview {
+            feature: feature.name.clone(),
+            branch: feature.branch.clone(),
+            repos,
+            blockers: verdict.blockers,
+            paths_to_remove,
+            fingerprint,
+        },
+        forge_consulted,
+    ))
 }
 
 fn collect_repo_facts(
@@ -598,12 +624,9 @@ fn collect_repo_facts(
                 }
             };
             let forge_delivery = match (unmerged_commits, feature_head.as_deref()) {
-                (Some(1..), Some(head)) => Some(forge_delivery(
-                    find_pr,
-                    &bare,
-                    feature.branch.as_str(),
-                    head,
-                )),
+                (Some(1..), Some(head)) => {
+                    forge_delivery(find_pr, &bare, feature.branch.as_str(), head)
+                }
                 _ => None,
             };
             (
@@ -644,32 +667,36 @@ fn collect_repo_facts(
     }
 }
 
-type PullRequestLookup<'a> = &'a dyn Fn(&Utf8Path, &str) -> Result<Option<PullRequest>, Failure>;
+type PullRequestLookup<'a> = &'a dyn Fn(&Utf8Path, &str) -> Result<Vec<PullRequest>, Failure>;
 
-fn forge_pull_request(git_dir: &Utf8Path, branch: &str) -> Result<Option<PullRequest>, Failure> {
-    pull_requests::find_pull_request(git_dir, branch, "all")
+fn forge_pull_request(git_dir: &Utf8Path, branch: &str) -> Result<Vec<PullRequest>, Failure> {
+    pull_requests::list_pull_requests(git_dir, branch, "all")
 }
 
+/// The forge's verdict on `branch`, or `None` when the forge has nothing to say
+/// — no pull request is silence, not a reason to decorate the blocker.
 fn forge_delivery(
     find_pr: PullRequestLookup<'_>,
     bare: &Utf8Path,
     branch: &str,
     feature_head: &str,
-) -> ForgeDelivery {
-    match find_pr(bare, branch) {
-        Err(failure) => ForgeDelivery::Unavailable(failure.what),
-        Ok(None) => ForgeDelivery::Unavailable(format!("no pull request found for `{branch}`")),
-        Ok(Some(pr)) if pr.state != "MERGED" => {
-            ForgeDelivery::NotMerged(format!("pull request #{} is {}", pr.number, pr.state))
-        }
-        Ok(Some(pr)) if pr.head_oid.as_deref() != Some(feature_head) => {
-            ForgeDelivery::NotMerged(format!(
-                "pull request #{} merged a head other than local `{branch}`",
-                pr.number
-            ))
-        }
-        Ok(Some(_)) => ForgeDelivery::Merged,
+) -> Option<ForgeDelivery> {
+    let prs = match find_pr(bare, branch) {
+        Err(failure) => return Some(ForgeDelivery::Unavailable(failure.what)),
+        Ok(prs) => prs,
+    };
+    if prs.iter().any(|pr| pr.merged_head(feature_head)) {
+        return Some(ForgeDelivery::Merged);
     }
+    let pr = prs.iter().find(|pr| pr.is_merged()).or(prs.first())?;
+    Some(ForgeDelivery::NotMerged(if pr.is_merged() {
+        format!(
+            "pull request #{} merged a head other than local `{branch}`",
+            pr.number
+        )
+    } else {
+        format!("pull request #{} is {}", pr.number, pr.state)
+    }))
 }
 
 fn absent_manifest_facts(repo: &RepoName) -> CleanupRepoFacts {
@@ -691,7 +718,7 @@ fn absent_manifest_facts(repo: &RepoName) -> CleanupRepoFacts {
 
 fn revision(
     git: &impl Git,
-    bare: &camino::Utf8Path,
+    bare: &Utf8Path,
     branch: &str,
     error: &mut Option<String>,
 ) -> Option<String> {

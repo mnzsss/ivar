@@ -25,6 +25,9 @@ const OBSERVE_POLL_INTERVAL: Duration = Duration::from_secs(2);
 /// How long [`observe_merge`] waits for a merge before reporting it pending.
 const OBSERVE_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 
+/// The forge's state word for a pull request that has landed.
+pub(crate) const MERGED: &str = "MERGED";
+
 /// A pull request as `gh` reports it — the fields ivar reads.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct PullRequest {
@@ -42,6 +45,16 @@ pub(crate) struct PullRequest {
     pub merge_commit: Option<String>,
     /// Is this PR a draft?
     pub is_draft: bool,
+}
+
+impl PullRequest {
+    pub(crate) fn is_merged(&self) -> bool {
+        self.state == MERGED
+    }
+
+    pub(crate) fn merged_head(&self, head: &str) -> bool {
+        self.is_merged() && self.head_oid.as_deref() == Some(head)
+    }
 }
 
 /// The `--json url,number,state,mergeCommit,headRefOid,isDraft` shape `gh pr
@@ -88,6 +101,17 @@ pub(crate) fn find_pull_request(
     head: &str,
     state: &str,
 ) -> Result<Option<PullRequest>, Failure> {
+    Ok(list_pull_requests(git_dir, head, state)?.into_iter().next())
+}
+
+/// Every pull request whose head is `branch` and whose state is `state`. A
+/// branch can carry more than one record once it has been reused, so callers
+/// that must identify a specific PR pick from here rather than trusting order.
+pub(crate) fn list_pull_requests(
+    git_dir: &Utf8Path,
+    head: &str,
+    state: &str,
+) -> Result<Vec<PullRequest>, Failure> {
     let output = capture(
         proc::Command::new("gh")
             .args([
@@ -110,7 +134,7 @@ pub(crate) fn find_pull_request(
         )
         .actual(output.clone())
     })?;
-    Ok(records.into_iter().next().map(PullRequest::from))
+    Ok(records.into_iter().map(PullRequest::from).collect())
 }
 
 /// Create a pull request from `head` into `base` for `feature`. Returns the
@@ -334,8 +358,10 @@ fn observe_merge_with(
     let deadline = Instant::now() + timeout;
     loop {
         let pr = view_pull_request(git_dir, url)?;
+        if pr.is_merged() {
+            return Ok(pr);
+        }
         match pr.state.as_str() {
-            "MERGED" => return Ok(pr),
             "CLOSED" => {
                 return Err(Failure::failed(
                     "integration.pr_closed",
