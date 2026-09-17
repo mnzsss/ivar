@@ -357,6 +357,20 @@ Accept an approved plan revision for a diverged run
 | `--plan` | `<PLAN>` |  | Plan file; defaults to `.ivar/features/<feature>/plan.md` |
 
 
+###### `ivar feature execute checkpoint`
+
+Record an approved wave on the active run without editing the plan
+
+| argument | required | description |
+| --- | --- | --- |
+| `feature` | no |  |
+
+| flag | value | default | description |
+| --- | --- | --- | --- |
+| `--wave` | `<WAVE>` |  | The 1-based wave number from `plan.md` |
+| `--summary` | `<SUMMARY>` |  | Completed tasks, satisfied exit criteria, and deferred validation failures |
+
+
 ###### `ivar feature execute interrupt`
 
 Abandon an active or blocked run, transitioning it to interrupted

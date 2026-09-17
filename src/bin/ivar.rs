@@ -33,7 +33,9 @@ use ivar::action::discovery::close as discovery_close;
 use ivar::action::discovery::create as discovery_create;
 use ivar::action::discovery::list as discovery_list;
 use ivar::action::discovery::show as discovery_show;
-use ivar::action::execute::{accept_revision, finish, interrupt, start, status as execute_status};
+use ivar::action::execute::{
+    accept_revision, checkpoint, finish, interrupt, start, status as execute_status,
+};
 use ivar::action::feature::select::{resolve_multi_features, resolve_single_feature};
 use ivar::action::feature::{
     cleanup, close, create, delete, deliver, demote, integrate, list as feature_list, promote,
@@ -365,6 +367,28 @@ fn main() -> ExitCode {
                                 accept_revision::AcceptRevisionInput {
                                     feature,
                                     plan: args.plan,
+                                },
+                            ),
+                            json,
+                            &mut stdout,
+                            &mut stderr,
+                        ),
+                        Err(failure) => respond_failure(failure, json, &mut stdout, &mut stderr),
+                    }
+                }
+                ExecuteCommand::Checkpoint(args) => {
+                    match resolve_single_feature(
+                        &ctx,
+                        args.feature,
+                        "Select a feature to record a wave checkpoint",
+                    ) {
+                        Ok(feature) => respond(
+                            checkpoint::checkpoint(
+                                &ctx,
+                                checkpoint::CheckpointInput {
+                                    feature,
+                                    wave: args.wave,
+                                    summary: args.summary,
                                 },
                             ),
                             json,

@@ -952,3 +952,37 @@ fn execute_finish_help_points_to_print_schema() {
             .contains("--print-schema")
     );
 }
+
+#[test]
+fn execute_checkpoint_requires_a_positive_wave_and_a_summary() {
+    assert!(
+        Cli::try_parse_from([
+            "ivar",
+            "feature",
+            "execute",
+            "checkpoint",
+            "checkout",
+            "--wave",
+            "2",
+            "--summary",
+            "wave 2 approved",
+        ])
+        .is_ok()
+    );
+    assert!(
+        Cli::try_parse_from(["ivar", "feature", "execute", "checkpoint", "--wave", "1"]).is_err()
+    );
+    assert!(
+        Cli::try_parse_from([
+            "ivar",
+            "feature",
+            "execute",
+            "checkpoint",
+            "--wave",
+            "0",
+            "--summary",
+            "x",
+        ])
+        .is_err()
+    );
+}

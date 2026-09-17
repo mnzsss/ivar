@@ -696,6 +696,8 @@ pub enum CheckpointKind {
     Interrupted,
     /// The receipt was reconstructed from a legacy execution board.
     LegacyImport,
+    /// A coordinator recorded an approved wave.
+    Wave,
 }
 
 impl fmt::Display for CheckpointKind {
@@ -709,6 +711,7 @@ impl fmt::Display for CheckpointKind {
             Self::Terminated => "terminated",
             Self::Interrupted => "interrupted",
             Self::LegacyImport => "legacy-import",
+            Self::Wave => "wave",
         };
         f.pad(name)
     }
@@ -750,6 +753,19 @@ pub struct RunCheckpoint {
     /// or compared it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub plan_fingerprint_to: Option<String>,
+    /// The wave this checkpoint records, when it is a wave checkpoint.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wave: Option<WaveProgress>,
+}
+
+/// What a coordinator recorded when a wave was approved.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WaveProgress {
+    /// The 1-based wave number in `plan.md`.
+    pub number: u32,
+    /// Completed tasks, satisfied exit criteria, and deferred validation failures.
+    pub summary: String,
 }
 
 // ---------------------------------------------------------------------------
@@ -934,6 +950,7 @@ impl RunReceipt {
                 diff: None,
                 plan_fingerprint_from: None,
                 plan_fingerprint_to: Some(fingerprint),
+                wave: None,
             }],
             final_diff: None,
             outcome: None,
@@ -988,6 +1005,7 @@ impl RunReceipt {
             diff: None,
             plan_fingerprint_from: None,
             plan_fingerprint_to: None,
+            wave: None,
         });
         Ok(())
     }
@@ -1018,6 +1036,7 @@ impl RunReceipt {
             diff: Some(diff),
             plan_fingerprint_from: None,
             plan_fingerprint_to: None,
+            wave: None,
         });
         Ok(())
     }
@@ -1050,6 +1069,7 @@ impl RunReceipt {
             diff: None,
             plan_fingerprint_from: Some(self.plan_fingerprint.clone()),
             plan_fingerprint_to: Some(observed_fingerprint.into()),
+            wave: None,
         });
         Ok(())
     }
@@ -1091,6 +1111,7 @@ impl RunReceipt {
             diff: None,
             plan_fingerprint_from: Some(previous),
             plan_fingerprint_to: Some(new_fingerprint),
+            wave: None,
         });
         Ok(())
     }
@@ -1129,6 +1150,38 @@ impl RunReceipt {
             diff: Some(diff),
             plan_fingerprint_from: None,
             plan_fingerprint_to: None,
+            wave: None,
+        });
+        Ok(())
+    }
+
+    /// Record an approved wave on an active run.
+    ///
+    /// Progress lives here rather than in `plan.md`, because any prose edit to
+    /// the plan moves its fingerprint and diverges the run.
+    pub fn checkpoint_wave(
+        &mut self,
+        number: u32,
+        summary: impl Into<String>,
+        session: SessionId,
+        provider: Provider,
+        at: impl Into<String>,
+    ) -> Result<(), RunTransition> {
+        self.require(&[RunStatus::Active], "checkpoint")?;
+        self.push(RunCheckpoint {
+            at: at.into(),
+            kind: CheckpointKind::Wave,
+            status: RunStatus::Active,
+            session: Some(session),
+            provider: Some(provider),
+            report: None,
+            diff: None,
+            plan_fingerprint_from: None,
+            plan_fingerprint_to: None,
+            wave: Some(WaveProgress {
+                number,
+                summary: summary.into(),
+            }),
         });
         Ok(())
     }
@@ -1163,6 +1216,7 @@ impl RunReceipt {
             diff: None,
             plan_fingerprint_from: None,
             plan_fingerprint_to: None,
+            wave: None,
         });
         Ok(())
     }
@@ -1210,6 +1264,7 @@ impl RunReceipt {
                 diff: None,
                 plan_fingerprint_from: None,
                 plan_fingerprint_to: None,
+                wave: None,
             }],
             final_diff: None,
             outcome,

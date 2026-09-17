@@ -12,6 +12,7 @@ use crate::store::feature::run;
 use crate::store::layout::Layout;
 
 pub mod accept_revision;
+pub mod checkpoint;
 pub mod finish;
 pub mod interrupt;
 pub mod plan_fingerprint;

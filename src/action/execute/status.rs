@@ -29,6 +29,9 @@ impl WriteHuman for StatusOutcome {
                 receipt.plan_path, receipt.plan_fingerprint
             )?;
             writeln!(w, "  provenance: {}", receipt.provenance)?;
+            for wave in receipt.checkpoints.iter().filter_map(|c| c.wave.as_ref()) {
+                writeln!(w, "  wave {}: {}", wave.number, wave.summary)?;
+            }
             writeln!(
                 w,
                 "  recovery: {}",

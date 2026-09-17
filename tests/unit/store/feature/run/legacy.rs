@@ -349,6 +349,7 @@ fn an_import_over_a_live_native_run_is_refused() {
             diff: None,
             plan_fingerprint_from: None,
             plan_fingerprint_to: None,
+            wave: None,
         }],
         final_diff: None,
         outcome: None,

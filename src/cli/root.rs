@@ -493,6 +493,8 @@ pub enum ExecuteCommand {
     Status(ExecuteStatusArgs),
     /// Accept an approved plan revision for a diverged run.
     AcceptRevision(ExecuteAcceptRevisionArgs),
+    /// Record an approved wave on the active run without editing the plan.
+    Checkpoint(ExecuteCheckpointArgs),
     /// Abandon an active or blocked run, transitioning it to interrupted.
     Interrupt(ExecuteInterruptArgs),
 }
@@ -548,6 +550,18 @@ pub struct ExecuteAcceptRevisionArgs {
     /// Plan file; defaults to `.ivar/features/<feature>/plan.md`.
     #[arg(long)]
     pub plan: Option<String>,
+}
+
+/// Arguments for `ivar feature execute checkpoint`.
+#[derive(Debug, Args)]
+pub struct ExecuteCheckpointArgs {
+    pub feature: Option<String>,
+    /// The 1-based wave number from `plan.md`.
+    #[arg(long, value_parser = clap::value_parser!(u32).range(1..))]
+    pub wave: u32,
+    /// Completed tasks, satisfied exit criteria, and deferred validation failures.
+    #[arg(long)]
+    pub summary: String,
 }
 
 /// Arguments for `ivar feature execute interrupt`.
