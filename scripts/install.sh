@@ -21,6 +21,11 @@ set -eu
 IVAR_BASE_URL="${IVAR_BASE_URL:-https://github.com/mnzsss/ivar/releases/latest/download}"
 IVAR_INSTALL_DIR="${IVAR_INSTALL_DIR:-$HOME/.local/bin}"
 
+# A literal newline. It trims a multi-line probe to its first line through
+# parameter expansion, so reading the version adds no external command.
+NL='
+'
+
 fail() {
     printf 'error: %s\n' "$1" >&2
     exit 1
@@ -65,6 +70,22 @@ verify_checksum() { # tmpdir
     fi
 }
 
+# installed_version — print the version the installed binary reports, or
+# nothing.
+#
+# `ivar --version` prints `ivar <version>`; anything else — a probe that
+# could not run, a future format change — prints nothing, so the caller
+# loses the version rather than printing a wrong one. The `|| return 0` is
+# load-bearing: under `set -e` a binary exiting non-zero would otherwise
+# abort an install whose bytes are already verified.
+installed_version() { # binary
+    _probe="$("$1" --version 2>/dev/null)" || return 0
+    _probe="${_probe%%"$NL"*}"
+    case "$_probe" in
+        "ivar "*) printf '%s\n' "${_probe#ivar }" ;;
+    esac
+}
+
 main() {
     platform="$(detect_platform)"
 
@@ -94,7 +115,8 @@ main() {
     mkdir -p "$IVAR_INSTALL_DIR"
     mv "$tmpdir/ivar" "$IVAR_INSTALL_DIR/ivar"
 
-    printf 'installed ivar %s into %s\n' "$platform" "$IVAR_INSTALL_DIR"
+    version="$(installed_version "$IVAR_INSTALL_DIR/ivar")"
+    printf 'installed ivar %s (%s) into %s\n' "$version" "$platform" "$IVAR_INSTALL_DIR"
 
     case ":$PATH:" in
         *":$IVAR_INSTALL_DIR:"*)

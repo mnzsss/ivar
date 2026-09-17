@@ -132,6 +132,26 @@ hash_file() {
     fi
 }
 
+# write_fake_artifact DIR VERSION — a fake `ivar` plus its sidecar.
+#
+# The fake answers `--version` the way clap does, `ivar <version>`, because
+# the installer now reads the version back out of what it installed. Every
+# other argv keeps the old `fake-ivar` output, so tests that only care that
+# something was installed read exactly as before.
+write_fake_artifact() { # dir version
+    mkdir -p "$1"
+    cat > "$1/ivar" <<EOF
+#!/bin/sh
+if [ "\${1:-}" = "--version" ]; then
+    printf 'ivar %s\n' "$2"
+    exit 0
+fi
+printf 'fake-ivar\n'
+EOF
+    chmod +x "$1/ivar"
+    hash_file "$1/ivar" > "$1/ivar.sha256"
+}
+
 # ── tests ──────────────────────────────────────────────────────────────
 
 # The four supported platforms reach the placeholder guard (exit 1 with the
@@ -218,10 +238,7 @@ fi
 
 # Good checksum: installs into IVAR_INSTALL_DIR, temp cleaned, PATH hint
 # printed because the destination is not on the (fake) PATH.
-mkdir -p "$WORK/good-art"
-printf '#!/bin/sh\nprintf "fake-ivar\\n"\n' > "$WORK/good-art/ivar"
-chmod +x "$WORK/good-art/ivar"
-hash_file "$WORK/good-art/ivar" > "$WORK/good-art/ivar.sha256"
+write_fake_artifact "$WORK/good-art" "9.9.9"
 
 run_installer FAKE_UNAME_S="Linux" FAKE_UNAME_M="x86_64" \
     IVAR_BASE_URL="https://dl.example.test/ivar" \
@@ -243,10 +260,7 @@ fi
 # while this script asked for `ivar-<os>-<arch>`. Both sides were internally
 # consistent and the pair was broken. This asserts the exact URL, with no
 # IVAR_BASE_URL override, so the default is under test too.
-mkdir -p "$WORK/url-art"
-printf '#!/bin/sh\nprintf "fake-ivar\\n"\n' > "$WORK/url-art/ivar"
-chmod +x "$WORK/url-art/ivar"
-hash_file "$WORK/url-art/ivar" > "$WORK/url-art/ivar.sha256"
+write_fake_artifact "$WORK/url-art" "9.9.9"
 
 run_installer FAKE_UNAME_S="Linux" FAKE_UNAME_M="x86_64" \
     IVAR_INSTALL_DIR="$DEST" \
@@ -260,6 +274,25 @@ if [ "$RUN_RC" -eq 0 ] \
 else
     bad "default asset URL (rc=$RUN_RC, log: $(cat "$CURL_LOG"))"
 fi
+
+# The success line names the version of the binary that was just written,
+# and it gets that number by running it. 9.9.9 is a version neither the
+# platform, the asset URL nor this harness could have produced, so a pass
+# here can only mean the installer read it back off the disk.
+write_fake_artifact "$WORK/version-art" "9.9.9"
+
+run_installer FAKE_UNAME_S="Linux" FAKE_UNAME_M="x86_64" \
+    IVAR_BASE_URL="https://dl.example.test/ivar" \
+    IVAR_INSTALL_DIR="$DEST" \
+    FAKE_BIN_FILE="$WORK/version-art/ivar" \
+    FAKE_SHA_FILE="$WORK/version-art/ivar.sha256"
+if [ "$RUN_RC" -eq 0 ] \
+    && grep -qF "installed ivar 9.9.9 (linux-x86_64) into $DEST" "$WORK/run.out"; then
+    ok "success line names the version read from the installed binary"
+else
+    bad "version echo (rc=$RUN_RC: $(cat "$WORK/run.out"))"
+fi
+
 
 # ── summary ────────────────────────────────────────────────────────────
 
