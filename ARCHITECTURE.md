@@ -70,8 +70,10 @@ src/
                    mutation guards), verification.rs (the ordered executable
                    checks), reparent.rs, and pull_requests.rs (the shared PR
                    operations delivery and integration both use).
-    execute/       feature execute: start · finish · status · accept-revision,
-                   the provider-neutral Run Receipt lifecycle
+    execute/       feature execute: start · finish · status · accept-revision ·
+                   checkpoint (checkpoint.rs records an approved wave on the
+                   active run without touching the plan fingerprint), the
+                   provider-neutral Run Receipt lifecycle
     session/       start · connect · conversion · stop · prune · relay, plus
                    view (the shared View Dir materialisation: repo symlinks,
                    per-session harness config, the projected plan, the
@@ -103,6 +105,10 @@ src/
                    cleanup preview and eligibility classifier). Children are
                    derived by scanning `Feature.parent` — no feature stores a
                    child list, and no lifecycle field is persisted.
+    plan.rs        plan frontmatter as data: the repos a plan declares it edits
+    plan_commands.rs  the shell commands a plan's fenced blocks would run
+                   (`cd`, `mkdir`, `npm|pnpm run <script>`), scanned so
+                   `plan approve` can refuse the ones that cannot resolve
     session.rs     session state and identity
     discovery.rs   pure discovery types (DiscoveryDoc, status, frontmatter)
     provider.rs    which harnesses exist, and their capability flags
@@ -358,10 +364,21 @@ exceptions:
 - `action/feature/mutation.rs` — the three scoped mutation guards (whole-child,
   structure, per-promotion) that keep a partial integration's planning mutable
   without freezing more than the receipt actually froze.
-- `action/plan/status.rs`, `action/plan/approve.rs`,
-  `action/repo/remove.rs`, `action/session/conversion.rs`,
-  `action/feature/delete.rs`, and `action/feature/promote.rs` — coherent
-  command-level behaviors only modestly over the trigger.
+- `action/plan/status.rs`, `action/repo/remove.rs`,
+  `action/session/conversion.rs`, `action/feature/delete.rs`, and
+  `action/feature/promote.rs` — coherent command-level behaviors only modestly
+  over the trigger.
+- `action/plan/approve.rs` — no longer "modestly over": one gate verb that must
+  hold the whole refusal surface in view. Approving a plan validates the
+  frontmatter's declared repos against the manifest and resolves every shell
+  command the plan's fenced blocks would run against those repos' real trees.
+  Both refusals are the same decision — "this plan cannot be executed as
+  written" — and splitting them would put half the answer a step away from the
+  other half.
+- `action/feature/cleanup.rs` — the preview and the apply of one verb, kept
+  together because apply is defined by re-deriving the preview and comparing
+  its fingerprint: the two halves must read the same facts the same way, and a
+  split invites a second, drifting way to gather them.
 - `action/repo/pull/mod.rs` — the one place a repo's refresh policy lives: the
   per-repo fetch step, the default-branch refresh, and the `refresh_all` sweep
   used by session startup. It crossed the trigger when that sweep replaced the
