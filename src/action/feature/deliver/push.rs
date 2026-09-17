@@ -3,22 +3,22 @@
 use std::collections::BTreeMap;
 
 use crate::action::feature::pull_requests::{
-    convert_pull_request_to_draft, create_pull_request, edit_pull_request, existing_pr_url,
-    link_sibling_prs,
+    PullRequest, convert_pull_request_to_draft, create_pull_request, edit_pull_request,
+    existing_pr, link_sibling_prs,
 };
 use crate::action::feature::verification;
 use crate::domain::feature::{DeliveryAction, DeliveryPreview, DraftAction, Feature};
 use crate::domain::name::{FeatureName, RepoName};
-use crate::error::{Failure, Report, Warning};
+use crate::error::{Failure, FixAction, Report, Warning};
 use crate::git::Git;
 use crate::store::layout::Layout;
 use crate::store::manifest::Manifest;
 
-use super::outcome::{DeliverOutcome, PushResult, RepoCheckResult};
+use super::outcome::{DeliverOutcome, PullRequestRef, PushResult, RepoCheckResult};
 use super::repos::push_repo;
 
 /// Execute non-land delivery apply: run root repo verification checks, push feature branches best-effort, and handle PRs.
-pub(super) fn execute(
+pub(crate) fn execute(
     git: &impl Git,
     layout: &Layout,
     manifest: &Manifest,
@@ -53,6 +53,8 @@ pub(super) fn execute(
                 repo: repo.repo.clone(),
                 ok: false,
                 detail: Some("root checks failed".to_owned()),
+                pr: None,
+                fix: None,
             });
             continue;
         }
@@ -63,9 +65,19 @@ pub(super) fn execute(
                 repo: repo.repo.clone(),
                 ok: true,
                 detail: None,
+                pr: None,
+                fix: None,
             }),
             Err(failure) => {
-                let detail = failure.what.clone();
+                let (detail, fix) = if rejected_as_non_fast_forward(&failure) {
+                    (
+                        "push rejected: the remote branch carries commits this branch does not"
+                            .to_owned(),
+                        Some(force_with_lease_fix(git, &bare, repo)),
+                    )
+                } else {
+                    (failure.what.clone(), None)
+                };
                 warnings.push(Warning::new(
                     "deliver.push_failed",
                     repo.repo.as_str(),
@@ -75,14 +87,15 @@ pub(super) fn execute(
                     repo: repo.repo.clone(),
                     ok: false,
                     detail: Some(detail),
+                    pr: None,
+                    fix,
                 });
             }
         }
     }
 
     // -- Phase 2: create PRs for repos that need them -------------------------
-    let mut pr_url_map: BTreeMap<RepoName, String> = BTreeMap::new();
-    let mut pr_results: Vec<(RepoName, Result<String, Failure>)> = Vec::new();
+    let mut pr_results: Vec<(RepoName, Result<PullRequest, Failure>)> = Vec::new();
     for repo in &preview.repos {
         if matches!(
             repo.action,
@@ -130,6 +143,10 @@ pub(super) fn execute(
                     repo.repo.as_str(),
                     failure.what.clone(),
                 ));
+                if let Some(push) = pushes.iter_mut().find(|push| push.repo == repo.repo) {
+                    push.detail = Some(format!("no pull request: {}", failure.what));
+                    push.fix = failure.fix_actions.first().cloned();
+                }
                 continue;
             }
         }
@@ -138,10 +155,10 @@ pub(super) fn execute(
         // create` would only refuse it as a duplicate. Its URL is still part of
         // the report, and `gh pr list` is the only place it comes from.
         let want_draft = repo.draft.is_some();
-        let (result, should_convert) = match repo.action {
+        let (mut result, should_convert) = match repo.action {
             DeliveryAction::UpdatePr => {
                 // Try to find existing PR; if it exists, do a partial edit; otherwise create new.
-                existing_pr_url(&bare, repo.local_branch.as_str()).map_or_else(
+                existing_pr(&bare, repo.local_branch.as_str()).map_or_else(
                     || {
                         (
                             create_pull_request(
@@ -152,21 +169,20 @@ pub(super) fn execute(
                                 repo.pr_title.as_deref(),
                                 repo.pr_body.as_deref(),
                                 want_draft,
-                            )
-                            .map(|pr| pr.url),
+                            ),
                             false,
                         )
                     },
-                    |url| {
+                    |pr| {
                         // PR exists — do a safe partial edit (only supplied fields change).
                         (
                             edit_pull_request(
                                 &bare,
-                                &url,
+                                &pr.url,
                                 repo.pr_title.as_deref(),
                                 repo.pr_body.as_deref(),
                             )
-                            .map(|_| url),
+                            .map(|_| pr),
                             true,
                         )
                     },
@@ -181,8 +197,7 @@ pub(super) fn execute(
                     repo.pr_title.as_deref(),
                     repo.pr_body.as_deref(),
                     want_draft,
-                )
-                .map(|pr| pr.url),
+                ),
                 false,
             ),
             DeliveryAction::PushOnly | DeliveryAction::LandOnDefault => unreachable!(),
@@ -192,30 +207,39 @@ pub(super) fn execute(
         // is recreated as draft above, so it needs no follow-up transition.
         if repo.draft == Some(DraftAction::ConvertToDraft)
             && should_convert
-            && let Ok(url) = &result
-            && let Err(failure) = convert_pull_request_to_draft(&bare, url)
+            && let Ok(pr) = &mut result
         {
-            warnings.push(Warning::new(
-                "deliver.pr_draft_conversion_failed",
-                repo.repo.as_str(),
-                format!("{}: {}", failure.code, failure.what),
-            ));
+            match convert_pull_request_to_draft(&bare, &pr.url) {
+                Ok(()) => pr.is_draft = true,
+                Err(failure) => warnings.push(Warning::new(
+                    "deliver.pr_draft_conversion_failed",
+                    repo.repo.as_str(),
+                    format!("{}: {}", failure.code, failure.what),
+                )),
+            }
         }
 
         pr_results.push((repo.repo.clone(), result));
     }
 
+    let mut pr_url_map: BTreeMap<RepoName, String> = BTreeMap::new();
     for (repo_name, result) in pr_results {
         match result {
-            Ok(url) => {
-                pr_url_map.insert(repo_name.clone(), url);
+            Ok(pr) => {
+                if let Some(push) = pushes.iter_mut().find(|push| push.repo == repo_name) {
+                    push.pr = Some(PullRequestRef {
+                        number: pr.number,
+                        url: pr.url.clone(),
+                        draft: pr.is_draft,
+                    });
+                }
+                pr_url_map.insert(repo_name, pr.url);
             }
             Err(failure) => {
-                let detail = failure.what.clone();
                 warnings.push(Warning::new(
                     "deliver.pr_create_failed",
                     repo_name.as_str(),
-                    detail.clone(),
+                    failure.what.clone(),
                 ));
             }
         }
@@ -238,10 +262,53 @@ pub(super) fn execute(
         DeliverOutcome {
             root: layout.root().to_path_buf(),
             preview,
+            apply_command: None,
             pushes,
             land: Vec::new(),
             checks,
         },
         warnings,
+    ))
+}
+
+/// Whether git refused the push because the remote branch has moved on.
+///
+/// Matched on git's own wording: there is no exit code or porcelain that says
+/// this, and the sentence is what an operator would otherwise have to read.
+fn rejected_as_non_fast_forward(failure: &Failure) -> bool {
+    let text = failure.actual.as_deref().unwrap_or(&failure.what);
+    text.contains("non-fast-forward")
+        || text.contains("fetch first")
+        || text.contains("Updates were rejected")
+}
+
+/// The recovery for a rejected push, as a command a human runs themselves.
+///
+/// ivar never force-pushes on its own: replacing a remote branch can drop work
+/// that is only there.
+fn force_with_lease_fix(
+    git: &impl Git,
+    bare: &camino::Utf8Path,
+    repo: &crate::domain::feature::DeliveryRepo,
+) -> FixAction {
+    let branch = repo.local_branch.as_str();
+    let lease = git
+        .remote_branch_tip(bare, &repo.remote, branch)
+        .ok()
+        .flatten()
+        .map_or_else(
+            || format!("--force-with-lease={branch}"),
+            |tip| format!("--force-with-lease={branch}:{tip}"),
+        );
+    FixAction::unsafe_(
+        "deliver.force_with_lease",
+        format!(
+            "Review what `{}` already holds on `{branch}` — this replaces it. Then push it by hand.",
+            repo.remote
+        ),
+    )
+    .command(format!(
+        "git --git-dir {bare} push {lease} {} {branch}:refs/heads/{branch}",
+        repo.remote
     ))
 }

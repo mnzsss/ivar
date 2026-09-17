@@ -1,6 +1,6 @@
 use std::io;
 
-use camino::{Utf8Path, Utf8PathBuf};
+use camino::Utf8PathBuf;
 use serde::Serialize;
 
 use crate::action::{Ctx, discover_hall};
@@ -14,7 +14,7 @@ use crate::store::feature::run;
 #[derive(Debug, Clone)]
 pub struct AcceptRevisionInput {
     pub feature: String,
-    pub plan: String,
+    pub plan: Option<String>,
 }
 #[derive(Debug, Clone, Serialize)]
 pub struct AcceptRevisionOutcome {
@@ -31,7 +31,7 @@ impl WriteHuman for AcceptRevisionOutcome {
 pub fn accept_revision(ctx: &Ctx, input: AcceptRevisionInput) -> Outcome<AcceptRevisionOutcome> {
     let layout = discover_hall(ctx)?;
     let feature = FeatureName::new(input.feature)?;
-    let plan = ctx.resolve(Utf8Path::new(&input.plan));
+    let plan = super::plan_path(ctx, &layout, &feature, input.plan.as_deref());
     super::import_legacy(&layout, &feature, plan.clone())?;
 
     let approvals = ApprovalState::read(&layout, &feature)?.unwrap_or_else(ApprovalState::fresh);

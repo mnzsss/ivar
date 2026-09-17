@@ -127,3 +127,28 @@ fn is_fully_integrated_is_true_only_for_the_integrated_outcome() {
     write_close(&layout2, &name2, PromotionOutcome::Integrated).unwrap();
     assert!(is_fully_integrated(&layout2, &checkout2).unwrap());
 }
+
+#[test]
+fn write_close_keeps_the_declared_repos_and_unknown_keys() {
+    let (_guard, root) = seeded_hall();
+    let layout = Layout::at(&root);
+    let name = FeatureName::new("checkout").unwrap();
+    let plan_path = layout.plan_dir(&name).join("plan.md");
+    crate::infra::fs::write_text(
+        &plan_path,
+        "---\nrepos:\n- api\n- web\nowner: platform\n---\n# Plan\n",
+    )
+    .unwrap();
+
+    write_close(&layout, &name, PromotionOutcome::Delivered).unwrap();
+
+    let plan = crate::infra::fs::read_text(&plan_path).unwrap().unwrap();
+    let frontmatter = frontmatter::parse::<PlanFrontmatter>(&plan).unwrap();
+    assert_eq!(frontmatter.repos, vec!["api".to_owned(), "web".to_owned()]);
+    assert_eq!(frontmatter.outcome.as_deref(), Some("delivered"));
+    assert_eq!(
+        frontmatter.extra.get("owner"),
+        Some(&serde_json::Value::String("platform".to_owned()))
+    );
+    assert!(plan.ends_with("---\n# Plan\n"));
+}

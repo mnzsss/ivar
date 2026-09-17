@@ -33,7 +33,9 @@ use ivar::action::discovery::close as discovery_close;
 use ivar::action::discovery::create as discovery_create;
 use ivar::action::discovery::list as discovery_list;
 use ivar::action::discovery::show as discovery_show;
-use ivar::action::execute::{accept_revision, finish, interrupt, start, status as execute_status};
+use ivar::action::execute::{
+    accept_revision, checkpoint, finish, interrupt, start, status as execute_status,
+};
 use ivar::action::feature::select::{resolve_multi_features, resolve_single_feature};
 use ivar::action::feature::{
     cleanup, close, create, delete, deliver, demote, integrate, list as feature_list, promote,
@@ -102,6 +104,8 @@ fn main() -> ExitCode {
                 && term::is_tty(term::Stream::Stderr)
                 && term::is_tty(term::Stream::Stdin),
         ));
+
+    let session_id = std::env::var("IVAR_SESSION_ID").ok();
 
     let mut stdout = io::stdout().lock();
     let mut stderr = io::stderr().lock();
@@ -301,26 +305,26 @@ fn main() -> ExitCode {
                         Err(failure) => respond_failure(failure, json, &mut stdout, &mut stderr),
                     }
                 }
+                ExecuteCommand::Finish(args) if args.print_schema => respond(
+                    Ok(Report::new(finish::ReportSchema::current())),
+                    json,
+                    &mut stdout,
+                    &mut stderr,
+                ),
                 ExecuteCommand::Finish(args) => {
-                    match resolve_single_feature(
+                    let input = resolve_single_feature(
                         &ctx,
-                        args.feature,
+                        args.feature.clone(),
                         "Select a feature to finish execution",
-                    ) {
-                        Ok(feature) => respond(
-                            finish::finish(
-                                &ctx,
-                                finish::FinishInput {
-                                    feature,
-                                    plan: args.plan,
-                                    report_json: args.report_json,
-                                    outcome: args.outcome,
-                                },
-                            ),
-                            json,
-                            &mut stdout,
-                            &mut stderr,
-                        ),
+                    )
+                    .and_then(|feature| {
+                        finish::FinishInput::try_from(args)
+                            .map(|input| finish::FinishInput { feature, ..input })
+                    });
+                    match input {
+                        Ok(input) => {
+                            respond(finish::finish(&ctx, input), json, &mut stdout, &mut stderr)
+                        }
                         Err(failure) => respond_failure(failure, json, &mut stdout, &mut stderr),
                     }
                 }
@@ -335,6 +339,7 @@ fn main() -> ExitCode {
                                 &ctx,
                                 execute_status::StatusInput {
                                     feature,
+                                    plan: args.plan,
                                     history: args.history,
                                     run: args.run,
                                 },
@@ -358,6 +363,28 @@ fn main() -> ExitCode {
                                 accept_revision::AcceptRevisionInput {
                                     feature,
                                     plan: args.plan,
+                                },
+                            ),
+                            json,
+                            &mut stdout,
+                            &mut stderr,
+                        ),
+                        Err(failure) => respond_failure(failure, json, &mut stdout, &mut stderr),
+                    }
+                }
+                ExecuteCommand::Checkpoint(args) => {
+                    match resolve_single_feature(
+                        &ctx,
+                        args.feature,
+                        "Select a feature to record a wave checkpoint",
+                    ) {
+                        Ok(feature) => respond(
+                            checkpoint::checkpoint(
+                                &ctx,
+                                checkpoint::CheckpointInput {
+                                    feature,
+                                    wave: args.wave,
+                                    summary: args.summary,
                                 },
                             ),
                             json,
@@ -450,37 +477,35 @@ fn main() -> ExitCode {
                     Err(failure) => respond_failure(failure, json, &mut stdout, &mut stderr),
                 },
             },
-            FeatureCommand::Cleanup(args) => match args.name {
-                Some(feature) => respond(
-                    cleanup::cleanup(
-                        &ctx,
-                        cleanup::CleanupInput {
-                            feature,
-                            preview: args.preview,
-                            record: args.record,
-                        },
+            FeatureCommand::Cleanup(args) => {
+                let input = |feature: String| cleanup::CleanupInput {
+                    feature,
+                    preview: args.preview,
+                    record: args.record.clone(),
+                    session_id: session_id.clone(),
+                };
+                match args.name.clone() {
+                    Some(feature) => respond(
+                        cleanup::cleanup(&ctx, input(feature)),
+                        json,
+                        &mut stdout,
+                        &mut stderr,
                     ),
-                    json,
-                    &mut stdout,
-                    &mut stderr,
-                ),
-                None => match resolve_multi_features(&ctx, None, "Select features to clean up") {
-                    Ok(targets) => {
-                        let items = run_feature_batch(&targets, 4, |f| {
-                            cleanup::cleanup(
-                                &ctx,
-                                cleanup::CleanupInput {
-                                    feature: f.to_owned(),
-                                    preview: args.preview,
-                                    record: args.record.clone(),
-                                },
-                            )
-                        });
-                        respond_batch(items, json, &mut stdout, &mut stderr)
+                    None => {
+                        match resolve_multi_features(&ctx, None, "Select features to clean up") {
+                            Ok(targets) => {
+                                let items = run_feature_batch(&targets, 4, |f| {
+                                    cleanup::cleanup(&ctx, input(f.to_owned()))
+                                });
+                                respond_batch(items, json, &mut stdout, &mut stderr)
+                            }
+                            Err(failure) => {
+                                respond_failure(failure, json, &mut stdout, &mut stderr)
+                            }
+                        }
                     }
-                    Err(failure) => respond_failure(failure, json, &mut stdout, &mut stderr),
-                },
-            },
+                }
+            }
             FeatureCommand::Workspace(args) => {
                 match resolve_single_feature(&ctx, args.feature, "Select a feature for workspace") {
                     Ok(feature) => respond(
@@ -998,12 +1023,13 @@ fn respond_failure(
     ExitCode::from(2)
 }
 
+/// The envelope written when a value cannot be serialized at all — the one
+/// JSON a caller can still parse when nothing else rendered.
+pub(crate) const RENDER_FAILED_JSON: &str = r#"{"ok":false,"kind":"failed","code":"cli.render_failed","what":"could not render JSON output"}"#;
+
 /// The `--json` surface: the value's `Serialize` form, one line, to `w`.
 fn write_json(w: &mut impl io::Write, value: &impl Serialize) -> io::Result<()> {
-    let rendered = serde_json::to_string(value).unwrap_or_else(|_| {
-        r#"{"status":"failed","code":"cli.render_failed","what":"could not render JSON output"}"#
-            .to_owned()
-    });
+    let rendered = serde_json::to_string(value).unwrap_or_else(|_| RENDER_FAILED_JSON.to_owned());
     writeln!(w, "{rendered}")
 }
 

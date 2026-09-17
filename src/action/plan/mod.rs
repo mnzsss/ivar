@@ -17,9 +17,10 @@
 use camino::Utf8PathBuf;
 
 use crate::domain::feature::{ApprovalState, Gate, GateState};
-use crate::domain::name::FeatureName;
+use crate::domain::name::{FeatureName, RepoName};
+use crate::domain::plan::PlanFrontmatter;
 use crate::error::Failure;
-use crate::infra::{fs, hash};
+use crate::infra::{frontmatter, fs, hash};
 use crate::store::layout::Layout;
 
 pub mod approve;
@@ -253,4 +254,20 @@ pub(super) fn effective_plan_gate(
     Ok(reconciled(&stored, layout, feature)?
         .state(Gate::Plan)
         .unwrap_or(GateState::Pending))
+}
+
+/// The repos `plan.md` declares in its `repos:` frontmatter, validated as
+/// names. Empty when the plan is absent or declares none — a legacy plan.
+pub(super) fn plan_declared_repos(
+    layout: &Layout,
+    feature: &FeatureName,
+) -> Result<Vec<RepoName>, Failure> {
+    let Some(source) = fs::read_text(&artifact_path(layout, feature, Gate::Plan))? else {
+        return Ok(Vec::new());
+    };
+    frontmatter::parse::<PlanFrontmatter>(&source)?
+        .repos
+        .into_iter()
+        .map(|name| RepoName::new(name).map_err(Failure::from))
+        .collect()
 }

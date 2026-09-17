@@ -22,25 +22,11 @@
 
 use crate::domain::feature::{ApprovalState, Feature, Gate, GateState, PromotionOutcome};
 use crate::domain::name::FeatureName;
+use crate::domain::plan::PlanFrontmatter;
 use crate::domain::session::rfc3339_now;
 use crate::error::Failure;
 use crate::infra::{frontmatter, fs, hash};
 use crate::store::layout::Layout;
-
-/// The slice of `plan.md`'s frontmatter the close seam reads and writes.
-///
-/// `outcome` and `closed_at` are plain strings here — the frontmatter module's
-/// own test shape — so a `plan.md` closed by any tool (or a hand-written
-/// `outcome: shipped`) still reads back as "already closed" instead of failing
-/// the parse. The validated [`PromotionOutcome`] is what `write_close`
-/// serializes.
-#[derive(Debug, Default, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-struct PlanFrontmatter {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    outcome: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    closed_at: Option<String>,
-}
 
 /// A recorded close: the outcome string exactly as it appears in the
 /// frontmatter, and when it was closed.
@@ -142,10 +128,9 @@ pub(crate) fn write_close(
     let plan_source = fs::read_text(&plan_path)?.unwrap_or_default();
 
     let closed_at = rfc3339_now();
-    let updated = PlanFrontmatter {
-        outcome: Some(outcome.to_string()),
-        closed_at: Some(closed_at.clone()),
-    };
+    let mut updated = frontmatter::parse::<PlanFrontmatter>(&plan_source)?;
+    updated.outcome = Some(outcome.to_string());
+    updated.closed_at = Some(closed_at.clone());
     let rendered = frontmatter::replace(&plan_source, &updated)?;
     fs::ensure_dir(&layout.plan_dir(feature))?;
     fs::write_text(&plan_path, &rendered)?;

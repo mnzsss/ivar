@@ -308,14 +308,14 @@ Start a new run, resume a blocked run, or restart a non-terminal run
 
 | flag | value | default | description |
 | --- | --- | --- | --- |
-| `--plan` | `<PLAN>` |  |  |
+| `--plan` | `<PLAN>` |  | Plan file; defaults to `.ivar/features/<feature>/plan.md` |
 | `--resume` |  |  |  |
 | `--restart` |  |  |  |
 
 
 ###### `ivar feature execute finish`
 
-Record a coordinator's structured completion report
+Record a coordinator's structured completion report (see `--print-schema`)
 
 | argument | required | description |
 | --- | --- | --- |
@@ -323,9 +323,10 @@ Record a coordinator's structured completion report
 
 | flag | value | default | description |
 | --- | --- | --- | --- |
-| `--plan` | `<PLAN>` |  |  |
-| `--report-json` | `<REPORT_JSON>` |  |  |
-| `--outcome` | `<OUTCOME>` |  |  |
+| `--plan` | `<PLAN>` |  | Plan file; defaults to `.ivar/features/<feature>/plan.md` |
+| `--report-json` | `<REPORT_JSON>` |  | Path to the coordinator report JSON. Run with `--print-schema` for its shape |
+| `--outcome` | `<OUTCOME>` |  | How the run ended: succeeded, failed or blocked |
+| `--print-schema` |  |  | Print the coordinator report JSON schema and the accepted `--outcome` values, then exit |
 
 
 ###### `ivar feature execute status`
@@ -338,6 +339,7 @@ Show the current receipt, a receipt by id, or complete history
 
 | flag | value | default | description |
 | --- | --- | --- | --- |
+| `--plan` | `<PLAN>` |  | Plan file; defaults to `.ivar/features/<feature>/plan.md` |
 | `--history` |  |  |  |
 | `--run` | `<RUN>` |  |  |
 
@@ -352,7 +354,21 @@ Accept an approved plan revision for a diverged run
 
 | flag | value | default | description |
 | --- | --- | --- | --- |
-| `--plan` | `<PLAN>` |  |  |
+| `--plan` | `<PLAN>` |  | Plan file; defaults to `.ivar/features/<feature>/plan.md` |
+
+
+###### `ivar feature execute checkpoint`
+
+Record an approved wave on the active run without editing the plan
+
+| argument | required | description |
+| --- | --- | --- |
+| `feature` | no |  |
+
+| flag | value | default | description |
+| --- | --- | --- | --- |
+| `--wave` | `<WAVE>` |  | The 1-based wave number from `plan.md` |
+| `--summary` | `<SUMMARY>` |  | Completed tasks, satisfied exit criteria, and deferred validation failures |
 
 
 ###### `ivar feature execute interrupt`
@@ -376,9 +392,9 @@ Preview, then push, a feature's promoted repos. `--preview` prints the side-effe
 | --- | --- | --- | --- |
 | `--preview` |  |  | Print the delivery preview and push nothing. |
 | `--land` |  |  | Land feature branches into default branches locally (fast-forward only). |
-| `--fingerprint` | `<FINGERPRINT>` |  | The fingerprint from the preview the human approved; required to apply. Apply recomputes the preview and refuses when the fingerprint differs — the state has drifted since the preview. |
-| `--name` | `<TITLE>` |  | Pull request title. If placed before any `--repo`, applies globally; if placed after a `--repo`, applies to that repo. |
-| `--body` | `<BODY>` |  | Pull request body text, or a path to a `.md` / `.txt` file — either `./relative` or absolute. If placed before any `--repo`, applies globally; if placed after a `--repo`, applies to that repo. |
+| `--fingerprint` | `<FINGERPRINT>` |  | The fingerprint from the preview the human approved; required to apply. It covers `--name`, `--body` and `--draft`, so apply with the same values the preview used. Apply recomputes the preview and refuses when the fingerprint differs — the state has drifted since the preview. |
+| `--name` | `<TITLE>` |  | Pull request title. If placed before any `--repo`, applies globally; if placed after a `--repo`, applies to that repo. Part of the delivery fingerprint: pass the same value to the preview and the apply. |
+| `--body` | `<BODY>` |  | Pull request body text, or a path to a `.md` / `.txt` file — either `./relative` or absolute. If placed before any `--repo`, applies globally; if placed after a `--repo`, applies to that repo. Part of the delivery fingerprint: pass the same value to the preview and the apply. |
 | `--repo` | `<REPO>` |  | Scope following `--name`, `--body`, and `--draft` flags to this promoted repository. |
 | `--draft` |  |  | Create or convert a pull request to a draft. If placed before any `--repo`, applies globally to all repos; if placed after a `--repo`, applies only to that repo. Incompatible with `--land`. |
 

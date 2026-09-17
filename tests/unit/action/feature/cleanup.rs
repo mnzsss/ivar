@@ -89,6 +89,7 @@ fn run_preview(root: &Utf8PathBuf) -> CleanupPreview {
             feature: "checkout".to_owned(),
             preview: true,
             record: None,
+            session_id: None,
         },
     )
     .unwrap()
@@ -178,24 +179,10 @@ fn reports_live_session_dirty_and_missing_worktree() {
 }
 
 #[test]
-fn reports_missing_clone_and_unmerged_commits() {
+fn reports_missing_clone() {
     let (_guard, root) = hall_with_feature(&["api"], None);
     let layout = Layout::at(root.clone());
     let repo = RepoName::new("api").unwrap();
-    let worktree = layout.repo_worktree(&repo, &BranchName::new("checkout").unwrap());
-    test_git(
-        &worktree,
-        &["commit", "--allow-empty", "-m", "feature change"],
-    );
-
-    let preview = run_preview(&root);
-    assert!(
-        preview
-            .blockers
-            .iter()
-            .any(|blocker| matches!(blocker, CleanupBlocker::UnmergedCommits { .. }))
-    );
-
     remove_dir_all(layout.repo_bare(&repo)).unwrap();
     let preview = run_preview(&root);
     assert!(
@@ -300,6 +287,7 @@ fn paths_and_fingerprint_are_deterministic_and_fingerprint_changes_with_promoted
             feature: "feat2".to_owned(),
             preview: true,
             record: None,
+            session_id: None,
         },
     )
     .unwrap()
@@ -312,6 +300,7 @@ fn paths_and_fingerprint_are_deterministic_and_fingerprint_changes_with_promoted
             feature: "feat2".to_owned(),
             preview: true,
             record: None,
+            session_id: None,
         },
     )
     .unwrap()
@@ -337,6 +326,7 @@ fn paths_and_fingerprint_are_deterministic_and_fingerprint_changes_with_promoted
             feature: "feat2".to_owned(),
             preview: true,
             record: None,
+            session_id: None,
         },
     )
     .unwrap()
@@ -357,6 +347,7 @@ fn write_human_includes_paths_to_remove_heading_and_list() {
             feature: "checkout".to_owned(),
             preview: true,
             record: None,
+            session_id: None,
         },
     )
     .unwrap()
@@ -413,6 +404,7 @@ fn record_pointing_outside_docs_updates_refused() {
             feature: "checkout".to_owned(),
             preview: false,
             record: Some(Utf8PathBuf::from("docs/product/001-checkout.cleanup.json")),
+            session_id: None,
         },
     )
     .unwrap_err();
@@ -476,6 +468,7 @@ fn fully_valid_record_executes_teardown_removes_local_branches_and_writes_outcom
             feature: "checkout".to_owned(),
             preview: false,
             record: Some(record_rel_path.clone()),
+            session_id: None,
         },
     )
     .unwrap();
@@ -510,6 +503,7 @@ fn fully_valid_record_executes_teardown_removes_local_branches_and_writes_outcom
             feature: "checkout".to_owned(),
             preview: false,
             record: Some(record_rel_path),
+            session_id: None,
         },
     )
     .unwrap_err();
@@ -559,6 +553,7 @@ fn apply_cleanup_reports_branch_deletion_in_apply_outcome() {
             feature: "checkout".to_owned(),
             preview: false,
             record: Some(record_rel_path),
+            session_id: None,
         },
     )
     .unwrap();
@@ -619,6 +614,7 @@ fn apply_cleanup_preserves_remote_refs() {
             feature: "checkout".to_owned(),
             preview: false,
             record: Some(record_rel_path),
+            session_id: None,
         },
     )
     .unwrap();
@@ -663,11 +659,18 @@ fn record_fingerprint_mismatch_refused() {
             feature: "checkout".to_owned(),
             preview: false,
             record: Some(Utf8PathBuf::from("docs/updates/001-checkout.cleanup.json")),
+            session_id: None,
         },
     )
     .unwrap_err();
 
     assert_eq!(err.code, "feature.cleanup_fingerprint_mismatch");
+    assert!(
+        !err.fix_actions
+            .iter()
+            .any(|fix| fix.code == "feature.cleanup_forge_moved"),
+        "a feature local git can judge must not blame the forge: {err:?}"
+    );
 }
 
 #[test]
@@ -709,6 +712,7 @@ fn record_unapproved_delivery_or_teardown_refused() {
             feature: "checkout".to_owned(),
             preview: false,
             record: Some(Utf8PathBuf::from("docs/updates/001-checkout.cleanup.json")),
+            session_id: None,
         },
     )
     .unwrap_err();
@@ -742,6 +746,7 @@ fn record_unapproved_delivery_or_teardown_refused() {
             feature: "checkout".to_owned(),
             preview: false,
             record: Some(Utf8PathBuf::from("docs/updates/001-checkout.cleanup.json")),
+            session_id: None,
         },
     )
     .unwrap_err();
@@ -788,9 +793,181 @@ fn record_feature_mismatch_refused() {
             feature: "checkout".to_owned(),
             preview: false,
             record: Some(Utf8PathBuf::from("docs/updates/001-checkout.cleanup.json")),
+            session_id: None,
         },
     )
     .unwrap_err();
 
     assert_eq!(err.code, "feature.cleanup_record_feature_mismatch");
+}
+
+fn preview_from_session(root: &Utf8PathBuf, session: &SessionId) -> CleanupPreview {
+    cleanup(
+        &Ctx::new(root.clone()),
+        CleanupInput {
+            feature: "checkout".to_owned(),
+            preview: true,
+            record: None,
+            session_id: Some(session.as_str().to_owned()),
+        },
+    )
+    .unwrap()
+    .value
+    .preview
+}
+
+#[test]
+fn preview_does_not_block_on_the_session_running_cleanup() {
+    let (_guard, root) = hall_with_feature(&["api"], None);
+    let layout = Layout::at(root.clone());
+    let feature = FeatureName::new("checkout").unwrap();
+    let own = SessionId::new("2c6e6f1e-2d8a-4b3a-9c2a-6a7f6f9a1b2c").unwrap();
+    fs::ensure_dir(&layout.feature_session(&feature, &own)).unwrap();
+
+    let preview = preview_from_session(&root, &own);
+
+    assert!(
+        !preview
+            .blockers
+            .iter()
+            .any(|blocker| matches!(blocker, CleanupBlocker::LiveSessions { .. })),
+        "own session must not block: {:?}",
+        preview.blockers
+    );
+}
+
+#[test]
+fn preview_still_blocks_on_other_live_sessions() {
+    let (_guard, root) = hall_with_feature(&["api"], None);
+    let layout = Layout::at(root.clone());
+    let feature = FeatureName::new("checkout").unwrap();
+    let own = SessionId::new("2c6e6f1e-2d8a-4b3a-9c2a-6a7f6f9a1b2c").unwrap();
+    let other = SessionId::new("7d1f0a2b-3c4d-4e5f-8a9b-0c1d2e3f4a5b").unwrap();
+    fs::ensure_dir(&layout.feature_session(&feature, &own)).unwrap();
+    fs::ensure_dir(&layout.feature_session(&feature, &other)).unwrap();
+
+    let preview = preview_from_session(&root, &own);
+
+    assert!(
+        preview.blockers.contains(&CleanupBlocker::LiveSessions {
+            sessions: vec![other],
+        }),
+        "only the other session blocks: {:?}",
+        preview.blockers
+    );
+}
+
+fn pull_request(state: &str, head_oid: Option<&str>) -> PullRequest {
+    PullRequest {
+        url: "https://example.test/pr/7".to_owned(),
+        number: 7,
+        state: state.to_owned(),
+        head_oid: head_oid.map(str::to_owned),
+        merge_commit: None,
+        is_draft: false,
+    }
+}
+
+#[test]
+fn a_merged_pull_request_for_the_local_head_is_read_as_delivered() {
+    let answer = read_forge_answer(&[pull_request("MERGED", Some("abc"))], "abc");
+
+    assert_eq!(answer, ForgeDelivery::Merged);
+}
+
+#[test]
+fn a_merged_pull_request_for_another_head_is_read_as_a_different_merge() {
+    let answer = read_forge_answer(&[pull_request("MERGED", Some("other"))], "abc");
+
+    assert_eq!(answer, ForgeDelivery::MergedOtherHead { number: 7 });
+}
+
+#[test]
+fn an_open_pull_request_is_read_as_not_merged() {
+    let answer = read_forge_answer(&[pull_request("OPEN", Some("abc"))], "abc");
+
+    assert_eq!(
+        answer,
+        ForgeDelivery::NotMerged {
+            number: 7,
+            state: "OPEN".to_owned(),
+        }
+    );
+}
+
+#[test]
+fn an_empty_pull_request_list_is_read_as_no_pull_request() {
+    assert_eq!(read_forge_answer(&[], "abc"), ForgeDelivery::NoPullRequest);
+}
+
+#[test]
+fn the_merged_pull_request_for_the_local_head_wins_over_an_earlier_record() {
+    let answer = read_forge_answer(
+        &[
+            pull_request("CLOSED", Some("other")),
+            pull_request("MERGED", Some("abc")),
+        ],
+        "abc",
+    );
+
+    assert_eq!(answer, ForgeDelivery::Merged);
+}
+
+#[test]
+fn a_repo_with_nothing_ahead_never_asks_the_forge() {
+    let (_guard, root) = hall_with_feature(&["api"], None);
+    let layout = Layout::at(root.clone());
+    let manifest = read_manifest(&layout).unwrap();
+    let feature = Feature::read(&layout, &FeatureName::new("checkout").unwrap())
+        .unwrap()
+        .unwrap();
+
+    let previewed = preview_cleanup(&git::System, &layout, &manifest, &feature, None).unwrap();
+
+    assert!(previewed.preview.repos[0].is_delivered);
+    assert!(
+        !previewed.forge_consulted,
+        "local git proved delivery, so no forge answer may be recorded"
+    );
+}
+
+#[test]
+fn forge_answer_text_does_not_move_the_cleanup_fingerprint() {
+    let feature = FeatureName::new("checkout").unwrap();
+    let branch = BranchName::new("checkout").unwrap();
+    let fingerprint_with = |forge: ForgeDelivery| {
+        let facts = CleanupFacts {
+            repos: vec![CleanupRepoFacts {
+                repo: RepoName::new("api").unwrap(),
+                effective_base: Some(BranchName::new("main").unwrap()),
+                feature_head: Some("abc".to_owned()),
+                base_head: Some("def".to_owned()),
+                local_branch_exists: true,
+                worktree_exists: true,
+                clone_exists: true,
+                dirty_worktree: Some(false),
+                unmerged_commits: Some(1),
+                in_manifest: true,
+                inspection_error: None,
+                forge_delivery: Some(forge),
+            }],
+            live_sessions: Vec::new(),
+            descendants: Vec::new(),
+            session_inspection_error: None,
+        };
+        let blockers = classify_cleanup(&facts).blockers;
+        let repos: Vec<_> = facts.repos.iter().filter_map(cleanup_repo).collect();
+        let fingerprint = fingerprint_for(&feature, &branch, &repos, &blockers, &[]).unwrap();
+        (blockers, fingerprint)
+    };
+
+    let (first_blockers, first) = fingerprint_with(ForgeDelivery::Unavailable {
+        reason: "gh: request timed out after 30s".to_owned(),
+    });
+    let (second_blockers, second) = fingerprint_with(ForgeDelivery::Unavailable {
+        reason: "gh: connection reset".to_owned(),
+    });
+
+    assert_ne!(first_blockers, second_blockers);
+    assert_eq!(first, second);
 }

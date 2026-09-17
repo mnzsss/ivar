@@ -248,3 +248,20 @@ fn draft_with_land_is_rejected() {
         .failure()
         .code(2);
 }
+
+#[test]
+fn deliver_help_states_name_and_body_are_fingerprinted() {
+    let output = crate::common::ivar()
+        .args(["feature", "deliver", "--help"])
+        .output()
+        .expect("help runs");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    for flag in ["name", "body", "fingerprint"] {
+        let section = find_flag_help(&stdout, flag);
+        assert!(
+            section.contains("fingerprint"),
+            "--{flag} help must say it is part of the fingerprint: {section}"
+        );
+    }
+}

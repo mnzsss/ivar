@@ -1285,3 +1285,73 @@ fn an_unknown_outcome_lists_the_ones_that_exist() {
     assert_eq!(failure.code, "execute.unknown_outcome");
     assert!(failure.what.contains("succeeded"));
 }
+
+#[test]
+fn a_wave_checkpoint_records_progress_without_moving_the_plan() {
+    let mut receipt = started();
+
+    receipt
+        .checkpoint_wave(
+            1,
+            "wave 1 approved",
+            session("01"),
+            Provider::ClaudeCode,
+            "T1",
+        )
+        .unwrap();
+
+    assert_eq!(receipt.status, RunStatus::Active);
+    assert_eq!(receipt.plan_fingerprint, "plan-fp-1");
+    assert_eq!(receipt.updated_at, "T1");
+    let checkpoint = receipt.checkpoints.last().unwrap();
+    assert_eq!(checkpoint.kind, CheckpointKind::Wave);
+    assert_eq!(checkpoint.status, RunStatus::Active);
+    assert_eq!(checkpoint.plan_fingerprint_from, None);
+    assert_eq!(checkpoint.plan_fingerprint_to, None);
+    assert_eq!(
+        checkpoint.wave,
+        Some(WaveProgress {
+            number: 1,
+            summary: "wave 1 approved".to_owned(),
+        })
+    );
+}
+
+#[test]
+fn a_wave_checkpoint_is_refused_unless_the_run_is_active() {
+    let mut receipt = started();
+    receipt
+        .block(report(), diff(), session("01"), Provider::ClaudeCode, "T1")
+        .unwrap();
+
+    let error = receipt
+        .checkpoint_wave(1, "too late", session("01"), Provider::ClaudeCode, "T2")
+        .unwrap_err();
+
+    assert_eq!(
+        error,
+        RunTransition::WrongState {
+            status: RunStatus::Blocked,
+            operation: "checkpoint",
+        }
+    );
+}
+
+#[test]
+fn a_wave_checkpoint_round_trips_through_json() {
+    let mut receipt = started();
+    receipt
+        .checkpoint_wave(
+            2,
+            "deferred: clippy",
+            session("01"),
+            Provider::ClaudeCode,
+            "T1",
+        )
+        .unwrap();
+
+    let json = serde_json::to_string(&receipt).unwrap();
+    assert!(json.contains(r#""kind":"wave""#));
+    let back: RunReceipt = serde_json::from_str(&json).unwrap();
+    assert_eq!(back, receipt);
+}

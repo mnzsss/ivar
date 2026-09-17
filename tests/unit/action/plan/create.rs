@@ -259,3 +259,8 @@ fn plan_template_includes_lightweight_validation_and_deferred_failures() {
     assert!(template.contains("#### Lightweight validation"));
     assert!(template.contains("#### Deferred validation failures"));
 }
+
+#[test]
+fn the_plan_scaffold_declares_an_empty_repos_list() {
+    assert!(template_for(Artifact::Plan).starts_with("---\nrepos: []\n---\n# Plan\n"));
+}

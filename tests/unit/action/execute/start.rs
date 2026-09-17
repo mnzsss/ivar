@@ -106,7 +106,7 @@ fn execute_start_pins_normalized_plan_fingerprint() {
         &ctx,
         execute_start::StartInput {
             feature: feature.to_string(),
-            plan: plan.to_string(),
+            plan: Some(plan.to_string()),
             resume: false,
             restart: false,
         },
@@ -119,7 +119,7 @@ fn execute_start_pins_normalized_plan_fingerprint() {
         &ctx,
         FinishInput {
             feature: feature.to_string(),
-            plan: plan.to_string(),
+            plan: Some(plan.to_string()),
             report_json: report.to_string(),
             outcome: "succeeded".to_owned(),
         },
@@ -145,7 +145,7 @@ fn execute_restart_accepts_an_approved_plan_with_recorded_progress() {
     write_feature_session(&layout, &feature);
     let start_input = |restart| execute_start::StartInput {
         feature: feature.to_string(),
-        plan: plan.to_string(),
+        plan: Some(plan.to_string()),
         resume: false,
         restart,
     };
@@ -159,4 +159,29 @@ fn execute_restart_accepts_an_approved_plan_with_recorded_progress() {
 
     execute_start::start(&ctx, start_input(true))
         .expect("recorded wave progress must not revoke the plan approval");
+}
+
+#[test]
+fn execute_start_without_plan_uses_the_feature_plan() {
+    let (_guard, root) = seeded_execution_hall();
+    let ctx = Ctx::new(root.clone());
+    let layout = discover_hall(&ctx).unwrap();
+    let feature = FeatureName::new("child-feature").unwrap();
+    let plan = layout.plan_dir(&feature).join("plan.md");
+    fs::write_text(&plan, "# Plan\n\n- [ ] Execute task\n").unwrap();
+    approve_plan(&ctx);
+    write_feature_session(&layout, &feature);
+
+    let outcome = execute_start::start(
+        &ctx,
+        execute_start::StartInput {
+            feature: feature.to_string(),
+            plan: None,
+            resume: false,
+            restart: false,
+        },
+    )
+    .expect("an omitted --plan must resolve to the feature's plan.md");
+
+    assert_eq!(outcome.value.receipt.plan_path, plan);
 }

@@ -2,6 +2,7 @@
 //! gate check, and the refusals when a preview (or an approved plan) is
 //! missing.
 
+use super::input::{DeliverInput, PullRequestMetadata};
 use crate::domain::feature::{
     DeliveryMode, DeliveryPreview, DeliveryRepo, DeliveryTreeBlocker, GateState,
 };
@@ -9,6 +10,53 @@ use crate::domain::name::FeatureName;
 use crate::error::{Failure, FixAction};
 use crate::infra::{hash, json};
 use crate::store::layout::Layout;
+
+pub(crate) fn apply_command(input: &DeliverInput, fingerprint: &str) -> String {
+    let mut words = vec![
+        "ivar".to_owned(),
+        "feature".to_owned(),
+        "deliver".to_owned(),
+        shell_word(&input.feature),
+    ];
+    if input.land {
+        words.push("--land".to_owned());
+    }
+    words.push("--fingerprint".to_owned());
+    words.push(shell_word(fingerprint));
+    push_metadata(&mut words, &input.global_metadata);
+    for scoped in &input.repo_overrides {
+        words.push("--repo".to_owned());
+        words.push(shell_word(&scoped.repo));
+        push_metadata(&mut words, &scoped.metadata);
+    }
+    words.join(" ")
+}
+
+fn push_metadata(words: &mut Vec<String>, metadata: &PullRequestMetadata) {
+    if let Some(title) = &metadata.title {
+        words.push("--name".to_owned());
+        words.push(shell_word(title));
+    }
+    if let Some(body) = &metadata.body {
+        words.push("--body".to_owned());
+        words.push(shell_word(body));
+    }
+    if metadata.draft == Some(true) {
+        words.push("--draft".to_owned());
+    }
+}
+
+fn shell_word(value: &str) -> String {
+    let plain = !value.is_empty()
+        && value
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "-_./:=@,+".contains(c));
+    if plain {
+        value.to_owned()
+    } else {
+        format!("'{}'", value.replace('\'', r"'\''"))
+    }
+}
 
 pub(crate) fn fingerprint_for(
     feature: &FeatureName,

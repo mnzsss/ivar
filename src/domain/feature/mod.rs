@@ -51,7 +51,7 @@ pub use cleanup::{
     BranchDeletion, CLEANUP_RECORD_SCHEMA_VERSION, CleanupApplyOutcome, CleanupApprovals,
     CleanupBlocker, CleanupFacts, CleanupPreview, CleanupRecord, CleanupRepo, CleanupRepoFacts,
     CleanupVerdict, DeliveryApproval, DeliveryBlocker, DeliveryFacts, DeliveryRepoFacts,
-    DeliveryVerdict, DocumentationApproval, DocumentationDecision, TeardownApproval,
+    DeliveryVerdict, DocumentationApproval, DocumentationDecision, ForgeDelivery, TeardownApproval,
     WorktreeRemoval, classify_cleanup, classify_delivery,
 };
 pub use delivery::{
@@ -72,5 +72,5 @@ pub use run::{
     InvalidRunId, LegacyEvidence, LegacyJournalEntry, LegacyWorkstream, PathChange, PathEvidence,
     PathState, RUN_CURRENT_VERSION, RepoBaseline, RepoDiff, RunBaseline, RunCheckpoint, RunDiff,
     RunId, RunOutcome, RunProvenance, RunReceipt, RunStatus, RunTransition, TaskResult, TaskStatus,
-    UnknownRunOutcome, VerificationCheck, classify_change,
+    UnknownRunOutcome, VerificationCheck, WaveProgress, classify_change,
 };

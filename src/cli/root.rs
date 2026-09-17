@@ -14,8 +14,8 @@ use crate::action::discovery::create as discovery_create;
 use crate::action::discovery::show as discovery_show;
 use crate::action::execute::{accept_revision, finish, start, status as execute_status};
 use crate::action::feature::{
-    cleanup, close, create, delete, deliver, demote, integrate, promote, rebase, rename, reparent,
-    status, view, workspace,
+    close, create, delete, deliver, demote, integrate, promote, rebase, rename, reparent, status,
+    view, workspace,
 };
 use crate::action::hall::InitInput;
 use crate::action::mcp::auth as mcp_auth;
@@ -487,12 +487,14 @@ pub struct FeatureStatusArgs {
 pub enum ExecuteCommand {
     /// Start a new run, resume a blocked run, or restart a non-terminal run.
     Start(ExecuteStartArgs),
-    /// Record a coordinator's structured completion report.
+    /// Record a coordinator's structured completion report (see `--print-schema`).
     Finish(ExecuteFinishArgs),
     /// Show the current receipt, a receipt by id, or complete history.
     Status(ExecuteStatusArgs),
     /// Accept an approved plan revision for a diverged run.
     AcceptRevision(ExecuteAcceptRevisionArgs),
+    /// Record an approved wave on the active run without editing the plan.
+    Checkpoint(ExecuteCheckpointArgs),
     /// Abandon an active or blocked run, transitioning it to interrupted.
     Interrupt(ExecuteInterruptArgs),
 }
@@ -501,8 +503,9 @@ pub enum ExecuteCommand {
 #[derive(Debug, Args)]
 pub struct ExecuteStartArgs {
     pub feature: Option<String>,
+    /// Plan file; defaults to `.ivar/features/<feature>/plan.md`.
     #[arg(long)]
-    pub plan: String,
+    pub plan: Option<String>,
     #[arg(long, conflicts_with = "restart")]
     pub resume: bool,
     #[arg(long, conflicts_with = "resume")]
@@ -513,18 +516,27 @@ pub struct ExecuteStartArgs {
 #[derive(Debug, Args)]
 pub struct ExecuteFinishArgs {
     pub feature: Option<String>,
+    /// Plan file; defaults to `.ivar/features/<feature>/plan.md`.
     #[arg(long)]
-    pub plan: String,
-    #[arg(long)]
-    pub report_json: String,
-    #[arg(long)]
-    pub outcome: String,
+    pub plan: Option<String>,
+    /// Path to the coordinator report JSON. Run with `--print-schema` for its shape.
+    #[arg(long, required_unless_present = "print_schema")]
+    pub report_json: Option<String>,
+    /// How the run ended: succeeded, failed or blocked.
+    #[arg(long, required_unless_present = "print_schema")]
+    pub outcome: Option<String>,
+    /// Print the coordinator report JSON schema and the accepted `--outcome` values, then exit.
+    #[arg(long, conflicts_with_all = ["report_json", "outcome"])]
+    pub print_schema: bool,
 }
 
 /// Arguments for `ivar feature execute status`.
 #[derive(Debug, Args)]
 pub struct ExecuteStatusArgs {
     pub feature: Option<String>,
+    /// Plan file; defaults to `.ivar/features/<feature>/plan.md`.
+    #[arg(long)]
+    pub plan: Option<String>,
     #[arg(long, conflicts_with = "run")]
     pub history: bool,
     #[arg(long, conflicts_with = "history")]
@@ -535,8 +547,21 @@ pub struct ExecuteStatusArgs {
 #[derive(Debug, Args)]
 pub struct ExecuteAcceptRevisionArgs {
     pub feature: Option<String>,
+    /// Plan file; defaults to `.ivar/features/<feature>/plan.md`.
     #[arg(long)]
-    pub plan: String,
+    pub plan: Option<String>,
+}
+
+/// Arguments for `ivar feature execute checkpoint`.
+#[derive(Debug, Args)]
+pub struct ExecuteCheckpointArgs {
+    pub feature: Option<String>,
+    /// The 1-based wave number from `plan.md`.
+    #[arg(long, value_parser = clap::value_parser!(u32).range(1..))]
+    pub wave: u32,
+    /// Completed tasks, satisfied exit criteria, and deferred validation failures.
+    #[arg(long)]
+    pub summary: String,
 }
 
 /// Arguments for `ivar feature execute interrupt`.
@@ -584,20 +609,20 @@ impl clap::Args for FeatureDeliverArgs {
         .arg(
             clap::Arg::new("fingerprint")
                 .long("fingerprint")
-                .help("The fingerprint from the preview the human approved; required to apply. Apply recomputes the preview and refuses when the fingerprint differs — the state has drifted since the preview.")
+                .help("The fingerprint from the preview the human approved; required to apply. It covers `--name`, `--body` and `--draft`, so apply with the same values the preview used. Apply recomputes the preview and refuses when the fingerprint differs — the state has drifted since the preview.")
                 .value_name("FINGERPRINT"),
         )
         .arg(
             clap::Arg::new("name")
                 .long("name")
-                .help("Pull request title. If placed before any `--repo`, applies globally; if placed after a `--repo`, applies to that repo.")
+                .help("Pull request title. If placed before any `--repo`, applies globally; if placed after a `--repo`, applies to that repo. Part of the delivery fingerprint: pass the same value to the preview and the apply.")
                 .value_name("TITLE")
                 .action(clap::ArgAction::Append),
         )
         .arg(
             clap::Arg::new("body")
                 .long("body")
-                .help("Pull request body text, or a path to a `.md` / `.txt` file — either `./relative` or absolute. If placed before any `--repo`, applies globally; if placed after a `--repo`, applies to that repo.")
+                .help("Pull request body text, or a path to a `.md` / `.txt` file — either `./relative` or absolute. If placed before any `--repo`, applies globally; if placed after a `--repo`, applies to that repo. Part of the delivery fingerprint: pass the same value to the preview and the apply.")
                 .value_name("BODY")
                 .action(clap::ArgAction::Append),
         )
@@ -1448,20 +1473,33 @@ impl From<ExecuteStartArgs> for start::StartInput {
     }
 }
 
-impl From<ExecuteFinishArgs> for finish::FinishInput {
-    fn from(args: ExecuteFinishArgs) -> Self {
+/// `--report-json` and `--outcome` are optional to clap only so that
+/// `--print-schema` can stand alone; every other invocation carries both.
+/// Converting refuses rather than substituting empty strings, so a clap
+/// surface that stops enforcing that says so instead of failing downstream.
+impl TryFrom<ExecuteFinishArgs> for finish::FinishInput {
+    type Error = Failure;
+
+    fn try_from(args: ExecuteFinishArgs) -> Result<Self, Failure> {
         let ExecuteFinishArgs {
             feature,
             plan,
             report_json,
             outcome,
+            print_schema: _,
         } = args;
-        Self {
+        let (Some(report_json), Some(outcome)) = (report_json, outcome) else {
+            return Err(Failure::blocked(
+                "execute.finish_arguments_required",
+                "`ivar feature execute finish` needs both `--report-json` and `--outcome`",
+            ));
+        };
+        Ok(Self {
             feature: feature.unwrap_or_default(),
             plan,
             report_json,
             outcome,
-        }
+        })
     }
 }
 
@@ -1469,11 +1507,13 @@ impl From<ExecuteStatusArgs> for execute_status::StatusInput {
     fn from(args: ExecuteStatusArgs) -> Self {
         let ExecuteStatusArgs {
             feature,
+            plan,
             history,
             run,
         } = args;
         Self {
             feature: feature.unwrap_or_default(),
+            plan,
             history,
             run,
         }
@@ -1651,21 +1691,6 @@ impl From<FeatureDeleteArgs> for delete::DeleteInput {
         let FeatureDeleteArgs { name } = args;
         Self {
             name: name.unwrap_or_default(),
-        }
-    }
-}
-
-impl From<FeatureCleanupArgs> for cleanup::CleanupInput {
-    fn from(args: FeatureCleanupArgs) -> Self {
-        let FeatureCleanupArgs {
-            name,
-            preview,
-            record,
-        } = args;
-        Self {
-            feature: name.unwrap_or_default(),
-            preview,
-            record,
         }
     }
 }

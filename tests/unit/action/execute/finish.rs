@@ -101,7 +101,7 @@ fn execute_finish_succeeds_without_live_session_view_dir() {
         &ctx,
         FinishInput {
             feature: feature.to_string(),
-            plan: plan_path.to_string(),
+            plan: Some(plan_path.to_string()),
             report_json: report_path.to_string(),
             outcome: "succeeded".to_owned(),
         },
@@ -161,7 +161,7 @@ fn execute_finish_tolerates_checked_boxes_without_plan_diverged() {
         &ctx,
         FinishInput {
             feature: feature.to_string(),
-            plan: plan_path.to_string(),
+            plan: Some(plan_path.to_string()),
             report_json: report_path.to_string(),
             outcome: "succeeded".to_owned(),
         },
@@ -214,7 +214,7 @@ fn execute_finish_detects_semantic_plan_divergence() {
         &ctx,
         FinishInput {
             feature: feature.to_string(),
-            plan: plan_path.to_string(),
+            plan: Some(plan_path.to_string()),
             report_json: report_path.to_string(),
             outcome: "succeeded".to_owned(),
         },
@@ -222,4 +222,34 @@ fn execute_finish_detects_semantic_plan_divergence() {
     .expect_err("finish should fail when plan text changed");
 
     assert_eq!(err.code, "execute.plan_diverged");
+}
+
+#[test]
+fn report_schema_describes_the_report_and_lists_every_outcome() {
+    let schema = serde_json::to_value(ReportSchema::current()).unwrap();
+
+    assert_eq!(
+        schema["outcomes"],
+        serde_json::json!(["succeeded", "failed", "blocked"])
+    );
+    let report = &schema["report"];
+    for field in [
+        "summary",
+        "tasks",
+        "verification",
+        "agents",
+        "deviations",
+        "blockers",
+        "follow_ups",
+    ] {
+        assert!(
+            report["properties"].get(field).is_some(),
+            "schema is missing `{field}`: {report}"
+        );
+    }
+    assert_eq!(
+        report["required"],
+        serde_json::json!(["summary", "tasks", "verification"])
+    );
+    assert_eq!(report["additionalProperties"], false);
 }

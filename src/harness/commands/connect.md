@@ -37,6 +37,11 @@ refuses.
    Do not execute any export statements: the agent session environment is
    already injected, and `ivar session env` resolves it.
 
+   When the JSON carries `promoted`, those repos were just promoted because
+   the approved plan lists them in `repos:`. A `connect.promote_failed` or
+   `connect.no_repos_declared` warning names the `ivar feature promote`
+   command to run; run it before editing that repo.
+
 3. Work inside `IVAR_SESSION_PATH` from here on.
 
    > **IMPORTANT FOR AI AGENTS:** your bash tool does NOT persist `cd` across

@@ -157,6 +157,7 @@ fn land_preview_names_the_target_and_the_mode() {
             tree_blockers: Vec::new(),
             fingerprint: "abc123".to_owned(),
         },
+        apply_command: None,
         pushes: Vec::new(),
         land: Vec::new(),
         checks: Vec::new(),

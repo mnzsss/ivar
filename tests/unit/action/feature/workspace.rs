@@ -425,5 +425,5 @@ fn the_json_surface_does_not_carry_the_open_attempt() {
         .collect();
     keys.sort_unstable();
 
-    assert_eq!(keys, ["feature", "folders", "path", "root"]);
+    assert_eq!(keys, ["feature", "folders", "ok", "path", "root"]);
 }

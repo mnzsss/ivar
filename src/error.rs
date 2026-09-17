@@ -38,6 +38,7 @@ use std::fmt;
 use std::io;
 
 use serde::Serialize;
+use serde::ser::Serializer;
 
 /// Which roles the human surface paints, and whether it paints at all.
 ///
@@ -199,6 +200,10 @@ impl FixAction {
 /// The one shape every reported failure takes.
 #[derive(Debug, Clone, Serialize)]
 pub struct Failure {
+    /// Always `false` — the JSON surface's success flag.
+    ok: bool,
+    /// Drives the exit code and the human label; `"kind"` on the JSON surface.
+    #[serde(rename(serialize = "kind"))]
     pub status: Status,
     /// Stable, machine-matchable identifier, e.g. `hall.already_initialised`.
     pub code: &'static str,
@@ -233,6 +238,7 @@ impl Failure {
 
     fn new(status: Status, code: &'static str, what: impl Into<String>) -> Self {
         Self {
+            ok: false,
             status,
             code,
             what: what.into(),
@@ -380,12 +386,47 @@ impl fmt::Display for Warning {
 
 /// What a verb that crosses the hall returns: the value, plus what needs
 /// attention.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone)]
 pub struct Report<T> {
-    #[serde(flatten)]
+    /// Always `true` — the JSON surface's success flag.
+    ok: bool,
     pub value: T,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub warnings: Vec<Warning>,
+}
+
+/// The envelope's own key, which no outcome type may also serialize.
+const ENVELOPE_FLAG: &str = "ok";
+
+/// The envelope as it renders: the flag, the outcome's own fields inlined, and
+/// the warnings when there are any.
+#[derive(Serialize)]
+struct Envelope<'a, T> {
+    ok: bool,
+    #[serde(flatten)]
+    value: &'a T,
+    #[serde(skip_serializing_if = "<[Warning]>::is_empty")]
+    warnings: &'a [Warning],
+}
+
+/// The value's fields are inlined beside `ok`. A silent collision on `ok`
+/// would flip a success into a failure for any reader that takes the last
+/// duplicate key, so an outcome carrying one is refused rather than rendered.
+impl<T: Serialize> Serialize for Report<T> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let probe = serde_json::to_value(&self.value).map_err(serde::ser::Error::custom)?;
+        if matches!(&probe, serde_json::Value::Object(fields) if fields.contains_key(ENVELOPE_FLAG))
+        {
+            return Err(serde::ser::Error::custom(
+                "an outcome type must not serialize an `ok` key: it collides with the report envelope's success flag",
+            ));
+        }
+        Envelope {
+            ok: self.ok,
+            value: &self.value,
+            warnings: &self.warnings,
+        }
+        .serialize(serializer)
+    }
 }
 
 impl<T> Report<T> {
@@ -393,6 +434,7 @@ impl<T> Report<T> {
     #[must_use]
     pub fn new(value: T) -> Self {
         Self {
+            ok: true,
             value,
             warnings: Vec::new(),
         }
@@ -401,7 +443,11 @@ impl<T> Report<T> {
     /// A run where some items needed attention.
     #[must_use]
     pub fn with_warnings(value: T, warnings: Vec<Warning>) -> Self {
-        Self { value, warnings }
+        Self {
+            ok: true,
+            value,
+            warnings,
+        }
     }
 
     /// Append one warning.
@@ -419,6 +465,7 @@ impl<T> Report<T> {
     #[must_use]
     pub fn map<U>(self, f: impl FnOnce(T) -> U) -> Report<U> {
         Report {
+            ok: true,
             value: f(self.value),
             warnings: self.warnings,
         }

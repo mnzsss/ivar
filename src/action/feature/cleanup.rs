@@ -2,7 +2,7 @@
 
 use std::io;
 
-use camino::Utf8PathBuf;
+use camino::{Utf8Path, Utf8PathBuf};
 use serde::Serialize;
 
 use crate::action::Ctx;
@@ -10,7 +10,8 @@ use crate::action::feature::delete;
 use crate::action::session::lookup as session_lookup;
 use crate::domain::feature::{
     BranchDeletion, CleanupApplyOutcome, CleanupBlocker, CleanupFacts, CleanupPreview,
-    CleanupRecord, CleanupRepo, CleanupRepoFacts, Feature, WorktreeRemoval, classify_cleanup,
+    CleanupRecord, CleanupRepo, CleanupRepoFacts, Feature, ForgeDelivery, WorktreeRemoval,
+    classify_cleanup,
 };
 use crate::domain::name::{FeatureName, RepoName};
 use crate::error::{Failure, FixAction, Outcome, Report, Warning, WriteHuman};
@@ -18,6 +19,7 @@ use crate::git::{self, Git, TargetState};
 use crate::infra::{fs, hash, json};
 
 use super::super::{discover_hall, read_manifest};
+use super::pull_requests::{self, PullRequest};
 use super::{base, relations};
 
 #[derive(Debug, Clone)]
@@ -25,6 +27,8 @@ pub struct CleanupInput {
     pub feature: String,
     pub preview: bool,
     pub record: Option<Utf8PathBuf>,
+    /// The session running cleanup (`$IVAR_SESSION_ID`); never counted as a live-session blocker.
+    pub session_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -96,7 +100,12 @@ pub fn cleanup(ctx: &Ctx, input: CleanupInput) -> Outcome<CleanupOutcome> {
             ));
         };
 
-        return apply_cleanup(ctx, &input.feature, record_path);
+        return apply_cleanup(
+            ctx,
+            &input.feature,
+            record_path,
+            input.session_id.as_deref(),
+        );
     }
 
     let layout = discover_hall(ctx)?;
@@ -109,11 +118,17 @@ pub fn cleanup(ctx: &Ctx, input: CleanupInput) -> Outcome<CleanupOutcome> {
         )
     })?;
     let git = git::System;
-    let preview = preview_for(&git, &layout, &manifest, &feature)?;
+    let previewed = preview_cleanup(
+        &git,
+        &layout,
+        &manifest,
+        &feature,
+        input.session_id.as_deref(),
+    )?;
 
     Ok(Report::new(CleanupOutcome {
         root: layout.root().to_path_buf(),
-        preview,
+        preview: previewed.preview,
         apply_outcome: None,
     }))
 }
@@ -121,7 +136,8 @@ pub fn cleanup(ctx: &Ctx, input: CleanupInput) -> Outcome<CleanupOutcome> {
 fn apply_cleanup(
     ctx: &Ctx,
     feature_arg: &str,
-    record_path: &camino::Utf8Path,
+    record_path: &Utf8Path,
+    own_session: Option<&str>,
 ) -> Result<Report<CleanupOutcome>, Failure> {
     let layout = discover_hall(ctx)?;
     let docs_updates = layout.docs_updates_dir();
@@ -194,7 +210,10 @@ fn apply_cleanup(
         )
     })?;
     let git = git::System;
-    let preview = preview_for(&git, &layout, &manifest, &feature)?;
+    let PreviewedCleanup {
+        preview,
+        forge_consulted,
+    } = preview_cleanup(&git, &layout, &manifest, &feature, own_session)?;
 
     // 5. Check record feature == preview feature and record branch == preview branch
     if record.feature != preview.feature || record.branch != preview.branch {
@@ -209,7 +228,7 @@ fn apply_cleanup(
 
     // 6. Check fingerprint comparison
     if record.fingerprint != preview.fingerprint {
-        return Err(Failure::blocked(
+        let mut failure = Failure::blocked(
             "feature.cleanup_fingerprint_mismatch",
             format!(
                 "the state of feature `{}` has drifted since the cleanup record was written",
@@ -227,7 +246,14 @@ fn apply_cleanup(
                 "Rerun `/ivar-feature-cleanup {}` to update the docs and record with the new fingerprint.",
                 preview.feature
             ),
-        )));
+        ));
+        if forge_consulted {
+            failure = failure.fix(FixAction::safe(
+                "feature.cleanup_forge_moved",
+                "A repo's delivery rests on a pull-request lookup, and the forge now answers differently than it did for the record. Re-run the preview to see the forge's current answer.",
+            ));
+        }
+        return Err(failure);
     }
 
     // 7. Check approvals: delivery & teardown
@@ -466,16 +492,29 @@ fn apply_cleanup(
     ))
 }
 
-fn preview_for(
+/// A cleanup preview, and whether producing it rested on a forge answer.
+struct PreviewedCleanup {
+    preview: CleanupPreview,
+    /// Some repo's verdict came from a live pull-request lookup, which can
+    /// answer differently between the preview run and the apply run.
+    forge_consulted: bool,
+}
+
+fn preview_cleanup(
     git: &impl Git,
     layout: &crate::store::layout::Layout,
     manifest: &crate::store::manifest::Manifest,
     feature: &Feature,
-) -> Result<CleanupPreview, Failure> {
+    own_session: Option<&str>,
+) -> Result<PreviewedCleanup, Failure> {
     let (live_sessions, session_inspection_error) =
         match session_lookup::list_feature(layout, &feature.name) {
             Ok(sessions) => (
-                sessions.into_iter().map(|session| session.id).collect(),
+                sessions
+                    .into_iter()
+                    .map(|session| session.id)
+                    .filter(|id| Some(id.as_str()) != own_session)
+                    .collect(),
                 None,
             ),
             Err(error) => (Vec::new(), Some(error.to_string())),
@@ -518,13 +557,18 @@ fn preview_for(
         &paths_to_remove,
     )?;
 
-    Ok(CleanupPreview {
-        feature: feature.name.clone(),
-        branch: feature.branch.clone(),
-        repos,
-        blockers: verdict.blockers,
-        paths_to_remove,
-        fingerprint,
+    let forge_consulted = facts.repos.iter().any(|repo| repo.forge_delivery.is_some());
+
+    Ok(PreviewedCleanup {
+        preview: CleanupPreview {
+            feature: feature.name.clone(),
+            branch: feature.branch.clone(),
+            repos,
+            blockers: verdict.blockers,
+            paths_to_remove,
+            fingerprint,
+        },
+        forge_consulted,
     })
 }
 
@@ -549,31 +593,37 @@ fn collect_repo_facts(
     let clone_exists = matches!(git.target_state(&bare), Ok(TargetState::Repository));
     let worktree_exists = matches!(git.target_state(&worktree), Ok(TargetState::Repository));
     let mut inspection_error = None;
-    let (feature_head, base_head, local_branch_exists, unmerged_commits) = if clone_exists {
-        let feature_head = revision(git, &bare, feature.branch.as_str(), &mut inspection_error);
-        let base_head = revision(git, &bare, effective_base.as_str(), &mut inspection_error);
-        let local_branch_exists = feature_head.is_some();
-        let unmerged_commits = match base::unmerged_commits(
-            git,
-            &bare,
-            effective_base.as_str(),
-            feature.branch.as_str(),
-        ) {
-            Ok(commits) => Some(commits),
-            Err(error) => {
-                inspection_error.get_or_insert_with(|| error.to_string());
-                None
-            }
+    let (feature_head, base_head, local_branch_exists, unmerged_commits, forge_delivery) =
+        if clone_exists {
+            let feature_head = revision(git, &bare, feature.branch.as_str(), &mut inspection_error);
+            let base_head = revision(git, &bare, effective_base.as_str(), &mut inspection_error);
+            let local_branch_exists = feature_head.is_some();
+            let unmerged_commits = match base::unmerged_commits(
+                git,
+                &bare,
+                effective_base.as_str(),
+                feature.branch.as_str(),
+            ) {
+                Ok(commits) => Some(commits),
+                Err(error) => {
+                    inspection_error.get_or_insert_with(|| error.to_string());
+                    None
+                }
+            };
+            let forge_delivery = match (unmerged_commits, feature_head.as_deref()) {
+                (Some(1..), Some(head)) => Some(ask_forge(&bare, feature.branch.as_str(), head)),
+                _ => None,
+            };
+            (
+                feature_head,
+                base_head,
+                local_branch_exists,
+                unmerged_commits,
+                forge_delivery,
+            )
+        } else {
+            (None, None, false, None, None)
         };
-        (
-            feature_head,
-            base_head,
-            local_branch_exists,
-            unmerged_commits,
-        )
-    } else {
-        (None, None, false, None)
-    };
     let dirty_worktree = if worktree_exists {
         match git.worktree_dirty(&worktree) {
             Ok(dirty) => Some(dirty),
@@ -598,6 +648,37 @@ fn collect_repo_facts(
         unmerged_commits,
         in_manifest: true,
         inspection_error,
+        forge_delivery,
+    }
+}
+
+/// Ask the forge about `branch`, and read its answer as a delivery verdict.
+fn ask_forge(bare: &Utf8Path, branch: &str, feature_head: &str) -> ForgeDelivery {
+    match pull_requests::list_pull_requests(bare, branch, "all") {
+        Ok(prs) => read_forge_answer(&prs, feature_head),
+        Err(failure) => ForgeDelivery::Unavailable {
+            reason: failure.what,
+        },
+    }
+}
+
+/// The verdict the forge's pull requests support for `feature_head`. A merged
+/// pull request for this exact head wins over every earlier record for the
+/// branch.
+fn read_forge_answer(prs: &[PullRequest], feature_head: &str) -> ForgeDelivery {
+    if prs.iter().any(|pr| pr.merged_head(feature_head)) {
+        return ForgeDelivery::Merged;
+    }
+    let Some(pr) = prs.iter().find(|pr| pr.is_merged()).or(prs.first()) else {
+        return ForgeDelivery::NoPullRequest;
+    };
+    if pr.is_merged() {
+        ForgeDelivery::MergedOtherHead { number: pr.number }
+    } else {
+        ForgeDelivery::NotMerged {
+            number: pr.number,
+            state: pr.state.clone(),
+        }
     }
 }
 
@@ -614,12 +695,13 @@ fn absent_manifest_facts(repo: &RepoName) -> CleanupRepoFacts {
         unmerged_commits: None,
         in_manifest: false,
         inspection_error: None,
+        forge_delivery: None,
     }
 }
 
 fn revision(
     git: &impl Git,
-    bare: &camino::Utf8Path,
+    bare: &Utf8Path,
     branch: &str,
     error: &mut Option<String>,
 ) -> Option<String> {
@@ -641,8 +723,20 @@ fn cleanup_repo(facts: &CleanupRepoFacts) -> Option<CleanupRepo> {
         base_head: facts.base_head.clone(),
         local_branch_exists: facts.local_branch_exists,
         worktree_exists: facts.worktree_exists,
-        is_delivered: facts.in_manifest && facts.clone_exists && facts.unmerged_commits == Some(0),
+        is_delivered: facts.in_manifest
+            && facts.clone_exists
+            && facts.to_delivery_facts().unmerged_commits == Some(0),
     })
+}
+
+/// Forge answers are live network text (timeouts, auth prompts) that can differ
+/// between preview and apply; the blocker itself still enters the fingerprint.
+fn without_forge_detail(blocker: &CleanupBlocker) -> CleanupBlocker {
+    let mut blocker = blocker.clone();
+    if let CleanupBlocker::UnmergedCommits { forge, .. } = &mut blocker {
+        *forge = None;
+    }
+    blocker
 }
 
 fn fingerprint_for(
@@ -656,7 +750,7 @@ fn fingerprint_for(
         feature: feature.clone(),
         branch: branch.clone(),
         repos: repos.to_vec(),
-        blockers: blockers.to_vec(),
+        blockers: blockers.iter().map(without_forge_detail).collect(),
         paths_to_remove: paths_to_remove.to_vec(),
         fingerprint: String::new(),
     };

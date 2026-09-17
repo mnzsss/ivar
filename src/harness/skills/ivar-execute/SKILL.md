@@ -6,7 +6,7 @@ argument-hint: [plan-path]
 
 # ivar-execute
 
-`ivar-execute` executes an approved feature plan wave by wave. It acts strictly as a coordinator: it dispatches implementation to subagents, runs lightweight validation at wave checkpoints, records progress and deferred validation failures in `plan.md`, barriers at post-wave dual reviews (Standards review and Spec review), and facilitates human-gated delivery.
+`ivar-execute` executes an approved feature plan wave by wave. It acts strictly as a coordinator: it dispatches implementation to subagents, runs lightweight validation at wave checkpoints, records progress and deferred validation failures in the run receipt with `ivar feature execute checkpoint`, barriers at post-wave dual reviews (Standards review and Spec review), and facilitates human-gated delivery. Never edit `plan.md` during a run: any edit moves its fingerprint and diverges the run.
 
 ## Interactive choice convention
 
@@ -36,8 +36,8 @@ For every question with selectable choices:
 │    │    ├─ Pass: prompt human for wave approval             │
 │    │    └─ Fail: ask [Fix now] vs [Defer failure]           │
 │    │         ├─ Fix now: dispatch subagent, rerun check     │
-│    │         └─ Defer: record in plan.md, carry forward     │
-│    └─ On human approval: record completed wave in plan.md   │
+│    │         └─ Defer: note for the wave checkpoint         │
+│    └─ On human approval: ivar feature execute checkpoint    │
 └──────────────────────────────┬──────────────────────────────┘
                                │
                                ▼
@@ -97,7 +97,7 @@ For each wave:
    - Build every dispatch prompt from `references/subagent.md`, filling each field with absolute paths. A dispatch missing the working directory, worktree root, or artifact paths is incomplete.
    - **Coordinator isolation invariant:** The coordinator NEVER writes or edits feature code directly. All code edits, refactors, and test additions MUST be performed by subagents.
 2. **Execute lightweight validation:**
-   - Run the explicit lightweight validation commands declared for this wave in `plan.md`.
+   - Run the explicit lightweight validation commands `plan.md` declares for this wave.
    - When validating changed files across touched repos, query `ivar graph affected <files...>` to discover affected tests and runnable commands. Graph recommendations are advisory: use them to focus verification, and fall back directly to declared wave commands, project test runners, or targeted file execution when graph queries return empty results, fail, or lack runner configuration.
    - **Case A: Validation Passes**
      - Present the wave result, completed tasks, and validation output.
@@ -106,14 +106,14 @@ For each wave:
      - Report the exact validation failure and command output to the human.
      - Ask the human to choose between:
        - **(a) Fix now:** Dispatch the fix to an implementation subagent, rerun the lightweight validation commands, and return to the checkpoint.
-       - **(b) Defer failure:** Record the failure under "Deferred validation failures" for this wave in `plan.md`. With human approval, allow advancing while carrying the failure into the final review and correction cycle.
+       - **(b) Defer failure:** Keep the failure for this wave's checkpoint summary under "Deferred validation failures". With human approval, allow advancing while carrying the failure into the final review and correction cycle.
 4. **Record wave checkpoint:**
-   - Upon receiving explicit human approval, update `plan.md`:
-     - Mark completed tasks.
-     - Note satisfied exit criteria.
-     - Record any Deferred validation failures.
-     - Mark the wave complete.
-   - Re-approve the plan artifact if required by the feature session state.
+   - Upon receiving explicit human approval, append the wave to the run receipt:
+     ```bash
+     ivar feature execute checkpoint <feature> --wave <n> --summary "<completed tasks; exit criteria met; Deferred validation failures: <list or none>>"
+     ```
+   - Never edit `plan.md` during a run — not task checkboxes, not wave notes, not deferred failures. Task packets and `plan.md` are read-only inputs.
+   - If the plan itself must change, stop and ask the human; re-approval followed by `ivar feature execute accept-revision` is their decision.
 
 ---
 
@@ -130,7 +130,7 @@ Once all planned waves are approved, execute the final dual-axis review:
    - The coordinator MUST wait for both review subagents to complete their reports before presenting results or proposing actions.
 3. **Combined report:**
    - Compile both reports into a structured summary, keeping `## Standards` and `## Spec` strictly separated.
-   - Include any unresolved Deferred validation failures carried forward from previous waves.
+   - Include any unresolved Deferred validation failures carried forward from previous waves, read from `ivar feature execute status <feature>`.
 4. **Fix selection & revalidation loop:**
    - Ask the human which reported findings (if any) should be addressed.
    - If findings are selected:

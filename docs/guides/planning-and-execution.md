@@ -81,8 +81,8 @@ The execution lifecycle is coordinated by the `ivar-execute` skill. The active p
 
 1. **Subagent isolation:** For each wave, the coordinator dispatches ONE native subagent per task packet, handing the subagent only its specific task packet context to carry out Red → Green → Refactor steps. Subagents never edit `plan.md`.
 2. **Wave lightweight validation:** At the end of each wave, the coordinator runs explicit lightweight validation commands (such as scoped unit tests, type checks, or linters) declared in `plan.md`.
-3. **Deferred validation failures:** If a validation check fails, the human chooses between fixing now (dispatching a fix subagent) or deferring the failure. Deferred validation failures are recorded under the wave in `plan.md` and carried forward into the post-wave review and correction cycle.
-4. **Wave checkpoints:** Passing validation (or deferred failures with approval) prompts for explicit human approval before advancing to the next wave.
+3. **Deferred validation failures:** If a validation check fails, the human chooses between fixing now (dispatching a fix subagent) or deferring the failure. Deferred validation failures are recorded in the wave's checkpoint summary and carried forward into the post-wave review and correction cycle.
+4. **Wave checkpoints:** Passing validation (or deferred failures with approval) prompts for explicit human approval before advancing to the next wave. The coordinator records the approved wave with `ivar feature execute checkpoint`, passing the wave number to `--wave` and its summary to `--summary`, and never edits `plan.md` during a run, because any edit diverges the run.
 5. **Dual-axis review barrier:** After all waves complete, the coordinator dispatches two isolated reviews:
    - **Standards review:** Evaluates code quality, conventions, and repo standards.
    - **Spec review:** Verifies implementation against `requirements.md` and `plan.md`.

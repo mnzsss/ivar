@@ -9,7 +9,15 @@ use crate::domain::feature::{
     DeliveryAction, DeliveryMode, DeliveryPreview, DraftAction, VerificationResult,
 };
 use crate::domain::name::RepoName;
-use crate::error::WriteHuman;
+use crate::error::{FixAction, WriteHuman};
+
+/// The pull request a push created or updated.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct PullRequestRef {
+    pub number: u64,
+    pub url: String,
+    pub draft: bool,
+}
 
 /// One repo's push, in apply mode.
 #[derive(Debug, Clone, Serialize)]
@@ -21,6 +29,12 @@ pub struct PushResult {
     /// Why it failed, when it did.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
+    /// The pull request created or updated for this repo, when there is one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pr: Option<PullRequestRef>,
+    /// The way out, when this repo's push failed or produced no pull request.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fix: Option<FixAction>,
 }
 
 /// One repo's land result, in apply mode.
@@ -60,6 +74,9 @@ pub struct DeliverOutcome {
     pub root: Utf8PathBuf,
     /// The preview summary, present for both preview and apply mode.
     pub preview: DeliveryPreview,
+    /// The exact command that applies this preview, present in preview mode.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub apply_command: Option<String>,
     /// Per-repo push results, present in apply mode for non-land delivery.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub pushes: Vec<PushResult>,
@@ -147,7 +164,15 @@ impl WriteHuman for DeliverOutcome {
                 }
             }
             writeln!(w, "  plan gate:   {}", self.preview.plan_gate)?;
-            writeln!(w, "  fingerprint: {}", self.preview.fingerprint)
+            writeln!(w, "  fingerprint: {}", self.preview.fingerprint)?;
+            if let Some(command) = &self.apply_command {
+                writeln!(w, "  apply:       {command}")?;
+                writeln!(
+                    w,
+                    "  note:        --name, --body and --draft are part of the fingerprint; apply with the same values"
+                )?;
+            }
+            Ok(())
         } else if !self.land.is_empty() {
             writeln!(
                 w,
@@ -178,11 +203,30 @@ impl WriteHuman for DeliverOutcome {
             )?;
             for push in &self.pushes {
                 if push.ok {
-                    writeln!(w, "  {}: pushed", push.repo)?;
+                    match &push.pr {
+                        Some(pr) => {
+                            let draft = if pr.draft { " (draft)" } else { "" };
+                            writeln!(
+                                w,
+                                "  {}: pushed — PR #{}{draft} {}",
+                                push.repo, pr.number, pr.url
+                            )?;
+                        }
+                        None => match &push.detail {
+                            Some(detail) => writeln!(w, "  {}: pushed — {detail}", push.repo)?,
+                            None => writeln!(w, "  {}: pushed", push.repo)?,
+                        },
+                    }
                 } else if let Some(detail) = &push.detail {
                     writeln!(w, "  {}: not pushed — {detail}", push.repo)?;
                 } else {
                     writeln!(w, "  {}: not pushed", push.repo)?;
+                }
+                if let Some(fix) = &push.fix {
+                    writeln!(w, "    fix: {}", fix.what)?;
+                    if let Some(command) = &fix.command {
+                        writeln!(w, "    run: {command}")?;
+                    }
                 }
             }
             Ok(())

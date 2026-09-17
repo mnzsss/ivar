@@ -851,3 +851,138 @@ fn parses_review_comment_add() {
         ("checkout", "3-5", "- rename this")
     );
 }
+
+#[test]
+fn execute_verbs_parse_without_plan_and_status_accepts_plan() {
+    match Cli::try_parse_from([
+        "ivar",
+        "feature",
+        "execute",
+        "finish",
+        "checkout",
+        "--report-json",
+        "r.json",
+        "--outcome",
+        "succeeded",
+    ])
+    .unwrap()
+    .command
+    {
+        Command::Feature(FeatureCommand::Execute(ExecuteCommand::Finish(args))) => {
+            assert_eq!(args.plan, None);
+        }
+        other => panic!("expected execute finish, got {other:?}"),
+    }
+    match Cli::try_parse_from(["ivar", "feature", "execute", "accept-revision", "checkout"])
+        .unwrap()
+        .command
+    {
+        Command::Feature(FeatureCommand::Execute(ExecuteCommand::AcceptRevision(args))) => {
+            assert_eq!(args.plan, None);
+        }
+        other => panic!("expected execute accept-revision, got {other:?}"),
+    }
+    match Cli::try_parse_from([
+        "ivar",
+        "feature",
+        "execute",
+        "status",
+        "checkout",
+        "--plan",
+        "custom/plan.md",
+    ])
+    .unwrap()
+    .command
+    {
+        Command::Feature(FeatureCommand::Execute(ExecuteCommand::Status(args))) => {
+            assert_eq!(args.plan.as_deref(), Some("custom/plan.md"));
+        }
+        other => panic!("expected execute status, got {other:?}"),
+    }
+}
+
+#[test]
+fn execute_finish_print_schema_needs_no_report_or_outcome() {
+    match Cli::try_parse_from(["ivar", "feature", "execute", "finish", "--print-schema"])
+        .unwrap()
+        .command
+    {
+        Command::Feature(FeatureCommand::Execute(ExecuteCommand::Finish(args))) => {
+            assert!(args.print_schema);
+            assert_eq!(args.report_json, None);
+            assert_eq!(args.outcome, None);
+        }
+        other => panic!("expected execute finish, got {other:?}"),
+    }
+    assert!(
+        Cli::try_parse_from([
+            "ivar",
+            "feature",
+            "execute",
+            "finish",
+            "--outcome",
+            "succeeded"
+        ])
+        .is_err(),
+        "without --print-schema, --report-json stays required"
+    );
+}
+
+#[test]
+fn execute_finish_help_points_to_print_schema() {
+    let mut cli = Cli::command();
+    let finish = cli
+        .find_subcommand_mut("feature")
+        .unwrap()
+        .find_subcommand_mut("execute")
+        .unwrap()
+        .find_subcommand_mut("finish")
+        .unwrap();
+    let report_help = finish
+        .get_arguments()
+        .find(|arg| arg.get_id() == "report_json")
+        .and_then(|arg| arg.get_help())
+        .unwrap()
+        .to_string();
+    assert!(report_help.contains("--print-schema"), "{report_help}");
+    assert!(
+        finish
+            .render_long_help()
+            .to_string()
+            .contains("--print-schema")
+    );
+}
+
+#[test]
+fn execute_checkpoint_requires_a_positive_wave_and_a_summary() {
+    assert!(
+        Cli::try_parse_from([
+            "ivar",
+            "feature",
+            "execute",
+            "checkpoint",
+            "checkout",
+            "--wave",
+            "2",
+            "--summary",
+            "wave 2 approved",
+        ])
+        .is_ok()
+    );
+    assert!(
+        Cli::try_parse_from(["ivar", "feature", "execute", "checkpoint", "--wave", "1"]).is_err()
+    );
+    assert!(
+        Cli::try_parse_from([
+            "ivar",
+            "feature",
+            "execute",
+            "checkpoint",
+            "--wave",
+            "0",
+            "--summary",
+            "x",
+        ])
+        .is_err()
+    );
+}

@@ -71,16 +71,25 @@ fn the_human_apply_surface_reports_each_push() {
             tree_blockers: Vec::new(),
             fingerprint: "abc123".to_owned(),
         },
+        apply_command: None,
         pushes: vec![
             PushResult {
                 repo: RepoName::new("api").unwrap(),
                 ok: true,
                 detail: None,
+                pr: Some(PullRequestRef {
+                    number: 7,
+                    url: "https://github.com/acme/api/pull/7".to_owned(),
+                    draft: true,
+                }),
+                fix: None,
             },
             PushResult {
                 repo: RepoName::new("web").unwrap(),
                 ok: false,
                 detail: Some("remote did not answer".to_owned()),
+                pr: None,
+                fix: None,
             },
         ],
         land: Vec::new(),
@@ -92,8 +101,15 @@ fn the_human_apply_surface_reports_each_push() {
 
     let rendered = String::from_utf8(out).unwrap();
     assert!(rendered.contains("Delivered `checkout` in /hall (fingerprint abc123):"));
-    assert!(rendered.contains("  api: pushed"));
+    assert!(rendered.contains("  api: pushed — PR #7 (draft) https://github.com/acme/api/pull/7"));
     assert!(rendered.contains("  web: not pushed — remote did not answer"));
+
+    let json = serde_json::to_value(&outcome).unwrap();
+    assert_eq!(
+        json["pushes"][0]["pr"],
+        serde_json::json!({"number": 7, "url": "https://github.com/acme/api/pull/7", "draft": true})
+    );
+    assert!(json["pushes"][1].get("pr").is_none());
 }
 
 /// The short path's sharp edge, closed at the surface that matters. A feature
