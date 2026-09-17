@@ -217,3 +217,34 @@ fn a_report_with_warnings_is_not_clean() {
         r#"{"ok":true,"repos":3,"warnings":[{"code":"repo.unreachable","subject":"api","what":"remote did not answer"}]}"#
     );
 }
+
+#[test]
+fn a_report_inlines_the_outcome_beside_the_envelope_flag() {
+    #[derive(Serialize)]
+    struct Outcome {
+        feature: &'static str,
+    }
+
+    let rendered = serde_json::to_string(&Report::with_warnings(
+        Outcome { feature: "api" },
+        vec![Warning::new("x.y", "api", "nope")],
+    ))
+    .unwrap();
+
+    assert!(
+        rendered.starts_with(r#"{"ok":true,"feature":"api","warnings":["#),
+        "{rendered}"
+    );
+}
+
+#[test]
+fn an_outcome_carrying_its_own_ok_key_is_refused_rather_than_rendered() {
+    #[derive(Serialize)]
+    struct Colliding {
+        ok: bool,
+    }
+
+    let error = serde_json::to_string(&Report::new(Colliding { ok: false })).unwrap_err();
+
+    assert!(error.to_string().contains("`ok`"), "{error}");
+}
