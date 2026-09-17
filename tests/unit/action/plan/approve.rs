@@ -833,3 +833,81 @@ fn approve_plan_accepts_repos_declared_in_the_manifest() {
         vec![RepoName::new("api").unwrap()]
     );
 }
+
+fn api_worktree_with_web_package(root: &Utf8PathBuf) {
+    let layout = Layout::at(root.clone());
+    let web = layout
+        .repo_worktree(
+            &RepoName::new("api").unwrap(),
+            &BranchName::new("main").unwrap(),
+        )
+        .join("packages/web");
+    fs::ensure_dir(&web).unwrap();
+    fs::write_text(&web.join("package.json"), r#"{"scripts":{"build":"tsc"}}"#).unwrap();
+}
+
+#[test]
+fn approve_plan_refuses_commands_that_cannot_run_in_a_declared_repo() {
+    let (_guard, root) = seeded_hall();
+    let ctx = Ctx::new(root.clone());
+    declare_api_repo(&root);
+    api_worktree_with_web_package(&root);
+    write_light_plan(
+        &root,
+        "---\nrepos: [api]\n---\n# Plan\n\n```bash\ncd packages/mobile\n```\n\n```bash\ncd packages/web\npnpm run deploy\npnpm run build\n```\n",
+    );
+    let tasks = plan_file(&root, "tasks");
+    fs::ensure_dir(&tasks).unwrap();
+    fs::write_text(
+        &tasks.join("01-web.md"),
+        "# Task\n```sh\ncd packages/web\nnpm run lint\n```\n",
+    )
+    .unwrap();
+
+    let failure = approve(
+        &ctx,
+        ApproveInput {
+            feature: "checkout".to_owned(),
+            gate: "plan".to_owned(),
+        },
+    )
+    .unwrap_err();
+
+    assert_eq!(failure.status, Status::Blocked);
+    assert_eq!(failure.code, "plan.invalid_commands");
+    let actual = failure.actual.unwrap();
+    assert!(
+        actual.contains("plan.md:7: `cd packages/mobile`"),
+        "{actual}"
+    );
+    assert!(actual.contains("plan.md:12: `pnpm run deploy`"), "{actual}");
+    assert!(actual.contains("01-web.md:4: `npm run lint`"), "{actual}");
+    assert!(!actual.contains("plan.md:11:"), "{actual}");
+    assert!(!actual.contains("plan.md:13:"), "{actual}");
+}
+
+#[test]
+fn approve_plan_accepts_commands_that_resolve_in_a_declared_repo() {
+    let (_guard, root) = seeded_hall();
+    let ctx = Ctx::new(root.clone());
+    declare_api_repo(&root);
+    api_worktree_with_web_package(&root);
+    write_light_plan(
+        &root,
+        "---\nrepos: [api]\n---\n# Plan\n\n```bash\ncd packages/web\npnpm run build\n```\n\n```sh\nnpm run anything\n```\n",
+    );
+
+    let report = approve(
+        &ctx,
+        ApproveInput {
+            feature: "checkout".to_owned(),
+            gate: "plan".to_owned(),
+        },
+    )
+    .unwrap();
+
+    assert_eq!(
+        report.value.approvals.state(Gate::Plan),
+        Some(GateState::Approved)
+    );
+}

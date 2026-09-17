@@ -17,6 +17,7 @@ pub mod health;
 pub mod mcp;
 pub mod name;
 pub mod plan;
+pub mod plan_commands;
 pub mod provider;
 pub mod session;
 pub mod skill;

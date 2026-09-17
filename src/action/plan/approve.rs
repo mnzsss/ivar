@@ -54,6 +54,7 @@ use serde::Serialize;
 
 use crate::domain::feature::{ApprovalState, Gate, GateState};
 use crate::domain::name::FeatureName;
+use crate::domain::plan_commands::{CommandFinding, CommandKind, scan_shell_commands};
 use crate::error::{Failure, FixAction, Outcome, Report, WriteHuman};
 use crate::infra::fs;
 use crate::store::layout::Layout;
@@ -207,7 +208,8 @@ pub fn approve(ctx: &Ctx, input: ApproveInput) -> Outcome<ApproveOutcome> {
     }
 
     if gate == Gate::Plan {
-        require_known_repos(&layout, &feature)?;
+        let repos = require_known_repos(&layout, &feature)?;
+        require_runnable_commands(&layout, &feature, &repos)?;
     }
 
     approvals.set(gate, GateState::Approved, Some(fingerprint));
@@ -328,6 +330,118 @@ fn require_known_repos(layout: &Layout, feature: &FeatureName) -> Result<Vec<Rep
             "Remove the unknown names from `repos:` in plan.md, or add them with `ivar repo add <name> <url>`, then run `ivar plan approve {feature} plan` again."
         ),
     )))
+}
+
+/// Blocked when a `cd` or `run` in `plan.md` or `tasks/*.md` cannot run in any
+/// declared repo's default worktree. Skipped when no declared worktree is on
+/// disk: there is nothing to resolve a path against.
+fn require_runnable_commands(
+    layout: &Layout,
+    feature: &FeatureName,
+    repos: &[Repo],
+) -> Result<(), Failure> {
+    let mut roots = Vec::new();
+    for repo in repos {
+        let root = layout.repo_worktree(repo.name(), repo.default_branch());
+        if fs::is_dir(&root)? {
+            roots.push(root);
+        }
+    }
+    if roots.is_empty() {
+        return Ok(());
+    }
+
+    let mut findings = Vec::new();
+    for file in plan_command_files(layout, feature)? {
+        let Some(source) = fs::read_text(&file)? else {
+            continue;
+        };
+        for command in scan_shell_commands(&source) {
+            if let Some(reason) = command_problem(&command.kind, &roots)? {
+                findings.push(CommandFinding {
+                    file: file.clone(),
+                    line: command.line,
+                    command: command.command,
+                    reason,
+                });
+            }
+        }
+    }
+    if findings.is_empty() {
+        return Ok(());
+    }
+
+    Err(Failure::blocked(
+        "plan.invalid_commands",
+        format!(
+            "the plan for `{feature}` has {} command(s) that cannot run in its declared repos",
+            findings.len()
+        ),
+    )
+    .expected("every `cd` to reach a directory and every `run` to name a package.json script in a declared repo")
+    .actual(
+        findings
+            .iter()
+            .map(CommandFinding::render)
+            .collect::<Vec<_>>()
+            .join("\n"),
+    )
+    .fix(FixAction::safe(
+        "plan.fix_commands",
+        format!("Correct each listed command, then run `ivar plan approve {feature} plan` again."),
+    )))
+}
+
+/// `plan.md`, then `tasks/*.md` in name order.
+fn plan_command_files(layout: &Layout, feature: &FeatureName) -> Result<Vec<Utf8PathBuf>, Failure> {
+    let plan_dir = layout.plan_dir(feature);
+    let mut files = vec![plan_dir.join("plan.md")];
+    let tasks = plan_dir.join("tasks");
+    if fs::is_dir(&tasks)? {
+        let mut packets: Vec<Utf8PathBuf> = fs::read_dir(&tasks)?
+            .into_iter()
+            .filter(|path| path.extension() == Some("md"))
+            .collect();
+        packets.sort();
+        files.extend(packets);
+    }
+    Ok(files)
+}
+
+/// Why `kind` cannot run under any of `roots`, or `None` when it can — or
+/// when there is not enough on disk to tell.
+fn command_problem(kind: &CommandKind, roots: &[Utf8PathBuf]) -> Result<Option<String>, Failure> {
+    match kind {
+        CommandKind::ChangeDir { dir } => {
+            for root in roots {
+                if fs::is_dir(&root.join(dir))? {
+                    return Ok(None);
+                }
+            }
+            Ok(Some(format!("`{dir}` does not exist in any declared repo")))
+        }
+        CommandKind::RunScript { dir, script } => {
+            let mut saw_package = false;
+            for root in roots {
+                let Some(text) = fs::read_text(&root.join(dir).join("package.json"))? else {
+                    continue;
+                };
+                let Ok(package) = serde_json::from_str::<serde_json::Value>(&text) else {
+                    return Ok(None);
+                };
+                saw_package = true;
+                if package
+                    .get("scripts")
+                    .and_then(|scripts| scripts.get(script))
+                    .is_some()
+                {
+                    return Ok(None);
+                }
+            }
+            Ok(saw_package
+                .then(|| format!("no `{script}` script in `{}`", dir.join("package.json"))))
+        }
+    }
 }
 
 /// Re-check every approved gate against the files as they are now, in two
