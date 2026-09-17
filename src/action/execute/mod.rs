@@ -1,6 +1,8 @@
 //! Provider-neutral Run Receipt lifecycle actions.
 
-use camino::Utf8PathBuf;
+use camino::{Utf8Path, Utf8PathBuf};
+
+use crate::action::Ctx;
 
 use crate::domain::feature::RunId;
 use crate::domain::name::FeatureName;
@@ -50,6 +52,18 @@ pub(crate) fn resolve_coordinator(
         Err(failure) => Err(failure),
     }
 }
+pub(crate) fn plan_path(
+    ctx: &Ctx,
+    layout: &Layout,
+    feature: &FeatureName,
+    plan: Option<&str>,
+) -> Utf8PathBuf {
+    plan.map_or_else(
+        || layout.plan_dir(feature).join("plan.md"),
+        |plan| ctx.resolve(Utf8Path::new(plan)),
+    )
+}
+
 /// Preserve legacy execution evidence before an action reads or changes receipts.
 pub(crate) fn import_legacy(
     layout: &Layout,

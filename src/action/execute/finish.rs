@@ -16,7 +16,7 @@ use super::snapshot;
 #[derive(Debug, Clone)]
 pub struct FinishInput {
     pub feature: String,
-    pub plan: String,
+    pub plan: Option<String>,
     pub report_json: String,
     pub outcome: String,
 }
@@ -35,7 +35,7 @@ impl WriteHuman for FinishOutcome {
 pub fn finish(ctx: &Ctx, input: FinishInput) -> Outcome<FinishOutcome> {
     let layout = discover_hall(ctx)?;
     let feature = FeatureName::new(input.feature)?;
-    let plan = ctx.resolve(Utf8Path::new(&input.plan));
+    let plan = super::plan_path(ctx, &layout, &feature, input.plan.as_deref());
     super::import_legacy(&layout, &feature, plan.clone())?;
     let mut receipt = RunReceipt::read(&layout, &feature)?
         .ok_or_else(|| Failure::blocked("execute.run_missing", "no current run receipt exists"))?;

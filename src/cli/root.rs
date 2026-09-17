@@ -501,8 +501,9 @@ pub enum ExecuteCommand {
 #[derive(Debug, Args)]
 pub struct ExecuteStartArgs {
     pub feature: Option<String>,
+    /// Plan file; defaults to `.ivar/features/<feature>/plan.md`.
     #[arg(long)]
-    pub plan: String,
+    pub plan: Option<String>,
     #[arg(long, conflicts_with = "restart")]
     pub resume: bool,
     #[arg(long, conflicts_with = "resume")]
@@ -513,8 +514,9 @@ pub struct ExecuteStartArgs {
 #[derive(Debug, Args)]
 pub struct ExecuteFinishArgs {
     pub feature: Option<String>,
+    /// Plan file; defaults to `.ivar/features/<feature>/plan.md`.
     #[arg(long)]
-    pub plan: String,
+    pub plan: Option<String>,
     #[arg(long)]
     pub report_json: String,
     #[arg(long)]
@@ -525,6 +527,9 @@ pub struct ExecuteFinishArgs {
 #[derive(Debug, Args)]
 pub struct ExecuteStatusArgs {
     pub feature: Option<String>,
+    /// Plan file; defaults to `.ivar/features/<feature>/plan.md`.
+    #[arg(long)]
+    pub plan: Option<String>,
     #[arg(long, conflicts_with = "run")]
     pub history: bool,
     #[arg(long, conflicts_with = "history")]
@@ -535,8 +540,9 @@ pub struct ExecuteStatusArgs {
 #[derive(Debug, Args)]
 pub struct ExecuteAcceptRevisionArgs {
     pub feature: Option<String>,
+    /// Plan file; defaults to `.ivar/features/<feature>/plan.md`.
     #[arg(long)]
-    pub plan: String,
+    pub plan: Option<String>,
 }
 
 /// Arguments for `ivar feature execute interrupt`.
@@ -1469,11 +1475,13 @@ impl From<ExecuteStatusArgs> for execute_status::StatusInput {
     fn from(args: ExecuteStatusArgs) -> Self {
         let ExecuteStatusArgs {
             feature,
+            plan,
             history,
             run,
         } = args;
         Self {
             feature: feature.unwrap_or_default(),
+            plan,
             history,
             run,
         }

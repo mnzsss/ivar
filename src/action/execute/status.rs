@@ -11,6 +11,7 @@ use crate::store::feature::run;
 #[derive(Debug, Clone)]
 pub struct StatusInput {
     pub feature: String,
+    pub plan: Option<String>,
     pub history: bool,
     pub run: Option<String>,
 }
@@ -60,7 +61,11 @@ impl WriteHuman for StatusOutcome {
 pub fn status(ctx: &Ctx, input: StatusInput) -> Outcome<StatusOutcome> {
     let layout = discover_hall(ctx)?;
     let feature = FeatureName::new(input.feature)?;
-    super::import_legacy(&layout, &feature, layout.plan_dir(&feature).join("plan.md"))?;
+    super::import_legacy(
+        &layout,
+        &feature,
+        super::plan_path(ctx, &layout, &feature, input.plan.as_deref()),
+    )?;
     let receipts = if let Some(id) = input.run {
         RunReceipt::find(&layout, &feature, &RunId::new(id)?)?
             .into_iter()

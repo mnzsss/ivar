@@ -5,7 +5,7 @@
     clippy::indexing_slicing
 )]
 
-use camino::Utf8PathBuf;
+use camino::{Utf8Path, Utf8PathBuf};
 
 use super::*;
 use crate::action::execute::finish::{FinishInput, finish};
@@ -96,7 +96,7 @@ fn start_run(ctx: &Ctx, feature: &FeatureName, plan: &Utf8Path, resume: bool) {
         ctx,
         execute_start::StartInput {
             feature: feature.to_string(),
-            plan: plan.to_string(),
+            plan: Some(plan.to_string()),
             resume,
             restart: false,
         },
@@ -122,7 +122,7 @@ fn accepted_revision_pins_normalized_plan_fingerprint() {
         &ctx,
         FinishInput {
             feature: feature.to_string(),
-            plan: plan.to_string(),
+            plan: Some(plan.to_string()),
             report_json: first_report.to_string(),
             outcome: "succeeded".to_owned(),
         },
@@ -135,7 +135,7 @@ fn accepted_revision_pins_normalized_plan_fingerprint() {
         &ctx,
         AcceptRevisionInput {
             feature: feature.to_string(),
-            plan: plan.to_string(),
+            plan: Some(plan.to_string()),
         },
     )
     .unwrap();
@@ -147,7 +147,7 @@ fn accepted_revision_pins_normalized_plan_fingerprint() {
         &ctx,
         FinishInput {
             feature: feature.to_string(),
-            plan: plan.to_string(),
+            plan: Some(plan.to_string()),
             report_json: final_report.to_string(),
             outcome: "succeeded".to_owned(),
         },

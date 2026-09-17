@@ -335,6 +335,7 @@ fn main() -> ExitCode {
                                 &ctx,
                                 execute_status::StatusInput {
                                     feature,
+                                    plan: args.plan,
                                     history: args.history,
                                     run: args.run,
                                 },

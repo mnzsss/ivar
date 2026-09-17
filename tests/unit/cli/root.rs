@@ -851,3 +851,52 @@ fn parses_review_comment_add() {
         ("checkout", "3-5", "- rename this")
     );
 }
+
+#[test]
+fn execute_verbs_parse_without_plan_and_status_accepts_plan() {
+    match Cli::try_parse_from([
+        "ivar",
+        "feature",
+        "execute",
+        "finish",
+        "checkout",
+        "--report-json",
+        "r.json",
+        "--outcome",
+        "succeeded",
+    ])
+    .unwrap()
+    .command
+    {
+        Command::Feature(FeatureCommand::Execute(ExecuteCommand::Finish(args))) => {
+            assert_eq!(args.plan, None);
+        }
+        other => panic!("expected execute finish, got {other:?}"),
+    }
+    match Cli::try_parse_from(["ivar", "feature", "execute", "accept-revision", "checkout"])
+        .unwrap()
+        .command
+    {
+        Command::Feature(FeatureCommand::Execute(ExecuteCommand::AcceptRevision(args))) => {
+            assert_eq!(args.plan, None);
+        }
+        other => panic!("expected execute accept-revision, got {other:?}"),
+    }
+    match Cli::try_parse_from([
+        "ivar",
+        "feature",
+        "execute",
+        "status",
+        "checkout",
+        "--plan",
+        "custom/plan.md",
+    ])
+    .unwrap()
+    .command
+    {
+        Command::Feature(FeatureCommand::Execute(ExecuteCommand::Status(args))) => {
+            assert_eq!(args.plan.as_deref(), Some("custom/plan.md"));
+        }
+        other => panic!("expected execute status, got {other:?}"),
+    }
+}

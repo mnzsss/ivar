@@ -308,7 +308,7 @@ Start a new run, resume a blocked run, or restart a non-terminal run
 
 | flag | value | default | description |
 | --- | --- | --- | --- |
-| `--plan` | `<PLAN>` |  |  |
+| `--plan` | `<PLAN>` |  | Plan file; defaults to `.ivar/features/<feature>/plan.md` |
 | `--resume` |  |  |  |
 | `--restart` |  |  |  |
 
@@ -323,7 +323,7 @@ Record a coordinator's structured completion report
 
 | flag | value | default | description |
 | --- | --- | --- | --- |
-| `--plan` | `<PLAN>` |  |  |
+| `--plan` | `<PLAN>` |  | Plan file; defaults to `.ivar/features/<feature>/plan.md` |
 | `--report-json` | `<REPORT_JSON>` |  |  |
 | `--outcome` | `<OUTCOME>` |  |  |
 
@@ -338,6 +338,7 @@ Show the current receipt, a receipt by id, or complete history
 
 | flag | value | default | description |
 | --- | --- | --- | --- |
+| `--plan` | `<PLAN>` |  | Plan file; defaults to `.ivar/features/<feature>/plan.md` |
 | `--history` |  |  |  |
 | `--run` | `<RUN>` |  |  |
 
@@ -352,7 +353,7 @@ Accept an approved plan revision for a diverged run
 
 | flag | value | default | description |
 | --- | --- | --- | --- |
-| `--plan` | `<PLAN>` |  |  |
+| `--plan` | `<PLAN>` |  | Plan file; defaults to `.ivar/features/<feature>/plan.md` |
 
 
 ###### `ivar feature execute interrupt`

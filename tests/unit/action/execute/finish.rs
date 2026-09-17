@@ -101,7 +101,7 @@ fn execute_finish_succeeds_without_live_session_view_dir() {
         &ctx,
         FinishInput {
             feature: feature.to_string(),
-            plan: plan_path.to_string(),
+            plan: Some(plan_path.to_string()),
             report_json: report_path.to_string(),
             outcome: "succeeded".to_owned(),
         },
@@ -161,7 +161,7 @@ fn execute_finish_tolerates_checked_boxes_without_plan_diverged() {
         &ctx,
         FinishInput {
             feature: feature.to_string(),
-            plan: plan_path.to_string(),
+            plan: Some(plan_path.to_string()),
             report_json: report_path.to_string(),
             outcome: "succeeded".to_owned(),
         },
@@ -214,7 +214,7 @@ fn execute_finish_detects_semantic_plan_divergence() {
         &ctx,
         FinishInput {
             feature: feature.to_string(),
-            plan: plan_path.to_string(),
+            plan: Some(plan_path.to_string()),
             report_json: report_path.to_string(),
             outcome: "succeeded".to_owned(),
         },
