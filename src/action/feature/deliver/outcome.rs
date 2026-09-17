@@ -11,6 +11,14 @@ use crate::domain::feature::{
 use crate::domain::name::RepoName;
 use crate::error::WriteHuman;
 
+/// The pull request a push created or updated.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct PullRequestRef {
+    pub number: u64,
+    pub url: String,
+    pub draft: bool,
+}
+
 /// One repo's push, in apply mode.
 #[derive(Debug, Clone, Serialize)]
 pub struct PushResult {
@@ -21,6 +29,9 @@ pub struct PushResult {
     /// Why it failed, when it did.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
+    /// The pull request created or updated for this repo, when there is one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pr: Option<PullRequestRef>,
 }
 
 /// One repo's land result, in apply mode.
@@ -189,7 +200,17 @@ impl WriteHuman for DeliverOutcome {
             )?;
             for push in &self.pushes {
                 if push.ok {
-                    writeln!(w, "  {}: pushed", push.repo)?;
+                    match &push.pr {
+                        Some(pr) => {
+                            let draft = if pr.draft { " (draft)" } else { "" };
+                            writeln!(
+                                w,
+                                "  {}: pushed — PR #{}{draft} {}",
+                                push.repo, pr.number, pr.url
+                            )?;
+                        }
+                        None => writeln!(w, "  {}: pushed", push.repo)?,
+                    }
                 } else if let Some(detail) = &push.detail {
                     writeln!(w, "  {}: not pushed — {detail}", push.repo)?;
                 } else {

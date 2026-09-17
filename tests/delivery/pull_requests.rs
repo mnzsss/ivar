@@ -129,3 +129,26 @@ fn draft_preview_makes_exactly_one_pr_observation_per_repo() {
         "preview should observe the open PR exactly once, not once per decision point"
     );
 }
+
+#[test]
+fn apply_reports_the_pull_request_it_created_and_updated() {
+    let (_guard, root) = hall_root();
+    setup_deliver_hall(&root);
+    approve_through_plan(&root, "checkout");
+    let fake = FakeGh::install(&root);
+    let rewrites = as_github_remotes(&root);
+
+    let created = deliver_on_github_with(&root, &fake, &rewrites, "checkout", &["--draft"]);
+    assert_eq!(
+        created["pushes"][0]["pr"],
+        serde_json::json!({"number": 1, "url": "https://github.com/acme/pull/1", "draft": true})
+    );
+
+    let updated = deliver_on_github(&root, &fake, &rewrites, "checkout");
+    assert_eq!(updated["pushes"][0]["pr"]["number"], 1);
+    assert_eq!(
+        updated["pushes"][0]["pr"]["url"],
+        "https://github.com/acme/pull/1"
+    );
+    assert_eq!(updated["pushes"][0]["pr"]["draft"], true);
+}

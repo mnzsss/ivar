@@ -10,7 +10,7 @@ mod push;
 mod repos;
 
 pub use input::{DeliverInput, PullRequestMetadata, RepoMetadataOverride};
-pub use outcome::{DeliverOutcome, LandResult, PushResult, RepoCheckResult};
+pub use outcome::{DeliverOutcome, LandResult, PullRequestRef, PushResult, RepoCheckResult};
 
 use crate::action::Ctx;
 use crate::action::discover_hall;

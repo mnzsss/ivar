@@ -394,15 +394,8 @@ fn view_pull_request(git_dir: &Utf8Path, url: &str) -> Result<PullRequest, Failu
 // -- delivery compatibility -------------------------------------------------
 //
 // Delivery's preview may collapse lookup errors to "new PR" where it
-// intentionally does; apply uses the strict [`find_pull_request`]. The two
-// helpers below keep the preview's best-effort shape.
-
-/// The URL of the open pull request for `branch`, when there is one —
-/// best-effort: a `gh` failure means "no PR", which is the preview's
-/// intentional answer.
-pub(crate) fn existing_pr_url(git_dir: &Utf8Path, branch: &str) -> Option<String> {
-    existing_pr(git_dir, branch).map(|pr| pr.url)
-}
+// intentionally does; apply uses the strict [`find_pull_request`]. The helper
+// below keeps the preview's best-effort shape.
 
 /// The open pull request for `branch`, when there is one —
 /// best-effort: a `gh` failure means "no PR", which is the preview's
