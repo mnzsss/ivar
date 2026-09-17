@@ -341,7 +341,9 @@ fn a_forge_merge_of_the_local_head_clears_unmerged_commits() {
 fn an_unavailable_forge_keeps_the_blocker_and_names_the_failure() {
     let mut repo = repo_facts();
     repo.unmerged_commits = Some(3);
-    repo.forge_delivery = Some(ForgeDelivery::Unavailable("gh: not logged in".to_owned()));
+    repo.forge_delivery = Some(ForgeDelivery::Unavailable {
+        reason: "gh: not logged in".to_owned(),
+    });
 
     let verdict = classify_cleanup(&facts_with(repo));
 
@@ -364,9 +366,10 @@ fn an_unavailable_forge_keeps_the_blocker_and_names_the_failure() {
 #[test]
 fn a_forge_result_without_local_commits_ahead_changes_nothing() {
     let mut repo = repo_facts();
-    repo.forge_delivery = Some(ForgeDelivery::NotMerged(
-        "pull request #7 is OPEN".to_owned(),
-    ));
+    repo.forge_delivery = Some(ForgeDelivery::NotMerged {
+        number: 7,
+        state: "OPEN".to_owned(),
+    });
 
     assert!(classify_cleanup(&facts_with(repo)).blockers.is_empty());
 }
@@ -390,4 +393,29 @@ fn an_unmerged_blocker_without_forge_detail_serializes_as_before() {
         serde_json::from_str::<CleanupBlocker>(&json).unwrap(),
         blocker
     );
+}
+
+#[test]
+fn a_forge_that_lists_no_pull_request_names_that_in_the_blocker() {
+    let mut repo = repo_facts();
+    repo.unmerged_commits = Some(3);
+    repo.forge_delivery = Some(ForgeDelivery::NoPullRequest);
+
+    let verdict = classify_cleanup(&facts_with(repo));
+
+    let detail = verdict.blockers[0].to_string();
+    assert!(detail.contains("no pull request"), "{detail}");
+}
+
+#[test]
+fn a_pull_request_that_merged_another_head_is_named_by_number() {
+    let mut repo = repo_facts();
+    repo.unmerged_commits = Some(3);
+    repo.forge_delivery = Some(ForgeDelivery::MergedOtherHead { number: 7 });
+
+    let verdict = classify_cleanup(&facts_with(repo));
+
+    let detail = verdict.blockers[0].to_string();
+    assert!(detail.contains("#7"), "{detail}");
+    assert!(detail.contains("other than"), "{detail}");
 }

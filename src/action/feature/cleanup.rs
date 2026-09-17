@@ -118,18 +118,17 @@ pub fn cleanup(ctx: &Ctx, input: CleanupInput) -> Outcome<CleanupOutcome> {
         )
     })?;
     let git = git::System;
-    let (preview, _) = preview_and_forge_use(
+    let previewed = preview_cleanup(
         &git,
         &layout,
         &manifest,
         &feature,
         input.session_id.as_deref(),
-        &forge_pull_request,
     )?;
 
     Ok(Report::new(CleanupOutcome {
         root: layout.root().to_path_buf(),
-        preview,
+        preview: previewed.preview,
         apply_outcome: None,
     }))
 }
@@ -211,14 +210,10 @@ fn apply_cleanup(
         )
     })?;
     let git = git::System;
-    let (preview, forge_consulted) = preview_and_forge_use(
-        &git,
-        &layout,
-        &manifest,
-        &feature,
-        own_session,
-        &forge_pull_request,
-    )?;
+    let PreviewedCleanup {
+        preview,
+        forge_consulted,
+    } = preview_cleanup(&git, &layout, &manifest, &feature, own_session)?;
 
     // 5. Check record feature == preview feature and record branch == preview branch
     if record.feature != preview.feature || record.branch != preview.branch {
@@ -497,16 +492,21 @@ fn apply_cleanup(
     ))
 }
 
-/// The preview, plus whether any repo's verdict rested on a forge answer — a
-/// live lookup that can move between the preview run and the apply run.
-fn preview_and_forge_use(
+/// A cleanup preview, and whether producing it rested on a forge answer.
+struct PreviewedCleanup {
+    preview: CleanupPreview,
+    /// Some repo's verdict came from a live pull-request lookup, which can
+    /// answer differently between the preview run and the apply run.
+    forge_consulted: bool,
+}
+
+fn preview_cleanup(
     git: &impl Git,
     layout: &crate::store::layout::Layout,
     manifest: &crate::store::manifest::Manifest,
     feature: &Feature,
     own_session: Option<&str>,
-    find_pr: PullRequestLookup<'_>,
-) -> Result<(CleanupPreview, bool), Failure> {
+) -> Result<PreviewedCleanup, Failure> {
     let (live_sessions, session_inspection_error) =
         match session_lookup::list_feature(layout, &feature.name) {
             Ok(sessions) => (
@@ -528,7 +528,7 @@ fn preview_and_forge_use(
         .promotions
         .iter()
         .map(|(repo, promotion)| {
-            collect_repo_facts(git, layout, manifest, feature, repo, promotion, find_pr)
+            collect_repo_facts(git, layout, manifest, feature, repo, promotion)
         })
         .collect();
     let facts = CleanupFacts {
@@ -559,8 +559,8 @@ fn preview_and_forge_use(
 
     let forge_consulted = facts.repos.iter().any(|repo| repo.forge_delivery.is_some());
 
-    Ok((
-        CleanupPreview {
+    Ok(PreviewedCleanup {
+        preview: CleanupPreview {
             feature: feature.name.clone(),
             branch: feature.branch.clone(),
             repos,
@@ -569,7 +569,7 @@ fn preview_and_forge_use(
             fingerprint,
         },
         forge_consulted,
-    ))
+    })
 }
 
 fn collect_repo_facts(
@@ -579,7 +579,6 @@ fn collect_repo_facts(
     feature: &Feature,
     repo: &RepoName,
     promotion: &crate::domain::feature::Promotion,
-    find_pr: PullRequestLookup<'_>,
 ) -> CleanupRepoFacts {
     let Some(manifest_repo) = manifest
         .repos()
@@ -612,9 +611,7 @@ fn collect_repo_facts(
                 }
             };
             let forge_delivery = match (unmerged_commits, feature_head.as_deref()) {
-                (Some(1..), Some(head)) => {
-                    forge_delivery(find_pr, &bare, feature.branch.as_str(), head)
-                }
+                (Some(1..), Some(head)) => Some(ask_forge(&bare, feature.branch.as_str(), head)),
                 _ => None,
             };
             (
@@ -655,36 +652,34 @@ fn collect_repo_facts(
     }
 }
 
-type PullRequestLookup<'a> = &'a dyn Fn(&Utf8Path, &str) -> Result<Vec<PullRequest>, Failure>;
-
-fn forge_pull_request(git_dir: &Utf8Path, branch: &str) -> Result<Vec<PullRequest>, Failure> {
-    pull_requests::list_pull_requests(git_dir, branch, "all")
+/// Ask the forge about `branch`, and read its answer as a delivery verdict.
+fn ask_forge(bare: &Utf8Path, branch: &str, feature_head: &str) -> ForgeDelivery {
+    match pull_requests::list_pull_requests(bare, branch, "all") {
+        Ok(prs) => read_forge_answer(&prs, feature_head),
+        Err(failure) => ForgeDelivery::Unavailable {
+            reason: failure.what,
+        },
+    }
 }
 
-/// The forge's verdict on `branch`, or `None` when the forge has nothing to say
-/// — no pull request is silence, not a reason to decorate the blocker.
-fn forge_delivery(
-    find_pr: PullRequestLookup<'_>,
-    bare: &Utf8Path,
-    branch: &str,
-    feature_head: &str,
-) -> Option<ForgeDelivery> {
-    let prs = match find_pr(bare, branch) {
-        Err(failure) => return Some(ForgeDelivery::Unavailable(failure.what)),
-        Ok(prs) => prs,
-    };
+/// The verdict the forge's pull requests support for `feature_head`. A merged
+/// pull request for this exact head wins over every earlier record for the
+/// branch.
+fn read_forge_answer(prs: &[PullRequest], feature_head: &str) -> ForgeDelivery {
     if prs.iter().any(|pr| pr.merged_head(feature_head)) {
-        return Some(ForgeDelivery::Merged);
+        return ForgeDelivery::Merged;
     }
-    let pr = prs.iter().find(|pr| pr.is_merged()).or(prs.first())?;
-    Some(ForgeDelivery::NotMerged(if pr.is_merged() {
-        format!(
-            "pull request #{} merged a head other than local `{branch}`",
-            pr.number
-        )
+    let Some(pr) = prs.iter().find(|pr| pr.is_merged()).or(prs.first()) else {
+        return ForgeDelivery::NoPullRequest;
+    };
+    if pr.is_merged() {
+        ForgeDelivery::MergedOtherHead { number: pr.number }
     } else {
-        format!("pull request #{} is {}", pr.number, pr.state)
-    }))
+        ForgeDelivery::NotMerged {
+            number: pr.number,
+            state: pr.state.clone(),
+        }
+    }
 }
 
 fn absent_manifest_facts(repo: &RepoName) -> CleanupRepoFacts {

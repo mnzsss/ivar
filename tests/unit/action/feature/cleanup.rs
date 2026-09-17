@@ -23,18 +23,6 @@ use crate::test_support::{git as test_git, hall_root, seeded_repo};
 use camino::Utf8PathBuf;
 use std::fs::remove_dir_all;
 
-fn preview_for(
-    git: &impl Git,
-    layout: &Layout,
-    manifest: &Manifest,
-    feature: &Feature,
-    own_session: Option<&str>,
-    find_pr: PullRequestLookup<'_>,
-) -> Result<CleanupPreview, Failure> {
-    preview_and_forge_use(git, layout, manifest, feature, own_session, find_pr)
-        .map(|(preview, _)| preview)
-}
-
 fn hall_with_feature(repos: &[&str], branch: Option<&str>) -> (tempfile::TempDir, Utf8PathBuf) {
     let (guard, root) = hall_root();
     let ctx = Ctx::new(root.clone());
@@ -205,10 +193,9 @@ fn reports_missing_clone_and_unmerged_commits() {
     let feature = Feature::read(&layout, &FeatureName::new("checkout").unwrap())
         .unwrap()
         .unwrap();
-    let preview = preview_for(&git::System, &layout, &manifest, &feature, None, &|_, _| {
-        Err(Failure::failed("pull_requests.gh_failed", "gh unavailable"))
-    })
-    .unwrap();
+    let preview = preview_cleanup(&git::System, &layout, &manifest, &feature, None)
+        .unwrap()
+        .preview;
     assert!(
         preview
             .blockers
@@ -927,106 +914,48 @@ fn unmerged_forge_detail(preview: &CleanupPreview) -> Option<Option<String>> {
 }
 
 #[test]
-fn a_merged_pull_request_for_the_local_head_counts_as_delivered() {
-    let (_guard, root) = hall_with_feature(&["api"], None);
-    let (layout, manifest, feature, head) = ahead_by_one(&root);
+fn a_merged_pull_request_for_the_local_head_is_read_as_delivered() {
+    let answer = read_forge_answer(&[pull_request("MERGED", Some("abc"))], "abc");
 
-    let preview = preview_for(
-        &git::System,
-        &layout,
-        &manifest,
-        &feature,
-        None,
-        &|_, branch| {
-            assert_eq!(branch, "checkout");
-            Ok(vec![pull_request("MERGED", Some(&head))])
-        },
-    )
-    .unwrap();
-
-    assert_eq!(unmerged_forge_detail(&preview), None);
-    assert!(preview.repos[0].is_delivered);
+    assert_eq!(answer, ForgeDelivery::Merged);
 }
 
 #[test]
-fn a_merged_pull_request_for_another_head_keeps_the_blocker() {
-    let (_guard, root) = hall_with_feature(&["api"], None);
-    let (layout, manifest, feature, _head) = ahead_by_one(&root);
+fn a_merged_pull_request_for_another_head_is_read_as_a_different_merge() {
+    let answer = read_forge_answer(&[pull_request("MERGED", Some("other"))], "abc");
 
-    let preview = preview_for(&git::System, &layout, &manifest, &feature, None, &|_, _| {
-        Ok(vec![pull_request(
-            "MERGED",
-            Some("0000000000000000000000000000000000000000"),
-        )])
-    })
-    .unwrap();
-
-    let detail = unmerged_forge_detail(&preview).unwrap().unwrap();
-    assert!(detail.contains("#7"), "{detail}");
-    assert!(!preview.repos[0].is_delivered);
+    assert_eq!(answer, ForgeDelivery::MergedOtherHead { number: 7 });
 }
 
 #[test]
-fn a_forge_failure_or_missing_pull_request_keeps_the_blocker_with_its_reason() {
-    let (_guard, root) = hall_with_feature(&["api"], None);
-    let (layout, manifest, feature, _head) = ahead_by_one(&root);
+fn an_open_pull_request_is_read_as_not_merged() {
+    let answer = read_forge_answer(&[pull_request("OPEN", Some("abc"))], "abc");
 
-    let failed = preview_for(&git::System, &layout, &manifest, &feature, None, &|_, _| {
-        Err(Failure::failed(
-            "pull_requests.gh_failed",
-            "gh: not logged in",
-        ))
-    })
-    .unwrap();
     assert_eq!(
-        unmerged_forge_detail(&failed),
-        Some(Some("gh: not logged in".to_owned()))
+        answer,
+        ForgeDelivery::NotMerged {
+            number: 7,
+            state: "OPEN".to_owned(),
+        }
     );
-    assert!(!failed.repos[0].is_delivered);
-
-    let missing = preview_for(&git::System, &layout, &manifest, &feature, None, &|_, _| {
-        Ok(Vec::new())
-    })
-    .unwrap();
-    assert_eq!(unmerged_forge_detail(&missing), Some(None));
-    assert!(!missing.repos[0].is_delivered);
 }
 
 #[test]
-fn drift_is_attributed_to_the_forge_only_when_a_lookup_answered() {
-    let (_guard, root) = hall_with_feature(&["api"], None);
-    let (layout, manifest, feature, head) = ahead_by_one(&root);
-
-    let (_, consulted) =
-        preview_and_forge_use(&git::System, &layout, &manifest, &feature, None, &|_, _| {
-            Ok(vec![pull_request("OPEN", Some(&head))])
-        })
-        .unwrap();
-    assert!(consulted);
-
-    let (_, silent) =
-        preview_and_forge_use(&git::System, &layout, &manifest, &feature, None, &|_, _| {
-            Ok(Vec::new())
-        })
-        .unwrap();
-    assert!(!silent);
+fn an_empty_pull_request_list_is_read_as_no_pull_request() {
+    assert_eq!(read_forge_answer(&[], "abc"), ForgeDelivery::NoPullRequest);
 }
 
 #[test]
 fn the_merged_pull_request_for_the_local_head_wins_over_an_earlier_record() {
-    let (_guard, root) = hall_with_feature(&["api"], None);
-    let (layout, manifest, feature, head) = ahead_by_one(&root);
+    let answer = read_forge_answer(
+        &[
+            pull_request("CLOSED", Some("other")),
+            pull_request("MERGED", Some("abc")),
+        ],
+        "abc",
+    );
 
-    let preview = preview_for(&git::System, &layout, &manifest, &feature, None, &|_, _| {
-        Ok(vec![
-            pull_request("CLOSED", Some("0000000000000000000000000000000000000000")),
-            pull_request("MERGED", Some(&head)),
-        ])
-    })
-    .unwrap();
-
-    assert_eq!(unmerged_forge_detail(&preview), None);
-    assert!(preview.repos[0].is_delivered);
+    assert_eq!(answer, ForgeDelivery::Merged);
 }
 
 #[test]
@@ -1038,33 +967,64 @@ fn a_repo_with_nothing_ahead_never_asks_the_forge() {
         .unwrap()
         .unwrap();
 
-    let preview = preview_for(&git::System, &layout, &manifest, &feature, None, &|_, _| {
-        panic!("the forge must not be consulted when local git proves delivery")
-    })
-    .unwrap();
+    let previewed = preview_cleanup(&git::System, &layout, &manifest, &feature, None).unwrap();
 
-    assert!(preview.repos[0].is_delivered);
+    assert!(previewed.preview.repos[0].is_delivered);
+    assert!(
+        !previewed.forge_consulted,
+        "local git proved delivery, so no forge answer may be recorded"
+    );
 }
 
 #[test]
-fn forge_failure_text_does_not_move_the_cleanup_fingerprint() {
+fn a_repo_ahead_rests_on_a_forge_answer_and_keeps_its_blocker() {
     let (_guard, root) = hall_with_feature(&["api"], None);
     let (layout, manifest, feature, _head) = ahead_by_one(&root);
-    let preview_failing_with = |what: &'static str| {
-        preview_for(
+
+    let previewed = preview_cleanup(&git::System, &layout, &manifest, &feature, None).unwrap();
+
+    assert!(
+        previewed.forge_consulted,
+        "a repo local git cannot prove delivered must consult the forge"
+    );
+    assert!(!previewed.preview.repos[0].is_delivered);
+    assert!(unmerged_forge_detail(&previewed.preview).unwrap().is_some());
+}
+
+#[test]
+fn forge_answer_text_does_not_move_the_cleanup_fingerprint() {
+    let (_guard, root) = hall_with_feature(&["api"], None);
+    let (layout, manifest, feature, _head) = ahead_by_one(&root);
+    let fingerprint_with = |forge: ForgeDelivery| {
+        let mut facts = collect_repo_facts(
             &git::System,
             &layout,
             &manifest,
             &feature,
-            None,
-            &move |_, _| Err(Failure::failed("pull_requests.gh_failed", what)),
-        )
-        .unwrap()
+            feature.promotions.keys().next().unwrap(),
+            feature.promotions.values().next().unwrap(),
+        );
+        facts.forge_delivery = Some(forge);
+        let facts = CleanupFacts {
+            repos: vec![facts],
+            live_sessions: Vec::new(),
+            descendants: Vec::new(),
+            session_inspection_error: None,
+        };
+        let blockers = classify_cleanup(&facts).blockers;
+        let repos: Vec<_> = facts.repos.iter().filter_map(cleanup_repo).collect();
+        let fingerprint =
+            fingerprint_for(&feature.name, &feature.branch, &repos, &blockers, &[]).unwrap();
+        (blockers, fingerprint)
     };
 
-    let first = preview_failing_with("gh: request timed out after 30s");
-    let second = preview_failing_with("gh: connection reset");
+    let (first_blockers, first) = fingerprint_with(ForgeDelivery::Unavailable {
+        reason: "gh: request timed out after 30s".to_owned(),
+    });
+    let (second_blockers, second) = fingerprint_with(ForgeDelivery::Unavailable {
+        reason: "gh: connection reset".to_owned(),
+    });
 
-    assert_ne!(first.blockers, second.blockers);
-    assert_eq!(first.fingerprint, second.fingerprint);
+    assert_ne!(first_blockers, second_blockers);
+    assert_eq!(first, second);
 }

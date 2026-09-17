@@ -159,17 +159,30 @@ pub fn classify_delivery(facts: &DeliveryFacts) -> DeliveryVerdict {
 pub enum ForgeDelivery {
     /// A merged pull request whose head is the local feature head.
     Merged,
-    /// A pull request exists but does not prove this head landed.
-    NotMerged(String),
+    /// The forge answered, and lists no pull request for the branch at all.
+    NoPullRequest,
+    /// A merged pull request exists, but it landed a different head.
+    MergedOtherHead { number: u64 },
+    /// A pull request exists and has not merged.
+    NotMerged { number: u64, state: String },
     /// The forge could not answer.
-    Unavailable(String),
+    Unavailable { reason: String },
 }
 
 impl ForgeDelivery {
-    fn detail(&self) -> Option<&str> {
+    /// The sentence a blocker carries for this verdict, or `None` when the
+    /// verdict removes the blocker instead of explaining it.
+    fn detail(&self) -> Option<String> {
         match self {
             Self::Merged => None,
-            Self::NotMerged(detail) | Self::Unavailable(detail) => Some(detail),
+            Self::NoPullRequest => {
+                Some("the forge lists no pull request for this branch".to_owned())
+            }
+            Self::MergedOtherHead { number } => Some(format!(
+                "pull request #{number} merged a head other than this branch's"
+            )),
+            Self::NotMerged { number, state } => Some(format!("pull request #{number} is {state}")),
+            Self::Unavailable { reason } => Some(reason.clone()),
         }
     }
 }
@@ -367,8 +380,7 @@ pub fn classify_cleanup(facts: &CleanupFacts) -> CleanupVerdict {
                     .iter()
                     .find(|facts| &facts.repo == repo)
                     .and_then(|facts| facts.forge_delivery.as_ref())
-                    .and_then(ForgeDelivery::detail)
-                    .map(str::to_owned);
+                    .and_then(ForgeDelivery::detail);
             }
             blockers.push(blocker);
         }
