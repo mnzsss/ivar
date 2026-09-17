@@ -403,13 +403,12 @@ fn resolve_set_by_target(target: &Utf8Path) -> Option<WritableSet> {
 pub fn guard(provider: Provider, stdin_json: &str) -> Result<GuardOutcome, Failure> {
     let (tool_request, cwd) = crate::providers::parse_tool_request(provider, stdin_json)?;
 
-    let set = cwd
+    let mut set = cwd
         .as_deref()
         .and_then(|cwd| crate::action::session::env::SessionEnv::resolve_by_cwd(cwd).ok())
         .flatten()
         .and_then(|env| resolve_writable_set(&env));
 
-    let mut set = set;
     if set.is_none()
         && is_structured_write(&tool_request.tool)
         && let Some(file_path) = &tool_request.file_path
