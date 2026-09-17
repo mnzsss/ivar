@@ -46,7 +46,7 @@ fn write_then_read_round_trips_and_writes_canonical_bytes() {
     let expected = json::to_canonical_string(&serde_json::json!({
         "version": 4,
         "name": "acme",
-        "$schema": "https://ivar.run/ivar.schema.json",
+        "$schema": "https://ivar.run/schema/4.json",
         "integration": { "strategy": "squash", "via": "local" },
         "providers": { "available": ["claude-code", "opencode"], "default": "claude-code" },
         "repos": [
@@ -82,6 +82,33 @@ fn manifest_without_skills_omits_the_key_and_still_round_trips() {
     let on_disk = fs::read_text(&layout.manifest()).unwrap().unwrap();
     assert!(!on_disk.contains("skills"));
     assert_eq!(Manifest::read(&layout).unwrap(), Some(manifest));
+}
+
+#[test]
+fn write_stamps_the_version_it_wrote_over_a_legacy_schema_url() {
+    let (_dir, root) = utf8_temp_dir();
+    let layout = Layout::at(root);
+    let legacy = json::to_canonical_string(&serde_json::json!({
+        "$schema": "https://ivar.run/ivar.schema.json",
+        "version": 4,
+        "name": "acme",
+        "integration": { "strategy": "squash", "via": "local" },
+        "providers": { "available": ["claude-code"], "default": "claude-code" },
+        "repos": [],
+    }))
+    .unwrap();
+    fs::write_text(&layout.manifest(), &legacy).unwrap();
+
+    let manifest = Manifest::read(&layout).unwrap().unwrap();
+    Manifest::write(&layout, &manifest).unwrap();
+
+    let on_disk = fs::read_text(&layout.manifest()).unwrap().unwrap();
+    let value: serde_json::Value = serde_json::from_str(&on_disk).unwrap();
+    assert_eq!(
+        value["$schema"].as_str(),
+        Some("https://ivar.run/schema/4.json"),
+        "a write must stamp the URL for the version it wrote, not carry the file's"
+    );
 }
 
 // -- absent is Ok(None); unparseable is a hard error ----------------------
@@ -348,6 +375,7 @@ fn a_plain_write_refuses_a_v1_file_and_explicit_migrate_writes_canonical_current
     let expected = json::to_canonical_string(&serde_json::json!({
         "version": 4,
         "name": "acme",
+        "$schema": "https://ivar.run/schema/4.json",
         "integration": { "strategy": "squash", "via": "local" },
         "providers": { "available": ["claude-code", "opencode"], "default": "claude-code" },
         "repos": [
@@ -383,6 +411,7 @@ fn a_plain_write_refuses_a_v2_file_and_explicit_migrate_writes_canonical_current
     let expected = json::to_canonical_string(&serde_json::json!({
         "version": 4,
         "name": "acme",
+        "$schema": "https://ivar.run/schema/4.json",
         "integration": { "strategy": "squash", "via": "local" },
         "providers": { "available": ["claude-code", "opencode"], "default": "claude-code" },
         "repos": [
@@ -461,6 +490,7 @@ fn a_v3_manifest_with_oauth_migrates_to_v4_with_fields_intact_and_no_fabricated_
     let expected = json::to_canonical_string(&serde_json::json!({
         "version": 4,
         "name": "acme",
+        "$schema": "https://ivar.run/schema/4.json",
         "integration": { "strategy": "squash", "via": "local" },
         "providers": { "available": ["claude-code", "opencode"], "default": "claude-code" },
         "repos": [

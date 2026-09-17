@@ -12,6 +12,7 @@
 //! See `mod.rs` for the full schema, contract, and the "why explicit
 //! validate" decision that keeps invariant checks out of `Deserialize`.
 
+use std::borrow::Cow;
 use std::collections::HashSet;
 
 use serde::{Deserialize, Serialize};
@@ -50,14 +51,72 @@ pub struct Manifest {
     /// The hall's shared skill home, if it has one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     skills: Option<Skills>,
-    #[serde(rename = "$schema", skip_serializing_if = "Option::is_none")]
-    schema: Option<String>,
+    #[serde(rename = "$schema", default)]
+    schema: SchemaRef,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     mcp: Option<Vec<McpServerDef>>,
 }
 
-/// Canonical URL for the Ivar manifest schema.
-pub(super) const MANIFEST_SCHEMA_URL: &str = "https://ivar.run/ivar.schema.json";
+/// The canonical URL of the document describing manifest version `version`.
+///
+/// One document per version, because the schema pins `version` with `const`:
+/// a single URL could only ever be right for one version, and an editor that
+/// fetched it for any other would report an error on a correct file.
+#[must_use]
+pub(super) fn manifest_schema_url(version: u32) -> String {
+    format!("https://ivar.run/schema/{version}.json")
+}
+
+/// `ivar.json`'s `$schema` reference: a function of the version being
+/// written, never state carried from the file.
+///
+/// Deserialising accepts the string on disk and drops it — it may be a legacy
+/// unversioned URL, or something hand-typed — and serialising always emits
+/// [`manifest_schema_url`] for [`CURRENT_VERSION`]. Correcting the value on
+/// write would do the same thing later; holding no value at all is what makes
+/// a stale one unrepresentable, and it keeps `Manifest::write`'s `&Self`
+/// signature clone-free.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(super) struct SchemaRef;
+
+impl Serialize for SchemaRef {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&manifest_schema_url(CURRENT_VERSION))
+    }
+}
+
+impl<'de> Deserialize<'de> for SchemaRef {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        // Read so the key is consumed rather than rejected by
+        // `deny_unknown_fields`, then dropped: see the type's doc comment.
+        String::deserialize(deserializer)?;
+        Ok(Self)
+    }
+}
+
+impl schemars::JsonSchema for SchemaRef {
+    fn schema_name() -> Cow<'static, str> {
+        "SchemaRef".into()
+    }
+
+    fn schema_id() -> Cow<'static, str> {
+        concat!(module_path!(), "::SchemaRef").into()
+    }
+
+    // Inlined rather than a `$defs` entry: `generate()` replaces the
+    // `$schema` property wholesale, so a definition would be dead weight in
+    // the published document — the same reason `McpServerDef` is removed
+    // there.
+    fn inline_schema() -> bool {
+        true
+    }
+
+    fn json_schema(_generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        schemars::json_schema!({
+            "type": "string"
+        })
+    }
+}
 
 impl Manifest {
     /// Build a validated `Manifest`. Refuses exactly what [`Self::validate`]
@@ -82,7 +141,7 @@ impl Manifest {
             repos,
             integration: IntegrationPolicy::default(),
             skills,
-            schema: Some(MANIFEST_SCHEMA_URL.to_owned()),
+            schema: SchemaRef,
             mcp: None,
         };
         manifest.validate()?;
@@ -225,7 +284,7 @@ impl Manifest {
             repos,
             integration: self.integration,
             skills: self.skills.clone(),
-            schema: self.schema.clone(),
+            schema: self.schema,
             mcp: self.mcp.clone(),
         };
         manifest.validate()?;

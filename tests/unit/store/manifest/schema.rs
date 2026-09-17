@@ -72,13 +72,27 @@ fn schema_has_id_and_title() {
     let s = schema();
     assert_eq!(
         s.get("$id").and_then(Value::as_str),
-        Some("https://ivar.run/ivar.schema.json"),
-        "$id must match the canonical URL"
+        Some("https://ivar.run/schema/4.json"),
+        "$id must match the canonical URL for the version this document pins"
     );
     assert_eq!(
         s.get("title").and_then(Value::as_str),
         Some("ivar.json"),
         "title must be the file name"
+    );
+    // An editor resolves the document by `$id` and validates the file's
+    // `$schema` line against the `const`. When those two disagree, a correct
+    // manifest is reported as wrong on the line that points at this document.
+    assert_eq!(
+        s.get("$id"),
+        s.pointer("/properties/$schema/const"),
+        "the document must be served under the name it tells files to use"
+    );
+    assert_eq!(
+        s.pointer("/properties/version/const")
+            .and_then(Value::as_u64),
+        Some(4),
+        "the URL's version segment and the pinned version must be the same version"
     );
 }
 

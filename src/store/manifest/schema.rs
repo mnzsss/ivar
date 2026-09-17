@@ -8,7 +8,7 @@
 
 use serde_json::{Value, json};
 
-use super::model::{CURRENT_VERSION, MANIFEST_SCHEMA_URL};
+use super::model::{CURRENT_VERSION, manifest_schema_url};
 
 /// Generate the complete JSON Schema describing `ivar.json`.
 ///
@@ -23,7 +23,7 @@ pub fn generate() -> Value {
         .expect("schema must serialize");
 
     // ── metadata ──────────────────────────────────────────────────────
-    schema["$id"] = json!(MANIFEST_SCHEMA_URL);
+    schema["$id"] = json!(manifest_schema_url(CURRENT_VERSION));
     schema["title"] = json!("ivar.json");
     schema["description"] = json!(
         "The hall configuration file for ivar: identity, providers, repos, \
@@ -41,7 +41,7 @@ pub fn generate() -> Value {
     schema["properties"]["$schema"] = json!({
         "type": "string",
         "description": "URL of the JSON Schema for this file.",
-        "const": MANIFEST_SCHEMA_URL
+        "const": manifest_schema_url(CURRENT_VERSION)
     });
 
     // ── providers.available: minItems + uniqueItems ────────────────────
