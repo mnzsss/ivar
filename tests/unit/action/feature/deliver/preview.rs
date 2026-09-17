@@ -280,6 +280,7 @@ fn the_human_preview_surface_lists_each_repo_and_the_fingerprint() {
             tree_blockers: Vec::new(),
             fingerprint: "abc123".to_owned(),
         },
+        apply_command: None,
         pushes: Vec::new(),
         land: Vec::new(),
         checks: Vec::new(),
@@ -377,6 +378,7 @@ fn human_preview_renders_new_pr_draft() {
             tree_blockers: Vec::new(),
             fingerprint: "abc123".to_owned(),
         },
+        apply_command: None,
         pushes: Vec::new(),
         land: Vec::new(),
         checks: Vec::new(),
@@ -406,6 +408,7 @@ fn human_preview_renders_convert_pr_to_draft() {
             tree_blockers: Vec::new(),
             fingerprint: "abc123".to_owned(),
         },
+        apply_command: None,
         pushes: Vec::new(),
         land: Vec::new(),
         checks: Vec::new(),
@@ -444,6 +447,7 @@ fn human_preview_without_draft_omits_draft_text() {
             tree_blockers: Vec::new(),
             fingerprint: "abc123".to_owned(),
         },
+        apply_command: None,
         pushes: Vec::new(),
         land: Vec::new(),
         checks: Vec::new(),
@@ -459,5 +463,78 @@ fn human_preview_without_draft_omits_draft_text() {
     assert!(
         !rendered.contains("draft"),
         "draft must not appear in legacy output:\n{rendered}"
+    );
+}
+
+#[test]
+fn apply_command_repeats_every_fingerprinted_flag() {
+    let input = DeliverInput {
+        feature: "checkout".to_owned(),
+        preview: true,
+        land: false,
+        fingerprint: None,
+        global_metadata: PullRequestMetadata {
+            title: Some("feat: checkout flow".to_owned()),
+            body: Some("./docs/pr.md".to_owned()),
+            draft: Some(true),
+        },
+        repo_overrides: vec![RepoMetadataOverride {
+            repo: "api".to_owned(),
+            metadata: PullRequestMetadata {
+                title: Some("it's the api".to_owned()),
+                body: None,
+                draft: None,
+            },
+        }],
+    };
+
+    assert_eq!(
+        apply_command(&input, "abc123"),
+        "ivar feature deliver checkout --fingerprint abc123 \
+         --name 'feat: checkout flow' --body ./docs/pr.md --draft \
+         --repo api --name 'it'\\''s the api'"
+    );
+}
+
+#[test]
+fn the_human_preview_prints_the_apply_command_and_what_the_fingerprint_covers() {
+    let outcome = DeliverOutcome {
+        root: Utf8PathBuf::from("/hall"),
+        preview: DeliveryPreview {
+            feature: FeatureName::new("checkout").unwrap(),
+            mode: DeliveryMode::Push,
+            plan_gate: GateState::Approved,
+            repos: vec![delivery_repo("api", vec![])],
+            tree_blockers: Vec::new(),
+            fingerprint: "abc123".to_owned(),
+        },
+        apply_command: Some("ivar feature deliver checkout --fingerprint abc123".to_owned()),
+        pushes: Vec::new(),
+        land: Vec::new(),
+        checks: Vec::new(),
+    };
+
+    let mut out = Vec::new();
+    outcome.write_human(&mut out).unwrap();
+
+    let rendered = String::from_utf8(out).unwrap();
+    assert!(rendered.contains("fingerprint: abc123"));
+    assert!(rendered.contains("apply:       ivar feature deliver checkout --fingerprint abc123"));
+    assert!(rendered.contains("--name, --body and --draft are part of the fingerprint"));
+}
+
+#[test]
+fn preview_mode_carries_the_apply_command_and_land_flag() {
+    let (_guard, root) = hall_with_promoted(&["api"]);
+    let ctx = Ctx::new(root.clone());
+
+    let preview = deliver(&ctx, land_preview_input("checkout")).unwrap().value;
+
+    assert_eq!(
+        preview.apply_command,
+        Some(format!(
+            "ivar feature deliver checkout --land --fingerprint {}",
+            preview.preview.fingerprint
+        ))
     );
 }

@@ -238,6 +238,7 @@ pub(super) fn execute(
         DeliverOutcome {
             root: layout.root().to_path_buf(),
             preview,
+            apply_command: None,
             pushes,
             land: Vec::new(),
             checks,

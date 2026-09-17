@@ -60,6 +60,9 @@ pub struct DeliverOutcome {
     pub root: Utf8PathBuf,
     /// The preview summary, present for both preview and apply mode.
     pub preview: DeliveryPreview,
+    /// The exact command that applies this preview, present in preview mode.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub apply_command: Option<String>,
     /// Per-repo push results, present in apply mode for non-land delivery.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub pushes: Vec<PushResult>,
@@ -147,7 +150,15 @@ impl WriteHuman for DeliverOutcome {
                 }
             }
             writeln!(w, "  plan gate:   {}", self.preview.plan_gate)?;
-            writeln!(w, "  fingerprint: {}", self.preview.fingerprint)
+            writeln!(w, "  fingerprint: {}", self.preview.fingerprint)?;
+            if let Some(command) = &self.apply_command {
+                writeln!(w, "  apply:       {command}")?;
+                writeln!(
+                    w,
+                    "  note:        --name, --body and --draft are part of the fingerprint; apply with the same values"
+                )?;
+            }
+            Ok(())
         } else if !self.land.is_empty() {
             writeln!(
                 w,

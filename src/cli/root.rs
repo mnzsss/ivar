@@ -595,20 +595,20 @@ impl clap::Args for FeatureDeliverArgs {
         .arg(
             clap::Arg::new("fingerprint")
                 .long("fingerprint")
-                .help("The fingerprint from the preview the human approved; required to apply. Apply recomputes the preview and refuses when the fingerprint differs — the state has drifted since the preview.")
+                .help("The fingerprint from the preview the human approved; required to apply. It covers `--name`, `--body` and `--draft`, so apply with the same values the preview used. Apply recomputes the preview and refuses when the fingerprint differs — the state has drifted since the preview.")
                 .value_name("FINGERPRINT"),
         )
         .arg(
             clap::Arg::new("name")
                 .long("name")
-                .help("Pull request title. If placed before any `--repo`, applies globally; if placed after a `--repo`, applies to that repo.")
+                .help("Pull request title. If placed before any `--repo`, applies globally; if placed after a `--repo`, applies to that repo. Part of the delivery fingerprint: pass the same value to the preview and the apply.")
                 .value_name("TITLE")
                 .action(clap::ArgAction::Append),
         )
         .arg(
             clap::Arg::new("body")
                 .long("body")
-                .help("Pull request body text, or a path to a `.md` / `.txt` file — either `./relative` or absolute. If placed before any `--repo`, applies globally; if placed after a `--repo`, applies to that repo.")
+                .help("Pull request body text, or a path to a `.md` / `.txt` file — either `./relative` or absolute. If placed before any `--repo`, applies globally; if placed after a `--repo`, applies to that repo. Part of the delivery fingerprint: pass the same value to the preview and the apply.")
                 .value_name("BODY")
                 .action(clap::ArgAction::Append),
         )

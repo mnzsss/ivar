@@ -25,7 +25,9 @@ use crate::error::{Failure, FixAction, Outcome, Report};
 use crate::git;
 use crate::store::layout::Layout;
 
-use preview::{fingerprint_for, plan_gate_state, plan_not_approved, preview_required};
+use preview::{
+    apply_command, fingerprint_for, plan_gate_state, plan_not_approved, preview_required,
+};
 use repos::{build_repos, order_by_dependencies};
 
 pub fn deliver(ctx: &Ctx, input: DeliverInput) -> Outcome<DeliverOutcome> {
@@ -95,9 +97,11 @@ pub fn deliver(ctx: &Ctx, input: DeliverInput) -> Outcome<DeliverOutcome> {
     };
 
     if input.preview {
+        let apply_command = apply_command(&input, &preview.fingerprint);
         return Ok(Report::new(DeliverOutcome {
             root: layout.root().to_path_buf(),
             preview,
+            apply_command: Some(apply_command),
             pushes: Vec::new(),
             land: Vec::new(),
             checks: Vec::new(),
@@ -197,6 +201,7 @@ pub fn deliver(ctx: &Ctx, input: DeliverInput) -> Outcome<DeliverOutcome> {
             DeliverOutcome {
                 root: layout.root().to_path_buf(),
                 preview,
+                apply_command: None,
                 pushes: Vec::new(),
                 land: land_results,
                 checks,
