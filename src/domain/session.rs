@@ -29,6 +29,20 @@ use super::provider::Provider;
 /// The schema version of `state.json`, stamped by `store::session`.
 const CURRENT_VERSION: u32 = 1;
 
+/// The scratch directory every session view dir carries, for an agent's
+/// temporary and working files.
+///
+/// Dot-prefixed on purpose. `action::session::view::materialise` links every
+/// manifest repo into the view dir under the repo's own name, and
+/// `domain::name`'s repo validation has no reserved list — a repo named
+/// `tmp` is legal. A leading dot puts the scratch dir out of that namespace,
+/// the same way the provider config dir (`.claude/`, `.omp/`) already is.
+///
+/// Lives in `domain` because it is the one layer both `store::layout` (which
+/// owns the path) and `harness::config::instructions` (which documents it)
+/// may import.
+pub const SCRATCH_DIR: &str = ".tmp";
+
 /// One session's record: how it was launched and what it is bound to.
 ///
 /// Written to `state.json` inside the session's View Dir — which is what lets
