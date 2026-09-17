@@ -99,7 +99,8 @@ fn init_refuses_an_existing_hall_reported_as_json() {
         .stdout
         .clone();
     let value: serde_json::Value = serde_json::from_slice(&output).expect("valid json");
-    assert_eq!(value["status"], "blocked");
+    assert_eq!(value["ok"], false);
+    assert!(value.get("status").is_none(), "{value}");
     assert_eq!(value["code"], "hall.already_initialised");
 }
 

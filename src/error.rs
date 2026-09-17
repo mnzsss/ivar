@@ -196,9 +196,16 @@ impl FixAction {
     }
 }
 
+fn serialize_not_ok<S: serde::Serializer>(_: &Status, serializer: S) -> Result<S::Ok, S::Error> {
+    serializer.serialize_bool(false)
+}
+
 /// The one shape every reported failure takes.
 #[derive(Debug, Clone, Serialize)]
 pub struct Failure {
+    /// Drives the exit code and the human label; on the JSON surface every
+    /// failure is just `"ok": false`.
+    #[serde(rename(serialize = "ok"), serialize_with = "serialize_not_ok")]
     pub status: Status,
     /// Stable, machine-matchable identifier, e.g. `hall.already_initialised`.
     pub code: &'static str,

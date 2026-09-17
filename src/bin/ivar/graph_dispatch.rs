@@ -21,7 +21,7 @@ fn stderr_palette() -> Palette {
 
 fn write_json(w: &mut impl io::Write, value: &impl Serialize) -> io::Result<()> {
     let rendered = serde_json::to_string(value).unwrap_or_else(|_| {
-        r#"{"status":"failed","code":"cli.render_failed","what":"could not render JSON output"}"#
+        r#"{"ok":false,"code":"cli.render_failed","what":"could not render JSON output"}"#
             .to_owned()
     });
     writeln!(w, "{rendered}")

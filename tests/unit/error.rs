@@ -34,7 +34,17 @@ fn human_form_orders_fixes_and_marks_the_unsafe_one() {
 #[test]
 fn empty_optional_fields_stay_out_of_the_json() {
     let json = serde_json::to_string(&Failure::blocked("a.b", "c")).unwrap();
-    assert_eq!(json, r#"{"status":"blocked","code":"a.b","what":"c"}"#);
+    assert_eq!(json, r#"{"ok":false,"code":"a.b","what":"c"}"#);
+}
+
+#[test]
+fn a_failed_failure_keeps_its_status_in_memory_but_not_in_the_json() {
+    let failure = Failure::failed("a.b", "c");
+    let json = serde_json::to_value(&failure).unwrap();
+
+    assert_eq!(json.get("ok"), Some(&serde_json::Value::Bool(false)));
+    assert!(json.get("status").is_none(), "{json}");
+    assert_eq!(failure.status, Status::Failed);
 }
 
 /// Strip every SGR sequence. Deliberately a separate, dumb implementation

@@ -186,7 +186,7 @@ error it is.
 
 ```rust
 pub struct Failure {
-    pub status: Status,              // Blocked | Failed
+    pub status: Status,              // Blocked | Failed; serialized as "ok": false
     pub code: &'static str,
     pub what: String,
     pub expected: Option<String>,
