@@ -70,7 +70,7 @@ run "$D"
 D="$WORK/crossed"
 document "$D" 5 "https://ivar.run/schema/4.json" 5
 run "$D"
-if [ "$RUN_RC" -ne 0 ] && printf '%s' "$RUN_OUT" | grep -q 'schema/5.json'; then
+if [ "$RUN_RC" -eq 1 ] && printf '%s' "$RUN_OUT" | grep -q 'schema/5.json'; then
     ok "an \$id naming a different version is refused, naming the file"
 else
     bad "crossed \$id accepted (rc=$RUN_RC: $RUN_OUT)"
@@ -80,38 +80,53 @@ fi
 D="$WORK/legacy"
 document "$D" 4 "https://ivar.run/ivar.schema.json" 4
 run "$D"
-[ "$RUN_RC" -ne 0 ] && ok "the legacy unversioned \$id is refused" \
-    || bad "legacy \$id accepted (rc=$RUN_RC: $RUN_OUT)"
+if [ "$RUN_RC" -eq 1 ] && printf '%s' "$RUN_OUT" | grep -q 'https://ivar.run/schema/4.json'; then
+    ok "the legacy unversioned \$id is refused"
+else
+    bad "legacy \$id accepted (rc=$RUN_RC: $RUN_OUT)"
+fi
 
 # ── pinned version disagreeing with the filename ───────────────────────
 D="$WORK/mispinned"
 document "$D" 4 "https://ivar.run/schema/4.json" 3
 run "$D"
-[ "$RUN_RC" -ne 0 ] && ok "a document pinning a version its name denies is refused" \
-    || bad "mispinned document accepted (rc=$RUN_RC: $RUN_OUT)"
+if [ "$RUN_RC" -eq 1 ] && printf '%s' "$RUN_OUT" | grep -q 'pins version'; then
+    ok "a document pinning a version its name denies is refused"
+else
+    bad "mispinned document accepted (rc=$RUN_RC: $RUN_OUT)"
+fi
 
 # ── invalid JSON ───────────────────────────────────────────────────────
 D="$WORK/broken"
 mkdir -p "$D"
 printf '{ not json' > "$D/4.json"
 run "$D"
-[ "$RUN_RC" -ne 0 ] && ok "invalid JSON is refused" \
-    || bad "invalid JSON accepted (rc=$RUN_RC: $RUN_OUT)"
+if [ "$RUN_RC" -eq 1 ] && printf '%s' "$RUN_OUT" | grep -q 'is not valid JSON'; then
+    ok "invalid JSON is refused"
+else
+    bad "invalid JSON accepted (rc=$RUN_RC: $RUN_OUT)"
+fi
 
 # ── an empty file ──────────────────────────────────────────────────────
 D="$WORK/empty"
 mkdir -p "$D"
 : > "$D/4.json"
 run "$D"
-[ "$RUN_RC" -ne 0 ] && ok "an empty document is refused" \
-    || bad "empty document accepted (rc=$RUN_RC: $RUN_OUT)"
+if [ "$RUN_RC" -eq 1 ] && printf '%s' "$RUN_OUT" | grep -q 'is empty'; then
+    ok "an empty document is refused"
+else
+    bad "empty document accepted (rc=$RUN_RC: $RUN_OUT)"
+fi
 
 # ── no documents at all ────────────────────────────────────────────────
 D="$WORK/none"
 mkdir -p "$D"
 run "$D"
-[ "$RUN_RC" -ne 0 ] && ok "a directory with no documents is refused, not passed" \
-    || bad "empty directory accepted (rc=$RUN_RC: $RUN_OUT)"
+if [ "$RUN_RC" -eq 1 ] && printf '%s' "$RUN_OUT" | grep -q 'no schema documents found'; then
+    ok "a directory with no documents is refused, not passed"
+else
+    bad "empty directory accepted (rc=$RUN_RC: $RUN_OUT)"
+fi
 
 # ── the real thing ─────────────────────────────────────────────────────
 run "$SCRIPT_DIR/../schema"
