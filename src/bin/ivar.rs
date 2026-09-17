@@ -105,6 +105,8 @@ fn main() -> ExitCode {
                 && term::is_tty(term::Stream::Stdin),
         ));
 
+    let session_id = std::env::var("IVAR_SESSION_ID").ok();
+
     let mut stdout = io::stdout().lock();
     let mut stderr = io::stderr().lock();
 
@@ -312,7 +314,7 @@ fn main() -> ExitCode {
                 ExecuteCommand::Finish(args) => {
                     match resolve_single_feature(
                         &ctx,
-                        args.feature,
+                        args.feature.clone(),
                         "Select a feature to finish execution",
                     ) {
                         Ok(feature) => respond(
@@ -320,9 +322,7 @@ fn main() -> ExitCode {
                                 &ctx,
                                 finish::FinishInput {
                                     feature,
-                                    plan: args.plan,
-                                    report_json: args.report_json.unwrap_or_default(),
-                                    outcome: args.outcome.unwrap_or_default(),
+                                    ..args.into()
                                 },
                             ),
                             json,
@@ -481,39 +481,35 @@ fn main() -> ExitCode {
                     Err(failure) => respond_failure(failure, json, &mut stdout, &mut stderr),
                 },
             },
-            FeatureCommand::Cleanup(args) => match args.name {
-                Some(feature) => respond(
-                    cleanup::cleanup(
-                        &ctx,
-                        cleanup::CleanupInput {
-                            feature,
-                            preview: args.preview,
-                            record: args.record,
-                            session_id: std::env::var("IVAR_SESSION_ID").ok(),
-                        },
+            FeatureCommand::Cleanup(args) => {
+                let input = |feature: String| cleanup::CleanupInput {
+                    feature,
+                    preview: args.preview,
+                    record: args.record.clone(),
+                    session_id: session_id.clone(),
+                };
+                match args.name.clone() {
+                    Some(feature) => respond(
+                        cleanup::cleanup(&ctx, input(feature)),
+                        json,
+                        &mut stdout,
+                        &mut stderr,
                     ),
-                    json,
-                    &mut stdout,
-                    &mut stderr,
-                ),
-                None => match resolve_multi_features(&ctx, None, "Select features to clean up") {
-                    Ok(targets) => {
-                        let items = run_feature_batch(&targets, 4, |f| {
-                            cleanup::cleanup(
-                                &ctx,
-                                cleanup::CleanupInput {
-                                    feature: f.to_owned(),
-                                    preview: args.preview,
-                                    record: args.record.clone(),
-                                    session_id: std::env::var("IVAR_SESSION_ID").ok(),
-                                },
-                            )
-                        });
-                        respond_batch(items, json, &mut stdout, &mut stderr)
+                    None => {
+                        match resolve_multi_features(&ctx, None, "Select features to clean up") {
+                            Ok(targets) => {
+                                let items = run_feature_batch(&targets, 4, |f| {
+                                    cleanup::cleanup(&ctx, input(f.to_owned()))
+                                });
+                                respond_batch(items, json, &mut stdout, &mut stderr)
+                            }
+                            Err(failure) => {
+                                respond_failure(failure, json, &mut stdout, &mut stderr)
+                            }
+                        }
                     }
-                    Err(failure) => respond_failure(failure, json, &mut stdout, &mut stderr),
-                },
-            },
+                }
+            }
             FeatureCommand::Workspace(args) => {
                 match resolve_single_feature(&ctx, args.feature, "Select a feature for workspace") {
                     Ok(feature) => respond(

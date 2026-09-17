@@ -102,3 +102,37 @@ fn execute_checkpoint_refuses_when_no_run_exists() {
 
     assert_eq!(failure.code, "execute.run_missing");
 }
+
+#[test]
+fn execute_checkpoint_refuses_a_run_that_is_over() {
+    let (_guard, root) = seeded_hall();
+    let ctx = Ctx::new(root);
+    let layout = discover_hall(&ctx).unwrap();
+    let feature = FeatureName::new("child-feature").unwrap();
+    let mut receipt = RunReceipt::start(
+        RunId::new("00000000-0000-4000-8000-000000000001").unwrap(),
+        feature.clone(),
+        "plans/child-feature/plan.md",
+        "hash123",
+        RunBaseline::empty(),
+        SessionId::new("00000000-0000-4000-8000-000000000002").unwrap(),
+        Provider::ClaudeCode,
+        rfc3339_now(),
+    );
+    receipt.interrupt(rfc3339_now()).unwrap();
+    receipt.write(&layout).unwrap();
+
+    let failure = checkpoint(
+        &ctx,
+        CheckpointInput {
+            feature: feature.to_string(),
+            wave: 1,
+            summary: "too late".to_owned(),
+        },
+    )
+    .unwrap_err();
+
+    assert_eq!(failure.code, "execute.run_terminal");
+    let stored = RunReceipt::read(&layout, &feature).unwrap().unwrap();
+    assert_eq!(stored.status, RunStatus::Interrupted);
+}

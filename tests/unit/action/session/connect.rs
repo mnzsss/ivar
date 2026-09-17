@@ -733,10 +733,10 @@ fn connect_promotes_the_repos_an_approved_plan_declares() {
     );
     let mut human = Vec::new();
     report.value.write_human(&mut human).unwrap();
+    let human = String::from_utf8(human).unwrap();
     assert!(
-        String::from_utf8(human)
-            .unwrap()
-            .contains("# promoted web\n")
+        human.lines().all(|line| line.starts_with("export ")),
+        "stdout is eval'd by a shell and carries exports only: {human}"
     );
     unguard_worktrees(&root);
 }

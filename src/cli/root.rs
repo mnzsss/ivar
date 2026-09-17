@@ -14,8 +14,8 @@ use crate::action::discovery::create as discovery_create;
 use crate::action::discovery::show as discovery_show;
 use crate::action::execute::{accept_revision, finish, start, status as execute_status};
 use crate::action::feature::{
-    cleanup, close, create, delete, deliver, demote, integrate, promote, rebase, rename, reparent,
-    status, view, workspace,
+    close, create, delete, deliver, demote, integrate, promote, rebase, rename, reparent, status,
+    view, workspace,
 };
 use crate::action::hall::InitInput;
 use crate::action::mcp::auth as mcp_auth;
@@ -1679,22 +1679,6 @@ impl From<FeatureDeleteArgs> for delete::DeleteInput {
         let FeatureDeleteArgs { name } = args;
         Self {
             name: name.unwrap_or_default(),
-        }
-    }
-}
-
-impl From<FeatureCleanupArgs> for cleanup::CleanupInput {
-    fn from(args: FeatureCleanupArgs) -> Self {
-        let FeatureCleanupArgs {
-            name,
-            preview,
-            record,
-        } = args;
-        Self {
-            feature: name.unwrap_or_default(),
-            preview,
-            record,
-            session_id: std::env::var("IVAR_SESSION_ID").ok(),
         }
     }
 }
