@@ -390,6 +390,84 @@ else
     bad "version shape guard (rc=$RUN_RC: $(cat "$WORK/run.out"))"
 fi
 
+# The install the shell actually resolves needs no diagnosis at all: no
+# warning, and none of the "add it to your PATH" text, because it is already
+# the ivar that runs.
+write_fake_artifact "$WORK/win-art" "9.9.9"
+
+run_installer PATH="$FAKE_BIN:$DEST:$BASE_PATH" \
+    FAKE_UNAME_S="Linux" FAKE_UNAME_M="x86_64" \
+    IVAR_BASE_URL="https://dl.example.test/ivar" \
+    IVAR_INSTALL_DIR="$DEST" \
+    FAKE_BIN_FILE="$WORK/win-art/ivar" \
+    FAKE_SHA_FILE="$WORK/win-art/ivar.sha256"
+if [ "$RUN_RC" -eq 0 ] \
+    && ! grep -q 'warning:' "$WORK/run.out" \
+    && ! grep -q 'is not on your PATH' "$WORK/run.out"; then
+    ok "an install the shell resolves gets no diagnosis"
+else
+    bad "winning install (rc=$RUN_RC: $(cat "$WORK/run.out"))"
+fi
+
+# An older ivar earlier in PATH is the case that produced this feature: the
+# install succeeds, the user keeps running the other binary, and until now
+# nothing said so. The warning names the file that wins.
+mkdir -p "$WORK/shadow"
+printf '#!/bin/sh\nprintf "ivar 0.0.0\\n"\n' > "$WORK/shadow/ivar"
+chmod +x "$WORK/shadow/ivar"
+
+run_installer PATH="$FAKE_BIN:$WORK/shadow:$DEST:$BASE_PATH" \
+    FAKE_UNAME_S="Linux" FAKE_UNAME_M="x86_64" \
+    IVAR_BASE_URL="https://dl.example.test/ivar" \
+    IVAR_INSTALL_DIR="$DEST" \
+    FAKE_BIN_FILE="$WORK/win-art/ivar" \
+    FAKE_SHA_FILE="$WORK/win-art/ivar.sha256"
+if [ "$RUN_RC" -eq 0 ] \
+    && grep -qF "warning: your shell runs a different ivar: $WORK/shadow/ivar" "$WORK/run.out" \
+    && grep -qF "This install is $DEST/ivar" "$WORK/run.out" \
+    && grep -q 'export PATH="'"$DEST"':$PATH"' "$WORK/run.out"; then
+    ok "a shadowing ivar is named, with the fix"
+else
+    bad "shadowed install (rc=$RUN_RC: $(cat "$WORK/run.out"))"
+fi
+
+# Nothing resolves: the pre-existing hint, unchanged, is the right answer.
+run_installer PATH="$FAKE_BIN:$BASE_PATH" \
+    FAKE_UNAME_S="Linux" FAKE_UNAME_M="x86_64" \
+    IVAR_BASE_URL="https://dl.example.test/ivar" \
+    IVAR_INSTALL_DIR="$DEST" \
+    FAKE_BIN_FILE="$WORK/win-art/ivar" \
+    FAKE_SHA_FILE="$WORK/win-art/ivar.sha256"
+if [ "$RUN_RC" -eq 0 ] \
+    && grep -qF "$DEST is not on your PATH" "$WORK/run.out" \
+    && grep -q 'export PATH="'"$DEST"':$PATH"' "$WORK/run.out" \
+    && ! grep -q 'warning:' "$WORK/run.out"; then
+    ok "an unreachable install keeps the PATH hint"
+else
+    bad "unreachable install (rc=$RUN_RC: $(cat "$WORK/run.out"))"
+fi
+
+# A PATH entry that is a symlink to the install directory resolves to the
+# install, so there is nothing to say. Comparing the two paths textually
+# would call this a miss and print a warning about the binary it just
+# installed.
+mkdir -p "$DEST"
+ln -sfn "$DEST" "$WORK/dest-link"
+
+run_installer PATH="$FAKE_BIN:$WORK/dest-link:$BASE_PATH" \
+    FAKE_UNAME_S="Linux" FAKE_UNAME_M="x86_64" \
+    IVAR_BASE_URL="https://dl.example.test/ivar" \
+    IVAR_INSTALL_DIR="$DEST" \
+    FAKE_BIN_FILE="$WORK/win-art/ivar" \
+    FAKE_SHA_FILE="$WORK/win-art/ivar.sha256"
+if [ "$RUN_RC" -eq 0 ] \
+    && ! grep -q 'warning:' "$WORK/run.out" \
+    && ! grep -q 'is not on your PATH' "$WORK/run.out"; then
+    ok "a symlinked PATH entry to the install is not mistaken for another ivar"
+else
+    bad "symlinked PATH entry (rc=$RUN_RC: $(cat "$WORK/run.out"))"
+fi
+
 # ── summary ────────────────────────────────────────────────────────────
 
 if [ "$FAIL" -ne 0 ]; then

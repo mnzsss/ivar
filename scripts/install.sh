@@ -86,6 +86,24 @@ installed_version() { # binary
     esac
 }
 
+# abs_path — print a path with its directory resolved physically.
+#
+# `command -v` answers with the PATH entry as written, so a symlinked
+# directory, a trailing slash or a `..` segment would make an identical file
+# look like a different one. Only the directory is ambiguous — the installed
+# file is a regular file after `mv` — so this resolves that and keeps the
+# basename. `dirname`/`basename`/`readlink -f` are avoided on purpose:
+# parameter expansion and `cd -P` are POSIX and add no dependency, and
+# macOS shipped without `readlink -f` for years.
+abs_path() { # path
+    _dir="${1%/*}"
+    _base="${1##*/}"
+    [ "$_dir" = "$1" ] && _dir="."
+    [ -n "$_dir" ] || _dir="/"
+    ( CDPATH= cd -P -- "$_dir" 2>/dev/null && printf '%s/%s\n' "$(pwd -P)" "$_base" ) \
+        || printf '%s\n' "$1"
+}
+
 main() {
     platform="$(detect_platform)"
 
@@ -127,14 +145,22 @@ main() {
             "$IVAR_INSTALL_DIR/ivar"
     fi
 
-    case ":$PATH:" in
-        *":$IVAR_INSTALL_DIR:"*)
-            ;;
-        *)
-            printf '\n%s is not on your PATH. Add it to your shell profile:\n' "$IVAR_INSTALL_DIR"
-            printf '    export PATH="%s:$PATH"\n' "$IVAR_INSTALL_DIR"
-            ;;
-    esac
+    # Which ivar the shell resolves is the ground truth; PATH membership is
+    # only the explanation when nothing resolves at all. Asking membership
+    # first gets a symlinked PATH entry wrong and tells a winning install it
+    # is "not on your PATH".
+    resolved="$(command -v ivar 2>/dev/null)" || resolved=""
+    if [ -n "$resolved" ] && [ "$(abs_path "$resolved")" = "$(abs_path "$IVAR_INSTALL_DIR/ivar")" ]; then
+        : # the ivar on PATH is the one just installed
+    elif [ -n "$resolved" ]; then
+        printf '\nwarning: your shell runs a different ivar: %s\n' "$(abs_path "$resolved")"
+        printf 'This install is %s. Put its directory first to use it:\n' \
+            "$(abs_path "$IVAR_INSTALL_DIR/ivar")"
+        printf '    export PATH="%s:$PATH"\n' "$IVAR_INSTALL_DIR"
+    else
+        printf '\n%s is not on your PATH. Add it to your shell profile:\n' "$IVAR_INSTALL_DIR"
+        printf '    export PATH="%s:$PATH"\n' "$IVAR_INSTALL_DIR"
+    fi
 }
 
 main "$@"
