@@ -312,23 +312,19 @@ fn main() -> ExitCode {
                     &mut stderr,
                 ),
                 ExecuteCommand::Finish(args) => {
-                    match resolve_single_feature(
+                    let input = resolve_single_feature(
                         &ctx,
                         args.feature.clone(),
                         "Select a feature to finish execution",
-                    ) {
-                        Ok(feature) => respond(
-                            finish::finish(
-                                &ctx,
-                                finish::FinishInput {
-                                    feature,
-                                    ..args.into()
-                                },
-                            ),
-                            json,
-                            &mut stdout,
-                            &mut stderr,
-                        ),
+                    )
+                    .and_then(|feature| {
+                        finish::FinishInput::try_from(args)
+                            .map(|input| finish::FinishInput { feature, ..input })
+                    });
+                    match input {
+                        Ok(input) => {
+                            respond(finish::finish(&ctx, input), json, &mut stdout, &mut stderr)
+                        }
                         Err(failure) => respond_failure(failure, json, &mut stdout, &mut stderr),
                     }
                 }
@@ -1027,12 +1023,13 @@ fn respond_failure(
     ExitCode::from(2)
 }
 
+/// The envelope written when a value cannot be serialized at all — the one
+/// JSON a caller can still parse when nothing else rendered.
+pub(crate) const RENDER_FAILED_JSON: &str = r#"{"ok":false,"kind":"failed","code":"cli.render_failed","what":"could not render JSON output"}"#;
+
 /// The `--json` surface: the value's `Serialize` form, one line, to `w`.
 fn write_json(w: &mut impl io::Write, value: &impl Serialize) -> io::Result<()> {
-    let rendered = serde_json::to_string(value).unwrap_or_else(|_| {
-        r#"{"ok":false,"kind":"failed","code":"cli.render_failed","what":"could not render JSON output"}"#
-            .to_owned()
-    });
+    let rendered = serde_json::to_string(value).unwrap_or_else(|_| RENDER_FAILED_JSON.to_owned());
     writeln!(w, "{rendered}")
 }
 
