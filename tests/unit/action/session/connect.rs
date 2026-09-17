@@ -731,13 +731,6 @@ fn connect_promotes_the_repos_an_approved_plan_declares() {
         target.as_str().contains(".ivar/repos/web/checkout"),
         "web must be linked to its feature worktree: {target}"
     );
-    let mut human = Vec::new();
-    report.value.write_human(&mut human).unwrap();
-    let human = String::from_utf8(human).unwrap();
-    assert!(
-        human.lines().all(|line| line.starts_with("export ")),
-        "stdout is eval'd by a shell and carries exports only: {human}"
-    );
     unguard_worktrees(&root);
 }
 
@@ -811,4 +804,25 @@ fn connect_stays_quiet_for_a_legacy_plan_once_a_repo_is_promoted() {
             .all(|warning| warning.code != "connect.no_repos_declared")
     );
     unguard_worktrees(&root);
+}
+
+/// Callers `eval` connect's stdout, so a promotion report may only ride along
+/// as a comment: a human sees it, the shell executes nothing but the exports.
+#[test]
+fn connect_reports_what_it_promoted_without_adding_an_executable_line() {
+    let (_guard, root) = hall_with_session(&["api"]);
+    write_plan(&root, "repos: [api, web]", true);
+
+    let report = connect_to_checkout(&root);
+
+    let mut out = Vec::new();
+    report.value.write_human(&mut out).unwrap();
+    let text = String::from_utf8(out).unwrap();
+
+    assert!(text.contains("promoted web"), "was: {text}");
+    assert!(
+        text.lines()
+            .all(|line| line.starts_with('#') || line.starts_with("export ")),
+        "was: {text}"
+    );
 }

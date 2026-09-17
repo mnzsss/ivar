@@ -61,6 +61,12 @@ pub struct ConnectOutcome {
 
 impl WriteHuman for ConnectOutcome {
     fn write_human(&self, w: &mut impl io::Write) -> io::Result<()> {
+        // Callers `eval` this output, so the promotion report goes out as a
+        // shell comment: visible to a human, a no-op to the shell.
+        if !self.promoted.is_empty() {
+            let names: Vec<&str> = self.promoted.iter().map(RepoName::as_str).collect();
+            writeln!(w, "# ivar: promoted {}", names.join(", "))?;
+        }
         writeln!(w, "export IVAR_SESSION_ID={}", self.session_id)?;
         if let Some(feature) = &self.feature {
             writeln!(w, "export IVAR_FEATURE={feature}")?;
