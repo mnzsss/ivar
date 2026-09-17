@@ -347,6 +347,22 @@ impl Layout {
         self.ivar_dir().join("sessions").join(session.as_str())
     }
 
+    /// `<view_dir>/.tmp/` — a session scratch directory, for an agent
+    /// temporary files.
+    ///
+    /// Takes the view dir rather than a session identity, because that
+    /// is the one input: both session kinds answer the same way, and
+    /// the hall root does not enter the answer. Associated rather than
+    /// a method for the same reason — callers holding only a view dir
+    /// need it.
+    ///
+    /// Inside the view dir, so it is already in the session writable set
+    /// and is torn down with the view dir by `ivar session stop`.
+    #[must_use]
+    pub fn session_scratch(view_dir: &Utf8Path) -> Utf8PathBuf {
+        view_dir.join(crate::domain::session::SCRATCH_DIR)
+    }
+
     /// `<hall>/.ivar/setups/<repo>.sh` — the repo's setup script. Committed:
     /// a git worktree shares history but not untracked files, so a fresh
     /// worktree needs this to bootstrap `.env`, `node_modules`, and so on.

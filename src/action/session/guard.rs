@@ -152,6 +152,14 @@ impl WritableSet {
         &self.view_dir
     }
 
+    /// The session's scratch dir — where an agent's temporary files belong.
+    ///
+    /// Derived, never stored: `Layout::session_scratch` is the single owner
+    /// of the path, and this set already holds the canonical view dir.
+    pub(crate) fn scratch_dir(&self) -> Utf8PathBuf {
+        Layout::session_scratch(&self.view_dir)
+    }
+
     /// Return the write-allowed root paths: view dir, canonical hall sources,
     /// feature dir (if present), and every promoted repo worktree. Note that
     /// `sessions_dir` is an exclusion boundary under `feature_dir` and is not a root.
@@ -229,6 +237,19 @@ fn has_uri_scheme(s: &str) -> bool {
     }
 }
 
+/// What the guard managed to resolve for one tool request.
+///
+/// Borrows its set: a caller may decide twice about the same session, and
+/// moving the set into the resolution would forbid that.
+///
+/// `Unresolved` carries the live sessions' scratch dirs for the *message*
+/// alone. An unresolved structured write is always denied, so these paths
+/// never widen what may be written (N-NO-WIDEN).
+pub(crate) enum Resolution<'a> {
+    Resolved(&'a WritableSet),
+    Unresolved { scratch_dirs: Vec<Utf8PathBuf> },
+}
+
 /// Decide whether a tool request is allowed inside the session.
 ///
 /// Structured write tools are checked against the writable set; everything
@@ -237,7 +258,7 @@ fn has_uri_scheme(s: &str) -> bool {
 /// An absent set means neither the cwd nor the target resolved a session, so
 /// the denial names both: the caller's next move is to check where the target
 /// lives, not only where the agent stands.
-pub(crate) fn decide(set: Option<&WritableSet>, req: &ToolRequest) -> GuardDecision {
+pub(crate) fn decide(resolution: &Resolution<'_>, req: &ToolRequest) -> GuardDecision {
     if !is_structured_write(&req.tool) {
         return GuardDecision::Allow;
     }
@@ -246,23 +267,64 @@ pub(crate) fn decide(set: Option<&WritableSet>, req: &ToolRequest) -> GuardDecis
     {
         return GuardDecision::Allow;
     }
-    match (set, &req.file_path) {
-        (Some(set), Some(path)) if set.allows(path) => GuardDecision::Allow,
-        (Some(set), _) => GuardDecision::Deny {
-            reason: format!(
-                "writable set: {}",
-                std::iter::once(set.view_dir().to_string())
-                    .chain(set.feature_dir.as_ref().map(|f| f.to_string()))
-                    .chain(set.worktrees.iter().map(|w| w.to_string()))
-                    .chain(set.hall_sources.iter().map(|h| h.to_string()))
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ),
+    match resolution {
+        Resolution::Resolved(set) => match &req.file_path {
+            Some(path) if set.allows(path) => GuardDecision::Allow,
+            _ => GuardDecision::Deny {
+                reason: format!(
+                    "writable set: {}; temporary files belong in {}",
+                    std::iter::once(set.view_dir().to_string())
+                        .chain(set.feature_dir.as_ref().map(|f| f.to_string()))
+                        .chain(set.worktrees.iter().map(|w| w.to_string()))
+                        .chain(set.hall_sources.iter().map(|h| h.to_string()))
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                    set.scratch_dir(),
+                ),
+            },
         },
-        (None, _) => GuardDecision::Deny {
-            reason: "no ivar session resolves from the cwd or the target path".into(),
+        Resolution::Unresolved { scratch_dirs } => GuardDecision::Deny {
+            reason: unresolved_reason(scratch_dirs),
         },
     }
+}
+
+/// The unresolved denial's reason. The first sentence is unchanged and
+/// load-bearing: five test assertions and two documents quote it.
+fn unresolved_reason(scratch_dirs: &[Utf8PathBuf]) -> String {
+    const SENTENCE: &str = "no ivar session resolves from the cwd or the target path";
+    match scratch_dirs {
+        [] => format!("{SENTENCE}; this hall has no live session"),
+        [only] => format!("{SENTENCE}; temporary files belong in {only}"),
+        many => format!(
+            "{SENTENCE}; temporary files belong in a live session's scratch dir: {}",
+            many.iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+    }
+}
+
+/// Every live session's scratch dir, for the unresolved message.
+///
+/// Called only after both resolution attempts have failed, so an allowed
+/// write never pays for this walk (N-ALLOW-PATH-COST).
+fn live_scratch_dirs(from: Option<&Utf8Path>) -> Vec<Utf8PathBuf> {
+    let Some(from) = from else {
+        return Vec::new();
+    };
+    let Ok(Some(layout)) = Layout::discover(from) else {
+        return Vec::new();
+    };
+    let Ok(sessions) = super::lookup::list_all(&layout) else {
+        return Vec::new();
+    };
+    sessions
+        .into_iter()
+        .filter(|session| session.state.is_some())
+        .map(|session| Layout::session_scratch(&session.view_dir))
+        .collect()
 }
 
 /// Resolve the target path for a tool request: absolute paths are returned
@@ -355,7 +417,19 @@ pub fn guard(provider: Provider, stdin_json: &str) -> Result<GuardOutcome, Failu
         set = resolve_set_by_target(&target);
     }
 
-    let decision = decide(set.as_ref(), &tool_request);
+    let resolution = match &set {
+        Some(set) => Resolution::Resolved(set),
+        // Only a structured write reaches a denial here, and only a denial
+        // needs the list — so nothing else pays for the walk.
+        None if is_structured_write(&tool_request.tool) => Resolution::Unresolved {
+            scratch_dirs: live_scratch_dirs(cwd.as_deref()),
+        },
+        None => Resolution::Unresolved {
+            scratch_dirs: Vec::new(),
+        },
+    };
+
+    let decision = decide(&resolution, &tool_request);
 
     Ok(crate::providers::render_decision(provider, &decision))
 }

@@ -52,6 +52,7 @@ use camino::{Utf8Path, Utf8PathBuf};
 
 use crate::domain::name::{HallName, RepoName};
 use crate::domain::provider::Provider;
+use crate::domain::session::SCRATCH_DIR;
 use crate::error::{Failure, FixAction};
 use crate::infra::fs;
 
@@ -184,6 +185,16 @@ pub fn build_block(hall: &HallName, repos: &[RepoName]) -> String {
          First, fetch and read the documentation from:\n\
          https://ivar.run/llms.txt\n",
     );
+    block.push_str(&format!(
+        "\nWrite temporary and working files in the current session's scratch\n\
+         directory — `{SCRATCH_DIR}/` inside the session's own view dir\n\
+         (`.ivar/sessions/<session-id>/{SCRATCH_DIR}/` for a discovery session,\n\
+         `.ivar/features/<feature>/sessions/<session-id>/{SCRATCH_DIR}/` once it is\n\
+         bound to a feature). Nowhere else in the hall is writable, and a denied\n\
+         write names that path for you.\n\n\
+         Its contents are temporary: `ivar session stop` removes the view dir and\n\
+         everything in it. Nothing you need to keep belongs there.\n"
+    ));
 
     block.push('\n');
     block.push_str(MANAGED_END);

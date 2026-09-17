@@ -99,6 +99,13 @@ pub(crate) fn materialise(
 ) -> Result<MaterialiseReport, Failure> {
     fs::ensure_dir(view_dir)?;
 
+    // The scratch dir: where an agent's temporary and working files belong.
+    // Inside the view dir, so it is already in the session's writable set and
+    // `ivar session stop` takes it away with everything else. Created here
+    // rather than on demand because the guard's denial message names it, and
+    // a path named in a message has to exist.
+    fs::ensure_dir(&Layout::session_scratch(view_dir))?;
+
     for repo in manifest.repos() {
         let worktree = match feature {
             Some(feature) if feature.is_promoted(repo.name()) => {

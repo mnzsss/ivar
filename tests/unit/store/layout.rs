@@ -443,3 +443,32 @@ fn plan_dir_and_discovery_doc_live_under_feature_dir() {
         Some(layout.plan_dir(&feature).as_path())
     );
 }
+
+// -- scratch dir --------------------------------------------------------
+
+#[test]
+fn the_scratch_dir_sits_inside_any_session_view_dir() {
+    let layout = Layout::at("/hall");
+    let feature = FeatureName::new("checkout").unwrap();
+    let session = SessionId::new("6f0c9d5f-0000-4000-8000-000000000000").unwrap();
+
+    assert_eq!(
+        Layout::session_scratch(&layout.discovery_session(&session)),
+        Utf8PathBuf::from("/hall/.ivar/sessions/6f0c9d5f-0000-4000-8000-000000000000/.tmp")
+    );
+    assert_eq!(
+        Layout::session_scratch(&layout.feature_session(&feature, &session)),
+        Utf8PathBuf::from(
+            "/hall/.ivar/features/checkout/sessions/\
+             6f0c9d5f-0000-4000-8000-000000000000/.tmp"
+        )
+    );
+}
+
+/// The dot prefix is the whole reason a repo named `tmp` cannot collide with
+/// the scratch dir: `view::materialise` links every manifest repo into the
+/// view dir under its own name, and `RepoName` has no reserved list.
+#[test]
+fn the_scratch_dir_is_dot_prefixed() {
+    assert!(crate::domain::session::SCRATCH_DIR.starts_with('.'));
+}
