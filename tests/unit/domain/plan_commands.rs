@@ -1,10 +1,16 @@
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing
+)]
 
 use super::*;
 
 fn change_dir(line: usize, command: &str, dir: &str) -> ShellCommand {
     ShellCommand {
         line,
+        block: 0,
         command: command.to_owned(),
         kind: CommandKind::ChangeDir {
             dir: Utf8PathBuf::from(dir),
@@ -15,6 +21,7 @@ fn change_dir(line: usize, command: &str, dir: &str) -> ShellCommand {
 fn run_script(line: usize, command: &str, dir: &str, script: &str) -> ShellCommand {
     ShellCommand {
         line,
+        block: 0,
         command: command.to_owned(),
         kind: CommandKind::RunScript {
             dir: Utf8PathBuf::from(dir),
@@ -40,14 +47,14 @@ fn a_run_resolves_against_the_cd_before_it() {
 fn chained_commands_split_and_each_block_starts_at_the_repo_root() {
     let source = "```sh\ncd api && npm run lint\n```\n```console\n$ pnpm run test\n```\n";
 
-    assert_eq!(
-        scan_shell_commands(source, &[]),
-        vec![
-            change_dir(2, "cd api", "api"),
-            run_script(2, "npm run lint", "api", "lint"),
-            run_script(5, "pnpm run test", "", "test"),
-        ]
-    );
+    let mut expected = vec![
+        change_dir(2, "cd api", "api"),
+        run_script(2, "npm run lint", "api", "lint"),
+        run_script(5, "pnpm run test", "", "test"),
+    ];
+    expected[2].block = 1;
+
+    assert_eq!(scan_shell_commands(source, &[]), expected);
 }
 
 #[test]
@@ -153,4 +160,27 @@ fn a_fence_closes_only_on_the_same_marker_at_least_as_long() {
             change_dir(5, "cd still-inner", "inner/still-inner"),
         ]
     );
+}
+
+#[test]
+fn a_mkdir_is_reported_relative_to_the_current_directory() {
+    let source = "```sh\ncd packages\nmkdir -p web/src\n```\n";
+
+    assert_eq!(
+        scan_shell_commands(source, &[])[1].kind,
+        CommandKind::MakeDir {
+            dir: Utf8PathBuf::from("packages/web/src"),
+        }
+    );
+}
+
+#[test]
+fn each_fenced_shell_block_is_numbered() {
+    let source = "```sh\ncd a\n```\ntext\n```sh\ncd b\n```\n";
+
+    let blocks: Vec<usize> = scan_shell_commands(source, &[])
+        .iter()
+        .map(|command| command.block)
+        .collect();
+    assert_eq!(blocks, vec![0, 1]);
 }

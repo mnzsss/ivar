@@ -13,6 +13,8 @@ const RUNNERS: &[&str] = &["npm", "pnpm"];
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ShellCommand {
     pub line: usize,
+    /// Which fenced shell block the command came from, counted from zero.
+    pub block: usize,
     pub command: String,
     pub kind: CommandKind,
 }
@@ -20,6 +22,7 @@ pub struct ShellCommand {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CommandKind {
     ChangeDir { dir: Utf8PathBuf },
+    MakeDir { dir: Utf8PathBuf },
     RunScript { dir: Utf8PathBuf, script: String },
 }
 
@@ -72,11 +75,17 @@ impl Marker {
 pub fn scan_shell_commands(source: &str, repos: &[String]) -> Vec<ShellCommand> {
     let mut commands = Vec::new();
     let mut fence = Fence::Outside;
+    let mut block = 0;
+    let mut opened = false;
     for (index, raw) in source.lines().enumerate() {
         let line = raw.trim();
         if let Some((marker, info)) = Marker::parse(line) {
             let next = match &fence {
                 Fence::Outside if SHELL_FENCES.contains(&info.trim()) => {
+                    if opened {
+                        block += 1;
+                    }
+                    opened = true;
                     Some(Fence::Shell(marker, Some(Utf8PathBuf::new())))
                 }
                 Fence::Outside => Some(Fence::Other(marker)),
@@ -104,11 +113,24 @@ pub fn scan_shell_commands(source: &str, repos: &[String]) -> Vec<ShellCommand> 
                     dir.push(target.trim_start_matches("./"));
                     commands.push(ShellCommand {
                         line: index + 1,
+                        block,
                         command,
                         kind: CommandKind::ChangeDir { dir: dir.clone() },
                     });
                 }
                 ["cd", ..] => *cwd = None,
+                ["mkdir", target] | ["mkdir", "-p", target]
+                    if is_literal_repo_path(target, repos) =>
+                {
+                    commands.push(ShellCommand {
+                        line: index + 1,
+                        block,
+                        command,
+                        kind: CommandKind::MakeDir {
+                            dir: dir.join(target.trim_start_matches("./")),
+                        },
+                    });
+                }
                 [runner, "run", script, ..]
                     if RUNNERS.contains(runner)
                         && is_literal(script)
@@ -117,6 +139,7 @@ pub fn scan_shell_commands(source: &str, repos: &[String]) -> Vec<ShellCommand> 
                 {
                     commands.push(ShellCommand {
                         line: index + 1,
+                        block,
                         command,
                         kind: CommandKind::RunScript {
                             dir: dir.clone(),

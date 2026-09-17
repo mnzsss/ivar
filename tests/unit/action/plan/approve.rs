@@ -971,7 +971,7 @@ fn approve_plan_accepts_a_cd_into_a_directory_the_plan_creates() {
     api_worktree_with_web_package(&root);
     write_light_plan(
         &root,
-        "---\nrepos: [api]\n---\n# Plan\n\n```sh\ncd packages/mobile\ncd src\nnpm run anything\n```\n",
+        "---\nrepos: [api]\n---\n# Plan\n\n```sh\nmkdir -p packages/mobile\ncd packages/mobile\ncd src\nnpm run anything\n```\n",
     );
 
     let report = approve_plan(&root).unwrap();
@@ -980,4 +980,41 @@ fn approve_plan_accepts_a_cd_into_a_directory_the_plan_creates() {
         report.value.approvals.state(Gate::Plan),
         Some(GateState::Approved)
     );
+}
+
+#[test]
+fn approve_plan_refuses_a_cd_into_a_single_component_directory_nobody_creates() {
+    let (_guard, root) = seeded_hall();
+    declare_api_repo(&root);
+    api_worktree_with_web_package(&root);
+    write_light_plan(
+        &root,
+        "---\nrepos: [api]\n---\n# Plan\n\n```sh\ncd nonexistent\n```\n",
+    );
+
+    let failure = approve_plan(&root).unwrap_err();
+
+    assert_eq!(failure.code, "plan.invalid_commands");
+    assert!(
+        failure.actual.unwrap().contains("`cd nonexistent`"),
+        "a cd nothing creates must be refused"
+    );
+}
+
+#[test]
+fn a_directory_the_plan_creates_only_silences_its_own_block() {
+    let (_guard, root) = seeded_hall();
+    declare_api_repo(&root);
+    api_worktree_with_web_package(&root);
+    write_light_plan(
+        &root,
+        "---\nrepos: [api]\n---\n# Plan\n\n```sh\nmkdir -p packages/mobile\ncd packages/mobile\n```\n\n```sh\ncd packages/mobile\n```\n",
+    );
+
+    let failure = approve_plan(&root).unwrap_err();
+
+    assert_eq!(failure.code, "plan.invalid_commands");
+    let actual = failure.actual.unwrap();
+    assert!(actual.contains("plan.md:12:"), "{actual}");
+    assert!(!actual.contains("plan.md:8:"), "{actual}");
 }

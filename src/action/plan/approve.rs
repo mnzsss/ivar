@@ -358,22 +358,29 @@ fn require_runnable_commands(
             continue;
         };
         let mut created: Vec<Utf8PathBuf> = Vec::new();
+        let mut block = 0;
         for command in scan_shell_commands(&source, &repo_names) {
+            if command.block != block {
+                block = command.block;
+                created.clear();
+            }
             let dir = match &command.kind {
+                CommandKind::MakeDir { dir } => {
+                    created.push(dir.clone());
+                    continue;
+                }
                 CommandKind::ChangeDir { dir } | CommandKind::RunScript { dir, .. } => dir,
             };
             if created.iter().any(|new_dir| dir.starts_with(new_dir)) {
                 continue;
             }
-            match command_problem(&command.kind, &roots)? {
-                CommandCheck::Runs => {}
-                CommandCheck::CreatedByPlan(dir) => created.push(dir),
-                CommandCheck::Refused(reason) => findings.push(CommandFinding {
+            if let Some(reason) = command_problem(&command.kind, &roots)? {
+                findings.push(CommandFinding {
                     file: file.clone(),
                     line: command.line,
                     command: command.command,
                     reason,
-                }),
+                });
             }
         }
     }
@@ -418,33 +425,18 @@ fn plan_command_files(layout: &Layout, feature: &FeatureName) -> Result<Vec<Utf8
     Ok(files)
 }
 
-enum CommandCheck {
-    /// It runs, or there is not enough on disk to tell.
-    Runs,
-    /// A `cd` into a directory that does not exist yet but whose parent does:
-    /// the plan most likely creates it, so what runs inside it is unknowable.
-    CreatedByPlan(Utf8PathBuf),
-    Refused(String),
-}
-
-fn command_problem(kind: &CommandKind, roots: &[Utf8PathBuf]) -> Result<CommandCheck, Failure> {
+/// The reason `kind` cannot run, or `None` when it runs or there is not enough
+/// on disk to tell.
+fn command_problem(kind: &CommandKind, roots: &[Utf8PathBuf]) -> Result<Option<String>, Failure> {
     match kind {
+        CommandKind::MakeDir { .. } => Ok(None),
         CommandKind::ChangeDir { dir } => {
             for root in roots {
                 if fs::is_dir(&root.join(dir))? {
-                    return Ok(CommandCheck::Runs);
+                    return Ok(None);
                 }
             }
-            for root in roots {
-                if let Some(parent) = root.join(dir).parent()
-                    && fs::is_dir(parent)?
-                {
-                    return Ok(CommandCheck::CreatedByPlan(dir.clone()));
-                }
-            }
-            Ok(CommandCheck::Refused(format!(
-                "`{dir}` does not exist in any declared repo"
-            )))
+            Ok(Some(format!("`{dir}` does not exist in any declared repo")))
         }
         CommandKind::RunScript { dir, script } => {
             let mut saw_package = false;
@@ -461,17 +453,11 @@ fn command_problem(kind: &CommandKind, roots: &[Utf8PathBuf]) -> Result<CommandC
                     .and_then(|scripts| scripts.get(script))
                     .is_some()
                 {
-                    return Ok(CommandCheck::Runs);
+                    return Ok(None);
                 }
             }
-            Ok(if saw_package {
-                CommandCheck::Refused(format!(
-                    "no `{script}` script in `{}`",
-                    dir.join("package.json")
-                ))
-            } else {
-                CommandCheck::Runs
-            })
+            Ok(saw_package
+                .then(|| format!("no `{script}` script in `{}`", dir.join("package.json"))))
         }
     }
 }
