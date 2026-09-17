@@ -454,9 +454,7 @@ fn the_scratch_dir_sits_inside_any_session_view_dir() {
 
     assert_eq!(
         Layout::session_scratch(&layout.discovery_session(&session)),
-        Utf8PathBuf::from(
-            "/hall/.ivar/sessions/6f0c9d5f-0000-4000-8000-000000000000/.tmp"
-        )
+        Utf8PathBuf::from("/hall/.ivar/sessions/6f0c9d5f-0000-4000-8000-000000000000/.tmp")
     );
     assert_eq!(
         Layout::session_scratch(&layout.feature_session(&feature, &session)),

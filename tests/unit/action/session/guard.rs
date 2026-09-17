@@ -321,7 +321,12 @@ fn reads_are_never_denied() {
         file_path: Some("/etc/passwd".into()),
     };
     assert!(matches!(
-        decide(&Resolution::Unresolved { scratch_dirs: Vec::new() }, &req),
+        decide(
+            &Resolution::Unresolved {
+                scratch_dirs: Vec::new()
+            },
+            &req
+        ),
         GuardDecision::Allow
     ));
 }
@@ -1207,5 +1212,3 @@ fn an_unresolved_denial_with_no_live_session_names_no_path() {
         out.body
     );
 }
-
-
