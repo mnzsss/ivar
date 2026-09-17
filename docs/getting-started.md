@@ -24,7 +24,10 @@ curl -fsSL ivar.run/install | sh
 
 The script detects your platform, verifies the download's SHA-256 before making
 it executable, and installs into `$IVAR_INSTALL_DIR`, defaulting to
-`~/.local/bin`.
+`~/.local/bin`. It then runs what it installed and prints the version it reports,
+so the last line is a fact about the file on your disk rather than about the
+release it asked for. If your shell resolves a different `ivar` — an older
+build earlier in `PATH` — the script says so and names the file that wins.
 
 On Arch, `yay -S ivar-bin` installs the same prebuilt binary through pacman, and
 `yay -S ivar` builds it from the release tag.

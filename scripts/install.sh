@@ -21,6 +21,11 @@ set -eu
 IVAR_BASE_URL="${IVAR_BASE_URL:-https://github.com/mnzsss/ivar/releases/latest/download}"
 IVAR_INSTALL_DIR="${IVAR_INSTALL_DIR:-$HOME/.local/bin}"
 
+# A literal newline. It trims a multi-line probe to its first line through
+# parameter expansion, so reading the version adds no external command.
+NL='
+'
+
 fail() {
     printf 'error: %s\n' "$1" >&2
     exit 1
@@ -65,6 +70,40 @@ verify_checksum() { # tmpdir
     fi
 }
 
+# installed_version — print the version the installed binary reports, or
+# nothing.
+#
+# `ivar --version` prints `ivar <version>`; anything else — a probe that
+# could not run, a future format change — prints nothing, so the caller
+# loses the version rather than printing a wrong one. The `|| return 0` is
+# load-bearing: under `set -e` a binary exiting non-zero would otherwise
+# abort an install whose bytes are already verified.
+installed_version() { # binary
+    _probe="$("$1" --version 2>/dev/null)" || return 0
+    _probe="${_probe%%"$NL"*}"
+    case "$_probe" in
+        "ivar "*) printf '%s\n' "${_probe#ivar }" ;;
+    esac
+}
+
+# abs_path — print a path with its directory resolved physically.
+#
+# `command -v` answers with the PATH entry as written, so a symlinked
+# directory, a trailing slash or a `..` segment would make an identical file
+# look like a different one. Only the directory is ambiguous — the installed
+# file is a regular file after `mv` — so this resolves that and keeps the
+# basename. `dirname`/`basename`/`readlink -f` are avoided on purpose:
+# parameter expansion and `cd -P` are POSIX and add no dependency, and
+# macOS shipped without `readlink -f` for years.
+abs_path() { # path
+    _dir="${1%/*}"
+    _base="${1##*/}"
+    [ "$_dir" = "$1" ] && _dir="."
+    [ -n "$_dir" ] || _dir="/"
+    ( CDPATH= cd -P -- "$_dir" 2>/dev/null && printf '%s/%s\n' "$(pwd -P)" "$_base" ) \
+        || printf '%s\n' "$1"
+}
+
 main() {
     platform="$(detect_platform)"
 
@@ -94,16 +133,34 @@ main() {
     mkdir -p "$IVAR_INSTALL_DIR"
     mv "$tmpdir/ivar" "$IVAR_INSTALL_DIR/ivar"
 
-    printf 'installed ivar %s into %s\n' "$platform" "$IVAR_INSTALL_DIR"
+    version="$(installed_version "$IVAR_INSTALL_DIR/ivar")"
+    if [ -n "$version" ]; then
+        printf 'installed ivar %s (%s) into %s\n' "$version" "$platform" "$IVAR_INSTALL_DIR"
+    else
+        # The checksum already proved these bytes, so a probe that cannot run
+        # is a reporting failure, not an install failure. Naming the path is
+        # what lets the user run it themselves and see why.
+        printf 'installed ivar (%s) into %s\n' "$platform" "$IVAR_INSTALL_DIR"
+        printf 'could not read the installed version: %s --version reported nothing\n' \
+            "$IVAR_INSTALL_DIR/ivar"
+    fi
 
-    case ":$PATH:" in
-        *":$IVAR_INSTALL_DIR:"*)
-            ;;
-        *)
-            printf '\n%s is not on your PATH. Add it to your shell profile:\n' "$IVAR_INSTALL_DIR"
-            printf '    export PATH="%s:$PATH"\n' "$IVAR_INSTALL_DIR"
-            ;;
-    esac
+    # Which ivar the shell resolves is the ground truth; PATH membership is
+    # only the explanation when nothing resolves at all. Asking membership
+    # first gets a symlinked PATH entry wrong and tells a winning install it
+    # is "not on your PATH".
+    resolved="$(command -v ivar 2>/dev/null)" || resolved=""
+    if [ -n "$resolved" ] && [ "$(abs_path "$resolved")" = "$(abs_path "$IVAR_INSTALL_DIR/ivar")" ]; then
+        : # the ivar on PATH is the one just installed
+    elif [ -n "$resolved" ]; then
+        printf '\nwarning: your shell runs a different ivar: %s\n' "$(abs_path "$resolved")"
+        printf 'This install is %s. Put its directory first to use it:\n' \
+            "$(abs_path "$IVAR_INSTALL_DIR/ivar")"
+        printf '    export PATH="%s:$PATH"\n' "$IVAR_INSTALL_DIR"
+    else
+        printf '\n%s is not on your PATH. Add it to your shell profile:\n' "$IVAR_INSTALL_DIR"
+        printf '    export PATH="%s:$PATH"\n' "$IVAR_INSTALL_DIR"
+    fi
 }
 
 main "$@"
