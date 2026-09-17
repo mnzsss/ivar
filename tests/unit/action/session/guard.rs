@@ -320,7 +320,10 @@ fn reads_are_never_denied() {
         tool: "Read".into(),
         file_path: Some("/etc/passwd".into()),
     };
-    assert!(matches!(decide(None, &req), GuardDecision::Allow));
+    assert!(matches!(
+        decide(&Resolution::Unresolved { scratch_dirs: Vec::new() }, &req),
+        GuardDecision::Allow
+    ));
 }
 
 #[test]
@@ -330,7 +333,7 @@ fn writes_outside_the_set_are_denied_with_a_reason_naming_the_set() {
         tool: "Write".into(),
         file_path: Some("/etc/passwd".into()),
     };
-    match decide(Some(&set), &req) {
+    match decide(&Resolution::Resolved(&set), &req) {
         GuardDecision::Deny { reason } => {
             assert!(
                 reason.contains("writable"),
@@ -361,7 +364,7 @@ fn every_structured_write_tool_is_denied_outside_the_set() {
             tool: tool.to_owned(),
             file_path: Some("/etc/passwd".into()),
         };
-        match decide(Some(&set), &req) {
+        match decide(&Resolution::Resolved(&set), &req) {
             GuardDecision::Deny { reason } => assert!(
                 reason.contains("writable"),
                 "`{tool}` must name the set: {reason}"
@@ -417,7 +420,7 @@ fn writes_inside_the_set_are_allowed_and_shell_is_never_classified() {
     let in_set = set.view_dir().to_path_buf();
     assert!(matches!(
         decide(
-            Some(&set),
+            &Resolution::Resolved(&set),
             &ToolRequest {
                 tool: "Edit".into(),
                 file_path: Some(in_set),
@@ -427,7 +430,7 @@ fn writes_inside_the_set_are_allowed_and_shell_is_never_classified() {
     ));
     assert!(matches!(
         decide(
-            Some(&set),
+            &Resolution::Resolved(&set),
             &ToolRequest {
                 tool: "Bash".into(),
                 file_path: None,
@@ -1093,4 +1096,116 @@ fn a_resolved_denial_names_the_scratch_dir_and_keeps_the_writable_set() {
         out.body
     );
 }
+
+/// The exact call that started this feature: hall-root cwd, a target nowhere
+/// near a session. The old reason named no path at all.
+#[test]
+fn an_unresolved_denial_names_the_only_live_sessions_scratch_dir() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root.clone());
+    let feature = Feature::read(&layout, &FeatureName::new("checkout").unwrap())
+        .unwrap()
+        .unwrap();
+    let session_id = SessionId::new("6f0c9d5f-0000-4000-8000-000000000000").unwrap();
+    let view_dir = layout.feature_session(&feature.name, &session_id);
+    crate::infra::fs::ensure_dir(&view_dir).unwrap();
+    let mut state =
+        crate::domain::session::SessionState::new(Provider::Omp, "2026-08-29T00:00:00Z");
+    state.bind(feature.name.clone(), "2026-08-29T00:00:00Z");
+    state.write(&view_dir).unwrap();
+
+    let payload = serde_json::json!({
+        "tool": "write",
+        "args": { "filePath": "/etc/passwd" },
+        "cwd": root,
+    });
+
+    let out = guard(Provider::Omp, &payload.to_string()).unwrap();
+    assert!(!out.exit_zero);
+    assert!(
+        out.body
+            .contains("no ivar session resolves from the cwd or the target path"),
+        "the existing sentence is load-bearing: {}",
+        out.body
+    );
+    assert!(
+        out.body
+            .contains(Layout::session_scratch(&view_dir).as_str()),
+        "one live session means one named scratch dir: {}",
+        out.body
+    );
+}
+
+/// Two live sessions must be listed, never picked — naming one would send an
+/// agent into another session's view dir.
+#[test]
+fn an_unresolved_denial_lists_every_live_sessions_scratch_dir() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root.clone());
+    let feature = Feature::read(&layout, &FeatureName::new("checkout").unwrap())
+        .unwrap()
+        .unwrap();
+
+    let first_id = SessionId::new("6f0c9d5f-0000-4000-8000-000000000000").unwrap();
+    let first = layout.feature_session(&feature.name, &first_id);
+    crate::infra::fs::ensure_dir(&first).unwrap();
+    let mut first_state =
+        crate::domain::session::SessionState::new(Provider::Omp, "2026-08-29T00:00:00Z");
+    first_state.bind(feature.name.clone(), "2026-08-29T00:00:00Z");
+    first_state.write(&first).unwrap();
+
+    let second_id = SessionId::new("7a1d0e60-0000-4000-8000-000000000000").unwrap();
+    let second = layout.discovery_session(&second_id);
+    crate::infra::fs::ensure_dir(&second).unwrap();
+    crate::domain::session::SessionState::new(Provider::Omp, "2026-08-30T00:00:00Z")
+        .write(&second)
+        .unwrap();
+
+    let payload = serde_json::json!({
+        "tool": "write",
+        "args": { "filePath": "/etc/passwd" },
+        "cwd": root,
+    });
+
+    let out = guard(Provider::Omp, &payload.to_string()).unwrap();
+    assert!(!out.exit_zero);
+    assert!(
+        out.body.contains(Layout::session_scratch(&first).as_str()),
+        "the feature session's scratch dir is missing: {}",
+        out.body
+    );
+    assert!(
+        out.body.contains(Layout::session_scratch(&second).as_str()),
+        "the discovery session's scratch dir is missing: {}",
+        out.body
+    );
+}
+
+/// With no live session there is no path to offer, and inventing one would be
+/// worse than saying so.
+#[test]
+fn an_unresolved_denial_with_no_live_session_names_no_path() {
+    let (_guard, root) = hall_with_promoted_feature();
+
+    let payload = serde_json::json!({
+        "tool": "write",
+        "args": { "filePath": "/etc/passwd" },
+        "cwd": root,
+    });
+
+    let out = guard(Provider::Omp, &payload.to_string()).unwrap();
+    assert!(!out.exit_zero);
+    assert!(
+        out.body
+            .contains("no ivar session resolves from the cwd or the target path"),
+        "{}",
+        out.body
+    );
+    assert!(
+        !out.body.contains(crate::domain::session::SCRATCH_DIR),
+        "no live session means no scratch dir to name: {}",
+        out.body
+    );
+}
+
 
