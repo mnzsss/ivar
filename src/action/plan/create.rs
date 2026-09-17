@@ -27,6 +27,9 @@ use crate::action::Ctx;
 /// The plan scaffold records implementation intent and verification for a
 /// provider-native coordinator; it does not encode a local execution graph.
 const PLAN_TEMPLATE: &str = "\
+---
+repos: []
+---
 # Plan
 
 The REASONS canvas: explain the implementation, its constraints, and how it

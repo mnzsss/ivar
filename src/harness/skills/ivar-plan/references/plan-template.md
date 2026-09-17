@@ -2,6 +2,7 @@
 
 Synthesize into the REASONS canvas — the sections `ivar plan create`
 scaffolds in `plan.md`:
+- **Frontmatter** — `repos:` lists every hall repo this plan edits. `ivar plan approve <feature> plan` refuses names absent from `ivar.json`, and `ivar session connect` promotes the listed repos once the plan is approved. Read-only context repos stay out of the list.
 - **Entities** — domain model, delta only
 - **Approach** — the chosen design, and what was rejected
 - **Structure** — file/module organization
@@ -30,6 +31,9 @@ canvas (for example `Requirements: ../../requirements.md
 ## Skeleton
 
 ```markdown
+---
+repos: [<repo>, ...]
+---
 # Plan
 
 The REASONS canvas: explain the implementation, its constraints, and how it

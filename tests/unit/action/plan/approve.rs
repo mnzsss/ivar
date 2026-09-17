@@ -9,8 +9,11 @@ use super::*;
 use crate::action::feature::create::{self as feature_create, CreateInput as FeatureCreateInput};
 use crate::action::hall::{self, InitInput};
 use crate::action::plan::create::{self as plan_create, CreateInput as PlanCreateInput};
+use crate::domain::name::{BranchName, HallName, RepoName};
+use crate::domain::provider::Provider;
 use crate::error::Status;
 use crate::infra::hash;
+use crate::store::manifest::{Manifest, Providers, Repo};
 use crate::test_support::hall_root;
 
 fn seeded_hall() -> (tempfile::TempDir, Utf8PathBuf) {
@@ -748,5 +751,85 @@ fn reconcile_voids_an_approved_plan_once_an_upstream_artifact_appears() {
     assert_eq!(
         persisted(&root).state(Gate::Plan),
         Some(GateState::NeedsRevision)
+    );
+}
+
+fn declare_api_repo(root: &Utf8PathBuf) {
+    let layout = Layout::at(root.clone());
+    let manifest = Manifest::new(
+        HallName::new("acme").unwrap(),
+        Providers::new(vec![Provider::ClaudeCode], Provider::ClaudeCode),
+        vec![Repo::new(
+            RepoName::new("api").unwrap(),
+            "https://example.invalid/api.git",
+            BranchName::new("main").unwrap(),
+        )],
+        None,
+    )
+    .unwrap();
+    Manifest::write(&layout, &manifest).unwrap();
+}
+
+fn write_light_plan(root: &Utf8PathBuf, plan: &str) {
+    fs::remove_path(&plan_file(root, "requirements.md")).unwrap();
+    fs::remove_path(&plan_file(root, "analysis.md")).unwrap();
+    fs::write_text(&plan_file(root, "plan.md"), plan).unwrap();
+}
+
+#[test]
+fn approve_plan_refuses_repos_absent_from_the_manifest() {
+    let (_guard, root) = seeded_hall();
+    let ctx = Ctx::new(root.clone());
+    declare_api_repo(&root);
+    write_light_plan(&root, "---\nrepos: [api, billing]\n---\n# Plan\n");
+
+    let failure = approve(
+        &ctx,
+        ApproveInput {
+            feature: "checkout".to_owned(),
+            gate: "plan".to_owned(),
+        },
+    )
+    .unwrap_err();
+
+    assert_eq!(failure.status, Status::Blocked);
+    assert_eq!(failure.code, "plan.unknown_repo");
+    assert!(failure.what.contains("billing"), "{}", failure.what);
+    assert!(!failure.what.contains("api"), "{}", failure.what);
+    let layout = Layout::at(root.clone());
+    let feature = FeatureName::new("checkout").unwrap();
+    assert_ne!(
+        ApprovalState::read(&layout, &feature)
+            .unwrap()
+            .and_then(|state| state.state(Gate::Plan)),
+        Some(GateState::Approved)
+    );
+}
+
+#[test]
+fn approve_plan_accepts_repos_declared_in_the_manifest() {
+    let (_guard, root) = seeded_hall();
+    let ctx = Ctx::new(root.clone());
+    declare_api_repo(&root);
+    write_light_plan(&root, "---\nrepos: [api]\n---\n# Plan\n");
+
+    let report = approve(
+        &ctx,
+        ApproveInput {
+            feature: "checkout".to_owned(),
+            gate: "plan".to_owned(),
+        },
+    )
+    .unwrap();
+
+    assert_eq!(
+        report.value.approvals.state(Gate::Plan),
+        Some(GateState::Approved)
+    );
+    let layout = Layout::at(root.clone());
+    let feature = FeatureName::new("checkout").unwrap();
+    assert_eq!(
+        super::super::plan_declared_repos(&layout, &feature).unwrap(),
+        vec![RepoName::new("api").unwrap()]
     );
 }

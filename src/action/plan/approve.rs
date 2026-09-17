@@ -58,8 +58,9 @@ use crate::error::{Failure, FixAction, Outcome, Report, WriteHuman};
 use crate::infra::fs;
 use crate::store::layout::Layout;
 
-use super::super::discover_hall;
+use super::super::{discover_hall, read_manifest};
 use crate::action::Ctx;
+use crate::store::manifest::Repo;
 
 /// What `ivar plan approve` needs.
 #[derive(Debug, Clone)]
@@ -205,6 +206,10 @@ pub fn approve(ctx: &Ctx, input: ApproveInput) -> Outcome<ApproveOutcome> {
         )));
     }
 
+    if gate == Gate::Plan {
+        require_known_repos(&layout, &feature)?;
+    }
+
     approvals.set(gate, GateState::Approved, Some(fingerprint));
     approvals.write(&layout, &feature)?;
 
@@ -286,6 +291,42 @@ fn require_feature(layout: &Layout, feature: &FeatureName) -> Result<(), Failure
     .fix(FixAction::safe(
         "feature.create_first",
         format!("Create the feature first with `ivar feature create {feature}`."),
+    )))
+}
+
+/// The manifest repos `plan.md` declares. Blocked when any declared name is
+/// not in `ivar.json` — `session connect` would try to promote it.
+fn require_known_repos(layout: &Layout, feature: &FeatureName) -> Result<Vec<Repo>, Failure> {
+    let manifest = read_manifest(layout)?;
+    let mut known = Vec::new();
+    let mut unknown = Vec::new();
+    for declared in super::plan_declared_repos(layout, feature)? {
+        match manifest
+            .repos()
+            .iter()
+            .find(|repo| repo.name() == &declared)
+        {
+            Some(repo) => known.push(repo.clone()),
+            None => unknown.push(declared.to_string()),
+        }
+    }
+    if unknown.is_empty() {
+        return Ok(known);
+    }
+    Err(Failure::blocked(
+        "plan.unknown_repo",
+        format!(
+            "`plan.md` for `{feature}` declares repos not in ivar.json: {}",
+            unknown.join(", ")
+        ),
+    )
+    .expected("every `repos:` entry to name a repo in ivar.json")
+    .actual(format!("unknown: {}", unknown.join(", ")))
+    .fix(FixAction::safe(
+        "plan.fix_repos",
+        format!(
+            "Remove the unknown names from `repos:` in plan.md, or add them with `ivar repo add <name> <url>`, then run `ivar plan approve {feature} plan` again."
+        ),
     )))
 }
 

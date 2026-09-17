@@ -114,7 +114,7 @@ after they approve.
 
 1. Synthesize the REASONS canvas following `references/plan-template.md`.
 
-2. Write the Plan artifact to `../../plan.md` (relative to `$IVAR_SESSION_PATH`).
+2. Write the Plan artifact to `../../plan.md` (relative to `$IVAR_SESSION_PATH`). Set its `repos:` frontmatter to every repo the plan edits — never context-only repos.
 
 3. Generate task packets into `../../tasks/NN-<semantic-task-name>.md` following `references/task-template.md`.
 
