@@ -9,7 +9,7 @@ use crate::domain::feature::{
     DeliveryAction, DeliveryMode, DeliveryPreview, DraftAction, VerificationResult,
 };
 use crate::domain::name::RepoName;
-use crate::error::WriteHuman;
+use crate::error::{FixAction, WriteHuman};
 
 /// The pull request a push created or updated.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -32,6 +32,9 @@ pub struct PushResult {
     /// The pull request created or updated for this repo, when there is one.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pr: Option<PullRequestRef>,
+    /// The way out, when this repo's push failed or produced no pull request.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fix: Option<FixAction>,
 }
 
 /// One repo's land result, in apply mode.
@@ -209,12 +212,21 @@ impl WriteHuman for DeliverOutcome {
                                 push.repo, pr.number, pr.url
                             )?;
                         }
-                        None => writeln!(w, "  {}: pushed", push.repo)?,
+                        None => match &push.detail {
+                            Some(detail) => writeln!(w, "  {}: pushed — {detail}", push.repo)?,
+                            None => writeln!(w, "  {}: pushed", push.repo)?,
+                        },
                     }
                 } else if let Some(detail) = &push.detail {
                     writeln!(w, "  {}: not pushed — {detail}", push.repo)?;
                 } else {
                     writeln!(w, "  {}: not pushed", push.repo)?;
+                }
+                if let Some(fix) = &push.fix {
+                    writeln!(w, "    fix: {}", fix.what)?;
+                    if let Some(command) = &fix.command {
+                        writeln!(w, "    run: {command}")?;
+                    }
                 }
             }
             Ok(())

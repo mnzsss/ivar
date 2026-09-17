@@ -9,7 +9,7 @@ use crate::action::feature::pull_requests::{
 use crate::action::feature::verification;
 use crate::domain::feature::{DeliveryAction, DeliveryPreview, DraftAction, Feature};
 use crate::domain::name::{FeatureName, RepoName};
-use crate::error::{Failure, Report, Warning};
+use crate::error::{Failure, FixAction, Report, Warning};
 use crate::git::Git;
 use crate::store::layout::Layout;
 use crate::store::manifest::Manifest;
@@ -18,7 +18,7 @@ use super::outcome::{DeliverOutcome, PullRequestRef, PushResult, RepoCheckResult
 use super::repos::push_repo;
 
 /// Execute non-land delivery apply: run root repo verification checks, push feature branches best-effort, and handle PRs.
-pub(super) fn execute(
+pub(crate) fn execute(
     git: &impl Git,
     layout: &Layout,
     manifest: &Manifest,
@@ -54,6 +54,7 @@ pub(super) fn execute(
                 ok: false,
                 detail: Some("root checks failed".to_owned()),
                 pr: None,
+                fix: None,
             });
             continue;
         }
@@ -65,9 +66,18 @@ pub(super) fn execute(
                 ok: true,
                 detail: None,
                 pr: None,
+                fix: None,
             }),
             Err(failure) => {
-                let detail = failure.what.clone();
+                let (detail, fix) = if rejected_as_non_fast_forward(&failure) {
+                    (
+                        "push rejected: the remote branch carries commits this branch does not"
+                            .to_owned(),
+                        Some(force_with_lease_fix(git, &bare, repo)),
+                    )
+                } else {
+                    (failure.what.clone(), None)
+                };
                 warnings.push(Warning::new(
                     "deliver.push_failed",
                     repo.repo.as_str(),
@@ -78,6 +88,7 @@ pub(super) fn execute(
                     ok: false,
                     detail: Some(detail),
                     pr: None,
+                    fix,
                 });
             }
         }
@@ -132,6 +143,10 @@ pub(super) fn execute(
                     repo.repo.as_str(),
                     failure.what.clone(),
                 ));
+                if let Some(push) = pushes.iter_mut().find(|push| push.repo == repo.repo) {
+                    push.detail = Some(format!("no pull request: {}", failure.what));
+                    push.fix = failure.fix_actions.first().cloned();
+                }
                 continue;
             }
         }
@@ -253,5 +268,47 @@ pub(super) fn execute(
             checks,
         },
         warnings,
+    ))
+}
+
+/// Whether git refused the push because the remote branch has moved on.
+///
+/// Matched on git's own wording: there is no exit code or porcelain that says
+/// this, and the sentence is what an operator would otherwise have to read.
+fn rejected_as_non_fast_forward(failure: &Failure) -> bool {
+    let text = failure.actual.as_deref().unwrap_or(&failure.what);
+    text.contains("non-fast-forward")
+        || text.contains("fetch first")
+        || text.contains("Updates were rejected")
+}
+
+/// The recovery for a rejected push, as a command a human runs themselves.
+///
+/// ivar never force-pushes on its own: replacing a remote branch can drop work
+/// that is only there.
+fn force_with_lease_fix(
+    git: &impl Git,
+    bare: &camino::Utf8Path,
+    repo: &crate::domain::feature::DeliveryRepo,
+) -> FixAction {
+    let branch = repo.local_branch.as_str();
+    let lease = git
+        .remote_branch_tip(bare, &repo.remote, branch)
+        .ok()
+        .flatten()
+        .map_or_else(
+            || format!("--force-with-lease={branch}"),
+            |tip| format!("--force-with-lease={branch}:{tip}"),
+        );
+    FixAction::unsafe_(
+        "deliver.force_with_lease",
+        format!(
+            "Review what `{}` already holds on `{branch}` — this replaces it. Then push it by hand.",
+            repo.remote
+        ),
+    )
+    .command(format!(
+        "git --git-dir {bare} push {lease} {} {branch}:refs/heads/{branch}",
+        repo.remote
     ))
 }
