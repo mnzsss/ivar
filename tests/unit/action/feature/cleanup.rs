@@ -23,6 +23,18 @@ use crate::test_support::{git as test_git, hall_root, seeded_repo};
 use camino::Utf8PathBuf;
 use std::fs::remove_dir_all;
 
+fn preview_for(
+    git: &impl Git,
+    layout: &Layout,
+    manifest: &Manifest,
+    feature: &Feature,
+    own_session: Option<&str>,
+    find_pr: PullRequestLookup<'_>,
+) -> Result<CleanupPreview, Failure> {
+    preview_and_forge_use(git, layout, manifest, feature, own_session, find_pr)
+        .map(|(preview, _)| preview)
+}
+
 fn hall_with_feature(repos: &[&str], branch: Option<&str>) -> (tempfile::TempDir, Utf8PathBuf) {
     let (guard, root) = hall_root();
     let ctx = Ctx::new(root.clone());

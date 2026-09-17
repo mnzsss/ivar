@@ -118,7 +118,7 @@ pub fn cleanup(ctx: &Ctx, input: CleanupInput) -> Outcome<CleanupOutcome> {
         )
     })?;
     let git = git::System;
-    let preview = preview_for(
+    let (preview, _) = preview_and_forge_use(
         &git,
         &layout,
         &manifest,
@@ -495,18 +495,6 @@ fn apply_cleanup(
         },
         warnings,
     ))
-}
-
-fn preview_for(
-    git: &impl Git,
-    layout: &crate::store::layout::Layout,
-    manifest: &crate::store::manifest::Manifest,
-    feature: &Feature,
-    own_session: Option<&str>,
-    find_pr: PullRequestLookup<'_>,
-) -> Result<CleanupPreview, Failure> {
-    preview_and_forge_use(git, layout, manifest, feature, own_session, find_pr)
-        .map(|(preview, _)| preview)
 }
 
 /// The preview, plus whether any repo's verdict rested on a forge answer — a
