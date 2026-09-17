@@ -51,7 +51,7 @@ pub use cleanup::{
     BranchDeletion, CLEANUP_RECORD_SCHEMA_VERSION, CleanupApplyOutcome, CleanupApprovals,
     CleanupBlocker, CleanupFacts, CleanupPreview, CleanupRecord, CleanupRepo, CleanupRepoFacts,
     CleanupVerdict, DeliveryApproval, DeliveryBlocker, DeliveryFacts, DeliveryRepoFacts,
-    DeliveryVerdict, DocumentationApproval, DocumentationDecision, TeardownApproval,
+    DeliveryVerdict, DocumentationApproval, DocumentationDecision, ForgeDelivery, TeardownApproval,
     WorktreeRemoval, classify_cleanup, classify_delivery,
 };
 pub use delivery::{

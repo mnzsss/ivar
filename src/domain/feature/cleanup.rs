@@ -154,6 +154,26 @@ pub fn classify_delivery(facts: &DeliveryFacts) -> DeliveryVerdict {
     }
 }
 
+/// What the forge says about a branch local git could not prove delivered.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ForgeDelivery {
+    /// A merged pull request whose head is the local feature head.
+    Merged,
+    /// A pull request exists but does not prove this head landed.
+    NotMerged(String),
+    /// The forge could not answer.
+    Unavailable(String),
+}
+
+impl ForgeDelivery {
+    fn detail(&self) -> Option<&str> {
+        match self {
+            Self::Merged => None,
+            Self::NotMerged(detail) | Self::Unavailable(detail) => Some(detail),
+        }
+    }
+}
+
 /// Git and filesystem facts for one promoted repository, gathered by an action.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CleanupRepoFacts {
@@ -168,16 +188,22 @@ pub struct CleanupRepoFacts {
     pub unmerged_commits: Option<u64>,
     pub in_manifest: bool,
     pub inspection_error: Option<String>,
+    pub forge_delivery: Option<ForgeDelivery>,
 }
 
 impl CleanupRepoFacts {
     #[must_use]
     pub fn to_delivery_facts(&self) -> DeliveryRepoFacts {
+        let unmerged_commits = if self.forge_delivery == Some(ForgeDelivery::Merged) {
+            Some(0)
+        } else {
+            self.unmerged_commits
+        };
         DeliveryRepoFacts {
             repo: self.repo.clone(),
             effective_base: self.effective_base.clone(),
             clone_exists: self.clone_exists,
-            unmerged_commits: self.unmerged_commits,
+            unmerged_commits,
             in_manifest: self.in_manifest,
             inspection_error: self.inspection_error.clone(),
         }
@@ -222,6 +248,8 @@ pub enum CleanupBlocker {
         repo: RepoName,
         effective_base: BranchName,
         commits: u64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        forge: Option<String>,
     },
     DirtyWorktree {
         repo: RepoName,
@@ -264,6 +292,7 @@ impl From<DeliveryBlocker> for CleanupBlocker {
                 repo,
                 effective_base,
                 commits,
+                forge: None,
             },
             DeliveryBlocker::RepositoryInspectionFailed { repo, error } => {
                 CleanupBlocker::RepositoryInspectionFailed { repo, error }
@@ -281,11 +310,16 @@ impl fmt::Display for CleanupBlocker {
                 repo,
                 effective_base,
                 commits,
+                forge,
             } => {
                 write!(
                     f,
                     "`{repo}` has {commits} commit(s) not merged into `{effective_base}`"
-                )
+                )?;
+                match forge {
+                    Some(detail) => write!(f, " (forge: {detail})"),
+                    None => Ok(()),
+                }
             }
             CleanupBlocker::DirtyWorktree { repo } => {
                 write!(f, "cannot check `{repo}` — it has uncommitted changes")
@@ -325,8 +359,18 @@ pub fn classify_cleanup(facts: &CleanupFacts) -> CleanupVerdict {
 
     let delivery_facts = facts.to_delivery_facts();
     if let DeliveryVerdict::Blocked(delivery_blockers) = classify_delivery(&delivery_facts) {
-        for b in delivery_blockers {
-            blockers.push(CleanupBlocker::from(b));
+        for delivery_blocker in delivery_blockers {
+            let mut blocker = CleanupBlocker::from(delivery_blocker);
+            if let CleanupBlocker::UnmergedCommits { repo, forge, .. } = &mut blocker {
+                *forge = facts
+                    .repos
+                    .iter()
+                    .find(|facts| &facts.repo == repo)
+                    .and_then(|facts| facts.forge_delivery.as_ref())
+                    .and_then(ForgeDelivery::detail)
+                    .map(str::to_owned);
+            }
+            blockers.push(blocker);
         }
     }
 

@@ -20,6 +20,7 @@ fn repo_facts() -> CleanupRepoFacts {
         unmerged_commits: Some(0),
         in_manifest: true,
         inspection_error: None,
+        forge_delivery: None,
     }
 }
 
@@ -316,4 +317,77 @@ fn cleanup_apply_outcome_serialisation_omits_plans_removed() {
     let json = serde_json::to_string(&outcome).unwrap();
     assert!(!json.contains("plans_removed"));
     assert!(json.contains(r#""feature_removed":true"#));
+}
+
+fn facts_with(repo: CleanupRepoFacts) -> CleanupFacts {
+    CleanupFacts {
+        repos: vec![repo],
+        live_sessions: Vec::new(),
+        descendants: Vec::new(),
+        session_inspection_error: None,
+    }
+}
+
+#[test]
+fn a_forge_merge_of_the_local_head_clears_unmerged_commits() {
+    let mut repo = repo_facts();
+    repo.unmerged_commits = Some(3);
+    repo.forge_delivery = Some(ForgeDelivery::Merged);
+
+    assert!(classify_cleanup(&facts_with(repo)).blockers.is_empty());
+}
+
+#[test]
+fn an_unavailable_forge_keeps_the_blocker_and_names_the_failure() {
+    let mut repo = repo_facts();
+    repo.unmerged_commits = Some(3);
+    repo.forge_delivery = Some(ForgeDelivery::Unavailable("gh: not logged in".to_owned()));
+
+    let verdict = classify_cleanup(&facts_with(repo));
+
+    assert_eq!(
+        verdict.blockers,
+        vec![CleanupBlocker::UnmergedCommits {
+            repo: RepoName::new("api").unwrap(),
+            effective_base: BranchName::new("main").unwrap(),
+            commits: 3,
+            forge: Some("gh: not logged in".to_owned()),
+        }]
+    );
+    assert!(
+        verdict.blockers[0]
+            .to_string()
+            .contains("gh: not logged in")
+    );
+}
+
+#[test]
+fn a_forge_result_without_local_commits_ahead_changes_nothing() {
+    let mut repo = repo_facts();
+    repo.forge_delivery = Some(ForgeDelivery::NotMerged(
+        "pull request #7 is OPEN".to_owned(),
+    ));
+
+    assert!(classify_cleanup(&facts_with(repo)).blockers.is_empty());
+}
+
+#[test]
+fn an_unmerged_blocker_without_forge_detail_serializes_as_before() {
+    let blocker = CleanupBlocker::UnmergedCommits {
+        repo: RepoName::new("api").unwrap(),
+        effective_base: BranchName::new("main").unwrap(),
+        commits: 1,
+        forge: None,
+    };
+
+    let json = serde_json::to_string(&blocker).unwrap();
+
+    assert_eq!(
+        json,
+        r#"{"kind":"unmerged_commits","repo":"api","effective_base":"main","commits":1}"#
+    );
+    assert_eq!(
+        serde_json::from_str::<CleanupBlocker>(&json).unwrap(),
+        blocker
+    );
 }

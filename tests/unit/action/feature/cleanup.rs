@@ -189,7 +189,14 @@ fn reports_missing_clone_and_unmerged_commits() {
         &["commit", "--allow-empty", "-m", "feature change"],
     );
 
-    let preview = run_preview(&root);
+    let manifest = read_manifest(&layout).unwrap();
+    let feature = Feature::read(&layout, &FeatureName::new("checkout").unwrap())
+        .unwrap()
+        .unwrap();
+    let preview = preview_for(&git::System, &layout, &manifest, &feature, None, &|_, _| {
+        Err(Failure::failed("pull_requests.gh_failed", "gh unavailable"))
+    })
+    .unwrap();
     assert!(
         preview
             .blockers
@@ -863,4 +870,147 @@ fn preview_still_blocks_on_other_live_sessions() {
         "only the other session blocks: {:?}",
         preview.blockers
     );
+}
+
+fn ahead_by_one(root: &Utf8PathBuf) -> (Layout, Manifest, Feature, String) {
+    let layout = Layout::at(root.clone());
+    let repo = RepoName::new("api").unwrap();
+    let branch = BranchName::new("checkout").unwrap();
+    test_git(
+        &layout.repo_worktree(&repo, &branch),
+        &["commit", "--allow-empty", "-m", "squashed elsewhere"],
+    );
+    let head = git::System
+        .revision_commit(&layout.repo_bare(&repo), branch.as_str())
+        .unwrap();
+    let manifest = read_manifest(&layout).unwrap();
+    let feature = Feature::read(&layout, &FeatureName::new("checkout").unwrap())
+        .unwrap()
+        .unwrap();
+    (layout, manifest, feature, head)
+}
+
+fn pull_request(state: &str, head_oid: Option<&str>) -> PullRequest {
+    PullRequest {
+        url: "https://example.test/pr/7".to_owned(),
+        number: 7,
+        state: state.to_owned(),
+        head_oid: head_oid.map(str::to_owned),
+        merge_commit: None,
+        is_draft: false,
+    }
+}
+
+fn unmerged_forge_detail(preview: &CleanupPreview) -> Option<Option<String>> {
+    preview.blockers.iter().find_map(|blocker| match blocker {
+        CleanupBlocker::UnmergedCommits { forge, .. } => Some(forge.clone()),
+        _ => None,
+    })
+}
+
+#[test]
+fn a_merged_pull_request_for_the_local_head_counts_as_delivered() {
+    let (_guard, root) = hall_with_feature(&["api"], None);
+    let (layout, manifest, feature, head) = ahead_by_one(&root);
+
+    let preview = preview_for(
+        &git::System,
+        &layout,
+        &manifest,
+        &feature,
+        None,
+        &|_, branch| {
+            assert_eq!(branch, "checkout");
+            Ok(Some(pull_request("MERGED", Some(&head))))
+        },
+    )
+    .unwrap();
+
+    assert_eq!(unmerged_forge_detail(&preview), None);
+    assert!(preview.repos[0].is_delivered);
+}
+
+#[test]
+fn a_merged_pull_request_for_another_head_keeps_the_blocker() {
+    let (_guard, root) = hall_with_feature(&["api"], None);
+    let (layout, manifest, feature, _head) = ahead_by_one(&root);
+
+    let preview = preview_for(&git::System, &layout, &manifest, &feature, None, &|_, _| {
+        Ok(Some(pull_request(
+            "MERGED",
+            Some("0000000000000000000000000000000000000000"),
+        )))
+    })
+    .unwrap();
+
+    let detail = unmerged_forge_detail(&preview).unwrap().unwrap();
+    assert!(detail.contains("#7"), "{detail}");
+    assert!(!preview.repos[0].is_delivered);
+}
+
+#[test]
+fn a_forge_failure_or_missing_pull_request_keeps_the_blocker_with_its_reason() {
+    let (_guard, root) = hall_with_feature(&["api"], None);
+    let (layout, manifest, feature, _head) = ahead_by_one(&root);
+
+    let failed = preview_for(&git::System, &layout, &manifest, &feature, None, &|_, _| {
+        Err(Failure::failed(
+            "pull_requests.gh_failed",
+            "gh: not logged in",
+        ))
+    })
+    .unwrap();
+    assert_eq!(
+        unmerged_forge_detail(&failed),
+        Some(Some("gh: not logged in".to_owned()))
+    );
+    assert!(!failed.repos[0].is_delivered);
+
+    let missing = preview_for(&git::System, &layout, &manifest, &feature, None, &|_, _| {
+        Ok(None)
+    })
+    .unwrap();
+    let detail = unmerged_forge_detail(&missing).unwrap().unwrap();
+    assert!(detail.contains("no pull request"), "{detail}");
+    assert!(!missing.repos[0].is_delivered);
+}
+
+#[test]
+fn a_repo_with_nothing_ahead_never_asks_the_forge() {
+    let (_guard, root) = hall_with_feature(&["api"], None);
+    let layout = Layout::at(root.clone());
+    let manifest = read_manifest(&layout).unwrap();
+    let feature = Feature::read(&layout, &FeatureName::new("checkout").unwrap())
+        .unwrap()
+        .unwrap();
+
+    let preview = preview_for(&git::System, &layout, &manifest, &feature, None, &|_, _| {
+        panic!("the forge must not be consulted when local git proves delivery")
+    })
+    .unwrap();
+
+    assert!(preview.repos[0].is_delivered);
+}
+
+#[test]
+fn forge_failure_text_does_not_move_the_cleanup_fingerprint() {
+    let (_guard, root) = hall_with_feature(&["api"], None);
+    let (layout, manifest, feature, _head) = ahead_by_one(&root);
+    let preview_failing_with = |what: &'static str| {
+        preview_for(
+            &git::System,
+            &layout,
+            &manifest,
+            &feature,
+            None,
+            &move |_, _| Err(Failure::failed("pull_requests.gh_failed", what)),
+        )
+        .unwrap()
+    };
+
+    let first = preview_failing_with("gh: request timed out after 30s");
+    let second = preview_failing_with("gh: connection reset");
+
+    assert_ne!(first.blockers, second.blockers);
+    assert_eq!(first.fingerprint, second.fingerprint);
 }

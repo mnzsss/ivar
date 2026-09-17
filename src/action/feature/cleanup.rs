@@ -2,7 +2,7 @@
 
 use std::io;
 
-use camino::Utf8PathBuf;
+use camino::{Utf8Path, Utf8PathBuf};
 use serde::Serialize;
 
 use crate::action::Ctx;
@@ -10,7 +10,8 @@ use crate::action::feature::delete;
 use crate::action::session::lookup as session_lookup;
 use crate::domain::feature::{
     BranchDeletion, CleanupApplyOutcome, CleanupBlocker, CleanupFacts, CleanupPreview,
-    CleanupRecord, CleanupRepo, CleanupRepoFacts, Feature, WorktreeRemoval, classify_cleanup,
+    CleanupRecord, CleanupRepo, CleanupRepoFacts, Feature, ForgeDelivery, WorktreeRemoval,
+    classify_cleanup,
 };
 use crate::domain::name::{FeatureName, RepoName};
 use crate::error::{Failure, FixAction, Outcome, Report, Warning, WriteHuman};
@@ -18,6 +19,7 @@ use crate::git::{self, Git, TargetState};
 use crate::infra::{fs, hash, json};
 
 use super::super::{discover_hall, read_manifest};
+use super::pull_requests::{self, PullRequest};
 use super::{base, relations};
 
 #[derive(Debug, Clone)]
@@ -122,6 +124,7 @@ pub fn cleanup(ctx: &Ctx, input: CleanupInput) -> Outcome<CleanupOutcome> {
         &manifest,
         &feature,
         input.session_id.as_deref(),
+        &forge_pull_request,
     )?;
 
     Ok(Report::new(CleanupOutcome {
@@ -208,7 +211,14 @@ fn apply_cleanup(
         )
     })?;
     let git = git::System;
-    let preview = preview_for(&git, &layout, &manifest, &feature, own_session)?;
+    let preview = preview_for(
+        &git,
+        &layout,
+        &manifest,
+        &feature,
+        own_session,
+        &forge_pull_request,
+    )?;
 
     // 5. Check record feature == preview feature and record branch == preview branch
     if record.feature != preview.feature || record.branch != preview.branch {
@@ -486,6 +496,7 @@ fn preview_for(
     manifest: &crate::store::manifest::Manifest,
     feature: &Feature,
     own_session: Option<&str>,
+    find_pr: PullRequestLookup<'_>,
 ) -> Result<CleanupPreview, Failure> {
     let (live_sessions, session_inspection_error) =
         match session_lookup::list_feature(layout, &feature.name) {
@@ -508,7 +519,7 @@ fn preview_for(
         .promotions
         .iter()
         .map(|(repo, promotion)| {
-            collect_repo_facts(git, layout, manifest, feature, repo, promotion)
+            collect_repo_facts(git, layout, manifest, feature, repo, promotion, find_pr)
         })
         .collect();
     let facts = CleanupFacts {
@@ -554,6 +565,7 @@ fn collect_repo_facts(
     feature: &Feature,
     repo: &RepoName,
     promotion: &crate::domain::feature::Promotion,
+    find_pr: PullRequestLookup<'_>,
 ) -> CleanupRepoFacts {
     let Some(manifest_repo) = manifest
         .repos()
@@ -568,31 +580,42 @@ fn collect_repo_facts(
     let clone_exists = matches!(git.target_state(&bare), Ok(TargetState::Repository));
     let worktree_exists = matches!(git.target_state(&worktree), Ok(TargetState::Repository));
     let mut inspection_error = None;
-    let (feature_head, base_head, local_branch_exists, unmerged_commits) = if clone_exists {
-        let feature_head = revision(git, &bare, feature.branch.as_str(), &mut inspection_error);
-        let base_head = revision(git, &bare, effective_base.as_str(), &mut inspection_error);
-        let local_branch_exists = feature_head.is_some();
-        let unmerged_commits = match base::unmerged_commits(
-            git,
-            &bare,
-            effective_base.as_str(),
-            feature.branch.as_str(),
-        ) {
-            Ok(commits) => Some(commits),
-            Err(error) => {
-                inspection_error.get_or_insert_with(|| error.to_string());
-                None
-            }
+    let (feature_head, base_head, local_branch_exists, unmerged_commits, forge_delivery) =
+        if clone_exists {
+            let feature_head = revision(git, &bare, feature.branch.as_str(), &mut inspection_error);
+            let base_head = revision(git, &bare, effective_base.as_str(), &mut inspection_error);
+            let local_branch_exists = feature_head.is_some();
+            let unmerged_commits = match base::unmerged_commits(
+                git,
+                &bare,
+                effective_base.as_str(),
+                feature.branch.as_str(),
+            ) {
+                Ok(commits) => Some(commits),
+                Err(error) => {
+                    inspection_error.get_or_insert_with(|| error.to_string());
+                    None
+                }
+            };
+            let forge_delivery = match (unmerged_commits, feature_head.as_deref()) {
+                (Some(1..), Some(head)) => Some(forge_delivery(
+                    find_pr,
+                    &bare,
+                    feature.branch.as_str(),
+                    head,
+                )),
+                _ => None,
+            };
+            (
+                feature_head,
+                base_head,
+                local_branch_exists,
+                unmerged_commits,
+                forge_delivery,
+            )
+        } else {
+            (None, None, false, None, None)
         };
-        (
-            feature_head,
-            base_head,
-            local_branch_exists,
-            unmerged_commits,
-        )
-    } else {
-        (None, None, false, None)
-    };
     let dirty_worktree = if worktree_exists {
         match git.worktree_dirty(&worktree) {
             Ok(dirty) => Some(dirty),
@@ -617,6 +640,35 @@ fn collect_repo_facts(
         unmerged_commits,
         in_manifest: true,
         inspection_error,
+        forge_delivery,
+    }
+}
+
+type PullRequestLookup<'a> = &'a dyn Fn(&Utf8Path, &str) -> Result<Option<PullRequest>, Failure>;
+
+fn forge_pull_request(git_dir: &Utf8Path, branch: &str) -> Result<Option<PullRequest>, Failure> {
+    pull_requests::find_pull_request(git_dir, branch, "all")
+}
+
+fn forge_delivery(
+    find_pr: PullRequestLookup<'_>,
+    bare: &Utf8Path,
+    branch: &str,
+    feature_head: &str,
+) -> ForgeDelivery {
+    match find_pr(bare, branch) {
+        Err(failure) => ForgeDelivery::Unavailable(failure.what),
+        Ok(None) => ForgeDelivery::Unavailable(format!("no pull request found for `{branch}`")),
+        Ok(Some(pr)) if pr.state != "MERGED" => {
+            ForgeDelivery::NotMerged(format!("pull request #{} is {}", pr.number, pr.state))
+        }
+        Ok(Some(pr)) if pr.head_oid.as_deref() != Some(feature_head) => {
+            ForgeDelivery::NotMerged(format!(
+                "pull request #{} merged a head other than local `{branch}`",
+                pr.number
+            ))
+        }
+        Ok(Some(_)) => ForgeDelivery::Merged,
     }
 }
 
@@ -633,6 +685,7 @@ fn absent_manifest_facts(repo: &RepoName) -> CleanupRepoFacts {
         unmerged_commits: None,
         in_manifest: false,
         inspection_error: None,
+        forge_delivery: None,
     }
 }
 
@@ -660,8 +713,20 @@ fn cleanup_repo(facts: &CleanupRepoFacts) -> Option<CleanupRepo> {
         base_head: facts.base_head.clone(),
         local_branch_exists: facts.local_branch_exists,
         worktree_exists: facts.worktree_exists,
-        is_delivered: facts.in_manifest && facts.clone_exists && facts.unmerged_commits == Some(0),
+        is_delivered: facts.in_manifest
+            && facts.clone_exists
+            && facts.to_delivery_facts().unmerged_commits == Some(0),
     })
+}
+
+/// Forge answers are live network text (timeouts, auth prompts) that can differ
+/// between preview and apply; the blocker itself still enters the fingerprint.
+fn without_forge_detail(blocker: &CleanupBlocker) -> CleanupBlocker {
+    let mut blocker = blocker.clone();
+    if let CleanupBlocker::UnmergedCommits { forge, .. } = &mut blocker {
+        *forge = None;
+    }
+    blocker
 }
 
 fn fingerprint_for(
@@ -675,7 +740,7 @@ fn fingerprint_for(
         feature: feature.clone(),
         branch: branch.clone(),
         repos: repos.to_vec(),
-        blockers: blockers.to_vec(),
+        blockers: blockers.iter().map(without_forge_detail).collect(),
         paths_to_remove: paths_to_remove.to_vec(),
         fingerprint: String::new(),
     };
