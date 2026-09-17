@@ -795,3 +795,29 @@ fn an_io_error_keeps_the_fs_layers_code_and_names_the_file() {
         failure.fix_actions
     );
 }
+
+#[test]
+fn the_block_tells_an_agent_where_temporary_files_belong() {
+    let block = build_block(&hall(), &[repo("api")]);
+
+    assert!(
+        block.contains(crate::domain::session::SCRATCH_DIR),
+        "the block must name the scratch dir: {block}"
+    );
+    assert!(
+        block.contains(".ivar/sessions/"),
+        "the convention has to be locatable, not just named: {block}"
+    );
+}
+
+/// Scratch dies with the view dir (`ivar session stop` removes it), so an
+/// agent must be told not to keep anything there.
+#[test]
+fn the_block_says_scratch_is_temporary() {
+    let block = build_block(&hall(), &[repo("api")]);
+
+    assert!(
+        block.contains("ivar session stop"),
+        "the block must name what destroys scratch: {block}"
+    );
+}
