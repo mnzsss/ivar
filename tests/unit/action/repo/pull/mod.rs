@@ -664,7 +664,7 @@ fn the_json_surface_carries_the_status_per_repo() {
 
     assert_eq!(
         json,
-        r#"{"root":"/hall","repos":[{"repo":"api","status":"refreshed"}]}"#
+        r#"{"ok":true,"root":"/hall","repos":[{"repo":"api","status":"refreshed"}]}"#
     );
 }
 

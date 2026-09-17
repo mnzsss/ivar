@@ -182,11 +182,13 @@ Two things, deliberately separate.
 output is a machine-readable contract cannot afford a type that erases which
 error it is.
 
-**External:** every failure renders through one envelope.
+**External:** every `--json` run carries `"ok"` — `true` on success, `false` on
+failure — and every failure renders through one envelope, which adds `"kind"`
+(`blocked` or `failed`).
 
 ```rust
 pub struct Failure {
-    pub status: Status,              // Blocked | Failed; serialized as "ok": false
+    pub status: Status,              // Blocked | Failed; serialized as "kind"
     pub code: &'static str,
     pub what: String,
     pub expected: Option<String>,

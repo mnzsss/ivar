@@ -1216,7 +1216,7 @@ fn the_json_surface_carries_every_entry_and_its_change() {
 
     assert_eq!(
         json,
-        r#"{"root":"/hall","entries":[{"surface":"hall","label":".ivar/","change":"created"}]}"#
+        r#"{"ok":true,"root":"/hall","entries":[{"surface":"hall","label":".ivar/","change":"created"}]}"#
     );
 }
 

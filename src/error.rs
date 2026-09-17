@@ -196,16 +196,21 @@ impl FixAction {
     }
 }
 
-fn serialize_not_ok<S: serde::Serializer>(_: &Status, serializer: S) -> Result<S::Ok, S::Error> {
+fn serialize_not_ok<S: serde::Serializer>(_: &(), serializer: S) -> Result<S::Ok, S::Error> {
     serializer.serialize_bool(false)
+}
+
+fn serialize_ok<S: serde::Serializer>(_: &(), serializer: S) -> Result<S::Ok, S::Error> {
+    serializer.serialize_bool(true)
 }
 
 /// The one shape every reported failure takes.
 #[derive(Debug, Clone, Serialize)]
 pub struct Failure {
-    /// Drives the exit code and the human label; on the JSON surface every
-    /// failure is just `"ok": false`.
-    #[serde(rename(serialize = "ok"), serialize_with = "serialize_not_ok")]
+    #[serde(serialize_with = "serialize_not_ok")]
+    ok: (),
+    /// Drives the exit code and the human label; `"kind"` on the JSON surface.
+    #[serde(rename(serialize = "kind"))]
     pub status: Status,
     /// Stable, machine-matchable identifier, e.g. `hall.already_initialised`.
     pub code: &'static str,
@@ -240,6 +245,7 @@ impl Failure {
 
     fn new(status: Status, code: &'static str, what: impl Into<String>) -> Self {
         Self {
+            ok: (),
             status,
             code,
             what: what.into(),
@@ -389,6 +395,8 @@ impl fmt::Display for Warning {
 /// attention.
 #[derive(Debug, Clone, Serialize)]
 pub struct Report<T> {
+    #[serde(serialize_with = "serialize_ok")]
+    ok: (),
     #[serde(flatten)]
     pub value: T,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -400,6 +408,7 @@ impl<T> Report<T> {
     #[must_use]
     pub fn new(value: T) -> Self {
         Self {
+            ok: (),
             value,
             warnings: Vec::new(),
         }
@@ -408,7 +417,11 @@ impl<T> Report<T> {
     /// A run where some items needed attention.
     #[must_use]
     pub fn with_warnings(value: T, warnings: Vec<Warning>) -> Self {
-        Self { value, warnings }
+        Self {
+            ok: (),
+            value,
+            warnings,
+        }
     }
 
     /// Append one warning.
@@ -426,6 +439,7 @@ impl<T> Report<T> {
     #[must_use]
     pub fn map<U>(self, f: impl FnOnce(T) -> U) -> Report<U> {
         Report {
+            ok: (),
             value: f(self.value),
             warnings: self.warnings,
         }
