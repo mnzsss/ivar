@@ -465,6 +465,7 @@ fn main() -> ExitCode {
                             feature,
                             preview: args.preview,
                             record: args.record,
+                            session_id: std::env::var("IVAR_SESSION_ID").ok(),
                         },
                     ),
                     json,
@@ -480,6 +481,7 @@ fn main() -> ExitCode {
                                     feature: f.to_owned(),
                                     preview: args.preview,
                                     record: args.record.clone(),
+                                    session_id: std::env::var("IVAR_SESSION_ID").ok(),
                                 },
                             )
                         });

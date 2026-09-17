@@ -1680,6 +1680,7 @@ impl From<FeatureCleanupArgs> for cleanup::CleanupInput {
             feature: name.unwrap_or_default(),
             preview,
             record,
+            session_id: std::env::var("IVAR_SESSION_ID").ok(),
         }
     }
 }

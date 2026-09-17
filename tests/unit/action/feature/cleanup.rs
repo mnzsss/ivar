@@ -89,6 +89,7 @@ fn run_preview(root: &Utf8PathBuf) -> CleanupPreview {
             feature: "checkout".to_owned(),
             preview: true,
             record: None,
+            session_id: None,
         },
     )
     .unwrap()
@@ -300,6 +301,7 @@ fn paths_and_fingerprint_are_deterministic_and_fingerprint_changes_with_promoted
             feature: "feat2".to_owned(),
             preview: true,
             record: None,
+            session_id: None,
         },
     )
     .unwrap()
@@ -312,6 +314,7 @@ fn paths_and_fingerprint_are_deterministic_and_fingerprint_changes_with_promoted
             feature: "feat2".to_owned(),
             preview: true,
             record: None,
+            session_id: None,
         },
     )
     .unwrap()
@@ -337,6 +340,7 @@ fn paths_and_fingerprint_are_deterministic_and_fingerprint_changes_with_promoted
             feature: "feat2".to_owned(),
             preview: true,
             record: None,
+            session_id: None,
         },
     )
     .unwrap()
@@ -357,6 +361,7 @@ fn write_human_includes_paths_to_remove_heading_and_list() {
             feature: "checkout".to_owned(),
             preview: true,
             record: None,
+            session_id: None,
         },
     )
     .unwrap()
@@ -413,6 +418,7 @@ fn record_pointing_outside_docs_updates_refused() {
             feature: "checkout".to_owned(),
             preview: false,
             record: Some(Utf8PathBuf::from("docs/product/001-checkout.cleanup.json")),
+            session_id: None,
         },
     )
     .unwrap_err();
@@ -476,6 +482,7 @@ fn fully_valid_record_executes_teardown_removes_local_branches_and_writes_outcom
             feature: "checkout".to_owned(),
             preview: false,
             record: Some(record_rel_path.clone()),
+            session_id: None,
         },
     )
     .unwrap();
@@ -510,6 +517,7 @@ fn fully_valid_record_executes_teardown_removes_local_branches_and_writes_outcom
             feature: "checkout".to_owned(),
             preview: false,
             record: Some(record_rel_path),
+            session_id: None,
         },
     )
     .unwrap_err();
@@ -559,6 +567,7 @@ fn apply_cleanup_reports_branch_deletion_in_apply_outcome() {
             feature: "checkout".to_owned(),
             preview: false,
             record: Some(record_rel_path),
+            session_id: None,
         },
     )
     .unwrap();
@@ -619,6 +628,7 @@ fn apply_cleanup_preserves_remote_refs() {
             feature: "checkout".to_owned(),
             preview: false,
             record: Some(record_rel_path),
+            session_id: None,
         },
     )
     .unwrap();
@@ -663,6 +673,7 @@ fn record_fingerprint_mismatch_refused() {
             feature: "checkout".to_owned(),
             preview: false,
             record: Some(Utf8PathBuf::from("docs/updates/001-checkout.cleanup.json")),
+            session_id: None,
         },
     )
     .unwrap_err();
@@ -709,6 +720,7 @@ fn record_unapproved_delivery_or_teardown_refused() {
             feature: "checkout".to_owned(),
             preview: false,
             record: Some(Utf8PathBuf::from("docs/updates/001-checkout.cleanup.json")),
+            session_id: None,
         },
     )
     .unwrap_err();
@@ -742,6 +754,7 @@ fn record_unapproved_delivery_or_teardown_refused() {
             feature: "checkout".to_owned(),
             preview: false,
             record: Some(Utf8PathBuf::from("docs/updates/001-checkout.cleanup.json")),
+            session_id: None,
         },
     )
     .unwrap_err();
@@ -788,9 +801,66 @@ fn record_feature_mismatch_refused() {
             feature: "checkout".to_owned(),
             preview: false,
             record: Some(Utf8PathBuf::from("docs/updates/001-checkout.cleanup.json")),
+            session_id: None,
         },
     )
     .unwrap_err();
 
     assert_eq!(err.code, "feature.cleanup_record_feature_mismatch");
+}
+
+fn preview_from_session(root: &Utf8PathBuf, session: &SessionId) -> CleanupPreview {
+    cleanup(
+        &Ctx::new(root.clone()),
+        CleanupInput {
+            feature: "checkout".to_owned(),
+            preview: true,
+            record: None,
+            session_id: Some(session.as_str().to_owned()),
+        },
+    )
+    .unwrap()
+    .value
+    .preview
+}
+
+#[test]
+fn preview_does_not_block_on_the_session_running_cleanup() {
+    let (_guard, root) = hall_with_feature(&["api"], None);
+    let layout = Layout::at(root.clone());
+    let feature = FeatureName::new("checkout").unwrap();
+    let own = SessionId::new("2c6e6f1e-2d8a-4b3a-9c2a-6a7f6f9a1b2c").unwrap();
+    fs::ensure_dir(&layout.feature_session(&feature, &own)).unwrap();
+
+    let preview = preview_from_session(&root, &own);
+
+    assert!(
+        !preview
+            .blockers
+            .iter()
+            .any(|blocker| matches!(blocker, CleanupBlocker::LiveSessions { .. })),
+        "own session must not block: {:?}",
+        preview.blockers
+    );
+}
+
+#[test]
+fn preview_still_blocks_on_other_live_sessions() {
+    let (_guard, root) = hall_with_feature(&["api"], None);
+    let layout = Layout::at(root.clone());
+    let feature = FeatureName::new("checkout").unwrap();
+    let own = SessionId::new("2c6e6f1e-2d8a-4b3a-9c2a-6a7f6f9a1b2c").unwrap();
+    let other = SessionId::new("7d1f0a2b-3c4d-4e5f-8a9b-0c1d2e3f4a5b").unwrap();
+    fs::ensure_dir(&layout.feature_session(&feature, &own)).unwrap();
+    fs::ensure_dir(&layout.feature_session(&feature, &other)).unwrap();
+
+    let preview = preview_from_session(&root, &own);
+
+    assert!(
+        preview.blockers.contains(&CleanupBlocker::LiveSessions {
+            sessions: vec![other],
+        }),
+        "only the other session blocks: {:?}",
+        preview.blockers
+    );
 }

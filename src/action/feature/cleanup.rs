@@ -25,6 +25,8 @@ pub struct CleanupInput {
     pub feature: String,
     pub preview: bool,
     pub record: Option<Utf8PathBuf>,
+    /// The session running cleanup (`$IVAR_SESSION_ID`); never counted as a live-session blocker.
+    pub session_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -96,7 +98,12 @@ pub fn cleanup(ctx: &Ctx, input: CleanupInput) -> Outcome<CleanupOutcome> {
             ));
         };
 
-        return apply_cleanup(ctx, &input.feature, record_path);
+        return apply_cleanup(
+            ctx,
+            &input.feature,
+            record_path,
+            input.session_id.as_deref(),
+        );
     }
 
     let layout = discover_hall(ctx)?;
@@ -109,7 +116,13 @@ pub fn cleanup(ctx: &Ctx, input: CleanupInput) -> Outcome<CleanupOutcome> {
         )
     })?;
     let git = git::System;
-    let preview = preview_for(&git, &layout, &manifest, &feature)?;
+    let preview = preview_for(
+        &git,
+        &layout,
+        &manifest,
+        &feature,
+        input.session_id.as_deref(),
+    )?;
 
     Ok(Report::new(CleanupOutcome {
         root: layout.root().to_path_buf(),
@@ -122,6 +135,7 @@ fn apply_cleanup(
     ctx: &Ctx,
     feature_arg: &str,
     record_path: &camino::Utf8Path,
+    own_session: Option<&str>,
 ) -> Result<Report<CleanupOutcome>, Failure> {
     let layout = discover_hall(ctx)?;
     let docs_updates = layout.docs_updates_dir();
@@ -194,7 +208,7 @@ fn apply_cleanup(
         )
     })?;
     let git = git::System;
-    let preview = preview_for(&git, &layout, &manifest, &feature)?;
+    let preview = preview_for(&git, &layout, &manifest, &feature, own_session)?;
 
     // 5. Check record feature == preview feature and record branch == preview branch
     if record.feature != preview.feature || record.branch != preview.branch {
@@ -471,11 +485,16 @@ fn preview_for(
     layout: &crate::store::layout::Layout,
     manifest: &crate::store::manifest::Manifest,
     feature: &Feature,
+    own_session: Option<&str>,
 ) -> Result<CleanupPreview, Failure> {
     let (live_sessions, session_inspection_error) =
         match session_lookup::list_feature(layout, &feature.name) {
             Ok(sessions) => (
-                sessions.into_iter().map(|session| session.id).collect(),
+                sessions
+                    .into_iter()
+                    .map(|session| session.id)
+                    .filter(|id| Some(id.as_str()) != own_session)
+                    .collect(),
                 None,
             ),
             Err(error) => (Vec::new(), Some(error.to_string())),
