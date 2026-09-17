@@ -1026,3 +1026,29 @@ fn windows_path_or_colon_in_filename_is_not_mistaken_for_uri_scheme() {
         );
     }
 }
+
+#[test]
+fn a_write_inside_the_scratch_dir_is_allowed() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root.clone());
+    let feature = Feature::read(&layout, &FeatureName::new("checkout").unwrap())
+        .unwrap()
+        .unwrap();
+    let session_id = SessionId::new("6f0c9d5f-0000-4000-8000-000000000000").unwrap();
+    let view_dir = layout.feature_session(&feature.name, &session_id);
+    crate::infra::fs::ensure_dir(&Layout::session_scratch(&view_dir)).unwrap();
+    let mut state =
+        crate::domain::session::SessionState::new(Provider::Omp, "2026-08-29T00:00:00Z");
+    state.bind(feature.name.clone(), "2026-08-29T00:00:00Z");
+    state.write(&view_dir).unwrap();
+
+    let payload = serde_json::json!({
+        "tool": "write",
+        "args": { "filePath": Layout::session_scratch(&view_dir).join("draft.md") },
+        "cwd": root,
+    });
+
+    let out = guard(Provider::Omp, &payload.to_string()).unwrap();
+    assert!(out.exit_zero);
+    assert_eq!(out.body, "");
+}

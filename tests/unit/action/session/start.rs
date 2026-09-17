@@ -1547,3 +1547,94 @@ fn omp_sync_removes_stale_managed_commands_and_preserves_user_files() {
         "# User custom workflow"
     );
 }
+
+#[test]
+fn materialise_view_dir_creates_the_scratch_dir_for_a_feature_session() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root.clone());
+    let manifest = Manifest::read(&layout).unwrap().unwrap();
+    let feature = Feature::read(&layout, &FeatureName::new("checkout").unwrap())
+        .unwrap()
+        .unwrap();
+    let view_dir = layout.feature_session(
+        &FeatureName::new("checkout").unwrap(),
+        &crate::domain::name::SessionId::new(uuid::Uuid::new_v4().to_string()).unwrap(),
+    );
+
+    crate::action::session::view::materialise(
+        &layout,
+        &manifest,
+        Some(&feature),
+        Provider::ClaudeCode,
+        &view_dir,
+    )
+    .unwrap();
+
+    assert!(
+        fs::is_dir(&Layout::session_scratch(&view_dir)).unwrap(),
+        "a feature session must get a scratch dir"
+    );
+}
+
+#[test]
+fn materialise_view_dir_creates_the_scratch_dir_for_a_discovery_session() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root.clone());
+    let manifest = Manifest::read(&layout).unwrap().unwrap();
+    let view_dir = layout.discovery_session(
+        &crate::domain::name::SessionId::new(uuid::Uuid::new_v4().to_string()).unwrap(),
+    );
+
+    crate::action::session::view::materialise(
+        &layout,
+        &manifest,
+        None,
+        Provider::ClaudeCode,
+        &view_dir,
+    )
+    .unwrap();
+
+    assert!(
+        fs::is_dir(&Layout::session_scratch(&view_dir)).unwrap(),
+        "a discovery session must get a scratch dir too"
+    );
+}
+
+/// `ivar session connect` re-materialises a live session's view dir. Scratch
+/// written before that call has to still be there after it.
+#[test]
+fn re_materialising_keeps_what_is_already_in_the_scratch_dir() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root.clone());
+    let manifest = Manifest::read(&layout).unwrap().unwrap();
+    let view_dir = layout.discovery_session(
+        &crate::domain::name::SessionId::new(uuid::Uuid::new_v4().to_string()).unwrap(),
+    );
+
+    crate::action::session::view::materialise(
+        &layout,
+        &manifest,
+        None,
+        Provider::ClaudeCode,
+        &view_dir,
+    )
+    .unwrap();
+
+    let note = Layout::session_scratch(&view_dir).join("note.md");
+    fs::write_text(&note, "draft").unwrap();
+
+    crate::action::session::view::materialise(
+        &layout,
+        &manifest,
+        None,
+        Provider::ClaudeCode,
+        &view_dir,
+    )
+    .unwrap();
+
+    assert_eq!(
+        fs::read_text(&note).unwrap().as_deref(),
+        Some("draft"),
+        "re-materialisation must not clear scratch"
+    );
+}
