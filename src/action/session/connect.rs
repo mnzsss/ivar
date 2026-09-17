@@ -12,10 +12,11 @@ use std::io;
 use camino::Utf8PathBuf;
 use serde::Serialize;
 
-use crate::domain::feature::Feature;
-use crate::domain::name::FeatureName;
+use crate::action::feature::promote::{self, PromoteInput};
+use crate::domain::feature::{Feature, GateState};
+use crate::domain::name::{FeatureName, RepoName};
 use crate::domain::session::{SessionRef, SessionState};
-use crate::error::{Failure, FixAction, Outcome, Report, WriteHuman};
+use crate::error::{Failure, FixAction, Outcome, Report, Warning, WriteHuman};
 use crate::infra::proc;
 use crate::providers;
 use crate::store::layout::Layout;
@@ -53,6 +54,9 @@ pub struct ConnectOutcome {
     pub feature: Option<FeatureName>,
     /// The session's (re-materialised) view dir.
     pub view_dir: Utf8PathBuf,
+    /// Repos the approved plan declared that this connect promoted.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub promoted: Vec<RepoName>,
 }
 
 impl WriteHuman for ConnectOutcome {
@@ -62,6 +66,9 @@ impl WriteHuman for ConnectOutcome {
             writeln!(w, "export IVAR_FEATURE={feature}")?;
         }
         writeln!(w, "export IVAR_SESSION_PATH={}", self.view_dir)?;
+        for repo in &self.promoted {
+            writeln!(w, "# promoted {repo}")?;
+        }
         Ok(())
     }
 }
@@ -113,6 +120,16 @@ pub fn connect(ctx: &Ctx, input: ConnectInput) -> Outcome<ConnectOutcome> {
         crate::action::feature::ensure_unrestricted_session_allowed(&layout, feature)?;
     }
 
+    let (promoted, promote_warnings) = match &feature {
+        Some(record) => promote_declared_repos(ctx, &layout, record)?,
+        None => (Vec::new(), Vec::new()),
+    };
+    warnings.extend(promote_warnings);
+    let feature = match &session.feature {
+        Some(name) if !promoted.is_empty() => Feature::read(&layout, name)?,
+        _ => feature,
+    };
+
     // Re-materialise: repair drifted symlinks, the read-only guards, the
     // projected plan and the bootstrap instructions. A no-op when nothing
     // drifted. The provider is the session's own (its record's, or the hall's
@@ -138,6 +155,7 @@ pub fn connect(ctx: &Ctx, input: ConnectInput) -> Outcome<ConnectOutcome> {
             session_id: session.id.to_string(),
             feature: session.feature.clone(),
             view_dir: session.view_dir.clone(),
+            promoted,
         },
         warnings,
     ))
@@ -194,6 +212,67 @@ fn attach_or_create(
     let warnings = started.warnings;
     let session = lookup::resolve(layout, Some(&started.value.session_id), Some(feature))?;
     Ok(Some(Report::with_warnings(session, warnings)))
+}
+
+/// Promote every repo the **approved** plan declares that is not promoted yet.
+///
+/// A repo that fails to promote is a warning, not a refused connect: a
+/// half-promoted session is recoverable with `ivar feature promote`, a
+/// refused connect blocks all work.
+fn promote_declared_repos(
+    ctx: &Ctx,
+    layout: &Layout,
+    feature: &Feature,
+) -> Result<(Vec<RepoName>, Vec<Warning>), Failure> {
+    if crate::action::plan::effective_plan_gate(layout, &feature.name)? != GateState::Approved {
+        return Ok((Vec::new(), Vec::new()));
+    }
+    let declared = crate::action::plan::plan_declared_repos(layout, &feature.name)?;
+    if declared.is_empty() {
+        let warnings = if feature.promotions.is_empty() {
+            vec![Warning::new(
+                "connect.no_repos_declared",
+                feature.name.as_str(),
+                format!(
+                    "the approved plan declares no `repos:` and nothing is promoted; run `ivar feature promote {} <repo>` for each repo this feature edits",
+                    feature.name
+                ),
+            )]
+        } else {
+            Vec::new()
+        };
+        return Ok((Vec::new(), warnings));
+    }
+
+    let mut promoted = Vec::new();
+    let mut warnings = Vec::new();
+    for repo in declared
+        .into_iter()
+        .filter(|repo| !feature.is_promoted(repo))
+    {
+        match promote::promote(
+            ctx,
+            PromoteInput {
+                feature: feature.name.to_string(),
+                repo: repo.to_string(),
+                base: None,
+            },
+        ) {
+            Ok(report) => {
+                warnings.extend(report.warnings);
+                promoted.push(repo);
+            }
+            Err(failure) => warnings.push(Warning::new(
+                "connect.promote_failed",
+                repo.as_str(),
+                format!(
+                    "could not promote `{repo}`: {}; run `ivar feature promote {} {repo}` once that is fixed",
+                    failure.what, feature.name
+                ),
+            )),
+        }
+    }
+    Ok((promoted, warnings))
 }
 
 #[cfg(test)]

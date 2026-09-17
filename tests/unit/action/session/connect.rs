@@ -9,6 +9,7 @@ use super::*;
 use crate::action::feature::create::{self as feature_create, CreateInput};
 use crate::action::feature::promote::{self as feature_promote, PromoteInput};
 use crate::action::hall::{self, InitInput};
+use crate::action::plan::approve::{self as plan_approve, ApproveInput};
 use crate::action::plan::create::{self as plan_create, CreateInput as PlanCreateInput};
 use crate::action::session::start::{self as session_start, StartInput};
 use crate::domain::feature::Feature;
@@ -22,6 +23,12 @@ use crate::test_support::{hall_root, seeded_repo};
 /// A hall with two registered repos — `api` promoted into `checkout`,
 /// `web` left read-only — plus a detached session on `checkout`.
 fn hall_with_detached_session() -> (tempfile::TempDir, Utf8PathBuf) {
+    hall_with_session(&["api"])
+}
+
+/// A hall with `api` and `web` registered, `promoted` promoted into
+/// `checkout`, and a detached session on `checkout`.
+fn hall_with_session(promoted: &[&str]) -> (tempfile::TempDir, Utf8PathBuf) {
     let (guard, root) = hall_root();
     let ctx = Ctx::new(root.clone());
     hall::init(
@@ -71,15 +78,17 @@ fn hall_with_detached_session() -> (tempfile::TempDir, Utf8PathBuf) {
     )
     .unwrap();
     crate::action::sync::sync(&ctx, Default::default()).unwrap();
-    feature_promote::promote(
-        &ctx,
-        PromoteInput {
-            feature: "checkout".to_owned(),
-            repo: "api".to_owned(),
-            base: None,
-        },
-    )
-    .unwrap();
+    for repo in promoted {
+        feature_promote::promote(
+            &ctx,
+            PromoteInput {
+                feature: "checkout".to_owned(),
+                repo: (*repo).to_owned(),
+                base: None,
+            },
+        )
+        .unwrap();
+    }
 
     session_start::start(
         &ctx,
@@ -665,4 +674,141 @@ fn omp_session_reconnect_repairs_deleted_projections() {
         crate::infra::fs::SymlinkTarget::Target(hall_omp_commands),
         "reconnect must restore a deleted projection"
     );
+}
+
+fn write_plan(root: &Utf8PathBuf, frontmatter: &str, approve: bool) {
+    let layout = Layout::at(root.clone());
+    let feature = FeatureName::new("checkout").unwrap();
+    fs::ensure_dir(&layout.plan_dir(&feature)).unwrap();
+    fs::write_text(
+        &layout.plan_dir(&feature).join("plan.md"),
+        &format!("---\n{frontmatter}\n---\n# Plan\n"),
+    )
+    .unwrap();
+    if approve {
+        plan_approve::approve(
+            &Ctx::new(root.clone()),
+            ApproveInput {
+                feature: "checkout".to_owned(),
+                gate: "plan".to_owned(),
+            },
+        )
+        .unwrap();
+    }
+}
+
+fn connect_to_checkout(root: &Utf8PathBuf) -> Report<ConnectOutcome> {
+    connect(
+        &Ctx::new(root.clone()),
+        ConnectInput {
+            session_id: None,
+            feature: Some("checkout".to_owned()),
+            create: false,
+        },
+    )
+    .unwrap()
+}
+
+#[test]
+fn connect_promotes_the_repos_an_approved_plan_declares() {
+    let (_guard, root) = hall_with_session(&["api"]);
+    write_plan(&root, "repos: [api, web]", true);
+
+    let report = connect_to_checkout(&root);
+
+    assert_eq!(report.value.promoted, vec![RepoName::new("web").unwrap()]);
+    let layout = Layout::at(root.clone());
+    let feature = Feature::read(&layout, &FeatureName::new("checkout").unwrap())
+        .unwrap()
+        .unwrap();
+    assert!(feature.is_promoted(&RepoName::new("web").unwrap()));
+    let link = report.value.view_dir.join("web");
+    let target = match fs::read_symlink(&link).unwrap() {
+        fs::SymlinkTarget::Target(path) => path,
+        other => panic!("expected a symlink, got {other:?}"),
+    };
+    assert!(
+        target.as_str().contains(".ivar/repos/web/checkout"),
+        "web must be linked to its feature worktree: {target}"
+    );
+    let mut human = Vec::new();
+    report.value.write_human(&mut human).unwrap();
+    assert!(
+        String::from_utf8(human)
+            .unwrap()
+            .contains("# promoted web\n")
+    );
+    unguard_worktrees(&root);
+}
+
+#[test]
+fn connect_with_create_also_promotes_the_declared_repos() {
+    let (_guard, root) = hall_with_session(&[]);
+    write_plan(&root, "repos: [web]", true);
+
+    let report = connect(
+        &Ctx::new(root.clone()),
+        ConnectInput {
+            session_id: None,
+            feature: Some("checkout".to_owned()),
+            create: true,
+        },
+    )
+    .unwrap();
+
+    assert_eq!(report.value.promoted, vec![RepoName::new("web").unwrap()]);
+    unguard_worktrees(&root);
+}
+
+#[test]
+fn connect_never_promotes_from_an_unapproved_plan() {
+    let (_guard, root) = hall_with_session(&["api"]);
+    write_plan(&root, "repos: [api, web]", false);
+
+    let report = connect_to_checkout(&root);
+
+    assert!(report.value.promoted.is_empty());
+    let layout = Layout::at(root.clone());
+    let feature = Feature::read(&layout, &FeatureName::new("checkout").unwrap())
+        .unwrap()
+        .unwrap();
+    assert!(!feature.is_promoted(&RepoName::new("web").unwrap()));
+    unguard_worktrees(&root);
+}
+
+#[test]
+fn connect_warns_when_an_approved_legacy_plan_leaves_nothing_promoted() {
+    let (_guard, root) = hall_with_session(&[]);
+    write_plan(&root, "owner: platform", true);
+
+    let report = connect_to_checkout(&root);
+
+    assert!(report.value.promoted.is_empty());
+    let warning = report
+        .warnings
+        .iter()
+        .find(|warning| warning.code == "connect.no_repos_declared")
+        .expect("a legacy plan with nothing promoted must warn");
+    assert!(
+        warning.what.contains("ivar feature promote"),
+        "{}",
+        warning.what
+    );
+    unguard_worktrees(&root);
+}
+
+#[test]
+fn connect_stays_quiet_for_a_legacy_plan_once_a_repo_is_promoted() {
+    let (_guard, root) = hall_with_session(&["api"]);
+    write_plan(&root, "owner: platform", true);
+
+    let report = connect_to_checkout(&root);
+
+    assert!(
+        report
+            .warnings
+            .iter()
+            .all(|warning| warning.code != "connect.no_repos_declared")
+    );
+    unguard_worktrees(&root);
 }
