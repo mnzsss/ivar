@@ -29,7 +29,7 @@ use camino::Utf8Path;
 use crate::domain::mcp::McpServerDef;
 use crate::domain::name::HallName;
 use crate::domain::provider::Provider;
-use crate::infra::{fs, json};
+use crate::infra::json;
 
 use crate::providers;
 
@@ -95,17 +95,9 @@ pub fn remove_mcp(path: &Utf8Path, provider: Provider) -> Result<Change, Error> 
     if object.remove(providers::mcp_root_key(provider)).is_none() {
         return Ok(Change::Unchanged);
     }
+    let is_empty = object.is_empty();
 
-    if object.is_empty() {
-        fs::remove_file(path).map_err(|source| Error::Mcp {
-            path: path.to_path_buf(),
-            source: json::Error::Fs(source),
-        })?;
-        return Ok(Change::Removed);
-    }
-
-    doc::write_doc(path, &doc)?;
-    Ok(Change::Removed)
+    doc::finish_removal(path, is_empty, &doc)
 }
 
 /// The full document `ivar` wants for `provider`: its `mcp` key holding

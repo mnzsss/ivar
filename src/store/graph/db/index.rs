@@ -3,12 +3,10 @@
 use rusqlite::params;
 
 use super::GraphDb;
-use super::types::{
-    Result, edge_kind_to_str, now_timestamp, provenance_to_str, symbol_kind_to_str,
-};
+use super::row;
+use super::types::{Result, edge_kind_to_str, now_timestamp, provenance_to_str};
 use crate::domain::graph::Span;
 use crate::store::graph::extractor::ExtractedFile;
-use crate::store::graph::schema::name_words;
 
 impl GraphDb {
     /// Indexes an extracted file's symbols and edges inside a transaction.
@@ -68,27 +66,7 @@ impl GraphDb {
                 Vec::with_capacity(extracted.symbols.len());
             let num_symbols = extracted.symbols.len();
             for sym in &extracted.symbols {
-                let kind_str = symbol_kind_to_str(&sym.kind);
-                let is_exported = if sym.is_exported { 1 } else { 0 };
-                let sym_id: i64 = sym_stmt.query_row(
-                    params![
-                        file_id,
-                        repo_id,
-                        &sym.name,
-                        kind_str.as_ref(),
-                        &sym.scope,
-                        &sym.signature,
-                        &sym.docstring,
-                        i64::try_from(sym.span.start_line).unwrap_or(i64::MAX),
-                        i64::try_from(sym.span.start_col).unwrap_or(i64::MAX),
-                        i64::try_from(sym.span.end_line).unwrap_or(i64::MAX),
-                        i64::try_from(sym.span.end_col).unwrap_or(i64::MAX),
-                        is_exported,
-                        sym.complexity.map(i64::from),
-                        name_words(&sym.name),
-                    ],
-                    |row| row.get(0),
-                )?;
+                let sym_id = row::insert_symbol(&mut sym_stmt, Some(file_id), repo_id, sym)?;
                 syms_by_name
                     .entry(sym.name.clone())
                     .or_default()

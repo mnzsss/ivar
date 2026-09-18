@@ -5,7 +5,7 @@ use camino::Utf8Path;
 use crate::infra::fs;
 use crate::infra::json;
 
-use super::Error;
+use super::{Change, Error};
 
 /// Read `path` as JSON, returning the parsed document and its raw bytes.
 ///
@@ -37,4 +37,23 @@ pub(super) fn write_doc(path: &Utf8Path, doc: &serde_json::Value) -> Result<(), 
         path: path.to_path_buf(),
         source,
     })
+}
+
+/// Finish a key removal: delete `path` when nothing is left in the document,
+/// else write it back with the key gone.
+pub(super) fn finish_removal(
+    path: &Utf8Path,
+    is_empty: bool,
+    doc: &serde_json::Value,
+) -> Result<Change, Error> {
+    if is_empty {
+        fs::remove_file(path).map_err(|source| Error::Mcp {
+            path: path.to_path_buf(),
+            source: json::Error::Fs(source),
+        })?;
+        return Ok(Change::Removed);
+    }
+
+    write_doc(path, doc)?;
+    Ok(Change::Removed)
 }

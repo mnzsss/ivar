@@ -4,9 +4,8 @@ use rusqlite::params;
 
 use super::GraphDb;
 use super::row;
-use super::types::{Result, symbol_kind_to_str};
+use super::types::Result;
 use crate::domain::graph::Symbol;
-use crate::store::graph::schema::name_words;
 
 impl GraphDb {
     /// Deletes all symbols belonging to a specific file ID (cascades to outbound edges).
@@ -29,27 +28,7 @@ impl GraphDb {
             )?;
             let mut ids = Vec::with_capacity(symbols.len());
             for sym in symbols {
-                let kind_str = symbol_kind_to_str(&sym.kind);
-                let is_exported = if sym.is_exported { 1 } else { 0 };
-                let id: i64 = stmt.query_row(
-                    params![
-                        sym.file_id,
-                        &sym.repo,
-                        &sym.name,
-                        kind_str.as_ref(),
-                        &sym.scope,
-                        &sym.signature,
-                        &sym.docstring,
-                        i64::try_from(sym.span.start_line).unwrap_or(i64::MAX),
-                        i64::try_from(sym.span.start_col).unwrap_or(i64::MAX),
-                        i64::try_from(sym.span.end_line).unwrap_or(i64::MAX),
-                        i64::try_from(sym.span.end_col).unwrap_or(i64::MAX),
-                        is_exported,
-                        sym.complexity.map(i64::from),
-                        name_words(&sym.name),
-                    ],
-                    |row| row.get(0),
-                )?;
+                let id = row::insert_symbol(&mut stmt, sym.file_id, &sym.repo, sym)?;
                 ids.push(id);
             }
             Ok(ids)

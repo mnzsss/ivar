@@ -1,8 +1,42 @@
 //! Shared row-mapping helper for the 14-column symbol projection.
 
-use crate::domain::graph::{Span, Symbol};
+use rusqlite::params;
 
-use super::types::parse_symbol_kind;
+use crate::domain::graph::{Span, Symbol};
+use crate::store::graph::schema::name_words;
+
+use super::types::{parse_symbol_kind, symbol_kind_to_str};
+
+/// Inserts one symbol row via the shared 14-column `symbols` insert statement,
+/// returning its generated id.
+pub(super) fn insert_symbol(
+    stmt: &mut rusqlite::Statement<'_>,
+    file_id: Option<i64>,
+    repo: &str,
+    sym: &Symbol,
+) -> rusqlite::Result<i64> {
+    let kind_str = symbol_kind_to_str(&sym.kind);
+    let is_exported = if sym.is_exported { 1 } else { 0 };
+    stmt.query_row(
+        params![
+            file_id,
+            repo,
+            &sym.name,
+            kind_str.as_ref(),
+            &sym.scope,
+            &sym.signature,
+            &sym.docstring,
+            i64::try_from(sym.span.start_line).unwrap_or(i64::MAX),
+            i64::try_from(sym.span.start_col).unwrap_or(i64::MAX),
+            i64::try_from(sym.span.end_line).unwrap_or(i64::MAX),
+            i64::try_from(sym.span.end_col).unwrap_or(i64::MAX),
+            is_exported,
+            sym.complexity.map(i64::from),
+            name_words(&sym.name),
+        ],
+        |row| row.get(0),
+    )
+}
 
 pub(crate) fn symbol_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Symbol> {
     let id: i64 = row.get(0)?;
