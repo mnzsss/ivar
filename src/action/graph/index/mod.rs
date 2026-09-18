@@ -189,7 +189,7 @@ pub fn index_repo(
                 }
             };
 
-            let size_bytes = metadata.len() as i64;
+            let size_bytes = i64::try_from(metadata.len()).unwrap_or(i64::MAX);
             let mtime_ns = metadata
                 .modified()
                 .ok()

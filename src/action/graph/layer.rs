@@ -188,7 +188,7 @@ fn index_layer_file(
         return drop_layer_file(db, layer_repo, rel_path, existing);
     };
     let mtime_ns = mtime_ns(&meta);
-    let size_bytes = meta.len() as i64;
+    let size_bytes = i64::try_from(meta.len()).unwrap_or(i64::MAX);
     if let Some(row) = existing
         && row.mtime_ns == mtime_ns
         && row.size_bytes == size_bytes
