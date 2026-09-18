@@ -110,6 +110,7 @@ impl Confirm for NonInteractive {
 }
 
 /// A fixed answer, for tests and for callers that already decided.
+#[cfg(test)]
 #[derive(Debug)]
 struct Fixed {
     answer: bool,
@@ -117,6 +118,7 @@ struct Fixed {
     selection_one: Option<usize>,
 }
 
+#[cfg(test)]
 impl Confirm for Fixed {
     fn confirm(&self, _question: &str, _caveat: Option<&str>) -> Result<bool, Failure> {
         Ok(self.answer)
@@ -332,8 +334,8 @@ pub fn reporter(enabled: bool) -> Arc<dyn Confirm> {
 /// already made the decision. This is the only way an action test can reach
 /// the "yes" half of a prompt deterministically. Only test code constructs
 /// it, so the library build sees it as dead.
+#[cfg(test)]
 #[must_use]
-#[allow(dead_code)]
 pub(crate) fn fixed(answer: bool) -> Arc<dyn Confirm> {
     Arc::new(Fixed {
         answer,

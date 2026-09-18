@@ -65,7 +65,7 @@ pub(crate) fn load_at(path: &Utf8Path, name: &FeatureName) -> Result<DiscoveryDo
 
 /// Read a name's discovery doc from the feature directory, or fail with the
 /// standard "no discovery" message.
-#[allow(dead_code)]
+#[cfg(test)]
 pub(crate) fn load(layout: &Layout, name: &FeatureName) -> Result<DiscoveryDoc, Failure> {
     load_at(&layout.discovery_doc(name), name)
 }

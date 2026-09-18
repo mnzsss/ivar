@@ -23,7 +23,7 @@ pub(crate) enum SandboxStatus {
 
 impl SandboxStatus {
     /// Returns true if the sandbox is actively and fully enforcing kernel write restrictions.
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub(crate) fn is_enforced(&self) -> bool {
         matches!(self, Self::Enforced)
     }
@@ -99,7 +99,7 @@ impl Sandbox {
     }
 
     /// Return the list of canonical roots that will be added to the ruleset.
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub(crate) fn roots(&self) -> &[Utf8PathBuf] {
         &self.roots
     }
