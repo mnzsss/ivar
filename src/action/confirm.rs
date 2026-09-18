@@ -153,6 +153,20 @@ impl Confirm for Fixed {
 #[derive(Debug)]
 struct Interactive;
 
+/// Reads one line from stdin, returning the trimmed answer and the raw byte
+/// count `read_line` reported (0 on EOF) — every prompt reads its answer
+/// this way.
+fn read_answer_line() -> Result<(String, usize), Failure> {
+    let mut answer = String::new();
+    let bytes_read = std::io::stdin().read_line(&mut answer).map_err(|source| {
+        Failure::failed(
+            "confirm.read_answer",
+            format!("could not read your answer: {source}"),
+        )
+    })?;
+    Ok((answer, bytes_read))
+}
+
 /// Writes the prompt line, then one numbered line per option, to `stderr` —
 /// the listing both `select_many` and `select_one` show before reading stdin.
 fn write_prompt_and_options(
@@ -199,13 +213,7 @@ impl Confirm for Interactive {
             )
         })?;
 
-        let mut answer = String::new();
-        std::io::stdin().read_line(&mut answer).map_err(|source| {
-            Failure::failed(
-                "confirm.read_answer",
-                format!("could not read your answer: {source}"),
-            )
-        })?;
+        let (answer, _) = read_answer_line()?;
         Ok(answer.trim().eq_ignore_ascii_case("y"))
     }
 
@@ -220,13 +228,7 @@ impl Confirm for Interactive {
         })?;
         let _ = stderr.flush();
 
-        let mut answer = String::new();
-        let bytes_read = std::io::stdin().read_line(&mut answer).map_err(|source| {
-            Failure::failed(
-                "confirm.read_answer",
-                format!("could not read your answer: {source}"),
-            )
-        })?;
+        let (answer, bytes_read) = read_answer_line()?;
 
         let trimmed = answer.trim();
         if trimmed.eq_ignore_ascii_case("all") {
@@ -285,13 +287,7 @@ impl Confirm for Interactive {
         })?;
         let _ = stderr.flush();
 
-        let mut answer = String::new();
-        let bytes_read = std::io::stdin().read_line(&mut answer).map_err(|source| {
-            Failure::failed(
-                "confirm.read_answer",
-                format!("could not read your answer: {source}"),
-            )
-        })?;
+        let (answer, bytes_read) = read_answer_line()?;
 
         let trimmed = answer.trim();
         if bytes_read == 0 || trimmed.is_empty() || trimmed.eq_ignore_ascii_case("q") {

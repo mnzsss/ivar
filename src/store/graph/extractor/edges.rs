@@ -186,6 +186,27 @@ pub(super) fn extract_edges(
     edges
 }
 
+/// The type names named directly under a TypeScript heritage clause (an
+/// `extends`/`implements` list), skipping the keyword and separator tokens
+/// and any comment, and stripping a trailing type-argument list (`<...>`).
+fn heritage_targets(clause: Node, skip: &str, source_bytes: &[u8]) -> Vec<(String, Span)> {
+    let mut cursor = clause.walk();
+    let mut targets = Vec::new();
+    for target in clause.children(&mut cursor) {
+        if target.kind() == skip || target.kind() == "," || target.kind().starts_with("comment") {
+            continue;
+        }
+        let Ok(raw_name) = target.utf8_text(source_bytes) else {
+            continue;
+        };
+        let name = raw_name.split('<').next().unwrap_or(raw_name).trim();
+        if !name.is_empty() {
+            targets.push((name.to_owned(), node_to_span(target)));
+        }
+    }
+    targets
+}
+
 fn extract_hierarchy_edges(
     repo: &str,
     root: Node,
@@ -224,55 +245,30 @@ fn extract_hierarchy_edges(
                             let mut h_cursor = child.walk();
                             for h_child in child.children(&mut h_cursor) {
                                 if h_child.kind() == "extends_clause" {
-                                    let mut e_cursor = h_child.walk();
-                                    for target in h_child.children(&mut e_cursor) {
-                                        if target.kind() != "extends"
-                                            && !target.kind().starts_with("comment")
-                                            && let Ok(raw_name) = target.utf8_text(source_bytes)
-                                        {
-                                            let name = raw_name
-                                                .split('<')
-                                                .next()
-                                                .unwrap_or(raw_name)
-                                                .trim();
-                                            if !name.is_empty() {
-                                                let span = node_to_span(target);
-                                                edges.push(make_edge(
-                                                    repo,
-                                                    name.to_owned(),
-                                                    EdgeKind::Inherits,
-                                                    Provenance::Extracted,
-                                                    span,
-                                                    1.0,
-                                                ));
-                                            }
-                                        }
+                                    for (name, span) in
+                                        heritage_targets(h_child, "extends", source_bytes)
+                                    {
+                                        edges.push(make_edge(
+                                            repo,
+                                            name,
+                                            EdgeKind::Inherits,
+                                            Provenance::Extracted,
+                                            span,
+                                            1.0,
+                                        ));
                                     }
                                 } else if h_child.kind() == "implements_clause" {
-                                    let mut i_cursor = h_child.walk();
-                                    for target in h_child.children(&mut i_cursor) {
-                                        if target.kind() != "implements"
-                                            && target.kind() != ","
-                                            && !target.kind().starts_with("comment")
-                                            && let Ok(raw_name) = target.utf8_text(source_bytes)
-                                        {
-                                            let name = raw_name
-                                                .split('<')
-                                                .next()
-                                                .unwrap_or(raw_name)
-                                                .trim();
-                                            if !name.is_empty() {
-                                                let span = node_to_span(target);
-                                                edges.push(make_edge(
-                                                    repo,
-                                                    name.to_owned(),
-                                                    EdgeKind::Implements,
-                                                    Provenance::Extracted,
-                                                    span,
-                                                    1.0,
-                                                ));
-                                            }
-                                        }
+                                    for (name, span) in
+                                        heritage_targets(h_child, "implements", source_bytes)
+                                    {
+                                        edges.push(make_edge(
+                                            repo,
+                                            name,
+                                            EdgeKind::Implements,
+                                            Provenance::Extracted,
+                                            span,
+                                            1.0,
+                                        ));
                                     }
                                 }
                             }
@@ -285,27 +281,15 @@ fn extract_hierarchy_edges(
                             || child.kind() == "extends_clause"
                             || child.kind() == "interface_heritage"
                         {
-                            let mut e_cursor = child.walk();
-                            for target in child.children(&mut e_cursor) {
-                                if target.kind() != "extends"
-                                    && target.kind() != ","
-                                    && !target.kind().starts_with("comment")
-                                    && let Ok(raw_name) = target.utf8_text(source_bytes)
-                                {
-                                    let name =
-                                        raw_name.split('<').next().unwrap_or(raw_name).trim();
-                                    if !name.is_empty() {
-                                        let span = node_to_span(target);
-                                        edges.push(make_edge(
-                                            repo,
-                                            name.to_owned(),
-                                            EdgeKind::Inherits,
-                                            Provenance::Extracted,
-                                            span,
-                                            1.0,
-                                        ));
-                                    }
-                                }
+                            for (name, span) in heritage_targets(child, "extends", source_bytes) {
+                                edges.push(make_edge(
+                                    repo,
+                                    name,
+                                    EdgeKind::Inherits,
+                                    Provenance::Extracted,
+                                    span,
+                                    1.0,
+                                ));
                             }
                         }
                     }
