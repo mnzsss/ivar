@@ -8,6 +8,30 @@ use crate::domain::feature::Feature;
 use crate::domain::name::RepoName;
 use crate::error::{Failure, FixAction};
 
+/// The `deliver.unpromoted_repo_override` refusal, shared by an unparseable
+/// `--repo` name and a parseable one the feature never promoted.
+fn unpromoted_repo_override(feature: &Feature, repo: &str) -> Failure {
+    Failure::blocked(
+        "deliver.unpromoted_repo_override",
+        format!(
+            "repository `{repo}` is not promoted in feature `{}`",
+            feature.name
+        ),
+    )
+    .expected(format!(
+        "only repositories promoted in feature `{}`",
+        feature.name
+    ))
+    .actual(format!("unpromoted repository `{repo}`"))
+    .fix(FixAction::safe(
+        "deliver.remove_unpromoted_repo_override",
+        format!(
+            "Remove `--repo {repo}` or promote it with `ivar feature promote {} {repo}`.",
+            feature.name
+        ),
+    ))
+}
+
 /// Resolve delivery metadata across all promoted repositories of the target feature.
 pub(crate) fn resolve(
     ctx: &Ctx,
@@ -57,48 +81,11 @@ pub(crate) fn resolve(
             )));
         }
 
-        let repo_name = RepoName::new(&r_override.repo).map_err(|_| {
-            Failure::blocked(
-                "deliver.unpromoted_repo_override",
-                format!(
-                    "repository `{}` is not promoted in feature `{}`",
-                    r_override.repo, feature.name
-                ),
-            )
-            .expected(format!(
-                "only repositories promoted in feature `{}`",
-                feature.name
-            ))
-            .actual(format!("unpromoted repository `{}`", r_override.repo))
-            .fix(FixAction::safe(
-                "deliver.remove_unpromoted_repo_override",
-                format!(
-                    "Remove `--repo {}` or promote it with `ivar feature promote {} {}`.",
-                    r_override.repo, feature.name, r_override.repo
-                ),
-            ))
-        })?;
+        let repo_name = RepoName::new(&r_override.repo)
+            .map_err(|_| unpromoted_repo_override(feature, &r_override.repo))?;
 
         if !feature.promotions.contains_key(&repo_name) {
-            return Err(Failure::blocked(
-                "deliver.unpromoted_repo_override",
-                format!(
-                    "repository `{}` is not promoted in feature `{}`",
-                    r_override.repo, feature.name
-                ),
-            )
-            .expected(format!(
-                "only repositories promoted in feature `{}`",
-                feature.name
-            ))
-            .actual(format!("unpromoted repository `{}`", r_override.repo))
-            .fix(FixAction::safe(
-                "deliver.remove_unpromoted_repo_override",
-                format!(
-                    "Remove `--repo {}` or promote it with `ivar feature promote {} {}`.",
-                    r_override.repo, feature.name, r_override.repo
-                ),
-            )));
+            return Err(unpromoted_repo_override(feature, &r_override.repo));
         }
     }
 

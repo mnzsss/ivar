@@ -165,6 +165,35 @@ pub(super) fn resume(
     }))
 }
 
+/// Walk every feature in `features_dir`, and repoint any child whose parent
+/// is `from` to `to` — the reparenting `perform_step` runs forward (old name
+/// to new) and `undo_step` runs in reverse (new name back to old).
+fn reparent_children(layout: &Layout, from: &FeatureName, to: &FeatureName) -> Result<(), Failure> {
+    let features_dir = layout.features_dir();
+    if !fs::is_dir(&features_dir)? {
+        return Ok(());
+    }
+    for entry in fs::read_dir(&features_dir)? {
+        if matches!(fs::read_symlink(&entry)?, fs::SymlinkTarget::Target(_)) {
+            continue;
+        }
+        let Some(name) = entry.file_name() else {
+            continue;
+        };
+        let Ok(feature_name) = FeatureName::new(name.to_owned()) else {
+            continue;
+        };
+        if let Some(mut feature) = Feature::read(layout, &feature_name)?
+            && feature.name == feature_name
+            && feature.parent.as_ref() == Some(from)
+        {
+            feature.parent = Some(to.clone());
+            feature.write(layout)?;
+        }
+    }
+    Ok(())
+}
+
 pub(super) fn perform_step(
     layout: &Layout,
     manifest: &Manifest,
@@ -238,27 +267,7 @@ pub(super) fn perform_step(
         }
         Step::UpdateChildren => {
             if plan.old_feature.name != plan.new_name {
-                let features_dir = layout.features_dir();
-                if fs::is_dir(&features_dir)? {
-                    for entry in fs::read_dir(&features_dir)? {
-                        if matches!(fs::read_symlink(&entry)?, fs::SymlinkTarget::Target(_)) {
-                            continue;
-                        }
-                        let Some(name) = entry.file_name() else {
-                            continue;
-                        };
-                        let Ok(feature_name) = FeatureName::new(name.to_owned()) else {
-                            continue;
-                        };
-                        if let Some(mut feature) = Feature::read(layout, &feature_name)?
-                            && feature.name == feature_name
-                            && feature.parent == Some(plan.old_feature.name.clone())
-                        {
-                            feature.parent = Some(plan.new_name.clone());
-                            feature.write(layout)?;
-                        }
-                    }
-                }
+                reparent_children(layout, &plan.old_feature.name, &plan.new_name)?;
             }
             Ok(Step::UpdateFeatureLayers)
         }
@@ -346,27 +355,7 @@ pub(super) fn undo_step(
         }
         Step::UpdateChildren => {
             if plan.old_feature.name != plan.new_name {
-                let features_dir = layout.features_dir();
-                if fs::is_dir(&features_dir)? {
-                    for entry in fs::read_dir(&features_dir)? {
-                        if matches!(fs::read_symlink(&entry)?, fs::SymlinkTarget::Target(_)) {
-                            continue;
-                        }
-                        let Some(name) = entry.file_name() else {
-                            continue;
-                        };
-                        let Ok(feature_name) = FeatureName::new(name.to_owned()) else {
-                            continue;
-                        };
-                        if let Some(mut feature) = Feature::read(layout, &feature_name)?
-                            && feature.name == feature_name
-                            && feature.parent == Some(plan.new_name.clone())
-                        {
-                            feature.parent = Some(plan.old_feature.name.clone());
-                            feature.write(layout)?;
-                        }
-                    }
-                }
+                reparent_children(layout, &plan.new_name, &plan.old_feature.name)?;
             }
             Ok(Step::MoveFeatureDir)
         }

@@ -425,11 +425,28 @@ fn preflight_repo(
 
     // Failed evidence: resumable only while its source and result are
     // unchanged — moved means stale, with restoration orientation.
+    ensure_failed_receipt_still_current(git, layout, &bare, child, parent, repo, receipt)?;
+    Ok(false)
+}
+
+/// A failed receipt is resumable only while its source and result are
+/// unchanged; either moving means the evidence is stale, refused with
+/// restoration orientation. Shared by the preflight check and the actual
+/// integration, which both re-derive freshness before reusing failed evidence.
+fn ensure_failed_receipt_still_current(
+    git: &impl Git,
+    layout: &Layout,
+    bare: &camino::Utf8Path,
+    child: &Feature,
+    parent: &Feature,
+    repo: &RepoName,
+    receipt: &crate::domain::feature::IntegrationReceipt,
+) -> Result<(), Failure> {
     let source_unchanged = git
-        .revision_commit(&bare, child.branch.as_str())
+        .revision_commit(bare, child.branch.as_str())
         .is_ok_and(|tip| tip == receipt.source_sha);
     let result_unchanged = git
-        .is_ancestor(&bare, &receipt.result_sha, parent.branch.as_str())
+        .is_ancestor(bare, &receipt.result_sha, parent.branch.as_str())
         .unwrap_or(false);
     if !source_unchanged || !result_unchanged {
         return Err(relations::stale_receipt_failure(
@@ -441,7 +458,7 @@ fn preflight_repo(
             "the failed receipt's source or result has moved",
         ));
     }
-    Ok(false)
+    Ok(())
 }
 
 /// The dirty-worktree refusal, shared by the child and parent preflights.
@@ -522,22 +539,7 @@ fn integrate_repo(
     // Failed evidence: resumable only when the source and result are
     // unchanged — the change is already in the parent, so only the parent
     // verification is re-run, never the application.
-    let source_unchanged = git
-        .revision_commit(&bare, child.branch.as_str())
-        .is_ok_and(|tip| tip == receipt.source_sha);
-    let result_unchanged = git
-        .is_ancestor(&bare, &receipt.result_sha, parent.branch.as_str())
-        .unwrap_or(false);
-    if !source_unchanged || !result_unchanged {
-        return Err(relations::stale_receipt_failure(
-            layout,
-            child,
-            parent,
-            repo,
-            receipt,
-            "the failed receipt's source or result has moved",
-        ));
-    }
+    ensure_failed_receipt_still_current(git, layout, &bare, child, parent, repo, receipt)?;
 
     let parent_checks = verification::checks_for(manifest, repo);
     let parent_worktree = layout.repo_worktree(repo, &parent.branch);
