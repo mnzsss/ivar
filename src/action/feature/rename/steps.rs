@@ -194,6 +194,10 @@ fn reparent_children(layout: &Layout, from: &FeatureName, to: &FeatureName) -> R
     Ok(())
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "a flat state-machine match over every Step variant; each arm is a handful of lines and splitting per-arm into named fns would scatter one linear checkpoint sequence across the file with no shared logic to name"
+)]
 pub(super) fn perform_step(
     layout: &Layout,
     manifest: &Manifest,
@@ -313,6 +317,10 @@ pub(super) fn perform_step(
     }
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "a flat state-machine match mirroring perform_step's arms in reverse; same shape, same justification — no shared logic between arms to extract"
+)]
 pub(super) fn undo_step(
     layout: &Layout,
     manifest: &Manifest,

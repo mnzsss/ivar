@@ -175,35 +175,7 @@ pub fn promote(ctx: &Ctx, input: PromoteInput) -> Outcome<PromoteOutcome> {
     // integration receipt of any kind.
     mutation::ensure_structure_mutable(&layout, &feature)?;
 
-    let repo = manifest
-        .repos()
-        .iter()
-        .find(|repo| repo.name() == &repo_name)
-        .ok_or_else(|| {
-            Failure::blocked(
-                "repo.not_in_manifest",
-                format!("`{repo_name}` is not in ivar.json"),
-            )
-            .expected("a repo declared in the manifest")
-            .actual(format!("`{repo_name}` does not appear in `repos`"))
-            .fix(FixAction::safe(
-                "repo.add_first",
-                format!("Add `{repo_name}` with `ivar repo add {repo_name} <url>` first."),
-            ))
-        })?;
-
-    if feature.is_promoted(&repo_name) {
-        return Err(Failure::blocked(
-            "feature.already_promoted",
-            format!("`{repo_name}` is already promoted into `{feature_name}`"),
-        )
-        .expected("a repo not yet promoted into this feature")
-        .actual("this repo's promotion record already exists")
-        .fix(FixAction::safe(
-            "feature.demote_first",
-            format!("Run `ivar feature demote {feature_name} {repo_name}` to remove it first."),
-        )));
-    }
+    let repo = find_promotable_repo(&manifest, &feature, &repo_name, &feature_name)?;
 
     let bare = layout.repo_bare(&repo_name);
     let worktree = layout.repo_worktree(&repo_name, &feature.branch);
@@ -212,37 +184,7 @@ pub fn promote(ctx: &Ctx, input: PromoteInput) -> Outcome<PromoteOutcome> {
     let declared_base = base_override.as_ref().or(feature.base.as_ref());
     let candidate_base = effective_base(declared_base, default_branch);
 
-    // Promotion works on the bare clone `ivar sync` materialised; it never
-    // clones on its own (that would be network access inside a local verb).
-    // A missing clone is therefore a "sync first" refusal, not a raw git
-    // error from the worktree-add below.
-    match git.target_state(&bare)? {
-        TargetState::Repository => {}
-        TargetState::Occupied => {
-            return Err(Failure::blocked(
-                "repo.bare_not_cloned",
-                format!("`{bare}` exists but is not a git repository"),
-            )
-            .expected("a bare clone, produced by `ivar sync`")
-            .actual("a directory git does not recognise")
-            .fix(FixAction::safe(
-                "repo.sync_first",
-                "Run `ivar sync` to rebuild what is missing under `.ivar/`.",
-            )));
-        }
-        TargetState::Absent => {
-            return Err(Failure::blocked(
-                "repo.bare_not_cloned",
-                format!("`{repo_name}` has no bare clone yet"),
-            )
-            .expected("the repo to have been cloned by `ivar sync`")
-            .actual(format!("`{bare}` does not exist"))
-            .fix(FixAction::safe(
-                "repo.sync_first",
-                "Run `ivar sync` to clone the repo, then promote again.",
-            )));
-        }
-    }
+    ensure_repo_cloned(&git, &bare, &repo_name)?;
 
     if let Some(parent) = worktree.parent() {
         fs::ensure_dir(parent)?;
@@ -257,37 +199,25 @@ pub fn promote(ctx: &Ctx, input: PromoteInput) -> Outcome<PromoteOutcome> {
         .iter()
         .any(|existing| existing == feature.branch.as_str());
 
-    // The base is recorded as a fact about where the branch starts, never
-    // re-derived by probing ancestry. When it was declared explicitly but
-    // names a branch this repo does not have, promotion still proceeds —
-    // falling back to `default_branch` and warning, rather than refusing —
-    // because the declaration is usually right about *some* repo in the hall
-    // and simply does not apply to this one.
+    let (base, base_warning) = resolve_base_and_warn(
+        &existing_branches,
+        declared_base,
+        candidate_base,
+        default_branch,
+        &repo_name,
+    );
     let mut warnings = Vec::new();
-    let base = if declared_base.is_some()
-        && !existing_branches
-            .iter()
-            .any(|existing| existing == candidate_base.as_str())
-    {
-        warnings.push(Warning::new(
-            "feature.base_absent",
-            repo_name.as_str(),
-            format!(
-                "declared base `{candidate_base}` does not exist in `{repo_name}`; used `{default_branch}` instead"
-            ),
-        ));
-        default_branch.clone()
-    } else {
-        candidate_base
-    };
+    warnings.extend(base_warning);
 
-    if adopted_branch {
-        // Checked out as-is. No rebase, no reset: those commits are someone's
-        // work, and `ivar feature rebase` is the verb that moves them.
-        git.add_worktree(&bare, &worktree, feature.branch.as_str())?;
-    } else {
-        git.create_branch_and_worktree(&bare, feature.branch.as_str(), base.as_str(), &worktree)?;
-    }
+    setup_or_adopt_branch(
+        &git,
+        &layout,
+        &bare,
+        &worktree,
+        &feature,
+        adopted_branch,
+        &base,
+    )?;
 
     // The worktree exists. Record the promotion before running the setup
     // script, so a script failure leaves the record at `Failed` (retried on
@@ -330,6 +260,136 @@ pub fn promote(ctx: &Ctx, input: PromoteInput) -> Outcome<PromoteOutcome> {
         },
         warnings,
     ))
+}
+
+/// The base is recorded as a fact about where the branch starts, never
+/// re-derived by probing ancestry. When it was declared explicitly but names
+/// a branch this repo does not have, promotion still proceeds — falling back
+/// to `default_branch` and warning, rather than refusing — because the
+fn find_promotable_repo<'a>(
+    manifest: &'a Manifest,
+    feature: &Feature,
+    repo_name: &RepoName,
+    feature_name: &FeatureName,
+) -> Result<&'a crate::store::manifest::Repo, Failure> {
+    let repo = manifest
+        .repos()
+        .iter()
+        .find(|repo| repo.name() == repo_name)
+        .ok_or_else(|| {
+            Failure::blocked(
+                "repo.not_in_manifest",
+                format!("`{repo_name}` is not in ivar.json"),
+            )
+            .expected("a repo declared in the manifest")
+            .actual(format!("`{repo_name}` does not appear in `repos`"))
+            .fix(FixAction::safe(
+                "repo.add_first",
+                format!("Add `{repo_name}` with `ivar repo add {repo_name} <url>` first."),
+            ))
+        })?;
+
+    if feature.is_promoted(repo_name) {
+        return Err(Failure::blocked(
+            "feature.already_promoted",
+            format!("`{repo_name}` is already promoted into `{feature_name}`"),
+        )
+        .expected("a repo not yet promoted into this feature")
+        .actual("this repo's promotion record already exists")
+        .fix(FixAction::safe(
+            "feature.demote_first",
+            format!("Run `ivar feature demote {feature_name} {repo_name}` to remove it first."),
+        )));
+    }
+
+    Ok(repo)
+}
+
+/// Promotion works on the bare clone `ivar sync` materialised; it never
+/// clones on its own (that would be network access inside a local verb). A
+/// missing clone is therefore a "sync first" refusal, not a raw git error
+/// from the worktree-add below.
+fn ensure_repo_cloned(
+    git: &impl Git,
+    bare: &camino::Utf8Path,
+    repo_name: &RepoName,
+) -> Result<(), Failure> {
+    match git.target_state(bare)? {
+        TargetState::Repository => Ok(()),
+        TargetState::Occupied => Err(Failure::blocked(
+            "repo.bare_not_cloned",
+            format!("`{bare}` exists but is not a git repository"),
+        )
+        .expected("a bare clone, produced by `ivar sync`")
+        .actual("a directory git does not recognise")
+        .fix(FixAction::safe(
+            "repo.sync_first",
+            "Run `ivar sync` to rebuild what is missing under `.ivar/`.",
+        ))),
+        TargetState::Absent => Err(Failure::blocked(
+            "repo.bare_not_cloned",
+            format!("`{repo_name}` has no bare clone yet"),
+        )
+        .expected("the repo to have been cloned by `ivar sync`")
+        .actual(format!("`{bare}` does not exist"))
+        .fix(FixAction::safe(
+            "repo.sync_first",
+            "Run `ivar sync` to clone the repo, then promote again.",
+        ))),
+    }
+}
+
+/// The base is recorded as a fact about where the branch starts, never
+/// re-derived by probing ancestry. When it was declared explicitly but names
+/// a branch this repo does not have, promotion still proceeds — falling back
+/// to `default_branch` and warning, rather than refusing — because the
+/// declaration is usually right about *some* repo in the hall and simply does
+/// not apply to this one.
+fn resolve_base_and_warn(
+    existing_branches: &[String],
+    declared_base: Option<&BranchName>,
+    candidate_base: BranchName,
+    default_branch: &BranchName,
+    repo_name: &RepoName,
+) -> (BranchName, Option<Warning>) {
+    if declared_base.is_some()
+        && !existing_branches
+            .iter()
+            .any(|existing| existing == candidate_base.as_str())
+    {
+        let warning = Warning::new(
+            "feature.base_absent",
+            repo_name.as_str(),
+            format!(
+                "declared base `{candidate_base}` does not exist in `{repo_name}`; used `{default_branch}` instead"
+            ),
+        );
+        (default_branch.clone(), Some(warning))
+    } else {
+        (candidate_base, None)
+    }
+}
+
+/// Check out `feature.branch` in `worktree` — adopted as-is when it already
+/// exists, or created off `base` otherwise.
+fn setup_or_adopt_branch(
+    git: &impl git::Git,
+    layout: &Layout,
+    bare: &camino::Utf8Path,
+    worktree: &camino::Utf8Path,
+    feature: &Feature,
+    adopted_branch: bool,
+    base: &BranchName,
+) -> Result<(), Failure> {
+    let _ = layout;
+    if adopted_branch {
+        // Checked out as-is. No rebase, no reset: those commits are someone's
+        // work, and `ivar feature rebase` is the verb that moves them.
+        git.add_worktree(bare, worktree, feature.branch.as_str())?;
+    } else {
+        git.create_branch_and_worktree(bare, feature.branch.as_str(), base.as_str(), worktree)?;
+    }
+    Ok(())
 }
 
 /// Run the repo's setup script in the feature worktree, if there is one.
