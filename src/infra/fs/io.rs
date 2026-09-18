@@ -275,30 +275,42 @@ pub fn remove_path(path: &Utf8Path) -> Result<(), Error> {
     }
 }
 
-/// Directories only: a directory cannot be hardlinked, so this never
-/// reaches into a package manager's shared content store.
+/// Give the owner `rwx` back on every directory under `root`, so a tree
+/// whose directories were write-guarded can be removed. Only directories are
+/// touched and symlinks are not followed: a directory cannot be hardlinked, so
+/// this never reaches into a package manager's shared content store, and a
+/// symlink never leads it outside the tree.
 #[cfg(unix)]
-fn restore_dir_write_bits(dir: &std::path::Path) {
-    use std::os::unix::fs::PermissionsExt;
-    let Ok(metadata) = std::fs::symlink_metadata(dir) else {
-        return;
-    };
-    if !metadata.is_dir() {
-        return;
-    }
-    let mut permissions = metadata.permissions();
-    permissions.set_mode(permissions.mode() | 0o200);
-    let _ = std::fs::set_permissions(dir, permissions);
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        restore_dir_write_bits(&entry.path());
+fn restore_dir_write_bits(root: &std::path::Path) {
+    let mut pending = vec![root.to_path_buf()];
+    while let Some(dir) = pending.pop() {
+        let Ok(metadata) = std::fs::symlink_metadata(&dir) else {
+            continue;
+        };
+        if !metadata.is_dir() {
+            continue;
+        }
+        let Some(utf8_dir) = Utf8Path::from_path(&dir) else {
+            continue;
+        };
+        let _ = super::restore_write_bits(utf8_dir);
+        if let Ok(Some(mode)) = super::unix_mode(utf8_dir)
+            && mode & 0o700 != 0o700
+        {
+            let _ = super::chmod(utf8_dir, mode | 0o700);
+        }
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        pending.extend(entries.flatten().map(|entry| entry.path()));
     }
 }
 
+// ponytail: non-unix retry is a no-op, so read-only directories there still
+// fail to remove; clear the readonly attribute with
+// `std::fs::Permissions::set_readonly(false)` if that ever matters.
 #[cfg(not(unix))]
-fn restore_dir_write_bits(_dir: &std::path::Path) {}
+fn restore_dir_write_bits(_root: &std::path::Path) {}
 
 /// Remove the empty parent directories `path` left behind, walking up until
 /// `boundary` (exclusive) or the first directory that is not empty.
