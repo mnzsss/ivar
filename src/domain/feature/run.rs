@@ -1296,7 +1296,7 @@ impl RunReceipt {
     /// Append a checkpoint and move `updated_at` with it. The one place
     /// `checkpoints` grows, so the timestamp cannot fall behind the history.
     fn push(&mut self, checkpoint: RunCheckpoint) {
-        self.updated_at = checkpoint.at.clone();
+        self.updated_at.clone_from(&checkpoint.at);
         self.checkpoints.push(checkpoint);
     }
 }

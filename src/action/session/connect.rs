@@ -157,7 +157,7 @@ pub fn connect(ctx: &Ctx, input: &ConnectInput) -> Outcome<ConnectOutcome> {
         ConnectOutcome {
             session_id: session.id.to_string(),
             feature: session.feature.clone(),
-            view_dir: session.view_dir.clone(),
+            view_dir: session.view_dir,
             promoted,
         },
         warnings,

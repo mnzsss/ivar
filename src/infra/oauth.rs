@@ -319,7 +319,7 @@ fn summarize_error_body(body: &str) -> ErrorSummary {
             ]
             .contains(&s.as_str())
         {
-            category = s.clone();
+            category.clone_from(s);
             break;
         }
     }

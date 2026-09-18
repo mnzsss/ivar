@@ -122,12 +122,12 @@ impl Credential {
             }
             if let Some((key, value)) = line.split_once('=') {
                 match key {
-                    "protocol" => cred.protocol = value.to_owned(),
-                    "host" => cred.host = value.to_owned(),
-                    "port" => cred.port = value.to_owned(),
-                    "username" => cred.username = value.to_owned(),
-                    "password" => cred.password = value.to_owned(),
-                    "path" => cred.path = value.to_owned(),
+                    "protocol" => value.clone_into(&mut cred.protocol),
+                    "host" => value.clone_into(&mut cred.host),
+                    "port" => value.clone_into(&mut cred.port),
+                    "username" => value.clone_into(&mut cred.username),
+                    "password" => value.clone_into(&mut cred.password),
+                    "path" => value.clone_into(&mut cred.path),
                     _ => {} // ignore unknown keys
                 }
             }

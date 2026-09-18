@@ -148,7 +148,7 @@ fn derive_feature(
     let resolved = ctx.resolve(Utf8Path::new(plan_path));
     let canonical = canonicalize_lenient(&resolved)?;
     let dir = if fs::is_dir(&canonical)? {
-        canonical.clone()
+        canonical
     } else {
         canonical
             .parent()

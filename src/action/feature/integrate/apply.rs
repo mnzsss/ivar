@@ -278,7 +278,7 @@ pub(crate) fn integrate_pr(
             target_branch: parent.branch.clone(),
             result_sha: None,
             status: RepoIntegrationStatus::Failed,
-            pr_url: Some(pr.url.clone()),
+            pr_url: Some(pr.url),
             detail: Some("a required PR check failed".to_owned()),
         });
     }
@@ -289,7 +289,7 @@ pub(crate) fn integrate_pr(
             target_branch: parent.branch.clone(),
             result_sha: None,
             status: RepoIntegrationStatus::Pending,
-            pr_url: Some(pr.url.clone()),
+            pr_url: Some(pr.url),
             detail: Some("a required PR check is pending".to_owned()),
         });
     }
@@ -297,7 +297,7 @@ pub(crate) fn integrate_pr(
     // Merge, observe, then bring the parent up to the observed result.
     pull_requests::request_merge(&bare, &pr.url, source_sha, strategy)?;
     let merged = pull_requests::observe_merge(&bare, &pr.url)?;
-    let result_sha = merged.merge_commit.clone().ok_or_else(|| {
+    let result_sha = merged.merge_commit.ok_or_else(|| {
         Failure::failed(
             "integration.merge_result_missing",
             format!("the merged PR {} reported no merge commit", pr.url),

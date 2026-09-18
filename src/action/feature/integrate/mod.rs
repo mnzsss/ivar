@@ -551,7 +551,7 @@ fn integrate_repo(
         pr_checks: receipt.verification.pr_checks.clone(),
         verified_at: rfc3339_now(),
     };
-    persist_receipt(layout, child, repo, updated.clone())?;
+    persist_receipt(layout, child, repo, updated)?;
 
     Ok(RepoIntegration {
         repo: repo.clone(),
@@ -667,7 +667,7 @@ fn ensure_parent_promotion(
                 parent.name
             ),
         )
-        .actual(failure.what.clone())
+        .actual(failure.what)
         .fix(
             FixAction::safe(
                 "integration.promote_manually",

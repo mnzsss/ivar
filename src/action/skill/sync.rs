@@ -124,7 +124,7 @@ pub fn sync(ctx: &Ctx) -> Outcome<SyncOutcome> {
 
     // Update state with all successful changes.
     if !steps.is_empty() {
-        let mut new_state = state.clone();
+        let mut new_state = state;
         for step in &steps {
             match step.action {
                 Action::Create | Action::Update => {
@@ -284,8 +284,8 @@ fn update_state_entry(state: &mut State, step: &Step, source_hash: &str) {
     match state.installations.get_mut(&skill_id) {
         Some(entry) => {
             entry.source_path = step.source.clone();
-            entry.source_hash = source_hash.to_owned();
-            entry.installed_at = iso.clone();
+            source_hash.clone_into(&mut entry.source_hash);
+            entry.installed_at.clone_from(&iso);
             entry.providers = providers;
         }
         None => {

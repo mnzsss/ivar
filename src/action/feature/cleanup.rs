@@ -433,7 +433,7 @@ fn apply_cleanup(
     if !complete_success {
         let apply_outcome = CleanupApplyOutcome {
             feature: feature.name.clone(),
-            branch: feature.branch.clone(),
+            branch: feature.branch,
             fingerprint: preview.fingerprint.clone(),
             worktrees: worktree_removals,
             branches: branch_deletions,
@@ -465,7 +465,7 @@ fn apply_cleanup(
     }
     let apply_outcome = CleanupApplyOutcome {
         feature: feature.name.clone(),
-        branch: feature.branch.clone(),
+        branch: feature.branch,
         fingerprint: preview.fingerprint.clone(),
         worktrees: worktree_removals,
         branches: branch_deletions,

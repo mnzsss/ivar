@@ -118,7 +118,7 @@ fn record_instruction_entry(
 ) {
     let (surface, label) = instruction_surface_label(entry);
     if entry.change == instructions::Change::Conflict {
-        entries.push(Entry::new(surface, label.clone(), Change::Failed));
+        entries.push(Entry::new(surface, label, Change::Failed));
         warnings.push(adoption_warning(entry));
         return;
     }

@@ -95,7 +95,7 @@ pub fn amend(ctx: &Ctx, input: AmendInput) -> Outcome<AmendOutcome> {
         SessionEnv::resolve_by_cwd(&ctx.cwd)
             .ok()
             .flatten()
-            .map(|env| env.session_id.to_string())
+            .map(|env| env.session_id)
     });
 
     let mode = if input.merge {

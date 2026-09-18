@@ -140,7 +140,7 @@ fn attempt_internal_flow(
         Ok(run) => Attempt {
             preregistration: run.preregistration.clone(),
             command: run.command.clone(),
-            auth_method: run.auth_method.clone(),
+            auth_method: run.auth_method,
             outcome: Ok(()),
         },
         Err(failure) => Attempt {
