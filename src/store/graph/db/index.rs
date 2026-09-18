@@ -25,9 +25,7 @@ impl GraphDb {
         size_bytes: i64,
         extracted: &ExtractedFile,
     ) -> Result<(usize, usize)> {
-        self.conn.execute_batch("BEGIN IMMEDIATE;")?;
-
-        let res = (|| -> Result<(usize, usize)> {
+        self.in_transaction(|| -> Result<(usize, usize)> {
             let now = now_timestamp();
             let mut file_stmt = self.conn.prepare_cached(
                 "INSERT INTO files (repo, path, content_hash, mtime_ns, size_bytes, indexed_at)
@@ -205,17 +203,6 @@ impl GraphDb {
             }
 
             Ok((num_symbols, num_edges))
-        })();
-
-        match res {
-            Ok(counts) => {
-                self.conn.execute_batch("COMMIT;")?;
-                Ok(counts)
-            }
-            Err(e) => {
-                let _ = self.conn.execute_batch("ROLLBACK;");
-                Err(e)
-            }
-        }
+        })
     }
 }

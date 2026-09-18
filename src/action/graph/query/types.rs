@@ -3,8 +3,9 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::domain::graph::{Edge, EdgeKind, Provenance, Span, Symbol};
-use crate::store::graph::db::{GraphDbError, parse_symbol_kind};
+use crate::domain::graph::{Edge, EdgeKind, Provenance, Symbol};
+use crate::store::graph::db::GraphDbError;
+use crate::store::graph::db::row::symbol_from_row;
 
 /// Error returned during graph query execution.
 #[derive(Debug, thiserror::Error)]
@@ -89,85 +90,11 @@ pub struct ImpactResult {
 pub(super) fn map_symbol_and_path_row(
     row: &rusqlite::Row<'_>,
 ) -> rusqlite::Result<(Symbol, String)> {
-    let id: i64 = row.get(0)?;
-    let file_id: i64 = row.get(1)?;
-    let repo: String = row.get(2)?;
-    let name: String = row.get(3)?;
-    let kind_raw: String = row.get(4)?;
-    let scope: Option<String> = row.get(5)?;
-    let signature: Option<String> = row.get(6)?;
-    let docstring: Option<String> = row.get(7)?;
-    let start_line: i64 = row.get(8)?;
-    let start_col: i64 = row.get(9)?;
-    let end_line: i64 = row.get(10)?;
-    let end_col: i64 = row.get(11)?;
-    let is_exported: i64 = row.get(12)?;
-    let complexity: Option<u32> = row
-        .get::<_, Option<i64>>(13)
-        .ok()
-        .flatten()
-        .and_then(|c| u32::try_from(c).ok());
+    let symbol = symbol_from_row(row)?;
     let file_path: String = row.get(14)?;
-
-    Ok((
-        Symbol {
-            id: Some(id),
-            file_id: Some(file_id),
-            repo,
-            name,
-            kind: parse_symbol_kind(&kind_raw),
-            scope,
-            signature,
-            docstring,
-            span: Span::new(
-                usize::try_from(start_line).unwrap_or(usize::MAX),
-                usize::try_from(start_col).unwrap_or(usize::MAX),
-                usize::try_from(end_line).unwrap_or(usize::MAX),
-                usize::try_from(end_col).unwrap_or(usize::MAX),
-            ),
-            is_exported: is_exported != 0,
-            complexity,
-        },
-        file_path,
-    ))
+    Ok((symbol, file_path))
 }
 
 pub(super) fn map_symbol_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Symbol> {
-    let id: i64 = row.get(0)?;
-    let file_id: i64 = row.get(1)?;
-    let repo: String = row.get(2)?;
-    let name: String = row.get(3)?;
-    let kind_raw: String = row.get(4)?;
-    let scope: Option<String> = row.get(5)?;
-    let signature: Option<String> = row.get(6)?;
-    let docstring: Option<String> = row.get(7)?;
-    let start_line: i64 = row.get(8)?;
-    let start_col: i64 = row.get(9)?;
-    let end_line: i64 = row.get(10)?;
-    let end_col: i64 = row.get(11)?;
-    let is_exported: i64 = row.get(12)?;
-    let complexity: Option<u32> = row
-        .get::<_, Option<i64>>(13)
-        .ok()
-        .flatten()
-        .and_then(|c| u32::try_from(c).ok());
-
-    Ok(Symbol {
-        id: Some(id),
-        file_id: Some(file_id),
-        repo,
-        name,
-        kind: parse_symbol_kind(&kind_raw),
-        scope,
-        signature,
-        docstring,
-        span: Span::new(
-            usize::try_from(start_line).unwrap_or(usize::MAX),
-            usize::try_from(start_col).unwrap_or(usize::MAX),
-            usize::try_from(end_line).unwrap_or(usize::MAX),
-            usize::try_from(end_col).unwrap_or(usize::MAX),
-        ),
-        is_exported: is_exported != 0,
-        complexity,
-    })
+    symbol_from_row(row)
 }

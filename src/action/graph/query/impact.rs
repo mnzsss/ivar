@@ -3,8 +3,8 @@
 use rusqlite::{OptionalExtension, params};
 
 use super::types::{ImpactItem, ImpactResult, QueryError, map_symbol_row};
-use crate::domain::graph::{Span, Symbol};
-use crate::store::graph::db::{GraphDb, parse_symbol_kind};
+use crate::store::graph::db::GraphDb;
+use crate::store::graph::db::row::symbol_from_row;
 
 /// Analyzes blast-radius impact of changing a symbol by recursively traversing callers.
 pub fn get_impact(
@@ -60,10 +60,9 @@ pub fn get_impact(
               AND e.from_symbol_id IS NOT NULL
               AND instr(cg.visited_ids, ',' || CAST(s.id AS TEXT) || ',') = 0
         )
-        SELECT cg.symbol_id, cg.depth, cg.path_names,
-               s.id, s.file_id, s.repo, s.name, s.kind, s.scope, s.signature, s.docstring,
+        SELECT s.id, s.file_id, s.repo, s.name, s.kind, s.scope, s.signature, s.docstring,
                s.start_line, s.start_col, s.end_line, s.end_col, s.is_exported, s.complexity,
-               f.path
+               cg.depth, cg.path_names, f.path
         FROM caller_graph cg
         CROSS JOIN visible_symbols s ON cg.symbol_id = s.id
         JOIN visible_files f ON s.file_id = f.id
@@ -73,43 +72,10 @@ pub fn get_impact(
 
     let max_depth_i64 = i64::try_from(max_depth).unwrap_or(i64::MAX);
     let rows = stmt.query_map(params![symbol_id, max_depth_i64], |row| {
-        let depth: i64 = row.get(1)?;
-        let path_names: String = row.get(2)?;
-        let id: i64 = row.get(3)?;
-        let file_id: i64 = row.get(4)?;
-        let repo: String = row.get(5)?;
-        let name: String = row.get(6)?;
-        let kind_raw: String = row.get(7)?;
-        let scope: Option<String> = row.get(8)?;
-        let signature: Option<String> = row.get(9)?;
-        let docstring: Option<String> = row.get(10)?;
-        let start_line: i64 = row.get(11)?;
-        let start_col: i64 = row.get(12)?;
-        let end_line: i64 = row.get(13)?;
-        let end_col: i64 = row.get(14)?;
-        let is_exported: i64 = row.get(15)?;
-        let complexity = row
-            .get::<_, Option<i64>>(16)?
-            .and_then(|c| u32::try_from(c).ok());
-        let file_path: String = row.get(17)?;
-        let sym = Symbol {
-            id: Some(id),
-            file_id: Some(file_id),
-            repo,
-            name,
-            kind: parse_symbol_kind(&kind_raw),
-            scope,
-            signature,
-            docstring,
-            span: Span::new(
-                usize::try_from(start_line).unwrap_or(usize::MAX),
-                usize::try_from(start_col).unwrap_or(usize::MAX),
-                usize::try_from(end_line).unwrap_or(usize::MAX),
-                usize::try_from(end_col).unwrap_or(usize::MAX),
-            ),
-            is_exported: is_exported != 0,
-            complexity,
-        };
+        let sym = symbol_from_row(row)?;
+        let depth: i64 = row.get(14)?;
+        let path_names: String = row.get(15)?;
+        let file_path: String = row.get(16)?;
 
         let path_via = path_names
             .split(" -> ")

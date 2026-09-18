@@ -3,8 +3,9 @@
 use rusqlite::params;
 
 use super::GraphDb;
-use super::types::{Result, parse_symbol_kind, symbol_kind_to_str};
-use crate::domain::graph::{Span, Symbol};
+use super::row;
+use super::types::{Result, symbol_kind_to_str};
+use crate::domain::graph::Symbol;
 use crate::store::graph::schema::name_words;
 
 impl GraphDb {
@@ -20,8 +21,7 @@ impl GraphDb {
         if symbols.is_empty() {
             return Ok(Vec::new());
         }
-        self.conn.execute_batch("BEGIN IMMEDIATE;")?;
-        let res = (|| -> Result<Vec<i64>> {
+        self.in_transaction(|| -> Result<Vec<i64>> {
             let mut stmt = self.conn.prepare_cached(
                 "INSERT INTO symbols (file_id, repo, name, kind, scope, signature, docstring, start_line, start_col, end_line, end_col, is_exported, complexity, name_words)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
@@ -53,18 +53,7 @@ impl GraphDb {
                 ids.push(id);
             }
             Ok(ids)
-        })();
-
-        match res {
-            Ok(ids) => {
-                self.conn.execute_batch("COMMIT;")?;
-                Ok(ids)
-            }
-            Err(e) => {
-                let _ = self.conn.execute_batch("ROLLBACK;");
-                Err(e)
-            }
-        }
+        })
     }
 
     /// Full-text searches indexed symbols across all repositories using SQLite FTS5.
@@ -78,41 +67,10 @@ impl GraphDb {
              ORDER BY rank
              LIMIT ?2",
         )?;
-        let rows = stmt.query_map(params![query, i64::try_from(limit).unwrap_or(i64::MAX)], |row| {
-            let id: i64 = row.get(0)?;
-            let file_id: i64 = row.get(1)?;
-            let repo: String = row.get(2)?;
-            let name: String = row.get(3)?;
-            let kind_raw: String = row.get(4)?;
-            let scope: Option<String> = row.get(5)?;
-            let signature: Option<String> = row.get(6)?;
-            let docstring: Option<String> = row.get(7)?;
-            let start_line: i64 = row.get(8)?;
-            let start_col: i64 = row.get(9)?;
-            let end_line: i64 = row.get(10)?;
-            let end_col: i64 = row.get(11)?;
-            let is_exported: i64 = row.get(12)?;
-            let complexity: Option<i64> = row.get(13)?;
-
-            Ok(Symbol {
-                id: Some(id),
-                file_id: Some(file_id),
-                repo,
-                name,
-                kind: parse_symbol_kind(&kind_raw),
-                scope,
-                signature,
-                docstring,
-                span: Span::new(
-                    usize::try_from(start_line).unwrap_or(usize::MAX),
-                    usize::try_from(start_col).unwrap_or(usize::MAX),
-                    usize::try_from(end_line).unwrap_or(usize::MAX),
-                    usize::try_from(end_col).unwrap_or(usize::MAX),
-                ),
-                is_exported: is_exported != 0,
-                complexity: complexity.map(|c| u32::try_from(c).unwrap_or(u32::MAX)),
-            })
-        })?;
+        let rows = stmt.query_map(
+            params![query, i64::try_from(limit).unwrap_or(i64::MAX)],
+            row::symbol_from_row,
+        )?;
 
         let mut results = Vec::new();
         for row in rows {
@@ -181,43 +139,9 @@ impl GraphDb {
 
         let mut stmt = self.conn.prepare(sql)?;
         let map_row = |row: &rusqlite::Row<'_>| -> rusqlite::Result<(Symbol, String)> {
-            let id: i64 = row.get(0)?;
-            let file_id: i64 = row.get(1)?;
-            let repo: String = row.get(2)?;
-            let name: String = row.get(3)?;
-            let kind_raw: String = row.get(4)?;
-            let scope: Option<String> = row.get(5)?;
-            let signature: Option<String> = row.get(6)?;
-            let docstring: Option<String> = row.get(7)?;
-            let start_line: i64 = row.get(8)?;
-            let start_col: i64 = row.get(9)?;
-            let end_line: i64 = row.get(10)?;
-            let end_col: i64 = row.get(11)?;
-            let is_exported: i64 = row.get(12)?;
-            let complexity: Option<i64> = row.get(13)?;
+            let symbol = row::symbol_from_row(row)?;
             let path: String = row.get(14)?;
-
-            Ok((
-                Symbol {
-                    id: Some(id),
-                    file_id: Some(file_id),
-                    repo,
-                    name,
-                    kind: parse_symbol_kind(&kind_raw),
-                    scope,
-                    signature,
-                    docstring,
-                    span: Span::new(
-                        usize::try_from(start_line).unwrap_or(usize::MAX),
-                        usize::try_from(start_col).unwrap_or(usize::MAX),
-                        usize::try_from(end_line).unwrap_or(usize::MAX),
-                        usize::try_from(end_col).unwrap_or(usize::MAX),
-                    ),
-                    is_exported: is_exported != 0,
-                    complexity: complexity.map(|c| u32::try_from(c).unwrap_or(u32::MAX)),
-                },
-                path,
-            ))
+            Ok((symbol, path))
         };
 
         let mut results = Vec::new();
@@ -267,43 +191,9 @@ impl GraphDb {
 
         let mut stmt = self.conn.prepare(sql)?;
         let map_row = |row: &rusqlite::Row<'_>| -> rusqlite::Result<(Symbol, String)> {
-            let id: i64 = row.get(0)?;
-            let file_id: i64 = row.get(1)?;
-            let repo: String = row.get(2)?;
-            let name: String = row.get(3)?;
-            let kind_raw: String = row.get(4)?;
-            let scope: Option<String> = row.get(5)?;
-            let signature: Option<String> = row.get(6)?;
-            let docstring: Option<String> = row.get(7)?;
-            let start_line: i64 = row.get(8)?;
-            let start_col: i64 = row.get(9)?;
-            let end_line: i64 = row.get(10)?;
-            let end_col: i64 = row.get(11)?;
-            let is_exported: i64 = row.get(12)?;
-            let complexity: Option<i64> = row.get(13)?;
+            let symbol = row::symbol_from_row(row)?;
             let path: String = row.get(14)?;
-
-            Ok((
-                Symbol {
-                    id: Some(id),
-                    file_id: Some(file_id),
-                    repo,
-                    name,
-                    kind: parse_symbol_kind(&kind_raw),
-                    scope,
-                    signature,
-                    docstring,
-                    span: Span::new(
-                        usize::try_from(start_line).unwrap_or(usize::MAX),
-                        usize::try_from(start_col).unwrap_or(usize::MAX),
-                        usize::try_from(end_line).unwrap_or(usize::MAX),
-                        usize::try_from(end_col).unwrap_or(usize::MAX),
-                    ),
-                    is_exported: is_exported != 0,
-                    complexity: complexity.map(|c| u32::try_from(c).unwrap_or(u32::MAX)),
-                },
-                path,
-            ))
+            Ok((symbol, path))
         };
 
         let mut results = Vec::new();

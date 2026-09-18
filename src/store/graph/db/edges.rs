@@ -3,6 +3,7 @@
 use rusqlite::params;
 
 use super::GraphDb;
+use super::row;
 use super::types::{Result, edge_kind_to_str, provenance_to_str};
 use crate::domain::graph::{Edge, Symbol};
 
@@ -15,8 +16,7 @@ impl GraphDb {
         if edges.is_empty() {
             return Ok(Vec::new());
         }
-        self.conn.execute_batch("BEGIN IMMEDIATE;")?;
-        let res = (|| -> Result<Vec<i64>> {
+        self.in_transaction(|| -> Result<Vec<i64>> {
             let mut stmt = self.conn.prepare_cached(
                 "INSERT INTO edges (repo, file_id, from_symbol_id, to_symbol_id, to_name, kind, provenance, line, col, confidence)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
@@ -44,18 +44,7 @@ impl GraphDb {
                 ids.push(id);
             }
             Ok(ids)
-        })();
-
-        match res {
-            Ok(ids) => {
-                self.conn.execute_batch("COMMIT;")?;
-                Ok(ids)
-            }
-            Err(e) => {
-                let _ = self.conn.execute_batch("ROLLBACK;");
-                Err(e)
-            }
-        }
+        })
     }
 
     /// Deletes all edges originating from or associated with a specific file ID.
@@ -96,8 +85,11 @@ impl GraphDb {
         symbol_name: &str,
         repo: Option<&str>,
     ) -> Result<Option<HierarchyRecord>> {
-        use super::types::parse_symbol_kind;
-        use crate::domain::graph::{Span, Symbol};
+        fn map_symbol_and_path(row: &rusqlite::Row<'_>) -> rusqlite::Result<(Symbol, String)> {
+            let symbol = row::symbol_from_row(row)?;
+            let file_path: String = row.get(14)?;
+            Ok((symbol, file_path))
+        }
 
         let sym_row = match repo {
             Some(r) => {
@@ -111,46 +103,7 @@ impl GraphDb {
                      ORDER BY s.is_exported DESC, s.id ASC
                      LIMIT 1",
                 )?;
-                stmt.query_row(params![symbol_name, r], |row| {
-                    let id: i64 = row.get(0)?;
-                    let file_id: i64 = row.get(1)?;
-                    let repo: String = row.get(2)?;
-                    let name: String = row.get(3)?;
-                    let kind_raw: String = row.get(4)?;
-                    let scope: Option<String> = row.get(5)?;
-                    let signature: Option<String> = row.get(6)?;
-                    let docstring: Option<String> = row.get(7)?;
-                    let start_line: i64 = row.get(8)?;
-                    let start_col: i64 = row.get(9)?;
-                    let end_line: i64 = row.get(10)?;
-                    let end_col: i64 = row.get(11)?;
-                    let is_exported: i64 = row.get(12)?;
-                    let complexity: Option<i64> = row.get(13)?;
-                    let file_path: String = row.get(14)?;
-
-                    Ok((
-                        Symbol {
-                            id: Some(id),
-                            file_id: Some(file_id),
-                            repo,
-                            name,
-                            kind: parse_symbol_kind(&kind_raw),
-                            scope,
-                            signature,
-                            docstring,
-                            span: Span::new(
-                                usize::try_from(start_line).unwrap_or(usize::MAX),
-                                usize::try_from(start_col).unwrap_or(usize::MAX),
-                                usize::try_from(end_line).unwrap_or(usize::MAX),
-                                usize::try_from(end_col).unwrap_or(usize::MAX),
-                            ),
-                            is_exported: is_exported != 0,
-                            complexity: complexity.map(|c| u32::try_from(c).unwrap_or(u32::MAX)),
-                        },
-                        file_path,
-                    ))
-                })
-                .ok()
+                stmt.query_row(params![symbol_name, r], map_symbol_and_path).ok()
             }
             None => {
                 let mut stmt = self.conn.prepare(
@@ -163,46 +116,7 @@ impl GraphDb {
                      ORDER BY s.is_exported DESC, s.id ASC
                      LIMIT 1",
                 )?;
-                stmt.query_row(params![symbol_name], |row| {
-                    let id: i64 = row.get(0)?;
-                    let file_id: i64 = row.get(1)?;
-                    let repo: String = row.get(2)?;
-                    let name: String = row.get(3)?;
-                    let kind_raw: String = row.get(4)?;
-                    let scope: Option<String> = row.get(5)?;
-                    let signature: Option<String> = row.get(6)?;
-                    let docstring: Option<String> = row.get(7)?;
-                    let start_line: i64 = row.get(8)?;
-                    let start_col: i64 = row.get(9)?;
-                    let end_line: i64 = row.get(10)?;
-                    let end_col: i64 = row.get(11)?;
-                    let is_exported: i64 = row.get(12)?;
-                    let complexity: Option<i64> = row.get(13)?;
-                    let file_path: String = row.get(14)?;
-
-                    Ok((
-                        Symbol {
-                            id: Some(id),
-                            file_id: Some(file_id),
-                            repo,
-                            name,
-                            kind: parse_symbol_kind(&kind_raw),
-                            scope,
-                            signature,
-                            docstring,
-                            span: Span::new(
-                                usize::try_from(start_line).unwrap_or(usize::MAX),
-                                usize::try_from(start_col).unwrap_or(usize::MAX),
-                                usize::try_from(end_line).unwrap_or(usize::MAX),
-                                usize::try_from(end_col).unwrap_or(usize::MAX),
-                            ),
-                            is_exported: is_exported != 0,
-                            complexity: complexity.map(|c| u32::try_from(c).unwrap_or(u32::MAX)),
-                        },
-                        file_path,
-                    ))
-                })
-                .ok()
+                stmt.query_row(params![symbol_name], map_symbol_and_path).ok()
             }
         };
 

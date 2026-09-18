@@ -3,6 +3,7 @@
 pub mod edges;
 pub mod index;
 pub mod layer;
+pub(crate) mod row;
 pub mod repo;
 pub mod symbols;
 pub mod types;
@@ -85,6 +86,22 @@ impl GraphDb {
         )?;
         Ok(db)
     }
+    /// Runs `f` inside a `BEGIN IMMEDIATE` transaction, committing on success and
+    /// rolling back on error.
+    fn in_transaction<T>(&self, f: impl FnOnce() -> Result<T>) -> Result<T> {
+        self.conn.execute_batch("BEGIN IMMEDIATE;")?;
+        match f() {
+            Ok(value) => {
+                self.conn.execute_batch("COMMIT;")?;
+                Ok(value)
+            }
+            Err(e) => {
+                let _ = self.conn.execute_batch("ROLLBACK;");
+                Err(e)
+            }
+        }
+    }
+
     /// Borrows the underlying SQLite connection.
     pub fn conn(&self) -> &Connection {
         &self.conn
