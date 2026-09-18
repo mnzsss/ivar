@@ -884,3 +884,18 @@ fn copy_dir_rejects_a_symlink_to_an_ancestor_instead_of_recursing_forever() {
 
     assert!(copy_dir(&src, &root.join("dst")).is_err());
 }
+
+#[cfg(unix)]
+#[test]
+fn remove_path_removes_a_tree_whose_directories_are_write_guarded() {
+    let (_dir, root) = utf8_temp_dir();
+    let worktree = root.join("repo/main");
+    ensure_dir(&worktree.join("src")).unwrap();
+    write_text(&worktree.join("src/lib.rs"), "x").unwrap();
+    clear_write_bits(&worktree).unwrap();
+    clear_write_bits(&worktree.join("src")).unwrap();
+
+    remove_path(&root.join("repo")).unwrap();
+
+    assert!(!exists(&root.join("repo")).unwrap());
+}

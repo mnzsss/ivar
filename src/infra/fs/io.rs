@@ -249,10 +249,19 @@ pub fn remove_path(path: &Utf8Path) -> Result<(), Error> {
     // never followed into whatever directory it might point at.
     match fs_err::symlink_metadata(path.as_std_path()) {
         Ok(metadata) if metadata.is_dir() => {
-            fs_err::remove_dir_all(path.as_std_path()).map_err(|source| Error::Remove {
-                path: path.to_owned(),
-                source,
-            })
+            let remove = || fs_err::remove_dir_all(path.as_std_path());
+            remove()
+                .or_else(|source| {
+                    if source.kind() != std::io::ErrorKind::PermissionDenied {
+                        return Err(source);
+                    }
+                    restore_dir_write_bits(path.as_std_path());
+                    remove()
+                })
+                .map_err(|source| Error::Remove {
+                    path: path.to_owned(),
+                    source,
+                })
         }
         Ok(_) => fs_err::remove_file(path.as_std_path()).map_err(|source| Error::Remove {
             path: path.to_owned(),
@@ -265,6 +274,31 @@ pub fn remove_path(path: &Utf8Path) -> Result<(), Error> {
         }),
     }
 }
+
+/// Directories only: a directory cannot be hardlinked, so this never
+/// reaches into a package manager's shared content store.
+#[cfg(unix)]
+fn restore_dir_write_bits(dir: &std::path::Path) {
+    use std::os::unix::fs::PermissionsExt;
+    let Ok(metadata) = std::fs::symlink_metadata(dir) else {
+        return;
+    };
+    if !metadata.is_dir() {
+        return;
+    }
+    let mut permissions = metadata.permissions();
+    permissions.set_mode(permissions.mode() | 0o200);
+    let _ = std::fs::set_permissions(dir, permissions);
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        restore_dir_write_bits(&entry.path());
+    }
+}
+
+#[cfg(not(unix))]
+fn restore_dir_write_bits(_dir: &std::path::Path) {}
 
 /// Remove the empty parent directories `path` left behind, walking up until
 /// `boundary` (exclusive) or the first directory that is not empty.
