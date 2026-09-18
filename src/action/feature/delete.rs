@@ -163,7 +163,7 @@ pub fn delete(ctx: &Ctx, input: DeleteInput) -> Outcome<DeleteOutcome> {
     }
 
     // Teardown, worktree by worktree, best-effort.
-    let (worktrees, warnings, all_worktrees_removed) = teardown_worktrees(&layout, &git, &feature);
+    let (worktrees, warnings, all_worktrees_removed) = teardown_worktrees(&layout, &git, &feature)?;
 
     if !all_worktrees_removed {
         // Keep the record and the plans: a retry must know which worktrees to
@@ -214,13 +214,13 @@ fn teardown_worktrees(
     layout: &crate::store::layout::Layout,
     git: &impl Git,
     feature: &crate::domain::feature::Feature,
-) -> (Vec<WorktreeRemoval>, Vec<Warning>, bool) {
+) -> Result<(Vec<WorktreeRemoval>, Vec<Warning>, bool), Failure> {
     let mut warnings = Vec::new();
     let mut worktrees = Vec::new();
     let mut all_worktrees_removed = true;
     for repo in feature.promotions.keys() {
         let worktree = layout.repo_worktree(repo, &feature.branch);
-        if !fs::is_dir(&worktree).unwrap_or(false) {
+        if !fs::is_dir(&worktree)? {
             // Nothing materialised — nothing to remove.
             worktrees.push(WorktreeRemoval {
                 repo: repo.clone(),
@@ -258,7 +258,7 @@ fn teardown_worktrees(
             }
         }
     }
-    (worktrees, warnings, all_worktrees_removed)
+    Ok((worktrees, warnings, all_worktrees_removed))
 }
 
 /// Walk `root` and report every path that cannot be removed.

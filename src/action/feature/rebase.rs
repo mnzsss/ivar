@@ -174,7 +174,7 @@ pub fn rebase(ctx: &Ctx, input: RebaseInput) -> Outcome<RebaseOutcome> {
             promotion,
             &manifest,
             onto.as_ref(),
-        );
+        )?;
         repos.push(result);
         warnings.extend(warning);
         if did_collapse {
@@ -219,7 +219,7 @@ fn rebase_one_repo(
     promotion: &crate::domain::feature::Promotion,
     manifest: &crate::store::manifest::Manifest,
     onto: Option<&BranchName>,
-) -> (RepoRebase, Option<Warning>, bool) {
+) -> Result<(RepoRebase, Option<Warning>, bool), Failure> {
     let worktree = layout.repo_worktree(repo_name, &feature.branch);
     let manifest_repo = manifest
         .repos()
@@ -227,7 +227,7 @@ fn rebase_one_repo(
         .find(|repo| repo.name() == repo_name);
 
     let Some(manifest_repo) = manifest_repo else {
-        return (
+        return Ok((
             RepoRebase {
                 repo: repo_name.clone(),
                 status: RebaseStatus::Skipped,
@@ -238,14 +238,14 @@ fn rebase_one_repo(
                 "not in ivar.json; nothing to rebase onto",
             )),
             false,
-        );
+        ));
     };
     let target = onto
         .cloned()
         .unwrap_or_else(|| base::resolve(feature, promotion, manifest_repo.default_branch()));
 
-    if !fs::is_dir(&worktree).unwrap_or(false) {
-        return (
+    if !fs::is_dir(&worktree)? {
+        return Ok((
             RepoRebase {
                 repo: repo_name.clone(),
                 status: RebaseStatus::Skipped,
@@ -256,13 +256,13 @@ fn rebase_one_repo(
                 "no worktree materialised for this repo",
             )),
             false,
-        );
+        ));
     }
 
     // Rebase over uncommitted work is how it gets lost — a dirty worktree is
     // skipped, never rebased around.
-    if git.worktree_dirty(&worktree).unwrap_or(true) {
-        return (
+    if git.worktree_dirty(&worktree)? {
+        return Ok((
             RepoRebase {
                 repo: repo_name.clone(),
                 status: RebaseStatus::Skipped,
@@ -273,18 +273,18 @@ fn rebase_one_repo(
                 "worktree has uncommitted changes; commit or stash them first",
             )),
             false,
-        );
+        ));
     }
 
     match git.rebase_branch(&worktree, target.as_str()) {
-        Ok(()) => (
+        Ok(()) => Ok((
             RepoRebase {
                 repo: repo_name.clone(),
                 status: RebaseStatus::Rebased,
             },
             None,
             onto.is_some(),
-        ),
+        )),
         Err(git::Error::Refused { .. }) => {
             let warning = if let Err(abort) = git.abort_rebase(&worktree) {
                 Warning::new(
@@ -299,27 +299,16 @@ fn rebase_one_repo(
                     "rebase stopped (likely a conflict) and was aborted",
                 )
             };
-            (
+            Ok((
                 RepoRebase {
                     repo: repo_name.clone(),
                     status: RebaseStatus::Conflicted,
                 },
                 Some(warning),
                 false,
-            )
+            ))
         }
-        Err(other) => (
-            RepoRebase {
-                repo: repo_name.clone(),
-                status: RebaseStatus::Skipped,
-            },
-            Some(Warning::new(
-                "rebase.failed",
-                repo_name.as_str(),
-                format!("rebase failed unexpectedly: {other}"),
-            )),
-            false,
-        ),
+        Err(other) => Err(other.into()),
     }
 }
 

@@ -160,7 +160,7 @@ fn apply_cleanup(
     preflight_deletable(&layout, &feature)?;
 
     let (worktree_removals, mut warnings, all_worktrees_removed) =
-        teardown_worktrees(&layout, &git, &feature);
+        teardown_worktrees(&layout, &git, &feature)?;
     let (branch_deletions, branch_warnings, all_branches_deleted) =
         teardown_branches(&layout, &git, &feature, &worktree_removals);
     warnings.extend(branch_warnings);
@@ -431,14 +431,14 @@ fn teardown_worktrees(
     layout: &crate::store::layout::Layout,
     git: &impl Git,
     feature: &Feature,
-) -> (Vec<WorktreeRemoval>, Vec<Warning>, bool) {
+) -> Result<(Vec<WorktreeRemoval>, Vec<Warning>, bool), Failure> {
     let mut warnings = Vec::new();
     let mut worktree_removals = Vec::new();
     let mut all_worktrees_removed = true;
 
     for repo in feature.promotions.keys() {
         let worktree = layout.repo_worktree(repo, &feature.branch);
-        if !fs::is_dir(&worktree).unwrap_or(false) {
+        if !fs::is_dir(&worktree)? {
             worktree_removals.push(WorktreeRemoval {
                 repo: repo.clone(),
                 removed: true,
@@ -472,7 +472,7 @@ fn teardown_worktrees(
         }
     }
 
-    (worktree_removals, warnings, all_worktrees_removed)
+    Ok((worktree_removals, warnings, all_worktrees_removed))
 }
 
 fn teardown_branches(
