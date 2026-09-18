@@ -224,7 +224,11 @@ impl CallbackServer {
                 Ok((stream, _)) => {
                     let result = Self::handle_connection(stream, &expected_state);
                     drop(listener); // Explicitly drop listener to close clone
-                    let _ = tx.send(result);
+                    if tx.send(result).is_err() {
+                        eprintln!(
+                            "[ivar] oauth callback: result channel had no receiver; the wait() caller already gave up"
+                        );
+                    }
                     break;
                 }
                 Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {

@@ -177,7 +177,9 @@ pub fn link_cross_repo_edges(db: &GraphDb) -> Result<CrossRepoLinkOutcome, Cross
             Ok(outcome)
         }
         Err(e) => {
-            let _ = conn.execute_batch("ROLLBACK;");
+            if let Err(rollback_err) = conn.execute_batch("ROLLBACK;") {
+                eprintln!("[ivar] cross_repo: rollback failed after {e}: {rollback_err}");
+            }
             Err(e)
         }
     }
