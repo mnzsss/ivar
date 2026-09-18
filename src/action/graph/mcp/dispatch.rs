@@ -1,5 +1,6 @@
 //! Tool call dispatching for Codebase Graph MCP server.
 
+use std::fmt::Write as _;
 use std::path::Path;
 
 use serde_json::Value;
@@ -22,7 +23,9 @@ const MAX_HOPS_LIMIT: usize = 20;
 fn bounded_arg(args: &Value, key: &str, default: usize, max: usize) -> usize {
     args.get(key)
         .and_then(Value::as_u64)
-        .map_or(default, |value| usize::try_from(value).unwrap_or(usize::MAX))
+        .map_or(default, |value| {
+            usize::try_from(value).unwrap_or(usize::MAX)
+        })
         .min(max)
 }
 
@@ -68,11 +71,12 @@ where
                         if !unindexed.is_empty() {
                             let names: Vec<String> =
                                 unindexed.iter().map(|path| format!("`{path}`")).collect();
-                            answer.push_str(&format!(
+                            let _ = write!(
+                                answer,
                                 "\nNot indexed: {}. No indexed file matches, so Read it directly \
                                  or call `refresh_index` if it is new.\n",
                                 names.join(", ")
-                            ));
+                            );
                         }
                         answer
                     } else {

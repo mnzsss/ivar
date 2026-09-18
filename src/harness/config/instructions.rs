@@ -49,6 +49,7 @@
 //! different product surface.
 
 use camino::{Utf8Path, Utf8PathBuf};
+use std::fmt::Write as _;
 
 use crate::domain::name::{HallName, RepoName};
 use crate::domain::provider::Provider;
@@ -154,7 +155,7 @@ pub fn build_block(hall: &HallName, repos: &[RepoName]) -> String {
 
     block.push_str(MANAGED_START);
     block.push('\n');
-    block.push_str(&format!("# {hall}\n\n"));
+    let _ = write!(block, "# {hall}\n\n");
     block.push_str(
         "This directory is an `ivar` hall. Each repository below is a real git\n\
          worktree mounted under `.ivar/repos/`, so a change here is a change in\n\
@@ -185,7 +186,8 @@ pub fn build_block(hall: &HallName, repos: &[RepoName]) -> String {
          First, fetch and read the documentation from:\n\
          https://ivar.run/llms.txt\n",
     );
-    block.push_str(&format!(
+    let _ = write!(
+        block,
         "\nWrite temporary and working files in the current session's scratch\n\
          directory — `{SCRATCH_DIR}/` inside the session's own view dir\n\
          (`.ivar/sessions/<session-id>/{SCRATCH_DIR}/` for a discovery session,\n\
@@ -194,7 +196,7 @@ pub fn build_block(hall: &HallName, repos: &[RepoName]) -> String {
          write names that path for you.\n\n\
          Its contents are temporary: `ivar session stop` removes the view dir and\n\
          everything in it. Nothing you need to keep belongs there.\n"
-    ));
+    );
 
     block.push('\n');
     block.push_str(MANAGED_END);

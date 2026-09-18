@@ -1,5 +1,6 @@
 use crate::action::feature::workspace::OpenAttempt;
 use crate::action::graph::view::types::ViewSeed;
+use std::fmt::Write as _;
 
 use serde::Serialize;
 use std::io;
@@ -326,7 +327,8 @@ impl ToCompact for IndexBatchOutcome {
         );
         for outcome in &self.repos {
             out.push('\n');
-            out.push_str(&format!(
+            let _ = write!(
+                out,
                 "{}|{}|{}|{}|{}|{}",
                 outcome.repo,
                 outcome.files_indexed,
@@ -334,10 +336,10 @@ impl ToCompact for IndexBatchOutcome {
                 outcome.edges_indexed,
                 outcome.duration_ms,
                 outcome.files_failed.len()
-            ));
+            );
         }
         for failure in &self.repos_failed {
-            out.push_str(&format!("\n{}|failed|{}", failure.repo, failure.reason));
+            let _ = write!(out, "\n{}|failed|{}", failure.repo, failure.reason);
         }
         out
     }

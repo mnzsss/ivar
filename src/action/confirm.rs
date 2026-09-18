@@ -14,6 +14,7 @@
 //! anyone is watching; they only ask.
 
 use std::fmt;
+use std::fmt::Write as _;
 use std::io::Write;
 use std::sync::Arc;
 
@@ -76,9 +77,9 @@ impl Confirm for NonInteractive {
                 format!(" (--path {})", o.path_if_any)
             };
             if let Some(desc) = &o.description {
-                opt_str.push_str(&format!("  - {}{path_info} — {desc}\n", o.id));
+                let _ = writeln!(opt_str, "  - {}{path_info} — {desc}", o.id);
             } else {
-                opt_str.push_str(&format!("  - {}{path_info}\n", o.id));
+                let _ = writeln!(opt_str, "  - {}{path_info}", o.id);
             }
         }
         Err(Failure::blocked(

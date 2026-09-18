@@ -15,6 +15,7 @@
 //! Both modes bump `updated_at` and record the session in `sessions`. That
 //! is the ivar-owned half of the doc (ADR-0002 D1).
 
+use std::fmt::Write as _;
 use std::io;
 
 use camino::Utf8PathBuf;
@@ -154,9 +155,9 @@ fn append_block(body: &str, content: &str, now: &str, session: Option<&str>) -> 
     if !out.is_empty() {
         out.push('\n');
     }
-    out.push_str(&format!("## Amendment ({day})\n\n"));
+    let _ = write!(out, "## Amendment ({day})\n\n");
     if let Some(session) = session {
-        out.push_str(&format!("Session: {session}\n\n"));
+        let _ = write!(out, "Session: {session}\n\n");
     }
     out.push_str(&ensure_trailing_newline(content));
     out
