@@ -27,7 +27,7 @@ use std::io;
 use camino::{Utf8Path, Utf8PathBuf};
 use serde::{Deserialize, Serialize};
 
-use crate::domain::feature::Feature;
+
 use crate::domain::name::FeatureName;
 #[cfg(test)]
 use crate::domain::name::RepoName;
@@ -111,18 +111,7 @@ pub fn delete(ctx: &Ctx, input: DeleteInput) -> Outcome<DeleteOutcome> {
     let git = git::System;
     let name = FeatureName::new(input.name)?;
 
-    let feature = Feature::read(&layout, &name)?.ok_or_else(|| {
-        Failure::blocked(
-            "feature.not_found",
-            format!("feature `{name}` does not exist"),
-        )
-        .expected("an existing feature")
-        .actual(format!("`{name}` has no feature.json"))
-        .fix(FixAction::safe(
-            "feature.create_first",
-            format!("Create it first with `ivar feature create {name}`."),
-        ))
-    })?;
+    let feature = relations::read_feature(&layout, &name)?;
 
     // Descendants gate, before any permission preflight or teardown: a parent
     // cannot be deleted while its subtree still exists — abandoned and

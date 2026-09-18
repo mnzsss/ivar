@@ -136,7 +136,7 @@ pub fn start(ctx: &Ctx, input: StartInput) -> Outcome<StartOutcome> {
     let manifest = read_manifest(&layout)?;
 
     let feature = match input.feature {
-        Some(raw) => Some(read_feature(&layout, &FeatureName::new(raw)?)?),
+        Some(raw) => Some(Feature::read_or_not_found(&layout, &FeatureName::new(raw)?)?),
         None => None,
     };
 
@@ -253,23 +253,6 @@ pub fn start(ctx: &Ctx, input: StartInput) -> Outcome<StartOutcome> {
         },
         warnings,
     ))
-}
-
-/// Read the named feature, or refuse: a session cannot open over a feature
-/// that was never created.
-fn read_feature(layout: &Layout, name: &FeatureName) -> Result<Feature, Failure> {
-    Feature::read(layout, name)?.ok_or_else(|| {
-        Failure::blocked(
-            "feature.not_found",
-            format!("feature `{name}` does not exist"),
-        )
-        .expected("an existing feature")
-        .actual(format!("`{name}` has no feature.json"))
-        .fix(FixAction::safe(
-            "feature.create_first",
-            format!("Create it first with `ivar feature create {name}`."),
-        ))
-    })
 }
 
 /// A relay hands one feature's work to a different provider. With no feature

@@ -24,7 +24,7 @@ pub mod run;
 
 use crate::domain::feature::{ApprovalState, Feature};
 use crate::domain::name::FeatureName;
-use crate::error::Failure;
+use crate::error::{Failure, FixAction};
 use crate::store::layout::Layout;
 use crate::store::versioned::{Migration, Policy, Store};
 
@@ -49,6 +49,20 @@ const APPROVALS_FILE: &str = "approvals.json";
 /// variant because the whole point is that the variant is gone.
 const RETIRED_GATE: &str = "execution_graph";
 
+/// The hard `feature.not_found` refusal every feature lookup shares.
+pub(crate) fn feature_not_found(name: &FeatureName) -> Failure {
+    Failure::blocked(
+        "feature.not_found",
+        format!("feature `{name}` does not exist"),
+    )
+    .expected("an existing feature")
+    .actual(format!("`{name}` has no feature.json"))
+    .fix(FixAction::safe(
+        "feature.create_first",
+        format!("Create it first with `ivar feature create {name}`."),
+    ))
+}
+
 impl Feature {
     /// Read `features/<name>/feature.json`. `Ok(None)` when the feature has
     /// never been written — a feature created but never promoted.
@@ -57,6 +71,12 @@ impl Feature {
     /// [`Store::read`].
     pub fn read(layout: &Layout, name: &FeatureName) -> Result<Option<Self>, Failure> {
         store(layout, name).read().map_err(Failure::from)
+    }
+
+    /// Read `features/<name>/feature.json`, or a hard `feature.not_found` —
+    /// the refusal shared by every action that needs the feature to exist.
+    pub fn read_or_not_found(layout: &Layout, name: &FeatureName) -> Result<Self, Failure> {
+        Self::read(layout, name)?.ok_or_else(|| feature_not_found(name))
     }
 
     /// Write this feature to `features/<name>/feature.json`, atomically, in

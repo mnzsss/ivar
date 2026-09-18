@@ -68,18 +68,7 @@ pub(crate) enum ReceiptFreshness {
 
 /// Read one feature's record, or a hard `feature.not_found`.
 pub(crate) fn read_feature(layout: &Layout, name: &FeatureName) -> Result<Feature, Failure> {
-    Feature::read(layout, name)?.ok_or_else(|| {
-        Failure::blocked(
-            "feature.not_found",
-            format!("feature `{name}` does not exist"),
-        )
-        .expected("an existing feature")
-        .actual(format!("`{name}` has no feature.json"))
-        .fix(FixAction::safe(
-            "feature.create_first",
-            format!("Create it first with `ivar feature create {name}`."),
-        ))
-    })
+    Feature::read_or_not_found(layout, name)
 }
 
 /// Read every feature in the hall, sorted by name, validating the derived
@@ -163,18 +152,10 @@ pub(crate) fn subtree_status(
 ) -> Result<Vec<TreeEntry>, Failure> {
     let all = read_all(layout)?;
     let map = feature_map(&all);
-    let root_feature = map.get(root).copied().ok_or_else(|| {
-        Failure::blocked(
-            "feature.not_found",
-            format!("feature `{root}` does not exist"),
-        )
-        .expected("an existing feature")
-        .actual(format!("`{root}` has no feature.json"))
-        .fix(FixAction::safe(
-            "feature.create_first",
-            format!("Create it first with `ivar feature create {root}`."),
-        ))
-    })?;
+    let root_feature = map
+        .get(root)
+        .copied()
+        .ok_or_else(|| crate::store::feature::feature_not_found(root))?;
 
     let mut entries = Vec::new();
     walk(git, layout, manifest, &map, root_feature, 0, &mut entries)?;

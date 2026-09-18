@@ -27,7 +27,9 @@ use std::io;
 use camino::Utf8PathBuf;
 use serde::Serialize;
 
-use crate::domain::feature::{Feature, WorktreeState};
+use crate::domain::feature::WorktreeState;
+#[cfg(test)]
+use crate::domain::feature::Feature;
 use crate::domain::name::{FeatureName, RepoName};
 use crate::error::{Failure, FixAction, Outcome, Report, WriteHuman};
 use crate::infra::proc;
@@ -88,18 +90,7 @@ pub fn view(ctx: &Ctx, input: ViewInput) -> Outcome<ViewOutcome> {
     let layout = discover_hall(ctx)?;
     let name = FeatureName::new(input.feature)?;
 
-    let feature = Feature::read(&layout, &name)?.ok_or_else(|| {
-        Failure::blocked(
-            "feature.not_found",
-            format!("feature `{name}` does not exist"),
-        )
-        .expected("an existing feature")
-        .actual(format!("`{name}` has no feature.json"))
-        .fix(FixAction::safe(
-            "feature.create_first",
-            format!("Create it first with `ivar feature create {name}`."),
-        ))
-    })?;
+    let feature = super::relations::read_feature(&layout, &name)?;
 
     if feature.promotions.is_empty() {
         return Err(Failure::blocked(

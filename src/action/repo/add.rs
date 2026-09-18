@@ -111,20 +111,7 @@ pub fn add(ctx: &Ctx, input: AddInput) -> Outcome<AddOutcome> {
     };
 
     // Collision 1: the name must be free.
-    for existing in manifest.repos() {
-        if existing.name() == &name {
-            return Err(Failure::blocked(
-                "repo.name_exists",
-                format!("`{name}` is already in ivar.json"),
-            )
-            .expected("a repo name not already declared")
-            .actual(format!("`{name}` is already declared"))
-            .fix(FixAction::safe(
-                "repo.remove_first",
-                format!("Remove `{name}` first with `ivar repo remove {name}`, then add again."),
-            )));
-        }
-    }
+    super::ensure_name_free(&manifest, &name)?;
 
     // Collision 2: the URL must not already be tracked under another name.
     if let Some(existing) = manifest

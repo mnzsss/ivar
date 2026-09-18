@@ -15,15 +15,18 @@ pub use outcome::{DeliverOutcome, LandResult, PullRequestRef, PushResult, RepoCh
 use crate::action::Ctx;
 use crate::action::discover_hall;
 use crate::action::feature::relations;
+#[cfg(test)]
+use crate::action::feature::relations::read_feature;
 use crate::action::feature::verification;
 use crate::action::read_manifest;
 use crate::domain::feature::{
-    DeliveryMode, DeliveryPreview, DeliveryTreeBlocker, Feature, FeatureIntegrationState, GateState,
+    DeliveryMode, DeliveryPreview, DeliveryTreeBlocker, FeatureIntegrationState, GateState,
 };
+#[cfg(test)]
+use crate::domain::feature::Feature;
 use crate::domain::name::FeatureName;
 use crate::error::{Failure, FixAction, Outcome, Report};
 use crate::git;
-use crate::store::layout::Layout;
 
 use preview::{
     apply_command, fingerprint_for, plan_gate_state, plan_not_approved, preview_required,
@@ -36,7 +39,7 @@ pub fn deliver(ctx: &Ctx, input: DeliverInput) -> Outcome<DeliverOutcome> {
     let git = git::System;
 
     let feature_name = FeatureName::new(input.feature.clone())?;
-    let feature = read_feature(&layout, &feature_name)?;
+    let feature = relations::read_feature(&layout, &feature_name)?;
 
     // Resolve delivery metadata after loading the feature so validation
     // can reject land mode, duplicate and unpromoted groups, and body files.
@@ -222,22 +225,6 @@ fn blocker_reason(state: FeatureIntegrationState) -> String {
         // Unreachable: blocking descendants are only ever these three.
         other => format!("its state is `{other}`"),
     }
-}
-
-/// Read the feature, or a `Blocked` failure naming the way out.
-fn read_feature(layout: &Layout, name: &FeatureName) -> Result<Feature, Failure> {
-    Feature::read(layout, name)?.ok_or_else(|| {
-        Failure::blocked(
-            "feature.not_found",
-            format!("feature `{name}` does not exist"),
-        )
-        .expected("an existing feature")
-        .actual(format!("`{name}` has no feature.json"))
-        .fix(FixAction::safe(
-            "feature.create_first",
-            format!("Create it first with `ivar feature create {name}`."),
-        ))
-    })
 }
 
 #[cfg(test)]

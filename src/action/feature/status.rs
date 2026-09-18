@@ -10,11 +10,11 @@ use super::super::{discover_hall, read_manifest};
 use super::base;
 use super::relations::TreeEntry;
 use crate::action::Ctx;
-use crate::domain::feature::{
-    ApprovalState, Feature, Gate, GateState, WorktreeState, effective_base,
-};
+use crate::domain::feature::{ApprovalState, Gate, GateState, WorktreeState, effective_base};
+#[cfg(test)]
+use crate::domain::feature::Feature;
 use crate::domain::name::{BranchName, FeatureName, RepoName};
-use crate::error::{Failure, FixAction, Outcome, Report, WriteHuman};
+use crate::error::{Outcome, Report, WriteHuman};
 use crate::git::{self, Git, TargetState};
 
 /// One promoted repo's status within a feature.
@@ -146,18 +146,7 @@ pub fn status(ctx: &Ctx, input: StatusInput) -> Outcome<StatusOutcome> {
     let git = git::System;
     let name = FeatureName::new(input.feature)?;
 
-    let feature = Feature::read(&layout, &name)?.ok_or_else(|| {
-        Failure::blocked(
-            "feature.not_found",
-            format!("feature `{name}` does not exist"),
-        )
-        .expected("an existing feature")
-        .actual(format!("`{name}` has no feature.json"))
-        .fix(FixAction::safe(
-            "feature.create_first",
-            format!("Create it first with `ivar feature create {name}`."),
-        ))
-    })?;
+    let feature = super::relations::read_feature(&layout, &name)?;
 
     let mut repos = Vec::new();
     for (repo, promotion) in &feature.promotions {
