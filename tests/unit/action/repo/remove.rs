@@ -336,3 +336,68 @@ fn remove_forgets_the_repo_in_the_graph() {
     let db = crate::store::graph::db::GraphDb::open(db_path.as_std_path()).unwrap();
     assert!(db.get_repo("api").unwrap().is_none());
 }
+
+#[test]
+fn remove_forgets_the_repo_feature_layers_in_the_graph() {
+    let (_guard, root) = hall_with_repo();
+    let ctx = Ctx::new(root.clone());
+    let db_path = root.join(".ivar/memory.db");
+    let db = crate::store::graph::db::GraphDb::open(db_path.as_std_path()).unwrap();
+    let layer_id = db
+        .ensure_layer_record("feat", "api", "/feat/api", "c1")
+        .unwrap();
+    db.set_layer_tombstones(layer_id, &["gone.rs"]).unwrap();
+    let layer_repo = format!("api/{layer_id}");
+    db.insert_repo(&layer_repo, "/feat/api", "feat", None)
+        .unwrap();
+    drop(db);
+
+    remove(&ctx, input("api", false)).unwrap();
+
+    let db = crate::store::graph::db::GraphDb::open(db_path.as_std_path()).unwrap();
+    assert!(db.get_layer_record("feat", "api").unwrap().is_none());
+    assert!(db.get_layer_tombstones(layer_id).unwrap().is_empty());
+    assert!(db.get_repo(&layer_repo).unwrap().is_none());
+}
+
+#[test]
+fn remove_without_a_graph_db_records_no_graph_step() {
+    let (_guard, root) = hall_with_repo();
+    let ctx = Ctx::new(root.clone());
+    let db_path = root.join(".ivar/memory.db");
+    assert!(!db_path.exists());
+
+    let report = remove(&ctx, input("api", false)).unwrap();
+
+    assert!(!db_path.exists());
+    assert!(
+        report
+            .value
+            .steps
+            .iter()
+            .all(|step| step.surface != "graph")
+    );
+}
+
+#[test]
+fn remove_survives_a_corrupt_graph_db() {
+    let (_guard, root) = hall_with_repo();
+    let ctx = Ctx::new(root.clone());
+    fs::write_text(
+        &root.join(".ivar/memory.db"),
+        "not a sqlite database at all",
+    )
+    .unwrap();
+
+    let report = remove(&ctx, input("api", false)).unwrap();
+
+    assert!(
+        report
+            .warnings
+            .iter()
+            .any(|w| w.code == "repo.remove_step_failed" && w.subject == "graph"),
+        "{:?}",
+        report.warnings
+    );
+    assert!(!fs::exists(&root.join(".ivar/repos/api")).unwrap());
+}

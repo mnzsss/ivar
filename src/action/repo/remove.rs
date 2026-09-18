@@ -208,7 +208,7 @@ pub fn remove(ctx: &Ctx, input: RemoveInput) -> Outcome<RemoveOutcome> {
 
     // 5. The repo's rows in the code graph.
     let graph_db = layout.ivar_dir().join("memory.db");
-    if fs::exists(&graph_db)? {
+    if graph_db.is_file() {
         match GraphDb::open(graph_db.as_std_path()).and_then(|db| db.forget_repo(name.as_str())) {
             Ok(()) => steps.push(Entry::new("graph", name.to_string(), Change::Removed)),
             Err(error) => record_step(
