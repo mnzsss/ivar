@@ -10,7 +10,12 @@ pub(super) const USAGE_BUSY_TIMEOUT: Duration = Duration::from_millis(50);
 const DEFAULT_BUSY_TIMEOUT: Duration = Duration::from_secs(10);
 
 fn nearest_rank(sorted: &[u64], pct: u64) -> u64 {
-    let rank = (sorted.len() as u64 * pct).div_ceil(100).max(1) as usize;
+    let rank = usize::try_from(
+        (u64::try_from(sorted.len()).unwrap_or(u64::MAX) * pct)
+            .div_ceil(100)
+            .max(1),
+    )
+    .unwrap_or(usize::MAX);
     sorted.get(rank - 1).copied().unwrap_or(0)
 }
 
@@ -40,7 +45,7 @@ impl GraphDb {
                 event.source.as_str(),
                 now_timestamp(),
                 event.duration_ms as i64,
-                event.result_count.map(|c| c as i64),
+                event.result_count.map(|c| i64::try_from(c).unwrap_or(i64::MAX)),
                 event.error,
             ],
         );

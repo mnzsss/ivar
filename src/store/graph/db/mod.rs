@@ -129,11 +129,11 @@ impl GraphDb {
         let usage = self.usage_summary().unwrap_or_default();
 
         Ok(GraphStats {
-            repo_count: repo_count as usize,
-            file_count: file_count as usize,
-            symbol_count: symbol_count as usize,
-            edge_count: edge_count as usize,
-            db_size_bytes: (page_count * page_size) as u64,
+            repo_count: usize::try_from(repo_count).unwrap_or(usize::MAX),
+            file_count: usize::try_from(file_count).unwrap_or(usize::MAX),
+            symbol_count: usize::try_from(symbol_count).unwrap_or(usize::MAX),
+            edge_count: usize::try_from(edge_count).unwrap_or(usize::MAX),
+            db_size_bytes: u64::try_from(page_count * page_size).unwrap_or(u64::MAX),
             layers,
             usage,
         })

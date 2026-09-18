@@ -6,7 +6,7 @@
 )]
 
 use super::*;
-use crate::domain::graph::{UsageEvent, UsageSource};
+use crate::domain::graph::{Span, Symbol, SymbolKind, UsageEvent, UsageSource};
 use tempfile::tempdir;
 
 #[test]
@@ -879,4 +879,35 @@ fn forget_repo_drops_the_repo_and_its_feature_layers_only() {
         db.get_layer_record("feat", "web").unwrap().unwrap().id,
         web_layer
     );
+}
+
+#[test]
+fn inserting_a_symbol_with_a_usize_id_beyond_i64_does_not_panic() {
+    let db = GraphDb::open_in_memory().unwrap();
+    db.insert_repo("app", "/app", "main", None).unwrap();
+    let file_id = db.upsert_file("app", "src/lib.rs", "h", 1, 1).unwrap();
+    let ids = db
+        .insert_symbols(&[Symbol {
+            id: None,
+            file_id: Some(file_id),
+            repo: "app".to_owned(),
+            name: "widget".to_owned(),
+            kind: SymbolKind::Fn,
+            scope: None,
+            signature: None,
+            docstring: None,
+            span: Span::new(usize::MAX, 1, usize::MAX, 2),
+            is_exported: true,
+            complexity: Some(u32::MAX),
+        }])
+        .unwrap();
+    assert_eq!(ids.len(), 1);
+    let read_back = db
+        .search_symbols_fts("widget", 1)
+        .unwrap()
+        .pop()
+        .expect("symbol round-trips");
+    // SQLite stores the span as an i64 column, so the saturating cast on insert
+    // clamps to i64::MAX rather than usize::MAX; the read-back cast never panics.
+    assert_eq!(read_back.span.start_line, i64::MAX as usize);
 }

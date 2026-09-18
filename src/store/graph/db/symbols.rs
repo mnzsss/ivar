@@ -40,12 +40,12 @@ impl GraphDb {
                         &sym.scope,
                         &sym.signature,
                         &sym.docstring,
-                        sym.span.start_line as i64,
-                        sym.span.start_col as i64,
-                        sym.span.end_line as i64,
-                        sym.span.end_col as i64,
+                        i64::try_from(sym.span.start_line).unwrap_or(i64::MAX),
+                        i64::try_from(sym.span.start_col).unwrap_or(i64::MAX),
+                        i64::try_from(sym.span.end_line).unwrap_or(i64::MAX),
+                        i64::try_from(sym.span.end_col).unwrap_or(i64::MAX),
                         is_exported,
-                        sym.complexity.map(|c| c as i64),
+                        sym.complexity.map(i64::from),
                         name_words(&sym.name),
                     ],
                     |row| row.get(0),
@@ -78,7 +78,7 @@ impl GraphDb {
              ORDER BY rank
              LIMIT ?2",
         )?;
-        let rows = stmt.query_map(params![query, limit as i64], |row| {
+        let rows = stmt.query_map(params![query, i64::try_from(limit).unwrap_or(i64::MAX)], |row| {
             let id: i64 = row.get(0)?;
             let file_id: i64 = row.get(1)?;
             let repo: String = row.get(2)?;
@@ -104,13 +104,13 @@ impl GraphDb {
                 signature,
                 docstring,
                 span: Span::new(
-                    start_line as usize,
-                    start_col as usize,
-                    end_line as usize,
-                    end_col as usize,
+                    usize::try_from(start_line).unwrap_or(usize::MAX),
+                    usize::try_from(start_col).unwrap_or(usize::MAX),
+                    usize::try_from(end_line).unwrap_or(usize::MAX),
+                    usize::try_from(end_col).unwrap_or(usize::MAX),
                 ),
                 is_exported: is_exported != 0,
-                complexity: complexity.map(|c| c as u32),
+                complexity: complexity.map(|c| u32::try_from(c).unwrap_or(u32::MAX)),
             })
         })?;
 
@@ -208,13 +208,13 @@ impl GraphDb {
                     signature,
                     docstring,
                     span: Span::new(
-                        start_line as usize,
-                        start_col as usize,
-                        end_line as usize,
-                        end_col as usize,
+                        usize::try_from(start_line).unwrap_or(usize::MAX),
+                        usize::try_from(start_col).unwrap_or(usize::MAX),
+                        usize::try_from(end_line).unwrap_or(usize::MAX),
+                        usize::try_from(end_col).unwrap_or(usize::MAX),
                     ),
                     is_exported: is_exported != 0,
-                    complexity: complexity.map(|c| c as u32),
+                    complexity: complexity.map(|c| u32::try_from(c).unwrap_or(u32::MAX)),
                 },
                 path,
             ))
@@ -222,12 +222,12 @@ impl GraphDb {
 
         let mut results = Vec::new();
         if let Some(r) = repo {
-            let rows = stmt.query_map(params![r, limit as i64], map_row)?;
+            let rows = stmt.query_map(params![r, i64::try_from(limit).unwrap_or(i64::MAX)], map_row)?;
             for row in rows {
                 results.push(row?);
             }
         } else {
-            let rows = stmt.query_map(params![limit as i64], map_row)?;
+            let rows = stmt.query_map(params![i64::try_from(limit).unwrap_or(i64::MAX)], map_row)?;
             for row in rows {
                 results.push(row?);
             }
@@ -294,13 +294,13 @@ impl GraphDb {
                     signature,
                     docstring,
                     span: Span::new(
-                        start_line as usize,
-                        start_col as usize,
-                        end_line as usize,
-                        end_col as usize,
+                        usize::try_from(start_line).unwrap_or(usize::MAX),
+                        usize::try_from(start_col).unwrap_or(usize::MAX),
+                        usize::try_from(end_line).unwrap_or(usize::MAX),
+                        usize::try_from(end_col).unwrap_or(usize::MAX),
                     ),
                     is_exported: is_exported != 0,
-                    complexity: complexity.map(|c| c as u32),
+                    complexity: complexity.map(|c| u32::try_from(c).unwrap_or(u32::MAX)),
                 },
                 path,
             ))
@@ -308,12 +308,12 @@ impl GraphDb {
 
         let mut results = Vec::new();
         if let Some(r) = repo {
-            let rows = stmt.query_map(params![threshold as i64, r, limit as i64], map_row)?;
+            let rows = stmt.query_map(params![i64::from(threshold), r, i64::try_from(limit).unwrap_or(i64::MAX)], map_row)?;
             for row in rows {
                 results.push(row?);
             }
         } else {
-            let rows = stmt.query_map(params![threshold as i64, limit as i64], map_row)?;
+            let rows = stmt.query_map(params![i64::from(threshold), i64::try_from(limit).unwrap_or(i64::MAX)], map_row)?;
             for row in rows {
                 results.push(row?);
             }

@@ -335,7 +335,7 @@ impl GraphDb {
                 feature: r.get(0)?,
                 repo: r.get(1)?,
                 base_commit: r.get(2)?,
-                file_count: r.get::<_, i64>(3)? as usize,
+                file_count: usize::try_from(r.get::<_, i64>(3)?).unwrap_or(usize::MAX),
             })
         })?;
         let mut result = Vec::new();
