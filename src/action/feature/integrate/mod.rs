@@ -273,80 +273,25 @@ pub fn integrate(ctx: &Ctx, input: IntegrateInput) -> Outcome<IntegrateOutcome> 
     // 6. Resolve the policy once. The resolved relationship/base/policy is
     // frozen by the first persisted receipt: a rerun reuses each receipt's
     // own via/strategy instead of re-resolving.
-    let policy = resolved_policy(
-        &child,
-        manifest.integration(),
-        input.via.as_deref(),
-        input.strategy.as_deref(),
-    )?;
+    let policy = resolved_policy(&child, manifest.integration(), input.via.as_deref(), input.strategy.as_deref())?;
 
     // 7. Preflight every repo in two passes, so a later repo's refusal can
-    // never leave an earlier repo's parent promotion behind. Pass 1 is pure
-    // validation — no mutation, no question asked: a stale receipt, an
-    // unresumable failed receipt, or a dirty worktree is a hard refusal of
-    // the whole run, and an unreceipted repo the parent does not yet promote
-    // is only *recorded* as needing one. Only once every repo has cleared
-    // pass 1 does pass 2 ask (or refuse, non-interactively) about each
-    // recorded promotion, in the same order — nothing is persisted, nothing
-    // is exposed, until the whole run is known clean. Only the *work* of a
-    // resume (checks, candidate, merge) is a per-repo warning that lets the
-    // batch continue.
-    let mut needs_parent_promotion = Vec::new();
-    for repo in child.promotions.keys() {
-        if preflight_repo(&layout, &manifest, &git, &child, &parent, repo)? {
-            needs_parent_promotion.push(repo.clone());
-        }
-    }
-    for repo in &needs_parent_promotion {
-        ensure_parent_promotion(ctx, &child, &parent, repo)?;
-    }
+    // never leave an earlier repo's parent promotion behind.
+    let needs_parent_promotion = preflight_repos(&layout, &manifest, &git, &child, &parent)?;
+    needs_parent_promotion
+        .iter()
+        .try_for_each(|repo| ensure_parent_promotion(ctx, &child, &parent, repo))?;
 
     // 7. Per-repo, in name order: reuse, re-verify, or resume. Each result is
     // persisted immediately — partial and resumable, never atomic. The child
     // is re-read after each repo so the next persist carries every earlier
     // receipt, never clobbering it.
-    let mut child = child;
-    let mut repos_out = Vec::new();
-    let mut warnings = Vec::new();
-    for repo in child.promotions.keys().cloned().collect::<Vec<_>>() {
-        match integrate_repo(&layout, &manifest, &git, &child, &parent, &repo, policy) {
-            Ok(entry) => repos_out.push(entry),
-            Err(failure) => {
-                // A repo that breaks mid-run (checks failed, candidate failed,
-                // PR refused) stops that repo but lets the batch continue with
-                // a warning — successful receipts stay reused, and the
-                // resumable ones stay resumable.
-                warnings.push(Warning::new(
-                    "integration.repo_blocked",
-                    repo.as_str(),
-                    failure.to_string(),
-                ));
-                repos_out.push(RepoIntegration {
-                    repo: repo.clone(),
-                    source_sha: git
-                        .revision_commit(&layout.repo_bare(&repo), child.branch.as_str())
-                        .unwrap_or_default(),
-                    target_branch: parent.branch.clone(),
-                    result_sha: None,
-                    status: RepoIntegrationStatus::Failed,
-                    pr_url: None,
-                    detail: Some(failure.what.clone()),
-                });
-            }
-        }
-        child = relations::read_feature(&layout, &name)?;
-    }
+    let (repos_out, mut warnings) =
+        run_integration_repos(&layout, &manifest, &git, &child, &parent, policy, &name);
+    let child = relations::read_feature(&layout, &name)?;
 
     // 13. Close as integrated only when every receipt is fresh and passing.
-    let (state, closed_integrated) = final_state(
-        ctx,
-        &layout,
-        &manifest,
-        &git,
-        &child,
-        &parent,
-        &mut warnings,
-    )?;
+    let (state, closed_integrated) = final_state(ctx, &layout, &manifest, &git, &child, &parent, &mut warnings)?;
 
     Ok(Report::with_warnings(
         IntegrateOutcome {
@@ -427,6 +372,74 @@ fn preflight_repo(
     // unchanged — moved means stale, with restoration orientation.
     ensure_failed_receipt_still_current(git, layout, &bare, child, parent, repo, receipt)?;
     Ok(false)
+}
+
+/// Pass 1 of the whole-run preflight for every promoted repo, so a later
+/// repo's refusal can never leave an earlier repo's parent promotion behind.
+/// Returns the repos that still need pass 2's parent-promotion question.
+fn preflight_repos(
+    layout: &Layout,
+    manifest: &Manifest,
+    git: &impl Git,
+    child: &Feature,
+    parent: &Feature,
+) -> Result<Vec<RepoName>, Failure> {
+    let mut needs_parent_promotion = Vec::new();
+    for repo in child.promotions.keys() {
+        if preflight_repo(layout, manifest, git, child, parent, repo)? {
+            needs_parent_promotion.push(repo.clone());
+        }
+    }
+    Ok(needs_parent_promotion)
+}
+
+/// Integrate every promoted repo, in name order: reuse, re-verify, or
+/// resume. Each result is persisted immediately — partial and resumable,
+/// never atomic. `child` is re-read after each repo so the next persist
+/// carries every earlier receipt, never clobbering it.
+fn run_integration_repos(
+    layout: &Layout,
+    manifest: &Manifest,
+    git: &impl Git,
+    child: &Feature,
+    parent: &Feature,
+    policy: IntegrationPolicy,
+    name: &FeatureName,
+) -> (Vec<RepoIntegration>, Vec<Warning>) {
+    let mut child = child.clone();
+    let mut repos_out = Vec::new();
+    let mut warnings = Vec::new();
+    for repo in child.promotions.keys().cloned().collect::<Vec<_>>() {
+        match integrate_repo(layout, manifest, git, &child, parent, &repo, policy) {
+            Ok(entry) => repos_out.push(entry),
+            Err(failure) => {
+                // A repo that breaks mid-run (checks failed, candidate failed,
+                // PR refused) stops that repo but lets the batch continue with
+                // a warning — successful receipts stay reused, and the
+                // resumable ones stay resumable.
+                warnings.push(Warning::new(
+                    "integration.repo_blocked",
+                    repo.as_str(),
+                    failure.to_string(),
+                ));
+                repos_out.push(RepoIntegration {
+                    repo: repo.clone(),
+                    source_sha: git
+                        .revision_commit(&layout.repo_bare(&repo), child.branch.as_str())
+                        .unwrap_or_default(),
+                    target_branch: parent.branch.clone(),
+                    result_sha: None,
+                    status: RepoIntegrationStatus::Failed,
+                    pr_url: None,
+                    detail: Some(failure.what.clone()),
+                });
+            }
+        }
+        if let Ok(fresh) = relations::read_feature(layout, name) {
+            child = fresh;
+        }
+    }
+    (repos_out, warnings)
 }
 
 /// A failed receipt is resumable only while its source and result are
