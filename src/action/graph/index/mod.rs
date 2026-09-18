@@ -100,7 +100,8 @@ pub fn index_repo(
                     && files_to_index.is_empty()
                     && files_to_delete.is_empty()
                 {
-                    let duration_ms = u64::try_from(start_time.elapsed().as_millis()).unwrap_or(u64::MAX);
+                    let duration_ms =
+                        u64::try_from(start_time.elapsed().as_millis()).unwrap_or(u64::MAX);
                     return Ok(IndexOutcome {
                         repo: repo_id.to_owned(),
                         files_indexed: 0,

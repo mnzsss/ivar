@@ -180,18 +180,32 @@ pub fn rfc3339_from_epoch_secs(secs_f64: f64) -> String {
     rfc3339_from_parts(secs, subsec_nanos)
 }
 
-#[expect(clippy::cast_possible_truncation, reason = "value is bounds-checked against i64::MAX above")]
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "value is bounds-checked against i64::MAX above"
+)]
 fn clamp_f64_to_i64(value: f64) -> i64 {
-    if value >= i64::MAX as f64 { i64::MAX } else { value as i64 }
+    if value >= i64::MAX as f64 {
+        i64::MAX
+    } else {
+        value as i64
+    }
 }
 
 #[expect(
     clippy::cast_possible_truncation,
     reason = "value is bounds-checked against u32::MAX above"
 )]
-#[expect(clippy::cast_sign_loss, reason = "the round() result is already non-negative here")]
+#[expect(
+    clippy::cast_sign_loss,
+    reason = "the round() result is already non-negative here"
+)]
 fn clamp_f64_to_u32(value: f64) -> u32 {
-    if value >= u32::MAX as f64 { u32::MAX } else { value as u32 }
+    if value >= u32::MAX as f64 {
+        u32::MAX
+    } else {
+        value as u32
+    }
 }
 
 #[must_use]

@@ -136,7 +136,10 @@ pub fn start(ctx: &Ctx, input: StartInput) -> Outcome<StartOutcome> {
     let manifest = read_manifest(&layout)?;
 
     let feature = match input.feature {
-        Some(raw) => Some(Feature::read_or_not_found(&layout, &FeatureName::new(raw)?)?),
+        Some(raw) => Some(Feature::read_or_not_found(
+            &layout,
+            &FeatureName::new(raw)?,
+        )?),
         None => None,
     };
 

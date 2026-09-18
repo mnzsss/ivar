@@ -27,9 +27,9 @@ use std::io;
 use camino::Utf8PathBuf;
 use serde::Serialize;
 
-use crate::domain::feature::WorktreeState;
 #[cfg(test)]
 use crate::domain::feature::Feature;
+use crate::domain::feature::WorktreeState;
 use crate::domain::name::{FeatureName, RepoName};
 use crate::error::{Failure, FixAction, Outcome, Report, WriteHuman};
 use crate::infra::proc;

@@ -45,7 +45,9 @@ impl GraphDb {
                 event.source.as_str(),
                 now_timestamp(),
                 i64::try_from(event.duration_ms).unwrap_or(i64::MAX),
-                event.result_count.map(|c| i64::try_from(c).unwrap_or(i64::MAX)),
+                event
+                    .result_count
+                    .map(|c| i64::try_from(c).unwrap_or(i64::MAX)),
                 event.error,
             ],
         );

@@ -273,7 +273,12 @@ pub fn integrate(ctx: &Ctx, input: IntegrateInput) -> Outcome<IntegrateOutcome> 
     // 6. Resolve the policy once. The resolved relationship/base/policy is
     // frozen by the first persisted receipt: a rerun reuses each receipt's
     // own via/strategy instead of re-resolving.
-    let policy = resolved_policy(&child, manifest.integration(), input.via.as_deref(), input.strategy.as_deref())?;
+    let policy = resolved_policy(
+        &child,
+        manifest.integration(),
+        input.via.as_deref(),
+        input.strategy.as_deref(),
+    )?;
 
     // 7. Preflight every repo in two passes, so a later repo's refusal can
     // never leave an earlier repo's parent promotion behind.
@@ -291,7 +296,15 @@ pub fn integrate(ctx: &Ctx, input: IntegrateInput) -> Outcome<IntegrateOutcome> 
     let child = relations::read_feature(&layout, &name)?;
 
     // 13. Close as integrated only when every receipt is fresh and passing.
-    let (state, closed_integrated) = final_state(ctx, &layout, &manifest, &git, &child, &parent, &mut warnings)?;
+    let (state, closed_integrated) = final_state(
+        ctx,
+        &layout,
+        &manifest,
+        &git,
+        &child,
+        &parent,
+        &mut warnings,
+    )?;
 
     Ok(Report::with_warnings(
         IntegrateOutcome {

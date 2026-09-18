@@ -28,10 +28,7 @@ pub(crate) fn list_feature(
     layout: &Layout,
     feature: &FeatureName,
 ) -> Result<Vec<SessionRef>, Failure> {
-    sessions_in(
-        &layout.feature_dir(feature).join("sessions"),
-        Some(feature),
-    )
+    sessions_in(&layout.feature_dir(feature).join("sessions"), Some(feature))
 }
 
 /// Every live session in the hall: discovery sessions and every feature's

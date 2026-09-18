@@ -149,7 +149,13 @@ impl CallbackServer {
         })?;
 
         let worker = thread::spawn(move || {
-            Self::worker_loop(listener_for_worker, &tx, &worker_shutdown, &expected, timeout);
+            Self::worker_loop(
+                listener_for_worker,
+                &tx,
+                &worker_shutdown,
+                &expected,
+                timeout,
+            );
         });
 
         Ok(Self {

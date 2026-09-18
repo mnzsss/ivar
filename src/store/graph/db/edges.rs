@@ -103,7 +103,8 @@ impl GraphDb {
                      ORDER BY s.is_exported DESC, s.id ASC
                      LIMIT 1",
                 )?;
-                stmt.query_row(params![symbol_name, r], map_symbol_and_path).ok()
+                stmt.query_row(params![symbol_name, r], map_symbol_and_path)
+                    .ok()
             }
             None => {
                 let mut stmt = self.conn.prepare(
@@ -116,7 +117,8 @@ impl GraphDb {
                      ORDER BY s.is_exported DESC, s.id ASC
                      LIMIT 1",
                 )?;
-                stmt.query_row(params![symbol_name], map_symbol_and_path).ok()
+                stmt.query_row(params![symbol_name], map_symbol_and_path)
+                    .ok()
             }
         };
 

@@ -265,12 +265,13 @@ fn open_approvals(
 
     require_feature(layout, &feature)?;
 
-    let feature_record = crate::domain::feature::Feature::read(layout, &feature)?.ok_or_else(|| {
-        Failure::blocked(
-            "plan.feature_vanished",
-            format!("feature `{feature}` has a directory but no feature.json"),
-        )
-    })?;
+    let feature_record =
+        crate::domain::feature::Feature::read(layout, &feature)?.ok_or_else(|| {
+            Failure::blocked(
+                "plan.feature_vanished",
+                format!("feature `{feature}` has a directory but no feature.json"),
+            )
+        })?;
     crate::action::feature::ensure_not_fully_integrated(layout, &feature_record)?;
 
     let approvals = super::load_approvals(layout, &feature)?;

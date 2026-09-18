@@ -34,7 +34,8 @@ pub(crate) fn execute(
     // A repo whose checks fail is not pushed — its work did not verify — while
     // the rest of the batch continues. The results are machine-visible on the outcome.
     for repo in &preview.repos {
-        let (push, check_result, repo_warnings) = check_and_push_one(git, layout, manifest, feature, repo)?;
+        let (push, check_result, repo_warnings) =
+            check_and_push_one(git, layout, manifest, feature, repo)?;
         pushes.push(push);
         checks.push(check_result);
         warnings.extend(repo_warnings);
@@ -43,9 +44,15 @@ pub(crate) fn execute(
     // -- Phase 2: create PRs for repos that need them -------------------------
     let mut pr_results: Vec<(RepoName, Result<PullRequest, Failure>)> = Vec::new();
     for repo in &preview.repos {
-        if let Some(entry) =
-            create_pr_for_repo(git, manifest, layout, feature_name, repo, &mut pushes, &mut warnings)
-        {
+        if let Some(entry) = create_pr_for_repo(
+            git,
+            manifest,
+            layout,
+            feature_name,
+            repo,
+            &mut pushes,
+            &mut warnings,
+        ) {
             pr_results.push(entry);
         }
     }

@@ -231,7 +231,10 @@ fn resolve_seed_nodes(
                  ORDER BY count(e.id) DESC, s.is_exported DESC, s.id ASC
                  LIMIT ?1",
             )?;
-            let rows = stmt.query_map(params![i64::try_from(limit).unwrap_or(i64::MAX)], map_node_row)?;
+            let rows = stmt.query_map(
+                params![i64::try_from(limit).unwrap_or(i64::MAX)],
+                map_node_row,
+            )?;
             collect_nodes(rows)
         }
         ViewSeed::Repo(repo) => {
@@ -247,7 +250,10 @@ fn resolve_seed_nodes(
                  ORDER BY count(e.id) DESC, s.is_exported DESC, s.id ASC
                  LIMIT ?2",
             )?;
-            let rows = stmt.query_map(params![repo, i64::try_from(limit).unwrap_or(i64::MAX)], map_node_row)?;
+            let rows = stmt.query_map(
+                params![repo, i64::try_from(limit).unwrap_or(i64::MAX)],
+                map_node_row,
+            )?;
             collect_nodes(rows)
         }
         ViewSeed::File(path) => {
@@ -288,7 +294,10 @@ fn resolve_seed_nodes(
                  ORDER BY s.is_exported DESC, s.id ASC
                  LIMIT ?2",
             )?;
-            let rows = stmt.query_map(params![sym, i64::try_from(limit).unwrap_or(i64::MAX)], map_node_row)?;
+            let rows = stmt.query_map(
+                params![sym, i64::try_from(limit).unwrap_or(i64::MAX)],
+                map_node_row,
+            )?;
             collect_nodes(rows)
         }
         ViewSeed::Impact(sym) => {
@@ -302,7 +311,10 @@ fn resolve_seed_nodes(
                  ORDER BY s.is_exported DESC, s.id ASC
                  LIMIT ?2",
             )?;
-            let rows = stmt.query_map(params![sym, i64::try_from(limit).unwrap_or(i64::MAX)], map_node_row)?;
+            let rows = stmt.query_map(
+                params![sym, i64::try_from(limit).unwrap_or(i64::MAX)],
+                map_node_row,
+            )?;
             collect_nodes(rows)
         }
     }

@@ -3,8 +3,8 @@
 pub mod edges;
 pub mod index;
 pub mod layer;
-pub(crate) mod row;
 pub mod repo;
+pub(crate) mod row;
 pub mod symbols;
 pub mod types;
 pub mod usage;

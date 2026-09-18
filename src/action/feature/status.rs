@@ -10,9 +10,9 @@ use super::super::{discover_hall, read_manifest};
 use super::base;
 use super::relations::TreeEntry;
 use crate::action::Ctx;
-use crate::domain::feature::{ApprovalState, Gate, GateState, WorktreeState, effective_base};
 #[cfg(test)]
 use crate::domain::feature::Feature;
+use crate::domain::feature::{ApprovalState, Gate, GateState, WorktreeState, effective_base};
 use crate::domain::name::{BranchName, FeatureName, RepoName};
 use crate::error::{Outcome, Report, WriteHuman};
 use crate::git::{self, Git, TargetState};

@@ -125,12 +125,16 @@ impl GraphDb {
 
         let mut results = Vec::new();
         if let Some(r) = repo {
-            let rows = stmt.query_map(params![r, i64::try_from(limit).unwrap_or(i64::MAX)], map_row)?;
+            let rows = stmt.query_map(
+                params![r, i64::try_from(limit).unwrap_or(i64::MAX)],
+                map_row,
+            )?;
             for row in rows {
                 results.push(row?);
             }
         } else {
-            let rows = stmt.query_map(params![i64::try_from(limit).unwrap_or(i64::MAX)], map_row)?;
+            let rows =
+                stmt.query_map(params![i64::try_from(limit).unwrap_or(i64::MAX)], map_row)?;
             for row in rows {
                 results.push(row?);
             }
@@ -177,12 +181,25 @@ impl GraphDb {
 
         let mut results = Vec::new();
         if let Some(r) = repo {
-            let rows = stmt.query_map(params![i64::from(threshold), r, i64::try_from(limit).unwrap_or(i64::MAX)], map_row)?;
+            let rows = stmt.query_map(
+                params![
+                    i64::from(threshold),
+                    r,
+                    i64::try_from(limit).unwrap_or(i64::MAX)
+                ],
+                map_row,
+            )?;
             for row in rows {
                 results.push(row?);
             }
         } else {
-            let rows = stmt.query_map(params![i64::from(threshold), i64::try_from(limit).unwrap_or(i64::MAX)], map_row)?;
+            let rows = stmt.query_map(
+                params![
+                    i64::from(threshold),
+                    i64::try_from(limit).unwrap_or(i64::MAX)
+                ],
+                map_row,
+            )?;
             for row in rows {
                 results.push(row?);
             }

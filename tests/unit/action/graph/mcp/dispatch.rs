@@ -7,7 +7,10 @@ use super::*;
 #[test]
 fn bounded_arg_clamps_above_the_limit() {
     let args = json!({"max_depth": 999_999_u64});
-    assert_eq!(bounded_arg(&args, "max_depth", 5, MAX_DEPTH_LIMIT), MAX_DEPTH_LIMIT);
+    assert_eq!(
+        bounded_arg(&args, "max_depth", 5, MAX_DEPTH_LIMIT),
+        MAX_DEPTH_LIMIT
+    );
 }
 
 #[test]
