@@ -34,6 +34,18 @@ pub struct LaunchContract {
     pub capabilities: Capabilities,
 }
 
+/// The plain `<binary> [--continue]` shape most providers start with — only
+/// Claude Code's start command carries anything more (its MCP allowlist).
+#[must_use]
+fn resumable_start_command(binary: &'static str, resume: bool) -> Command {
+    let command = Command::new(binary);
+    if resume {
+        command.arg("--continue")
+    } else {
+        command
+    }
+}
+
 /// Returns the launch contract (binary and capabilities) for a provider.
 #[must_use]
 pub fn launch_contract(provider: Provider) -> LaunchContract {

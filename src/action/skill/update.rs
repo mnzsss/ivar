@@ -151,7 +151,7 @@ fn try_download_and_extract(
     let temp_dir = fs::TempDir::new().map_err(|e| e.to_string())?;
     super::extract_tarball_into(&tarball_bytes, temp_dir.path()).map_err(|e| e.to_string())?;
 
-    let repo_root = find_repo_root(temp_dir.path());
+    let repo_root = super::find_repo_root(temp_dir.path());
     let source_dir = if ext.path.is_empty() {
         repo_root
     } else {
@@ -183,22 +183,6 @@ fn try_download_and_extract(
     }
 
     Ok(())
-}
-
-fn find_repo_root(temp_dir: &camino::Utf8Path) -> camino::Utf8PathBuf {
-    if let Ok(entries) = fs::read_dir(temp_dir) {
-        let dirs: Vec<_> = entries
-            .into_iter()
-            .filter(|p| fs::is_dir(p).unwrap_or(false))
-            .collect();
-        if dirs.len() == 1 {
-            return dirs
-                .first()
-                .cloned()
-                .unwrap_or_else(|| temp_dir.to_path_buf());
-        }
-    }
-    temp_dir.to_path_buf()
 }
 
 #[cfg(test)]

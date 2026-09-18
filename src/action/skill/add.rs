@@ -82,7 +82,7 @@ pub(super) struct CandidateSkill {
 
 /// Discover all `SKILL.md` candidate skills inside an extracted repository.
 pub(super) fn discover_candidates(temp_dir: &Utf8Path) -> Result<Vec<CandidateSkill>, Failure> {
-    let repo_root = find_repo_root(temp_dir);
+    let repo_root = super::find_repo_root(temp_dir);
     let mut candidates = Vec::new();
 
     for entry in walkdir::WalkDir::new(repo_root.as_std_path()) {
@@ -141,23 +141,6 @@ pub(super) fn discover_candidates(temp_dir: &Utf8Path) -> Result<Vec<CandidateSk
     }
 
     Ok(candidates)
-}
-
-/// Find the single top-level directory in `temp_dir` if present; otherwise `temp_dir`.
-fn find_repo_root(temp_dir: &Utf8Path) -> Utf8PathBuf {
-    if let Ok(entries) = fs::read_dir(temp_dir) {
-        let dirs: Vec<_> = entries
-            .into_iter()
-            .filter(|p| fs::is_dir(p).unwrap_or(false))
-            .collect();
-        if dirs.len() == 1 {
-            return dirs
-                .first()
-                .cloned()
-                .unwrap_or_else(|| temp_dir.to_path_buf());
-        }
-    }
-    temp_dir.to_path_buf()
 }
 
 /// Install external skill(s) from a GitHub repository or subpath URL.

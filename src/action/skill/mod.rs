@@ -24,8 +24,28 @@ pub mod update;
 
 use std::io::Write;
 
+use camino::{Utf8Path, Utf8PathBuf};
+
 use crate::error::{Failure, FixAction};
+use crate::infra::fs;
 use crate::store::layout::Layout;
+
+/// Find the single top-level directory in `temp_dir` if present; otherwise `temp_dir`.
+pub(super) fn find_repo_root(temp_dir: &Utf8Path) -> Utf8PathBuf {
+    if let Ok(entries) = fs::read_dir(temp_dir) {
+        let dirs: Vec<_> = entries
+            .into_iter()
+            .filter(|p| fs::is_dir(p).unwrap_or(false))
+            .collect();
+        if dirs.len() == 1 {
+            return dirs
+                .first()
+                .cloned()
+                .unwrap_or_else(|| temp_dir.to_path_buf());
+        }
+    }
+    temp_dir.to_path_buf()
+}
 
 /// The `skill.not_found` failure shared by every action that looks a skill
 /// id up via [`enumerate::resolve`].
