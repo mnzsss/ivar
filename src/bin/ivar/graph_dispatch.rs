@@ -26,7 +26,7 @@ fn write_json(w: &mut impl io::Write, value: &impl Serialize) -> io::Result<()> 
 }
 
 fn respond_failure(
-    failure: Failure,
+    failure: &Failure,
     json: bool,
     stdout: &mut impl io::Write,
     stderr: &mut impl io::Write,
@@ -70,7 +70,7 @@ where
             }
             exit
         }
-        Err(failure) => respond_failure(failure, json, stdout, stderr),
+        Err(failure) => respond_failure(&failure, json, stdout, stderr),
     }
 }
 
@@ -92,7 +92,7 @@ where
                 let _ = writeln!(stdout, "{}", report.value.to_compact());
                 ExitCode::SUCCESS
             }
-            Err(failure) => respond_failure(failure, false, stdout, stderr),
+            Err(failure) => respond_failure(&failure, false, stdout, stderr),
         }
     } else {
         respond(result, false, stdout, stderr)
@@ -147,7 +147,7 @@ pub(super) fn dispatch_graph(
             || {
                 explore_cmd(
                     ctx,
-                    ExploreInput {
+                    &ExploreInput {
                         query: args.query,
                         repo: args.repo,
                     },
@@ -183,7 +183,7 @@ pub(super) fn dispatch_graph(
             || {
                 path_cmd(
                     ctx,
-                    PathInput {
+                    &PathInput {
                         from: args.from,
                         to: args.to,
                         max_hops: args.max_hops,
@@ -238,7 +238,7 @@ pub(super) fn dispatch_graph(
             || {
                 callees_cmd(
                     ctx,
-                    CalleesInput {
+                    &CalleesInput {
                         symbol_id: args.symbol_id,
                     },
                 )
@@ -254,7 +254,7 @@ pub(super) fn dispatch_graph(
             || {
                 file_cmd(
                     ctx,
-                    FileInput {
+                    &FileInput {
                         repo: args.repo,
                         path: args.path,
                     },
@@ -286,7 +286,7 @@ pub(super) fn dispatch_graph(
             || {
                 impact_cmd(
                     ctx,
-                    ImpactInput {
+                    &ImpactInput {
                         symbol_id: args.symbol_id,
                         max_depth: args.max_depth,
                     },
@@ -303,7 +303,7 @@ pub(super) fn dispatch_graph(
             || {
                 dead_code_cmd(
                     ctx,
-                    DeadCodeInput {
+                    &DeadCodeInput {
                         repo: args.repo,
                         limit: args.limit,
                     },
@@ -320,7 +320,7 @@ pub(super) fn dispatch_graph(
             || {
                 complexity_cmd(
                     ctx,
-                    ComplexityInput {
+                    &ComplexityInput {
                         threshold: args.threshold,
                         repo: args.repo,
                         limit: args.limit,
@@ -338,7 +338,7 @@ pub(super) fn dispatch_graph(
             || {
                 hierarchy_cmd(
                     ctx,
-                    HierarchyInput {
+                    &HierarchyInput {
                         symbol: args.symbol,
                         repo: args.repo,
                     },
@@ -352,7 +352,7 @@ pub(super) fn dispatch_graph(
         GraphCommand::Viz(args) => respond_graph(
             viz_cmd(
                 ctx,
-                VizInput {
+                &VizInput {
                     output: args.output,
                     repo: args.repo,
                 },
@@ -364,7 +364,7 @@ pub(super) fn dispatch_graph(
         ),
         GraphCommand::View(args) => match view_cmd(ctx, args.into()) {
             Ok(report) => execute_view_session(report.value, json, compact, stdout, stderr),
-            Err(failure) => respond_failure(failure, json, stdout, stderr),
+            Err(failure) => respond_failure(&failure, json, stdout, stderr),
         },
         GraphCommand::Clean(args) => {
             respond_graph(clean_cmd(ctx, args.into()), json, compact, stdout, stderr)

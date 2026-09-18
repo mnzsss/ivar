@@ -151,7 +151,7 @@ fn is_dot_named(entry: &walkdir::DirEntry) -> bool {
             .is_some_and(|name| name.starts_with('.'))
 }
 
-fn not_utf8(path: std::path::PathBuf) -> Error {
+fn not_utf8(path: &std::path::PathBuf) -> Error {
     Error::NotUtf8 {
         display: path.to_string_lossy().into_owned(),
     }
@@ -177,7 +177,7 @@ pub fn tree(root: &Utf8Path) -> Result<String, Error> {
             continue;
         }
 
-        let absolute = Utf8PathBuf::from_path_buf(entry.into_path()).map_err(not_utf8)?;
+        let absolute = Utf8PathBuf::from_path_buf(entry.into_path()).map_err(|p| not_utf8(&p))?;
         let relative = absolute.strip_prefix(root).unwrap_or(&absolute).to_owned();
         relative_paths.push(relative);
     }

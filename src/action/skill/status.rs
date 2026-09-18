@@ -99,7 +99,7 @@ pub fn status(ctx: &Ctx) -> Outcome<StatusOutcome> {
             let current = render::verify_status(&target_path, &skill.dir);
             targets.push(TargetStatus {
                 target: target_id.as_str().to_owned(),
-                status: material_status_label(current),
+                status: material_status_label(&current),
             });
         }
 
@@ -119,7 +119,7 @@ pub fn status(ctx: &Ctx) -> Outcome<StatusOutcome> {
 }
 
 /// Convert a [`MaterialStatus`] enum to a human-readable label.
-fn material_status_label(status: MaterialStatus) -> String {
+fn material_status_label(status: &MaterialStatus) -> String {
     match status {
         MaterialStatus::Missing => "missing".to_owned(),
         MaterialStatus::Ok => "ok".to_owned(),

@@ -33,7 +33,7 @@ fn add_registers_a_provider_and_keeps_the_default() {
     let (_guard, root) = seeded_hall();
     let ctx = Ctx::new(root.clone());
 
-    let report = add(&ctx, add_input("opencode")).unwrap();
+    let report = add(&ctx, &add_input("opencode")).unwrap();
 
     assert!(report.is_clean());
     assert_eq!(report.value.provider, Provider::OpenCode);
@@ -54,7 +54,7 @@ fn provider_add_materialises_the_new_providers_commands() {
     let (_guard, root) = seeded_hall();
     let ctx = Ctx::new(root.clone());
 
-    let report = add(&ctx, add_input("opencode")).unwrap();
+    let report = add(&ctx, &add_input("opencode")).unwrap();
 
     assert!(report.is_clean());
     for command in crate::harness::commands::catalog() {
@@ -74,7 +74,7 @@ fn provider_add_creates_the_new_aliases_through_the_shared_reconciler() {
     let (_guard, root) = seeded_hall();
     let ctx = Ctx::new(root.clone());
 
-    let report = add(&ctx, add_input("opencode")).unwrap();
+    let report = add(&ctx, &add_input("opencode")).unwrap();
 
     assert!(report.is_clean());
     assert_eq!(
@@ -96,7 +96,7 @@ fn provider_add_conflict_warns_and_keeps_the_provider_persisted() {
     fs::write_text(&root.join("AGENTS.md"), "legacy, precious\n").unwrap();
     let ctx = Ctx::new(root.clone());
 
-    let report = add(&ctx, add_input("opencode")).unwrap();
+    let report = add(&ctx, &add_input("opencode")).unwrap();
 
     assert!(!report.is_clean(), "a conflict must not be a clean run");
     assert!(
@@ -126,7 +126,7 @@ fn provider_add_returns_warning_when_commands_cannot_be_written() {
     fs::write_text(&root.join(".opencode"), "not a directory\n").unwrap();
     let ctx = Ctx::new(root.clone());
 
-    let report = add(&ctx, add_input("opencode")).unwrap();
+    let report = add(&ctx, &add_input("opencode")).unwrap();
 
     assert!(
         !report.is_clean(),
@@ -150,7 +150,7 @@ fn add_refuses_an_unknown_provider() {
     let (_guard, root) = seeded_hall();
     let ctx = Ctx::new(root.clone());
 
-    let failure = add(&ctx, add_input("bogus")).unwrap_err();
+    let failure = add(&ctx, &add_input("bogus")).unwrap_err();
 
     assert_eq!(failure.status, Status::Blocked);
     assert_eq!(failure.code, "provider.unknown_id");
@@ -170,9 +170,9 @@ fn add_refuses_an_unknown_provider() {
 fn add_does_not_duplicate_an_existing_provider() {
     let (_guard, root) = seeded_hall();
     let ctx = Ctx::new(root.clone());
-    add(&ctx, add_input("opencode")).unwrap();
+    add(&ctx, &add_input("opencode")).unwrap();
 
-    let failure = add(&ctx, add_input("opencode")).unwrap_err();
+    let failure = add(&ctx, &add_input("opencode")).unwrap_err();
 
     assert_eq!(failure.status, Status::Blocked);
     assert_eq!(failure.code, "provider.already_available");
@@ -188,7 +188,7 @@ fn add_outside_a_hall_is_blocked() {
     let (_guard, root) = hall_root();
     let ctx = Ctx::new(root);
 
-    let failure = add(&ctx, add_input("opencode")).unwrap_err();
+    let failure = add(&ctx, &add_input("opencode")).unwrap_err();
 
     assert_eq!(failure.code, "hall.not_found");
 }

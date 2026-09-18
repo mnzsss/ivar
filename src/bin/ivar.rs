@@ -112,13 +112,13 @@ fn main() -> ExitCode {
 
     match cli.command {
         Command::Init(args) => respond(
-            hall::init(&ctx, args.into()),
+            hall::init(&ctx, &args.into()),
             json,
             &mut stdout,
             &mut stderr,
         ),
         Command::Sync(args) => respond(
-            sync::sync(&ctx, args.into()),
+            sync::sync(&ctx, &args.into()),
             json,
             &mut stdout,
             &mut stderr,
@@ -145,7 +145,7 @@ fn main() -> ExitCode {
                 &mut stderr,
             ),
             RepoCommand::Pull(args) => respond(
-                pull::pull(&ctx, args.into()),
+                pull::pull(&ctx, &args.into()),
                 json,
                 &mut stdout,
                 &mut stderr,
@@ -189,7 +189,7 @@ fn main() -> ExitCode {
                         &mut stdout,
                         &mut stderr,
                     ),
-                    Err(failure) => respond_failure(failure, json, &mut stdout, &mut stderr),
+                    Err(failure) => respond_failure(&failure, json, &mut stdout, &mut stderr),
                 }
             }
             FeatureCommand::Demote(args) => {
@@ -207,7 +207,7 @@ fn main() -> ExitCode {
                         &mut stdout,
                         &mut stderr,
                     ),
-                    Err(failure) => respond_failure(failure, json, &mut stdout, &mut stderr),
+                    Err(failure) => respond_failure(&failure, json, &mut stdout, &mut stderr),
                 }
             }
             FeatureCommand::Status(args) => {
@@ -224,7 +224,7 @@ fn main() -> ExitCode {
                         &mut stdout,
                         &mut stderr,
                     ),
-                    Err(failure) => respond_failure(failure, json, &mut stdout, &mut stderr),
+                    Err(failure) => respond_failure(&failure, json, &mut stdout, &mut stderr),
                 }
             }
             FeatureCommand::Reparent(args) => {
@@ -242,7 +242,7 @@ fn main() -> ExitCode {
                         &mut stdout,
                         &mut stderr,
                     ),
-                    Err(failure) => respond_failure(failure, json, &mut stdout, &mut stderr),
+                    Err(failure) => respond_failure(&failure, json, &mut stdout, &mut stderr),
                 }
             }
             FeatureCommand::Rename(args) => {
@@ -260,7 +260,7 @@ fn main() -> ExitCode {
                         &mut stdout,
                         &mut stderr,
                     ),
-                    Err(failure) => respond_failure(failure, json, &mut stdout, &mut stderr),
+                    Err(failure) => respond_failure(&failure, json, &mut stdout, &mut stderr),
                 }
             }
             FeatureCommand::Integrate(args) => {
@@ -278,7 +278,7 @@ fn main() -> ExitCode {
                         &mut stdout,
                         &mut stderr,
                     ),
-                    Err(failure) => respond_failure(failure, json, &mut stdout, &mut stderr),
+                    Err(failure) => respond_failure(&failure, json, &mut stdout, &mut stderr),
                 }
             }
             FeatureCommand::Execute(cmd) => match cmd {
@@ -302,7 +302,7 @@ fn main() -> ExitCode {
                             &mut stdout,
                             &mut stderr,
                         ),
-                        Err(failure) => respond_failure(failure, json, &mut stdout, &mut stderr),
+                        Err(failure) => respond_failure(&failure, json, &mut stdout, &mut stderr),
                     }
                 }
                 ExecuteCommand::Finish(args) if args.print_schema => respond(
@@ -325,7 +325,7 @@ fn main() -> ExitCode {
                         Ok(input) => {
                             respond(finish::finish(&ctx, input), json, &mut stdout, &mut stderr)
                         }
-                        Err(failure) => respond_failure(failure, json, &mut stdout, &mut stderr),
+                        Err(failure) => respond_failure(&failure, json, &mut stdout, &mut stderr),
                     }
                 }
                 ExecuteCommand::Status(args) => {
@@ -348,7 +348,7 @@ fn main() -> ExitCode {
                             &mut stdout,
                             &mut stderr,
                         ),
-                        Err(failure) => respond_failure(failure, json, &mut stdout, &mut stderr),
+                        Err(failure) => respond_failure(&failure, json, &mut stdout, &mut stderr),
                     }
                 }
                 ExecuteCommand::AcceptRevision(args) => {
@@ -369,7 +369,7 @@ fn main() -> ExitCode {
                             &mut stdout,
                             &mut stderr,
                         ),
-                        Err(failure) => respond_failure(failure, json, &mut stdout, &mut stderr),
+                        Err(failure) => respond_failure(&failure, json, &mut stdout, &mut stderr),
                     }
                 }
                 ExecuteCommand::Checkpoint(args) => {
@@ -391,7 +391,7 @@ fn main() -> ExitCode {
                             &mut stdout,
                             &mut stderr,
                         ),
-                        Err(failure) => respond_failure(failure, json, &mut stdout, &mut stderr),
+                        Err(failure) => respond_failure(&failure, json, &mut stdout, &mut stderr),
                     }
                 }
                 ExecuteCommand::Interrupt(args) => {
@@ -406,7 +406,7 @@ fn main() -> ExitCode {
                             &mut stdout,
                             &mut stderr,
                         ),
-                        Err(failure) => respond_failure(failure, json, &mut stdout, &mut stderr),
+                        Err(failure) => respond_failure(&failure, json, &mut stdout, &mut stderr),
                     }
                 }
             },
@@ -428,7 +428,7 @@ fn main() -> ExitCode {
                         &mut stdout,
                         &mut stderr,
                     ),
-                    Err(failure) => respond_failure(failure, json, &mut stdout, &mut stderr),
+                    Err(failure) => respond_failure(&failure, json, &mut stdout, &mut stderr),
                 }
             }
             FeatureCommand::Close(args) => match args.name {
@@ -457,7 +457,7 @@ fn main() -> ExitCode {
                         });
                         respond_batch(items, json, &mut stdout, &mut stderr)
                     }
-                    Err(failure) => respond_failure(failure, json, &mut stdout, &mut stderr),
+                    Err(failure) => respond_failure(&failure, json, &mut stdout, &mut stderr),
                 },
             },
             FeatureCommand::Delete(args) => match args.name {
@@ -474,7 +474,7 @@ fn main() -> ExitCode {
                         });
                         respond_batch(items, json, &mut stdout, &mut stderr)
                     }
-                    Err(failure) => respond_failure(failure, json, &mut stdout, &mut stderr),
+                    Err(failure) => respond_failure(&failure, json, &mut stdout, &mut stderr),
                 },
             },
             FeatureCommand::Cleanup(args) => {
@@ -500,7 +500,7 @@ fn main() -> ExitCode {
                                 respond_batch(items, json, &mut stdout, &mut stderr)
                             }
                             Err(failure) => {
-                                respond_failure(failure, json, &mut stdout, &mut stderr)
+                                respond_failure(&failure, json, &mut stdout, &mut stderr)
                             }
                         }
                     }
@@ -525,7 +525,7 @@ fn main() -> ExitCode {
                         &mut stdout,
                         &mut stderr,
                     ),
-                    Err(failure) => respond_failure(failure, json, &mut stdout, &mut stderr),
+                    Err(failure) => respond_failure(&failure, json, &mut stdout, &mut stderr),
                 }
             }
             FeatureCommand::Rebase(args) => match args.name {
@@ -554,7 +554,7 @@ fn main() -> ExitCode {
                         });
                         respond_batch(items, json, &mut stdout, &mut stderr)
                     }
-                    Err(failure) => respond_failure(failure, json, &mut stdout, &mut stderr),
+                    Err(failure) => respond_failure(&failure, json, &mut stdout, &mut stderr),
                 },
             },
             FeatureCommand::View(args) => {
@@ -565,7 +565,7 @@ fn main() -> ExitCode {
                         &mut stdout,
                         &mut stderr,
                     ),
-                    Err(failure) => respond_failure(failure, json, &mut stdout, &mut stderr),
+                    Err(failure) => respond_failure(&failure, json, &mut stdout, &mut stderr),
                 }
             }
             FeatureCommand::Prune => {
@@ -580,19 +580,19 @@ fn main() -> ExitCode {
                 &mut stderr,
             ),
             SessionCommand::Connect(args) => respond(
-                session_connect::connect(&ctx, args.into()),
+                session_connect::connect(&ctx, &args.into()),
                 json,
                 &mut stdout,
                 &mut stderr,
             ),
             SessionCommand::Convert(args) => respond(
-                session_conversion::convert(&ctx, args.into()),
+                session_conversion::convert(&ctx, &args.into()),
                 json,
                 &mut stdout,
                 &mut stderr,
             ),
             SessionCommand::Stop(args) => respond(
-                session_stop::stop(&ctx, args.into()),
+                session_stop::stop(&ctx, &args.into()),
                 json,
                 &mut stdout,
                 &mut stderr,
@@ -607,7 +607,7 @@ fn main() -> ExitCode {
                 &mut stderr,
             ),
             SessionCommand::Env(args) => respond(
-                session_env_cmd::run(&ctx, args.into()),
+                session_env_cmd::run(&ctx, &args.into()),
                 json,
                 &mut stdout,
                 &mut stderr,
@@ -620,7 +620,7 @@ fn main() -> ExitCode {
                     &args.command,
                 ) {
                     Ok(()) => std::process::ExitCode::SUCCESS,
-                    Err(failure) => respond_failure(failure, json, &mut stdout, &mut stderr),
+                    Err(failure) => respond_failure(&failure, json, &mut stdout, &mut stderr),
                 }
             }
         },
@@ -629,7 +629,7 @@ fn main() -> ExitCode {
                 respond(provider_list::list(&ctx), json, &mut stdout, &mut stderr)
             }
             ProviderCommand::Add(args) => respond(
-                provider_add::add(&ctx, args.into()),
+                provider_add::add(&ctx, &args.into()),
                 json,
                 &mut stdout,
                 &mut stderr,
@@ -650,7 +650,7 @@ fn main() -> ExitCode {
                     _ => DiscoveryStatus::Unknown,
                 });
                 respond(
-                    discovery_list::list(&ctx, discovery_list::ListInput { status }),
+                    discovery_list::list(&ctx, &discovery_list::ListInput { status }),
                     json,
                     &mut stdout,
                     &mut stderr,
@@ -732,7 +732,7 @@ fn main() -> ExitCode {
                 &mut stderr,
             ),
             CommentCommand::Resolve(args) => respond(
-                review_comment::resolve(&ctx, args.into()),
+                review_comment::resolve(&ctx, &args.into()),
                 json,
                 &mut stdout,
                 &mut stderr,
@@ -757,7 +757,7 @@ fn main() -> ExitCode {
                         &mut stdout,
                         &mut stderr,
                     ),
-                    Err(failure) => respond_failure(failure, json, &mut stdout, &mut stderr),
+                    Err(failure) => respond_failure(&failure, json, &mut stdout, &mut stderr),
                 }
             }
             PlanCommand::List => respond(plan_list::list(&ctx), json, &mut stdout, &mut stderr),
@@ -775,7 +775,7 @@ fn main() -> ExitCode {
                         &mut stdout,
                         &mut stderr,
                     ),
-                    Err(failure) => respond_failure(failure, json, &mut stdout, &mut stderr),
+                    Err(failure) => respond_failure(&failure, json, &mut stdout, &mut stderr),
                 }
             }
             PlanCommand::Approve(args) => {
@@ -793,7 +793,7 @@ fn main() -> ExitCode {
                         &mut stdout,
                         &mut stderr,
                     ),
-                    Err(failure) => respond_failure(failure, json, &mut stdout, &mut stderr),
+                    Err(failure) => respond_failure(&failure, json, &mut stdout, &mut stderr),
                 }
             }
             PlanCommand::Invalidate(args) => {
@@ -814,11 +814,11 @@ fn main() -> ExitCode {
                         &mut stdout,
                         &mut stderr,
                     ),
-                    Err(failure) => respond_failure(failure, json, &mut stdout, &mut stderr),
+                    Err(failure) => respond_failure(&failure, json, &mut stdout, &mut stderr),
                 }
             }
             PlanCommand::Status(args) => respond(
-                plan_status::status(&ctx, args.into()),
+                plan_status::status(&ctx, &args.into()),
                 json,
                 &mut stdout,
                 &mut stderr,
@@ -833,25 +833,25 @@ fn main() -> ExitCode {
                 &mut stderr,
             ),
             SkillCommand::Add(args) => respond(
-                skill_add::add(&ctx, args.into()),
+                skill_add::add(&ctx, &args.into()),
                 json,
                 &mut stdout,
                 &mut stderr,
             ),
             SkillCommand::Update(args) => respond(
-                skill_update::update(&ctx, args.into()),
+                skill_update::update(&ctx, &args.into()),
                 json,
                 &mut stdout,
                 &mut stderr,
             ),
             SkillCommand::Remove(args) => respond(
-                skill_remove::remove(&ctx, args.into()),
+                skill_remove::remove(&ctx, &args.into()),
                 json,
                 &mut stdout,
                 &mut stderr,
             ),
             SkillCommand::Detach(args) => respond(
-                skill_detach::detach(&ctx, args.into()),
+                skill_detach::detach(&ctx, &args.into()),
                 json,
                 &mut stdout,
                 &mut stderr,
@@ -868,10 +868,10 @@ fn main() -> ExitCode {
             let input = match session_guard_cmd::GuardInput::try_from(args) {
                 Ok(input) => input,
                 Err(failure) => {
-                    return respond_failure(failure, json, &mut stdout, &mut stderr);
+                    return respond_failure(&failure, json, &mut stdout, &mut stderr);
                 }
             };
-            match session_guard_cmd::run(input) {
+            match session_guard_cmd::run(&input) {
                 Ok(outcome) => {
                     if !outcome.body.is_empty() {
                         let _ = write!(stdout, "{}", outcome.body);
@@ -882,12 +882,12 @@ fn main() -> ExitCode {
                         ExitCode::FAILURE
                     }
                 }
-                Err(failure) => respond_failure(failure, json, &mut stdout, &mut stderr),
+                Err(failure) => respond_failure(&failure, json, &mut stdout, &mut stderr),
             }
         }
         Command::Mcp(cmd) => match cmd {
             McpCommand::Auth(args) => respond(
-                mcp_auth::auth(&ctx, args.into()),
+                mcp_auth::auth(&ctx, &args.into()),
                 json,
                 &mut stdout,
                 &mut stderr,
@@ -959,7 +959,7 @@ where
             }
             exit
         }
-        Err(failure) => respond_failure(failure, json, stdout, stderr),
+        Err(failure) => respond_failure(&failure, json, stdout, stderr),
     }
 }
 
@@ -1010,7 +1010,7 @@ where
 }
 
 fn respond_failure(
-    failure: Failure,
+    failure: &Failure,
     json: bool,
     stdout: &mut impl io::Write,
     stderr: &mut impl io::Write,

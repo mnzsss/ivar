@@ -42,7 +42,7 @@ impl WriteHuman for RemoveOutcome {
     }
 }
 
-pub fn remove(ctx: &Ctx, input: RemoveInput) -> Outcome<RemoveOutcome> {
+pub fn remove(ctx: &Ctx, input: &RemoveInput) -> Outcome<RemoveOutcome> {
     let layout = discover_hall(ctx)?;
 
     // Find the skill in either root. No flag: an id names at most one

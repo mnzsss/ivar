@@ -33,7 +33,7 @@ fn hall_with_session(promoted: &[&str]) -> (tempfile::TempDir, Utf8PathBuf) {
     let ctx = Ctx::new(root.clone());
     hall::init(
         &ctx,
-        InitInput {
+        &InitInput {
             path: Utf8PathBuf::from("."),
             name: Some("acme".to_owned()),
             provider: None,
@@ -77,7 +77,7 @@ fn hall_with_session(promoted: &[&str]) -> (tempfile::TempDir, Utf8PathBuf) {
         },
     )
     .unwrap();
-    crate::action::sync::sync(&ctx, Default::default()).unwrap();
+    crate::action::sync::sync(&ctx, &Default::default()).unwrap();
     for repo in promoted {
         feature_promote::promote(
             &ctx,
@@ -137,7 +137,7 @@ fn connect_locates_a_session_by_id_prefix() {
 
     let report = connect(
         &ctx,
-        ConnectInput {
+        &ConnectInput {
             session_id: Some(id[..8].to_owned()),
             feature: None,
             create: false,
@@ -159,7 +159,7 @@ fn connect_locates_a_session_by_feature_name() {
 
     let report = connect(
         &ctx,
-        ConnectInput {
+        &ConnectInput {
             session_id: None,
             feature: Some("checkout".to_owned()),
             create: false,
@@ -188,7 +188,7 @@ fn connect_repairs_drifted_symlinks() {
 
     connect(
         &ctx,
-        ConnectInput {
+        &ConnectInput {
             session_id: Some(id),
             feature: None,
             create: false,
@@ -231,7 +231,7 @@ fn connect_repairs_read_only_guards_on_non_promoted_worktrees() {
 
     connect(
         &ctx,
-        ConnectInput {
+        &ConnectInput {
             session_id: Some(id),
             feature: None,
             create: false,
@@ -265,7 +265,7 @@ fn connect_on_an_unchanged_view_dir_is_a_no_op() {
 
     connect(
         &ctx,
-        ConnectInput {
+        &ConnectInput {
             session_id: Some(id),
             feature: None,
             create: false,
@@ -290,7 +290,7 @@ fn connect_emits_the_session_binding_env_vars() {
 
     let report = connect(
         &ctx,
-        ConnectInput {
+        &ConnectInput {
             session_id: Some(id.clone()),
             feature: None,
             create: false,
@@ -322,7 +322,7 @@ fn connect_resolves_a_discovery_session() {
     let ctx = Ctx::new(root.clone());
     hall::init(
         &ctx,
-        InitInput {
+        &InitInput {
             path: Utf8PathBuf::from("."),
             name: Some("acme".to_owned()),
             provider: None,
@@ -344,7 +344,7 @@ fn connect_resolves_a_discovery_session() {
     )
     .unwrap();
     Manifest::write(&layout, &manifest).unwrap();
-    crate::action::sync::sync(&ctx, Default::default()).unwrap();
+    crate::action::sync::sync(&ctx, &Default::default()).unwrap();
 
     // Materialise a discovery session directly rather than through
     // `session start`: connect only cares about the shape on disk.
@@ -368,7 +368,7 @@ fn connect_resolves_a_discovery_session() {
 
     let report = connect(
         &ctx,
-        ConnectInput {
+        &ConnectInput {
             session_id: Some("2c6e6f1e".to_owned()),
             feature: None,
             create: false,
@@ -389,7 +389,7 @@ fn connect_with_no_filter_is_blocked() {
 
     let failure = connect(
         &ctx,
-        ConnectInput {
+        &ConnectInput {
             session_id: None,
             feature: None,
             create: false,
@@ -431,7 +431,7 @@ fn connect_repairs_commands_and_instructions() {
 
     connect(
         &ctx,
-        ConnectInput {
+        &ConnectInput {
             session_id: Some(id),
             feature: None,
             create: false,
@@ -469,7 +469,7 @@ fn connect_with_an_unknown_session_is_blocked() {
 
     let failure = connect(
         &ctx,
-        ConnectInput {
+        &ConnectInput {
             session_id: Some("deadbeef".to_owned()),
             feature: None,
             create: false,
@@ -501,7 +501,7 @@ fn connect_with_an_ambiguous_prefix_is_blocked() {
 
     let failure = connect(
         &ctx,
-        ConnectInput {
+        &ConnectInput {
             session_id: None,
             feature: Some("checkout".to_owned()),
             create: false,
@@ -552,7 +552,7 @@ fn connect_by_feature_names_discovery_sessions_as_convert_candidates() {
 
     let failure = connect(
         &ctx,
-        ConnectInput {
+        &ConnectInput {
             session_id: None,
             feature: Some("billing".to_owned()),
             create: false,
@@ -590,7 +590,7 @@ fn connect_with_create_starts_a_session_then_reattaches_to_it() {
 
     let created = connect(
         &ctx,
-        ConnectInput {
+        &ConnectInput {
             session_id: None,
             feature: Some("checkout".to_owned()),
             create: true,
@@ -606,7 +606,7 @@ fn connect_with_create_starts_a_session_then_reattaches_to_it() {
     // Nothing is running in it, so it is free — the second call must reuse it.
     let again = connect(
         &ctx,
-        ConnectInput {
+        &ConnectInput {
             session_id: None,
             feature: Some("checkout".to_owned()),
             create: true,
@@ -700,7 +700,7 @@ fn write_plan(root: &Utf8PathBuf, frontmatter: &str, approve: bool) {
 fn connect_to_checkout(root: &Utf8PathBuf) -> Report<ConnectOutcome> {
     connect(
         &Ctx::new(root.clone()),
-        ConnectInput {
+        &ConnectInput {
             session_id: None,
             feature: Some("checkout".to_owned()),
             create: false,
@@ -741,7 +741,7 @@ fn connect_with_create_also_promotes_the_declared_repos() {
 
     let report = connect(
         &Ctx::new(root.clone()),
-        ConnectInput {
+        &ConnectInput {
             session_id: None,
             feature: Some("checkout".to_owned()),
             create: true,

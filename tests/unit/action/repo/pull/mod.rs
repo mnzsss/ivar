@@ -23,7 +23,7 @@ fn hall_with(repos: &[(&str, &str)]) -> (tempfile::TempDir, Utf8PathBuf) {
     let ctx = Ctx::new(root.clone());
     hall::init(
         &ctx,
-        InitInput {
+        &InitInput {
             path: Utf8PathBuf::from("."),
             name: Some("acme".to_owned()),
             provider: None,
@@ -89,9 +89,9 @@ fn head_of(path: &Utf8Path) -> String {
 fn pull_refreshes_every_declared_repo_and_reports_refreshed() {
     let (_guard, root) = hall_with(&[("api", "main"), ("web", "main")]);
     let ctx = Ctx::new(root.clone());
-    crate::action::sync::sync(&ctx, Default::default()).unwrap();
+    crate::action::sync::sync(&ctx, &Default::default()).unwrap();
 
-    let report = pull(&ctx, PullInput::default()).unwrap();
+    let report = pull(&ctx, &PullInput::default()).unwrap();
 
     assert!(report.is_clean());
     assert_eq!(report.value.repos.len(), 2);
@@ -106,14 +106,14 @@ fn pull_refreshes_every_declared_repo_and_reports_refreshed() {
 fn pull_advances_the_default_worktree_to_the_origins_new_tip() {
     let (_guard, root) = hall_with(&[("api", "main")]);
     let ctx = Ctx::new(root.clone());
-    crate::action::sync::sync(&ctx, Default::default()).unwrap();
+    crate::action::sync::sync(&ctx, &Default::default()).unwrap();
 
     let origin = origin_path(&root, "api");
     std::fs::write(origin.join("CHANGELOG.md"), "v1\n").unwrap();
     git(&origin, &["add", "CHANGELOG.md"]);
     git(&origin, &["commit", "-m", "v1"]);
 
-    let report = pull(&ctx, PullInput::default()).unwrap();
+    let report = pull(&ctx, &PullInput::default()).unwrap();
 
     assert!(report.is_clean());
     assert_eq!(status_of(&report, "api"), &PullStatus::Refreshed);
@@ -128,7 +128,7 @@ fn pull_with_no_repos_reports_an_empty_run() {
     let (_guard, root) = hall_with(&[]);
     let ctx = Ctx::new(root);
 
-    let report = pull(&ctx, PullInput::default()).unwrap();
+    let report = pull(&ctx, &PullInput::default()).unwrap();
 
     assert!(report.is_clean());
     assert!(report.value.repos.is_empty());
@@ -138,11 +138,11 @@ fn pull_with_no_repos_reports_an_empty_run() {
 fn pull_accepts_a_named_repo() {
     let (_guard, root) = hall_with(&[("api", "main"), ("web", "main")]);
     let ctx = Ctx::new(root.clone());
-    crate::action::sync::sync(&ctx, Default::default()).unwrap();
+    crate::action::sync::sync(&ctx, &Default::default()).unwrap();
 
     let report = pull(
         &ctx,
-        PullInput {
+        &PullInput {
             repo: Some("api".to_owned()),
             diagnose: false,
             resolve: false,
@@ -162,7 +162,7 @@ fn pull_blocks_on_a_repo_that_is_not_in_the_manifest() {
 
     let failure = pull(
         &ctx,
-        PullInput {
+        &PullInput {
             repo: Some("ghost".to_owned()),
             diagnose: false,
             resolve: false,
@@ -183,7 +183,7 @@ fn pull_blocks_on_a_repo_that_is_not_in_the_manifest() {
 fn pull_refreshes_a_read_only_guarded_worktree_and_reapplies_the_guard() {
     let (_guard, root) = hall_with(&[("api", "main")]);
     let ctx = Ctx::new(root.clone());
-    crate::action::sync::sync(&ctx, Default::default()).unwrap();
+    crate::action::sync::sync(&ctx, &Default::default()).unwrap();
 
     let worktree = root.join(".ivar/repos/api/main");
     let origin = origin_path(&root, "api");
@@ -194,7 +194,7 @@ fn pull_refreshes_a_read_only_guarded_worktree_and_reapplies_the_guard() {
     // The guard a session's view-dir materialisation would have applied.
     fs::clear_write_bits(&worktree).unwrap();
 
-    let report = pull(&ctx, PullInput::default()).unwrap();
+    let report = pull(&ctx, &PullInput::default()).unwrap();
 
     assert_eq!(status_of(&report, "api"), &PullStatus::Refreshed);
     assert_eq!(
@@ -218,7 +218,7 @@ fn pull_refreshes_a_read_only_guarded_worktree_and_reapplies_the_guard() {
 fn a_repo_with_no_worktree_fails_and_the_others_still_refresh() {
     let (_guard, root) = hall_with(&[("api", "main")]);
     let ctx = Ctx::new(root.clone());
-    crate::action::sync::sync(&ctx, Default::default()).unwrap();
+    crate::action::sync::sync(&ctx, &Default::default()).unwrap();
     // A second declared repo that was never synced.
     let layout = Layout::at(root.clone());
     let manifest = Manifest::read(&layout).unwrap().unwrap();
@@ -237,7 +237,7 @@ fn a_repo_with_no_worktree_fails_and_the_others_still_refresh() {
     .unwrap();
     Manifest::write(&layout, &manifest).unwrap();
 
-    let report = pull(&ctx, PullInput::default()).unwrap();
+    let report = pull(&ctx, &PullInput::default()).unwrap();
 
     assert!(!report.is_clean());
     assert!(
@@ -261,7 +261,7 @@ fn a_repo_with_no_worktree_fails_and_the_others_still_refresh() {
 fn a_non_fast_forward_branch_is_skipped_not_failed() {
     let (_guard, root) = hall_with(&[("api", "main")]);
     let ctx = Ctx::new(root.clone());
-    crate::action::sync::sync(&ctx, Default::default()).unwrap();
+    crate::action::sync::sync(&ctx, &Default::default()).unwrap();
 
     // The default worktree gains a local commit while the origin moves
     // elsewhere — the fetch succeeds, the fast-forward cannot.
@@ -272,7 +272,7 @@ fn a_non_fast_forward_branch_is_skipped_not_failed() {
     git(&origin, &["add", "CHANGELOG.md"]);
     git(&origin, &["commit", "-m", "v1"]);
 
-    let report = pull(&ctx, PullInput::default()).unwrap();
+    let report = pull(&ctx, &PullInput::default()).unwrap();
 
     assert!(!report.is_clean());
     assert!(matches!(
@@ -295,7 +295,7 @@ fn a_non_fast_forward_branch_is_skipped_not_failed() {
 fn diagnose_reports_the_local_and_remote_commits_of_a_diverged_branch() {
     let (_guard, root) = hall_with(&[("api", "main")]);
     let ctx = Ctx::new(root.clone());
-    crate::action::sync::sync(&ctx, Default::default()).unwrap();
+    crate::action::sync::sync(&ctx, &Default::default()).unwrap();
 
     // Local commits the remote does not have…
     let worktree = root.join(".ivar/repos/api/main");
@@ -309,7 +309,7 @@ fn diagnose_reports_the_local_and_remote_commits_of_a_diverged_branch() {
 
     let report = pull(
         &ctx,
-        PullInput {
+        &PullInput {
             repo: Some("api".to_owned()),
             diagnose: true,
             resolve: false,
@@ -341,7 +341,7 @@ fn diagnose_reports_the_local_and_remote_commits_of_a_diverged_branch() {
 fn a_skip_without_diagnose_carries_no_divergence() {
     let (_guard, root) = hall_with(&[("api", "main")]);
     let ctx = Ctx::new(root.clone());
-    crate::action::sync::sync(&ctx, Default::default()).unwrap();
+    crate::action::sync::sync(&ctx, &Default::default()).unwrap();
 
     let worktree = root.join(".ivar/repos/api/main");
     git(&worktree, &["commit", "--allow-empty", "-m", "local drift"]);
@@ -350,7 +350,7 @@ fn a_skip_without_diagnose_carries_no_divergence() {
     git(&origin, &["add", "CHANGELOG.md"]);
     git(&origin, &["commit", "-m", "v1"]);
 
-    let report = pull(&ctx, PullInput::default()).unwrap();
+    let report = pull(&ctx, &PullInput::default()).unwrap();
 
     assert!(matches!(
         status_of(&report, "api"),
@@ -368,7 +368,7 @@ fn a_skip_without_diagnose_carries_no_divergence() {
 fn resolve_resets_a_branch_whose_local_commits_were_squashed_upstream() {
     let (_guard, root) = hall_with(&[("api", "main")]);
     let ctx = Ctx::new(root.clone());
-    crate::action::sync::sync(&ctx, Default::default()).unwrap();
+    crate::action::sync::sync(&ctx, &Default::default()).unwrap();
 
     // Two local commits…
     let worktree = root.join(".ivar/repos/api/main");
@@ -392,7 +392,7 @@ fn resolve_resets_a_branch_whose_local_commits_were_squashed_upstream() {
 
     let report = pull(
         &ctx,
-        PullInput {
+        &PullInput {
             repo: Some("api".to_owned()),
             diagnose: false,
             resolve: true,
@@ -427,7 +427,7 @@ fn resolve_resets_a_branch_whose_local_commits_were_squashed_upstream() {
 fn resolve_does_not_touch_a_branch_with_genuine_local_work() {
     let (_guard, root) = hall_with(&[("api", "main")]);
     let ctx = Ctx::new(root.clone());
-    crate::action::sync::sync(&ctx, Default::default()).unwrap();
+    crate::action::sync::sync(&ctx, &Default::default()).unwrap();
 
     let worktree = root.join(".ivar/repos/api/main");
     std::fs::write(worktree.join("f.txt"), "genuine\n").unwrap();
@@ -442,7 +442,7 @@ fn resolve_does_not_touch_a_branch_with_genuine_local_work() {
 
     let report = pull(
         &ctx,
-        PullInput {
+        &PullInput {
             repo: Some("api".to_owned()),
             diagnose: false,
             resolve: true,
@@ -474,7 +474,7 @@ fn resolve_does_not_touch_a_branch_with_genuine_local_work() {
 fn resolve_does_not_reset_a_dirty_worktree() {
     let (_guard, root) = hall_with(&[("api", "main")]);
     let ctx = Ctx::new(root.clone());
-    crate::action::sync::sync(&ctx, Default::default()).unwrap();
+    crate::action::sync::sync(&ctx, &Default::default()).unwrap();
 
     let worktree = root.join(".ivar/repos/api/main");
     std::fs::write(worktree.join("f.txt"), "line1\n").unwrap();
@@ -490,7 +490,7 @@ fn resolve_does_not_reset_a_dirty_worktree() {
 
     let report = pull(
         &ctx,
-        PullInput {
+        &PullInput {
             repo: Some("api".to_owned()),
             diagnose: false,
             resolve: true,
@@ -515,7 +515,7 @@ fn resolve_does_not_reset_a_dirty_worktree() {
 fn resolve_leaves_a_fast_forwardable_repo_refreshed() {
     let (_guard, root) = hall_with(&[("api", "main")]);
     let ctx = Ctx::new(root.clone());
-    crate::action::sync::sync(&ctx, Default::default()).unwrap();
+    crate::action::sync::sync(&ctx, &Default::default()).unwrap();
 
     let origin = origin_path(&root, "api");
     std::fs::write(origin.join("CHANGELOG.md"), "v1\n").unwrap();
@@ -524,7 +524,7 @@ fn resolve_leaves_a_fast_forwardable_repo_refreshed() {
 
     let report = pull(
         &ctx,
-        PullInput {
+        &PullInput {
             repo: Some("api".to_owned()),
             diagnose: false,
             resolve: true,
@@ -610,7 +610,7 @@ fn pull_outside_a_hall_is_blocked() {
     let (_guard, root) = hall_root();
     let ctx = Ctx::new(root);
 
-    let failure = pull(&ctx, PullInput::default()).unwrap_err();
+    let failure = pull(&ctx, &PullInput::default()).unwrap_err();
 
     assert_eq!(failure.code, "hall.not_found");
 }
@@ -697,12 +697,12 @@ impl Progress for Recording {
 fn pull_reports_which_repo_it_is_fetching_before_each_round_trip() {
     let (_guard, root) = hall_with(&[("api", "main"), ("web", "trunk")]);
     let ctx = Ctx::new(root.clone());
-    crate::action::sync::sync(&ctx, Default::default()).unwrap();
+    crate::action::sync::sync(&ctx, &Default::default()).unwrap();
 
     let recording = Arc::new(Recording::default());
     let ctx = ctx.with_progress(recording.clone());
 
-    let report = pull(&ctx, PullInput::default()).unwrap();
+    let report = pull(&ctx, &PullInput::default()).unwrap();
 
     assert!(report.is_clean());
     assert_eq!(
@@ -721,12 +721,12 @@ fn pull_reports_which_repo_it_is_fetching_before_each_round_trip() {
 fn pull_clears_the_progress_line_before_returning() {
     let (_guard, root) = hall_with(&[("api", "main")]);
     let ctx = Ctx::new(root.clone());
-    crate::action::sync::sync(&ctx, Default::default()).unwrap();
+    crate::action::sync::sync(&ctx, &Default::default()).unwrap();
 
     let recording = Arc::new(Recording::default());
     let ctx = ctx.with_progress(recording.clone());
 
-    pull(&ctx, PullInput::default()).unwrap();
+    pull(&ctx, &PullInput::default()).unwrap();
 
     assert_eq!(recording.clears.load(Ordering::Relaxed), 1);
 }
@@ -737,14 +737,14 @@ fn pull_clears_the_progress_line_before_returning() {
 fn pull_of_a_named_repo_counts_only_that_repo() {
     let (_guard, root) = hall_with(&[("api", "main"), ("web", "main")]);
     let ctx = Ctx::new(root.clone());
-    crate::action::sync::sync(&ctx, Default::default()).unwrap();
+    crate::action::sync::sync(&ctx, &Default::default()).unwrap();
 
     let recording = Arc::new(Recording::default());
     let ctx = ctx.with_progress(recording.clone());
 
     pull(
         &ctx,
-        PullInput {
+        &PullInput {
             repo: Some("web".to_owned()),
             diagnose: false,
             resolve: false,
@@ -763,7 +763,7 @@ fn pull_with_no_repos_reports_no_steps() {
     let recording = Arc::new(Recording::default());
     let ctx = ctx.with_progress(recording.clone());
 
-    pull(&ctx, PullInput::default()).unwrap();
+    pull(&ctx, &PullInput::default()).unwrap();
 
     assert!(recording.steps().is_empty());
     assert_eq!(recording.clears.load(Ordering::Relaxed), 1);
@@ -777,7 +777,7 @@ fn pull_with_no_repos_reports_no_steps() {
 fn resolve_blocked_by_dirt_says_so_and_points_at_a_safe_action() {
     let (_guard, root) = hall_with(&[("api", "main")]);
     let ctx = Ctx::new(root.clone());
-    crate::action::sync::sync(&ctx, Default::default()).unwrap();
+    crate::action::sync::sync(&ctx, &Default::default()).unwrap();
 
     // Diverged *and* dirty: the branch cannot fast-forward, and `--resolve`
     // must not reset over the uncommitted file.
@@ -791,7 +791,7 @@ fn resolve_blocked_by_dirt_says_so_and_points_at_a_safe_action() {
 
     let report = pull(
         &ctx,
-        PullInput {
+        &PullInput {
             resolve: true,
             ..Default::default()
         },
@@ -825,7 +825,7 @@ fn resolve_blocked_by_dirt_says_so_and_points_at_a_safe_action() {
 fn resolve_blocked_by_real_divergence_names_divergence_not_dirt() {
     let (_guard, root) = hall_with(&[("api", "main")]);
     let ctx = Ctx::new(root.clone());
-    crate::action::sync::sync(&ctx, Default::default()).unwrap();
+    crate::action::sync::sync(&ctx, &Default::default()).unwrap();
 
     let worktree = root.join(".ivar/repos/api/main");
     std::fs::write(worktree.join("local.md"), "local work\n").unwrap();
@@ -838,7 +838,7 @@ fn resolve_blocked_by_real_divergence_names_divergence_not_dirt() {
 
     let report = pull(
         &ctx,
-        PullInput {
+        &PullInput {
             resolve: true,
             ..Default::default()
         },

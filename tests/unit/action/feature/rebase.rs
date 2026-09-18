@@ -26,7 +26,7 @@ fn hall_with_promoted_feature() -> (tempfile::TempDir, Utf8PathBuf) {
     let ctx = Ctx::new(root.clone());
     hall::init(
         &ctx,
-        InitInput {
+        &InitInput {
             path: Utf8PathBuf::from("."),
             name: Some("acme".to_owned()),
             provider: None,
@@ -61,7 +61,7 @@ fn hall_with_promoted_feature() -> (tempfile::TempDir, Utf8PathBuf) {
         },
     )
     .unwrap();
-    crate::action::sync::sync(&ctx, Default::default()).unwrap();
+    crate::action::sync::sync(&ctx, &Default::default()).unwrap();
     promote::promote(
         &ctx,
         PromoteInput {
@@ -93,7 +93,7 @@ fn hall_with_promoted_feature_based_on(base: Option<&str>) -> (tempfile::TempDir
     let ctx = Ctx::new(root.clone());
     hall::init(
         &ctx,
-        InitInput {
+        &InitInput {
             path: Utf8PathBuf::from("."),
             name: Some("acme".to_owned()),
             provider: None,
@@ -134,7 +134,7 @@ fn hall_with_promoted_feature_based_on(base: Option<&str>) -> (tempfile::TempDir
         },
     )
     .unwrap();
-    crate::action::sync::sync(&ctx, Default::default()).unwrap();
+    crate::action::sync::sync(&ctx, &Default::default()).unwrap();
     promote::promote(
         &ctx,
         PromoteInput {

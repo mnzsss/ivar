@@ -50,7 +50,7 @@ pub(crate) fn sync_instructions(
         }
         Err(error) => {
             entries.push(Entry::new("hall", "HALL.md", Change::Failed));
-            warnings.push(not_materialised_warning(error));
+            warnings.push(not_materialised_warning(&error));
         }
     }
 }
@@ -65,7 +65,7 @@ pub(crate) fn materialise_instructions(layout: &Layout, manifest: &Manifest) -> 
             .filter(|entry| entry.change == instructions::Change::Conflict)
             .map(|entry| adoption_warning(&entry))
             .collect(),
-        Err(error) => vec![not_materialised_warning(error)],
+        Err(error) => vec![not_materialised_warning(&error)],
     }
 }
 
@@ -101,7 +101,7 @@ fn reconcile_instructions(
 /// The warning for an instruction reconciliation that could not run at all.
 /// The error stays internal until this action boundary, where it becomes data
 /// in the returned report alongside every successful operation.
-fn not_materialised_warning(error: instructions::Error) -> Warning {
+fn not_materialised_warning(error: &instructions::Error) -> Warning {
     Warning::new(
         "instructions.not_materialised",
         "hall",

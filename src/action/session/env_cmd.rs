@@ -14,7 +14,7 @@ pub struct EnvInput {
 }
 
 /// Execute `ivar session env`.
-pub fn run(ctx: &Ctx, input: EnvInput) -> Outcome<SessionEnv> {
+pub fn run(ctx: &Ctx, input: &EnvInput) -> Outcome<SessionEnv> {
     let start = input.cwd.as_deref().unwrap_or(&ctx.cwd);
     let env = SessionEnv::resolve_by_cwd(start)?.ok_or_else(|| {
         Failure::blocked(

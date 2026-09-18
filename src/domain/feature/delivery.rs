@@ -219,7 +219,7 @@ enum BaseVerdict {
 /// (a local ref genuinely missing) reads the same as "no" — refusing is
 /// always the safe default when the question cannot be answered.
 fn classify_base(
-    remote_tip: Result<Option<String>, ()>,
+    remote_tip: &Result<Option<String>, ()>,
     secondary: Result<bool, ()>,
 ) -> BaseVerdict {
     match remote_tip {
@@ -299,7 +299,7 @@ impl DeliveryRepo {
     #[must_use]
     pub fn check_base(
         &self,
-        remote_tip: Result<Option<String>, ()>,
+        remote_tip: &Result<Option<String>, ()>,
         secondary: Result<bool, ()>,
         default_branch: &BranchName,
     ) -> Option<Failure> {

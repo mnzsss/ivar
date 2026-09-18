@@ -136,7 +136,7 @@ pub fn start(ctx: &Ctx, input: StartInput) -> Outcome<StartOutcome> {
     let manifest = read_manifest(&layout)?;
 
     let feature = match input.feature {
-        Some(raw) => Some(read_feature(&layout, FeatureName::new(raw)?)?),
+        Some(raw) => Some(read_feature(&layout, &FeatureName::new(raw)?)?),
         None => None,
     };
 
@@ -257,7 +257,7 @@ pub fn start(ctx: &Ctx, input: StartInput) -> Outcome<StartOutcome> {
 
 /// Read the named feature, or refuse: a session cannot open over a feature
 /// that was never created.
-fn read_feature(layout: &Layout, name: FeatureName) -> Result<Feature, Failure> {
+fn read_feature(layout: &Layout, name: &FeatureName) -> Result<Feature, Failure> {
     Feature::read(layout, &name)?.ok_or_else(|| {
         Failure::blocked(
             "feature.not_found",

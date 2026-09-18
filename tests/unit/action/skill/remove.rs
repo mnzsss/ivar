@@ -30,7 +30,7 @@ fn remove_deletes_the_skill_directory_and_targets() {
 
     let report = remove(
         &ctx,
-        RemoveInput {
+        &RemoveInput {
             skill: "to_remove".to_owned(),
         },
     )
@@ -63,7 +63,7 @@ fn remove_purges_the_lockfile_entry() {
 
     remove(
         &ctx,
-        RemoveInput {
+        &RemoveInput {
             skill: "locked".to_owned(),
         },
     )
@@ -84,7 +84,7 @@ fn remove_rejects_a_nonexistent_skill() {
 
     let failure = remove(
         &ctx,
-        RemoveInput {
+        &RemoveInput {
             skill: "ghost".to_owned(),
         },
     )
@@ -104,7 +104,7 @@ fn remove_is_verifiable_by_state_cleanup() {
     let _ = sync::sync(&ctx).unwrap();
     remove(
         &ctx,
-        RemoveInput {
+        &RemoveInput {
             skill: "verify_me".to_owned(),
         },
     )

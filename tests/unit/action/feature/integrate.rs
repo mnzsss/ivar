@@ -32,7 +32,7 @@ fn seeded_child_hall(checks: &[&str]) -> (tempfile::TempDir, Utf8PathBuf) {
     let ctx = Ctx::new(root.clone());
     hall::init(
         &ctx,
-        InitInput {
+        &InitInput {
             path: Utf8PathBuf::from("."),
             name: Some("acme".to_owned()),
             provider: None,
@@ -57,7 +57,7 @@ fn seeded_child_hall(checks: &[&str]) -> (tempfile::TempDir, Utf8PathBuf) {
     )
     .unwrap();
     Manifest::write(&layout, &manifest).unwrap();
-    crate::action::sync::sync(&ctx, Default::default()).unwrap();
+    crate::action::sync::sync(&ctx, &Default::default()).unwrap();
 
     create_action(
         &ctx,
@@ -391,7 +391,7 @@ fn parent_missing_repo_hall() -> (tempfile::TempDir, Utf8PathBuf) {
     let ctx = Ctx::new(root.clone());
     hall::init(
         &ctx,
-        InitInput {
+        &InitInput {
             path: Utf8PathBuf::from("."),
             name: Some("acme".to_owned()),
             provider: None,
@@ -423,7 +423,7 @@ fn parent_missing_repo_hall() -> (tempfile::TempDir, Utf8PathBuf) {
     )
     .unwrap();
     Manifest::write(&layout, &manifest).unwrap();
-    crate::action::sync::sync(&ctx, Default::default()).unwrap();
+    crate::action::sync::sync(&ctx, &Default::default()).unwrap();
 
     create_action(
         &ctx,
@@ -637,7 +637,7 @@ fn seeded_two_repo_child_hall() -> (tempfile::TempDir, Utf8PathBuf) {
     let ctx = Ctx::new(root.clone());
     hall::init(
         &ctx,
-        InitInput {
+        &InitInput {
             path: Utf8PathBuf::from("."),
             name: Some("acme".to_owned()),
             provider: None,
@@ -670,7 +670,7 @@ fn seeded_two_repo_child_hall() -> (tempfile::TempDir, Utf8PathBuf) {
     )
     .unwrap();
     Manifest::write(&layout, &manifest).unwrap();
-    crate::action::sync::sync(&ctx, Default::default()).unwrap();
+    crate::action::sync::sync(&ctx, &Default::default()).unwrap();
 
     create_action(
         &ctx,
@@ -757,7 +757,7 @@ fn a_failed_repo_is_resumable_while_a_successful_repo_stays_locked() {
     let ctx = Ctx::new(root.clone());
     hall::init(
         &ctx,
-        InitInput {
+        &InitInput {
             path: Utf8PathBuf::from("."),
             name: Some("acme".to_owned()),
             provider: None,
@@ -789,7 +789,7 @@ fn a_failed_repo_is_resumable_while_a_successful_repo_stays_locked() {
     )
     .unwrap();
     Manifest::write(&layout, &manifest).unwrap();
-    crate::action::sync::sync(&ctx, Default::default()).unwrap();
+    crate::action::sync::sync(&ctx, &Default::default()).unwrap();
     create_action(
         &ctx,
         CreateInput {

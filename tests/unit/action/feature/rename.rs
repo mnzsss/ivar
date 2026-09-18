@@ -577,7 +577,7 @@ fn rename_remote_rollback() {
         &git::System,
         &source,
         old_name.clone(),
-        Some(BranchName::new("new-branch").unwrap()),
+        Some(&BranchName::new("new-branch").unwrap()),
     )
     .unwrap()
     .0;
@@ -1181,7 +1181,7 @@ fn setup_test_hall(
     )
     .unwrap();
     Manifest::write(&layout, &manifest).unwrap();
-    crate::action::sync::sync(&ctx, Default::default()).unwrap();
+    crate::action::sync::sync(&ctx, &Default::default()).unwrap();
 
     create_action(
         &ctx,
@@ -1246,7 +1246,7 @@ fn build_test_plan(tc: &TestHallContext, git: &impl git::Git) -> super::plan::Re
         git,
         &source,
         tc.new_name.clone(),
-        Some(tc.new_branch.clone()),
+        Some(&tc.new_branch.clone()),
     )
     .unwrap();
     assert!(blockers.is_empty());
@@ -1431,7 +1431,7 @@ fn test_forward_failure_triggers_rollback() {
         let plan = build_test_plan(&tc, &git_healthy);
 
         let failing_git = FailingGit::new(FailOp::MoveWorktree, 0);
-        let res = steps::run(&tc.layout, &tc.manifest, &failing_git, plan.clone());
+        let res = steps::run(&tc.layout, &tc.manifest, &failing_git, &plan.clone());
         assert!(res.is_err());
 
         let (m_path, transition) = steps::find_transition(&tc.layout, &tc.old_name)
@@ -1461,7 +1461,7 @@ fn test_forward_failure_triggers_rollback() {
         plan.repos[0].old_remote_tip = Some("sha-1".to_owned());
 
         let failing_git = FailingGit::new(FailOp::RemoteBranchTip, 0);
-        let res = steps::run(&tc.layout, &tc.manifest, &failing_git, plan.clone());
+        let res = steps::run(&tc.layout, &tc.manifest, &failing_git, &plan.clone());
         assert!(res.is_err());
 
         let (m_path, transition) = steps::find_transition(&tc.layout, &tc.old_name)
@@ -1498,7 +1498,7 @@ fn test_remote_race_aborts_without_mutation() {
 
     let race_git = RaceGit::new("feat/race-new-b", "divergent-tip-sha");
 
-    let res = steps::run(&tc.layout, &tc.manifest, &race_git, plan.clone());
+    let res = steps::run(&tc.layout, &tc.manifest, &race_git, &plan.clone());
     assert!(res.is_err());
     let err = res.unwrap_err();
     assert_eq!(err.code, "rename.remote_race");
@@ -1793,7 +1793,7 @@ fn preflight_pr_check_only_runs_when_branch_is_published() {
         &dummy_git,
         &source,
         tc.new_name.clone(),
-        Some(tc.new_branch.clone()),
+        Some(&tc.new_branch.clone()),
     )
     .unwrap();
     assert!(
@@ -1811,7 +1811,7 @@ fn preflight_pr_check_only_runs_when_branch_is_published() {
         &published_git,
         &source,
         tc.new_name.clone(),
-        Some(tc.new_branch.clone()),
+        Some(&tc.new_branch.clone()),
     )
     .unwrap();
 

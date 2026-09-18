@@ -162,7 +162,7 @@ pub fn read_symlink(path: &Utf8Path) -> Result<SymlinkTarget, Error> {
         match fs_err::read_link(path.as_std_path()) {
             Ok(target) => {
                 return Ok(SymlinkTarget::Target(
-                    Utf8PathBuf::from_path_buf(target).map_err(not_utf8)?,
+                    Utf8PathBuf::from_path_buf(target).map_err(|p| not_utf8(&p))?,
                 ));
             }
             // The entry vanished between the `lstat` above and this

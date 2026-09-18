@@ -23,7 +23,7 @@ fn hall_with_feature() -> (tempfile::TempDir, Utf8PathBuf) {
     let ctx = Ctx::new(root.clone());
     hall::init(
         &ctx,
-        InitInput {
+        &InitInput {
             path: Utf8PathBuf::from("."),
             name: Some("acme".to_owned()),
             provider: None,
@@ -59,7 +59,7 @@ fn hall_with_feature() -> (tempfile::TempDir, Utf8PathBuf) {
     )
     .unwrap();
     // Materialise the bare clone, the way `ivar sync` would.
-    crate::action::sync::sync(&ctx, Default::default()).unwrap();
+    crate::action::sync::sync(&ctx, &Default::default()).unwrap();
     (guard, root)
 }
 

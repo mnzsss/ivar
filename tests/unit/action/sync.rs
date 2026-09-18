@@ -25,7 +25,7 @@ fn hall_with(repos: &[(&str, &str)]) -> (tempfile::TempDir, Utf8PathBuf) {
     let ctx = Ctx::new(root.clone());
     hall::init(
         &ctx,
-        InitInput {
+        &InitInput {
             path: Utf8PathBuf::from("."),
             name: Some("acme".to_owned()),
             provider: None,
@@ -81,7 +81,7 @@ fn syncing_a_hall_with_no_repos_sets_up_the_skeleton_and_the_managed_block() {
     fs::remove_file(&root.join("CLAUDE.md")).unwrap();
     let ctx = Ctx::new(root.clone());
 
-    let report = sync(&ctx, SyncInput::default()).unwrap();
+    let report = sync(&ctx, &SyncInput::default()).unwrap();
 
     assert!(report.is_clean());
     assert!(fs::is_dir(&root.join(".ivar/repos")).unwrap());
@@ -108,10 +108,10 @@ fn syncing_a_hall_with_no_repos_sets_up_the_skeleton_and_the_managed_block() {
 fn a_second_sync_changes_nothing() {
     let (_guard, root) = hall_with(&[("api", "main")]);
     let ctx = Ctx::new(root.clone());
-    sync(&ctx, SyncInput::default()).unwrap();
+    sync(&ctx, &SyncInput::default()).unwrap();
     let before = fs::read_bytes(&root.join("HALL.md")).unwrap().unwrap();
 
-    let report = sync(&ctx, SyncInput::default()).unwrap();
+    let report = sync(&ctx, &SyncInput::default()).unwrap();
 
     assert!(report.is_clean());
     assert!(
@@ -136,7 +136,7 @@ fn a_declared_repo_is_cloned_bare_and_gets_its_default_branch_worktree() {
     let (_guard, root) = hall_with(&[("api", "main")]);
     let ctx = Ctx::new(root.clone());
 
-    let report = sync(&ctx, SyncInput::default()).unwrap();
+    let report = sync(&ctx, &SyncInput::default()).unwrap();
 
     assert!(report.is_clean());
     assert_eq!(
@@ -159,7 +159,7 @@ fn the_managed_block_lists_every_declared_repo() {
     let (_guard, root) = hall_with(&[("api", "main"), ("web", "main")]);
     let ctx = Ctx::new(root.clone());
 
-    sync(&ctx, SyncInput::default()).unwrap();
+    sync(&ctx, &SyncInput::default()).unwrap();
 
     let block = fs::read_text(&root.join("HALL.md")).unwrap().unwrap();
     assert!(block.contains("`api`"));
@@ -188,7 +188,7 @@ fn an_unreachable_repo_becomes_a_warning_and_the_others_still_sync() {
     Manifest::write(&layout, &manifest).unwrap();
     let ctx = Ctx::new(root.clone());
 
-    let report = sync(&ctx, SyncInput::default()).unwrap();
+    let report = sync(&ctx, &SyncInput::default()).unwrap();
 
     assert!(!report.is_clean(), "a failed repo must not be a clean run");
     assert_eq!(report.warnings.len(), 1);
@@ -215,7 +215,7 @@ fn a_partial_clone_left_at_the_bare_path_is_named_rather_than_left_to_git() {
     fs::write_text(&bare.join("leftover"), "junk").unwrap();
     let ctx = Ctx::new(root.clone());
 
-    let report = sync(&ctx, SyncInput::default()).unwrap();
+    let report = sync(&ctx, &SyncInput::default()).unwrap();
 
     let failed = entry(&report.value, "repo api", "bare clone");
     assert_eq!(failed.change, Change::Failed);
@@ -240,7 +240,7 @@ fn something_else_at_the_worktree_path_is_named_rather_than_left_to_git() {
     fs::write_text(&worktree.join("notes.md"), "mine").unwrap();
     let ctx = Ctx::new(root);
 
-    let report = sync(&ctx, SyncInput::default()).unwrap();
+    let report = sync(&ctx, &SyncInput::default()).unwrap();
 
     let failed = entry(&report.value, "repo api", "worktree");
     assert_eq!(failed.change, Change::Failed);
@@ -279,7 +279,7 @@ fn a_branch_the_repo_does_not_have_names_the_repos_default_instead() {
     Manifest::write(&layout, &manifest).unwrap();
     let ctx = Ctx::new(root);
 
-    let report = sync(&ctx, SyncInput::default()).unwrap();
+    let report = sync(&ctx, &SyncInput::default()).unwrap();
 
     let failed = entry(&report.value, "repo api", "worktree");
     assert_eq!(failed.change, Change::Failed);
@@ -317,7 +317,7 @@ fn a_repos_setup_script_runs_in_its_worktree_with_the_ivar_environment() {
     );
     let ctx = Ctx::new(root.clone());
 
-    let report = sync(&ctx, SyncInput::default()).unwrap();
+    let report = sync(&ctx, &SyncInput::default()).unwrap();
 
     assert!(report.is_clean());
     assert_eq!(
@@ -344,7 +344,7 @@ fn a_setup_script_gets_the_secrets_dir_and_no_feature_on_the_default_worktree() 
     );
     let ctx = Ctx::new(root.clone());
 
-    sync(&ctx, SyncInput::default()).unwrap();
+    sync(&ctx, &SyncInput::default()).unwrap();
 
     let evidence = std::fs::read_to_string(root.join(".ivar/repos/api/main/.ivar-env")).unwrap();
     let mut lines = evidence.lines();
@@ -362,7 +362,7 @@ fn sync_creates_the_secrets_dir() {
     let (_guard, root) = hall_with(&[("api", "main")]);
     let ctx = Ctx::new(root.clone());
 
-    sync(&ctx, SyncInput::default()).unwrap();
+    sync(&ctx, &SyncInput::default()).unwrap();
 
     assert!(fs::is_dir(&root.join(".ivar/secrets")).unwrap());
 }
@@ -376,9 +376,9 @@ fn a_setup_script_does_not_run_twice_for_the_same_content() {
         "#!/usr/bin/env bash\nprintf x >> .ivar-setup-runs\n",
     );
     let ctx = Ctx::new(root.clone());
-    sync(&ctx, SyncInput::default()).unwrap();
+    sync(&ctx, &SyncInput::default()).unwrap();
 
-    let report = sync(&ctx, SyncInput::default()).unwrap();
+    let report = sync(&ctx, &SyncInput::default()).unwrap();
 
     assert_eq!(
         entry(&report.value, "repo api", "setup script").change,
@@ -397,14 +397,14 @@ fn changing_the_script_makes_it_run_again() {
         "#!/usr/bin/env bash\nprintf x >> .ivar-setup-runs\n",
     );
     let ctx = Ctx::new(root.clone());
-    sync(&ctx, SyncInput::default()).unwrap();
+    sync(&ctx, &SyncInput::default()).unwrap();
 
     write_setup_script(
         &root,
         "api",
         "#!/usr/bin/env bash\nprintf y >> .ivar-setup-runs\n",
     );
-    let report = sync(&ctx, SyncInput::default()).unwrap();
+    let report = sync(&ctx, &SyncInput::default()).unwrap();
 
     assert_eq!(
         entry(&report.value, "repo api", "setup script").change,
@@ -423,9 +423,9 @@ fn force_setup_runs_an_unchanged_script_again() {
         "#!/usr/bin/env bash\nprintf x >> .ivar-setup-runs\n",
     );
     let ctx = Ctx::new(root.clone());
-    sync(&ctx, SyncInput::default()).unwrap();
+    sync(&ctx, &SyncInput::default()).unwrap();
 
-    sync(&ctx, SyncInput { force_setup: true }).unwrap();
+    sync(&ctx, &SyncInput { force_setup: true }).unwrap();
 
     let runs = root.join(".ivar/repos/api/main/.ivar-setup-runs");
     assert_eq!(std::fs::read_to_string(&runs).unwrap(), "xx");
@@ -443,14 +443,14 @@ fn a_failing_setup_script_warns_and_is_retried_on_the_next_sync() {
     );
     let ctx = Ctx::new(root.clone());
 
-    let first = sync(&ctx, SyncInput::default()).unwrap();
+    let first = sync(&ctx, &SyncInput::default()).unwrap();
     assert!(!first.is_clean());
     assert_eq!(
         entry(&first.value, "repo api", "setup script").change,
         Change::Failed
     );
 
-    let second = sync(&ctx, SyncInput::default()).unwrap();
+    let second = sync(&ctx, &SyncInput::default()).unwrap();
     assert_eq!(
         entry(&second.value, "repo api", "setup script").change,
         Change::Failed
@@ -468,7 +468,7 @@ fn a_repo_with_no_setup_script_produces_no_setup_entry() {
     let (_guard, root) = hall_with(&[("api", "main")]);
     let ctx = Ctx::new(root);
 
-    let report = sync(&ctx, SyncInput::default()).unwrap();
+    let report = sync(&ctx, &SyncInput::default()).unwrap();
 
     assert!(
         !report
@@ -500,7 +500,7 @@ fn a_disabled_providers_alias_entry_is_removed_entirely() {
     )
     .unwrap();
 
-    let report = sync(&ctx, SyncInput::default()).unwrap();
+    let report = sync(&ctx, &SyncInput::default()).unwrap();
 
     assert_eq!(
         entry(&report.value, "providers", "AGENTS.md alias").change,
@@ -518,7 +518,7 @@ fn a_provider_the_hall_does_not_list_and_never_did_is_unchanged() {
     let (_guard, root) = hall_with(&[]);
     let ctx = Ctx::new(root.clone());
 
-    let report = sync(&ctx, SyncInput::default()).unwrap();
+    let report = sync(&ctx, &SyncInput::default()).unwrap();
 
     assert_eq!(
         entry(&report.value, "providers", "AGENTS.md alias").change,
@@ -534,7 +534,7 @@ fn sync_materialises_the_mcp_config_at_the_hall_root() {
     let (_guard, root) = hall_with(&[]);
     let ctx = Ctx::new(root.clone());
 
-    let report = sync(&ctx, SyncInput::default()).unwrap();
+    let report = sync(&ctx, &SyncInput::default()).unwrap();
 
     assert!(report.is_clean());
     assert_eq!(
@@ -553,10 +553,10 @@ fn sync_materialises_the_mcp_config_at_the_hall_root() {
 fn the_mcp_config_is_unchanged_on_a_second_sync() {
     let (_guard, root) = hall_with(&[]);
     let ctx = Ctx::new(root.clone());
-    sync(&ctx, SyncInput::default()).unwrap();
+    sync(&ctx, &SyncInput::default()).unwrap();
     let before = fs::read_bytes(&root.join(".mcp.json")).unwrap().unwrap();
 
-    let report = sync(&ctx, SyncInput::default()).unwrap();
+    let report = sync(&ctx, &SyncInput::default()).unwrap();
 
     assert_eq!(
         entry(&report.value, "claude-code", ".mcp.json MCP config").change,
@@ -585,7 +585,7 @@ fn sync_materialises_the_opencode_config_when_opencode_is_available() {
     Manifest::write(&layout, &manifest).unwrap();
     let ctx = Ctx::new(root.clone());
 
-    let report = sync(&ctx, SyncInput::default()).unwrap();
+    let report = sync(&ctx, &SyncInput::default()).unwrap();
 
     assert_eq!(
         entry(&report.value, "opencode", "opencode.json MCP config").change,
@@ -613,7 +613,7 @@ fn sync_strips_a_stale_mcp_config_for_a_provider_the_hall_dropped() {
     .unwrap();
     let ctx = Ctx::new(root.clone());
 
-    let report = sync(&ctx, SyncInput::default()).unwrap();
+    let report = sync(&ctx, &SyncInput::default()).unwrap();
 
     assert_eq!(
         entry(&report.value, "opencode", "opencode.json MCP config").change,
@@ -635,7 +635,7 @@ fn sync_writes_declared_servers_into_the_config() {
     Manifest::write(&layout, &manifest).unwrap();
     let ctx = Ctx::new(root.clone());
 
-    let report = sync(&ctx, SyncInput::default()).unwrap();
+    let report = sync(&ctx, &SyncInput::default()).unwrap();
 
     assert!(report.is_clean());
     let on_disk = fs::read_text(&root.join(".mcp.json")).unwrap().unwrap();
@@ -654,7 +654,7 @@ fn sync_with_omp_available_writes_every_provider_mcp_document() {
     Manifest::write(&layout, &manifest).unwrap();
     let ctx = Ctx::new(root.clone());
 
-    let report = sync(&ctx, SyncInput::default()).unwrap();
+    let report = sync(&ctx, &SyncInput::default()).unwrap();
 
     assert!(report.is_clean());
     let on_disk = fs::read_text(&root.join(".mcp.json")).unwrap().unwrap();
@@ -685,7 +685,7 @@ fn sync_reports_a_malformed_omp_mcp_document_instead_of_silently_skipping_it() {
     fs::write_text(&omp_mcp, "[\"not an object\"]").unwrap();
 
     let ctx = Ctx::new(root.clone());
-    let report = sync(&ctx, SyncInput::default()).unwrap();
+    let report = sync(&ctx, &SyncInput::default()).unwrap();
 
     assert!(
         !report.is_clean(),
@@ -711,7 +711,7 @@ fn sync_removes_the_omp_mcp_document_when_omp_leaves_the_hall() {
         .unwrap();
     Manifest::write(&layout, &manifest).unwrap();
     let ctx = Ctx::new(root.clone());
-    sync(&ctx, SyncInput::default()).unwrap();
+    sync(&ctx, &SyncInput::default()).unwrap();
     assert!(fs::exists(&root.join("mcp.json")).unwrap());
 
     // Drop OMP from the hall; its document must go the way `remove_mcp`
@@ -725,7 +725,7 @@ fn sync_removes_the_omp_mcp_document_when_omp_leaves_the_hall() {
         .unwrap();
     Manifest::write(&layout, &manifest).unwrap();
 
-    sync(&ctx, SyncInput::default()).unwrap();
+    sync(&ctx, &SyncInput::default()).unwrap();
     assert!(
         !fs::exists(&root.join("mcp.json")).unwrap(),
         "a provider the hall no longer lists keeps no MCP document"
@@ -767,7 +767,7 @@ fn sync_materialises_shipped_commands_for_available_providers() {
     let (_guard, root) = hall_with_all_providers();
     let ctx = Ctx::new(root.clone());
 
-    let report = sync(&ctx, SyncInput::default()).unwrap();
+    let report = sync(&ctx, &SyncInput::default()).unwrap();
 
     assert!(report.is_clean());
     for provider in Provider::ALL {
@@ -793,7 +793,7 @@ fn sync_materialises_shipped_skills_for_available_providers() {
     let (_guard, root) = hall_with_all_providers();
     let ctx = Ctx::new(root.clone());
 
-    let report = sync(&ctx, SyncInput::default()).unwrap();
+    let report = sync(&ctx, &SyncInput::default()).unwrap();
 
     assert!(report.is_clean());
     for provider in Provider::ALL {
@@ -815,7 +815,7 @@ fn sync_materialises_shipped_skills_for_available_providers() {
 fn second_sync_reports_commands_unchanged_without_rewriting() {
     let (_guard, root) = hall_with(&[]);
     let ctx = Ctx::new(root.clone());
-    sync(&ctx, SyncInput::default()).unwrap();
+    sync(&ctx, &SyncInput::default()).unwrap();
 
     let dir = root.join(".claude/commands");
     let before: Vec<(Utf8PathBuf, Vec<u8>, Option<std::time::SystemTime>)> = commands::catalog()
@@ -830,7 +830,7 @@ fn second_sync_reports_commands_unchanged_without_rewriting() {
         })
         .collect();
 
-    let report = sync(&ctx, SyncInput::default()).unwrap();
+    let report = sync(&ctx, &SyncInput::default()).unwrap();
 
     for (path, before_bytes, before_mtime) in &before {
         assert_eq!(
@@ -853,13 +853,13 @@ fn second_sync_reports_commands_unchanged_without_rewriting() {
 fn sync_repairs_modified_shipped_command_and_preserves_custom_command() {
     let (_guard, root) = hall_with(&[]);
     let ctx = Ctx::new(root.clone());
-    sync(&ctx, SyncInput::default()).unwrap();
+    sync(&ctx, &SyncInput::default()).unwrap();
 
     let custom = root.join(".claude/commands/custom.md");
     fs::write_text(&custom, "mine\n").unwrap();
     fs::write_text(&root.join(".claude/commands/ivar-review.md"), "changed\n").unwrap();
 
-    let report = sync(&ctx, SyncInput::default()).unwrap();
+    let report = sync(&ctx, &SyncInput::default()).unwrap();
 
     assert_eq!(
         entry(&report.value, "claude-code", "command ivar-review.md").change,
@@ -878,7 +878,7 @@ fn sync_repairs_modified_shipped_command_and_preserves_custom_command() {
 fn sync_removes_only_shipped_commands_for_unavailable_provider() {
     let (_guard, root) = hall_with_all_providers();
     let ctx = Ctx::new(root.clone());
-    sync(&ctx, SyncInput::default()).unwrap();
+    sync(&ctx, &SyncInput::default()).unwrap();
 
     let custom = root.join(".opencode/commands/custom.md");
     fs::write_text(&custom, "mine\n").unwrap();
@@ -894,7 +894,7 @@ fn sync_removes_only_shipped_commands_for_unavailable_provider() {
     .unwrap();
     Manifest::write(&layout, &manifest).unwrap();
 
-    let report = sync(&ctx, SyncInput::default()).unwrap();
+    let report = sync(&ctx, &SyncInput::default()).unwrap();
 
     assert_eq!(
         entry(&report.value, "opencode", "command ivar-review.md").change,
@@ -920,7 +920,7 @@ fn command_write_failure_warns_and_other_provider_steps_continue() {
     fs::write_text(&root.join(".opencode"), "not a directory\n").unwrap();
     let ctx = Ctx::new(root.clone());
 
-    let report = sync(&ctx, SyncInput::default()).unwrap();
+    let report = sync(&ctx, &SyncInput::default()).unwrap();
 
     assert!(
         !report.is_clean(),
@@ -960,7 +960,7 @@ fn sync_repairs_absent_and_wrong_enabled_symlinks() {
     fs::create_symlink(Utf8Path::new("other.md"), &root.join("AGENTS.md")).unwrap();
     let ctx = Ctx::new(root.clone());
 
-    let report = sync(&ctx, SyncInput::default()).unwrap();
+    let report = sync(&ctx, &SyncInput::default()).unwrap();
 
     assert!(report.is_clean());
     assert_eq!(
@@ -987,7 +987,7 @@ fn sync_preserves_an_enabled_regular_alias_and_reports_conflict() {
     fs::write_text(&root.join("AGENTS.md"), "legacy, precious\n").unwrap();
     let ctx = Ctx::new(root.clone());
 
-    let report = sync(&ctx, SyncInput::default()).unwrap();
+    let report = sync(&ctx, &SyncInput::default()).unwrap();
 
     assert!(!report.is_clean());
     assert_eq!(
@@ -1027,7 +1027,7 @@ fn a_conflict_does_not_abort_repo_mcp_or_command_reconciliation() {
     fs::write_text(&root.join("AGENTS.md"), "legacy, precious\n").unwrap();
     let ctx = Ctx::new(root.clone());
 
-    let report = sync(&ctx, SyncInput::default()).unwrap();
+    let report = sync(&ctx, &SyncInput::default()).unwrap();
 
     assert!(!report.is_clean());
     assert_eq!(
@@ -1049,7 +1049,7 @@ fn a_conflict_does_not_abort_repo_mcp_or_command_reconciliation() {
 fn removing_a_provider_by_hand_makes_sync_delete_its_regular_alias() {
     let (_guard, root) = hall_with_all_providers();
     let ctx = Ctx::new(root.clone());
-    sync(&ctx, SyncInput::default()).unwrap();
+    sync(&ctx, &SyncInput::default()).unwrap();
 
     // Drop OpenCode from the manifest by hand — the destructive
     // disabled-provider rule now authorises deleting its alias entry.
@@ -1065,7 +1065,7 @@ fn removing_a_provider_by_hand_makes_sync_delete_its_regular_alias() {
     fs::remove_file(&root.join("AGENTS.md")).unwrap();
     fs::write_text(&root.join("AGENTS.md"), "regular file\n").unwrap();
 
-    let report = sync(&ctx, SyncInput::default()).unwrap();
+    let report = sync(&ctx, &SyncInput::default()).unwrap();
 
     assert_eq!(
         entry(&report.value, "providers", "AGENTS.md alias").change,
@@ -1084,7 +1084,7 @@ fn removing_a_provider_by_hand_makes_sync_delete_its_regular_alias() {
 fn repeated_healthy_sync_leaves_file_mtimes_unchanged() {
     let (_guard, root) = hall_with_all_providers();
     let ctx = Ctx::new(root.clone());
-    sync(&ctx, SyncInput::default()).unwrap();
+    sync(&ctx, &SyncInput::default()).unwrap();
 
     let paths = [
         root.join("HALL.md"),
@@ -1101,7 +1101,7 @@ fn repeated_healthy_sync_leaves_file_mtimes_unchanged() {
         })
         .collect();
 
-    let report = sync(&ctx, SyncInput::default()).unwrap();
+    let report = sync(&ctx, &SyncInput::default()).unwrap();
 
     assert!(report.is_clean());
     for (path, before_mtime) in &before {
@@ -1128,7 +1128,7 @@ fn sync_report_groups_shared_alias_surfaces_into_single_entry() {
     Manifest::write(&layout, &manifest).unwrap();
 
     let ctx = Ctx::new(root.clone());
-    let report = sync(&ctx, SyncInput::default()).unwrap();
+    let report = sync(&ctx, &SyncInput::default()).unwrap();
 
     let agents_entries: Vec<_> = report
         .value
@@ -1155,7 +1155,7 @@ fn syncing_outside_a_hall_is_blocked_and_points_at_init() {
     let (_guard, root) = hall_root();
     let ctx = Ctx::new(root);
 
-    let failure = sync(&ctx, SyncInput::default()).unwrap_err();
+    let failure = sync(&ctx, &SyncInput::default()).unwrap_err();
 
     assert_eq!(failure.status, Status::Blocked);
     assert_eq!(failure.code, "hall.not_found");
@@ -1169,7 +1169,7 @@ fn sync_works_from_a_subdirectory_of_the_hall() {
     fs::ensure_dir(&nested).unwrap();
     let ctx = Ctx::new(nested);
 
-    let report = sync(&ctx, SyncInput::default()).unwrap();
+    let report = sync(&ctx, &SyncInput::default()).unwrap();
 
     assert_eq!(report.value.root, root);
 }
@@ -1227,7 +1227,7 @@ fn sync_materialises_settings_and_artifacts_per_provider() {
     let (_guard, root) = hall_with_all_providers();
     let ctx = Ctx::new(root.clone());
 
-    let report = sync(&ctx, SyncInput::default()).unwrap();
+    let report = sync(&ctx, &SyncInput::default()).unwrap();
 
     assert!(report.is_clean());
     assert!(
@@ -1256,7 +1256,7 @@ fn sync_materialises_settings_and_artifacts_per_provider() {
 fn sync_removes_artifacts_when_provider_is_not_listed() {
     let (_guard, root) = hall_with_all_providers();
     let ctx = Ctx::new(root.clone());
-    sync(&ctx, SyncInput::default()).unwrap();
+    sync(&ctx, &SyncInput::default()).unwrap();
     assert!(root.join(".opencode/plugins/ivar.js").is_file());
     assert!(root.join(".omp/hooks/pre/ivar.js").is_file());
 
@@ -1271,7 +1271,7 @@ fn sync_removes_artifacts_when_provider_is_not_listed() {
     .unwrap();
     Manifest::write(&layout, &manifest).unwrap();
 
-    sync(&ctx, SyncInput::default()).unwrap();
+    sync(&ctx, &SyncInput::default()).unwrap();
 
     assert!(
         !root.join(".opencode/plugins/ivar.js").exists(),
@@ -1293,7 +1293,7 @@ fn sync_protects_the_default_branch_of_every_repo() {
     let (_guard, root) = hall_with(&[("api", "main"), ("web", "trunk")]);
     let ctx = Ctx::new(root.clone());
 
-    sync(&ctx, SyncInput::default()).unwrap();
+    sync(&ctx, &SyncInput::default()).unwrap();
 
     for (repo, branch) in [("api", "main"), ("web", "trunk")] {
         let worktree = root.join(format!(".ivar/repos/{repo}/{branch}"));
@@ -1325,7 +1325,7 @@ fn sync_protects_the_default_branch_of_every_repo() {
 fn protection_outlives_a_setup_script_that_rewrites_hooks_path() {
     let (_guard, root) = hall_with(&[("api", "main")]);
     let ctx = Ctx::new(root.clone());
-    sync(&ctx, SyncInput::default()).unwrap();
+    sync(&ctx, &SyncInput::default()).unwrap();
 
     // Stand in for husky: write the shared config the way `pnpm install` would.
     let bare = root.join(".ivar/repos/api/.bare");
@@ -1333,7 +1333,7 @@ fn protection_outlives_a_setup_script_that_rewrites_hooks_path() {
     crate::infra::fs::ensure_dir(&elsewhere).unwrap();
     crate::test_support::git(&bare, &["config", "core.hooksPath", elsewhere.as_str()]);
 
-    sync(&ctx, SyncInput::default()).unwrap();
+    sync(&ctx, &SyncInput::default()).unwrap();
 
     let worktree = root.join(".ivar/repos/api/main");
     let output = std::process::Command::new("git")
@@ -1356,7 +1356,7 @@ fn repeated_sync_preserves_prefixed_repo_refspec_and_config() {
     let ctx = Ctx::new(root.clone());
     hall::init(
         &ctx,
-        InitInput {
+        &InitInput {
             path: Utf8PathBuf::from("."),
             name: Some("acme".to_owned()),
             provider: None,
@@ -1386,7 +1386,7 @@ fn repeated_sync_preserves_prefixed_repo_refspec_and_config() {
     Manifest::write(&layout, &manifest).unwrap();
 
     // First sync clones the prefixed repo.
-    let report1 = sync(&ctx, SyncInput::default()).unwrap();
+    let report1 = sync(&ctx, &SyncInput::default()).unwrap();
     assert!(report1.is_clean());
 
     let bare = root.join(".ivar/repos/notes/.bare");
@@ -1429,7 +1429,7 @@ fn repeated_sync_preserves_prefixed_repo_refspec_and_config() {
     );
 
     // Second sync: ensures ensure_remote_tracking preserves the custom prefix refspec
-    let report2 = sync(&ctx, SyncInput::default()).unwrap();
+    let report2 = sync(&ctx, &SyncInput::default()).unwrap();
     assert!(report2.is_clean());
 
     let fetch_out2 = get_fetch();
@@ -1455,7 +1455,7 @@ fn sync_leaves_a_hall_without_a_graph_database_without_one() {
     let (_guard, root) = hall_with(&[("api", "main")]);
     let ctx = Ctx::new(root.clone());
 
-    let report = sync(&ctx, SyncInput::default()).unwrap();
+    let report = sync(&ctx, &SyncInput::default()).unwrap();
 
     assert!(report.is_clean());
     assert!(!root.join(".ivar/memory.db").as_std_path().exists());
@@ -1465,11 +1465,11 @@ fn sync_leaves_a_hall_without_a_graph_database_without_one() {
 fn sync_reindexes_base_repos_when_the_hall_already_has_a_graph() {
     let (_guard, root) = hall_with(&[("api", "main")]);
     let ctx = Ctx::new(root.clone());
-    sync(&ctx, SyncInput::default()).unwrap();
+    sync(&ctx, &SyncInput::default()).unwrap();
     let db_path = root.join(".ivar/memory.db");
     drop(crate::store::graph::db::GraphDb::open(db_path.as_std_path()).unwrap());
 
-    let report = sync(&ctx, SyncInput::default()).unwrap();
+    let report = sync(&ctx, &SyncInput::default()).unwrap();
 
     assert!(report.is_clean(), "{:?}", report.warnings);
     let db = crate::store::graph::db::GraphDb::open(db_path.as_std_path()).unwrap();
@@ -1480,14 +1480,14 @@ fn sync_reindexes_base_repos_when_the_hall_already_has_a_graph() {
 fn a_graph_that_cannot_be_opened_warns_without_failing_sync() {
     let (_guard, root) = hall_with(&[("api", "main")]);
     let ctx = Ctx::new(root.clone());
-    sync(&ctx, SyncInput::default()).unwrap();
+    sync(&ctx, &SyncInput::default()).unwrap();
     std::fs::write(
         root.join(".ivar/memory.db"),
         b"not a sqlite database at all, just junk bytes",
     )
     .unwrap();
 
-    let report = sync(&ctx, SyncInput::default()).unwrap();
+    let report = sync(&ctx, &SyncInput::default()).unwrap();
 
     assert!(
         report

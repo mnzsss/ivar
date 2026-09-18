@@ -137,7 +137,7 @@ pub(crate) fn execute(
                     .is_ancestor(&bare, tip, repo.local_branch.as_str())
                     .map_err(|_| ()),
             };
-            if let Some(failure) = repo.check_base(remote_tip, secondary, &default_branch) {
+            if let Some(failure) = repo.check_base(&remote_tip, secondary, &default_branch) {
                 warnings.push(Warning::new(
                     failure.code,
                     repo.repo.as_str(),

@@ -110,7 +110,7 @@ enum ViewMode {
     Session,
 }
 
-fn install_views(conn: &Connection, mode: ViewMode) -> Result<()> {
+fn install_views(conn: &Connection, mode: &ViewMode) -> Result<()> {
     conn.execute_batch(SESSION_TABLES)?;
     let installed: Option<String> = conn
         .query_row(
@@ -143,7 +143,7 @@ impl GraphDb {
     }
 
     pub fn configure_session_mode(&self, layers: &[(&str, &str)]) -> Result<()> {
-        install_views(&self.conn, ViewMode::Session)?;
+        install_views(&self.conn, &ViewMode::Session)?;
         self.conn.execute_batch("DELETE FROM session_layers;")?;
         let mut stmt = self.conn.prepare_cached(
             "INSERT INTO session_layers (repo, layer_repo) VALUES (?1, ?2) ON CONFLICT(repo) DO UPDATE SET layer_repo = excluded.layer_repo"
@@ -156,7 +156,7 @@ impl GraphDb {
     }
 
     pub fn clear_session_layers(&self) -> Result<()> {
-        install_views(&self.conn, ViewMode::Base)?;
+        install_views(&self.conn, &ViewMode::Base)?;
         self.conn.execute_batch(
             "DELETE FROM session_layers; DELETE FROM hidden_files; DELETE FROM hidden_symbols;",
         )?;

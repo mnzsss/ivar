@@ -187,7 +187,7 @@ pub(super) fn is_transient_not_a_symlink(error: &std::io::Error) -> bool {
     error.kind() == std::io::ErrorKind::InvalidInput
 }
 
-pub(super) fn not_utf8(path: std::path::PathBuf) -> Error {
+pub(super) fn not_utf8(path: &std::path::PathBuf) -> Error {
     Error::NotUtf8 {
         display: path.to_string_lossy().into_owned(),
     }

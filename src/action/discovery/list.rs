@@ -115,7 +115,7 @@ impl WriteHuman for ListOutcome {
 /// # Errors
 ///
 /// When no hall is found, or directories cannot be read.
-pub fn list(ctx: &Ctx, input: ListInput) -> Outcome<ListOutcome> {
+pub fn list(ctx: &Ctx, input: &ListInput) -> Outcome<ListOutcome> {
     let layout = discover_hall(ctx)?;
     let mut discoveries = Vec::new();
 

@@ -255,7 +255,7 @@ fn run_plan(fixture: &Fixture) -> Result<Vec<Step>, String> {
             &skills,
             &targets,
             &state,
-            build_options(opts),
+            &build_options(opts),
         ),
         None => ivar::domain::skill_sync::plan(&skills, &targets, &state),
     };

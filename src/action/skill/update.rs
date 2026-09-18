@@ -44,7 +44,7 @@ impl WriteHuman for UpdateOutcome {
 ///
 /// Authored skills are left alone with a warning. External skills are
 /// re-downloaded from their upstream repo. One failure does not abort the batch.
-pub fn update(ctx: &Ctx, input: UpdateInput) -> Outcome<UpdateOutcome> {
+pub fn update(ctx: &Ctx, input: &UpdateInput) -> Outcome<UpdateOutcome> {
     let layout = discover_hall(ctx)?;
 
     let mut warnings = Vec::new();

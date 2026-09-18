@@ -44,12 +44,10 @@ pub(super) fn build(
     git: &impl Git,
     source: &Feature,
     new_name: FeatureName,
-    new_branch_input: Option<BranchName>,
+    new_branch_input: Option<&BranchName>,
 ) -> Result<(RenamePlan, Vec<Blocker>), Failure> {
     let mut blockers = Vec::new();
-    let new_branch = new_branch_input
-        .clone()
-        .unwrap_or_else(|| source.branch.clone());
+    let new_branch = new_branch_input.map_or_else(|| source.branch.clone(), Clone::clone);
 
     // R-FEATURE-COLLISIONS: occupied `.ivar/features/<new-name>`
     let new_dir = layout.feature_dir(&new_name);

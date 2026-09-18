@@ -39,7 +39,7 @@ impl WriteHuman for DetachOutcome {
     }
 }
 
-pub fn detach(ctx: &Ctx, input: DetachInput) -> Outcome<DetachOutcome> {
+pub fn detach(ctx: &Ctx, input: &DetachInput) -> Outcome<DetachOutcome> {
     let layout = discover_hall(ctx)?;
 
     // Find the skill in either root — no flag, see `enumerate::resolve`.

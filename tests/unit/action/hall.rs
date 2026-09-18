@@ -58,7 +58,7 @@ fn human(outcome: &MigrateOutcome) -> String {
 fn migrate_on_a_current_hall_reports_nothing_to_do_and_writes_nothing() {
     let (_guard, root) = utf8_temp_dir();
     let ctx = Ctx::new(root.clone());
-    init(&ctx, fresh_input()).unwrap();
+    init(&ctx, &fresh_input()).unwrap();
     let before = fs::read_text(&root.join("ivar.json")).unwrap().unwrap();
 
     let report = migrate(&ctx).unwrap();
@@ -89,7 +89,7 @@ fn migrate_outside_a_hall_is_blocked() {
 fn migrate_refuses_a_file_newer_than_this_build_without_touching_it() {
     let (_guard, root) = utf8_temp_dir();
     let ctx = Ctx::new(root.clone());
-    init(&ctx, fresh_input()).unwrap();
+    init(&ctx, &fresh_input()).unwrap();
     let on_disk = hall_at_version(&root, 99);
 
     let report = migrate(&ctx).unwrap();
@@ -120,7 +120,7 @@ fn migrate_refuses_a_file_newer_than_this_build_without_touching_it() {
 fn migrate_reports_an_unversioned_file_as_unreachable_rather_than_adopting_it() {
     let (_guard, root) = utf8_temp_dir();
     let ctx = Ctx::new(root.clone());
-    init(&ctx, fresh_input()).unwrap();
+    init(&ctx, &fresh_input()).unwrap();
     let on_disk = hall_at_version(&root, 0);
 
     let report = migrate(&ctx).unwrap();
@@ -164,7 +164,7 @@ fn cleanup_removes_when_the_confirmation_seam_says_yes() {
     let (_guard, root) = utf8_temp_dir();
     let mut ctx = Ctx::new(root.clone());
     ctx = ctx.with_confirm(crate::action::confirm::fixed(true));
-    init(&ctx, fresh_input()).unwrap();
+    init(&ctx, &fresh_input()).unwrap();
 
     // A stale repo directory — not in the manifest.
     fs::ensure_dir(&root.join(".ivar/repos/stale")).unwrap();
@@ -181,7 +181,7 @@ fn init_creates_the_expected_on_disk_shape() {
     let (_guard, root) = utf8_temp_dir();
     let ctx = Ctx::new(root.clone());
 
-    let report = init(&ctx, fresh_input()).unwrap();
+    let report = init(&ctx, &fresh_input()).unwrap();
 
     assert!(report.is_clean());
     assert!(fs::is_file(&root.join("ivar.json")).unwrap());
@@ -195,7 +195,7 @@ fn init_derives_the_name_from_the_directory_when_absent() {
     let (_guard, root) = utf8_temp_dir();
     let ctx = Ctx::new(root.clone());
 
-    let report = init(&ctx, fresh_input()).unwrap();
+    let report = init(&ctx, &fresh_input()).unwrap();
 
     let expected_name = root.file_name().unwrap();
     assert_eq!(report.value.name.as_str(), expected_name);
@@ -206,7 +206,7 @@ fn init_defaults_the_provider_to_claude_code() {
     let (_guard, root) = utf8_temp_dir();
     let ctx = Ctx::new(root);
 
-    let report = init(&ctx, fresh_input()).unwrap();
+    let report = init(&ctx, &fresh_input()).unwrap();
 
     assert_eq!(report.value.provider, Provider::ClaudeCode);
 }
@@ -218,7 +218,7 @@ fn init_honours_an_explicit_name_and_provider() {
 
     let report = init(
         &ctx,
-        InitInput {
+        &InitInput {
             path: Utf8PathBuf::from("."),
             name: Some("acme".to_owned()),
             provider: Some("opencode".to_owned()),
@@ -235,8 +235,8 @@ fn init_rejects_a_second_init_in_the_same_directory() {
     let (_guard, root) = utf8_temp_dir();
     let ctx = Ctx::new(root);
 
-    init(&ctx, fresh_input()).unwrap();
-    let error = init(&ctx, fresh_input()).unwrap_err();
+    init(&ctx, &fresh_input()).unwrap();
+    let error = init(&ctx, &fresh_input()).unwrap_err();
 
     assert_eq!(error.status, Status::Blocked);
     assert_eq!(error.code, "hall.already_initialised");
@@ -247,13 +247,13 @@ fn init_rejects_a_second_init_in_the_same_directory() {
 fn init_rejects_nesting_inside_an_existing_hall() {
     let (_guard, root) = utf8_temp_dir();
     let ctx = Ctx::new(root.clone());
-    init(&ctx, fresh_input()).unwrap();
+    init(&ctx, &fresh_input()).unwrap();
 
     let nested = root.join("nested");
     fs::ensure_dir(&nested).unwrap();
     let error = init(
         &ctx,
-        InitInput {
+        &InitInput {
             path: Utf8PathBuf::from("nested"),
             name: None,
             provider: None,
@@ -272,7 +272,7 @@ fn init_rejects_an_invalid_explicit_name() {
 
     let error = init(
         &ctx,
-        InitInput {
+        &InitInput {
             path: Utf8PathBuf::from("."),
             name: Some("../etc".to_owned()),
             provider: None,
@@ -291,7 +291,7 @@ fn init_rejects_an_invalid_derived_name_with_an_extra_fix_action() {
     fs::ensure_dir(&hidden).unwrap();
     let ctx = Ctx::new(hidden);
 
-    let error = init(&ctx, fresh_input()).unwrap_err();
+    let error = init(&ctx, &fresh_input()).unwrap_err();
 
     assert_eq!(error.code, "name.hidden");
     assert!(
@@ -309,7 +309,7 @@ fn init_rejects_an_invalid_provider_id() {
 
     let error = init(
         &ctx,
-        InitInput {
+        &InitInput {
             path: Utf8PathBuf::from("."),
             name: None,
             provider: Some("claude".to_owned()),
@@ -326,7 +326,7 @@ fn gitignore_uses_the_star_form_and_reincludes_committed_children() {
     let (_guard, root) = utf8_temp_dir();
     let ctx = Ctx::new(root.clone());
 
-    init(&ctx, fresh_input()).unwrap();
+    init(&ctx, &fresh_input()).unwrap();
 
     let content = fs::read_text(&root.join(".gitignore")).unwrap().unwrap();
     assert_eq!(
@@ -344,7 +344,7 @@ fn gitignore_preserves_existing_content_and_does_not_duplicate_on_rerun() {
     fs::write_text(&root.join(".gitignore"), "node_modules/\n").unwrap();
     let ctx = Ctx::new(root.clone());
 
-    init(&ctx, fresh_input()).unwrap();
+    init(&ctx, &fresh_input()).unwrap();
 
     let content = fs::read_text(&root.join(".gitignore")).unwrap().unwrap();
     assert!(content.starts_with("node_modules/\n"));
@@ -360,7 +360,7 @@ fn init_materialises_commands_for_its_selected_provider() {
 
     let report = init(
         &ctx,
-        InitInput {
+        &InitInput {
             path: Utf8PathBuf::from("."),
             name: Some("acme".to_owned()),
             provider: Some("opencode".to_owned()),
@@ -392,7 +392,7 @@ fn init_returns_warning_when_command_materialisation_fails() {
 
     let report = init(
         &ctx,
-        InitInput {
+        &InitInput {
             path: Utf8PathBuf::from("."),
             name: Some("acme".to_owned()),
             provider: Some("opencode".to_owned()),
@@ -443,7 +443,7 @@ fn hall_with_repo() -> (tempfile::TempDir, Utf8PathBuf) {
     let ctx = Ctx::new(root.clone());
     init(
         &ctx,
-        InitInput {
+        &InitInput {
             path: Utf8PathBuf::from("."),
             name: Some("acme".to_owned()),
             provider: None,
@@ -476,7 +476,7 @@ fn hall_with_repo() -> (tempfile::TempDir, Utf8PathBuf) {
 fn status_reports_a_fresh_hall_as_operational() {
     let (_guard, root) = hall_root();
     let ctx = Ctx::new(root.clone());
-    init(&ctx, fresh_input()).unwrap();
+    init(&ctx, &fresh_input()).unwrap();
 
     let report = status(&ctx).unwrap();
 
@@ -488,7 +488,7 @@ fn status_reports_a_fresh_hall_as_operational() {
 fn status_reports_a_synced_hall_with_repos_as_operational() {
     let (_guard, root) = hall_with_repo();
     let ctx = Ctx::new(root.clone());
-    crate::action::sync::sync(&ctx, Default::default()).unwrap();
+    crate::action::sync::sync(&ctx, &Default::default()).unwrap();
 
     let report = status(&ctx).unwrap();
 
@@ -515,7 +515,7 @@ fn status_reports_a_never_synced_repo_as_degraded() {
 fn doctor_finds_nothing_in_a_healthy_hall() {
     let (_guard, root) = hall_with_repo();
     let ctx = Ctx::new(root.clone());
-    crate::action::sync::sync(&ctx, Default::default()).unwrap();
+    crate::action::sync::sync(&ctx, &Default::default()).unwrap();
 
     let report = doctor(&ctx).unwrap();
 
@@ -547,7 +547,7 @@ fn finding<'a>(report: &'a DoctorOutcome, code: &str) -> &'a Diagnosis {
 fn doctor_reports_missing_shipped_command() {
     let (_guard, root) = utf8_temp_dir();
     let ctx = Ctx::new(root.clone());
-    init(&ctx, fresh_input()).unwrap();
+    init(&ctx, &fresh_input()).unwrap();
     fs::remove_file(&root.join(".claude/commands/ivar-review.md")).unwrap();
 
     let report = doctor(&ctx).unwrap();
@@ -561,7 +561,7 @@ fn doctor_reports_missing_shipped_command() {
 fn doctor_reports_modified_shipped_command() {
     let (_guard, root) = utf8_temp_dir();
     let ctx = Ctx::new(root.clone());
-    init(&ctx, fresh_input()).unwrap();
+    init(&ctx, &fresh_input()).unwrap();
     fs::write_text(&root.join(".claude/commands/ivar-sync.md"), "tampered\n").unwrap();
 
     let report = doctor(&ctx).unwrap();
@@ -575,7 +575,7 @@ fn doctor_reports_modified_shipped_command() {
 fn doctor_reports_modified_legacy_command_with_a_preserve_fix() {
     let (_guard, root) = utf8_temp_dir();
     let ctx = Ctx::new(root.clone());
-    init(&ctx, fresh_input()).unwrap();
+    init(&ctx, &fresh_input()).unwrap();
     fs::write_text(&root.join(".claude/commands/repo-list.md"), "customised\n").unwrap();
 
     let report = doctor(&ctx).unwrap();
@@ -597,7 +597,7 @@ fn doctor_reports_modified_legacy_command_with_a_preserve_fix() {
 fn doctor_reports_stale_commands_for_unavailable_provider() {
     let (_guard, root) = utf8_temp_dir();
     let ctx = Ctx::new(root.clone());
-    init(&ctx, fresh_input()).unwrap();
+    init(&ctx, &fresh_input()).unwrap();
     // Add OpenCode, sync (materialises its commands), then drop it again.
     let layout = Layout::at(root.clone());
     let both = Manifest::new(
@@ -611,7 +611,7 @@ fn doctor_reports_stale_commands_for_unavailable_provider() {
     )
     .unwrap();
     Manifest::write(&layout, &both).unwrap();
-    crate::action::sync::sync(&ctx, Default::default()).unwrap();
+    crate::action::sync::sync(&ctx, &Default::default()).unwrap();
     let claude_only = Manifest::new(
         HallName::new("acme").unwrap(),
         Providers::new(vec![Provider::ClaudeCode], Provider::ClaudeCode),
@@ -632,7 +632,7 @@ fn doctor_reports_stale_commands_for_unavailable_provider() {
 fn doctor_says_nothing_about_healthy_commands() {
     let (_guard, root) = utf8_temp_dir();
     let ctx = Ctx::new(root.clone());
-    init(&ctx, fresh_input()).unwrap();
+    init(&ctx, &fresh_input()).unwrap();
 
     let report = doctor(&ctx).unwrap();
 
@@ -651,7 +651,7 @@ fn doctor_says_nothing_about_healthy_commands() {
 fn doctor_reports_missing_shipped_skill() {
     let (_guard, root) = utf8_temp_dir();
     let ctx = Ctx::new(root.clone());
-    init(&ctx, fresh_input()).unwrap();
+    init(&ctx, &fresh_input()).unwrap();
     fs::remove_path(&root.join(".claude/skills/ivar-execute")).unwrap();
 
     let report = doctor(&ctx).unwrap();
@@ -665,7 +665,7 @@ fn doctor_reports_missing_shipped_skill() {
 fn doctor_reports_modified_shipped_skill() {
     let (_guard, root) = utf8_temp_dir();
     let ctx = Ctx::new(root.clone());
-    init(&ctx, fresh_input()).unwrap();
+    init(&ctx, &fresh_input()).unwrap();
     fs::write_text(
         &root.join(".claude/skills/ivar-execute/SKILL.md"),
         "tampered skill\n",
@@ -683,7 +683,7 @@ fn doctor_reports_modified_shipped_skill() {
 fn doctor_reports_stale_skills_for_unavailable_provider() {
     let (_guard, root) = utf8_temp_dir();
     let ctx = Ctx::new(root.clone());
-    init(&ctx, fresh_input()).unwrap();
+    init(&ctx, &fresh_input()).unwrap();
     // Add OpenCode, sync (materialises its skills), then drop it again.
     let layout = Layout::at(root.clone());
     let both = Manifest::new(
@@ -697,7 +697,7 @@ fn doctor_reports_stale_skills_for_unavailable_provider() {
     )
     .unwrap();
     Manifest::write(&layout, &both).unwrap();
-    crate::action::sync::sync(&ctx, Default::default()).unwrap();
+    crate::action::sync::sync(&ctx, &Default::default()).unwrap();
     let claude_only = Manifest::new(
         HallName::new("acme").unwrap(),
         Providers::new(vec![Provider::ClaudeCode], Provider::ClaudeCode),
@@ -718,7 +718,7 @@ fn doctor_reports_stale_skills_for_unavailable_provider() {
 fn doctor_says_nothing_about_healthy_skills() {
     let (_guard, root) = utf8_temp_dir();
     let ctx = Ctx::new(root.clone());
-    init(&ctx, fresh_input()).unwrap();
+    init(&ctx, &fresh_input()).unwrap();
 
     let report = doctor(&ctx).unwrap();
 
@@ -740,7 +740,7 @@ fn init_creates_hall_md_and_the_selected_providers_relative_alias() {
     // Claude (the default): HALL.md and a relative CLAUDE.md symlink.
     let (_guard, root) = utf8_temp_dir();
     let ctx = Ctx::new(root.clone());
-    let report = init(&ctx, fresh_input()).unwrap();
+    let report = init(&ctx, &fresh_input()).unwrap();
 
     assert!(report.is_clean());
     assert!(fs::is_file(&root.join("HALL.md")).unwrap());
@@ -756,7 +756,7 @@ fn init_creates_hall_md_and_the_selected_providers_relative_alias() {
     let ctx = Ctx::new(root.clone());
     let report = init(
         &ctx,
-        InitInput {
+        &InitInput {
             path: Utf8PathBuf::from("."),
             name: Some("acme".to_owned()),
             provider: Some("opencode".to_owned()),
@@ -779,7 +779,7 @@ fn init_warns_but_stays_valid_when_the_alias_path_is_occupied() {
     fs::write_text(&root.join("CLAUDE.md"), "legacy, precious\n").unwrap();
     let ctx = Ctx::new(root.clone());
 
-    let report = init(&ctx, fresh_input()).unwrap();
+    let report = init(&ctx, &fresh_input()).unwrap();
 
     assert!(!report.is_clean());
     assert_eq!(report.warnings[0].code, "instructions.adoption_required");
@@ -800,7 +800,7 @@ fn init_warns_but_stays_valid_when_the_alias_path_is_occupied() {
 fn doctor_names_missing_canonical_instructions() {
     let (_guard, root) = utf8_temp_dir();
     let ctx = Ctx::new(root.clone());
-    init(&ctx, fresh_input()).unwrap();
+    init(&ctx, &fresh_input()).unwrap();
     fs::remove_file(&root.join("HALL.md")).unwrap();
 
     let report = doctor(&ctx).unwrap();
@@ -814,7 +814,7 @@ fn doctor_names_missing_canonical_instructions() {
 fn doctor_names_a_non_regular_canonical_file() {
     let (_guard, root) = utf8_temp_dir();
     let ctx = Ctx::new(root.clone());
-    init(&ctx, fresh_input()).unwrap();
+    init(&ctx, &fresh_input()).unwrap();
     fs::remove_file(&root.join("HALL.md")).unwrap();
     fs::ensure_dir(&root.join("HALL.md")).unwrap();
 
@@ -828,7 +828,7 @@ fn doctor_names_a_non_regular_canonical_file() {
 fn doctor_names_a_missing_managed_block() {
     let (_guard, root) = utf8_temp_dir();
     let ctx = Ctx::new(root.clone());
-    init(&ctx, fresh_input()).unwrap();
+    init(&ctx, &fresh_input()).unwrap();
     fs::write_text(&root.join("HALL.md"), "# House rules\n").unwrap();
 
     let report = doctor(&ctx).unwrap();
@@ -841,7 +841,7 @@ fn doctor_names_a_missing_managed_block() {
 fn doctor_names_a_stale_managed_block() {
     let (_guard, root) = utf8_temp_dir();
     let ctx = Ctx::new(root.clone());
-    init(&ctx, fresh_input()).unwrap();
+    init(&ctx, &fresh_input()).unwrap();
     // Declare a repo after init: the on-disk block was built with none.
     let layout = Layout::at(root.clone());
     let origin = crate::test_support::seeded_repo(
@@ -871,7 +871,7 @@ fn doctor_names_a_stale_managed_block() {
 fn doctor_names_a_missing_enabled_alias() {
     let (_guard, root) = utf8_temp_dir();
     let ctx = Ctx::new(root.clone());
-    init(&ctx, fresh_input()).unwrap();
+    init(&ctx, &fresh_input()).unwrap();
     // Enable OpenCode without ever syncing: its alias is absent.
     let layout = Layout::at(root.clone());
     let manifest = Manifest::new(
@@ -897,7 +897,7 @@ fn doctor_names_a_missing_enabled_alias() {
 fn doctor_names_an_enabled_regular_alias_with_the_adoption_checklist() {
     let (_guard, root) = utf8_temp_dir();
     let ctx = Ctx::new(root.clone());
-    init(&ctx, fresh_input()).unwrap();
+    init(&ctx, &fresh_input()).unwrap();
     fs::remove_file(&root.join("CLAUDE.md")).unwrap();
     fs::write_text(&root.join("CLAUDE.md"), "legacy, precious\n").unwrap();
 
@@ -915,7 +915,7 @@ fn doctor_names_an_enabled_regular_alias_with_the_adoption_checklist() {
 fn doctor_names_a_broken_alias() {
     let (_guard, root) = utf8_temp_dir();
     let ctx = Ctx::new(root.clone());
-    init(&ctx, fresh_input()).unwrap();
+    init(&ctx, &fresh_input()).unwrap();
     fs::remove_file(&root.join("CLAUDE.md")).unwrap();
     fs::create_symlink(
         camino::Utf8Path::new("vanished.md"),
@@ -933,7 +933,7 @@ fn doctor_names_a_broken_alias() {
 fn doctor_names_a_wrong_target_alias() {
     let (_guard, root) = utf8_temp_dir();
     let ctx = Ctx::new(root.clone());
-    init(&ctx, fresh_input()).unwrap();
+    init(&ctx, &fresh_input()).unwrap();
     fs::write_text(&root.join("other.md"), "x").unwrap();
     fs::remove_file(&root.join("CLAUDE.md")).unwrap();
     fs::create_symlink(camino::Utf8Path::new("other.md"), &root.join("CLAUDE.md")).unwrap();
@@ -948,7 +948,7 @@ fn doctor_names_a_wrong_target_alias() {
 fn doctor_names_a_disabled_providers_leftover_alias() {
     let (_guard, root) = utf8_temp_dir();
     let ctx = Ctx::new(root.clone());
-    init(&ctx, fresh_input()).unwrap();
+    init(&ctx, &fresh_input()).unwrap();
     let layout = Layout::at(root.clone());
     let both = Manifest::new(
         HallName::new("acme").unwrap(),
@@ -961,7 +961,7 @@ fn doctor_names_a_disabled_providers_leftover_alias() {
     )
     .unwrap();
     Manifest::write(&layout, &both).unwrap();
-    crate::action::sync::sync(&ctx, Default::default()).unwrap();
+    crate::action::sync::sync(&ctx, &Default::default()).unwrap();
     let claude_only = Manifest::new(
         HallName::new("acme").unwrap(),
         Providers::new(vec![Provider::ClaudeCode], Provider::ClaudeCode),
@@ -991,7 +991,7 @@ fn doctor_names_a_disabled_providers_leftover_alias() {
 fn doctor_returns_every_applicable_instruction_finding_in_one_run() {
     let (_guard, root) = utf8_temp_dir();
     let ctx = Ctx::new(root.clone());
-    init(&ctx, fresh_input()).unwrap();
+    init(&ctx, &fresh_input()).unwrap();
     // Stale block: declare a repo the on-disk block does not list.
     let layout = Layout::at(root.clone());
     let origin = crate::test_support::seeded_repo(
@@ -1048,7 +1048,7 @@ fn doctor_names_an_active_run_whose_coordinating_session_is_gone() {
     let layout = Layout::at(root.clone());
     init(
         &ctx,
-        InitInput {
+        &InitInput {
             path: Utf8PathBuf::from("."),
             name: Some("acme".to_owned()),
             provider: None,
@@ -1100,7 +1100,7 @@ fn doctor_says_nothing_about_an_active_run_with_a_live_session() {
     let layout = Layout::at(root.clone());
     init(
         &ctx,
-        InitInput {
+        &InitInput {
             path: Utf8PathBuf::from("."),
             name: Some("acme".to_owned()),
             provider: None,
@@ -1233,7 +1233,7 @@ fn cleanup_in_a_non_tty_run_keeps_everything() {
 fn cleanup_leaves_repos_still_in_the_manifest_alone() {
     let (_guard, root) = hall_with_repo();
     let ctx = Ctx::new(root.clone());
-    crate::action::sync::sync(&ctx, Default::default()).unwrap();
+    crate::action::sync::sync(&ctx, &Default::default()).unwrap();
 
     let report = cleanup(&ctx).unwrap();
 
@@ -1268,11 +1268,11 @@ fn the_human_surface_of_status_names_the_health() {
 fn hall_with_indexed_graph() -> (tempfile::TempDir, Utf8PathBuf) {
     let (guard, root) = hall_with_repo();
     let ctx = Ctx::new(root.clone());
-    crate::action::sync::sync(&ctx, Default::default()).unwrap();
+    crate::action::sync::sync(&ctx, &Default::default()).unwrap();
     drop(
         crate::store::graph::db::GraphDb::open(root.join(".ivar/memory.db").as_std_path()).unwrap(),
     );
-    crate::action::sync::sync(&ctx, Default::default()).unwrap();
+    crate::action::sync::sync(&ctx, &Default::default()).unwrap();
     (guard, root)
 }
 

@@ -80,7 +80,7 @@ impl WriteHuman for ConnectOutcome {
 /// return the binding. Nothing is created — a session that never existed is a
 /// `Blocked` failure, and an ambiguous prefix is a `Blocked` failure naming
 /// the candidates.
-pub fn connect(ctx: &Ctx, input: ConnectInput) -> Outcome<ConnectOutcome> {
+pub fn connect(ctx: &Ctx, input: &ConnectInput) -> Outcome<ConnectOutcome> {
     let layout = discover_hall(ctx)?;
     let manifest = read_manifest(&layout)?;
 

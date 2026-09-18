@@ -294,7 +294,7 @@ impl WriteHuman for SyncOutcome {
 ///
 /// See the module doc comment for the order, the idempotence rule, and what
 /// this deliberately does not do.
-pub fn sync(ctx: &Ctx, input: SyncInput) -> Outcome<SyncOutcome> {
+pub fn sync(ctx: &Ctx, input: &SyncInput) -> Outcome<SyncOutcome> {
     let layout = discover_hall(ctx)?;
     let manifest = read_manifest(&layout)?;
     let git = git::System;

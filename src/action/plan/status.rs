@@ -86,7 +86,7 @@ impl WriteHuman for StatusOutcome {
     }
 }
 
-pub fn status(ctx: &Ctx, input: StatusInput) -> Outcome<StatusOutcome> {
+pub fn status(ctx: &Ctx, input: &StatusInput) -> Outcome<StatusOutcome> {
     let layout = discover_hall(ctx)?;
     let (feature, plan_path) = derive_feature(ctx, &layout, &input.plan_path)?;
 

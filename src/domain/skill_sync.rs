@@ -143,7 +143,7 @@ pub struct PlanOptions {
 /// `targets` must contain exactly one entry per skill in `skills` for the
 /// target being planned.
 pub fn plan(skills: &[Skill], targets: &[Target], state: &State) -> Vec<Step> {
-    plan_with_options(skills, targets, state, PlanOptions::default())
+    plan_with_options(skills, targets, state, &PlanOptions::default())
 }
 
 /// Plan with optional commit-sha short-circuit.
@@ -151,7 +151,7 @@ pub fn plan_with_options(
     skills: &[Skill],
     targets: &[Target],
     state: &State,
-    opts: PlanOptions,
+    opts: &PlanOptions,
 ) -> Vec<Step> {
     let target_by_skill: HashMap<&str, &Target> = targets
         .iter()
@@ -162,7 +162,7 @@ pub fn plan_with_options(
         .iter()
         .filter_map(|skill| {
             let target = target_by_skill.get(skill.id.as_str())?;
-            Some(plan_for_skill(skill, target, state, opts.clone()))
+            Some(plan_for_skill(skill, target, state, &opts.clone()))
         })
         .collect();
 
@@ -172,7 +172,7 @@ pub fn plan_with_options(
     steps
 }
 
-fn plan_for_skill(skill: &Skill, target: &Target, state: &State, opts: PlanOptions) -> Step {
+fn plan_for_skill(skill: &Skill, target: &Target, state: &State, opts: &PlanOptions) -> Step {
     let mode = skill.render_mode();
     let entry = state.installations.get(skill.id.as_str());
     let provider = entry

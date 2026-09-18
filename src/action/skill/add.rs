@@ -161,7 +161,7 @@ fn find_repo_root(temp_dir: &Utf8Path) -> Utf8PathBuf {
 }
 
 /// Install external skill(s) from a GitHub repository or subpath URL.
-pub fn add(ctx: &Ctx, input: AddInput) -> Outcome<AddOutcome> {
+pub fn add(ctx: &Ctx, input: &AddInput) -> Outcome<AddOutcome> {
     let layout = discover_hall(ctx)?;
 
     // 1. Parse source argument + flags into ExternalRef

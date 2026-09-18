@@ -17,7 +17,7 @@ fn hall_with(repos: &[(&str, &str)]) -> (tempfile::TempDir, Utf8PathBuf) {
     let ctx = Ctx::new(root.clone());
     hall::init(
         &ctx,
-        InitInput {
+        &InitInput {
             path: Utf8PathBuf::from("."),
             name: Some("acme".to_owned()),
             provider: None,
@@ -82,7 +82,7 @@ fn list_reports_a_declared_repo_before_any_sync() {
 fn list_reports_a_synced_repo_with_its_branches() {
     let (_guard, root) = hall_with(&[("api", "main")]);
     let ctx = Ctx::new(root.clone());
-    crate::action::sync::sync(&ctx, Default::default()).unwrap();
+    crate::action::sync::sync(&ctx, &Default::default()).unwrap();
 
     let report = list(&ctx).unwrap();
 

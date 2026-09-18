@@ -57,8 +57,8 @@ pub fn generate() -> Value {
         "description": "Hall-scoped MCP server definitions materialised by ivar sync.",
         "items": {
             "oneOf": [
-                mcp_http_branch(oauth_schema.clone()),
-                mcp_local_branch(oauth_schema)
+                mcp_http_branch(&oauth_schema.clone()),
+                mcp_local_branch(&oauth_schema)
             ]
         }
     });
@@ -115,7 +115,7 @@ fn extract_oauth_schema(schema: &Value) -> Value {
 /// The `http` branch of the MCP oneOf: requires `name`, `type` (const
 /// `"http"`), and `url`; forbids `command`, `args`, and `env` via
 /// `additionalProperties: false` (no `not` block — see deviation 2 fix).
-fn mcp_http_branch(oauth_schema: Value) -> Value {
+fn mcp_http_branch(oauth_schema: &Value) -> Value {
     json!({
         "type": "object",
         "description": "A remote MCP server reached over HTTP.",
@@ -143,7 +143,7 @@ fn mcp_http_branch(oauth_schema: Value) -> Value {
 /// The `local` branch of the MCP oneOf: requires `name`, `type` (const
 /// `"local"`), and `command`; allows optional `args`, `env`, `oauth`;
 /// forbids `url` via `additionalProperties: false` (no `not` block).
-fn mcp_local_branch(oauth_schema: Value) -> Value {
+fn mcp_local_branch(oauth_schema: &Value) -> Value {
     json!({
         "type": "object",
         "description": "A local MCP server spawned via stdio.",

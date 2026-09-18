@@ -162,7 +162,7 @@ pub fn read_dir(path: &Utf8Path) -> Result<Vec<Utf8PathBuf>, Error> {
             path: path.to_owned(),
             source,
         })?;
-        let utf8 = Utf8PathBuf::from_path_buf(entry.path()).map_err(not_utf8)?;
+        let utf8 = Utf8PathBuf::from_path_buf(entry.path()).map_err(|p| not_utf8(&p))?;
         paths.push(utf8);
     }
     paths.sort();
@@ -393,7 +393,7 @@ pub fn copy_dir(src: &Utf8Path, dst: &Utf8Path) -> Result<(), Error> {
             continue;
         }
         let rel_utf8 =
-            Utf8Path::from_path(rel_path).ok_or_else(|| not_utf8(entry.path().to_path_buf()))?;
+            Utf8Path::from_path(rel_path).ok_or_else(|| not_utf8(&entry.path().to_path_buf()))?;
         let target_path = dst.join(rel_utf8);
 
         let file_type = entry.file_type();
@@ -418,7 +418,7 @@ pub fn copy_dir(src: &Utf8Path, dst: &Utf8Path) -> Result<(), Error> {
                 source,
             })?;
             let link_target_utf8 =
-                Utf8Path::from_path(&link_target).ok_or_else(|| not_utf8(link_target.clone()))?;
+                Utf8Path::from_path(&link_target).ok_or_else(|| not_utf8(&link_target.clone()))?;
             let resolved = entry
                 .path()
                 .parent()
@@ -437,7 +437,7 @@ pub fn copy_dir(src: &Utf8Path, dst: &Utf8Path) -> Result<(), Error> {
                 });
             } else if resolved.is_dir() {
                 let resolved_utf8 =
-                    Utf8Path::from_path(&resolved).ok_or_else(|| not_utf8(resolved.clone()))?;
+                    Utf8Path::from_path(&resolved).ok_or_else(|| not_utf8(&resolved.clone()))?;
                 copy_dir(resolved_utf8, &target_path)?;
             } else if resolved.is_file() {
                 fs_err::copy(&resolved, target_path.as_std_path()).map_err(|source| {

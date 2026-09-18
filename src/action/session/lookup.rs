@@ -30,7 +30,7 @@ pub(crate) fn list_feature(
 ) -> Result<Vec<SessionRef>, Failure> {
     sessions_in(
         &layout.feature_dir(feature).join("sessions"),
-        Some(feature.clone()),
+        Some(feature),
     )
 }
 
@@ -214,7 +214,7 @@ fn describe_request(id_prefix: Option<&str>, feature: Option<&str>) -> String {
 /// A session whose `state.json` is missing or unreadable still counts: its
 /// location identifies it, and the verbs that actually need the record
 /// (`convert`, relay) re-read it strictly where it matters.
-fn sessions_in(dir: &Utf8Path, feature: Option<FeatureName>) -> Result<Vec<SessionRef>, Failure> {
+fn sessions_in(dir: &Utf8Path, feature: Option<&FeatureName>) -> Result<Vec<SessionRef>, Failure> {
     if !fs::is_dir(dir)? {
         return Ok(Vec::new());
     }
@@ -232,7 +232,7 @@ fn sessions_in(dir: &Utf8Path, feature: Option<FeatureName>) -> Result<Vec<Sessi
         let state = SessionState::read(&entry).ok().flatten();
         sessions.push(SessionRef {
             id,
-            feature: feature.clone(),
+            feature: feature.cloned(),
             view_dir: entry,
             state,
         });

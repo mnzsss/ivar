@@ -115,7 +115,7 @@ enum Step {
 /// when the destination feature does not exist, or when the session cannot be
 /// located. `Failed` when a step breaks mid-flight — the `.converting` marker
 /// then lets the next attempt resume.
-pub fn convert(ctx: &Ctx, input: ConvertInput) -> Outcome<ConvertOutcome> {
+pub fn convert(ctx: &Ctx, input: &ConvertInput) -> Outcome<ConvertOutcome> {
     let layout = discover_hall(ctx)?;
     let manifest = read_manifest(&layout)?;
 
@@ -168,7 +168,7 @@ pub fn convert(ctx: &Ctx, input: ConvertInput) -> Outcome<ConvertOutcome> {
     // chooses one (ADR-0002, D9).
     let listed = crate::action::discovery::list::list(
         ctx,
-        crate::action::discovery::list::ListInput { status: None },
+        &crate::action::discovery::list::ListInput { status: None },
     )?
     .value;
     let mut matching_names: Vec<FeatureName> = Vec::new();

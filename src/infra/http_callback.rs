@@ -149,7 +149,7 @@ impl CallbackServer {
         })?;
 
         let worker = thread::spawn(move || {
-            Self::worker_loop(listener_for_worker, tx, worker_shutdown, expected, timeout);
+            Self::worker_loop(listener_for_worker, &tx, &worker_shutdown, &expected, timeout);
         });
 
         Ok(Self {
@@ -204,9 +204,9 @@ impl CallbackServer {
 
     fn worker_loop(
         listener: TcpListener,
-        tx: mpsc::Sender<Result<AuthorizationCode, Failure>>,
-        shutdown: Arc<AtomicBool>,
-        expected_state: String,
+        tx: &mpsc::Sender<Result<AuthorizationCode, Failure>>,
+        shutdown: &Arc<AtomicBool>,
+        expected_state: &str,
         timeout: Duration,
     ) {
         let deadline = Instant::now() + timeout;

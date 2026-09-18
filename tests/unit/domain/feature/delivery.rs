@@ -168,7 +168,7 @@ fn an_unknown_field_in_a_delivery_repo_is_refused() {
 #[test]
 fn classify_base_is_ok_when_the_base_is_present_and_still_an_ancestor() {
     assert_eq!(
-        classify_base(Ok(Some("deadbeef".to_owned())), Ok(true)),
+        classify_base(&Ok(Some("deadbeef".to_owned())), Ok(true)),
         BaseVerdict::Ok
     );
 }
@@ -176,7 +176,7 @@ fn classify_base_is_ok_when_the_base_is_present_and_still_an_ancestor() {
 #[test]
 fn classify_base_is_merged_and_deleted_when_absent_but_merged_into_default() {
     assert_eq!(
-        classify_base(Ok(None), Ok(true)),
+        classify_base(&Ok(None), Ok(true)),
         BaseVerdict::BaseMergedAndDeleted
     );
 }
@@ -184,7 +184,7 @@ fn classify_base_is_merged_and_deleted_when_absent_but_merged_into_default() {
 #[test]
 fn classify_base_is_never_delivered_when_absent_and_not_confirmed_merged() {
     assert_eq!(
-        classify_base(Ok(None), Ok(false)),
+        classify_base(&Ok(None), Ok(false)),
         BaseVerdict::BaseNeverDelivered
     );
 }
@@ -195,7 +195,7 @@ fn classify_base_is_never_delivered_when_absent_and_not_confirmed_merged() {
 #[test]
 fn classify_base_is_never_delivered_when_absent_and_ancestry_cannot_be_checked() {
     assert_eq!(
-        classify_base(Ok(None), Err(())),
+        classify_base(&Ok(None), Err(())),
         BaseVerdict::BaseNeverDelivered
     );
 }
@@ -203,7 +203,7 @@ fn classify_base_is_never_delivered_when_absent_and_ancestry_cannot_be_checked()
 #[test]
 fn classify_base_is_unconfirmed_when_the_remote_does_not_answer() {
     assert_eq!(
-        classify_base(Err(()), Ok(true)),
+        classify_base(&Err(()), Ok(true)),
         BaseVerdict::BaseUnconfirmed
     );
 }
@@ -211,7 +211,7 @@ fn classify_base_is_unconfirmed_when_the_remote_does_not_answer() {
 #[test]
 fn classify_base_is_moved_when_present_but_no_longer_an_ancestor() {
     assert_eq!(
-        classify_base(Ok(Some("deadbeef".to_owned())), Ok(false)),
+        classify_base(&Ok(Some("deadbeef".to_owned())), Ok(false)),
         BaseVerdict::BaseMoved
     );
 }
@@ -219,7 +219,7 @@ fn classify_base_is_moved_when_present_but_no_longer_an_ancestor() {
 #[test]
 fn classify_base_is_moved_when_present_and_ancestry_cannot_be_checked() {
     assert_eq!(
-        classify_base(Ok(Some("deadbeef".to_owned())), Err(())),
+        classify_base(&Ok(Some("deadbeef".to_owned())), Err(())),
         BaseVerdict::BaseMoved
     );
 }
@@ -229,7 +229,7 @@ fn check_base_allows_delivery_when_the_verdict_is_ok() {
     let delivery_repo = repo("develop");
 
     let refusal =
-        delivery_repo.check_base(Ok(Some("deadbeef".to_owned())), Ok(true), &main_branch());
+        delivery_repo.check_base(&Ok(Some("deadbeef".to_owned())), Ok(true), &main_branch());
 
     assert!(refusal.is_none());
 }
@@ -239,7 +239,7 @@ fn check_base_refuses_a_merged_and_deleted_base_with_a_rebase_onto_default_fix()
     let delivery_repo = repo("develop");
 
     let failure = delivery_repo
-        .check_base(Ok(None), Ok(true), &main_branch())
+        .check_base(&Ok(None), Ok(true), &main_branch())
         .expect("a merged-and-deleted base refuses");
 
     assert_eq!(failure.code, "feature.base_merged_and_deleted");
@@ -257,7 +257,7 @@ fn check_base_refuses_a_never_delivered_base_with_a_deliver_parent_first_fix() {
     let delivery_repo = repo("develop");
 
     let failure = delivery_repo
-        .check_base(Ok(None), Ok(false), &main_branch())
+        .check_base(&Ok(None), Ok(false), &main_branch())
         .expect("a never-delivered base refuses");
 
     assert_eq!(failure.code, "feature.base_never_delivered");
@@ -273,7 +273,7 @@ fn check_base_refuses_as_unconfirmed_never_as_absent_when_the_remote_does_not_an
     let delivery_repo = repo("develop");
 
     let failure = delivery_repo
-        .check_base(Err(()), Ok(true), &main_branch())
+        .check_base(&Err(()), Ok(true), &main_branch())
         .expect("an unanswered remote refuses");
 
     assert_eq!(failure.code, "feature.base_unconfirmed");
@@ -290,7 +290,7 @@ fn check_base_refuses_a_moved_base_with_a_rebase_the_feature_fix() {
     let delivery_repo = repo("develop");
 
     let failure = delivery_repo
-        .check_base(Ok(Some("deadbeef".to_owned())), Ok(false), &main_branch())
+        .check_base(&Ok(Some("deadbeef".to_owned())), Ok(false), &main_branch())
         .expect("a moved base refuses");
 
     assert_eq!(failure.code, "feature.base_moved");

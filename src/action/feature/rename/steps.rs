@@ -71,7 +71,7 @@ pub(super) fn run(
     layout: &Layout,
     manifest: &Manifest,
     git: &impl Git,
-    plan: RenamePlan,
+    plan: &RenamePlan,
 ) -> Outcome<super::RenameOutcome> {
     let initial_marker = plan.old_dir.join(".renaming");
     let transition = Transition {

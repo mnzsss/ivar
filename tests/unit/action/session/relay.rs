@@ -29,7 +29,7 @@ fn hall_with_provider_session() -> (tempfile::TempDir, Utf8PathBuf) {
     let ctx = Ctx::new(root.clone());
     hall::init(
         &ctx,
-        InitInput {
+        &InitInput {
             path: Utf8PathBuf::from("."),
             name: Some("acme".to_owned()),
             provider: None,
@@ -68,7 +68,7 @@ fn hall_with_provider_session() -> (tempfile::TempDir, Utf8PathBuf) {
         },
     )
     .unwrap();
-    crate::action::sync::sync(&ctx, Default::default()).unwrap();
+    crate::action::sync::sync(&ctx, &Default::default()).unwrap();
     feature_promote::promote(
         &ctx,
         PromoteInput {
@@ -334,7 +334,7 @@ fn relay_without_a_previous_session_is_blocked() {
     let ctx = Ctx::new(root.clone());
     hall::init(
         &ctx,
-        InitInput {
+        &InitInput {
             path: Utf8PathBuf::from("."),
             name: Some("acme".to_owned()),
             provider: None,
@@ -370,7 +370,7 @@ fn relay_without_a_previous_session_is_blocked() {
         },
     )
     .unwrap();
-    crate::action::sync::sync(&ctx, Default::default()).unwrap();
+    crate::action::sync::sync(&ctx, &Default::default()).unwrap();
     feature_promote::promote(
         &ctx,
         PromoteInput {

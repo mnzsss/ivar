@@ -104,7 +104,7 @@ pub fn sync(ctx: &Ctx) -> Outcome<SyncOutcome> {
             &skills,
             &provider_targets,
             &state,
-            PlanOptions::default(),
+            &PlanOptions::default(),
         ));
     }
     steps.sort_by(|a, b| {

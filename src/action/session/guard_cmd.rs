@@ -18,7 +18,7 @@ pub struct GuardInput {
 }
 
 /// Run the guard: read stdin, delegate to the guard, and return the outcome.
-pub fn run(input: GuardInput) -> Result<GuardOutcome, Failure> {
+pub fn run(input: &GuardInput) -> Result<GuardOutcome, Failure> {
     let mut stdin = String::new();
     io::stdin()
         .read_to_string(&mut stdin)

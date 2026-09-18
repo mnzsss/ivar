@@ -21,7 +21,7 @@ pub(super) fn baseline(
             .changed_paths(worktree)
             .map_err(crate::error::Failure::from)?
             .into_iter()
-            .map(|path| evidence(worktree.join(&path)).map(|value| (path, value)))
+            .map(|path| evidence(&worktree.join(&path)).map(|value| (path, value)))
             .collect::<Result<_, _>>()?;
         repos.insert(
             name.clone(),
@@ -54,7 +54,7 @@ pub(super) fn diff(baseline: &RunBaseline) -> Result<RunDiff, crate::error::Fail
                 commit_evidence(&git, repo, &path).unwrap_or_else(|_| PathEvidence::absent())
             });
             let commit = commit_evidence(&git, repo, &path)?;
-            let final_state = evidence(repo.worktree.join(&path))?;
+            let final_state = evidence(&repo.worktree.join(&path))?;
             if let Some(kind) = classify_change(&initial, &commit, &final_state) {
                 changes.insert(
                     path,
@@ -92,7 +92,7 @@ fn commit_evidence(
     )
 }
 
-fn evidence(path: Utf8PathBuf) -> Result<PathEvidence, crate::error::Failure> {
+fn evidence(path: &Utf8PathBuf) -> Result<PathEvidence, crate::error::Failure> {
     if !fs::exists(&path)? {
         return Ok(PathEvidence::absent());
     }

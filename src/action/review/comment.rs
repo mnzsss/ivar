@@ -106,7 +106,7 @@ pub fn list(ctx: &Ctx, input: ListInput) -> Outcome<ListOutcome> {
     Ok(Report::new(ListOutcome { comments }))
 }
 
-pub fn resolve(ctx: &Ctx, input: ResolveInput) -> Outcome<ReviewComment> {
+pub fn resolve(ctx: &Ctx, input: &ResolveInput) -> Outcome<ReviewComment> {
     let (layout, name) = feature_in_hall(ctx, &input.feature)?;
     let mut stored = ReviewComments::read(&layout, &name)?;
     let comment = stored
