@@ -153,6 +153,34 @@ impl Confirm for Fixed {
 #[derive(Debug)]
 struct Interactive;
 
+/// Writes the prompt line, then one numbered line per option, to `stderr` —
+/// the listing both `select_many` and `select_one` show before reading stdin.
+fn write_prompt_and_options(
+    stderr: &mut std::io::StderrLock<'_>,
+    prompt: &str,
+    options: &[SelectOption],
+) -> Result<(), Failure> {
+    writeln!(stderr, "{prompt}").map_err(|source| {
+        Failure::failed(
+            "confirm.write_prompt",
+            format!("could not write the prompt: {source}"),
+        )
+    })?;
+    for (i, opt) in options.iter().enumerate() {
+        let desc_str = match &opt.description {
+            Some(d) => format!(" — {d}"),
+            None => String::new(),
+        };
+        writeln!(stderr, "  [{}] {}{desc_str}", i + 1, opt.id).map_err(|source| {
+            Failure::failed(
+                "confirm.write_prompt",
+                format!("could not write options: {source}"),
+            )
+        })?;
+    }
+    Ok(())
+}
+
 impl Confirm for Interactive {
     fn confirm(&self, question: &str, caveat: Option<&str>) -> Result<bool, Failure> {
         let mut stderr = std::io::stderr().lock();
@@ -183,24 +211,7 @@ impl Confirm for Interactive {
 
     fn select_many(&self, prompt: &str, options: &[SelectOption]) -> Result<Vec<usize>, Failure> {
         let mut stderr = std::io::stderr().lock();
-        writeln!(stderr, "{prompt}").map_err(|source| {
-            Failure::failed(
-                "confirm.write_prompt",
-                format!("could not write the prompt: {source}"),
-            )
-        })?;
-        for (i, opt) in options.iter().enumerate() {
-            let desc_str = match &opt.description {
-                Some(d) => format!(" — {d}"),
-                None => String::new(),
-            };
-            writeln!(stderr, "  [{}] {}{desc_str}", i + 1, opt.id).map_err(|source| {
-                Failure::failed(
-                    "confirm.write_prompt",
-                    format!("could not write options: {source}"),
-                )
-            })?;
-        }
+        write_prompt_and_options(&mut stderr, prompt, options)?;
         write!(stderr, "Enter numbers (comma-separated) or \"all\": ").map_err(|source| {
             Failure::failed(
                 "confirm.write_prompt",
@@ -260,24 +271,7 @@ impl Confirm for Interactive {
             return Ok(None);
         }
         let mut stderr = std::io::stderr().lock();
-        writeln!(stderr, "{prompt}").map_err(|source| {
-            Failure::failed(
-                "confirm.write_prompt",
-                format!("could not write the prompt: {source}"),
-            )
-        })?;
-        for (i, opt) in options.iter().enumerate() {
-            let desc_str = match &opt.description {
-                Some(d) => format!(" — {d}"),
-                None => String::new(),
-            };
-            writeln!(stderr, "  [{}] {}{desc_str}", i + 1, opt.id).map_err(|source| {
-                Failure::failed(
-                    "confirm.write_prompt",
-                    format!("could not write options: {source}"),
-                )
-            })?;
-        }
+        write_prompt_and_options(&mut stderr, prompt, options)?;
         write!(
             stderr,
             "Enter number (1-{}) or press enter to cancel: ",

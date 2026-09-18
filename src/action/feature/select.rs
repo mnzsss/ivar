@@ -5,6 +5,29 @@ use crate::action::confirm::SelectOption;
 use crate::action::feature::list::{self as feature_list, FeatureSummary};
 use crate::error::Failure;
 
+/// List the hall's features as select options, refusing when
+/// non-interactive or when there is nothing to choose from — the preamble
+/// both single- and multi-feature resolution run once `explicit` is absent.
+fn interactive_feature_options(ctx: &Ctx) -> Result<Vec<SelectOption>, Failure> {
+    if !ctx.confirm.is_interactive() {
+        return Err(Failure::blocked(
+            "feature.missing_argument",
+            "feature name is required when non-interactive",
+        ));
+    }
+
+    let report = feature_list::list(ctx)?;
+    let features = report.value.features;
+    if features.is_empty() {
+        return Err(Failure::blocked(
+            "feature.no_features_available",
+            "no features exist in this hall",
+        ));
+    }
+
+    Ok(features.iter().map(summary_to_select_option).collect())
+}
+
 /// Resolve a single feature name.
 ///
 /// If `explicit` is provided (`Some`), returns it immediately.
@@ -22,23 +45,7 @@ pub fn resolve_single_feature(
         return Ok(name);
     }
 
-    if !ctx.confirm.is_interactive() {
-        return Err(Failure::blocked(
-            "feature.missing_argument",
-            "feature name is required when non-interactive",
-        ));
-    }
-
-    let report = feature_list::list(ctx)?;
-    let features = report.value.features;
-    if features.is_empty() {
-        return Err(Failure::blocked(
-            "feature.no_features_available",
-            "no features exist in this hall",
-        ));
-    }
-
-    let options: Vec<SelectOption> = features.iter().map(summary_to_select_option).collect();
+    let options = interactive_feature_options(ctx)?;
 
     let chosen_idx = ctx.confirm.select_one(prompt, &options)?.ok_or_else(|| {
         Failure::blocked("feature.selection_cancelled", "feature selection cancelled")
@@ -68,23 +75,7 @@ pub fn resolve_multi_features(
         return Ok(vec![name]);
     }
 
-    if !ctx.confirm.is_interactive() {
-        return Err(Failure::blocked(
-            "feature.missing_argument",
-            "feature name is required when non-interactive",
-        ));
-    }
-
-    let report = feature_list::list(ctx)?;
-    let features = report.value.features;
-    if features.is_empty() {
-        return Err(Failure::blocked(
-            "feature.no_features_available",
-            "no features exist in this hall",
-        ));
-    }
-
-    let options: Vec<SelectOption> = features.iter().map(summary_to_select_option).collect();
+    let options = interactive_feature_options(ctx)?;
 
     let chosen_indices = ctx.confirm.select_many(prompt, &options)?;
     if chosen_indices.is_empty() {
