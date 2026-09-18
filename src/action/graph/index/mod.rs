@@ -62,7 +62,7 @@ pub fn index_repo(
         && head_sha == last_commit_str
         && !git.worktree_dirty(repo_utf8).unwrap_or(true)
     {
-        let duration_ms = start_time.elapsed().as_millis() as u64;
+        let duration_ms = u64::try_from(start_time.elapsed().as_millis()).unwrap_or(u64::MAX);
         return Ok(IndexOutcome {
             repo: repo_id.to_owned(),
             files_indexed: 0,
@@ -100,7 +100,7 @@ pub fn index_repo(
                     && files_to_index.is_empty()
                     && files_to_delete.is_empty()
                 {
-                    let duration_ms = start_time.elapsed().as_millis() as u64;
+                    let duration_ms = u64::try_from(start_time.elapsed().as_millis()).unwrap_or(u64::MAX);
                     return Ok(IndexOutcome {
                         repo: repo_id.to_owned(),
                         files_indexed: 0,
@@ -194,7 +194,7 @@ pub fn index_repo(
                 .modified()
                 .ok()
                 .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                .map(|d| d.as_nanos() as i64)
+                .map(|d| i64::try_from(d.as_nanos()).unwrap_or(i64::MAX))
                 .unwrap_or(0);
 
             let existing_file = if force_full {
@@ -296,7 +296,7 @@ pub fn index_repo(
         db.update_repo_commit(repo_id, head_str)?;
     }
 
-    let duration_ms = start_time.elapsed().as_millis() as u64;
+    let duration_ms = u64::try_from(start_time.elapsed().as_millis()).unwrap_or(u64::MAX);
     Ok(IndexOutcome {
         repo: repo_id.to_owned(),
         files_indexed: num_files_indexed,

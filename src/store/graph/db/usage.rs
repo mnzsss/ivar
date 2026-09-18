@@ -44,7 +44,7 @@ impl GraphDb {
                 event.command,
                 event.source.as_str(),
                 now_timestamp(),
-                event.duration_ms as i64,
+                i64::try_from(event.duration_ms).unwrap_or(i64::MAX),
                 event.result_count.map(|c| i64::try_from(c).unwrap_or(i64::MAX)),
                 event.error,
             ],
@@ -63,7 +63,7 @@ impl GraphDb {
                 command: r.get(0)?,
                 source: r.get(1)?,
                 ts: r.get(2)?,
-                duration_ms: r.get::<_, i64>(3)?.max(0) as u64,
+                duration_ms: u64::try_from(r.get::<_, i64>(3)?.max(0)).unwrap_or(0),
                 result_count: r.get(4)?,
                 error: r.get(5)?,
             })

@@ -161,7 +161,7 @@ pub fn rfc3339_now() -> String {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default();
-    let secs = now.as_secs() as i64;
+    let secs = i64::try_from(now.as_secs()).unwrap_or(i64::MAX);
     let nanos = now.subsec_nanos();
     rfc3339_from_parts(secs, nanos)
 }
@@ -175,9 +175,23 @@ pub fn rfc3339_from_epoch_secs(secs_f64: f64) -> String {
     if secs_f64.is_nan() || secs_f64.is_infinite() || secs_f64 < 0.0 {
         return "1970-01-01T00:00:00.000000000Z".to_owned();
     }
-    let secs = secs_f64.floor() as i64;
-    let subsec_nanos = ((secs_f64 - secs_f64.floor()) * 1_000_000_000.0).round() as u32;
+    let secs = clamp_f64_to_i64(secs_f64.floor());
+    let subsec_nanos = clamp_f64_to_u32(((secs_f64 - secs_f64.floor()) * 1_000_000_000.0).round());
     rfc3339_from_parts(secs, subsec_nanos)
+}
+
+#[expect(clippy::cast_possible_truncation, reason = "value is bounds-checked against i64::MAX above")]
+fn clamp_f64_to_i64(value: f64) -> i64 {
+    if value >= i64::MAX as f64 { i64::MAX } else { value as i64 }
+}
+
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "value is bounds-checked against u32::MAX above"
+)]
+#[expect(clippy::cast_sign_loss, reason = "the round() result is already non-negative here")]
+fn clamp_f64_to_u32(value: f64) -> u32 {
+    if value >= u32::MAX as f64 { u32::MAX } else { value as u32 }
 }
 
 #[must_use]
@@ -215,8 +229,8 @@ fn civil_from_days(days: i64) -> (i64, u32, u32) {
     };
     (
         if month <= 2 { year + 1 } else { year },
-        month as u32,
-        day as u32,
+        u32::try_from(month).unwrap_or(u32::MAX),
+        u32::try_from(day).unwrap_or(u32::MAX),
     )
 }
 
