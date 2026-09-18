@@ -375,7 +375,7 @@ pub fn find_affected_tests_with_root(
                         edge_kind: parse_edge_kind(&kind_raw),
                         provenance: parse_provenance(&prov_raw),
                         confidence: conf,
-                        line: line as usize,
+                        line: usize::try_from(line).unwrap_or(usize::MAX),
                     });
                 }
 

@@ -106,7 +106,7 @@ pub(super) fn map_symbol_and_path_row(
         .get::<_, Option<i64>>(13)
         .ok()
         .flatten()
-        .map(|c| c as u32);
+        .and_then(|c| u32::try_from(c).ok());
     let file_path: String = row.get(14)?;
 
     Ok((
@@ -120,10 +120,10 @@ pub(super) fn map_symbol_and_path_row(
             signature,
             docstring,
             span: Span::new(
-                start_line as usize,
-                start_col as usize,
-                end_line as usize,
-                end_col as usize,
+                usize::try_from(start_line).unwrap_or(usize::MAX),
+                usize::try_from(start_col).unwrap_or(usize::MAX),
+                usize::try_from(end_line).unwrap_or(usize::MAX),
+                usize::try_from(end_col).unwrap_or(usize::MAX),
             ),
             is_exported: is_exported != 0,
             complexity,
@@ -150,7 +150,7 @@ pub(super) fn map_symbol_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Symbol
         .get::<_, Option<i64>>(13)
         .ok()
         .flatten()
-        .map(|c| c as u32);
+        .and_then(|c| u32::try_from(c).ok());
 
     Ok(Symbol {
         id: Some(id),
@@ -162,10 +162,10 @@ pub(super) fn map_symbol_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Symbol
         signature,
         docstring,
         span: Span::new(
-            start_line as usize,
-            start_col as usize,
-            end_line as usize,
-            end_col as usize,
+            usize::try_from(start_line).unwrap_or(usize::MAX),
+            usize::try_from(start_col).unwrap_or(usize::MAX),
+            usize::try_from(end_line).unwrap_or(usize::MAX),
+            usize::try_from(end_col).unwrap_or(usize::MAX),
         ),
         is_exported: is_exported != 0,
         complexity,

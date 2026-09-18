@@ -273,7 +273,7 @@ where
         }
         "get_dead_code" => {
             let repo = args.get("repo").and_then(Value::as_str);
-            let limit = args.get("limit").and_then(Value::as_u64).unwrap_or(50) as usize;
+            let limit = bounded_arg(args, "limit", 50, usize::MAX);
             let items = dead_code::execute_dead_code(db, repo, limit)
                 .map_err(|e| format!("get_dead_code failed: {e}"))?;
             if args.get("format").and_then(Value::as_str) == Some("compact") {
@@ -285,8 +285,9 @@ where
 
         "get_complexity" => {
             let repo = args.get("repo").and_then(Value::as_str);
-            let threshold = args.get("threshold").and_then(Value::as_u64).unwrap_or(10) as u32;
-            let limit = args.get("limit").and_then(Value::as_u64).unwrap_or(50) as usize;
+            let threshold = u32::try_from(bounded_arg(args, "threshold", 10, u32::MAX as usize))
+                .unwrap_or(u32::MAX);
+            let limit = bounded_arg(args, "limit", 50, usize::MAX);
             let items = complexity::execute_complexity(db, repo, threshold, limit)
                 .map_err(|e| format!("get_complexity failed: {e}"))?;
             if args.get("format").and_then(Value::as_str) == Some("compact") {

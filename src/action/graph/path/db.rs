@@ -87,7 +87,7 @@ pub(super) fn get_outgoing_edges(
                 from_name,
                 to_name: target_name,
                 kind: parse_edge_kind(&kind_raw),
-                line: line as usize,
+                line: usize::try_from(line).unwrap_or(usize::MAX),
             });
         }
     }
@@ -134,7 +134,7 @@ pub(super) fn get_incoming_edges(
                 from_name,
                 to_name: target_name,
                 kind: parse_edge_kind(&kind_raw),
-                line: line as usize,
+                line: usize::try_from(line).unwrap_or(usize::MAX),
             });
         }
     }

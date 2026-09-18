@@ -71,7 +71,8 @@ pub fn get_impact(
         ORDER BY cg.depth ASC, s.name ASC",
     )?;
 
-    let rows = stmt.query_map(params![symbol_id, max_depth as i64], |row| {
+    let max_depth_i64 = i64::try_from(max_depth).unwrap_or(i64::MAX);
+    let rows = stmt.query_map(params![symbol_id, max_depth_i64], |row| {
         let depth: i64 = row.get(1)?;
         let path_names: String = row.get(2)?;
         let id: i64 = row.get(3)?;
@@ -87,7 +88,9 @@ pub fn get_impact(
         let end_line: i64 = row.get(13)?;
         let end_col: i64 = row.get(14)?;
         let is_exported: i64 = row.get(15)?;
-        let complexity = row.get::<_, Option<i64>>(16)?.map(|c| c as u32);
+        let complexity = row
+            .get::<_, Option<i64>>(16)?
+            .and_then(|c| u32::try_from(c).ok());
         let file_path: String = row.get(17)?;
         let sym = Symbol {
             id: Some(id),
@@ -99,10 +102,10 @@ pub fn get_impact(
             signature,
             docstring,
             span: Span::new(
-                start_line as usize,
-                start_col as usize,
-                end_line as usize,
-                end_col as usize,
+                usize::try_from(start_line).unwrap_or(usize::MAX),
+                usize::try_from(start_col).unwrap_or(usize::MAX),
+                usize::try_from(end_line).unwrap_or(usize::MAX),
+                usize::try_from(end_col).unwrap_or(usize::MAX),
             ),
             is_exported: is_exported != 0,
             complexity,
@@ -116,7 +119,7 @@ pub fn get_impact(
         Ok(ImpactItem {
             symbol: sym,
             file_path,
-            depth: depth as usize,
+            depth: usize::try_from(depth).unwrap_or(usize::MAX),
             path_via,
         })
     })?;

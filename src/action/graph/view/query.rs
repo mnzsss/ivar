@@ -219,7 +219,7 @@ fn resolve_seed_nodes(
                  ORDER BY count(e.id) DESC, s.is_exported DESC, s.id ASC
                  LIMIT ?1",
             )?;
-            let rows = stmt.query_map(params![limit as i64], map_node_row)?;
+            let rows = stmt.query_map(params![i64::try_from(limit).unwrap_or(i64::MAX)], map_node_row)?;
             let mut nodes = Vec::new();
             for r in rows {
                 nodes.push(r?);
@@ -239,7 +239,7 @@ fn resolve_seed_nodes(
                  ORDER BY count(e.id) DESC, s.is_exported DESC, s.id ASC
                  LIMIT ?2",
             )?;
-            let rows = stmt.query_map(params![repo, limit as i64], map_node_row)?;
+            let rows = stmt.query_map(params![repo, i64::try_from(limit).unwrap_or(i64::MAX)], map_node_row)?;
             let mut nodes = Vec::new();
             for r in rows {
                 nodes.push(r?);
@@ -258,7 +258,10 @@ fn resolve_seed_nodes(
                  LIMIT ?3",
             )?;
             let like_pattern = format!("%/{path}");
-            let rows = stmt.query_map(params![path, like_pattern, limit as i64], map_node_row)?;
+            let rows = stmt.query_map(
+                params![path, like_pattern, i64::try_from(limit).unwrap_or(i64::MAX)],
+                map_node_row,
+            )?;
             let mut nodes = Vec::new();
             for r in rows {
                 nodes.push(r?);
@@ -285,7 +288,7 @@ fn resolve_seed_nodes(
                  ORDER BY s.is_exported DESC, s.id ASC
                  LIMIT ?2",
             )?;
-            let rows = stmt.query_map(params![sym, limit as i64], map_node_row)?;
+            let rows = stmt.query_map(params![sym, i64::try_from(limit).unwrap_or(i64::MAX)], map_node_row)?;
             let mut nodes = Vec::new();
             for r in rows {
                 nodes.push(r?);
@@ -303,7 +306,7 @@ fn resolve_seed_nodes(
                  ORDER BY s.is_exported DESC, s.id ASC
                  LIMIT ?2",
             )?;
-            let rows = stmt.query_map(params![sym, limit as i64], map_node_row)?;
+            let rows = stmt.query_map(params![sym, i64::try_from(limit).unwrap_or(i64::MAX)], map_node_row)?;
             let mut nodes = Vec::new();
             for r in rows {
                 nodes.push(r?);
