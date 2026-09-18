@@ -201,6 +201,18 @@ fn fetch_single_node(conn: &Connection, symbol_id: i64) -> Result<Option<ViewerN
     }
 }
 
+/// Drains a `query_map` row iterator into a `Vec`, surfacing the first row
+/// error through `ViewError`'s `rusqlite::Error` conversion.
+fn collect_nodes(
+    rows: impl Iterator<Item = rusqlite::Result<ViewerNode>>,
+) -> Result<Vec<ViewerNode>, ViewError> {
+    let mut nodes = Vec::new();
+    for r in rows {
+        nodes.push(r?);
+    }
+    Ok(nodes)
+}
+
 fn resolve_seed_nodes(
     conn: &Connection,
     seed: &ViewSeed,
@@ -220,11 +232,7 @@ fn resolve_seed_nodes(
                  LIMIT ?1",
             )?;
             let rows = stmt.query_map(params![i64::try_from(limit).unwrap_or(i64::MAX)], map_node_row)?;
-            let mut nodes = Vec::new();
-            for r in rows {
-                nodes.push(r?);
-            }
-            Ok(nodes)
+            collect_nodes(rows)
         }
         ViewSeed::Repo(repo) => {
             let mut stmt = conn.prepare_cached(
@@ -240,11 +248,7 @@ fn resolve_seed_nodes(
                  LIMIT ?2",
             )?;
             let rows = stmt.query_map(params![repo, i64::try_from(limit).unwrap_or(i64::MAX)], map_node_row)?;
-            let mut nodes = Vec::new();
-            for r in rows {
-                nodes.push(r?);
-            }
-            Ok(nodes)
+            collect_nodes(rows)
         }
         ViewSeed::File(path) => {
             let mut stmt = conn.prepare_cached(
@@ -262,11 +266,7 @@ fn resolve_seed_nodes(
                 params![path, like_pattern, i64::try_from(limit).unwrap_or(i64::MAX)],
                 map_node_row,
             )?;
-            let mut nodes = Vec::new();
-            for r in rows {
-                nodes.push(r?);
-            }
-            Ok(nodes)
+            collect_nodes(rows)
         }
         ViewSeed::Symbol(sym) => {
             if let Some(id_str) = sym.strip_prefix("id:")
@@ -289,11 +289,7 @@ fn resolve_seed_nodes(
                  LIMIT ?2",
             )?;
             let rows = stmt.query_map(params![sym, i64::try_from(limit).unwrap_or(i64::MAX)], map_node_row)?;
-            let mut nodes = Vec::new();
-            for r in rows {
-                nodes.push(r?);
-            }
-            Ok(nodes)
+            collect_nodes(rows)
         }
         ViewSeed::Impact(sym) => {
             let mut stmt = conn.prepare_cached(
@@ -307,11 +303,7 @@ fn resolve_seed_nodes(
                  LIMIT ?2",
             )?;
             let rows = stmt.query_map(params![sym, i64::try_from(limit).unwrap_or(i64::MAX)], map_node_row)?;
-            let mut nodes = Vec::new();
-            for r in rows {
-                nodes.push(r?);
-            }
-            Ok(nodes)
+            collect_nodes(rows)
         }
     }
 }
@@ -342,11 +334,7 @@ fn fetch_neighbor_nodes(conn: &Connection, node_id: i64) -> Result<Vec<ViewerNod
          ORDER BY s.is_exported DESC, s.id ASC",
     )?;
     let rows = stmt.query_map(params![node_id], map_node_row)?;
-    let mut neighbors = Vec::new();
-    for r in rows {
-        neighbors.push(r?);
-    }
-    Ok(neighbors)
+    collect_nodes(rows)
 }
 
 fn fetch_connecting_edges(
