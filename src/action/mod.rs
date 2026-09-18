@@ -207,6 +207,38 @@ pub(crate) fn read_manifest(layout: &Layout) -> Result<Manifest, Failure> {
     })
 }
 
+/// The alias specs every instruction bootstrap/audit shares: one
+/// [`instructions::Alias`](crate::harness::config::instructions::Alias) per
+/// distinct alias path, listing every provider that owns it and whether any
+/// owner has it enabled.
+pub(crate) fn collect_instruction_aliases(
+    layout: &Layout,
+    manifest: &Manifest,
+) -> Vec<crate::harness::config::instructions::Alias> {
+    use crate::domain::provider::Provider;
+    use crate::harness::config::instructions::Alias;
+
+    let mut aliases: Vec<Alias> = Vec::new();
+    for provider in Provider::ALL {
+        let path = layout.instruction_alias(&provider);
+        let enabled = manifest.providers().available().contains(&provider);
+        match aliases.iter_mut().find(|alias| alias.path == path) {
+            Some(existing) => {
+                if !existing.owners.contains(&provider) {
+                    existing.owners.push(provider);
+                }
+                existing.enabled |= enabled;
+            }
+            None => aliases.push(Alias {
+                path,
+                owners: vec![provider],
+                enabled,
+            }),
+        }
+    }
+    aliases
+}
+
 #[cfg(test)]
 #[path = "../../tests/unit/action/mod.rs"]
 mod tests;

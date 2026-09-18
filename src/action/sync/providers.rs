@@ -76,24 +76,7 @@ fn reconcile_instructions(
     layout: &Layout,
     manifest: &Manifest,
 ) -> Result<Vec<instructions::Entry>, instructions::Error> {
-    let mut aliases: Vec<instructions::Alias> = Vec::new();
-    for provider in Provider::ALL {
-        let path = layout.instruction_alias(&provider);
-        let enabled = manifest.providers().available().contains(&provider);
-        match aliases.iter_mut().find(|alias| alias.path == path) {
-            Some(existing) => {
-                if !existing.owners.contains(&provider) {
-                    existing.owners.push(provider);
-                }
-                existing.enabled |= enabled;
-            }
-            None => aliases.push(instructions::Alias {
-                path,
-                owners: vec![provider],
-                enabled,
-            }),
-        }
-    }
+    let aliases = crate::action::collect_instruction_aliases(layout, manifest);
     let block = config::build_block(manifest.name(), &repo_names(manifest));
     instructions::reconcile(&layout.hall_instructions(), &block, &aliases)
 }
