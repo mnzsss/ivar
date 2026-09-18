@@ -450,7 +450,7 @@ fn connect_repairs_commands_and_instructions() {
     );
     // The provider's commands reach the agent again.
     assert!(
-        fs::is_file(&view_dir.join(".claude/commands/ivar-deliver.md")).unwrap(),
+        fs::is_file(&view_dir.join(".claude/commands/ivar-review.md")).unwrap(),
         "connect must restore the provider's commands symlink"
     );
     // The session instruction file is back, with the bootstrap block.
