@@ -7,6 +7,32 @@ use super::symbols::node_to_span;
 use crate::domain::graph::{Edge, EdgeKind, Provenance, Span};
 use crate::infra::graph::parser::SupportedLanguage;
 
+/// Builds one unresolved-by-id edge: every extracted edge starts out
+/// pointing at a name, not a symbol id — resolution happens later, once the
+/// whole file's symbols are indexed.
+fn make_edge(
+    repo: &str,
+    name: String,
+    kind: EdgeKind,
+    provenance: Provenance,
+    span: Span,
+    confidence: f64,
+) -> Edge {
+    Edge {
+        id: None,
+        repo: repo.to_owned(),
+        file_id: None,
+        from_symbol_id: None,
+        to_symbol_id: None,
+        to_name: Some(name),
+        kind,
+        provenance,
+        line: span.start_line,
+        col: span.start_col,
+        confidence,
+    }
+}
+
 pub(super) fn extract_edges(
     repo: &str,
     root: Node,
@@ -56,37 +82,27 @@ pub(super) fn extract_edges(
                     imported_names.insert(leaf.trim().to_owned());
                 }
 
-                import_edges.push(Edge {
-                    id: None,
-                    repo: repo.to_owned(),
-                    file_id: None,
-                    from_symbol_id: None,
-                    to_symbol_id: None,
-                    to_name: Some(raw_text.to_owned()),
-                    kind: EdgeKind::Imports,
-                    provenance: Provenance::Extracted,
-                    line: span.start_line,
-                    col: span.start_col,
-                    confidence: 0.95,
-                });
+                import_edges.push(make_edge(
+                    repo,
+                    raw_text.to_owned(),
+                    EdgeKind::Imports,
+                    Provenance::Extracted,
+                    span,
+                    0.95,
+                ));
             } else if index == import_name_idx {
                 let name = cap.node.utf8_text(source_bytes).unwrap_or("").trim();
                 if !name.is_empty() {
                     imported_names.insert(name.to_owned());
                     let span = node_to_span(cap.node);
-                    import_edges.push(Edge {
-                        id: None,
-                        repo: repo.to_owned(),
-                        file_id: None,
-                        from_symbol_id: None,
-                        to_symbol_id: None,
-                        to_name: Some(name.to_owned()),
-                        kind: EdgeKind::References,
-                        provenance: Provenance::Extracted,
-                        line: span.start_line,
-                        col: span.start_col,
-                        confidence: 0.95,
-                    });
+                    import_edges.push(make_edge(
+                        repo,
+                        name.to_owned(),
+                        EdgeKind::References,
+                        Provenance::Extracted,
+                        span,
+                        0.95,
+                    ));
                 }
             } else if index == call_target_idx {
                 target_node = Some(cap.node);
@@ -118,19 +134,14 @@ pub(super) fn extract_edges(
                             continue;
                         }
 
-                        type_ref_edges.push(Edge {
-                            id: None,
-                            repo: repo.to_owned(),
-                            file_id: None,
-                            from_symbol_id: None,
-                            to_symbol_id: None,
-                            to_name: Some(name.to_owned()),
-                            kind: EdgeKind::References,
-                            provenance: Provenance::Extracted,
-                            line: span.start_line,
-                            col: span.start_col,
-                            confidence: 0.95,
-                        });
+                        type_ref_edges.push(make_edge(
+                            repo,
+                            name.to_owned(),
+                            EdgeKind::References,
+                            Provenance::Extracted,
+                            span,
+                            0.95,
+                        ));
                     }
                 }
             }
@@ -165,19 +176,7 @@ pub(super) fn extract_edges(
                 // Tier 4: General / dynamic / unresolved call
                 (target_name, Provenance::Inferred, 0.70)
             };
-            Edge {
-                id: None,
-                repo: repo.to_owned(),
-                file_id: None,
-                from_symbol_id: None,
-                to_symbol_id: None,
-                to_name: Some(to_name),
-                kind: EdgeKind::Calls,
-                provenance,
-                line: span.start_line,
-                col: span.start_col,
-                confidence,
-            }
+            make_edge(repo, to_name, EdgeKind::Calls, provenance, span, confidence)
         });
 
     let mut edges = import_edges;
@@ -206,19 +205,14 @@ fn extract_hierarchy_edges(
                     let trait_name = raw_trait.split('<').next().unwrap_or(raw_trait).trim();
                     if !trait_name.is_empty() {
                         let span = node_to_span(trait_node);
-                        edges.push(Edge {
-                            id: None,
-                            repo: repo.to_owned(),
-                            file_id: None,
-                            from_symbol_id: None,
-                            to_symbol_id: None,
-                            to_name: Some(trait_name.to_owned()),
-                            kind: EdgeKind::Implements,
-                            provenance: Provenance::Extracted,
-                            line: span.start_line,
-                            col: span.start_col,
-                            confidence: 1.0,
-                        });
+                        edges.push(make_edge(
+                            repo,
+                            trait_name.to_owned(),
+                            EdgeKind::Implements,
+                            Provenance::Extracted,
+                            span,
+                            1.0,
+                        ));
                     }
                 }
             }
@@ -243,19 +237,14 @@ fn extract_hierarchy_edges(
                                                 .trim();
                                             if !name.is_empty() {
                                                 let span = node_to_span(target);
-                                                edges.push(Edge {
-                                                    id: None,
-                                                    repo: repo.to_owned(),
-                                                    file_id: None,
-                                                    from_symbol_id: None,
-                                                    to_symbol_id: None,
-                                                    to_name: Some(name.to_owned()),
-                                                    kind: EdgeKind::Inherits,
-                                                    provenance: Provenance::Extracted,
-                                                    line: span.start_line,
-                                                    col: span.start_col,
-                                                    confidence: 1.0,
-                                                });
+                                                edges.push(make_edge(
+                                                    repo,
+                                                    name.to_owned(),
+                                                    EdgeKind::Inherits,
+                                                    Provenance::Extracted,
+                                                    span,
+                                                    1.0,
+                                                ));
                                             }
                                         }
                                     }
@@ -274,19 +263,14 @@ fn extract_hierarchy_edges(
                                                 .trim();
                                             if !name.is_empty() {
                                                 let span = node_to_span(target);
-                                                edges.push(Edge {
-                                                    id: None,
-                                                    repo: repo.to_owned(),
-                                                    file_id: None,
-                                                    from_symbol_id: None,
-                                                    to_symbol_id: None,
-                                                    to_name: Some(name.to_owned()),
-                                                    kind: EdgeKind::Implements,
-                                                    provenance: Provenance::Extracted,
-                                                    line: span.start_line,
-                                                    col: span.start_col,
-                                                    confidence: 1.0,
-                                                });
+                                                edges.push(make_edge(
+                                                    repo,
+                                                    name.to_owned(),
+                                                    EdgeKind::Implements,
+                                                    Provenance::Extracted,
+                                                    span,
+                                                    1.0,
+                                                ));
                                             }
                                         }
                                     }
@@ -312,19 +296,14 @@ fn extract_hierarchy_edges(
                                         raw_name.split('<').next().unwrap_or(raw_name).trim();
                                     if !name.is_empty() {
                                         let span = node_to_span(target);
-                                        edges.push(Edge {
-                                            id: None,
-                                            repo: repo.to_owned(),
-                                            file_id: None,
-                                            from_symbol_id: None,
-                                            to_symbol_id: None,
-                                            to_name: Some(name.to_owned()),
-                                            kind: EdgeKind::Inherits,
-                                            provenance: Provenance::Extracted,
-                                            line: span.start_line,
-                                            col: span.start_col,
-                                            confidence: 1.0,
-                                        });
+                                        edges.push(make_edge(
+                                            repo,
+                                            name.to_owned(),
+                                            EdgeKind::Inherits,
+                                            Provenance::Extracted,
+                                            span,
+                                            1.0,
+                                        ));
                                     }
                                 }
                             }
