@@ -34,192 +34,20 @@ pub(crate) fn execute(
     // A repo whose checks fail is not pushed — its work did not verify — while
     // the rest of the batch continues. The results are machine-visible on the outcome.
     for repo in &preview.repos {
-        let worktree = layout.repo_worktree(&repo.repo, &feature.branch);
-        let repo_checks = verification::checks_for(manifest, &repo.repo);
-        let run = verification::run(&repo_checks, &worktree)?;
-        let passed = run.results.iter().all(|result| result.success);
-        checks.push(RepoCheckResult {
-            repo: repo.repo.clone(),
-            passed,
-            results: run.results,
-        });
-        if !passed {
-            warnings.push(Warning::new(
-                "deliver.checks_failed",
-                repo.repo.as_str(),
-                "root checks failed; this repo was not pushed",
-            ));
-            pushes.push(PushResult {
-                repo: repo.repo.clone(),
-                ok: false,
-                detail: Some("root checks failed".to_owned()),
-                pr: None,
-                fix: None,
-            });
-            continue;
-        }
-
-        let bare = layout.repo_bare(&repo.repo);
-        match push_repo(git, &bare, repo) {
-            Ok(()) => pushes.push(PushResult {
-                repo: repo.repo.clone(),
-                ok: true,
-                detail: None,
-                pr: None,
-                fix: None,
-            }),
-            Err(failure) => {
-                let (detail, fix) = if rejected_as_non_fast_forward(&failure) {
-                    (
-                        "push rejected: the remote branch carries commits this branch does not"
-                            .to_owned(),
-                        Some(force_with_lease_fix(git, &bare, repo)),
-                    )
-                } else {
-                    (failure.what.clone(), None)
-                };
-                warnings.push(Warning::new(
-                    "deliver.push_failed",
-                    repo.repo.as_str(),
-                    detail.clone(),
-                ));
-                pushes.push(PushResult {
-                    repo: repo.repo.clone(),
-                    ok: false,
-                    detail: Some(detail),
-                    pr: None,
-                    fix,
-                });
-            }
-        }
+        let (push, check_result, repo_warnings) = check_and_push_one(git, layout, manifest, feature, repo)?;
+        pushes.push(push);
+        checks.push(check_result);
+        warnings.extend(repo_warnings);
     }
 
     // -- Phase 2: create PRs for repos that need them -------------------------
     let mut pr_results: Vec<(RepoName, Result<PullRequest, Failure>)> = Vec::new();
     for repo in &preview.repos {
-        if matches!(
-            repo.action,
-            DeliveryAction::PushOnly | DeliveryAction::LandOnDefault
-        ) {
-            continue;
-        }
-
-        let bare = layout.repo_bare(&repo.repo);
-
-        // The base must still support delivering onto it before a PR is
-        // opened or updated against it: a base gone from the remote, or one
-        // this branch has drifted off of, would make the PR's diff wrong.
-        // Refused per repo — the rest of the batch is unaffected — and never
-        // added to `blockers`, which is informational only.
-        let default_branch = manifest
-            .repos()
-            .iter()
-            .find(|manifest_repo| manifest_repo.name() == &repo.repo)
-            .map(|manifest_repo| manifest_repo.default_branch().clone());
-        if let Some(default_branch) = default_branch {
-            let remote_tip = git
-                .remote_branch_tip(&bare, &repo.remote, repo.base_branch.as_str())
-                .map_err(|_| ());
-            let secondary = match &remote_tip {
-                // Ignored by `check_base` when the remote did not answer —
-                // no point spending a local read on it.
-                Err(()) => Ok(false),
-                Ok(None) => git
-                    .is_ancestor(&bare, repo.base_branch.as_str(), default_branch.as_str())
-                    .map_err(|_| ()),
-                // Against the remote's own tip, not the local branch name:
-                // `ivar sync` never re-fetches a non-default branch, so a
-                // local `base_branch` ref can be stale — still an ancestor
-                // of the local branch even though the remote has moved on.
-                // A tip this bare clone never fetched is itself the answer
-                // (`is_ancestor` refuses, `check_base` reads that as moved).
-                Ok(Some(tip)) => git
-                    .is_ancestor(&bare, tip, repo.local_branch.as_str())
-                    .map_err(|_| ()),
-            };
-            if let Some(failure) = repo.check_base(&remote_tip, secondary, &default_branch) {
-                warnings.push(Warning::new(
-                    failure.code,
-                    repo.repo.as_str(),
-                    failure.what.clone(),
-                ));
-                if let Some(push) = pushes.iter_mut().find(|push| push.repo == repo.repo) {
-                    push.detail = Some(format!("no pull request: {}", failure.what));
-                    push.fix = failure.fix_actions.first().cloned();
-                }
-                continue;
-            }
-        }
-
-        // A branch that already has a PR was updated by the push above — `gh pr
-        // create` would only refuse it as a duplicate. Its URL is still part of
-        // the report, and `gh pr list` is the only place it comes from.
-        let want_draft = repo.draft.is_some();
-        let (mut result, should_convert) = match repo.action {
-            DeliveryAction::UpdatePr => {
-                // Try to find existing PR; if it exists, do a partial edit; otherwise create new.
-                existing_pr(&bare, repo.local_branch.as_str()).map_or_else(
-                    || {
-                        (
-                            create_pull_request(
-                                &bare,
-                                &repo.local_branch,
-                                &repo.base_branch,
-                                feature_name,
-                                repo.pr_title.as_deref(),
-                                repo.pr_body.as_deref(),
-                                want_draft,
-                            ),
-                            false,
-                        )
-                    },
-                    |pr| {
-                        // PR exists — do a safe partial edit (only supplied fields change).
-                        (
-                            edit_pull_request(
-                                &bare,
-                                &pr.url,
-                                repo.pr_title.as_deref(),
-                                repo.pr_body.as_deref(),
-                            )
-                            .map(|_| pr),
-                            true,
-                        )
-                    },
-                )
-            }
-            DeliveryAction::NewPr => (
-                create_pull_request(
-                    &bare,
-                    &repo.local_branch,
-                    &repo.base_branch,
-                    feature_name,
-                    repo.pr_title.as_deref(),
-                    repo.pr_body.as_deref(),
-                    want_draft,
-                ),
-                false,
-            ),
-            DeliveryAction::PushOnly | DeliveryAction::LandOnDefault => unreachable!(),
-        };
-
-        // Convert only an existing PR. A planned conversion whose PR vanished
-        // is recreated as draft above, so it needs no follow-up transition.
-        if repo.draft == Some(DraftAction::ConvertToDraft)
-            && should_convert
-            && let Ok(pr) = &mut result
+        if let Some(entry) =
+            create_pr_for_repo(git, manifest, layout, feature_name, repo, &mut pushes, &mut warnings)
         {
-            match convert_pull_request_to_draft(&bare, &pr.url) {
-                Ok(()) => pr.is_draft = true,
-                Err(failure) => warnings.push(Warning::new(
-                    "deliver.pr_draft_conversion_failed",
-                    repo.repo.as_str(),
-                    format!("{}: {}", failure.code, failure.what),
-                )),
-            }
+            pr_results.push(entry);
         }
-
-        pr_results.push((repo.repo.clone(), result));
     }
 
     let mut pr_url_map: BTreeMap<RepoName, String> = BTreeMap::new();
@@ -269,6 +97,227 @@ pub(crate) fn execute(
         },
         warnings,
     ))
+}
+
+fn check_and_push_one(
+    git: &impl Git,
+    layout: &Layout,
+    manifest: &Manifest,
+    feature: &Feature,
+    repo: &crate::domain::feature::DeliveryRepo,
+) -> Result<(PushResult, RepoCheckResult, Vec<Warning>), Failure> {
+    let mut warnings = Vec::new();
+    let worktree = layout.repo_worktree(&repo.repo, &feature.branch);
+    let repo_checks = verification::checks_for(manifest, &repo.repo);
+    let run = verification::run(&repo_checks, &worktree)?;
+    let passed = run.results.iter().all(|result| result.success);
+    let check_result = RepoCheckResult {
+        repo: repo.repo.clone(),
+        passed,
+        results: run.results,
+    };
+    if !passed {
+        warnings.push(Warning::new(
+            "deliver.checks_failed",
+            repo.repo.as_str(),
+            "root checks failed; this repo was not pushed",
+        ));
+        let push = PushResult {
+            repo: repo.repo.clone(),
+            ok: false,
+            detail: Some("root checks failed".to_owned()),
+            pr: None,
+            fix: None,
+        };
+        return Ok((push, check_result, warnings));
+    }
+
+    let bare = layout.repo_bare(&repo.repo);
+    let push = match push_repo(git, &bare, repo) {
+        Ok(()) => PushResult {
+            repo: repo.repo.clone(),
+            ok: true,
+            detail: None,
+            pr: None,
+            fix: None,
+        },
+        Err(failure) => {
+            let (detail, fix) = if rejected_as_non_fast_forward(&failure) {
+                (
+                    "push rejected: the remote branch carries commits this branch does not"
+                        .to_owned(),
+                    Some(force_with_lease_fix(git, &bare, repo)),
+                )
+            } else {
+                (failure.what.clone(), None)
+            };
+            warnings.push(Warning::new(
+                "deliver.push_failed",
+                repo.repo.as_str(),
+                detail.clone(),
+            ));
+            PushResult {
+                repo: repo.repo.clone(),
+                ok: false,
+                detail: Some(detail),
+                pr: None,
+                fix,
+            }
+        }
+    };
+    Ok((push, check_result, warnings))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn create_pr_for_repo(
+    git: &impl Git,
+    manifest: &Manifest,
+    layout: &Layout,
+    feature_name: &FeatureName,
+    repo: &crate::domain::feature::DeliveryRepo,
+    pushes: &mut [PushResult],
+    warnings: &mut Vec<Warning>,
+) -> Option<(RepoName, Result<PullRequest, Failure>)> {
+    if matches!(
+        repo.action,
+        DeliveryAction::PushOnly | DeliveryAction::LandOnDefault
+    ) {
+        return None;
+    }
+
+    let bare = layout.repo_bare(&repo.repo);
+
+    if let Some(failure) = check_pr_base(git, manifest, &bare, repo) {
+        warnings.push(Warning::new(
+            failure.code,
+            repo.repo.as_str(),
+            failure.what.clone(),
+        ));
+        if let Some(push) = pushes.iter_mut().find(|push| push.repo == repo.repo) {
+            push.detail = Some(format!("no pull request: {}", failure.what));
+            push.fix = failure.fix_actions.first().cloned();
+        }
+        return None;
+    }
+
+    let (mut result, should_convert) = open_or_update_pr(git, &bare, feature_name, repo);
+
+    // Convert only an existing PR. A planned conversion whose PR vanished
+    // is recreated as draft above, so it needs no follow-up transition.
+    if repo.draft == Some(DraftAction::ConvertToDraft)
+        && should_convert
+        && let Ok(pr) = &mut result
+    {
+        match convert_pull_request_to_draft(&bare, &pr.url) {
+            Ok(()) => pr.is_draft = true,
+            Err(failure) => warnings.push(Warning::new(
+                "deliver.pr_draft_conversion_failed",
+                repo.repo.as_str(),
+                format!("{}: {}", failure.code, failure.what),
+            )),
+        }
+    }
+
+    Some((repo.repo.clone(), result))
+}
+
+/// The base must still support delivering onto it before a PR is opened or
+/// updated against it: a base gone from the remote, or one this branch has
+/// drifted off of, would make the PR's diff wrong. `None` means the check
+/// passed, or there was nothing to check.
+fn check_pr_base(
+    git: &impl Git,
+    manifest: &Manifest,
+    bare: &camino::Utf8Path,
+    repo: &crate::domain::feature::DeliveryRepo,
+) -> Option<Failure> {
+    let default_branch = manifest
+        .repos()
+        .iter()
+        .find(|manifest_repo| manifest_repo.name() == &repo.repo)
+        .map(|manifest_repo| manifest_repo.default_branch().clone())?;
+
+    let remote_tip = git
+        .remote_branch_tip(bare, &repo.remote, repo.base_branch.as_str())
+        .map_err(|_| ());
+    let secondary = match &remote_tip {
+        // Ignored by `check_base` when the remote did not answer —
+        // no point spending a local read on it.
+        Err(()) => Ok(false),
+        Ok(None) => git
+            .is_ancestor(bare, repo.base_branch.as_str(), default_branch.as_str())
+            .map_err(|_| ()),
+        // Against the remote's own tip, not the local branch name:
+        // `ivar sync` never re-fetches a non-default branch, so a
+        // local `base_branch` ref can be stale — still an ancestor
+        // of the local branch even though the remote has moved on.
+        // A tip this bare clone never fetched is itself the answer
+        // (`is_ancestor` refuses, `check_base` reads that as moved).
+        Ok(Some(tip)) => git
+            .is_ancestor(bare, tip, repo.local_branch.as_str())
+            .map_err(|_| ()),
+    };
+    repo.check_base(&remote_tip, secondary, &default_branch)
+}
+
+/// Create or update the PR for a repo. A branch that already has a PR was
+/// updated by the push above — `gh pr create` would only refuse it as a
+/// duplicate. Its URL is still part of the report, and `gh pr list` is the
+/// only place it comes from. The returned `bool` is `should_convert`.
+fn open_or_update_pr(
+    _git: &impl Git,
+    bare: &camino::Utf8Path,
+    feature_name: &FeatureName,
+    repo: &crate::domain::feature::DeliveryRepo,
+) -> (Result<PullRequest, Failure>, bool) {
+    let want_draft = repo.draft.is_some();
+    match repo.action {
+        DeliveryAction::UpdatePr => {
+            // Try to find existing PR; if it exists, do a partial edit; otherwise create new.
+            existing_pr(bare, repo.local_branch.as_str()).map_or_else(
+                || {
+                    (
+                        create_pull_request(
+                            bare,
+                            &repo.local_branch,
+                            &repo.base_branch,
+                            feature_name,
+                            repo.pr_title.as_deref(),
+                            repo.pr_body.as_deref(),
+                            want_draft,
+                        ),
+                        false,
+                    )
+                },
+                |pr| {
+                    // PR exists — do a safe partial edit (only supplied fields change).
+                    (
+                        edit_pull_request(
+                            bare,
+                            &pr.url,
+                            repo.pr_title.as_deref(),
+                            repo.pr_body.as_deref(),
+                        )
+                        .map(|_| pr),
+                        true,
+                    )
+                },
+            )
+        }
+        DeliveryAction::NewPr => (
+            create_pull_request(
+                bare,
+                &repo.local_branch,
+                &repo.base_branch,
+                feature_name,
+                repo.pr_title.as_deref(),
+                repo.pr_body.as_deref(),
+                want_draft,
+            ),
+            false,
+        ),
+        DeliveryAction::PushOnly | DeliveryAction::LandOnDefault => unreachable!(),
+    }
 }
 
 /// Whether git refused the push because the remote branch has moved on.
