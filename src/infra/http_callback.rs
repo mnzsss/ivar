@@ -222,12 +222,19 @@ impl CallbackServer {
 
             match listener.accept() {
                 Ok((stream, _)) => {
-                    let result = Self::handle_connection(stream, &expected_state);
+                    let result = Self::handle_connection(stream, expected_state);
                     drop(listener); // Explicitly drop listener to close clone
                     if tx.send(result).is_err() {
-                        eprintln!(
-                            "[ivar] oauth callback: result channel had no receiver; the wait() caller already gave up"
-                        );
+                        #[expect(
+                            clippy::print_stderr,
+                            reason = "background worker thread with no Report to attach a Warning to; \
+                                      the wait() caller already gave up, so this is diagnostic-only"
+                        )]
+                        {
+                            eprintln!(
+                                "[ivar] oauth callback: result channel had no receiver; the wait() caller already gave up"
+                            );
+                        }
                     }
                     break;
                 }

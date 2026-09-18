@@ -84,7 +84,7 @@ pub fn connect(ctx: &Ctx, input: &ConnectInput) -> Outcome<ConnectOutcome> {
     let layout = discover_hall(ctx)?;
     let manifest = read_manifest(&layout)?;
 
-    let (session, mut warnings) = match attach_or_create(ctx, &layout, &input)? {
+    let (session, mut warnings) = match attach_or_create(ctx, &layout, input)? {
         Some(report) => (report.value, report.warnings),
         None => (
             lookup::resolve(

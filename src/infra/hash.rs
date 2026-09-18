@@ -151,7 +151,7 @@ fn is_dot_named(entry: &walkdir::DirEntry) -> bool {
             .is_some_and(|name| name.starts_with('.'))
 }
 
-fn not_utf8(path: &std::path::PathBuf) -> Error {
+fn not_utf8(path: &std::path::Path) -> Error {
     Error::NotUtf8 {
         display: path.to_string_lossy().into_owned(),
     }

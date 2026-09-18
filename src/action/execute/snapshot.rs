@@ -93,10 +93,10 @@ fn commit_evidence(
 }
 
 fn evidence(path: &Utf8PathBuf) -> Result<PathEvidence, crate::error::Failure> {
-    if !fs::exists(&path)? {
+    if !fs::exists(path)? {
         return Ok(PathEvidence::absent());
     }
-    let Some(metadata) = fs::stat(&path)? else {
+    let Some(metadata) = fs::stat(path)? else {
         return Ok(PathEvidence::absent());
     };
     #[cfg(unix)]
@@ -128,6 +128,6 @@ fn evidence(path: &Utf8PathBuf) -> Result<PathEvidence, crate::error::Failure> {
     Ok(PathEvidence {
         state: PathState::File,
         mode: Some(mode),
-        hash: Some(hash::file(&path)?),
+        hash: Some(hash::file(path)?),
     })
 }

@@ -465,7 +465,7 @@ pub(crate) fn link_sibling_prs(pr_urls: &[String]) {
 /// strict [`Failure`] naming the operation and carrying git/gh's own
 /// diagnostic.
 fn capture(command: &proc::Command, operation: &str) -> Result<String, Failure> {
-    let output = proc::capture(&command)?;
+    let output = proc::capture(command)?;
     if output.success() {
         return Ok(output.stdout);
     }

@@ -178,7 +178,14 @@ pub fn link_cross_repo_edges(db: &GraphDb) -> Result<CrossRepoLinkOutcome, Cross
         }
         Err(e) => {
             if let Err(rollback_err) = conn.execute_batch("ROLLBACK;") {
-                eprintln!("[ivar] cross_repo: rollback failed after {e}: {rollback_err}");
+                #[expect(
+                    clippy::print_stderr,
+                    reason = "double-fault path: the original error `e` is still returned below, \
+                              and this function has no Report to attach a Warning to"
+                )]
+                {
+                    eprintln!("[ivar] cross_repo: rollback failed after {e}: {rollback_err}");
+                }
             }
             Err(e)
         }

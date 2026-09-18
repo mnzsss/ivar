@@ -393,7 +393,7 @@ pub fn copy_dir(src: &Utf8Path, dst: &Utf8Path) -> Result<(), Error> {
             continue;
         }
         let rel_utf8 =
-            Utf8Path::from_path(rel_path).ok_or_else(|| not_utf8(&entry.path().to_path_buf()))?;
+            Utf8Path::from_path(rel_path).ok_or_else(|| not_utf8(entry.path()))?;
         let target_path = dst.join(rel_utf8);
 
         let file_type = entry.file_type();

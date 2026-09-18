@@ -258,7 +258,7 @@ pub fn start(ctx: &Ctx, input: StartInput) -> Outcome<StartOutcome> {
 /// Read the named feature, or refuse: a session cannot open over a feature
 /// that was never created.
 fn read_feature(layout: &Layout, name: &FeatureName) -> Result<Feature, Failure> {
-    Feature::read(layout, &name)?.ok_or_else(|| {
+    Feature::read(layout, name)?.ok_or_else(|| {
         Failure::blocked(
             "feature.not_found",
             format!("feature `{name}` does not exist"),

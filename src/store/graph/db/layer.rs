@@ -126,7 +126,7 @@ fn install_views(conn: &Connection, mode: &ViewMode) -> Result<()> {
             ViewMode::Base
         }
     });
-    if installed_mode.as_ref() == Some(&mode) {
+    if installed_mode.as_ref() == Some(mode) {
         return Ok(());
     }
     conn.execute_batch(DROP_VIEWS)?;
