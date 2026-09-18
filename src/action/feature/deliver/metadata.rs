@@ -32,12 +32,7 @@ fn unpromoted_repo_override(feature: &Feature, repo: &str) -> Failure {
     ))
 }
 
-/// Resolve delivery metadata across all promoted repositories of the target feature.
-pub(crate) fn resolve(
-    ctx: &Ctx,
-    feature: &Feature,
-    input: &DeliverInput,
-) -> Result<BTreeMap<RepoName, PullRequestMetadata>, Failure> {
+fn validate_repo_overrides(feature: &Feature, input: &DeliverInput) -> Result<(), Failure> {
     let has_global = input.global_metadata.title.is_some()
         || input.global_metadata.body.is_some()
         || input.global_metadata.draft.is_some();
@@ -88,6 +83,17 @@ pub(crate) fn resolve(
             return Err(unpromoted_repo_override(feature, &r_override.repo));
         }
     }
+
+    Ok(())
+}
+
+/// Resolve delivery metadata across all promoted repositories of the target feature.
+pub(crate) fn resolve(
+    ctx: &Ctx,
+    feature: &Feature,
+    input: &DeliverInput,
+) -> Result<BTreeMap<RepoName, PullRequestMetadata>, Failure> {
+    validate_repo_overrides(feature, input)?;
 
     let global_resolved = PullRequestMetadata {
         title: input.global_metadata.title.clone(),
