@@ -284,6 +284,23 @@ impl GraphDb {
         Ok(layer_ids.len())
     }
 
+    pub fn forget_repo(&self, repo: &str) -> Result<()> {
+        let layer_ids: Vec<i64> = {
+            let mut stmt = self.conn.prepare("SELECT id FROM layers WHERE repo = ?1")?;
+            let rows = stmt.query_map([repo], |r| r.get(0))?;
+            rows.collect::<std::result::Result<_, _>>()?
+        };
+        for id in layer_ids {
+            self.delete_repo(&format!("{repo}/{id}"))?;
+            self.conn
+                .execute("DELETE FROM layer_tombstones WHERE layer_id = ?1", [id])?;
+            self.conn
+                .execute("DELETE FROM layers WHERE id = ?1", [id])?;
+        }
+        self.delete_repo(repo)?;
+        Ok(())
+    }
+
     pub fn gc_stale_layers(&self, active_features: &[&str]) -> Result<usize> {
         let all_features: Vec<String> = {
             let mut stmt = self.conn.prepare("SELECT DISTINCT feature FROM layers")?;

@@ -308,3 +308,31 @@ fn the_human_surface_lists_the_teardown_steps() {
         "Removed repo `api` from /hall\n  - worktree checkout\n  ~ ivar.json\n"
     );
 }
+
+#[cfg(unix)]
+#[test]
+fn remove_without_force_tears_down_a_write_guarded_worktree() {
+    let (_guard, root) = hall_with_repo();
+    let ctx = Ctx::new(root.clone());
+    fs::clear_write_bits(&root.join(".ivar/repos/api/main")).unwrap();
+
+    let report = remove(&ctx, input("api", false)).unwrap();
+
+    assert!(report.is_clean(), "{:?}", report.warnings);
+    assert!(!fs::exists(&root.join(".ivar/repos/api")).unwrap());
+}
+
+#[test]
+fn remove_forgets_the_repo_in_the_graph() {
+    let (_guard, root) = hall_with_repo();
+    let ctx = Ctx::new(root.clone());
+    let db_path = root.join(".ivar/memory.db");
+    let db = crate::store::graph::db::GraphDb::open(db_path.as_std_path()).unwrap();
+    db.insert_repo("api", "/api", "main", None).unwrap();
+    drop(db);
+
+    remove(&ctx, input("api", false)).unwrap();
+
+    let db = crate::store::graph::db::GraphDb::open(db_path.as_std_path()).unwrap();
+    assert!(db.get_repo("api").unwrap().is_none());
+}
