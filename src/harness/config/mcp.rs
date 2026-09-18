@@ -33,6 +33,7 @@ use crate::infra::{fs, json};
 
 use crate::providers;
 
+use super::doc;
 use super::{Change, Error};
 
 pub fn materialise_mcp(
@@ -42,10 +43,10 @@ pub fn materialise_mcp(
     hall: &HallName,
 ) -> Result<Change, Error> {
     let servers_value = servers_doc(provider, servers, hall)?;
-    let (existing, raw) = read_doc(path)?;
+    let (existing, raw) = doc::read_doc(path)?;
 
     let Some(mut doc) = existing else {
-        return write_doc(path, &mcp_doc(provider, servers_value)).map(|_| Change::Created);
+        return doc::write_doc(path, &mcp_doc(provider, servers_value)).map(|_| Change::Created);
     };
 
     let object = doc.as_object_mut().ok_or_else(|| Error::McpNotObject {
@@ -69,7 +70,7 @@ pub fn materialise_mcp(
         return Ok(Change::Unchanged);
     }
 
-    write_doc(path, &doc)?;
+    doc::write_doc(path, &doc)?;
     Ok(Change::Updated)
 }
 
@@ -83,7 +84,7 @@ pub fn materialise_mcp(
 /// left alone — stripping a key out of something that is not an object has no
 /// defined meaning, and deleting it would be the silent-overwrite bug again.
 pub fn remove_mcp(path: &Utf8Path, provider: Provider) -> Result<Change, Error> {
-    let (existing, _) = read_doc(path)?;
+    let (existing, _) = doc::read_doc(path)?;
     let Some(mut doc) = existing else {
         return Ok(Change::Unchanged);
     };
@@ -103,7 +104,7 @@ pub fn remove_mcp(path: &Utf8Path, provider: Provider) -> Result<Change, Error> 
         return Ok(Change::Removed);
     }
 
-    write_doc(path, &doc)?;
+    doc::write_doc(path, &doc)?;
     Ok(Change::Removed)
 }
 
@@ -144,34 +145,4 @@ fn servers_doc(
         );
     }
     Ok(serde_json::Value::Object(map))
-}
-
-/// Read `path` as JSON, returning the parsed document and its raw bytes.
-///
-/// `Ok((None, None))` when the file is absent. A file that exists but is not
-/// valid JSON is an error — never a silent clobber of user config.
-fn read_doc(path: &Utf8Path) -> Result<(Option<serde_json::Value>, Option<String>), Error> {
-    let Some(text) = fs::read_text(path).map_err(|source| Error::Mcp {
-        path: path.to_path_buf(),
-        source: json::Error::Fs(source),
-    })?
-    else {
-        return Ok((None, None));
-    };
-    let value = serde_json::from_str(&text).map_err(|source| Error::Mcp {
-        path: path.to_path_buf(),
-        source: json::Error::Parse {
-            path: path.to_path_buf(),
-            source,
-        },
-    })?;
-    Ok((Some(value), Some(text)))
-}
-
-/// Write `doc` to `path` in the canonical byte format.
-fn write_doc(path: &Utf8Path, doc: &serde_json::Value) -> Result<(), Error> {
-    json::write_canonical(path, doc).map_err(|source| Error::Mcp {
-        path: path.to_path_buf(),
-        source,
-    })
 }

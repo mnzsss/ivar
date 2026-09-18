@@ -10,6 +10,7 @@ use camino::Utf8Path;
 use crate::domain::name::HallName;
 use crate::infra::{fs, json};
 
+use super::doc;
 use super::{Change, Error};
 
 /// The keys ivar owns inside `.claude/settings.json`.
@@ -23,10 +24,10 @@ const IVAR_HOOKS: &str = "hooks";
 /// already match. A file that exists but is not a JSON object is refused.
 pub fn materialise_settings(path: &Utf8Path, hall: &HallName) -> Result<Change, Error> {
     let ivar_doc = ivar_doc(hall);
-    let (existing, raw) = read_doc(path)?;
+    let (existing, raw) = doc::read_doc(path)?;
 
     let Some(mut doc) = existing else {
-        return write_doc(path, &ivar_doc).map(|_| Change::Created);
+        return doc::write_doc(path, &ivar_doc).map(|_| Change::Created);
     };
 
     let object = doc.as_object_mut().ok_or_else(|| Error::McpNotObject {
@@ -47,7 +48,7 @@ pub fn materialise_settings(path: &Utf8Path, hall: &HallName) -> Result<Change, 
         return Ok(Change::Unchanged);
     }
 
-    write_doc(path, &doc)?;
+    doc::write_doc(path, &doc)?;
     Ok(Change::Updated)
 }
 
@@ -58,7 +59,7 @@ pub fn materialise_settings(path: &Utf8Path, hall: &HallName) -> Result<Change, 
 /// [`Change::Unchanged`]. A file that cannot be parsed as a JSON object is
 /// left alone.
 pub fn remove_settings(path: &Utf8Path) -> Result<Change, Error> {
-    let (existing, _) = read_doc(path)?;
+    let (existing, _) = doc::read_doc(path)?;
     let Some(mut doc) = existing else {
         return Ok(Change::Unchanged);
     };
@@ -82,7 +83,7 @@ pub fn remove_settings(path: &Utf8Path) -> Result<Change, Error> {
         return Ok(Change::Removed);
     }
 
-    write_doc(path, &doc)?;
+    doc::write_doc(path, &doc)?;
     Ok(Change::Removed)
 }
 
@@ -134,36 +135,6 @@ fn ivar_doc(hall: &HallName) -> serde_json::Value {
     root.insert(IVAR_HOOKS.to_owned(), serde_json::Value::Object(hooks));
 
     serde_json::Value::Object(root)
-}
-
-/// Read `path` as JSON, returning the parsed document and its raw bytes.
-///
-/// `Ok((None, None))` when the file is absent. A file that exists but is not
-/// valid JSON is an error — never a silent clobber of user config.
-fn read_doc(path: &Utf8Path) -> Result<(Option<serde_json::Value>, Option<String>), Error> {
-    let Some(text) = fs::read_text(path).map_err(|source| Error::Mcp {
-        path: path.to_path_buf(),
-        source: json::Error::Fs(source),
-    })?
-    else {
-        return Ok((None, None));
-    };
-    let value = serde_json::from_str(&text).map_err(|source| Error::Mcp {
-        path: path.to_path_buf(),
-        source: json::Error::Parse {
-            path: path.to_path_buf(),
-            source,
-        },
-    })?;
-    Ok((Some(value), Some(text)))
-}
-
-/// Write `doc` to `path` in the canonical byte format.
-fn write_doc(path: &Utf8Path, doc: &serde_json::Value) -> Result<(), Error> {
-    json::write_canonical(path, doc).map_err(|source| Error::Mcp {
-        path: path.to_path_buf(),
-        source,
-    })
 }
 
 #[cfg(test)]
