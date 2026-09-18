@@ -116,8 +116,6 @@ fn read_description(skill_dir: &camino::Utf8Path) -> String {
 /// The frontmatter shape every `SKILL.md` carries.
 #[derive(Debug, serde::Deserialize)]
 struct SkillMeta {
-    #[allow(dead_code)]
-    name: String,
     description: String,
 }
 
