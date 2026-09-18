@@ -10,7 +10,6 @@ use crate::store::layout::Layout;
 use camino::Utf8PathBuf;
 
 /// Status of the kernel-enforced write sandbox.
-#[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum SandboxStatus {
     /// Ruleset is fully enforced by the kernel.
@@ -30,7 +29,6 @@ impl SandboxStatus {
 }
 
 /// The kernel-enforced write sandbox holding the derived set of write-allowed filesystem roots.
-#[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Sandbox {
     roots: Vec<Utf8PathBuf>,
@@ -38,7 +36,6 @@ pub(crate) struct Sandbox {
 
 impl Sandbox {
     /// Derive the complete list of write-allowed filesystem roots for a session.
-    #[allow(dead_code)]
     pub(crate) fn from_writable_set(
         set: &WritableSet,
         layout: &Layout,
@@ -111,7 +108,6 @@ impl Sandbox {
     /// the calling process with `no_new_privs`.
     ///
     /// On non-Linux platforms, returns `SandboxStatus::Unavailable` without failing.
-    #[allow(dead_code)]
     #[cfg(target_os = "linux")]
     pub(crate) fn apply(&self) -> Result<SandboxStatus, Failure> {
         use landlock::{
@@ -212,7 +208,6 @@ impl Sandbox {
     }
 
     /// Apply fallback for non-Linux platforms where Landlock is unavailable.
-    #[allow(dead_code)]
     #[cfg(not(target_os = "linux"))]
     pub(crate) fn apply(&self) -> Result<SandboxStatus, Failure> {
         Ok(SandboxStatus::Unavailable {

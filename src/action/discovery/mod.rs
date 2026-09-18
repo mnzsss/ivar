@@ -76,7 +76,6 @@ pub(crate) fn load(layout: &Layout, name: &FeatureName) -> Result<DiscoveryDoc, 
 ///
 /// When the doc's front matter is unreadable (D5): rewriting it would drop
 /// every key ivar failed to see.
-#[allow(dead_code)]
 pub(crate) fn ensure_writable(doc: &DiscoveryDoc, name: &FeatureName) -> Result<(), Failure> {
     if doc.is_writable() {
         return Ok(());

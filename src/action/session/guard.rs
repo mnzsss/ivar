@@ -163,7 +163,6 @@ impl WritableSet {
     /// Return the write-allowed root paths: view dir, canonical hall sources,
     /// feature dir (if present), and every promoted repo worktree. Note that
     /// `sessions_dir` is an exclusion boundary under `feature_dir` and is not a root.
-    #[allow(dead_code)]
     pub(crate) fn roots(&self) -> Vec<&Utf8Path> {
         let mut roots = Vec::with_capacity(
             1 + usize::from(self.feature_dir.is_some())
