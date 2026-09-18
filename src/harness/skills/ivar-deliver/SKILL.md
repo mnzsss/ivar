@@ -1,4 +1,5 @@
 ---
+name: ivar-deliver
 description: Preview and apply delivery for a feature — push branches and create or update pull requests.
 ---
 

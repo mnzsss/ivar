@@ -12,7 +12,7 @@ use std::collections::BTreeSet;
 #[test]
 fn catalog_is_complete_unique_and_current() {
     let commands = catalog();
-    assert_eq!(commands.len(), 13);
+    assert_eq!(commands.len(), 12);
 
     let ids = commands
         .iter()
@@ -42,7 +42,7 @@ fn catalog_is_complete_unique_and_current() {
 fn execute_is_not_in_shipped_commands_catalog() {
     let catalog = catalog();
     assert!(!catalog.iter().any(|c| c.id == "execute"));
-    assert_eq!(catalog.len(), 13);
+    assert_eq!(catalog.len(), 12);
 }
 
 #[test]
@@ -67,7 +67,7 @@ fn plan_is_a_shipped_skill_not_a_command() {
             .iter()
             .any(|skill| skill.id == "plan")
     );
-    assert_eq!(catalog().len(), 13);
+    assert_eq!(catalog().len(), 12);
 }
 
 #[test]
@@ -102,7 +102,7 @@ fn commands_without_a_bifrost_predecessor_carry_no_legacy_fingerprint() {
             .iter()
             .filter(|command| command.legacy_sha256.is_some())
             .count(),
-        9,
+        8,
         "every command with a Bifrost-era predecessor must keep its digest"
     );
     for command in commands
@@ -208,25 +208,19 @@ fn materialise_creates_repairs_and_then_becomes_idempotent() {
     let (_guard, dir) = commands_dir();
 
     let first = materialise(&dir).unwrap();
-    assert_eq!(first.len(), 13);
+    assert_eq!(first.len(), 12);
     assert!(first.iter().all(|change| change.change == Change::Created));
 
-    fs::write_text(&dir.join("ivar-deliver.md"), "changed").unwrap();
+    fs::write_text(&dir.join("ivar-review.md"), "changed").unwrap();
     let repaired = materialise(&dir).unwrap();
-    assert_eq!(change(&repaired, "ivar-deliver.md").change, Change::Updated);
+    assert_eq!(change(&repaired, "ivar-review.md").change, Change::Updated);
     assert_eq!(
-        fs::read_text(&dir.join("ivar-deliver.md"))
-            .unwrap()
-            .unwrap(),
-        catalog()
-            .iter()
-            .find(|c| c.id == "deliver")
-            .unwrap()
-            .content
+        fs::read_text(&dir.join("ivar-review.md")).unwrap().unwrap(),
+        catalog().iter().find(|c| c.id == "review").unwrap().content
     );
 
     let third = materialise(&dir).unwrap();
-    assert_eq!(third.len(), 13);
+    assert_eq!(third.len(), 12);
     assert!(
         third
             .iter()
@@ -234,14 +228,8 @@ fn materialise_creates_repairs_and_then_becomes_idempotent() {
         "expected everything unchanged, got {third:?}"
     );
     assert_eq!(
-        fs::read_text(&dir.join("ivar-deliver.md"))
-            .unwrap()
-            .unwrap(),
-        catalog()
-            .iter()
-            .find(|c| c.id == "deliver")
-            .unwrap()
-            .content
+        fs::read_text(&dir.join("ivar-review.md")).unwrap().unwrap(),
+        catalog().iter().find(|c| c.id == "review").unwrap().content
     );
 }
 
@@ -280,7 +268,7 @@ fn remove_deletes_only_reserved_ivar_commands() {
 
     let changes = remove(&dir).unwrap();
 
-    assert_eq!(changes.len(), 13);
+    assert_eq!(changes.len(), 12);
     assert!(
         changes
             .iter()
@@ -350,7 +338,7 @@ fn inspect_sees_a_healthy_directory_as_current() {
 
     let inspections = inspect(&dir, true).unwrap();
 
-    assert_eq!(inspections.len(), 13);
+    assert_eq!(inspections.len(), 12);
     assert!(
         inspections
             .iter()
@@ -362,14 +350,14 @@ fn inspect_sees_a_healthy_directory_as_current() {
 fn inspect_reports_missing_and_modified_shipped_commands() {
     let (_guard, dir) = commands_dir();
     materialise(&dir).unwrap();
-    fs::remove_file(&dir.join("ivar-deliver.md")).unwrap();
+    fs::remove_file(&dir.join("ivar-review.md")).unwrap();
     fs::write_text(&dir.join("ivar-sync.md"), "tampered\n").unwrap();
 
     let inspections = inspect(&dir, true).unwrap();
 
     let deliver = inspections
         .iter()
-        .find(|inspection| inspection.id == "deliver")
+        .find(|inspection| inspection.id == "review")
         .unwrap();
     assert_eq!(deliver.integrity, Integrity::Missing);
     let sync = inspections
@@ -386,7 +374,7 @@ fn inspect_marks_leftover_files_stale_for_a_disabled_provider() {
 
     let inspections = inspect(&dir, false).unwrap();
 
-    assert_eq!(inspections.len(), 13);
+    assert_eq!(inspections.len(), 12);
     assert!(
         inspections
             .iter()
@@ -407,21 +395,6 @@ fn embedded(id: &str) -> String {
         .unwrap_or_else(|| panic!("no `{id}` in the catalog"))
         .content;
     content.split_whitespace().collect::<Vec<_>>().join(" ")
-}
-
-/// The deliver checkpoint sits between preview and apply, and deferring it
-/// neither blocks apply nor invalidates the fingerprint.
-#[test]
-fn deliver_checks_relation_context_between_preview_and_apply() {
-    let content = embedded("deliver");
-
-    assert!(content.contains("preview"), "was: {content}");
-    assert!(content.contains("apply"), "was: {content}");
-    assert!(content.contains("HALL.md"), "was: {content}");
-    assert!(content.contains("evidence"), "was: {content}");
-    assert!(content.contains("/ivar-relations"), "was: {content}");
-    assert!(content.contains("fingerprint"), "was: {content}");
-    assert!(content.contains("does not block apply"), "was: {content}");
 }
 
 // -- nested subfeature coordination -----------------------------------------

@@ -548,12 +548,12 @@ fn doctor_reports_missing_shipped_command() {
     let (_guard, root) = utf8_temp_dir();
     let ctx = Ctx::new(root.clone());
     init(&ctx, fresh_input()).unwrap();
-    fs::remove_file(&root.join(".claude/commands/ivar-deliver.md")).unwrap();
+    fs::remove_file(&root.join(".claude/commands/ivar-review.md")).unwrap();
 
     let report = doctor(&ctx).unwrap();
 
     let finding = finding(&report.value, "provider.command_missing");
-    assert!(finding.what.contains("deliver"), "was: {}", finding.what);
+    assert!(finding.what.contains("review"), "was: {}", finding.what);
     assert!(finding.fix.contains("ivar sync"));
 }
 

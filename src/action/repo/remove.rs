@@ -3,7 +3,8 @@
 //! The inverse of `ivar repo add` (valhalla's **Deregister**): drops the repo
 //! from `ivar.json` and tears down its entire `.ivar/repos/<name>/` tree — the
 //! bare clone and every worktree, including the feature-branch worktrees of
-//! any feature that promoted the repo.
+//! any feature that promoted the repo — and purges the repo from the code
+//! graph.
 //!
 //! Because that can destroy unpushed feature work, it is **gated**: it refuses
 //! while the repo is promoted in any feature or referenced by any live session
@@ -28,6 +29,7 @@ use crate::domain::name::{FeatureName, RepoName};
 use crate::error::{Failure, FixAction, Outcome, Report, Warning, WriteHuman};
 use crate::git::{self, Git};
 use crate::infra::fs;
+use crate::store::graph::db::GraphDb;
 use crate::store::layout::Layout;
 use crate::store::manifest::Manifest;
 
@@ -204,7 +206,22 @@ pub fn remove(ctx: &Ctx, input: RemoveInput) -> Outcome<RemoveOutcome> {
         ));
     }
 
-    // 5. The authoritative final steps. The manifest write failing aborts the
+    // 5. The repo's rows in the code graph.
+    let graph_db = layout.ivar_dir().join("memory.db");
+    if graph_db.is_file() {
+        match GraphDb::open(graph_db.as_std_path()).and_then(|db| db.forget_repo(name.as_str())) {
+            Ok(()) => steps.push(Entry::new("graph", name.to_string(), Change::Removed)),
+            Err(error) => record_step(
+                &mut steps,
+                &mut warnings,
+                "graph",
+                name.to_string(),
+                Failure::failed("graph.forget_failed", error.to_string()),
+            ),
+        }
+    }
+
+    // 6. The authoritative final steps. The manifest write failing aborts the
     //    verb — the repo is still declared, so a retry is safe — while provider
     //    regeneration is best-effort per provider, exactly as `ivar sync` runs
     //    it.

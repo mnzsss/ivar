@@ -852,3 +852,31 @@ fn opening_for_usage_records_into_a_migrated_database() {
         1
     );
 }
+
+#[test]
+fn forget_repo_drops_the_repo_and_its_feature_layers_only() {
+    let db = GraphDb::open_in_memory().unwrap();
+    db.insert_repo("api", "/api", "main", None).unwrap();
+    db.insert_repo("web", "/web", "main", None).unwrap();
+    let api_layer = db
+        .ensure_layer_record("feat", "api", "/f/api", "c1")
+        .unwrap();
+    let web_layer = db
+        .ensure_layer_record("feat", "web", "/f/web", "c1")
+        .unwrap();
+    db.set_layer_tombstones(api_layer, &["a.rs"]).unwrap();
+    db.insert_repo(&format!("api/{api_layer}"), "/f/api", "feat", None)
+        .unwrap();
+
+    db.forget_repo("api").unwrap();
+
+    assert!(db.get_repo("api").unwrap().is_none());
+    assert!(db.get_repo(&format!("api/{api_layer}")).unwrap().is_none());
+    assert!(db.get_layer_record("feat", "api").unwrap().is_none());
+    assert!(db.get_layer_tombstones(api_layer).unwrap().is_empty());
+    assert!(db.get_repo("web").unwrap().is_some());
+    assert_eq!(
+        db.get_layer_record("feat", "web").unwrap().unwrap().id,
+        web_layer
+    );
+}

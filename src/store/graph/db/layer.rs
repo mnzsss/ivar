@@ -274,14 +274,33 @@ impl GraphDb {
             items
         };
         for (id, repo) in &layer_ids {
-            let layer_repo = format!("{repo}/{id}");
-            let _ = self.delete_repo(&layer_repo);
-            let _ = self
-                .conn
-                .execute("DELETE FROM layer_tombstones WHERE layer_id = ?1", [id]);
-            let _ = self.conn.execute("DELETE FROM layers WHERE id = ?1", [id]);
+            let _ = self.drop_layer(*id, repo);
         }
         Ok(layer_ids.len())
+    }
+
+    pub fn forget_repo(&self, repo: &str) -> Result<()> {
+        let tx = self.conn.unchecked_transaction()?;
+        let layer_ids: Vec<i64> = {
+            let mut stmt = self.conn.prepare("SELECT id FROM layers WHERE repo = ?1")?;
+            let rows = stmt.query_map([repo], |r| r.get(0))?;
+            rows.collect::<std::result::Result<_, _>>()?
+        };
+        for id in layer_ids {
+            self.drop_layer(id, repo)?;
+        }
+        self.delete_repo(repo)?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    fn drop_layer(&self, id: i64, repo: &str) -> Result<()> {
+        self.delete_repo(&format!("{repo}/{id}"))?;
+        self.conn
+            .execute("DELETE FROM layer_tombstones WHERE layer_id = ?1", [id])?;
+        self.conn
+            .execute("DELETE FROM layers WHERE id = ?1", [id])?;
+        Ok(())
     }
 
     pub fn gc_stale_layers(&self, active_features: &[&str]) -> Result<usize> {

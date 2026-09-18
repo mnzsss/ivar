@@ -11,7 +11,7 @@ use std::collections::BTreeSet;
 #[test]
 fn catalog_is_complete_unique_and_current() {
     let skills = catalog();
-    assert_eq!(skills.len(), 2);
+    assert_eq!(skills.len(), 3);
 
     let ids = skills.iter().map(|skill| skill.id).collect::<BTreeSet<_>>();
     assert_eq!(ids.len(), skills.len());
@@ -577,4 +577,26 @@ fn inspect_reports_a_symlinked_skill_dir_as_modified() {
         .unwrap();
 
     assert_eq!(execute.integrity, Integrity::Modified);
+}
+
+/// The deliver checkpoint sits between preview and apply, and deferring it
+/// neither blocks apply nor invalidates the fingerprint.
+#[test]
+fn deliver_checks_relation_context_between_preview_and_apply() {
+    let content = catalog()
+        .iter()
+        .find(|s| s.id == "deliver")
+        .unwrap()
+        .skill_md()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+
+    assert!(content.contains("preview"), "was: {content}");
+    assert!(content.contains("apply"), "was: {content}");
+    assert!(content.contains("HALL.md"), "was: {content}");
+    assert!(content.contains("evidence"), "was: {content}");
+    assert!(content.contains("/ivar-relations"), "was: {content}");
+    assert!(content.contains("fingerprint"), "was: {content}");
+    assert!(content.contains("does not block apply"), "was: {content}");
 }

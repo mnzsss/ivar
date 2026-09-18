@@ -884,3 +884,38 @@ fn copy_dir_rejects_a_symlink_to_an_ancestor_instead_of_recursing_forever() {
 
     assert!(copy_dir(&src, &root.join("dst")).is_err());
 }
+
+#[cfg(unix)]
+#[test]
+fn remove_path_removes_a_tree_whose_directories_are_write_guarded() {
+    let (_dir, root) = utf8_temp_dir();
+    let worktree = root.join("repo/main");
+    ensure_dir(&worktree.join("src")).unwrap();
+    write_text(&worktree.join("src/lib.rs"), "x").unwrap();
+    clear_write_bits(&worktree).unwrap();
+    clear_write_bits(&worktree.join("src")).unwrap();
+
+    remove_path(&root.join("repo")).unwrap();
+
+    assert!(!exists(&root.join("repo")).unwrap());
+}
+
+#[cfg(unix)]
+#[test]
+fn remove_path_leaves_a_hardlinked_file_outside_the_tree_read_only() {
+    let (_dir, root) = utf8_temp_dir();
+    let store_file = root.join("store/blob");
+    ensure_dir(&root.join("store")).unwrap();
+    write_text(&store_file, "x").unwrap();
+    clear_write_bits(&store_file).unwrap();
+    let worktree = root.join("repo/main");
+    ensure_dir(&worktree).unwrap();
+    std::fs::hard_link(&store_file, worktree.join("blob")).unwrap();
+    clear_write_bits(&worktree).unwrap();
+
+    remove_path(&root.join("repo")).unwrap();
+
+    assert!(!exists(&root.join("repo")).unwrap());
+    let mode = std::fs::metadata(&store_file).unwrap().permissions().mode();
+    assert_eq!(mode & 0o222, 0);
+}

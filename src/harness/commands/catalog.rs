@@ -48,11 +48,6 @@ pub const fn catalog() -> &'static [ShippedCommand] {
 /// with no legacy predecessor carries `None`.
 const COMMANDS: &[ShippedCommand] = &[
     ShippedCommand {
-        id: "deliver",
-        content: include_str!("../commands/deliver.md"),
-        legacy_sha256: Some("b8402403fba034c85355def2f40ca9cec0e5572f4e67b130ebeac14ceda64c8b"),
-    },
-    ShippedCommand {
         id: "discovery",
         content: include_str!("../commands/discovery.md"),
         legacy_sha256: Some("97fba325393f6eba415a62bb6120d7bdc4cd813872e15d6f6669c910e32c0120"),

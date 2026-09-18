@@ -23,9 +23,8 @@ use common::{hall_root, ivar};
 use predicates::prelude::*;
 
 /// Every shipped command id, as `/ivar-<id>`.
-const SHIPPED_IDS: [&str; 13] = [
+const SHIPPED_IDS: [&str; 12] = [
     "connect",
-    "deliver",
     "discovery",
     "feature-cleanup",
     "feature-create",
@@ -190,7 +189,7 @@ fn a_user_command_survives_sync_and_provider_removal() {
     rewrite_manifest(&root, &["claude-code"]);
     ivar().current_dir(&root).arg("sync").assert().success();
     assert!(
-        !root.join(".opencode/commands/ivar-deliver.md").exists(),
+        !root.join(".opencode/commands/ivar-review.md").exists(),
         "a dropped provider's shipped commands must be removed"
     );
     assert_eq!(
@@ -205,11 +204,11 @@ fn a_user_command_survives_sync_and_provider_removal() {
 fn sync_restores_a_modified_shipped_command() {
     let (_guard, root) = hall_root();
     ivar().current_dir(&root).arg("init").assert().success();
-    std::fs::write(root.join(".claude/commands/ivar-deliver.md"), "tampered\n").unwrap();
+    std::fs::write(root.join(".claude/commands/ivar-review.md"), "tampered\n").unwrap();
 
     ivar().current_dir(&root).arg("sync").assert().success();
 
-    let restored = std::fs::read_to_string(root.join(".claude/commands/ivar-deliver.md")).unwrap();
+    let restored = std::fs::read_to_string(root.join(".claude/commands/ivar-review.md")).unwrap();
     assert!(restored.starts_with("---\n"), "was: {restored:?}");
     assert!(restored.contains("description:"), "was: {restored:?}");
 }
@@ -426,13 +425,27 @@ fn fingerprint_matching_legacy_command_is_removed_and_modified_one_is_diagnosed(
         .stdout(predicate::str::contains("provider.legacy_command_modified"));
 }
 
+/// A hall synced before `ivar-deliver` became a skill loses the stale command
+/// and gains the skill.
+#[test]
+fn sync_replaces_the_deliver_command_with_the_deliver_skill() {
+    let (_guard, root) = hall_root();
+    ivar().current_dir(&root).arg("init").assert().success();
+    std::fs::write(root.join(".claude/commands/ivar-deliver.md"), "stale\n").unwrap();
+
+    ivar().current_dir(&root).arg("sync").assert().success();
+
+    assert!(!root.join(".claude/commands/ivar-deliver.md").exists());
+    assert!(root.join(".claude/skills/ivar-deliver/SKILL.md").is_file());
+}
+
 /// A missing convenience command is not structural degradation: `ivar status`
 /// stays `operational`.
 #[test]
 fn status_stays_operational_when_a_shipped_command_is_missing() {
     let (_guard, root) = hall_root();
     ivar().current_dir(&root).arg("init").assert().success();
-    std::fs::remove_file(root.join(".claude/commands/ivar-deliver.md")).unwrap();
+    std::fs::remove_file(root.join(".claude/commands/ivar-review.md")).unwrap();
 
     ivar()
         .current_dir(&root)
@@ -490,12 +503,12 @@ fn shipped_commands_do_not_reference_old_slash_execute() {
     }
 }
 
-/// The deliver command documents PR metadata: global/scoped syntax,
+/// The deliver skill documents PR metadata: global/scoped syntax,
 /// inline vs file body, title guidance, and land conflict.
 #[test]
-fn deliver_command_documents_pr_metadata() {
+fn deliver_skill_documents_pr_metadata() {
     let source = format!(
-        "{}/src/harness/commands/deliver.md",
+        "{}/src/harness/skills/ivar-deliver/SKILL.md",
         env!("CARGO_MANIFEST_DIR")
     );
     let body = std::fs::read_to_string(source).unwrap();
@@ -569,7 +582,7 @@ mod cited_invocations {
     /// Pull every `` `ivar ...` `` span out of `text`.
     ///
     /// Matches a backtick, the literal `ivar`, then a space — so `ivar.json`
-    /// and `ivar-deliver.md` never match — up to the closing backtick. A span
+    /// and `ivar-review.md` never match — up to the closing backtick. A span
     /// with a newline in it is a wrapped sentence, not an invocation, and is
     /// skipped.
     fn citations(source: &str, text: &str) -> Vec<Citation> {

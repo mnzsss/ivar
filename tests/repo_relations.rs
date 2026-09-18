@@ -23,10 +23,9 @@ use camino::Utf8Path;
 use common::{hall_root, ivar, seeded_repo};
 use predicates::prelude::*;
 
-/// The fourteen shipped command ids.
-const SHIPPED_IDS: [&str; 13] = [
+/// The twelve shipped command ids.
+const SHIPPED_IDS: [&str; 12] = [
     "connect",
-    "deliver",
     "discovery",
     "feature-cleanup",
     "feature-create",
