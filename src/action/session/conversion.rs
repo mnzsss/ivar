@@ -127,7 +127,7 @@ pub fn convert(ctx: &Ctx, input: &ConvertInput) -> Outcome<ConvertOutcome> {
     //    scanning for the marker rather than taken from the caller.
     if let Some((feature_name, transition)) = find_pending_transition(&layout, &input.session_id)? {
         let outcome = resume(&layout, &manifest, &feature_name, transition)?;
-        return mark_discovery_converted(ctx, &feature_name, outcome);
+        return Ok(mark_discovery_converted(ctx, &feature_name, outcome));
     }
 
     // 2. Locate the session and verify it is a discovery session.
@@ -295,7 +295,7 @@ pub fn convert(ctx: &Ctx, input: &ConvertInput) -> Outcome<ConvertOutcome> {
     };
     write_transition(&layout, &feature_name, &transition)?;
     let outcome = run_conversion(&layout, &manifest, &feature_name, &feature, transition)?;
-    mark_discovery_converted(ctx, &feature_name, outcome)
+    Ok(mark_discovery_converted(ctx, &feature_name, outcome))
 }
 
 /// Resume an interrupted conversion. The marker's record is authoritative —
@@ -529,7 +529,7 @@ fn mark_discovery_converted(
     ctx: &Ctx,
     feature_name: &FeatureName,
     mut outcome: Report<ConvertOutcome>,
-) -> Outcome<ConvertOutcome> {
+) -> Report<ConvertOutcome> {
     let marked = crate::action::discovery::close::close(
         ctx,
         crate::action::discovery::close::CloseInput {
@@ -547,7 +547,7 @@ fn mark_discovery_converted(
             ),
         ));
     }
-    Ok(outcome)
+    outcome
 }
 
 #[cfg(test)]

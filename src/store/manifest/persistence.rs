@@ -57,6 +57,10 @@ fn v1_to_v2(mut value: serde_json::Value) -> Result<serde_json::Value, String> {
 /// has a registered step to run, which is what advances the version number
 /// stamped on disk and lets `ivar migrate` describe the step honestly rather
 /// than reporting nothing to do on a v2 file.
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "signature is fixed by MigrateFn (store/versioned/mod.rs), shared across every migration step"
+)]
 fn v2_to_v3(value: serde_json::Value) -> Result<serde_json::Value, String> {
     Ok(value)
 }
@@ -69,6 +73,10 @@ fn v2_to_v3(value: serde_json::Value) -> Result<serde_json::Value, String> {
 /// deserialises against the v4 shape without help. This step touches no data;
 /// it exists so the chain stays contiguous and [`Manifest::migrate`] has a
 /// registered step to run.
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "signature is fixed by MigrateFn (store/versioned/mod.rs), shared across every migration step"
+)]
 fn v3_to_v4(value: serde_json::Value) -> Result<serde_json::Value, String> {
     Ok(value)
 }

@@ -141,9 +141,9 @@ pub(crate) fn parse_www_authenticate_resource_metadata(header: &str) -> Option<S
 /// path is appended to the issuer's path, per RFC 8414 §3.
 ///
 /// `None` when the issuer URL cannot be parsed.
-pub(crate) fn build_well_known_url(issuer: &str) -> Result<String, Failure> {
+pub(crate) fn build_well_known_url(issuer: &str) -> String {
     let base = issuer.trim_end_matches('/');
-    Ok(format!("{base}/.well-known/oauth-authorization-server"))
+    format!("{base}/.well-known/oauth-authorization-server")
 }
 
 /// Parse the resource metadata JSON to extract the first authorization server
@@ -306,7 +306,7 @@ pub fn discover_oauth_endpoints(server_url: &str) -> Result<DiscoveryOutcome, Fa
     let (issuer, resource) = parse_resource_metadata(&resource_body)?;
 
     // Step 3: GET the authorization server's well-known metadata.
-    let well_known_url = build_well_known_url(&issuer)?;
+    let well_known_url = build_well_known_url(&issuer);
     let auth_response = ureq::get(&well_known_url)
         .config()
         .http_status_as_error(false)

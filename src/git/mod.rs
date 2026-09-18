@@ -307,7 +307,7 @@ pub trait Git {
 
     /// Whether a rebase is in progress in the worktree at `path`.
     fn is_rebase_in_progress(&self, path: &Utf8Path) -> Result<bool, Error> {
-        read::is_rebase_in_progress(path)
+        Ok(read::is_rebase_in_progress(path))
     }
 
     /// The worktree at `path`'s uncommitted divergence from its last commit —

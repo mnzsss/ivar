@@ -61,7 +61,7 @@ pub fn create(ctx: &Ctx, input: CreateInput) -> Outcome<CreateOutcome> {
     let layout = discover_hall(ctx)?;
     let name = FeatureName::new(input.name)?;
 
-    let doc_path = super::resolve_doc_path(ctx, &layout, &name)?;
+    let doc_path = super::resolve_doc_path(ctx, &layout, &name);
     if fs::is_file(&doc_path)? {
         return Err(Failure::blocked(
             "discovery.already_exists",

@@ -296,7 +296,7 @@ impl CallbackServer {
         let request = String::from_utf8_lossy(&buf);
         let request = request.into_owned();
 
-        let (method, path, query) = Self::parse_request_line(&request)?;
+        let (method, path, query) = Self::parse_request_line(&request);
 
         if method != "GET" {
             Self::respond(
@@ -387,7 +387,7 @@ impl CallbackServer {
         }
     }
 
-    pub(crate) fn parse_request_line(request: &str) -> Result<(&str, String, String), Failure> {
+    pub(crate) fn parse_request_line(request: &str) -> (&str, String, String) {
         let first_line = request.lines().next().unwrap_or("");
         let mut parts = first_line.splitn(3, ' ');
         let method = parts.next().unwrap_or("");
@@ -399,7 +399,7 @@ impl CallbackServer {
         // Decode the path so %2F becomes /, etc.
         let path = url_decode(path_raw);
         let query = query_raw.to_owned();
-        Ok((method, path, query))
+        (method, path, query)
     }
 
     pub(crate) fn parse_query(query: &str) -> std::collections::HashMap<String, String> {

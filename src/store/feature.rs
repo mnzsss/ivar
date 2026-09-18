@@ -94,6 +94,10 @@ impl ApprovalState {
 /// step (now in [`run::legacy`]), `feature.json` has shipped with `version: 1`
 /// stamped since it first existed — this step exists only to keep the chain contiguous from
 /// 0, which [`Store::new`] requires once any migration is registered.
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "signature is fixed by MigrateFn (store/versioned/mod.rs), shared across every migration step"
+)]
 fn feature_v0_to_v1(value: serde_json::Value) -> Result<serde_json::Value, String> {
     Ok(value)
 }
@@ -105,6 +109,10 @@ fn feature_v0_to_v1(value: serde_json::Value) -> Result<serde_json::Value, Strin
 /// `action`, and the feature's effective base (the declared branch, or the
 /// repo's `default_branch`) is computed from the manifest, which this
 /// module has no access to.
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "signature is fixed by MigrateFn (store/versioned/mod.rs), shared across every migration step"
+)]
 fn feature_v1_to_v2(value: serde_json::Value) -> Result<serde_json::Value, String> {
     Ok(value)
 }
