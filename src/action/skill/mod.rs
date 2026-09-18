@@ -24,6 +24,25 @@ pub mod update;
 
 use std::io::Write;
 
+use crate::error::{Failure, FixAction};
+use crate::store::layout::Layout;
+
+/// The `skill.not_found` failure shared by every action that looks a skill
+/// id up via [`enumerate::resolve`].
+pub(super) fn skill_not_found(layout: &Layout, id: &str) -> Failure {
+    Failure::blocked("skill.not_found", format!("skill `{id}` does not exist"))
+        .expected("a skill directory in either skills root")
+        .actual(format!(
+            "no directory at `{}` or `{}`",
+            layout.hall_skills_local().join(id),
+            layout.hall_skills().join(id)
+        ))
+        .fix(FixAction::safe(
+            "skill.list",
+            "List available skills to find the correct id.",
+        ))
+}
+
 /// Extract gzipped tarball bytes into `target_dir` using system `tar`.
 pub(super) fn extract_tarball_into(
     data: &[u8],
