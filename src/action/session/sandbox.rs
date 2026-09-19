@@ -13,8 +13,16 @@ use camino::Utf8PathBuf;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum SandboxStatus {
     /// Ruleset is fully enforced by the kernel.
+    #[cfg_attr(
+        not(target_os = "linux"),
+        expect(dead_code, reason = "only constructed by the Linux Landlock path")
+    )]
     Enforced,
     /// Ruleset is partially enforced (e.g. kernel supports an older Landlock ABI).
+    #[cfg_attr(
+        not(target_os = "linux"),
+        expect(dead_code, reason = "only constructed by the Linux Landlock path")
+    )]
     Degraded { reason: String },
     /// Landlock is unavailable on this kernel or platform (e.g. macOS or Linux < 5.13).
     Unavailable { reason: String },
@@ -209,6 +217,10 @@ impl Sandbox {
 
     /// Apply fallback for non-Linux platforms where Landlock is unavailable.
     #[cfg(not(target_os = "linux"))]
+    #[expect(
+        clippy::unnecessary_wraps,
+        reason = "must match the fallible Linux apply signature"
+    )]
     pub(crate) fn apply(&self) -> Result<SandboxStatus, Failure> {
         Ok(SandboxStatus::Unavailable {
             reason: format!("Landlock is not supported on {}", std::env::consts::OS),
