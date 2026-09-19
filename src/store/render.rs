@@ -90,6 +90,10 @@ impl From<Error> for Failure {
 ///
 /// Returns `Ok(())` on success. The caller should already have verified that
 /// the target does not exist (for Create) or that an Update is safe to apply.
+///
+/// # Errors
+///
+/// Returns [`Error`] if the symlink or the copy cannot be created.
 pub fn render(step: &crate::domain::skill_sync::Step) -> Result<(), Error> {
     match step.mode {
         RenderMode::Symlink => render_symlink(step),
@@ -111,6 +115,10 @@ fn io_of(error: &fs::Error) -> std::io::Error {
 ///
 /// Works for both symlink and copy targets — it removes whatever is at the
 /// path without checking how it was created.
+///
+/// # Errors
+///
+/// Returns [`Error`] if the path cannot be removed.
 pub fn remove(step: &crate::domain::skill_sync::Step) -> Result<(), Error> {
     fs::remove_path(&step.target).map_err(|e| {
         let io_error = io_of(&e);

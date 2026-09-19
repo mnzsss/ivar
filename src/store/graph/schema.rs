@@ -107,6 +107,10 @@ const SEARCH_SCHEMA_VERSION: i64 = 4;
 /// The `user_version` a database carries once every migration below has run.
 pub const SCHEMA_VERSION: i64 = 7;
 
+///
+/// # Errors
+///
+/// Returns [`rusqlite::Error`] if a pragma statement fails.
 /// Configures SQLite pragmas for performance and data integrity.
 pub fn apply_pragmas(conn: &Connection, is_disk: bool) -> rusqlite::Result<()> {
     conn.execute_batch("PRAGMA foreign_keys = ON;")?;
@@ -142,6 +146,11 @@ fn switch_to_wal(conn: &Connection) -> rusqlite::Result<()> {
 
 /// Applies database migrations under a write lock, so two processes opening an
 /// old database never migrate it at the same time.
+///
+/// # Errors
+///
+/// Returns [`rusqlite::Error`] if the transaction cannot be started,
+/// a migration step fails, or the commit fails.
 pub fn apply_migrations(conn: &Connection) -> rusqlite::Result<()> {
     if user_version(conn)? >= SCHEMA_VERSION {
         return Ok(());
