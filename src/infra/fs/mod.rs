@@ -204,6 +204,10 @@ pub(super) fn not_utf8(path: &std::path::Path) -> Error {
 /// cascade falls through rather than failing outright. This never returns a
 /// guessed path: if nothing resolves, the returned [`Failure`] names every
 /// variable it looked for.
+/// # Errors
+///
+/// Returns [`Failure`] naming every environment variable it looked
+/// for, if none of them resolves to a usable directory.
 pub fn data_dir() -> Result<Utf8PathBuf, Failure> {
     data_dir_from(
         std::env::var("XDG_DATA_HOME").ok(),

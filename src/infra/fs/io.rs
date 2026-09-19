@@ -7,6 +7,10 @@ use camino::{Utf8Path, Utf8PathBuf};
 
 use super::{Error, is_not_found, not_utf8, sibling_temp_path};
 
+/// # Errors
+///
+/// Returns [`Error`] if `path` exists but cannot be read, or its
+/// contents are not valid UTF-8.
 pub fn read_text(path: &Utf8Path) -> Result<Option<String>, Error> {
     match fs_err::read_to_string(path.as_std_path()) {
         Ok(contents) => Ok(Some(contents)),
@@ -19,6 +23,9 @@ pub fn read_text(path: &Utf8Path) -> Result<Option<String>, Error> {
 }
 
 /// Read a file as raw bytes. `Ok(None)` if the file does not exist.
+/// # Errors
+///
+/// Returns [`Error`] if `path` exists but cannot be read.
 pub fn read_bytes(path: &Utf8Path) -> Result<Option<Vec<u8>>, Error> {
     match fs_err::read(path.as_std_path()) {
         Ok(contents) => Ok(Some(contents)),
@@ -31,6 +38,9 @@ pub fn read_bytes(path: &Utf8Path) -> Result<Option<Vec<u8>>, Error> {
 }
 
 /// Write text to a file, plain — not crash-safe. Use [`write_atomic`] for state.
+/// # Errors
+///
+/// Returns [`Error`] if `path` cannot be written.
 pub fn write_text(path: &Utf8Path, contents: &str) -> Result<(), Error> {
     fs_err::write(path.as_std_path(), contents).map_err(|source| Error::Write {
         path: path.to_owned(),
@@ -40,6 +50,9 @@ pub fn write_text(path: &Utf8Path, contents: &str) -> Result<(), Error> {
 
 /// Write raw bytes to a file, plain — not crash-safe. Use [`write_atomic`] for
 /// state.
+/// # Errors
+///
+/// Returns [`Error`] if `path` cannot be written.
 pub fn write_bytes(path: &Utf8Path, contents: &[u8]) -> Result<(), Error> {
     fs_err::write(path.as_std_path(), contents).map_err(|source| Error::Write {
         path: path.to_owned(),
@@ -51,6 +64,10 @@ pub fn write_bytes(path: &Utf8Path, contents: &[u8]) -> Result<(), Error> {
 /// `rename` it over `path`. A crash or a concurrent reader never observes a
 /// half-written file — `rename` within one directory is atomic on every
 /// platform this crate ships for.
+/// # Errors
+///
+/// Returns [`Error`] if the temp sibling cannot be written or the
+/// rename over `path` fails.
 pub fn write_atomic(path: &Utf8Path, contents: &[u8]) -> Result<(), Error> {
     let temp = sibling_temp_path(path);
     fs_err::write(temp.as_std_path(), contents).map_err(|source| Error::Write {
@@ -69,6 +86,11 @@ pub fn write_atomic(path: &Utf8Path, contents: &[u8]) -> Result<(), Error> {
 /// Ensures any parent directory exists, creates a temporary sibling file with mode `0600`
 /// on Unix, writes `contents`, flushes, and renames over `path`. On Unix, also verifies/sets
 /// permissions `0600` on the final path.
+/// # Errors
+///
+/// Returns [`Error`] if the temp sibling cannot be created or written,
+/// or the rename over `path` fails; on Unix, also if its permissions
+/// cannot be verified or set.
 pub fn write_sensitive_atomic(path: &Utf8Path, contents: &[u8]) -> Result<(), Error> {
     if let Some(parent) = path.parent().filter(|p| !p.as_str().is_empty()) {
         ensure_dir(parent)?;
@@ -128,6 +150,9 @@ pub fn write_sensitive_atomic(path: &Utf8Path, contents: &[u8]) -> Result<(), Er
 
 /// Create a directory and all missing ancestors. Idempotent — succeeds if the
 /// directory already exists.
+/// # Errors
+///
+/// Returns [`Error`] if the directory cannot be created.
 pub fn ensure_dir(path: &Utf8Path) -> Result<(), Error> {
     fs_err::create_dir_all(path.as_std_path()).map_err(|source| Error::CreateDir {
         path: path.to_owned(),
@@ -141,6 +166,9 @@ pub fn ensure_dir(path: &Utf8Path) -> Result<(), Error> {
 /// in this crate is `session convert` moving a View Dir from `.ivar/sessions/`
 /// to `.ivar/features/<feature>/sessions/` — both under the same `.ivar/`
 /// tree, so the same-filesystem requirement is structural.
+/// # Errors
+///
+/// Returns [`Error`] if `from` cannot be renamed to `to`.
 pub fn rename(from: &Utf8Path, to: &Utf8Path) -> Result<(), Error> {
     fs_err::rename(from.as_std_path(), to.as_std_path()).map_err(|source| Error::Rename {
         from: from.to_owned(),
@@ -151,6 +179,10 @@ pub fn rename(from: &Utf8Path, to: &Utf8Path) -> Result<(), Error> {
 
 /// List the entries of a directory, sorted, so callers get a deterministic
 /// order regardless of what the OS handed back.
+/// # Errors
+///
+/// Returns [`Error`] if the directory cannot be read or an entry's
+/// path is not UTF-8.
 pub fn read_dir(path: &Utf8Path) -> Result<Vec<Utf8PathBuf>, Error> {
     let entries = fs_err::read_dir(path.as_std_path()).map_err(|source| Error::ReadDir {
         path: path.to_owned(),
@@ -170,6 +202,9 @@ pub fn read_dir(path: &Utf8Path) -> Result<Vec<Utf8PathBuf>, Error> {
 }
 
 /// Whether something exists at `path` (following symlinks).
+/// # Errors
+///
+/// Returns [`Error`] if `path`'s metadata cannot be read.
 pub fn exists(path: &Utf8Path) -> Result<bool, Error> {
     match fs_err::metadata(path.as_std_path()) {
         Ok(_) => Ok(true),
@@ -182,6 +217,9 @@ pub fn exists(path: &Utf8Path) -> Result<bool, Error> {
 }
 
 /// Whether `path` is a regular file (following symlinks). `false` if absent.
+/// # Errors
+///
+/// Returns [`Error`] if `path`'s metadata cannot be read.
 pub fn is_file(path: &Utf8Path) -> Result<bool, Error> {
     match fs_err::metadata(path.as_std_path()) {
         Ok(metadata) => Ok(metadata.is_file()),
@@ -194,6 +232,9 @@ pub fn is_file(path: &Utf8Path) -> Result<bool, Error> {
 }
 
 /// Whether `path` is a directory (following symlinks). `false` if absent.
+/// # Errors
+///
+/// Returns [`Error`] if `path`'s metadata cannot be read.
 pub fn is_dir(path: &Utf8Path) -> Result<bool, Error> {
     match fs_err::metadata(path.as_std_path()) {
         Ok(metadata) => Ok(metadata.is_dir()),
@@ -206,6 +247,9 @@ pub fn is_dir(path: &Utf8Path) -> Result<bool, Error> {
 }
 
 /// Whether `path` is a directory itself, not a symlink to one. `false` if absent.
+/// # Errors
+///
+/// Returns [`Error`] if `path`'s metadata cannot be read.
 pub fn is_real_dir(path: &Utf8Path) -> Result<bool, Error> {
     match fs_err::symlink_metadata(path.as_std_path()) {
         Ok(metadata) => Ok(metadata.is_dir()),
@@ -218,6 +262,9 @@ pub fn is_real_dir(path: &Utf8Path) -> Result<bool, Error> {
 }
 
 /// Full metadata for `path` (following symlinks). `Ok(None)` if absent.
+/// # Errors
+///
+/// Returns [`Error`] if `path`'s metadata cannot be read.
 pub fn stat(path: &Utf8Path) -> Result<Option<std::fs::Metadata>, Error> {
     match fs_err::metadata(path.as_std_path()) {
         Ok(metadata) => Ok(Some(metadata)),
@@ -231,6 +278,9 @@ pub fn stat(path: &Utf8Path) -> Result<Option<std::fs::Metadata>, Error> {
 
 /// Remove a file (or symlink, unlinked rather than followed). Removing
 /// something already gone is success, not an error.
+/// # Errors
+///
+/// Returns [`Error`] if `path` exists and cannot be removed.
 pub fn remove_file(path: &Utf8Path) -> Result<(), Error> {
     match fs_err::remove_file(path.as_std_path()) {
         Ok(()) => Ok(()),
@@ -244,6 +294,9 @@ pub fn remove_file(path: &Utf8Path) -> Result<(), Error> {
 
 /// Remove whatever is at `path` — file, symlink, or directory tree —
 /// recursively. Removing something already gone is success, not an error.
+/// # Errors
+///
+/// Returns [`Error`] if `path` exists and cannot be removed.
 pub fn remove_path(path: &Utf8Path) -> Result<(), Error> {
     // `symlink_metadata` (not `metadata`) so a symlink is unlinked as itself,
     // never followed into whatever directory it might point at.
@@ -351,6 +404,10 @@ pub struct TempDir {
 
 impl TempDir {
     /// Create a new temporary directory under `std::env::temp_dir()`.
+    /// # Errors
+    ///
+    /// Returns [`Error`] if the temp directory's path is not UTF-8 or it
+    /// cannot be created.
     pub fn new() -> Result<Self, Error> {
         let id = uuid::Uuid::new_v4();
         let path_std = std::env::temp_dir().join(format!("ivar-tmp-{id}"));
@@ -375,6 +432,10 @@ impl Drop for TempDir {
 }
 
 /// Recursively copy directory `src` to `dst`.
+/// # Errors
+///
+/// Returns [`Error`] if a directory entry cannot be read, a path is not
+/// UTF-8, or a file/directory/symlink cannot be created or copied.
 pub fn copy_dir(src: &Utf8Path, dst: &Utf8Path) -> Result<(), Error> {
     ensure_dir(dst)?;
     for entry in walkdir::WalkDir::new(src.as_std_path()) {
