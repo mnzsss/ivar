@@ -219,10 +219,24 @@ impl CallbackServer {
 
         loop {
             if Instant::now() >= deadline || shutdown.load(Ordering::Acquire) {
-                let _ = tx.send(Err(Failure::failed(
-                    "callback.timeout",
-                    "timed out waiting for OAuth callback",
-                )));
+                if tx
+                    .send(Err(Failure::failed(
+                        "callback.timeout",
+                        "timed out waiting for OAuth callback",
+                    )))
+                    .is_err()
+                {
+                    #[expect(
+                        clippy::print_stderr,
+                        reason = "background worker thread with no Report to attach a Warning to; \
+                                  the wait() caller already gave up, so this is diagnostic-only"
+                    )]
+                    {
+                        eprintln!(
+                            "[ivar] oauth callback: result channel had no receiver; the wait() caller already gave up"
+                        );
+                    }
+                }
                 break;
             }
 

@@ -116,7 +116,18 @@ impl GraphDb {
                 Ok(value)
             }
             Err(e) => {
-                let _ = self.conn.execute_batch("ROLLBACK;");
+                if let Err(rollback_err) = self.conn.execute_batch("ROLLBACK;") {
+                    #[expect(
+                        clippy::print_stderr,
+                        reason = "double-fault path: the original error `e` is still returned below, \
+                                  and this function has no Report to attach a Warning to"
+                    )]
+                    {
+                        eprintln!(
+                            "[ivar] in_transaction: rollback failed after {e}: {rollback_err}"
+                        );
+                    }
+                }
                 Err(e)
             }
         }
