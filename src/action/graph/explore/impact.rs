@@ -34,158 +34,246 @@ pub(crate) fn collect_relations(
             symbol_kind: Some(candidate.symbol.kind.clone()),
         };
 
-        let callers = match candidate.symbol.id {
-            Some(id) => query::get_callers_of(db, id, 0.7)?,
-            None => query::get_callers(db, &candidate.symbol.name, repo, true, 0.7)?,
-        };
-        for caller in callers {
-            let flow_key = (
-                caller.caller.name.clone(),
-                candidate.symbol.name.clone(),
-                caller.line,
-            );
-            if seen_flows.insert(flow_key) {
-                call_flows.push(CallFlowItem {
-                    caller: caller.caller.name.clone(),
-                    callee: candidate.symbol.name.clone(),
-                    edge_kind: caller.edge_kind.clone(),
-                    provenance: caller.provenance,
-                    line: caller.line,
-                });
-            }
-
-            let caller_endpoint = RelationEndpoint {
-                repo: caller.caller.repo.clone(),
-                file_path: caller.caller_file_path.clone(),
-                symbol_name: caller.caller.name.clone(),
-                symbol_kind: Some(caller.caller.kind.clone()),
-            };
-            let is_cross_repo = caller.caller.repo != candidate.symbol.repo;
-            let rel_key = (
-                caller_endpoint.repo.clone(),
-                caller_endpoint.file_path.clone(),
-                caller_endpoint.symbol_name.clone(),
-                candidate_endpoint.repo.clone(),
-                candidate_endpoint.file_path.clone(),
-                candidate_endpoint.symbol_name.clone(),
-                caller.line,
-                caller.edge_kind.clone(),
-            );
-            if seen_relations.insert(rel_key) {
-                let rel = OperationalRelation {
-                    source: caller_endpoint.clone(),
-                    target: candidate_endpoint.clone(),
-                    direction: RelationDirection::Incoming,
-                    edge_kind: caller.edge_kind,
-                    provenance: caller.provenance,
-                    confidence: caller.confidence,
-                    line: caller.line,
-                    hop_count: 1,
-                    cross_repo: is_cross_repo,
-                };
-                // Check if this incoming caller serves as an entry point (e.g. exported or CLI/root caller)
-                if caller.caller.is_exported
-                    || caller.caller_file_path.contains("cli")
-                    || caller.caller_file_path.contains("main")
-                {
-                    entry_points.push(rel.clone());
-                }
-                direct_relations.push(rel);
-            }
-        }
+        collect_caller_relations(
+            db,
+            candidate,
+            repo,
+            &candidate_endpoint,
+            &mut seen_flows,
+            &mut seen_relations,
+            &mut call_flows,
+            &mut direct_relations,
+            &mut entry_points,
+        )?;
 
         if let Some(sym_id) = candidate.symbol.id {
-            for site in query::get_references_of(db, sym_id)? {
-                let rel_key = (
-                    site.repo.clone(),
-                    site.file_path.clone(),
-                    String::new(),
-                    candidate_endpoint.repo.clone(),
-                    candidate_endpoint.file_path.clone(),
-                    candidate_endpoint.symbol_name.clone(),
-                    site.line,
-                    EdgeKind::References,
-                );
-                if seen_relations.insert(rel_key) {
-                    direct_relations.push(OperationalRelation {
-                        cross_repo: site.repo != candidate.symbol.repo,
-                        source: RelationEndpoint {
-                            repo: site.repo,
-                            file_path: site.file_path,
-                            symbol_name: String::new(),
-                            symbol_kind: None,
-                        },
-                        target: candidate_endpoint.clone(),
-                        direction: RelationDirection::Incoming,
-                        edge_kind: EdgeKind::References,
-                        provenance: Provenance::Extracted,
-                        confidence: 1.0,
-                        line: site.line,
-                        hop_count: 1,
-                    });
-                }
-            }
-
-            let callees = query::get_callees(db, sym_id)?;
-            for callee in callees {
-                let flow_key = (
-                    candidate.symbol.name.clone(),
-                    callee.callee_name.clone(),
-                    callee.line,
-                );
-                if seen_flows.insert(flow_key) {
-                    call_flows.push(CallFlowItem {
-                        caller: candidate.symbol.name.clone(),
-                        callee: callee.callee_name.clone(),
-                        edge_kind: callee.edge_kind.clone(),
-                        provenance: callee.provenance,
-                        line: callee.line,
-                    });
-                }
-
-                let callee_repo = callee
-                    .callee_symbol
-                    .as_ref()
-                    .map(|s| s.repo.clone())
-                    .unwrap_or_else(|| candidate.symbol.repo.clone());
-                let callee_file_path = callee.callee_file_path.clone().unwrap_or_default();
-                let callee_kind = callee.callee_symbol.as_ref().map(|s| s.kind.clone());
-
-                let target_endpoint = RelationEndpoint {
-                    repo: callee_repo.clone(),
-                    file_path: callee_file_path.clone(),
-                    symbol_name: callee.callee_name.clone(),
-                    symbol_kind: callee_kind,
-                };
-                let is_cross_repo = callee_repo != candidate.symbol.repo;
-                let rel_key = (
-                    candidate_endpoint.repo.clone(),
-                    candidate_endpoint.file_path.clone(),
-                    candidate_endpoint.symbol_name.clone(),
-                    target_endpoint.repo.clone(),
-                    target_endpoint.file_path.clone(),
-                    target_endpoint.symbol_name.clone(),
-                    callee.line,
-                    callee.edge_kind.clone(),
-                );
-                if seen_relations.insert(rel_key) {
-                    direct_relations.push(OperationalRelation {
-                        source: candidate_endpoint.clone(),
-                        target: target_endpoint,
-                        direction: RelationDirection::Outgoing,
-                        edge_kind: callee.edge_kind,
-                        provenance: callee.provenance,
-                        confidence: callee.confidence,
-                        line: callee.line,
-                        hop_count: 1,
-                        cross_repo: is_cross_repo,
-                    });
-                }
-            }
+            collect_callee_relations(
+                db,
+                candidate,
+                &candidate_endpoint,
+                sym_id,
+                &mut seen_flows,
+                &mut seen_relations,
+                &mut call_flows,
+                &mut direct_relations,
+            )?;
         }
     }
 
-    // Deterministic sorting for direct relations, entry points, and call flows
+    sort_relations_analysis(&mut call_flows, &mut direct_relations, &mut entry_points);
+
+    Ok(RelationsAnalysis {
+        call_flows,
+        direct_relations,
+        entry_points,
+    })
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "carries the shared per-candidate accumulators"
+)]
+fn collect_caller_relations(
+    db: &GraphDb,
+    candidate: &SymbolLocation,
+    repo: Option<&str>,
+    candidate_endpoint: &RelationEndpoint,
+    seen_flows: &mut HashSet<(String, String, usize)>,
+    seen_relations: &mut HashSet<(
+        String,
+        String,
+        String,
+        String,
+        String,
+        String,
+        usize,
+        EdgeKind,
+    )>,
+    call_flows: &mut Vec<CallFlowItem>,
+    direct_relations: &mut Vec<OperationalRelation>,
+    entry_points: &mut Vec<OperationalRelation>,
+) -> Result<(), ExploreError> {
+    let callers = match candidate.symbol.id {
+        Some(id) => query::get_callers_of(db, id, 0.7)?,
+        None => query::get_callers(db, &candidate.symbol.name, repo, true, 0.7)?,
+    };
+    for caller in callers {
+        let flow_key = (
+            caller.caller.name.clone(),
+            candidate.symbol.name.clone(),
+            caller.line,
+        );
+        if seen_flows.insert(flow_key) {
+            call_flows.push(CallFlowItem {
+                caller: caller.caller.name.clone(),
+                callee: candidate.symbol.name.clone(),
+                edge_kind: caller.edge_kind.clone(),
+                provenance: caller.provenance,
+                line: caller.line,
+            });
+        }
+
+        let caller_endpoint = RelationEndpoint {
+            repo: caller.caller.repo.clone(),
+            file_path: caller.caller_file_path.clone(),
+            symbol_name: caller.caller.name.clone(),
+            symbol_kind: Some(caller.caller.kind.clone()),
+        };
+        let is_cross_repo = caller.caller.repo != candidate.symbol.repo;
+        let rel_key = (
+            caller_endpoint.repo.clone(),
+            caller_endpoint.file_path.clone(),
+            caller_endpoint.symbol_name.clone(),
+            candidate_endpoint.repo.clone(),
+            candidate_endpoint.file_path.clone(),
+            candidate_endpoint.symbol_name.clone(),
+            caller.line,
+            caller.edge_kind.clone(),
+        );
+        if seen_relations.insert(rel_key) {
+            let rel = OperationalRelation {
+                source: caller_endpoint.clone(),
+                target: candidate_endpoint.clone(),
+                direction: RelationDirection::Incoming,
+                edge_kind: caller.edge_kind,
+                provenance: caller.provenance,
+                confidence: caller.confidence,
+                line: caller.line,
+                hop_count: 1,
+                cross_repo: is_cross_repo,
+            };
+            // Check if this incoming caller serves as an entry point (e.g. exported or CLI/root caller)
+            if caller.caller.is_exported
+                || caller.caller_file_path.contains("cli")
+                || caller.caller_file_path.contains("main")
+            {
+                entry_points.push(rel.clone());
+            }
+            direct_relations.push(rel);
+        }
+    }
+    Ok(())
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "carries the shared per-candidate accumulators"
+)]
+fn collect_callee_relations(
+    db: &GraphDb,
+    candidate: &SymbolLocation,
+    candidate_endpoint: &RelationEndpoint,
+    sym_id: i64,
+    seen_flows: &mut HashSet<(String, String, usize)>,
+    seen_relations: &mut HashSet<(
+        String,
+        String,
+        String,
+        String,
+        String,
+        String,
+        usize,
+        EdgeKind,
+    )>,
+    call_flows: &mut Vec<CallFlowItem>,
+    direct_relations: &mut Vec<OperationalRelation>,
+) -> Result<(), ExploreError> {
+    for site in query::get_references_of(db, sym_id)? {
+        let rel_key = (
+            site.repo.clone(),
+            site.file_path.clone(),
+            String::new(),
+            candidate_endpoint.repo.clone(),
+            candidate_endpoint.file_path.clone(),
+            candidate_endpoint.symbol_name.clone(),
+            site.line,
+            EdgeKind::References,
+        );
+        if seen_relations.insert(rel_key) {
+            direct_relations.push(OperationalRelation {
+                cross_repo: site.repo != candidate.symbol.repo,
+                source: RelationEndpoint {
+                    repo: site.repo,
+                    file_path: site.file_path,
+                    symbol_name: String::new(),
+                    symbol_kind: None,
+                },
+                target: candidate_endpoint.clone(),
+                direction: RelationDirection::Incoming,
+                edge_kind: EdgeKind::References,
+                provenance: Provenance::Extracted,
+                confidence: 1.0,
+                line: site.line,
+                hop_count: 1,
+            });
+        }
+    }
+
+    let callees = query::get_callees(db, sym_id)?;
+    for callee in callees {
+        let flow_key = (
+            candidate.symbol.name.clone(),
+            callee.callee_name.clone(),
+            callee.line,
+        );
+        if seen_flows.insert(flow_key) {
+            call_flows.push(CallFlowItem {
+                caller: candidate.symbol.name.clone(),
+                callee: callee.callee_name.clone(),
+                edge_kind: callee.edge_kind.clone(),
+                provenance: callee.provenance,
+                line: callee.line,
+            });
+        }
+
+        let callee_repo = callee
+            .callee_symbol
+            .as_ref()
+            .map(|s| s.repo.clone())
+            .unwrap_or_else(|| candidate.symbol.repo.clone());
+        let callee_file_path = callee.callee_file_path.clone().unwrap_or_default();
+        let callee_kind = callee.callee_symbol.as_ref().map(|s| s.kind.clone());
+
+        let target_endpoint = RelationEndpoint {
+            repo: callee_repo.clone(),
+            file_path: callee_file_path.clone(),
+            symbol_name: callee.callee_name.clone(),
+            symbol_kind: callee_kind,
+        };
+        let is_cross_repo = callee_repo != candidate.symbol.repo;
+        let rel_key = (
+            candidate_endpoint.repo.clone(),
+            candidate_endpoint.file_path.clone(),
+            candidate_endpoint.symbol_name.clone(),
+            target_endpoint.repo.clone(),
+            target_endpoint.file_path.clone(),
+            target_endpoint.symbol_name.clone(),
+            callee.line,
+            callee.edge_kind.clone(),
+        );
+        if seen_relations.insert(rel_key) {
+            direct_relations.push(OperationalRelation {
+                source: candidate_endpoint.clone(),
+                target: target_endpoint,
+                direction: RelationDirection::Outgoing,
+                edge_kind: callee.edge_kind,
+                provenance: callee.provenance,
+                confidence: callee.confidence,
+                line: callee.line,
+                hop_count: 1,
+                cross_repo: is_cross_repo,
+            });
+        }
+    }
+    Ok(())
+}
+
+/// Deterministic sorting for direct relations, entry points, and call flows.
+fn sort_relations_analysis(
+    call_flows: &mut [CallFlowItem],
+    direct_relations: &mut [OperationalRelation],
+    entry_points: &mut [OperationalRelation],
+) {
     direct_relations.sort_by(|a, b| {
         a.cross_repo
             .cmp(&b.cross_repo)
@@ -211,12 +299,6 @@ pub(crate) fn collect_relations(
             .then_with(|| a.callee.cmp(&b.callee))
             .then_with(|| a.line.cmp(&b.line))
     });
-
-    Ok(RelationsAnalysis {
-        call_flows,
-        direct_relations,
-        entry_points,
-    })
 }
 
 pub(crate) fn collect_impact(

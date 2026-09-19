@@ -248,10 +248,62 @@ pub fn find_affected_tests_with_root(
         });
     }
 
-    // Step 1: Find file IDs for all changed files
+    let target_files = collect_target_files(conn, repo, &normalized_changed)?;
+
+    let mut recommendations_map: BTreeMap<(String, String), AffectedRecommendation> =
+        BTreeMap::new();
+    let mut affected_tests_set = HashSet::new();
+
+    mark_direct_test_changes(
+        db,
+        hall_root,
+        &target_files,
+        &mut affected_tests_set,
+        &mut recommendations_map,
+    );
+
+    if !target_files.is_empty() {
+        traverse_reverse_dependencies(
+            db,
+            hall_root,
+            repo,
+            &target_files,
+            max_depth,
+            &mut affected_tests_set,
+            &mut recommendations_map,
+        )?;
+    }
+
+    let mut affected_test_files: Vec<String> = affected_tests_set
+        .into_iter()
+        .map(|(_repo, path)| path)
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect();
+    affected_test_files.sort();
+
+    let mut recommendations: Vec<AffectedRecommendation> =
+        recommendations_map.into_values().collect();
+    recommendations.sort_by(|a, b| {
+        a.test_file
+            .cmp(&b.test_file)
+            .then_with(|| a.repo.cmp(&b.repo))
+    });
+    Ok(AffectedResult {
+        changed_files: normalized_changed,
+        affected_test_files,
+        recommendations,
+    })
+}
+
+fn collect_target_files(
+    conn: &rusqlite::Connection,
+    repo: Option<&str>,
+    normalized_changed: &[String],
+) -> Result<Vec<TargetFileInfo>, AffectedError> {
     let mut target_files = Vec::new();
 
-    for path in &normalized_changed {
+    for path in normalized_changed {
         let mut stmt = conn.prepare_cached(
             "SELECT id, repo, path FROM visible_files WHERE (?1 IS NULL OR repo = ?1) AND (path = ?2 OR (repo || '/' || path) = ?2 OR path LIKE ?3)",
         )?;
@@ -269,12 +321,18 @@ pub fn find_affected_tests_with_root(
         }
     }
 
-    let mut recommendations_map: BTreeMap<(String, String), AffectedRecommendation> =
-        BTreeMap::new();
-    let mut affected_tests_set = HashSet::new();
+    Ok(target_files)
+}
 
-    // Direct test changes: if a test file itself changed, it is directly affected
-    for tf in &target_files {
+/// Direct test changes: if a test file itself changed, it is directly affected.
+fn mark_direct_test_changes(
+    db: &GraphDb,
+    hall_root: Option<&Path>,
+    target_files: &[TargetFileInfo],
+    affected_tests_set: &mut HashSet<(String, String)>,
+    recommendations_map: &mut BTreeMap<(String, String), AffectedRecommendation>,
+) {
+    for tf in target_files {
         if is_test_file(&tf.path) {
             affected_tests_set.insert((tf.repo.clone(), tf.path.clone()));
             let repo_root = db
@@ -298,227 +356,256 @@ pub fn find_affected_tests_with_root(
             recommendations_map.insert((tf.repo.clone(), tf.path.clone()), rec);
         }
     }
+}
 
-    // Step 2: Reverse traversal to find all affected test files and incoming causal paths
-    if !target_files.is_empty() {
-        // Collect reverse edges layer by layer up to max_depth
-        let edge_query_sql = "
-            SELECT
-                e.file_id AS from_file_id,
-                f_from.repo AS from_repo,
-                f_from.path AS from_path,
-                s_from.name AS from_symbol_name,
-                s_to.file_id AS to_file_id,
-                f_to.repo AS to_repo,
-                f_to.path AS to_path,
-                s_to.name AS to_symbol_name,
-                e.kind AS edge_kind,
-                e.provenance,
-                e.confidence,
-                e.line
-            FROM visible_edges e
-            JOIN visible_files f_from ON e.file_id = f_from.id
-            LEFT JOIN visible_symbols s_from ON e.from_symbol_id = s_from.id
-            LEFT JOIN visible_symbols s_to ON (
-                e.to_symbol_id = s_to.id
-                OR (e.to_symbol_id IS NULL AND e.to_name = s_to.name)
-                OR (e.to_symbol_id IN (SELECT id FROM hidden_symbols) AND e.to_name = s_to.name)
-            )
-            JOIN visible_files f_to ON s_to.file_id = f_to.id
-            WHERE s_to.file_id = ?1
-              AND (?2 IS NULL OR e.repo = ?2)
-        ";
+fn fetch_outgoing_edges(
+    conn: &rusqlite::Connection,
+    edge_query_sql: &str,
+    curr_fid: i64,
+    repo: Option<&str>,
+) -> Result<Vec<RawCausalEdge>, AffectedError> {
+    let mut stmt = conn.prepare_cached(edge_query_sql)?;
+    let mut rows = stmt.query(params![curr_fid, repo])?;
 
-        for tf in &target_files {
-            // BFS queue: (current_file_id, current_repo, current_path, accumulated_path, visited_files)
-            let mut visited = HashSet::new();
-            visited.insert(tf.id);
+    let mut outgoing_edges = Vec::new();
+    while let Some(row) = rows.next()? {
+        let from_fid: i64 = row.get(0)?;
+        let from_repo: String = row.get(1)?;
+        let from_path: String = row.get(2)?;
+        let from_sym: Option<String> = row.get(3)?;
+        let to_fid: i64 = row.get(4)?;
+        let to_repo: String = row.get(5)?;
+        let to_path: String = row.get(6)?;
+        let to_sym: Option<String> = row.get(7)?;
+        let kind_raw: String = row.get(8)?;
+        let prov_raw: String = row.get(9)?;
+        let conf: f64 = row.get(10)?;
+        let line: i64 = row.get(11)?;
 
-            let mut queue: std::collections::VecDeque<BfsQueueItem> =
-                std::collections::VecDeque::new();
-            queue.push_back((tf.id, tf.repo.clone(), tf.path.clone(), Vec::new(), visited));
+        outgoing_edges.push(RawCausalEdge {
+            from_file_id: from_fid,
+            from_repo,
+            from_path,
+            from_symbol_name: from_sym,
+            _to_file_id: to_fid,
+            _to_repo: to_repo,
+            to_path,
+            to_symbol_name: to_sym,
+            edge_kind: parse_edge_kind(&kind_raw),
+            provenance: parse_provenance(&prov_raw),
+            confidence: conf,
+            line: usize::try_from(line).unwrap_or(usize::MAX),
+        });
+    }
 
-            while let Some((curr_fid, _curr_repo, curr_path, path_so_far, visited_set)) =
-                queue.pop_front()
-            {
-                if path_so_far.len() >= max_depth {
+    Ok(outgoing_edges)
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "carries the shared BFS accumulators for one causal-path candidate"
+)]
+fn record_test_recommendation(
+    db: &GraphDb,
+    hall_root: Option<&Path>,
+    tf: &TargetFileInfo,
+    edge: &RawCausalEdge,
+    next_path: &[CausalStep],
+    curr_path: &str,
+    affected_tests_set: &mut HashSet<(String, String)>,
+    recommendations_map: &mut BTreeMap<(String, String), AffectedRecommendation>,
+) {
+    affected_tests_set.insert((edge.from_repo.clone(), edge.from_path.clone()));
+    let Some(primary_step) = next_path.first() else {
+        return;
+    };
+    let edge_kind = primary_step.edge_kind.clone();
+    let provenance = primary_step.provenance;
+    // Aggregate confidence along the path
+    let confidence = next_path.iter().fold(1.0, |acc, s| acc * s.confidence);
+    let hops = next_path.len();
+
+    let reason = if hops == 1 {
+        format!("{} {} (1 hop)", edge_kind.as_str(), tf.path)
+    } else {
+        format!(
+            "transitively depends on {} ({} hops via {})",
+            tf.path, hops, curr_path
+        )
+    };
+
+    let repo_root = db
+        .get_visible_repo(&edge.from_repo)
+        .ok()
+        .flatten()
+        .map(|r| std::path::PathBuf::from(r.root_path));
+    let cmd = derive_test_command(
+        repo_root.as_deref().or(hall_root),
+        &edge.from_repo,
+        &edge.from_path,
+    );
+
+    let candidate = AffectedRecommendation {
+        repo: edge.from_repo.clone(),
+        test_file: edge.from_path.clone(),
+        causal_path: next_path.to_vec(),
+        direct_change: false,
+        hop_count: hops,
+        edge_kind,
+        provenance,
+        confidence,
+        reason,
+        command: cmd,
+    };
+
+    let key = (edge.from_repo.clone(), edge.from_path.clone());
+    let should_replace = match recommendations_map.get(&key) {
+        None => true,
+        Some(existing) => should_replace_recommendation(existing, &candidate),
+    };
+
+    if should_replace {
+        recommendations_map.insert(key, candidate);
+    }
+}
+
+/// Deterministic best path selection:
+/// 1. Shorter hop_count wins
+/// 2. Higher confidence wins
+/// 3. Lexicographical tie-breaker
+fn should_replace_recommendation(
+    existing: &AffectedRecommendation,
+    candidate: &AffectedRecommendation,
+) -> bool {
+    if existing.direct_change {
+        false
+    } else if candidate.hop_count < existing.hop_count {
+        true
+    } else if candidate.hop_count == existing.hop_count {
+        if candidate.confidence > existing.confidence {
+            true
+        } else if (candidate.confidence - existing.confidence).abs() < f64::EPSILON {
+            candidate.reason < existing.reason
+        } else {
+            false
+        }
+    } else {
+        false
+    }
+}
+
+/// Reverse traversal to find all affected test files and incoming causal paths.
+fn traverse_reverse_dependencies(
+    db: &GraphDb,
+    hall_root: Option<&Path>,
+    repo: Option<&str>,
+    target_files: &[TargetFileInfo],
+    max_depth: usize,
+    affected_tests_set: &mut HashSet<(String, String)>,
+    recommendations_map: &mut BTreeMap<(String, String), AffectedRecommendation>,
+) -> Result<(), AffectedError> {
+    let conn = db.conn();
+
+    // Collect reverse edges layer by layer up to max_depth
+    let edge_query_sql = "
+        SELECT
+            e.file_id AS from_file_id,
+            f_from.repo AS from_repo,
+            f_from.path AS from_path,
+            s_from.name AS from_symbol_name,
+            s_to.file_id AS to_file_id,
+            f_to.repo AS to_repo,
+            f_to.path AS to_path,
+            s_to.name AS to_symbol_name,
+            e.kind AS edge_kind,
+            e.provenance,
+            e.confidence,
+            e.line
+        FROM visible_edges e
+        JOIN visible_files f_from ON e.file_id = f_from.id
+        LEFT JOIN visible_symbols s_from ON e.from_symbol_id = s_from.id
+        LEFT JOIN visible_symbols s_to ON (
+            e.to_symbol_id = s_to.id
+            OR (e.to_symbol_id IS NULL AND e.to_name = s_to.name)
+            OR (e.to_symbol_id IN (SELECT id FROM hidden_symbols) AND e.to_name = s_to.name)
+        )
+        JOIN visible_files f_to ON s_to.file_id = f_to.id
+        WHERE s_to.file_id = ?1
+          AND (?2 IS NULL OR e.repo = ?2)
+    ";
+
+    for tf in target_files {
+        // BFS queue: (current_file_id, current_repo, current_path, accumulated_path, visited_files)
+        let mut visited = HashSet::new();
+        visited.insert(tf.id);
+
+        let mut queue: std::collections::VecDeque<BfsQueueItem> = std::collections::VecDeque::new();
+        queue.push_back((tf.id, tf.repo.clone(), tf.path.clone(), Vec::new(), visited));
+
+        while let Some((curr_fid, _curr_repo, curr_path, path_so_far, visited_set)) =
+            queue.pop_front()
+        {
+            if path_so_far.len() >= max_depth {
+                continue;
+            }
+
+            let outgoing_edges = fetch_outgoing_edges(conn, edge_query_sql, curr_fid, repo)?;
+
+            for edge in outgoing_edges {
+                if visited_set.contains(&edge.from_file_id) {
                     continue;
                 }
 
-                let mut stmt = conn.prepare_cached(edge_query_sql)?;
-                let mut rows = stmt.query(params![curr_fid, repo])?;
+                let source_desc = edge
+                    .from_symbol_name
+                    .as_deref()
+                    .map(|s| format!("{}:{}", edge.from_path, s))
+                    .unwrap_or_else(|| edge.from_path.clone());
+                let target_desc = edge
+                    .to_symbol_name
+                    .as_deref()
+                    .map(|s| format!("{}:{}", edge.to_path, s))
+                    .unwrap_or_else(|| edge.to_path.clone());
 
-                let mut outgoing_edges = Vec::new();
-                while let Some(row) = rows.next()? {
-                    let from_fid: i64 = row.get(0)?;
-                    let from_repo: String = row.get(1)?;
-                    let from_path: String = row.get(2)?;
-                    let from_sym: Option<String> = row.get(3)?;
-                    let to_fid: i64 = row.get(4)?;
-                    let to_repo: String = row.get(5)?;
-                    let to_path: String = row.get(6)?;
-                    let to_sym: Option<String> = row.get(7)?;
-                    let kind_raw: String = row.get(8)?;
-                    let prov_raw: String = row.get(9)?;
-                    let conf: f64 = row.get(10)?;
-                    let line: i64 = row.get(11)?;
+                let step = CausalStep {
+                    source: source_desc,
+                    target: target_desc,
+                    edge_kind: edge.edge_kind.clone(),
+                    provenance: edge.provenance,
+                    confidence: edge.confidence,
+                    line: edge.line,
+                };
 
-                    outgoing_edges.push(RawCausalEdge {
-                        from_file_id: from_fid,
-                        from_repo,
-                        from_path,
-                        from_symbol_name: from_sym,
-                        _to_file_id: to_fid,
-                        _to_repo: to_repo,
-                        to_path,
-                        to_symbol_name: to_sym,
-                        edge_kind: parse_edge_kind(&kind_raw),
-                        provenance: parse_provenance(&prov_raw),
-                        confidence: conf,
-                        line: usize::try_from(line).unwrap_or(usize::MAX),
-                    });
+                let mut next_path = path_so_far.clone();
+                next_path.push(step);
+
+                if is_test_file(&edge.from_path) {
+                    record_test_recommendation(
+                        db,
+                        hall_root,
+                        tf,
+                        &edge,
+                        &next_path,
+                        &curr_path,
+                        affected_tests_set,
+                        recommendations_map,
+                    );
                 }
 
-                for edge in outgoing_edges {
-                    if visited_set.contains(&edge.from_file_id) {
-                        continue;
-                    }
-
-                    let source_desc = edge
-                        .from_symbol_name
-                        .as_deref()
-                        .map(|s| format!("{}:{}", edge.from_path, s))
-                        .unwrap_or_else(|| edge.from_path.clone());
-                    let target_desc = edge
-                        .to_symbol_name
-                        .as_deref()
-                        .map(|s| format!("{}:{}", edge.to_path, s))
-                        .unwrap_or_else(|| edge.to_path.clone());
-
-                    let step = CausalStep {
-                        source: source_desc,
-                        target: target_desc,
-                        edge_kind: edge.edge_kind.clone(),
-                        provenance: edge.provenance,
-                        confidence: edge.confidence,
-                        line: edge.line,
-                    };
-
-                    let mut next_path = path_so_far.clone();
-                    next_path.push(step);
-
-                    let hops = next_path.len();
-
-                    if is_test_file(&edge.from_path) {
-                        affected_tests_set.insert((edge.from_repo.clone(), edge.from_path.clone()));
-                        let Some(primary_step) = next_path.first() else {
-                            continue;
-                        };
-                        let edge_kind = primary_step.edge_kind.clone();
-                        let provenance = primary_step.provenance;
-                        // Aggregate confidence along the path
-                        let confidence = next_path.iter().fold(1.0, |acc, s| acc * s.confidence);
-
-                        let reason = if hops == 1 {
-                            format!("{} {} (1 hop)", edge_kind.as_str(), tf.path)
-                        } else {
-                            format!(
-                                "transitively depends on {} ({} hops via {})",
-                                tf.path, hops, curr_path
-                            )
-                        };
-
-                        let repo_root = db
-                            .get_visible_repo(&edge.from_repo)
-                            .ok()
-                            .flatten()
-                            .map(|r| std::path::PathBuf::from(r.root_path));
-                        let cmd = derive_test_command(
-                            repo_root.as_deref().or(hall_root),
-                            &edge.from_repo,
-                            &edge.from_path,
-                        );
-
-                        let candidate = AffectedRecommendation {
-                            repo: edge.from_repo.clone(),
-                            test_file: edge.from_path.clone(),
-                            causal_path: next_path.clone(),
-                            direct_change: false,
-                            hop_count: hops,
-                            edge_kind,
-                            provenance,
-                            confidence,
-                            reason,
-                            command: cmd,
-                        };
-
-                        // Deterministic best path selection:
-                        // 1. Shorter hop_count wins
-                        // 2. Higher confidence wins
-                        // 3. Lexicographical tie-breaker
-                        let key = (edge.from_repo.clone(), edge.from_path.clone());
-                        let should_replace = match recommendations_map.get(&key) {
-                            None => true,
-                            Some(existing) => {
-                                if existing.direct_change {
-                                    false
-                                } else if candidate.hop_count < existing.hop_count {
-                                    true
-                                } else if candidate.hop_count == existing.hop_count {
-                                    if candidate.confidence > existing.confidence {
-                                        true
-                                    } else if (candidate.confidence - existing.confidence).abs()
-                                        < f64::EPSILON
-                                    {
-                                        candidate.reason < existing.reason
-                                    } else {
-                                        false
-                                    }
-                                } else {
-                                    false
-                                }
-                            }
-                        };
-
-                        if should_replace {
-                            recommendations_map.insert(key, candidate);
-                        }
-                    }
-
-                    let mut next_visited = visited_set.clone();
-                    next_visited.insert(edge.from_file_id);
-                    queue.push_back((
-                        edge.from_file_id,
-                        edge.from_repo,
-                        edge.from_path,
-                        next_path,
-                        next_visited,
-                    ));
-                }
+                let mut next_visited = visited_set.clone();
+                next_visited.insert(edge.from_file_id);
+                queue.push_back((
+                    edge.from_file_id,
+                    edge.from_repo,
+                    edge.from_path,
+                    next_path,
+                    next_visited,
+                ));
             }
         }
     }
 
-    let mut affected_test_files: Vec<String> = affected_tests_set
-        .into_iter()
-        .map(|(_repo, path)| path)
-        .collect::<HashSet<_>>()
-        .into_iter()
-        .collect();
-    affected_test_files.sort();
-
-    let mut recommendations: Vec<AffectedRecommendation> =
-        recommendations_map.into_values().collect();
-    recommendations.sort_by(|a, b| {
-        a.test_file
-            .cmp(&b.test_file)
-            .then_with(|| a.repo.cmp(&b.repo))
-    });
-    Ok(AffectedResult {
-        changed_files: normalized_changed,
-        affected_test_files,
-        recommendations,
-    })
+    Ok(())
 }
 
 #[cfg(test)]

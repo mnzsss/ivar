@@ -8,6 +8,98 @@ use super::types::{Result, edge_kind_to_str, now_timestamp, provenance_to_str};
 use crate::domain::graph::Span;
 use crate::store::graph::extractor::ExtractedFile;
 
+struct IndexedSymbolInfo {
+    id: i64,
+    span: Span,
+    scope: Option<String>,
+}
+
+fn resolve_edge_endpoints(
+    edge: &crate::domain::graph::Edge,
+    sym_spans: &[(Span, i64, Option<String>)],
+    syms_by_name: &std::collections::HashMap<String, Vec<IndexedSymbolInfo>>,
+) -> (Option<i64>, Option<i64>) {
+    // If from_symbol_id is not set, find smallest enclosing symbol in this file
+    let enclosing_sym = sym_spans
+        .iter()
+        .filter(|(span, _, _)| {
+            if edge.line < span.start_line || edge.line > span.end_line {
+                return false;
+            }
+            if edge.line == span.start_line && edge.col < span.start_col {
+                return false;
+            }
+            if edge.line == span.end_line && edge.col > span.end_col {
+                return false;
+            }
+            true
+        })
+        .min_by_key(|(span, _, _)| {
+            (
+                span.end_line.saturating_sub(span.start_line),
+                span.end_col.saturating_sub(span.start_col),
+            )
+        });
+
+    let from_symbol_id = edge
+        .from_symbol_id
+        .or_else(|| enclosing_sym.map(|(_, id, _)| *id));
+    let caller_scope = enclosing_sym.and_then(|(_, _, scope)| scope.as_deref());
+
+    // Resolve to_symbol_id:
+    // If already resolved, keep it.
+    // Otherwise, if to_name matches symbols in this file:
+    // - Single matching symbol -> resolve to its id.
+    // - Multiple matching symbols -> use enclosing span / caller scope evidence:
+    //   1) Check if caller scope matches symbol scope.
+    //   2) Check if edge is inside symbol span (e.g. recursion / inner symbol).
+    //   If still ambiguous (multiple candidates or none unique), leave unresolved (None).
+    let to_symbol_id = edge.to_symbol_id.or_else(|| {
+        let name = edge.to_name.as_deref()?;
+        let candidates = syms_by_name.get(name)?;
+        if let [candidate] = candidates.as_slice() {
+            return Some(candidate.id);
+        }
+
+        // Multiple symbols share this name.
+        // Try filtering by matching caller scope if present.
+        if let Some(scope) = caller_scope {
+            let scope_matches: Vec<_> = candidates
+                .iter()
+                .filter(|c| c.scope.as_deref() == Some(scope))
+                .collect();
+            if let [candidate] = scope_matches.as_slice() {
+                return Some(candidate.id);
+            }
+        }
+
+        // Try checking if the edge is located inside the symbol span
+        let span_matches: Vec<_> = candidates
+            .iter()
+            .filter(|c| {
+                if edge.line < c.span.start_line || edge.line > c.span.end_line {
+                    return false;
+                }
+                if edge.line == c.span.start_line && edge.col < c.span.start_col {
+                    return false;
+                }
+                if edge.line == c.span.end_line && edge.col > c.span.end_col {
+                    return false;
+                }
+                true
+            })
+            .collect();
+        if let [candidate] = span_matches.as_slice() {
+            return Some(candidate.id);
+        }
+
+        // Ambiguous duplicate names without definitive evidence -> leave unresolved
+        None
+    });
+
+    (from_symbol_id, to_symbol_id)
+}
+
 impl GraphDb {
     /// Indexes an extracted file's symbols and edges inside a transaction.
     ///
@@ -54,11 +146,6 @@ impl GraphDb {
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
                  RETURNING id",
             )?;
-            struct IndexedSymbolInfo {
-                id: i64,
-                span: Span,
-                scope: Option<String>,
-            }
 
             let mut syms_by_name: std::collections::HashMap<String, Vec<IndexedSymbolInfo>> =
                 std::collections::HashMap::new();
@@ -88,83 +175,8 @@ impl GraphDb {
                 let kind_str = edge_kind_to_str(&edge.kind);
                 let prov_str = provenance_to_str(&edge.provenance);
 
-                // If from_symbol_id is not set, find smallest enclosing symbol in this file
-                let enclosing_sym = sym_spans
-                    .iter()
-                    .filter(|(span, _, _)| {
-                        if edge.line < span.start_line || edge.line > span.end_line {
-                            return false;
-                        }
-                        if edge.line == span.start_line && edge.col < span.start_col {
-                            return false;
-                        }
-                        if edge.line == span.end_line && edge.col > span.end_col {
-                            return false;
-                        }
-                        true
-                    })
-                    .min_by_key(|(span, _, _)| {
-                        (
-                            span.end_line.saturating_sub(span.start_line),
-                            span.end_col.saturating_sub(span.start_col),
-                        )
-                    });
-
-                let from_symbol_id = edge
-                    .from_symbol_id
-                    .or_else(|| enclosing_sym.map(|(_, id, _)| *id));
-                let caller_scope = enclosing_sym.and_then(|(_, _, scope)| scope.as_deref());
-
-                // Resolve to_symbol_id:
-                // If already resolved, keep it.
-                // Otherwise, if to_name matches symbols in this file:
-                // - Single matching symbol -> resolve to its id.
-                // - Multiple matching symbols -> use enclosing span / caller scope evidence:
-                //   1) Check if caller scope matches symbol scope.
-                //   2) Check if edge is inside symbol span (e.g. recursion / inner symbol).
-                //   If still ambiguous (multiple candidates or none unique), leave unresolved (None).
-                let to_symbol_id = edge.to_symbol_id.or_else(|| {
-                    let name = edge.to_name.as_deref()?;
-                    let candidates = syms_by_name.get(name)?;
-                    if let [candidate] = candidates.as_slice() {
-                        return Some(candidate.id);
-                    }
-
-                    // Multiple symbols share this name.
-                    // Try filtering by matching caller scope if present.
-                    if let Some(scope) = caller_scope {
-                        let scope_matches: Vec<_> = candidates
-                            .iter()
-                            .filter(|c| c.scope.as_deref() == Some(scope))
-                            .collect();
-                        if let [candidate] = scope_matches.as_slice() {
-                            return Some(candidate.id);
-                        }
-                    }
-
-                    // Try checking if the edge is located inside the symbol span
-                    let span_matches: Vec<_> = candidates
-                        .iter()
-                        .filter(|c| {
-                            if edge.line < c.span.start_line || edge.line > c.span.end_line {
-                                return false;
-                            }
-                            if edge.line == c.span.start_line && edge.col < c.span.start_col {
-                                return false;
-                            }
-                            if edge.line == c.span.end_line && edge.col > c.span.end_col {
-                                return false;
-                            }
-                            true
-                        })
-                        .collect();
-                    if let [candidate] = span_matches.as_slice() {
-                        return Some(candidate.id);
-                    }
-
-                    // Ambiguous duplicate names without definitive evidence -> leave unresolved
-                    None
-                });
+                let (from_symbol_id, to_symbol_id) =
+                    resolve_edge_endpoints(edge, &sym_spans, &syms_by_name);
 
                 edge_stmt.execute(params![
                     repo_id,

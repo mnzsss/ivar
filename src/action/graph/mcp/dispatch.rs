@@ -29,6 +29,15 @@ fn bounded_arg(args: &Value, key: &str, default: usize, max: usize) -> usize {
         .min(max)
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "flat dispatch over 12 MCP tool names (\"graph_explore\", \"get_callers\", \
+              \"get_callees\", \"get_file_outline\", \"get_affected_tests\", \"get_path\", \
+              \"get_impact\", \"refresh_index\", \"get_graph_stats\", \"get_dead_code\", \
+              \"get_complexity\", \"get_hierarchy\"); each arm parses that tool's own args \
+              shape and picks its own markdown/json/compact output, so moving arms into a \
+              second match only relocates the same length without reducing complexity"
+)]
 pub fn dispatch_tool_call<F>(
     db: &GraphDb,
     hall_root: Option<&Path>,

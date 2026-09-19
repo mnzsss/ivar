@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use rusqlite::params;
 
 use super::candidate::{ScoredCandidate, add_score};
-use super::intent::resolve_query_paths;
+use super::intent::{ParsedExploreQuery, resolve_query_paths};
 use super::search::{NAME_PREFIX_MATCH, prefix_casings};
 use crate::action::graph::query::types::{QueryError, SymbolLocation, map_symbol_and_path_row};
 use crate::domain::graph::{FileMention, MentionedSymbol, Symbol};
@@ -74,12 +74,55 @@ pub fn explore_find(
     let parsed = resolve_query_paths(db, query, repo)?;
     let conn = db.conn();
 
-    // Map: (repo, file_path) -> Vec<ScoredCandidate>
+    let (mut file_candidates, pinned_files) = collect_pinned_candidates(conn, &parsed)?;
+
+    let terms_to_search = search_terms_for(query, &parsed);
+    score_matching_terms(
+        conn,
+        &terms_to_search,
+        repo,
+        parsed.route_intent,
+        &mut file_candidates,
+    )?;
+
+    if parsed.route_intent {
+        boost_route_intent_symbols(&mut file_candidates);
+    }
+
+    if file_candidates.is_empty() {
+        return Ok(ExploreCandidates::default());
+    }
+
+    let ranked_files = rank_files(&file_candidates, &pinned_files, &parsed);
+
+    let shown_files = ranked_files.len().min(max_files);
+    let max_per_file = match shown_files {
+        1 => MAX_EXPLORE_CANDIDATES,
+        files => (MAX_EXPLORE_CANDIDATES / files).clamp(1, MAX_SYMBOLS_PER_FILE),
+    };
+
+    Ok(collect_final_candidates(
+        file_candidates,
+        ranked_files,
+        shown_files,
+        max_per_file,
+    ))
+}
+
+/// Step 1: Collect symbols from resolved paths (pinned files and candidate paths).
+fn collect_pinned_candidates(
+    conn: &rusqlite::Connection,
+    parsed: &ParsedExploreQuery,
+) -> Result<
+    (
+        HashMap<(String, String), Vec<ScoredCandidate>>,
+        HashMap<(String, String), bool>,
+    ),
+    QueryError,
+> {
     let mut file_candidates: HashMap<(String, String), Vec<ScoredCandidate>> = HashMap::new();
-    // Track pinned files: (repo, file_path) -> bool
     let mut pinned_files: HashMap<(String, String), bool> = HashMap::new();
 
-    // Step 1: Collect symbols from resolved paths (pinned files and candidate paths).
     for res_path in &parsed.resolved_paths {
         let is_pinned = res_path.is_pinned();
         for (file_id, f_repo, f_path) in res_path.files() {
@@ -117,7 +160,10 @@ pub fn explore_find(
         }
     }
 
-    // Step 2: Weighted multi-tier search for remaining terms (Exact > Prefix > Route > FTS5).
+    Ok((file_candidates, pinned_files))
+}
+
+fn search_terms_for(query: &str, parsed: &ParsedExploreQuery) -> Vec<String> {
     let mut terms_to_search = parsed.search_terms.clone();
     if terms_to_search.is_empty() && parsed.resolved_paths.is_empty() {
         let clean = query
@@ -127,111 +173,26 @@ pub fn explore_find(
             terms_to_search.push(clean.to_owned());
         }
     }
+    terms_to_search
+}
 
-    for term in &terms_to_search {
+/// Step 2: Weighted multi-tier search for remaining terms (Exact > Prefix > Route > FTS5).
+fn score_matching_terms(
+    conn: &rusqlite::Connection,
+    terms: &[String],
+    repo: Option<&str>,
+    route_intent: bool,
+    file_candidates: &mut HashMap<(String, String), Vec<ScoredCandidate>>,
+) -> Result<(), QueryError> {
+    for term in terms {
         if term.is_empty() {
             continue;
         }
-
-        // Tier A: Exact symbol name match (+100.0)
-        {
-            let mut stmt = conn.prepare_cached(
-                "SELECT s.id, s.file_id, s.repo, s.name, s.kind, s.scope, s.signature, s.docstring,
-                        s.start_line, s.start_col, s.end_line, s.end_col, s.is_exported, s.complexity, f.path
-                 FROM visible_symbols s
-                 JOIN visible_files f ON s.file_id = f.id
-                 WHERE s.name = ?1
-                   AND (?2 IS NULL OR s.repo = ?2)
-                 LIMIT 50",
-            )?;
-            let rows = stmt
-                .query_map(params![term, repo], map_symbol_and_path_row)?
-                .filter_map(|r| r.ok());
-            for (symbol, file_path) in rows {
-                add_score(&mut file_candidates, symbol, file_path, 100.0);
-            }
-        }
-
-        // Tier B: Prefix symbol name match (+40.0 at a word boundary, +10.0 inside a word)
-        if term.len() >= 3 {
-            let mut stmt = conn.prepare_cached(&format!(
-                "SELECT s.id, s.file_id, s.repo, s.name, s.kind, s.scope, s.signature, s.docstring,
-                        s.start_line, s.start_col, s.end_line, s.end_col, s.is_exported, s.complexity, f.path
-                 FROM visible_symbols s
-                 JOIN visible_files f ON s.file_id = f.id
-                 WHERE {NAME_PREFIX_MATCH}
-                   AND s.name != ?5
-                   AND (?6 IS NULL OR s.repo = ?6)
-                 ORDER BY s.id ASC
-                 LIMIT 50",
-            ))?;
-            let [c1, c2, c3, c4] = prefix_casings(term);
-            let rows = stmt
-                .query_map(params![c1, c2, c3, c4, term, repo], map_symbol_and_path_row)?
-                .filter_map(|r| r.ok());
-            for (symbol, file_path) in rows {
-                let at_word_boundary = match symbol.name.get(term.len()..) {
-                    Some(rest) => rest.chars().next().is_none_or(|next| {
-                        next.is_ascii_uppercase() || next.is_ascii_digit() || next == '_'
-                    }),
-                    None => false,
-                };
-                let score = if at_word_boundary { 40.0 } else { 10.0 };
-                add_score(&mut file_candidates, symbol, file_path, score);
-            }
-        }
-
-        // Path tier: the term, or its plural, names a directory or file in the symbol's path (+60.0)
-        {
-            let mut stmt = conn.prepare_cached(PATH_TIER_SQL)?;
-            let rows = stmt
-                .query_map(params![term, repo], map_symbol_and_path_row)?
-                .filter_map(|r| r.ok());
-            for (symbol, file_path) in rows {
-                add_score(&mut file_candidates, symbol, file_path, 60.0);
-            }
-        }
-
-        // Word tier: the term, or its plural, is a whole word inside a camelCase or snake_case name (+30.0)
-        let word_query = format!("name_words : (\"{term}\" OR \"{term}s\")");
-        if let Ok(mut stmt) = conn.prepare_cached(
-            "SELECT s.id, s.file_id, s.repo, s.name, s.kind, s.scope, s.signature, s.docstring,
-                    s.start_line, s.start_col, s.end_line, s.end_col, s.is_exported, s.complexity, f.path
-             FROM symbols_fts fts
-             JOIN visible_symbols s ON fts.rowid = s.id
-             JOIN visible_files f ON s.file_id = f.id
-             WHERE symbols_fts MATCH ?1
-               AND (?2 IS NULL OR s.repo = ?2)
-             LIMIT 50",
-        ) && let Ok(rows) = stmt.query_map(params![word_query, repo], map_symbol_and_path_row)
-        {
-            for (symbol, file_path) in rows.filter_map(|r| r.ok()) {
-                add_score(&mut file_candidates, symbol, file_path, 30.0);
-            }
-        }
-
-        // Tier C: FTS5 full-text index (+15.0)
-        let fts_query = format!("\"{term}\"*");
-        if let Ok(mut stmt) = conn.prepare_cached(
-            "SELECT s.id, s.file_id, s.repo, s.name, s.kind, s.scope, s.signature, s.docstring,
-                    s.start_line, s.start_col, s.end_line, s.end_col, s.is_exported, s.complexity, f.path
-             FROM symbols_fts fts
-             JOIN visible_symbols s ON fts.rowid = s.id
-             JOIN visible_files f ON s.file_id = f.id
-             WHERE symbols_fts MATCH ?1
-               AND (?2 IS NULL OR s.repo = ?2)
-             ORDER BY fts.rank
-             LIMIT 50",
-        ) && let Ok(rows) = stmt.query_map(params![fts_query, repo], map_symbol_and_path_row)
-        {
-            for (symbol, file_path) in rows.filter_map(|r| r.ok()) {
-                add_score(&mut file_candidates, symbol, file_path, 15.0);
-            }
-        }
+        score_term_tiers(conn, term, repo, file_candidates)?;
     }
 
     // Tier D: HTTP route symbols when the query asks about routes (+30.0)
-    if parsed.route_intent {
+    if route_intent {
         let mut stmt = conn.prepare_cached(
             "SELECT s.id, s.file_id, s.repo, s.name, s.kind, s.scope, s.signature, s.docstring,
                     s.start_line, s.start_col, s.end_line, s.end_col, s.is_exported, s.complexity, f.path
@@ -246,43 +207,155 @@ pub fn explore_find(
             .query_map(params![repo], map_symbol_and_path_row)?
             .filter_map(|r| r.ok());
         for (symbol, file_path) in rows {
-            add_score(&mut file_candidates, symbol, file_path, 30.0);
+            add_score(file_candidates, symbol, file_path, 30.0);
         }
     }
 
-    // Boost route intent if detected (+30.0 for route-like symbols)
-    if parsed.route_intent {
-        for ((_, file_path), candidates) in file_candidates.iter_mut() {
-            let is_route_file = file_path.contains("route")
-                || file_path.contains("api")
-                || file_path.contains("endpoint")
-                || file_path.contains("handler")
-                || file_path.contains("controller");
-            for cand in candidates.iter_mut() {
-                let is_route_symbol = is_route_file
-                    || cand.symbol.name.to_ascii_lowercase().contains("route")
-                    || cand.symbol.name.to_ascii_lowercase().contains("handler")
-                    || cand.symbol.name.to_ascii_lowercase().contains("get")
-                    || cand.symbol.name.to_ascii_lowercase().contains("post")
-                    || cand.symbol.name.to_ascii_lowercase().contains("api");
-                if is_route_symbol {
-                    cand.score += 30.0;
-                }
+    Ok(())
+}
+
+/// Scores a single search term across the exact, prefix, path, word, and FTS5 tiers.
+fn score_term_tiers(
+    conn: &rusqlite::Connection,
+    term: &str,
+    repo: Option<&str>,
+    file_candidates: &mut HashMap<(String, String), Vec<ScoredCandidate>>,
+) -> Result<(), QueryError> {
+    // Tier A: Exact symbol name match (+100.0)
+    {
+        let mut stmt = conn.prepare_cached(
+            "SELECT s.id, s.file_id, s.repo, s.name, s.kind, s.scope, s.signature, s.docstring,
+                    s.start_line, s.start_col, s.end_line, s.end_col, s.is_exported, s.complexity, f.path
+             FROM visible_symbols s
+             JOIN visible_files f ON s.file_id = f.id
+             WHERE s.name = ?1
+               AND (?2 IS NULL OR s.repo = ?2)
+             LIMIT 50",
+        )?;
+        let rows = stmt
+            .query_map(params![term, repo], map_symbol_and_path_row)?
+            .filter_map(|r| r.ok());
+        for (symbol, file_path) in rows {
+            add_score(file_candidates, symbol, file_path, 100.0);
+        }
+    }
+
+    // Tier B: Prefix symbol name match (+40.0 at a word boundary, +10.0 inside a word)
+    if term.len() >= 3 {
+        let mut stmt = conn.prepare_cached(&format!(
+            "SELECT s.id, s.file_id, s.repo, s.name, s.kind, s.scope, s.signature, s.docstring,
+                    s.start_line, s.start_col, s.end_line, s.end_col, s.is_exported, s.complexity, f.path
+             FROM visible_symbols s
+             JOIN visible_files f ON s.file_id = f.id
+             WHERE {NAME_PREFIX_MATCH}
+               AND s.name != ?5
+               AND (?6 IS NULL OR s.repo = ?6)
+             ORDER BY s.id ASC
+             LIMIT 50",
+        ))?;
+        let [c1, c2, c3, c4] = prefix_casings(term);
+        let rows = stmt
+            .query_map(params![c1, c2, c3, c4, term, repo], map_symbol_and_path_row)?
+            .filter_map(|r| r.ok());
+        for (symbol, file_path) in rows {
+            let at_word_boundary = match symbol.name.get(term.len()..) {
+                Some(rest) => rest.chars().next().is_none_or(|next| {
+                    next.is_ascii_uppercase() || next.is_ascii_digit() || next == '_'
+                }),
+                None => false,
+            };
+            let score = if at_word_boundary { 40.0 } else { 10.0 };
+            add_score(file_candidates, symbol, file_path, score);
+        }
+    }
+
+    // Path tier: the term, or its plural, names a directory or file in the symbol's path (+60.0)
+    {
+        let mut stmt = conn.prepare_cached(PATH_TIER_SQL)?;
+        let rows = stmt
+            .query_map(params![term, repo], map_symbol_and_path_row)?
+            .filter_map(|r| r.ok());
+        for (symbol, file_path) in rows {
+            add_score(file_candidates, symbol, file_path, 60.0);
+        }
+    }
+
+    // Word tier: the term, or its plural, is a whole word inside a camelCase or snake_case name (+30.0)
+    let word_query = format!("name_words : (\"{term}\" OR \"{term}s\")");
+    if let Ok(mut stmt) = conn.prepare_cached(
+        "SELECT s.id, s.file_id, s.repo, s.name, s.kind, s.scope, s.signature, s.docstring,
+                s.start_line, s.start_col, s.end_line, s.end_col, s.is_exported, s.complexity, f.path
+         FROM symbols_fts fts
+         JOIN visible_symbols s ON fts.rowid = s.id
+         JOIN visible_files f ON s.file_id = f.id
+         WHERE symbols_fts MATCH ?1
+           AND (?2 IS NULL OR s.repo = ?2)
+         LIMIT 50",
+    ) && let Ok(rows) = stmt.query_map(params![word_query, repo], map_symbol_and_path_row)
+    {
+        for (symbol, file_path) in rows.filter_map(|r| r.ok()) {
+            add_score(file_candidates, symbol, file_path, 30.0);
+        }
+    }
+
+    // Tier C: FTS5 full-text index (+15.0)
+    let fts_query = format!("\"{term}\"*");
+    if let Ok(mut stmt) = conn.prepare_cached(
+        "SELECT s.id, s.file_id, s.repo, s.name, s.kind, s.scope, s.signature, s.docstring,
+                s.start_line, s.start_col, s.end_line, s.end_col, s.is_exported, s.complexity, f.path
+         FROM symbols_fts fts
+         JOIN visible_symbols s ON fts.rowid = s.id
+         JOIN visible_files f ON s.file_id = f.id
+         WHERE symbols_fts MATCH ?1
+           AND (?2 IS NULL OR s.repo = ?2)
+         ORDER BY fts.rank
+         LIMIT 50",
+    ) && let Ok(rows) = stmt.query_map(params![fts_query, repo], map_symbol_and_path_row)
+    {
+        for (symbol, file_path) in rows.filter_map(|r| r.ok()) {
+            add_score(file_candidates, symbol, file_path, 15.0);
+        }
+    }
+
+    Ok(())
+}
+
+/// Boost route intent if detected (+30.0 for route-like symbols)
+fn boost_route_intent_symbols(
+    file_candidates: &mut HashMap<(String, String), Vec<ScoredCandidate>>,
+) {
+    for ((_, file_path), candidates) in file_candidates.iter_mut() {
+        let is_route_file = file_path.contains("route")
+            || file_path.contains("api")
+            || file_path.contains("endpoint")
+            || file_path.contains("handler")
+            || file_path.contains("controller");
+        for cand in candidates.iter_mut() {
+            let is_route_symbol = is_route_file
+                || cand.symbol.name.to_ascii_lowercase().contains("route")
+                || cand.symbol.name.to_ascii_lowercase().contains("handler")
+                || cand.symbol.name.to_ascii_lowercase().contains("get")
+                || cand.symbol.name.to_ascii_lowercase().contains("post")
+                || cand.symbol.name.to_ascii_lowercase().contains("api");
+            if is_route_symbol {
+                cand.score += 30.0;
             }
         }
     }
+}
 
-    if file_candidates.is_empty() {
-        return Ok(ExploreCandidates::default());
-    }
+struct FileScore {
+    repo: String,
+    path: String,
+    score: f64,
+}
 
-    // Step 3: Compute aggregate score per file and rank files.
-    struct FileScore {
-        repo: String,
-        path: String,
-        score: f64,
-    }
-
+/// Step 3: Compute aggregate score per file and rank files.
+fn rank_files(
+    file_candidates: &HashMap<(String, String), Vec<ScoredCandidate>>,
+    pinned_files: &HashMap<(String, String), bool>,
+    parsed: &ParsedExploreQuery,
+) -> Vec<FileScore> {
     let asks_for_tests = parsed.search_terms.iter().any(|term| {
         let term = term.to_ascii_lowercase();
         term.starts_with("test") || term.starts_with("spec")
@@ -320,13 +393,16 @@ pub fn explore_find(
     let floor = ranked_files.first().map_or(0.0, |top| top.score * 0.25);
     ranked_files.retain(|file| file.score >= floor);
 
-    let shown_files = ranked_files.len().min(max_files);
-    let max_per_file = match shown_files {
-        1 => MAX_EXPLORE_CANDIDATES,
-        files => (MAX_EXPLORE_CANDIDATES / files).clamp(1, MAX_SYMBOLS_PER_FILE),
-    };
+    ranked_files
+}
 
-    // Step 4: Collect symbols respecting per-file caps and preserve source line order.
+/// Step 4: Collect symbols respecting per-file caps and preserve source line order.
+fn collect_final_candidates(
+    mut file_candidates: HashMap<(String, String), Vec<ScoredCandidate>>,
+    ranked_files: Vec<FileScore>,
+    shown_files: usize,
+    max_per_file: usize,
+) -> ExploreCandidates {
     let mut final_candidates = Vec::new();
     let mut not_shown = Vec::new();
 
@@ -361,8 +437,8 @@ pub fn explore_find(
         }
     }
 
-    Ok(ExploreCandidates {
+    ExploreCandidates {
         symbols: final_candidates,
         not_shown,
-    })
+    }
 }

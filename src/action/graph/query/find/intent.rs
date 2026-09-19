@@ -153,130 +153,8 @@ pub fn resolve_query_paths(
             path_tokens.push(clean_token.to_owned());
             let trimmed = clean_token.trim_start_matches("./");
 
-            // 1. Check exact match: f.path = ?
-            let mut exact_stmt = conn.prepare_cached(
-                "SELECT id, repo, path FROM visible_files WHERE (?1 IS NULL OR repo = ?1) AND path = ?2 LIMIT 2",
-            )?;
-            let exact_matches: Vec<(i64, String, String)> = exact_stmt
-                .query_map(params![repo, trimmed], |r| {
-                    Ok((r.get(0)?, r.get(1)?, r.get(2)?))
-                })?
-                .filter_map(|r| r.ok())
-                .collect();
-
-            if let [(file_id, r, p)] = exact_matches.as_slice() {
-                resolved_paths.push(ResolvedPath::ExactFile {
-                    file_id: *file_id,
-                    repo: r.clone(),
-                    path: p.clone(),
-                });
-                continue;
-            }
-
-            // 2. Check workspace-relative / suffix match
-            let mut rel_stmt = conn.prepare_cached(
-                "SELECT id, repo, path FROM visible_files
-                 WHERE (?1 IS NULL OR repo = ?1)
-                   AND (
-                     path = ?2
-                     OR path LIKE '%/' || ?2 ESCAPE '\\'
-                     OR ?2 LIKE '%/' || path ESCAPE '\\'
-                   )
-                 LIMIT 10",
-            )?;
-            let rel_matches: Vec<(i64, String, String)> = rel_stmt
-                .query_map(params![repo, trimmed], |r| {
-                    Ok((r.get(0)?, r.get(1)?, r.get(2)?))
-                })?
-                .filter_map(|r| r.ok())
-                .collect();
-
-            if let [(file_id, r, p)] = rel_matches.as_slice() {
-                resolved_paths.push(ResolvedPath::WorkspaceRelative {
-                    file_id: *file_id,
-                    repo: r.clone(),
-                    path: p.clone(),
-                });
-                continue;
-            } else if rel_matches.len() > 1 && !trimmed.contains('/') && !trimmed.contains('\\') {
-                resolved_paths.push(ResolvedPath::AmbiguousBasename { files: rel_matches });
-                continue;
-            }
-
-            // 3. Basename or Directory/Subtree match
-            let clean_dir = trimmed.trim_end_matches('/');
-            let mut dir_stmt = conn.prepare_cached(
-                "SELECT id, repo, path FROM visible_files
-                 WHERE (?1 IS NULL OR repo = ?1)
-                   AND (
-                     path LIKE ?2 || '/%' ESCAPE '\\'
-                     OR path LIKE '%/' || ?2 || '/%' ESCAPE '\\'
-                   )
-                 LIMIT 50",
-            )?;
-            let mut dir_matches: Vec<(i64, String, String)> = dir_stmt
-                .query_map(params![repo, clean_dir], |r| {
-                    Ok((r.get(0)?, r.get(1)?, r.get(2)?))
-                })?
-                .filter_map(|r| r.ok())
-                .collect();
-
-            if dir_matches.is_empty() {
-                let mut subtree_stmt = conn.prepare_cached(
-                    "SELECT id, repo, path FROM visible_files
-                     WHERE (?1 IS NULL OR repo = ?1) AND path LIKE ?2 || '/%' ESCAPE '\\'
-                     LIMIT 50",
-                )?;
-                for (slash, _) in clean_dir.match_indices('/') {
-                    let named_repo = match clean_dir[..slash].rsplit('/').next() {
-                        Some(segment)
-                            if repo.is_none() && db.get_visible_repo(segment)?.is_some() =>
-                        {
-                            Some(segment)
-                        }
-                        _ => None,
-                    };
-                    dir_matches = subtree_stmt
-                        .query_map(params![repo.or(named_repo), &clean_dir[slash + 1..]], |r| {
-                            Ok((r.get(0)?, r.get(1)?, r.get(2)?))
-                        })?
-                        .filter_map(|r| r.ok())
-                        .collect();
-                    if !dir_matches.is_empty() {
-                        break;
-                    }
-                }
-            }
-
-            if !dir_matches.is_empty() {
-                resolved_paths.push(ResolvedPath::DirectorySubtree { files: dir_matches });
-                continue;
-            }
-
-            // 4. Basename lookup across database
-            let mut base_stmt = conn.prepare_cached(
-                "SELECT id, repo, path FROM visible_files
-                 WHERE (?1 IS NULL OR repo = ?1)
-                   AND (path = ?2 OR path LIKE '%/' || ?2 ESCAPE '\\')
-                 LIMIT 10",
-            )?;
-            let base_matches: Vec<(i64, String, String)> = base_stmt
-                .query_map(params![repo, trimmed], |r| {
-                    Ok((r.get(0)?, r.get(1)?, r.get(2)?))
-                })?
-                .filter_map(|r| r.ok())
-                .collect();
-
-            if let [(file_id, r, p)] = base_matches.as_slice() {
-                resolved_paths.push(ResolvedPath::UnambiguousBasename {
-                    file_id: *file_id,
-                    repo: r.clone(),
-                    path: p.clone(),
-                });
-            } else if base_matches.len() > 1 {
-                resolved_paths.push(ResolvedPath::AmbiguousBasename {
-                    files: base_matches,
-                });
+            if let Some(resolved) = resolve_path_token(db, conn, repo, trimmed)? {
+                resolved_paths.push(resolved);
             }
         } else {
             let clean_term = clean_token.trim_matches(|c: char| !c.is_alphanumeric() && c != '_');
@@ -293,4 +171,142 @@ pub fn resolve_query_paths(
         search_terms: remaining_words,
         route_intent,
     })
+}
+
+fn resolve_path_token(
+    db: &GraphDb,
+    conn: &rusqlite::Connection,
+    repo: Option<&str>,
+    trimmed: &str,
+) -> Result<Option<ResolvedPath>, QueryError> {
+    // 1. Check exact match: f.path = ?
+    let mut exact_stmt = conn.prepare_cached(
+        "SELECT id, repo, path FROM visible_files WHERE (?1 IS NULL OR repo = ?1) AND path = ?2 LIMIT 2",
+    )?;
+    let exact_matches: Vec<(i64, String, String)> = exact_stmt
+        .query_map(params![repo, trimmed], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+        })?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    if let [(file_id, r, p)] = exact_matches.as_slice() {
+        return Ok(Some(ResolvedPath::ExactFile {
+            file_id: *file_id,
+            repo: r.clone(),
+            path: p.clone(),
+        }));
+    }
+
+    // 2. Check workspace-relative / suffix match
+    let mut rel_stmt = conn.prepare_cached(
+        "SELECT id, repo, path FROM visible_files
+         WHERE (?1 IS NULL OR repo = ?1)
+           AND (
+             path = ?2
+             OR path LIKE '%/' || ?2 ESCAPE '\\'
+             OR ?2 LIKE '%/' || path ESCAPE '\\'
+           )
+         LIMIT 10",
+    )?;
+    let rel_matches: Vec<(i64, String, String)> = rel_stmt
+        .query_map(params![repo, trimmed], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+        })?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    if let [(file_id, r, p)] = rel_matches.as_slice() {
+        return Ok(Some(ResolvedPath::WorkspaceRelative {
+            file_id: *file_id,
+            repo: r.clone(),
+            path: p.clone(),
+        }));
+    } else if rel_matches.len() > 1 && !trimmed.contains('/') && !trimmed.contains('\\') {
+        return Ok(Some(ResolvedPath::AmbiguousBasename { files: rel_matches }));
+    }
+
+    resolve_directory_or_basename(db, conn, repo, trimmed)
+}
+
+fn resolve_directory_or_basename(
+    db: &GraphDb,
+    conn: &rusqlite::Connection,
+    repo: Option<&str>,
+    trimmed: &str,
+) -> Result<Option<ResolvedPath>, QueryError> {
+    // 3. Basename or Directory/Subtree match
+    let clean_dir = trimmed.trim_end_matches('/');
+    let mut dir_stmt = conn.prepare_cached(
+        "SELECT id, repo, path FROM visible_files
+         WHERE (?1 IS NULL OR repo = ?1)
+           AND (
+             path LIKE ?2 || '/%' ESCAPE '\\'
+             OR path LIKE '%/' || ?2 || '/%' ESCAPE '\\'
+           )
+         LIMIT 50",
+    )?;
+    let mut dir_matches: Vec<(i64, String, String)> = dir_stmt
+        .query_map(params![repo, clean_dir], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+        })?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    if dir_matches.is_empty() {
+        let mut subtree_stmt = conn.prepare_cached(
+            "SELECT id, repo, path FROM visible_files
+             WHERE (?1 IS NULL OR repo = ?1) AND path LIKE ?2 || '/%' ESCAPE '\\'
+             LIMIT 50",
+        )?;
+        for (slash, _) in clean_dir.match_indices('/') {
+            let named_repo = match clean_dir[..slash].rsplit('/').next() {
+                Some(segment) if repo.is_none() && db.get_visible_repo(segment)?.is_some() => {
+                    Some(segment)
+                }
+                _ => None,
+            };
+            dir_matches = subtree_stmt
+                .query_map(params![repo.or(named_repo), &clean_dir[slash + 1..]], |r| {
+                    Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+                })?
+                .filter_map(|r| r.ok())
+                .collect();
+            if !dir_matches.is_empty() {
+                break;
+            }
+        }
+    }
+
+    if !dir_matches.is_empty() {
+        return Ok(Some(ResolvedPath::DirectorySubtree { files: dir_matches }));
+    }
+
+    // 4. Basename lookup across database
+    let mut base_stmt = conn.prepare_cached(
+        "SELECT id, repo, path FROM visible_files
+         WHERE (?1 IS NULL OR repo = ?1)
+           AND (path = ?2 OR path LIKE '%/' || ?2 ESCAPE '\\')
+         LIMIT 10",
+    )?;
+    let base_matches: Vec<(i64, String, String)> = base_stmt
+        .query_map(params![repo, trimmed], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+        })?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    if let [(file_id, r, p)] = base_matches.as_slice() {
+        Ok(Some(ResolvedPath::UnambiguousBasename {
+            file_id: *file_id,
+            repo: r.clone(),
+            path: p.clone(),
+        }))
+    } else if base_matches.len() > 1 {
+        Ok(Some(ResolvedPath::AmbiguousBasename {
+            files: base_matches,
+        }))
+    } else {
+        Ok(None)
+    }
 }

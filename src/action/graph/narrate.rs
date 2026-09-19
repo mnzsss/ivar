@@ -362,114 +362,121 @@ fn narrate_named_flows(out: &mut String, res: &ExploreResult) {
 /// repo, file and name, so same-named definitions keep their consumers apart.
 /// A symbol without an id falls back to grouping by name, the only precision the
 /// name-based resolver has.
-fn narrate_blast_radius(out: &mut String, res: &ExploreResult) {
-    let mut lines = Vec::new();
-    let mut rendered = std::collections::BTreeSet::new();
-
-    for snippet in &res.primary_symbols {
-        let name = snippet.symbol.name.as_str();
-        let exact = snippet.symbol.id.is_some();
-        let key = if exact {
-            (
-                Some((snippet.symbol.repo.as_str(), snippet.file_path.as_str())),
-                name,
-            )
-        } else {
-            (None, name)
-        };
-        if !rendered.insert(key) {
-            continue;
-        }
-
-        let mut seen = std::collections::BTreeSet::new();
-        let relations: Vec<_> = res
-            .direct_relations
-            .iter()
-            .filter(|r| r.target.symbol_name == name)
-            .filter(|r| {
-                !exact
-                    || (r.target.repo == snippet.symbol.repo
-                        && r.target.file_path == snippet.file_path)
-            })
-            .filter(|r| {
-                seen.insert((
-                    r.source.repo.as_str(),
-                    r.source.file_path.as_str(),
-                    r.source.symbol_name.as_str(),
-                    r.line,
-                ))
-            })
-            .collect();
-        let (type_uses, callers): (Vec<_>, Vec<_>) = relations.into_iter().partition(|r| {
-            exact && r.edge_kind == EdgeKind::References && r.source.symbol_name.is_empty()
-        });
-        if callers.is_empty() && type_uses.is_empty() {
-            continue;
-        }
-
-        let files: std::collections::BTreeSet<&str> = callers
-            .iter()
-            .map(|r| r.source.file_path.as_str())
-            .collect();
-        let named: Vec<String> = files
-            .iter()
-            .take(MAX_CALLER_FILES)
-            .map(|file| format!("`{file}`"))
-            .collect();
-        let mut line = format!(
-            "- `{name}` ({}:{}) — {} caller{}",
-            snippet.file_path,
-            snippet.symbol.span.start_line,
-            callers.len(),
-            plural(callers.len()),
-        );
-        if !named.is_empty() {
-            let _ = write!(line, " in {}", named.join(", "));
-        }
-        if files.len() > MAX_CALLER_FILES {
-            let _ = write!(line, " +{} more files", files.len() - MAX_CALLER_FILES);
-        }
-        if !type_uses.is_empty() {
-            let sites: Vec<String> = type_uses
-                .iter()
-                .map(|r| format!("`{}:{}`", r.source.file_path, r.line))
-                .collect();
-            let _ = write!(
-                line,
-                "; {} type use{} at {}",
-                type_uses.len(),
-                plural(type_uses.len()),
-                sites.join(", ")
-            );
-        }
-        let cross = callers.iter().filter(|r| r.cross_repo).count();
-        if cross > 0 {
-            let _ = write!(line, "; {cross} from other repos");
-        }
-        let definitions = res
-            .primary_symbols
-            .iter()
-            .filter(|s| s.symbol.name == name)
-            .count();
-        if !exact && definitions > 1 {
-            let _ = write!(
-                line,
-                "; {definitions} definitions share this name, so confirm which one a caller means"
-            );
-        }
-        let uncertain = callers
-            .iter()
-            .filter(|r| !matches!(r.provenance, Provenance::Extracted))
-            .count();
-        if uncertain > 0 {
-            let _ = write!(
-                line,
-                "; {uncertain} {}, verify before relying on them",
-                provenance_word(Provenance::Inferred)
-            );
-        }
-        lines.push(line);
+fn blast_radius_line_for_symbol(
+    res: &ExploreResult,
+    snippet: &SymbolSnippet,
+    rendered: &mut std::collections::BTreeSet<(Option<(String, String)>, String)>,
+) -> Option<String> {
+    let name = snippet.symbol.name.as_str();
+    let exact = snippet.symbol.id.is_some();
+    let key = if exact {
+        (
+            Some((snippet.symbol.repo.clone(), snippet.file_path.clone())),
+            name.to_owned(),
+        )
+    } else {
+        (None, name.to_owned())
+    };
+    if !rendered.insert(key) {
+        return None;
     }
+
+    let mut seen = std::collections::BTreeSet::new();
+    let relations: Vec<_> = res
+        .direct_relations
+        .iter()
+        .filter(|r| r.target.symbol_name == name)
+        .filter(|r| {
+            !exact
+                || (r.target.repo == snippet.symbol.repo && r.target.file_path == snippet.file_path)
+        })
+        .filter(|r| {
+            seen.insert((
+                r.source.repo.as_str(),
+                r.source.file_path.as_str(),
+                r.source.symbol_name.as_str(),
+                r.line,
+            ))
+        })
+        .collect();
+    let (type_uses, callers): (Vec<_>, Vec<_>) = relations.into_iter().partition(|r| {
+        exact && r.edge_kind == EdgeKind::References && r.source.symbol_name.is_empty()
+    });
+    if callers.is_empty() && type_uses.is_empty() {
+        return None;
+    }
+
+    let files: std::collections::BTreeSet<&str> = callers
+        .iter()
+        .map(|r| r.source.file_path.as_str())
+        .collect();
+    let named: Vec<String> = files
+        .iter()
+        .take(MAX_CALLER_FILES)
+        .map(|file| format!("`{file}`"))
+        .collect();
+    let mut line = format!(
+        "- `{name}` ({}:{}) — {} caller{}",
+        snippet.file_path,
+        snippet.symbol.span.start_line,
+        callers.len(),
+        plural(callers.len()),
+    );
+    if !named.is_empty() {
+        let _ = write!(line, " in {}", named.join(", "));
+    }
+    if files.len() > MAX_CALLER_FILES {
+        let _ = write!(line, " +{} more files", files.len() - MAX_CALLER_FILES);
+    }
+    if !type_uses.is_empty() {
+        let sites: Vec<String> = type_uses
+            .iter()
+            .map(|r| format!("`{}:{}`", r.source.file_path, r.line))
+            .collect();
+        let _ = write!(
+            line,
+            "; {} type use{} at {}",
+            type_uses.len(),
+            plural(type_uses.len()),
+            sites.join(", ")
+        );
+    }
+    let cross = callers.iter().filter(|r| r.cross_repo).count();
+    if cross > 0 {
+        let _ = write!(line, "; {cross} from other repos");
+    }
+    let definitions = res
+        .primary_symbols
+        .iter()
+        .filter(|s| s.symbol.name == name)
+        .count();
+    if !exact && definitions > 1 {
+        let _ = write!(
+            line,
+            "; {definitions} definitions share this name, so confirm which one a caller means"
+        );
+    }
+    let uncertain = callers
+        .iter()
+        .filter(|r| !matches!(r.provenance, Provenance::Extracted))
+        .count();
+    if uncertain > 0 {
+        let _ = write!(
+            line,
+            "; {uncertain} {}, verify before relying on them",
+            provenance_word(Provenance::Inferred)
+        );
+    }
+    Some(line)
+}
+
+fn narrate_blast_radius(out: &mut String, res: &ExploreResult) {
+    let mut rendered = std::collections::BTreeSet::new();
+    let lines: Vec<String> = res
+        .primary_symbols
+        .iter()
+        .filter_map(|snippet| blast_radius_line_for_symbol(res, snippet, &mut rendered))
+        .collect();
 
     if lines.is_empty() {
         return;
