@@ -51,6 +51,11 @@ pub struct FeatureView {
 /// Run the interactive loop: init the terminal, pump and render until the
 /// user quits, then restore the terminal. Cleanup (leaving raw mode and the
 /// alternate screen) runs even when the loop errors.
+///
+/// # Errors
+///
+/// Returns [`Failure`] if the terminal cannot be initialised, a shell
+/// fails to spawn, or the event loop otherwise fails.
 pub fn run(view: FeatureView) -> Result<(), Failure> {
     let (width, height) = crossterm::terminal::size().unwrap_or((80, 24));
     let prefix = Prefix::from_env();
