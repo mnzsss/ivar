@@ -186,6 +186,10 @@ impl std::fmt::Display for AuthMode {
 /// `ClientSecretBasic`.
 /// `resource` is included only when `Some` (RFC 8707).
 #[allow(clippy::too_many_arguments)]
+/// # Errors
+///
+/// Returns [`Failure`] if the token request fails or the response
+/// cannot be parsed.
 pub fn exchange_code(
     token_endpoint: &str,
     authorization_code: &str,

@@ -55,6 +55,8 @@ impl From<Error> for Failure {
 /// 2. `GITHUB_TOKEN` environment variable.
 /// 3. `GH_TOKEN` environment variable.
 ///
+/// # Errors
+///
 /// Returns [`Failure::blocked`] if no token is available.
 pub fn get_token() -> Result<String, Failure> {
     token_from(
@@ -164,6 +166,12 @@ fn read_body<T: Read>(mut reader: T) -> Result<String, Failure> {
 }
 
 /// Fetch the raw tarball of a GitHub repository at a given ref.
+///
+/// # Errors
+///
+/// Returns [`Failure`] if no token is available, the request fails,
+/// the response body cannot be read, or the API responds with a
+/// non-200 status.
 pub fn fetch_tarball(repo: &str, r#ref: &str) -> Result<Vec<u8>, Failure> {
     let token = get_token()?;
     let url = format!("https://api.github.com/repos/{repo}/tarball/{ref}");
@@ -207,6 +215,12 @@ pub fn fetch_tarball(repo: &str, r#ref: &str) -> Result<Vec<u8>, Failure> {
 }
 
 /// Resolve a GitHub ref (branch, tag, or SHA) to a commit SHA via the API.
+///
+/// # Errors
+///
+/// Returns [`Failure`] if no token is available, the request fails,
+/// the API responds with a non-200 status, or the response body is
+/// not valid JSON with an `object.sha` field.
 pub fn resolve_ref(repo: &str, r#ref: &str) -> Result<String, Failure> {
     let token = get_token()?;
     let url = format!("https://api.github.com/repos/{repo}/git/ref/heads/{ref}");
@@ -256,6 +270,11 @@ pub fn resolve_ref(repo: &str, r#ref: &str) -> Result<String, Failure> {
 /// Returns the trimmed stdout on success.  Spawn failure becomes
 /// []; a non-zero exit becomes `Failure::blocked(code,
 /// stderr)`.
+///
+/// # Errors
+///
+/// Returns [`Failure`] if `gh` is missing, or [`Failure::blocked`] if
+/// it exits non-zero.
 pub fn gh_stdout(args: &[&str], code: &'static str) -> Result<String, Failure> {
     let output = proc::capture(&proc::Command::new("gh").args(args.iter().copied()))
         .map_err(|_| gh_missing())?;
@@ -276,6 +295,11 @@ fn gh_missing() -> Failure {
 }
 
 /// Return the authenticated user's GitHub login.
+///
+/// # Errors
+///
+/// Returns [`Failure`] if `gh` is missing or the caller is not
+/// authenticated.
 pub fn gh_login() -> Result<String, Failure> {
     gh_stdout(
         &["api", "user", "--jq", ".login"],
@@ -293,6 +317,10 @@ pub fn gh_login() -> Result<String, Failure> {
 }
 
 /// Check whether a GitHub repo exists.
+///
+/// # Errors
+///
+/// Returns [`Failure`] if `gh` is not installed.
 pub fn gh_repo_exists(full_name: &str) -> Result<bool, Failure> {
     let output = proc::capture(
         &proc::Command::new("gh").args(["repo", "view", full_name, "--json", "name"]),
@@ -303,6 +331,11 @@ pub fn gh_repo_exists(full_name: &str) -> Result<bool, Failure> {
 }
 
 /// Create a GitHub repo and return its URL.
+///
+/// # Errors
+///
+/// Returns [`Failure`] if `gh` is missing, the create command
+/// fails, or it returns an empty URL.
 pub fn gh_repo_create(full_name: &str, public: bool) -> Result<String, Failure> {
     let visibility = if public { "--public" } else { "--private" };
     let url = gh_stdout(

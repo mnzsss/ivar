@@ -131,6 +131,10 @@ pub fn text(data: &str) -> String {
 /// SHA-256 of a file's bytes, lowercase hex, no prefix. Errors — rather than
 /// returning `Ok(None)` — if `path` does not exist: hashing a named file is only
 /// meaningful when the caller expects it to be there.
+/// # Errors
+///
+/// Returns [`Error::NotFound`] if `path` does not exist, or an
+/// [`Error`] if it cannot be read.
 pub fn file(path: &Utf8Path) -> Result<String, Error> {
     let contents = fs::read_bytes(path)?.ok_or_else(|| Error::NotFound {
         path: path.to_owned(),
@@ -160,6 +164,10 @@ fn not_utf8(path: &std::path::Path) -> Error {
 /// A single digest over a directory tree. See the module doc comment for the
 /// exact framing this must produce — it is a compatibility surface, not a free
 /// choice.
+/// # Errors
+///
+/// Returns [`Error`] if the tree cannot be walked or a path is not
+/// UTF-8.
 pub fn tree(root: &Utf8Path) -> Result<String, Error> {
     let mut relative_paths = Vec::new();
 

@@ -34,6 +34,11 @@ use super::{Command, Error, decode, spawn_error};
 /// would deadlock the moment a prompt outgrew the pipe buffer while the
 /// child was filling its own stdout pipe that this thread has not started
 /// reading yet.
+///
+/// # Errors
+///
+/// Returns [`Error::Spawn`] if `command` cannot be spawned, or if its
+/// piped stdout/stderr are unexpectedly missing after spawning.
 pub fn stream(command: &Command) -> Result<Stream, Error> {
     let stdin = match command.stdin_text() {
         Some(_) => Stdio::piped(),
@@ -129,6 +134,10 @@ impl Stream {
     /// The trailing line ending is stripped (`\n`, or `\r\n` with both
     /// removed), matching [`decode`]'s trimming for [`capture`](super::capture)'s
     /// output.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`io::Error`] if the underlying read from stdout fails.
     pub fn read_line(&mut self) -> io::Result<Option<String>> {
         let mut line = String::new();
         let bytes_read = self.stdout.read_line(&mut line)?;
@@ -157,6 +166,10 @@ impl Stream {
     /// starts; this only joins it. A child still holding stderr open blocks
     /// that join, which is the known limitation the plan's safeguards accept:
     /// a hung child hangs the caller, visibly rather than silently.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Spawn`] if the child cannot be waited on.
     pub fn wait(&mut self) -> Result<Option<i32>, Error> {
         if let Some(drain) = self.stderr.take() {
             // A drain thread that panicked is not a second failure to report:

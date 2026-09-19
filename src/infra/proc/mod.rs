@@ -286,6 +286,11 @@ impl Output {
 /// exists for is feeding a captured diff to `git patch-id`, which is local
 /// processing and so has no prompt to block on. The caller owns the meaning of
 /// the exit code — see the module doc comment.
+///
+/// # Errors
+///
+/// Returns [`Error::Spawn`] if `command` cannot be spawned or waited
+/// on.
 pub fn capture(command: &Command) -> Result<Output, Error> {
     let mut std_command = command.to_std();
     let output = match &command.stdin {
@@ -326,6 +331,11 @@ pub fn capture(command: &Command) -> Result<Output, Error> {
 /// Stdin is inherited too, which is the deliberate difference from
 /// [`capture`]: a setup script that needs an SSH passphrase or a `sudo`
 /// password has to be able to ask.
+///
+/// # Errors
+///
+/// Returns [`Error::Spawn`] if `command` cannot be spawned or waited
+/// on.
 pub fn inherit(command: &Command) -> Result<Option<i32>, Error> {
     let status = command
         .to_std()
@@ -354,6 +364,10 @@ pub fn inherit(command: &Command) -> Result<Option<i32>, Error> {
 /// few milliseconds later and `init` adopts it. Double-forking to avoid that
 /// would cost an `unsafe` block and a second process, for a child that
 /// outlives its parent by design.
+///
+/// # Errors
+///
+/// Returns [`Error::Spawn`] if `command` cannot be spawned.
 pub fn detach(command: &Command) -> Result<(), Error> {
     command
         .to_std()
@@ -377,6 +391,11 @@ pub fn detach(command: &Command) -> Result<(), Error> {
 /// `exec` returns an `io::Error` exactly when the program never ran. On
 /// platforms without `exec` the command is spawned, waited on, and its exit
 /// code returned — the code the calling process would have carried anyway.
+///
+/// # Errors
+///
+/// Returns [`Error::Spawn`] if `command` cannot be replaced/spawned
+/// (Linux), or if it cannot be spawned or waited on (elsewhere).
 pub fn exec(command: &Command) -> Result<Option<i32>, Error> {
     #[cfg(target_os = "linux")]
     {
