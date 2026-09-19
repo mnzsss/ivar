@@ -128,7 +128,7 @@ impl WriteHuman for InitOutcome {
 /// slice is establishing for every future verb — boxing it here would mean
 /// every verb after `init` boxes it too, for a lint about a type this
 /// module did not choose the shape of.
-pub fn init(ctx: &Ctx, input: InitInput) -> Outcome<InitOutcome> {
+pub fn init(ctx: &Ctx, input: &InitInput) -> Outcome<InitOutcome> {
     let target = ctx.resolve(&input.path);
     fs::ensure_dir(&target)?;
 
@@ -142,7 +142,7 @@ pub fn init(ctx: &Ctx, input: InitInput) -> Outcome<InitOutcome> {
 
     if let Some(found) = Layout::discover(&root)? {
         return Err(if found.root() == root.as_path() {
-            already_initialised(found.manifest())
+            already_initialised(&found.manifest())
         } else {
             nested_inside(&root, found.root())
         });
@@ -189,7 +189,7 @@ pub fn init(ctx: &Ctx, input: InitInput) -> Outcome<InitOutcome> {
 /// A hall's `ivar.json` already sits at `manifest_path`. Blocked, with a
 /// safe fix (inspect) ordered ahead of an unsafe one (remove and reinit) —
 /// see [`init`]'s doc comment for why removal is marked unsafe.
-fn already_initialised(manifest_path: Utf8PathBuf) -> Failure {
+fn already_initialised(manifest_path: &Utf8PathBuf) -> Failure {
     Failure::blocked(
         "hall.already_initialised",
         format!("a hall already exists at `{manifest_path}`"),

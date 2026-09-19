@@ -1,4 +1,5 @@
 use serde::Serialize;
+use std::fmt::Write as _;
 use std::io;
 
 use crate::action::graph::compact::{self, ToCompact};
@@ -345,7 +346,8 @@ impl ToCompact for FileOutcome {
             let kind = crate::store::graph::db::symbol_kind_to_str(&sym.kind);
             let complexity_str = sym.complexity.map_or_else(String::new, |c| c.to_string());
             out.push('\n');
-            out.push_str(&format!(
+            let _ = write!(
+                out,
                 "{}|{}|{}|{}|{}|{}|{}",
                 id_str,
                 sym.name,
@@ -354,7 +356,7 @@ impl ToCompact for FileOutcome {
                 sym.span.start_line,
                 sym.span.start_col,
                 complexity_str
-            ));
+            );
         }
         out
     }
@@ -372,7 +374,8 @@ impl ToCompact for StatsOutcome {
         );
         out.push_str("\n#SCHEMA: command|source|count|last_used|empty|errors|p50_ms|p95_ms");
         for u in &self.0.usage {
-            out.push_str(&format!(
+            let _ = write!(
+                out,
                 "\n{}|{}|{}|{}|{}|{}|{}|{}",
                 u.command,
                 u.source.as_str(),
@@ -382,7 +385,7 @@ impl ToCompact for StatsOutcome {
                 u.error_count,
                 u.p50_ms,
                 u.p95_ms
-            ));
+            );
         }
         out
     }

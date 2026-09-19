@@ -28,7 +28,7 @@ fn multi_repo_hall_with_feature() -> (tempfile::TempDir, Utf8PathBuf) {
     let ctx = Ctx::new(root.clone());
     hall::init(
         &ctx,
-        InitInput {
+        &InitInput {
             path: Utf8PathBuf::from("."),
             name: Some("acme".to_owned()),
             provider: None,
@@ -80,7 +80,7 @@ fn multi_repo_hall_with_feature() -> (tempfile::TempDir, Utf8PathBuf) {
     )
     .unwrap();
 
-    sync(&ctx, Default::default()).unwrap();
+    sync(&ctx, &Default::default()).unwrap();
 
     promote(
         &ctx,

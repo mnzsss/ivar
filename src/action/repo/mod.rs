@@ -18,3 +18,27 @@ pub mod pull;
 pub mod remove;
 pub mod setup;
 pub mod upstream;
+
+use crate::domain::name::RepoName;
+use crate::error::{Failure, FixAction};
+use crate::store::manifest::Manifest;
+
+/// Blocks when `name` is already declared in the manifest — the collision
+/// `repo add` and `repo create` both refuse before writing anything.
+pub(super) fn ensure_name_free(manifest: &Manifest, name: &RepoName) -> Result<(), Failure> {
+    for existing in manifest.repos() {
+        if existing.name() == name {
+            return Err(Failure::blocked(
+                "repo.name_exists",
+                format!("`{name}` is already in ivar.json"),
+            )
+            .expected("a repo name not already declared")
+            .actual(format!("`{name}` is already declared"))
+            .fix(FixAction::safe(
+                "repo.remove_first",
+                format!("Remove `{name}` first with `ivar repo remove {name}`, then add again."),
+            )));
+        }
+    }
+    Ok(())
+}

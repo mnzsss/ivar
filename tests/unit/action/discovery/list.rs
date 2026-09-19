@@ -19,7 +19,7 @@ fn hall() -> (tempfile::TempDir, Utf8PathBuf) {
     let ctx = Ctx::new(root.clone());
     hall::init(
         &ctx,
-        InitInput {
+        &InitInput {
             path: Utf8PathBuf::from("."),
             name: Some("acme".to_owned()),
             provider: None,
@@ -47,7 +47,7 @@ fn list_reports_every_discovery_by_name() {
     start(&ctx, "checkout-refactor");
     start(&ctx, "auth-rewrite");
 
-    let outcome = list(&ctx, ListInput { status: None }).unwrap().value;
+    let outcome = list(&ctx, &ListInput { status: None }).unwrap().value;
 
     let names: Vec<&str> = outcome
         .discoveries
@@ -72,7 +72,7 @@ fn list_is_empty_in_a_hall_with_no_discoveries() {
     let (_guard, root) = hall();
     let ctx = Ctx::new(root.clone());
 
-    let outcome = list(&ctx, ListInput { status: None }).unwrap().value;
+    let outcome = list(&ctx, &ListInput { status: None }).unwrap().value;
 
     assert!(outcome.discoveries.is_empty());
 }
@@ -92,7 +92,7 @@ fn list_ignores_a_folder_without_a_discovery_doc() {
     )
     .unwrap();
 
-    let outcome = list(&ctx, ListInput { status: None }).unwrap().value;
+    let outcome = list(&ctx, &ListInput { status: None }).unwrap().value;
 
     assert!(outcome.discoveries.is_empty());
 }
@@ -112,7 +112,7 @@ fn list_reports_an_unreadable_doc_as_unknown() {
     )
     .unwrap();
 
-    let outcome = list(&ctx, ListInput { status: None }).unwrap().value;
+    let outcome = list(&ctx, &ListInput { status: None }).unwrap().value;
 
     assert_eq!(outcome.discoveries.len(), 1);
     assert_eq!(outcome.discoveries[0].status, DiscoveryStatus::Unknown);
@@ -163,7 +163,7 @@ updated_at: 2026-01-01T00:00:00.000000000Z
     )
     .unwrap();
 
-    let outcome = list(&ctx, ListInput { status: None }).unwrap().value;
+    let outcome = list(&ctx, &ListInput { status: None }).unwrap().value;
 
     assert_eq!(outcome.discoveries.len(), 2);
     assert_eq!(
@@ -185,7 +185,7 @@ fn list_filters_by_status() {
 
     let matching = list(
         &ctx,
-        ListInput {
+        &ListInput {
             status: Some(DiscoveryStatus::Exploring),
         },
     )
@@ -195,7 +195,7 @@ fn list_filters_by_status() {
 
     let other = list(
         &ctx,
-        ListInput {
+        &ListInput {
             status: Some(DiscoveryStatus::Abandoned),
         },
     )

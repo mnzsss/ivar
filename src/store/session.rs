@@ -25,6 +25,11 @@ const STATE_FILE: &str = "state.json";
 impl SessionState {
     /// Read `state.json` from the session's View Dir. `Ok(None)` when the
     /// session predates state files, or was never given one.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Failure`] if the file exists but cannot be read, or
+    /// is newer than this binary understands.
     pub fn read(view_dir: &Utf8Path) -> Result<Option<Self>, Failure> {
         store(view_dir).read().map_err(Failure::from)
     }
@@ -32,6 +37,10 @@ impl SessionState {
     /// Write this session's record to `state.json` inside `view_dir`,
     /// atomically, in canonical form. The View Dir already exists — sessions
     /// are materialised before their state is written.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Failure`] if the file cannot be written.
     pub fn write(&self, view_dir: &Utf8Path) -> Result<(), Failure> {
         store(view_dir).write(self).map_err(Failure::from)
     }

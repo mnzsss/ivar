@@ -45,6 +45,10 @@ pub fn parse(source: &str) -> DiscoveryDoc {
 ///
 /// Refuses to render if `doc.is_writable()` is false (i.e. status is `Unknown`).
 /// Preserves unknown keys present in `doc.frontmatter.extra`.
+/// # Errors
+///
+/// Returns [`Failure`] if `doc` is not writable (its status is
+/// `unknown`) or its frontmatter cannot be rendered as YAML.
 pub fn render(doc: &DiscoveryDoc) -> Result<String, Failure> {
     if !doc.is_writable() {
         return Err(Failure::blocked(

@@ -1,5 +1,7 @@
 //! Positional pipe-delimited compact encoding with `#SCHEMA:` headers.
 
+use std::fmt::Write as _;
+
 use crate::action::graph::query::{CalleeInfo, CallerInfo, ImpactResult, SymbolLocation};
 use crate::domain::graph::{
     AffectedResult, ComplexityItem, DeadCodeItem, ExploreResult, HierarchyItem, PathResult,
@@ -33,7 +35,8 @@ pub fn encode_symbols(symbols: &[SymbolLocation]) -> String {
         let kind = symbol_kind_to_str(&sym.kind);
         let complexity_str = sym.complexity.map_or_else(String::new, |c| c.to_string());
         out.push('\n');
-        out.push_str(&format!(
+        let _ = write!(
+            out,
             "{}|{}|{}|{}|{}|{}|{}",
             id_str,
             sym.name,
@@ -42,7 +45,7 @@ pub fn encode_symbols(symbols: &[SymbolLocation]) -> String {
             sym.span.start_line,
             sym.span.start_col,
             complexity_str
-        ));
+        );
     }
     out
 }
@@ -54,10 +57,11 @@ pub fn encode_dead_code(items: &[DeadCodeItem]) -> String {
     for item in items {
         let kind = symbol_kind_to_str(&item.symbol.kind);
         out.push('\n');
-        out.push_str(&format!(
+        let _ = write!(
+            out,
             "{}|{}|{}|{}",
             item.symbol.name, kind, item.file_path, item.line
-        ));
+        );
     }
     out
 }
@@ -69,10 +73,11 @@ pub fn encode_complexity(items: &[ComplexityItem]) -> String {
     for item in items {
         let kind = symbol_kind_to_str(&item.symbol.kind);
         out.push('\n');
-        out.push_str(&format!(
+        let _ = write!(
+            out,
             "{}|{}|{}|{}|{}",
             item.complexity, item.symbol.name, kind, item.file_path, item.line
-        ));
+        );
     }
     out
 }
@@ -86,10 +91,11 @@ pub fn encode_hierarchy(item: Option<&HierarchyItem>) -> String {
         let bases = h.bases.join(",");
         let impls = h.implementations.join(",");
         out.push('\n');
-        out.push_str(&format!(
+        let _ = write!(
+            out,
             "{}|{}|{}|{}|{}",
             h.symbol.name, kind, h.file_path, bases, impls
-        ));
+        );
     }
     out
 }
@@ -102,10 +108,11 @@ pub fn encode_callers(callers: &[CallerInfo]) -> String {
         let kind = symbol_kind_to_str(&c.caller.kind);
         let edge_kind = edge_kind_to_str(&c.edge_kind);
         out.push('\n');
-        out.push_str(&format!(
+        let _ = write!(
+            out,
             "{}|{}|{}|{}|{}|{:.2}",
             c.caller.name, kind, c.caller_file_path, c.line, edge_kind, c.confidence
-        ));
+        );
     }
     out
 }
@@ -122,10 +129,11 @@ pub fn encode_callees(callees: &[CalleeInfo]) -> String {
         let file = c.callee_file_path.as_deref().unwrap_or("");
         let edge_kind = edge_kind_to_str(&c.edge_kind);
         out.push('\n');
-        out.push_str(&format!(
+        let _ = write!(
+            out,
             "{}|{}|{}|{}|{}|{:.2}",
             c.callee_name, kind, file, c.line, edge_kind, c.confidence
-        ));
+        );
     }
     out
 }
@@ -138,10 +146,11 @@ pub fn encode_impact(impact: &ImpactResult) -> String {
         let kind = symbol_kind_to_str(&item.symbol.kind);
         let path_via = item.path_via.join(",");
         out.push('\n');
-        out.push_str(&format!(
+        let _ = write!(
+            out,
             "{}|{}|{}|{}|{}",
             item.symbol.name, kind, item.file_path, item.depth, path_via
-        ));
+        );
     }
     out
 }
@@ -173,7 +182,8 @@ pub fn encode_affected(affected: &AffectedResult) -> String {
                 .collect();
             let causal_path_formatted = causal_str.join(" ; ");
             out.push('\n');
-            out.push_str(&format!(
+            let _ = write!(
+                out,
                 "{}|{}|{}|{}|{}|{}|{:.2}|{}|{}|{}",
                 rec.repo,
                 rec.test_file,
@@ -185,7 +195,7 @@ pub fn encode_affected(affected: &AffectedResult) -> String {
                 cmd_str,
                 rec.reason,
                 causal_path_formatted
-            ));
+            );
         }
     }
     out
@@ -199,7 +209,7 @@ pub fn encode_path(path: Option<&PathResult>) -> String {
         for (idx, step) in p.steps.iter().enumerate() {
             let edge_kind = edge_kind_to_str(&step.edge_kind);
             out.push('\n');
-            out.push_str(&format!("{}|{}|||{}", idx + 1, step.target, edge_kind));
+            let _ = write!(out, "{}|{}|||{}", idx + 1, step.target, edge_kind);
         }
     }
     out
@@ -214,7 +224,8 @@ pub fn encode_explore(explore: &ExploreResult) -> String {
         let kind = symbol_kind_to_str(&sym.kind);
         let complexity_str = sym.complexity.map_or_else(String::new, |c| c.to_string());
         out.push('\n');
-        out.push_str(&format!(
+        let _ = write!(
+            out,
             "{}|{}|{}|{}|{}|{}|{}",
             id_str,
             sym.name,
@@ -223,7 +234,7 @@ pub fn encode_explore(explore: &ExploreResult) -> String {
             sym.span.start_line,
             sym.span.start_col,
             complexity_str
-        ));
+        );
     }
     if !explore.direct_relations.is_empty() {
         out.push('\n');
@@ -236,7 +247,8 @@ pub fn encode_explore(explore: &ExploreResult) -> String {
             let edge_str = rel.edge_kind.as_str();
             let prov_str = rel.provenance.as_str();
             out.push('\n');
-            out.push_str(&format!(
+            let _ = write!(
+                out,
                 "{}|{}|{}|{}|{}|{}|{}|{}|{}|{:.2}|{}|{}|{}",
                 rel.source.symbol_name,
                 rel.source.repo,
@@ -251,7 +263,7 @@ pub fn encode_explore(explore: &ExploreResult) -> String {
                 rel.line,
                 rel.hop_count,
                 rel.cross_repo
-            ));
+            );
         }
     }
     if !explore.transitive_consumers.is_empty() {
@@ -259,7 +271,8 @@ pub fn encode_explore(explore: &ExploreResult) -> String {
         out.push_str(EXPLORE_IMPACT_SCHEMA);
         for c in &explore.transitive_consumers {
             out.push('\n');
-            out.push_str(&format!(
+            let _ = write!(
+                out,
                 "{}|{}|{}|{}|{}|{}",
                 c.symbol_name,
                 c.repo,
@@ -267,7 +280,7 @@ pub fn encode_explore(explore: &ExploreResult) -> String {
                 c.depth,
                 c.path_via.join(" -> "),
                 c.cross_repo
-            ));
+            );
         }
     }
     out

@@ -7,6 +7,160 @@ use super::symbols::node_to_span;
 use crate::domain::graph::{Edge, EdgeKind, Provenance, Span};
 use crate::infra::graph::parser::SupportedLanguage;
 
+/// Builds one unresolved-by-id edge: every extracted edge starts out
+/// pointing at a name, not a symbol id — resolution happens later, once the
+/// whole file's symbols are indexed.
+fn make_edge(
+    repo: &str,
+    name: String,
+    kind: EdgeKind,
+    provenance: Provenance,
+    span: Span,
+    confidence: f64,
+) -> Edge {
+    Edge {
+        id: None,
+        repo: repo.to_owned(),
+        file_id: None,
+        from_symbol_id: None,
+        to_symbol_id: None,
+        to_name: Some(name),
+        kind,
+        provenance,
+        line: span.start_line,
+        col: span.start_col,
+        confidence,
+    }
+}
+
+fn collect_import_path_capture(
+    node: Node,
+    source_bytes: &[u8],
+    repo: &str,
+    imported_names: &mut HashSet<String>,
+    import_edges: &mut Vec<Edge>,
+) {
+    let raw_text = node
+        .utf8_text(source_bytes)
+        .unwrap_or("")
+        .trim_matches(&['"', '\'', ';', ' '][..]);
+    let span = node_to_span(node);
+
+    // For Rust use paths (e.g. `foo::bar` or `bar`), record leaf name as imported
+    if let Some(leaf) = raw_text.split("::").last()
+        && !leaf.contains('{')
+        && !leaf.contains('*')
+        && !leaf.is_empty()
+    {
+        imported_names.insert(leaf.trim().to_owned());
+    }
+
+    import_edges.push(make_edge(
+        repo,
+        raw_text.to_owned(),
+        EdgeKind::Imports,
+        Provenance::Extracted,
+        span,
+        0.95,
+    ));
+}
+
+fn collect_import_name_capture(
+    node: Node,
+    source_bytes: &[u8],
+    repo: &str,
+    imported_names: &mut HashSet<String>,
+    import_edges: &mut Vec<Edge>,
+) {
+    let name = node.utf8_text(source_bytes).unwrap_or("").trim();
+    if !name.is_empty() {
+        imported_names.insert(name.to_owned());
+        let span = node_to_span(node);
+        import_edges.push(make_edge(
+            repo,
+            name.to_owned(),
+            EdgeKind::References,
+            Provenance::Extracted,
+            span,
+            0.95,
+        ));
+    }
+}
+
+fn collect_type_ref_capture(
+    node: Node,
+    source_bytes: &[u8],
+    repo: &str,
+    seen_type_refs: &mut HashSet<(usize, usize, String)>,
+    type_ref_edges: &mut Vec<Edge>,
+) {
+    let parent_kind = node.parent().map(|p| p.kind());
+
+    if matches!(
+        parent_kind,
+        Some("interface_declaration")
+            | Some("type_alias_declaration")
+            | Some("class_declaration")
+            | Some("enum_declaration")
+    ) && let Some(parent) = node.parent()
+        && let Some(name_node) = parent.child_by_field_name("name")
+        && name_node.id() == node.id()
+    {
+        return;
+    }
+
+    if let Ok(raw_name) = node.utf8_text(source_bytes) {
+        let name = raw_name.trim();
+        if !name.is_empty() {
+            let span = node_to_span(node);
+            let key = (span.start_line, span.start_col, name.to_owned());
+            if !seen_type_refs.insert(key) {
+                return;
+            }
+
+            type_ref_edges.push(make_edge(
+                repo,
+                name.to_owned(),
+                EdgeKind::References,
+                Provenance::Extracted,
+                span,
+                0.95,
+            ));
+        }
+    }
+}
+
+fn build_call_edges(
+    repo: &str,
+    call_sites: Vec<(String, Span, Option<&str>)>,
+    local_symbols: &HashSet<String>,
+    imported_names: &HashSet<String>,
+) -> Vec<Edge> {
+    call_sites
+        .into_iter()
+        .map(|(target_name, span, receiver_name)| {
+            let (to_name, provenance, confidence) = if local_symbols.contains(&target_name) {
+                // Tier 1: Local definition
+                (target_name, Provenance::Extracted, 1.0)
+            } else if imported_names.contains(&target_name) {
+                // Tier 2: Imported symbol
+                (target_name, Provenance::Extracted, 0.95)
+            } else if let Some(receiver) = receiver_name {
+                // Tier 3: Method call with receiver
+                (
+                    format!("{receiver}.{target_name}"),
+                    Provenance::Inferred,
+                    0.85,
+                )
+            } else {
+                // Tier 4: General / dynamic / unresolved call
+                (target_name, Provenance::Inferred, 0.70)
+            };
+            make_edge(repo, to_name, EdgeKind::Calls, provenance, span, confidence)
+        })
+        .collect()
+}
+
 pub(super) fn extract_edges(
     repo: &str,
     root: Node,
@@ -40,99 +194,33 @@ pub(super) fn extract_edges(
         for cap in m.captures {
             let index = Some(cap.index);
             if index == import_path_idx || index == import_source_idx {
-                let raw_text = cap
-                    .node
-                    .utf8_text(source_bytes)
-                    .unwrap_or("")
-                    .trim_matches(&['"', '\'', ';', ' '][..]);
-                let span = node_to_span(cap.node);
-
-                // For Rust use paths (e.g. `foo::bar` or `bar`), record leaf name as imported
-                if let Some(leaf) = raw_text.split("::").last()
-                    && !leaf.contains('{')
-                    && !leaf.contains('*')
-                    && !leaf.is_empty()
-                {
-                    imported_names.insert(leaf.trim().to_owned());
-                }
-
-                import_edges.push(Edge {
-                    id: None,
-                    repo: repo.to_owned(),
-                    file_id: None,
-                    from_symbol_id: None,
-                    to_symbol_id: None,
-                    to_name: Some(raw_text.to_owned()),
-                    kind: EdgeKind::Imports,
-                    provenance: Provenance::Extracted,
-                    line: span.start_line,
-                    col: span.start_col,
-                    confidence: 0.95,
-                });
+                collect_import_path_capture(
+                    cap.node,
+                    source_bytes,
+                    repo,
+                    &mut imported_names,
+                    &mut import_edges,
+                );
             } else if index == import_name_idx {
-                let name = cap.node.utf8_text(source_bytes).unwrap_or("").trim();
-                if !name.is_empty() {
-                    imported_names.insert(name.to_owned());
-                    let span = node_to_span(cap.node);
-                    import_edges.push(Edge {
-                        id: None,
-                        repo: repo.to_owned(),
-                        file_id: None,
-                        from_symbol_id: None,
-                        to_symbol_id: None,
-                        to_name: Some(name.to_owned()),
-                        kind: EdgeKind::References,
-                        provenance: Provenance::Extracted,
-                        line: span.start_line,
-                        col: span.start_col,
-                        confidence: 0.95,
-                    });
-                }
+                collect_import_name_capture(
+                    cap.node,
+                    source_bytes,
+                    repo,
+                    &mut imported_names,
+                    &mut import_edges,
+                );
             } else if index == call_target_idx {
                 target_node = Some(cap.node);
             } else if index == call_receiver_idx {
                 receiver_node = Some(cap.node);
             } else if index == type_ref_idx {
-                let node = cap.node;
-                let parent_kind = node.parent().map(|p| p.kind());
-
-                if matches!(
-                    parent_kind,
-                    Some("interface_declaration")
-                        | Some("type_alias_declaration")
-                        | Some("class_declaration")
-                        | Some("enum_declaration")
-                ) && let Some(parent) = node.parent()
-                    && let Some(name_node) = parent.child_by_field_name("name")
-                    && name_node.id() == node.id()
-                {
-                    continue;
-                }
-
-                if let Ok(raw_name) = node.utf8_text(source_bytes) {
-                    let name = raw_name.trim();
-                    if !name.is_empty() {
-                        let span = node_to_span(node);
-                        let key = (span.start_line, span.start_col, name.to_owned());
-                        if !seen_type_refs.insert(key) {
-                            continue;
-                        }
-
-                        type_ref_edges.push(Edge {
-                            id: None,
-                            repo: repo.to_owned(),
-                            file_id: None,
-                            from_symbol_id: None,
-                            to_symbol_id: None,
-                            to_name: Some(name.to_owned()),
-                            kind: EdgeKind::References,
-                            provenance: Provenance::Extracted,
-                            line: span.start_line,
-                            col: span.start_col,
-                            confidence: 0.95,
-                        });
-                    }
-                }
+                collect_type_ref_capture(
+                    cap.node,
+                    source_bytes,
+                    repo,
+                    &mut seen_type_refs,
+                    &mut type_ref_edges,
+                );
             }
         }
 
@@ -145,45 +233,122 @@ pub(super) fn extract_edges(
         }
     }
 
-    let call_edges = call_sites
-        .into_iter()
-        .map(|(target_name, span, receiver_name)| {
-            let (to_name, provenance, confidence) = if local_symbols.contains(&target_name) {
-                // Tier 1: Local definition
-                (target_name, Provenance::Extracted, 1.0)
-            } else if imported_names.contains(&target_name) {
-                // Tier 2: Imported symbol
-                (target_name, Provenance::Extracted, 0.95)
-            } else if let Some(receiver) = receiver_name {
-                // Tier 3: Method call with receiver
-                (
-                    format!("{receiver}.{target_name}"),
-                    Provenance::Inferred,
-                    0.85,
-                )
-            } else {
-                // Tier 4: General / dynamic / unresolved call
-                (target_name, Provenance::Inferred, 0.70)
-            };
-            Edge {
-                id: None,
-                repo: repo.to_owned(),
-                file_id: None,
-                from_symbol_id: None,
-                to_symbol_id: None,
-                to_name: Some(to_name),
-                kind: EdgeKind::Calls,
-                provenance,
-                line: span.start_line,
-                col: span.start_col,
-                confidence,
-            }
-        });
-
     let mut edges = import_edges;
-    edges.extend(call_edges);
+    edges.extend(build_call_edges(
+        repo,
+        call_sites,
+        local_symbols,
+        &imported_names,
+    ));
     edges.extend(type_ref_edges);
     edges.extend(extract_hierarchy_edges(repo, root, source_bytes, lang));
+    edges
+}
+
+/// The type names named directly under a TypeScript heritage clause (an
+/// `extends`/`implements` list), skipping the keyword and separator tokens
+/// and any comment, and stripping a trailing type-argument list (`<...>`).
+fn heritage_targets(clause: Node, skip: &str, source_bytes: &[u8]) -> Vec<(String, Span)> {
+    let mut cursor = clause.walk();
+    let mut targets = Vec::new();
+    for target in clause.children(&mut cursor) {
+        if target.kind() == skip || target.kind() == "," || target.kind().starts_with("comment") {
+            continue;
+        }
+        let Ok(raw_name) = target.utf8_text(source_bytes) else {
+            continue;
+        };
+        let name = raw_name.split('<').next().unwrap_or(raw_name).trim();
+        if !name.is_empty() {
+            targets.push((name.to_owned(), node_to_span(target)));
+        }
+    }
+    targets
+}
+
+fn extract_rust_hierarchy_edge(repo: &str, node: Node, source_bytes: &[u8]) -> Option<Edge> {
+    if node.kind() != "impl_item" {
+        return None;
+    }
+    let trait_node = node.child_by_field_name("trait")?;
+    let raw_trait = trait_node.utf8_text(source_bytes).ok()?;
+    let trait_name = raw_trait.split('<').next().unwrap_or(raw_trait).trim();
+    if trait_name.is_empty() {
+        return None;
+    }
+    let span = node_to_span(trait_node);
+    Some(make_edge(
+        repo,
+        trait_name.to_owned(),
+        EdgeKind::Implements,
+        Provenance::Extracted,
+        span,
+        1.0,
+    ))
+}
+
+fn extract_ts_class_hierarchy_edges(repo: &str, node: Node, source_bytes: &[u8]) -> Vec<Edge> {
+    let mut edges = Vec::new();
+    if node.kind() != "class_declaration" {
+        return edges;
+    }
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if child.kind() == "class_heritage" {
+            let mut h_cursor = child.walk();
+            for h_child in child.children(&mut h_cursor) {
+                if h_child.kind() == "extends_clause" {
+                    for (name, span) in heritage_targets(h_child, "extends", source_bytes) {
+                        edges.push(make_edge(
+                            repo,
+                            name,
+                            EdgeKind::Inherits,
+                            Provenance::Extracted,
+                            span,
+                            1.0,
+                        ));
+                    }
+                } else if h_child.kind() == "implements_clause" {
+                    for (name, span) in heritage_targets(h_child, "implements", source_bytes) {
+                        edges.push(make_edge(
+                            repo,
+                            name,
+                            EdgeKind::Implements,
+                            Provenance::Extracted,
+                            span,
+                            1.0,
+                        ));
+                    }
+                }
+            }
+        }
+    }
+    edges
+}
+
+fn extract_ts_interface_hierarchy_edges(repo: &str, node: Node, source_bytes: &[u8]) -> Vec<Edge> {
+    let mut edges = Vec::new();
+    if node.kind() != "interface_declaration" {
+        return edges;
+    }
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if child.kind() == "extends_type_clause"
+            || child.kind() == "extends_clause"
+            || child.kind() == "interface_heritage"
+        {
+            for (name, span) in heritage_targets(child, "extends", source_bytes) {
+                edges.push(make_edge(
+                    repo,
+                    name,
+                    EdgeKind::Inherits,
+                    Provenance::Extracted,
+                    span,
+                    1.0,
+                ));
+            }
+        }
+    }
     edges
 }
 
@@ -199,138 +364,17 @@ fn extract_hierarchy_edges(
     while let Some(node) = stack.pop() {
         match lang {
             SupportedLanguage::Rust => {
-                if node.kind() == "impl_item"
-                    && let Some(trait_node) = node.child_by_field_name("trait")
-                    && let Ok(raw_trait) = trait_node.utf8_text(source_bytes)
-                {
-                    let trait_name = raw_trait.split('<').next().unwrap_or(raw_trait).trim();
-                    if !trait_name.is_empty() {
-                        let span = node_to_span(trait_node);
-                        edges.push(Edge {
-                            id: None,
-                            repo: repo.to_owned(),
-                            file_id: None,
-                            from_symbol_id: None,
-                            to_symbol_id: None,
-                            to_name: Some(trait_name.to_owned()),
-                            kind: EdgeKind::Implements,
-                            provenance: Provenance::Extracted,
-                            line: span.start_line,
-                            col: span.start_col,
-                            confidence: 1.0,
-                        });
-                    }
+                if let Some(edge) = extract_rust_hierarchy_edge(repo, node, source_bytes) {
+                    edges.push(edge);
                 }
             }
             SupportedLanguage::TypeScript | SupportedLanguage::Tsx => {
-                if node.kind() == "class_declaration" {
-                    let mut cursor = node.walk();
-                    for child in node.children(&mut cursor) {
-                        if child.kind() == "class_heritage" {
-                            let mut h_cursor = child.walk();
-                            for h_child in child.children(&mut h_cursor) {
-                                if h_child.kind() == "extends_clause" {
-                                    let mut e_cursor = h_child.walk();
-                                    for target in h_child.children(&mut e_cursor) {
-                                        if target.kind() != "extends"
-                                            && !target.kind().starts_with("comment")
-                                            && let Ok(raw_name) = target.utf8_text(source_bytes)
-                                        {
-                                            let name = raw_name
-                                                .split('<')
-                                                .next()
-                                                .unwrap_or(raw_name)
-                                                .trim();
-                                            if !name.is_empty() {
-                                                let span = node_to_span(target);
-                                                edges.push(Edge {
-                                                    id: None,
-                                                    repo: repo.to_owned(),
-                                                    file_id: None,
-                                                    from_symbol_id: None,
-                                                    to_symbol_id: None,
-                                                    to_name: Some(name.to_owned()),
-                                                    kind: EdgeKind::Inherits,
-                                                    provenance: Provenance::Extracted,
-                                                    line: span.start_line,
-                                                    col: span.start_col,
-                                                    confidence: 1.0,
-                                                });
-                                            }
-                                        }
-                                    }
-                                } else if h_child.kind() == "implements_clause" {
-                                    let mut i_cursor = h_child.walk();
-                                    for target in h_child.children(&mut i_cursor) {
-                                        if target.kind() != "implements"
-                                            && target.kind() != ","
-                                            && !target.kind().starts_with("comment")
-                                            && let Ok(raw_name) = target.utf8_text(source_bytes)
-                                        {
-                                            let name = raw_name
-                                                .split('<')
-                                                .next()
-                                                .unwrap_or(raw_name)
-                                                .trim();
-                                            if !name.is_empty() {
-                                                let span = node_to_span(target);
-                                                edges.push(Edge {
-                                                    id: None,
-                                                    repo: repo.to_owned(),
-                                                    file_id: None,
-                                                    from_symbol_id: None,
-                                                    to_symbol_id: None,
-                                                    to_name: Some(name.to_owned()),
-                                                    kind: EdgeKind::Implements,
-                                                    provenance: Provenance::Extracted,
-                                                    line: span.start_line,
-                                                    col: span.start_col,
-                                                    confidence: 1.0,
-                                                });
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                } else if node.kind() == "interface_declaration" {
-                    let mut cursor = node.walk();
-                    for child in node.children(&mut cursor) {
-                        if child.kind() == "extends_type_clause"
-                            || child.kind() == "extends_clause"
-                            || child.kind() == "interface_heritage"
-                        {
-                            let mut e_cursor = child.walk();
-                            for target in child.children(&mut e_cursor) {
-                                if target.kind() != "extends"
-                                    && target.kind() != ","
-                                    && !target.kind().starts_with("comment")
-                                    && let Ok(raw_name) = target.utf8_text(source_bytes)
-                                {
-                                    let name =
-                                        raw_name.split('<').next().unwrap_or(raw_name).trim();
-                                    if !name.is_empty() {
-                                        let span = node_to_span(target);
-                                        edges.push(Edge {
-                                            id: None,
-                                            repo: repo.to_owned(),
-                                            file_id: None,
-                                            from_symbol_id: None,
-                                            to_symbol_id: None,
-                                            to_name: Some(name.to_owned()),
-                                            kind: EdgeKind::Inherits,
-                                            provenance: Provenance::Extracted,
-                                            line: span.start_line,
-                                            col: span.start_col,
-                                            confidence: 1.0,
-                                        });
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
+                edges.extend(extract_ts_class_hierarchy_edges(repo, node, source_bytes));
+                edges.extend(extract_ts_interface_hierarchy_edges(
+                    repo,
+                    node,
+                    source_bytes,
+                ));
             }
             _ => {}
         }

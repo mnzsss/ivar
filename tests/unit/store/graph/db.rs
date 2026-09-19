@@ -6,7 +6,7 @@
 )]
 
 use super::*;
-use crate::domain::graph::{UsageEvent, UsageSource};
+use crate::domain::graph::{Span, Symbol, SymbolKind, UsageEvent, UsageSource};
 use tempfile::tempdir;
 
 #[test]
@@ -879,4 +879,30 @@ fn forget_repo_drops_the_repo_and_its_feature_layers_only() {
         db.get_layer_record("feat", "web").unwrap().unwrap().id,
         web_layer
     );
+}
+
+#[test]
+fn inserting_a_symbol_with_a_usize_id_beyond_i64_is_rejected_not_saturated() {
+    let db = GraphDb::open_in_memory().unwrap();
+    db.insert_repo("app", "/app", "main", None).unwrap();
+    let file_id = db.upsert_file("app", "src/lib.rs", "h", 1, 1).unwrap();
+
+    // SQLite stores the span as an i64 column: a usize::MAX span cannot round-trip,
+    // so the out-of-range value must be rejected rather than silently clamped.
+    let err = db
+        .insert_symbols(&[Symbol {
+            id: None,
+            file_id: Some(file_id),
+            repo: "app".to_owned(),
+            name: "widget".to_owned(),
+            kind: SymbolKind::Fn,
+            scope: None,
+            signature: None,
+            docstring: None,
+            span: Span::new(usize::MAX, 1, usize::MAX, 2),
+            is_exported: true,
+            complexity: Some(u32::MAX),
+        }])
+        .expect_err("an out-of-range span must not be saturated");
+    assert!(err.to_string().contains("too large") || err.to_string().contains("out of range"));
 }

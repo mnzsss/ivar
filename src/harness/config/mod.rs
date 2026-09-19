@@ -50,6 +50,7 @@ use crate::infra::fs;
 use crate::infra::json;
 
 pub(crate) mod artifact;
+mod doc;
 mod mcp;
 pub(crate) mod session;
 mod settings;

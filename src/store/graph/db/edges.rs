@@ -3,6 +3,7 @@
 use rusqlite::params;
 
 use super::GraphDb;
+use super::row;
 use super::types::{Result, edge_kind_to_str, provenance_to_str};
 use crate::domain::graph::{Edge, Symbol};
 
@@ -11,12 +12,15 @@ pub type HierarchyRecord = (Symbol, String, Vec<String>, Vec<String>);
 
 impl GraphDb {
     /// Bulk inserts edges in a single transaction and returns their generated IDs.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GraphDbError`] if the insert statement fails.
     pub fn insert_edges(&self, edges: &[Edge]) -> Result<Vec<i64>> {
         if edges.is_empty() {
             return Ok(Vec::new());
         }
-        self.conn.execute_batch("BEGIN IMMEDIATE;")?;
-        let res = (|| -> Result<Vec<i64>> {
+        self.in_transaction(|| -> Result<Vec<i64>> {
             let mut stmt = self.conn.prepare_cached(
                 "INSERT INTO edges (repo, file_id, from_symbol_id, to_symbol_id, to_name, kind, provenance, line, col, confidence)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
@@ -35,8 +39,8 @@ impl GraphDb {
                         &edge.to_name,
                         kind_str.as_ref(),
                         prov_str,
-                        edge.line as i64,
-                        edge.col as i64,
+                        i64::try_from(edge.line).unwrap_or(i64::MAX),
+                        i64::try_from(edge.col).unwrap_or(i64::MAX),
                         edge.confidence,
                     ],
                     |row| row.get(0),
@@ -44,21 +48,14 @@ impl GraphDb {
                 ids.push(id);
             }
             Ok(ids)
-        })();
-
-        match res {
-            Ok(ids) => {
-                self.conn.execute_batch("COMMIT;")?;
-                Ok(ids)
-            }
-            Err(e) => {
-                let _ = self.conn.execute_batch("ROLLBACK;");
-                Err(e)
-            }
-        }
+        })
     }
 
     /// Deletes all edges originating from or associated with a specific file ID.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GraphDbError`] if the delete statement fails.
     pub fn delete_edges_for_file(&self, file_id: i64) -> Result<()> {
         self.conn
             .execute("DELETE FROM edges WHERE file_id = ?1", params![file_id])?;
@@ -66,6 +63,10 @@ impl GraphDb {
     }
 
     /// Re-links dangling edges where `to_symbol_id` is null by matching `to_name` with symbols in the same repository.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GraphDbError`] if the update statement fails.
     pub fn relink_dangling_edges(&self, repo: &str) -> Result<usize> {
         let count = self.conn.execute(
             "UPDATE edges
@@ -91,13 +92,20 @@ impl GraphDb {
     }
 
     /// Finds base types and implementations/subtypes for a symbol.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GraphDbError`] if any of the lookup queries fail.
     pub fn find_hierarchy(
         &self,
         symbol_name: &str,
         repo: Option<&str>,
     ) -> Result<Option<HierarchyRecord>> {
-        use super::types::parse_symbol_kind;
-        use crate::domain::graph::{Span, Symbol};
+        fn map_symbol_and_path(row: &rusqlite::Row<'_>) -> rusqlite::Result<(Symbol, String)> {
+            let symbol = row::symbol_from_row(row)?;
+            let file_path: String = row.get(14)?;
+            Ok((symbol, file_path))
+        }
 
         let sym_row = match repo {
             Some(r) => {
@@ -111,46 +119,8 @@ impl GraphDb {
                      ORDER BY s.is_exported DESC, s.id ASC
                      LIMIT 1",
                 )?;
-                stmt.query_row(params![symbol_name, r], |row| {
-                    let id: i64 = row.get(0)?;
-                    let file_id: i64 = row.get(1)?;
-                    let repo: String = row.get(2)?;
-                    let name: String = row.get(3)?;
-                    let kind_raw: String = row.get(4)?;
-                    let scope: Option<String> = row.get(5)?;
-                    let signature: Option<String> = row.get(6)?;
-                    let docstring: Option<String> = row.get(7)?;
-                    let start_line: i64 = row.get(8)?;
-                    let start_col: i64 = row.get(9)?;
-                    let end_line: i64 = row.get(10)?;
-                    let end_col: i64 = row.get(11)?;
-                    let is_exported: i64 = row.get(12)?;
-                    let complexity: Option<i64> = row.get(13)?;
-                    let file_path: String = row.get(14)?;
-
-                    Ok((
-                        Symbol {
-                            id: Some(id),
-                            file_id: Some(file_id),
-                            repo,
-                            name,
-                            kind: parse_symbol_kind(&kind_raw),
-                            scope,
-                            signature,
-                            docstring,
-                            span: Span::new(
-                                start_line as usize,
-                                start_col as usize,
-                                end_line as usize,
-                                end_col as usize,
-                            ),
-                            is_exported: is_exported != 0,
-                            complexity: complexity.map(|c| c as u32),
-                        },
-                        file_path,
-                    ))
-                })
-                .ok()
+                stmt.query_row(params![symbol_name, r], map_symbol_and_path)
+                    .ok()
             }
             None => {
                 let mut stmt = self.conn.prepare(
@@ -163,46 +133,8 @@ impl GraphDb {
                      ORDER BY s.is_exported DESC, s.id ASC
                      LIMIT 1",
                 )?;
-                stmt.query_row(params![symbol_name], |row| {
-                    let id: i64 = row.get(0)?;
-                    let file_id: i64 = row.get(1)?;
-                    let repo: String = row.get(2)?;
-                    let name: String = row.get(3)?;
-                    let kind_raw: String = row.get(4)?;
-                    let scope: Option<String> = row.get(5)?;
-                    let signature: Option<String> = row.get(6)?;
-                    let docstring: Option<String> = row.get(7)?;
-                    let start_line: i64 = row.get(8)?;
-                    let start_col: i64 = row.get(9)?;
-                    let end_line: i64 = row.get(10)?;
-                    let end_col: i64 = row.get(11)?;
-                    let is_exported: i64 = row.get(12)?;
-                    let complexity: Option<i64> = row.get(13)?;
-                    let file_path: String = row.get(14)?;
-
-                    Ok((
-                        Symbol {
-                            id: Some(id),
-                            file_id: Some(file_id),
-                            repo,
-                            name,
-                            kind: parse_symbol_kind(&kind_raw),
-                            scope,
-                            signature,
-                            docstring,
-                            span: Span::new(
-                                start_line as usize,
-                                start_col as usize,
-                                end_line as usize,
-                                end_col as usize,
-                            ),
-                            is_exported: is_exported != 0,
-                            complexity: complexity.map(|c| c as u32),
-                        },
-                        file_path,
-                    ))
-                })
-                .ok()
+                stmt.query_row(params![symbol_name], map_symbol_and_path)
+                    .ok()
             }
         };
 

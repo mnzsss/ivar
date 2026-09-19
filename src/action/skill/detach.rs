@@ -12,7 +12,7 @@ use serde::Serialize;
 use crate::action::Ctx;
 use crate::domain::name::RepoName;
 use crate::domain::skill::Source;
-use crate::error::{Failure, FixAction, Outcome, Report, WriteHuman};
+use crate::error::{Failure, Outcome, Report, WriteHuman};
 use crate::infra::frontmatter;
 use crate::infra::fs;
 use crate::store::skill;
@@ -39,25 +39,12 @@ impl WriteHuman for DetachOutcome {
     }
 }
 
-pub fn detach(ctx: &Ctx, input: DetachInput) -> Outcome<DetachOutcome> {
+pub fn detach(ctx: &Ctx, input: &DetachInput) -> Outcome<DetachOutcome> {
     let layout = discover_hall(ctx)?;
 
     // Find the skill in either root — no flag, see `enumerate::resolve`.
     let Some((skill_dir, root)) = super::enumerate::resolve(&layout, &input.skill)? else {
-        return Err(Failure::blocked(
-            "skill.not_found",
-            format!("skill `{}` does not exist", input.skill),
-        )
-        .expected("a skill directory in either skills root")
-        .actual(format!(
-            "no directory at `{}` or `{}`",
-            layout.hall_skills_local().join(&input.skill),
-            layout.hall_skills().join(&input.skill)
-        ))
-        .fix(FixAction::safe(
-            "skill.list",
-            "List available skills to find the correct id.",
-        )));
+        return Err(super::skill_not_found(&layout, &input.skill));
     };
 
     let Some(skill) = skill::parse_skill(skill_dir.clone(), root).map_err(|e| {

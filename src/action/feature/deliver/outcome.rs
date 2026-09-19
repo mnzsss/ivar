@@ -102,66 +102,133 @@ pub(crate) fn action_word(action: DeliveryAction, draft: Option<DraftAction>) ->
     }
 }
 
+fn write_human_push_preview(w: &mut impl io::Write, outcome: &DeliverOutcome) -> io::Result<()> {
+    writeln!(
+        w,
+        "Delivery preview for `{}` in {}:",
+        outcome.preview.feature, outcome.root
+    )?;
+    if outcome.preview.repos.is_empty() {
+        writeln!(w, "  no repos promoted")?;
+    }
+    for repo in &outcome.preview.repos {
+        writeln!(w, "  {}:", repo.repo)?;
+        writeln!(w, "    branch:  {}", repo.local_branch)?;
+        writeln!(w, "    remote:  {}", repo.remote)?;
+        writeln!(w, "    refspec: {}", repo.push_refspec)?;
+        writeln!(w, "    base:    {}", repo.base_branch)?;
+        if repo.draft == Some(DraftAction::ConvertToDraft) {
+            writeln!(w, "    action:  {}", action_word(repo.action, None))?;
+            writeln!(w, "    action:  {}", action_word(repo.action, repo.draft))?;
+        } else {
+            writeln!(w, "    action:  {}", action_word(repo.action, repo.draft))?;
+        }
+        if repo.blockers.is_empty() {
+            writeln!(w, "    blockers: none")?;
+        } else {
+            for blocker in &repo.blockers {
+                writeln!(w, "    blocker: {blocker}")?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn write_human_land_preview(w: &mut impl io::Write, outcome: &DeliverOutcome) -> io::Result<()> {
+    writeln!(
+        w,
+        "Delivery preview (land on default) for `{}` in {}:",
+        outcome.preview.feature, outcome.root
+    )?;
+    if outcome.preview.repos.is_empty() {
+        writeln!(w, "  no repos promoted")?;
+    }
+    for repo in &outcome.preview.repos {
+        let target = repo.default_branch.as_ref().map_or("-", |b| b.as_str());
+        let ff_verdict = match repo.ff_possible {
+            Some(true) => "fast-forward",
+            Some(false) => "diverged",
+            None => "unknown",
+        };
+        writeln!(
+            w,
+            "  {}  {} -> {}  {}",
+            repo.repo, repo.local_branch, target, ff_verdict
+        )?;
+        for blocker in &repo.blockers {
+            writeln!(w, "    blocker: {blocker}")?;
+        }
+    }
+    Ok(())
+}
+
+fn write_human_land_result(w: &mut impl io::Write, outcome: &DeliverOutcome) -> io::Result<()> {
+    writeln!(
+        w,
+        "Landed `{}` in {} (fingerprint {}):",
+        outcome.preview.feature, outcome.root, outcome.preview.fingerprint
+    )?;
+    for res in &outcome.land {
+        if res.merged && res.pushed {
+            writeln!(w, "  {}: merged and pushed", res.repo)?;
+        } else if res.merged {
+            if let Some(detail) = &res.detail {
+                writeln!(w, "  {}: merged, not pushed — {detail}", res.repo)?;
+            } else {
+                writeln!(w, "  {}: merged, not pushed", res.repo)?;
+            }
+        } else if let Some(detail) = &res.detail {
+            writeln!(w, "  {}: not merged — {detail}", res.repo)?;
+        } else {
+            writeln!(w, "  {}: not merged", res.repo)?;
+        }
+    }
+    Ok(())
+}
+
+fn write_human_push_result(w: &mut impl io::Write, outcome: &DeliverOutcome) -> io::Result<()> {
+    writeln!(
+        w,
+        "Delivered `{}` in {} (fingerprint {}):",
+        outcome.preview.feature, outcome.root, outcome.preview.fingerprint
+    )?;
+    for push in &outcome.pushes {
+        if push.ok {
+            match &push.pr {
+                Some(pr) => {
+                    let draft = if pr.draft { " (draft)" } else { "" };
+                    writeln!(
+                        w,
+                        "  {}: pushed — PR #{}{draft} {}",
+                        push.repo, pr.number, pr.url
+                    )?;
+                }
+                None => match &push.detail {
+                    Some(detail) => writeln!(w, "  {}: pushed — {detail}", push.repo)?,
+                    None => writeln!(w, "  {}: pushed", push.repo)?,
+                },
+            }
+        } else if let Some(detail) = &push.detail {
+            writeln!(w, "  {}: not pushed — {detail}", push.repo)?;
+        } else {
+            writeln!(w, "  {}: not pushed", push.repo)?;
+        }
+        if let Some(fix) = &push.fix {
+            writeln!(w, "    fix: {}", fix.what)?;
+            if let Some(command) = &fix.command {
+                writeln!(w, "    run: {command}")?;
+            }
+        }
+    }
+    Ok(())
+}
+
 impl WriteHuman for DeliverOutcome {
     fn write_human(&self, w: &mut impl io::Write) -> io::Result<()> {
         if self.pushes.is_empty() && self.land.is_empty() {
             match self.preview.mode {
-                DeliveryMode::Push => {
-                    writeln!(
-                        w,
-                        "Delivery preview for `{}` in {}:",
-                        self.preview.feature, self.root
-                    )?;
-                    if self.preview.repos.is_empty() {
-                        writeln!(w, "  no repos promoted")?;
-                    }
-                    for repo in &self.preview.repos {
-                        writeln!(w, "  {}:", repo.repo)?;
-                        writeln!(w, "    branch:  {}", repo.local_branch)?;
-                        writeln!(w, "    remote:  {}", repo.remote)?;
-                        writeln!(w, "    refspec: {}", repo.push_refspec)?;
-                        writeln!(w, "    base:    {}", repo.base_branch)?;
-                        if repo.draft == Some(DraftAction::ConvertToDraft) {
-                            writeln!(w, "    action:  {}", action_word(repo.action, None))?;
-                            writeln!(w, "    action:  {}", action_word(repo.action, repo.draft))?;
-                        } else {
-                            writeln!(w, "    action:  {}", action_word(repo.action, repo.draft))?;
-                        }
-                        if repo.blockers.is_empty() {
-                            writeln!(w, "    blockers: none")?;
-                        } else {
-                            for blocker in &repo.blockers {
-                                writeln!(w, "    blocker: {blocker}")?;
-                            }
-                        }
-                    }
-                }
-                DeliveryMode::Land => {
-                    writeln!(
-                        w,
-                        "Delivery preview (land on default) for `{}` in {}:",
-                        self.preview.feature, self.root
-                    )?;
-                    if self.preview.repos.is_empty() {
-                        writeln!(w, "  no repos promoted")?;
-                    }
-                    for repo in &self.preview.repos {
-                        let target = repo.default_branch.as_ref().map_or("-", |b| b.as_str());
-                        let ff_verdict = match repo.ff_possible {
-                            Some(true) => "fast-forward",
-                            Some(false) => "diverged",
-                            None => "unknown",
-                        };
-                        writeln!(
-                            w,
-                            "  {}  {} -> {}  {}",
-                            repo.repo, repo.local_branch, target, ff_verdict
-                        )?;
-                        for blocker in &repo.blockers {
-                            writeln!(w, "    blocker: {blocker}")?;
-                        }
-                    }
-                }
+                DeliveryMode::Push => write_human_push_preview(w, self)?,
+                DeliveryMode::Land => write_human_land_preview(w, self)?,
             }
             writeln!(w, "  plan gate:   {}", self.preview.plan_gate)?;
             writeln!(w, "  fingerprint: {}", self.preview.fingerprint)?;
@@ -174,62 +241,9 @@ impl WriteHuman for DeliverOutcome {
             }
             Ok(())
         } else if !self.land.is_empty() {
-            writeln!(
-                w,
-                "Landed `{}` in {} (fingerprint {}):",
-                self.preview.feature, self.root, self.preview.fingerprint
-            )?;
-            for res in &self.land {
-                if res.merged && res.pushed {
-                    writeln!(w, "  {}: merged and pushed", res.repo)?;
-                } else if res.merged {
-                    if let Some(detail) = &res.detail {
-                        writeln!(w, "  {}: merged, not pushed — {detail}", res.repo)?;
-                    } else {
-                        writeln!(w, "  {}: merged, not pushed", res.repo)?;
-                    }
-                } else if let Some(detail) = &res.detail {
-                    writeln!(w, "  {}: not merged — {detail}", res.repo)?;
-                } else {
-                    writeln!(w, "  {}: not merged", res.repo)?;
-                }
-            }
-            Ok(())
+            write_human_land_result(w, self)
         } else {
-            writeln!(
-                w,
-                "Delivered `{}` in {} (fingerprint {}):",
-                self.preview.feature, self.root, self.preview.fingerprint
-            )?;
-            for push in &self.pushes {
-                if push.ok {
-                    match &push.pr {
-                        Some(pr) => {
-                            let draft = if pr.draft { " (draft)" } else { "" };
-                            writeln!(
-                                w,
-                                "  {}: pushed — PR #{}{draft} {}",
-                                push.repo, pr.number, pr.url
-                            )?;
-                        }
-                        None => match &push.detail {
-                            Some(detail) => writeln!(w, "  {}: pushed — {detail}", push.repo)?,
-                            None => writeln!(w, "  {}: pushed", push.repo)?,
-                        },
-                    }
-                } else if let Some(detail) = &push.detail {
-                    writeln!(w, "  {}: not pushed — {detail}", push.repo)?;
-                } else {
-                    writeln!(w, "  {}: not pushed", push.repo)?;
-                }
-                if let Some(fix) = &push.fix {
-                    writeln!(w, "    fix: {}", fix.what)?;
-                    if let Some(command) = &fix.command {
-                        writeln!(w, "    run: {command}")?;
-                    }
-                }
-            }
-            Ok(())
+            write_human_push_result(w, self)
         }
     }
 }

@@ -41,134 +41,17 @@ pub fn link_cross_repo_edges(db: &GraphDb) -> Result<CrossRepoLinkOutcome, Cross
 
     conn.execute_batch("BEGIN IMMEDIATE;")?;
     let res = (|| -> Result<CrossRepoLinkOutcome, CrossRepoError> {
-        let mut out = CrossRepoLinkOutcome::default();
-
-        // 1. Cross-Import Linking:
-        // Match dangling edges (to_symbol_id IS NULL AND to_name IS NOT NULL)
-        // against exported symbols in a *different* repo (symbols.repo != edges.repo AND symbols.is_exported = 1).
-        // If to_name matches symbols.name, link to_symbol_id, set kind = 'CROSS_IMPORTS',
-        // provenance = 'INFERRED', confidence = 0.90.
-        let cross_imports = conn.execute(
-            "UPDATE edges
-             SET to_symbol_id = (
-                 SELECT s.id FROM symbols s
-                 WHERE s.repo != edges.repo
-                   AND s.repo NOT LIKE '%/%'
-                   AND s.is_exported = 1
-                   AND s.name = edges.to_name
-                 LIMIT 1
-             ),
-             kind = 'CROSS_IMPORTS',
-             provenance = 'INFERRED',
-             confidence = 0.90
-             WHERE to_symbol_id IS NULL
-               AND to_name IS NOT NULL
-               AND (kind = 'IMPORTS' OR kind = 'imports' OR kind = 'CROSS_IMPORTS' OR kind = 'cross_imports')
-               AND EXISTS (
-                   SELECT 1 FROM symbols s
-                   WHERE s.repo != edges.repo
-                     AND s.repo NOT LIKE '%/%'
-                     AND s.is_exported = 1
-                     AND s.name = edges.to_name
-               )",
-            [],
-        )?;
-        out.cross_imports = cross_imports;
-
-        // 2. Cross-Execute Linking:
-        // Look for edges where to_name is a known binary name or CLI command pattern
-        // (or kind is already CROSS_EXECUTES or to_name matches binary/CLI symbols in other repos).
-        // Matches target symbols with kind in ('fn', 'const', 'mod', 'struct') and name matching to_name,
-        // or CLI entry points where symbols.name = edges.to_name in other repos.
-        let cross_executes = conn.execute(
-            "UPDATE edges
-             SET to_symbol_id = (
-                 SELECT s.id FROM symbols s
-                 WHERE s.repo != edges.repo
-                   AND s.repo NOT LIKE '%/%'
-                   AND s.name = edges.to_name
-                 LIMIT 1
-             ),
-             kind = 'CROSS_EXECUTES',
-             provenance = 'INFERRED',
-             confidence = 0.85
-             WHERE to_symbol_id IS NULL
-               AND to_name IS NOT NULL
-               AND (kind = 'CROSS_EXECUTES' OR kind = 'cross_executes' OR to_name IN ('ivar', 'orca', 'valhalla', 'cargo', 'npm', 'sh', 'exec'))
-               AND EXISTS (
-                   SELECT 1 FROM symbols s
-                   WHERE s.repo != edges.repo
-                     AND s.repo NOT LIKE '%/%'
-                     AND s.name = edges.to_name
-               )",
-            [],
-        )?;
-        out.cross_executes = cross_executes;
-
-        // 3. Cross-HTTP Linking:
-        // Look for edges where to_name or route string matches HTTP routes or endpoint handler symbols.
-        let cross_calls_http = conn.execute(
-            "UPDATE edges
-             SET to_symbol_id = (
-                 SELECT s.id FROM symbols s
-                 WHERE s.repo != edges.repo
-                   AND s.repo NOT LIKE '%/%'
-                   AND (s.name = edges.to_name OR s.scope = edges.to_name)
-                 LIMIT 1
-             ),
-             kind = 'CROSS_CALLS_HTTP',
-             provenance = 'INFERRED',
-             confidence = 0.80
-             WHERE to_symbol_id IS NULL
-               AND to_name IS NOT NULL
-               AND (kind = 'CROSS_CALLS_HTTP' OR kind = 'cross_calls_http' OR to_name LIKE '/api/%' OR to_name LIKE 'http%')
-               AND EXISTS (
-                   SELECT 1 FROM symbols s
-                   WHERE s.repo != edges.repo
-                     AND s.repo NOT LIKE '%/%'
-                     AND (s.name = edges.to_name OR s.scope = edges.to_name)
-               )",
-            [],
-        )?;
-        out.cross_calls_http = cross_calls_http;
-
-        // 4. Client calls with path parameters, in any repo: the client's
-        // `GET /projects/:param` reaches the server's `GET /projects/:id`.
-        let mut route_by_key: HashMap<String, i64> = HashMap::new();
-        {
-            let mut stmt = conn.prepare(
-                "SELECT id, name FROM symbols WHERE kind = 'route' AND repo NOT LIKE '%/%'",
-            )?;
-            let routes = stmt.query_map([], |row| {
-                Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
-            })?;
-            for route in routes {
-                let (id, name) = route?;
-                route_by_key.entry(route_key(&name)).or_insert(id);
-            }
-        }
-        let calls: Vec<(i64, String)> = conn
-            .prepare(
-                "SELECT id, to_name FROM edges
-                 WHERE to_symbol_id IS NULL
-                   AND to_name IS NOT NULL
-                   AND kind IN ('CROSS_CALLS_HTTP', 'cross_calls_http')",
-            )?
-            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
-            .collect::<Result<_, _>>()?;
-        let mut link = conn.prepare(
-            "UPDATE edges SET to_symbol_id = ?1, provenance = 'INFERRED', confidence = 0.80
-             WHERE id = ?2",
-        )?;
-        for (edge_id, to_name) in calls {
-            if let Some(route_id) = route_by_key.get(&route_key(&to_name)) {
-                link.execute(params![route_id, edge_id])?;
-                out.cross_calls_http += 1;
-            }
-        }
-
-        out.total_linked = out.cross_imports + out.cross_executes + out.cross_calls_http;
-        Ok(out)
+        let cross_imports = link_cross_imports(conn)?;
+        let cross_executes = link_cross_executes(conn)?;
+        let cross_calls_http =
+            link_cross_calls_http(conn)? + link_http_calls_with_path_params(conn)?;
+        let total_linked = cross_imports + cross_executes + cross_calls_http;
+        Ok(CrossRepoLinkOutcome {
+            cross_imports,
+            cross_executes,
+            cross_calls_http,
+            total_linked,
+        })
     })();
 
     match res {
@@ -177,10 +60,149 @@ pub fn link_cross_repo_edges(db: &GraphDb) -> Result<CrossRepoLinkOutcome, Cross
             Ok(outcome)
         }
         Err(e) => {
-            let _ = conn.execute_batch("ROLLBACK;");
+            if let Err(rollback_err) = conn.execute_batch("ROLLBACK;") {
+                #[expect(
+                    clippy::print_stderr,
+                    reason = "double-fault path: the original error `e` is still returned below, \
+                              and this function has no Report to attach a Warning to"
+                )]
+                {
+                    eprintln!("[ivar] cross_repo: rollback failed after {e}: {rollback_err}");
+                }
+            }
             Err(e)
         }
     }
+}
+
+/// Cross-Import Linking:
+/// Match dangling edges (to_symbol_id IS NULL AND to_name IS NOT NULL)
+/// against exported symbols in a *different* repo (symbols.repo != edges.repo AND symbols.is_exported = 1).
+/// If to_name matches symbols.name, link to_symbol_id, set kind = 'CROSS_IMPORTS',
+/// provenance = 'INFERRED', confidence = 0.90.
+fn link_cross_imports(conn: &rusqlite::Connection) -> rusqlite::Result<usize> {
+    conn.execute(
+        "UPDATE edges
+         SET to_symbol_id = (
+             SELECT s.id FROM symbols s
+             WHERE s.repo != edges.repo
+               AND s.repo NOT LIKE '%/%'
+               AND s.is_exported = 1
+               AND s.name = edges.to_name
+             LIMIT 1
+         ),
+         kind = 'CROSS_IMPORTS',
+         provenance = 'INFERRED',
+         confidence = 0.90
+         WHERE to_symbol_id IS NULL
+           AND to_name IS NOT NULL
+           AND (kind = 'IMPORTS' OR kind = 'imports' OR kind = 'CROSS_IMPORTS' OR kind = 'cross_imports')
+           AND EXISTS (
+               SELECT 1 FROM symbols s
+               WHERE s.repo != edges.repo
+                 AND s.repo NOT LIKE '%/%'
+                 AND s.is_exported = 1
+                 AND s.name = edges.to_name
+           )",
+        [],
+    )
+}
+
+/// Cross-Execute Linking:
+/// Look for edges where to_name is a known binary name or CLI command pattern
+/// (or kind is already CROSS_EXECUTES or to_name matches binary/CLI symbols in other repos).
+/// Matches target symbols with kind in ('fn', 'const', 'mod', 'struct') and name matching to_name,
+/// or CLI entry points where symbols.name = edges.to_name in other repos.
+fn link_cross_executes(conn: &rusqlite::Connection) -> rusqlite::Result<usize> {
+    conn.execute(
+        "UPDATE edges
+         SET to_symbol_id = (
+             SELECT s.id FROM symbols s
+             WHERE s.repo != edges.repo
+               AND s.repo NOT LIKE '%/%'
+               AND s.name = edges.to_name
+             LIMIT 1
+         ),
+         kind = 'CROSS_EXECUTES',
+         provenance = 'INFERRED',
+         confidence = 0.85
+         WHERE to_symbol_id IS NULL
+           AND to_name IS NOT NULL
+           AND (kind = 'CROSS_EXECUTES' OR kind = 'cross_executes' OR to_name IN ('ivar', 'orca', 'valhalla', 'cargo', 'npm', 'sh', 'exec'))
+           AND EXISTS (
+               SELECT 1 FROM symbols s
+               WHERE s.repo != edges.repo
+                 AND s.repo NOT LIKE '%/%'
+                 AND s.name = edges.to_name
+           )",
+        [],
+    )
+}
+
+/// Cross-HTTP Linking:
+/// Look for edges where to_name or route string matches HTTP routes or endpoint handler symbols.
+fn link_cross_calls_http(conn: &rusqlite::Connection) -> rusqlite::Result<usize> {
+    conn.execute(
+        "UPDATE edges
+         SET to_symbol_id = (
+             SELECT s.id FROM symbols s
+             WHERE s.repo != edges.repo
+               AND s.repo NOT LIKE '%/%'
+               AND (s.name = edges.to_name OR s.scope = edges.to_name)
+             LIMIT 1
+         ),
+         kind = 'CROSS_CALLS_HTTP',
+         provenance = 'INFERRED',
+         confidence = 0.80
+         WHERE to_symbol_id IS NULL
+           AND to_name IS NOT NULL
+           AND (kind = 'CROSS_CALLS_HTTP' OR kind = 'cross_calls_http' OR to_name LIKE '/api/%' OR to_name LIKE 'http%')
+           AND EXISTS (
+               SELECT 1 FROM symbols s
+               WHERE s.repo != edges.repo
+                 AND s.repo NOT LIKE '%/%'
+                 AND (s.name = edges.to_name OR s.scope = edges.to_name)
+           )",
+        [],
+    )
+}
+
+/// Client calls with path parameters, in any repo: the client's
+/// `GET /projects/:param` reaches the server's `GET /projects/:id`.
+fn link_http_calls_with_path_params(conn: &rusqlite::Connection) -> rusqlite::Result<usize> {
+    let mut route_by_key: HashMap<String, i64> = HashMap::new();
+    {
+        let mut stmt = conn
+            .prepare("SELECT id, name FROM symbols WHERE kind = 'route' AND repo NOT LIKE '%/%'")?;
+        let routes = stmt.query_map([], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+        })?;
+        for route in routes {
+            let (id, name) = route?;
+            route_by_key.entry(route_key(&name)).or_insert(id);
+        }
+    }
+    let calls: Vec<(i64, String)> = conn
+        .prepare(
+            "SELECT id, to_name FROM edges
+             WHERE to_symbol_id IS NULL
+               AND to_name IS NOT NULL
+               AND kind IN ('CROSS_CALLS_HTTP', 'cross_calls_http')",
+        )?
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+        .collect::<Result<_, _>>()?;
+    let mut link = conn.prepare(
+        "UPDATE edges SET to_symbol_id = ?1, provenance = 'INFERRED', confidence = 0.80
+         WHERE id = ?2",
+    )?;
+    let mut linked = 0;
+    for (edge_id, to_name) in calls {
+        if let Some(route_id) = route_by_key.get(&route_key(&to_name)) {
+            link.execute(params![route_id, edge_id])?;
+            linked += 1;
+        }
+    }
+    Ok(linked)
 }
 
 /// Writes every path parameter as `*`, so `GET /projects/:id`,

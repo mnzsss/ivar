@@ -80,7 +80,7 @@ pub fn relay(ctx: &Ctx, input: RelayInput) -> Outcome<RelayOutcome> {
         start::StartInput {
             feature: Some(feature_name.to_string()),
             resume: false,
-            provider: Some(input.provider.clone()),
+            provider: Some(input.provider),
             detached: true,
             relay: true,
         },

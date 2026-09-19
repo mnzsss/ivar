@@ -38,6 +38,11 @@ impl std::fmt::Debug for McpSecrets {
 
 impl McpSecrets {
     /// Read and parse `.ivar/secrets/mcp.env`. Returns an empty store if the file is absent.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Failure`] if the file exists but cannot be read or
+    /// parsed.
     pub fn read(layout: &Layout) -> Result<Self, Failure> {
         let path = layout.mcp_secrets_env();
         match fs::read_text(&path) {
@@ -60,6 +65,11 @@ impl McpSecrets {
     }
 
     /// Update or insert a secret and atomically write the updated file to `.ivar/secrets/mcp.env`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Failure`] if `name` is not a valid environment
+    /// variable identifier, or the file cannot be read or written.
     pub fn set_and_write(layout: &Layout, name: &str, value: &str) -> Result<Change, Failure> {
         if !is_valid_key(name) {
             return Err(Failure::failed(
@@ -91,6 +101,11 @@ impl McpSecrets {
     ///
     /// Malformed lines, duplicate keys, or invalid syntax fail closed naming the path
     /// and line number, without including any raw secret material.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Failure`] if a line is malformed, a key is duplicated,
+    /// or the syntax is otherwise invalid.
     pub fn parse(text: &str, path: &Utf8Path) -> Result<Self, Failure> {
         let mut entries = BTreeMap::new();
 

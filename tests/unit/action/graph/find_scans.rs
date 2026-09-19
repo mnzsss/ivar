@@ -322,3 +322,48 @@ fn prefix_casings_dedupe_and_pad_with_the_typed_term() {
     );
     assert_eq!(prefix_casings("abc"), ["abc", "Abc", "ABC", "abc"]);
 }
+
+#[test]
+fn get_impact_with_a_depth_beyond_i64_does_not_panic() {
+    let db = GraphDb::open_in_memory().unwrap();
+    db.insert_repo("app", "/app", "main", None).unwrap();
+    let file_id = db.upsert_file("app", "src/lib.rs", "h", 1, 1).unwrap();
+    let ids = db
+        .insert_symbols(&[Symbol {
+            id: None,
+            file_id: Some(file_id),
+            repo: "app".to_owned(),
+            name: "root_fn".to_owned(),
+            kind: SymbolKind::Fn,
+            scope: None,
+            signature: None,
+            docstring: None,
+            span: Span::new(1, 1, 2, 1),
+            is_exported: true,
+            complexity: None,
+        }])
+        .unwrap();
+    let root_id = ids[0];
+
+    let impact = crate::action::graph::query::get_impact(&db, root_id, usize::MAX)
+        .expect("get_impact must not panic on an out-of-range depth");
+    assert_eq!(impact.total_affected, 0);
+}
+
+#[test]
+fn explore_find_surfaces_a_row_decode_error_instead_of_dropping_it() {
+    let db = seeded_db(1);
+    db.conn()
+        .execute(
+            "UPDATE symbols SET start_line = 'not-a-number' WHERE name = 'getUser'",
+            [],
+        )
+        .unwrap();
+
+    let err = explore_find(&db, "getUser", None, usize::MAX)
+        .expect_err("a non-numeric start_line must surface as an error, not be silently dropped");
+    assert!(matches!(
+        err,
+        crate::action::graph::query::types::QueryError::Sqlite(_)
+    ));
+}

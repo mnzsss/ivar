@@ -98,6 +98,9 @@ impl From<Error> for Failure {
 /// Serialize `value` to the canonical byte format, in memory. This is what
 /// [`write_canonical`] writes and what tests / the differential harness compare
 /// against — never `serde_json::to_string` directly.
+/// # Errors
+///
+/// Returns [`Error::Serialize`] if `value` cannot be serialized.
 pub fn to_canonical_string<T: Serialize>(value: &T) -> Result<String, Error> {
     let value = serde_json::to_value(value).map_err(Error::Serialize)?;
     let mut rendered = serde_json::to_string_pretty(&value).map_err(Error::Serialize)?;
@@ -108,6 +111,10 @@ pub fn to_canonical_string<T: Serialize>(value: &T) -> Result<String, Error> {
 /// Serialize `value` to the canonical format and write it to `path` atomically,
 /// creating missing parent directories first. The only function in the crate
 /// that should ever write JSON to disk.
+/// # Errors
+///
+/// Returns [`Error`] if `value` cannot be serialized, a parent
+/// directory cannot be created, or the file cannot be written.
 pub fn write_canonical<T: Serialize>(path: &Utf8Path, value: &T) -> Result<(), Error> {
     let rendered = to_canonical_string(value)?;
     if let Some(parent) = path.parent().filter(|parent| !parent.as_str().is_empty()) {
@@ -121,6 +128,10 @@ pub fn write_canonical<T: Serialize>(path: &Utf8Path, value: &T) -> Result<(), E
 /// an error naming the path and the parse position if it exists but is not
 /// valid JSON. Accepts any valid JSON — reading does not require canonical
 /// formatting.
+/// # Errors
+///
+/// Returns [`Error`] if `path` exists but cannot be read or is not
+/// valid JSON.
 pub fn read<T: DeserializeOwned>(path: &Utf8Path) -> Result<Option<T>, Error> {
     let Some(text) = fs::read_text(path)? else {
         return Ok(None);

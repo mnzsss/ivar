@@ -13,6 +13,9 @@ use crate::error::{Failure, FixAction};
 use super::{Error, stat};
 
 #[cfg(unix)]
+/// # Errors
+///
+/// Returns [`Error`] if `path`'s permissions cannot be set.
 pub fn chmod(path: &Utf8Path, mode: u32) -> Result<(), Error> {
     use std::os::unix::fs::PermissionsExt;
 
@@ -29,6 +32,9 @@ pub fn chmod(path: &Utf8Path, mode: u32) -> Result<(), Error> {
 /// The one read every read-only-guard decision starts from: whether the write
 /// bits are present, and — for a temporary lift — what to restore them to.
 #[cfg(unix)]
+/// # Errors
+///
+/// Returns [`Error`] if `path`'s metadata cannot be read.
 pub fn unix_mode(path: &Utf8Path) -> Result<Option<u32>, Error> {
     Ok(stat(path)?.map(|metadata| metadata.permissions().mode()))
 }
@@ -44,6 +50,9 @@ pub fn unix_mode(path: &Utf8Path) -> Result<Option<u32>, Error> {
 /// sharing it. What the root-only guard buys, and what it does not, is
 /// `docs/reference/limitations.md`.
 #[cfg(unix)]
+/// # Errors
+///
+/// Returns [`Error`] if `path`'s mode cannot be read or set.
 pub fn clear_write_bits(path: &Utf8Path) -> Result<(), Error> {
     let Some(mode) = unix_mode(path)? else {
         return Ok(());
@@ -69,6 +78,9 @@ pub fn clear_write_bits(path: &Utf8Path) -> Result<(), Error> {
 /// owner-writable; that is the direction to err in, and `ivar` runs as the
 /// owner either way.
 #[cfg(unix)]
+/// # Errors
+///
+/// Returns [`Error`] if `path`'s mode cannot be read or set.
 pub fn restore_write_bits(path: &Utf8Path) -> Result<(), Error> {
     let Some(mode) = unix_mode(path)? else {
         return Ok(());

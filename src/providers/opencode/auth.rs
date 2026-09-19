@@ -151,12 +151,6 @@ pub(crate) fn has_entry_under(data_dir: &Utf8Path, server_name: &str) -> Result<
 /// `Ok(false)` for a missing file, a missing entry, or an entry with no
 /// `tokens` — none of those are errors, they are simply "not authenticated
 /// yet". An error here means the file exists but could not be read as JSON.
-#[allow(dead_code)]
-pub(crate) fn has_tokens(server_name: &str) -> Result<bool, Failure> {
-    has_tokens_under(&fs::data_dir()?, server_name)
-}
-
-/// [`has_tokens`], parameterised on the data directory.
 pub(crate) fn has_tokens_under(data_dir: &Utf8Path, server_name: &str) -> Result<bool, Failure> {
     let map = read_map_under(data_dir)?;
     Ok(map
@@ -179,12 +173,6 @@ pub(crate) fn has_tokens_under(data_dir: &Utf8Path, server_name: &str) -> Result
 /// The write uses [`fs::write_sensitive_atomic`] with mode `0600` (Unix),
 /// so a crash never leaves a half-written file and every unrelated entry
 /// is preserved.
-#[allow(dead_code)]
-pub(crate) fn write_entry(server_name: &str, entry: &Entry) -> Result<(), Failure> {
-    write_entry_under(&fs::data_dir()?, server_name, entry)
-}
-
-/// [`write_entry`], parameterised on the data directory.
 pub(crate) fn write_entry_under(
     data_dir: &Utf8Path,
     server_name: &str,

@@ -57,7 +57,7 @@ fn env_command_returns_session_env_when_inside_session() {
         .unwrap();
 
     let ctx = Ctx::new(view_dir.clone());
-    let report = run(&ctx, EnvInput::default()).unwrap();
+    let report = run(&ctx, &EnvInput::default()).unwrap();
     let outcome = report.value;
 
     assert_eq!(outcome.session_id, "6f0c9d5f-0000-4000-8000-000000000000");

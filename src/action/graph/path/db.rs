@@ -49,6 +49,32 @@ pub(super) fn resolve_candidates(
     Ok(candidates)
 }
 
+/// Drains an edge-record query's rows, skipping any whose target name never
+/// resolved (a dangling `to_symbol_id` with no `to_name` to fall back on).
+fn collect_edge_records(rows: &mut rusqlite::Rows<'_>) -> Result<Vec<EdgeRecord>, PathError> {
+    let mut records = Vec::new();
+    while let Some(row) = rows.next()? {
+        let from_sym: Option<i64> = row.get(0)?;
+        let to_sym: Option<i64> = row.get(1)?;
+        let from_name: String = row.get(2)?;
+        let to_name: Option<String> = row.get(3)?;
+        let kind_raw: String = row.get(4)?;
+        let line: i64 = row.get(5)?;
+
+        if let Some(target_name) = to_name {
+            records.push(EdgeRecord {
+                from_symbol_id: from_sym,
+                to_symbol_id: to_sym,
+                from_name,
+                to_name: target_name,
+                kind: parse_edge_kind(&kind_raw),
+                line: usize::try_from(line).unwrap_or(usize::MAX),
+            });
+        }
+    }
+    Ok(records)
+}
+
 pub(super) fn get_outgoing_edges(
     conn: &rusqlite::Connection,
     symbol_id: i64,
@@ -70,29 +96,8 @@ pub(super) fn get_outgoing_edges(
          WHERE e.from_symbol_id = ?1",
     )?;
 
-    let mut records = Vec::new();
     let mut rows = stmt.query(params![symbol_id])?;
-    while let Some(row) = rows.next()? {
-        let from_sym: Option<i64> = row.get(0)?;
-        let to_sym: Option<i64> = row.get(1)?;
-        let from_name: String = row.get(2)?;
-        let to_name: Option<String> = row.get(3)?;
-        let kind_raw: String = row.get(4)?;
-        let line: i64 = row.get(5)?;
-
-        if let Some(target_name) = to_name {
-            records.push(EdgeRecord {
-                from_symbol_id: from_sym,
-                to_symbol_id: to_sym,
-                from_name,
-                to_name: target_name,
-                kind: parse_edge_kind(&kind_raw),
-                line: line as usize,
-            });
-        }
-    }
-
-    Ok(records)
+    collect_edge_records(&mut rows)
 }
 
 pub(super) fn get_incoming_edges(
@@ -117,27 +122,6 @@ pub(super) fn get_incoming_edges(
          )",
     )?;
 
-    let mut records = Vec::new();
     let mut rows = stmt.query(params![symbol_id])?;
-    while let Some(row) = rows.next()? {
-        let from_sym: Option<i64> = row.get(0)?;
-        let to_sym: Option<i64> = row.get(1)?;
-        let from_name: String = row.get(2)?;
-        let to_name: Option<String> = row.get(3)?;
-        let kind_raw: String = row.get(4)?;
-        let line: i64 = row.get(5)?;
-
-        if let Some(target_name) = to_name {
-            records.push(EdgeRecord {
-                from_symbol_id: from_sym,
-                to_symbol_id: to_sym,
-                from_name,
-                to_name: target_name,
-                kind: parse_edge_kind(&kind_raw),
-                line: line as usize,
-            });
-        }
-    }
-
-    Ok(records)
+    collect_edge_records(&mut rows)
 }

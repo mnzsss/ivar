@@ -50,7 +50,7 @@ pub(crate) fn sync_instructions(
         }
         Err(error) => {
             entries.push(Entry::new("hall", "HALL.md", Change::Failed));
-            warnings.push(not_materialised_warning(error));
+            warnings.push(not_materialised_warning(&error));
         }
     }
 }
@@ -65,7 +65,7 @@ pub(crate) fn materialise_instructions(layout: &Layout, manifest: &Manifest) -> 
             .filter(|entry| entry.change == instructions::Change::Conflict)
             .map(|entry| adoption_warning(&entry))
             .collect(),
-        Err(error) => vec![not_materialised_warning(error)],
+        Err(error) => vec![not_materialised_warning(&error)],
     }
 }
 
@@ -76,24 +76,7 @@ fn reconcile_instructions(
     layout: &Layout,
     manifest: &Manifest,
 ) -> Result<Vec<instructions::Entry>, instructions::Error> {
-    let mut aliases: Vec<instructions::Alias> = Vec::new();
-    for provider in Provider::ALL {
-        let path = layout.instruction_alias(&provider);
-        let enabled = manifest.providers().available().contains(&provider);
-        match aliases.iter_mut().find(|alias| alias.path == path) {
-            Some(existing) => {
-                if !existing.owners.contains(&provider) {
-                    existing.owners.push(provider);
-                }
-                existing.enabled |= enabled;
-            }
-            None => aliases.push(instructions::Alias {
-                path,
-                owners: vec![provider],
-                enabled,
-            }),
-        }
-    }
+    let aliases = crate::action::collect_instruction_aliases(layout, manifest);
     let block = config::build_block(manifest.name(), &repo_names(manifest));
     instructions::reconcile(&layout.hall_instructions(), &block, &aliases)
 }
@@ -101,7 +84,7 @@ fn reconcile_instructions(
 /// The warning for an instruction reconciliation that could not run at all.
 /// The error stays internal until this action boundary, where it becomes data
 /// in the returned report alongside every successful operation.
-fn not_materialised_warning(error: instructions::Error) -> Warning {
+fn not_materialised_warning(error: &instructions::Error) -> Warning {
     Warning::new(
         "instructions.not_materialised",
         "hall",
@@ -118,7 +101,7 @@ fn record_instruction_entry(
 ) {
     let (surface, label) = instruction_surface_label(entry);
     if entry.change == instructions::Change::Conflict {
-        entries.push(Entry::new(surface, label.clone(), Change::Failed));
+        entries.push(Entry::new(surface, label, Change::Failed));
         warnings.push(adoption_warning(entry));
         return;
     }

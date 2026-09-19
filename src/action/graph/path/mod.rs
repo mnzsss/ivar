@@ -62,7 +62,41 @@ pub fn find_shortest_path(
         }
     }
 
-    // 3. Setup bidirectional BFS
+    let search = run_bidirectional_bfs(conn, &start_candidates, &target_candidates, max_hops)?;
+    let Some(meeting_node) = search.meeting_node else {
+        return Ok(None);
+    };
+
+    // 4. Reconstruct path from forward_visited and backward_visited
+    let steps = reconstruct_bidirectional_path(
+        meeting_node,
+        &search.forward_visited,
+        &search.backward_visited,
+    );
+
+    if steps.len() > max_hops {
+        return Ok(None);
+    }
+
+    Ok(Some(PathResult {
+        from: from.to_owned(),
+        to: to.to_owned(),
+        steps,
+    }))
+}
+
+struct BidirectionalSearch {
+    forward_visited: HashMap<i64, Option<(i64, PathStep)>>,
+    backward_visited: HashMap<i64, Option<(i64, PathStep)>>,
+    meeting_node: Option<i64>,
+}
+
+fn run_bidirectional_bfs(
+    conn: &rusqlite::Connection,
+    start_candidates: &std::collections::HashSet<i64>,
+    target_candidates: &std::collections::HashSet<i64>,
+    max_hops: usize,
+) -> Result<BidirectionalSearch, PathError> {
     let mut forward_queue = VecDeque::new();
     let mut backward_queue = VecDeque::new();
 
@@ -70,12 +104,12 @@ pub fn find_shortest_path(
     let mut forward_visited: HashMap<i64, Option<(i64, PathStep)>> = HashMap::new();
     let mut backward_visited: HashMap<i64, Option<(i64, PathStep)>> = HashMap::new();
 
-    for &s in &start_candidates {
+    for &s in start_candidates {
         forward_visited.insert(s, None);
         forward_queue.push_back((s, 0));
     }
 
-    for &t in &target_candidates {
+    for &t in target_candidates {
         backward_visited.insert(t, None);
         backward_queue.push_back((t, 0));
     }
@@ -152,23 +186,11 @@ pub fn find_shortest_path(
         }
     }
 
-    let meeting_node = match meeting_node {
-        Some(node) => node,
-        None => return Ok(None),
-    };
-
-    // 4. Reconstruct path from forward_visited and backward_visited
-    let steps = reconstruct_bidirectional_path(meeting_node, &forward_visited, &backward_visited);
-
-    if steps.len() > max_hops {
-        return Ok(None);
-    }
-
-    Ok(Some(PathResult {
-        from: from.to_owned(),
-        to: to.to_owned(),
-        steps,
-    }))
+    Ok(BidirectionalSearch {
+        forward_visited,
+        backward_visited,
+        meeting_node,
+    })
 }
 
 fn reconstruct_bidirectional_path(

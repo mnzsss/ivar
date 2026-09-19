@@ -66,7 +66,7 @@ impl WriteHuman for AddOutcome {
 ///
 /// Blocked when the provider id is unknown or already registered — in both
 /// cases `ivar.json` is left untouched.
-pub fn add(ctx: &Ctx, input: AddInput) -> Outcome<AddOutcome> {
+pub fn add(ctx: &Ctx, input: &AddInput) -> Outcome<AddOutcome> {
     let layout = discover_hall(ctx)?;
     let manifest = read_manifest(&layout)?;
 

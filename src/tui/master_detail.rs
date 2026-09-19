@@ -51,6 +51,11 @@ pub struct FeatureView {
 /// Run the interactive loop: init the terminal, pump and render until the
 /// user quits, then restore the terminal. Cleanup (leaving raw mode and the
 /// alternate screen) runs even when the loop errors.
+///
+/// # Errors
+///
+/// Returns [`Failure`] if the terminal cannot be initialised, a shell
+/// fails to spawn, or the event loop otherwise fails.
 pub fn run(view: FeatureView) -> Result<(), Failure> {
     let (width, height) = crossterm::terminal::size().unwrap_or((80, 24));
     let prefix = Prefix::from_env();
@@ -183,10 +188,10 @@ fn run_loop(
 
     loop {
         if crossterm::event::poll(Duration::from_millis(50))
-            .map_err(|source| io_failure("feature.tui_poll_failed", source))?
+            .map_err(|source| io_failure("feature.tui_poll_failed", &source))?
         {
             let event = crossterm::event::read()
-                .map_err(|source| io_failure("feature.tui_read_failed", source))?;
+                .map_err(|source| io_failure("feature.tui_read_failed", &source))?;
             match event {
                 Event::Key(key) if key.kind == KeyEventKind::Press => {
                     if let Some(key) = map_key(key, prefix) {
@@ -208,7 +213,7 @@ fn run_loop(
                     driver.resize(panel_width, panel_height);
                     terminal
                         .resize(area)
-                        .map_err(|source| io_failure("feature.tui_resize_failed", source))?;
+                        .map_err(|source| io_failure("feature.tui_resize_failed", &source))?;
                     dirty = true;
                 }
                 _ => {}
@@ -217,7 +222,7 @@ fn run_loop(
 
         if driver
             .pump()
-            .map_err(|source| io_failure("feature.tui_pump_failed", source))?
+            .map_err(|source| io_failure("feature.tui_pump_failed", &source))?
         {
             dirty = true;
         }
@@ -226,7 +231,7 @@ fn run_loop(
             let snapshot = driver.snapshot(&view.title, &view.rows, prefix.label());
             terminal
                 .draw(|frame| render(&snapshot, frame.area(), frame.buffer_mut()))
-                .map_err(|source| io_failure("feature.tui_render_failed", source))?;
+                .map_err(|source| io_failure("feature.tui_render_failed", &source))?;
             dirty = false;
         }
     }
@@ -286,7 +291,7 @@ pub fn wheel_direction(kind: MouseEventKind) -> Option<Direction> {
 }
 
 /// A terminal I/O failure, named for the step that hit it.
-fn io_failure(code: &'static str, source: io::Error) -> Failure {
+fn io_failure(code: &'static str, source: &io::Error) -> Failure {
     Failure::failed(code, format!("terminal I/O error: {source}"))
 }
 

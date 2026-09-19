@@ -8,6 +8,9 @@ use camino::{Utf8Path, Utf8PathBuf};
 use super::{Error, is_not_found, is_transient_not_a_symlink, not_utf8, sibling_temp_path};
 
 #[cfg(unix)]
+/// # Errors
+///
+/// Returns [`Error`] if `link` already exists or cannot be created.
 pub fn create_symlink(target: &Utf8Path, link: &Utf8Path) -> Result<(), Error> {
     fs_err::os::unix::fs::symlink(target.as_std_path(), link.as_std_path()).map_err(|source| {
         Error::Symlink {
@@ -51,6 +54,10 @@ pub fn create_symlink(target: &Utf8Path, link: &Utf8Path) -> Result<(), Error> {
 /// [`replace_symlink_if_changed`], which skips the rename — and the window —
 /// whenever the link already points at the right place.
 #[cfg(unix)]
+/// # Errors
+///
+/// Returns [`Error`] if the temp symlink cannot be created or the
+/// rename over `link` fails.
 pub fn replace_symlink(target: &Utf8Path, link: &Utf8Path) -> Result<(), Error> {
     let temp = sibling_temp_path(link);
     fs_err::os::unix::fs::symlink(target.as_std_path(), temp.as_std_path()).map_err(|source| {
@@ -76,6 +83,10 @@ pub fn replace_symlink(target: &Utf8Path, link: &Utf8Path) -> Result<(), Error> 
 /// comment; skipping the rename when nothing changed closes that window for
 /// free, for the common case, rather than retrying harder after opening it.
 #[cfg(unix)]
+/// # Errors
+///
+/// Returns [`Error`] if reading the current link or replacing it
+/// fails.
 pub fn replace_symlink_if_changed(target: &Utf8Path, link: &Utf8Path) -> Result<(), Error> {
     if let SymlinkTarget::Target(current) = read_symlink(link)?
         && current == target
@@ -139,6 +150,11 @@ pub enum SymlinkTarget {
 ///    so only this path retries, and the bound can be small and honest
 ///    about how rare it actually is once `lstat` has ruled out the
 ///    permanent cause.
+/// # Errors
+///
+/// Returns [`Error`] if `path`'s metadata cannot be read, the link
+/// target is not UTF-8, or reading the link keeps failing transiently
+/// past the retry budget.
 pub fn read_symlink(path: &Utf8Path) -> Result<SymlinkTarget, Error> {
     const MAX_RETRIES: u32 = 8;
 
@@ -162,7 +178,7 @@ pub fn read_symlink(path: &Utf8Path) -> Result<SymlinkTarget, Error> {
         match fs_err::read_link(path.as_std_path()) {
             Ok(target) => {
                 return Ok(SymlinkTarget::Target(
-                    Utf8PathBuf::from_path_buf(target).map_err(not_utf8)?,
+                    Utf8PathBuf::from_path_buf(target).map_err(|p| not_utf8(&p))?,
                 ));
             }
             // The entry vanished between the `lstat` above and this

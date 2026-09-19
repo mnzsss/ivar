@@ -106,20 +106,7 @@ pub fn create(ctx: &Ctx, input: CreateInput) -> Outcome<CreateOutcome> {
     };
 
     // Collision: the name must be free.
-    for existing in manifest.repos() {
-        if existing.name() == &name {
-            return Err(Failure::blocked(
-                "repo.name_exists",
-                format!("`{name}` is already in ivar.json"),
-            )
-            .expected("a repo name not already declared")
-            .actual(format!("`{name}` is already declared"))
-            .fix(FixAction::safe(
-                "repo.remove_first",
-                format!("Remove `{name}` first with `ivar repo remove {name}`, then add again."),
-            )));
-        }
-    }
+    super::ensure_name_free(&manifest, &name)?;
 
     let (url, ref_prefix) = match &input.mode {
         CreateMode::Local => {

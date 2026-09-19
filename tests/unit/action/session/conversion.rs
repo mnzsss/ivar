@@ -25,7 +25,7 @@ fn hall_with_discovery_session() -> (tempfile::TempDir, Utf8PathBuf) {
     let ctx = Ctx::new(root.clone());
     hall::init(
         &ctx,
-        InitInput {
+        &InitInput {
             path: Utf8PathBuf::from("."),
             name: Some("acme".to_owned()),
             provider: None,
@@ -69,7 +69,7 @@ fn hall_with_discovery_session() -> (tempfile::TempDir, Utf8PathBuf) {
         },
     )
     .unwrap();
-    crate::action::sync::sync(&ctx, Default::default()).unwrap();
+    crate::action::sync::sync(&ctx, &Default::default()).unwrap();
     feature_promote::promote(
         &ctx,
         PromoteInput {
@@ -176,7 +176,7 @@ fn convert_moves_the_view_dir_and_rebuilds_symlinks() {
 
     let report = convert(
         &ctx,
-        ConvertInput {
+        &ConvertInput {
             session_id: DISCOVERY_ID.to_owned(),
         },
     )
@@ -257,7 +257,7 @@ fn convert_writes_bootstrap_instructions_and_projects_no_plans_or_work() {
 
     convert(
         &ctx,
-        ConvertInput {
+        &ConvertInput {
             session_id: DISCOVERY_ID.to_owned(),
         },
     )
@@ -294,7 +294,7 @@ fn convert_preserves_session_id_provider_and_started_at() {
 
     let report = convert(
         &ctx,
-        ConvertInput {
+        &ConvertInput {
             session_id: DISCOVERY_ID.to_owned(),
         },
     )
@@ -323,7 +323,7 @@ fn convert_refuses_an_already_converted_session() {
     associate_discovery(&ctx, "checkout", DISCOVERY_ID);
     convert(
         &ctx,
-        ConvertInput {
+        &ConvertInput {
             session_id: DISCOVERY_ID.to_owned(),
         },
     )
@@ -331,7 +331,7 @@ fn convert_refuses_an_already_converted_session() {
 
     let failure = convert(
         &ctx,
-        ConvertInput {
+        &ConvertInput {
             session_id: DISCOVERY_ID.to_owned(),
         },
     )
@@ -369,7 +369,7 @@ fn convert_refuses_a_feature_session() {
 
     let failure = convert(
         &ctx,
-        ConvertInput {
+        &ConvertInput {
             session_id: "3d7f7f2e".to_owned(),
         },
     )
@@ -417,7 +417,7 @@ fn convert_promotes_the_sessions_own_name_creating_the_feature() {
 
     let outcome = convert(
         &ctx,
-        ConvertInput {
+        &ConvertInput {
             session_id: session.clone(),
         },
     )
@@ -469,7 +469,7 @@ fn convert_binds_an_existing_feature_of_the_same_name() {
 
     let outcome = convert(
         &ctx,
-        ConvertInput {
+        &ConvertInput {
             session_id: session,
         },
     )
@@ -518,7 +518,7 @@ fn an_interrupted_conversion_resumes_on_retry() {
     // and the re-materialisation.
     let report = convert(
         &ctx,
-        ConvertInput {
+        &ConvertInput {
             session_id: DISCOVERY_ID.to_owned(),
         },
     )
@@ -549,7 +549,7 @@ fn convert_refuses_a_session_no_discovery_claims() {
 
     let failure = convert(
         &ctx,
-        ConvertInput {
+        &ConvertInput {
             session_id: session,
         },
     )
@@ -584,7 +584,7 @@ fn conversion_lifts_discovery_md_into_feature_dir() {
     // Convert
     let report = convert(
         &ctx,
-        ConvertInput {
+        &ConvertInput {
             session_id: session.clone(),
         },
     )
@@ -643,7 +643,7 @@ updated_at: {STARTED_AT}
 
     let report = convert(
         &ctx,
-        ConvertInput {
+        &ConvertInput {
             session_id: DISCOVERY_ID.to_owned(),
         },
     )
@@ -690,7 +690,7 @@ updated_at: {STARTED_AT}
 
     let report = convert(
         &ctx,
-        ConvertInput {
+        &ConvertInput {
             session_id: session.clone(),
         },
     )
@@ -750,7 +750,7 @@ updated_at: {STARTED_AT}
 
     let failure = convert(
         &ctx,
-        ConvertInput {
+        &ConvertInput {
             session_id: session,
         },
     )

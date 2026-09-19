@@ -51,7 +51,7 @@ pub fn show(ctx: &Ctx, input: ShowInput) -> Outcome<ShowOutcome> {
     let layout = discover_hall(ctx)?;
     let name = FeatureName::new(input.name)?;
 
-    let path = super::resolve_doc_path(ctx, &layout, &name)?;
+    let path = super::resolve_doc_path(ctx, &layout, &name);
     super::load_at(&path, &name)?;
 
     let content = if input.path_only {

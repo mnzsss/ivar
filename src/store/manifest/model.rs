@@ -128,6 +128,10 @@ impl Manifest {
     /// constructor carries the embedded integration defaults
     /// ([`IntegrationPolicy::default`], `local`/`squash`) and repos with no
     /// checks, and the canonical manifest schema reference.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`Error`] if the built manifest fails validation.
     pub fn new(
         name: HallName,
         providers: Providers,
@@ -205,6 +209,11 @@ impl Manifest {
     /// in the generated config. An empty list is stored as *absent*, so a hall
     /// with no MCP servers round-trips byte-identical to one that never had
     /// the key.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`Error`] if two `servers` share a `name`, or the
+    /// rebuilt manifest fails validation.
     pub fn with_mcp_servers(&self, servers: Vec<McpServerDef>) -> Result<Self, Error> {
         let mut manifest = self.rebuild(self.providers.clone(), self.repos.clone())?;
         manifest.mcp = if servers.is_empty() {
@@ -221,6 +230,11 @@ impl Manifest {
     /// Returns [`Error::DuplicateRepoName`] if a repo with `repo.name()`
     /// already appears. The original is untouched — `ivar.json` is rewritten
     /// from the returned value, never mutated in place.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::DuplicateRepoName`] if a repo named
+    /// `repo.name()` already exists.
     pub fn with_repo_added(&self, repo: Repo) -> Result<Self, Error> {
         if self.repos.iter().any(|existing| existing.name == repo.name) {
             return Err(Error::DuplicateRepoName {
@@ -238,6 +252,10 @@ impl Manifest {
     /// that name. Removing never touches the filesystem — the repo's bare
     /// clone and worktrees stay until `ivar cleanup` (slice 8) is told to
     /// remove them.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::RepoNotFound`] if no repo named `name` exists.
     pub fn with_repo_removed(&self, name: &RepoName) -> Result<Self, Error> {
         let repos: Vec<Repo> = self
             .repos
@@ -254,6 +272,10 @@ impl Manifest {
     /// Return a new `Manifest` carrying `providers` in place of the current
     /// provider configuration. Infallible beyond the usual manifest
     /// invariants — see [`Self::rebuild`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`Error`] if the rebuilt manifest fails validation.
     pub fn with_providers(&self, providers: Providers) -> Result<Self, Error> {
         self.rebuild(providers, self.repos.clone())
     }

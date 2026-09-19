@@ -81,6 +81,13 @@ pub enum Error {
     InvalidMcpServerDefinition { name: String, reason: String },
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "flat one-arm-per-Error-variant match building a distinct Failure \
+              (code, expected/actual, fix action) per variant; splitting arms into \
+              helpers would only relocate the same line count behind arbitrary \
+              function boundaries with no shared logic to name"
+)]
 impl From<Error> for Failure {
     fn from(error: Error) -> Self {
         // The `#[error(...)]` attribute is the single source of the sentence.

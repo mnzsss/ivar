@@ -65,6 +65,10 @@ fn review_store(layout: &Layout, name: &FeatureName) -> Store<ReviewComments> {
 
 impl ReviewComments {
     /// Read the feature's review comments; empty when none were ever written.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Failure`] if the file exists but cannot be read.
     pub fn read(layout: &Layout, name: &FeatureName) -> Result<Self, Failure> {
         Ok(review_store(layout, name)
             .read()
@@ -73,6 +77,11 @@ impl ReviewComments {
     }
 
     /// Write the feature's review comments; the store creates parent directories.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Failure`] if the parent directory or the file cannot
+    /// be created/written.
     pub fn write(&self, layout: &Layout, name: &FeatureName) -> Result<(), Failure> {
         review_store(layout, name)
             .write(self)

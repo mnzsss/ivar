@@ -149,6 +149,11 @@ impl From<Error> for Failure {
 /// preserved byte for byte.
 ///
 /// Bytes are compared before every write — [`fs::write_atomic`] runs only when
+///
+/// # Errors
+///
+/// Returns [`Error`] if the directory cannot be created, a file cannot be
+/// read or written, or a stale legacy file cannot be removed.
 /// the content differs, so a sync that changes nothing rewrites nothing.
 pub fn materialise(commands_dir: &Utf8Path) -> Result<Vec<CommandChange>, Error> {
     fs::ensure_dir(commands_dir).map_err(|source| Error::Fs {
@@ -233,6 +238,11 @@ pub fn materialise(commands_dir: &Utf8Path) -> Result<Vec<CommandChange>, Error>
 ///
 /// Used when a provider leaves the hall: all `ivar-*.md` files go, every other
 /// file survives, and the directory itself is removed only when it can be
+///
+/// # Errors
+///
+/// Returns [`Error`] if the directory cannot be read or a file cannot be
+/// removed.
 /// proven empty afterwards.
 pub fn remove(commands_dir: &Utf8Path) -> Result<Vec<CommandChange>, Error> {
     if !fs::is_dir(commands_dir).map_err(|source| Error::Fs {
@@ -284,6 +294,11 @@ pub fn remove(commands_dir: &Utf8Path) -> Result<Vec<CommandChange>, Error> {
 /// disabled one's leftover `ivar-*` files are all stale (sync will remove
 /// them). Legacy files are judged only for an enabled provider, and only a
 /// modified one is reported — a fingerprint-matching legacy file is not a
+///
+/// # Errors
+///
+/// Returns [`Error`] if the directory cannot be read, a legacy file cannot be
+/// hashed, or a file cannot be removed.
 /// problem, sync removes it.
 pub fn inspect(commands_dir: &Utf8Path, enabled: bool) -> Result<Vec<Inspection>, Error> {
     let mut inspections = Vec::new();

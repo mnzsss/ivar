@@ -63,11 +63,11 @@ fn parse_resource_metadata_errors() {
 #[test]
 fn build_well_known_url_roots_and_paths() {
     assert_eq!(
-        build_well_known_url("https://auth.example.com").unwrap(),
+        build_well_known_url("https://auth.example.com"),
         "https://auth.example.com/.well-known/oauth-authorization-server"
     );
     assert_eq!(
-        build_well_known_url("https://auth.example.com/issuer/v1").unwrap(),
+        build_well_known_url("https://auth.example.com/issuer/v1"),
         "https://auth.example.com/issuer/v1/.well-known/oauth-authorization-server"
     );
 }

@@ -91,8 +91,8 @@ fn map_caller_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<CallerInfo> {
         edge_kind: parse_edge_kind(&kind_raw),
         provenance: parse_provenance(&provenance_raw),
         confidence: row.get(17)?,
-        line: row.get::<_, i64>(18)? as usize,
-        col: row.get::<_, i64>(19)? as usize,
+        line: usize::try_from(row.get::<_, i64>(18)?).unwrap_or(usize::MAX),
+        col: usize::try_from(row.get::<_, i64>(19)?).unwrap_or(usize::MAX),
     })
 }
 
@@ -152,7 +152,7 @@ fn map_reference_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ReferenceSite>
     Ok(ReferenceSite {
         repo: row.get(0)?,
         file_path: row.get(1)?,
-        line: row.get::<_, i64>(2)? as usize,
+        line: usize::try_from(row.get::<_, i64>(2)?).unwrap_or(usize::MAX),
     })
 }
 
@@ -193,7 +193,7 @@ pub fn get_callees(db: &GraphDb, symbol_id: i64) -> Result<Vec<CalleeInfo>, Quer
                 .get::<_, Option<i64>>(14)
                 .ok()
                 .flatten()
-                .map(|c| c as u32);
+                .and_then(|c| u32::try_from(c).ok());
             let path: String = row.get(15)?;
 
             let sym = Symbol {
@@ -206,10 +206,10 @@ pub fn get_callees(db: &GraphDb, symbol_id: i64) -> Result<Vec<CalleeInfo>, Quer
                 signature,
                 docstring,
                 span: Span::new(
-                    start_line as usize,
-                    start_col as usize,
-                    end_line as usize,
-                    end_col as usize,
+                    usize::try_from(start_line).unwrap_or(usize::MAX),
+                    usize::try_from(start_col).unwrap_or(usize::MAX),
+                    usize::try_from(end_line).unwrap_or(usize::MAX),
+                    usize::try_from(end_col).unwrap_or(usize::MAX),
                 ),
                 is_exported: is_exported != 0,
                 complexity,
@@ -233,8 +233,8 @@ pub fn get_callees(db: &GraphDb, symbol_id: i64) -> Result<Vec<CalleeInfo>, Quer
             edge_kind: parse_edge_kind(&kind_raw),
             provenance: parse_provenance(&provenance_raw),
             confidence,
-            line: line as usize,
-            col: col as usize,
+            line: usize::try_from(line).unwrap_or(usize::MAX),
+            col: usize::try_from(col).unwrap_or(usize::MAX),
         })
     })?;
 
@@ -305,8 +305,8 @@ pub fn get_file_outline(db: &GraphDb, repo: &str, path: &str) -> Result<FileOutl
                 to_name,
                 kind: parse_edge_kind(&kind_raw),
                 provenance: parse_provenance(&provenance_raw),
-                line: line as usize,
-                col: col as usize,
+                line: usize::try_from(line).unwrap_or(usize::MAX),
+                col: usize::try_from(col).unwrap_or(usize::MAX),
                 confidence,
             })
         })?

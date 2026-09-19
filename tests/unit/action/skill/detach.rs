@@ -26,7 +26,7 @@ fn detach_removes_source_from_frontmatter_and_preserves_body() {
 
     let report = detach(
         &ctx,
-        DetachInput {
+        &DetachInput {
             skill: "detach_me".to_owned(),
         },
     )
@@ -59,7 +59,7 @@ fn detach_of_authored_is_a_no_op() {
 
     let report = detach(
         &ctx,
-        DetachInput {
+        &DetachInput {
             skill: "authored".to_owned(),
         },
     )
@@ -86,7 +86,7 @@ fn detach_rejects_a_nonexistent_skill() {
 
     let failure = detach(
         &ctx,
-        DetachInput {
+        &DetachInput {
             skill: "ghost".to_owned(),
         },
     )
@@ -103,7 +103,7 @@ fn detach_preserves_body_text_unchanged() {
 
     detach(
         &ctx,
-        DetachInput {
+        &DetachInput {
             skill: "body_test".to_owned(),
         },
     )

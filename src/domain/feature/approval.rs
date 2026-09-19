@@ -78,6 +78,11 @@ impl Gate {
     /// deprecated alias: accepting it would let a stale command or an agent
     /// working from old documentation approve something, and there is nothing
     /// left for it to approve.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`UnknownGate`] if `value` is not one of `requirements`,
+    /// `analysis`, `plan`.
     pub fn parse(value: &str) -> Result<Self, UnknownGate> {
         match value {
             "requirements" => Ok(Gate::Requirements),

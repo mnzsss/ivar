@@ -15,6 +15,8 @@ pub use outcome::{DeliverOutcome, LandResult, PullRequestRef, PushResult, RepoCh
 use crate::action::Ctx;
 use crate::action::discover_hall;
 use crate::action::feature::relations;
+#[cfg(test)]
+use crate::action::feature::relations::read_feature;
 use crate::action::feature::verification;
 use crate::action::read_manifest;
 use crate::domain::feature::{
@@ -24,23 +26,26 @@ use crate::domain::name::FeatureName;
 use crate::error::{Failure, FixAction, Outcome, Report};
 use crate::git;
 use crate::store::layout::Layout;
+use crate::store::manifest::Manifest;
 
 use preview::{
     apply_command, fingerprint_for, plan_gate_state, plan_not_approved, preview_required,
 };
 use repos::{build_repos, order_by_dependencies};
 
-pub fn deliver(ctx: &Ctx, input: DeliverInput) -> Outcome<DeliverOutcome> {
-    let layout = discover_hall(ctx)?;
-    let manifest = read_manifest(&layout)?;
-    let git = git::System;
-
+fn preflight_and_resolve(
+    ctx: &Ctx,
+    layout: &Layout,
+    manifest: &Manifest,
+    git: &git::System,
+    input: &DeliverInput,
+) -> Result<(FeatureName, Feature, DeliveryPreview), Failure> {
     let feature_name = FeatureName::new(input.feature.clone())?;
-    let feature = read_feature(&layout, &feature_name)?;
+    let feature = relations::read_feature(layout, &feature_name)?;
 
     // Resolve delivery metadata after loading the feature so validation
     // can reject land mode, duplicate and unpromoted groups, and body files.
-    let resolved_metadata = metadata::resolve(ctx, &feature, &input)?;
+    let resolved_metadata = metadata::resolve(ctx, &feature, input)?;
 
     // Only a root delivers. A child's work belongs to its parent — the exact
     // fix names the verb that moves it there.
@@ -62,8 +67,8 @@ pub fn deliver(ctx: &Ctx, input: DeliverInput) -> Outcome<DeliverOutcome> {
 
     // The tree is read as a whole: a corrupt lineage refuses loudly, and the
     // root's blocking descendants are derived from it.
-    relations::read_all(&layout)?;
-    let blockers = relations::blocking_descendants(&git, &layout, &manifest, &feature)?;
+    relations::read_all(layout)?;
+    let blockers = relations::blocking_descendants(git, layout, manifest, &feature)?;
     let tree_blockers: Vec<DeliveryTreeBlocker> = blockers
         .iter()
         .map(|entry| DeliveryTreeBlocker {
@@ -74,7 +79,7 @@ pub fn deliver(ctx: &Ctx, input: DeliverInput) -> Outcome<DeliverOutcome> {
         })
         .collect();
 
-    let plan_gate = plan_gate_state(&layout, &feature_name)?;
+    let plan_gate = plan_gate_state(layout, &feature_name)?;
 
     let mode = if input.land {
         DeliveryMode::Land
@@ -82,7 +87,7 @@ pub fn deliver(ctx: &Ctx, input: DeliverInput) -> Outcome<DeliverOutcome> {
         DeliveryMode::Push
     };
 
-    let mut repos = build_repos(&git, &layout, &manifest, &feature, mode, &resolved_metadata)?;
+    let mut repos = build_repos(git, layout, manifest, &feature, mode, &resolved_metadata)?;
     repos.sort_by(|a, b| a.repo.cmp(&b.repo));
     order_by_dependencies(&mut repos);
     let fingerprint = fingerprint_for(&feature_name, mode, plan_gate, &tree_blockers, &repos)?;
@@ -96,6 +101,52 @@ pub fn deliver(ctx: &Ctx, input: DeliverInput) -> Outcome<DeliverOutcome> {
         fingerprint,
     };
 
+    Ok((feature_name, feature, preview))
+}
+
+fn run_land_checks(
+    manifest: &Manifest,
+    layout: &Layout,
+    feature: &Feature,
+    preview: &DeliveryPreview,
+) -> Result<Vec<RepoCheckResult>, Failure> {
+    let mut checks = Vec::new();
+    for repo in &preview.repos {
+        let worktree = layout.repo_worktree(&repo.repo, &feature.branch);
+        let repo_checks = verification::checks_for(manifest, &repo.repo);
+        let run = verification::run(&repo_checks, &worktree)?;
+        let passed = run.results.iter().all(|result| result.success);
+        checks.push(RepoCheckResult {
+            repo: repo.repo.clone(),
+            passed,
+            results: run.results,
+        });
+        if !passed {
+            return Err(Failure::blocked(
+                "deliver.checks_failed",
+                format!("verification checks failed for repo `{}`", repo.repo),
+            )
+            .expected("all verification checks to pass before landing")
+            .actual(format!("verification checks failed in `{}`", repo.repo))
+            .fix(FixAction::safe(
+                "deliver.fix_checks",
+                format!(
+                    "Fix the failing verification checks in `{}` before landing.",
+                    repo.repo
+                ),
+            )));
+        }
+    }
+    Ok(checks)
+}
+
+pub fn deliver(ctx: &Ctx, input: DeliverInput) -> Outcome<DeliverOutcome> {
+    let layout = discover_hall(ctx)?;
+    let manifest = read_manifest(&layout)?;
+    let git = git::System;
+    let (feature_name, feature, preview) =
+        preflight_and_resolve(ctx, &layout, &manifest, &git, &input)?;
+
     if input.preview {
         let apply_command = apply_command(&input, &preview.fingerprint);
         return Ok(Report::new(DeliverOutcome {
@@ -108,8 +159,6 @@ pub fn deliver(ctx: &Ctx, input: DeliverInput) -> Outcome<DeliverOutcome> {
         }));
     }
 
-    // A root with blocking descendants cannot deliver: the tree must be
-    // healthy below it first, leaves first. Refused before any push or PR.
     if !preview.tree_blockers.is_empty() {
         let names = preview
             .tree_blockers
@@ -132,12 +181,8 @@ pub fn deliver(ctx: &Ctx, input: DeliverInput) -> Outcome<DeliverOutcome> {
         )));
     }
 
-    // The approval gate comes before the drift gate. Both refuse, but only one
-    // of them tells a human who never planned the feature what to do next, and
-    // a `deliver` with no fingerprint at all is far more often that human than
-    // one whose preview went stale.
-    if plan_gate != GateState::Approved {
-        return Err(plan_not_approved(&feature_name, plan_gate));
+    if preview.plan_gate != GateState::Approved {
+        return Err(plan_not_approved(&feature_name, preview.plan_gate));
     }
 
     let expected = input
@@ -166,36 +211,7 @@ pub fn deliver(ctx: &Ctx, input: DeliverInput) -> Outcome<DeliverOutcome> {
     if input.land {
         let plans = land::preflight(&git, &layout, &feature, &preview)?;
         let mut warnings = Vec::new();
-
-        // Run ordered checks for each root repo in land mode before executing merges.
-        let mut checks = Vec::new();
-        for repo in &preview.repos {
-            let worktree = layout.repo_worktree(&repo.repo, &feature.branch);
-            let repo_checks = verification::checks_for(&manifest, &repo.repo);
-            let run = verification::run(&repo_checks, &worktree)?;
-            let passed = run.results.iter().all(|result| result.success);
-            checks.push(RepoCheckResult {
-                repo: repo.repo.clone(),
-                passed,
-                results: run.results,
-            });
-            if !passed {
-                return Err(Failure::blocked(
-                    "deliver.checks_failed",
-                    format!("verification checks failed for repo `{}`", repo.repo),
-                )
-                .expected("all verification checks to pass before landing")
-                .actual(format!("verification checks failed in `{}`", repo.repo))
-                .fix(FixAction::safe(
-                    "deliver.fix_checks",
-                    format!(
-                        "Fix the failing verification checks in `{}` before landing.",
-                        repo.repo
-                    ),
-                )));
-            }
-        }
-
+        let checks = run_land_checks(&manifest, &layout, &feature, &preview)?;
         let land_results = land::execute(&git, &layout, &plans, &mut warnings)?;
         return Ok(Report::with_warnings(
             DeliverOutcome {
@@ -222,22 +238,6 @@ fn blocker_reason(state: FeatureIntegrationState) -> String {
         // Unreachable: blocking descendants are only ever these three.
         other => format!("its state is `{other}`"),
     }
-}
-
-/// Read the feature, or a `Blocked` failure naming the way out.
-fn read_feature(layout: &Layout, name: &FeatureName) -> Result<Feature, Failure> {
-    Feature::read(layout, name)?.ok_or_else(|| {
-        Failure::blocked(
-            "feature.not_found",
-            format!("feature `{name}` does not exist"),
-        )
-        .expected("an existing feature")
-        .actual(format!("`{name}` has no feature.json"))
-        .fix(FixAction::safe(
-            "feature.create_first",
-            format!("Create it first with `ivar feature create {name}`."),
-        ))
-    })
 }
 
 #[cfg(test)]

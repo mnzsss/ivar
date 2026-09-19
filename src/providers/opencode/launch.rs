@@ -18,10 +18,5 @@ pub const fn contract() -> LaunchContract {
 }
 
 pub fn start_command(resume: bool) -> Command {
-    let command = Command::new(CONTRACT.binary);
-    if resume {
-        command.arg("--continue")
-    } else {
-        command
-    }
+    super::super::resumable_start_command(CONTRACT.binary, resume)
 }

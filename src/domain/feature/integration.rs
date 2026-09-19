@@ -57,6 +57,10 @@ pub enum IntegrationVia {
 impl IntegrationVia {
     /// Parse the CLI spelling — `pr` or `local`. Everything else is refused;
     /// in particular `github` is not a via.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`UnknownIntegrationVia`] if `value` is not `pr` or `local`.
     pub fn parse(value: &str) -> Result<Self, UnknownIntegrationVia> {
         match value {
             "pr" => Ok(Self::Pr),
@@ -93,6 +97,11 @@ pub enum IntegrationStrategy {
 
 impl IntegrationStrategy {
     /// Parse the CLI spelling — `squash`, `merge`, or `rebase`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`UnknownIntegrationStrategy`] if `value` is not `squash`,
+    /// `merge`, or `rebase`.
     pub fn parse(value: &str) -> Result<Self, UnknownIntegrationStrategy> {
         match value {
             "squash" => Ok(Self::Squash),

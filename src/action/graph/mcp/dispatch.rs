@@ -1,5 +1,6 @@
 //! Tool call dispatching for Codebase Graph MCP server.
 
+use std::fmt::Write as _;
 use std::path::Path;
 
 use serde_json::Value;
@@ -12,6 +13,31 @@ use crate::action::graph::{
 };
 use crate::store::graph::db::GraphDb;
 
+/// Upper bound on MCP `max_depth`/`max_hops` traversal args. An agent can
+/// pass any `u64`; without a ceiling a single call walks the whole graph.
+const MAX_DEPTH_LIMIT: usize = 20;
+const MAX_HOPS_LIMIT: usize = 20;
+
+/// Reads `key` from `args` as a `u64`, falling back to `default` when absent
+/// or not a number, then clamps to `max`.
+fn bounded_arg(args: &Value, key: &str, default: usize, max: usize) -> usize {
+    args.get(key)
+        .and_then(Value::as_u64)
+        .map_or(default, |value| {
+            usize::try_from(value).unwrap_or(usize::MAX)
+        })
+        .min(max)
+}
+
+#[expect(
+    clippy::too_many_lines,
+    reason = "flat dispatch over 12 MCP tool names (\"graph_explore\", \"get_callers\", \
+              \"get_callees\", \"get_file_outline\", \"get_affected_tests\", \"get_path\", \
+              \"get_impact\", \"refresh_index\", \"get_graph_stats\", \"get_dead_code\", \
+              \"get_complexity\", \"get_hierarchy\"); each arm parses that tool's own args \
+              shape and picks its own markdown/json/compact output, so moving arms into a \
+              second match only relocates the same length without reducing complexity"
+)]
 pub fn dispatch_tool_call<F>(
     db: &GraphDb,
     hall_root: Option<&Path>,
@@ -54,11 +80,12 @@ where
                         if !unindexed.is_empty() {
                             let names: Vec<String> =
                                 unindexed.iter().map(|path| format!("`{path}`")).collect();
-                            answer.push_str(&format!(
+                            let _ = write!(
+                                answer,
                                 "\nNot indexed: {}. No indexed file matches, so Read it directly \
                                  or call `refresh_index` if it is new.\n",
                                 names.join(", ")
-                            ));
+                            );
                         }
                         answer
                     } else {
@@ -186,7 +213,7 @@ where
                 .map(str::to_owned)
                 .collect();
             let repo = args.get("repo").and_then(Value::as_str);
-            let max_depth = args.get("max_depth").and_then(Value::as_u64).unwrap_or(5) as usize;
+            let max_depth = bounded_arg(args, "max_depth", 5, MAX_DEPTH_LIMIT);
 
             let affected =
                 affected::find_affected_tests_with_root(db, hall_root, &files, repo, max_depth)
@@ -207,7 +234,7 @@ where
                 .get("to")
                 .and_then(Value::as_str)
                 .ok_or_else(|| "Missing required parameter 'to'".to_owned())?;
-            let max_hops = args.get("max_hops").and_then(Value::as_u64).unwrap_or(6) as usize;
+            let max_hops = bounded_arg(args, "max_hops", 6, MAX_HOPS_LIMIT);
 
             let path_res = path::find_shortest_path(db, from, to, max_hops)
                 .map_err(|e| format!("get_path failed: {e}"))?;
@@ -219,7 +246,7 @@ where
         }
 
         "get_impact" => {
-            let max_depth = args.get("max_depth").and_then(Value::as_u64).unwrap_or(5) as usize;
+            let max_depth = bounded_arg(args, "max_depth", 5, MAX_DEPTH_LIMIT);
             let symbol_id = if let Some(id) = args.get("symbol_id").and_then(Value::as_i64) {
                 id
             } else if let Some(sym_name) = symbol_arg(args) {
@@ -259,7 +286,7 @@ where
         }
         "get_dead_code" => {
             let repo = args.get("repo").and_then(Value::as_str);
-            let limit = args.get("limit").and_then(Value::as_u64).unwrap_or(50) as usize;
+            let limit = bounded_arg(args, "limit", 50, usize::MAX);
             let items = dead_code::execute_dead_code(db, repo, limit)
                 .map_err(|e| format!("get_dead_code failed: {e}"))?;
             if args.get("format").and_then(Value::as_str) == Some("compact") {
@@ -271,8 +298,9 @@ where
 
         "get_complexity" => {
             let repo = args.get("repo").and_then(Value::as_str);
-            let threshold = args.get("threshold").and_then(Value::as_u64).unwrap_or(10) as u32;
-            let limit = args.get("limit").and_then(Value::as_u64).unwrap_or(50) as usize;
+            let threshold = u32::try_from(bounded_arg(args, "threshold", 10, u32::MAX as usize))
+                .unwrap_or(u32::MAX);
+            let limit = bounded_arg(args, "limit", 50, usize::MAX);
             let items = complexity::execute_complexity(db, repo, threshold, limit)
                 .map_err(|e| format!("get_complexity failed: {e}"))?;
             if args.get("format").and_then(Value::as_str) == Some("compact") {
@@ -438,3 +466,7 @@ fn unknown_file(file: &str) -> String {
          if the file is new."
     )
 }
+
+#[cfg(test)]
+#[path = "../../../../tests/unit/action/graph/mcp/dispatch.rs"]
+mod tests;

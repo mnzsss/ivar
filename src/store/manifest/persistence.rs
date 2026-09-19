@@ -57,6 +57,10 @@ fn v1_to_v2(mut value: serde_json::Value) -> Result<serde_json::Value, String> {
 /// has a registered step to run, which is what advances the version number
 /// stamped on disk and lets `ivar migrate` describe the step honestly rather
 /// than reporting nothing to do on a v2 file.
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "signature is fixed by MigrateFn (store/versioned/mod.rs), shared across every migration step"
+)]
 fn v2_to_v3(value: serde_json::Value) -> Result<serde_json::Value, String> {
     Ok(value)
 }
@@ -69,6 +73,10 @@ fn v2_to_v3(value: serde_json::Value) -> Result<serde_json::Value, String> {
 /// deserialises against the v4 shape without help. This step touches no data;
 /// it exists so the chain stays contiguous and [`Manifest::migrate`] has a
 /// registered step to run.
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "signature is fixed by MigrateFn (store/versioned/mod.rs), shared across every migration step"
+)]
 fn v3_to_v4(value: serde_json::Value) -> Result<serde_json::Value, String> {
     Ok(value)
 }
@@ -107,6 +115,12 @@ impl Manifest {
     /// `ivar.json`'s chain is empty (see "Why v1 and not v2" above), so there
     /// is no v0 to migrate from and a file detected at v0 is not an
     /// `ivar.json`. This module only renames that refusal into its own terms.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::MissingVersion`] if the file has no `version`
+    /// field, or another [`Error`] if it cannot be read or fails
+    /// validation.
     pub fn read(layout: &Layout) -> Result<Option<Self>, Error> {
         let manifest = match Self::open(layout).read() {
             Ok(manifest) => manifest,
@@ -131,6 +145,11 @@ impl Manifest {
     /// subject to [`Policy::Committed`] (a `write` while the on-disk file is
     /// older than [`CURRENT_VERSION`] refuses, directing the caller at
     /// `ivar migrate` — see [`versioned`]).
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`Error`] if `manifest` fails validation or cannot be
+    /// written.
     pub fn write(layout: &Layout, manifest: &Self) -> Result<(), Error> {
         manifest.validate()?;
         Self::open(layout).write(manifest).map_err(Error::Store)
@@ -142,6 +161,11 @@ impl Manifest {
     /// binary cannot open — reporting safely on such a file is the point, and
     /// is what lets `ivar migrate` describe a too-new hall instead of refusing
     /// to speak about it.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`Error`] if the store's inspection fails for a
+    /// reason other than the file being absent.
     pub fn plan(layout: &Layout) -> Result<Option<MigrationPlan>, Error> {
         let store = Self::open(layout);
         let Some(inspection) = store.inspect().map_err(Error::Store)? else {
@@ -187,6 +211,11 @@ impl Manifest {
     /// migration would be indistinguishable from a completed one.
     ///
     /// `Ok(None)` if there is no `ivar.json`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`Error`] if the file cannot be read/migrated or
+    /// written, or the migrated form fails validation.
     pub fn migrate(layout: &Layout) -> Result<Option<Self>, Error> {
         // `read` migrates in memory and validates; under `Policy::Committed`
         // it leaves the file untouched, so nothing is written until the

@@ -34,6 +34,18 @@ pub struct LaunchContract {
     pub capabilities: Capabilities,
 }
 
+/// The plain `<binary> [--continue]` shape most providers start with — only
+/// Claude Code's start command carries anything more (its MCP allowlist).
+#[must_use]
+fn resumable_start_command(binary: &'static str, resume: bool) -> Command {
+    let command = Command::new(binary);
+    if resume {
+        command.arg("--continue")
+    } else {
+        command
+    }
+}
+
 /// Returns the launch contract (binary and capabilities) for a provider.
 #[must_use]
 pub fn launch_contract(provider: Provider) -> LaunchContract {
@@ -51,6 +63,11 @@ pub fn launch_contract(provider: Provider) -> LaunchContract {
 /// user is not prompted to approve servers Ivar itself materialised; an empty
 /// list is still passed explicitly, so no project MCP inherits approval.
 /// Every other provider ignores it and its argv is unchanged.
+///
+/// # Errors
+///
+/// Returns [`Failure`] if `resume` is requested but `provider`'s
+/// launch contract does not support it.
 pub fn start_command(
     provider: Provider,
     resume: bool,
@@ -142,6 +159,10 @@ pub fn session_projections(provider: Provider) -> Vec<SessionProjection> {
 }
 
 /// Parses provider-specific stdin JSON into a normalized `ToolRequest` and optional cwd.
+/// # Errors
+///
+/// Returns [`Failure`] if `stdin_json` is not valid for `provider`'s
+/// tool-request shape.
 pub fn parse_tool_request(
     provider: Provider,
     stdin_json: &str,
@@ -195,6 +216,11 @@ impl std::fmt::Debug for Credential<'_> {
 /// `Ok(false)` means the provider keeps no store of its own and relies on
 /// its login command — not a failure, and not something the caller should
 /// have to distinguish by provider id.
+///
+/// # Errors
+///
+/// Returns [`Failure`] if the provider's credential store cannot be
+/// written.
 pub fn install_credentials(
     provider: Provider,
     name: &str,
@@ -213,6 +239,11 @@ pub fn install_credentials(
 /// MCP endpoint, not per name — and is `None` for a provider that needs none.
 /// Claude Code keeps no store Ivar can inspect, so it never reports a
 /// conflict: its own login command owns that decision.
+///
+/// # Errors
+///
+/// Returns [`Failure`] if the provider's credential store cannot be
+/// read.
 pub fn has_credentials(
     provider: Provider,
     name: &str,
@@ -242,6 +273,11 @@ pub fn login_subcommand(provider: Provider) -> Option<[&'static str; 2]> {
 }
 
 /// Confirm the login actually landed, for providers whose exit code lies.
+///
+/// # Errors
+///
+/// Returns [`Failure`] if `server_url` is required but missing, or
+/// the provider's own verification fails.
 pub fn verify_authenticated(
     provider: Provider,
     name: &str,

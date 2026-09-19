@@ -42,26 +42,13 @@ impl WriteHuman for RemoveOutcome {
     }
 }
 
-pub fn remove(ctx: &Ctx, input: RemoveInput) -> Outcome<RemoveOutcome> {
+pub fn remove(ctx: &Ctx, input: &RemoveInput) -> Outcome<RemoveOutcome> {
     let layout = discover_hall(ctx)?;
 
     // Find the skill in either root. No flag: an id names at most one
     // directory, because a collision is refused during enumeration.
     let Some((skill_dir, root)) = super::enumerate::resolve(&layout, &input.skill)? else {
-        return Err(Failure::blocked(
-            "skill.not_found",
-            format!("skill `{}` does not exist", input.skill),
-        )
-        .expected("a skill directory in either skills root")
-        .actual(format!(
-            "no directory at `{}` or `{}`",
-            layout.hall_skills_local().join(&input.skill),
-            layout.hall_skills().join(&input.skill)
-        ))
-        .fix(FixAction::safe(
-            "skill.list",
-            "List available skills to find the correct id.",
-        )));
+        return Err(super::skill_not_found(&layout, &input.skill));
     };
 
     // Parse the skill to know its id and source type.

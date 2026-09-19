@@ -83,99 +83,7 @@ pub fn execute(
 
     // --- Phase 2: Local Fast-Forward Merge for ALL plans with all-or-nothing rollback ---
     for (i, plan) in plans.iter().enumerate() {
-        // Re-validate immediately before each merge (ADR-0004 D5)
-        let bare = layout.repo_bare(&plan.repo);
-        if !git.is_ancestor(&bare, plan.default_branch.as_str(), &plan.tip)? {
-            let failure = Failure::blocked(
-                "deliver.land_not_fast_forward",
-                format!(
-                    "default branch `{}` in repo `{}` cannot fast-forward to feature `{}`",
-                    plan.default_branch, plan.repo, plan.feature_name
-                ),
-            )
-            .expected(format!(
-                "default branch `{}` to fast-forward to `{}`",
-                plan.default_branch, plan.feature_name
-            ))
-            .actual(format!(
-                "default branch `{}` has diverged or cannot fast-forward",
-                plan.default_branch
-            ))
-            .fix(
-                FixAction::safe(
-                    "deliver.rebase_first",
-                    format!(
-                        "Rebase the feature onto default first: `ivar feature rebase {}`.",
-                        plan.feature_name
-                    ),
-                )
-                .command(format!("ivar feature rebase {}", plan.feature_name)),
-            );
-            return rollback_merged(git, plans, i, failure);
-        }
-
-        if git.worktree_dirty(&plan.worktree)? {
-            let failure = Failure::blocked(
-                "deliver.land_dirty_worktree",
-                format!(
-                    "the default worktree at `{}` has uncommitted changes",
-                    plan.worktree
-                ),
-            )
-            .expected("the default worktree to be clean")
-            .actual(format!("uncommitted changes in `{}`", plan.worktree))
-            .fix(FixAction::safe(
-                "deliver.clean_worktree_first",
-                "Commit or stash your work before landing.",
-            ));
-            return rollback_merged(git, plans, i, failure);
-        }
-
-        let current_head = git.head_commit(&plan.worktree)?;
-        if current_head != plan.original_head {
-            let failure = Failure::blocked(
-                "deliver.land_head_moved",
-                format!(
-                    "default branch `{}` in repo `{}` moved since preflight",
-                    plan.default_branch, plan.repo
-                ),
-            )
-            .expected(format!(
-                "default branch `{}` to remain at preflight HEAD `{}`",
-                plan.default_branch, plan.original_head
-            ))
-            .actual(format!("HEAD is now `{current_head}`"))
-            .fix(
-                FixAction::safe(
-                    "deliver.rebase_first",
-                    format!(
-                        "Rebase the feature onto `{}`: `ivar feature rebase {}`.",
-                        plan.default_branch, plan.feature_name
-                    ),
-                )
-                .command(format!("ivar feature rebase {}", plan.feature_name)),
-            );
-            return rollback_merged(git, plans, i, failure);
-        }
-
-        if let Err(e) = git.fast_forward_to(&plan.worktree, &plan.tip) {
-            let orig_err = format!(
-                "failed to fast-forward default branch `{}` in `{}`: {e}",
-                plan.default_branch, plan.repo
-            );
-            let failure = Failure::failed("git.merge_ff_only_failed", orig_err)
-                .expected(format!(
-                    "default branch `{}` to fast-forward to `{}`",
-                    plan.default_branch, plan.tip
-                ))
-                .actual(format!("git merge --ff-only failed: {e}"))
-                .fix(FixAction::safe(
-                    "deliver.rebase_first",
-                    format!(
-                        "Rebase the feature onto default first: `ivar feature rebase {}`.",
-                        plan.feature_name
-                    ),
-                ));
+        if let Err(failure) = ff_merge_one(git, layout, plan) {
             return rollback_merged(git, plans, i, failure);
         }
     }
@@ -218,6 +126,102 @@ pub fn execute(
     }
 
     Ok(results)
+}
+
+fn ff_merge_one(git: &impl Git, layout: &Layout, plan: &LandPlan) -> Result<(), Failure> {
+    // Re-validate immediately before each merge (ADR-0004 D5)
+    let bare = layout.repo_bare(&plan.repo);
+    if !git.is_ancestor(&bare, plan.default_branch.as_str(), &plan.tip)? {
+        return Err(Failure::blocked(
+            "deliver.land_not_fast_forward",
+            format!(
+                "default branch `{}` in repo `{}` cannot fast-forward to feature `{}`",
+                plan.default_branch, plan.repo, plan.feature_name
+            ),
+        )
+        .expected(format!(
+            "default branch `{}` to fast-forward to `{}`",
+            plan.default_branch, plan.feature_name
+        ))
+        .actual(format!(
+            "default branch `{}` has diverged or cannot fast-forward",
+            plan.default_branch
+        ))
+        .fix(
+            FixAction::safe(
+                "deliver.rebase_first",
+                format!(
+                    "Rebase the feature onto default first: `ivar feature rebase {}`.",
+                    plan.feature_name
+                ),
+            )
+            .command(format!("ivar feature rebase {}", plan.feature_name)),
+        ));
+    }
+
+    if git.worktree_dirty(&plan.worktree)? {
+        return Err(Failure::blocked(
+            "deliver.land_dirty_worktree",
+            format!(
+                "the default worktree at `{}` has uncommitted changes",
+                plan.worktree
+            ),
+        )
+        .expected("the default worktree to be clean")
+        .actual(format!("uncommitted changes in `{}`", plan.worktree))
+        .fix(FixAction::safe(
+            "deliver.clean_worktree_first",
+            "Commit or stash your work before landing.",
+        )));
+    }
+
+    let current_head = git.head_commit(&plan.worktree)?;
+    if current_head != plan.original_head {
+        return Err(Failure::blocked(
+            "deliver.land_head_moved",
+            format!(
+                "default branch `{}` in repo `{}` moved since preflight",
+                plan.default_branch, plan.repo
+            ),
+        )
+        .expected(format!(
+            "default branch `{}` to remain at preflight HEAD `{}`",
+            plan.default_branch, plan.original_head
+        ))
+        .actual(format!("HEAD is now `{current_head}`"))
+        .fix(
+            FixAction::safe(
+                "deliver.rebase_first",
+                format!(
+                    "Rebase the feature onto `{}`: `ivar feature rebase {}`.",
+                    plan.default_branch, plan.feature_name
+                ),
+            )
+            .command(format!("ivar feature rebase {}", plan.feature_name)),
+        ));
+    }
+
+    if let Err(e) = git.fast_forward_to(&plan.worktree, &plan.tip) {
+        let orig_err = format!(
+            "failed to fast-forward default branch `{}` in `{}`: {e}",
+            plan.default_branch, plan.repo
+        );
+        return Err(Failure::failed("git.merge_ff_only_failed", orig_err)
+            .expected(format!(
+                "default branch `{}` to fast-forward to `{}`",
+                plan.default_branch, plan.tip
+            ))
+            .actual(format!("git merge --ff-only failed: {e}"))
+            .fix(FixAction::safe(
+                "deliver.rebase_first",
+                format!(
+                    "Rebase the feature onto default first: `ivar feature rebase {}`.",
+                    plan.feature_name
+                ),
+            )));
+    }
+
+    Ok(())
 }
 
 fn rollback_merged(

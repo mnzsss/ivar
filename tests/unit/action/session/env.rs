@@ -129,7 +129,7 @@ fn hall_with_promoted_feature_and_session() -> (tempfile::TempDir, Utf8PathBuf, 
     let ctx = crate::action::Ctx::new(root.clone());
     hall::init(
         &ctx,
-        InitInput {
+        &InitInput {
             path: Utf8PathBuf::from("."),
             name: Some("acme".to_owned()),
             provider: None,
@@ -164,7 +164,7 @@ fn hall_with_promoted_feature_and_session() -> (tempfile::TempDir, Utf8PathBuf, 
         },
     )
     .unwrap();
-    crate::action::sync::sync(&ctx, Default::default()).unwrap();
+    crate::action::sync::sync(&ctx, &Default::default()).unwrap();
     feature_promote::promote(
         &ctx,
         PromoteInput {

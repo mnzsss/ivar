@@ -410,3 +410,17 @@ fn test_cross_repo_http_linking() {
         .expect("query edge");
     assert_eq!(to_sym_id, Some(srv_sym_id));
 }
+
+#[test]
+fn link_cross_repo_edges_still_returns_the_original_error_when_rollback_is_attempted() {
+    let db = GraphDb::open_in_memory().expect("open_in_memory");
+    db.conn()
+        .execute_batch("BEGIN EXCLUSIVE;")
+        .expect("hold an exclusive lock to force the inner BEGIN IMMEDIATE to fail");
+    let result = link_cross_repo_edges(&db);
+    assert!(
+        result.is_err(),
+        "a nested BEGIN IMMEDIATE must fail while the connection already holds a transaction, \
+         and that original error — not a rollback error — must be what callers see"
+    );
+}

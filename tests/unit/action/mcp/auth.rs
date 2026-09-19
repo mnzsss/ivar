@@ -106,7 +106,7 @@ fn auth_refuses_an_unknown_server_before_any_dispatch() {
 
     let failure = auth(
         &ctx,
-        AuthInput {
+        &AuthInput {
             server: "figma".to_owned(),
             provider: None,
             all_providers: false,
@@ -128,7 +128,7 @@ fn auth_refuses_an_unknown_provider_before_any_dispatch() {
 
     let failure = auth(
         &ctx,
-        AuthInput {
+        &AuthInput {
             server: "linear".to_owned(),
             provider: Some("bogus".to_owned()),
             all_providers: false,
@@ -149,7 +149,7 @@ fn auth_refuses_an_unknown_server_for_all_providers_too() {
 
     let failure = auth(
         &ctx,
-        AuthInput {
+        &AuthInput {
             server: "figma".to_owned(),
             provider: None,
             all_providers: true,
@@ -202,7 +202,7 @@ fn all_providers_hall_lists_available_providers_in_declared_order() {
     let ctx = crate::action::Ctx::new(root.clone());
     crate::action::provider::add::add(
         &ctx,
-        crate::action::provider::add::AddInput {
+        &crate::action::provider::add::AddInput {
             name: "opencode".to_owned(),
         },
     )

@@ -540,6 +540,13 @@ pub struct CleanupRecord {
 
 impl CleanupRecord {
     /// Validate intrinsic field rules of a cleanup record.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message if `schema_version` does not match the current
+    /// schema, the outcome is already populated, or the documentation
+    /// decision's fields violate its own invariants (e.g. `written` without
+    /// `paths`, or with a `reason` set).
     pub fn validate(&self) -> Result<(), String> {
         if self.schema_version != CLEANUP_RECORD_SCHEMA_VERSION {
             return Err(format!(

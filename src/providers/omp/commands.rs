@@ -25,6 +25,11 @@ const CONFIG_DIR_NAME: &str = ".omp";
 /// Returns `None` for default profile (empty, whitespace, or `"default"`).
 /// Returns `Some(name)` for a valid named profile.
 /// Returns an error if the profile name is invalid (e.g. `.` or `..`, invalid characters, etc.).
+///
+/// # Errors
+///
+/// Returns [`Failure`] if the profile name is `.`, `..`, ends with a
+/// dot, contains invalid characters, or is a Windows-reserved name.
 pub fn normalize_profile_name(profile: Option<&str>) -> Result<Option<String>, Failure> {
     let Some(raw) = profile else {
         return Ok(None);
@@ -109,6 +114,10 @@ fn is_windows_reserved_basename(name: &str) -> bool {
 }
 
 /// Resolves the active profile name from env vars: `OMP_PROFILE` takes precedence over `PI_PROFILE`.
+///
+/// # Errors
+///
+/// Returns [`Failure`] if the resolved profile name is invalid.
 pub fn resolve_profile_from_env(
     omp_env: Option<&str>,
     pi_env: Option<&str>,
@@ -122,6 +131,11 @@ pub fn resolve_profile_from_env(
 }
 
 /// Resolves user home directory from `HOME` (or `USERPROFILE` on Windows).
+///
+/// # Errors
+///
+/// Returns [`Failure`] if no home directory variable resolves to an
+/// absolute path.
 pub fn user_home_from(
     home: Option<String>,
     userprofile: Option<String>,
@@ -154,6 +168,11 @@ pub fn user_home_from(
 }
 
 /// Resolves user home directory from live process environment.
+///
+/// # Errors
+///
+/// Returns [`Failure`] if no home directory variable resolves to an
+/// absolute path.
 pub fn user_home() -> Result<Utf8PathBuf, Failure> {
     user_home_from(
         std::env::var("HOME").ok(),
@@ -163,6 +182,11 @@ pub fn user_home() -> Result<Utf8PathBuf, Failure> {
 }
 
 /// Resolves the active OMP agent commands directory for the current environment.
+///
+/// # Errors
+///
+/// Returns [`Failure`] if the user home directory or the active
+/// profile name cannot be resolved.
 pub fn resolve_active_commands_dir() -> Result<Utf8PathBuf, Failure> {
     let home = user_home()?;
     let config_dir = std::env::var("PI_CONFIG_DIR").ok();
@@ -177,6 +201,10 @@ pub fn resolve_active_commands_dir() -> Result<Utf8PathBuf, Failure> {
 }
 
 /// Resolves the OMP agent commands directory from explicit inputs.
+///
+/// # Errors
+///
+/// Returns [`Failure`] if the resolved OMP/PI profile name is invalid.
 pub fn resolve_commands_dir_from(
     home: &Utf8Path,
     pi_config_dir: Option<&str>,

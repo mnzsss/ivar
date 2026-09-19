@@ -92,15 +92,14 @@ pub(crate) fn worktree_git_dir(path: &Utf8Path) -> Result<Utf8PathBuf, Error> {
 }
 
 /// Whether a rebase is in progress in the worktree at `path`.
-pub(crate) fn is_rebase_in_progress(path: &Utf8Path) -> Result<bool, Error> {
+pub(crate) fn is_rebase_in_progress(path: &Utf8Path) -> bool {
     if !path.exists() {
-        return Ok(false);
+        return false;
     }
-    let git_dir = match worktree_git_dir(path) {
-        Ok(dir) => dir,
-        Err(_) => return Ok(false),
+    let Ok(git_dir) = worktree_git_dir(path) else {
+        return false;
     };
-    Ok(git_dir.join("rebase-merge").exists() || git_dir.join("rebase-apply").exists())
+    git_dir.join("rebase-merge").exists() || git_dir.join("rebase-apply").exists()
 }
 
 /// Every local branch in the repository at `git_dir`, without the

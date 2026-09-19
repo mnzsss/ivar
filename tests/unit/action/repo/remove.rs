@@ -21,7 +21,7 @@ fn hall_declared() -> (tempfile::TempDir, Utf8PathBuf) {
     let ctx = Ctx::new(root.clone());
     hall::init(
         &ctx,
-        InitInput {
+        &InitInput {
             path: Utf8PathBuf::from("."),
             name: Some("acme".to_owned()),
             provider: None,
@@ -51,7 +51,7 @@ fn hall_declared() -> (tempfile::TempDir, Utf8PathBuf) {
 fn hall_with_repo() -> (tempfile::TempDir, Utf8PathBuf) {
     let (guard, root) = hall_declared();
     let ctx = Ctx::new(root.clone());
-    crate::action::sync::sync(&ctx, Default::default()).unwrap();
+    crate::action::sync::sync(&ctx, &Default::default()).unwrap();
     (guard, root)
 }
 

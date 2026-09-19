@@ -113,7 +113,7 @@ pub(crate) fn list_pull_requests(
     state: &str,
 ) -> Result<Vec<PullRequest>, Failure> {
     let output = capture(
-        proc::Command::new("gh")
+        &proc::Command::new("gh")
             .args([
                 "pr",
                 "list",
@@ -174,7 +174,7 @@ pub(crate) fn create_pull_request(
     }
 
     let output = capture(
-        proc::Command::new("gh").args(args).cwd(git_dir),
+        &proc::Command::new("gh").args(args).cwd(git_dir),
         "pr create",
     )?;
 
@@ -202,7 +202,7 @@ pub(crate) fn create_pull_request(
 /// Convert an existing pull request to draft.
 pub(crate) fn convert_pull_request_to_draft(git_dir: &Utf8Path, url: &str) -> Result<(), Failure> {
     let _ = capture(
-        proc::Command::new("gh")
+        &proc::Command::new("gh")
             .args(["pr", "ready", "--undo", url])
             .cwd(git_dir),
         "pr ready --undo",
@@ -331,7 +331,7 @@ pub(crate) fn request_merge(
         IntegrationStrategy::Rebase => "--rebase",
     };
     let output = capture(
-        proc::Command::new("gh")
+        &proc::Command::new("gh")
             .args(["pr", "merge", url, flag, "--match-head-commit", source_sha])
             .cwd(git_dir),
         "pr merge",
@@ -396,7 +396,7 @@ fn observe_merge_with(
 /// One `gh pr view` — the observation primitive.
 fn view_pull_request(git_dir: &Utf8Path, url: &str) -> Result<PullRequest, Failure> {
     let output = capture(
-        proc::Command::new("gh")
+        &proc::Command::new("gh")
             .args([
                 "pr",
                 "view",
@@ -464,8 +464,8 @@ pub(crate) fn link_sibling_prs(pr_urls: &[String]) {
 /// Run a `gh` command, turning a non-zero exit (or spawn failure) into a
 /// strict [`Failure`] naming the operation and carrying git/gh's own
 /// diagnostic.
-fn capture(command: proc::Command, operation: &str) -> Result<String, Failure> {
-    let output = proc::capture(&command)?;
+fn capture(command: &proc::Command, operation: &str) -> Result<String, Failure> {
+    let output = proc::capture(command)?;
     if output.success() {
         return Ok(output.stdout);
     }

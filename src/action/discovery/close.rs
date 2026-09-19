@@ -82,7 +82,7 @@ pub fn close(ctx: &Ctx, input: CloseInput) -> Outcome<CloseOutcome> {
         )));
     }
 
-    let path = super::resolve_doc_path(ctx, &layout, &name)?;
+    let path = super::resolve_doc_path(ctx, &layout, &name);
     let mut doc = super::load_at(&path, &name)?;
     super::ensure_writable(&doc, &name)?;
 
