@@ -319,7 +319,8 @@ impl CallbackServer {
                 );
                 Ok(code)
             }
-            Err((status, reason, body, failure)) => {
+            Err(boxed) => {
+                let (status, reason, body, failure) = *boxed;
                 Self::respond(&mut stream, status, reason, body);
                 Err(failure)
             }
@@ -364,23 +365,23 @@ impl CallbackServer {
     fn evaluate_callback(
         params: &std::collections::HashMap<String, String>,
         expected_state: &str,
-    ) -> Result<AuthorizationCode, (u16, &'static str, &'static str, Failure)> {
+    ) -> Result<AuthorizationCode, Box<(u16, &'static str, &'static str, Failure)>> {
         let state = params.get("state").map(String::as_str).unwrap_or("");
         let code = params.get("code").map(String::as_str);
 
         if params.contains_key("error") {
-            return Err((
+            return Err(Box::new((
                 400,
                 "Bad Request",
                 "<html><body><h1>400</h1><p>OAuth error.</p></body></html>",
                 Failure::failed("callback.oauth_error", "OAuth authorization error")
                     .expected("code")
                     .actual("error response"),
-            ));
+            )));
         }
 
         if state != expected_state {
-            return Err((
+            return Err(Box::new((
                 400,
                 "Bad Request",
                 "<html><body><h1>400</h1><p>Invalid state parameter.</p></body></html>",
@@ -389,12 +390,12 @@ impl CallbackServer {
                     "OAuth state parameter did not match",
                 )
                 .expected("state to match"),
-            ));
+            )));
         }
 
         match code {
             Some(c) if !c.is_empty() => Ok(AuthorizationCode(c.to_owned())),
-            _ => Err((
+            _ => Err(Box::new((
                 400,
                 "Bad Request",
                 "<html><body><h1>400</h1><p>Missing authorization code.</p></body></html>",
@@ -404,7 +405,7 @@ impl CallbackServer {
                 )
                 .expected("code parameter")
                 .actual("no code in callback"),
-            )),
+            ))),
         }
     }
 

@@ -233,42 +233,9 @@ pub fn integrate(ctx: &Ctx, input: IntegrateInput) -> Outcome<IntegrateOutcome> 
         return Err(relations::tree_block_failure(&name, &blockers));
     }
 
-    // 4. An unrestricted live session cannot coexist with a first successful
-    // receipt, because it could still write a locked promotion. Refused before
-    // any repo can gain one.
-    if !child.has_any_receipt() && has_live_sessions(&layout, &name)? {
-        return Err(Failure::blocked(
-            "integration.session_live",
-            format!(
-                "feature `{name}` has a live session; integrating would lock a promotion an unrestricted session could still write"
-            ),
-        )
-        .expected("no live feature session before the first successful receipt")
-        .actual("a session view dir exists under the feature")
-        .fix(FixAction::safe(
-            "integration.stop_session_first",
-            format!("Stop the session first, then run `ivar feature integrate {name}` again."),
-        )));
-    }
-    // 5. If a non-terminal run holds the lock on the child feature, refuse
-    // early before any policy resolution, git preflight, or parent mutation.
-    if let Some(receipt) = RunReceipt::read(&layout, &name)?
-        && receipt.holds_lock()
-    {
-        return Err(Failure::blocked(
-            "integration.run_active",
-            format!(
-                "feature `{name}` has a {} run (`{}`)",
-                receipt.status, receipt.id
-            ),
-        )
-        .expected("a terminal run receipt before integrating the feature")
-        .actual("the current run is still active and holds the feature lock")
-        .fix(FixAction::safe(
-            "execute.finish_or_interrupt",
-            "Finish, accept the revision, or interrupt the run before integrating the feature.",
-        )));
-    }
+    // 4 & 5. No live session that could still write a first receipt, and no
+    // non-terminal run already holding the child's lock.
+    ensure_no_conflicting_session_or_run(&layout, &name, &child)?;
 
     // 6. Resolve the policy once. The resolved relationship/base/policy is
     // frozen by the first persisted receipt: a rerun reuses each receipt's
@@ -731,6 +698,50 @@ fn parent_promotion_required(child: &Feature, parent: &Feature, repo: &RepoName)
         )
         .command(format!("ivar feature promote {} {repo}", parent.name)),
     )
+}
+
+/// An unrestricted live session cannot coexist with a first successful
+/// receipt, because it could still write a locked promotion — refused before
+/// any repo can gain one. And a non-terminal run already holding the lock on
+/// the child feature is refused early, before any policy resolution, git
+/// preflight, or parent mutation.
+fn ensure_no_conflicting_session_or_run(
+    layout: &Layout,
+    name: &FeatureName,
+    child: &Feature,
+) -> Result<(), Failure> {
+    if !child.has_any_receipt() && has_live_sessions(layout, name)? {
+        return Err(Failure::blocked(
+            "integration.session_live",
+            format!(
+                "feature `{name}` has a live session; integrating would lock a promotion an unrestricted session could still write"
+            ),
+        )
+        .expected("no live feature session before the first successful receipt")
+        .actual("a session view dir exists under the feature")
+        .fix(FixAction::safe(
+            "integration.stop_session_first",
+            format!("Stop the session first, then run `ivar feature integrate {name}` again."),
+        )));
+    }
+    if let Some(receipt) = RunReceipt::read(layout, name)?
+        && receipt.holds_lock()
+    {
+        return Err(Failure::blocked(
+            "integration.run_active",
+            format!(
+                "feature `{name}` has a {} run (`{}`)",
+                receipt.status, receipt.id
+            ),
+        )
+        .expected("a terminal run receipt before integrating the feature")
+        .actual("the current run is still active and holds the feature lock")
+        .fix(FixAction::safe(
+            "execute.finish_or_interrupt",
+            "Finish, accept the revision, or interrupt the run before integrating the feature.",
+        )));
+    }
+    Ok(())
 }
 
 /// The resolved policy for this run: the first receipt freezes it; otherwise

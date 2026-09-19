@@ -147,13 +147,32 @@ pub(super) fn discover_candidates(temp_dir: &Utf8Path) -> Result<Vec<CandidateSk
 pub fn add(ctx: &Ctx, input: &AddInput) -> Outcome<AddOutcome> {
     let layout = discover_hall(ctx)?;
 
-    // 1. Parse source argument + flags into ExternalRef
     let ext = parse_source(&input.repo, input.path.as_deref(), input.ref_.as_deref())?;
+    let temp_dir = fetch_and_extract(&ext)?;
+    let candidates = discover_candidates(temp_dir.path())?;
+    let filtered = select_candidates(&ext, candidates)?;
+    let chosen = choose_skills(ctx, &ext.repo, &filtered)?;
+    ensure_none_installed(&layout, &chosen)?;
 
-    // 2. Fetch tarball from GitHub
+    let target_root = if input.hall {
+        layout.hall_skills()
+    } else {
+        layout.hall_skills_local()
+    };
+    let mut installed = Vec::new();
+    for c in chosen {
+        installed.push(install_skill(&target_root, &ext, c)?);
+    }
+
+    Ok(Report::new(AddOutcome {
+        root: layout.root().to_path_buf(),
+        skills: installed,
+    }))
+}
+
+fn fetch_and_extract(ext: &ExternalRef) -> Result<fs::TempDir, Failure> {
     let tarball_bytes = crate::infra::github::fetch_tarball(&ext.repo, &ext.git_ref)?;
 
-    // 3. Extract to temporary directory
     let temp_dir = fs::TempDir::new().map_err(|e| {
         Failure::failed(
             "skill.add.temp_dir",
@@ -168,10 +187,13 @@ pub fn add(ctx: &Ctx, input: &AddInput) -> Outcome<AddOutcome> {
         )
     })?;
 
-    // 4. Discover candidate skills
-    let candidates = discover_candidates(temp_dir.path())?;
+    Ok(temp_dir)
+}
 
-    // 5. Filter candidates by ext.path if specified
+fn select_candidates(
+    ext: &ExternalRef,
+    candidates: Vec<CandidateSkill>,
+) -> Result<Vec<CandidateSkill>, Failure> {
     let filtered: Vec<CandidateSkill> = if !ext.path.is_empty() {
         candidates
             .into_iter()
@@ -236,40 +258,51 @@ pub fn add(ctx: &Ctx, input: &AddInput) -> Outcome<AddOutcome> {
         }
     }
 
-    // 6. Select skill(s) to install
-    let chosen: Vec<&CandidateSkill> = if filtered.len() == 1 {
-        filtered.first().into_iter().collect()
-    } else {
-        let select_options: Vec<SelectOption> = filtered
-            .iter()
-            .map(|c| SelectOption {
-                id: c.id.clone(),
-                description: c.description.clone(),
-                path_if_any: c.path.clone(),
-            })
-            .collect();
+    Ok(filtered)
+}
 
-        let prompt = format!("Multiple skills found in {}:", ext.repo);
-        let selected_indices = ctx.confirm.select_many(&prompt, &select_options)?;
-        if selected_indices.is_empty() {
-            return Err(Failure::blocked(
-                "skill.add.none_selected",
-                "no skills were selected for installation",
-            ));
+fn choose_skills<'a>(
+    ctx: &Ctx,
+    ext_repo: &str,
+    filtered: &'a [CandidateSkill],
+) -> Result<Vec<&'a CandidateSkill>, Failure> {
+    if filtered.len() == 1 {
+        return Ok(filtered.first().into_iter().collect());
+    }
+
+    let select_options: Vec<SelectOption> = filtered
+        .iter()
+        .map(|c| SelectOption {
+            id: c.id.clone(),
+            description: c.description.clone(),
+            path_if_any: c.path.clone(),
+        })
+        .collect();
+
+    let prompt = format!("Multiple skills found in {ext_repo}:");
+    let selected_indices = ctx.confirm.select_many(&prompt, &select_options)?;
+    if selected_indices.is_empty() {
+        return Err(Failure::blocked(
+            "skill.add.none_selected",
+            "no skills were selected for installation",
+        ));
+    }
+
+    let mut chosen = Vec::new();
+    for &idx in &selected_indices {
+        if let Some(c) = filtered.get(idx) {
+            chosen.push(c);
         }
+    }
+    Ok(chosen)
+}
 
-        let mut chosen = Vec::new();
-        for &idx in &selected_indices {
-            if let Some(c) = filtered.get(idx) {
-                chosen.push(c);
-            }
-        }
-        chosen
-    };
-
-    // 7. Refuse if any chosen skill already exists in either root
-    for c in &chosen {
-        if let Some((dir, _root)) = super::enumerate::resolve(&layout, &c.id)? {
+fn ensure_none_installed(
+    layout: &crate::store::layout::Layout,
+    chosen: &[&CandidateSkill],
+) -> Result<(), Failure> {
+    for c in chosen {
+        if let Some((dir, _root)) = super::enumerate::resolve(layout, &c.id)? {
             return Err(Failure::blocked(
                 "skill.add.already_exists",
                 format!("skill `{}` already exists at `{}`", c.id, dir),
@@ -288,74 +321,66 @@ pub fn add(ctx: &Ctx, input: &AddInput) -> Outcome<AddOutcome> {
             )));
         }
     }
+    Ok(())
+}
 
-    // 8. Install each chosen skill
-    let mut installed = Vec::new();
-    let target_root = if input.hall {
-        layout.hall_skills()
-    } else {
-        layout.hall_skills_local()
-    };
+fn install_skill(
+    target_root: &Utf8Path,
+    ext: &ExternalRef,
+    c: &CandidateSkill,
+) -> Result<InstalledSkill, Failure> {
+    let target_dir = target_root.join(&c.id);
+    fs::copy_dir(&c.dir, &target_dir).map_err(|e| {
+        Failure::failed(
+            "skill.add.copy_failed",
+            format!("could not copy skill `{}`: {e}", c.id),
+        )
+    })?;
 
-    for c in chosen {
-        let target_dir = target_root.join(&c.id);
-        fs::copy_dir(&c.dir, &target_dir).map_err(|e| {
-            Failure::failed(
-                "skill.add.copy_failed",
-                format!("could not copy skill `{}`: {e}", c.id),
-            )
-        })?;
-
-        let skill_file = target_dir.join("SKILL.md");
-        if fs::exists(&skill_file)? {
-            let raw = fs::read_text(&skill_file)?.unwrap_or_default();
-            let mut fm = crate::store::skill::parse_frontmatter(&raw)
-                .ok()
-                .flatten()
-                .unwrap_or_else(|| crate::domain::skill::SkillFrontmatter {
-                    name: c.id.clone(),
-                    description: c.description.clone(),
-                    source: None,
-                });
-
-            fm.source = Some(ExternalRef {
-                repo: ext.repo.clone(),
-                path: c.path.clone(),
-                git_ref: ext.git_ref.clone(),
+    let skill_file = target_dir.join("SKILL.md");
+    if fs::exists(&skill_file)? {
+        let raw = fs::read_text(&skill_file)?.unwrap_or_default();
+        let mut fm = crate::store::skill::parse_frontmatter(&raw)
+            .ok()
+            .flatten()
+            .unwrap_or_else(|| crate::domain::skill::SkillFrontmatter {
+                name: c.id.clone(),
+                description: c.description.clone(),
+                source: None,
             });
 
-            let new_raw = frontmatter::replace(&raw, &fm).map_err(|e| {
-                Failure::failed(
-                    "skill.add.frontmatter_error",
-                    format!("could not serialize frontmatter: {e}"),
-                )
-            })?;
+        fm.source = Some(ExternalRef {
+            repo: ext.repo.clone(),
+            path: c.path.clone(),
+            git_ref: ext.git_ref.clone(),
+        });
 
-            fs::write_text(&skill_file, &new_raw).map_err(|e| {
-                Failure::failed(
-                    "skill.add.write_error",
-                    format!("could not update SKILL.md: {e}"),
-                )
-            })?;
-        }
-
-        let repo_id = RepoName::new(&c.id).map_err(|e| {
+        let new_raw = frontmatter::replace(&raw, &fm).map_err(|e| {
             Failure::failed(
-                "skill.add.invalid_id",
-                format!("invalid skill id `{}`: {e}", c.id),
+                "skill.add.frontmatter_error",
+                format!("could not serialize frontmatter: {e}"),
             )
         })?;
 
-        installed.push(InstalledSkill {
-            id: repo_id,
-            skill_file,
-        });
+        fs::write_text(&skill_file, &new_raw).map_err(|e| {
+            Failure::failed(
+                "skill.add.write_error",
+                format!("could not update SKILL.md: {e}"),
+            )
+        })?;
     }
 
-    Ok(Report::new(AddOutcome {
-        root: layout.root().to_path_buf(),
-        skills: installed,
-    }))
+    let repo_id = RepoName::new(&c.id).map_err(|e| {
+        Failure::failed(
+            "skill.add.invalid_id",
+            format!("invalid skill id `{}`: {e}", c.id),
+        )
+    })?;
+
+    Ok(InstalledSkill {
+        id: repo_id,
+        skill_file,
+    })
 }
 
 #[cfg(test)]

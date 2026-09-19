@@ -131,7 +131,41 @@ pub fn convert(ctx: &Ctx, input: &ConvertInput) -> Outcome<ConvertOutcome> {
     }
 
     // 2. Locate the session and verify it is a discovery session.
-    let session = lookup::resolve(&layout, Some(&input.session_id), None)?;
+    let session = resolve_discovery_session(&layout, &input.session_id)?;
+
+    // The name is the session's, not the caller's: find the discovery doc
+    // that lists this session. Conversion promotes a name; it never
+    // chooses one (ADR-0002, D9).
+    let feature_name = find_owning_feature_name(ctx, &layout, &session.id)?;
+
+    // 3. The feature is created when it does not exist. Under D9 that is
+    //    the normal case: the discovery came first, and conversion is what
+    //    promotes it. An existing feature of the same name is bound as-is
+    //    (D3: the reverse order is allowed too).
+    let feature = ensure_target_feature(ctx, &layout, &feature_name)?;
+
+    // Converting a discovery session into an unrestricted feature session
+    // must not hand it a locked promotion; refused before the transition
+    // marker or any view move.
+    crate::action::feature::ensure_unrestricted_session_allowed(&layout, &feature)?;
+
+    // 4. Record the transition, then run the (idempotent, resumable) steps.
+    let transition = Transition {
+        session_id: session.id.clone(),
+        source: session.view_dir.clone(),
+        feature: feature_name.clone(),
+        step: Step::LiftDiscovery,
+    };
+    write_transition(&layout, &feature_name, &transition)?;
+    let outcome = run_conversion(&layout, &manifest, &feature_name, &feature, transition)?;
+    Ok(mark_discovery_converted(ctx, &feature_name, outcome))
+}
+
+fn resolve_discovery_session(
+    layout: &Layout,
+    session_id: &str,
+) -> Result<crate::domain::session::SessionRef, Failure> {
+    let session = lookup::resolve(layout, Some(session_id), None)?;
     let state = session.state.as_ref().ok_or_else(|| {
         Failure::blocked(
             "session.state_missing",
@@ -162,10 +196,14 @@ pub fn convert(ctx: &Ctx, input: &ConvertInput) -> Outcome<ConvertOutcome> {
             "Conversion is one-way; a bound session cannot be converted again.",
         )));
     }
+    Ok(session)
+}
 
-    // The name is the session's, not the caller's: find the discovery doc
-    // that lists this session. Conversion promotes a name; it never
-    // chooses one (ADR-0002, D9).
+fn find_owning_feature_name(
+    ctx: &Ctx,
+    layout: &Layout,
+    session_id: &SessionId,
+) -> Result<FeatureName, Failure> {
     let listed = crate::action::discovery::list::list(
         ctx,
         &crate::action::discovery::list::ListInput { status: None },
@@ -196,7 +234,7 @@ pub fn convert(ctx: &Ctx, input: &ConvertInput) -> Outcome<ConvertOutcome> {
             .frontmatter
             .sessions
             .iter()
-            .any(|id| id == session.id.as_str())
+            .any(|id| id == session_id.as_str())
         {
             let resolved_name = match fallback_name {
                 Some(f) => f,
@@ -223,43 +261,41 @@ pub fn convert(ctx: &Ctx, input: &ConvertInput) -> Outcome<ConvertOutcome> {
         }
     }
 
-    let feature_name = match matching_names.len() {
-        0 => {
-            return Err(Failure::blocked(
-                "session.convert_no_discovery",
-                format!("no discovery doc names session `{}`", session.id),
-            )
-            .expected("a session recorded in exactly one discovery doc's `sessions`")
-            .actual("no discovery doc lists this session")
-            .fix(FixAction::safe(
-                "discovery.amend_first",
-                "Write the discovery first — `ivar discovery amend <name>` from inside the session — then convert.",
-            )));
-        }
+    match matching_names.len() {
+        0 => Err(Failure::blocked(
+            "session.convert_no_discovery",
+            format!("no discovery doc names session `{session_id}`"),
+        )
+        .expected("a session recorded in exactly one discovery doc's `sessions`")
+        .actual("no discovery doc lists this session")
+        .fix(FixAction::safe(
+            "discovery.amend_first",
+            "Write the discovery first — `ivar discovery amend <name>` from inside the session — then convert.",
+        ))),
         1 => match matching_names.pop() {
-            Some(name) => name,
+            Some(name) => Ok(name),
             None => unreachable!("length checked"),
         },
-        count => {
-            return Err(Failure::blocked(
-                "session.convert_discovery_ambiguous",
-                format!("session `{}` is listed by {count} discovery docs", session.id),
-            )
-            .expected("a session recorded in exactly one discovery doc")
-            .actual("more than one discovery doc claims the session")
-            .fix(FixAction::safe(
-                "discovery.remove_duplicate_session",
-                "Remove the session id from every discovery doc except the one it belongs to, then convert again.",
-            )));
-        }
-    };
+        count => Err(Failure::blocked(
+            "session.convert_discovery_ambiguous",
+            format!("session `{session_id}` is listed by {count} discovery docs"),
+        )
+        .expected("a session recorded in exactly one discovery doc")
+        .actual("more than one discovery doc claims the session")
+        .fix(FixAction::safe(
+            "discovery.remove_duplicate_session",
+            "Remove the session id from every discovery doc except the one it belongs to, then convert again.",
+        ))),
+    }
+}
 
-    // 3. The feature is created when it does not exist. Under D9 that is
-    //    the normal case: the discovery came first, and conversion is what
-    //    promotes it. An existing feature of the same name is bound as-is
-    //    (D3: the reverse order is allowed too).
-    let feature = match Feature::read(&layout, &feature_name)? {
-        Some(feature) => feature,
+fn ensure_target_feature(
+    ctx: &Ctx,
+    layout: &Layout,
+    feature_name: &FeatureName,
+) -> Result<Feature, Failure> {
+    match Feature::read(layout, feature_name)? {
+        Some(feature) => Ok(feature),
         None => {
             crate::action::feature::create::create(
                 ctx,
@@ -272,30 +308,14 @@ pub fn convert(ctx: &Ctx, input: &ConvertInput) -> Outcome<ConvertOutcome> {
                     strategy: None,
                 },
             )?;
-            Feature::read(&layout, &feature_name)?.ok_or_else(|| {
+            Feature::read(layout, feature_name)?.ok_or_else(|| {
                 Failure::failed(
                     "session.convert_feature_vanished",
                     format!("created feature `{feature_name}` but could not read it back"),
                 )
-            })?
+            })
         }
-    };
-
-    // Converting a discovery session into an unrestricted feature session
-    // must not hand it a locked promotion; refused before the transition
-    // marker or any view move.
-    crate::action::feature::ensure_unrestricted_session_allowed(&layout, &feature)?;
-
-    // 4. Record the transition, then run the (idempotent, resumable) steps.
-    let transition = Transition {
-        session_id: session.id.clone(),
-        source: session.view_dir.clone(),
-        feature: feature_name.clone(),
-        step: Step::LiftDiscovery,
-    };
-    write_transition(&layout, &feature_name, &transition)?;
-    let outcome = run_conversion(&layout, &manifest, &feature_name, &feature, transition)?;
-    Ok(mark_discovery_converted(ctx, &feature_name, outcome))
+    }
 }
 
 /// Resume an interrupted conversion. The marker's record is authoritative —

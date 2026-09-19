@@ -73,6 +73,14 @@ use ivar::error::{Failure, Outcome, Palette, Report, WriteHuman};
 use ivar::infra::progress;
 use ivar::infra::term;
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "flat match over Command subcommands — each arm parses CLI args \
+              into one *Input and delegates to one action fn's public entry \
+              point; Wave 7's 21-thin-binary-main.md moves this dispatch into \
+              the lib, so splitting the match into ad hoc helpers now would \
+              only be undone by that later restructuring"
+)]
 fn main() -> ExitCode {
     let cli = Cli::parse();
     let json = cli.json;

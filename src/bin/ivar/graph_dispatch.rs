@@ -132,6 +132,12 @@ where
     exit
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "flat match over GraphCommand subcommands — each arm builds one \
+              *Input and delegates to an already-extracted *_cmd/respond_* \
+              helper; there is no shared logic here to pull into a function"
+)]
 pub(super) fn dispatch_graph(
     cmd: GraphCommand,
     ctx: &Ctx,
