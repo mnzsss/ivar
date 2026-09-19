@@ -23,7 +23,7 @@ use serde::Serialize;
 
 use crate::domain::name::{BranchName, RepoName};
 use crate::error::{Failure, FixAction, Outcome, Report, WriteHuman};
-use crate::git::{self, Git, TargetState};
+use crate::git::{self, TargetState};
 use crate::infra::fs;
 use crate::store::manifest::{Manifest, Repo};
 
@@ -94,93 +94,26 @@ pub fn add(ctx: &Ctx, input: AddInput) -> Outcome<AddOutcome> {
     let git = git::System;
 
     let name = RepoName::new(input.name)?;
-    let default_branch = match input.default_branch.as_deref() {
-        Some(raw) => BranchName::new(raw)?,
-        None => BranchName::new("main").map_err(|_| {
-            Failure::blocked(
-                "repo.add_needs_branch",
-                "cannot default to `main`: `main` is not a valid branch name",
-            )
-            .expected("a valid default branch")
-            .actual("`main` was refused by git's branch-name rules")
-            .fix(FixAction::safe(
-                "repo.pass_branch",
-                "Pass --default-branch with a branch name git accepts.",
-            ))
-        })?,
-    };
+    let default_branch = resolve_default_branch(input.default_branch.as_deref())?;
 
     // Collision 1: the name must be free.
     super::ensure_name_free(&manifest, &name)?;
 
     // Collision 2: the URL must not already be tracked under another name.
-    if let Some(existing) = manifest
-        .repos()
-        .iter()
-        .find(|r| r.url() == input.url && r.ref_prefix() == input.ref_prefix.as_deref())
-    {
-        return Err(Failure::blocked(
-            "repo.url_exists",
-            format!(
-                "`{}` is already tracked as `{}`",
-                input.url,
-                existing.name()
-            ),
-        )
-        .expected("a URL not already in the manifest")
-        .actual(format!("`{}` already points at this URL", existing.name()))
-        .fix(FixAction::safe(
-            "repo.use_existing",
-            format!("Use the existing entry `{}` instead.", existing.name()),
-        )));
-    }
+    ensure_url_free(&manifest, &input.url, input.ref_prefix.as_deref())?;
 
     let bare = layout.repo_bare(&name);
     let worktree = layout.repo_worktree(&name, &default_branch);
 
     // Collision 3: a bare clone already on disk — reuse, replace, or block.
-    let bare_clone_reused = match git.target_state(&bare)? {
-        TargetState::Repository => match input.reuse_existing {
-            Some(true) => {
-                // An adopted bare is not one this build cloned: it may have
-                // been made by hand, or by a version that configured no
-                // remote-tracking refspec. Without one `refs/remotes/` stays
-                // empty, and a `--force-with-lease` in the worktree this hands
-                // back refuses with "stale info".
-                git.ensure_remote_tracking(&bare)?;
-                true
-            }
-            Some(false) => {
-                // `--fresh` means "clone it anew": the bare clone goes, and
-                // with it the worktree that pointed at it — a worktree whose
-                // gitdir names a removed repository is an orphan that no
-                // `target_state` probe can recognise.
-                fs::remove_path(&bare)?;
-                fs::remove_path(&worktree)?;
-                ensure_bare(&git, &input.url, input.ref_prefix.as_deref(), &bare)?;
-                false
-            }
-            None => {
-                return Err(bare_exists_ask(&bare));
-            }
-        },
-        TargetState::Occupied => {
-            return Err(Failure::blocked(
-                "repo.bare_occupied",
-                format!("`{bare}` exists but is not a git repository"),
-            )
-            .expected("a bare clone, or nothing at all")
-            .actual("a directory git does not recognise")
-            .fix(FixAction::unsafe_(
-                "repo.clear_bare",
-                format!("Remove `{bare}` and run `ivar repo add` again."),
-            )));
-        }
-        TargetState::Absent => {
-            ensure_bare(&git, &input.url, input.ref_prefix.as_deref(), &bare)?;
-            false
-        }
-    };
+    let bare_clone_reused = resolve_bare_clone(
+        &git,
+        &input.url,
+        input.ref_prefix.as_deref(),
+        input.reuse_existing,
+        &bare,
+        &worktree,
+    )?;
 
     ensure_worktree(&git, &bare, &worktree, &default_branch)?;
 
@@ -202,6 +135,96 @@ pub fn add(ctx: &Ctx, input: AddInput) -> Outcome<AddOutcome> {
         bare_clone_reused,
         next_action: format!("/ivar-relations {name}"),
     }))
+}
+
+fn resolve_default_branch(raw: Option<&str>) -> Result<BranchName, Failure> {
+    match raw {
+        Some(raw) => Ok(BranchName::new(raw)?),
+        None => BranchName::new("main").map_err(|_| {
+            Failure::blocked(
+                "repo.add_needs_branch",
+                "cannot default to `main`: `main` is not a valid branch name",
+            )
+            .expected("a valid default branch")
+            .actual("`main` was refused by git's branch-name rules")
+            .fix(FixAction::safe(
+                "repo.pass_branch",
+                "Pass --default-branch with a branch name git accepts.",
+            ))
+        }),
+    }
+}
+
+fn ensure_url_free(
+    manifest: &Manifest,
+    url: &str,
+    ref_prefix: Option<&str>,
+) -> Result<(), Failure> {
+    if let Some(existing) = manifest
+        .repos()
+        .iter()
+        .find(|r| r.url() == url && r.ref_prefix() == ref_prefix)
+    {
+        return Err(Failure::blocked(
+            "repo.url_exists",
+            format!("`{url}` is already tracked as `{}`", existing.name()),
+        )
+        .expected("a URL not already in the manifest")
+        .actual(format!("`{}` already points at this URL", existing.name()))
+        .fix(FixAction::safe(
+            "repo.use_existing",
+            format!("Use the existing entry `{}` instead.", existing.name()),
+        )));
+    }
+    Ok(())
+}
+
+fn resolve_bare_clone(
+    git: &impl git::Git,
+    url: &str,
+    ref_prefix: Option<&str>,
+    reuse_existing: Option<bool>,
+    bare: &camino::Utf8Path,
+    worktree: &camino::Utf8Path,
+) -> Result<bool, Failure> {
+    match git.target_state(bare)? {
+        TargetState::Repository => match reuse_existing {
+            Some(true) => {
+                // An adopted bare is not one this build cloned: it may have
+                // been made by hand, or by a version that configured no
+                // remote-tracking refspec. Without one `refs/remotes/` stays
+                // empty, and a `--force-with-lease` in the worktree this hands
+                // back refuses with "stale info".
+                git.ensure_remote_tracking(bare)?;
+                Ok(true)
+            }
+            Some(false) => {
+                // `--fresh` means "clone it anew": the bare clone goes, and
+                // with it the worktree that pointed at it — a worktree whose
+                // gitdir names a removed repository is an orphan that no
+                // `target_state` probe can recognise.
+                fs::remove_path(bare)?;
+                fs::remove_path(worktree)?;
+                ensure_bare(git, url, ref_prefix, bare)?;
+                Ok(false)
+            }
+            None => Err(bare_exists_ask(bare)),
+        },
+        TargetState::Occupied => Err(Failure::blocked(
+            "repo.bare_occupied",
+            format!("`{bare}` exists but is not a git repository"),
+        )
+        .expected("a bare clone, or nothing at all")
+        .actual("a directory git does not recognise")
+        .fix(FixAction::unsafe_(
+            "repo.clear_bare",
+            format!("Remove `{bare}` and run `ivar repo add` again."),
+        ))),
+        TargetState::Absent => {
+            ensure_bare(git, url, ref_prefix, bare)?;
+            Ok(false)
+        }
+    }
 }
 
 /// A bare clone already sits at `path` and the caller gave no direction.

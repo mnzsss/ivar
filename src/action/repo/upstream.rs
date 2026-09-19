@@ -82,10 +82,46 @@ pub fn upstream(ctx: &Ctx, input: UpstreamInput) -> Outcome<UpstreamOutcome> {
     let manifest = read_manifest(&layout)?;
 
     let name = RepoName::new(input.repo)?;
+    ensure_repo_declared(&manifest, &name)?;
+    ensure_url_or_remove(input.remove, &input.url)?;
+    let bare = ensure_bare_exists(&layout, &name)?;
+
+    // `git remote get-url upstream` exiting non-zero is the answer "the
+    // remote does not exist yet" — the exit code is data, not an error.
+    let probe = proc::capture(&git_remote(&bare, &["get-url", REMOTE]))?;
+    let added = !probe.success();
+
+    if input.remove {
+        if !added {
+            remove_upstream_remote(&bare, &name, added)?;
+        }
+        return Ok(Report::new(UpstreamOutcome {
+            root: layout.root().to_path_buf(),
+            repo: name,
+            remote: REMOTE.to_owned(),
+            url: String::new(),
+            added: false,
+        }));
+    }
+
+    set_upstream_remote(&bare, &name, added, &input.url)?;
+    Ok(Report::new(UpstreamOutcome {
+        root: layout.root().to_path_buf(),
+        repo: name,
+        remote: REMOTE.to_owned(),
+        url: input.url,
+        added,
+    }))
+}
+
+fn ensure_repo_declared(
+    manifest: &crate::store::manifest::Manifest,
+    name: &RepoName,
+) -> Result<(), Failure> {
     manifest
         .repos()
         .iter()
-        .find(|repo| repo.name() == &name)
+        .find(|repo| repo.name() == name)
         .ok_or_else(|| {
             Failure::blocked(
                 "repo.upstream_repo_not_found",
@@ -98,12 +134,13 @@ pub fn upstream(ctx: &Ctx, input: UpstreamInput) -> Outcome<UpstreamOutcome> {
                 format!("Add it first with `ivar repo add {name}`."),
             ))
         })?;
+    Ok(())
+}
 
-    // Refused before anything is written: a blank upstream never reaches git,
-    // so the bare clone's config stays untouched. Removal is the one path a
-    // blank URL is valid — it is the whole point of `--remove`.
-    let remove = input.remove;
-    let url = input.url;
+// Refused before anything is written: a blank upstream never reaches git, so
+// the bare clone's config stays untouched. Removal is the one path a blank
+// URL is valid — it is the whole point of `--remove`.
+fn ensure_url_or_remove(remove: bool, url: &str) -> Result<(), Failure> {
     if !remove && url.trim().is_empty() {
         return Err(Failure::blocked(
             "repo.upstream_invalid_url",
@@ -116,68 +153,57 @@ pub fn upstream(ctx: &Ctx, input: UpstreamInput) -> Outcome<UpstreamOutcome> {
             "Pass the upstream URL explicitly, e.g. `ivar repo upstream <repo> git@github.com:owner/repo.git`.",
         )));
     }
+    Ok(())
+}
 
-    let bare = layout.repo_bare(&name);
+fn ensure_bare_exists(
+    layout: &crate::store::layout::Layout,
+    name: &RepoName,
+) -> Result<Utf8PathBuf, Failure> {
+    let bare = layout.repo_bare(name);
     match git::System.target_state(&bare)? {
-        TargetState::Repository => {}
-        _ => {
-            return Err(Failure::blocked(
-                "repo.upstream_bare_missing",
-                format!("`{bare}` is not a materialised bare clone for `{name}`"),
+        TargetState::Repository => Ok(bare),
+        _ => Err(Failure::blocked(
+            "repo.upstream_bare_missing",
+            format!("`{bare}` is not a materialised bare clone for `{name}`"),
+        )
+        .expected("the repo's bare clone to exist under `.ivar/`")
+        .actual("it is missing, or is not a git repository")
+        .fix(
+            FixAction::safe(
+                "repo.sync_first",
+                "Run `ivar sync` to materialise the clone, then set the upstream again.",
             )
-            .expected("the repo's bare clone to exist under `.ivar/`")
-            .actual("it is missing, or is not a git repository")
-            .fix(
-                FixAction::safe(
-                    "repo.sync_first",
-                    "Run `ivar sync` to materialise the clone, then set the upstream again.",
-                )
-                .command("ivar sync"),
-            ));
-        }
+            .command("ivar sync"),
+        )),
     }
+}
 
-    // `git remote get-url upstream` exiting non-zero is the answer "the
-    // remote does not exist yet" — the exit code is data, not an error.
-    let probe = proc::capture(&git_remote(&bare, &["get-url", REMOTE]))?;
-    let added = !probe.success();
-
-    if remove {
-        if added {
-            // Nothing to remove — the remote was never there. A no-op that
-            // says so is more honest than an error.
-            return Ok(Report::new(UpstreamOutcome {
-                root: layout.root().to_path_buf(),
-                repo: name,
-                remote: REMOTE.to_owned(),
-                url: String::new(),
-                added: false,
-            }));
-        }
-        let output = proc::capture(&git_remote(&bare, &["remove", REMOTE]))?;
-        if !output.success() {
-            return Err(Failure::failed(
-                "repo.upstream_git_refused",
-                format!("`git remote remove {REMOTE}` failed for `{name}`"),
-            )
-            .expected("git to drop the `upstream` remote")
-            .actual(output.diagnostic())
-            .fix(FixAction::safe(
-                "repo.upstream_read_git_error",
-                "Run the command shown above by hand — git's own message names what it needs.",
-            )));
-        }
-        return Ok(Report::new(UpstreamOutcome {
-            root: layout.root().to_path_buf(),
-            repo: name,
-            remote: REMOTE.to_owned(),
-            url: String::new(),
-            added: false,
-        }));
+fn remove_upstream_remote(bare: &Utf8Path, name: &RepoName, _added: bool) -> Result<(), Failure> {
+    let output = proc::capture(&git_remote(bare, &["remove", REMOTE]))?;
+    if !output.success() {
+        return Err(Failure::failed(
+            "repo.upstream_git_refused",
+            format!("`git remote remove {REMOTE}` failed for `{name}`"),
+        )
+        .expected("git to drop the `upstream` remote")
+        .actual(output.diagnostic())
+        .fix(FixAction::safe(
+            "repo.upstream_read_git_error",
+            "Run the command shown above by hand — git's own message names what it needs.",
+        )));
     }
+    Ok(())
+}
 
+fn set_upstream_remote(
+    bare: &Utf8Path,
+    name: &RepoName,
+    added: bool,
+    url: &str,
+) -> Result<(), Failure> {
     let verb = if added { "add" } else { "set-url" };
-    let output = proc::capture(&git_remote(&bare, &[verb, REMOTE]).arg(&url))?;
+    let output = proc::capture(&git_remote(bare, &[verb, REMOTE]).arg(url))?;
     if !output.success() {
         return Err(Failure::failed(
             "repo.upstream_git_refused",
@@ -190,14 +216,7 @@ pub fn upstream(ctx: &Ctx, input: UpstreamInput) -> Outcome<UpstreamOutcome> {
             "Run the command shown above by hand — git's own message names what it needs.",
         )));
     }
-
-    Ok(Report::new(UpstreamOutcome {
-        root: layout.root().to_path_buf(),
-        repo: name,
-        remote: REMOTE.to_owned(),
-        url,
-        added,
-    }))
+    Ok(())
 }
 
 /// `git --git-dir <bare> remote <args...>` — remote management runs against

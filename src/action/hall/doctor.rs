@@ -70,6 +70,25 @@ pub fn doctor(ctx: &Ctx) -> Outcome<DoctorOutcome> {
     let manifest = read_manifest(&layout)?;
     let git = git::System;
 
+    let mut findings = diagnose_repos(&manifest, &layout, &git)?;
+    findings.extend(diagnose_provider_commands(&manifest, &layout));
+    findings.extend(diagnose_provider_skills(&manifest, &layout));
+    findings.extend(diagnose_instructions(&manifest, &layout));
+    findings.extend(graph_diagnoses(&layout, &manifest, &git));
+    findings.extend(diagnose_orphaned_runs(&layout)?);
+    check_legacy_working_docs(&layout, &mut findings)?;
+
+    Ok(Report::new(DoctorOutcome {
+        root: layout.root().to_path_buf(),
+        findings,
+    }))
+}
+
+fn diagnose_repos(
+    manifest: &Manifest,
+    layout: &Layout,
+    git: &impl Git,
+) -> Result<Vec<Diagnosis>, Failure> {
     let mut findings = Vec::new();
     for repo in manifest.repos() {
         let bare = layout.repo_bare(repo.name());
@@ -107,10 +126,14 @@ pub fn doctor(ctx: &Ctx) -> Outcome<DoctorOutcome> {
             }
         }
     }
+    Ok(findings)
+}
 
-    // Shipped workflow commands: a missing or modified official command is a
-    // problem worth naming, but a *convenience* one — it never changes hall
-    // health and never blocks session start. `ivar sync` is the repair.
+// Shipped workflow commands: a missing or modified official command is a
+// problem worth naming, but a *convenience* one — it never changes hall
+// health and never blocks session start. `ivar sync` is the repair.
+fn diagnose_provider_commands(manifest: &Manifest, layout: &Layout) -> Vec<Diagnosis> {
+    let mut findings = Vec::new();
     for provider in Provider::ALL {
         let enabled = manifest.providers().available().contains(&provider);
         let dir = layout.commands_dir(&provider);
@@ -129,9 +152,14 @@ pub fn doctor(ctx: &Ctx) -> Outcome<DoctorOutcome> {
             }),
         }
     }
-    // Shipped workflow skills: a missing or modified official skill is a
-    // problem worth naming, but a *convenience* one — it never changes hall
-    // health and never blocks session start. `ivar sync` is the repair.
+    findings
+}
+
+// Shipped workflow skills: a missing or modified official skill is a
+// problem worth naming, but a *convenience* one — it never changes hall
+// health and never blocks session start. `ivar sync` is the repair.
+fn diagnose_provider_skills(manifest: &Manifest, layout: &Layout) -> Vec<Diagnosis> {
+    let mut findings = Vec::new();
     for provider in Provider::ALL {
         let enabled = manifest.providers().available().contains(&provider);
         let dir = layout.skills_dir(&provider);
@@ -150,12 +178,16 @@ pub fn doctor(ctx: &Ctx) -> Outcome<DoctorOutcome> {
             }),
         }
     }
+    findings
+}
 
-    // Root instruction topology: `HALL.md` and every provider alias. Each
-    // non-current state is one finding — every applicable one in a single
-    // run. `ivar sync` repairs the automatic cases; an enabled regular alias
-    // is preserved by design, so its fix is the human adoption checklist.
-    let aliases = crate::action::collect_instruction_aliases(&layout, &manifest);
+// Root instruction topology: `HALL.md` and every provider alias. Each
+// non-current state is one finding — every applicable one in a single
+// run. `ivar sync` repairs the automatic cases; an enabled regular alias
+// is preserved by design, so its fix is the human adoption checklist.
+fn diagnose_instructions(manifest: &Manifest, layout: &Layout) -> Vec<Diagnosis> {
+    let mut findings = Vec::new();
+    let aliases = crate::action::collect_instruction_aliases(layout, manifest);
     let block = build_block(
         manifest.name(),
         &manifest
@@ -178,16 +210,18 @@ pub fn doctor(ctx: &Ctx) -> Outcome<DoctorOutcome> {
             fix: "Run `ivar sync` to reconcile them.".to_owned(),
         }),
     }
+    findings
+}
 
-    findings.extend(graph_diagnoses(&layout, &manifest, &git));
-
-    // In-flight run receipts: `active` means a coordinator is attached and
-    // work is in flight, so the coordinating session must be alive. When its
-    // View Dir is gone the run is stranded — it still holds the feature's
-    // single-run lock, so no competing run can start and nothing can finish
-    // it. `blocked` and `diverged` deliberately wait on a human with no live
-    // coordinator, so only `active` is orphan-checked.
-    for (feature, receipt) in in_flight_receipts(&layout)? {
+// In-flight run receipts: `active` means a coordinator is attached and
+// work is in flight, so the coordinating session must be alive. When its
+// View Dir is gone the run is stranded — it still holds the feature's
+// single-run lock, so no competing run can start and nothing can finish
+// it. `blocked` and `diverged` deliberately wait on a human with no live
+// coordinator, so only `active` is orphan-checked.
+fn diagnose_orphaned_runs(layout: &Layout) -> Result<Vec<Diagnosis>, Failure> {
+    let mut findings = Vec::new();
+    for (feature, receipt) in in_flight_receipts(layout)? {
         let plan = receipt.plan_path.to_string();
         if !receipt.coordinators.iter().any(|entry| {
             fs::is_dir(&layout.feature_session(&feature, &entry.session)).unwrap_or(false)
@@ -206,13 +240,7 @@ pub fn doctor(ctx: &Ctx) -> Outcome<DoctorOutcome> {
             });
         }
     }
-
-    check_legacy_working_docs(&layout, &mut findings)?;
-
-    Ok(Report::new(DoctorOutcome {
-        root: layout.root().to_path_buf(),
-        findings,
-    }))
+    Ok(findings)
 }
 
 /// Every feature's current receipt that is still in flight — non-terminal.

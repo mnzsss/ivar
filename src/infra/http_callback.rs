@@ -275,40 +275,7 @@ impl CallbackServer {
             )
         })?;
 
-        let mut buf = Vec::new();
-        let mut tmp_buf = [0u8; 1024];
-        loop {
-            let n = stream.read(&mut tmp_buf).map_err(|e| {
-                Failure::failed(
-                    "callback.read_failed",
-                    format!("could not read request: {e}"),
-                )
-            })?;
-
-            if n == 0 {
-                return Err(Failure::failed(
-                    "callback.read_failed",
-                    "client closed connection before sending complete request headers",
-                ));
-            }
-
-            buf.extend_from_slice(tmp_buf.get(..n).unwrap_or(&[]));
-
-            if buf.len() > MAX_READ {
-                return Err(Failure::failed(
-                    "callback.request_too_large",
-                    "request headers too large",
-                ));
-            }
-
-            if buf.windows(4).any(|w| w == b"\r\n\r\n") {
-                break;
-            }
-        }
-
-        let request = String::from_utf8_lossy(&buf);
-        let request = request.into_owned();
-
+        let request = Self::read_request_headers(&mut stream)?;
         let (method, path, query) = Self::parse_request_line(&request);
 
         if method != "GET" {
@@ -342,61 +309,102 @@ impl CallbackServer {
         }
 
         let params = Self::parse_query(&query);
-        let state = params.get("state").map(String::as_str).unwrap_or("");
-        let code = params.get("code").map(String::as_str);
-
-        if params.contains_key("error") {
-            Self::respond(
-                &mut stream,
-                400,
-                "Bad Request",
-                "<html><body><h1>400</h1><p>OAuth error.</p></body></html>",
-            );
-            return Err(
-                Failure::failed("callback.oauth_error", "OAuth authorization error")
-                    .expected("code")
-                    .actual("error response"),
-            );
-        }
-
-        if state != expected_state {
-            Self::respond(
-                &mut stream,
-                400,
-                "Bad Request",
-                "<html><body><h1>400</h1><p>Invalid state parameter.</p></body></html>",
-            );
-            return Err(Failure::failed(
-                "callback.state_mismatch",
-                "OAuth state parameter did not match",
-            )
-            .expected("state to match"));
-        }
-
-        match code {
-            Some(c) if !c.is_empty() => {
+        match Self::evaluate_callback(&params, expected_state) {
+            Ok(code) => {
                 Self::respond(
                     &mut stream,
                     200,
                     "OK",
                     "<html><body><h1>Authenticated</h1><p>You may return to the terminal.</p></body></html>",
                 );
-                Ok(AuthorizationCode(c.to_owned()))
+                Ok(code)
             }
-            _ => {
-                Self::respond(
-                    &mut stream,
-                    400,
-                    "Bad Request",
-                    "<html><body><h1>400</h1><p>Missing authorization code.</p></body></html>",
-                );
-                Err(Failure::failed(
+            Err((status, reason, body, failure)) => {
+                Self::respond(&mut stream, status, reason, body);
+                Err(failure)
+            }
+        }
+    }
+
+    fn read_request_headers(stream: &mut TcpStream) -> Result<String, Failure> {
+        let mut buf = Vec::new();
+        let mut tmp_buf = [0u8; 1024];
+        loop {
+            let n = stream.read(&mut tmp_buf).map_err(|e| {
+                Failure::failed(
+                    "callback.read_failed",
+                    format!("could not read request: {e}"),
+                )
+            })?;
+
+            if n == 0 {
+                return Err(Failure::failed(
+                    "callback.read_failed",
+                    "client closed connection before sending complete request headers",
+                ));
+            }
+
+            buf.extend_from_slice(tmp_buf.get(..n).unwrap_or(&[]));
+
+            if buf.len() > MAX_READ {
+                return Err(Failure::failed(
+                    "callback.request_too_large",
+                    "request headers too large",
+                ));
+            }
+
+            if buf.windows(4).any(|w| w == b"\r\n\r\n") {
+                break;
+            }
+        }
+
+        Ok(String::from_utf8_lossy(&buf).into_owned())
+    }
+
+    fn evaluate_callback(
+        params: &std::collections::HashMap<String, String>,
+        expected_state: &str,
+    ) -> Result<AuthorizationCode, (u16, &'static str, &'static str, Failure)> {
+        let state = params.get("state").map(String::as_str).unwrap_or("");
+        let code = params.get("code").map(String::as_str);
+
+        if params.contains_key("error") {
+            return Err((
+                400,
+                "Bad Request",
+                "<html><body><h1>400</h1><p>OAuth error.</p></body></html>",
+                Failure::failed("callback.oauth_error", "OAuth authorization error")
+                    .expected("code")
+                    .actual("error response"),
+            ));
+        }
+
+        if state != expected_state {
+            return Err((
+                400,
+                "Bad Request",
+                "<html><body><h1>400</h1><p>Invalid state parameter.</p></body></html>",
+                Failure::failed(
+                    "callback.state_mismatch",
+                    "OAuth state parameter did not match",
+                )
+                .expected("state to match"),
+            ));
+        }
+
+        match code {
+            Some(c) if !c.is_empty() => Ok(AuthorizationCode(c.to_owned())),
+            _ => Err((
+                400,
+                "Bad Request",
+                "<html><body><h1>400</h1><p>Missing authorization code.</p></body></html>",
+                Failure::failed(
                     "callback.missing_code",
                     "OAuth callback did not contain an authorization code",
                 )
                 .expected("code parameter")
-                .actual("no code in callback"))
-            }
+                .actual("no code in callback"),
+            )),
         }
     }
 
