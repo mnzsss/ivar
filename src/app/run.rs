@@ -1,7 +1,7 @@
 //! CLI dispatch: turns a parsed [`Cli`] into an exit code by matching
 //! `cli.command`, converting each variant's args into its action's `Input`,
-//! and rendering the outcome. Moved out of `bin/ivar.rs` so the binary stays
-//! a thin `main` — see ARCHITECTURE.md's module map.
+//! and rendering the outcome. Dispatch lives here so the binary stays a
+//! thin `main` — see ARCHITECTURE.md's module map.
 
 use std::io::{self, Write};
 use std::process::ExitCode;
