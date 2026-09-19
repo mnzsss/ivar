@@ -34,6 +34,11 @@ struct UsageGroup {
 }
 
 impl GraphDb {
+    /// Record one usage event.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GraphDbError`] if the insert fails.
     pub fn record_usage(&self, event: &UsageEvent) -> Result<()> {
         // A usage write must never hold a query hostage to another session's lock.
         self.conn.busy_timeout(USAGE_BUSY_TIMEOUT)?;
@@ -55,6 +60,12 @@ impl GraphDb {
         inserted.map(|_| ()).map_err(Into::into)
     }
 
+    /// Aggregated usage stats grouped by command and source, with p50/p95
+    /// durations.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GraphDbError`] if the query fails.
     pub fn usage_summary(&self) -> Result<Vec<UsageStats>> {
         let mut stmt = self.conn.prepare(
             "SELECT command, source, ts, duration_ms, result_count, error

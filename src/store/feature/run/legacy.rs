@@ -97,6 +97,11 @@ pub struct Import {
 /// `id` is only used when a fresh receipt has to be minted. A resumed import
 /// reuses the id the first attempt recorded, so restarting never doubles a run
 /// in the history.
+///
+/// # Errors
+///
+/// Returns [`Failure`] if the board cannot be read, normalized, or
+/// hashed, or the archived board or receipt cannot be written.
 pub fn import(
     layout: &Layout,
     feature: &FeatureName,

@@ -69,12 +69,22 @@ impl Feature {
     ///
     /// A file newer than this binary understands is a hard error; see
     /// [`Store::read`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Failure`] if the file exists but cannot be read, or
+    /// is newer than this binary understands.
     pub fn read(layout: &Layout, name: &FeatureName) -> Result<Option<Self>, Failure> {
         store(layout, name).read().map_err(Failure::from)
     }
 
     /// Read `features/<name>/feature.json`, or a hard `feature.not_found` —
     /// the refusal shared by every action that needs the feature to exist.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Failure`] if the feature does not exist, or its
+    /// `feature.json` cannot be read.
     pub fn read_or_not_found(layout: &Layout, name: &FeatureName) -> Result<Self, Failure> {
         Self::read(layout, name)?.ok_or_else(|| feature_not_found(name))
     }
@@ -82,6 +92,11 @@ impl Feature {
     /// Write this feature to `features/<name>/feature.json`, atomically, in
     /// canonical form. Creates the feature directory if it does not exist —
     /// `feature create` calls this on a brand-new feature.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Failure`] if the feature directory cannot be created
+    /// or the file cannot be written.
     pub fn write(&self, layout: &Layout) -> Result<(), Failure> {
         let dir = layout.feature_dir(&self.name);
         crate::infra::fs::ensure_dir(&dir)?;
@@ -95,6 +110,11 @@ impl ApprovalState {
     ///
     /// A file newer than this binary understands is a hard error; see
     /// [`Store::read`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Failure`] if the file exists but cannot be read, or
+    /// is newer than this binary understands.
     pub fn read(layout: &Layout, name: &FeatureName) -> Result<Option<Self>, Failure> {
         approvals_store(layout, name).read().map_err(Failure::from)
     }
@@ -102,6 +122,11 @@ impl ApprovalState {
     /// Write this approval state to
     /// `features/<name>/planning/approvals.json`, atomically, in canonical
     /// form. Creates the planning directory if it does not exist.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Failure`] if the planning directory cannot be
+    /// created or the file cannot be written.
     pub fn write(&self, layout: &Layout, name: &FeatureName) -> Result<(), Failure> {
         crate::infra::fs::ensure_dir(&layout.planning_dir(name))?;
         approvals_store(layout, name)

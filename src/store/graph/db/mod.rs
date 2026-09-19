@@ -30,6 +30,11 @@ impl std::fmt::Debug for GraphDb {
 
 impl GraphDb {
     /// Opens or creates an on-disk database at `path`, configuring WAL mode and schema.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GraphDbError`] if parent directories cannot be created, the
+    /// connection cannot be opened, or its pragmas/migrations fail.
     pub fn open(path: &Path) -> Result<Self> {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
@@ -47,6 +52,12 @@ impl GraphDb {
 
     /// Opens an existing, fully migrated database for a best-effort usage write.
     /// Never creates the file, switches journal mode, or runs migrations.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GraphDbError`] if the connection cannot be opened or its
+    /// schema version cannot be read, or the message variant if the schema
+    /// is not migrated.
     pub fn open_for_usage(path: &Path) -> Result<Self> {
         let conn = Connection::open_with_flags(
             path,
@@ -63,6 +74,11 @@ impl GraphDb {
     }
 
     /// Opens an in-memory SQLite database initialized with the graph schema.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GraphDbError`] if the connection cannot be opened, or its
+    /// pragmas or migrations fail.
     pub fn open_in_memory() -> Result<Self> {
         let conn = Connection::open_in_memory()?;
         schema::apply_pragmas(&conn, false)?;
@@ -73,6 +89,10 @@ impl GraphDb {
     }
     /// Opens an existing database in read-only mode.
     /// Does not create directories, does not mutate journal mode, and does not apply migrations.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GraphDbError`] if the connection cannot be opened or the read-only pragmas cannot be set.
     pub fn open_read_only(path: &Path) -> Result<Self> {
         let conn = Connection::open_with_flags(
             path,
@@ -113,6 +133,10 @@ impl GraphDb {
     }
 
     /// Returns high-level statistics of the indexed codebase graph.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GraphDbError`] if any of the count queries fails.
     pub fn stats(&self) -> Result<GraphStats> {
         let repo_count: i64 = self.conn.query_row(
             "SELECT COUNT(*) FROM repos WHERE id NOT LIKE '%/%'",

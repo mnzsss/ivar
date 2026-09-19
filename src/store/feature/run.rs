@@ -56,6 +56,11 @@ impl RunReceipt {
     ///
     /// A file newer than this binary understands is a hard error; see
     /// [`Store::read`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Failure`] if the file exists but cannot be read, or
+    /// is newer than this binary understands.
     pub fn read(layout: &Layout, feature: &FeatureName) -> Result<Option<Self>, Failure> {
         current_store(layout, feature).read().map_err(Failure::from)
     }
@@ -67,6 +72,11 @@ impl RunReceipt {
     /// Takes the feature from the receipt rather than as an argument: a
     /// receipt names the feature it executes, and letting a caller pass a
     /// different one is how a run lands under the wrong feature.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Failure`] if the execution directory cannot be
+    /// created or the file cannot be written.
     pub fn write(&self, layout: &Layout) -> Result<(), Failure> {
         fs::ensure_dir(&layout.execution_dir(&self.feature))?;
         current_store(layout, &self.feature)
@@ -76,6 +86,11 @@ impl RunReceipt {
 
     /// Read one archived receipt by id. `Ok(None)` when no run with that id
     /// has been archived — which includes the id of the *current* run.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Failure`] if the file exists but cannot be read, or
+    /// is newer than this binary understands.
     pub fn read_archived(
         layout: &Layout,
         feature: &FeatureName,
@@ -93,6 +108,11 @@ impl RunReceipt {
     /// an id that is both current and archived would mean an archive was
     /// written before the run ended — a bug this ordering reports as the live
     /// value rather than a stale copy.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Failure`] if the current or archived receipt cannot
+    /// be read.
     pub fn find(
         layout: &Layout,
         feature: &FeatureName,
@@ -131,6 +151,12 @@ pub fn archive_path(layout: &Layout, feature: &FeatureName, id: &RunId) -> Utf8P
 /// an error, which is what makes the callers that archive-then-remove
 /// restartable after a crash between the two steps. Different content under an
 /// existing id is refused outright — never overwritten.
+///
+/// # Errors
+///
+/// Returns [`Failure`] if the receipt is not terminal, an archive
+/// entry already exists with different content, or the archive cannot
+/// be created or written.
 pub fn archive(layout: &Layout, receipt: &RunReceipt) -> Result<Utf8PathBuf, Failure> {
     if !receipt.status.is_terminal() {
         return Err(Failure::blocked(
@@ -187,6 +213,11 @@ pub fn archive(layout: &Layout, receipt: &RunReceipt) -> Result<Utf8PathBuf, Fai
 /// two leaves the receipt in both places, and the next call finds an identical
 /// archive entry, no-ops on it, and removes `run.json` again. A crash the
 /// other way round would lose the run.
+///
+/// # Errors
+///
+/// Returns [`Failure`] if the current receipt cannot be read or
+/// archived, or `run.json` cannot be removed.
 pub fn archive_current(layout: &Layout, feature: &FeatureName) -> Result<Option<RunId>, Failure> {
     let Some(receipt) = RunReceipt::read(layout, feature)? else {
         return Ok(None);
@@ -207,6 +238,12 @@ pub fn archive_current(layout: &Layout, feature: &FeatureName) -> Result<Option<
 /// `.json` file that does not read as a receipt is *not* stepped over — a
 /// corrupt archive entry is a run silently vanishing from an audit trail, and
 /// that is worth failing loudly for.
+///
+/// # Errors
+///
+/// Returns [`Failure`] if the current receipt cannot be read, the
+/// archive directory cannot be listed, or a `.json` archive entry does
+/// not read as a receipt.
 pub fn history(layout: &Layout, feature: &FeatureName) -> Result<Vec<RunReceipt>, Failure> {
     let mut receipts = Vec::new();
     if let Some(current) = RunReceipt::read(layout, feature)? {

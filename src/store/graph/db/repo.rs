@@ -7,6 +7,10 @@ use super::types::{CleanAllStats, FileRow, RepoCleanStats, RepoRow, Result, now_
 
 impl GraphDb {
     /// Inserts or updates repository metadata.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GraphDbError`] if the insert/upsert statement fails.
     pub fn insert_repo(
         &self,
         id: &str,
@@ -29,6 +33,10 @@ impl GraphDb {
     }
 
     /// Fetches repository metadata by repository ID.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GraphDbError`] if the query fails.
     pub fn get_repo(&self, id: &str) -> Result<Option<RepoRow>> {
         let mut stmt = self.conn.prepare_cached(
             "SELECT id, root_path, default_branch, last_indexed_commit, indexed_at FROM repos WHERE id = ?1",
@@ -47,6 +55,10 @@ impl GraphDb {
         Ok(result)
     }
     /// Fetches repository metadata from the `visible_repos` view by repository ID.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GraphDbError`] if the query fails.
     pub fn get_visible_repo(&self, id: &str) -> Result<Option<RepoRow>> {
         let mut stmt = self.conn.prepare_cached(
             "SELECT id, root_path, default_branch, last_indexed_commit FROM visible_repos WHERE id = ?1",
@@ -66,6 +78,10 @@ impl GraphDb {
     }
 
     /// Updates the last indexed commit and timestamp for a repository.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GraphDbError`] if the update statement fails.
     pub fn update_repo_commit(&self, id: &str, commit: &str) -> Result<()> {
         let now = now_timestamp();
         self.conn.execute(
@@ -76,6 +92,10 @@ impl GraphDb {
     }
 
     /// Fetches the last indexed commit for a repository, if any.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GraphDbError`] if the query fails.
     pub fn get_repo_last_commit(&self, repo_id: &str) -> Result<Option<String>> {
         let mut stmt = self
             .conn
@@ -88,6 +108,10 @@ impl GraphDb {
     }
 
     /// Inserts or updates file metadata and returns the row ID.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GraphDbError`] if the insert/upsert statement fails.
     pub fn upsert_file(
         &self,
         repo: &str,
@@ -115,6 +139,10 @@ impl GraphDb {
     }
 
     /// Fetches file metadata by repo and path.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GraphDbError`] if the query fails.
     pub fn get_file(&self, repo: &str, path: &str) -> Result<Option<FileRow>> {
         let mut stmt = self.conn.prepare_cached(
             "SELECT id, repo, path, content_hash, mtime_ns, size_bytes, indexed_at FROM files WHERE repo = ?1 AND path = ?2",
@@ -136,6 +164,10 @@ impl GraphDb {
     }
 
     /// Content hash of the file the current session sees, layer row first.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GraphDbError`] if the query fails.
     pub fn get_visible_file_hash(&self, repo: &str, path: &str) -> Result<Option<String>> {
         let mut stmt = self.conn.prepare_cached(
             "SELECT content_hash FROM visible_files WHERE repo = ?1 AND path = ?2",
@@ -146,6 +178,10 @@ impl GraphDb {
     }
 
     /// Fetches all indexed files for a repository.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GraphDbError`] if the query fails.
     pub fn get_files_for_repo(&self, repo: &str) -> Result<Vec<FileRow>> {
         let mut stmt = self.conn.prepare_cached(
             "SELECT id, repo, path, content_hash, mtime_ns, size_bytes, indexed_at FROM files WHERE repo = ?1 ORDER BY path ASC",
@@ -169,6 +205,10 @@ impl GraphDb {
     }
 
     /// Deletes a file record by repo and path. Cascades to symbols and edges.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GraphDbError`] if the delete statement fails.
     pub fn delete_file(&self, repo: &str, path: &str) -> Result<()> {
         self.conn.execute(
             "DELETE FROM files WHERE repo = ?1 AND path = ?2",
@@ -178,11 +218,19 @@ impl GraphDb {
     }
 
     /// Deletes a file record and its associated data (same as delete_file due to foreign keys).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GraphDbError`] if the underlying delete fails.
     pub fn delete_file_cascade(&self, repo: &str, path: &str) -> Result<()> {
         self.delete_file(repo, path)
     }
 
     /// Deletes all files for a given repository.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GraphDbError`] if the delete statement fails.
     pub fn delete_files_for_repo(&self, repo: &str) -> Result<()> {
         self.conn
             .execute("DELETE FROM files WHERE repo = ?1", params![repo])?;
@@ -190,12 +238,20 @@ impl GraphDb {
     }
 
     /// Alias for deleting all files for a given repository.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GraphDbError`] if the underlying delete fails.
     pub fn delete_repo_files(&self, repo: &str) -> Result<()> {
         self.delete_files_for_repo(repo)
     }
 
     /// Deletes a repository and all associated files, symbols, and edges (via foreign key cascades).
     /// Returns the counts of removed items, or None if the repository was not found.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GraphDbError`] if any of the lookup queries or the final delete fails.
     pub fn delete_repo(&self, repo: &str) -> Result<Option<RepoCleanStats>> {
         let exists: bool = self.conn.query_row(
             "SELECT COUNT(*) > 0 FROM repos WHERE id = ?1",
@@ -235,6 +291,10 @@ impl GraphDb {
     }
 
     /// Cleans all data from the graph database (repos, files, symbols, edges).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GraphDbError`] if any of the count queries or the batch delete fails.
     pub fn clean_all(&self) -> Result<CleanAllStats> {
         let repos_count: usize = self
             .conn

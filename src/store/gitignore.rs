@@ -30,6 +30,9 @@ use crate::store::layout::Layout;
 ///
 /// Reports whether the file changed, so a caller building a sync report can say
 /// "unchanged" honestly rather than claiming work it did not do.
+/// # Errors
+///
+/// Returns [`fs::Error`] if the file cannot be read or written.
 pub fn ensure(layout: &Layout) -> Result<Changed, fs::Error> {
     let path = layout.gitignore_path();
     let original = fs::read_text(&path)?;

@@ -138,10 +138,20 @@ fn install_views(conn: &Connection, mode: &ViewMode) -> Result<()> {
 }
 
 impl GraphDb {
+    /// Ensure the base-mode views are installed.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GraphDbError`] if the underlying delete fails.
     pub fn ensure_views_base_mode(&self) -> Result<()> {
         self.clear_session_layers()
     }
 
+    /// Install the session views and record which repo layers over which.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GraphDbError`] if a statement in the transaction fails.
     pub fn configure_session_mode(&self, layers: &[(&str, &str)]) -> Result<()> {
         install_views(&self.conn, &ViewMode::Session)?;
         self.conn.execute_batch("DELETE FROM session_layers;")?;
@@ -155,6 +165,11 @@ impl GraphDb {
         Ok(())
     }
 
+    /// Clear every session layer and hidden-row record, reverting to base
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GraphDbError`] if the view switch or delete statements fail.
     pub fn clear_session_layers(&self) -> Result<()> {
         install_views(&self.conn, &ViewMode::Base)?;
         self.conn.execute_batch(
@@ -163,6 +178,11 @@ impl GraphDb {
         Ok(())
     }
 
+    /// Create or update a layer record, returning its id.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GraphDbError`] if the insert/upsert statement fails.
     pub fn ensure_layer_record(
         &self,
         feature: &str,
@@ -187,6 +207,11 @@ impl GraphDb {
         Ok(id)
     }
 
+    /// A layer's record, if one exists for `feature`/`repo`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GraphDbError`] if the query fails.
     pub fn get_layer_record(&self, feature: &str, repo: &str) -> Result<Option<LayerRecord>> {
         let mut stmt = self.conn.prepare_cached(
             "SELECT id, feature, repo, worktree, base_commit, head_commit, fingerprint, indexed_at
@@ -209,6 +234,11 @@ impl GraphDb {
         Ok(record)
     }
 
+    /// Every path tombstoned for a layer.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GraphDbError`] if the query fails.
     pub fn get_layer_tombstones(&self, layer_id: i64) -> Result<Vec<String>> {
         let mut stmt = self.conn.prepare_cached(
             "SELECT path FROM layer_tombstones WHERE layer_id = ?1 ORDER BY path",
@@ -219,6 +249,11 @@ impl GraphDb {
         Ok(paths)
     }
 
+    /// Replace a layer's tombstoned paths.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GraphDbError`] if the delete or insert statements fail.
     pub fn set_layer_tombstones(&self, layer_id: i64, paths: &[&str]) -> Result<()> {
         self.conn.execute(
             "DELETE FROM layer_tombstones WHERE layer_id = ?1",
@@ -233,12 +268,22 @@ impl GraphDb {
         Ok(())
     }
 
+    /// Delete a layer record by id.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GraphDbError`] if the delete statement fails.
     pub fn delete_layer_record(&self, layer_id: i64) -> Result<()> {
         self.conn
             .execute("DELETE FROM layers WHERE id = ?1", params![layer_id])?;
         Ok(())
     }
 
+    /// Update a layer's fingerprint and head commit.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GraphDbError`] if the update statement fails.
     pub fn update_layer_fingerprint_and_head(
         &self,
         layer_id: i64,
@@ -253,6 +298,11 @@ impl GraphDb {
         Ok(())
     }
 
+    /// Rename every layer recorded under `old_feature` to `new_feature`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GraphDbError`] if the update statement fails.
     pub fn rename_feature_layers(&self, old_feature: &str, new_feature: &str) -> Result<usize> {
         let count = self.conn.execute(
             "UPDATE layers SET feature = ?1 WHERE feature = ?2",
@@ -261,6 +311,11 @@ impl GraphDb {
         Ok(count)
     }
 
+    /// Drop every layer recorded for `feature`, returning how many were dropped.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GraphDbError`] if a lookup or a drop fails.
     pub fn drop_feature_layers(&self, feature: &str) -> Result<usize> {
         let layer_ids: Vec<(i64, String)> = {
             let mut stmt = self
@@ -279,6 +334,11 @@ impl GraphDb {
         Ok(layer_ids.len())
     }
 
+    /// Remove a repository and every layer built on it.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GraphDbError`] if a lookup, drop, or the final delete fails.
     pub fn forget_repo(&self, repo: &str) -> Result<()> {
         let tx = self.conn.unchecked_transaction()?;
         let layer_ids: Vec<i64> = {
@@ -303,6 +363,11 @@ impl GraphDb {
         Ok(())
     }
 
+    /// Drop every layer for a feature not in `active_features`, returning how many were dropped.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GraphDbError`] if a layer or feature lookup fails, or a drop fails.
     pub fn gc_stale_layers(&self, active_features: &[&str]) -> Result<usize> {
         let all_features: Vec<String> = {
             let mut stmt = self.conn.prepare("SELECT DISTINCT feature FROM layers")?;
@@ -322,6 +387,11 @@ impl GraphDb {
         Ok(dropped)
     }
 
+    /// Every layer's file-count stats.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GraphDbError`] if the query fails.
     pub fn get_all_layer_stats(&self) -> Result<Vec<LayerStats>> {
         let mut stmt = self.conn.prepare(
             "SELECT l.feature, l.repo, l.base_commit, COUNT(f.id) AS file_count

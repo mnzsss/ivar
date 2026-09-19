@@ -106,6 +106,11 @@ impl GraphDb {
     /// Updates the `files` record, deletes any old symbols and edges for the file,
     /// inserts new symbols, resolves local intra-file targets and enclosing symbol IDs,
     /// and inserts new edges.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GraphDbError`] if any statement in the transaction
+    /// fails.
     pub fn index_extracted_file(
         &self,
         repo_id: &str,

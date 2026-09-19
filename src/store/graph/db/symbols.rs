@@ -9,6 +9,10 @@ use crate::domain::graph::Symbol;
 
 impl GraphDb {
     /// Deletes all symbols belonging to a specific file ID (cascades to outbound edges).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GraphDbError`] if the delete statement fails.
     pub fn delete_symbols_for_file(&self, file_id: i64) -> Result<()> {
         self.conn
             .execute("DELETE FROM symbols WHERE file_id = ?1", params![file_id])?;
@@ -16,6 +20,10 @@ impl GraphDb {
     }
 
     /// Bulk inserts symbols in a single transaction and returns their generated IDs.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GraphDbError`] if the insert statement fails.
     pub fn insert_symbols(&self, symbols: &[Symbol]) -> Result<Vec<i64>> {
         if symbols.is_empty() {
             return Ok(Vec::new());
@@ -36,6 +44,10 @@ impl GraphDb {
     }
 
     /// Full-text searches indexed symbols across all repositories using SQLite FTS5.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GraphDbError`] if the query fails.
     pub fn search_symbols_fts(&self, query: &str, limit: usize) -> Result<Vec<Symbol>> {
         let mut stmt = self.conn.prepare_cached(
             "SELECT s.id, s.file_id, s.repo, s.name, s.kind, s.scope, s.signature, s.docstring,
@@ -59,6 +71,10 @@ impl GraphDb {
     }
 
     /// Finds potentially unused/unreachable functions and methods with 0 callers.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GraphDbError`] if the query fails.
     pub fn find_dead_code(
         &self,
         repo: Option<&str>,
@@ -143,6 +159,10 @@ impl GraphDb {
     }
 
     /// Queries symbols sorted by cyclomatic complexity descending.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GraphDbError`] if the query fails.
     pub fn find_complex_symbols(
         &self,
         repo: Option<&str>,

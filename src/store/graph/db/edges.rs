@@ -12,6 +12,10 @@ pub type HierarchyRecord = (Symbol, String, Vec<String>, Vec<String>);
 
 impl GraphDb {
     /// Bulk inserts edges in a single transaction and returns their generated IDs.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GraphDbError`] if the insert statement fails.
     pub fn insert_edges(&self, edges: &[Edge]) -> Result<Vec<i64>> {
         if edges.is_empty() {
             return Ok(Vec::new());
@@ -48,6 +52,10 @@ impl GraphDb {
     }
 
     /// Deletes all edges originating from or associated with a specific file ID.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GraphDbError`] if the delete statement fails.
     pub fn delete_edges_for_file(&self, file_id: i64) -> Result<()> {
         self.conn
             .execute("DELETE FROM edges WHERE file_id = ?1", params![file_id])?;
@@ -55,6 +63,10 @@ impl GraphDb {
     }
 
     /// Re-links dangling edges where `to_symbol_id` is null by matching `to_name` with symbols in the same repository.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GraphDbError`] if the update statement fails.
     pub fn relink_dangling_edges(&self, repo: &str) -> Result<usize> {
         let count = self.conn.execute(
             "UPDATE edges
@@ -80,6 +92,10 @@ impl GraphDb {
     }
 
     /// Finds base types and implementations/subtypes for a symbol.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GraphDbError`] if any of the lookup queries fail.
     pub fn find_hierarchy(
         &self,
         symbol_name: &str,
