@@ -147,6 +147,11 @@ impl RunReceipt {
     /// The lineage entry is always appended, even for the same session and
     /// provider — a receipt should record that a coordinator re-attached,
     /// and collapsing repeats would lose exactly that.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RunTransition`] if the run is neither `Active` nor
+    /// `Blocked`.
     pub fn resume(
         &mut self,
         session: SessionId,
@@ -181,6 +186,10 @@ impl RunReceipt {
     /// Keeps the baseline, the run id, and the lock, because the run is not
     /// over. The report and diff land on a checkpoint rather than on
     /// `final_diff`, which only a terminal checkpoint fills.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RunTransition`] if the run is not `Active`.
     pub fn block(
         &mut self,
         report: CoordinatorReport,
@@ -214,6 +223,10 @@ impl RunReceipt {
     /// accepted and the pinned fingerprint is *not* rewritten. Both
     /// fingerprints go on the checkpoint so the divergence is legible after
     /// the fact.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RunTransition`] if the run is not `Active`.
     pub fn diverge(
         &mut self,
         observed_fingerprint: impl Into<String>,
@@ -251,6 +264,12 @@ impl RunReceipt {
     /// accepted as a no-op — the receipt says the plan diverged, so "nothing
     /// changed" means the caller is looking at a different file than finish
     /// was.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RunTransition`] if the run is not `Diverged`, or
+    /// [`RunTransition::RevisionUnchanged`] if `new_fingerprint` matches the
+    /// fingerprint already pinned.
     pub fn accept_revision(
         &mut self,
         new_fingerprint: impl Into<String>,
@@ -288,6 +307,12 @@ impl RunReceipt {
     /// [`Self::block`], which is recoverable and therefore not a
     /// termination. Passing it is a caller bug, and is refused rather than
     /// quietly redirected.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RunTransition::BlockedIsNotTerminal`] if `outcome` is
+    /// [`RunOutcome::Blocked`], or [`RunTransition`] if the run is not
+    /// `Active`.
     pub fn terminate(
         &mut self,
         outcome: RunOutcome,
@@ -325,6 +350,10 @@ impl RunReceipt {
     ///
     /// Progress lives here rather than in `plan.md`, because any prose edit to
     /// the plan moves its fingerprint and diverges the run.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RunTransition`] if the run is not `Active`.
     pub fn checkpoint_wave(
         &mut self,
         number: u32,
@@ -358,6 +387,10 @@ impl RunReceipt {
     /// non-terminal legacy board becomes on import. No outcome is set: the
     /// run reported none, and inventing one would be the dishonesty this
     /// state exists to avoid.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RunTransition`] if the run is already terminal.
     pub fn interrupt(&mut self, at: impl Into<String>) -> Result<(), RunTransition> {
         if self.status.is_terminal() {
             return Err(RunTransition::AlreadyTerminal {

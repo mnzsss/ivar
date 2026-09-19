@@ -104,6 +104,11 @@ impl CoordinatorReport {
     /// hurrying: an empty summary, no tasks, and no verification. Each is a
     /// separate refusal because "your report is invalid" is not an actionable
     /// sentence.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Failure`] if the summary is blank, no tasks are listed, or
+    /// no verification checks are recorded.
     pub fn validate(&self) -> Result<(), Failure> {
         if self.summary.trim().is_empty() {
             return Err(Failure::blocked(

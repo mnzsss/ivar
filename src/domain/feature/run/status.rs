@@ -122,6 +122,11 @@ impl RunOutcome {
     }
 
     /// Parse the CLI spelling.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`UnknownRunOutcome`] if `value` is not one of `succeeded`,
+    /// `failed`, `blocked`.
     pub fn parse(value: &str) -> Result<Self, UnknownRunOutcome> {
         match value {
             "succeeded" => Ok(Self::Succeeded),

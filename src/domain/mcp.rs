@@ -140,6 +140,10 @@ pub struct McpServerDef {
 impl McpServerDef {
     /// Attempt to derive the canonical transport from the definition,
     /// rejecting invalid or obsolete spellings.
+    ///
+    /// # Errors
+    ///
+    /// Returns the raw transport string if it is neither `http` nor `local`.
     pub fn transport(&self) -> Result<McpTransport, String> {
         match self.type_.as_str() {
             "http" => Ok(McpTransport::Http),
@@ -149,6 +153,13 @@ impl McpServerDef {
     }
 
     /// Validate the definition's invariants.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`McpValidationError`] if the transport is unrecognised, an
+    /// `http` server is missing a valid `http(s)://` URL or sets
+    /// command/args meant for a local server, or a `local` server is missing
+    /// its command or sets a URL meant for an `http` server.
     pub fn validate(&self) -> Result<(), McpValidationError> {
         let transport = self
             .transport()

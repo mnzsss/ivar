@@ -19,6 +19,10 @@ impl RunId {
     /// Validates `value` as a UUID. The only constructor — there is no
     /// unchecked path in or out, so an id read off disk is as safe to join
     /// onto a path as one this process minted.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`InvalidRunId`] if `value` does not parse as a UUID.
     pub fn new(value: impl Into<String>) -> Result<Self, InvalidRunId> {
         let value = value.into();
         uuid::Uuid::parse_str(&value).map_err(|_| InvalidRunId(value.clone()))?;

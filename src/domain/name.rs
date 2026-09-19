@@ -374,6 +374,12 @@ macro_rules! validated_name {
         impl $name {
             /// Validates `value` against this type's rules. The only
             /// constructor — there is no unchecked path in or out.
+            ///
+            /// # Errors
+            ///
+            /// Returns [`InvalidName`] if `value` fails this type's
+            /// validation rule (e.g. wrong length, a forbidden character, or,
+            /// for a UUID-shaped name, not parsing as one).
             pub fn new(value: impl Into<String>) -> Result<Self, InvalidName> {
                 let value = value.into();
                 $validate(&value)?;
