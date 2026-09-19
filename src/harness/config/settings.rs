@@ -22,6 +22,11 @@ const IVAR_HOOKS: &str = "hooks";
 /// The file is created when absent, merged when present (replacing exactly
 /// the `env` and `hooks` keys), and left alone when the canonical bytes
 /// already match. A file that exists but is not a JSON object is refused.
+///
+/// # Errors
+///
+/// Returns [`Error`] if the existing file cannot be parsed as a JSON object
+/// or the merged document cannot be written.
 pub fn materialise_settings(path: &Utf8Path, hall: &HallName) -> Result<Change, Error> {
     let ivar_doc = ivar_doc(hall);
     let (existing, raw) = doc::read_doc(path)?;
@@ -58,6 +63,11 @@ pub fn materialise_settings(path: &Utf8Path, hall: &HallName) -> Result<Change, 
 /// carrying other keys keeps them, minus ivar's keys. Absent file is
 /// [`Change::Unchanged`]. A file that cannot be parsed as a JSON object is
 /// left alone.
+///
+/// # Errors
+///
+/// Returns [`Error`] if the existing file cannot be parsed as a JSON object
+/// or the merged document cannot be written.
 pub fn remove_settings(path: &Utf8Path) -> Result<Change, Error> {
     let (existing, _) = doc::read_doc(path)?;
     let Some(mut doc) = existing else {

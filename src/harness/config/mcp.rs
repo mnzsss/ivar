@@ -36,6 +36,12 @@ use crate::providers;
 use super::doc;
 use super::{Change, Error};
 
+///
+/// # Errors
+///
+/// Returns [`Error`] if a server's transport is invalid, the existing config
+/// cannot be parsed as a JSON object, or the merged document cannot be
+/// written.
 pub fn materialise_mcp(
     path: &Utf8Path,
     provider: Provider,
@@ -83,6 +89,11 @@ pub fn materialise_mcp(
 /// [`Change::Unchanged`]. A file that cannot be parsed as a JSON object is
 /// left alone — stripping a key out of something that is not an object has no
 /// defined meaning, and deleting it would be the silent-overwrite bug again.
+///
+/// # Errors
+///
+/// Returns [`Error`] if the existing config cannot be parsed as a JSON
+/// object or the merged document cannot be written.
 pub fn remove_mcp(path: &Utf8Path, provider: Provider) -> Result<Change, Error> {
     let (existing, _) = doc::read_doc(path)?;
     let Some(mut doc) = existing else {

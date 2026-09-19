@@ -87,6 +87,10 @@ impl From<Error> for Failure {
 }
 
 /// Bring `skills_dir` in line with the shipped catalog.
+/// # Errors
+///
+/// Returns [`Error`] if the directory cannot be created, a skill file
+/// cannot be read or written, or a stale directory cannot be removed.
 pub fn materialise(skills_dir: &Utf8Path) -> Result<Vec<SkillChange>, Error> {
     fs::ensure_dir(skills_dir).map_err(fs_error(skills_dir))?;
 
@@ -125,6 +129,10 @@ pub fn materialise(skills_dir: &Utf8Path) -> Result<Vec<SkillChange>, Error> {
 }
 
 /// Remove all shipped skills from `skills_dir`.
+/// # Errors
+///
+/// Returns [`Error`] if the directory cannot be read or a directory
+/// cannot be removed.
 pub fn remove(skills_dir: &Utf8Path) -> Result<Vec<SkillChange>, Error> {
     if !fs::is_dir(skills_dir).map_err(fs_error(skills_dir))? {
         return Ok(Vec::new());
@@ -148,6 +156,10 @@ pub fn remove(skills_dir: &Utf8Path) -> Result<Vec<SkillChange>, Error> {
 }
 
 /// Inspect the state of shipped skills in `skills_dir`.
+/// # Errors
+///
+/// Returns [`Error`] if the skills directory cannot be read or a skill
+/// cannot be fingerprinted.
 pub fn inspect(skills_dir: &Utf8Path, enabled: bool) -> Result<Vec<Inspection>, Error> {
     let mut inspections = Vec::new();
 
