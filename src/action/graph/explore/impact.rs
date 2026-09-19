@@ -9,6 +9,17 @@ use crate::store::graph::db::GraphDb;
 
 use super::error::ExploreError;
 
+type SeenRelations = HashSet<(
+    String,
+    String,
+    String,
+    String,
+    String,
+    String,
+    usize,
+    EdgeKind,
+)>;
+
 pub(crate) struct RelationsAnalysis {
     pub(crate) call_flows: Vec<CallFlowItem>,
     pub(crate) direct_relations: Vec<OperationalRelation>,
@@ -79,16 +90,7 @@ fn collect_caller_relations(
     repo: Option<&str>,
     candidate_endpoint: &RelationEndpoint,
     seen_flows: &mut HashSet<(String, String, usize)>,
-    seen_relations: &mut HashSet<(
-        String,
-        String,
-        String,
-        String,
-        String,
-        String,
-        usize,
-        EdgeKind,
-    )>,
+    seen_relations: &mut SeenRelations,
     call_flows: &mut Vec<CallFlowItem>,
     direct_relations: &mut Vec<OperationalRelation>,
     entry_points: &mut Vec<OperationalRelation>,
@@ -165,16 +167,7 @@ fn collect_callee_relations(
     candidate_endpoint: &RelationEndpoint,
     sym_id: i64,
     seen_flows: &mut HashSet<(String, String, usize)>,
-    seen_relations: &mut HashSet<(
-        String,
-        String,
-        String,
-        String,
-        String,
-        String,
-        usize,
-        EdgeKind,
-    )>,
+    seen_relations: &mut SeenRelations,
     call_flows: &mut Vec<CallFlowItem>,
     direct_relations: &mut Vec<OperationalRelation>,
 ) -> Result<(), ExploreError> {

@@ -9,6 +9,9 @@ use crate::action::graph::query::types::{QueryError, SymbolLocation, map_symbol_
 use crate::domain::graph::{FileMention, MentionedSymbol, Symbol};
 use crate::store::graph::db::GraphDb;
 
+type FileCandidates = HashMap<(String, String), Vec<ScoredCandidate>>;
+type PinnedFiles = HashMap<(String, String), bool>;
+
 /// Symbols an explore answer shows source for, and the matching files it leaves out.
 #[derive(Debug, Clone, Default)]
 pub struct ExploreCandidates {
@@ -113,15 +116,9 @@ pub fn explore_find(
 fn collect_pinned_candidates(
     conn: &rusqlite::Connection,
     parsed: &ParsedExploreQuery,
-) -> Result<
-    (
-        HashMap<(String, String), Vec<ScoredCandidate>>,
-        HashMap<(String, String), bool>,
-    ),
-    QueryError,
-> {
-    let mut file_candidates: HashMap<(String, String), Vec<ScoredCandidate>> = HashMap::new();
-    let mut pinned_files: HashMap<(String, String), bool> = HashMap::new();
+) -> Result<(FileCandidates, PinnedFiles), QueryError> {
+    let mut file_candidates: FileCandidates = HashMap::new();
+    let mut pinned_files: PinnedFiles = HashMap::new();
 
     for res_path in &parsed.resolved_paths {
         let is_pinned = res_path.is_pinned();
@@ -182,7 +179,7 @@ fn score_matching_terms(
     terms: &[String],
     repo: Option<&str>,
     route_intent: bool,
-    file_candidates: &mut HashMap<(String, String), Vec<ScoredCandidate>>,
+    file_candidates: &mut FileCandidates,
 ) -> Result<(), QueryError> {
     for term in terms {
         if term.is_empty() {
@@ -219,7 +216,7 @@ fn score_term_tiers(
     conn: &rusqlite::Connection,
     term: &str,
     repo: Option<&str>,
-    file_candidates: &mut HashMap<(String, String), Vec<ScoredCandidate>>,
+    file_candidates: &mut FileCandidates,
 ) -> Result<(), QueryError> {
     // Tier A: Exact symbol name match (+100.0)
     {
@@ -321,9 +318,7 @@ fn score_term_tiers(
 }
 
 /// Boost route intent if detected (+30.0 for route-like symbols)
-fn boost_route_intent_symbols(
-    file_candidates: &mut HashMap<(String, String), Vec<ScoredCandidate>>,
-) {
+fn boost_route_intent_symbols(file_candidates: &mut FileCandidates) {
     for ((_, file_path), candidates) in file_candidates.iter_mut() {
         let is_route_file = file_path.contains("route")
             || file_path.contains("api")
@@ -352,8 +347,8 @@ struct FileScore {
 
 /// Step 3: Compute aggregate score per file and rank files.
 fn rank_files(
-    file_candidates: &HashMap<(String, String), Vec<ScoredCandidate>>,
-    pinned_files: &HashMap<(String, String), bool>,
+    file_candidates: &FileCandidates,
+    pinned_files: &PinnedFiles,
     parsed: &ParsedExploreQuery,
 ) -> Vec<FileScore> {
     let asks_for_tests = parsed.search_terms.iter().any(|term| {
@@ -398,7 +393,7 @@ fn rank_files(
 
 /// Step 4: Collect symbols respecting per-file caps and preserve source line order.
 fn collect_final_candidates(
-    mut file_candidates: HashMap<(String, String), Vec<ScoredCandidate>>,
+    mut file_candidates: FileCandidates,
     ranked_files: Vec<FileScore>,
     shown_files: usize,
     max_per_file: usize,
