@@ -156,6 +156,10 @@ pub trait Git {
     /// This is one operation rather than "is it a repo?" plus "does anything
     /// exist?" at the caller, because every caller needs the same three-way
     /// answer and assembling it twice is how the two assemblies diverge.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error`] if `path`'s metadata cannot be read.
     fn target_state(&self, path: &Utf8Path) -> Result<TargetState, Error>;
 
     /// The branch `HEAD` points at in the repository at `git_dir`, without the
@@ -165,6 +169,10 @@ pub trait Git {
     /// repository whose default branch has no commits yet still answers. That
     /// is not a corner case: `git clone --bare` of an empty repository is how a
     /// hall gets its first repo when the remote was created moments ago.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error`] if `git_dir` is not a git repository or its HEAD cannot be read.
     fn head_branch(&self, git_dir: &Utf8Path) -> Result<String, Error>;
 
     /// The git administrative directory backing the worktree at `path`.
@@ -174,6 +182,10 @@ pub trait Git {
     /// per-worktree bookkeeping: removing and re-adding the worktree destroys
     /// it, so nothing stale survives into a worktree that has been rebuilt from
     /// scratch.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error`] if `path` is not a worktree or its git directory cannot be resolved.
     fn worktree_git_dir(&self, path: &Utf8Path) -> Result<Utf8PathBuf, Error>;
 
     /// Clone `url` into `dest` as a bare repository.
@@ -181,8 +193,19 @@ pub trait Git {
     /// Touches the network, so it shells out. `dest` must not exist; git
     /// refuses a non-empty target itself, and this module does not second-guess
     /// that.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error`] if the clone fails — network failure, an invalid `url`, or `dest` already existing.
     fn clone_bare(&self, url: &str, dest: &Utf8Path) -> Result<(), Error>;
 
+    /// Clone `url` into `dest` as a bare repository, prefixing worktree paths
+    /// with `prefix`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error`] if the clone fails — network failure, an invalid
+    /// `url`, or `dest` already existing.
     fn clone_bare_prefixed(&self, url: &str, dest: &Utf8Path, prefix: &str) -> Result<(), Error> {
         exec::clone_bare_prefixed(url, dest, prefix)
     }
@@ -198,6 +221,10 @@ pub trait Git {
     /// `refs/remotes/`, and that is what makes `git push --force-with-lease`
     /// answer "stale info" in a hall and nowhere else: with no tracking ref
     /// there is nothing to lease against.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error`] if git's config cannot be read or written at `git_dir`.
     fn ensure_remote_tracking(&self, git_dir: &Utf8Path) -> Result<(), Error>;
 
     /// Make committing on `default_branch` refuse in the worktree at
@@ -206,6 +233,10 @@ pub trait Git {
     /// Idempotent, so `sync` can call it on every run. Deliberately has no
     /// default body: a new implementation of this trait that silently does not
     /// protect anything is the bug this whole seam exists to prevent.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error`] if the protection hook cannot be installed at `git_dir`.
     fn protect_default_branch(
         &self,
         git_dir: &Utf8Path,
@@ -215,15 +246,27 @@ pub trait Git {
 
     /// Add a worktree at `dest`, checked out on the existing `branch`, off the
     /// bare repository at `git_dir`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error`] if `branch` does not exist or `dest` cannot be created.
     fn add_worktree(&self, git_dir: &Utf8Path, dest: &Utf8Path, branch: &str) -> Result<(), Error>;
 
     /// Fetch from the remote configured in `git_dir`, pruning deleted
     /// refs. `Ok(())` means the fetch completed — with `--quiet`, a
     /// no-op fetch is indistinguishable from one that pulled new commits,
     /// and that is fine: the exit code is the answer.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error`] if the remote cannot be reached or the fetch fails.
     fn fetch(&self, git_dir: &Utf8Path) -> Result<(), Error>;
 
     /// Every local branch in `git_dir`, without the `refs/heads/` prefix.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error`] if `git_dir` is not a git repository or its refs cannot be read.
     fn list_branches(&self, git_dir: &Utf8Path) -> Result<Vec<String>, Error>;
 
     /// Create `branch` off `from_branch` in the bare repository at `git_dir`
@@ -234,6 +277,10 @@ pub trait Git {
     /// worktree-creating operation that also creates its branch, which is
     /// exactly what `feature promote` needs and what `sync`'s
     /// [`Self::add_worktree`] deliberately does not do.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error`] if `from_branch` does not exist or the branch/worktree cannot be created.
     fn create_branch_and_worktree(
         &self,
         git_dir: &Utf8Path,
@@ -250,6 +297,10 @@ pub trait Git {
     /// ref, so a feature worktree's branch — sharing this bare's refs — is
     /// untouched. Remote-tracking refs are updated alongside it, so a lease
     /// taken after a `repo pull` is current.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error`] if the remote cannot be reached or `branch` does not exist there.
     fn fetch_branch(&self, worktree: &Utf8Path, branch: &str) -> Result<(), Error>;
 
     /// Fast-forward the worktree at `path` to the tip its preceding
@@ -259,6 +310,10 @@ pub trait Git {
     /// Advances the worktree's checked-out branch and its files. Refuses when
     /// the branch diverged and cannot be fast-forwarded, which the caller
     /// reports as "skipped" — never as a batch abort.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error`] if the branch cannot be fast-forwarded (e.g. it diverged).
     fn fast_forward(&self, worktree: &Utf8Path) -> Result<(), Error>;
 
     /// Remove the worktree at `dest` from the repository at `git_dir`.
@@ -266,12 +321,20 @@ pub trait Git {
     /// Forced: git refuses to remove a worktree with uncommitted changes, and
     /// that refusal is the guard a cascade caller (repo deregister) has
     /// already decided to override before it calls here.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error`] if the worktree cannot be removed.
     fn remove_worktree(&self, git_dir: &Utf8Path, dest: &Utf8Path) -> Result<(), Error>;
 
     /// Add a throwaway worktree at `dest`, detached at `revision` — no branch
     /// is created or moved. The temporary candidate worktrees local
     /// integration builds are materialised here, so the parent's branch is
     /// untouched while the candidate is checked.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error`] if `revision` does not exist or `dest` cannot be created.
     fn add_detached_worktree(
         &self,
         git_dir: &Utf8Path,
@@ -281,31 +344,59 @@ pub trait Git {
 
     /// Create `branch` at `revision` in the repository at `git_dir`. Used for
     /// the temporary `ivar-integrate/<feature>/<repo>` branches only.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error`] if `revision` does not exist or `branch` already exists.
     fn create_branch(&self, git_dir: &Utf8Path, branch: &str, revision: &str) -> Result<(), Error>;
 
     /// Delete `branch` in the repository at `git_dir`. Used for the temporary
     /// `ivar-integrate/...` branches only, after their worktrees are gone.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error`] if `branch` does not exist or cannot be deleted.
     fn delete_branch(&self, git_dir: &Utf8Path, branch: &str) -> Result<(), Error>;
 
     /// `git -C <worktree> merge --no-ff --no-edit <source>` — a merge commit
     /// that is never a fast-forward, with git's default message (so no editor
     /// opens).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error`] if the merge fails, e.g. on a conflict.
     fn merge_no_ff(&self, worktree: &Utf8Path, source: &str) -> Result<(), Error>;
 
     /// `git -C <worktree> merge --squash <source>` followed by
     /// `git commit -m <message>` — the squash strategy's two steps.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error`] if the squash merge or the following commit fails, e.g. on a conflict.
     fn squash_merge(&self, worktree: &Utf8Path, source: &str, message: &str) -> Result<(), Error>;
 
     /// `git -C <worktree> merge --ff-only <revision>` — advance the
     /// checked-out branch and its files to `revision`. Refuses when the
     /// branch diverged.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error`] if the branch cannot be fast-forwarded to `revision`.
     fn fast_forward_to(&self, worktree: &Utf8Path, revision: &str) -> Result<(), Error>;
 
     /// Whether the worktree at `path` has uncommitted changes — tracked or
     /// untracked. Empty `git status --porcelain` output means clean.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error`] if `git status` cannot be run at `path`.
     fn worktree_dirty(&self, path: &Utf8Path) -> Result<bool, Error>;
 
     /// Whether a rebase is in progress in the worktree at `path`.
+    ///
+    /// # Errors
+    ///
+    /// Never returns [`Error`]; kept fallible to match this trait's other read operations.
     fn is_rebase_in_progress(&self, path: &Utf8Path) -> Result<bool, Error> {
         Ok(read::is_rebase_in_progress(path))
     }
@@ -314,6 +405,10 @@ pub trait Git {
     /// `git diff HEAD`, staged and unstaged, tracked files only. Empty when
     /// the worktree is clean; untracked files are invisible to `git diff` by
     /// design.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error`] if `git diff` cannot be run at `path`.
     fn diff_worktree(&self, path: &Utf8Path) -> Result<String, Error>;
 
     /// Every path in the worktree at `path` that diverges from its last
@@ -325,6 +420,10 @@ pub trait Git {
     /// asks. Untracked files are included because a file created outside a
     /// contract is exactly the violation worth catching, and `git diff` cannot
     /// see one.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error`] if the worktree's changed paths cannot be determined.
     fn changed_paths(&self, path: &Utf8Path) -> Result<Vec<Utf8PathBuf>, Error>;
 
     /// The commit the worktree at `path` is on — `git rev-parse HEAD`.
@@ -334,6 +433,10 @@ pub trait Git {
     /// moved to include them. Recording HEAD before a run is what lets
     /// [`Self::paths_committed_since`] see the half of a run that got
     /// committed.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error`] if `path` is not a git worktree or HEAD cannot be resolved.
     fn head_commit(&self, path: &Utf8Path) -> Result<String, Error>;
 
     /// Every path whose content differs between commit `since` and the
@@ -344,6 +447,10 @@ pub trait Git {
     /// changed: what it committed, plus what it left uncommitted. Neither
     /// alone is enough, and `changed_paths` alone is the one that reads a run
     /// which committed its work as a run that did nothing.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error`] if `since` does not exist or the diff cannot be computed.
     fn paths_committed_since(
         &self,
         path: &Utf8Path,
@@ -364,6 +471,10 @@ pub trait Git {
     /// a directory, or a submodule gitlink. Neither is a file a receipt
     /// describes, and both are unreachable from the path sets above, which
     /// only ever name blobs.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error`] if `commit` does not exist in `worktree`.
     fn path_at_commit(
         &self,
         worktree: &Utf8Path,
@@ -373,6 +484,10 @@ pub trait Git {
 
     /// How many commits `branch` has that `base` does not, in the repository
     /// at `git_dir` — `git rev-list --count <base>..<branch>`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error`] if `base` or `branch` does not exist in `git_dir`.
     fn commits_ahead(&self, git_dir: &Utf8Path, base: &str, branch: &str) -> Result<u64, Error>;
 
     /// Whether `ancestor` is an ancestor of `descendant` — reachable from it by
@@ -387,6 +502,10 @@ pub trait Git {
     /// "no such revision" into "not an ancestor" would tell a caller a branch
     /// never merged when the honest answer is that it was asked about a commit
     /// that was never there.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Refused`] if `ancestor` or `descendant` does not exist in `git_dir`.
     fn is_ancestor(
         &self,
         git_dir: &Utf8Path,
@@ -403,6 +522,10 @@ pub trait Git {
     /// fell behind from one that genuinely diverged — and spot local commits
     /// already re-landed upstream. Either revision must exist; a missing one is
     /// [`Error::Refused`] with git's own sentence.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Refused`] if `local` or `remote` does not exist in `git_dir`.
     fn divergence(
         &self,
         git_dir: &Utf8Path,
@@ -416,6 +539,10 @@ pub trait Git {
     /// The starting point for "is the local work already upstream?": the
     /// cumulative diff from the merge-base to the local tip is what the remote
     /// would have had to re-land. Either revision must exist.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error`] if `a` or `b` does not exist, or they share no common ancestor.
     fn merge_base(&self, git_dir: &Utf8Path, a: &str, b: &str) -> Result<String, Error>;
 
     /// The stable patch-id of one commit's diff — `git show <commit> --format=
@@ -425,6 +552,10 @@ pub trait Git {
     /// authorship, message, and rebase: it is what recognises a commit that was
     /// re-landed upstream under a new identity. Reads the commit locally, never
     /// the remote.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error`] if `commit` does not exist in `worktree`.
     fn commit_patch_id(&self, worktree: &Utf8Path, commit: &str) -> Result<String, Error>;
 
     /// The stable patch-id of the cumulative diff between `base` and `tip` —
@@ -433,6 +564,10 @@ pub trait Git {
     /// The squash-shaped counterpart to [`Self::commit_patch_id`]: it
     /// fingerprints a *range* of commits as one change, which is what a
     /// squash-merged re-landing of several local commits looks like upstream.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error`] if `base` or `tip` does not exist in `worktree`.
     fn diff_patch_id(&self, worktree: &Utf8Path, base: &str, tip: &str) -> Result<String, Error>;
 
     /// `git -C <worktree> reset --hard <revision>` — move the checked-out
@@ -442,6 +577,10 @@ pub trait Git {
     /// Destructive by definition: the caller has already verified the commits
     /// being dropped are duplicates of work that landed elsewhere, and that the
     /// worktree is clean. Runs inside the worktree, like [`Self::fast_forward`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error`] if the reset fails, e.g. `revision` does not exist.
     fn reset_hard(&self, worktree: &Utf8Path, revision: &str) -> Result<(), Error>;
 
     /// The commit id `revision` names in the repository at `git_dir` —
@@ -450,6 +589,10 @@ pub trait Git {
     /// A revision that does not exist is [`Error::Refused`] with git's own
     /// sentence, never `Ok` — receipt freshness reads the child branch's tip
     /// and must distinguish "branch moved" from "branch never existed".
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Refused`] if `revision` does not exist in `git_dir`.
     fn revision_commit(&self, git_dir: &Utf8Path, revision: &str) -> Result<String, Error>;
 
     /// The commit `remote` holds `branch` at — `git ls-remote <remote>
@@ -461,6 +604,10 @@ pub trait Git {
     ///
     /// Reaching the remote can fail; that is [`Error::Refused`] and means the
     /// question is unanswered, never that the branch is absent.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error`] if `remote` cannot be reached.
     fn remote_branch_tip(
         &self,
         git_dir: &Utf8Path,
@@ -472,6 +619,10 @@ pub trait Git {
     ///
     /// `to` is a full ref (`refs/heads/<name>`); `remote` is the URL, so the
     /// push goes exactly where the preview said it would.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error`] if the push is rejected or the remote cannot be reached.
     fn push(&self, git_dir: &Utf8Path, remote: &str, from: &str, to: &str) -> Result<(), Error>;
 
     /// `git -C <worktree> rebase <branch>` — replay the worktree's branch on
@@ -480,10 +631,18 @@ pub trait Git {
     /// A conflict (or any refusal) is [`Error::Refused`] carrying git's own
     /// stderr; the caller runs [`Self::abort_rebase`] and reports the repo as
     /// conflicted rather than aborting the batch.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Refused`] if the rebase conflicts or otherwise fails.
     fn rebase_branch(&self, worktree: &Utf8Path, branch: &str) -> Result<(), Error>;
 
     /// `git -C <worktree> rebase --abort` — abandon an in-progress rebase and
     /// restore the branch to where it was before it started.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error`] if no rebase is in progress or the abort fails.
     fn abort_rebase(&self, worktree: &Utf8Path) -> Result<(), Error>;
 
     /// `git --git-dir <git_dir> branch -m <from> <to>` — relabel a local
@@ -494,6 +653,10 @@ pub trait Git {
     /// updates the symbolic `HEAD` of any worktree that had `from` checked
     /// out, so that worktree's `HEAD` names `to` immediately afterwards —
     /// dirty, staged, and untracked content all ride along untouched.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error`] if `from` does not exist or `to` already exists.
     fn rename_branch(&self, git_dir: &Utf8Path, from: &str, to: &str) -> Result<(), Error>;
 
     /// `git --git-dir <git_dir> worktree move <from> <to>` — relocate a
@@ -505,6 +668,10 @@ pub trait Git {
     /// parent directory is created first when missing — the destination is a
     /// branch-derived path that may nest one level deeper than any directory
     /// that already exists.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error`] if the worktree cannot be relocated or git's registration cannot be repaired.
     fn move_worktree(
         &self,
         git_dir: &Utf8Path,
@@ -525,6 +692,10 @@ pub trait Git {
     /// `refs/remotes/origin/<branch>` tracking ref is updated to `at`, the
     /// same bookkeeping [`Self::push`] performs, and under the same condition
     /// (only when `remote` is origin's own configured URL).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error`] if `branch` already exists on `remote` (the compare-and-swap fails) or the push otherwise fails.
     fn publish_remote_branch(
         &self,
         git_dir: &Utf8Path,
@@ -545,6 +716,10 @@ pub trait Git {
     /// `refs/remotes/origin/<branch>` tracking ref is removed, under the
     /// same "only when `remote` is origin's own configured URL" condition as
     /// [`Self::publish_remote_branch`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error`] if `branch` moved past `expected_tip` on `remote` (the compare-and-delete fails) or the push otherwise fails.
     fn delete_remote_branch(
         &self,
         git_dir: &Utf8Path,
@@ -554,12 +729,20 @@ pub trait Git {
     ) -> Result<(), Error>;
     /// Whether git ignores `path` inside the repository or worktree at
     /// `worktree` according to `.gitignore` rules and attributes.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error`] if `worktree` is not a git repository.
     fn is_path_ignored(&self, worktree: &Utf8Path, path: &Utf8Path) -> Result<bool, Error> {
         read::is_path_ignored(worktree, path)
     }
 
     /// Differences between a base commit's tree (or empty tree if `since_commit` is `None`)
     /// and the current working directory, including untracked files.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error`] if the diff cannot be computed.
     fn diff_worktree_files(
         &self,
         worktree: &Utf8Path,

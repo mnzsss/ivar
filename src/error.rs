@@ -283,6 +283,10 @@ impl Failure {
     /// Equivalent to [`write_painted`](Self::write_painted) with
     /// [`Palette::plain`], and kept as its own name because most callers — and
     /// every byte-for-byte test — want exactly that.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`io::Error`] if `w` cannot be written to.
     pub fn write_human(&self, w: &mut impl io::Write) -> io::Result<()> {
         self.write_painted(w, &Palette::plain())
     }
@@ -294,6 +298,10 @@ impl Failure {
     /// sentence are *values*, and a value never gets an escape code inside it —
     /// that is what keeps this consistent with the `--json` surface, where the
     /// same strings appear raw.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`io::Error`] if `w` cannot be written to.
     pub fn write_painted(&self, w: &mut impl io::Write, palette: &Palette) -> io::Result<()> {
         writeln!(w, "{} {}", palette.danger(self.label()), self.what)?;
         if let Some(expected) = &self.expected {
@@ -367,6 +375,10 @@ impl Warning {
 
     /// The one layout for a warning. As with [`Failure::write_painted`], only
     /// the label is painted — subject and text are values.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`io::Error`] if `w` cannot be written to.
     pub fn write_painted(&self, w: &mut impl io::Write, palette: &Palette) -> io::Result<()> {
         writeln!(
             w,
@@ -485,6 +497,10 @@ impl<T> Report<T> {
 pub trait WriteHuman {
     /// Write the human form. One line for a simple outcome; a short block for
     /// one that reports several facts.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`io::Error`] if `w` cannot be written to.
     fn write_human(&self, w: &mut impl io::Write) -> io::Result<()>;
 }
 
