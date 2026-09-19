@@ -349,3 +349,21 @@ fn get_impact_with_a_depth_beyond_i64_does_not_panic() {
         .expect("get_impact must not panic on an out-of-range depth");
     assert_eq!(impact.total_affected, 0);
 }
+
+#[test]
+fn explore_find_surfaces_a_row_decode_error_instead_of_dropping_it() {
+    let db = seeded_db(1);
+    db.conn()
+        .execute(
+            "UPDATE symbols SET start_line = 'not-a-number' WHERE name = 'getUser'",
+            [],
+        )
+        .unwrap();
+
+    let err = explore_find(&db, "getUser", None, usize::MAX)
+        .expect_err("a non-numeric start_line must surface as an error, not be silently dropped");
+    assert!(matches!(
+        err,
+        crate::action::graph::query::types::QueryError::Sqlite(_)
+    ));
+}

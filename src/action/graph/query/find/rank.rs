@@ -140,8 +140,7 @@ fn collect_pinned_candidates(
 
             let symbols: Vec<(Symbol, String)> = stmt
                 .query_map(params![file_id], map_symbol_and_path_row)?
-                .filter_map(|r| r.ok())
-                .collect();
+                .collect::<Result<_, _>>()?;
 
             let entry = file_candidates.entry(key).or_default();
             for (symbol, file_path) in symbols {
@@ -202,7 +201,7 @@ fn score_matching_terms(
         )?;
         let rows = stmt
             .query_map(params![repo], map_symbol_and_path_row)?
-            .filter_map(|r| r.ok());
+            .collect::<Result<Vec<_>, _>>()?;
         for (symbol, file_path) in rows {
             add_score(file_candidates, symbol, file_path, 30.0);
         }
@@ -231,7 +230,7 @@ fn score_term_tiers(
         )?;
         let rows = stmt
             .query_map(params![term, repo], map_symbol_and_path_row)?
-            .filter_map(|r| r.ok());
+            .collect::<Result<Vec<_>, _>>()?;
         for (symbol, file_path) in rows {
             add_score(file_candidates, symbol, file_path, 100.0);
         }
@@ -253,7 +252,7 @@ fn score_term_tiers(
         let [c1, c2, c3, c4] = prefix_casings(term);
         let rows = stmt
             .query_map(params![c1, c2, c3, c4, term, repo], map_symbol_and_path_row)?
-            .filter_map(|r| r.ok());
+            .collect::<Result<Vec<_>, _>>()?;
         for (symbol, file_path) in rows {
             let at_word_boundary = match symbol.name.get(term.len()..) {
                 Some(rest) => rest.chars().next().is_none_or(|next| {
@@ -271,7 +270,7 @@ fn score_term_tiers(
         let mut stmt = conn.prepare_cached(PATH_TIER_SQL)?;
         let rows = stmt
             .query_map(params![term, repo], map_symbol_and_path_row)?
-            .filter_map(|r| r.ok());
+            .collect::<Result<Vec<_>, _>>()?;
         for (symbol, file_path) in rows {
             add_score(file_candidates, symbol, file_path, 60.0);
         }
@@ -288,9 +287,10 @@ fn score_term_tiers(
          WHERE symbols_fts MATCH ?1
            AND (?2 IS NULL OR s.repo = ?2)
          LIMIT 50",
-    ) && let Ok(rows) = stmt.query_map(params![word_query, repo], map_symbol_and_path_row)
-    {
-        for (symbol, file_path) in rows.filter_map(|r| r.ok()) {
+    ) {
+        let rows = stmt.query_map(params![word_query, repo], map_symbol_and_path_row)?;
+        for row in rows {
+            let (symbol, file_path) = row?;
             add_score(file_candidates, symbol, file_path, 30.0);
         }
     }
@@ -307,9 +307,10 @@ fn score_term_tiers(
            AND (?2 IS NULL OR s.repo = ?2)
          ORDER BY fts.rank
          LIMIT 50",
-    ) && let Ok(rows) = stmt.query_map(params![fts_query, repo], map_symbol_and_path_row)
-    {
-        for (symbol, file_path) in rows.filter_map(|r| r.ok()) {
+    ) {
+        let rows = stmt.query_map(params![fts_query, repo], map_symbol_and_path_row)?;
+        for row in rows {
+            let (symbol, file_path) = row?;
             add_score(file_candidates, symbol, file_path, 15.0);
         }
     }

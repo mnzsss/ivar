@@ -187,8 +187,7 @@ fn resolve_path_token(
         .query_map(params![repo, trimmed], |r| {
             Ok((r.get(0)?, r.get(1)?, r.get(2)?))
         })?
-        .filter_map(|r| r.ok())
-        .collect();
+        .collect::<Result<_, _>>()?;
 
     if let [(file_id, r, p)] = exact_matches.as_slice() {
         return Ok(Some(ResolvedPath::ExactFile {
@@ -213,8 +212,7 @@ fn resolve_path_token(
         .query_map(params![repo, trimmed], |r| {
             Ok((r.get(0)?, r.get(1)?, r.get(2)?))
         })?
-        .filter_map(|r| r.ok())
-        .collect();
+        .collect::<Result<_, _>>()?;
 
     if let [(file_id, r, p)] = rel_matches.as_slice() {
         return Ok(Some(ResolvedPath::WorkspaceRelative {
@@ -250,8 +248,7 @@ fn resolve_directory_or_basename(
         .query_map(params![repo, clean_dir], |r| {
             Ok((r.get(0)?, r.get(1)?, r.get(2)?))
         })?
-        .filter_map(|r| r.ok())
-        .collect();
+        .collect::<Result<_, _>>()?;
 
     if dir_matches.is_empty() {
         let mut subtree_stmt = conn.prepare_cached(
@@ -270,8 +267,7 @@ fn resolve_directory_or_basename(
                 .query_map(params![repo.or(named_repo), &clean_dir[slash + 1..]], |r| {
                     Ok((r.get(0)?, r.get(1)?, r.get(2)?))
                 })?
-                .filter_map(|r| r.ok())
-                .collect();
+                .collect::<Result<_, _>>()?;
             if !dir_matches.is_empty() {
                 break;
             }
@@ -293,8 +289,7 @@ fn resolve_directory_or_basename(
         .query_map(params![repo, trimmed], |r| {
             Ok((r.get(0)?, r.get(1)?, r.get(2)?))
         })?
-        .filter_map(|r| r.ok())
-        .collect();
+        .collect::<Result<_, _>>()?;
 
     if let [(file_id, r, p)] = base_matches.as_slice() {
         Ok(Some(ResolvedPath::UnambiguousBasename {
