@@ -26,6 +26,7 @@
 //!
 //! | module    | may import                     | may **not** import                            |
 //! |-----------|--------------------------------|-----------------------------------------------|
+//! | `app`     | everything                     | (nothing may import `app`)                    |
 //! | `cli`     | `action`, `error`              | everything else                               |
 //! | `action`  | anything below                 | `cli`                                         |
 //! | `domain`  | `error`                        | `store`, `git`, `harness`, `tui`, `infra`     |
@@ -67,6 +68,9 @@ pub mod action;
 #[doc(hidden)]
 pub mod cli;
 pub mod tui;
+
+#[doc(hidden)]
+pub mod app;
 
 #[cfg(test)]
 #[path = "../tests/support/unit.rs"]

@@ -34,6 +34,13 @@ src/
   bin/ivar.rs      entrypoint: parse argv, dispatch, render, set exit code. No logic.
   lib.rs           crate attrs, module tree, the layering rule as a doc comment.
 
+  app/             the composition root: dispatch and rendering. Only layer
+                   allowed to reach every other one.
+    run.rs         turns a parsed `Cli` into an exit code: matches the command,
+                   converts args into an action's `Input`, renders the outcome.
+    respond.rs     rendering an action's `Outcome`/`Report`/`Failure` as bytes.
+    graph_dispatch.rs  the `ivar graph` subcommand tree's dispatch.
+
   cli/             clap derive types ONLY — structs, enums, doc comments.
     root.rs        every command, one file: the root entries and each group's
                    subcommands. One file because clap derive is declarative and
@@ -406,17 +413,18 @@ Dependencies point downward only. A test over `use` statements enforces this —
 a convention nobody remembers is not a boundary.
 
 ```
-cli  ─────────────► action ─────────────► domain
-                      │                     ▲
-                      ├──► store ───────────┤
-                      ├──► git ─────────────┤
-                      ├──► harness ─────────┤
-                      ├──► tui ─────────────┤
-                      └──► infra ◄──────────┘   (store/git/harness/tui use infra)
+app  ─────────────► cli ─────────────► action ─────────────► domain
+                                          │                     ▲
+                                          ├──► store ───────────┤
+                                          ├──► git ─────────────┤
+                                          ├──► harness ─────────┤
+                                          ├──► tui ─────────────┤
+                                          └──► infra ◄──────────┘   (store/git/harness/tui use infra)
 ```
 
 | module | may import | may **not** import |
 | --- | --- | --- |
+| `app` | everything | (nothing may import `app`) |
 | `cli` | `action`, `error` | everything else |
 | `action` | anything below | `cli` |
 | `domain` | `error` only | `store`, `git`, `harness`, `tui`, `infra` |

@@ -56,7 +56,8 @@ use std::path::{Path, PathBuf};
 /// `(module, modules it may import)`. Anything not listed is forbidden.
 /// `error` is importable from everywhere and is therefore omitted from the lists.
 const ALLOWED: &[(&str, &[&str])] = &[
-    ("cli", &["action", "domain", "infra", "git"]),
+    ("cli", &["action"]),
+    ("app", &["cli", "action", "domain", "infra", "git"]),
     (
         "action",
         &[

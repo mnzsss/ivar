@@ -8,5 +8,5 @@ use clap::Parser;
 use ivar::cli::root::Cli;
 
 fn main() -> ExitCode {
-    ivar::cli::run::run(Cli::parse())
+    ivar::app::run::run(Cli::parse())
 }

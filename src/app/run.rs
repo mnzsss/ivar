@@ -47,7 +47,7 @@ use crate::action::skill::{
     update as skill_update,
 };
 use crate::action::sync;
-use crate::cli::respond::{current_dir, respond, respond_batch, respond_failure};
+use crate::app::respond::{current_dir, respond, respond_batch, respond_failure};
 use crate::cli::root::{
     Cli, Command, CommentCommand, DiscoveryCommand, ExecuteCommand, FeatureCommand, McpCommand,
     PlanCommand, ProviderCommand, RepoCommand, ReviewCommand, SessionCommand, SkillCommand,
