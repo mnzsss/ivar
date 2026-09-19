@@ -2,26 +2,26 @@ use serde::Serialize;
 use std::io;
 use std::process::ExitCode;
 
-use ivar::action::Ctx;
-use ivar::action::graph::{
+use crate::action::Ctx;
+use crate::action::graph::{
     AffectedInput, CalleesInput, CallersInput, ComplexityInput, DeadCodeInput, ExploreInput,
     FileInput, FindInput, HierarchyInput, ImpactInput, IndexInput, PathInput, ResultCount,
     ToCompact, VizInput, affected_cmd, callees_cmd, callers_cmd, clean_cmd, complexity_cmd,
     dead_code_cmd, execute_view_session, explore_cmd, file_cmd, find_cmd, hierarchy_cmd,
     impact_cmd, index_cmd, mcp_cmd, path_cmd, record_usage, stats_cmd, view_cmd, viz_cmd,
 };
-use ivar::cli::graph::GraphCommand;
-use ivar::domain::graph::{UsageEvent, UsageSource};
-use ivar::error::{Failure, Outcome, Palette, Report, WriteHuman};
-use ivar::infra::term;
+use crate::cli::graph::GraphCommand;
+use crate::domain::graph::{UsageEvent, UsageSource};
+use crate::error::{Failure, Outcome, Palette, Report, WriteHuman};
+use crate::infra::term;
 
 fn stderr_palette() -> Palette {
     Palette::from_decision(term::colour_for(term::Stream::Stderr, None))
 }
 
 fn write_json(w: &mut impl io::Write, value: &impl Serialize) -> io::Result<()> {
-    let rendered =
-        serde_json::to_string(value).unwrap_or_else(|_| crate::RENDER_FAILED_JSON.to_owned());
+    let rendered = serde_json::to_string(value)
+        .unwrap_or_else(|_| crate::cli::respond::RENDER_FAILED_JSON.to_owned());
     writeln!(w, "{rendered}")
 }
 
