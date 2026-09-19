@@ -156,7 +156,7 @@ fn check_and_push_one(
                     Some(force_with_lease_fix(git, &bare, repo)),
                 )
             } else {
-                (failure.what.clone(), None)
+                (failure.what, None)
             };
             warnings.push(Warning::new(
                 "deliver.push_failed",

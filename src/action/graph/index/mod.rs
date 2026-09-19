@@ -97,7 +97,7 @@ pub fn index_repo(
             listed_by_git_diff,
         )?;
         let (num_files_indexed, num_symbols_indexed, num_edges_indexed, job_failures) =
-            run_extraction_jobs(jobs, repo_id, db, progress, &files_to_delete)?;
+            run_extraction_jobs(&jobs, repo_id, db, progress, &files_to_delete)?;
         files_failed.extend(job_failures);
         Ok((
             num_files_indexed,
@@ -302,7 +302,7 @@ fn build_extract_jobs(
 }
 
 fn run_extraction_jobs(
-    jobs: Vec<ExtractJob>,
+    jobs: &[ExtractJob],
     repo_id: &str,
     db: &GraphDb,
     progress: &dyn Progress,

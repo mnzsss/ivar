@@ -182,14 +182,12 @@ impl WritableSet {
     #[cfg(test)]
     pub(crate) fn from_parts(
         view_dir: Utf8PathBuf,
-        feature_dir: Option<Utf8PathBuf>,
-        worktrees: Vec<Utf8PathBuf>,
+        feature_dir: Option<&Utf8Path>,
+        worktrees: &[Utf8PathBuf],
     ) -> Self {
         let view_dir = canonicalize_lenient(&view_dir);
-        let sessions_dir = feature_dir
-            .as_ref()
-            .map(|fd| canonicalize_lenient(&fd.join("sessions")));
-        let feature_dir = feature_dir.map(|fd| canonicalize_lenient(&fd));
+        let sessions_dir = feature_dir.map(|fd| canonicalize_lenient(&fd.join("sessions")));
+        let feature_dir = feature_dir.map(canonicalize_lenient);
         let worktrees = worktrees.iter().map(|w| canonicalize_lenient(w)).collect();
         Self {
             view_dir,

@@ -152,7 +152,7 @@ pub fn convert(ctx: &Ctx, input: &ConvertInput) -> Outcome<ConvertOutcome> {
     // 4. Record the transition, then run the (idempotent, resumable) steps.
     let transition = Transition {
         session_id: session.id.clone(),
-        source: session.view_dir.clone(),
+        source: session.view_dir,
         feature: feature_name.clone(),
         step: Step::LiftDiscovery,
     };

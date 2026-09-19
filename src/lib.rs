@@ -43,6 +43,31 @@
 //!
 //! See `ARCHITECTURE.md` for the full module map and the build order.
 
+// `tests/unit/**` is compiled into this crate through the many `#[cfg(test)]
+// #[path = ...] mod tests;` declarations scattered across `src/**`, so a lint
+// locked in `[lints.clippy]` for production code also fires on that test
+// code — which the audit that locked those lints deliberately did not touch
+// (see plan.md's Safeguards). `cfg_attr(test, ...)` scopes the relief to test
+// builds only, the same relief `unwrap_used`/`expect_used`/`panic`/
+// `indexing_slicing` already get from `tests/support/unit.rs`'s own
+// `#![allow]`, without a carve-out per test module.
+#![cfg_attr(
+    test,
+    allow(
+        clippy::needless_pass_by_value,
+        clippy::redundant_clone,
+        clippy::assigning_clones,
+        clippy::implicit_clone,
+        clippy::format_push_string,
+        clippy::unnecessary_wraps,
+        clippy::missing_errors_doc,
+        clippy::too_many_lines,
+        clippy::cast_possible_truncation,
+        clippy::cast_possible_wrap,
+        clippy::cast_sign_loss
+    )
+)]
+
 // Module tree, declared as each vertical slice lands. Order is deliberate:
 // see the build order in ARCHITECTURE.md.
 //
