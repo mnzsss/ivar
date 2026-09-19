@@ -17,6 +17,13 @@ pub(super) fn insert_symbol(
 ) -> rusqlite::Result<i64> {
     let kind_str = symbol_kind_to_str(&sym.kind);
     let is_exported = if sym.is_exported { 1 } else { 0 };
+    let to_i64 = |value: usize| {
+        i64::try_from(value).map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))
+    };
+    let start_line = to_i64(sym.span.start_line)?;
+    let start_col = to_i64(sym.span.start_col)?;
+    let end_line = to_i64(sym.span.end_line)?;
+    let end_col = to_i64(sym.span.end_col)?;
     stmt.query_row(
         params![
             file_id,
@@ -26,10 +33,10 @@ pub(super) fn insert_symbol(
             &sym.scope,
             &sym.signature,
             &sym.docstring,
-            i64::try_from(sym.span.start_line).unwrap_or(i64::MAX),
-            i64::try_from(sym.span.start_col).unwrap_or(i64::MAX),
-            i64::try_from(sym.span.end_line).unwrap_or(i64::MAX),
-            i64::try_from(sym.span.end_col).unwrap_or(i64::MAX),
+            start_line,
+            start_col,
+            end_line,
+            end_col,
             is_exported,
             sym.complexity.map(i64::from),
             name_words(&sym.name),
@@ -54,6 +61,10 @@ pub(crate) fn symbol_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Symbo
     let is_exported: i64 = row.get(12)?;
     let complexity: Option<i64> = row.get(13)?;
 
+    let span_field = |column: usize, value: i64| {
+        usize::try_from(value).map_err(|_| rusqlite::Error::IntegralValueOutOfRange(column, value))
+    };
+
     Ok(Symbol {
         id: Some(id),
         file_id: Some(file_id),
@@ -64,12 +75,14 @@ pub(crate) fn symbol_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Symbo
         signature,
         docstring,
         span: Span::new(
-            usize::try_from(start_line).unwrap_or(usize::MAX),
-            usize::try_from(start_col).unwrap_or(usize::MAX),
-            usize::try_from(end_line).unwrap_or(usize::MAX),
-            usize::try_from(end_col).unwrap_or(usize::MAX),
+            span_field(8, start_line)?,
+            span_field(9, start_col)?,
+            span_field(10, end_line)?,
+            span_field(11, end_col)?,
         ),
         is_exported: is_exported != 0,
-        complexity: complexity.map(|c| u32::try_from(c).unwrap_or(u32::MAX)),
+        complexity: complexity
+            .map(|c| u32::try_from(c).map_err(|_| rusqlite::Error::IntegralValueOutOfRange(13, c)))
+            .transpose()?,
     })
 }
