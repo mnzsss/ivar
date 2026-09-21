@@ -1455,6 +1455,11 @@ fn graph_explore_tool_names_are_recognised_across_providers() {
     assert!(is_graph_explore_tool("gaio-graph_graph_explore"));
     assert!(!is_graph_explore_tool("mcp__gaio-graph__graph_feedback"));
     assert!(!is_graph_explore_tool("Grep"));
+    assert!(is_graph_explore_tool("graph_explore"));
+    assert!(is_graph_explore_tool("valhalla-hall-graph_graph_explore"));
+    assert!(!is_graph_explore_tool("mcp__other__my_graph_explore"));
+    assert!(!is_graph_explore_tool("foo_graph_explore"));
+    assert!(!is_graph_explore_tool("foo_graph_explore_v2"));
 }
 
 #[test]
@@ -1482,4 +1487,46 @@ fn a_hook_recorded_graph_call_outside_a_session_view_uses_the_ambient_session() 
 
     let db = GraphDb::open_for_usage(db_path.as_std_path()).unwrap();
     assert!(db.last_graph_call("ambient-session").unwrap().is_some());
+}
+
+fn hook_usage_rows(db_path: &Utf8PathBuf) -> Vec<(String, Option<String>)> {
+    let db = GraphDb::open_for_usage(db_path.as_std_path()).unwrap();
+    let mut stmt = db
+        .conn()
+        .prepare("SELECT source, session FROM usage WHERE command = 'graph_explore'")
+        .unwrap();
+    stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap()
+}
+
+fn assert_hook_payload_records_graph_call(provider: Provider) {
+    let (_guard, env, db_path) = session_env_with_memory_db();
+    crate::domain::session::SessionState::new(provider, "2026-08-29T00:00:00Z")
+        .write(&env.view_dir)
+        .unwrap();
+    let payload = serde_json::json!({
+        "tool": "valhalla-hall-graph_graph_explore",
+        "args": { "query": "record_graph_call_at" },
+        "cwd": env.view_dir,
+    });
+
+    let out = guard(provider, &payload.to_string()).unwrap();
+
+    assert!(out.exit_zero);
+    assert_eq!(
+        hook_usage_rows(&db_path),
+        vec![("hook".to_owned(), Some(env.session_id.clone()))]
+    );
+}
+
+#[test]
+fn an_opencode_graph_explore_hook_payload_records_a_hook_usage_row() {
+    assert_hook_payload_records_graph_call(Provider::OpenCode);
+}
+
+#[test]
+fn an_omp_graph_explore_hook_payload_records_a_hook_usage_row() {
+    assert_hook_payload_records_graph_call(Provider::Omp);
 }
