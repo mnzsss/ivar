@@ -523,6 +523,30 @@ fn doctor_finds_nothing_in_a_healthy_hall() {
 }
 
 #[test]
+fn doctor_names_a_worktree_no_feature_owns() {
+    let (_guard, root) = hall_with_repo();
+    let ctx = Ctx::new(root.clone());
+    crate::action::sync::sync(&ctx, &Default::default()).unwrap();
+    let bare = root.join(".ivar/repos/api/.bare");
+    let git = crate::git::System;
+    crate::git::Git::create_branch(&git, &bare, "fix/stray", "main").unwrap();
+    crate::git::Git::add_worktree(
+        &git,
+        &bare,
+        &root.join(".ivar/repos/api/stray"),
+        "fix/stray",
+    )
+    .unwrap();
+
+    let report = doctor(&ctx).unwrap();
+
+    let finding = finding(&report.value, "repo.worktree_orphaned");
+    assert!(finding.what.contains("stray"));
+    assert!(finding.what.contains("fix/stray"));
+    assert!(!finding.fix.contains("--force"));
+}
+
+#[test]
 fn doctor_names_a_missing_bare_clone_and_its_fix() {
     let (_guard, root) = hall_with_repo();
     let ctx = Ctx::new(root);

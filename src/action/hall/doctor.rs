@@ -5,11 +5,12 @@
 // ---------------------------------------------------------------------------
 
 /// One diagnosed problem.
+use std::collections::HashSet;
 use std::io;
 
 use serde::Serialize;
 
-use crate::domain::feature::{RunReceipt, RunStatus};
+use crate::domain::feature::{Feature, RunReceipt, RunStatus};
 use crate::domain::name::FeatureName;
 use crate::domain::provider::Provider;
 use crate::error::{Failure, Outcome, Report, WriteHuman};
@@ -76,6 +77,7 @@ pub fn doctor(ctx: &Ctx) -> Outcome<DoctorOutcome> {
     findings.extend(diagnose_instructions(&manifest, &layout));
     findings.extend(graph_diagnoses(&layout, &manifest, &git));
     findings.extend(diagnose_orphaned_runs(&layout)?);
+    findings.extend(diagnose_orphan_worktrees(&layout, &manifest, &git));
     check_legacy_working_docs(&layout, &mut findings)?;
 
     Ok(Report::new(DoctorOutcome {
@@ -241,6 +243,58 @@ fn diagnose_orphaned_runs(layout: &Layout) -> Result<Vec<Diagnosis>, Failure> {
         }
     }
     Ok(findings)
+}
+
+fn diagnose_orphan_worktrees(
+    layout: &Layout,
+    manifest: &Manifest,
+    git: &impl Git,
+) -> Vec<Diagnosis> {
+    let owned = feature_branches(layout);
+    let mut findings = Vec::new();
+    for repo in manifest.repos() {
+        let bare = layout.repo_bare(repo.name());
+        let Ok(entries) = git.list_worktrees(&bare) else {
+            continue;
+        };
+        for entry in entries {
+            let Some(branch) = entry.branch else {
+                continue;
+            };
+            if branch == repo.default_branch().as_str() || owned.contains(&branch) {
+                continue;
+            }
+            let dirty = git.worktree_dirty(&entry.path).unwrap_or(true);
+            findings.push(Diagnosis {
+                code: "repo.worktree_orphaned",
+                what: format!(
+                    "`{}` in `{}` is on branch `{branch}`, which no feature owns{}",
+                    entry.path,
+                    repo.name(),
+                    if dirty { " — it has uncommitted changes" } else { "" }
+                ),
+                fix: format!(
+                    "Inspect it; if nothing is needed, run `git --git-dir {bare} worktree remove {}`.",
+                    entry.path
+                ),
+            });
+        }
+    }
+    findings
+}
+
+/// Every feature's branch, skipping features whose record cannot be read.
+fn feature_branches(layout: &Layout) -> HashSet<String> {
+    let features_dir = layout.features_dir();
+    let Ok(entries) = fs::read_dir(&features_dir) else {
+        return HashSet::new();
+    };
+    entries
+        .iter()
+        .filter_map(|entry| FeatureName::new(entry.file_name()?.to_owned()).ok())
+        .filter_map(|name| Feature::read(layout, &name).ok().flatten())
+        .map(|feature| feature.branch.as_str().to_owned())
+        .collect()
 }
 
 /// Every feature's current receipt that is still in flight — non-terminal.
