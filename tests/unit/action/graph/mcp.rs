@@ -1314,3 +1314,40 @@ fn a_discovery_session_call_records_the_ivar_session_id() {
         .unwrap();
     assert_eq!(session.as_deref(), Some(session_id.as_str()));
 }
+
+#[test]
+fn a_grep_after_an_mcp_explore_in_the_same_session_is_a_followup_carrying_the_query() {
+    use crate::domain::graph::MissKind;
+    use crate::domain::name::SessionId;
+    use crate::domain::provider::Provider;
+    use crate::domain::session::SessionState;
+    use crate::store::graph::db::usage::MissFilter;
+    use crate::store::layout::Layout;
+
+    let (_guard, root) = crate::test_support::seeded_hall();
+    let layout = Layout::at(root.clone());
+    let db = GraphDb::open(layout.ivar_dir().join("memory.db").as_std_path()).unwrap();
+    let session_id = SessionId::new("6f0c9d5f-0000-4000-8000-0000000009cc").unwrap();
+    let view_dir = layout.discovery_session(&session_id);
+    crate::infra::fs::ensure_dir(&view_dir).unwrap();
+    SessionState::new(Provider::ClaudeCode, "2026-08-29T00:00:00Z")
+        .write(&view_dir)
+        .unwrap();
+
+    let (text, is_error) = call_tool_at(&db, root.as_std_path(), &view_dir);
+    assert!(!is_error, "got: {text}");
+
+    let hook = json!({
+        "tool_name": "Grep",
+        "tool_input": { "pattern": "fn main" },
+        "cwd": view_dir,
+    });
+    crate::action::session::guard::guard(Provider::ClaudeCode, &hook.to_string()).unwrap();
+
+    let misses = db.list_misses(&MissFilter::default()).unwrap();
+    assert_eq!(misses.len(), 1, "{misses:?}");
+    assert_eq!(misses[0].kind, MissKind::Followup);
+    assert_eq!(misses[0].session.as_deref(), Some(session_id.as_str()));
+    assert_eq!(misses[0].query.as_deref(), Some("execute"));
+    assert_eq!(misses[0].pattern.as_deref(), Some("fn main"));
+}
