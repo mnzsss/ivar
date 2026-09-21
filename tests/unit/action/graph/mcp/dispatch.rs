@@ -58,6 +58,22 @@ fn graph_feedback_records_a_feedback_miss_and_returns_a_plain_confirmation() {
 }
 
 #[test]
+fn graph_feedback_does_not_claim_a_record_it_failed_to_write() {
+    let db = GraphDb::open_in_memory().expect("open db");
+    db.conn()
+        .execute_batch("DROP TABLE graph_misses;")
+        .expect("drop table");
+    let args = json!({"query": "explore foo", "reason": "empty"});
+
+    let (text, _) = dispatch_tool_call(&db, None, None, "graph_feedback", &args, &mut |_| {
+        Ok(json!({}))
+    })
+    .expect("graph_feedback never errors the protocol response");
+
+    assert!(!text.to_lowercase().contains("recorded as"), "{text}");
+}
+
+#[test]
 fn graph_feedback_truncates_query_and_reason_to_500_chars() {
     let db = GraphDb::open_in_memory().expect("open db");
     let long = "y".repeat(600);

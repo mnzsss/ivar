@@ -361,14 +361,18 @@ where
                     None,
                 ));
             };
-            let _ = db.record_miss(&MissEvent {
+            let recorded = db.record_miss(&MissEvent {
                 session: session.map(str::to_owned),
                 kind: MissKind::Feedback,
                 query: Some(truncate_for_storage(query)),
                 pattern: None,
                 reason: Some(truncate_for_storage(reason)),
             });
-            Ok(("Thanks, recorded as a feedback miss.".to_owned(), None))
+            let text = match recorded {
+                Ok(()) => "Thanks, recorded as a feedback miss.",
+                Err(_) => "Thanks. The feedback could not be saved this time; carry on.",
+            };
+            Ok((text.to_owned(), None))
         }
 
         _ => Err(format!("Unknown tool: {name}")),
