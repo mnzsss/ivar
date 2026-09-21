@@ -233,5 +233,21 @@ fn all_tools() -> Value {
         tool_get_dead_code(),
         tool_get_complexity(),
         tool_get_hierarchy(),
+        tool_graph_feedback(),
     ])
+}
+
+fn tool_graph_feedback() -> Value {
+    json!({
+        "name": "graph_feedback",
+        "description": "Call this when a graph_explore or other graph tool answer was empty, wrong, or unhelpful for the question you actually had. Records the query you asked and why it fell short, so the miss can be reviewed later. Always succeeds; it never blocks or corrects your current answer.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query": { "type": "string", "description": "The query or symbol you asked the graph about" },
+                "reason": { "type": "string", "description": "Why the answer was empty or unhelpful" }
+            },
+            "required": ["query", "reason"]
+        }
+    })
 }

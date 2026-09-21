@@ -161,8 +161,9 @@ fn test_mcp_initialize_and_tools_list() {
     let tools = list_resp["result"]["tools"]
         .as_array()
         .expect("tools array");
-    assert_eq!(tools.len(), 11);
+    assert_eq!(tools.len(), 12);
     let tool_names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
+    assert!(tool_names.contains(&"graph_feedback"));
     assert!(tool_names.contains(&"graph_explore"));
     assert!(tool_names.contains(&"get_callers"));
     assert!(tool_names.contains(&"get_callees"));
@@ -1203,6 +1204,41 @@ fn a_500_char_query_is_truncated_before_storage() {
         )
         .unwrap();
     assert_eq!(stored.map(|s| s.len()), Some(500));
+}
+
+#[test]
+fn graph_feedback_is_advertised_under_the_all_tools_surface_only() {
+    let names = |surface| -> Vec<String> {
+        super::tools::list_tools(surface)
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|t| t["name"].as_str().map(str::to_owned))
+            .collect()
+    };
+    assert!(names(super::tools::ToolSurface::All).contains(&"graph_feedback".to_owned()));
+    assert!(!names(super::tools::ToolSurface::Explore).contains(&"graph_feedback".to_owned()));
+}
+
+#[test]
+fn the_server_instructions_tell_the_agent_to_call_graph_feedback_on_a_miss() {
+    let (db, temp) = setup_test_mcp_db();
+    let input = format!(
+        "{}\n",
+        json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}})
+    );
+    let mut output = Vec::new();
+    run_mcp_server(
+        &db,
+        Some(temp.path()),
+        Cursor::new(input),
+        &mut output,
+        |_| Ok(json!({"status": "ok"})),
+    )
+    .expect("run server");
+    let resp: Value = serde_json::from_str(String::from_utf8(output).unwrap().trim()).unwrap();
+    let instructions = resp["result"]["instructions"].as_str().unwrap();
+    assert!(instructions.contains("graph_feedback"), "{instructions}");
 }
 
 #[test]

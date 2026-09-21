@@ -35,7 +35,11 @@ relevant files, who depends on them, and the call path between the symbols you n
 names instead of reading them.
 - Trust its callers and blast radius; a grep only adds files outside the index.
 - A file changed since the last index comes back whole and flagged, so its source stays \
-current.";
+current.
+
+If a graph answer was empty or did not actually help (the wrong symbol, a stale result, \
+a call you expected but did not see), call graph_feedback with the query you asked and why \
+it fell short, instead of silently falling back to grep.";
 /// Runs the MCP server loop advertising every graph tool.
 pub fn run_mcp_server<R, W, F>(
     db: &GraphDb,

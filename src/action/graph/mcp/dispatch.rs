@@ -11,6 +11,7 @@ use crate::action::graph::query::find::{is_path_like, resolve_query_paths};
 use crate::action::graph::{
     affected, compact, complexity, dead_code, explore, hierarchy, narrate, path, query,
 };
+use crate::domain::graph::{MissEvent, MissKind};
 use crate::store::graph::db::GraphDb;
 
 /// Upper bound on MCP `max_depth`/`max_hops` traversal args. An agent can
@@ -346,6 +347,27 @@ where
                 serde_json::to_string_pretty(&item).map_err(|e| e.to_string())
             }?;
             Ok((text, count))
+        }
+
+        "graph_feedback" => {
+            let query = args.get("query").and_then(Value::as_str);
+            let reason = args.get("reason").and_then(Value::as_str);
+            let (Some(query), Some(reason)) = (query, reason) else {
+                return Ok((
+                    "`graph_feedback` needs `query` (what you asked) and `reason` (why the answer \
+                     fell short)."
+                        .to_owned(),
+                    None,
+                ));
+            };
+            let _ = db.record_miss(&MissEvent {
+                session: None,
+                kind: MissKind::Feedback,
+                query: Some(super::truncate_to_500(query)),
+                pattern: None,
+                reason: Some(super::truncate_to_500(reason)),
+            });
+            Ok(("Thanks, recorded as a feedback miss.".to_owned(), None))
         }
 
         _ => Err(format!("Unknown tool: {name}")),
