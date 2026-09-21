@@ -1,7 +1,7 @@
-#![allow(clippy::unwrap_used)]
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)]
 
 use super::*;
-use crate::domain::graph::{GraphStats, UsageEvent, UsageSource};
+use crate::domain::graph::{GraphStats, MissKind, MissRecord, UsageEvent, UsageSource};
 use crate::error::WriteHuman;
 use crate::store::graph::db::GraphDb;
 
@@ -86,4 +86,70 @@ fn stats_human_output_lists_usage_or_says_none() {
     assert!(text.contains("Usage:"), "got: {text}");
     assert!(text.contains("explore"), "got: {text}");
     assert!(text.contains("mcp"), "got: {text}");
+}
+
+fn sample_miss(id: i64, ts: i64, kind: MissKind) -> MissRecord {
+    MissRecord {
+        id,
+        ts,
+        session: Some("sess-1".to_owned()),
+        kind,
+        query: Some("get_callers".to_owned()),
+        pattern: Some("rg get_callers".to_owned()),
+        reason: None,
+    }
+}
+
+#[test]
+fn misses_json_serializes_as_a_plain_array_newest_first() {
+    let outcome = MissesOutcome {
+        misses: vec![
+            sample_miss(2, 200, MissKind::Followup),
+            sample_miss(1, 100, MissKind::Skipped),
+        ],
+    };
+    let parsed = serde_json::to_value(&outcome.misses).unwrap();
+    let array = parsed
+        .as_array()
+        .expect("misses JSON must be a plain array");
+    assert_eq!(array.len(), 2);
+    assert_eq!(array[0]["id"], 2);
+    assert_eq!(array[0]["kind"], "followup");
+    assert_eq!(array[1]["id"], 1);
+    assert_eq!(array[1]["kind"], "skipped");
+}
+
+#[test]
+fn misses_human_output_lists_kind_and_pattern_or_says_none() {
+    let mut empty = Vec::new();
+    MissesOutcome { misses: Vec::new() }
+        .write_human(&mut empty)
+        .unwrap();
+    assert!(
+        String::from_utf8(empty)
+            .unwrap()
+            .contains("no misses recorded")
+    );
+
+    let mut out = Vec::new();
+    MissesOutcome {
+        misses: vec![sample_miss(1, 100, MissKind::Skipped)],
+    }
+    .write_human(&mut out)
+    .unwrap();
+    let text = String::from_utf8(out).unwrap();
+    assert!(text.contains("skipped"), "got: {text}");
+    assert!(text.contains("rg get_callers"), "got: {text}");
+}
+
+#[test]
+fn misses_compact_has_schema_and_one_row_per_miss() {
+    let compact = MissesOutcome {
+        misses: vec![sample_miss(1, 100, MissKind::Feedback)],
+    }
+    .to_compact();
+    assert_eq!(
+        compact,
+        "#SCHEMA: id|ts|kind|session|query|pattern|reason\n1|100|feedback|sess-1|get_callers|rg get_callers|"
+    );
 }

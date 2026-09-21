@@ -102,3 +102,9 @@ pub struct CleanInput {
     pub feature: Option<String>,
     pub all: bool,
 }
+
+#[derive(Debug, Clone)]
+pub struct MissesInput {
+    pub kind: Option<String>,
+    pub since: Option<String>,
+}

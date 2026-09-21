@@ -9,5 +9,5 @@ pub use ops::{
 };
 pub use query::{
     CalleesOutcome, CallersOutcome, ComplexityOutcome, DeadCodeOutcome, FileOutcome, FindOutcome,
-    HierarchyOutcome, ImpactOutcome, StatsOutcome,
+    HierarchyOutcome, ImpactOutcome, MissesOutcome, StatsOutcome,
 };

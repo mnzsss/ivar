@@ -4,7 +4,8 @@ use crate::action::Ctx;
 use crate::action::discover_hall;
 use crate::action::graph::outcome::{
     AffectedOutcome, CalleesOutcome, CallersOutcome, ComplexityOutcome, DeadCodeOutcome,
-    ExploreOutcome, FileOutcome, FindOutcome, HierarchyOutcome, ImpactOutcome, PathOutcome,
+    ExploreOutcome, FileOutcome, FindOutcome, HierarchyOutcome, ImpactOutcome, MissesOutcome,
+    PathOutcome,
 };
 use crate::domain::graph::UsageEvent;
 use crate::store::graph::db::GraphDb;
@@ -44,6 +45,12 @@ impl ResultCount for AffectedOutcome {
 impl ResultCount for PathOutcome {
     fn result_count(&self) -> Option<usize> {
         Some(usize::from(self.0.is_some()))
+    }
+}
+
+impl ResultCount for MissesOutcome {
+    fn result_count(&self) -> Option<usize> {
+        Some(self.misses.len())
     }
 }
 

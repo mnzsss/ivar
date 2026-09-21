@@ -44,6 +44,8 @@ pub enum GraphCommand {
     View(GraphViewArgs),
     /// Remove indexed repository data or clean the entire graph database.
     Clean(GraphCleanArgs),
+    /// List recorded graph misses (skipped/follow-up searches, feedback).
+    Misses(GraphMissesArgs),
 }
 
 #[derive(Debug, Args)]
@@ -275,3 +277,14 @@ impl From<GraphCleanArgs> for crate::action::graph::input::CleanInput {
 #[cfg(test)]
 #[path = "../../../tests/unit/cli/graph.rs"]
 mod tests;
+
+#[derive(Debug, Args)]
+pub struct GraphMissesArgs {
+    /// Filter by miss kind: `skipped`, `followup`, or `feedback`.
+    #[arg(long)]
+    pub kind: Option<String>,
+    /// Only include misses at or after this time: a Unix timestamp, or a
+    /// relative duration like `30m`, `24h`, or `7d`.
+    #[arg(long)]
+    pub since: Option<String>,
+}

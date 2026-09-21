@@ -5,10 +5,11 @@ use std::process::ExitCode;
 use crate::action::Ctx;
 use crate::action::graph::{
     AffectedInput, CalleesInput, CallersInput, ComplexityInput, DeadCodeInput, ExploreInput,
-    FileInput, FindInput, HierarchyInput, ImpactInput, IndexInput, PathInput, ResultCount,
-    ToCompact, VizInput, affected_cmd, callees_cmd, callers_cmd, clean_cmd, complexity_cmd,
-    dead_code_cmd, execute_view_session, explore_cmd, file_cmd, find_cmd, hierarchy_cmd,
-    impact_cmd, index_cmd, mcp_cmd, path_cmd, record_usage, stats_cmd, view_cmd, viz_cmd,
+    FileInput, FindInput, HierarchyInput, ImpactInput, IndexInput, MissesInput, MissesOutcome,
+    PathInput, ResultCount, ToCompact, VizInput, affected_cmd, callees_cmd, callers_cmd, clean_cmd,
+    complexity_cmd, dead_code_cmd, execute_view_session, explore_cmd, file_cmd, find_cmd,
+    hierarchy_cmd, impact_cmd, index_cmd, mcp_cmd, misses_cmd, path_cmd, record_usage, stats_cmd,
+    view_cmd, viz_cmd,
 };
 use crate::cli::graph::GraphCommand;
 use crate::domain::graph::{UsageEvent, UsageSource};
@@ -132,6 +133,24 @@ where
         },
     );
     exit
+}
+
+fn respond_misses(
+    result: Outcome<MissesOutcome>,
+    json: bool,
+    compact: bool,
+    stdout: &mut impl io::Write,
+    stderr: &mut impl io::Write,
+) -> ExitCode {
+    match result {
+        // The Report envelope flattens its value into an object, so the bare
+        // JSON array consumers expect must bypass it.
+        Ok(report) if json => {
+            let _ = write_json(stdout, &report.value.misses);
+            exit_code_for(&report)
+        }
+        other => respond_graph(other, false, compact, stdout, stderr),
+    }
 }
 
 #[expect(
@@ -288,6 +307,16 @@ pub(super) fn dispatch_graph(
             stderr,
         ),
         GraphCommand::Stats => respond_graph(stats_cmd(ctx), json, compact, stdout, stderr),
+        GraphCommand::Misses(args) => {
+            let result = misses_cmd(
+                ctx,
+                &MissesInput {
+                    kind: args.kind,
+                    since: args.since,
+                },
+            );
+            respond_misses(result, json, compact, stdout, stderr)
+        }
         GraphCommand::Impact(args) => respond_query(
             "impact",
             ctx,

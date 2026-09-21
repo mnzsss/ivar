@@ -27,9 +27,11 @@ use std::path::Path;
 use crate::action::Ctx;
 use crate::action::discover_hall;
 use crate::action::read_manifest;
+use crate::domain::graph::MissKind;
 use crate::error::{Failure, Outcome, Report};
 use crate::infra::progress::Progress;
 use crate::store::graph::db::GraphDb;
+use crate::store::graph::db::usage::MissFilter;
 use crate::store::layout::Layout;
 use crate::store::manifest::Manifest;
 
@@ -283,9 +285,60 @@ pub fn index_cmd(ctx: &Ctx, args: IndexInput) -> Outcome<IndexBatchOutcome> {
 // 9. stats
 pub fn stats_cmd(ctx: &Ctx) -> Outcome<StatsOutcome> {
     let db = open_graph_db(ctx)?;
+    let _ = db.prune(MISS_RETENTION_DAYS);
     let stats = query::get_graph_stats(&db)
         .map_err(|err| Failure::failed("graph.stats_failed", err.to_string()))?;
     Ok(Report::new(StatsOutcome(stats)))
+}
+
+const MISS_RETENTION_DAYS: i64 = 30;
+
+fn parse_since(raw: &str, now: i64) -> Result<i64, Failure> {
+    if let Ok(ts) = raw.parse::<i64>() {
+        return Ok(ts);
+    }
+    let invalid = || {
+        Failure::blocked(
+            "graph.since_invalid",
+            format!("invalid --since value `{raw}`: use a Unix timestamp, or `Nm`/`Nh`/`Nd`"),
+        )
+    };
+    let (digits, unit) = raw.split_at(raw.len().saturating_sub(1));
+    let n: i64 = digits.parse().map_err(|_| invalid())?;
+    let unit_secs = match unit {
+        "m" => 60,
+        "h" => 3_600,
+        "d" => 86_400,
+        _ => return Err(invalid()),
+    };
+    Ok(now.saturating_sub(n.saturating_mul(unit_secs)))
+}
+
+fn parse_kind(raw: &str) -> Result<MissKind, Failure> {
+    let kind = MissKind::from(raw);
+    if kind.as_str().eq_ignore_ascii_case(raw) {
+        Ok(kind)
+    } else {
+        Err(Failure::blocked(
+            "graph.kind_invalid",
+            format!("unknown miss kind `{raw}`: use `skipped`, `followup`, or `feedback`"),
+        ))
+    }
+}
+
+pub fn misses_cmd(ctx: &Ctx, input: &MissesInput) -> Outcome<MissesOutcome> {
+    let kind = input.kind.as_deref().map(parse_kind).transpose()?;
+    let since = input
+        .since
+        .as_deref()
+        .map(|raw| parse_since(raw, outcome::query::unix_now()))
+        .transpose()?;
+    let db = open_graph_db(ctx)?;
+    let _ = db.prune(MISS_RETENTION_DAYS);
+    let misses = db
+        .list_misses(&MissFilter { kind, since })
+        .map_err(|err| Failure::failed("graph.misses_failed", err.to_string()))?;
+    Ok(Report::new(MissesOutcome { misses }))
 }
 
 // 10. impact
@@ -388,3 +441,7 @@ mod explore_source_tests;
 #[cfg(test)]
 #[path = "../../../tests/unit/action/graph/clean_stats.rs"]
 mod clean_stats_tests;
+
+#[cfg(test)]
+#[path = "../../../tests/unit/action/graph/misses_cmd.rs"]
+mod misses_cmd_tests;
