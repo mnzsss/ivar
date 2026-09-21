@@ -277,16 +277,17 @@ fn diagnose_orphan_worktrees(
                 continue;
             }
             let branch = match (&entry.branch, entry.detached) {
-                (Some(branch), _) => branch.as_str(),
+                (Some(branch), _) => {
+                    if branch == repo.default_branch().as_str()
+                        || owned.contains(&(repo.name().clone(), branch.clone()))
+                    {
+                        continue;
+                    }
+                    branch.as_str()
+                }
                 (None, true) => "detached",
-                (None, _) => continue,
+                (None, false) => continue,
             };
-            if entry.branch.is_some()
-                && (branch == repo.default_branch().as_str()
-                    || owned.contains(&(repo.name().as_str().to_owned(), branch.to_owned())))
-            {
-                continue;
-            }
             findings.push(orphan_diagnosis(
                 git,
                 &bare,
@@ -349,7 +350,7 @@ fn is_integration_worktree(layout: &Layout, repo: &RepoName, path: &Utf8Path) ->
 
 /// Every `(repo, branch)` a feature owns: its branch in each repo it promoted.
 /// Fails with one diagnosis per feature record that cannot be read.
-fn feature_worktrees(layout: &Layout) -> Result<HashSet<(String, String)>, Vec<Diagnosis>> {
+fn feature_worktrees(layout: &Layout) -> Result<HashSet<(RepoName, String)>, Vec<Diagnosis>> {
     let features_dir = layout.features_dir();
     if !fs::is_dir(&features_dir).unwrap_or(true) {
         return Ok(HashSet::new());
@@ -374,7 +375,7 @@ fn feature_worktrees(layout: &Layout) -> Result<HashSet<(String, String)>, Vec<D
                     feature
                         .promotions
                         .keys()
-                        .map(|repo| (repo.as_str().to_owned(), branch.to_owned())),
+                        .map(|repo| (repo.clone(), branch.to_owned())),
                 );
             }
             Ok(None) => {}

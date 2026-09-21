@@ -782,13 +782,7 @@ pub struct WorktreeEntry {
     pub prunable: bool,
 }
 
-/// The worktree git reports for `branch`, wherever it lives — including a
-/// prunable registration whose directory is gone.
-///
-/// # Errors
-///
-/// Returns [`Error`] if git cannot list the worktrees.
-pub fn resolve_worktree(
+fn resolve_worktree(
     git: &impl Git,
     git_dir: &Utf8Path,
     branch: &str,
@@ -799,7 +793,9 @@ pub fn resolve_worktree(
         .find(|entry| entry.branch.as_deref() == Some(branch)))
 }
 
-/// [`resolve_worktree`], answering `None` when the bare clone is absent.
+/// The worktree git reports for `branch`, wherever it lives — including a
+/// prunable registration whose directory is gone. `None` when the bare clone
+/// is absent or no worktree is on `branch`.
 ///
 /// # Errors
 ///

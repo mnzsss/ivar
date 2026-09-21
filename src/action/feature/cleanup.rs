@@ -442,12 +442,7 @@ fn teardown_worktrees(
     for repo in feature.promotions.keys() {
         let worktree = match worktrees.get(repo) {
             Some(Ok(entry)) => entry.as_ref(),
-            Some(Err(error)) => {
-                return Err(Failure::failed(
-                    "feature.cleanup_worktree_lookup_failed",
-                    error.clone(),
-                ));
-            }
+            Some(Err(failure)) => return Err(failure.clone()),
             None => None,
         };
         let Some(worktree) = worktree else {
@@ -559,7 +554,7 @@ struct PreviewedCleanup {
 
 /// Each promoted repo's worktree for the feature branch, looked up once per
 /// command; the error is kept as text so preview and apply can each report it.
-type WorktreeLookups = BTreeMap<RepoName, Result<Option<WorktreeEntry>, String>>;
+type WorktreeLookups = BTreeMap<RepoName, Result<Option<WorktreeEntry>, Failure>>;
 
 fn preview_cleanup(
     git: &impl Git,
@@ -591,7 +586,13 @@ fn preview_cleanup(
         .map(|repo| {
             let lookup =
                 git::lookup_worktree(git, &layout.repo_bare(repo), feature.branch.as_str())
-                    .map_err(|error| error.to_string());
+                    .map_err(|error| match error {
+                        git::Error::Fs(_) => Failure::from(error),
+                        _ => Failure::failed(
+                            "feature.cleanup_worktree_lookup_failed",
+                            error.to_string(),
+                        ),
+                    });
             (repo.clone(), lookup)
         })
         .collect();
@@ -658,7 +659,7 @@ fn collect_repo_facts(
     feature: &Feature,
     repo: &RepoName,
     promotion: &crate::domain::feature::Promotion,
-    worktree_lookup: &Result<Option<WorktreeEntry>, String>,
+    worktree_lookup: &Result<Option<WorktreeEntry>, Failure>,
 ) -> CleanupRepoFacts {
     let Some(manifest_repo) = manifest
         .repos()
@@ -704,8 +705,8 @@ fn collect_repo_facts(
         };
     let worktree = match worktree_lookup {
         Ok(entry) => entry.as_ref().filter(|entry| !entry.prunable),
-        Err(error) => {
-            inspection_error.get_or_insert_with(|| error.clone());
+        Err(failure) => {
+            inspection_error.get_or_insert_with(|| failure.what.clone());
             None
         }
     };
