@@ -167,3 +167,39 @@ fn redelivering_the_same_title_and_body_does_not_edit_the_pull_request() {
 
     assert_eq!(fake.log().matches("pr edit").count(), 0, "{}", fake.log());
 }
+
+#[test]
+fn redelivering_siblings_does_not_repeat_the_comment() {
+    let (_guard, root) = hall_root();
+    setup_two_repo_hall(&root);
+    approve_through_plan(&root, "checkout");
+    let fake = FakeGh::install(&root);
+    let rewrites = as_github_remotes(&root);
+
+    deliver_on_github(&root, &fake, &rewrites, "checkout");
+    deliver_on_github(&root, &fake, &rewrites, "checkout");
+
+    let log = fake.log();
+    assert_eq!(log.matches("pr comment").count(), 2, "{log}");
+    assert!(!log.contains("api graphql"), "{log}");
+}
+
+#[test]
+fn a_stale_sibling_comment_is_edited_in_place() {
+    let (_guard, root) = hall_root();
+    setup_two_repo_hall(&root);
+    approve_through_plan(&root, "checkout");
+    let fake = FakeGh::install(&root);
+    let rewrites = as_github_remotes(&root);
+
+    deliver_on_github(&root, &fake, &rewrites, "checkout");
+    fake.set_comment(
+        "https://github.com/acme/pull/1",
+        "## Sibling PRs:\n\n- stale",
+    );
+    deliver_on_github(&root, &fake, &rewrites, "checkout");
+
+    let log = fake.log();
+    assert_eq!(log.matches("pr comment").count(), 2, "{log}");
+    assert_eq!(log.matches("api graphql").count(), 1, "{log}");
+}

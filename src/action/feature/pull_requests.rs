@@ -465,8 +465,9 @@ pub(crate) fn existing_pr(git_dir: &Utf8Path, branch: &str) -> Option<PullReques
 /// Add a comment to each PR linking it to its siblings.
 ///
 /// Every sibling PR gets a comment noting the other PRs in the batch — always
-/// with "part of" language, never "depends on". The comment uses the header
-/// `## Sibling PRs:` so repeated runs do not duplicate content.
+/// with "part of" language, never "depends on". The comment is found by its
+/// `## Sibling PRs:` header: it is created when missing, edited in place when
+/// its sibling list changed, and left alone otherwise.
 pub(crate) fn link_sibling_prs(pr_urls: &[String]) {
     for (i, url) in pr_urls.iter().enumerate() {
         let others: Vec<&str> = pr_urls
@@ -481,16 +482,70 @@ pub(crate) fn link_sibling_prs(pr_urls: &[String]) {
         }
 
         let mut body =
-            String::from("## Sibling PRs:\n\nThis PR is part of feature delivery alongside:\n\n");
+            format!("{SIBLING_HEADER}\n\nThis PR is part of feature delivery alongside:\n\n");
         for other in &others {
             body.push_str("- ");
             body.push_str(other);
             body.push('\n');
         }
 
-        let _ =
-            proc::capture(&proc::Command::new("gh").args(["pr", "comment", url, "--body", &body]));
+        match sibling_comment(url) {
+            Ok(None) => {
+                let _ = proc::capture(
+                    &proc::Command::new("gh").args(["pr", "comment", url, "--body", &body]),
+                );
+            }
+            Ok(Some(existing)) if existing.body.trim() != body.trim() => {
+                update_comment(&existing.id, &body);
+            }
+            Ok(Some(_)) | Err(_) => {}
+        }
     }
+}
+
+const SIBLING_HEADER: &str = "## Sibling PRs:";
+
+#[derive(Debug, Deserialize)]
+struct GhComment {
+    id: String,
+    #[serde(default)]
+    body: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct GhComments {
+    #[serde(default)]
+    comments: Vec<GhComment>,
+}
+
+fn sibling_comment(url: &str) -> Result<Option<GhComment>, Failure> {
+    let output = capture(
+        &proc::Command::new("gh").args(["pr", "view", url, "--json", "comments"]),
+        "pr view",
+    )?;
+    let parsed: GhComments = serde_json::from_str(&output).map_err(|source| {
+        Failure::failed(
+            "pull_requests.parse_failed",
+            format!("could not parse `gh pr view` output: {source}"),
+        )
+    })?;
+    Ok(parsed
+        .comments
+        .into_iter()
+        .find(|comment| comment.body.starts_with(SIBLING_HEADER)))
+}
+
+fn update_comment(id: &str, body: &str) {
+    let _ = proc::capture(&proc::Command::new("gh").args([
+        "api",
+        "graphql",
+        "-f",
+        "query=mutation($id: ID!, $body: String!) { updateIssueComment(input: {id: $id, body: $body}) { clientMutationId } }",
+        "-f",
+        &format!("id={id}"),
+        "-f",
+        &format!("body={body}"),
+    ]));
 }
 
 /// Run a `gh` command, turning a non-zero exit (or spawn failure) into a
