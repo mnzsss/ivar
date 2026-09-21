@@ -971,3 +971,18 @@ fn forge_answer_text_does_not_move_the_cleanup_fingerprint() {
     assert_ne!(first_blockers, second_blockers);
     assert_eq!(first, second);
 }
+
+#[test]
+fn preview_and_cleanup_follow_a_worktree_whose_dir_differs_from_the_branch() {
+    let (_guard, root) = hall_with_feature(&["api"], None);
+    let bare = root.join(".ivar/repos/api/.bare");
+    let moved = root.join(".ivar/repos/api/elsewhere");
+    git::System
+        .move_worktree(&bare, &root.join(".ivar/repos/api/checkout"), &moved)
+        .unwrap();
+
+    let preview = run_preview(&root);
+
+    assert_eq!(preview.paths_to_remove[0], moved);
+    assert!(preview.repos[0].worktree_exists);
+}

@@ -437,16 +437,23 @@ fn teardown_worktrees(
     let mut all_worktrees_removed = true;
 
     for repo in feature.promotions.keys() {
-        let worktree = layout.repo_worktree(repo, &feature.branch);
-        if !fs::is_dir(&worktree)? {
+        let bare = layout.repo_bare(repo);
+        let worktree = if fs::is_dir(&bare)? {
+            git::resolve_worktree(git, &bare, feature.branch.as_str()).map_err(|error| {
+                Failure::failed("feature.cleanup_worktree_lookup_failed", error.to_string())
+            })?
+        } else {
+            None
+        };
+        let Some(worktree) = worktree else {
             worktree_removals.push(WorktreeRemoval {
                 repo: repo.clone(),
                 removed: true,
                 detail: None,
             });
             continue;
-        }
-        match git.remove_worktree(&layout.repo_bare(repo), &worktree) {
+        };
+        match git.remove_worktree(&bare, &worktree) {
             Ok(()) => {
                 fs::prune_empty_parents(&worktree, &layout.repo_dir(repo));
                 worktree_removals.push(WorktreeRemoval {
@@ -589,7 +596,12 @@ fn preview_cleanup(
         .collect::<Vec<_>>();
     let mut paths_to_remove = Vec::new();
     for repo in &repos {
-        paths_to_remove.push(layout.repo_worktree(&repo.repo, &feature.branch));
+        paths_to_remove.push(
+            git::resolve_worktree(git, &layout.repo_bare(&repo.repo), feature.branch.as_str())
+                .ok()
+                .flatten()
+                .unwrap_or_else(|| layout.repo_worktree(&repo.repo, &feature.branch)),
+        );
     }
     paths_to_remove.push(layout.feature_dir(&feature.name));
 
@@ -633,9 +645,10 @@ fn collect_repo_facts(
     };
     let effective_base = base::resolve(feature, promotion, manifest_repo.default_branch());
     let bare = layout.repo_bare(repo);
-    let worktree = layout.repo_worktree(repo, &feature.branch);
     let clone_exists = matches!(git.target_state(&bare), Ok(TargetState::Repository));
-    let worktree_exists = matches!(git.target_state(&worktree), Ok(TargetState::Repository));
+    let worktree = git::resolve_worktree(git, &bare, feature.branch.as_str())
+        .ok()
+        .flatten();
     let mut inspection_error = None;
     let (feature_head, base_head, local_branch_exists, unmerged_commits, forge_delivery) =
         if clone_exists {
@@ -668,8 +681,9 @@ fn collect_repo_facts(
         } else {
             (None, None, false, None, None)
         };
-    let dirty_worktree = if worktree_exists {
-        match git.worktree_dirty(&worktree) {
+    let worktree_exists = worktree.is_some();
+    let dirty_worktree = if let Some(worktree) = &worktree {
+        match git.worktree_dirty(worktree) {
             Ok(dirty) => Some(dirty),
             Err(error) => {
                 inspection_error.get_or_insert_with(|| error.to_string());
