@@ -319,6 +319,7 @@ fn reads_are_never_denied() {
     let req = ToolRequest {
         tool: "Read".into(),
         file_path: Some("/etc/passwd".into()),
+        search_pattern: None,
     };
     assert!(matches!(
         decide(
@@ -337,6 +338,7 @@ fn writes_outside_the_set_are_denied_with_a_reason_naming_the_set() {
     let req = ToolRequest {
         tool: "Write".into(),
         file_path: Some("/etc/passwd".into()),
+        search_pattern: None,
     };
     match decide(&Resolution::Resolved(&set), &req) {
         GuardDecision::Deny { reason } => {
@@ -368,6 +370,7 @@ fn every_structured_write_tool_is_denied_outside_the_set() {
         let req = ToolRequest {
             tool: tool.to_owned(),
             file_path: Some("/etc/passwd".into()),
+            search_pattern: None,
         };
         match decide(&Resolution::Resolved(&set), &req) {
             GuardDecision::Deny { reason } => assert!(
@@ -429,6 +432,7 @@ fn writes_inside_the_set_are_allowed_and_shell_is_never_classified() {
             &ToolRequest {
                 tool: "Edit".into(),
                 file_path: Some(in_set),
+                search_pattern: None,
             }
         ),
         GuardDecision::Allow
@@ -439,6 +443,7 @@ fn writes_inside_the_set_are_allowed_and_shell_is_never_classified() {
             &ToolRequest {
                 tool: "Bash".into(),
                 file_path: None,
+                search_pattern: None,
             }
         ),
         GuardDecision::Allow

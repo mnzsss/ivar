@@ -203,3 +203,70 @@ fn session_projections_for_all_providers() {
         ]
     );
 }
+
+use crate::providers::extract_search_pattern;
+
+#[test]
+fn extract_search_pattern_reads_grep_and_glob_pattern_field() {
+    let input = serde_json::json!({ "pattern": "fn record_miss" });
+    assert_eq!(
+        extract_search_pattern("Grep", &input),
+        Some("fn record_miss".to_owned())
+    );
+    assert_eq!(
+        extract_search_pattern("Glob", &input),
+        Some("fn record_miss".to_owned())
+    );
+}
+
+#[test]
+fn extract_search_pattern_reads_rg_and_grep_bash_commands() {
+    let rg = serde_json::json!({ "command": "rg 'TODO' src/" });
+    assert_eq!(
+        extract_search_pattern("Bash", &rg),
+        Some("rg 'TODO' src/".to_owned())
+    );
+
+    let grep = serde_json::json!({ "command": "grep -rn foo ." });
+    assert_eq!(
+        extract_search_pattern("Bash", &grep),
+        Some("grep -rn foo .".to_owned())
+    );
+
+    let rtk_proxy = serde_json::json!({ "command": "rtk proxy rg 'bar' ." });
+    assert_eq!(
+        extract_search_pattern("Bash", &rtk_proxy),
+        Some("rtk proxy rg 'bar' .".to_owned())
+    );
+}
+
+#[test]
+fn extract_search_pattern_finds_rg_after_double_ampersand_and_semicolon() {
+    let after_and = serde_json::json!({ "command": "cd src && rg 'TODO'" });
+    assert_eq!(
+        extract_search_pattern("Bash", &after_and),
+        Some("rg 'TODO'".to_owned())
+    );
+
+    let after_semicolon = serde_json::json!({ "command": "ls; rtk rg 'baz'" });
+    assert_eq!(
+        extract_search_pattern("Bash", &after_semicolon),
+        Some("rtk rg 'baz'".to_owned())
+    );
+}
+
+#[test]
+fn extract_search_pattern_ignores_non_search_bash_and_other_tools() {
+    let build = serde_json::json!({ "command": "cargo build --release" });
+    assert_eq!(extract_search_pattern("Bash", &build), None);
+    assert_eq!(extract_search_pattern("Write", &build), None);
+}
+
+#[test]
+fn extract_search_pattern_truncates_to_500_chars() {
+    let long = "a".repeat(600);
+    let input = serde_json::json!({ "pattern": long });
+    let extracted = extract_search_pattern("Grep", &input).unwrap();
+    assert_eq!(extracted.chars().count(), 500);
+    assert!(long.starts_with(&extracted));
+}

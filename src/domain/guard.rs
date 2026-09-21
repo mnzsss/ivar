@@ -12,6 +12,7 @@ use camino::Utf8PathBuf;
 pub struct ToolRequest {
     pub tool: String,
     pub file_path: Option<Utf8PathBuf>,
+    pub search_pattern: Option<String>,
 }
 
 /// The guard's decision for a tool request.

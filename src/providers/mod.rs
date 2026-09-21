@@ -158,6 +158,36 @@ pub fn session_projections(provider: Provider) -> Vec<SessionProjection> {
     projections
 }
 
+const MAX_SEARCH_PATTERN_LEN: usize = 500;
+
+/// Extracts the search text from a Grep/Glob/Bash tool call, for the
+/// guard's skip/follow-up heuristics. `None` for every other tool, and
+/// for a Bash command that isn't a search.
+pub(crate) fn extract_search_pattern(tool: &str, input: &serde_json::Value) -> Option<String> {
+    let raw = match tool.to_ascii_lowercase().as_str() {
+        "grep" | "glob" => input.get("pattern")?.as_str()?.to_owned(),
+        "bash" => bash_search_command(input.get("command")?.as_str()?)?,
+        _ => return None,
+    };
+    Some(raw.chars().take(MAX_SEARCH_PATTERN_LEN).collect())
+}
+
+/// The first `&&`/`;`-separated segment of `command` that runs a search
+/// (`rg`, `grep`, `rtk rg`, or `rtk proxy rg`), trimmed and returned whole.
+fn bash_search_command(command: &str) -> Option<String> {
+    // Longest prefixes first so "rtk proxy rg" is not shadowed by "rtk rg".
+    const SEARCH_PREFIXES: [&str; 4] = ["rtk proxy rg", "rtk rg", "rg", "grep"];
+    command
+        .split(['&', ';'])
+        .map(str::trim)
+        .find_map(|segment| {
+            SEARCH_PREFIXES.iter().find_map(|prefix| {
+                let rest = segment.strip_prefix(prefix)?;
+                (rest.is_empty() || rest.starts_with(' ')).then(|| segment.to_owned())
+            })
+        })
+}
+
 /// Parses provider-specific stdin JSON into a normalized `ToolRequest` and optional cwd.
 /// # Errors
 ///

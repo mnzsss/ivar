@@ -18,6 +18,10 @@ pub(crate) fn parse_tool_request(
     let input: ClaudeHookInput = serde_json::from_str(stdin_json)
         .map_err(|e| Failure::blocked("guard.parse", format!("invalid Claude hook JSON: {e}")))?;
     let req = ToolRequest {
+        search_pattern: crate::providers::extract_search_pattern(
+            &input.tool_name,
+            &input.tool_input,
+        ),
         tool: input.tool_name,
         file_path: input
             .tool_input
@@ -45,3 +49,7 @@ pub(crate) fn render_decision(decision: &GuardDecision) -> GuardOutcome {
         exit_zero: true,
     }
 }
+
+#[cfg(test)]
+#[path = "../../../tests/unit/providers/claude_code/guard.rs"]
+mod tests;

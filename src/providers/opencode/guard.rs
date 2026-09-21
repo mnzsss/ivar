@@ -18,6 +18,7 @@ pub(crate) fn parse_tool_request(
     let input: OpenCodeHookInput = serde_json::from_str(stdin_json)
         .map_err(|e| Failure::blocked("guard.parse", format!("invalid OpenCode hook JSON: {e}")))?;
     let req = ToolRequest {
+        search_pattern: crate::providers::extract_search_pattern(&input.tool, &input.args),
         tool: input.tool,
         file_path: input
             .args
