@@ -134,15 +134,36 @@ pub struct MissFilter {
     pub since: Option<i64>,
 }
 
+/// A CLI/MCP graph query recorded in `usage`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GraphCall {
+    pub usage_id: i64,
+    pub ts: i64,
+    pub query: Option<String>,
+}
+
 impl GraphDb {
     /// # Errors
     ///
     /// Returns [`GraphDbError`] if the insert fails.
     pub fn record_miss(&self, event: &MissEvent) -> Result<()> {
+        self.insert_miss(event, None)
+    }
+
+    /// Records a `followup` miss tied to the graph call it followed.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GraphDbError`] if the insert fails.
+    pub fn record_followup(&self, event: &MissEvent, call: &GraphCall) -> Result<()> {
+        self.insert_miss(event, Some(call.usage_id))
+    }
+
+    fn insert_miss(&self, event: &MissEvent, usage_id: Option<i64>) -> Result<()> {
         self.conn.busy_timeout(USAGE_BUSY_TIMEOUT)?;
         let inserted = self.conn.execute(
-            "INSERT INTO graph_misses (ts, session, kind, query, pattern, reason)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            "INSERT INTO graph_misses (ts, session, kind, query, pattern, reason, usage_id)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             params![
                 now_timestamp(),
                 event.session,
@@ -150,44 +171,50 @@ impl GraphDb {
                 event.query,
                 event.pattern,
                 event.reason,
+                usage_id,
             ],
         );
         let _ = self.conn.busy_timeout(DEFAULT_BUSY_TIMEOUT);
         inserted.map(|_| ()).map_err(Into::into)
     }
 
-    /// The timestamp and query text of the most recent CLI/MCP graph query
+    /// The most recent CLI/MCP graph query
     /// recorded for `session`, or `None` if it made none. `graph_feedback`
     /// reports on a query rather than making one, so it never counts.
     ///
     /// # Errors
     ///
     /// Returns [`GraphDbError`] if the query fails.
-    pub fn last_graph_call(&self, session: &str) -> Result<Option<(i64, Option<String>)>> {
+    pub fn last_graph_call(&self, session: &str) -> Result<Option<GraphCall>> {
         self.conn
             .query_row(
-                "SELECT ts, query FROM usage
+                "SELECT id, ts, query FROM usage
                  WHERE session = ?1 AND source IN ('cli', 'mcp')
                    AND command != 'graph_feedback'
                  ORDER BY ts DESC, id DESC LIMIT 1",
                 params![session],
-                |r| Ok((r.get(0)?, r.get(1)?)),
+                |r| {
+                    Ok(GraphCall {
+                        usage_id: r.get(0)?,
+                        ts: r.get(1)?,
+                        query: r.get(2)?,
+                    })
+                },
             )
             .optional()
             .map_err(Into::into)
     }
 
-    /// Whether a miss has already been recorded for `session` at or after
-    /// `since_ts`.
+    /// Whether a followup miss has already been recorded for `call`.
     ///
     /// # Errors
     ///
     /// Returns [`GraphDbError`] if the query fails.
-    pub fn has_miss_since(&self, session: &str, since_ts: i64) -> Result<bool> {
+    pub fn has_followup_for(&self, call: &GraphCall) -> Result<bool> {
         self.conn
             .query_row(
-                "SELECT EXISTS(SELECT 1 FROM graph_misses WHERE session = ?1 AND ts >= ?2)",
-                params![session, since_ts],
+                "SELECT EXISTS(SELECT 1 FROM graph_misses WHERE usage_id = ?1)",
+                params![call.usage_id],
                 |r| r.get(0),
             )
             .map_err(Into::into)

@@ -162,13 +162,14 @@ pub fn apply_migrations(conn: &Connection) -> rusqlite::Result<()> {
     tx.commit()
 }
 
-// Development builds stamped version 8 before `graph_misses` and
-// `idx_usage_session_ts` joined that version, so a database already at 8 may
-// still lack either.
+// Development builds stamped version 8 before `graph_misses`, its `usage_id`
+// column and `idx_usage_session_ts` joined that version, so a database already
+// at 8 may still lack any of them.
 fn needs_migration(conn: &Connection) -> rusqlite::Result<bool> {
     Ok(user_version(conn)? < SCHEMA_VERSION
         || !has_schema_object(conn, "graph_misses")?
-        || !has_schema_object(conn, "idx_usage_session_ts")?)
+        || !has_schema_object(conn, "idx_usage_session_ts")?
+        || !has_column(conn, "graph_misses", "usage_id")?)
 }
 
 fn has_schema_object(conn: &Connection, name: &str) -> rusqlite::Result<bool> {
@@ -239,10 +240,15 @@ fn apply_miss_migration(conn: &Connection) -> rusqlite::Result<()> {
             kind TEXT NOT NULL,
             query TEXT,
             pattern TEXT,
-            reason TEXT
+            reason TEXT,
+            usage_id INTEGER
         );
         CREATE INDEX IF NOT EXISTS idx_graph_misses_session_ts ON graph_misses(session, ts);",
-    )
+    )?;
+    if !has_column(conn, "graph_misses", "usage_id")? {
+        conn.execute_batch("ALTER TABLE graph_misses ADD COLUMN usage_id INTEGER;")?;
+    }
+    Ok(())
 }
 
 fn apply_layer_migration(conn: &Connection) -> rusqlite::Result<()> {

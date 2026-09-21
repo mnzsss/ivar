@@ -402,3 +402,18 @@ fn a_database_at_the_current_version_without_the_usage_session_index_gains_it() 
         .unwrap();
     assert_eq!(indexes, 1);
 }
+
+#[test]
+fn a_database_at_the_current_version_without_the_miss_usage_id_gains_it() {
+    let conn = Connection::open_in_memory().unwrap();
+    apply_pragmas(&conn, false).unwrap();
+    apply_migrations(&conn).unwrap();
+    conn.execute_batch(&format!(
+        "ALTER TABLE graph_misses DROP COLUMN usage_id; PRAGMA user_version = {SCHEMA_VERSION};"
+    ))
+    .unwrap();
+
+    apply_migrations(&conn).unwrap();
+
+    assert!(has_column(&conn, "graph_misses", "usage_id").unwrap());
+}

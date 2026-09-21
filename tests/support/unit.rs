@@ -73,5 +73,5 @@ pub(crate) fn last_graph_query(root: &Utf8PathBuf, session: &str) -> Option<Opti
         .unwrap()
         .last_graph_call(session)
         .unwrap()
-        .map(|(_ts, query)| query)
+        .map(|call| call.query)
 }

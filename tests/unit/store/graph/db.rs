@@ -1050,7 +1050,7 @@ fn list_misses_rejects_an_unknown_stored_kind() {
 }
 
 #[test]
-fn last_graph_call_and_has_miss_since_answer_the_guard_questions() {
+fn last_graph_call_and_has_followup_for_answer_the_guard_questions() {
     let db = GraphDb::open_in_memory().unwrap();
     assert_eq!(db.last_graph_call("sess-1").unwrap(), None);
 
@@ -1065,21 +1065,33 @@ fn last_graph_call_and_has_miss_since_answer_the_guard_questions() {
     })
     .unwrap();
 
-    let (ts, query) = db.last_graph_call("sess-1").unwrap().unwrap();
-    assert!(ts > 0);
-    assert_eq!(query.as_deref(), Some("enforceSession"));
-    assert!(!db.has_miss_since("sess-1", ts).unwrap());
+    let call = db.last_graph_call("sess-1").unwrap().unwrap();
+    assert!(call.ts > 0);
+    assert_eq!(call.query.as_deref(), Some("enforceSession"));
+    assert!(!db.has_followup_for(&call).unwrap());
 
     db.record_miss(&MissEvent {
         session: Some("sess-1".to_owned()),
-        kind: MissKind::Followup,
-        query: Some("enforceSession".to_owned()),
+        kind: MissKind::Skipped,
+        query: None,
         pattern: Some("rg enforceSession".to_owned()),
         reason: None,
     })
     .unwrap();
-    assert!(db.has_miss_since("sess-1", ts).unwrap());
-    assert!(!db.has_miss_since("sess-1", ts + 1_000_000).unwrap());
+    assert!(!db.has_followup_for(&call).unwrap());
+
+    db.record_followup(
+        &MissEvent {
+            session: Some("sess-1".to_owned()),
+            kind: MissKind::Followup,
+            query: Some("enforceSession".to_owned()),
+            pattern: Some("rg enforceSession".to_owned()),
+            reason: None,
+        },
+        &call,
+    )
+    .unwrap();
+    assert!(db.has_followup_for(&call).unwrap());
 }
 
 #[test]

@@ -1308,6 +1308,29 @@ fn a_search_within_the_window_after_a_graph_call_is_recorded_as_followup() {
 }
 
 #[test]
+fn a_miss_recorded_in_the_same_second_before_a_graph_call_does_not_suppress_its_followup() {
+    let (_guard, env, db_path) = session_env_with_memory_db();
+    let layout = Layout::discover(&env.view_dir).unwrap().unwrap();
+    record_search_miss(&layout, &env.session_id, "before the call");
+    record_graph_call(&db_path, &env.session_id);
+    let same_second = crate::store::graph::db::types::now_timestamp();
+    GraphDb::open_for_usage(db_path.as_std_path())
+        .unwrap()
+        .conn()
+        .execute_batch(&format!(
+            "UPDATE graph_misses SET ts = {same_second}; UPDATE usage SET ts = {same_second};"
+        ))
+        .unwrap();
+
+    record_search_miss(&layout, &env.session_id, "after the call");
+
+    let misses = all_misses(&db_path);
+    assert_eq!(misses.len(), 2);
+    assert_eq!(misses[0].kind, MissKind::Followup);
+    assert_eq!(misses[0].pattern.as_deref(), Some("after the call"));
+}
+
+#[test]
 fn a_burst_of_greps_records_only_the_first_followup() {
     let (_guard, env, db_path) = session_env_with_memory_db();
     record_graph_call(&db_path, &env.session_id);

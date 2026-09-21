@@ -487,20 +487,17 @@ fn record_search_miss(layout: &Layout, session: &str, pattern: &str) {
         pattern: Some(pattern.to_owned()),
         reason: None,
     };
-    let event = match db.last_graph_call(session) {
-        Ok(None) => Some(miss(MissKind::Skipped, None)),
-        Ok(Some((ts, query)))
-            if crate::store::graph::db::types::now_timestamp() - ts <= FOLLOWUP_WINDOW_SECS
-                && matches!(db.has_miss_since(session, ts), Ok(false)) =>
+    let _ = match db.last_graph_call(session) {
+        Ok(None) => db.record_miss(&miss(MissKind::Skipped, None)),
+        Ok(Some(call))
+            if crate::store::graph::db::types::now_timestamp() - call.ts
+                <= FOLLOWUP_WINDOW_SECS
+                && matches!(db.has_followup_for(&call), Ok(false)) =>
         {
-            Some(miss(MissKind::Followup, query))
+            db.record_followup(&miss(MissKind::Followup, call.query.clone()), &call)
         }
-        _ => None,
+        _ => Ok(()),
     };
-
-    if let Some(event) = event {
-        let _ = db.record_miss(&event);
-    }
 }
 
 /// Try to build a `WritableSet` from a resolved session env.
