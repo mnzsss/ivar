@@ -428,7 +428,64 @@ pub fn guard(provider: Provider, stdin_json: &str) -> Result<GuardOutcome, Failu
 
     let decision = decide(&resolution, &tool_request);
 
+    if let Some(pattern) = &tool_request.search_pattern
+        && let Some(cwd) = cwd.as_deref()
+        && let Ok(Some(env)) = crate::action::session::env::SessionEnv::resolve_by_cwd(cwd)
+    {
+        record_search_miss(&env, pattern);
+    }
+
     Ok(crate::providers::render_decision(provider, &decision))
+}
+
+/// How long after a graph call a search counts as a follow-up rather than an
+/// unrelated later search.
+const FOLLOWUP_WINDOW_SECS: i64 = 120;
+
+fn current_unix_ts() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| i64::try_from(d.as_secs()).unwrap_or(i64::MAX))
+}
+
+/// Best-effort classification of one search-tool call as `skipped` or
+/// `followup`. Every failure is swallowed: the guard's decision is already
+/// made, and nothing here may change it or its exit code.
+fn record_search_miss(env: &crate::action::session::env::SessionEnv, pattern: &str) {
+    use crate::domain::graph::{MissEvent, MissKind};
+
+    let Ok(Some(layout)) = Layout::discover(&env.view_dir) else {
+        return;
+    };
+    let db_path = layout.ivar_dir().join("memory.db");
+    if !db_path.exists() {
+        return;
+    }
+    let Ok(db) = crate::store::graph::db::GraphDb::open_for_usage(db_path.as_std_path()) else {
+        return;
+    };
+
+    let miss = |kind, query| MissEvent {
+        session: Some(env.session_id.clone()),
+        kind,
+        query,
+        pattern: Some(pattern.to_owned()),
+        reason: None,
+    };
+    let event = match db.last_graph_call(&env.session_id) {
+        Ok(None) => Some(miss(MissKind::Skipped, None)),
+        Ok(Some((ts, query)))
+            if current_unix_ts() - ts <= FOLLOWUP_WINDOW_SECS
+                && matches!(db.last_miss_since(&env.session_id, ts), Ok(false)) =>
+        {
+            Some(miss(MissKind::Followup, query))
+        }
+        _ => None,
+    };
+
+    if let Some(event) = event {
+        let _ = db.record_miss(&event);
+    }
 }
 
 /// Try to build a `WritableSet` from a resolved session env.

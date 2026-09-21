@@ -1217,3 +1217,123 @@ fn an_unresolved_denial_with_no_live_session_names_no_path() {
         out.body
     );
 }
+
+use crate::domain::graph::{MissKind, UsageEvent, UsageSource};
+use crate::store::graph::db::GraphDb;
+use crate::store::graph::db::usage::MissFilter;
+
+fn session_env_in_hall(
+    root: &Utf8PathBuf,
+    session_id: &str,
+) -> crate::action::session::env::SessionEnv {
+    let layout = Layout::at(root.clone());
+    let session_id = SessionId::new(session_id).unwrap();
+    let view_dir = layout.discovery_session(&session_id);
+    crate::infra::fs::ensure_dir(&view_dir).unwrap();
+    crate::action::session::env::SessionEnv {
+        hall: root.clone(),
+        session_id: session_id.to_string(),
+        view_dir,
+        provider: Provider::ClaudeCode,
+        feature: None,
+    }
+}
+
+fn session_env_with_memory_db() -> (
+    tempfile::TempDir,
+    crate::action::session::env::SessionEnv,
+    Utf8PathBuf,
+) {
+    let (guard, root) = hall_with_promoted_feature();
+    let env = session_env_in_hall(&root, "6f0c9d5f-0000-4000-8000-0000000006ee");
+    let db_path = Layout::at(root).ivar_dir().join("memory.db");
+    GraphDb::open(db_path.as_std_path()).unwrap();
+    (guard, env, db_path)
+}
+
+fn record_graph_call(db_path: &Utf8PathBuf, session: &str) {
+    let db = GraphDb::open_for_usage(db_path.as_std_path()).unwrap();
+    db.record_usage(&UsageEvent {
+        command: "explore".to_owned(),
+        source: UsageSource::Mcp,
+        duration_ms: 5,
+        result_count: Some(0),
+        error: false,
+        session: Some(session.to_owned()),
+        query: Some("record_miss".to_owned()),
+    })
+    .unwrap();
+}
+
+fn all_misses(db_path: &Utf8PathBuf) -> Vec<crate::domain::graph::MissRecord> {
+    GraphDb::open_for_usage(db_path.as_std_path())
+        .unwrap()
+        .list_misses(&MissFilter::default())
+        .unwrap()
+}
+
+#[test]
+fn a_search_with_no_prior_graph_call_is_recorded_as_skipped() {
+    let (_guard, env, db_path) = session_env_with_memory_db();
+
+    record_search_miss(&env, "fn record_miss");
+
+    let misses = all_misses(&db_path);
+    assert_eq!(misses.len(), 1);
+    assert_eq!(misses[0].kind, MissKind::Skipped);
+    assert_eq!(misses[0].session.as_deref(), Some(env.session_id.as_str()));
+    assert_eq!(misses[0].pattern.as_deref(), Some("fn record_miss"));
+}
+
+#[test]
+fn a_search_within_the_window_after_a_graph_call_is_recorded_as_followup() {
+    let (_guard, env, db_path) = session_env_with_memory_db();
+    record_graph_call(&db_path, &env.session_id);
+
+    record_search_miss(&env, "fn record_miss");
+
+    let misses = all_misses(&db_path);
+    assert_eq!(misses.len(), 1);
+    assert_eq!(misses[0].kind, MissKind::Followup);
+    assert_eq!(misses[0].query.as_deref(), Some("record_miss"));
+    assert_eq!(misses[0].pattern.as_deref(), Some("fn record_miss"));
+}
+
+#[test]
+fn a_burst_of_greps_records_only_the_first_followup() {
+    let (_guard, env, db_path) = session_env_with_memory_db();
+    record_graph_call(&db_path, &env.session_id);
+
+    record_search_miss(&env, "first grep");
+    record_search_miss(&env, "second grep");
+    record_search_miss(&env, "third grep");
+
+    let misses = all_misses(&db_path);
+    assert_eq!(
+        misses.len(),
+        1,
+        "only the first search after the graph call is recorded"
+    );
+    assert_eq!(misses[0].pattern.as_deref(), Some("first grep"));
+}
+
+#[test]
+fn guard_decision_is_unchanged_when_recording_fails() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let env = session_env_in_hall(&root, "6f0c9d5f-0000-4000-8000-0000000006ff");
+    let db_path = Layout::at(root).ivar_dir().join("memory.db");
+
+    record_search_miss(&env, "fn record_miss");
+
+    assert!(!db_path.exists());
+    let req = ToolRequest {
+        tool: "Grep".into(),
+        file_path: None,
+        search_pattern: Some("fn record_miss".into()),
+    };
+    let set = resolve_writable_set(&env).unwrap();
+    assert!(matches!(
+        decide(&Resolution::Resolved(&set), &req),
+        GuardDecision::Allow
+    ));
+}
