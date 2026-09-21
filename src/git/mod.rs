@@ -327,6 +327,15 @@ pub trait Git {
     /// Returns [`Error`] if the worktree cannot be removed.
     fn remove_worktree(&self, git_dir: &Utf8Path, dest: &Utf8Path) -> Result<(), Error>;
 
+    /// Every worktree registered with the bare repository at `git_dir`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error`] if git cannot list the worktrees.
+    fn list_worktrees(&self, git_dir: &Utf8Path) -> Result<Vec<WorktreeEntry>, Error> {
+        exec::list_worktrees(git_dir)
+    }
+
     /// Add a throwaway worktree at `dest`, detached at `revision` — no branch
     /// is created or moved. The temporary candidate worktrees local
     /// integration builds are materialised here, so the parent's branch is
@@ -750,6 +759,33 @@ pub trait Git {
     ) -> Result<WorktreeDiff, Error> {
         read::diff_worktree_files(worktree, since_commit)
     }
+}
+
+/// One worktree registered with a bare repository.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorktreeEntry {
+    pub path: Utf8PathBuf,
+    /// `None` for the bare entry and detached worktrees.
+    pub branch: Option<String>,
+}
+
+/// The on-disk worktree git reports for `branch`, wherever it lives.
+///
+/// Registrations whose directory no longer exists are ignored.
+///
+/// # Errors
+///
+/// Returns [`Error`] if git cannot list the worktrees.
+pub fn resolve_worktree(
+    git: &impl Git,
+    git_dir: &Utf8Path,
+    branch: &str,
+) -> Result<Option<Utf8PathBuf>, Error> {
+    Ok(git
+        .list_worktrees(git_dir)?
+        .into_iter()
+        .find(|entry| entry.branch.as_deref() == Some(branch) && entry.path.is_dir())
+        .map(|entry| entry.path))
 }
 
 /// The production [`Git`]: `git2` for reads, the `git` binary for mutations.
