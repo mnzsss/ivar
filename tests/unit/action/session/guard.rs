@@ -1398,3 +1398,30 @@ fn a_search_inside_a_resolved_session_is_keyed_by_that_session() {
     assert_eq!(misses.len(), 1);
     assert_eq!(misses[0].session.as_deref(), Some(env.session_id.as_str()));
 }
+
+#[test]
+fn a_search_after_only_graph_feedback_is_recorded_as_skipped() {
+    let (_guard, env, db_path) = session_env_with_memory_db();
+    GraphDb::open_for_usage(db_path.as_std_path())
+        .unwrap()
+        .record_usage(&UsageEvent {
+            command: "graph_feedback".to_owned(),
+            source: UsageSource::Mcp,
+            duration_ms: 1,
+            result_count: None,
+            error: false,
+            session: Some(env.session_id.clone()),
+            query: None,
+        })
+        .unwrap();
+
+    record_search_miss(
+        &Layout::discover(&env.view_dir).unwrap().unwrap(),
+        &env.session_id,
+        "fn record_miss",
+    );
+
+    let misses = all_misses(&db_path);
+    assert_eq!(misses.len(), 1);
+    assert_eq!(misses[0].kind, MissKind::Skipped);
+}

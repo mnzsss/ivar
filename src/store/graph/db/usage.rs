@@ -158,8 +158,9 @@ impl GraphDb {
         inserted.map(|_| ()).map_err(Into::into)
     }
 
-    /// The timestamp and query text of the most recent CLI/MCP graph call
-    /// recorded for `session`, or `None` if it made none.
+    /// The timestamp and query text of the most recent CLI/MCP graph query
+    /// recorded for `session`, or `None` if it made none. `graph_feedback`
+    /// reports on a query rather than making one, so it never counts.
     ///
     /// # Errors
     ///
@@ -169,6 +170,7 @@ impl GraphDb {
             .query_row(
                 "SELECT ts, query FROM usage
                  WHERE session = ?1 AND source IN ('cli', 'mcp')
+                   AND command != 'graph_feedback'
                  ORDER BY ts DESC, id DESC LIMIT 1",
                 params![session],
                 |r| Ok((r.get(0)?, r.get(1)?)),
