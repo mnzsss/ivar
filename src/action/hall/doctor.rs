@@ -250,7 +250,11 @@ fn diagnose_orphan_worktrees(
     manifest: &Manifest,
     git: &impl Git,
 ) -> Vec<Diagnosis> {
-    let owned = feature_worktrees(layout);
+    let owned = match feature_worktrees(layout) {
+        Ok(owned) => owned,
+        // Incomplete ownership data would name live feature worktrees as orphans.
+        Err(unreadable) => return unreadable,
+    };
     let mut findings = Vec::new();
     for repo in manifest.repos() {
         let bare = layout.repo_bare(repo.name());
@@ -344,24 +348,51 @@ fn is_integration_worktree(layout: &Layout, repo: &RepoName, path: &Utf8Path) ->
 }
 
 /// Every `(repo, branch)` a feature owns: its branch in each repo it promoted.
-/// Features whose record cannot be read are skipped.
-fn feature_worktrees(layout: &Layout) -> HashSet<(String, String)> {
+/// Fails with one diagnosis per feature record that cannot be read.
+fn feature_worktrees(layout: &Layout) -> Result<HashSet<(String, String)>, Vec<Diagnosis>> {
     let features_dir = layout.features_dir();
-    let Ok(entries) = fs::read_dir(&features_dir) else {
-        return HashSet::new();
-    };
-    entries
+    if !fs::is_dir(&features_dir).unwrap_or(true) {
+        return Ok(HashSet::new());
+    }
+    let entries = fs::read_dir(&features_dir).map_err(|error| {
+        vec![Diagnosis {
+            code: "feature.record_unreadable",
+            what: format!("could not list the features in `{features_dir}`: {error}"),
+            fix: "Repair the directory's permissions, then rerun `ivar doctor`.".to_owned(),
+        }]
+    })?;
+    let mut owned = HashSet::new();
+    let mut unreadable = Vec::new();
+    for name in entries
         .iter()
         .filter_map(|entry| FeatureName::new(entry.file_name()?.to_owned()).ok())
-        .filter_map(|name| Feature::read(layout, &name).ok().flatten())
-        .flat_map(|feature| {
-            let branch = feature.branch.as_str().to_owned();
-            feature
-                .promotions
-                .into_keys()
-                .map(move |repo| (repo.as_str().to_owned(), branch.clone()))
-        })
-        .collect()
+    {
+        match Feature::read(layout, &name) {
+            Ok(Some(feature)) => {
+                let branch = feature.branch.as_str();
+                owned.extend(
+                    feature
+                        .promotions
+                        .keys()
+                        .map(|repo| (repo.as_str().to_owned(), branch.to_owned())),
+                );
+            }
+            Ok(None) => {}
+            Err(error) => unreadable.push(Diagnosis {
+                code: "feature.record_unreadable",
+                what: format!("the record of feature `{name}` cannot be read: {error}"),
+                fix: format!(
+                    "Repair or remove `{}`; orphan worktrees are not checked until then.",
+                    layout.feature_dir(&name)
+                ),
+            }),
+        }
+    }
+    if unreadable.is_empty() {
+        Ok(owned)
+    } else {
+        Err(unreadable)
+    }
 }
 
 /// Every feature's current receipt that is still in flight — non-terminal.

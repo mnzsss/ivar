@@ -597,6 +597,47 @@ fn doctor_names_a_worktree_on_a_feature_branch_in_a_repo_it_did_not_promote() {
 }
 
 #[test]
+fn doctor_reports_an_unreadable_feature_record_instead_of_orphaning_its_worktree() {
+    let (_guard, root, bare) = synced_hall_with_bare();
+    let ctx = Ctx::new(root.clone());
+    feature_create(
+        &ctx,
+        CreateInput {
+            name: "checkout".to_owned(),
+            branch: None,
+            base: None,
+            parent: None,
+            via: None,
+            strategy: None,
+        },
+    )
+    .unwrap();
+    let git = crate::git::System;
+    crate::git::Git::create_branch(&git, &bare, "checkout", "main").unwrap();
+    crate::git::Git::add_worktree(
+        &git,
+        &bare,
+        &root.join(".ivar/repos/api/checkout"),
+        "checkout",
+    )
+    .unwrap();
+    let layout = Layout::at(root.clone());
+    let record = layout
+        .feature_dir(&FeatureName::new("checkout").unwrap())
+        .join("feature.json");
+    std::fs::write(&record, "{ not json").unwrap();
+
+    let report = doctor(&ctx).unwrap();
+
+    assert!(
+        finding(&report.value, "feature.record_unreadable")
+            .what
+            .contains("checkout")
+    );
+    assert!(orphan_findings(&report.value).is_empty());
+}
+
+#[test]
 fn doctor_names_a_stray_detached_worktree() {
     let (_guard, root, bare) = synced_hall_with_bare();
     crate::git::Git::add_detached_worktree(
