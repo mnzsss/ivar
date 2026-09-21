@@ -322,6 +322,83 @@ pub struct UsageStats {
     pub p95_ms: u64,
 }
 
+/// Why a search miss was recorded.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(into = "String", from = "String")]
+pub enum MissKind {
+    Skipped,
+    Followup,
+    Feedback,
+}
+
+impl MissKind {
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Skipped => "skipped",
+            Self::Followup => "followup",
+            Self::Feedback => "feedback",
+        }
+    }
+}
+
+impl std::fmt::Display for MissKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl From<MissKind> for String {
+    fn from(k: MissKind) -> Self {
+        k.as_str().to_owned()
+    }
+}
+
+impl From<&MissKind> for String {
+    fn from(k: &MissKind) -> Self {
+        k.as_str().to_owned()
+    }
+}
+
+impl From<String> for MissKind {
+    fn from(s: String) -> Self {
+        Self::from(s.as_str())
+    }
+}
+
+impl From<&str> for MissKind {
+    fn from(s: &str) -> Self {
+        match s.to_ascii_lowercase().as_str() {
+            "followup" => Self::Followup,
+            "feedback" => Self::Feedback,
+            _ => Self::Skipped,
+        }
+    }
+}
+
+/// One recorded graph-search miss: a skipped, followed-up, or explicitly
+/// flagged graph query.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MissEvent {
+    pub session: Option<String>,
+    pub kind: MissKind,
+    pub query: Option<String>,
+    pub pattern: Option<String>,
+    pub reason: Option<String>,
+}
+
+/// A stored [`MissEvent`], for `--json` output.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct MissRecord {
+    pub id: i64,
+    pub ts: i64,
+    pub session: Option<String>,
+    pub kind: MissKind,
+    pub query: Option<String>,
+    pub pattern: Option<String>,
+    pub reason: Option<String>,
+}
+
 /// High-level statistics for the indexed codebase graph.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 pub struct GraphStats {

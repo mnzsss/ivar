@@ -6,7 +6,10 @@
 )]
 
 use super::*;
-use crate::domain::graph::{Span, Symbol, SymbolKind, UsageEvent, UsageSource};
+use crate::domain::graph::{
+    MissEvent, MissKind, Span, Symbol, SymbolKind, UsageEvent, UsageSource,
+};
+use crate::store::graph::db::usage::MissFilter;
 use tempfile::tempdir;
 
 #[test]
@@ -981,4 +984,121 @@ fn record_usage_round_trips_session_and_query() {
         .unwrap();
     assert_eq!(session.as_deref(), Some("sess-1"));
     assert_eq!(query.as_deref(), Some("enforceSession"));
+}
+
+#[test]
+fn record_miss_and_list_misses_round_trip() {
+    let db = GraphDb::open_in_memory().unwrap();
+    db.record_miss(&MissEvent {
+        session: Some("sess-1".to_owned()),
+        kind: MissKind::Skipped,
+        query: None,
+        pattern: Some("enforceSession".to_owned()),
+        reason: None,
+    })
+    .unwrap();
+    db.record_miss(&MissEvent {
+        session: Some("sess-1".to_owned()),
+        kind: MissKind::Feedback,
+        query: Some("who calls login".to_owned()),
+        pattern: None,
+        reason: Some("empty result".to_owned()),
+    })
+    .unwrap();
+
+    let all = db.list_misses(&MissFilter::default()).unwrap();
+    assert_eq!(all.len(), 2);
+    assert_eq!(all[0].kind, MissKind::Feedback, "newest first");
+    assert_eq!(all[0].reason.as_deref(), Some("empty result"));
+    assert!(all[0].id > all[1].id);
+
+    let skipped_only = db
+        .list_misses(&MissFilter {
+            kind: Some(MissKind::Skipped),
+            since: None,
+        })
+        .unwrap();
+    assert_eq!(skipped_only.len(), 1);
+    assert_eq!(skipped_only[0].pattern.as_deref(), Some("enforceSession"));
+}
+
+#[test]
+fn last_graph_call_and_last_miss_since_answer_the_guard_questions() {
+    let db = GraphDb::open_in_memory().unwrap();
+    assert_eq!(db.last_graph_call("sess-1").unwrap(), None);
+
+    db.record_usage(&UsageEvent {
+        command: "explore".to_owned(),
+        source: UsageSource::Cli,
+        duration_ms: 1,
+        result_count: Some(2),
+        error: false,
+        session: Some("sess-1".to_owned()),
+        query: Some("enforceSession".to_owned()),
+    })
+    .unwrap();
+
+    let (ts, query) = db.last_graph_call("sess-1").unwrap().unwrap();
+    assert!(ts > 0);
+    assert_eq!(query.as_deref(), Some("enforceSession"));
+    assert!(!db.last_miss_since("sess-1", ts).unwrap());
+
+    db.record_miss(&MissEvent {
+        session: Some("sess-1".to_owned()),
+        kind: MissKind::Followup,
+        query: Some("enforceSession".to_owned()),
+        pattern: Some("rg enforceSession".to_owned()),
+        reason: None,
+    })
+    .unwrap();
+    assert!(db.last_miss_since("sess-1", ts).unwrap());
+    assert!(!db.last_miss_since("sess-1", ts + 1_000_000).unwrap());
+}
+
+#[test]
+fn prune_deletes_old_misses_and_blanks_old_usage_query_text() {
+    let db = GraphDb::open_in_memory().unwrap();
+    let old_ts = crate::store::graph::db::types::now_timestamp() - 31 * 24 * 60 * 60;
+    db.conn()
+        .execute(
+            "INSERT INTO graph_misses (ts, session, kind, query, pattern, reason)
+             VALUES (?1, 'sess-1', 'skipped', NULL, 'old pattern', NULL)",
+            rusqlite::params![old_ts],
+        )
+        .unwrap();
+    db.record_miss(&MissEvent {
+        session: Some("sess-1".to_owned()),
+        kind: MissKind::Skipped,
+        query: None,
+        pattern: Some("recent pattern".to_owned()),
+        reason: None,
+    })
+    .unwrap();
+    db.conn()
+        .execute(
+            "INSERT INTO usage (command, source, ts, duration_ms, result_count, error, session, query)
+             VALUES ('explore', 'cli', ?1, 1, 1, 0, 'sess-1', 'old query text')",
+            rusqlite::params![old_ts],
+        )
+        .unwrap();
+
+    let removed = db.prune(30).unwrap();
+    assert_eq!(removed, 1);
+
+    let remaining = db.list_misses(&MissFilter::default()).unwrap();
+    assert_eq!(remaining.len(), 1);
+    assert_eq!(remaining[0].pattern.as_deref(), Some("recent pattern"));
+
+    let old_query: Option<String> = db
+        .conn()
+        .query_row(
+            "SELECT query FROM usage WHERE ts = ?1",
+            rusqlite::params![old_ts],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        old_query, None,
+        "usage rows keep their command/source but lose old query text"
+    );
 }

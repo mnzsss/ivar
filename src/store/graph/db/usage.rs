@@ -1,10 +1,10 @@
 use std::time::Duration;
 
-use rusqlite::params;
+use rusqlite::{OptionalExtension, params};
 
 use super::GraphDb;
 use super::types::{Result, now_timestamp};
-use crate::domain::graph::{UsageEvent, UsageSource, UsageStats};
+use crate::domain::graph::{MissEvent, MissKind, MissRecord, UsageEvent, UsageSource, UsageStats};
 
 pub(super) const USAGE_BUSY_TIMEOUT: Duration = Duration::from_millis(50);
 const DEFAULT_BUSY_TIMEOUT: Duration = Duration::from_secs(10);
@@ -125,5 +125,116 @@ impl GraphDb {
                 ..g.stats
             })
             .collect())
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct MissFilter {
+    pub kind: Option<MissKind>,
+    pub since: Option<i64>,
+}
+
+impl GraphDb {
+    /// Record one search-miss event.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GraphDbError`] if the insert fails.
+    pub fn record_miss(&self, event: &MissEvent) -> Result<()> {
+        self.conn.busy_timeout(USAGE_BUSY_TIMEOUT)?;
+        let inserted = self.conn.execute(
+            "INSERT INTO graph_misses (ts, session, kind, query, pattern, reason)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![
+                now_timestamp(),
+                event.session,
+                event.kind.as_str(),
+                event.query,
+                event.pattern,
+                event.reason,
+            ],
+        );
+        let _ = self.conn.busy_timeout(DEFAULT_BUSY_TIMEOUT);
+        inserted.map(|_| ()).map_err(Into::into)
+    }
+
+    /// The timestamp and query text of the most recent CLI/MCP graph call
+    /// recorded for `session`, or `None` if it made none.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GraphDbError`] if the query fails.
+    pub fn last_graph_call(&self, session: &str) -> Result<Option<(i64, Option<String>)>> {
+        self.conn
+            .query_row(
+                "SELECT ts, query FROM usage
+                 WHERE session = ?1 AND source IN ('cli', 'mcp')
+                 ORDER BY ts DESC, id DESC LIMIT 1",
+                params![session],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()
+            .map_err(Into::into)
+    }
+
+    /// Whether a miss has already been recorded for `session` at or after
+    /// `since_ts`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GraphDbError`] if the query fails.
+    pub fn last_miss_since(&self, session: &str, since_ts: i64) -> Result<bool> {
+        self.conn
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM graph_misses WHERE session = ?1 AND ts >= ?2)",
+                params![session, since_ts],
+                |r| r.get(0),
+            )
+            .map_err(Into::into)
+    }
+
+    /// Recorded misses, newest first, optionally filtered by kind and by a
+    /// minimum timestamp.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GraphDbError`] if the query fails.
+    pub fn list_misses(&self, filter: &MissFilter) -> Result<Vec<MissRecord>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, ts, session, kind, query, pattern, reason FROM graph_misses
+             WHERE (?1 IS NULL OR kind = ?1) AND (?2 IS NULL OR ts >= ?2)
+             ORDER BY ts DESC, id DESC",
+        )?;
+        let kind = filter.kind.map(MissKind::as_str);
+        let rows = stmt.query_map(params![kind, filter.since], |r| {
+            Ok(MissRecord {
+                id: r.get(0)?,
+                ts: r.get(1)?,
+                session: r.get(2)?,
+                kind: MissKind::from(r.get::<_, String>(3)?),
+                query: r.get(4)?,
+                pattern: r.get(5)?,
+                reason: r.get(6)?,
+            })
+        })?;
+        rows.collect::<rusqlite::Result<_>>().map_err(Into::into)
+    }
+
+    /// Deletes `graph_misses` rows and blanks `usage.query` text older than
+    /// `retention_days`. Returns the number of `graph_misses` rows removed.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GraphDbError`] if either statement fails.
+    pub fn prune(&self, retention_days: i64) -> Result<usize> {
+        let cutoff = now_timestamp() - retention_days * 24 * 60 * 60;
+        let removed = self
+            .conn
+            .execute("DELETE FROM graph_misses WHERE ts < ?1", params![cutoff])?;
+        self.conn.execute(
+            "UPDATE usage SET query = NULL WHERE ts < ?1 AND query IS NOT NULL",
+            params![cutoff],
+        )?;
+        Ok(removed)
     }
 }

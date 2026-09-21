@@ -105,7 +105,7 @@ END;
 const SEARCH_SCHEMA_VERSION: i64 = 4;
 
 /// The `user_version` a database carries once every migration below has run.
-pub const SCHEMA_VERSION: i64 = 8;
+pub const SCHEMA_VERSION: i64 = 9;
 
 ///
 /// # Errors
@@ -180,6 +180,7 @@ fn migrate(conn: &Connection) -> rusqlite::Result<()> {
     apply_search_migration(conn)?;
     apply_layer_migration(conn)?;
     apply_usage_migration(conn)?;
+    apply_miss_migration(conn)?;
     // Session views project layer rows under their base repo name, so a file
     // lookup there can only seek on the path.
     conn.execute_batch("CREATE INDEX IF NOT EXISTS idx_files_path ON files(path);")?;
@@ -206,6 +207,21 @@ fn apply_usage_migration(conn: &Connection) -> rusqlite::Result<()> {
         conn.execute_batch("ALTER TABLE usage ADD COLUMN query TEXT;")?;
     }
     Ok(())
+}
+
+fn apply_miss_migration(conn: &Connection) -> rusqlite::Result<()> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS graph_misses (
+            id INTEGER PRIMARY KEY,
+            ts INTEGER NOT NULL,
+            session TEXT,
+            kind TEXT NOT NULL,
+            query TEXT,
+            pattern TEXT,
+            reason TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_graph_misses_session_ts ON graph_misses(session, ts);",
+    )
 }
 
 fn apply_layer_migration(conn: &Connection) -> rusqlite::Result<()> {
