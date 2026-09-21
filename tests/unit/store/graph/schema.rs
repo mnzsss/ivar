@@ -417,3 +417,33 @@ fn a_database_at_the_current_version_without_the_miss_usage_id_gains_it() {
 
     assert!(has_column(&conn, "graph_misses", "usage_id").unwrap());
 }
+
+#[test]
+fn migrating_to_nine_purges_legacy_and_skipped_misses_once() {
+    let conn = Connection::open_in_memory().unwrap();
+    apply_migrations(&conn).unwrap();
+    conn.execute_batch(
+        "PRAGMA user_version = 8;
+         INSERT INTO graph_misses (ts, kind, pattern) VALUES
+           (0, 'followup', 'heredoc junk'),
+           (1790000000, 'skipped', 'rg foo'),
+           (1790000000, 'followup', 'rg bar');",
+    )
+    .unwrap();
+
+    apply_migrations(&conn).unwrap();
+    conn.execute_batch(
+        "INSERT INTO graph_misses (ts, kind, pattern) VALUES (1790000001, 'skipped', 'rg new');",
+    )
+    .unwrap();
+    apply_migrations(&conn).unwrap();
+
+    let patterns: Vec<String> = conn
+        .prepare("SELECT pattern FROM graph_misses ORDER BY id")
+        .unwrap()
+        .query_map([], |r| r.get(0))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    assert_eq!(patterns, ["rg bar", "rg new"]);
+}

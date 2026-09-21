@@ -1,6 +1,7 @@
 //! The session write guard: determines which files a session may write.
 //!
 use crate::domain::feature::Feature;
+use crate::domain::graph::{MissEvent, MissKind, UsageEvent, UsageSource};
 pub use crate::domain::guard::{GuardDecision, GuardOutcome, ToolRequest};
 use crate::domain::provider::Provider;
 use crate::error::Failure;
@@ -428,6 +429,17 @@ pub fn guard(provider: Provider, stdin_json: &str) -> Result<GuardOutcome, Failu
 
     let decision = decide(&resolution, &tool_request);
 
+    if matches!(decision, GuardDecision::Allow)
+        && is_graph_explore_tool(&tool_request.tool)
+        && let Some(cwd) = cwd.as_deref()
+    {
+        record_graph_call_at(
+            cwd,
+            session_env.as_ref(),
+            std::env::var("IVAR_SESSION_ID").ok(),
+        );
+    }
+
     if let Some(pattern) = &tool_request.search_pattern
         && let Some(cwd) = cwd.as_deref()
     {
@@ -440,6 +452,47 @@ pub fn guard(provider: Provider, stdin_json: &str) -> Result<GuardOutcome, Failu
     }
 
     Ok(crate::providers::render_decision(provider, &decision))
+}
+
+/// Claude Code spells MCP tools `mcp__<server>__<tool>`; OpenCode and OMP
+/// join the server (named `…graph`) and tool with a single `_`.
+fn is_graph_explore_tool(tool: &str) -> bool {
+    tool == "graph_explore"
+        || tool.ends_with("__graph_explore")
+        || tool.ends_with("-graph_graph_explore")
+        || tool.ends_with("_graph_graph_explore")
+}
+
+/// The MCP server runs once per hall and cannot tell which session called
+/// it; the hook's payload cwd can, so the hook stamps the session.
+fn record_graph_call_at(
+    cwd: &Utf8Path,
+    session_env: Option<&crate::action::session::env::SessionEnv>,
+    ambient_session: Option<String>,
+) {
+    let Some(session) =
+        crate::action::graph::session::session_key_for(session_env, ambient_session)
+    else {
+        return;
+    };
+    let layout = match session_env {
+        Some(env) => Some(Layout::at(env.hall.clone())),
+        None => Layout::discover(cwd).ok().flatten(),
+    };
+    let Some(layout) = layout else { return };
+    let db_path = layout.ivar_dir().join("memory.db");
+    let Ok(db) = crate::store::graph::db::GraphDb::open_for_usage(db_path.as_std_path()) else {
+        return;
+    };
+    let _ = db.record_usage(&UsageEvent {
+        command: "graph_explore".to_owned(),
+        source: UsageSource::Hook,
+        duration_ms: 0,
+        result_count: None,
+        error: false,
+        session: Some(session),
+        query: None,
+    });
 }
 
 /// How long after a graph call a search counts as a follow-up rather than an
@@ -470,8 +523,6 @@ fn record_search_miss_at(
 /// `followup`. Every failure is swallowed: the guard's decision is already
 /// made, and nothing here may change it or its exit code.
 fn record_search_miss(layout: &Layout, session: &str, pattern: &str) {
-    use crate::domain::graph::{MissEvent, MissKind};
-
     let db_path = layout.ivar_dir().join("memory.db");
     if !db_path.exists() {
         return;
