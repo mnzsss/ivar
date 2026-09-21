@@ -478,10 +478,13 @@ pub(crate) fn link_sibling_prs(pr_urls: &[String]) {
             body.push('\n');
         }
 
+        // Posting without knowing the existing comments would duplicate ours.
         let Ok(existing) = sibling_comments(url) else {
             continue;
         };
         match existing.into_iter().find(|comment| {
+            // Unknown login: match on header alone, risking adopting a foreign
+            // header comment rather than duplicating ours on every delivery.
             comment.body.starts_with(SIBLING_HEADER)
                 && login
                     .as_deref()
