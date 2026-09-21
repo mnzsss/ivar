@@ -344,3 +344,39 @@ fn a_database_at_the_pre_session_query_version_gains_the_new_columns() {
         .unwrap();
     assert_eq!(version, SCHEMA_VERSION);
 }
+
+#[test]
+fn a_database_at_the_current_version_without_graph_misses_gains_the_table() {
+    let conn = Connection::open_in_memory().unwrap();
+    apply_pragmas(&conn, false).unwrap();
+    apply_migrations(&conn).unwrap();
+    conn.execute_batch(&format!(
+        "DROP TABLE graph_misses; PRAGMA user_version = {SCHEMA_VERSION};"
+    ))
+    .unwrap();
+
+    apply_migrations(&conn).unwrap();
+
+    let tables: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'graph_misses'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(tables, 1);
+}
+
+#[test]
+fn a_database_from_a_newer_development_build_still_opens() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("memory.db");
+    crate::store::graph::db::GraphDb::open(&path).unwrap();
+    Connection::open(&path)
+        .unwrap()
+        .execute_batch(&format!("PRAGMA user_version = {};", SCHEMA_VERSION + 1))
+        .unwrap();
+
+    crate::store::graph::db::GraphDb::open(&path).unwrap();
+    crate::store::graph::db::GraphDb::open_for_usage(&path).unwrap();
+}

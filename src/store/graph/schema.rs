@@ -105,7 +105,7 @@ END;
 const SEARCH_SCHEMA_VERSION: i64 = 4;
 
 /// The `user_version` a database carries once every migration below has run.
-pub const SCHEMA_VERSION: i64 = 9;
+pub const SCHEMA_VERSION: i64 = 8;
 
 ///
 /// # Errors
@@ -152,14 +152,28 @@ fn switch_to_wal(conn: &Connection) -> rusqlite::Result<()> {
 /// Returns [`rusqlite::Error`] if the transaction cannot be started,
 /// a migration step fails, or the commit fails.
 pub fn apply_migrations(conn: &Connection) -> rusqlite::Result<()> {
-    if user_version(conn)? >= SCHEMA_VERSION {
+    if !needs_migration(conn)? {
         return Ok(());
     }
     let tx = Transaction::new_unchecked(conn, TransactionBehavior::Immediate)?;
-    if user_version(&tx)? < SCHEMA_VERSION {
+    if needs_migration(&tx)? {
         migrate(&tx)?;
     }
     tx.commit()
+}
+
+// A development build stamped version 8 before `graph_misses` joined that
+// version, so a database already at 8 may still lack the table.
+fn needs_migration(conn: &Connection) -> rusqlite::Result<bool> {
+    Ok(user_version(conn)? < SCHEMA_VERSION || !has_table(conn, "graph_misses")?)
+}
+
+fn has_table(conn: &Connection, table: &str) -> rusqlite::Result<bool> {
+    conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1)",
+        [table],
+        |row| row.get(0),
+    )
 }
 
 fn user_version(conn: &Connection) -> rusqlite::Result<i64> {
@@ -184,7 +198,10 @@ fn migrate(conn: &Connection) -> rusqlite::Result<()> {
     // Session views project layer rows under their base repo name, so a file
     // lookup there can only seek on the path.
     conn.execute_batch("CREATE INDEX IF NOT EXISTS idx_files_path ON files(path);")?;
-    conn.execute_batch(&format!("PRAGMA user_version = {SCHEMA_VERSION};"))
+    if user_version(conn)? < SCHEMA_VERSION {
+        conn.execute_batch(&format!("PRAGMA user_version = {SCHEMA_VERSION};"))?;
+    }
+    Ok(())
 }
 
 fn apply_usage_migration(conn: &Connection) -> rusqlite::Result<()> {
