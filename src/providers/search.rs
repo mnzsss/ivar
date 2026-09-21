@@ -19,23 +19,58 @@ fn is_search(segment: &str) -> bool {
 const NON_CODE_DIRS: [&str; 5] = ["dist", "build", "node_modules", "target", ".next"];
 const NON_CODE_EXTENSIONS: [&str; 3] = ["log", "txt", "out"];
 
+const VALUE_FLAGS: [&str; 14] = [
+    "-g",
+    "-t",
+    "-T",
+    "-e",
+    "-f",
+    "-A",
+    "-B",
+    "-C",
+    "-m",
+    "--glob",
+    "--type",
+    "--type-not",
+    "--max-count",
+    "--regexp",
+];
+
 // ponytail: whitespace tokenising; quoted paths with spaces are misread, upgrade to a word splitter if that shows up in misses
 fn targets_only_non_code(args: &str) -> bool {
-    let mut positional = args.split_whitespace().filter(|t| !t.starts_with('-'));
-    let _pattern = positional.next();
-    let targets: Vec<&str> = positional.collect();
+    let mut tokens = args.split_whitespace();
+    let mut positional = Vec::new();
+    let mut pattern_from_flag = false;
+    while let Some(token) = tokens.next() {
+        if VALUE_FLAGS.contains(&token) {
+            pattern_from_flag |= matches!(token, "-e" | "-f" | "--regexp");
+            tokens.next();
+        } else if !token.starts_with('-') {
+            positional.push(token);
+        }
+    }
+    let targets = &positional[usize::from(!pattern_from_flag).min(positional.len())..];
     !targets.is_empty() && targets.iter().all(|t| is_non_code(t))
 }
 
 fn is_non_code(target: &str) -> bool {
     let path = camino::Utf8Path::new(target.trim_matches(['\'', '"']));
+    let relative = path.strip_prefix("./").unwrap_or(path);
     path.starts_with("/tmp")
         || path
             .extension()
             .is_some_and(|ext| NON_CODE_EXTENSIONS.contains(&ext))
-        || path
+        || relative
             .components()
-            .any(|c| NON_CODE_DIRS.contains(&c.as_str()))
+            .next()
+            .is_some_and(|c| NON_CODE_DIRS.contains(&c.as_str()))
+}
+
+fn opens_heredoc(after_operator: &str) -> bool {
+    after_operator
+        .trim_start_matches('-')
+        .trim_start()
+        .starts_with(|c: char| c.is_ascii_alphabetic() || matches!(c, '_' | '\'' | '"' | '\\'))
 }
 
 /// The first command of every pipeline in `command`, split on operators
@@ -56,10 +91,22 @@ fn first_commands(command: &str) -> Vec<&str> {
             (Some(b'"') | None, b'\\') => escaped = true,
             (Some(_), _) => {}
             (None, b'\'' | b'"') => quote = Some(b),
-            (None, b'<') if bytes.get(i + 1) == Some(&b'<') => {
-                heredoc = true;
+            (None, b'<') if command[i..].starts_with("<<<") => i += 2,
+            (None, b'<') if command[i..].starts_with("<<") => {
+                heredoc |= opens_heredoc(&command[i + 2..]);
                 i += 1;
             }
+            (None, b'#') if i == 0 || bytes[i - 1].is_ascii_whitespace() => {
+                out.push(&command[start..pipe_cut.unwrap_or(i)]);
+                let Some(newline) = command[i..].find('\n') else {
+                    return out;
+                };
+                i += newline;
+                start = i;
+                pipe_cut = None;
+                continue;
+            }
+            (None, b'&') if i > 0 && bytes[i - 1] == b'>' || bytes.get(i + 1) == Some(&b'>') => {}
             (None, b'|') if bytes.get(i + 1) == Some(&b'|') => {
                 out.push(&command[start..pipe_cut.unwrap_or(i)]);
                 i += 1;

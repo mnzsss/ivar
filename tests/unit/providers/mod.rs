@@ -334,3 +334,62 @@ fn extract_search_pattern_truncates_to_500_chars() {
     assert_eq!(extracted.chars().count(), 500);
     assert!(long.starts_with(&extracted));
 }
+
+fn bash_search(command: &str) -> Option<String> {
+    extract_search_pattern("Bash", &serde_json::json!({ "command": command }))
+}
+
+#[test]
+fn herestrings_and_shifts_do_not_open_a_heredoc() {
+    assert_eq!(
+        bash_search("rg x <<< \"$v\"\nrg y").as_deref(),
+        Some("rg x <<< \"$v\"")
+    );
+    assert_eq!(
+        bash_search("cat z <<< \"$v\"\nrg y").as_deref(),
+        Some("rg y")
+    );
+    assert_eq!(bash_search("echo $((1<<2))\nrg y").as_deref(), Some("rg y"));
+    assert_eq!(bash_search("cat > f <<'EOF'\nrg a\nEOF"), None);
+}
+
+#[test]
+fn flag_values_are_not_mistaken_for_patterns_or_targets() {
+    assert_eq!(bash_search("rg -t log foo build/"), None);
+    assert_eq!(bash_search("rg -g '*.rs' foo dist"), None);
+    assert_eq!(bash_search("rg -e foo dist"), None);
+    assert_eq!(
+        bash_search("rg -g '*.rs' foo src").as_deref(),
+        Some("rg -g '*.rs' foo src")
+    );
+}
+
+#[test]
+fn ampersand_in_a_redirection_is_not_a_separator() {
+    assert_eq!(
+        bash_search("rg foo 2>&1 | head").as_deref(),
+        Some("rg foo 2>&1")
+    );
+    assert_eq!(
+        bash_search("rg foo &> out.txt").as_deref(),
+        Some("rg foo &> out.txt")
+    );
+}
+
+#[test]
+fn comments_are_not_searches() {
+    assert_eq!(bash_search("echo hi # rg later"), None);
+    assert_eq!(bash_search("# rg old\nls"), None);
+    assert_eq!(bash_search("ls # x; rg y"), None);
+    assert_eq!(bash_search("rg a#b src").as_deref(), Some("rg a#b src"));
+}
+
+#[test]
+fn a_non_code_dir_counts_only_as_the_first_path_component() {
+    assert_eq!(
+        bash_search("rg foo src/build/mod.rs").as_deref(),
+        Some("rg foo src/build/mod.rs")
+    );
+    assert_eq!(bash_search("rg foo build/x"), None);
+    assert_eq!(bash_search("rg foo ./build/x"), None);
+}
