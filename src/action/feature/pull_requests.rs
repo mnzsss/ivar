@@ -127,13 +127,7 @@ pub(crate) fn list_pull_requests(
             .cwd(git_dir),
         "pr list",
     )?;
-    let records: Vec<GhPrRecord> = serde_json::from_str(&output).map_err(|source| {
-        Failure::failed(
-            "pull_requests.parse_failed",
-            format!("could not parse `gh pr list` output: {source}"),
-        )
-        .actual(output.clone())
-    })?;
+    let records: Vec<GhPrRecord> = parse_gh(&output, "pr list")?;
     Ok(records.into_iter().map(PullRequest::from).collect())
 }
 
@@ -212,7 +206,8 @@ pub(crate) fn convert_pull_request_to_draft(git_dir: &Utf8Path, url: &str) -> Re
 
 /// Edit a pull request at `url` with optional `title` and `body`.
 /// Only non-None fields are forwarded to `gh pr edit`; absent fields
-/// are left unchanged, making this a safe partial update.
+/// are left unchanged, and fields already matching the PR are skipped, so a
+/// re-delivery with the same metadata makes no edit.
 pub(crate) fn edit_pull_request(
     git_dir: &Utf8Path,
     url: &str,
@@ -220,6 +215,19 @@ pub(crate) fn edit_pull_request(
     body: Option<&str>,
 ) -> Result<(), Failure> {
     // When both title and body are absent, this is a no-op — no `gh` invocation.
+    if title.is_none() && body.is_none() {
+        return Ok(());
+    }
+
+    // Reading the current metadata only avoids redundant edits; when it
+    // fails, every requested field is sent as before.
+    let (title, body) = match view_metadata(git_dir, url) {
+        Ok(current) => (
+            title.filter(|t| normalized(t) != normalized(&current.title)),
+            body.filter(|b| normalized(b) != normalized(&current.body)),
+        ),
+        Err(_) => (title, body),
+    };
     if title.is_none() && body.is_none() {
         return Ok(());
     }
@@ -258,6 +266,25 @@ pub(crate) fn edit_pull_request(
 
     Ok(())
 }
+
+#[derive(Debug, Deserialize)]
+struct PrMetadata {
+    #[serde(default)]
+    title: String,
+    #[serde(default)]
+    body: String,
+}
+
+fn view_metadata(git_dir: &Utf8Path, url: &str) -> Result<PrMetadata, Failure> {
+    let output = capture(
+        &proc::Command::new("gh")
+            .args(["pr", "view", url, "--json", "title,body"])
+            .cwd(git_dir),
+        "pr view",
+    )?;
+    parse_gh(&output, "pr view")
+}
+
 /// The required checks on the PR at `url`, as the forge reported them.
 ///
 /// Pending is data, not an error — the caller treats it as a resumable
@@ -299,13 +326,7 @@ pub(crate) fn required_checks(
         #[serde(default)]
         bucket: String,
     }
-    let checks: Vec<GhCheck> = serde_json::from_str(&output.stdout).map_err(|source| {
-        Failure::failed(
-            "pull_requests.parse_failed",
-            format!("could not parse `gh pr checks` output: {source}"),
-        )
-        .actual(output.stdout.clone())
-    })?;
+    let checks: Vec<GhCheck> = parse_gh(&output.stdout, "pr checks")?;
     Ok(checks
         .into_iter()
         .map(|check| PrCheckResult {
@@ -407,13 +428,7 @@ fn view_pull_request(git_dir: &Utf8Path, url: &str) -> Result<PullRequest, Failu
             .cwd(git_dir),
         "pr view",
     )?;
-    let record: GhPrRecord = serde_json::from_str(&output).map_err(|source| {
-        Failure::failed(
-            "pull_requests.parse_failed",
-            format!("could not parse `gh pr view` output: {source}"),
-        )
-        .actual(output.clone())
-    })?;
+    let record: GhPrRecord = parse_gh(&output, "pr view")?;
     Ok(record.into())
 }
 
@@ -433,9 +448,16 @@ pub(crate) fn existing_pr(git_dir: &Utf8Path, branch: &str) -> Option<PullReques
 /// Add a comment to each PR linking it to its siblings.
 ///
 /// Every sibling PR gets a comment noting the other PRs in the batch — always
-/// with "part of" language, never "depends on". The comment uses the header
-/// `## Sibling PRs:` so repeated runs do not duplicate content.
+/// with "part of" language, never "depends on". The comment is found by its
+/// `## Sibling PRs:` header: it is created when missing, edited in place when
+/// its sibling list changed, and left alone otherwise.
 pub(crate) fn link_sibling_prs(pr_urls: &[String]) {
+    let login = capture(
+        &proc::Command::new("gh").args(["api", "user", "--jq", ".login"]),
+        "api user",
+    )
+    .ok()
+    .map(|login| login.trim().to_owned());
     for (i, url) in pr_urls.iter().enumerate() {
         let others: Vec<&str> = pr_urls
             .iter()
@@ -449,16 +471,80 @@ pub(crate) fn link_sibling_prs(pr_urls: &[String]) {
         }
 
         let mut body =
-            String::from("## Sibling PRs:\n\nThis PR is part of feature delivery alongside:\n\n");
+            format!("{SIBLING_HEADER}\n\nThis PR is part of feature delivery alongside:\n\n");
         for other in &others {
             body.push_str("- ");
             body.push_str(other);
             body.push('\n');
         }
 
-        let _ =
-            proc::capture(&proc::Command::new("gh").args(["pr", "comment", url, "--body", &body]));
+        // Posting without knowing the existing comments would duplicate ours.
+        let Ok(existing) = sibling_comments(url) else {
+            continue;
+        };
+        match existing.into_iter().find(|comment| {
+            // Unknown login: match on header alone, risking adopting a foreign
+            // header comment rather than duplicating ours on every delivery.
+            comment.body.starts_with(SIBLING_HEADER)
+                && login
+                    .as_deref()
+                    .is_none_or(|login| comment.author.login == login)
+        }) {
+            None => {
+                let _ = proc::capture(
+                    &proc::Command::new("gh").args(["pr", "comment", url, "--body", &body]),
+                );
+            }
+            Some(comment) if normalized(&comment.body) != normalized(&body) => {
+                update_comment(&comment.id, &body);
+            }
+            Some(_) => {}
+        }
     }
+}
+
+const SIBLING_HEADER: &str = "## Sibling PRs:";
+
+#[derive(Debug, Deserialize)]
+struct GhComment {
+    id: String,
+    #[serde(default)]
+    body: String,
+    #[serde(default)]
+    author: GhAuthor,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct GhAuthor {
+    #[serde(default)]
+    login: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct GhComments {
+    #[serde(default)]
+    comments: Vec<GhComment>,
+}
+
+fn sibling_comments(url: &str) -> Result<Vec<GhComment>, Failure> {
+    let output = capture(
+        &proc::Command::new("gh").args(["pr", "view", url, "--json", "comments"]),
+        "pr view",
+    )?;
+    parse_gh::<GhComments>(&output, "pr view").map(|parsed| parsed.comments)
+}
+
+fn update_comment(id: &str, body: &str) {
+    let _ = proc::capture(&proc::Command::new("gh").args([
+        "api",
+        "graphql",
+        "-f",
+        "query=mutation($id: ID!, $body: String!) { updateIssueComment(input: {id: $id, body: $body}) { clientMutationId } }",
+        "-f",
+        &format!("id={id}"),
+        "-f",
+        &format!("body={body}"),
+    ]));
 }
 
 /// Run a `gh` command, turning a non-zero exit (or spawn failure) into a
@@ -479,6 +565,22 @@ fn capture(command: &proc::Command, operation: &str) -> Result<String, Failure> 
         "pull_requests.check_gh",
         "Ensure `gh` is installed and `gh auth status` is OK.",
     )))
+}
+
+fn parse_gh<T: serde::de::DeserializeOwned>(output: &str, operation: &str) -> Result<T, Failure> {
+    serde_json::from_str(output).map_err(|source| {
+        Failure::failed(
+            "pull_requests.parse_failed",
+            format!("could not parse `gh {operation}` output: {source}"),
+        )
+        .actual(output.to_owned())
+    })
+}
+
+/// `gh` may hand back CRLF line endings and surrounding whitespace that the
+/// text ivar sends never had; neither is a real difference.
+fn normalized(text: &str) -> String {
+    text.replace("\r\n", "\n").trim().to_owned()
 }
 
 /// The pull-request URL in `stdout`: the last line that is one.

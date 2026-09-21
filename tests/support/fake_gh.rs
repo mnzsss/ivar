@@ -51,8 +51,37 @@ pub(crate) struct FakeGh {
 const FAKE_GH: &str = r#"#!/bin/sh
 printf '%s\n' "$*" >> "$GH_FAKE_LOG"
 
+json_escape() {
+  tab=$(printf '\t')
+  cr=$(printf '\r')
+  printf '%s' "$1" | sed "s/\\\\/\\\\\\\\/g; s/\"/\\\\\"/g; s/$tab/\\\\t/g; s/$cr/\\\\r/g" | awk 'NR > 1 { printf "\\n" } { printf "%s", $0 }'
+}
+
+next_comment_id() {
+  seq=$(( $(cat "$GH_FAKE_STATE.comment_seq" 2>/dev/null || echo 0) + 1 ))
+  printf '%s\n' "$seq" > "$GH_FAKE_STATE.comment_seq"
+  printf 'IC_%s' "$seq"
+}
+
+# Fields are `|`-separated in the state files, so a stored `|` would corrupt them.
+reject_pipe() {
+  case "$1" in
+    *'|'*) printf 'fake gh cannot store a value containing |: %s\n' "$1" >&2; exit 1 ;;
+  esac
+}
+
+login="${FAKE_GH_LOGIN:-acme}"
+
 if [ "$1" = "api" ] && [ "$2" = "user" ]; then
-  printf '%s\n' "${FAKE_GH_LOGIN:-acme}"
+  if [ -f "$GH_FAKE_STATE.fail_api_user" ]; then
+    printf 'fake gh: api user fails\n' >&2
+    exit 1
+  fi
+  if [ "$3" = "--jq" ] && [ "$4" = ".login" ]; then
+    printf '%s\n' "$login"
+  else
+    printf '{"login":"%s"}\n' "$login"
+  fi
   exit 0
 fi
 
@@ -74,6 +103,27 @@ if [ "$1" = "repo" ] && [ "$2" = "create" ]; then
     git init --bare -q "$FAKE_GH_REPOS/$repo_target"
   fi
   printf 'https://github.com/%s\n' "$repo_target"
+  exit 0
+fi
+
+if [ "$1" = "api" ] && [ "$2" = "graphql" ]; then
+  if [ -f "$GH_FAKE_STATE.fail_graphql" ]; then
+    printf 'fake gh: api graphql fails\n' >&2
+    exit 1
+  fi
+  comment_id=""
+  new_body=""
+  for arg in "$@"; do
+    case "$arg" in
+      id=*) comment_id="${arg#id=}" ;;
+      body=*) new_body="${arg#body=}" ;;
+    esac
+  done
+  reject_pipe "$new_body"
+  escaped=$(json_escape "$new_body")
+  B="$escaped" awk -F'|' -v OFS='|' -v i="$comment_id" \
+    '$2 == i { $3 = ENVIRON["B"] } { print }' "$GH_FAKE_STATE.comments" > "$GH_FAKE_STATE.comments.tmp"
+  mv "$GH_FAKE_STATE.comments.tmp" "$GH_FAKE_STATE.comments"
   exit 0
 fi
 
@@ -148,6 +198,8 @@ if git config --get remote.origin.url >/dev/null 2>&1; then
 fi
 
 pr_number=$(printf '%s' "$pr_url" | awk -F/ '{print $NF}')
+pr_title=$(printf '%s' "$record" | awk -F'|' '{print $8}')
+pr_body=$(printf '%s' "$record" | awk -F'|' '{print $9}')
 
 emit_pr() {
   # Determine isDraft from the state file field or the current draft flag.
@@ -159,11 +211,11 @@ emit_pr() {
   # object or null.
   if [ "$pr_state" = "MERGED" ]; then
     merge_oid=$(git -C "$origin" rev-parse "refs/heads/$pr_base" 2>/dev/null || printf '')
-    printf '{"url":"%s","number":%s,"state":"%s","mergeCommit":{"oid":"%s"},"headRefOid":"%s","isDraft":%s}' \
-      "$pr_url" "$pr_number" "$pr_state" "$merge_oid" "$head_oid" "$draft_json"
+    printf '{"url":"%s","number":%s,"state":"%s","mergeCommit":{"oid":"%s"},"headRefOid":"%s","isDraft":%s,"title":"%s","body":"%s"}' \
+      "$pr_url" "$pr_number" "$pr_state" "$merge_oid" "$head_oid" "$draft_json" "$pr_title" "$pr_body"
   else
-    printf '{"url":"%s","number":%s,"state":"%s","mergeCommit":null,"headRefOid":"%s","isDraft":%s}' \
-      "$pr_url" "$pr_number" "$pr_state" "$head_oid" "$draft_json"
+    printf '{"url":"%s","number":%s,"state":"%s","mergeCommit":null,"headRefOid":"%s","isDraft":%s,"title":"%s","body":"%s"}' \
+      "$pr_url" "$pr_number" "$pr_state" "$head_oid" "$draft_json" "$pr_title" "$pr_body"
   fi
 }
 
@@ -195,6 +247,19 @@ case "$sub" in
         '$3 == u { $5 = n } { print }' "$GH_FAKE_STATE" > "$GH_FAKE_STATE.tmp"
       mv "$GH_FAKE_STATE.tmp" "$GH_FAKE_STATE"
     fi
+    if [ -f "$GH_FAKE_STATE.fail_view.$json_fields" ]; then
+      printf 'fake gh: pr view --json %s fails\n' "$json_fields" >&2
+      exit 1
+    fi
+    if [ -f "$GH_FAKE_STATE.malformed_view.$json_fields" ]; then
+      printf '{not json\n'
+      exit 0
+    fi
+    if [ "$json_fields" = "comments" ]; then
+      entries=$(awk -F'|' -v u="$pr_url" '$1 == u {printf "{\"id\":\"%s\",\"body\":\"%s\",\"author\":{\"login\":\"%s\"}},", $2, $3, $4}' "$GH_FAKE_STATE.comments" 2>/dev/null)
+      printf '{"comments":[%s]}\n' "${entries%,}"
+      exit 0
+    fi
     printf '%s\n' "$(emit_pr)"
     ;;
   "pr create")
@@ -207,13 +272,14 @@ case "$sub" in
     pr_url="https://github.com/acme/pull/$number"
     # Field 7 records the head oid at creation — `--match-head-commit`
     # compares against this, so a head that moves after the PR is opened is
-    # refused, exactly like the real `gh`. Fields 8, 9 hold title and body
-    # (empty at creation; gh reads them off stdout but the contract only needs
-    # them preserved across edits), and field 10 holds the initial draft state
+    # refused, exactly like the real `gh`. Fields 8, 9 hold the JSON-escaped
+    # title and body, and field 10 holds the initial draft state
     # (1 when --draft is passed, empty otherwise).
+    reject_pipe "$title"
+    reject_pipe "$body"
     draft_field=""
     [ "$draft" = "1" ] && draft_field="1"
-    printf '%s|%s|%s|%s|%s|%s|%s|%s|%s|%s\n' "$cwd_now" "$head" "$pr_url" "$base" "OPEN" "" "$head_oid" "" "" "$draft_field" >> "$GH_FAKE_STATE"
+    printf '%s|%s|%s|%s|%s|%s|%s|%s|%s|%s\n' "$cwd_now" "$head" "$pr_url" "$base" "OPEN" "" "$head_oid" "$(json_escape "$title")" "$(json_escape "$body")" "$draft_field" >> "$GH_FAKE_STATE"
     printf '%s\n' "$pr_url"
     ;;
   "pr edit")
@@ -236,8 +302,10 @@ case "$sub" in
     pr_base=$(printf '%s' "$record" | awk -F'|' '{print $4}')
     pr_queue=$(printf '%s' "$record" | awk -F'|' '{print $6}')
     created_oid=$(printf '%s' "$record" | awk -F'|' '{print $7}')
-    final_title="$title"
-    final_body="$body"
+    reject_pipe "$title"
+    reject_pipe "$body"
+    final_title=$(json_escape "$title")
+    final_body=$(json_escape "$body")
     if [ -z "$final_title" ]; then
       final_title=$(printf '%s' "$record" | awk -F'|' '{print $8}')
     fi
@@ -317,6 +385,8 @@ case "$sub" in
     mv "$GH_FAKE_STATE.tmp" "$GH_FAKE_STATE"
     ;;
   "pr comment")
+    reject_pipe "$body"
+    printf '%s|%s|%s|%s\n' "$url" "$(next_comment_id)" "$(json_escape "$body")" "$login" >> "$GH_FAKE_STATE.comments"
     ;;
   *)
     printf 'unknown command: %s\n' "$sub" >&2
@@ -356,6 +426,73 @@ impl FakeGh {
     /// Every `gh` invocation, one per line.
     pub(crate) fn log(&self) -> String {
         std::fs::read_to_string(&self.log).unwrap()
+    }
+
+    /// Replace the body of the first comment on `pr_url`.
+    pub(crate) fn set_comment(&self, pr_url: &str, body: &str) {
+        let path = self.comments();
+        let text = std::fs::read_to_string(&path).unwrap_or_default();
+        let mut replaced = false;
+        let lines: Vec<String> = text
+            .lines()
+            .map(
+                |line| match line.split('|').collect::<Vec<_>>().as_slice() {
+                    [url, id, _, rest @ ..] if !replaced && *url == pr_url => {
+                        replaced = true;
+                        let mut fields = vec![*url, *id];
+                        let escaped = comment_json(body);
+                        fields.push(&escaped);
+                        fields.extend(rest);
+                        fields.join("|")
+                    }
+                    _ => line.to_owned(),
+                },
+            )
+            .collect();
+        assert!(replaced, "no comment on {pr_url} to replace in {text}");
+        std::fs::write(&path, lines.join("\n") + "\n").unwrap();
+    }
+
+    /// Append a comment on `pr_url` written by `author`.
+    pub(crate) fn add_comment(&self, pr_url: &str, author: &str, body: &str) {
+        use std::io::Write as _;
+        let seq_path = format!("{}.comment_seq", self.state);
+        let seq = std::fs::read_to_string(&seq_path)
+            .ok()
+            .and_then(|text| text.trim().parse::<u64>().ok())
+            .unwrap_or(0)
+            + 1;
+        std::fs::write(&seq_path, format!("{seq}\n")).unwrap();
+        let mut file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(self.comments())
+            .unwrap();
+        writeln!(file, "{pr_url}|IC_{seq}|{}|{author}", comment_json(body)).unwrap();
+    }
+
+    /// Make `gh pr view --json <json_fields>` fail from now on.
+    pub(crate) fn fail_pr_view(&self, json_fields: &str) {
+        std::fs::write(format!("{}.fail_view.{json_fields}", self.state), "").unwrap();
+    }
+
+    /// Make `gh pr view --json <json_fields>` print invalid JSON from now on.
+    pub(crate) fn malform_pr_view(&self, json_fields: &str) {
+        std::fs::write(format!("{}.malformed_view.{json_fields}", self.state), "").unwrap();
+    }
+
+    /// Make `gh api user` fail from now on.
+    pub(crate) fn fail_api_user(&self) {
+        std::fs::write(format!("{}.fail_api_user", self.state), "").unwrap();
+    }
+
+    /// Make `gh api graphql` fail from now on.
+    pub(crate) fn fail_graphql(&self) {
+        std::fs::write(format!("{}.fail_graphql", self.state), "").unwrap();
+    }
+
+    fn comments(&self) -> String {
+        format!("{}.comments", self.state)
     }
 
     /// Declare a required check on `url`: `(name, bucket, state, link)`.
@@ -450,4 +587,16 @@ impl FakeGh {
         }
         std::fs::write(&self.state, final_state).unwrap();
     }
+}
+
+fn comment_json(body: &str) -> String {
+    assert!(
+        !body.contains('|'),
+        "fake gh cannot store a value containing |"
+    );
+    body.replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('\t', "\\t")
+        .replace('\r', "\\r")
+        .replace('\n', "\\n")
 }
