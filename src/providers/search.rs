@@ -10,10 +10,32 @@ pub(super) fn bash_search_command(command: &str) -> Option<String> {
 
 fn is_search(segment: &str) -> bool {
     SEARCH_PREFIXES.iter().any(|prefix| {
-        segment
-            .strip_prefix(prefix)
-            .is_some_and(|rest| rest.is_empty() || rest.starts_with(' '))
+        segment.strip_prefix(prefix).is_some_and(|rest| {
+            (rest.is_empty() || rest.starts_with(' ')) && !targets_only_non_code(rest)
+        })
     })
+}
+
+const NON_CODE_DIRS: [&str; 5] = ["dist", "build", "node_modules", "target", ".next"];
+const NON_CODE_EXTENSIONS: [&str; 3] = ["log", "txt", "out"];
+
+// ponytail: whitespace tokenising; quoted paths with spaces are misread, upgrade to a word splitter if that shows up in misses
+fn targets_only_non_code(args: &str) -> bool {
+    let mut positional = args.split_whitespace().filter(|t| !t.starts_with('-'));
+    let _pattern = positional.next();
+    let targets: Vec<&str> = positional.collect();
+    !targets.is_empty() && targets.iter().all(|t| is_non_code(t))
+}
+
+fn is_non_code(target: &str) -> bool {
+    let path = camino::Utf8Path::new(target.trim_matches(['\'', '"']));
+    path.starts_with("/tmp")
+        || path
+            .extension()
+            .is_some_and(|ext| NON_CODE_EXTENSIONS.contains(&ext))
+        || path
+            .components()
+            .any(|c| NON_CODE_DIRS.contains(&c.as_str()))
 }
 
 /// The first command of every pipeline in `command`, split on operators

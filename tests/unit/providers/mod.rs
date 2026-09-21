@@ -298,6 +298,28 @@ fn extract_search_pattern_never_reads_heredoc_bodies() {
 }
 
 #[test]
+fn extract_search_pattern_ignores_searches_over_non_code_targets() {
+    for command in [
+        r#"grep -E "❌" backend.log"#,
+        r#"grep -oE '/assets/[^"]+\.js' dist/index.html"#,
+        r#"grep -n "^###" /tmp/claude-1000/ph.txt"#,
+        "rg -l foo node_modules/react",
+        "rg foo target/debug build/out.txt",
+    ] {
+        let input = serde_json::json!({ "command": command });
+        assert_eq!(extract_search_pattern("Bash", &input), None, "{command}");
+    }
+    for command in ["rg -n foo", "rg -n foo src dist", "grep -rn foo ."] {
+        let input = serde_json::json!({ "command": command });
+        assert_eq!(
+            extract_search_pattern("Bash", &input).as_deref(),
+            Some(command),
+            "{command}"
+        );
+    }
+}
+
+#[test]
 fn extract_search_pattern_ignores_non_search_bash_and_other_tools() {
     let build = serde_json::json!({ "command": "cargo build --release" });
     assert_eq!(extract_search_pattern("Bash", &build), None);
