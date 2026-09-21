@@ -115,3 +115,12 @@ fn stats_prunes_rows_older_than_thirty_days() {
         .unwrap();
     assert_eq!(remaining, 0);
 }
+
+#[test]
+fn since_rejects_negative_and_non_ascii_values_without_panicking() {
+    let (_dir, ctx) = hall_with(&[]);
+    for raw in ["-5d", "-5", "5é", "é", "", "d"] {
+        let err = misses_cmd(&ctx, &input(None, Some(raw))).unwrap_err();
+        assert_eq!(err.code, "graph.since_invalid", "{raw}");
+    }
+}

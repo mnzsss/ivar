@@ -294,24 +294,29 @@ pub fn stats_cmd(ctx: &Ctx) -> Outcome<StatsOutcome> {
 pub(crate) const MISS_RETENTION_DAYS: i64 = 30;
 
 fn parse_since(raw: &str, now: i64) -> Result<i64, Failure> {
-    if let Ok(ts) = raw.parse::<i64>() {
-        return Ok(ts);
-    }
     let invalid = || {
         Failure::blocked(
             "graph.since_invalid",
             format!("invalid --since value `{raw}`: use a Unix timestamp, or `Nm`/`Nh`/`Nd`"),
         )
     };
-    let (digits, unit) = raw.split_at(raw.len().saturating_sub(1));
-    let n: i64 = digits.parse().map_err(|_| invalid())?;
-    let unit_secs = match unit {
-        "m" => 60,
-        "h" => 3_600,
-        "d" => 86_400,
-        _ => return Err(invalid()),
+    let unsigned = |digits: &str| {
+        if digits.bytes().all(|b| b.is_ascii_digit()) {
+            digits.parse::<u64>().ok()
+        } else {
+            None
+        }
     };
-    Ok(now.saturating_sub(n.saturating_mul(unit_secs)))
+    let to_i64 = |n: u64| i64::try_from(n).unwrap_or(i64::MAX);
+    if let Some(ts) = unsigned(raw) {
+        return Ok(to_i64(ts));
+    }
+    let (digits, unit_secs) = [("m", 60), ("h", 3_600), ("d", 86_400)]
+        .into_iter()
+        .find_map(|(suffix, secs)| raw.strip_suffix(suffix).map(|digits| (digits, secs)))
+        .ok_or_else(invalid)?;
+    let n = unsigned(digits).ok_or_else(invalid)?;
+    Ok(now.saturating_sub(to_i64(n).saturating_mul(unit_secs)))
 }
 
 pub fn misses_cmd(ctx: &Ctx, input: &MissesInput) -> Outcome<MissesOutcome> {
