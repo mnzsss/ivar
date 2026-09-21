@@ -491,7 +491,7 @@ fn record_search_miss(layout: &Layout, session: &str, pattern: &str) {
         Ok(None) => Some(miss(MissKind::Skipped, None)),
         Ok(Some((ts, query)))
             if crate::store::graph::db::types::now_timestamp() - ts <= FOLLOWUP_WINDOW_SECS
-                && matches!(db.last_miss_since(session, ts), Ok(false)) =>
+                && matches!(db.has_miss_since(session, ts), Ok(false)) =>
         {
             Some(miss(MissKind::Followup, query))
         }

@@ -1148,7 +1148,7 @@ fn a_tool_call_records_its_query_and_session_alongside_the_result_count() {
     assert!(!resp["result"]["isError"].as_bool().unwrap_or(false));
 
     let usage_row = db
-        .conn_for_test()
+        .conn()
         .query_row(
             "SELECT result_count, query, session FROM usage WHERE command = 'graph_explore'",
             [],
@@ -1210,7 +1210,7 @@ fn a_500_char_query_is_truncated_before_storage() {
     );
 
     let stored: Option<String> = db
-        .conn_for_test()
+        .conn()
         .query_row(
             "SELECT query FROM usage WHERE command = 'graph_explore'",
             [],
@@ -1305,7 +1305,7 @@ fn a_discovery_session_call_records_the_ivar_session_id() {
     assert!(!is_error, "got: {text}");
 
     let session: Option<String> = db
-        .conn_for_test()
+        .conn()
         .query_row(
             "SELECT session FROM usage WHERE command = 'graph_explore'",
             [],

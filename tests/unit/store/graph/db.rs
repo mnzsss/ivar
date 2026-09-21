@@ -1035,7 +1035,7 @@ fn list_misses_rejects_an_unknown_stored_kind() {
 }
 
 #[test]
-fn last_graph_call_and_last_miss_since_answer_the_guard_questions() {
+fn last_graph_call_and_has_miss_since_answer_the_guard_questions() {
     let db = GraphDb::open_in_memory().unwrap();
     assert_eq!(db.last_graph_call("sess-1").unwrap(), None);
 
@@ -1053,7 +1053,7 @@ fn last_graph_call_and_last_miss_since_answer_the_guard_questions() {
     let (ts, query) = db.last_graph_call("sess-1").unwrap().unwrap();
     assert!(ts > 0);
     assert_eq!(query.as_deref(), Some("enforceSession"));
-    assert!(!db.last_miss_since("sess-1", ts).unwrap());
+    assert!(!db.has_miss_since("sess-1", ts).unwrap());
 
     db.record_miss(&MissEvent {
         session: Some("sess-1".to_owned()),
@@ -1063,8 +1063,8 @@ fn last_graph_call_and_last_miss_since_answer_the_guard_questions() {
         reason: None,
     })
     .unwrap();
-    assert!(db.last_miss_since("sess-1", ts).unwrap());
-    assert!(!db.last_miss_since("sess-1", ts + 1_000_000).unwrap());
+    assert!(db.has_miss_since("sess-1", ts).unwrap());
+    assert!(!db.has_miss_since("sess-1", ts + 1_000_000).unwrap());
 }
 
 #[test]

@@ -135,8 +135,6 @@ pub struct MissFilter {
 }
 
 impl GraphDb {
-    /// Record one search-miss event.
-    ///
     /// # Errors
     ///
     /// Returns [`GraphDbError`] if the insert fails.
@@ -185,7 +183,7 @@ impl GraphDb {
     /// # Errors
     ///
     /// Returns [`GraphDbError`] if the query fails.
-    pub fn last_miss_since(&self, session: &str, since_ts: i64) -> Result<bool> {
+    pub fn has_miss_since(&self, session: &str, since_ts: i64) -> Result<bool> {
         self.conn
             .query_row(
                 "SELECT EXISTS(SELECT 1 FROM graph_misses WHERE session = ?1 AND ts >= ?2)",
