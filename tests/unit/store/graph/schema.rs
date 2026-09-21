@@ -380,3 +380,25 @@ fn a_database_from_a_newer_development_build_still_opens() {
     crate::store::graph::db::GraphDb::open(&path).unwrap();
     crate::store::graph::db::GraphDb::open_for_usage(&path).unwrap();
 }
+
+#[test]
+fn a_database_at_the_current_version_without_the_usage_session_index_gains_it() {
+    let conn = Connection::open_in_memory().unwrap();
+    apply_pragmas(&conn, false).unwrap();
+    apply_migrations(&conn).unwrap();
+    conn.execute_batch(&format!(
+        "DROP INDEX idx_usage_session_ts; PRAGMA user_version = {SCHEMA_VERSION};"
+    ))
+    .unwrap();
+
+    apply_migrations(&conn).unwrap();
+
+    let indexes: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = 'idx_usage_session_ts'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(indexes, 1);
+}

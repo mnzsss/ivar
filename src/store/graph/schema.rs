@@ -162,16 +162,19 @@ pub fn apply_migrations(conn: &Connection) -> rusqlite::Result<()> {
     tx.commit()
 }
 
-// A development build stamped version 8 before `graph_misses` joined that
-// version, so a database already at 8 may still lack the table.
+// Development builds stamped version 8 before `graph_misses` and
+// `idx_usage_session_ts` joined that version, so a database already at 8 may
+// still lack either.
 fn needs_migration(conn: &Connection) -> rusqlite::Result<bool> {
-    Ok(user_version(conn)? < SCHEMA_VERSION || !has_table(conn, "graph_misses")?)
+    Ok(user_version(conn)? < SCHEMA_VERSION
+        || !has_schema_object(conn, "graph_misses")?
+        || !has_schema_object(conn, "idx_usage_session_ts")?)
 }
 
-fn has_table(conn: &Connection, table: &str) -> rusqlite::Result<bool> {
+fn has_schema_object(conn: &Connection, name: &str) -> rusqlite::Result<bool> {
     conn.query_row(
-        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1)",
-        [table],
+        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE name = ?1)",
+        [name],
         |row| row.get(0),
     )
 }
@@ -223,6 +226,7 @@ fn apply_usage_migration(conn: &Connection) -> rusqlite::Result<()> {
     if !has_column(conn, "usage", "query")? {
         conn.execute_batch("ALTER TABLE usage ADD COLUMN query TEXT;")?;
     }
+    conn.execute_batch("CREATE INDEX IF NOT EXISTS idx_usage_session_ts ON usage(session, ts);")?;
     Ok(())
 }
 

@@ -23,7 +23,7 @@ fn a_cli_graph_call_records_its_session_and_query() {
         &mut Vec::new(),
     );
 
-    let query = last_graph_query(&root, session_id.as_str())
-        .expect("the CLI call is keyed by the session");
+    let query =
+        last_graph_query(&root, session_id.as_str()).expect("the CLI call is keyed by the session");
     assert_eq!(query.as_deref(), Some("enforceSession"));
 }
