@@ -817,6 +817,21 @@ fn usage_summary_is_empty_without_events() {
 }
 
 #[test]
+fn clean_all_removes_misses() {
+    let db = GraphDb::open_in_memory().unwrap();
+    db.record_miss(&MissEvent {
+        session: Some("sess-1".to_owned()),
+        kind: MissKind::Skipped,
+        query: None,
+        pattern: Some("rg foo".to_owned()),
+        reason: None,
+    })
+    .unwrap();
+    db.clean_all().unwrap();
+    assert!(db.list_misses(&MissFilter::default()).unwrap().is_empty());
+}
+
+#[test]
 fn clean_all_removes_usage() {
     let db = GraphDb::open_in_memory().unwrap();
     db.record_usage(&event(
