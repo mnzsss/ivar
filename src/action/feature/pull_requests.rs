@@ -212,7 +212,8 @@ pub(crate) fn convert_pull_request_to_draft(git_dir: &Utf8Path, url: &str) -> Re
 
 /// Edit a pull request at `url` with optional `title` and `body`.
 /// Only non-None fields are forwarded to `gh pr edit`; absent fields
-/// are left unchanged, making this a safe partial update.
+/// are left unchanged, and fields already matching the PR are skipped, so a
+/// re-delivery with the same metadata makes no edit.
 pub(crate) fn edit_pull_request(
     git_dir: &Utf8Path,
     url: &str,
@@ -220,6 +221,13 @@ pub(crate) fn edit_pull_request(
     body: Option<&str>,
 ) -> Result<(), Failure> {
     // When both title and body are absent, this is a no-op — no `gh` invocation.
+    if title.is_none() && body.is_none() {
+        return Ok(());
+    }
+
+    let current = view_metadata(git_dir, url)?;
+    let title = title.filter(|t| t.trim() != current.title.trim());
+    let body = body.filter(|b| b.trim() != current.body.trim());
     if title.is_none() && body.is_none() {
         return Ok(());
     }
@@ -258,6 +266,30 @@ pub(crate) fn edit_pull_request(
 
     Ok(())
 }
+#[derive(Debug, Deserialize)]
+struct PrMetadata {
+    #[serde(default)]
+    title: String,
+    #[serde(default)]
+    body: String,
+}
+
+fn view_metadata(git_dir: &Utf8Path, url: &str) -> Result<PrMetadata, Failure> {
+    let output = capture(
+        &proc::Command::new("gh")
+            .args(["pr", "view", url, "--json", "title,body"])
+            .cwd(git_dir),
+        "pr view",
+    )?;
+    serde_json::from_str(&output).map_err(|source| {
+        Failure::failed(
+            "pull_requests.parse_failed",
+            format!("could not parse `gh pr view` output: {source}"),
+        )
+        .actual(output.clone())
+    })
+}
+
 /// The required checks on the PR at `url`, as the forge reported them.
 ///
 /// Pending is data, not an error — the caller treats it as a resumable

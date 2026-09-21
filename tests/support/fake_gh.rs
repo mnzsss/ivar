@@ -148,6 +148,12 @@ if git config --get remote.origin.url >/dev/null 2>&1; then
 fi
 
 pr_number=$(printf '%s' "$pr_url" | awk -F/ '{print $NF}')
+pr_title=$(printf '%s' "$record" | awk -F'|' '{print $8}')
+pr_body=$(printf '%s' "$record" | awk -F'|' '{print $9}')
+
+json_escape() {
+  printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g' | awk 'NR > 1 { printf "\\n" } { printf "%s", $0 }'
+}
 
 emit_pr() {
   # Determine isDraft from the state file field or the current draft flag.
@@ -159,11 +165,11 @@ emit_pr() {
   # object or null.
   if [ "$pr_state" = "MERGED" ]; then
     merge_oid=$(git -C "$origin" rev-parse "refs/heads/$pr_base" 2>/dev/null || printf '')
-    printf '{"url":"%s","number":%s,"state":"%s","mergeCommit":{"oid":"%s"},"headRefOid":"%s","isDraft":%s}' \
-      "$pr_url" "$pr_number" "$pr_state" "$merge_oid" "$head_oid" "$draft_json"
+    printf '{"url":"%s","number":%s,"state":"%s","mergeCommit":{"oid":"%s"},"headRefOid":"%s","isDraft":%s,"title":"%s","body":"%s"}' \
+      "$pr_url" "$pr_number" "$pr_state" "$merge_oid" "$head_oid" "$draft_json" "$pr_title" "$pr_body"
   else
-    printf '{"url":"%s","number":%s,"state":"%s","mergeCommit":null,"headRefOid":"%s","isDraft":%s}' \
-      "$pr_url" "$pr_number" "$pr_state" "$head_oid" "$draft_json"
+    printf '{"url":"%s","number":%s,"state":"%s","mergeCommit":null,"headRefOid":"%s","isDraft":%s,"title":"%s","body":"%s"}' \
+      "$pr_url" "$pr_number" "$pr_state" "$head_oid" "$draft_json" "$pr_title" "$pr_body"
   fi
 }
 
@@ -207,13 +213,12 @@ case "$sub" in
     pr_url="https://github.com/acme/pull/$number"
     # Field 7 records the head oid at creation — `--match-head-commit`
     # compares against this, so a head that moves after the PR is opened is
-    # refused, exactly like the real `gh`. Fields 8, 9 hold title and body
-    # (empty at creation; gh reads them off stdout but the contract only needs
-    # them preserved across edits), and field 10 holds the initial draft state
+    # refused, exactly like the real `gh`. Fields 8, 9 hold the JSON-escaped
+    # title and body, and field 10 holds the initial draft state
     # (1 when --draft is passed, empty otherwise).
     draft_field=""
     [ "$draft" = "1" ] && draft_field="1"
-    printf '%s|%s|%s|%s|%s|%s|%s|%s|%s|%s\n' "$cwd_now" "$head" "$pr_url" "$base" "OPEN" "" "$head_oid" "" "" "$draft_field" >> "$GH_FAKE_STATE"
+    printf '%s|%s|%s|%s|%s|%s|%s|%s|%s|%s\n' "$cwd_now" "$head" "$pr_url" "$base" "OPEN" "" "$head_oid" "$(json_escape "$title")" "$(json_escape "$body")" "$draft_field" >> "$GH_FAKE_STATE"
     printf '%s\n' "$pr_url"
     ;;
   "pr edit")
@@ -236,8 +241,8 @@ case "$sub" in
     pr_base=$(printf '%s' "$record" | awk -F'|' '{print $4}')
     pr_queue=$(printf '%s' "$record" | awk -F'|' '{print $6}')
     created_oid=$(printf '%s' "$record" | awk -F'|' '{print $7}')
-    final_title="$title"
-    final_body="$body"
+    final_title=$(json_escape "$title")
+    final_body=$(json_escape "$body")
     if [ -z "$final_title" ]; then
       final_title=$(printf '%s' "$record" | awk -F'|' '{print $8}')
     fi

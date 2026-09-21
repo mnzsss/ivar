@@ -152,3 +152,18 @@ fn apply_reports_the_pull_request_it_created_and_updated() {
     );
     assert_eq!(updated["pushes"][0]["pr"]["draft"], true);
 }
+
+#[test]
+fn redelivering_the_same_title_and_body_does_not_edit_the_pull_request() {
+    let (_guard, root) = hall_root();
+    setup_deliver_hall(&root);
+    approve_through_plan(&root, "checkout");
+    let fake = FakeGh::install(&root);
+    let rewrites = as_github_remotes(&root);
+    let metadata = ["--name", "feat: title", "--body", "the body"];
+
+    deliver_on_github_with(&root, &fake, &rewrites, "checkout", &metadata);
+    deliver_on_github_with(&root, &fake, &rewrites, "checkout", &metadata);
+
+    assert_eq!(fake.log().matches("pr edit").count(), 0, "{}", fake.log());
+}
