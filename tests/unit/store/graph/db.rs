@@ -1068,7 +1068,7 @@ fn last_graph_call_and_has_miss_since_answer_the_guard_questions() {
 }
 
 #[test]
-fn prune_deletes_old_misses_and_blanks_old_usage_query_text() {
+fn prune_deletes_old_misses_and_old_usage_rows() {
     let db = GraphDb::open_in_memory().unwrap();
     let old_ts = crate::store::graph::db::types::now_timestamp() - 31 * 24 * 60 * 60;
     db.conn()
@@ -1101,16 +1101,13 @@ fn prune_deletes_old_misses_and_blanks_old_usage_query_text() {
     assert_eq!(remaining.len(), 1);
     assert_eq!(remaining[0].pattern.as_deref(), Some("recent pattern"));
 
-    let old_query: Option<String> = db
+    let old_usage: i64 = db
         .conn()
         .query_row(
-            "SELECT query FROM usage WHERE ts = ?1",
+            "SELECT COUNT(*) FROM usage WHERE ts = ?1",
             rusqlite::params![old_ts],
             |r| r.get(0),
         )
         .unwrap();
-    assert_eq!(
-        old_query, None,
-        "usage rows keep their command/source but lose old query text"
-    );
+    assert_eq!(old_usage, 0);
 }

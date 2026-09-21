@@ -226,8 +226,8 @@ impl GraphDb {
         rows.collect::<rusqlite::Result<_>>().map_err(Into::into)
     }
 
-    /// Deletes `graph_misses` rows and blanks `usage.query` text older than
-    /// `retention_days`. Returns the number of `graph_misses` rows removed.
+    /// Deletes `graph_misses` and `usage` rows older than `retention_days`.
+    /// Returns the number of `graph_misses` rows removed.
     ///
     /// # Errors
     ///
@@ -237,10 +237,8 @@ impl GraphDb {
         let removed = self
             .conn
             .execute("DELETE FROM graph_misses WHERE ts < ?1", params![cutoff])?;
-        self.conn.execute(
-            "UPDATE usage SET query = NULL WHERE ts < ?1 AND query IS NOT NULL",
-            params![cutoff],
-        )?;
+        self.conn
+            .execute("DELETE FROM usage WHERE ts < ?1", params![cutoff])?;
         Ok(removed)
     }
 }

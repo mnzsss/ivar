@@ -78,6 +78,7 @@ where
     W: Write,
     F: FnMut(Option<&str>) -> Result<Value, String>,
 {
+    let _ = db.prune(super::MISS_RETENTION_DAYS);
     for line_res in reader.lines() {
         let line = line_res?;
         let trimmed = line.trim();

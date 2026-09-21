@@ -1351,3 +1351,31 @@ fn a_grep_after_an_mcp_explore_in_the_same_session_is_a_followup_carrying_the_qu
     assert_eq!(misses[0].query.as_deref(), Some("execute"));
     assert_eq!(misses[0].pattern.as_deref(), Some("fn main"));
 }
+
+#[test]
+fn starting_the_server_prunes_misses_and_usage_past_retention() {
+    let db = GraphDb::open_in_memory().expect("open db");
+    let old_ts = crate::store::graph::db::types::now_timestamp() - 31 * 24 * 60 * 60;
+    db.conn()
+        .execute_batch(&format!(
+            "INSERT INTO graph_misses (ts, kind) VALUES ({old_ts}, 'skipped');
+             INSERT INTO usage (command, source, ts, duration_ms, error)
+             VALUES ('explore', 'mcp', {old_ts}, 1, 0);"
+        ))
+        .expect("seed old rows");
+
+    run_mcp_server(&db, None, Cursor::new(""), &mut Vec::new(), |_| {
+        Ok(Value::Null)
+    })
+    .expect("server runs");
+
+    let remaining: i64 = db
+        .conn()
+        .query_row(
+            "SELECT (SELECT COUNT(*) FROM graph_misses) + (SELECT COUNT(*) FROM usage)",
+            [],
+            |r| r.get(0),
+        )
+        .expect("count");
+    assert_eq!(remaining, 0);
+}

@@ -1104,9 +1104,9 @@ first grep within two minutes of a graph call, carrying that call's query. The
 agent record a `feedback` miss with the query it asked and why the answer did
 not help. `--kind skipped|followup|feedback` filters by kind; `--since` takes a
 Unix timestamp or `Nm`/`Nh`/`Nd`. `--json` prints a bare array of misses, newest
-first, not the usual report object. Misses, and the query text on usage rows,
-are kept for 30 days; `ivar graph misses` and `ivar graph stats` prune older
-rows.
+first, not the usual report object. Misses and usage rows are kept for 30 days, so
+`ivar graph stats` reports a 30-day window; `ivar graph misses`, `ivar graph
+stats`, and the MCP server at startup prune older rows.
 
 **`ivar session start` is the one verb that takes over your terminal.** It opens
 a TUI. Everything else prints and exits.

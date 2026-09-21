@@ -291,7 +291,7 @@ pub fn stats_cmd(ctx: &Ctx) -> Outcome<StatsOutcome> {
     Ok(Report::new(StatsOutcome(stats)))
 }
 
-const MISS_RETENTION_DAYS: i64 = 30;
+pub(crate) const MISS_RETENTION_DAYS: i64 = 30;
 
 fn parse_since(raw: &str, now: i64) -> Result<i64, Failure> {
     if let Ok(ts) = raw.parse::<i64>() {
