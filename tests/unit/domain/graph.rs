@@ -330,3 +330,15 @@ fn truncate_for_storage_keeps_text_up_to_the_limit_and_cuts_by_chars() {
         MAX_STORED_TEXT_LEN
     );
 }
+
+#[test]
+fn miss_kind_parses_known_kinds_and_rejects_unknown_ones() {
+    assert_eq!("followup".parse::<MissKind>(), Ok(MissKind::Followup));
+    assert_eq!("Feedback".parse::<MissKind>(), Ok(MissKind::Feedback));
+    assert!("nope".parse::<MissKind>().is_err());
+    assert_eq!(
+        serde_json::to_string(&MissKind::Skipped).unwrap(),
+        "\"skipped\""
+    );
+    assert!(serde_json::from_str::<MissKind>("\"nope\"").is_err());
+}

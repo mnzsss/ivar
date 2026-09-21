@@ -1023,6 +1023,18 @@ fn record_miss_and_list_misses_round_trip() {
 }
 
 #[test]
+fn list_misses_rejects_an_unknown_stored_kind() {
+    let db = GraphDb::open_in_memory().unwrap();
+    db.conn()
+        .execute(
+            "INSERT INTO graph_misses (ts, kind) VALUES (1, 'bogus')",
+            [],
+        )
+        .unwrap();
+    assert!(db.list_misses(&MissFilter::default()).is_err());
+}
+
+#[test]
 fn last_graph_call_and_last_miss_since_answer_the_guard_questions() {
     let db = GraphDb::open_in_memory().unwrap();
     assert_eq!(db.last_graph_call("sess-1").unwrap(), None);

@@ -211,7 +211,13 @@ impl GraphDb {
                 id: r.get(0)?,
                 ts: r.get(1)?,
                 session: r.get(2)?,
-                kind: MissKind::from(r.get::<_, String>(3)?),
+                kind: r.get::<_, String>(3)?.parse().map_err(|err| {
+                    rusqlite::Error::FromSqlConversionFailure(
+                        3,
+                        rusqlite::types::Type::Text,
+                        Box::new(err),
+                    )
+                })?,
                 query: r.get(4)?,
                 pattern: r.get(5)?,
                 reason: r.get(6)?,

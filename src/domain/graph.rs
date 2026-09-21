@@ -326,7 +326,7 @@ pub struct UsageStats {
 
 /// Why a search miss was recorded.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(into = "String", from = "String")]
+#[serde(rename_all = "lowercase")]
 pub enum MissKind {
     Skipped,
     Followup,
@@ -350,30 +350,30 @@ impl std::fmt::Display for MissKind {
     }
 }
 
-impl From<MissKind> for String {
-    fn from(k: MissKind) -> Self {
-        k.as_str().to_owned()
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnknownMissKind(pub String);
+
+impl std::fmt::Display for UnknownMissKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "unknown miss kind `{}`: use `skipped`, `followup`, or `feedback`",
+            self.0
+        )
     }
 }
 
-impl From<&MissKind> for String {
-    fn from(k: &MissKind) -> Self {
-        k.as_str().to_owned()
-    }
-}
+impl std::error::Error for UnknownMissKind {}
 
-impl From<String> for MissKind {
-    fn from(s: String) -> Self {
-        Self::from(s.as_str())
-    }
-}
+impl std::str::FromStr for MissKind {
+    type Err = UnknownMissKind;
 
-impl From<&str> for MissKind {
-    fn from(s: &str) -> Self {
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_ascii_lowercase().as_str() {
-            "followup" => Self::Followup,
-            "feedback" => Self::Feedback,
-            _ => Self::Skipped,
+            "skipped" => Ok(Self::Skipped),
+            "followup" => Ok(Self::Followup),
+            "feedback" => Ok(Self::Feedback),
+            _ => Err(UnknownMissKind(s.to_owned())),
         }
     }
 }

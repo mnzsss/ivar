@@ -314,20 +314,13 @@ fn parse_since(raw: &str, now: i64) -> Result<i64, Failure> {
     Ok(now.saturating_sub(n.saturating_mul(unit_secs)))
 }
 
-fn parse_kind(raw: &str) -> Result<MissKind, Failure> {
-    let kind = MissKind::from(raw);
-    if kind.as_str().eq_ignore_ascii_case(raw) {
-        Ok(kind)
-    } else {
-        Err(Failure::blocked(
-            "graph.kind_invalid",
-            format!("unknown miss kind `{raw}`: use `skipped`, `followup`, or `feedback`"),
-        ))
-    }
-}
-
 pub fn misses_cmd(ctx: &Ctx, input: &MissesInput) -> Outcome<MissesOutcome> {
-    let kind = input.kind.as_deref().map(parse_kind).transpose()?;
+    let kind = input
+        .kind
+        .as_deref()
+        .map(str::parse::<MissKind>)
+        .transpose()
+        .map_err(|err| Failure::blocked("graph.kind_invalid", err.to_string()))?;
     let since = input
         .since
         .as_deref()
