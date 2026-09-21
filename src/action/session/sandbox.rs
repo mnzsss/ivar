@@ -15,13 +15,19 @@ pub(crate) enum SandboxStatus {
     /// Ruleset is fully enforced by the kernel.
     #[cfg_attr(
         not(target_os = "linux"),
-        expect(dead_code, reason = "only constructed by the Linux Landlock path")
+        allow(
+            dead_code,
+            reason = "only constructed by the Linux Landlock path; the test build does construct it"
+        )
     )]
     Enforced,
     /// Ruleset is partially enforced (e.g. kernel supports an older Landlock ABI).
     #[cfg_attr(
         not(target_os = "linux"),
-        expect(dead_code, reason = "only constructed by the Linux Landlock path")
+        allow(
+            dead_code,
+            reason = "only constructed by the Linux Landlock path; the test build does construct it"
+        )
     )]
     Degraded { reason: String },
     /// Landlock is unavailable on this kernel or platform (e.g. macOS or Linux < 5.13).
