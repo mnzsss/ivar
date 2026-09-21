@@ -185,6 +185,26 @@ fn redelivering_siblings_does_not_repeat_the_comment() {
 }
 
 #[test]
+fn a_sibling_comment_differing_only_in_line_endings_and_whitespace_is_not_edited() {
+    let (_guard, root) = hall_root();
+    setup_two_repo_hall(&root);
+    approve_through_plan(&root, "checkout");
+    let fake = FakeGh::install(&root);
+    let rewrites = as_github_remotes(&root);
+
+    deliver_on_github(&root, &fake, &rewrites, "checkout");
+    fake.set_comment(
+        "https://github.com/acme/pull/1",
+        "## Sibling PRs:\r\n\r\nThis PR is part of feature delivery alongside:\r\n\r\n- https://github.com/acme/pull/2\r\n  \r\n",
+    );
+    deliver_on_github(&root, &fake, &rewrites, "checkout");
+
+    let log = fake.log();
+    assert_eq!(log.matches("pr comment").count(), 2, "{log}");
+    assert!(!log.contains("api graphql"), "{log}");
+}
+
+#[test]
 fn a_stale_sibling_comment_is_edited_in_place() {
     let (_guard, root) = hall_root();
     setup_two_repo_hall(&root);
