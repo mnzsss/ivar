@@ -219,8 +219,15 @@ fn teardown_worktrees(
     let mut worktrees = Vec::new();
     let mut all_worktrees_removed = true;
     for repo in feature.promotions.keys() {
-        let worktree = layout.repo_worktree(repo, &feature.branch);
-        if !fs::is_dir(&worktree)? {
+        let bare = layout.repo_bare(repo);
+        let worktree = if fs::is_dir(&bare)? {
+            git::resolve_worktree(git, &bare, feature.branch.as_str()).map_err(|error| {
+                Failure::failed("feature.delete_worktree_lookup_failed", error.to_string())
+            })?
+        } else {
+            None
+        };
+        let Some(worktree) = worktree else {
             // Nothing materialised — nothing to remove.
             worktrees.push(WorktreeRemoval {
                 repo: repo.clone(),
@@ -228,8 +235,8 @@ fn teardown_worktrees(
                 detail: None,
             });
             continue;
-        }
-        match git.remove_worktree(&layout.repo_bare(repo), &worktree) {
+        };
+        match git.remove_worktree(&bare, &worktree) {
             Ok(()) => {
                 // A branch holding a `/` — `feat/login` — nests the worktree
                 // under a prefix directory that git does not know about and

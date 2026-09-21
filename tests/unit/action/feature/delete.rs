@@ -323,3 +323,27 @@ fn delete_removes_the_features_working_documents() {
         "discovery.md is destroyed with the feature"
     );
 }
+
+#[test]
+fn delete_removes_a_worktree_whose_dir_differs_from_the_branch() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let ctx = Ctx::new(root.clone());
+    let bare = root.join(".ivar/repos/api/.bare");
+    let moved = root.join(".ivar/repos/api/elsewhere");
+    git::System
+        .move_worktree(&bare, &root.join(".ivar/repos/api/checkout"), &moved)
+        .unwrap();
+
+    let report = delete(&ctx, delete_input("checkout")).unwrap();
+
+    assert!(report.value.feature_removed);
+    assert!(report.value.worktrees[0].removed);
+    assert!(!fs::exists(&moved).unwrap());
+    assert!(
+        git::System
+            .list_worktrees(&bare)
+            .unwrap()
+            .iter()
+            .all(|entry| entry.branch.as_deref() != Some("checkout"))
+    );
+}
