@@ -127,13 +127,7 @@ pub(crate) fn list_pull_requests(
             .cwd(git_dir),
         "pr list",
     )?;
-    let records: Vec<GhPrRecord> = serde_json::from_str(&output).map_err(|source| {
-        Failure::failed(
-            "pull_requests.parse_failed",
-            format!("could not parse `gh pr list` output: {source}"),
-        )
-        .actual(output.clone())
-    })?;
+    let records: Vec<GhPrRecord> = parse_gh(&output, "pr list")?;
     Ok(records.into_iter().map(PullRequest::from).collect())
 }
 
@@ -225,9 +219,15 @@ pub(crate) fn edit_pull_request(
         return Ok(());
     }
 
-    let current = view_metadata(git_dir, url)?;
-    let title = title.filter(|t| t.trim() != current.title.trim());
-    let body = body.filter(|b| b.trim() != current.body.trim());
+    // Reading the current metadata only avoids redundant edits; when it
+    // fails, every requested field is sent as before.
+    let (title, body) = match view_metadata(git_dir, url) {
+        Ok(current) => (
+            title.filter(|t| normalized(t) != normalized(&current.title)),
+            body.filter(|b| normalized(b) != normalized(&current.body)),
+        ),
+        Err(_) => (title, body),
+    };
     if title.is_none() && body.is_none() {
         return Ok(());
     }
@@ -266,6 +266,7 @@ pub(crate) fn edit_pull_request(
 
     Ok(())
 }
+
 #[derive(Debug, Deserialize)]
 struct PrMetadata {
     #[serde(default)]
@@ -281,13 +282,7 @@ fn view_metadata(git_dir: &Utf8Path, url: &str) -> Result<PrMetadata, Failure> {
             .cwd(git_dir),
         "pr view",
     )?;
-    serde_json::from_str(&output).map_err(|source| {
-        Failure::failed(
-            "pull_requests.parse_failed",
-            format!("could not parse `gh pr view` output: {source}"),
-        )
-        .actual(output.clone())
-    })
+    parse_gh(&output, "pr view")
 }
 
 /// The required checks on the PR at `url`, as the forge reported them.
@@ -331,13 +326,7 @@ pub(crate) fn required_checks(
         #[serde(default)]
         bucket: String,
     }
-    let checks: Vec<GhCheck> = serde_json::from_str(&output.stdout).map_err(|source| {
-        Failure::failed(
-            "pull_requests.parse_failed",
-            format!("could not parse `gh pr checks` output: {source}"),
-        )
-        .actual(output.stdout.clone())
-    })?;
+    let checks: Vec<GhCheck> = parse_gh(&output.stdout, "pr checks")?;
     Ok(checks
         .into_iter()
         .map(|check| PrCheckResult {
@@ -439,13 +428,7 @@ fn view_pull_request(git_dir: &Utf8Path, url: &str) -> Result<PullRequest, Failu
             .cwd(git_dir),
         "pr view",
     )?;
-    let record: GhPrRecord = serde_json::from_str(&output).map_err(|source| {
-        Failure::failed(
-            "pull_requests.parse_failed",
-            format!("could not parse `gh pr view` output: {source}"),
-        )
-        .actual(output.clone())
-    })?;
+    let record: GhPrRecord = parse_gh(&output, "pr view")?;
     Ok(record.into())
 }
 
@@ -469,6 +452,13 @@ pub(crate) fn existing_pr(git_dir: &Utf8Path, branch: &str) -> Option<PullReques
 /// `## Sibling PRs:` header: it is created when missing, edited in place when
 /// its sibling list changed, and left alone otherwise.
 pub(crate) fn link_sibling_prs(pr_urls: &[String]) {
+    let Ok(login) = capture(
+        &proc::Command::new("gh").args(["api", "user", "--jq", ".login"]),
+        "api user",
+    ) else {
+        return;
+    };
+    let login = login.trim();
     for (i, url) in pr_urls.iter().enumerate() {
         let others: Vec<&str> = pr_urls
             .iter()
@@ -489,16 +479,21 @@ pub(crate) fn link_sibling_prs(pr_urls: &[String]) {
             body.push('\n');
         }
 
-        match sibling_comment(url) {
-            Ok(None) => {
+        let Some(existing) = sibling_comments(url) else {
+            continue;
+        };
+        match existing.into_iter().find(|comment| {
+            comment.author.login == login && comment.body.starts_with(SIBLING_HEADER)
+        }) {
+            None => {
                 let _ = proc::capture(
                     &proc::Command::new("gh").args(["pr", "comment", url, "--body", &body]),
                 );
             }
-            Ok(Some(existing)) if existing.body.trim() != body.trim() => {
-                update_comment(&existing.id, &body);
+            Some(comment) if normalized(&comment.body) != normalized(&body) => {
+                update_comment(&comment.id, &body);
             }
-            Ok(Some(_)) | Err(_) => {}
+            Some(_) => {}
         }
     }
 }
@@ -510,6 +505,14 @@ struct GhComment {
     id: String,
     #[serde(default)]
     body: String,
+    #[serde(default)]
+    author: GhAuthor,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct GhAuthor {
+    #[serde(default)]
+    login: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -518,21 +521,17 @@ struct GhComments {
     comments: Vec<GhComment>,
 }
 
-fn sibling_comment(url: &str) -> Result<Option<GhComment>, Failure> {
+/// The comments on `url`, or `None` when they cannot be read — sibling
+/// linking is best-effort.
+fn sibling_comments(url: &str) -> Option<Vec<GhComment>> {
     let output = capture(
         &proc::Command::new("gh").args(["pr", "view", url, "--json", "comments"]),
         "pr view",
-    )?;
-    let parsed: GhComments = serde_json::from_str(&output).map_err(|source| {
-        Failure::failed(
-            "pull_requests.parse_failed",
-            format!("could not parse `gh pr view` output: {source}"),
-        )
-    })?;
-    Ok(parsed
-        .comments
-        .into_iter()
-        .find(|comment| comment.body.starts_with(SIBLING_HEADER)))
+    )
+    .ok()?;
+    parse_gh::<GhComments>(&output, "pr view")
+        .ok()
+        .map(|parsed| parsed.comments)
 }
 
 fn update_comment(id: &str, body: &str) {
@@ -568,6 +567,22 @@ fn capture(command: &proc::Command, operation: &str) -> Result<String, Failure> 
     )))
 }
 
+fn parse_gh<T: serde::de::DeserializeOwned>(output: &str, operation: &str) -> Result<T, Failure> {
+    serde_json::from_str(output).map_err(|source| {
+        Failure::failed(
+            "pull_requests.parse_failed",
+            format!("could not parse `gh {operation}` output: {source}"),
+        )
+        .actual(output.to_owned())
+    })
+}
+
+/// `gh` may hand back CRLF line endings and surrounding whitespace that the
+/// text ivar sends never had; neither is a real difference.
+fn normalized(text: &str) -> String {
+    text.replace("\r\n", "\n").trim().to_owned()
+}
+
 /// The pull-request URL in `stdout`: the last line that is one.
 fn pr_url(stdout: &str) -> Option<String> {
     stdout
@@ -582,3 +597,4 @@ fn pr_url(stdout: &str) -> Option<String> {
 fn pr_number(url: &str) -> Option<u64> {
     url.rsplit('/').next()?.parse().ok()
 }
+

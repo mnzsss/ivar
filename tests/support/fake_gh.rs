@@ -52,11 +52,24 @@ const FAKE_GH: &str = r#"#!/bin/sh
 printf '%s\n' "$*" >> "$GH_FAKE_LOG"
 
 json_escape() {
-  printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g' | awk 'NR > 1 { printf "\\n" } { printf "%s", $0 }'
+  printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g; s/\t/\\t/g' | awk 'NR > 1 { printf "\\n" } { printf "%s", $0 }'
 }
 
+# Fields are `|`-separated in the state files, so a stored `|` would corrupt them.
+reject_pipe() {
+  case "$1" in
+    *'|'*) printf 'fake gh cannot store a value containing |: %s\n' "$1" >&2; exit 1 ;;
+  esac
+}
+
+login="${FAKE_GH_LOGIN:-acme}"
+
 if [ "$1" = "api" ] && [ "$2" = "user" ]; then
-  printf '%s\n' "${FAKE_GH_LOGIN:-acme}"
+  if [ "$3" = "--jq" ] && [ "$4" = ".login" ]; then
+    printf '%s\n' "$login"
+  else
+    printf '{"login":"%s"}\n' "$login"
+  fi
   exit 0
 fi
 
@@ -84,13 +97,13 @@ fi
 if [ "$1" = "api" ] && [ "$2" = "graphql" ]; then
   comment_id=""
   new_body=""
-  while [ $# -gt 0 ]; do
-    case "$2" in
-      id=*) comment_id="${2#id=}" ;;
-      body=*) new_body="${2#body=}" ;;
+  for arg in "$@"; do
+    case "$arg" in
+      id=*) comment_id="${arg#id=}" ;;
+      body=*) new_body="${arg#body=}" ;;
     esac
-    shift
   done
+  reject_pipe "$new_body"
   escaped=$(json_escape "$new_body")
   B="$escaped" awk -F'|' -v OFS='|' -v i="$comment_id" \
     '$2 == i { $3 = ENVIRON["B"] } { print }' "$GH_FAKE_STATE.comments" > "$GH_FAKE_STATE.comments.tmp"
@@ -218,8 +231,12 @@ case "$sub" in
         '$3 == u { $5 = n } { print }' "$GH_FAKE_STATE" > "$GH_FAKE_STATE.tmp"
       mv "$GH_FAKE_STATE.tmp" "$GH_FAKE_STATE"
     fi
+    if [ -f "$GH_FAKE_STATE.fail_view.$json_fields" ]; then
+      printf 'fake gh: pr view --json %s fails\n' "$json_fields" >&2
+      exit 1
+    fi
     if [ "$json_fields" = "comments" ]; then
-      entries=$(grep -F "$pr_url|" "$GH_FAKE_STATE.comments" 2>/dev/null | awk -F'|' '{printf "{\"id\":\"%s\",\"body\":\"%s\"},", $2, $3}')
+      entries=$(awk -F'|' -v u="$pr_url" '$1 == u {printf "{\"id\":\"%s\",\"body\":\"%s\",\"author\":{\"login\":\"%s\"}},", $2, $3, $4}' "$GH_FAKE_STATE.comments" 2>/dev/null)
       printf '{"comments":[%s]}\n' "${entries%,}"
       exit 0
     fi
@@ -238,6 +255,8 @@ case "$sub" in
     # refused, exactly like the real `gh`. Fields 8, 9 hold the JSON-escaped
     # title and body, and field 10 holds the initial draft state
     # (1 when --draft is passed, empty otherwise).
+    reject_pipe "$title"
+    reject_pipe "$body"
     draft_field=""
     [ "$draft" = "1" ] && draft_field="1"
     printf '%s|%s|%s|%s|%s|%s|%s|%s|%s|%s\n' "$cwd_now" "$head" "$pr_url" "$base" "OPEN" "" "$head_oid" "$(json_escape "$title")" "$(json_escape "$body")" "$draft_field" >> "$GH_FAKE_STATE"
@@ -263,6 +282,8 @@ case "$sub" in
     pr_base=$(printf '%s' "$record" | awk -F'|' '{print $4}')
     pr_queue=$(printf '%s' "$record" | awk -F'|' '{print $6}')
     created_oid=$(printf '%s' "$record" | awk -F'|' '{print $7}')
+    reject_pipe "$title"
+    reject_pipe "$body"
     final_title=$(json_escape "$title")
     final_body=$(json_escape "$body")
     if [ -z "$final_title" ]; then
@@ -344,8 +365,9 @@ case "$sub" in
     mv "$GH_FAKE_STATE.tmp" "$GH_FAKE_STATE"
     ;;
   "pr comment")
+    reject_pipe "$body"
     comment_number=$(( $(cat "$GH_FAKE_STATE.comments" 2>/dev/null | wc -l) + 1 ))
-    printf '%s|IC_%s|%s\n' "$url" "$comment_number" "$(json_escape "$body")" >> "$GH_FAKE_STATE.comments"
+    printf '%s|IC_%s|%s|%s\n' "$url" "$comment_number" "$(json_escape "$body")" "$login" >> "$GH_FAKE_STATE.comments"
     ;;
   *)
     printf 'unknown command: %s\n' "$sub" >&2
@@ -389,26 +411,54 @@ impl FakeGh {
 
     /// Replace the body of the first comment on `pr_url`.
     pub(crate) fn set_comment(&self, pr_url: &str, body: &str) {
-        let path = format!("{}.comments", self.state);
+        let path = self.comments();
         let text = std::fs::read_to_string(&path).unwrap_or_default();
-        let escaped = body
-            .replace('\\', "\\\\")
-            .replace('"', "\\\"")
-            .replace('\n', "\\n");
         let mut replaced = false;
         let lines: Vec<String> = text
             .lines()
-            .map(|line| {
-                let fields: Vec<&str> = line.splitn(3, '|').collect();
-                if !replaced && fields[0] == pr_url {
-                    replaced = true;
-                    format!("{}|{}|{escaped}", fields[0], fields[1])
-                } else {
-                    line.to_owned()
-                }
-            })
+            .map(
+                |line| match line.split('|').collect::<Vec<_>>().as_slice() {
+                    [url, id, _, author] if !replaced && *url == pr_url => {
+                        replaced = true;
+                        format!("{url}|{id}|{}|{author}", comment_json(body))
+                    }
+                    _ => line.to_owned(),
+                },
+            )
             .collect();
+        assert!(replaced, "no comment on {pr_url} to replace in {text}");
         std::fs::write(&path, lines.join("\n") + "\n").unwrap();
+    }
+
+    /// Append a comment on `pr_url` written by `author`.
+    pub(crate) fn add_comment(&self, pr_url: &str, author: &str, body: &str) {
+        use std::io::Write as _;
+        let path = self.comments();
+        let count = std::fs::read_to_string(&path)
+            .unwrap_or_default()
+            .lines()
+            .count();
+        let mut file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)
+            .unwrap();
+        writeln!(
+            file,
+            "{pr_url}|IC_{}|{}|{author}",
+            count + 1,
+            comment_json(body)
+        )
+        .unwrap();
+    }
+
+    /// Make `gh pr view --json <json_fields>` fail from now on.
+    pub(crate) fn fail_pr_view(&self, json_fields: &str) {
+        std::fs::write(format!("{}.fail_view.{json_fields}", self.state), "").unwrap();
+    }
+
+    fn comments(&self) -> String {
+        format!("{}.comments", self.state)
     }
 
     /// Declare a required check on `url`: `(name, bucket, state, link)`.
@@ -503,4 +553,15 @@ impl FakeGh {
         }
         std::fs::write(&self.state, final_state).unwrap();
     }
+}
+
+fn comment_json(body: &str) -> String {
+    assert!(
+        !body.contains('|'),
+        "fake gh cannot store a value containing |"
+    );
+    body.replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('\t', "\\t")
+        .replace('\n', "\\n")
 }

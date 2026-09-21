@@ -203,3 +203,112 @@ fn a_stale_sibling_comment_is_edited_in_place() {
     assert_eq!(log.matches("pr comment").count(), 2, "{log}");
     assert_eq!(log.matches("api graphql").count(), 1, "{log}");
 }
+
+#[test]
+fn redelivering_a_new_body_edits_only_the_body() {
+    let (_guard, root) = hall_root();
+    setup_deliver_hall(&root);
+    approve_through_plan(&root, "checkout");
+    let fake = FakeGh::install(&root);
+    let rewrites = as_github_remotes(&root);
+
+    deliver_on_github_with(
+        &root,
+        &fake,
+        &rewrites,
+        "checkout",
+        &["--name", "feat: title", "--body", "old"],
+    );
+    deliver_on_github_with(
+        &root,
+        &fake,
+        &rewrites,
+        "checkout",
+        &["--name", "feat: title", "--body", "new"],
+    );
+
+    let log = fake.log();
+    let edit = log
+        .lines()
+        .rfind(|line| line.starts_with("pr edit"))
+        .unwrap();
+    assert!(edit.contains("--body new"), "{log}");
+    assert!(!edit.contains("--title"), "{log}");
+}
+
+#[test]
+fn an_unreadable_pull_request_is_edited_with_every_requested_field() {
+    let (_guard, root) = hall_root();
+    setup_deliver_hall(&root);
+    approve_through_plan(&root, "checkout");
+    let fake = FakeGh::install(&root);
+    let rewrites = as_github_remotes(&root);
+    let metadata = ["--name", "feat: title", "--body", "the body"];
+
+    deliver_on_github_with(&root, &fake, &rewrites, "checkout", &metadata);
+    fake.fail_pr_view("title,body");
+    deliver_on_github_with(&root, &fake, &rewrites, "checkout", &metadata);
+
+    let log = fake.log();
+    let edit = log
+        .lines()
+        .rfind(|line| line.starts_with("pr edit"))
+        .unwrap();
+    assert!(edit.contains("--title") && edit.contains("--body"), "{log}");
+}
+
+#[test]
+fn unreadable_comments_skip_sibling_linking_without_failing_delivery() {
+    let (_guard, root) = hall_root();
+    setup_two_repo_hall(&root);
+    approve_through_plan(&root, "checkout");
+    let fake = FakeGh::install(&root);
+    let rewrites = as_github_remotes(&root);
+
+    fake.fail_pr_view("comments");
+    deliver_on_github(&root, &fake, &rewrites, "checkout");
+
+    let log = fake.log();
+    assert_eq!(log.matches("pr comment").count(), 0, "{log}");
+    assert!(!log.contains("api graphql"), "{log}");
+}
+
+#[test]
+fn a_sibling_comment_by_someone_else_is_left_alone() {
+    let (_guard, root) = hall_root();
+    setup_two_repo_hall(&root);
+    approve_through_plan(&root, "checkout");
+    let fake = FakeGh::install(&root);
+    let rewrites = as_github_remotes(&root);
+
+    fake.add_comment(
+        "https://github.com/acme/pull/1",
+        "someone",
+        "## Sibling PRs:\n\n- stale",
+    );
+    deliver_on_github(&root, &fake, &rewrites, "checkout");
+
+    let log = fake.log();
+    assert_eq!(log.matches("pr comment").count(), 2, "{log}");
+    assert!(!log.contains("api graphql"), "{log}");
+}
+
+#[test]
+fn a_comment_quoting_the_sibling_header_mid_text_is_not_the_sibling_comment() {
+    let (_guard, root) = hall_root();
+    setup_two_repo_hall(&root);
+    approve_through_plan(&root, "checkout");
+    let fake = FakeGh::install(&root);
+    let rewrites = as_github_remotes(&root);
+
+    fake.add_comment(
+        "https://github.com/acme/pull/1",
+        "acme",
+        "see\n## Sibling PRs:\n\n- stale",
+    );
+    deliver_on_github(&root, &fake, &rewrites, "checkout");
+
+    let log = fake.log();
+    assert_eq!(log.matches("pr comment").count(), 2, "{log}");
+    assert!(!log.contains("api graphql"), "{log}");
+}
