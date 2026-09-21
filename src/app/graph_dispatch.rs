@@ -3,6 +3,7 @@ use std::io;
 use std::process::ExitCode;
 
 use crate::action::Ctx;
+use crate::action::graph::session::resolve_session_key;
 use crate::action::graph::{
     AffectedInput, CalleesInput, CallersInput, ComplexityInput, DeadCodeInput, ExploreInput,
     FileInput, FindInput, HierarchyInput, ImpactInput, IndexInput, MissesInput, MissesOutcome,
@@ -12,7 +13,7 @@ use crate::action::graph::{
     view_cmd, viz_cmd,
 };
 use crate::cli::graph::GraphCommand;
-use crate::domain::graph::{UsageEvent, UsageSource};
+use crate::domain::graph::{UsageEvent, UsageSource, truncate_for_storage};
 use crate::error::{Failure, Outcome, Palette, Report, WriteHuman};
 use crate::infra::term;
 
@@ -101,7 +102,7 @@ where
 }
 
 fn respond_query<T>(
-    command: &'static str,
+    (command, query): (&'static str, Option<String>),
     ctx: &Ctx,
     run: impl FnOnce() -> Outcome<T>,
     json: bool,
@@ -128,8 +129,8 @@ where
             duration_ms,
             result_count,
             error,
-            session: None,
-            query: None,
+            session: resolve_session_key(&ctx.cwd),
+            query: query.map(|q| truncate_for_storage(&q)),
         },
     );
     exit
@@ -153,6 +154,22 @@ fn respond_misses(
     }
 }
 
+fn usage_query(cmd: &GraphCommand) -> Option<String> {
+    let query = match cmd {
+        GraphCommand::Explore(args) => args.query.clone(),
+        GraphCommand::Find(args) => args.query.clone(),
+        GraphCommand::Callers(args) => args.symbol.clone(),
+        GraphCommand::Hierarchy(args) => args.symbol.clone(),
+        GraphCommand::File(args) => args.path.clone(),
+        GraphCommand::Affected(args) => args.files.join(" "),
+        GraphCommand::Path(args) => format!("{} {}", args.from, args.to),
+        GraphCommand::Callees(args) => args.symbol_id.to_string(),
+        GraphCommand::Impact(args) => args.symbol_id.to_string(),
+        _ => return None,
+    };
+    Some(query).filter(|q| !q.is_empty())
+}
+
 #[expect(
     clippy::too_many_lines,
     reason = "flat match over GraphCommand subcommands — each arm builds one \
@@ -167,9 +184,10 @@ pub(super) fn dispatch_graph(
     stdout: &mut impl io::Write,
     stderr: &mut impl io::Write,
 ) -> ExitCode {
+    let query = usage_query(&cmd);
     match cmd {
         GraphCommand::Explore(args) => respond_query(
-            "explore",
+            ("explore", query),
             ctx,
             || {
                 explore_cmd(
@@ -186,7 +204,7 @@ pub(super) fn dispatch_graph(
             stderr,
         ),
         GraphCommand::Affected(args) => respond_query(
-            "affected",
+            ("affected", query),
             ctx,
             || {
                 affected_cmd(
@@ -205,7 +223,7 @@ pub(super) fn dispatch_graph(
             stderr,
         ),
         GraphCommand::Path(args) => respond_query(
-            "path",
+            ("path", query),
             ctx,
             || {
                 path_cmd(
@@ -223,7 +241,7 @@ pub(super) fn dispatch_graph(
             stderr,
         ),
         GraphCommand::Find(args) => respond_query(
-            "find",
+            ("find", query),
             ctx,
             || {
                 find_cmd(
@@ -241,7 +259,7 @@ pub(super) fn dispatch_graph(
             stderr,
         ),
         GraphCommand::Callers(args) => respond_query(
-            "callers",
+            ("callers", query),
             ctx,
             || {
                 callers_cmd(
@@ -260,7 +278,7 @@ pub(super) fn dispatch_graph(
             stderr,
         ),
         GraphCommand::Callees(args) => respond_query(
-            "callees",
+            ("callees", query),
             ctx,
             || {
                 callees_cmd(
@@ -276,7 +294,7 @@ pub(super) fn dispatch_graph(
             stderr,
         ),
         GraphCommand::File(args) => respond_query(
-            "file",
+            ("file", query),
             ctx,
             || {
                 file_cmd(
@@ -318,7 +336,7 @@ pub(super) fn dispatch_graph(
             respond_misses(result, json, compact, stdout, stderr)
         }
         GraphCommand::Impact(args) => respond_query(
-            "impact",
+            ("impact", query),
             ctx,
             || {
                 impact_cmd(
@@ -335,7 +353,7 @@ pub(super) fn dispatch_graph(
             stderr,
         ),
         GraphCommand::DeadCode(args) => respond_query(
-            "dead-code",
+            ("dead-code", query),
             ctx,
             || {
                 dead_code_cmd(
@@ -352,7 +370,7 @@ pub(super) fn dispatch_graph(
             stderr,
         ),
         GraphCommand::Complexity(args) => respond_query(
-            "complexity",
+            ("complexity", query),
             ctx,
             || {
                 complexity_cmd(
@@ -370,7 +388,7 @@ pub(super) fn dispatch_graph(
             stderr,
         ),
         GraphCommand::Hierarchy(args) => respond_query(
-            "hierarchy",
+            ("hierarchy", query),
             ctx,
             || {
                 hierarchy_cmd(
@@ -411,3 +429,7 @@ pub(super) fn dispatch_graph(
         }
     }
 }
+
+#[cfg(test)]
+#[path = "../../tests/unit/app/graph_dispatch.rs"]
+mod tests;
