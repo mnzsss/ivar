@@ -68,6 +68,8 @@ fn stats_human_output_lists_usage_or_says_none() {
         duration_ms: 9,
         result_count: None,
         error: false,
+        session: None,
+        query: None,
     })
     .unwrap();
     let mut out = Vec::new();

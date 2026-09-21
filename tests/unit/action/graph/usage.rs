@@ -27,6 +27,8 @@ fn recording_outside_a_hall_does_not_panic() {
             duration_ms: 1,
             result_count: Some(0),
             error: false,
+            session: None,
+            query: None,
         },
     );
     assert!(!dir.path().join(".ivar/memory.db").exists());
@@ -45,6 +47,8 @@ fn recording_against_a_missing_database_creates_nothing() {
             duration_ms: 1,
             result_count: Some(0),
             error: false,
+            session: None,
+            query: None,
         },
     );
     assert!(!db_path.exists());

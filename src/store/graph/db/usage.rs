@@ -43,8 +43,8 @@ impl GraphDb {
         // A usage write must never hold a query hostage to another session's lock.
         self.conn.busy_timeout(USAGE_BUSY_TIMEOUT)?;
         let inserted = self.conn.execute(
-            "INSERT INTO usage (command, source, ts, duration_ms, result_count, error)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            "INSERT INTO usage (command, source, ts, duration_ms, result_count, error, session, query)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             params![
                 event.command,
                 event.source.as_str(),
@@ -54,6 +54,8 @@ impl GraphDb {
                     .result_count
                     .map(|c| i64::try_from(c).unwrap_or(i64::MAX)),
                 event.error,
+                event.session,
+                event.query,
             ],
         );
         let _ = self.conn.busy_timeout(DEFAULT_BUSY_TIMEOUT);

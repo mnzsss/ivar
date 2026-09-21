@@ -734,6 +734,8 @@ fn event(
     ms: u64,
     count: Option<usize>,
     error: bool,
+    session: Option<&str>,
+    query: Option<&str>,
 ) -> UsageEvent {
     UsageEvent {
         command: command.to_owned(),
@@ -741,6 +743,8 @@ fn event(
         duration_ms: ms,
         result_count: count,
         error,
+        session: session.map(str::to_owned),
+        query: query.map(str::to_owned),
     }
 }
 
@@ -748,13 +752,37 @@ fn event(
 fn usage_summary_groups_by_command_and_source() {
     let db = GraphDb::open_in_memory().unwrap();
     for ms in [10, 20, 30, 40, 100] {
-        db.record_usage(&event("explore", UsageSource::Cli, ms, Some(3), false))
-            .unwrap();
+        db.record_usage(&event(
+            "explore",
+            UsageSource::Cli,
+            ms,
+            Some(3),
+            false,
+            None,
+            None,
+        ))
+        .unwrap();
     }
-    db.record_usage(&event("explore", UsageSource::Cli, 5, Some(0), false))
-        .unwrap();
-    db.record_usage(&event("explore", UsageSource::Mcp, 7, None, true))
-        .unwrap();
+    db.record_usage(&event(
+        "explore",
+        UsageSource::Cli,
+        5,
+        Some(0),
+        false,
+        None,
+        None,
+    ))
+    .unwrap();
+    db.record_usage(&event(
+        "explore",
+        UsageSource::Mcp,
+        7,
+        None,
+        true,
+        None,
+        None,
+    ))
+    .unwrap();
 
     let summary = db.usage_summary().unwrap();
 
@@ -788,8 +816,16 @@ fn usage_summary_is_empty_without_events() {
 #[test]
 fn clean_all_removes_usage() {
     let db = GraphDb::open_in_memory().unwrap();
-    db.record_usage(&event("find", UsageSource::Cli, 1, Some(1), false))
-        .unwrap();
+    db.record_usage(&event(
+        "find",
+        UsageSource::Cli,
+        1,
+        Some(1),
+        false,
+        None,
+        None,
+    ))
+    .unwrap();
     assert_eq!(db.clean_all().unwrap().usage_removed, 1);
     assert!(db.usage_summary().unwrap().is_empty());
 }
@@ -797,8 +833,16 @@ fn clean_all_removes_usage() {
 #[test]
 fn stats_include_recorded_usage() {
     let db = GraphDb::open_in_memory().unwrap();
-    db.record_usage(&event("callers", UsageSource::Cli, 4, Some(2), false))
-        .unwrap();
+    db.record_usage(&event(
+        "callers",
+        UsageSource::Cli,
+        4,
+        Some(2),
+        false,
+        None,
+        None,
+    ))
+    .unwrap();
 
     let stats = db.stats().unwrap();
 
@@ -845,7 +889,15 @@ fn opening_for_usage_records_into_a_migrated_database() {
     drop(GraphDb::open(&path).unwrap());
     GraphDb::open_for_usage(&path)
         .unwrap()
-        .record_usage(&event("find", UsageSource::Cli, 1, Some(1), false))
+        .record_usage(&event(
+            "find",
+            UsageSource::Cli,
+            1,
+            Some(1),
+            false,
+            None,
+            None,
+        ))
         .unwrap();
     assert_eq!(
         GraphDb::open(&path).unwrap().usage_summary().unwrap().len(),
@@ -905,4 +957,28 @@ fn inserting_a_symbol_with_a_usize_id_beyond_i64_is_rejected_not_saturated() {
         }])
         .expect_err("an out-of-range span must not be saturated");
     assert!(err.to_string().contains("too large") || err.to_string().contains("out of range"));
+}
+
+#[test]
+fn record_usage_round_trips_session_and_query() {
+    let db = GraphDb::open_in_memory().unwrap();
+    db.record_usage(&UsageEvent {
+        command: "explore".to_owned(),
+        source: UsageSource::Cli,
+        duration_ms: 3,
+        result_count: Some(1),
+        error: false,
+        session: Some("sess-1".to_owned()),
+        query: Some("enforceSession".to_owned()),
+    })
+    .unwrap();
+
+    let (session, query): (Option<String>, Option<String>) = db
+        .conn()
+        .query_row("SELECT session, query FROM usage", [], |r| {
+            Ok((r.get(0)?, r.get(1)?))
+        })
+        .unwrap();
+    assert_eq!(session.as_deref(), Some("sess-1"));
+    assert_eq!(query.as_deref(), Some("enforceSession"));
 }

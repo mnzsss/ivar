@@ -298,6 +298,15 @@ pub struct UsageEvent {
     pub duration_ms: u64,
     pub result_count: Option<usize>,
     pub error: bool,
+    pub session: Option<String>,
+    pub query: Option<String>,
+}
+
+/// Truncates `text` to at most 500 characters before it is stored, so a
+/// pasted query or search pattern can never bloat `memory.db`.
+#[must_use]
+pub fn truncate_to_500(text: &str) -> String {
+    text.chars().take(500).collect()
 }
 
 /// Aggregated usage for one command and source.

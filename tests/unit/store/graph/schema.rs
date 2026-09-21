@@ -308,3 +308,39 @@ fn a_database_at_version_six_gains_the_usage_table() {
         .expect("query index");
     assert_eq!(index_count, 1);
 }
+
+#[test]
+fn a_database_at_the_pre_session_query_version_gains_the_new_columns() {
+    let conn = rusqlite::Connection::open_in_memory().unwrap();
+    apply_pragmas(&conn, false).unwrap();
+    conn.execute_batch(MIGRATION_V1).unwrap();
+    conn.execute_batch(
+        "CREATE TABLE usage (
+            id INTEGER PRIMARY KEY,
+            command TEXT NOT NULL,
+            source TEXT NOT NULL,
+            ts INTEGER NOT NULL,
+            duration_ms INTEGER NOT NULL,
+            result_count INTEGER,
+            error INTEGER NOT NULL
+        );
+        PRAGMA user_version = 7;",
+    )
+    .unwrap();
+
+    apply_migrations(&conn).unwrap();
+
+    let mut stmt = conn.prepare("PRAGMA table_info(usage);").unwrap();
+    let mut rows = stmt.query([]).unwrap();
+    let mut names = Vec::new();
+    while let Some(row) = rows.next().unwrap() {
+        names.push(row.get::<_, String>(1).unwrap());
+    }
+    assert!(names.contains(&"session".to_owned()));
+    assert!(names.contains(&"query".to_owned()));
+
+    let version: i64 = conn
+        .query_row("PRAGMA user_version;", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(version, SCHEMA_VERSION);
+}

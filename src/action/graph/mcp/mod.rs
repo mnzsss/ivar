@@ -215,6 +215,8 @@ where
                 duration_ms: u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
                 result_count: None,
                 error: outcome.is_err(),
+                session: None,
+                query: None,
             });
             match outcome {
                 Ok(text_content) => Some(json!({

@@ -105,7 +105,7 @@ END;
 const SEARCH_SCHEMA_VERSION: i64 = 4;
 
 /// The `user_version` a database carries once every migration below has run.
-pub const SCHEMA_VERSION: i64 = 7;
+pub const SCHEMA_VERSION: i64 = 8;
 
 ///
 /// # Errors
@@ -198,7 +198,14 @@ fn apply_usage_migration(conn: &Connection) -> rusqlite::Result<()> {
             error INTEGER NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_usage_command_source ON usage(command, source, duration_ms);",
-    )
+    )?;
+    if !has_column(conn, "usage", "session")? {
+        conn.execute_batch("ALTER TABLE usage ADD COLUMN session TEXT;")?;
+    }
+    if !has_column(conn, "usage", "query")? {
+        conn.execute_batch("ALTER TABLE usage ADD COLUMN query TEXT;")?;
+    }
+    Ok(())
 }
 
 fn apply_layer_migration(conn: &Connection) -> rusqlite::Result<()> {

@@ -127,6 +127,8 @@ where
             duration_ms,
             result_count,
             error,
+            session: None,
+            query: None,
         },
     );
     exit
