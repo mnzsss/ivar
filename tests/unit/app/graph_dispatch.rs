@@ -3,23 +3,13 @@
 use super::*;
 use crate::cli::graph::GraphExploreArgs;
 use crate::domain::name::SessionId;
-use crate::domain::provider::Provider;
-use crate::domain::session::SessionState;
-use crate::store::graph::db::GraphDb;
-use crate::store::layout::Layout;
+use crate::test_support::{graph_session_view, last_graph_query, seeded_hall};
 
 #[test]
 fn a_cli_graph_call_records_its_session_and_query() {
-    let (_guard, root) = crate::test_support::seeded_hall();
-    let layout = Layout::at(root);
-    let db_path = layout.ivar_dir().join("memory.db");
-    GraphDb::open(db_path.as_std_path()).unwrap();
+    let (_guard, root) = seeded_hall();
     let session_id = SessionId::new("6f0c9d5f-0000-4000-8000-0000000008bb").unwrap();
-    let view_dir = layout.discovery_session(&session_id);
-    crate::infra::fs::ensure_dir(&view_dir).unwrap();
-    SessionState::new(Provider::ClaudeCode, "2026-08-29T00:00:00Z")
-        .write(&view_dir)
-        .unwrap();
+    let view_dir = graph_session_view(&root, &session_id);
 
     dispatch_graph(
         GraphCommand::Explore(GraphExploreArgs {
@@ -33,10 +23,7 @@ fn a_cli_graph_call_records_its_session_and_query() {
         &mut Vec::new(),
     );
 
-    let db = GraphDb::open(db_path.as_std_path()).unwrap();
-    let (_ts, query) = db
-        .last_graph_call(session_id.as_str())
-        .unwrap()
+    let query = last_graph_query(&root, session_id.as_str())
         .expect("the CLI call is keyed by the session");
     assert_eq!(query.as_deref(), Some("enforceSession"));
 }

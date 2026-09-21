@@ -42,3 +42,36 @@ pub(crate) fn seeded_hall() -> (TempDir, Utf8PathBuf) {
     .unwrap();
     (guard, root)
 }
+
+/// Creates the hall's graph database and a live discovery session, returning
+/// the session's view dir, so app-layer tests can drive graph commands
+/// without importing `store`.
+pub(crate) fn graph_session_view(
+    root: &Utf8PathBuf,
+    session_id: &crate::domain::name::SessionId,
+) -> Utf8PathBuf {
+    let layout = crate::store::layout::Layout::at(root.clone());
+    crate::store::graph::db::GraphDb::open(layout.ivar_dir().join("memory.db").as_std_path())
+        .unwrap();
+    let view_dir = layout.discovery_session(session_id);
+    crate::infra::fs::ensure_dir(&view_dir).unwrap();
+    crate::domain::session::SessionState::new(
+        crate::domain::provider::Provider::ClaudeCode,
+        "2026-08-29T00:00:00Z",
+    )
+    .write(&view_dir)
+    .unwrap();
+    view_dir
+}
+
+/// The query text of the latest graph call recorded for `session`.
+pub(crate) fn last_graph_query(root: &Utf8PathBuf, session: &str) -> Option<Option<String>> {
+    let db_path = crate::store::layout::Layout::at(root.clone())
+        .ivar_dir()
+        .join("memory.db");
+    crate::store::graph::db::GraphDb::open(db_path.as_std_path())
+        .unwrap()
+        .last_graph_call(session)
+        .unwrap()
+        .map(|(_ts, query)| query)
+}
