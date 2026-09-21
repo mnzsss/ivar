@@ -35,7 +35,7 @@ fn graph_feedback_records_a_feedback_miss_and_returns_a_plain_confirmation() {
     let db = GraphDb::open_in_memory().expect("open db");
     let args = json!({"query": "get_callers evaluateAccess", "reason": "returned zero callers for a symbol that exists"});
 
-    let (text, count) = dispatch_tool_call(&db, None, "graph_feedback", &args, &mut |_| {
+    let (text, count) = dispatch_tool_call(&db, None, None, "graph_feedback", &args, &mut |_| {
         Ok(json!({"status": "ok"}))
     })
     .expect("graph_feedback never errors the protocol response");
@@ -63,8 +63,10 @@ fn graph_feedback_truncates_query_and_reason_to_500_chars() {
     let long = "y".repeat(600);
     let args = json!({"query": long.clone(), "reason": long});
 
-    dispatch_tool_call(&db, None, "graph_feedback", &args, &mut |_| Ok(json!({})))
-        .expect("graph_feedback never errors the protocol response");
+    dispatch_tool_call(&db, None, None, "graph_feedback", &args, &mut |_| {
+        Ok(json!({}))
+    })
+    .expect("graph_feedback never errors the protocol response");
 
     let misses = db.list_misses(&Default::default()).expect("list_misses");
     assert_eq!(misses[0].query.as_ref().map(String::len), Some(500));
@@ -75,10 +77,11 @@ fn graph_feedback_truncates_query_and_reason_to_500_chars() {
 fn graph_feedback_missing_arguments_answers_without_recording_anything() {
     let db = GraphDb::open_in_memory().expect("open db");
 
-    let (text, count) = dispatch_tool_call(&db, None, "graph_feedback", &json!({}), &mut |_| {
-        Ok(json!({}))
-    })
-    .expect("graph_feedback never errors the protocol response");
+    let (text, count) =
+        dispatch_tool_call(&db, None, None, "graph_feedback", &json!({}), &mut |_| {
+            Ok(json!({}))
+        })
+        .expect("graph_feedback never errors the protocol response");
 
     assert!(text.contains("query") && text.contains("reason"), "{text}");
     assert_eq!(count, None);
@@ -88,4 +91,23 @@ fn graph_feedback_missing_arguments_answers_without_recording_anything() {
             .len(),
         0
     );
+}
+
+#[test]
+fn graph_feedback_records_the_resolved_session_on_the_miss() {
+    let db = GraphDb::open_in_memory().expect("open db");
+    let args = json!({"query": "q", "reason": "r"});
+
+    dispatch_tool_call(
+        &db,
+        None,
+        Some("sess-1"),
+        "graph_feedback",
+        &args,
+        &mut |_| Ok(json!({})),
+    )
+    .expect("graph_feedback never errors the protocol response");
+
+    let misses = db.list_misses(&Default::default()).expect("list_misses");
+    assert_eq!(misses[0].session.as_deref(), Some("sess-1"));
 }

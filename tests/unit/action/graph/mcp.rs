@@ -189,7 +189,7 @@ fn test_mcp_initialize_and_tools_list() {
 }
 
 #[test]
-fn the_default_tool_surface_lists_only_graph_explore() {
+fn the_default_tool_surface_lists_graph_explore_and_graph_feedback() {
     let tools = super::tools::list_tools(super::tools::ToolSurface::default());
     let names: Vec<&str> = tools
         .as_array()
@@ -197,7 +197,7 @@ fn the_default_tool_surface_lists_only_graph_explore() {
         .iter()
         .filter_map(|tool| tool["name"].as_str())
         .collect();
-    assert_eq!(names, vec!["graph_explore"]);
+    assert_eq!(names, vec!["graph_explore", "graph_feedback"]);
 }
 
 #[test]
@@ -1207,7 +1207,7 @@ fn a_500_char_query_is_truncated_before_storage() {
 }
 
 #[test]
-fn graph_feedback_is_advertised_under_the_all_tools_surface_only() {
+fn graph_feedback_is_advertised_under_both_surfaces() {
     let names = |surface| -> Vec<String> {
         super::tools::list_tools(surface)
             .as_array()
@@ -1217,7 +1217,7 @@ fn graph_feedback_is_advertised_under_the_all_tools_surface_only() {
             .collect()
     };
     assert!(names(super::tools::ToolSurface::All).contains(&"graph_feedback".to_owned()));
-    assert!(!names(super::tools::ToolSurface::Explore).contains(&"graph_feedback".to_owned()));
+    assert!(names(super::tools::ToolSurface::Explore).contains(&"graph_feedback".to_owned()));
 }
 
 #[test]

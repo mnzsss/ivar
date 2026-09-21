@@ -202,11 +202,9 @@ where
             };
 
             let started = std::time::Instant::now();
-            let refreshed = hall_root.map_or(Ok(None), |root| refresh_hall_session(db, root, cwd));
-            let session = refreshed.clone().unwrap_or(None);
             let query = dispatch::explore_query(&tool_args).map(|q| truncate_to_500(&q));
-            let outcome = refreshed
-                .and_then(|_| dispatch_tool_call(db, hall_root, name, &tool_args, refresh_index));
+            let (session, outcome) =
+                call_tool_in_session(db, hall_root, cwd, name, &tool_args, refresh_index);
             let _ = db.record_usage(&UsageEvent {
                 command: usage_command(name),
                 source: UsageSource::Mcp,
@@ -241,6 +239,29 @@ where
                 "message": format!("Method not found: {method}")
             }
         })),
+    }
+}
+
+type ToolOutcome = Result<(String, Option<usize>), String>;
+
+fn call_tool_in_session<F>(
+    db: &GraphDb,
+    hall_root: Option<&Path>,
+    cwd: &camino::Utf8Path,
+    name: &str,
+    args: &Value,
+    refresh_index: &mut F,
+) -> (Option<String>, ToolOutcome)
+where
+    F: FnMut(Option<&str>) -> Result<Value, String>,
+{
+    match hall_root.map_or(Ok(None), |root| refresh_hall_session(db, root, cwd)) {
+        Ok(session) => {
+            let outcome =
+                dispatch_tool_call(db, hall_root, session.as_deref(), name, args, refresh_index);
+            (session, outcome)
+        }
+        Err(err) => (None, Err(err)),
     }
 }
 

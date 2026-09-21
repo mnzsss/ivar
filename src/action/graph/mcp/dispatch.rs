@@ -42,6 +42,7 @@ fn bounded_arg(args: &Value, key: &str, default: usize, max: usize) -> usize {
 pub fn dispatch_tool_call<F>(
     db: &GraphDb,
     hall_root: Option<&Path>,
+    session: Option<&str>,
     name: &str,
     args: &Value,
     refresh_index: &mut F,
@@ -361,7 +362,7 @@ where
                 ));
             };
             let _ = db.record_miss(&MissEvent {
-                session: None,
+                session: session.map(str::to_owned),
                 kind: MissKind::Feedback,
                 query: Some(super::truncate_to_500(query)),
                 pattern: None,
