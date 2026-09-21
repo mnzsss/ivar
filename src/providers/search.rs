@@ -49,7 +49,9 @@ fn targets_only_non_code(args: &str) -> bool {
             positional.push(token);
         }
     }
-    let targets = &positional[usize::from(!pattern_from_flag).min(positional.len())..];
+    let targets = positional
+        .get(usize::from(!pattern_from_flag)..)
+        .unwrap_or_default();
     !targets.is_empty() && targets.iter().all(|t| is_non_code(t))
 }
 
@@ -81,6 +83,7 @@ fn first_commands(command: &str) -> Vec<&str> {
     let (mut quote, mut escaped, mut heredoc) = (None::<u8>, false, false);
     let mut i = 0;
     while let Some(&b) = bytes.get(i) {
+        let prev = i.checked_sub(1).and_then(|p| bytes.get(p).copied());
         if escaped {
             escaped = false;
             i += 1;
@@ -96,7 +99,7 @@ fn first_commands(command: &str) -> Vec<&str> {
                 heredoc |= opens_heredoc(&command[i + 2..]);
                 i += 1;
             }
-            (None, b'#') if i == 0 || bytes[i - 1].is_ascii_whitespace() => {
+            (None, b'#') if prev.is_none_or(|p| p.is_ascii_whitespace()) => {
                 out.push(&command[start..pipe_cut.unwrap_or(i)]);
                 let Some(newline) = command[i..].find('\n') else {
                     return out;
@@ -106,7 +109,7 @@ fn first_commands(command: &str) -> Vec<&str> {
                 pipe_cut = None;
                 continue;
             }
-            (None, b'&') if i > 0 && bytes[i - 1] == b'>' || bytes.get(i + 1) == Some(&b'>') => {}
+            (None, b'&') if prev == Some(b'>') || bytes.get(i + 1) == Some(&b'>') => {}
             (None, b'|') if bytes.get(i + 1) == Some(&b'|') => {
                 out.push(&command[start..pipe_cut.unwrap_or(i)]);
                 i += 1;
