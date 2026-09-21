@@ -256,19 +256,45 @@ fn extract_search_pattern_finds_rg_after_double_ampersand_and_semicolon() {
 }
 
 #[test]
-fn extract_search_pattern_finds_searches_after_pipes_and_rtk_grep() {
+fn extract_search_pattern_takes_only_the_first_command_of_a_pipeline() {
     for (command, expected) in [
-        ("cat x | rg foo", "rg foo"),
-        ("a || grep bar", "grep bar"),
-        ("rtk grep baz", "rtk grep baz"),
+        ("rg foo | head", Some("rg foo")),
+        ("cat x | rg foo", None),
+        ("cargo test 2>&1 | grep -E \"Tests \"", None),
+        ("a || grep bar", Some("grep bar")),
+        ("rtk grep baz", Some("rtk grep baz")),
     ] {
         let input = serde_json::json!({ "command": command });
         assert_eq!(
-            extract_search_pattern("Bash", &input),
-            Some(expected.to_owned()),
+            extract_search_pattern("Bash", &input).as_deref(),
+            expected,
             "{command}"
         );
     }
+}
+
+#[test]
+fn extract_search_pattern_keeps_quoted_operators_inside_the_pattern() {
+    for command in [
+        "rg -n 'export (const|function)' src",
+        r#"grep -n "foo\|bar" f.rs"#,
+        r#"rg -n "a && b; c" src"#,
+    ] {
+        let input = serde_json::json!({ "command": command });
+        assert_eq!(
+            extract_search_pattern("Bash", &input).as_deref(),
+            Some(command),
+            "{command}"
+        );
+    }
+}
+
+#[test]
+fn extract_search_pattern_never_reads_heredoc_bodies() {
+    let input = serde_json::json!({
+        "command": "cat > f.md <<'EOF'\nrg looks like a search\ngrep too\nEOF"
+    });
+    assert_eq!(extract_search_pattern("Bash", &input), None);
 }
 
 #[test]

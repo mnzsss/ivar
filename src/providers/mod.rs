@@ -3,6 +3,7 @@
 pub mod claude_code;
 pub mod omp;
 pub mod opencode;
+mod search;
 
 use crate::domain::guard::{GuardDecision, GuardOutcome, ToolRequest};
 use crate::domain::mcp::{McpServerDef, McpTransport};
@@ -164,27 +165,10 @@ pub fn session_projections(provider: Provider) -> Vec<SessionProjection> {
 pub(crate) fn extract_search_pattern(tool: &str, input: &serde_json::Value) -> Option<String> {
     let raw = match tool.to_ascii_lowercase().as_str() {
         "grep" | "glob" => input.get("pattern")?.as_str()?.to_owned(),
-        "bash" => bash_search_command(input.get("command")?.as_str()?)?,
+        "bash" => search::bash_search_command(input.get("command")?.as_str()?)?,
         _ => return None,
     };
     Some(crate::domain::graph::truncate_for_storage(&raw))
-}
-
-/// The first `&&`/`||`/`|`/`;`/`&`-separated segment of `command` that runs
-/// a search (`rg`, `grep`, `rtk rg`, `rtk grep`, or `rtk proxy rg`), trimmed
-/// and returned whole.
-fn bash_search_command(command: &str) -> Option<String> {
-    // Longest prefixes first so "rtk proxy rg" is not shadowed by "rtk rg".
-    const SEARCH_PREFIXES: [&str; 5] = ["rtk proxy rg", "rtk rg", "rtk grep", "rg", "grep"];
-    command
-        .split(['&', ';', '|'])
-        .map(str::trim)
-        .find_map(|segment| {
-            SEARCH_PREFIXES.iter().find_map(|prefix| {
-                let rest = segment.strip_prefix(prefix)?;
-                (rest.is_empty() || rest.starts_with(' ')).then(|| segment.to_owned())
-            })
-        })
 }
 
 /// Parses provider-specific stdin JSON into a normalized `ToolRequest` and optional cwd.
