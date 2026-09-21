@@ -11,7 +11,7 @@ use crate::action::graph::query::find::{is_path_like, resolve_query_paths};
 use crate::action::graph::{
     affected, compact, complexity, dead_code, explore, hierarchy, narrate, path, query,
 };
-use crate::domain::graph::{MissEvent, MissKind};
+use crate::domain::graph::{MissEvent, MissKind, truncate_for_storage};
 use crate::store::graph::db::GraphDb;
 
 /// Upper bound on MCP `max_depth`/`max_hops` traversal args. An agent can
@@ -364,9 +364,9 @@ where
             let _ = db.record_miss(&MissEvent {
                 session: session.map(str::to_owned),
                 kind: MissKind::Feedback,
-                query: Some(super::truncate_to_500(query)),
+                query: Some(truncate_for_storage(query)),
                 pattern: None,
-                reason: Some(super::truncate_to_500(reason)),
+                reason: Some(truncate_for_storage(reason)),
             });
             Ok(("Thanks, recorded as a feedback miss.".to_owned(), None))
         }

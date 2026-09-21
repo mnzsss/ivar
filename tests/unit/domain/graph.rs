@@ -318,3 +318,15 @@ fn usage_source_round_trips_through_its_stored_name() {
     }
     assert!(UsageSource::try_from("web").is_err());
 }
+
+#[test]
+fn truncate_for_storage_keeps_text_up_to_the_limit_and_cuts_by_chars() {
+    let at_limit = "a".repeat(MAX_STORED_TEXT_LEN);
+    assert_eq!(truncate_for_storage(&at_limit), at_limit);
+
+    let over_limit = "é".repeat(MAX_STORED_TEXT_LEN + 1);
+    assert_eq!(
+        truncate_for_storage(&over_limit).chars().count(),
+        MAX_STORED_TEXT_LEN
+    );
+}

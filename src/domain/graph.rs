@@ -302,11 +302,13 @@ pub struct UsageEvent {
     pub query: Option<String>,
 }
 
-/// Truncates `text` to at most 500 characters before it is stored, so a
-/// pasted query or search pattern can never bloat `memory.db`.
+/// Longest query, pattern or reason text kept in `memory.db`, so a pasted
+/// blob can never bloat it.
+pub const MAX_STORED_TEXT_LEN: usize = 500;
+
 #[must_use]
-pub fn truncate_to_500(text: &str) -> String {
-    text.chars().take(500).collect()
+pub fn truncate_for_storage(text: &str) -> String {
+    text.chars().take(MAX_STORED_TEXT_LEN).collect()
 }
 
 /// Aggregated usage for one command and source.

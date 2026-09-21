@@ -14,7 +14,7 @@ use serde_json::{Value, json};
 
 use crate::action::graph::freshness::ensure_session_freshness;
 use crate::action::graph::session::{SessionView, resolve_session_key, resolve_session_view};
-use crate::domain::graph::{UsageEvent, UsageSource};
+use crate::domain::graph::{UsageEvent, UsageSource, truncate_for_storage};
 use crate::store::graph::db::GraphDb;
 use crate::store::layout::Layout;
 pub use dispatch::*;
@@ -202,7 +202,7 @@ where
             };
 
             let started = std::time::Instant::now();
-            let query = dispatch::explore_query(&tool_args).map(|q| truncate_to_500(&q));
+            let query = dispatch::explore_query(&tool_args).map(|q| truncate_for_storage(&q));
             let (session, outcome) =
                 call_tool_in_session(db, hall_root, cwd, name, &tool_args, refresh_index);
             let _ = db.record_usage(&UsageEvent {
@@ -270,12 +270,6 @@ fn usage_command(name: &str) -> String {
         .as_array()
         .is_some_and(|tools| tools.iter().any(|tool| tool["name"] == name));
     if known { name } else { "unknown" }.to_owned()
-}
-
-const MAX_QUERY_LEN: usize = 500;
-
-pub(super) fn truncate_to_500(s: &str) -> String {
-    s.chars().take(MAX_QUERY_LEN).collect()
 }
 
 fn refresh_hall_session(

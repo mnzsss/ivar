@@ -158,8 +158,6 @@ pub fn session_projections(provider: Provider) -> Vec<SessionProjection> {
     projections
 }
 
-const MAX_SEARCH_PATTERN_LEN: usize = 500;
-
 /// Extracts the search text from a Grep/Glob/Bash tool call, for the
 /// guard's skip/follow-up heuristics. `None` for every other tool, and
 /// for a Bash command that isn't a search.
@@ -169,7 +167,7 @@ pub(crate) fn extract_search_pattern(tool: &str, input: &serde_json::Value) -> O
         "bash" => bash_search_command(input.get("command")?.as_str()?)?,
         _ => return None,
     };
-    Some(raw.chars().take(MAX_SEARCH_PATTERN_LEN).collect())
+    Some(crate::domain::graph::truncate_for_storage(&raw))
 }
 
 /// The first `&&`/`||`/`|`/`;`/`&`-separated segment of `command` that runs
