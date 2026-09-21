@@ -978,7 +978,7 @@ Run graph MCP server
 
 | flag | value | default | description |
 | --- | --- | --- | --- |
-| `--tools` | `<TOOLS>` | `explore` | Tools to advertise: `explore` lists only `graph_explore`, `all` lists every graph tool |
+| `--tools` | `<TOOLS>` | `explore` | Tools to advertise: `explore` lists `graph_explore` and `graph_feedback`, `all` lists every graph tool |
 
 
 ##### `ivar graph dead-code`
@@ -1052,6 +1052,16 @@ Remove indexed repository data or clean the entire graph database
 | `--all` |  |  | Remove all repositories and data from the graph database |
 
 
+##### `ivar graph misses`
+
+List recorded graph misses (skipped/follow-up searches, feedback)
+
+| flag | value | default | description |
+| --- | --- | --- | --- |
+| `--kind` | `<KIND>` |  | Filter by miss kind: `skipped`, `followup`, or `feedback` |
+| `--since` | `<SINCE>` |  | Only include misses at or after this time: a Unix timestamp, or a relative duration like `30m`, `24h`, or `7d` |
+
+
 #### `ivar guard`
 
 Guard: evaluate a tool request against the session's writable set
@@ -1085,6 +1095,18 @@ pick the server up. A different server already named `graph` is left alone
 with a warning; an `ivar.json` that still needs `ivar migrate` is left alone
 without one, so indexing still exits cleanly; `--no-mcp` skips registration
 entirely.
+
+**`ivar graph misses` shows where the graph fell short.** The guard records a
+`skipped` miss when a session greps (Grep, Glob, or an `rg`/`grep` Bash
+command) without having asked the graph anything, and a `followup` miss for the
+first grep within two minutes of a graph call, carrying that call's query. The
+`graph_feedback` MCP tool, advertised under both `--tools` surfaces, lets the
+agent record a `feedback` miss with the query it asked and why the answer did
+not help. `--kind skipped|followup|feedback` filters by kind; `--since` takes a
+Unix timestamp or `Nm`/`Nh`/`Nd`. `--json` prints a bare array of misses, newest
+first, not the usual report object. Misses, and the query text on usage rows,
+are kept for 30 days; `ivar graph misses` and `ivar graph stats` prune older
+rows.
 
 **`ivar session start` is the one verb that takes over your terminal.** It opens
 a TUI. Everything else prints and exits.
