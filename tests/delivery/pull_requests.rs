@@ -312,3 +312,61 @@ fn a_comment_quoting_the_sibling_header_mid_text_is_not_the_sibling_comment() {
     assert_eq!(log.matches("pr comment").count(), 2, "{log}");
     assert!(!log.contains("api graphql"), "{log}");
 }
+
+#[test]
+fn an_unknown_login_still_links_siblings_once() {
+    let (_guard, root) = hall_root();
+    setup_two_repo_hall(&root);
+    approve_through_plan(&root, "checkout");
+    let fake = FakeGh::install(&root);
+    let rewrites = as_github_remotes(&root);
+
+    fake.fail_api_user();
+    deliver_on_github(&root, &fake, &rewrites, "checkout");
+    deliver_on_github(&root, &fake, &rewrites, "checkout");
+
+    let log = fake.log();
+    assert_eq!(log.matches("pr comment").count(), 2, "{log}");
+    assert!(!log.contains("api graphql"), "{log}");
+}
+
+#[test]
+fn malformed_pull_request_metadata_is_edited_with_every_requested_field() {
+    let (_guard, root) = hall_root();
+    setup_deliver_hall(&root);
+    approve_through_plan(&root, "checkout");
+    let fake = FakeGh::install(&root);
+    let rewrites = as_github_remotes(&root);
+    let metadata = ["--name", "feat: title", "--body", "the body"];
+
+    deliver_on_github_with(&root, &fake, &rewrites, "checkout", &metadata);
+    fake.malform_pr_view("title,body");
+    deliver_on_github_with(&root, &fake, &rewrites, "checkout", &metadata);
+
+    let log = fake.log();
+    let edit = log
+        .lines()
+        .rfind(|line| line.starts_with("pr edit"))
+        .unwrap();
+    assert!(edit.contains("--title") && edit.contains("--body"), "{log}");
+}
+
+#[test]
+fn a_failing_sibling_comment_edit_does_not_fail_delivery() {
+    let (_guard, root) = hall_root();
+    setup_two_repo_hall(&root);
+    approve_through_plan(&root, "checkout");
+    let fake = FakeGh::install(&root);
+    let rewrites = as_github_remotes(&root);
+
+    deliver_on_github(&root, &fake, &rewrites, "checkout");
+    fake.set_comment(
+        "https://github.com/acme/pull/1",
+        "## Sibling PRs:\n\n- stale",
+    );
+    fake.fail_graphql();
+    deliver_on_github(&root, &fake, &rewrites, "checkout");
+
+    let log = fake.log();
+    assert_eq!(log.matches("api graphql").count(), 1, "{log}");
+}

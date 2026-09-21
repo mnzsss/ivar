@@ -452,13 +452,12 @@ pub(crate) fn existing_pr(git_dir: &Utf8Path, branch: &str) -> Option<PullReques
 /// `## Sibling PRs:` header: it is created when missing, edited in place when
 /// its sibling list changed, and left alone otherwise.
 pub(crate) fn link_sibling_prs(pr_urls: &[String]) {
-    let Ok(login) = capture(
+    let login = capture(
         &proc::Command::new("gh").args(["api", "user", "--jq", ".login"]),
         "api user",
-    ) else {
-        return;
-    };
-    let login = login.trim();
+    )
+    .ok()
+    .map(|login| login.trim().to_owned());
     for (i, url) in pr_urls.iter().enumerate() {
         let others: Vec<&str> = pr_urls
             .iter()
@@ -479,11 +478,14 @@ pub(crate) fn link_sibling_prs(pr_urls: &[String]) {
             body.push('\n');
         }
 
-        let Some(existing) = sibling_comments(url) else {
+        let Ok(existing) = sibling_comments(url) else {
             continue;
         };
         match existing.into_iter().find(|comment| {
-            comment.author.login == login && comment.body.starts_with(SIBLING_HEADER)
+            comment.body.starts_with(SIBLING_HEADER)
+                && login
+                    .as_deref()
+                    .is_none_or(|login| comment.author.login == login)
         }) {
             None => {
                 let _ = proc::capture(
@@ -521,17 +523,12 @@ struct GhComments {
     comments: Vec<GhComment>,
 }
 
-/// The comments on `url`, or `None` when they cannot be read — sibling
-/// linking is best-effort.
-fn sibling_comments(url: &str) -> Option<Vec<GhComment>> {
+fn sibling_comments(url: &str) -> Result<Vec<GhComment>, Failure> {
     let output = capture(
         &proc::Command::new("gh").args(["pr", "view", url, "--json", "comments"]),
         "pr view",
-    )
-    .ok()?;
-    parse_gh::<GhComments>(&output, "pr view")
-        .ok()
-        .map(|parsed| parsed.comments)
+    )?;
+    parse_gh::<GhComments>(&output, "pr view").map(|parsed| parsed.comments)
 }
 
 fn update_comment(id: &str, body: &str) {
@@ -597,4 +594,3 @@ fn pr_url(stdout: &str) -> Option<String> {
 fn pr_number(url: &str) -> Option<u64> {
     url.rsplit('/').next()?.parse().ok()
 }
-
