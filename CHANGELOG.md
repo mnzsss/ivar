@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0](https://github.com/mnzsss/ivar/compare/v0.10.0...v0.11.0) - 2026-09-21
+
+### Added
+
+- *(graph)* report graph misses ([#113](https://github.com/mnzsss/ivar/pull/113))
+- report the installed version and warn when another ivar wins ([#106](https://github.com/mnzsss/ivar/pull/106))
+- *(graph)* report query usage in graph stats ([#103](https://github.com/mnzsss/ivar/pull/103))
+- add review comments and worktree paths ([#102](https://github.com/mnzsss/ivar/pull/102))
+- ship multi-file skills with plan and execute templates ([#99](https://github.com/mnzsss/ivar/pull/99))
+
+### Changed
+
+- [**breaking**] fix and lock the crate's lint debt ([#112](https://github.com/mnzsss/ivar/pull/112))
+
+### Fixed
+
+- *(repo)* Remove guarded worktrees and purge the graph on repo remove ([#110](https://github.com/mnzsss/ivar/pull/110))
+- *(session)* a detached session launches the provider ivar would have launched ([#105](https://github.com/mnzsss/ivar/pull/105))
+- allow canonical hall source writes ([#104](https://github.com/mnzsss/ivar/pull/104))
+- treat squash-merged branches as delivered ([#101](https://github.com/mnzsss/ivar/pull/101))
+- copy symlinks correctly when adding skills ([#100](https://github.com/mnzsss/ivar/pull/100))
+- Unblock feature teardown, plan progress, and non-tty session start ([#97](https://github.com/mnzsss/ivar/pull/97))
+
+### Other
+
+- Resolve feature worktrees via git and report orphans ([#114](https://github.com/mnzsss/ivar/pull/114))
+- Remove the friction from the gated feature flow ([#109](https://github.com/mnzsss/ivar/pull/109))
+- Publish versioned manifest schemas ([#108](https://github.com/mnzsss/ivar/pull/108))
+- Give every session a scratch directory ([#107](https://github.com/mnzsss/ivar/pull/107))
+
 ## [0.10.0](https://github.com/mnzsss/ivar/compare/v0.9.1...v0.10.0) - 2026-09-14
 
 ### Added
