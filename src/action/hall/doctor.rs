@@ -4,17 +4,16 @@
 // `ivar doctor` — diagnose the hall and suggest fixes.
 // ---------------------------------------------------------------------------
 
-/// One diagnosed problem.
 use std::collections::HashSet;
 use std::io;
 
 use serde::Serialize;
 
 use crate::domain::feature::{Feature, RunReceipt, RunStatus};
-use crate::domain::name::FeatureName;
+use crate::domain::name::{FeatureName, RepoName};
 use crate::domain::provider::Provider;
 use crate::error::{Failure, Outcome, Report, WriteHuman};
-use crate::git::{self, Git, TargetState};
+use crate::git::{self, Git, TargetState, WorktreeEntry};
 use crate::harness::commands::{
     self, Inspection as CommandInspection, Integrity as CommandIntegrity,
 };
@@ -28,8 +27,9 @@ use crate::store::manifest::Manifest;
 
 use super::Ctx;
 use super::{discover_hall, read_manifest};
-use camino::Utf8PathBuf;
+use camino::{Utf8Path, Utf8PathBuf};
 
+/// One diagnosed problem.
 #[derive(Debug, Clone, Serialize)]
 pub struct Diagnosis {
     /// A stable code for the problem, e.g. `repo.bare_missing`.
@@ -250,41 +250,99 @@ fn diagnose_orphan_worktrees(
     manifest: &Manifest,
     git: &impl Git,
 ) -> Vec<Diagnosis> {
-    let owned = feature_branches(layout);
+    let owned = feature_worktrees(layout);
     let mut findings = Vec::new();
     for repo in manifest.repos() {
         let bare = layout.repo_bare(repo.name());
-        let Ok(entries) = git.list_worktrees(&bare) else {
+        if !bare.is_dir() {
             continue;
-        };
-        for entry in entries {
-            let Some(branch) = entry.branch else {
-                continue;
-            };
-            if branch == repo.default_branch().as_str() || owned.contains(&branch) {
+        }
+        let entries = match git.list_worktrees(&bare) {
+            Ok(entries) => entries,
+            Err(error) => {
+                findings.push(Diagnosis {
+                    code: "repo.worktree_list_failed",
+                    what: format!("could not list the worktrees of `{}`: {error}", repo.name()),
+                    fix: format!("Run `git --git-dir {bare} worktree list` to see why."),
+                });
                 continue;
             }
-            let dirty = git.worktree_dirty(&entry.path).unwrap_or(true);
-            findings.push(Diagnosis {
-                code: "repo.worktree_orphaned",
-                what: format!(
-                    "`{}` in `{}` is on branch `{branch}`, which no feature owns{}",
-                    entry.path,
-                    repo.name(),
-                    if dirty { " — it has uncommitted changes" } else { "" }
-                ),
-                fix: format!(
-                    "Inspect it; if nothing is needed, run `git --git-dir {bare} worktree remove {}`.",
-                    entry.path
-                ),
-            });
+        };
+        for entry in entries {
+            let branch = match (&entry.branch, entry.detached) {
+                (Some(branch), _) => branch.as_str(),
+                (None, true) if !is_integration_candidate(layout, repo.name(), &entry.path) => {
+                    "detached"
+                }
+                (None, _) => continue,
+            };
+            if entry.branch.is_some()
+                && (branch == repo.default_branch().as_str()
+                    || owned.contains(&(repo.name().as_str().to_owned(), branch.to_owned())))
+            {
+                continue;
+            }
+            findings.push(orphan_diagnosis(
+                git,
+                &bare,
+                repo.name().as_str(),
+                &entry,
+                branch,
+            ));
         }
     }
     findings
 }
 
-/// Every feature's branch, skipping features whose record cannot be read.
-fn feature_branches(layout: &Layout) -> HashSet<String> {
+fn orphan_diagnosis(
+    git: &impl Git,
+    bare: &Utf8Path,
+    repo: &str,
+    entry: &WorktreeEntry,
+    branch: &str,
+) -> Diagnosis {
+    let path = &entry.path;
+    if entry.prunable {
+        return Diagnosis {
+            code: "repo.worktree_orphaned",
+            what: format!(
+                "`{path}` in `{repo}` is on branch `{branch}`, which no feature owns — its directory is gone"
+            ),
+            fix: format!(
+                "Run `git --git-dir {bare} worktree prune` to drop the stale registration."
+            ),
+        };
+    }
+    let state = match git.worktree_dirty(path) {
+        Ok(true) => " — it has uncommitted changes".to_owned(),
+        Ok(false) => String::new(),
+        Err(error) => format!(" (could not inspect: {error})"),
+    };
+    Diagnosis {
+        code: "repo.worktree_orphaned",
+        what: format!("`{path}` in `{repo}` is on branch `{branch}`, which no feature owns{state}"),
+        fix: format!(
+            "Inspect it; if nothing is needed, run `git --git-dir {bare} worktree remove {path}`."
+        ),
+    }
+}
+
+/// Local integration stages its detached candidates at
+/// `<features>/<feature>/integration/<repo>/candidate`.
+fn is_integration_candidate(layout: &Layout, repo: &RepoName, path: &Utf8Path) -> bool {
+    let Ok(relative) = path.strip_prefix(layout.features_dir()) else {
+        return false;
+    };
+    let components: Vec<&str> = relative.iter().collect();
+    matches!(
+        components.as_slice(),
+        [_, "integration", candidate_repo, "candidate"] if *candidate_repo == repo.as_str()
+    )
+}
+
+/// Every `(repo, branch)` a feature owns: its branch in each repo it promoted.
+/// Features whose record cannot be read are skipped.
+fn feature_worktrees(layout: &Layout) -> HashSet<(String, String)> {
     let features_dir = layout.features_dir();
     let Ok(entries) = fs::read_dir(&features_dir) else {
         return HashSet::new();
@@ -293,7 +351,13 @@ fn feature_branches(layout: &Layout) -> HashSet<String> {
         .iter()
         .filter_map(|entry| FeatureName::new(entry.file_name()?.to_owned()).ok())
         .filter_map(|name| Feature::read(layout, &name).ok().flatten())
-        .map(|feature| feature.branch.as_str().to_owned())
+        .flat_map(|feature| {
+            let branch = feature.branch.as_str().to_owned();
+            feature
+                .promotions
+                .into_keys()
+                .map(move |repo| (repo.as_str().to_owned(), branch.clone()))
+        })
         .collect()
 }
 

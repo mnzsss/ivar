@@ -546,6 +546,105 @@ fn doctor_names_a_worktree_no_feature_owns() {
     assert!(!finding.fix.contains("--force"));
 }
 
+fn synced_hall_with_bare() -> (tempfile::TempDir, Utf8PathBuf, Utf8PathBuf) {
+    let (guard, root) = hall_with_repo();
+    crate::action::sync::sync(&Ctx::new(root.clone()), &Default::default()).unwrap();
+    let bare = root.join(".ivar/repos/api/.bare");
+    (guard, root, bare)
+}
+
+fn orphan_findings(report: &DoctorOutcome) -> Vec<&Diagnosis> {
+    report
+        .findings
+        .iter()
+        .filter(|finding| finding.code == "repo.worktree_orphaned")
+        .collect()
+}
+
+#[test]
+fn doctor_names_a_worktree_on_a_feature_branch_in_a_repo_it_did_not_promote() {
+    let (_guard, root, bare) = synced_hall_with_bare();
+    let ctx = Ctx::new(root.clone());
+    feature_create(
+        &ctx,
+        CreateInput {
+            name: "checkout".to_owned(),
+            branch: None,
+            base: None,
+            parent: None,
+            via: None,
+            strategy: None,
+        },
+    )
+    .unwrap();
+    let git = crate::git::System;
+    crate::git::Git::create_branch(&git, &bare, "checkout", "main").unwrap();
+    crate::git::Git::add_worktree(
+        &git,
+        &bare,
+        &root.join(".ivar/repos/api/checkout"),
+        "checkout",
+    )
+    .unwrap();
+
+    let report = doctor(&ctx).unwrap();
+
+    assert!(
+        finding(&report.value, "repo.worktree_orphaned")
+            .what
+            .contains("`checkout`")
+    );
+}
+
+#[test]
+fn doctor_names_a_stray_detached_worktree() {
+    let (_guard, root, bare) = synced_hall_with_bare();
+    crate::git::Git::add_detached_worktree(
+        &crate::git::System,
+        &bare,
+        &root.join(".ivar/repos/api/loose"),
+        "main",
+    )
+    .unwrap();
+
+    let report = doctor(&Ctx::new(root)).unwrap();
+
+    let finding = finding(&report.value, "repo.worktree_orphaned");
+    assert!(finding.what.contains("loose"));
+    assert!(finding.what.contains("detached"));
+}
+
+#[test]
+fn doctor_leaves_an_integration_candidate_alone() {
+    let (_guard, root, bare) = synced_hall_with_bare();
+    let candidate = Layout::at(root.clone()).integration_candidate(
+        &FeatureName::new("checkout").unwrap(),
+        &crate::domain::name::RepoName::new("api").unwrap(),
+    );
+    crate::git::Git::add_detached_worktree(&crate::git::System, &bare, &candidate, "main").unwrap();
+
+    let report = doctor(&Ctx::new(root)).unwrap();
+
+    assert!(orphan_findings(&report.value).is_empty());
+}
+
+#[test]
+fn doctor_suggests_pruning_a_worktree_whose_directory_is_gone() {
+    let (_guard, root, bare) = synced_hall_with_bare();
+    let git = crate::git::System;
+    let stray = root.join(".ivar/repos/api/stray");
+    crate::git::Git::create_branch(&git, &bare, "fix/stray", "main").unwrap();
+    crate::git::Git::add_worktree(&git, &bare, &stray, "fix/stray").unwrap();
+    std::fs::remove_dir_all(&stray).unwrap();
+
+    let report = doctor(&Ctx::new(root)).unwrap();
+
+    let finding = finding(&report.value, "repo.worktree_orphaned");
+    assert!(finding.what.contains("its directory is gone"));
+    assert!(!finding.what.contains("uncommitted"));
+    assert!(finding.fix.contains("worktree prune"));
+}
+
 #[test]
 fn doctor_names_a_missing_bare_clone_and_its_fix() {
     let (_guard, root) = hall_with_repo();
