@@ -1448,3 +1448,38 @@ fn a_search_after_only_graph_feedback_is_recorded_as_skipped() {
     assert_eq!(misses.len(), 1);
     assert_eq!(misses[0].kind, MissKind::Skipped);
 }
+
+#[test]
+fn graph_explore_tool_names_are_recognised_across_providers() {
+    assert!(is_graph_explore_tool("mcp__gaio-graph__graph_explore"));
+    assert!(is_graph_explore_tool("gaio-graph_graph_explore"));
+    assert!(!is_graph_explore_tool("mcp__gaio-graph__graph_feedback"));
+    assert!(!is_graph_explore_tool("Grep"));
+}
+
+#[test]
+fn a_search_after_a_hook_recorded_graph_call_is_a_followup() {
+    let (_guard, env, db_path) = session_env_with_memory_db();
+
+    record_graph_call_at(&env.view_dir, Some(&env), None);
+    record_search_miss(
+        &Layout::discover(&env.view_dir).unwrap().unwrap(),
+        &env.session_id,
+        "fn record_miss",
+    );
+
+    let misses = all_misses(&db_path);
+    assert_eq!(misses.len(), 1);
+    assert_eq!(misses[0].kind, MissKind::Followup);
+}
+
+#[test]
+fn a_hook_recorded_graph_call_outside_a_session_view_uses_the_ambient_session() {
+    let (_guard, env, db_path) = session_env_with_memory_db();
+    let hall = Layout::at(env.hall.clone());
+
+    record_graph_call_at(hall.root(), None, Some("ambient-session".to_owned()));
+
+    let db = GraphDb::open_for_usage(db_path.as_std_path()).unwrap();
+    assert!(db.last_graph_call("ambient-session").unwrap().is_some());
+}

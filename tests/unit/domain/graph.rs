@@ -313,7 +313,7 @@ fn test_analysis_items_json_roundtrip() {
 
 #[test]
 fn usage_source_round_trips_through_its_stored_name() {
-    for source in [UsageSource::Cli, UsageSource::Mcp] {
+    for source in [UsageSource::Cli, UsageSource::Mcp, UsageSource::Hook] {
         assert_eq!(UsageSource::try_from(source.as_str()), Ok(source));
     }
     assert!(UsageSource::try_from("web").is_err());

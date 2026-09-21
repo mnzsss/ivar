@@ -267,6 +267,7 @@ pub struct LayerStats {
 pub enum UsageSource {
     Cli,
     Mcp,
+    Hook,
 }
 
 impl UsageSource {
@@ -274,6 +275,7 @@ impl UsageSource {
         match self {
             Self::Cli => "cli",
             Self::Mcp => "mcp",
+            Self::Hook => "hook",
         }
     }
 }
@@ -285,6 +287,7 @@ impl TryFrom<&str> for UsageSource {
         match value {
             "cli" => Ok(Self::Cli),
             "mcp" => Ok(Self::Mcp),
+            "hook" => Ok(Self::Hook),
             other => Err(format!("unknown usage source: {other}")),
         }
     }

@@ -1138,3 +1138,20 @@ fn prune_deletes_old_misses_and_old_usage_rows() {
         .unwrap();
     assert_eq!(old_usage, 0);
 }
+
+#[test]
+fn usage_summary_leaves_out_hook_rows() {
+    let db = GraphDb::open_in_memory().unwrap();
+    db.record_usage(&UsageEvent {
+        command: "graph_explore".to_owned(),
+        source: UsageSource::Hook,
+        duration_ms: 0,
+        result_count: None,
+        error: false,
+        session: Some("s".to_owned()),
+        query: None,
+    })
+    .unwrap();
+    assert!(db.usage_summary().unwrap().is_empty());
+    assert!(db.last_graph_call("s").unwrap().is_some());
+}

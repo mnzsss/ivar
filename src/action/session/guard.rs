@@ -428,6 +428,16 @@ pub fn guard(provider: Provider, stdin_json: &str) -> Result<GuardOutcome, Failu
 
     let decision = decide(&resolution, &tool_request);
 
+    if is_graph_explore_tool(&tool_request.tool)
+        && let Some(cwd) = cwd.as_deref()
+    {
+        record_graph_call_at(
+            cwd,
+            session_env.as_ref(),
+            std::env::var("IVAR_SESSION_ID").ok(),
+        );
+    }
+
     if let Some(pattern) = &tool_request.search_pattern
         && let Some(cwd) = cwd.as_deref()
     {
@@ -440,6 +450,43 @@ pub fn guard(provider: Provider, stdin_json: &str) -> Result<GuardOutcome, Failu
     }
 
     Ok(crate::providers::render_decision(provider, &decision))
+}
+
+fn is_graph_explore_tool(tool: &str) -> bool {
+    tool.ends_with("graph_explore")
+}
+
+/// The MCP server runs once per hall and cannot tell which session called
+/// it; the hook's payload cwd can, so the hook stamps the session.
+fn record_graph_call_at(
+    cwd: &Utf8Path,
+    session_env: Option<&crate::action::session::env::SessionEnv>,
+    ambient_session: Option<String>,
+) {
+    use crate::domain::graph::{UsageEvent, UsageSource};
+    let Some(session) =
+        crate::action::graph::session::session_key_for(session_env, ambient_session)
+    else {
+        return;
+    };
+    let layout = match session_env {
+        Some(env) => Some(Layout::at(env.hall.clone())),
+        None => Layout::discover(cwd).ok().flatten(),
+    };
+    let Some(layout) = layout else { return };
+    let db_path = layout.ivar_dir().join("memory.db");
+    let Ok(db) = crate::store::graph::db::GraphDb::open_for_usage(db_path.as_std_path()) else {
+        return;
+    };
+    let _ = db.record_usage(&UsageEvent {
+        command: "graph_explore".to_owned(),
+        source: UsageSource::Hook,
+        duration_ms: 0,
+        result_count: None,
+        error: false,
+        session: Some(session),
+        query: None,
+    });
 }
 
 /// How long after a graph call a search counts as a follow-up rather than an

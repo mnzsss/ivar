@@ -71,7 +71,7 @@ impl GraphDb {
     pub fn usage_summary(&self) -> Result<Vec<UsageStats>> {
         let mut stmt = self.conn.prepare(
             "SELECT command, source, ts, duration_ms, result_count, error
-             FROM usage ORDER BY command, source, duration_ms",
+             FROM usage WHERE source != 'hook' ORDER BY command, source, duration_ms",
         )?;
         let rows = stmt.query_map([], |r| {
             Ok(UsageRow {
@@ -178,7 +178,7 @@ impl GraphDb {
         inserted.map(|_| ()).map_err(Into::into)
     }
 
-    /// The most recent CLI/MCP graph query
+    /// The most recent CLI/MCP/hook graph query
     /// recorded for `session`, or `None` if it made none. `graph_feedback`
     /// reports on a query rather than making one, so it never counts.
     ///
@@ -189,7 +189,7 @@ impl GraphDb {
         self.conn
             .query_row(
                 "SELECT id, ts, query FROM usage
-                 WHERE session = ?1 AND source IN ('cli', 'mcp')
+                 WHERE session = ?1 AND source IN ('cli', 'mcp', 'hook')
                    AND command != 'graph_feedback'
                  ORDER BY ts DESC, id DESC LIMIT 1",
                 params![session],
