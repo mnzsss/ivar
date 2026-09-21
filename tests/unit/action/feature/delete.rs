@@ -347,3 +347,52 @@ fn delete_removes_a_worktree_whose_dir_differs_from_the_branch() {
             .all(|entry| entry.branch.as_deref() != Some("checkout"))
     );
 }
+
+#[test]
+fn delete_prunes_a_worktree_whose_directory_is_gone() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let ctx = Ctx::new(root.clone());
+    let bare = root.join(".ivar/repos/api/.bare");
+    std::fs::remove_dir_all(root.join(".ivar/repos/api/checkout")).unwrap();
+
+    let report = delete(&ctx, delete_input("checkout")).unwrap();
+
+    assert!(report.value.feature_removed);
+    assert!(report.value.worktrees[0].removed);
+    assert!(
+        git::System
+            .list_worktrees(&bare)
+            .unwrap()
+            .iter()
+            .all(|entry| entry.branch.as_deref() != Some("checkout"))
+    );
+}
+
+#[test]
+fn delete_keeps_the_record_when_a_worktree_cannot_be_removed() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let ctx = Ctx::new(root.clone());
+    let layout = Layout::at(root.clone());
+    let worktree = root.join(".ivar/repos/api/checkout");
+    crate::test_support::git(
+        &root,
+        &[
+            "--git-dir",
+            root.join(".ivar/repos/api/.bare").as_str(),
+            "worktree",
+            "lock",
+            worktree.as_str(),
+        ],
+    );
+
+    let report = delete(&ctx, delete_input("checkout")).unwrap();
+
+    assert!(!report.value.feature_removed);
+    assert!(!report.value.worktrees[0].removed);
+    assert!(fs::is_dir(&worktree).unwrap());
+    assert!(
+        crate::domain::feature::Feature::read(&layout, &FeatureName::new("checkout").unwrap())
+            .unwrap()
+            .is_some()
+    );
+}

@@ -220,13 +220,12 @@ fn teardown_worktrees(
     let mut all_worktrees_removed = true;
     for repo in feature.promotions.keys() {
         let bare = layout.repo_bare(repo);
-        let worktree = if fs::is_dir(&bare)? {
-            git::resolve_worktree(git, &bare, feature.branch.as_str()).map_err(|error| {
-                Failure::failed("feature.delete_worktree_lookup_failed", error.to_string())
-            })?
-        } else {
-            None
-        };
+        let worktree = git::lookup_worktree(git, &bare, feature.branch.as_str()).map_err(
+            |error| match error {
+                git::Error::Fs(_) => Failure::from(error),
+                _ => Failure::failed("feature.delete_worktree_lookup_failed", error.to_string()),
+            },
+        )?;
         let Some(worktree) = worktree else {
             // Nothing materialised — nothing to remove.
             worktrees.push(WorktreeRemoval {
@@ -236,13 +235,13 @@ fn teardown_worktrees(
             });
             continue;
         };
-        match git.remove_worktree(&bare, &worktree) {
+        match git::remove_worktree_entry(git, &bare, &worktree) {
             Ok(()) => {
                 // A branch holding a `/` — `feat/login` — nests the worktree
                 // under a prefix directory that git does not know about and
                 // will not take with it. Reclaim it, stopping at the repo dir
                 // and at the first prefix another worktree still occupies.
-                fs::prune_empty_parents(&worktree, &layout.repo_dir(repo));
+                fs::prune_empty_parents(&worktree.path, &layout.repo_dir(repo));
                 worktrees.push(WorktreeRemoval {
                     repo: repo.clone(),
                     removed: true,

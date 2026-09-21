@@ -986,3 +986,74 @@ fn preview_and_cleanup_follow_a_worktree_whose_dir_differs_from_the_branch() {
     assert_eq!(preview.paths_to_remove[0], moved);
     assert!(preview.repos[0].worktree_exists);
 }
+
+fn apply_with_approved_record(root: &Utf8PathBuf) -> crate::domain::feature::CleanupApplyOutcome {
+    let preview = run_preview(root);
+    let layout = Layout::at(root.clone());
+    fs::ensure_dir(&layout.docs_updates_dir()).unwrap();
+    let record_rel_path = Utf8PathBuf::from("docs/updates/001-checkout.cleanup.json");
+    fs::write_text(
+        &root.join(&record_rel_path),
+        &format!(
+            r#"{{
+                "schema_version": 1,
+                "feature": "checkout",
+                "branch": "checkout",
+                "fingerprint": "{}",
+                "approvals": {{
+                    "delivery": {{ "approved": true, "at": "2026-08-28T12:00:00Z" }},
+                    "documentation": {{ "decision": "written", "paths": ["docs/product/001-checkout.md"], "reason": null, "at": "2026-08-28T12:05:00Z" }},
+                    "teardown": {{ "approved": true, "at": "2026-08-28T12:10:00Z" }}
+                }},
+                "outcome": null
+            }}"#,
+            preview.fingerprint
+        ),
+    )
+    .unwrap();
+    cleanup(
+        &Ctx::new(root.clone()),
+        CleanupInput {
+            feature: "checkout".to_owned(),
+            preview: false,
+            record: Some(record_rel_path),
+            session_id: None,
+        },
+    )
+    .unwrap()
+    .value
+    .apply_outcome
+    .expect("expected apply outcome")
+}
+
+#[test]
+fn apply_removes_a_worktree_whose_dir_differs_from_the_branch() {
+    let (_guard, root) = hall_with_feature(&["api"], None);
+    let bare = root.join(".ivar/repos/api/.bare");
+    let moved = root.join(".ivar/repos/api/elsewhere");
+    git::System
+        .move_worktree(&bare, &root.join(".ivar/repos/api/checkout"), &moved)
+        .unwrap();
+
+    let apply = apply_with_approved_record(&root);
+
+    assert!(apply.feature_removed);
+    assert!(apply.worktrees[0].removed);
+    assert!(!fs::exists(&moved).unwrap());
+}
+
+#[test]
+fn preview_counts_a_worktree_whose_directory_is_gone_as_missing() {
+    let (_guard, root) = hall_with_feature(&["api"], None);
+    remove_dir_all(root.join(".ivar/repos/api/checkout")).unwrap();
+
+    let preview = run_preview(&root);
+
+    assert!(!preview.repos[0].worktree_exists);
+    assert!(
+        preview
+            .blockers
+            .iter()
+            .any(|blocker| matches!(blocker, CleanupBlocker::MissingWorktree { .. }))
+    );
+}

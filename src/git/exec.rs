@@ -788,6 +788,17 @@ pub(crate) fn list_worktrees(git_dir: &Utf8Path) -> Result<Vec<WorktreeEntry>, E
     Ok(parse_worktree_list(&out))
 }
 
+/// `git --git-dir <git_dir> worktree prune` — drop registrations whose
+/// directory no longer exists.
+pub(crate) fn prune_worktrees(git_dir: &Utf8Path) -> Result<(), Error> {
+    run(&git()
+        .arg("--git-dir")
+        .arg(git_dir.as_str())
+        .arg("worktree")
+        .arg("prune"))?;
+    Ok(())
+}
+
 /// Parse `git worktree list --porcelain` records; bare and detached entries
 /// carry no branch.
 pub(crate) fn parse_worktree_list(porcelain: &str) -> Vec<WorktreeEntry> {
@@ -796,13 +807,22 @@ pub(crate) fn parse_worktree_list(porcelain: &str) -> Vec<WorktreeEntry> {
         .filter_map(|record| {
             let mut lines = record.lines();
             let path = lines.next()?.strip_prefix("worktree ")?;
-            let branch = lines
-                .find_map(|line| line.strip_prefix("branch refs/heads/"))
-                .map(str::to_owned);
-            Some(WorktreeEntry {
+            let mut entry = WorktreeEntry {
                 path: Utf8PathBuf::from(path),
-                branch,
-            })
+                branch: None,
+                detached: false,
+                prunable: false,
+            };
+            for line in lines {
+                if let Some(branch) = line.strip_prefix("branch refs/heads/") {
+                    entry.branch = Some(branch.to_owned());
+                } else if line == "detached" {
+                    entry.detached = true;
+                } else if line == "prunable" || line.starts_with("prunable ") {
+                    entry.prunable = true;
+                }
+            }
+            Some(entry)
         })
         .collect()
 }

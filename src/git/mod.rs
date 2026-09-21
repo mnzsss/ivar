@@ -336,6 +336,16 @@ pub trait Git {
         exec::list_worktrees(git_dir)
     }
 
+    /// Drop every registration of the bare repository at `git_dir` whose
+    /// directory no longer exists.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error`] if git cannot prune.
+    fn prune_worktrees(&self, git_dir: &Utf8Path) -> Result<(), Error> {
+        exec::prune_worktrees(git_dir)
+    }
+
     /// Add a throwaway worktree at `dest`, detached at `revision` — no branch
     /// is created or moved. The temporary candidate worktrees local
     /// integration builds are materialised here, so the parent's branch is
@@ -767,11 +777,13 @@ pub struct WorktreeEntry {
     pub path: Utf8PathBuf,
     /// `None` for the bare entry and detached worktrees.
     pub branch: Option<String>,
+    pub detached: bool,
+    /// Git still holds the registration but its directory is gone.
+    pub prunable: bool,
 }
 
-/// The on-disk worktree git reports for `branch`, wherever it lives.
-///
-/// Registrations whose directory no longer exists are ignored.
+/// The worktree git reports for `branch`, wherever it lives — including a
+/// prunable registration whose directory is gone.
 ///
 /// # Errors
 ///
@@ -780,12 +792,47 @@ pub fn resolve_worktree(
     git: &impl Git,
     git_dir: &Utf8Path,
     branch: &str,
-) -> Result<Option<Utf8PathBuf>, Error> {
+) -> Result<Option<WorktreeEntry>, Error> {
     Ok(git
         .list_worktrees(git_dir)?
         .into_iter()
-        .find(|entry| entry.branch.as_deref() == Some(branch) && entry.path.is_dir())
-        .map(|entry| entry.path))
+        .find(|entry| entry.branch.as_deref() == Some(branch)))
+}
+
+/// [`resolve_worktree`], answering `None` when the bare clone is absent.
+///
+/// # Errors
+///
+/// Returns [`Error`] if the clone's existence cannot be checked or git
+/// cannot list its worktrees.
+pub fn lookup_worktree(
+    git: &impl Git,
+    bare: &Utf8Path,
+    branch: &str,
+) -> Result<Option<WorktreeEntry>, Error> {
+    if crate::infra::fs::is_dir(bare)? {
+        resolve_worktree(git, bare, branch)
+    } else {
+        Ok(None)
+    }
+}
+
+/// Remove `entry` from the bare repository at `bare`: a live worktree is
+/// removed, a prunable registration is pruned.
+///
+/// # Errors
+///
+/// Returns [`Error`] if git cannot remove or prune it.
+pub fn remove_worktree_entry(
+    git: &impl Git,
+    bare: &Utf8Path,
+    entry: &WorktreeEntry,
+) -> Result<(), Error> {
+    if entry.prunable {
+        git.prune_worktrees(bare)
+    } else {
+        git.remove_worktree(bare, &entry.path)
+    }
 }
 
 /// The production [`Git`]: `git2` for reads, the `git` binary for mutations.
