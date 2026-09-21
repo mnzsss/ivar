@@ -1276,7 +1276,11 @@ fn all_misses(db_path: &Utf8PathBuf) -> Vec<crate::domain::graph::MissRecord> {
 fn a_search_with_no_prior_graph_call_is_recorded_as_skipped() {
     let (_guard, env, db_path) = session_env_with_memory_db();
 
-    record_search_miss(&env, "fn record_miss");
+    record_search_miss(
+        &Layout::discover(&env.view_dir).unwrap().unwrap(),
+        &env.session_id,
+        "fn record_miss",
+    );
 
     let misses = all_misses(&db_path);
     assert_eq!(misses.len(), 1);
@@ -1290,7 +1294,11 @@ fn a_search_within_the_window_after_a_graph_call_is_recorded_as_followup() {
     let (_guard, env, db_path) = session_env_with_memory_db();
     record_graph_call(&db_path, &env.session_id);
 
-    record_search_miss(&env, "fn record_miss");
+    record_search_miss(
+        &Layout::discover(&env.view_dir).unwrap().unwrap(),
+        &env.session_id,
+        "fn record_miss",
+    );
 
     let misses = all_misses(&db_path);
     assert_eq!(misses.len(), 1);
@@ -1304,9 +1312,21 @@ fn a_burst_of_greps_records_only_the_first_followup() {
     let (_guard, env, db_path) = session_env_with_memory_db();
     record_graph_call(&db_path, &env.session_id);
 
-    record_search_miss(&env, "first grep");
-    record_search_miss(&env, "second grep");
-    record_search_miss(&env, "third grep");
+    record_search_miss(
+        &Layout::discover(&env.view_dir).unwrap().unwrap(),
+        &env.session_id,
+        "first grep",
+    );
+    record_search_miss(
+        &Layout::discover(&env.view_dir).unwrap().unwrap(),
+        &env.session_id,
+        "second grep",
+    );
+    record_search_miss(
+        &Layout::discover(&env.view_dir).unwrap().unwrap(),
+        &env.session_id,
+        "third grep",
+    );
 
     let misses = all_misses(&db_path);
     assert_eq!(
@@ -1323,7 +1343,11 @@ fn guard_decision_is_unchanged_when_recording_fails() {
     let env = session_env_in_hall(&root, "6f0c9d5f-0000-4000-8000-0000000006ff");
     let db_path = Layout::at(root).ivar_dir().join("memory.db");
 
-    record_search_miss(&env, "fn record_miss");
+    record_search_miss(
+        &Layout::discover(&env.view_dir).unwrap().unwrap(),
+        &env.session_id,
+        "fn record_miss",
+    );
 
     assert!(!db_path.exists());
     let req = ToolRequest {
@@ -1336,4 +1360,17 @@ fn guard_decision_is_unchanged_when_recording_fails() {
         decide(&Resolution::Resolved(&set), &req),
         GuardDecision::Allow
     ));
+}
+
+#[test]
+fn a_search_outside_any_session_is_keyed_by_the_ambient_session_id() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let db_path = Layout::at(root.clone()).ivar_dir().join("memory.db");
+    GraphDb::open(db_path.as_std_path()).unwrap();
+
+    record_search_miss_at(&root, Some("ambient-session".to_owned()), "fn record_miss");
+
+    let misses = all_misses(&db_path);
+    assert_eq!(misses.len(), 1);
+    assert_eq!(misses[0].session.as_deref(), Some("ambient-session"));
 }

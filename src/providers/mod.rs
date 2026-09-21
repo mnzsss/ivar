@@ -172,13 +172,14 @@ pub(crate) fn extract_search_pattern(tool: &str, input: &serde_json::Value) -> O
     Some(raw.chars().take(MAX_SEARCH_PATTERN_LEN).collect())
 }
 
-/// The first `&&`/`;`-separated segment of `command` that runs a search
-/// (`rg`, `grep`, `rtk rg`, or `rtk proxy rg`), trimmed and returned whole.
+/// The first `&&`/`||`/`|`/`;`/`&`-separated segment of `command` that runs
+/// a search (`rg`, `grep`, `rtk rg`, `rtk grep`, or `rtk proxy rg`), trimmed
+/// and returned whole.
 fn bash_search_command(command: &str) -> Option<String> {
     // Longest prefixes first so "rtk proxy rg" is not shadowed by "rtk rg".
-    const SEARCH_PREFIXES: [&str; 4] = ["rtk proxy rg", "rtk rg", "rg", "grep"];
+    const SEARCH_PREFIXES: [&str; 5] = ["rtk proxy rg", "rtk rg", "rtk grep", "rg", "grep"];
     command
-        .split(['&', ';'])
+        .split(['&', ';', '|'])
         .map(str::trim)
         .find_map(|segment| {
             SEARCH_PREFIXES.iter().find_map(|prefix| {

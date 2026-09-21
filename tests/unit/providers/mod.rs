@@ -256,6 +256,22 @@ fn extract_search_pattern_finds_rg_after_double_ampersand_and_semicolon() {
 }
 
 #[test]
+fn extract_search_pattern_finds_searches_after_pipes_and_rtk_grep() {
+    for (command, expected) in [
+        ("cat x | rg foo", "rg foo"),
+        ("a || grep bar", "grep bar"),
+        ("rtk grep baz", "rtk grep baz"),
+    ] {
+        let input = serde_json::json!({ "command": command });
+        assert_eq!(
+            extract_search_pattern("Bash", &input),
+            Some(expected.to_owned()),
+            "{command}"
+        );
+    }
+}
+
+#[test]
 fn extract_search_pattern_ignores_non_search_bash_and_other_tools() {
     let build = serde_json::json!({ "command": "cargo build --release" });
     assert_eq!(extract_search_pattern("Bash", &build), None);

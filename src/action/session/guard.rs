@@ -430,9 +430,8 @@ pub fn guard(provider: Provider, stdin_json: &str) -> Result<GuardOutcome, Failu
 
     if let Some(pattern) = &tool_request.search_pattern
         && let Some(cwd) = cwd.as_deref()
-        && let Ok(Some(env)) = crate::action::session::env::SessionEnv::resolve_by_cwd(cwd)
     {
-        record_search_miss(&env, pattern);
+        record_search_miss_at(cwd, std::env::var("IVAR_SESSION_ID").ok(), pattern);
     }
 
     Ok(crate::providers::render_decision(provider, &decision))
@@ -448,15 +447,20 @@ fn current_unix_ts() -> i64 {
         .map_or(0, |d| i64::try_from(d.as_secs()).unwrap_or(i64::MAX))
 }
 
+fn record_search_miss_at(cwd: &Utf8Path, ambient_session: Option<String>, pattern: &str) {
+    if let Some(session) = crate::action::graph::session::session_key(cwd, ambient_session)
+        && let Ok(Some(layout)) = Layout::discover(cwd)
+    {
+        record_search_miss(&layout, &session, pattern);
+    }
+}
+
 /// Best-effort classification of one search-tool call as `skipped` or
 /// `followup`. Every failure is swallowed: the guard's decision is already
 /// made, and nothing here may change it or its exit code.
-fn record_search_miss(env: &crate::action::session::env::SessionEnv, pattern: &str) {
+fn record_search_miss(layout: &Layout, session: &str, pattern: &str) {
     use crate::domain::graph::{MissEvent, MissKind};
 
-    let Ok(Some(layout)) = Layout::discover(&env.view_dir) else {
-        return;
-    };
     let db_path = layout.ivar_dir().join("memory.db");
     if !db_path.exists() {
         return;
@@ -466,17 +470,17 @@ fn record_search_miss(env: &crate::action::session::env::SessionEnv, pattern: &s
     };
 
     let miss = |kind, query| MissEvent {
-        session: Some(env.session_id.clone()),
+        session: Some(session.to_owned()),
         kind,
         query,
         pattern: Some(pattern.to_owned()),
         reason: None,
     };
-    let event = match db.last_graph_call(&env.session_id) {
+    let event = match db.last_graph_call(session) {
         Ok(None) => Some(miss(MissKind::Skipped, None)),
         Ok(Some((ts, query)))
             if current_unix_ts() - ts <= FOLLOWUP_WINDOW_SECS
-                && matches!(db.last_miss_since(&env.session_id, ts), Ok(false)) =>
+                && matches!(db.last_miss_since(session, ts), Ok(false)) =>
         {
             Some(miss(MissKind::Followup, query))
         }

@@ -13,7 +13,7 @@ use std::path::Path;
 use serde_json::{Value, json};
 
 use crate::action::graph::freshness::ensure_session_freshness;
-use crate::action::graph::session::{SessionView, resolve_session_view};
+use crate::action::graph::session::{SessionView, resolve_session_key, resolve_session_view};
 use crate::domain::graph::{UsageEvent, UsageSource};
 use crate::store::graph::db::GraphDb;
 use crate::store::layout::Layout;
@@ -301,10 +301,7 @@ fn refresh_session(
             "the feature layer for `{feature_name}` could not be refreshed, so the graph would answer from stale or base code: {err}"
         ),
     })?;
-    Ok(match view {
-        SessionView::Base { .. } => None,
-        SessionView::FeatureSession { session_id, .. } => session_id,
-    })
+    Ok(resolve_session_key(cwd))
 }
 
 fn tool_error(id: Option<&Value>, err_msg: &str) -> Value {

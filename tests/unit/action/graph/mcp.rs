@@ -1129,9 +1129,23 @@ fn an_unresolvable_session_answers_with_an_error_instead_of_the_base_graph() {
 #[test]
 fn a_tool_call_records_its_query_and_session_alongside_the_result_count() {
     let (db, temp) = setup_test_mcp_db();
-
-    let (_text, is_error) = call_tool(&db, temp.path(), "graph_explore", json!({"query": "main"}));
-    assert!(!is_error);
+    let cwd = camino::Utf8PathBuf::from_path_buf(temp.path().to_path_buf()).unwrap();
+    let req = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": { "name": "graph_explore", "arguments": { "query": "main" } }
+    });
+    let resp = handle_json_rpc_at(
+        &db,
+        Some(temp.path()),
+        &cwd,
+        ToolSurface::All,
+        &req,
+        &mut |_| Ok(json!({"status": "ok"})),
+    )
+    .expect("response");
+    assert!(!resp["result"]["isError"].as_bool().unwrap_or(false));
 
     let usage_row = db
         .conn_for_test()
@@ -1268,4 +1282,35 @@ fn an_unknown_tool_name_is_never_recorded_verbatim() {
     let summary = db.usage_summary().unwrap();
     assert!(summary.iter().all(|s| s.command != "arbitrary client text"));
     assert_eq!(summary.iter().filter(|s| s.command == "unknown").count(), 1);
+}
+
+#[test]
+fn a_discovery_session_call_records_the_ivar_session_id() {
+    use crate::domain::name::SessionId;
+    use crate::domain::provider::Provider;
+    use crate::domain::session::SessionState;
+    use crate::store::layout::Layout;
+
+    let (db, _temp) = setup_test_mcp_db();
+    let (_guard, root) = crate::test_support::seeded_hall();
+    let layout = Layout::at(root.clone());
+    let session_id = SessionId::new("6f0c9d5f-0000-4000-8000-0000000007aa").unwrap();
+    let view_dir = layout.discovery_session(&session_id);
+    crate::infra::fs::ensure_dir(&view_dir).unwrap();
+    SessionState::new(Provider::ClaudeCode, "2026-08-29T00:00:00Z")
+        .write(&view_dir)
+        .unwrap();
+
+    let (text, is_error) = call_tool_at(&db, root.as_std_path(), &view_dir);
+    assert!(!is_error, "got: {text}");
+
+    let session: Option<String> = db
+        .conn_for_test()
+        .query_row(
+            "SELECT session FROM usage WHERE command = 'graph_explore'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(session.as_deref(), Some(session_id.as_str()));
 }
