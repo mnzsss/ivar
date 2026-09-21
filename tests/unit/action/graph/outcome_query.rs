@@ -1,7 +1,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)]
 
 use super::*;
-use crate::domain::graph::{GraphStats, MissKind, MissRecord, UsageEvent, UsageSource};
+use crate::domain::graph::{GraphStats, MissKind, MissRecord, UsageEvent, UsageSource, UsageStats};
 use crate::error::WriteHuman;
 use crate::store::graph::db::GraphDb;
 

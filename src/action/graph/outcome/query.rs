@@ -4,9 +4,7 @@ use std::io;
 
 use crate::action::graph::compact::{self, ToCompact};
 use crate::action::graph::query;
-use crate::domain::graph::{
-    ComplexityItem, DeadCodeItem, GraphStats, HierarchyItem, MissRecord, UsageStats,
-};
+use crate::domain::graph::{ComplexityItem, DeadCodeItem, GraphStats, HierarchyItem, MissRecord};
 use crate::error::WriteHuman;
 use crate::store::graph::db::types::now_timestamp;
 #[derive(Debug, Clone, Serialize)]
@@ -182,7 +180,7 @@ impl WriteHuman for StatsOutcome {
                     u.command,
                     u.source.as_str(),
                     u.count,
-                    empty_label(u),
+                    u.empty_count,
                     u.error_count,
                     u.p50_ms,
                     u.p95_ms,
@@ -245,10 +243,6 @@ impl ToCompact for MissesOutcome {
         }
         out
     }
-}
-
-fn empty_label(u: &UsageStats) -> String {
-    u.empty_count.to_string()
 }
 
 fn relative_age(now: i64, then: i64) -> String {
@@ -426,7 +420,7 @@ impl ToCompact for StatsOutcome {
                 u.source.as_str(),
                 u.count,
                 u.last_used,
-                empty_label(u),
+                u.empty_count,
                 u.error_count,
                 u.p50_ms,
                 u.p95_ms
