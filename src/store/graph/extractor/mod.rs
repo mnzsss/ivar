@@ -46,6 +46,11 @@ thread_local! {
     static PARSER: RefCell<TreeSitterEngine> = RefCell::new(TreeSitterEngine::new());
 }
 
+///
+/// # Errors
+///
+/// Returns [`ExtractorError`] if the vendored query for `lang` cannot be
+/// compiled, or the source cannot be parsed.
 /// Extracts symbols, imports, and calls from a source file using Tree-sitter AST queries.
 pub fn extract_file(
     repo: &str,

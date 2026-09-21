@@ -187,7 +187,7 @@ pub(super) fn is_transient_not_a_symlink(error: &std::io::Error) -> bool {
     error.kind() == std::io::ErrorKind::InvalidInput
 }
 
-pub(super) fn not_utf8(path: std::path::PathBuf) -> Error {
+pub(super) fn not_utf8(path: &std::path::Path) -> Error {
     Error::NotUtf8 {
         display: path.to_string_lossy().into_owned(),
     }
@@ -204,6 +204,10 @@ pub(super) fn not_utf8(path: std::path::PathBuf) -> Error {
 /// cascade falls through rather than failing outright. This never returns a
 /// guessed path: if nothing resolves, the returned [`Failure`] names every
 /// variable it looked for.
+/// # Errors
+///
+/// Returns [`Failure`] naming every environment variable it looked
+/// for, if none of them resolves to a usable directory.
 pub fn data_dir() -> Result<Utf8PathBuf, Failure> {
     data_dir_from(
         std::env::var("XDG_DATA_HOME").ok(),

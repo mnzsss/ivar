@@ -330,6 +330,12 @@ where
     /// than `current`. Under [`Policy::Local`], a migrated read persists the
     /// migrated form; under [`Policy::Committed`], the file is left exactly as
     /// it was.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error`] if the file cannot be read, the on-disk
+    /// version is too new, or (under [`Policy::Local`]) the migrated
+    /// form cannot be persisted.
     pub fn read(&self) -> Result<Option<T>, Error> {
         let Some((value, detected)) = self.read_migrated()? else {
             return Ok(None);
@@ -348,6 +354,12 @@ where
     /// additionally refuses when the file on disk is *older* than `current`:
     /// that gap is only ever closed by an explicit [`Store::migrate`], never
     /// by a plain `write`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error`] if the on-disk version is too new, or
+    /// (under [`Policy::Committed`]) older than `current`, or the file
+    /// cannot be written.
     pub fn write(&self, value: &T) -> Result<(), Error> {
         if let Some(on_disk) = self.on_disk_version()? {
             self.guard_not_newer(on_disk)?;
@@ -369,6 +381,10 @@ where
     /// reports [`Inspection::TooNew`] instead of erroring, because reporting
     /// safely on data this binary cannot open is the entire point of this
     /// method.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error`] if the file exists but cannot be read.
     pub fn inspect(&self) -> Result<Option<Inspection>, Error> {
         let Some(raw) = json::read::<serde_json::Value>(&self.path)? else {
             return Ok(None);
@@ -394,6 +410,11 @@ where
     /// [`Policy::Local`] never needs this (every plain `read` already does
     /// it). [`Policy::Committed`] is the reason it exists: it is the one way
     /// a committed file's on-disk version ever advances.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error`] if the file cannot be read, the on-disk
+    /// version is too new, or the migrated form cannot be written.
     pub fn migrate(&self) -> Result<Option<T>, Error> {
         let Some((value, detected)) = self.read_migrated()? else {
             return Ok(None);

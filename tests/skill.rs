@@ -13,7 +13,18 @@
     clippy::unwrap_used,
     clippy::expect_used,
     clippy::panic,
-    clippy::indexing_slicing
+    clippy::indexing_slicing,
+    clippy::needless_pass_by_value,
+    clippy::redundant_clone,
+    clippy::assigning_clones,
+    clippy::implicit_clone,
+    clippy::format_push_string,
+    clippy::unnecessary_wraps,
+    clippy::missing_errors_doc,
+    clippy::too_many_lines,
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss
 )]
 
 use std::collections::HashMap;
@@ -255,7 +266,7 @@ fn run_plan(fixture: &Fixture) -> Result<Vec<Step>, String> {
             &skills,
             &targets,
             &state,
-            build_options(opts),
+            &build_options(opts),
         ),
         None => ivar::domain::skill_sync::plan(&skills, &targets, &state),
     };

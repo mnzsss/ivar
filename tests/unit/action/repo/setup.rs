@@ -21,7 +21,7 @@ fn hall_with_repo() -> (tempfile::TempDir, Utf8PathBuf) {
     let ctx = Ctx::new(root.clone());
     hall::init(
         &ctx,
-        InitInput {
+        &InitInput {
             path: Utf8PathBuf::from("."),
             name: Some("acme".to_owned()),
             provider: None,
@@ -43,7 +43,7 @@ fn hall_with_repo() -> (tempfile::TempDir, Utf8PathBuf) {
     )
     .unwrap();
     Manifest::write(&layout, &manifest).unwrap();
-    crate::action::sync::sync(&ctx, Default::default()).unwrap();
+    crate::action::sync::sync(&ctx, &Default::default()).unwrap();
     (guard, root)
 }
 
@@ -216,7 +216,7 @@ fn setup_is_refused_when_the_worktree_is_missing() {
     let ctx = Ctx::new(root.clone());
     hall::init(
         &ctx,
-        InitInput {
+        &InitInput {
             path: Utf8PathBuf::from("."),
             name: Some("acme".to_owned()),
             provider: None,

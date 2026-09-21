@@ -27,7 +27,6 @@ use std::io;
 use camino::{Utf8Path, Utf8PathBuf};
 use serde::{Deserialize, Serialize};
 
-use crate::domain::feature::Feature;
 use crate::domain::name::FeatureName;
 #[cfg(test)]
 use crate::domain::name::RepoName;
@@ -111,18 +110,7 @@ pub fn delete(ctx: &Ctx, input: DeleteInput) -> Outcome<DeleteOutcome> {
     let git = git::System;
     let name = FeatureName::new(input.name)?;
 
-    let feature = Feature::read(&layout, &name)?.ok_or_else(|| {
-        Failure::blocked(
-            "feature.not_found",
-            format!("feature `{name}` does not exist"),
-        )
-        .expected("an existing feature")
-        .actual(format!("`{name}` has no feature.json"))
-        .fix(FixAction::safe(
-            "feature.create_first",
-            format!("Create it first with `ivar feature create {name}`."),
-        ))
-    })?;
+    let feature = relations::read_feature(&layout, &name)?;
 
     // Descendants gate, before any permission preflight or teardown: a parent
     // cannot be deleted while its subtree still exists — abandoned and
@@ -175,49 +163,7 @@ pub fn delete(ctx: &Ctx, input: DeleteInput) -> Outcome<DeleteOutcome> {
     }
 
     // Teardown, worktree by worktree, best-effort.
-    let mut warnings = Vec::new();
-    let mut worktrees = Vec::new();
-    let mut all_worktrees_removed = true;
-    for repo in feature.promotions.keys() {
-        let worktree = layout.repo_worktree(repo, &feature.branch);
-        if !fs::is_dir(&worktree)? {
-            // Nothing materialised — nothing to remove.
-            worktrees.push(WorktreeRemoval {
-                repo: repo.clone(),
-                removed: true,
-                detail: None,
-            });
-            continue;
-        }
-        match git.remove_worktree(&layout.repo_bare(repo), &worktree) {
-            Ok(()) => {
-                // A branch holding a `/` — `feat/login` — nests the worktree
-                // under a prefix directory that git does not know about and
-                // will not take with it. Reclaim it, stopping at the repo dir
-                // and at the first prefix another worktree still occupies.
-                fs::prune_empty_parents(&worktree, &layout.repo_dir(repo));
-                worktrees.push(WorktreeRemoval {
-                    repo: repo.clone(),
-                    removed: true,
-                    detail: None,
-                });
-            }
-            Err(error) => {
-                all_worktrees_removed = false;
-                let detail = error.to_string();
-                warnings.push(Warning::new(
-                    "feature.delete_worktree_failed",
-                    repo.as_str(),
-                    detail.clone(),
-                ));
-                worktrees.push(WorktreeRemoval {
-                    repo: repo.clone(),
-                    removed: false,
-                    detail: Some(detail),
-                });
-            }
-        }
-    }
+    let (worktrees, warnings, all_worktrees_removed) = teardown_worktrees(&layout, &git, &feature)?;
 
     if !all_worktrees_removed {
         // Keep the record and the plans: a retry must know which worktrees to
@@ -262,6 +208,57 @@ pub fn delete(ctx: &Ctx, input: DeleteInput) -> Outcome<DeleteOutcome> {
         },
         warnings,
     ))
+}
+
+fn teardown_worktrees(
+    layout: &crate::store::layout::Layout,
+    git: &impl Git,
+    feature: &crate::domain::feature::Feature,
+) -> Result<(Vec<WorktreeRemoval>, Vec<Warning>, bool), Failure> {
+    let mut warnings = Vec::new();
+    let mut worktrees = Vec::new();
+    let mut all_worktrees_removed = true;
+    for repo in feature.promotions.keys() {
+        let worktree = layout.repo_worktree(repo, &feature.branch);
+        if !fs::is_dir(&worktree)? {
+            // Nothing materialised — nothing to remove.
+            worktrees.push(WorktreeRemoval {
+                repo: repo.clone(),
+                removed: true,
+                detail: None,
+            });
+            continue;
+        }
+        match git.remove_worktree(&layout.repo_bare(repo), &worktree) {
+            Ok(()) => {
+                // A branch holding a `/` — `feat/login` — nests the worktree
+                // under a prefix directory that git does not know about and
+                // will not take with it. Reclaim it, stopping at the repo dir
+                // and at the first prefix another worktree still occupies.
+                fs::prune_empty_parents(&worktree, &layout.repo_dir(repo));
+                worktrees.push(WorktreeRemoval {
+                    repo: repo.clone(),
+                    removed: true,
+                    detail: None,
+                });
+            }
+            Err(error) => {
+                all_worktrees_removed = false;
+                let detail = error.to_string();
+                warnings.push(Warning::new(
+                    "feature.delete_worktree_failed",
+                    repo.as_str(),
+                    detail.clone(),
+                ));
+                worktrees.push(WorktreeRemoval {
+                    repo: repo.clone(),
+                    removed: false,
+                    detail: Some(detail),
+                });
+            }
+        }
+    }
+    Ok((worktrees, warnings, all_worktrees_removed))
 }
 
 /// Walk `root` and report every path that cannot be removed.

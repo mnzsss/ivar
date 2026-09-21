@@ -390,7 +390,8 @@ impl FakeGh {
         if !content.is_empty() && !content.ends_with('\n') {
             content.push('\n');
         }
-        content.push_str(&format!("{cwd}|{branch}|{url}|{base}|{state}|||||\n"));
+        use std::fmt::Write as _;
+        let _ = writeln!(content, "{cwd}|{branch}|{url}|{base}|{state}|||||");
         std::fs::write(&self.state, content).unwrap();
     }
 
@@ -427,7 +428,7 @@ impl FakeGh {
                     if fields.len() >= 7 {
                         let draft_val = if is_draft { "1" } else { "" };
                         // Ensure at least 10 fields for the draft field.
-                        let mut f: Vec<&str> = fields.to_vec();
+                        let mut f: Vec<&str> = fields.clone();
                         while f.len() < 10 {
                             f.push("");
                         }

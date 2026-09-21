@@ -134,7 +134,7 @@ pub fn create(ctx: &Ctx, input: CreateInput) -> Outcome<CreateOutcome> {
         Some(raw_parent) => {
             let parent_name = FeatureName::new(raw_parent)?;
             let parent_feature = relations::read_feature(&layout, &parent_name)?;
-            (Some(parent_feature.branch.clone()), Some(parent_name))
+            (Some(parent_feature.branch), Some(parent_name))
         }
         None => (input.base.map(BranchName::new).transpose()?, None),
     };
@@ -173,8 +173,8 @@ pub fn create(ctx: &Ctx, input: CreateInput) -> Outcome<CreateOutcome> {
     }
 
     let mut feature = Feature::new(name.clone(), branch.clone());
-    feature.base = base.clone();
-    feature.parent = parent.clone();
+    feature.base.clone_from(&base);
+    feature.parent.clone_from(&parent);
     feature.integration = integration;
     feature.write(&layout)?;
 

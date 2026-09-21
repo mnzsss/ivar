@@ -233,42 +233,9 @@ pub fn integrate(ctx: &Ctx, input: IntegrateInput) -> Outcome<IntegrateOutcome> 
         return Err(relations::tree_block_failure(&name, &blockers));
     }
 
-    // 4. An unrestricted live session cannot coexist with a first successful
-    // receipt, because it could still write a locked promotion. Refused before
-    // any repo can gain one.
-    if !child.has_any_receipt() && has_live_sessions(&layout, &name)? {
-        return Err(Failure::blocked(
-            "integration.session_live",
-            format!(
-                "feature `{name}` has a live session; integrating would lock a promotion an unrestricted session could still write"
-            ),
-        )
-        .expected("no live feature session before the first successful receipt")
-        .actual("a session view dir exists under the feature")
-        .fix(FixAction::safe(
-            "integration.stop_session_first",
-            format!("Stop the session first, then run `ivar feature integrate {name}` again."),
-        )));
-    }
-    // 5. If a non-terminal run holds the lock on the child feature, refuse
-    // early before any policy resolution, git preflight, or parent mutation.
-    if let Some(receipt) = RunReceipt::read(&layout, &name)?
-        && receipt.holds_lock()
-    {
-        return Err(Failure::blocked(
-            "integration.run_active",
-            format!(
-                "feature `{name}` has a {} run (`{}`)",
-                receipt.status, receipt.id
-            ),
-        )
-        .expected("a terminal run receipt before integrating the feature")
-        .actual("the current run is still active and holds the feature lock")
-        .fix(FixAction::safe(
-            "execute.finish_or_interrupt",
-            "Finish, accept the revision, or interrupt the run before integrating the feature.",
-        )));
-    }
+    // 4 & 5. No live session that could still write a first receipt, and no
+    // non-terminal run already holding the child's lock.
+    ensure_no_conflicting_session_or_run(&layout, &name, &child)?;
 
     // 6. Resolve the policy once. The resolved relationship/base/policy is
     // frozen by the first persisted receipt: a rerun reuses each receipt's
@@ -281,61 +248,19 @@ pub fn integrate(ctx: &Ctx, input: IntegrateInput) -> Outcome<IntegrateOutcome> 
     )?;
 
     // 7. Preflight every repo in two passes, so a later repo's refusal can
-    // never leave an earlier repo's parent promotion behind. Pass 1 is pure
-    // validation — no mutation, no question asked: a stale receipt, an
-    // unresumable failed receipt, or a dirty worktree is a hard refusal of
-    // the whole run, and an unreceipted repo the parent does not yet promote
-    // is only *recorded* as needing one. Only once every repo has cleared
-    // pass 1 does pass 2 ask (or refuse, non-interactively) about each
-    // recorded promotion, in the same order — nothing is persisted, nothing
-    // is exposed, until the whole run is known clean. Only the *work* of a
-    // resume (checks, candidate, merge) is a per-repo warning that lets the
-    // batch continue.
-    let mut needs_parent_promotion = Vec::new();
-    for repo in child.promotions.keys() {
-        if preflight_repo(&layout, &manifest, &git, &child, &parent, repo)? {
-            needs_parent_promotion.push(repo.clone());
-        }
-    }
-    for repo in &needs_parent_promotion {
-        ensure_parent_promotion(ctx, &child, &parent, repo)?;
-    }
+    // never leave an earlier repo's parent promotion behind.
+    let needs_parent_promotion = preflight_repos(&layout, &manifest, &git, &child, &parent)?;
+    needs_parent_promotion
+        .iter()
+        .try_for_each(|repo| ensure_parent_promotion(ctx, &child, &parent, repo))?;
 
     // 7. Per-repo, in name order: reuse, re-verify, or resume. Each result is
     // persisted immediately — partial and resumable, never atomic. The child
     // is re-read after each repo so the next persist carries every earlier
     // receipt, never clobbering it.
-    let mut child = child;
-    let mut repos_out = Vec::new();
-    let mut warnings = Vec::new();
-    for repo in child.promotions.keys().cloned().collect::<Vec<_>>() {
-        match integrate_repo(&layout, &manifest, &git, &child, &parent, &repo, policy) {
-            Ok(entry) => repos_out.push(entry),
-            Err(failure) => {
-                // A repo that breaks mid-run (checks failed, candidate failed,
-                // PR refused) stops that repo but lets the batch continue with
-                // a warning — successful receipts stay reused, and the
-                // resumable ones stay resumable.
-                warnings.push(Warning::new(
-                    "integration.repo_blocked",
-                    repo.as_str(),
-                    failure.to_string(),
-                ));
-                repos_out.push(RepoIntegration {
-                    repo: repo.clone(),
-                    source_sha: git
-                        .revision_commit(&layout.repo_bare(&repo), child.branch.as_str())
-                        .unwrap_or_default(),
-                    target_branch: parent.branch.clone(),
-                    result_sha: None,
-                    status: RepoIntegrationStatus::Failed,
-                    pr_url: None,
-                    detail: Some(failure.what.clone()),
-                });
-            }
-        }
-        child = relations::read_feature(&layout, &name)?;
-    }
+    let (repos_out, mut warnings) =
+        run_integration_repos(&layout, &manifest, &git, &child, &parent, policy, &name);
+    let child = relations::read_feature(&layout, &name)?;
 
     // 13. Close as integrated only when every receipt is fresh and passing.
     let (state, closed_integrated) = final_state(
@@ -425,11 +350,96 @@ fn preflight_repo(
 
     // Failed evidence: resumable only while its source and result are
     // unchanged — moved means stale, with restoration orientation.
+    ensure_failed_receipt_still_current(git, layout, &bare, child, parent, repo, receipt)?;
+    Ok(false)
+}
+
+/// Pass 1 of the whole-run preflight for every promoted repo, so a later
+/// repo's refusal can never leave an earlier repo's parent promotion behind.
+/// Returns the repos that still need pass 2's parent-promotion question.
+fn preflight_repos(
+    layout: &Layout,
+    manifest: &Manifest,
+    git: &impl Git,
+    child: &Feature,
+    parent: &Feature,
+) -> Result<Vec<RepoName>, Failure> {
+    let mut needs_parent_promotion = Vec::new();
+    for repo in child.promotions.keys() {
+        if preflight_repo(layout, manifest, git, child, parent, repo)? {
+            needs_parent_promotion.push(repo.clone());
+        }
+    }
+    Ok(needs_parent_promotion)
+}
+
+/// Integrate every promoted repo, in name order: reuse, re-verify, or
+/// resume. Each result is persisted immediately — partial and resumable,
+/// never atomic. `child` is re-read after each repo so the next persist
+/// carries every earlier receipt, never clobbering it.
+fn run_integration_repos(
+    layout: &Layout,
+    manifest: &Manifest,
+    git: &impl Git,
+    child: &Feature,
+    parent: &Feature,
+    policy: IntegrationPolicy,
+    name: &FeatureName,
+) -> (Vec<RepoIntegration>, Vec<Warning>) {
+    let mut child = child.clone();
+    let mut repos_out = Vec::new();
+    let mut warnings = Vec::new();
+    for repo in child.promotions.keys().cloned().collect::<Vec<_>>() {
+        match integrate_repo(layout, manifest, git, &child, parent, &repo, policy) {
+            Ok(entry) => repos_out.push(entry),
+            Err(failure) => {
+                // A repo that breaks mid-run (checks failed, candidate failed,
+                // PR refused) stops that repo but lets the batch continue with
+                // a warning — successful receipts stay reused, and the
+                // resumable ones stay resumable.
+                warnings.push(Warning::new(
+                    "integration.repo_blocked",
+                    repo.as_str(),
+                    failure.to_string(),
+                ));
+                repos_out.push(RepoIntegration {
+                    repo: repo.clone(),
+                    source_sha: git
+                        .revision_commit(&layout.repo_bare(&repo), child.branch.as_str())
+                        .unwrap_or_default(),
+                    target_branch: parent.branch.clone(),
+                    result_sha: None,
+                    status: RepoIntegrationStatus::Failed,
+                    pr_url: None,
+                    detail: Some(failure.what.clone()),
+                });
+            }
+        }
+        if let Ok(fresh) = relations::read_feature(layout, name) {
+            child = fresh;
+        }
+    }
+    (repos_out, warnings)
+}
+
+/// A failed receipt is resumable only while its source and result are
+/// unchanged; either moving means the evidence is stale, refused with
+/// restoration orientation. Shared by the preflight check and the actual
+/// integration, which both re-derive freshness before reusing failed evidence.
+fn ensure_failed_receipt_still_current(
+    git: &impl Git,
+    layout: &Layout,
+    bare: &camino::Utf8Path,
+    child: &Feature,
+    parent: &Feature,
+    repo: &RepoName,
+    receipt: &crate::domain::feature::IntegrationReceipt,
+) -> Result<(), Failure> {
     let source_unchanged = git
-        .revision_commit(&bare, child.branch.as_str())
+        .revision_commit(bare, child.branch.as_str())
         .is_ok_and(|tip| tip == receipt.source_sha);
     let result_unchanged = git
-        .is_ancestor(&bare, &receipt.result_sha, parent.branch.as_str())
+        .is_ancestor(bare, &receipt.result_sha, parent.branch.as_str())
         .unwrap_or(false);
     if !source_unchanged || !result_unchanged {
         return Err(relations::stale_receipt_failure(
@@ -441,7 +451,7 @@ fn preflight_repo(
             "the failed receipt's source or result has moved",
         ));
     }
-    Ok(false)
+    Ok(())
 }
 
 /// The dirty-worktree refusal, shared by the child and parent preflights.
@@ -522,22 +532,7 @@ fn integrate_repo(
     // Failed evidence: resumable only when the source and result are
     // unchanged — the change is already in the parent, so only the parent
     // verification is re-run, never the application.
-    let source_unchanged = git
-        .revision_commit(&bare, child.branch.as_str())
-        .is_ok_and(|tip| tip == receipt.source_sha);
-    let result_unchanged = git
-        .is_ancestor(&bare, &receipt.result_sha, parent.branch.as_str())
-        .unwrap_or(false);
-    if !source_unchanged || !result_unchanged {
-        return Err(relations::stale_receipt_failure(
-            layout,
-            child,
-            parent,
-            repo,
-            receipt,
-            "the failed receipt's source or result has moved",
-        ));
-    }
+    ensure_failed_receipt_still_current(git, layout, &bare, child, parent, repo, receipt)?;
 
     let parent_checks = verification::checks_for(manifest, repo);
     let parent_worktree = layout.repo_worktree(repo, &parent.branch);
@@ -551,7 +546,7 @@ fn integrate_repo(
         pr_checks: receipt.verification.pr_checks.clone(),
         verified_at: rfc3339_now(),
     };
-    persist_receipt(layout, child, repo, updated.clone())?;
+    persist_receipt(layout, child, repo, updated)?;
 
     Ok(RepoIntegration {
         repo: repo.clone(),
@@ -667,7 +662,7 @@ fn ensure_parent_promotion(
                 parent.name
             ),
         )
-        .actual(failure.what.clone())
+        .actual(failure.what)
         .fix(
             FixAction::safe(
                 "integration.promote_manually",
@@ -703,6 +698,50 @@ fn parent_promotion_required(child: &Feature, parent: &Feature, repo: &RepoName)
         )
         .command(format!("ivar feature promote {} {repo}", parent.name)),
     )
+}
+
+/// An unrestricted live session cannot coexist with a first successful
+/// receipt, because it could still write a locked promotion — refused before
+/// any repo can gain one. And a non-terminal run already holding the lock on
+/// the child feature is refused early, before any policy resolution, git
+/// preflight, or parent mutation.
+fn ensure_no_conflicting_session_or_run(
+    layout: &Layout,
+    name: &FeatureName,
+    child: &Feature,
+) -> Result<(), Failure> {
+    if !child.has_any_receipt() && has_live_sessions(layout, name)? {
+        return Err(Failure::blocked(
+            "integration.session_live",
+            format!(
+                "feature `{name}` has a live session; integrating would lock a promotion an unrestricted session could still write"
+            ),
+        )
+        .expected("no live feature session before the first successful receipt")
+        .actual("a session view dir exists under the feature")
+        .fix(FixAction::safe(
+            "integration.stop_session_first",
+            format!("Stop the session first, then run `ivar feature integrate {name}` again."),
+        )));
+    }
+    if let Some(receipt) = RunReceipt::read(layout, name)?
+        && receipt.holds_lock()
+    {
+        return Err(Failure::blocked(
+            "integration.run_active",
+            format!(
+                "feature `{name}` has a {} run (`{}`)",
+                receipt.status, receipt.id
+            ),
+        )
+        .expected("a terminal run receipt before integrating the feature")
+        .actual("the current run is still active and holds the feature lock")
+        .fix(FixAction::safe(
+            "execute.finish_or_interrupt",
+            "Finish, accept the revision, or interrupt the run before integrating the feature.",
+        )));
+    }
+    Ok(())
 }
 
 /// The resolved policy for this run: the first receipt freezes it; otherwise

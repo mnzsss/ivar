@@ -96,7 +96,9 @@ pub fn collect_viz_data(db: &GraphDb, repo: Option<&str>) -> Result<VizData, Viz
         let file: String = row.get(3)?;
         let repo_val: String = row.get(4)?;
         let line: i64 = row.get(5)?;
-        let complexity: Option<u32> = row.get::<_, Option<i64>>(6)?.map(|c| c as u32);
+        let complexity: Option<u32> = row
+            .get::<_, Option<i64>>(6)?
+            .and_then(|c| u32::try_from(c).ok());
         let is_exported_int: i64 = row.get(7)?;
         let is_exported = is_exported_int != 0;
 
@@ -107,7 +109,7 @@ pub fn collect_viz_data(db: &GraphDb, repo: Option<&str>) -> Result<VizData, Viz
             kind,
             file,
             repo: repo_val,
-            line: line.max(0) as usize,
+            line: usize::try_from(line).unwrap_or(0),
             complexity,
             is_exported,
         });

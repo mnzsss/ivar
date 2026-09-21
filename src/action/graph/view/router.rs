@@ -301,127 +301,144 @@ pub fn route_request(
         "/font.woff2" | "/fonts/fira-code-400.woff2" => {
             HttpResponse::ok_font(super::assets::FONT_WOFF2.to_vec())
         }
-        "/api/subgraph" | "/api/graph" => {
-            let depth = params
-                .get("depth")
-                .and_then(|v| v.parse::<usize>().ok())
-                .unwrap_or(initial.depth);
-            let limit = params
-                .get("limit")
-                .and_then(|v| v.parse::<usize>().ok())
-                .unwrap_or(initial.limit);
-
-            // If seed params are in query, prefer them; otherwise fallback to server seed
-            let active_seed = if let Some(repo) = params.get("repo") {
-                ViewSeed::Repo(repo.clone())
-            } else if let Some(sym) = params.get("symbol") {
-                ViewSeed::Symbol(sym.clone())
-            } else if let Some(file) = params.get("file") {
-                ViewSeed::File(file.clone())
-            } else if let Some(impact) = params.get("impact") {
-                ViewSeed::Impact(impact.clone())
-            } else {
-                seed.clone()
-            };
-
-            match collect_subgraph(db, &active_seed, depth, limit) {
-                Ok(graph) => match serde_json::to_vec(&graph) {
-                    Ok(json) => HttpResponse::ok_json(json),
-                    Err(e) => HttpResponse::internal_error(&e.to_string()),
-                },
-                Err(ViewError::SeedNotFound(msg)) => HttpResponse::bad_request(&msg),
-                Err(ViewError::InvalidParam(msg)) => HttpResponse::bad_request(&msg),
-                Err(err) => HttpResponse::internal_error(&err.to_string()),
-            }
-        }
-        "/api/node" => {
-            let symbol_id = match params.get("id").and_then(|v| v.parse::<i64>().ok()) {
-                Some(id) => id,
-                None => return HttpResponse::bad_request("missing or invalid 'id' parameter"),
-            };
-            match get_node_details(db, symbol_id) {
-                Ok(details) => match serde_json::to_vec(&details) {
-                    Ok(json) => HttpResponse::ok_json(json),
-                    Err(e) => HttpResponse::internal_error(&e.to_string()),
-                },
-                Err(ViewError::NotFound) => HttpResponse::not_found(),
-                Err(err) => HttpResponse::internal_error(&err.to_string()),
-            }
-        }
-        "/api/expand" => {
-            let symbol_id = match params.get("id").and_then(|v| v.parse::<i64>().ok()) {
-                Some(id) => id,
-                None => return HttpResponse::bad_request("missing or invalid 'id' parameter"),
-            };
-            let limit = params
-                .get("limit")
-                .and_then(|v| v.parse::<usize>().ok())
-                .unwrap_or(50);
-            match expand_node(db, symbol_id, limit) {
-                Ok(graph) => match serde_json::to_vec(&graph) {
-                    Ok(json) => HttpResponse::ok_json(json),
-                    Err(e) => HttpResponse::internal_error(&e.to_string()),
-                },
-                Err(err) => HttpResponse::internal_error(&err.to_string()),
-            }
-        }
-        "/api/search" => {
-            let query = match params.get("q") {
-                Some(q) if !q.is_empty() => q,
-                _ => return HttpResponse::bad_request("missing or empty 'q' parameter"),
-            };
-            let repo = params.get("repo").map(|s| s.as_str());
-            let limit = params
-                .get("limit")
-                .and_then(|v| v.parse::<usize>().ok())
-                .unwrap_or(50);
-            match search_symbols(db, query, repo, limit) {
-                Ok(results) => match serde_json::to_vec(&results) {
-                    Ok(json) => HttpResponse::ok_json(json),
-                    Err(e) => HttpResponse::internal_error(&e.to_string()),
-                },
-                Err(err) => HttpResponse::internal_error(&err.to_string()),
-            }
-        }
-        "/api/path" => {
-            let from = match params.get("from") {
-                Some(f) if !f.is_empty() => f,
-                _ => return HttpResponse::bad_request("missing or empty 'from' parameter"),
-            };
-            let to = match params.get("to") {
-                Some(t) if !t.is_empty() => t,
-                _ => return HttpResponse::bad_request("missing or empty 'to' parameter"),
-            };
-            let max_hops = params
-                .get("max_hops")
-                .and_then(|v| v.parse::<usize>().ok())
-                .unwrap_or(6);
-            match query_path(db, from, to, max_hops) {
-                Ok(path) => match serde_json::to_vec(&path) {
-                    Ok(json) => HttpResponse::ok_json(json),
-                    Err(e) => HttpResponse::internal_error(&e.to_string()),
-                },
-                Err(err) => HttpResponse::internal_error(&err.to_string()),
-            }
-        }
-        "/api/impact" => {
-            let symbol = match params.get("symbol") {
-                Some(s) if !s.is_empty() => s,
-                _ => return HttpResponse::bad_request("missing or empty 'symbol' parameter"),
-            };
-            let repo = params.get("repo").map(|s| s.as_str());
-            let max_depth = params
-                .get("max_depth")
-                .and_then(|v| v.parse::<usize>().ok())
-                .unwrap_or(3);
-            match query_impact(db, symbol, repo, max_depth) {
-                Ok(impact) => match serde_json::to_vec(&impact) {
-                    Ok(json) => HttpResponse::ok_json(json),
-                    Err(e) => HttpResponse::internal_error(&e.to_string()),
-                },
-                Err(err) => HttpResponse::internal_error(&err.to_string()),
-            }
-        }
+        "/api/subgraph" | "/api/graph" => handle_subgraph(db, &params, seed, initial),
+        "/api/node" => handle_node(db, &params),
+        "/api/expand" => handle_expand(db, &params),
+        "/api/search" => handle_search(db, &params),
+        "/api/path" => handle_path(db, &params),
+        "/api/impact" => handle_impact(db, &params),
         _ => HttpResponse::not_found(),
+    }
+}
+
+fn handle_subgraph(
+    db: &GraphDb,
+    params: &HashMap<String, String>,
+    seed: &ViewSeed,
+    initial: InitialView,
+) -> HttpResponse {
+    let depth = params
+        .get("depth")
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(initial.depth);
+    let limit = params
+        .get("limit")
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(initial.limit);
+
+    // If seed params are in query, prefer them; otherwise fallback to server seed
+    let active_seed = if let Some(repo) = params.get("repo") {
+        ViewSeed::Repo(repo.clone())
+    } else if let Some(sym) = params.get("symbol") {
+        ViewSeed::Symbol(sym.clone())
+    } else if let Some(file) = params.get("file") {
+        ViewSeed::File(file.clone())
+    } else if let Some(impact) = params.get("impact") {
+        ViewSeed::Impact(impact.clone())
+    } else {
+        seed.clone()
+    };
+
+    match collect_subgraph(db, &active_seed, depth, limit) {
+        Ok(graph) => match serde_json::to_vec(&graph) {
+            Ok(json) => HttpResponse::ok_json(json),
+            Err(e) => HttpResponse::internal_error(&e.to_string()),
+        },
+        Err(ViewError::SeedNotFound(msg)) => HttpResponse::bad_request(&msg),
+        Err(ViewError::InvalidParam(msg)) => HttpResponse::bad_request(&msg),
+        Err(err) => HttpResponse::internal_error(&err.to_string()),
+    }
+}
+
+fn handle_node(db: &GraphDb, params: &HashMap<String, String>) -> HttpResponse {
+    let symbol_id = match params.get("id").and_then(|v| v.parse::<i64>().ok()) {
+        Some(id) => id,
+        None => return HttpResponse::bad_request("missing or invalid 'id' parameter"),
+    };
+    match get_node_details(db, symbol_id) {
+        Ok(details) => match serde_json::to_vec(&details) {
+            Ok(json) => HttpResponse::ok_json(json),
+            Err(e) => HttpResponse::internal_error(&e.to_string()),
+        },
+        Err(ViewError::NotFound) => HttpResponse::not_found(),
+        Err(err) => HttpResponse::internal_error(&err.to_string()),
+    }
+}
+
+fn handle_expand(db: &GraphDb, params: &HashMap<String, String>) -> HttpResponse {
+    let symbol_id = match params.get("id").and_then(|v| v.parse::<i64>().ok()) {
+        Some(id) => id,
+        None => return HttpResponse::bad_request("missing or invalid 'id' parameter"),
+    };
+    let limit = params
+        .get("limit")
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(50);
+    match expand_node(db, symbol_id, limit) {
+        Ok(graph) => match serde_json::to_vec(&graph) {
+            Ok(json) => HttpResponse::ok_json(json),
+            Err(e) => HttpResponse::internal_error(&e.to_string()),
+        },
+        Err(err) => HttpResponse::internal_error(&err.to_string()),
+    }
+}
+
+fn handle_search(db: &GraphDb, params: &HashMap<String, String>) -> HttpResponse {
+    let query = match params.get("q") {
+        Some(q) if !q.is_empty() => q,
+        _ => return HttpResponse::bad_request("missing or empty 'q' parameter"),
+    };
+    let repo = params.get("repo").map(|s| s.as_str());
+    let limit = params
+        .get("limit")
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(50);
+    match search_symbols(db, query, repo, limit) {
+        Ok(results) => match serde_json::to_vec(&results) {
+            Ok(json) => HttpResponse::ok_json(json),
+            Err(e) => HttpResponse::internal_error(&e.to_string()),
+        },
+        Err(err) => HttpResponse::internal_error(&err.to_string()),
+    }
+}
+
+fn handle_path(db: &GraphDb, params: &HashMap<String, String>) -> HttpResponse {
+    let from = match params.get("from") {
+        Some(f) if !f.is_empty() => f,
+        _ => return HttpResponse::bad_request("missing or empty 'from' parameter"),
+    };
+    let to = match params.get("to") {
+        Some(t) if !t.is_empty() => t,
+        _ => return HttpResponse::bad_request("missing or empty 'to' parameter"),
+    };
+    let max_hops = params
+        .get("max_hops")
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(6);
+    match query_path(db, from, to, max_hops) {
+        Ok(path) => match serde_json::to_vec(&path) {
+            Ok(json) => HttpResponse::ok_json(json),
+            Err(e) => HttpResponse::internal_error(&e.to_string()),
+        },
+        Err(err) => HttpResponse::internal_error(&err.to_string()),
+    }
+}
+
+fn handle_impact(db: &GraphDb, params: &HashMap<String, String>) -> HttpResponse {
+    let symbol = match params.get("symbol") {
+        Some(s) if !s.is_empty() => s,
+        _ => return HttpResponse::bad_request("missing or empty 'symbol' parameter"),
+    };
+    let repo = params.get("repo").map(|s| s.as_str());
+    let max_depth = params
+        .get("max_depth")
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(3);
+    match query_impact(db, symbol, repo, max_depth) {
+        Ok(impact) => match serde_json::to_vec(&impact) {
+            Ok(json) => HttpResponse::ok_json(json),
+            Err(e) => HttpResponse::internal_error(&e.to_string()),
+        },
+        Err(err) => HttpResponse::internal_error(&err.to_string()),
     }
 }

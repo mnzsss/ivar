@@ -67,102 +67,12 @@ pub fn sync(ctx: &Ctx) -> Outcome<SyncOutcome> {
     let local_state = read_state(&layout, SkillRoot::Local);
     let state = merge_states(&hall_state, &local_state);
 
-    // Build targets for all providers.
-    let mut targets = Vec::new();
-    for skill in &skills {
-        for target_id in TargetId::ALL {
-            // `target_path` is hall-relative (`.claude/skills/<id>`); the
-            // renderer and planner operate on absolute paths, so join it onto
-            // the hall root here.
-            let relative = skill::target_path(target_id, skill.id.as_str());
-            let path = layout.root().join(relative);
-            let source_hash = compute_source_hash(&skill.dir);
-            // The renderer symlinks the whole skill directory (step.source),
-            // so verify the link against that same directory.
-            let status = render::verify_status(&path, &skill.dir);
-            targets.push(Target {
-                id: target_id,
-                skill: skill.id.clone(),
-                path,
-                source_path: skill.dir.clone(),
-                source_hash,
-                status,
-            });
-        }
-    }
+    let targets = build_sync_targets(&skills, &layout);
+    let steps = compute_sync_steps(&skills, &targets, &state);
 
-    // Compute the sync plan. The planner is one-target-per-skill, so run it
-    // once per provider and concatenate — a skill materialises to all native targets.
-    let mut steps = Vec::new();
-    for target_id in TargetId::ALL {
-        let provider_targets: Vec<Target> = targets
-            .iter()
-            .filter(|t| t.id == target_id)
-            .cloned()
-            .collect();
-        steps.extend(crate::domain::skill_sync::plan_with_options(
-            &skills,
-            &provider_targets,
-            &state,
-            PlanOptions::default(),
-        ));
-    }
-    steps.sort_by(|a, b| {
-        (a.skill.as_str(), a.target.as_str()).cmp(&(b.skill.as_str(), b.target.as_str()))
-    });
-
-    // Execute best-effort: failures become warnings, never abort.
-    for step in &steps {
-        if let Err(e) = execute_step(step) {
-            warnings.push(Warning::new(
-                "skill.sync.step_failed",
-                format!("{}@{}", step.skill, step.target),
-                e.to_string(),
-            ));
-        }
-    }
-
-    // Update state with all successful changes.
+    execute_steps(&steps, &mut warnings);
     if !steps.is_empty() {
-        let mut new_state = state.clone();
-        for step in &steps {
-            match step.action {
-                Action::Create | Action::Update => {
-                    // Find the source hash from the target map.
-                    let hash = targets
-                        .iter()
-                        .find(|t| t.skill == step.skill)
-                        .map(|t| t.source_hash.clone())
-                        .unwrap_or_default();
-                    update_state_entry(&mut new_state, step, &hash);
-                }
-                Action::Remove => {
-                    remove_state_entry(&mut new_state, &step.skill);
-                }
-                Action::Unchanged => {}
-            }
-        }
-        // Split the merged state back out, one file per root. This is the
-        // whole reason the states are separate: `.ivar/skills/` is un-ignored
-        // by the hall's `.gitignore`, so anything recorded there is committed.
-        // A personal skill's id must never reach it.
-        for root in [SkillRoot::Hall, SkillRoot::Local] {
-            let split = split_state(&new_state, &skills, root);
-            let path = skill::state_path(layout.root(), root);
-            if split.installations.is_empty() {
-                // Nothing left for this root — drop the file rather than leave
-                // an empty one, so `read` answers `None` (nothing installed).
-                let _ = fs::remove_path(&path);
-                continue;
-            }
-            if let Err(e) = skill::write(layout.root(), root, &split) {
-                warnings.push(Warning::new(
-                    "skill.sync.state_write_failed",
-                    path.to_string(),
-                    e.to_string(),
-                ));
-            }
-        }
+        persist_sync_state(&layout, &state, &skills, &steps, &targets, &mut warnings);
     }
 
     let executed: u64 = steps
@@ -189,6 +99,124 @@ pub fn sync(ctx: &Ctx) -> Outcome<SyncOutcome> {
 }
 
 // -- helpers ------------------------------------------------------------------
+
+fn build_sync_targets(
+    skills: &[crate::domain::skill::Skill],
+    layout: &crate::store::layout::Layout,
+) -> Vec<Target> {
+    let mut targets = Vec::new();
+    for skill in skills {
+        for target_id in TargetId::ALL {
+            // `target_path` is hall-relative (`.claude/skills/<id>`); the
+            // renderer and planner operate on absolute paths, so join it onto
+            // the hall root here.
+            let relative = skill::target_path(target_id, skill.id.as_str());
+            let path = layout.root().join(relative);
+            let source_hash = compute_source_hash(&skill.dir);
+            // The renderer symlinks the whole skill directory (step.source),
+            // so verify the link against that same directory.
+            let status = render::verify_status(&path, &skill.dir);
+            targets.push(Target {
+                id: target_id,
+                skill: skill.id.clone(),
+                path,
+                source_path: skill.dir.clone(),
+                source_hash,
+                status,
+            });
+        }
+    }
+    targets
+}
+
+// The planner is one-target-per-skill, so run it once per provider and
+// concatenate — a skill materialises to all native targets.
+fn compute_sync_steps(
+    skills: &[crate::domain::skill::Skill],
+    targets: &[Target],
+    state: &State,
+) -> Vec<Step> {
+    let mut steps = Vec::new();
+    for target_id in TargetId::ALL {
+        let provider_targets: Vec<Target> = targets
+            .iter()
+            .filter(|t| t.id == target_id)
+            .cloned()
+            .collect();
+        steps.extend(crate::domain::skill_sync::plan_with_options(
+            skills,
+            &provider_targets,
+            state,
+            &PlanOptions::default(),
+        ));
+    }
+    steps.sort_by(|a, b| {
+        (a.skill.as_str(), a.target.as_str()).cmp(&(b.skill.as_str(), b.target.as_str()))
+    });
+    steps
+}
+
+// Execute best-effort: failures become warnings, never abort.
+fn execute_steps(steps: &[Step], warnings: &mut Vec<Warning>) {
+    for step in steps {
+        if let Err(e) = execute_step(step) {
+            warnings.push(Warning::new(
+                "skill.sync.step_failed",
+                format!("{}@{}", step.skill, step.target),
+                e.to_string(),
+            ));
+        }
+    }
+}
+
+fn persist_sync_state(
+    layout: &crate::store::layout::Layout,
+    state: &State,
+    skills: &[crate::domain::skill::Skill],
+    steps: &[Step],
+    targets: &[Target],
+    warnings: &mut Vec<Warning>,
+) {
+    let mut new_state = state.clone();
+    for step in steps {
+        match step.action {
+            Action::Create | Action::Update => {
+                // Find the source hash from the target map.
+                let hash = targets
+                    .iter()
+                    .find(|t| t.skill == step.skill)
+                    .map(|t| t.source_hash.clone())
+                    .unwrap_or_default();
+                update_state_entry(&mut new_state, step, &hash);
+            }
+            Action::Remove => {
+                remove_state_entry(&mut new_state, &step.skill);
+            }
+            Action::Unchanged => {}
+        }
+    }
+    // Split the merged state back out, one file per root. This is the
+    // whole reason the states are separate: `.ivar/skills/` is un-ignored
+    // by the hall's `.gitignore`, so anything recorded there is committed.
+    // A personal skill's id must never reach it.
+    for root in [SkillRoot::Hall, SkillRoot::Local] {
+        let split = split_state(&new_state, skills, root);
+        let path = skill::state_path(layout.root(), root);
+        if split.installations.is_empty() {
+            // Nothing left for this root — drop the file rather than leave
+            // an empty one, so `read` answers `None` (nothing installed).
+            let _ = fs::remove_path(&path);
+            continue;
+        }
+        if let Err(e) = skill::write(layout.root(), root, &split) {
+            warnings.push(Warning::new(
+                "skill.sync.state_write_failed",
+                path.to_string(),
+                e.to_string(),
+            ));
+        }
+    }
+}
 
 /// Read one root's recorded state, treating an unreadable file as empty.
 ///
@@ -284,8 +312,8 @@ fn update_state_entry(state: &mut State, step: &Step, source_hash: &str) {
     match state.installations.get_mut(&skill_id) {
         Some(entry) => {
             entry.source_path = step.source.clone();
-            entry.source_hash = source_hash.to_owned();
-            entry.installed_at = iso.clone();
+            source_hash.clone_into(&mut entry.source_hash);
+            entry.installed_at.clone_from(&iso);
             entry.providers = providers;
         }
         None => {

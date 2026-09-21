@@ -166,7 +166,7 @@ fn mtime_ns(meta: &std::fs::Metadata) -> i64 {
     meta.modified()
         .ok()
         .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-        .map(|d| d.as_nanos() as i64)
+        .map(|d| i64::try_from(d.as_nanos()).unwrap_or(i64::MAX))
         .unwrap_or(0)
 }
 
@@ -188,7 +188,7 @@ fn index_layer_file(
         return drop_layer_file(db, layer_repo, rel_path, existing);
     };
     let mtime_ns = mtime_ns(&meta);
-    let size_bytes = meta.len() as i64;
+    let size_bytes = i64::try_from(meta.len()).unwrap_or(i64::MAX);
     if let Some(row) = existing
         && row.mtime_ns == mtime_ns
         && row.size_bytes == size_bytes

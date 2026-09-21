@@ -103,3 +103,14 @@ fn rfc3339_from_epoch_secs_formats_correctly_and_handles_edges() {
         "1970-01-01T00:00:00.000000000Z"
     );
 }
+
+#[test]
+fn rfc3339_from_epoch_secs_does_not_panic_at_the_far_future_clamp() {
+    #[allow(clippy::cast_precision_loss)]
+    let far_future = i64::MAX as f64 + 1.0;
+    let formatted = rfc3339_from_epoch_secs(far_future);
+    assert!(
+        formatted.ends_with('Z'),
+        "must still produce a well-formed timestamp: {formatted}"
+    );
+}

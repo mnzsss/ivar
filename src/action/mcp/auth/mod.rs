@@ -351,7 +351,7 @@ impl ProviderRun {
 ///
 /// See the module doc comment for the steps, the sequential/partial-failure
 /// contract of `--all-providers`, and what each failure mode means.
-pub fn auth(ctx: &Ctx, input: AuthInput) -> Outcome<AuthOutcome> {
+pub fn auth(ctx: &Ctx, input: &AuthInput) -> Outcome<AuthOutcome> {
     let layout = discover_hall(ctx)?;
     let manifest = read_manifest(&layout)?;
 

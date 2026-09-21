@@ -70,7 +70,7 @@ fn open_graph_db(ctx: &Ctx) -> Result<GraphDb, Failure> {
 }
 
 // 1. explore
-pub fn explore_cmd(ctx: &Ctx, args: ExploreInput) -> Outcome<ExploreOutcome> {
+pub fn explore_cmd(ctx: &Ctx, args: &ExploreInput) -> Outcome<ExploreOutcome> {
     let db = open_graph_db(ctx)?;
     let layout = discover_hall(ctx)?;
     let result = explore::explore(
@@ -102,7 +102,7 @@ pub fn affected_cmd(ctx: &Ctx, args: AffectedInput) -> Outcome<AffectedOutcome> 
 }
 
 // 3. path
-pub fn path_cmd(ctx: &Ctx, args: PathInput) -> Outcome<PathOutcome> {
+pub fn path_cmd(ctx: &Ctx, args: &PathInput) -> Outcome<PathOutcome> {
     let db = open_graph_db(ctx)?;
     let max_hops = args.max_hops.unwrap_or(10);
     let result = path::find_shortest_path(&db, &args.from, &args.to, max_hops)
@@ -140,7 +140,7 @@ pub fn callers_cmd(ctx: &Ctx, args: CallersInput) -> Outcome<CallersOutcome> {
 }
 
 // 6. callees
-pub fn callees_cmd(ctx: &Ctx, args: CalleesInput) -> Outcome<CalleesOutcome> {
+pub fn callees_cmd(ctx: &Ctx, args: &CalleesInput) -> Outcome<CalleesOutcome> {
     let db = open_graph_db(ctx)?;
     let callees = query::get_callees(&db, args.symbol_id)
         .map_err(|err| Failure::failed("graph.callees_failed", err.to_string()))?;
@@ -151,7 +151,7 @@ pub fn callees_cmd(ctx: &Ctx, args: CalleesInput) -> Outcome<CalleesOutcome> {
 }
 
 // 7. file
-pub fn file_cmd(ctx: &Ctx, args: FileInput) -> Outcome<FileOutcome> {
+pub fn file_cmd(ctx: &Ctx, args: &FileInput) -> Outcome<FileOutcome> {
     let db = open_graph_db(ctx)?;
     let outline = query::get_file_outline(&db, &args.repo, &args.path)
         .map_err(|err| Failure::failed("graph.file_failed", err.to_string()))?;
@@ -289,7 +289,7 @@ pub fn stats_cmd(ctx: &Ctx) -> Outcome<StatsOutcome> {
 }
 
 // 10. impact
-pub fn impact_cmd(ctx: &Ctx, args: ImpactInput) -> Outcome<ImpactOutcome> {
+pub fn impact_cmd(ctx: &Ctx, args: &ImpactInput) -> Outcome<ImpactOutcome> {
     let db = open_graph_db(ctx)?;
     let max_depth = args.max_depth.unwrap_or(5);
     let result = query::get_impact(&db, args.symbol_id, max_depth)
@@ -329,7 +329,7 @@ pub fn mcp_cmd(ctx: &Ctx, tools: mcp::ToolSurface) -> Outcome<McpOutcome> {
 }
 
 // 12. dead-code
-pub fn dead_code_cmd(ctx: &Ctx, args: DeadCodeInput) -> Outcome<DeadCodeOutcome> {
+pub fn dead_code_cmd(ctx: &Ctx, args: &DeadCodeInput) -> Outcome<DeadCodeOutcome> {
     let db = open_graph_db(ctx)?;
     let limit = args.limit.unwrap_or(50);
     let items = dead_code::execute_dead_code(&db, args.repo.as_deref(), limit)
@@ -338,7 +338,7 @@ pub fn dead_code_cmd(ctx: &Ctx, args: DeadCodeInput) -> Outcome<DeadCodeOutcome>
 }
 
 // 13. complexity
-pub fn complexity_cmd(ctx: &Ctx, args: ComplexityInput) -> Outcome<ComplexityOutcome> {
+pub fn complexity_cmd(ctx: &Ctx, args: &ComplexityInput) -> Outcome<ComplexityOutcome> {
     let db = open_graph_db(ctx)?;
     let limit = args.limit.unwrap_or(50);
     let items = complexity::execute_complexity(&db, args.repo.as_deref(), args.threshold, limit)
@@ -347,7 +347,7 @@ pub fn complexity_cmd(ctx: &Ctx, args: ComplexityInput) -> Outcome<ComplexityOut
 }
 
 // 14. hierarchy
-pub fn hierarchy_cmd(ctx: &Ctx, args: HierarchyInput) -> Outcome<HierarchyOutcome> {
+pub fn hierarchy_cmd(ctx: &Ctx, args: &HierarchyInput) -> Outcome<HierarchyOutcome> {
     let db = open_graph_db(ctx)?;
     let item = hierarchy::execute_hierarchy(&db, &args.symbol, args.repo.as_deref())
         .map_err(|err| Failure::failed("graph.hierarchy_failed", err.to_string()))?;
@@ -355,7 +355,7 @@ pub fn hierarchy_cmd(ctx: &Ctx, args: HierarchyInput) -> Outcome<HierarchyOutcom
 }
 
 // 15. viz
-pub fn viz_cmd(ctx: &Ctx, args: VizInput) -> Outcome<VizOutcome> {
+pub fn viz_cmd(ctx: &Ctx, args: &VizInput) -> Outcome<VizOutcome> {
     let db = open_graph_db(ctx)?;
     let output_path = std::path::PathBuf::from(&args.output);
     let (data, resolved_path) = viz::execute_viz(&db, &output_path, args.repo.as_deref())

@@ -26,6 +26,23 @@ pub(super) fn prefix_casings(term: &str) -> [String; 4] {
     std::array::from_fn(|i| casings.get(i).map_or_else(|| term.to_owned(), Clone::clone))
 }
 
+/// Records one candidate row if its symbol id has not been seen yet.
+/// Returns whether `results` has now reached `limit`.
+fn push_unique(
+    results: &mut Vec<SymbolLocation>,
+    seen_ids: &mut std::collections::HashSet<i64>,
+    row: (crate::domain::graph::Symbol, String),
+    limit: usize,
+) -> bool {
+    let (symbol, file_path) = row;
+    if let Some(id) = symbol.id
+        && seen_ids.insert(id)
+    {
+        results.push(SymbolLocation { symbol, file_path });
+    }
+    results.len() >= limit
+}
+
 /// Finds symbols by exact name, prefix, and full-text search.
 pub fn find_symbols(
     db: &GraphDb,
@@ -51,19 +68,11 @@ pub fn find_symbols(
              WHERE s.name = ?1 AND (?2 IS NULL OR s.repo = ?2)
              LIMIT ?3",
         )?;
-        let rows = stmt.query_map(params![query, repo, limit as i64], map_symbol_and_path_row)?;
+        let limit_i64 = i64::try_from(limit).unwrap_or(i64::MAX);
+        let rows = stmt.query_map(params![query, repo, limit_i64], map_symbol_and_path_row)?;
         for row in rows {
-            let (sym, path) = row?;
-            if let Some(id) = sym.id
-                && seen_ids.insert(id)
-            {
-                results.push(SymbolLocation {
-                    symbol: sym,
-                    file_path: path,
-                });
-                if results.len() >= limit {
-                    return Ok(results);
-                }
+            if push_unique(&mut results, &mut seen_ids, row?, limit) {
+                return Ok(results);
             }
         }
     }
@@ -80,22 +89,14 @@ pub fn find_symbols(
              LIMIT ?6",
         ))?;
         let [c1, c2, c3, c4] = prefix_casings(query);
+        let limit_i64 = i64::try_from(limit).unwrap_or(i64::MAX);
         let rows = stmt.query_map(
-            params![c1, c2, c3, c4, repo, limit as i64],
+            params![c1, c2, c3, c4, repo, limit_i64],
             map_symbol_and_path_row,
         )?;
         for row in rows {
-            let (sym, path) = row?;
-            if let Some(id) = sym.id
-                && seen_ids.insert(id)
-            {
-                results.push(SymbolLocation {
-                    symbol: sym,
-                    file_path: path,
-                });
-                if results.len() >= limit {
-                    return Ok(results);
-                }
+            if push_unique(&mut results, &mut seen_ids, row?, limit) {
+                return Ok(results);
             }
         }
     }
@@ -113,21 +114,12 @@ pub fn find_symbols(
              ORDER BY rank
              LIMIT ?3",
         ) && let Ok(rows) = stmt.query_map(
-            params![fts_query, repo, limit as i64],
+            params![fts_query, repo, i64::try_from(limit).unwrap_or(i64::MAX)],
             map_symbol_and_path_row,
         ) {
             for row in rows.flatten() {
-                let (sym, path) = row;
-                if let Some(id) = sym.id
-                    && seen_ids.insert(id)
-                {
-                    results.push(SymbolLocation {
-                        symbol: sym,
-                        file_path: path,
-                    });
-                    if results.len() >= limit {
-                        return Ok(results);
-                    }
+                if push_unique(&mut results, &mut seen_ids, row, limit) {
+                    return Ok(results);
                 }
             }
         }

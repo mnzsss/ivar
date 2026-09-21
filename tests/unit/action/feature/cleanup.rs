@@ -28,7 +28,7 @@ fn hall_with_feature(repos: &[&str], branch: Option<&str>) -> (tempfile::TempDir
     let ctx = Ctx::new(root.clone());
     hall::init(
         &ctx,
-        InitInput {
+        &InitInput {
             path: Utf8PathBuf::from("."),
             name: Some("acme".to_owned()),
             provider: None,
@@ -55,7 +55,7 @@ fn hall_with_feature(repos: &[&str], branch: Option<&str>) -> (tempfile::TempDir
     )
     .unwrap();
     Manifest::write(&layout, &manifest).unwrap();
-    sync(&ctx, SyncInput::default()).unwrap();
+    sync(&ctx, &SyncInput::default()).unwrap();
     create_feature(
         &ctx,
         CreateInput {

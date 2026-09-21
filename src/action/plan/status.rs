@@ -86,7 +86,7 @@ impl WriteHuman for StatusOutcome {
     }
 }
 
-pub fn status(ctx: &Ctx, input: StatusInput) -> Outcome<StatusOutcome> {
+pub fn status(ctx: &Ctx, input: &StatusInput) -> Outcome<StatusOutcome> {
     let layout = discover_hall(ctx)?;
     let (feature, plan_path) = derive_feature(ctx, &layout, &input.plan_path)?;
 
@@ -148,7 +148,7 @@ fn derive_feature(
     let resolved = ctx.resolve(Utf8Path::new(plan_path));
     let canonical = canonicalize_lenient(&resolved)?;
     let dir = if fs::is_dir(&canonical)? {
-        canonical.clone()
+        canonical
     } else {
         canonical
             .parent()

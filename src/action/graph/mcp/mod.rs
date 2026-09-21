@@ -229,7 +229,7 @@ where
                         ]
                     }
                 })),
-                Err(err_msg) => Some(tool_error(id, &err_msg)),
+                Err(err_msg) => Some(tool_error(id.as_ref(), &err_msg)),
             }
         }
 
@@ -262,7 +262,7 @@ fn refresh_session(db: &GraphDb, layout: &Layout, cwd: &camino::Utf8Path) -> Res
     })
 }
 
-fn tool_error(id: Option<Value>, err_msg: &str) -> Value {
+fn tool_error(id: Option<&Value>, err_msg: &str) -> Value {
     json!({
         "jsonrpc": "2.0",
         "id": id,

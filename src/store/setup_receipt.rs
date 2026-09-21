@@ -125,6 +125,12 @@ impl Receipt {
     }
 
     /// Write `receipt` into `git_dir`, creating the `ivar/` namespace under it.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Namespace`] if the `ivar/` namespace under
+    /// `git_dir` cannot be created, or another [`Error`] if the receipt
+    /// cannot be written.
     pub fn write(git_dir: &Utf8Path, receipt: &Self) -> Result<(), Error> {
         let path = Self::path_in(git_dir);
 

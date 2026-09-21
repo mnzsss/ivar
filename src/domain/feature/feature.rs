@@ -215,6 +215,11 @@ pub enum PromotionOutcome {
 impl PromotionOutcome {
     /// Parse the CLI spelling of an outcome — `delivered`, `integrated`, or
     /// `abandoned`. [`fmt::Display`] emits the same names.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`UnknownOutcome`] if `value` is not one of `delivered`,
+    /// `integrated`, `abandoned`.
     pub fn parse(value: &str) -> Result<Self, UnknownOutcome> {
         match value {
             "delivered" => Ok(PromotionOutcome::Delivered),

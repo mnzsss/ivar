@@ -80,11 +80,11 @@ impl WriteHuman for ConnectOutcome {
 /// return the binding. Nothing is created — a session that never existed is a
 /// `Blocked` failure, and an ambiguous prefix is a `Blocked` failure naming
 /// the candidates.
-pub fn connect(ctx: &Ctx, input: ConnectInput) -> Outcome<ConnectOutcome> {
+pub fn connect(ctx: &Ctx, input: &ConnectInput) -> Outcome<ConnectOutcome> {
     let layout = discover_hall(ctx)?;
     let manifest = read_manifest(&layout)?;
 
-    let (session, mut warnings) = match attach_or_create(ctx, &layout, &input)? {
+    let (session, mut warnings) = match attach_or_create(ctx, &layout, input)? {
         Some(report) => (report.value, report.warnings),
         None => (
             lookup::resolve(
@@ -157,7 +157,7 @@ pub fn connect(ctx: &Ctx, input: ConnectInput) -> Outcome<ConnectOutcome> {
         ConnectOutcome {
             session_id: session.id.to_string(),
             feature: session.feature.clone(),
-            view_dir: session.view_dir.clone(),
+            view_dir: session.view_dir,
             promoted,
         },
         warnings,

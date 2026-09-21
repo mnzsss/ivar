@@ -141,9 +141,9 @@ pub(crate) fn parse_www_authenticate_resource_metadata(header: &str) -> Option<S
 /// path is appended to the issuer's path, per RFC 8414 §3.
 ///
 /// `None` when the issuer URL cannot be parsed.
-pub(crate) fn build_well_known_url(issuer: &str) -> Result<String, Failure> {
+pub(crate) fn build_well_known_url(issuer: &str) -> String {
     let base = issuer.trim_end_matches('/');
-    Ok(format!("{base}/.well-known/oauth-authorization-server"))
+    format!("{base}/.well-known/oauth-authorization-server")
 }
 
 /// Parse the resource metadata JSON to extract the first authorization server
@@ -211,6 +211,12 @@ pub(crate) fn parse_authorization_metadata(json_str: &str) -> Result<OAuthEndpoi
 ///    metadata; extract the authorization and token endpoints.
 ///
 /// No secrets, tokens, or codes appear in errors or their `actual` fields.
+///
+/// # Errors
+///
+/// Returns [`Failure`] if any step's request fails, the server
+/// returns an unexpected status, or a required header/field is
+/// missing from a response.
 pub fn discover_oauth_endpoints(server_url: &str) -> Result<DiscoveryOutcome, Failure> {
     // Step 1: POST to the server URL to trigger the 401 challenge.
     // The MCP Server expects a POST request (JSON-RPC initialize) to initiate
@@ -306,7 +312,7 @@ pub fn discover_oauth_endpoints(server_url: &str) -> Result<DiscoveryOutcome, Fa
     let (issuer, resource) = parse_resource_metadata(&resource_body)?;
 
     // Step 3: GET the authorization server's well-known metadata.
-    let well_known_url = build_well_known_url(&issuer)?;
+    let well_known_url = build_well_known_url(&issuer);
     let auth_response = ureq::get(&well_known_url)
         .config()
         .http_status_as_error(false)
@@ -332,6 +338,11 @@ pub fn discover_oauth_endpoints(server_url: &str) -> Result<DiscoveryOutcome, Fa
 /// The endpoint is what the authorization server advertised in its RFC 8414
 /// metadata — never a constant, and never a caller-supplied URL. A
 /// registration is not an authentication: it only obtains a `client_id`.
+///
+/// # Errors
+///
+/// Returns [`Failure`] if the request cannot be encoded or fails, or
+/// the response cannot be read.
 pub fn register_client(
     registration_endpoint: &str,
     redirect_uri: &str,

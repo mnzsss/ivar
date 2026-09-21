@@ -8,12 +8,31 @@ use crate::domain::feature::Feature;
 use crate::domain::name::RepoName;
 use crate::error::{Failure, FixAction};
 
-/// Resolve delivery metadata across all promoted repositories of the target feature.
-pub(crate) fn resolve(
-    ctx: &Ctx,
-    feature: &Feature,
-    input: &DeliverInput,
-) -> Result<BTreeMap<RepoName, PullRequestMetadata>, Failure> {
+/// The `deliver.unpromoted_repo_override` refusal, shared by an unparseable
+/// `--repo` name and a parseable one the feature never promoted.
+fn unpromoted_repo_override(feature: &Feature, repo: &str) -> Failure {
+    Failure::blocked(
+        "deliver.unpromoted_repo_override",
+        format!(
+            "repository `{repo}` is not promoted in feature `{}`",
+            feature.name
+        ),
+    )
+    .expected(format!(
+        "only repositories promoted in feature `{}`",
+        feature.name
+    ))
+    .actual(format!("unpromoted repository `{repo}`"))
+    .fix(FixAction::safe(
+        "deliver.remove_unpromoted_repo_override",
+        format!(
+            "Remove `--repo {repo}` or promote it with `ivar feature promote {} {repo}`.",
+            feature.name
+        ),
+    ))
+}
+
+fn validate_repo_overrides(feature: &Feature, input: &DeliverInput) -> Result<(), Failure> {
     let has_global = input.global_metadata.title.is_some()
         || input.global_metadata.body.is_some()
         || input.global_metadata.draft.is_some();
@@ -57,50 +76,24 @@ pub(crate) fn resolve(
             )));
         }
 
-        let repo_name = RepoName::new(&r_override.repo).map_err(|_| {
-            Failure::blocked(
-                "deliver.unpromoted_repo_override",
-                format!(
-                    "repository `{}` is not promoted in feature `{}`",
-                    r_override.repo, feature.name
-                ),
-            )
-            .expected(format!(
-                "only repositories promoted in feature `{}`",
-                feature.name
-            ))
-            .actual(format!("unpromoted repository `{}`", r_override.repo))
-            .fix(FixAction::safe(
-                "deliver.remove_unpromoted_repo_override",
-                format!(
-                    "Remove `--repo {}` or promote it with `ivar feature promote {} {}`.",
-                    r_override.repo, feature.name, r_override.repo
-                ),
-            ))
-        })?;
+        let repo_name = RepoName::new(&r_override.repo)
+            .map_err(|_| unpromoted_repo_override(feature, &r_override.repo))?;
 
         if !feature.promotions.contains_key(&repo_name) {
-            return Err(Failure::blocked(
-                "deliver.unpromoted_repo_override",
-                format!(
-                    "repository `{}` is not promoted in feature `{}`",
-                    r_override.repo, feature.name
-                ),
-            )
-            .expected(format!(
-                "only repositories promoted in feature `{}`",
-                feature.name
-            ))
-            .actual(format!("unpromoted repository `{}`", r_override.repo))
-            .fix(FixAction::safe(
-                "deliver.remove_unpromoted_repo_override",
-                format!(
-                    "Remove `--repo {}` or promote it with `ivar feature promote {} {}`.",
-                    r_override.repo, feature.name, r_override.repo
-                ),
-            )));
+            return Err(unpromoted_repo_override(feature, &r_override.repo));
         }
     }
+
+    Ok(())
+}
+
+/// Resolve delivery metadata across all promoted repositories of the target feature.
+pub(crate) fn resolve(
+    ctx: &Ctx,
+    feature: &Feature,
+    input: &DeliverInput,
+) -> Result<BTreeMap<RepoName, PullRequestMetadata>, Failure> {
+    validate_repo_overrides(feature, input)?;
 
     let global_resolved = PullRequestMetadata {
         title: input.global_metadata.title.clone(),

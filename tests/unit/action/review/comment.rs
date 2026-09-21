@@ -15,7 +15,7 @@ fn hall_with_checkout() -> (tempfile::TempDir, Ctx) {
     let ctx = Ctx::new(root);
     hall::init(
         &ctx,
-        InitInput {
+        &InitInput {
             path: Utf8PathBuf::from("."),
             name: Some("acme".to_owned()),
             provider: None,
@@ -86,7 +86,7 @@ fn add_list_and_resolve_a_range_comment() {
 
     let resolved = resolve(
         &ctx,
-        ResolveInput {
+        &ResolveInput {
             feature: "checkout".to_owned(),
             id: "c1".to_owned(),
         },
@@ -112,7 +112,7 @@ fn resolving_twice_keeps_the_first_resolution_time() {
 
     let resolved = resolve(
         &ctx,
-        ResolveInput {
+        &ResolveInput {
             feature: "checkout".to_owned(),
             id: "c1".to_owned(),
         },
@@ -131,7 +131,7 @@ fn rejects_unknown_feature_bad_lines_and_unknown_id() {
     assert_eq!(bad_lines.unwrap_err().code, "review.invalid_lines");
     let bad_id = resolve(
         &ctx,
-        ResolveInput {
+        &ResolveInput {
             feature: "checkout".to_owned(),
             id: "c9".to_owned(),
         },

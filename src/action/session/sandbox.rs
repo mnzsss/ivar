@@ -10,12 +10,25 @@ use crate::store::layout::Layout;
 use camino::Utf8PathBuf;
 
 /// Status of the kernel-enforced write sandbox.
-#[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum SandboxStatus {
     /// Ruleset is fully enforced by the kernel.
+    #[cfg_attr(
+        not(target_os = "linux"),
+        allow(
+            dead_code,
+            reason = "only constructed by the Linux Landlock path; the test build does construct it"
+        )
+    )]
     Enforced,
     /// Ruleset is partially enforced (e.g. kernel supports an older Landlock ABI).
+    #[cfg_attr(
+        not(target_os = "linux"),
+        allow(
+            dead_code,
+            reason = "only constructed by the Linux Landlock path; the test build does construct it"
+        )
+    )]
     Degraded { reason: String },
     /// Landlock is unavailable on this kernel or platform (e.g. macOS or Linux < 5.13).
     Unavailable { reason: String },
@@ -23,14 +36,13 @@ pub(crate) enum SandboxStatus {
 
 impl SandboxStatus {
     /// Returns true if the sandbox is actively and fully enforcing kernel write restrictions.
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub(crate) fn is_enforced(&self) -> bool {
         matches!(self, Self::Enforced)
     }
 }
 
 /// The kernel-enforced write sandbox holding the derived set of write-allowed filesystem roots.
-#[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Sandbox {
     roots: Vec<Utf8PathBuf>,
@@ -38,7 +50,6 @@ pub(crate) struct Sandbox {
 
 impl Sandbox {
     /// Derive the complete list of write-allowed filesystem roots for a session.
-    #[allow(dead_code)]
     pub(crate) fn from_writable_set(
         set: &WritableSet,
         layout: &Layout,
@@ -99,7 +110,7 @@ impl Sandbox {
     }
 
     /// Return the list of canonical roots that will be added to the ruleset.
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub(crate) fn roots(&self) -> &[Utf8PathBuf] {
         &self.roots
     }
@@ -111,7 +122,6 @@ impl Sandbox {
     /// the calling process with `no_new_privs`.
     ///
     /// On non-Linux platforms, returns `SandboxStatus::Unavailable` without failing.
-    #[allow(dead_code)]
     #[cfg(target_os = "linux")]
     pub(crate) fn apply(&self) -> Result<SandboxStatus, Failure> {
         use landlock::{
@@ -212,8 +222,11 @@ impl Sandbox {
     }
 
     /// Apply fallback for non-Linux platforms where Landlock is unavailable.
-    #[allow(dead_code)]
     #[cfg(not(target_os = "linux"))]
+    #[expect(
+        clippy::unnecessary_wraps,
+        reason = "must match the fallible Linux apply signature"
+    )]
     pub(crate) fn apply(&self) -> Result<SandboxStatus, Failure> {
         Ok(SandboxStatus::Unavailable {
             reason: format!("Landlock is not supported on {}", std::env::consts::OS),

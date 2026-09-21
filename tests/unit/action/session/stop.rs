@@ -22,7 +22,7 @@ fn hall_with_detached_session() -> (tempfile::TempDir, Utf8PathBuf) {
     let ctx = Ctx::new(root.clone());
     hall::init(
         &ctx,
-        InitInput {
+        &InitInput {
             path: Utf8PathBuf::from("."),
             name: Some("acme".to_owned()),
             provider: None,
@@ -58,7 +58,7 @@ fn hall_with_detached_session() -> (tempfile::TempDir, Utf8PathBuf) {
         },
     )
     .unwrap();
-    crate::action::sync::sync(&ctx, Default::default()).unwrap();
+    crate::action::sync::sync(&ctx, &Default::default()).unwrap();
     feature_promote::promote(
         &ctx,
         PromoteInput {
@@ -118,7 +118,7 @@ fn stop_ends_a_live_session_and_removes_the_view_dir() {
 
     assert!(fs::is_dir(&view_dir).unwrap());
 
-    let report = stop(&ctx, StopInput { session: Some(id) }).unwrap();
+    let report = stop(&ctx, &StopInput { session: Some(id) }).unwrap();
 
     assert_eq!(report.value.stopped, 1);
     assert!(
@@ -137,14 +137,14 @@ fn stop_of_an_already_stopped_session_is_a_no_op() {
     // First stop: removes the view dir.
     stop(
         &ctx,
-        StopInput {
+        &StopInput {
             session: Some(id.clone()),
         },
     )
     .unwrap();
 
     // Second stop: the view dir is already gone → no-op.
-    let report = stop(&ctx, StopInput { session: Some(id) }).unwrap();
+    let report = stop(&ctx, &StopInput { session: Some(id) }).unwrap();
 
     assert_eq!(report.value.stopped, 0, "already-stopped must be a no-op");
     unguard_worktrees(&root);
@@ -169,7 +169,7 @@ fn stop_all_stops_every_live_session() {
     )
     .unwrap();
 
-    let report = stop(&ctx, StopInput { session: None }).unwrap();
+    let report = stop(&ctx, &StopInput { session: None }).unwrap();
 
     assert_eq!(report.value.stopped, 2);
 
@@ -190,7 +190,7 @@ fn stop_emits_human_output() {
     let ctx = Ctx::new(root.clone());
     let id = session_id_of(&root);
 
-    let report = stop(&ctx, StopInput { session: Some(id) }).unwrap();
+    let report = stop(&ctx, &StopInput { session: Some(id) }).unwrap();
 
     let mut out = Vec::new();
     report.value.write_human(&mut out).unwrap();

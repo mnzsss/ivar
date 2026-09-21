@@ -13,7 +13,7 @@ fn hall_with_discovery() -> (tempfile::TempDir, Utf8PathBuf) {
     let ctx = Ctx::new(root.clone());
     hall::init(
         &ctx,
-        InitInput {
+        &InitInput {
             path: Utf8PathBuf::from("."),
             name: Some("acme".to_owned()),
             provider: None,
@@ -80,7 +80,7 @@ fn an_abandoned_discovery_is_kept_and_still_listed() {
 
     let listed = crate::action::discovery::list::list(
         &ctx,
-        crate::action::discovery::list::ListInput {
+        &crate::action::discovery::list::ListInput {
             status: Some(DiscoveryStatus::Abandoned),
         },
     )

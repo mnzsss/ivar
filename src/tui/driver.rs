@@ -43,6 +43,11 @@ use crate::tui::widget::{Panel, PanelState, Row, Snapshot};
 pub trait Pty {
     /// Spawn `command` in `cwd` with a terminal of `width`×`height`.
     /// Returns when the process is running or the spawn failed.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Failure`] if the process cannot be spawned or the
+    /// terminal cannot be attached.
     fn spawn(
         &mut self,
         command: &Command,
@@ -52,10 +57,18 @@ pub trait Pty {
     ) -> Result<(), Failure>;
 
     /// Write bytes into the process's stdin (through the PTY).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`io::Error`] if the write fails.
     fn write(&mut self, bytes: &[u8]) -> Result<(), io::Error>;
 
     /// Read whatever output is available, without blocking. `Ok(None)` when
     /// the process exited and there is nothing left to read.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`io::Error`] if the read fails.
     fn try_read(&mut self) -> Result<Option<Vec<u8>>, io::Error>;
 
     /// Tell the process its terminal changed size.
@@ -63,6 +76,10 @@ pub trait Pty {
     /// A shell that is not told draws to the size it was spawned with, so
     /// every line wraps in the wrong place until it is restarted. This is
     /// the half of a resize the emulator cannot do on its own.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`io::Error`] if the terminal cannot be resized.
     fn resize(&mut self, width: u16, height: u16) -> Result<(), io::Error>;
 
     /// Whether the process is still running.
@@ -259,6 +276,10 @@ impl<P: Pty, F: FnMut() -> P> Driver<P, F> {
     /// Apply whatever output every shell produced since the last call.
     /// Returns `false` when there is nothing more to read right now, `true`
     /// when output was consumed (so the host may want to re-render).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`io::Error`] if reading from a shell's PTY fails.
     pub fn pump(&mut self) -> Result<bool, io::Error> {
         let mut consumed = false;
         for shell in &mut self.shells {

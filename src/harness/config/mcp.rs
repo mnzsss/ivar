@@ -29,12 +29,19 @@ use camino::Utf8Path;
 use crate::domain::mcp::McpServerDef;
 use crate::domain::name::HallName;
 use crate::domain::provider::Provider;
-use crate::infra::{fs, json};
+use crate::infra::json;
 
 use crate::providers;
 
+use super::doc;
 use super::{Change, Error};
 
+///
+/// # Errors
+///
+/// Returns [`Error`] if a server's transport is invalid, the existing config
+/// cannot be parsed as a JSON object, or the merged document cannot be
+/// written.
 pub fn materialise_mcp(
     path: &Utf8Path,
     provider: Provider,
@@ -42,10 +49,10 @@ pub fn materialise_mcp(
     hall: &HallName,
 ) -> Result<Change, Error> {
     let servers_value = servers_doc(provider, servers, hall)?;
-    let (existing, raw) = read_doc(path)?;
+    let (existing, raw) = doc::read_doc(path)?;
 
     let Some(mut doc) = existing else {
-        return write_doc(path, &mcp_doc(provider, servers_value)).map(|_| Change::Created);
+        return doc::write_doc(path, &mcp_doc(provider, servers_value)).map(|_| Change::Created);
     };
 
     let object = doc.as_object_mut().ok_or_else(|| Error::McpNotObject {
@@ -69,7 +76,7 @@ pub fn materialise_mcp(
         return Ok(Change::Unchanged);
     }
 
-    write_doc(path, &doc)?;
+    doc::write_doc(path, &doc)?;
     Ok(Change::Updated)
 }
 
@@ -82,8 +89,13 @@ pub fn materialise_mcp(
 /// [`Change::Unchanged`]. A file that cannot be parsed as a JSON object is
 /// left alone — stripping a key out of something that is not an object has no
 /// defined meaning, and deleting it would be the silent-overwrite bug again.
+///
+/// # Errors
+///
+/// Returns [`Error`] if the existing config cannot be parsed as a JSON
+/// object or the merged document cannot be written.
 pub fn remove_mcp(path: &Utf8Path, provider: Provider) -> Result<Change, Error> {
-    let (existing, _) = read_doc(path)?;
+    let (existing, _) = doc::read_doc(path)?;
     let Some(mut doc) = existing else {
         return Ok(Change::Unchanged);
     };
@@ -94,17 +106,9 @@ pub fn remove_mcp(path: &Utf8Path, provider: Provider) -> Result<Change, Error> 
     if object.remove(providers::mcp_root_key(provider)).is_none() {
         return Ok(Change::Unchanged);
     }
+    let is_empty = object.is_empty();
 
-    if object.is_empty() {
-        fs::remove_file(path).map_err(|source| Error::Mcp {
-            path: path.to_path_buf(),
-            source: json::Error::Fs(source),
-        })?;
-        return Ok(Change::Removed);
-    }
-
-    write_doc(path, &doc)?;
-    Ok(Change::Removed)
+    doc::finish_removal(path, is_empty, &doc)
 }
 
 /// The full document `ivar` wants for `provider`: its `mcp` key holding
@@ -144,34 +148,4 @@ fn servers_doc(
         );
     }
     Ok(serde_json::Value::Object(map))
-}
-
-/// Read `path` as JSON, returning the parsed document and its raw bytes.
-///
-/// `Ok((None, None))` when the file is absent. A file that exists but is not
-/// valid JSON is an error — never a silent clobber of user config.
-fn read_doc(path: &Utf8Path) -> Result<(Option<serde_json::Value>, Option<String>), Error> {
-    let Some(text) = fs::read_text(path).map_err(|source| Error::Mcp {
-        path: path.to_path_buf(),
-        source: json::Error::Fs(source),
-    })?
-    else {
-        return Ok((None, None));
-    };
-    let value = serde_json::from_str(&text).map_err(|source| Error::Mcp {
-        path: path.to_path_buf(),
-        source: json::Error::Parse {
-            path: path.to_path_buf(),
-            source,
-        },
-    })?;
-    Ok((Some(value), Some(text)))
-}
-
-/// Write `doc` to `path` in the canonical byte format.
-fn write_doc(path: &Utf8Path, doc: &serde_json::Value) -> Result<(), Error> {
-    json::write_canonical(path, doc).map_err(|source| Error::Mcp {
-        path: path.to_path_buf(),
-        source,
-    })
 }

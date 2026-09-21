@@ -97,6 +97,11 @@ pub struct Import {
 /// `id` is only used when a fresh receipt has to be minted. A resumed import
 /// reuses the id the first attempt recorded, so restarting never doubles a run
 /// in the history.
+///
+/// # Errors
+///
+/// Returns [`Failure`] if the board cannot be read, normalized, or
+/// hashed, or the archived board or receipt cannot be written.
 pub fn import(
     layout: &Layout,
     feature: &FeatureName,
@@ -420,6 +425,10 @@ const STEPS: [(u32, u32, MigrateFn); 3] = [(0, 1, v0_to_v1), (1, 2, v1_to_v2), (
 /// has been written with `version: 1` since the day it shipped, like
 /// `ivar.json` itself. The step exists to keep the chain contiguous — a file
 /// with no `version` field at all is treated as v1 and passed through.
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "signature is fixed by MigrateFn (store/versioned/mod.rs), shared across every migration step"
+)]
 pub(in crate::store::feature) fn v0_to_v1(
     value: serde_json::Value,
 ) -> Result<serde_json::Value, String> {

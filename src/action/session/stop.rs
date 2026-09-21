@@ -41,7 +41,7 @@ impl WriteHuman for StopOutcome {
 ///
 /// If no session is named, stops every live session in the hall. An already-
 /// stopped session (View Dir gone) is a no-op — never a failure.
-pub fn stop(ctx: &Ctx, input: StopInput) -> Outcome<StopOutcome> {
+pub fn stop(ctx: &Ctx, input: &StopInput) -> Outcome<StopOutcome> {
     let layout = discover_hall(ctx)?;
 
     match &input.session {

@@ -82,6 +82,11 @@ impl TreeSitterEngine {
     }
 
     /// Parses the given source code for the specified language.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ParserError`] if `lang`'s grammar cannot be set, or
+    /// tree-sitter fails to produce a tree from `source`.
     pub fn parse(&mut self, lang: SupportedLanguage, source: &str) -> Result<Tree, ParserError> {
         if self.current_lang != Some(lang) {
             self.parser
@@ -103,6 +108,10 @@ impl TreeSitterEngine {
 }
 
 /// Compiles a Tree-sitter query for a given language.
+/// # Errors
+///
+/// Returns [`QueryError`] if `query_str` does not compile against
+/// `lang`'s grammar.
 pub fn compile_query(lang: SupportedLanguage, query_str: &str) -> Result<Query, QueryError> {
     Query::new(&lang.tree_sitter_language(), query_str)
 }
@@ -126,11 +135,20 @@ pub fn jsx_query_str() -> &'static str {
 }
 
 /// Compiles the vendored Rust query.
+///
+/// # Errors
+///
+/// Returns [`QueryError`] if the vendored Rust query does not compile.
 pub fn compile_rust_query() -> Result<Query, QueryError> {
     compile_query(SupportedLanguage::Rust, rust_query_str())
 }
 
 /// Compiles the vendored TypeScript query.
+///
+/// # Errors
+///
+/// Returns [`QueryError`] if the vendored TypeScript query does not
+/// compile.
 pub fn compile_typescript_query() -> Result<Query, QueryError> {
     compile_query(SupportedLanguage::TypeScript, typescript_query_str())
 }
@@ -141,6 +159,11 @@ pub fn compile_typescript_query() -> Result<Query, QueryError> {
 /// tree-sitter interns node kinds as per-language ids. TSX has its own grammar,
 /// so the TypeScript-compiled query matches no node in a `.tsx` tree. The JSX
 /// patterns are appended here because the TypeScript grammar has no JSX nodes.
+///
+/// # Errors
+///
+/// Returns [`QueryError`] if the combined query text does not compile
+/// against the TSX grammar.
 pub fn compile_tsx_query() -> Result<Query, QueryError> {
     compile_query(
         SupportedLanguage::Tsx,

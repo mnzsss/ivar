@@ -64,6 +64,11 @@ pub fn needs_preregistration(host: &str) -> bool {
 /// specifically means Figma's `client_name` allowlist changed — this
 /// module's `CLIENT_NAME` no longer matches, not a mistake on the caller's
 /// part.
+/// # Errors
+///
+/// Returns [`Failure`] if the request fails, or the response is a
+/// non-2xx status (carrying its body — a 403 means the allowlisted
+/// `client_name` changed).
 pub fn register_client(redirect_uri: &str) -> Result<ClientInfo, Failure> {
     register_client_as(redirect_uri, CLIENT_NAME)
 }

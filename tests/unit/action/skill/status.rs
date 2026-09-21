@@ -44,18 +44,18 @@ fn status_handles_an_empty_hall() {
 
 #[test]
 fn material_status_label_maps_all_variants() {
-    assert_eq!(material_status_label(MaterialStatus::Missing), "missing");
-    assert_eq!(material_status_label(MaterialStatus::Ok), "ok");
+    assert_eq!(material_status_label(&MaterialStatus::Missing), "missing");
+    assert_eq!(material_status_label(&MaterialStatus::Ok), "ok");
     assert_eq!(
-        material_status_label(MaterialStatus::WrongLink),
+        material_status_label(&MaterialStatus::WrongLink),
         "wrong link"
     );
     assert_eq!(
-        material_status_label(MaterialStatus::NotLink),
+        material_status_label(&MaterialStatus::NotLink),
         "not a symlink"
     );
     assert_eq!(
-        material_status_label(MaterialStatus::BrokenSymlink),
+        material_status_label(&MaterialStatus::BrokenSymlink),
         "broken symlink"
     );
 }

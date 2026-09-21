@@ -15,6 +15,7 @@
 //! Both modes bump `updated_at` and record the session in `sessions`. That
 //! is the ivar-owned half of the doc (ADR-0002 D1).
 
+use std::fmt::Write as _;
 use std::io;
 
 use camino::Utf8PathBuf;
@@ -86,7 +87,7 @@ pub fn amend(ctx: &Ctx, input: AmendInput) -> Outcome<AmendOutcome> {
     let layout = discover_hall(ctx)?;
     let name = FeatureName::new(input.name)?;
 
-    let path = super::resolve_doc_path(ctx, &layout, &name)?;
+    let path = super::resolve_doc_path(ctx, &layout, &name);
     let mut doc = super::load_at(&path, &name)?;
     super::ensure_writable(&doc, &name)?;
 
@@ -95,7 +96,7 @@ pub fn amend(ctx: &Ctx, input: AmendInput) -> Outcome<AmendOutcome> {
         SessionEnv::resolve_by_cwd(&ctx.cwd)
             .ok()
             .flatten()
-            .map(|env| env.session_id.to_string())
+            .map(|env| env.session_id)
     });
 
     let mode = if input.merge {
@@ -154,9 +155,9 @@ fn append_block(body: &str, content: &str, now: &str, session: Option<&str>) -> 
     if !out.is_empty() {
         out.push('\n');
     }
-    out.push_str(&format!("## Amendment ({day})\n\n"));
+    let _ = write!(out, "## Amendment ({day})\n\n");
     if let Some(session) = session {
-        out.push_str(&format!("Session: {session}\n\n"));
+        let _ = write!(out, "Session: {session}\n\n");
     }
     out.push_str(&ensure_trailing_newline(content));
     out

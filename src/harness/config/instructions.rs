@@ -49,6 +49,7 @@
 //! different product surface.
 
 use camino::{Utf8Path, Utf8PathBuf};
+use std::fmt::Write as _;
 
 use crate::domain::name::{HallName, RepoName};
 use crate::domain::provider::Provider;
@@ -154,7 +155,7 @@ pub fn build_block(hall: &HallName, repos: &[RepoName]) -> String {
 
     block.push_str(MANAGED_START);
     block.push('\n');
-    block.push_str(&format!("# {hall}\n\n"));
+    let _ = write!(block, "# {hall}\n\n");
     block.push_str(
         "This directory is an `ivar` hall. Each repository below is a real git\n\
          worktree mounted under `.ivar/repos/`, so a change here is a change in\n\
@@ -185,7 +186,8 @@ pub fn build_block(hall: &HallName, repos: &[RepoName]) -> String {
          First, fetch and read the documentation from:\n\
          https://ivar.run/llms.txt\n",
     );
-    block.push_str(&format!(
+    let _ = write!(
+        block,
         "\nWrite temporary and working files in the current session's scratch\n\
          directory — `{SCRATCH_DIR}/` inside the session's own view dir\n\
          (`.ivar/sessions/<session-id>/{SCRATCH_DIR}/` for a discovery session,\n\
@@ -194,7 +196,7 @@ pub fn build_block(hall: &HallName, repos: &[RepoName]) -> String {
          write names that path for you.\n\n\
          Its contents are temporary: `ivar session stop` removes the view dir and\n\
          everything in it. Nothing you need to keep belongs there.\n"
-    ));
+    );
 
     block.push('\n');
     block.push_str(MANAGED_END);
@@ -207,6 +209,10 @@ pub fn build_block(hall: &HallName, repos: &[RepoName]) -> String {
 /// other bytes are never rewritten. A file that is not regular (a directory,
 /// a symlink) is *not* this function's decision — [`reconcile`] refuses those
 /// as conflicts before materialisation is ever reached.
+///
+/// # Errors
+///
+/// Returns [`Error`] if `path` cannot be read or written.
 pub fn materialise(path: &Utf8Path, block: &str) -> Result<Change, Error> {
     let Some(existing) = read(path)? else {
         write(path, &format!("{block}\n"))?;
@@ -240,6 +246,10 @@ pub fn materialise(path: &Utf8Path, block: &str) -> Result<Change, Error> {
 /// Deletes the file only when the block was the entire content — a file the
 /// user has written in is left in place, minus the block. Absent file, or a
 /// file with no block, is [`Change::Unchanged`].
+///
+/// # Errors
+///
+/// Returns [`Error`] if `path` cannot be read, written, or removed.
 pub fn remove(path: &Utf8Path) -> Result<Change, Error> {
     let Some(existing) = read(path)? else {
         return Ok(Change::Unchanged);
@@ -273,6 +283,11 @@ pub fn remove(path: &Utf8Path) -> Result<Change, Error> {
 /// path and enabled state. The canonical file is never removed and never
 /// rewritten wholesale — only its managed block is ever replaced — and an
 /// enabled provider's regular alias is preserved byte for byte.
+///
+/// # Errors
+///
+/// Returns [`Error`] if the canonical file or any alias cannot be read or
+/// written.
 pub fn reconcile(
     canonical: &Utf8Path,
     block: &str,
@@ -289,6 +304,11 @@ pub fn reconcile(
 /// Report every root instruction entry's integrity in one pass: the canonical
 /// file, then each alias. `block` is the expected managed-block bytes, used to
 /// judge the canonical file's block current or stale.
+///
+/// # Errors
+///
+/// Returns [`Error`] if the canonical file or any alias cannot be read or
+/// written.
 pub fn inspect(
     canonical: &Utf8Path,
     block: &str,

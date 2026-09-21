@@ -195,7 +195,7 @@ pub fn rename(ctx: &Ctx, input: RenameInput) -> Outcome<RenameOutcome> {
         &git,
         &source,
         renamed_name,
-        renamed_branch_input,
+        renamed_branch_input.as_ref(),
     )?;
 
     if !plan.1.is_empty() {
@@ -206,7 +206,7 @@ pub fn rename(ctx: &Ctx, input: RenameInput) -> Outcome<RenameOutcome> {
         .details(serde_json::to_value(&plan.1).unwrap_or(serde_json::Value::Null)));
     }
 
-    steps::run(&layout, &manifest, &git, plan.0)
+    steps::run(&layout, &manifest, &git, &plan.0)
 }
 
 #[cfg(test)]

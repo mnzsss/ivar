@@ -62,24 +62,108 @@ pub fn index_repo(
         && head_sha == last_commit_str
         && !git.worktree_dirty(repo_utf8).unwrap_or(true)
     {
-        let duration_ms = start_time.elapsed().as_millis() as u64;
-        return Ok(IndexOutcome {
-            repo: repo_id.to_owned(),
-            files_indexed: 0,
-            files_deleted: 0,
-            symbols_indexed: 0,
-            edges_indexed: 0,
-            duration_ms,
-            skipped_up_to_date: true,
-            files_failed: Vec::new(),
-        });
+        return Ok(up_to_date_outcome(repo_id, start_time));
     }
 
+    let (files_to_index, files_to_delete, listed_by_git_diff) = discover_changed_files(
+        &git,
+        db,
+        repo_id,
+        repo_path,
+        repo_utf8,
+        force_full,
+        &last_indexed,
+        &head_commit,
+    )?;
+
+    if listed_by_git_diff
+        && files_to_index.is_empty()
+        && files_to_delete.is_empty()
+        && let (Some(head_sha), Some(last_head_str)) = (&head_commit, &last_indexed)
+        && head_sha == last_head_str
+    {
+        return Ok(up_to_date_outcome(repo_id, start_time));
+    }
+
+    let num_files_deleted = files_to_delete.len();
+
+    let index_res = (|| -> Result<(usize, usize, usize, Vec<FileFailure>), IndexError> {
+        let (jobs, mut files_failed) = build_extract_jobs(
+            db,
+            repo_id,
+            repo_path,
+            &files_to_index,
+            force_full,
+            listed_by_git_diff,
+        )?;
+        let (num_files_indexed, num_symbols_indexed, num_edges_indexed, job_failures) =
+            run_extraction_jobs(&jobs, repo_id, db, progress, &files_to_delete)?;
+        files_failed.extend(job_failures);
+        Ok((
+            num_files_indexed,
+            num_symbols_indexed,
+            num_edges_indexed,
+            files_failed,
+        ))
+    })();
+
+    progress.clear();
+    let (num_files_indexed, num_symbols_indexed, num_edges_indexed, files_failed) = index_res?;
+
+    if num_files_indexed > 0 || num_files_deleted > 0 {
+        db.relink_dangling_edges(repo_id)?;
+    }
+
+    if let Some(head_str) = &head_commit {
+        db.update_repo_commit(repo_id, head_str)?;
+    }
+
+    let duration_ms = u64::try_from(start_time.elapsed().as_millis()).unwrap_or(u64::MAX);
+    Ok(IndexOutcome {
+        repo: repo_id.to_owned(),
+        files_indexed: num_files_indexed,
+        files_deleted: num_files_deleted,
+        symbols_indexed: num_symbols_indexed,
+        edges_indexed: num_edges_indexed,
+        duration_ms,
+        skipped_up_to_date: false,
+        files_failed,
+    })
+}
+
+fn up_to_date_outcome(repo_id: &str, start_time: Instant) -> IndexOutcome {
+    let duration_ms = u64::try_from(start_time.elapsed().as_millis()).unwrap_or(u64::MAX);
+    IndexOutcome {
+        repo: repo_id.to_owned(),
+        files_indexed: 0,
+        files_deleted: 0,
+        symbols_indexed: 0,
+        edges_indexed: 0,
+        duration_ms,
+        skipped_up_to_date: true,
+        files_failed: Vec::new(),
+    }
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "threads through the same params index_repo already gathered"
+)]
+fn discover_changed_files(
+    git: &dyn crate::git::Git,
+    db: &GraphDb,
+    repo_id: &str,
+    repo_path: &Path,
+    repo_utf8: &Utf8Path,
+    force_full: bool,
+    last_indexed: &Option<String>,
+    head_commit: &Option<String>,
+) -> Result<(Vec<String>, Vec<String>, bool), IndexError> {
     let mut files_to_index = Vec::new();
     let mut files_to_delete = Vec::new();
     let mut listed_by_git_diff = false;
 
-    if !force_full && let Some(last_head_str) = &last_indexed {
+    if !force_full && let Some(last_head_str) = last_indexed {
         match git.diff_worktree_files(repo_utf8, Some(last_head_str)) {
             Ok(diff) => {
                 listed_by_git_diff = true;
@@ -95,23 +179,6 @@ pub fn index_repo(
                         files_to_delete.push(p.to_string());
                     }
                 }
-                if let Some(head_sha) = &head_commit
-                    && head_sha == last_head_str
-                    && files_to_index.is_empty()
-                    && files_to_delete.is_empty()
-                {
-                    let duration_ms = start_time.elapsed().as_millis() as u64;
-                    return Ok(IndexOutcome {
-                        repo: repo_id.to_owned(),
-                        files_indexed: 0,
-                        files_deleted: 0,
-                        symbols_indexed: 0,
-                        edges_indexed: 0,
-                        duration_ms,
-                        skipped_up_to_date: true,
-                        files_failed: Vec::new(),
-                    });
-                }
             }
             Err(_) => {
                 files_to_index.clear();
@@ -124,7 +191,7 @@ pub fn index_repo(
         || last_indexed.is_none()
         || (files_to_index.is_empty()
             && files_to_delete.is_empty()
-            && !matches!(&head_commit, Some(h) if last_indexed.as_deref() == Some(h)))
+            && !matches!(head_commit, Some(h) if last_indexed.as_deref() == Some(h.as_str())))
     {
         listed_by_git_diff = false;
         files_to_index.clear();
@@ -157,156 +224,159 @@ pub fn index_repo(
             }
         }
     }
-    let num_files_deleted = files_to_delete.len();
 
+    Ok((files_to_index, files_to_delete, listed_by_git_diff))
+}
+
+fn build_extract_jobs(
+    db: &GraphDb,
+    repo_id: &str,
+    repo_path: &Path,
+    files_to_index: &[String],
+    force_full: bool,
+    listed_by_git_diff: bool,
+) -> Result<(Vec<ExtractJob>, Vec<FileFailure>), IndexError> {
+    let mut jobs = Vec::new();
+    let mut files_failed = Vec::new();
+
+    for rel_path in files_to_index {
+        let full_path = repo_path.join(rel_path);
+        if !full_path.exists() {
+            db.delete_file_cascade(repo_id, rel_path)?;
+            continue;
+        }
+
+        let Some(lang) = Path::new(rel_path)
+            .extension()
+            .and_then(|e| e.to_str())
+            .and_then(SupportedLanguage::from_extension)
+        else {
+            continue;
+        };
+
+        let metadata = match std::fs::metadata(&full_path) {
+            Ok(metadata) => metadata,
+            Err(error) => {
+                files_failed.push(FileFailure::new(rel_path, error));
+                continue;
+            }
+        };
+
+        let size_bytes = i64::try_from(metadata.len()).unwrap_or(i64::MAX);
+        let mtime_ns = metadata
+            .modified()
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| i64::try_from(d.as_nanos()).unwrap_or(i64::MAX))
+            .unwrap_or(0);
+
+        let existing_file = if force_full {
+            None
+        } else {
+            db.get_file(repo_id, rel_path)?
+        };
+        // Same size and modification time means unchanged, the check git trusts
+        // for its own index, so an unchanged file is neither read nor hashed.
+        // A path git's diff reports as changed is hashed regardless.
+        if !listed_by_git_diff
+            && existing_file.as_ref().is_some_and(|file| {
+                file.size_bytes == size_bytes
+                    && file.mtime_ns == mtime_ns
+                    && file.is_stat_trustworthy()
+            })
+        {
+            continue;
+        }
+
+        jobs.push(ExtractJob {
+            rel_path: rel_path.clone(),
+            full_path,
+            lang,
+            size_bytes,
+            mtime_ns,
+            known_hash: existing_file.map(|file| file.content_hash),
+        });
+    }
+
+    Ok((jobs, files_failed))
+}
+
+fn run_extraction_jobs(
+    jobs: &[ExtractJob],
+    repo_id: &str,
+    db: &GraphDb,
+    progress: &dyn Progress,
+    files_to_delete: &[String],
+) -> Result<(usize, usize, usize, Vec<FileFailure>), IndexError> {
     let mut num_files_indexed = 0;
     let mut num_symbols_indexed = 0;
     let mut num_edges_indexed = 0;
     let mut files_failed = Vec::new();
 
-    let index_res = (|| -> Result<(), IndexError> {
-        let mut jobs = Vec::new();
-        for rel_path in &files_to_index {
-            let full_path = repo_path.join(rel_path);
-            if !full_path.exists() {
-                db.delete_file_cascade(repo_id, rel_path)?;
-                continue;
-            }
-
-            let Some(lang) = Path::new(rel_path)
-                .extension()
-                .and_then(|e| e.to_str())
-                .and_then(SupportedLanguage::from_extension)
-            else {
-                continue;
-            };
-
-            let metadata = match std::fs::metadata(&full_path) {
-                Ok(metadata) => metadata,
-                Err(error) => {
-                    files_failed.push(FileFailure::new(rel_path, error));
-                    continue;
+    let total = jobs.len();
+    let workers = std::thread::available_parallelism()
+        .map_or(1, NonZeroUsize::get)
+        .min(total);
+    let next_job = AtomicUsize::new(0);
+    std::thread::scope(|scope| -> Result<(), IndexError> {
+        // SQLite writes stay on this thread; the bound keeps extracted files
+        // from piling up in memory while the writer catches up.
+        let (sender, receiver) = mpsc::sync_channel(workers * 2);
+        for _ in 0..workers {
+            let sender = sender.clone();
+            let (jobs, next_job) = (&jobs, &next_job);
+            scope.spawn(move || {
+                while let Some(job) = jobs.get(next_job.fetch_add(1, Ordering::Relaxed)) {
+                    if sender.send((job, extract_job(repo_id, job))).is_err() {
+                        break;
+                    }
                 }
-            };
-
-            let size_bytes = metadata.len() as i64;
-            let mtime_ns = metadata
-                .modified()
-                .ok()
-                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                .map(|d| d.as_nanos() as i64)
-                .unwrap_or(0);
-
-            let existing_file = if force_full {
-                None
-            } else {
-                db.get_file(repo_id, rel_path)?
-            };
-            // Same size and modification time means unchanged, the check git trusts
-            // for its own index, so an unchanged file is neither read nor hashed.
-            // A path git's diff reports as changed is hashed regardless.
-            if !listed_by_git_diff
-                && existing_file.as_ref().is_some_and(|file| {
-                    file.size_bytes == size_bytes
-                        && file.mtime_ns == mtime_ns
-                        && file.is_stat_trustworthy()
-                })
-            {
-                continue;
-            }
-
-            jobs.push(ExtractJob {
-                rel_path: rel_path.clone(),
-                full_path,
-                lang,
-                size_bytes,
-                mtime_ns,
-                known_hash: existing_file.map(|file| file.content_hash),
             });
         }
+        drop(sender);
 
-        let total = jobs.len();
-        let workers = std::thread::available_parallelism()
-            .map_or(1, NonZeroUsize::get)
-            .min(total);
-        let next_job = AtomicUsize::new(0);
-        std::thread::scope(|scope| -> Result<(), IndexError> {
-            // SQLite writes stay on this thread; the bound keeps extracted files
-            // from piling up in memory while the writer catches up.
-            let (sender, receiver) = mpsc::sync_channel(workers * 2);
-            for _ in 0..workers {
-                let sender = sender.clone();
-                let (jobs, next_job) = (&jobs, &next_job);
-                scope.spawn(move || {
-                    while let Some(job) = jobs.get(next_job.fetch_add(1, Ordering::Relaxed)) {
-                        if sender.send((job, extract_job(repo_id, job))).is_err() {
-                            break;
-                        }
-                    }
-                });
-            }
-            drop(sender);
-
-            for (done, (job, extraction)) in receiver.into_iter().enumerate() {
-                progress.step(&format!(
-                    "[{}/{total}] {repo_id}: {}",
-                    done + 1,
-                    job.rel_path
-                ));
-                match extraction {
-                    Extraction::Unchanged => {}
-                    Extraction::Failed(reason) => files_failed.push(FileFailure {
-                        path: job.rel_path.clone(),
-                        reason,
-                    }),
-                    Extraction::Extracted {
-                        content_hash,
-                        extracted,
-                    } => {
-                        let (sym_count, edge_count) = db.index_extracted_file(
-                            repo_id,
-                            &job.rel_path,
-                            &content_hash,
-                            job.mtime_ns,
-                            job.size_bytes,
-                            &extracted,
-                        )?;
-                        num_symbols_indexed += sym_count;
-                        num_edges_indexed += edge_count;
-                        num_files_indexed += 1;
-                    }
+        for (done, (job, extraction)) in receiver.into_iter().enumerate() {
+            progress.step(&format!(
+                "[{}/{total}] {repo_id}: {}",
+                done + 1,
+                job.rel_path
+            ));
+            match extraction {
+                Extraction::Unchanged => {}
+                Extraction::Failed(reason) => files_failed.push(FileFailure {
+                    path: job.rel_path.clone(),
+                    reason,
+                }),
+                Extraction::Extracted {
+                    content_hash,
+                    extracted,
+                } => {
+                    let (sym_count, edge_count) = db.index_extracted_file(
+                        repo_id,
+                        &job.rel_path,
+                        &content_hash,
+                        job.mtime_ns,
+                        job.size_bytes,
+                        &extracted,
+                    )?;
+                    num_symbols_indexed += sym_count;
+                    num_edges_indexed += edge_count;
+                    num_files_indexed += 1;
                 }
             }
-            Ok(())
-        })?;
-        for del in &files_to_delete {
-            db.delete_file_cascade(repo_id, del)?;
         }
         Ok(())
-    })();
-
-    progress.clear();
-    index_res?;
-
-    if num_files_indexed > 0 || num_files_deleted > 0 {
-        db.relink_dangling_edges(repo_id)?;
+    })?;
+    for del in files_to_delete {
+        db.delete_file_cascade(repo_id, del)?;
     }
 
-    if let Some(head_str) = &head_commit {
-        db.update_repo_commit(repo_id, head_str)?;
-    }
-
-    let duration_ms = start_time.elapsed().as_millis() as u64;
-    Ok(IndexOutcome {
-        repo: repo_id.to_owned(),
-        files_indexed: num_files_indexed,
-        files_deleted: num_files_deleted,
-        symbols_indexed: num_symbols_indexed,
-        edges_indexed: num_edges_indexed,
-        duration_ms,
-        skipped_up_to_date: false,
+    Ok((
+        num_files_indexed,
+        num_symbols_indexed,
+        num_edges_indexed,
         files_failed,
-    })
+    ))
 }
 
 struct ExtractJob {

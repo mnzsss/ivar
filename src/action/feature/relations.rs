@@ -68,18 +68,7 @@ pub(crate) enum ReceiptFreshness {
 
 /// Read one feature's record, or a hard `feature.not_found`.
 pub(crate) fn read_feature(layout: &Layout, name: &FeatureName) -> Result<Feature, Failure> {
-    Feature::read(layout, name)?.ok_or_else(|| {
-        Failure::blocked(
-            "feature.not_found",
-            format!("feature `{name}` does not exist"),
-        )
-        .expected("an existing feature")
-        .actual(format!("`{name}` has no feature.json"))
-        .fix(FixAction::safe(
-            "feature.create_first",
-            format!("Create it first with `ivar feature create {name}`."),
-        ))
-    })
+    Feature::read_or_not_found(layout, name)
 }
 
 /// Read every feature in the hall, sorted by name, validating the derived
@@ -115,7 +104,7 @@ pub(crate) fn read_all(layout: &Layout) -> Result<Vec<Feature>, Failure> {
 /// The immediate parent of `feature`, or `None` for a root. A parent name that
 /// does not resolve is a hard refusal — by the time this is called the tree
 /// should have been validated, but a feature can be deleted between a tree
-#[allow(dead_code)]
+#[cfg(test)]
 pub(crate) fn parent(layout: &Layout, feature: &Feature) -> Result<Option<Feature>, Failure> {
     let Some(parent_name) = &feature.parent else {
         return Ok(None);
@@ -163,18 +152,10 @@ pub(crate) fn subtree_status(
 ) -> Result<Vec<TreeEntry>, Failure> {
     let all = read_all(layout)?;
     let map = feature_map(&all);
-    let root_feature = map.get(root).copied().ok_or_else(|| {
-        Failure::blocked(
-            "feature.not_found",
-            format!("feature `{root}` does not exist"),
-        )
-        .expected("an existing feature")
-        .actual(format!("`{root}` has no feature.json"))
-        .fix(FixAction::safe(
-            "feature.create_first",
-            format!("Create it first with `ivar feature create {root}`."),
-        ))
-    })?;
+    let root_feature = map
+        .get(root)
+        .copied()
+        .ok_or_else(|| crate::store::feature::feature_not_found(root))?;
 
     let mut entries = Vec::new();
     walk(git, layout, manifest, &map, root_feature, 0, &mut entries)?;
@@ -195,18 +176,6 @@ pub(crate) fn blocking_descendants(
     blocking_entries(git, layout, manifest, &feature_map(&all), feature)
 }
 
-/// The derived integration state of one feature, root or child. A root never
-/// has receipts to judge (integration is a child's act), so roots classify as
-#[allow(dead_code)]
-pub(crate) fn feature_state(
-    git: &impl Git,
-    layout: &Layout,
-    manifest: &Manifest,
-    feature: &Feature,
-) -> Result<FeatureIntegrationState, Failure> {
-    let parent_feature = parent(layout, feature)?;
-    state_of(git, layout, manifest, feature, parent_feature.as_ref())
-}
 /// Same as [`feature_state`], but uses an existing in-memory map of features.
 pub(crate) fn feature_state_with_map(
     git: &impl Git,
@@ -260,27 +229,6 @@ pub(crate) fn blocking_descendants_with_map(
 /// Helper to expose feature_map within crate.
 pub(crate) fn build_feature_map(features: &[Feature]) -> FeatureMap<'_> {
     feature_map(features)
-}
-
-/// The feature's depth in the tree: 0 for a root, 1 + the parent's depth
-#[allow(dead_code)]
-pub(crate) fn depth(layout: &Layout, feature: &Feature) -> Result<usize, Failure> {
-    let mut depth = 0;
-    let mut current = feature.clone();
-    let mut seen: HashSet<FeatureName> = HashSet::new();
-    while let Some(parent_feature) = parent(layout, &current)? {
-        if !seen.insert(parent_feature.name.clone()) {
-            return Err(Failure::blocked(
-                "feature.parent_cycle",
-                format!("feature `{}` is part of a parent cycle", feature.name),
-            )
-            .expected("every parent chain to end at a root")
-            .actual("walking parents revisited a feature"));
-        }
-        depth += 1;
-        current = parent_feature;
-    }
-    Ok(depth)
 }
 
 /// How one receipt measures against live git and manifest state. See

@@ -82,9 +82,27 @@ pub fn doctor(ctx: &Ctx) -> Outcome<DoctorOutcome> {
         .installations
         .extend(read_state(&layout, crate::domain::skill::SkillRoot::Local).installations);
 
-    // Build targets for all providers.
+    let targets = build_doctor_targets(&skills, &layout);
+
+    let mut problems = collision_problems(collisions);
+    problems.extend(target_status_problems(&skills, &targets));
+    problems.extend(orphaned_state_problems(&skills, &state));
+
+    let count = problems.len() as u64;
+
+    Ok(Report::new(DoctorOutcome {
+        root: layout.root().to_path_buf(),
+        count,
+        problems,
+    }))
+}
+
+fn build_doctor_targets(
+    skills: &[crate::domain::skill::Skill],
+    layout: &crate::store::layout::Layout,
+) -> Vec<Target> {
     let mut targets = Vec::new();
-    for skill in &skills {
+    for skill in skills {
         for target_id in TargetId::ALL {
             // `target_path` is hall-relative; join onto the hall root and
             // verify the whole-directory link the renderer actually creates.
@@ -102,12 +120,13 @@ pub fn doctor(ctx: &Ctx) -> Outcome<DoctorOutcome> {
             });
         }
     }
+    targets
+}
 
-    // Find problems.
+// An id declared in both roots materialises nowhere. Report it first: it
+// explains why a skill the user can see on disk is absent everywhere else.
+fn collision_problems(collisions: Vec<crate::error::Warning>) -> Vec<Problem> {
     let mut problems = Vec::new();
-
-    // An id declared in both roots materialises nowhere. Report it first: it
-    // explains why a skill the user can see on disk is absent everywhere else.
     for collision in collisions {
         problems.push(Problem {
             code: "skill.collision",
@@ -119,8 +138,15 @@ pub fn doctor(ctx: &Ctx) -> Outcome<DoctorOutcome> {
             ),
         });
     }
+    problems
+}
 
-    for skill in &skills {
+fn target_status_problems(
+    skills: &[crate::domain::skill::Skill],
+    targets: &[Target],
+) -> Vec<Problem> {
+    let mut problems = Vec::new();
+    for skill in skills {
         // Check each target.
         for target_id in TargetId::ALL {
             let target = targets
@@ -187,8 +213,14 @@ pub fn doctor(ctx: &Ctx) -> Outcome<DoctorOutcome> {
             }
         }
     }
+    problems
+}
 
-    // Check for untracked state entries (state references skills no longer declared).
+fn orphaned_state_problems(
+    skills: &[crate::domain::skill::Skill],
+    state: &crate::domain::skill_sync::State,
+) -> Vec<Problem> {
+    let mut problems = Vec::new();
     let declared: std::collections::HashSet<&str> = skills.iter().map(|s| s.id.as_str()).collect();
     for (id, entry) in &state.installations {
         if !declared.contains(id.as_str()) {
@@ -208,14 +240,7 @@ pub fn doctor(ctx: &Ctx) -> Outcome<DoctorOutcome> {
             }
         }
     }
-
-    let count = problems.len() as u64;
-
-    Ok(Report::new(DoctorOutcome {
-        root: layout.root().to_path_buf(),
-        count,
-        problems,
-    }))
+    problems
 }
 
 /// Read one root's recorded state, treating an unreadable file as empty.

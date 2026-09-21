@@ -1,6 +1,7 @@
 //! The canonical session environment.
 
 use camino::{Utf8Path, Utf8PathBuf};
+use std::fmt::Write as _;
 
 use crate::domain::feature::Feature;
 use crate::domain::name::{FeatureName, SessionId};
@@ -64,7 +65,7 @@ impl SessionEnv {
             self.provider.id()
         );
         if let Some(feature) = &self.feature {
-            out.push_str(&format!("export IVAR_FEATURE={}\n", feature.as_str()));
+            let _ = writeln!(out, "export IVAR_FEATURE={}", feature.as_str());
         }
         out
     }

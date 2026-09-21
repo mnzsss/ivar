@@ -53,6 +53,11 @@ impl From<Error> for Failure {
 /// Extracts `name`, `description`, and optional `source` fields. Returns
 /// `Ok(None)` when there is no frontmatter or the frontmatter has no `name`.
 /// Returns `Err` only on malformed YAML or structural issues.
+///
+/// # Errors
+///
+/// Returns [`Failure`] if the frontmatter fence is unterminated, the
+/// YAML is malformed, or `name` is missing or empty.
 pub fn parse_frontmatter(content: &str) -> Result<Option<SkillFrontmatter>, Failure> {
     let split = crate::infra::frontmatter::split(content)?;
     let block = split.frontmatter.unwrap_or_default();
@@ -82,6 +87,11 @@ pub fn parse_frontmatter(content: &str) -> Result<Option<SkillFrontmatter>, Fail
 /// This is the full pipeline: read frontmatter → validate → construct.
 /// Returns `Ok(None)` when the file has no frontmatter or no `name`,
 /// and `Err` on hard failures (unparseable YAML, bad directory name).
+///
+/// # Errors
+///
+/// Returns [`Failure`] if the directory name is invalid, `SKILL.md`
+/// is missing or unreadable, or its frontmatter is malformed.
 pub fn parse_skill(dir: camino::Utf8PathBuf, root: SkillRoot) -> Result<Option<Skill>, Failure> {
     let id = dir.file_name().ok_or_else(|| {
         Failure::blocked("skill.bad_dir", format!("directory has no name: {dir}"))
@@ -144,6 +154,11 @@ pub fn state_path(hall_root: &camino::Utf8Path, root: SkillRoot) -> camino::Utf8
 /// Returns `Ok(None)` when the state file does not exist yet — the normal case
 /// for a fresh hall, and for every hall with no personal skills. A
 /// present-but-unparseable file is a hard error.
+///
+/// # Errors
+///
+/// Returns [`Error`] if the file exists but cannot be read or
+/// parsed.
 pub fn read(hall_root: &camino::Utf8Path, root: SkillRoot) -> Result<Option<State>, Error> {
     let state_file = state_path(hall_root, root);
     if !crate::infra::fs::exists(&state_file)? {
@@ -156,6 +171,11 @@ pub fn read(hall_root: &camino::Utf8Path, root: SkillRoot) -> Result<Option<Stat
 ///
 /// Uses canonical JSON (sorted keys, two-space indent, trailing newline).
 /// Creates the parent directory if it does not exist.
+///
+/// # Errors
+///
+/// Returns [`Error`] if the parent directory cannot be created or the
+/// file cannot be serialized/written.
 pub fn write(hall_root: &camino::Utf8Path, root: SkillRoot, state: &State) -> Result<(), Error> {
     let dir = root_dir(hall_root, root);
     crate::infra::fs::ensure_dir(&dir)?;

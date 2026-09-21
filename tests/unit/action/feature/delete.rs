@@ -33,7 +33,7 @@ fn hall_with_promoted_feature_on(branch: Option<&str>) -> (tempfile::TempDir, Ut
     let ctx = Ctx::new(root.clone());
     hall::init(
         &ctx,
-        InitInput {
+        &InitInput {
             path: Utf8PathBuf::from("."),
             name: Some("acme".to_owned()),
             provider: None,
@@ -68,7 +68,7 @@ fn hall_with_promoted_feature_on(branch: Option<&str>) -> (tempfile::TempDir, Ut
         },
     )
     .unwrap();
-    crate::action::sync::sync(&ctx, Default::default()).unwrap();
+    crate::action::sync::sync(&ctx, &Default::default()).unwrap();
     promote::promote(
         &ctx,
         PromoteInput {
@@ -226,6 +226,32 @@ fn delete_is_rejected_for_a_missing_feature() {
 
     assert_eq!(failure.status, Status::Blocked);
     assert_eq!(failure.code, "feature.not_found");
+}
+
+#[test]
+fn delete_propagates_a_worktree_existence_check_failure() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let ctx = Ctx::new(root.clone());
+    let repo_dir = root.join(".ivar/repos/api");
+    fs_err::set_permissions(
+        repo_dir.as_std_path(),
+        std::fs::Permissions::from_mode(0o000),
+    )
+    .unwrap();
+
+    let result = delete(&ctx, delete_input("checkout"));
+
+    fs_err::set_permissions(
+        repo_dir.as_std_path(),
+        std::fs::Permissions::from_mode(0o755),
+    )
+    .unwrap();
+
+    let failure = result.unwrap_err();
+    assert_eq!(failure.status, Status::Blocked);
+    assert_eq!(failure.code, "fs.metadata_failed");
+    // The feature is still intact: teardown never got past the failed check.
+    assert!(fs::is_file(&root.join(".ivar/features/checkout/feature.json")).unwrap());
 }
 
 #[test]

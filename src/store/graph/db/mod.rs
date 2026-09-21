@@ -4,6 +4,7 @@ pub mod edges;
 pub mod index;
 pub mod layer;
 pub mod repo;
+pub(crate) mod row;
 pub mod symbols;
 pub mod types;
 pub mod usage;
@@ -29,6 +30,11 @@ impl std::fmt::Debug for GraphDb {
 
 impl GraphDb {
     /// Opens or creates an on-disk database at `path`, configuring WAL mode and schema.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GraphDbError`] if parent directories cannot be created, the
+    /// connection cannot be opened, or its pragmas/migrations fail.
     pub fn open(path: &Path) -> Result<Self> {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
@@ -46,6 +52,12 @@ impl GraphDb {
 
     /// Opens an existing, fully migrated database for a best-effort usage write.
     /// Never creates the file, switches journal mode, or runs migrations.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GraphDbError`] if the connection cannot be opened or its
+    /// schema version cannot be read, or the message variant if the schema
+    /// is not migrated.
     pub fn open_for_usage(path: &Path) -> Result<Self> {
         let conn = Connection::open_with_flags(
             path,
@@ -62,6 +74,11 @@ impl GraphDb {
     }
 
     /// Opens an in-memory SQLite database initialized with the graph schema.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GraphDbError`] if the connection cannot be opened, or its
+    /// pragmas or migrations fail.
     pub fn open_in_memory() -> Result<Self> {
         let conn = Connection::open_in_memory()?;
         schema::apply_pragmas(&conn, false)?;
@@ -72,6 +89,10 @@ impl GraphDb {
     }
     /// Opens an existing database in read-only mode.
     /// Does not create directories, does not mutate journal mode, and does not apply migrations.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GraphDbError`] if the connection cannot be opened or the read-only pragmas cannot be set.
     pub fn open_read_only(path: &Path) -> Result<Self> {
         let conn = Connection::open_with_flags(
             path,
@@ -85,6 +106,33 @@ impl GraphDb {
         )?;
         Ok(db)
     }
+    /// Runs `f` inside a `BEGIN IMMEDIATE` transaction, committing on success and
+    /// rolling back on error.
+    fn in_transaction<T>(&self, f: impl FnOnce() -> Result<T>) -> Result<T> {
+        self.conn.execute_batch("BEGIN IMMEDIATE;")?;
+        match f() {
+            Ok(value) => {
+                self.conn.execute_batch("COMMIT;")?;
+                Ok(value)
+            }
+            Err(e) => {
+                if let Err(rollback_err) = self.conn.execute_batch("ROLLBACK;") {
+                    #[expect(
+                        clippy::print_stderr,
+                        reason = "double-fault path: the original error `e` is still returned below, \
+                                  and this function has no Report to attach a Warning to"
+                    )]
+                    {
+                        eprintln!(
+                            "[ivar] in_transaction: rollback failed after {e}: {rollback_err}"
+                        );
+                    }
+                }
+                Err(e)
+            }
+        }
+    }
+
     /// Borrows the underlying SQLite connection.
     pub fn conn(&self) -> &Connection {
         &self.conn
@@ -96,6 +144,10 @@ impl GraphDb {
     }
 
     /// Returns high-level statistics of the indexed codebase graph.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GraphDbError`] if any of the count queries fails.
     pub fn stats(&self) -> Result<GraphStats> {
         let repo_count: i64 = self.conn.query_row(
             "SELECT COUNT(*) FROM repos WHERE id NOT LIKE '%/%'",
@@ -129,11 +181,11 @@ impl GraphDb {
         let usage = self.usage_summary().unwrap_or_default();
 
         Ok(GraphStats {
-            repo_count: repo_count as usize,
-            file_count: file_count as usize,
-            symbol_count: symbol_count as usize,
-            edge_count: edge_count as usize,
-            db_size_bytes: (page_count * page_size) as u64,
+            repo_count: usize::try_from(repo_count).unwrap_or(usize::MAX),
+            file_count: usize::try_from(file_count).unwrap_or(usize::MAX),
+            symbol_count: usize::try_from(symbol_count).unwrap_or(usize::MAX),
+            edge_count: usize::try_from(edge_count).unwrap_or(usize::MAX),
+            db_size_bytes: u64::try_from(page_count * page_size).unwrap_or(u64::MAX),
             layers,
             usage,
         })

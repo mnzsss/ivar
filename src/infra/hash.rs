@@ -131,6 +131,10 @@ pub fn text(data: &str) -> String {
 /// SHA-256 of a file's bytes, lowercase hex, no prefix. Errors — rather than
 /// returning `Ok(None)` — if `path` does not exist: hashing a named file is only
 /// meaningful when the caller expects it to be there.
+/// # Errors
+///
+/// Returns [`Error::NotFound`] if `path` does not exist, or an
+/// [`Error`] if it cannot be read.
 pub fn file(path: &Utf8Path) -> Result<String, Error> {
     let contents = fs::read_bytes(path)?.ok_or_else(|| Error::NotFound {
         path: path.to_owned(),
@@ -151,7 +155,7 @@ fn is_dot_named(entry: &walkdir::DirEntry) -> bool {
             .is_some_and(|name| name.starts_with('.'))
 }
 
-fn not_utf8(path: std::path::PathBuf) -> Error {
+fn not_utf8(path: &std::path::Path) -> Error {
     Error::NotUtf8 {
         display: path.to_string_lossy().into_owned(),
     }
@@ -160,6 +164,10 @@ fn not_utf8(path: std::path::PathBuf) -> Error {
 /// A single digest over a directory tree. See the module doc comment for the
 /// exact framing this must produce — it is a compatibility surface, not a free
 /// choice.
+/// # Errors
+///
+/// Returns [`Error`] if the tree cannot be walked or a path is not
+/// UTF-8.
 pub fn tree(root: &Utf8Path) -> Result<String, Error> {
     let mut relative_paths = Vec::new();
 
@@ -177,7 +185,7 @@ pub fn tree(root: &Utf8Path) -> Result<String, Error> {
             continue;
         }
 
-        let absolute = Utf8PathBuf::from_path_buf(entry.into_path()).map_err(not_utf8)?;
+        let absolute = Utf8PathBuf::from_path_buf(entry.into_path()).map_err(|p| not_utf8(&p))?;
         let relative = absolute.strip_prefix(root).unwrap_or(&absolute).to_owned();
         relative_paths.push(relative);
     }

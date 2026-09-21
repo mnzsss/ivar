@@ -394,7 +394,7 @@ fn commit_sha_short_circuit_skips() {
         &[skill],
         &[target],
         &state,
-        PlanOptions {
+        &PlanOptions {
             repo_head: Some("abc123".to_owned()),
             tree_clean: true,
         },

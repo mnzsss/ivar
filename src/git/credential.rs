@@ -113,6 +113,10 @@ impl Operation {
 impl Credential {
     /// Read a credential request from stdin, parse key=value lines until the
     /// blank separator line.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`io::Error`] if `stdin` cannot be read.
     pub fn read(stdin: impl BufRead) -> io::Result<Self> {
         let mut cred = Self::default();
         for line in stdin.lines() {
@@ -122,12 +126,12 @@ impl Credential {
             }
             if let Some((key, value)) = line.split_once('=') {
                 match key {
-                    "protocol" => cred.protocol = value.to_owned(),
-                    "host" => cred.host = value.to_owned(),
-                    "port" => cred.port = value.to_owned(),
-                    "username" => cred.username = value.to_owned(),
-                    "password" => cred.password = value.to_owned(),
-                    "path" => cred.path = value.to_owned(),
+                    "protocol" => value.clone_into(&mut cred.protocol),
+                    "host" => value.clone_into(&mut cred.host),
+                    "port" => value.clone_into(&mut cred.port),
+                    "username" => value.clone_into(&mut cred.username),
+                    "password" => value.clone_into(&mut cred.password),
+                    "path" => value.clone_into(&mut cred.path),
                     _ => {} // ignore unknown keys
                 }
             }
@@ -140,6 +144,10 @@ impl Credential {
     /// Fields with no value are omitted rather than written empty. `path=` is
     /// the one that bites: git does not read it as "no path", it fills the
     /// credential with an empty path and carries it into the request.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`io::Error`] if `stdout` cannot be written.
     pub fn write(&self, mut stdout: impl Write) -> io::Result<()> {
         let w = &mut stdout;
         for (key, value) in [
@@ -168,6 +176,11 @@ impl Credential {
 /// This is the entry point when git invokes `!ivar git-credential <operation>`.
 /// `operation` is whatever git appended; [`Operation::from_arg`] decides what
 /// it means.
+///
+/// # Errors
+///
+/// Returns [`io::Error`] if stdin cannot be read or stdout cannot be
+/// written.
 pub fn run(operation: Option<&str>) -> io::Result<()> {
     respond(
         Operation::from_arg(operation),

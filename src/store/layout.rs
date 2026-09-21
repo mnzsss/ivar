@@ -150,6 +150,12 @@ impl Layout {
     /// cannot loop forever. The only way this returns `Err` is that first
     /// resolution failing — `from` does not exist, or a component of it is not
     /// reachable.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DiscoverError::Unresolvable`] if `from` cannot be
+    /// canonicalized (it does not exist, or a component of it is not
+    /// reachable).
     pub fn discover(from: &Utf8Path) -> Result<Option<Self>, DiscoverError> {
         let mut current =
             from.canonicalize_utf8()

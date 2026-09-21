@@ -10,7 +10,12 @@ pub(super) const USAGE_BUSY_TIMEOUT: Duration = Duration::from_millis(50);
 const DEFAULT_BUSY_TIMEOUT: Duration = Duration::from_secs(10);
 
 fn nearest_rank(sorted: &[u64], pct: u64) -> u64 {
-    let rank = (sorted.len() as u64 * pct).div_ceil(100).max(1) as usize;
+    let rank = usize::try_from(
+        (u64::try_from(sorted.len()).unwrap_or(u64::MAX) * pct)
+            .div_ceil(100)
+            .max(1),
+    )
+    .unwrap_or(usize::MAX);
     sorted.get(rank - 1).copied().unwrap_or(0)
 }
 
@@ -29,6 +34,11 @@ struct UsageGroup {
 }
 
 impl GraphDb {
+    /// Record one usage event.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GraphDbError`] if the insert fails.
     pub fn record_usage(&self, event: &UsageEvent) -> Result<()> {
         // A usage write must never hold a query hostage to another session's lock.
         self.conn.busy_timeout(USAGE_BUSY_TIMEOUT)?;
@@ -39,8 +49,10 @@ impl GraphDb {
                 event.command,
                 event.source.as_str(),
                 now_timestamp(),
-                event.duration_ms as i64,
-                event.result_count.map(|c| c as i64),
+                i64::try_from(event.duration_ms).unwrap_or(i64::MAX),
+                event
+                    .result_count
+                    .map(|c| i64::try_from(c).unwrap_or(i64::MAX)),
                 event.error,
             ],
         );
@@ -48,6 +60,12 @@ impl GraphDb {
         inserted.map(|_| ()).map_err(Into::into)
     }
 
+    /// Aggregated usage stats grouped by command and source, with p50/p95
+    /// durations.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GraphDbError`] if the query fails.
     pub fn usage_summary(&self) -> Result<Vec<UsageStats>> {
         let mut stmt = self.conn.prepare(
             "SELECT command, source, ts, duration_ms, result_count, error
@@ -58,7 +76,7 @@ impl GraphDb {
                 command: r.get(0)?,
                 source: r.get(1)?,
                 ts: r.get(2)?,
-                duration_ms: r.get::<_, i64>(3)?.max(0) as u64,
+                duration_ms: u64::try_from(r.get::<_, i64>(3)?.max(0)).unwrap_or(0),
                 result_count: r.get(4)?,
                 error: r.get(5)?,
             })

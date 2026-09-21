@@ -223,7 +223,7 @@ fn write_divergence(
 /// default branch cannot fast-forward becomes `Skipped` and a [`Warning`],
 /// and the rest still refresh — the best-effort discipline from
 /// ARCHITECTURE.md, applied the way `sync` applies it.
-pub fn pull(ctx: &Ctx, input: PullInput) -> Outcome<PullOutcome> {
+pub fn pull(ctx: &Ctx, input: &PullInput) -> Outcome<PullOutcome> {
     let layout = discover_hall(ctx)?;
     let manifest = read_manifest(&layout)?;
     let git = git::System;

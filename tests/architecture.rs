@@ -57,6 +57,7 @@ use std::path::{Path, PathBuf};
 /// `error` is importable from everywhere and is therefore omitted from the lists.
 const ALLOWED: &[(&str, &[&str])] = &[
     ("cli", &["action"]),
+    ("app", &["cli", "action", "domain", "infra", "git"]),
     (
         "action",
         &[

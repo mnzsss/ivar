@@ -1593,7 +1593,7 @@ fn land_merge_failure_fix_action_uses_feature_name() {
         },
     )
     .unwrap();
-    crate::action::sync::sync(&ctx, Default::default()).unwrap();
+    crate::action::sync::sync(&ctx, &Default::default()).unwrap();
 
     promote::promote(
         &ctx,

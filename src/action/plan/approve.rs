@@ -147,21 +147,7 @@ impl WriteHuman for InvalidateOutcome {
 /// that has moved.
 pub fn approve(ctx: &Ctx, input: ApproveInput) -> Outcome<ApproveOutcome> {
     let layout = discover_hall(ctx)?;
-    let feature = FeatureName::new(input.feature)?;
-    let gate = Gate::parse(&input.gate)?;
-
-    require_feature(&layout, &feature)?;
-
-    let feature_record =
-        crate::domain::feature::Feature::read(&layout, &feature)?.ok_or_else(|| {
-            Failure::blocked(
-                "plan.feature_vanished",
-                format!("feature `{feature}` has a directory but no feature.json"),
-            )
-        })?;
-    crate::action::feature::ensure_not_fully_integrated(&layout, &feature_record)?;
-
-    let mut approvals = super::load_approvals(&layout, &feature)?;
+    let (feature, gate, mut approvals) = open_approvals(&layout, input.feature, &input.gate)?;
 
     // Drift first — and persist it before any refusal below: an approval must
     // never stand on content that has moved, and a refused approval still has
@@ -234,21 +220,7 @@ pub fn approve(ctx: &Ctx, input: ApproveInput) -> Outcome<ApproveOutcome> {
 /// nothing and reports an empty [`InvalidateOutcome::cascaded`].
 pub fn invalidate(ctx: &Ctx, input: InvalidateInput) -> Outcome<InvalidateOutcome> {
     let layout = discover_hall(ctx)?;
-    let feature = FeatureName::new(input.feature)?;
-    let gate = Gate::parse(&input.gate)?;
-
-    require_feature(&layout, &feature)?;
-
-    let feature_record =
-        crate::domain::feature::Feature::read(&layout, &feature)?.ok_or_else(|| {
-            Failure::blocked(
-                "plan.feature_vanished",
-                format!("feature `{feature}` has a directory but no feature.json"),
-            )
-        })?;
-    crate::action::feature::ensure_not_fully_integrated(&layout, &feature_record)?;
-
-    let mut approvals = super::load_approvals(&layout, &feature)?;
+    let (feature, gate, mut approvals) = open_approvals(&layout, input.feature, &input.gate)?;
 
     let already_needs_revision: Vec<Gate> = approvals
         .gates
@@ -280,6 +252,32 @@ pub fn invalidate(ctx: &Ctx, input: InvalidateInput) -> Outcome<InvalidateOutcom
 }
 
 /// Block when the feature does not exist — approvals belong to features.
+/// Parse `feature`/`gate`, confirm the feature exists and is not fully
+/// integrated, and load its approvals — the preamble `approve` and
+/// `invalidate` both run before touching a gate's state.
+fn open_approvals(
+    layout: &Layout,
+    feature_raw: String,
+    gate_raw: &str,
+) -> Result<(FeatureName, Gate, ApprovalState), Failure> {
+    let feature = FeatureName::new(feature_raw)?;
+    let gate = Gate::parse(gate_raw)?;
+
+    require_feature(layout, &feature)?;
+
+    let feature_record =
+        crate::domain::feature::Feature::read(layout, &feature)?.ok_or_else(|| {
+            Failure::blocked(
+                "plan.feature_vanished",
+                format!("feature `{feature}` has a directory but no feature.json"),
+            )
+        })?;
+    crate::action::feature::ensure_not_fully_integrated(layout, &feature_record)?;
+
+    let approvals = super::load_approvals(layout, &feature)?;
+    Ok((feature, gate, approvals))
+}
+
 fn require_feature(layout: &Layout, feature: &FeatureName) -> Result<(), Failure> {
     if fs::is_dir(&layout.feature_dir(feature))? {
         return Ok(());

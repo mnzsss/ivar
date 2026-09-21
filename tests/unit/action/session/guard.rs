@@ -25,7 +25,7 @@ fn hall_with_promoted_feature() -> (tempfile::TempDir, Utf8PathBuf) {
     let ctx = crate::action::Ctx::new(root.clone());
     hall::init(
         &ctx,
-        InitInput {
+        &InitInput {
             path: Utf8PathBuf::from("."),
             name: Some("acme".to_owned()),
             provider: None,
@@ -60,7 +60,7 @@ fn hall_with_promoted_feature() -> (tempfile::TempDir, Utf8PathBuf) {
         },
     )
     .unwrap();
-    crate::action::sync::sync(&ctx, Default::default()).unwrap();
+    crate::action::sync::sync(&ctx, &Default::default()).unwrap();
     feature_promote::promote(
         &ctx,
         PromoteInput {
@@ -310,7 +310,7 @@ fn discovery_guard_allows_canonical_source_and_denies_generated_mirror() {
 fn writable_set_fixture() -> (WritableSet, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
     let view = Utf8PathBuf::try_from(dir.path().to_path_buf()).unwrap();
-    let set = WritableSet::from_parts(view, None, vec![]);
+    let set = WritableSet::from_parts(view, None, &[]);
     (set, dir)
 }
 

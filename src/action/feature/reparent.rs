@@ -182,7 +182,7 @@ pub fn reparent(ctx: &Ctx, input: ReparentInput) -> Outcome<ReparentOutcome> {
         child: child_name,
         old_parent,
         new_parent: new_parent_name,
-        base: new_parent.branch.clone(),
+        base: new_parent.branch,
     }))
 }
 

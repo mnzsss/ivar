@@ -55,8 +55,8 @@ pub(super) fn git() -> proc::Command {
 /// deliberately returns it as data; the translation belongs here, where "git
 /// said no" is unambiguous, rather than in the general subprocess boundary
 /// where it is not.
-pub(super) fn run(command: proc::Command) -> Result<String, Error> {
-    let output = proc::capture(&command)?;
+pub(super) fn run(command: &proc::Command) -> Result<String, Error> {
+    let output = proc::capture(command)?;
     if output.success() {
         return Ok(output.stdout);
     }
@@ -90,7 +90,7 @@ pub(super) fn run(command: proc::Command) -> Result<String, Error> {
 pub(crate) const REF_PREFIX_KEY: &str = "ivar.refprefix";
 
 fn ref_prefix(git_dir: &Utf8Path) -> String {
-    run(git()
+    run(&git()
         .arg("--git-dir")
         .arg(git_dir.as_str())
         .arg("config")
@@ -136,16 +136,16 @@ pub(crate) fn clone_bare(url: &str, dest: &Utf8Path) -> Result<(), Error> {
         cmd = cmd.arg("-c").arg("credential.helper=!ivar git-credential");
     }
     cmd = cmd.arg(url).arg(dest.as_str());
-    run(cmd)?;
+    run(&cmd)?;
     Ok(())
 }
 
 pub(crate) fn clone_bare_prefixed(url: &str, dest: &Utf8Path, prefix: &str) -> Result<(), Error> {
     let created = !fs::exists(dest).unwrap_or(false);
     let result = (|| {
-        run(git().arg("init").arg("--bare").arg(dest.as_str()))?;
+        run(&git().arg("init").arg("--bare").arg(dest.as_str()))?;
         let config = |key: &str, value: &str| {
-            run(git()
+            run(&git()
                 .arg("--git-dir")
                 .arg(dest.as_str())
                 .arg("config")
@@ -160,7 +160,7 @@ pub(crate) fn clone_bare_prefixed(url: &str, dest: &Utf8Path, prefix: &str) -> R
         if crate::infra::github::is_github_https(url) {
             config("credential.helper", "!ivar git-credential")?;
         }
-        run(git()
+        run(&git()
             .arg("--git-dir")
             .arg(dest.as_str())
             .arg("fetch")
@@ -190,7 +190,7 @@ pub(crate) fn clone_bare_prefixed(url: &str, dest: &Utf8Path, prefix: &str) -> R
 /// supposed to have — collapsing to it is the point, and the bare under
 /// `.ivar/repos/` is ivar's to normalise.
 pub(crate) fn ensure_remote_tracking(git_dir: &Utf8Path) -> Result<(), Error> {
-    run(git()
+    run(&git()
         .arg("--git-dir")
         .arg(git_dir.as_str())
         .arg("config")
@@ -206,7 +206,7 @@ pub(crate) fn ensure_remote_tracking(git_dir: &Utf8Path) -> Result<(), Error> {
 /// (`worktree add -b`) is a feature-slice concern; `sync` only ever materialises
 /// a branch the remote already has.
 pub(crate) fn add_worktree(git_dir: &Utf8Path, dest: &Utf8Path, branch: &str) -> Result<(), Error> {
-    run(git()
+    run(&git()
         .arg("--git-dir")
         .arg(git_dir.as_str())
         .arg("worktree")
@@ -229,7 +229,7 @@ pub(crate) fn add_worktree(git_dir: &Utf8Path, dest: &Utf8Path, branch: &str) ->
 /// No branch a worktree has checked out is touched, and `--prune` drops
 /// tracking refs for branches the remote deleted — never a local branch.
 pub(crate) fn fetch(git_dir: &Utf8Path) -> Result<(), Error> {
-    run(git()
+    run(&git()
         .arg("--git-dir")
         .arg(git_dir.as_str())
         .arg("fetch")
@@ -250,7 +250,7 @@ pub(crate) fn create_branch_and_worktree(
     from_branch: &str,
     dest: &Utf8Path,
 ) -> Result<(), Error> {
-    run(git()
+    run(&git()
         .arg("--git-dir")
         .arg(git_dir.as_str())
         .arg("worktree")
@@ -274,7 +274,7 @@ pub(crate) fn create_branch_and_worktree(
 /// a `--force-with-lease` from this worktree has something to lease against
 /// after a `repo pull`.
 pub(crate) fn fetch_branch(worktree: &Utf8Path, branch: &str) -> Result<(), Error> {
-    let prefix = run(git()
+    let prefix = run(&git()
         .cwd(worktree)
         .arg("config")
         .arg("--get")
@@ -282,7 +282,7 @@ pub(crate) fn fetch_branch(worktree: &Utf8Path, branch: &str) -> Result<(), Erro
     .map(|s| s.trim().to_owned())
     .unwrap_or_default();
 
-    run(git()
+    run(&git()
         .cwd(worktree)
         .arg("fetch")
         .arg("--prune")
@@ -299,7 +299,7 @@ pub(crate) fn fetch_branch(worktree: &Utf8Path, branch: &str) -> Result<(), Erro
 /// branches diverged — "cannot fast-forward" — which the caller reports as
 /// skipped, never as a batch abort.
 pub(crate) fn fast_forward(worktree: &Utf8Path) -> Result<(), Error> {
-    run(git()
+    run(&git()
         .cwd(worktree)
         .arg("merge")
         .arg("--ff-only")
@@ -313,7 +313,7 @@ pub(crate) fn fast_forward(worktree: &Utf8Path) -> Result<(), Error> {
 /// otherwise, and this is only called from a cascade that has decided the
 /// work is being torn down.
 pub(crate) fn remove_worktree(git_dir: &Utf8Path, dest: &Utf8Path) -> Result<(), Error> {
-    run(git()
+    run(&git()
         .arg("--git-dir")
         .arg(git_dir.as_str())
         .arg("worktree")
@@ -332,7 +332,7 @@ pub(crate) fn add_detached_worktree(
     dest: &Utf8Path,
     revision: &str,
 ) -> Result<(), Error> {
-    run(git()
+    run(&git()
         .arg("--git-dir")
         .arg(git_dir.as_str())
         .arg("worktree")
@@ -348,7 +348,7 @@ pub(crate) fn add_detached_worktree(
 /// `ivar-integrate/<feature>/<repo>` branches integration uses are created
 /// here and deleted with [`delete_branch`] once their worktrees are gone.
 pub(crate) fn create_branch(git_dir: &Utf8Path, branch: &str, revision: &str) -> Result<(), Error> {
-    run(git()
+    run(&git()
         .arg("--git-dir")
         .arg(git_dir.as_str())
         .arg("branch")
@@ -362,7 +362,7 @@ pub(crate) fn create_branch(git_dir: &Utf8Path, branch: &str, revision: &str) ->
 /// have been removed (git refuses to delete a checked-out branch, which is
 /// the order's guardrail).
 pub(crate) fn delete_branch(git_dir: &Utf8Path, branch: &str) -> Result<(), Error> {
-    run(git()
+    run(&git()
         .arg("--git-dir")
         .arg(git_dir.as_str())
         .arg("branch")
@@ -375,7 +375,7 @@ pub(crate) fn delete_branch(git_dir: &Utf8Path, branch: &str) -> Result<(), Erro
 /// with the default message, never a fast-forward. `--no-edit` is what keeps
 /// git from opening an editor for the auto-generated message.
 pub(crate) fn merge_no_ff(worktree: &Utf8Path, source: &str) -> Result<(), Error> {
-    run(git()
+    run(&git()
         .cwd(worktree)
         .arg("merge")
         .arg("--no-ff")
@@ -397,8 +397,8 @@ pub(crate) fn merge_no_ff(worktree: &Utf8Path, source: &str) -> Result<(), Error
 /// with a shell, which is the audience the hook exists to stop. An argument on
 /// this one line is not.
 pub(crate) fn squash_merge(worktree: &Utf8Path, source: &str, message: &str) -> Result<(), Error> {
-    run(git().cwd(worktree).arg("merge").arg("--squash").arg(source))?;
-    run(git()
+    run(&git().cwd(worktree).arg("merge").arg("--squash").arg(source))?;
+    run(&git()
         .cwd(worktree)
         .arg("commit")
         .arg("--no-verify")
@@ -411,7 +411,7 @@ pub(crate) fn squash_merge(worktree: &Utf8Path, source: &str, message: &str) -> 
 /// branch (and its files) to `revision`. Refuses when the branch diverged
 /// and cannot fast-forward.
 pub(crate) fn fast_forward_to(worktree: &Utf8Path, revision: &str) -> Result<(), Error> {
-    run(git()
+    run(&git()
         .cwd(worktree)
         .arg("merge")
         .arg("--ff-only")
@@ -427,7 +427,7 @@ pub(crate) fn fast_forward_to(worktree: &Utf8Path, revision: &str) -> Result<(),
 /// as dirty — a push does not carry them, and the preview saying "clean" while
 /// `git status` disagrees would be a lie the human acts on.
 pub(crate) fn worktree_dirty(path: &Utf8Path) -> Result<bool, Error> {
-    let stdout = run(git().cwd(path).arg("status").arg("--porcelain"))?;
+    let stdout = run(&git().cwd(path).arg("status").arg("--porcelain"))?;
     Ok(!stdout.is_empty())
 }
 
@@ -450,7 +450,7 @@ pub(crate) fn worktree_dirty(path: &Utf8Path) -> Result<bool, Error> {
 /// A rename emits two records, the new path then the original. Both are
 /// returned: both are writes, since the file at the old path is gone.
 pub(crate) fn changed_paths(path: &Utf8Path) -> Result<Vec<Utf8PathBuf>, Error> {
-    let stdout = run(git()
+    let stdout = run(&git()
         .cwd(path)
         .arg("status")
         .arg("--porcelain")
@@ -497,7 +497,7 @@ fn parse_status_z(stdout: &str) -> Vec<Utf8PathBuf> {
 /// of a run visible at all; see [`paths_committed_since`].
 pub(crate) fn head_commit(path: &Utf8Path) -> Result<String, Error> {
     let command = git().cwd(path).arg("rev-parse").arg("HEAD");
-    let stdout = run(command)?;
+    let stdout = run(&command)?;
     let sha = stdout.trim();
     if sha.is_empty() {
         return Err(Error::Refused {
@@ -526,7 +526,7 @@ pub(crate) fn paths_committed_since(
     path: &Utf8Path,
     since: &str,
 ) -> Result<Vec<Utf8PathBuf>, Error> {
-    let stdout = run(git()
+    let stdout = run(&git()
         .cwd(path)
         .arg("diff")
         .arg("--name-only")
@@ -548,7 +548,7 @@ pub(crate) fn paths_committed_since(
 /// caller (reconcile) wants the code divergence an executor left uncommitted,
 /// which is always a tracked edit.
 pub(crate) fn diff_worktree(path: &Utf8Path) -> Result<String, Error> {
-    run(git().cwd(path).arg("diff").arg("HEAD"))
+    run(&git().cwd(path).arg("diff").arg("HEAD"))
 }
 
 /// `git --git-dir <git_dir> rev-list --count <base>..<branch>` — how many
@@ -563,7 +563,7 @@ pub(crate) fn commits_ahead(git_dir: &Utf8Path, base: &str, branch: &str) -> Res
         .arg("rev-list")
         .arg("--count")
         .arg(format!("{base}..{branch}"));
-    let stdout = run(command)?;
+    let stdout = run(&command)?;
     let count = stdout.trim().parse::<u64>().map_err(|_| Error::Refused {
         command: format!("git rev-list --count {base}..{branch}"),
         detail: format!("expected a commit count, got `{stdout}`"),
@@ -579,7 +579,7 @@ pub(crate) fn commits_ahead(git_dir: &Utf8Path, base: &str, branch: &str) -> Res
 /// recognised. The `--format=` drops the commit header and keeps only the
 /// diff, which is what `patch-id` hashes.
 pub(crate) fn commit_patch_id(worktree: &Utf8Path, commit: &str) -> Result<String, Error> {
-    let diff = run(git().cwd(worktree).arg("show").arg("--format=").arg(commit))?;
+    let diff = run(&git().cwd(worktree).arg("show").arg("--format=").arg(commit))?;
     patch_id_of(worktree, &diff)
 }
 
@@ -590,14 +590,14 @@ pub(crate) fn commit_patch_id(worktree: &Utf8Path, commit: &str) -> Result<Strin
 /// *range* of commits as one change, which is what a squash-merged re-landing
 /// of several local commits looks like upstream.
 pub(crate) fn diff_patch_id(worktree: &Utf8Path, base: &str, tip: &str) -> Result<String, Error> {
-    let diff = run(git().cwd(worktree).arg("diff").arg(base).arg(tip))?;
+    let diff = run(&git().cwd(worktree).arg("diff").arg(base).arg(tip))?;
     patch_id_of(worktree, &diff)
 }
 
 /// `git patch-id --stable`, fed `diff` on stdin — the hash in the first
 /// column of its output.
 fn patch_id_of(worktree: &Utf8Path, diff: &str) -> Result<String, Error> {
-    let stdout = run(git().arg("patch-id").arg("--stable").stdin(diff))?;
+    let stdout = run(&git().arg("patch-id").arg("--stable").stdin(diff))?;
     let id = stdout.split_whitespace().next().unwrap_or_default();
     if id.is_empty() {
         return Err(Error::Refused {
@@ -615,7 +615,7 @@ fn patch_id_of(worktree: &Utf8Path, diff: &str) -> Result<String, Error> {
 /// duplicates of work landed elsewhere and that the worktree is clean. Runs
 /// inside the worktree, like `fast_forward`.
 pub(crate) fn reset_hard(worktree: &Utf8Path, revision: &str) -> Result<(), Error> {
-    run(git().cwd(worktree).arg("reset").arg("--hard").arg(revision))?;
+    run(&git().cwd(worktree).arg("reset").arg("--hard").arg(revision))?;
     Ok(())
 }
 
@@ -636,7 +636,7 @@ pub(crate) fn remote_branch_tip(
     remote: &str,
     branch: &str,
 ) -> Result<Option<String>, Error> {
-    let stdout = run(git()
+    let stdout = run(&git()
         .arg("--git-dir")
         .arg(git_dir.as_str())
         .arg("ls-remote")
@@ -661,7 +661,7 @@ pub(crate) fn push(git_dir: &Utf8Path, remote: &str, from: &str, to: &str) -> Re
     let mapped = to
         .strip_prefix("refs/heads/")
         .map_or_else(|| to.to_owned(), |b| remote_branch_ref(git_dir, b));
-    run(git()
+    run(&git()
         .arg("--git-dir")
         .arg(git_dir.as_str())
         .arg("push")
@@ -692,7 +692,7 @@ fn record_push(git_dir: &Utf8Path, remote: &str, from: &str, to: &str) {
     if origin_url(git_dir).as_deref() != Some(remote) {
         return;
     }
-    let _ = run(git()
+    let _ = run(&git()
         .arg("--git-dir")
         .arg(git_dir.as_str())
         .arg("update-ref")
@@ -723,7 +723,7 @@ fn origin_url(git_dir: &Utf8Path) -> Option<String> {
 /// middle of the rebase. The caller decides what that means (abort and move
 /// on, in `feature rebase`'s case); this function's job ends at reporting.
 pub(crate) fn rebase_branch(worktree: &Utf8Path, branch: &str) -> Result<(), Error> {
-    run(git().cwd(worktree).arg("rebase").arg(branch))?;
+    run(&git().cwd(worktree).arg("rebase").arg(branch))?;
     Ok(())
 }
 
@@ -733,7 +733,7 @@ pub(crate) fn rebase_branch(worktree: &Utf8Path, branch: &str) -> Result<(), Err
 /// Refuses (non-zero) when no rebase is in progress — "no rebase in progress"
 /// is git's own answer, surfaced as [`Error::Refused`].
 pub(crate) fn abort_rebase(worktree: &Utf8Path) -> Result<(), Error> {
-    run(git().cwd(worktree).arg("rebase").arg("--abort"))?;
+    run(&git().cwd(worktree).arg("rebase").arg("--abort"))?;
     Ok(())
 }
 
@@ -744,7 +744,7 @@ pub(crate) fn abort_rebase(worktree: &Utf8Path) -> Result<(), Error> {
 /// at `from`, touching no worktree's index or working tree. Refuses
 /// (`Error::Refused`) when `from` does not exist or `to` already does.
 pub(crate) fn rename_branch(git_dir: &Utf8Path, from: &str, to: &str) -> Result<(), Error> {
-    run(git()
+    run(&git()
         .arg("--git-dir")
         .arg(git_dir.as_str())
         .arg("branch")
@@ -767,7 +767,7 @@ pub(crate) fn move_worktree(
     if let Some(parent) = to.parent() {
         fs::ensure_dir(parent)?;
     }
-    run(git()
+    run(&git()
         .arg("--git-dir")
         .arg(git_dir.as_str())
         .arg("worktree")
@@ -793,7 +793,7 @@ pub(crate) fn publish_remote_branch(
 ) -> Result<(), Error> {
     let to = format!("refs/heads/{branch}");
     let mapped = remote_branch_ref(git_dir, branch);
-    run(git()
+    run(&git()
         .arg("--git-dir")
         .arg(git_dir.as_str())
         .arg("push")
@@ -825,7 +825,7 @@ pub(crate) fn delete_remote_branch(
     expected_tip: &str,
 ) -> Result<(), Error> {
     let mapped = remote_branch_ref(git_dir, branch);
-    run(git()
+    run(&git()
         .arg("--git-dir")
         .arg(git_dir.as_str())
         .arg("push")
@@ -846,7 +846,7 @@ fn record_delete(git_dir: &Utf8Path, remote: &str, branch: &str) {
     if origin_url(git_dir).as_deref() != Some(remote) {
         return;
     }
-    let _ = run(git()
+    let _ = run(&git()
         .arg("--git-dir")
         .arg(git_dir.as_str())
         .arg("update-ref")

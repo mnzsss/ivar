@@ -157,28 +157,6 @@ impl FlowOps for RealFlowOps {
     }
 }
 
-/// Run the full internal OAuth flow for OpenCode + Figma.
-#[allow(dead_code)]
-pub(super) fn run_internal_flow(
-    layout: &Layout,
-    manifest: &Manifest,
-    server: &McpServerDef,
-    materialised_name: &str,
-    provider: crate::domain::provider::Provider,
-) -> ProviderRun {
-    match run_internal_flow_inner(layout, manifest, server, materialised_name, provider) {
-        Ok(run) => run,
-        Err(failure) => ProviderRun {
-            provider,
-            preregistration: Preregistration::NotNeeded,
-            auth_method: AuthMethod::InternalOAuthFlow,
-            command: INTERNAL_FLOW_LABEL.to_owned(),
-            authenticated: false,
-            error: Some(failure.what),
-        },
-    }
-}
-
 pub(super) fn run_internal_flow_inner(
     layout: &Layout,
     manifest: &Manifest,

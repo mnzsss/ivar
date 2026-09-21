@@ -104,6 +104,10 @@ pub struct Split<'a> {
 ///
 /// No frontmatter is normal, not an error: `Split { frontmatter: None, body:
 /// source }`. An opening fence with no matching close is a hard error.
+/// # Errors
+///
+/// Returns [`FrontmatterError::UnterminatedFence`] if an opening fence
+/// has no matching close.
 pub fn split(source: &str) -> Result<Split<'_>, FrontmatterError> {
     let Some((first_line, after_first_line)) = next_line(source, 0) else {
         // Empty input: nothing to open, so it is all (empty) body.
@@ -146,6 +150,10 @@ pub fn split(source: &str) -> Result<Split<'_>, FrontmatterError> {
 /// both feed an empty YAML document to the deserializer, which succeeds only if
 /// `T` accepts an empty mapping (every field defaultable, or `T` is itself
 /// something like a map type).
+/// # Errors
+///
+/// Returns [`FrontmatterError`] if `source`'s frontmatter fence is
+/// unterminated, or the block cannot be deserialized into `T`.
 pub fn parse<T: DeserializeOwned>(source: &str) -> Result<T, FrontmatterError> {
     let split = split(source)?;
     let block = split.frontmatter.unwrap_or_default();
@@ -157,6 +165,10 @@ pub fn parse<T: DeserializeOwned>(source: &str) -> Result<T, FrontmatterError> {
 /// The body is untouched, byte-for-byte: whatever followed the original closing
 /// fence (or the entire input, if there was no frontmatter) is copied through
 /// unchanged, including its line endings and trailing-newline state.
+/// # Errors
+///
+/// Returns [`FrontmatterError`] if `source`'s frontmatter fence is
+/// unterminated, or `new_frontmatter` cannot be rendered as YAML.
 pub fn replace<T: Serialize>(
     source: &str,
     new_frontmatter: &T,

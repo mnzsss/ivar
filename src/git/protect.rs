@@ -106,7 +106,7 @@ pub(crate) fn protect_default_branch(
 ) -> Result<Protection, Error> {
     let bare_git = || git().arg("--git-dir").arg(bare_path.as_str());
 
-    run(bare_git()
+    run(&bare_git()
         .arg("config")
         .arg("extensions.worktreeConfig")
         .arg("true"))?;
@@ -117,7 +117,7 @@ pub(crate) fn protect_default_branch(
     // `--local` asks about the shared config alone. A plain `--get` would read
     // back the worktree config this migration just wrote and try to unset the
     // shared key a second time, which exits non-zero for "nothing to unset".
-    let unmigrated = run(bare_git()
+    let unmigrated = run(&bare_git()
         .arg("config")
         .arg("--local")
         .arg("--get")
@@ -125,12 +125,12 @@ pub(crate) fn protect_default_branch(
     .map(|value| value.trim() == "true")
     .unwrap_or(false);
     if unmigrated {
-        run(bare_git()
+        run(&bare_git()
             .arg("config")
             .arg("--worktree")
             .arg("core.bare")
             .arg("true"))?;
-        run(bare_git().arg("config").arg("--unset").arg("core.bare"))?;
+        run(&bare_git().arg("config").arg("--unset").arg("core.bare"))?;
     }
 
     let hooks_dir = bare_path.join("ivar-hooks");
@@ -146,7 +146,7 @@ pub(crate) fn protect_default_branch(
 
     // Absolute: a relative `core.hooksPath` resolves against the worktree, and
     // the hook does not live there.
-    run(git()
+    run(&git()
         .cwd(default_worktree.as_str())
         .arg("config")
         .arg("--worktree")

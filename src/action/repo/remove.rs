@@ -106,120 +106,21 @@ pub fn remove(ctx: &Ctx, input: RemoveInput) -> Outcome<RemoveOutcome> {
     let mut warnings = Vec::new();
 
     let features = features_promoting(&layout, &name)?;
-
-    // 1. Feature-branch worktrees, removed through git so the bare's worktree
-    //    metadata goes with them. `--force` has been given, so git's dirty-
-    //    worktree refusal — the guard the gate exists to override — is lifted.
     let bare = layout.repo_bare(&name);
-    for feature in &features {
-        let worktree = layout.repo_worktree(&name, &feature.branch);
-        let surface = format!("feature {}", feature.name);
-        if !fs::is_dir(&worktree)? {
-            // Never materialised; the promotion scrub below is the whole step.
-            continue;
-        }
-        match git.remove_worktree(&bare, &worktree) {
-            Ok(()) => steps.push(Entry::new(
-                &surface,
-                format!("worktree {}", feature.branch),
-                Change::Removed,
-            )),
-            Err(error) => record_step(
-                &mut steps,
-                &mut warnings,
-                &surface,
-                format!("worktree {}", feature.branch),
-                error.into(),
-            ),
-        }
-    }
 
-    // 2. Scrub the repo from every feature's promotion records.
-    for mut feature in features {
-        let surface = format!("feature {}", feature.name);
-        feature.demote(&name);
-        match feature.write(&layout) {
-            Ok(()) => steps.push(Entry::new(
-                &surface,
-                format!("promotion of `{name}`"),
-                Change::Removed,
-            )),
-            Err(error) => record_step(
-                &mut steps,
-                &mut warnings,
-                &surface,
-                format!("promotion of `{name}`"),
-                error,
-            ),
-        }
-    }
-
-    // 3. Repair every live view dir: the `repos/<name>` symlink is now
-    //    dangling, and with the repo gone the repair is to unlink it.
-    for view_dir in live_view_dirs(&layout)? {
-        for candidate in [
-            view_dir.join(name.as_str()),
-            view_dir.join("repos").join(name.as_str()),
-        ] {
-            if matches!(fs::read_symlink(&candidate)?, fs::SymlinkTarget::Target(_)) {
-                match fs::remove_file(&candidate) {
-                    Ok(()) => steps.push(Entry::new(
-                        "view dir",
-                        candidate.to_string(),
-                        Change::Removed,
-                    )),
-                    Err(error) => record_step(
-                        &mut steps,
-                        &mut warnings,
-                        "view dir",
-                        candidate.to_string(),
-                        error.into(),
-                    ),
-                }
-            }
-        }
-    }
-
-    // 4. The repo's whole store dir: the bare clone, the default worktree, and
-    //    any worktree step 1 could not remove. Idempotent — absent is fine.
-    let repo_dir = layout.repo_dir(&name);
-    if fs::exists(&repo_dir)? {
-        match fs::remove_path(&repo_dir) {
-            Ok(()) => steps.push(Entry::new(
-                name.to_string(),
-                format!(".ivar/repos/{name}/"),
-                Change::Removed,
-            )),
-            Err(error) => record_step(
-                &mut steps,
-                &mut warnings,
-                name.as_str(),
-                format!(".ivar/repos/{name}/"),
-                error.into(),
-            ),
-        }
-    } else {
-        steps.push(Entry::new(
-            name.to_string(),
-            format!(".ivar/repos/{name}/"),
-            Change::Unchanged,
-        ));
-    }
-
-    // 5. The repo's rows in the code graph.
-    let graph_db = layout.ivar_dir().join("memory.db");
-    if graph_db.is_file() {
-        match GraphDb::open(graph_db.as_std_path()).and_then(|db| db.forget_repo(name.as_str())) {
-            Ok(()) => steps.push(Entry::new("graph", name.to_string(), Change::Removed)),
-            Err(error) => record_step(
-                &mut steps,
-                &mut warnings,
-                "graph",
-                name.to_string(),
-                Failure::failed("graph.forget_failed", error.to_string()),
-            ),
-        }
-    }
+    remove_feature_worktrees(
+        &git,
+        &name,
+        &bare,
+        &layout,
+        &features,
+        &mut steps,
+        &mut warnings,
+    )?;
+    scrub_feature_promotions(&layout, &name, features, &mut steps, &mut warnings);
+    repair_view_dir_symlinks(&layout, &name, &mut steps, &mut warnings)?;
+    remove_repo_dir(&layout, &name, &mut steps, &mut warnings)?;
+    forget_repo_in_graph(&layout, &name, &mut steps, &mut warnings);
 
     // 6. The authoritative final steps. The manifest write failing aborts the
     //    verb — the repo is still declared, so a retry is safe — while provider
@@ -238,6 +139,161 @@ pub fn remove(ctx: &Ctx, input: RemoveInput) -> Outcome<RemoveOutcome> {
         },
         warnings,
     ))
+}
+
+// 1. Feature-branch worktrees, removed through git so the bare's worktree
+//    metadata goes with them. `--force` has been given, so git's dirty-
+//    worktree refusal — the guard the gate exists to override — is lifted.
+fn remove_feature_worktrees(
+    git: &impl Git,
+    name: &RepoName,
+    bare: &Utf8Path,
+    layout: &Layout,
+    features: &[Feature],
+    steps: &mut Vec<Entry>,
+    warnings: &mut Vec<Warning>,
+) -> Result<(), Failure> {
+    for feature in features {
+        let worktree = layout.repo_worktree(name, &feature.branch);
+        let surface = format!("feature {}", feature.name);
+        if !fs::is_dir(&worktree)? {
+            // Never materialised; the promotion scrub below is the whole step.
+            continue;
+        }
+        match git.remove_worktree(bare, &worktree) {
+            Ok(()) => steps.push(Entry::new(
+                &surface,
+                format!("worktree {}", feature.branch),
+                Change::Removed,
+            )),
+            Err(error) => record_step(
+                steps,
+                warnings,
+                &surface,
+                format!("worktree {}", feature.branch),
+                error.into(),
+            ),
+        }
+    }
+    Ok(())
+}
+
+// 2. Scrub the repo from every feature's promotion records.
+fn scrub_feature_promotions(
+    layout: &Layout,
+    name: &RepoName,
+    features: Vec<Feature>,
+    steps: &mut Vec<Entry>,
+    warnings: &mut Vec<Warning>,
+) {
+    for mut feature in features {
+        let surface = format!("feature {}", feature.name);
+        feature.demote(name);
+        match feature.write(layout) {
+            Ok(()) => steps.push(Entry::new(
+                &surface,
+                format!("promotion of `{name}`"),
+                Change::Removed,
+            )),
+            Err(error) => record_step(
+                steps,
+                warnings,
+                &surface,
+                format!("promotion of `{name}`"),
+                error,
+            ),
+        }
+    }
+}
+
+// 3. Repair every live view dir: the `repos/<name>` symlink is now dangling,
+//    and with the repo gone the repair is to unlink it.
+fn repair_view_dir_symlinks(
+    layout: &Layout,
+    name: &RepoName,
+    steps: &mut Vec<Entry>,
+    warnings: &mut Vec<Warning>,
+) -> Result<(), Failure> {
+    for view_dir in live_view_dirs(layout)? {
+        for candidate in [
+            view_dir.join(name.as_str()),
+            view_dir.join("repos").join(name.as_str()),
+        ] {
+            if matches!(fs::read_symlink(&candidate)?, fs::SymlinkTarget::Target(_)) {
+                match fs::remove_file(&candidate) {
+                    Ok(()) => steps.push(Entry::new(
+                        "view dir",
+                        candidate.to_string(),
+                        Change::Removed,
+                    )),
+                    Err(error) => record_step(
+                        steps,
+                        warnings,
+                        "view dir",
+                        candidate.to_string(),
+                        error.into(),
+                    ),
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+// 4. The repo's whole store dir: the bare clone, the default worktree, and
+//    any worktree step 1 could not remove. Idempotent — absent is fine.
+fn remove_repo_dir(
+    layout: &Layout,
+    name: &RepoName,
+    steps: &mut Vec<Entry>,
+    warnings: &mut Vec<Warning>,
+) -> Result<(), Failure> {
+    let repo_dir = layout.repo_dir(name);
+    if fs::exists(&repo_dir)? {
+        match fs::remove_path(&repo_dir) {
+            Ok(()) => steps.push(Entry::new(
+                name.to_string(),
+                format!(".ivar/repos/{name}/"),
+                Change::Removed,
+            )),
+            Err(error) => record_step(
+                steps,
+                warnings,
+                name.as_str(),
+                format!(".ivar/repos/{name}/"),
+                error.into(),
+            ),
+        }
+    } else {
+        steps.push(Entry::new(
+            name.to_string(),
+            format!(".ivar/repos/{name}/"),
+            Change::Unchanged,
+        ));
+    }
+    Ok(())
+}
+
+// 5. The repo's rows in the code graph.
+fn forget_repo_in_graph(
+    layout: &Layout,
+    name: &RepoName,
+    steps: &mut Vec<Entry>,
+    warnings: &mut Vec<Warning>,
+) {
+    let graph_db = layout.ivar_dir().join("memory.db");
+    if graph_db.is_file() {
+        match GraphDb::open(graph_db.as_std_path()).and_then(|db| db.forget_repo(name.as_str())) {
+            Ok(()) => steps.push(Entry::new("graph", name.to_string(), Change::Removed)),
+            Err(error) => record_step(
+                steps,
+                warnings,
+                "graph",
+                name.to_string(),
+                Failure::failed("graph.forget_failed", error.to_string()),
+            ),
+        }
+    }
 }
 
 /// Every reason `name` cannot be removed yet: features promoting it, and live

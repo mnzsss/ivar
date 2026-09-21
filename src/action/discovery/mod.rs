@@ -30,17 +30,13 @@ pub mod show;
 /// When running inside an unconverted discovery session (`feature: None`),
 /// the doc resolves to `<view_dir>/discovery.md`.
 /// Otherwise, it resolves to `layout.discovery_doc(name)` (`.ivar/features/<name>/discovery.md`).
-pub(crate) fn resolve_doc_path(
-    ctx: &Ctx,
-    layout: &Layout,
-    name: &FeatureName,
-) -> Result<Utf8PathBuf, Failure> {
+pub(crate) fn resolve_doc_path(ctx: &Ctx, layout: &Layout, name: &FeatureName) -> Utf8PathBuf {
     if let Ok(Some(env)) = SessionEnv::resolve_by_cwd(&ctx.cwd)
         && env.feature.is_none()
     {
-        return Ok(env.view_dir.join("discovery.md"));
+        return env.view_dir.join("discovery.md");
     }
-    Ok(layout.discovery_doc(name))
+    layout.discovery_doc(name)
 }
 
 /// Read a discovery doc at an exact path.
@@ -65,7 +61,7 @@ pub(crate) fn load_at(path: &Utf8Path, name: &FeatureName) -> Result<DiscoveryDo
 
 /// Read a name's discovery doc from the feature directory, or fail with the
 /// standard "no discovery" message.
-#[allow(dead_code)]
+#[cfg(test)]
 pub(crate) fn load(layout: &Layout, name: &FeatureName) -> Result<DiscoveryDoc, Failure> {
     load_at(&layout.discovery_doc(name), name)
 }
@@ -76,7 +72,6 @@ pub(crate) fn load(layout: &Layout, name: &FeatureName) -> Result<DiscoveryDoc, 
 ///
 /// When the doc's front matter is unreadable (D5): rewriting it would drop
 /// every key ivar failed to see.
-#[allow(dead_code)]
 pub(crate) fn ensure_writable(doc: &DiscoveryDoc, name: &FeatureName) -> Result<(), Failure> {
     if doc.is_writable() {
         return Ok(());

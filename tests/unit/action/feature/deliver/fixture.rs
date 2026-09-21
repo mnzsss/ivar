@@ -40,7 +40,7 @@ pub(super) fn hall_with_promoted(repos: &[&str]) -> (tempfile::TempDir, Utf8Path
     let ctx = Ctx::new(root.clone());
     hall::init(
         &ctx,
-        InitInput {
+        &InitInput {
             path: Utf8PathBuf::from("."),
             name: Some("acme".to_owned()),
             provider: None,
@@ -82,7 +82,7 @@ pub(super) fn hall_with_promoted(repos: &[&str]) -> (tempfile::TempDir, Utf8Path
         },
     )
     .unwrap();
-    crate::action::sync::sync(&ctx, Default::default()).unwrap();
+    crate::action::sync::sync(&ctx, &Default::default()).unwrap();
 
     let branch = BranchName::new("checkout").unwrap();
     for name in repos {

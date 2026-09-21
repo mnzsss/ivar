@@ -39,7 +39,7 @@ fn preview_shows_the_recorded_base_not_always_the_default_branch() {
     let ctx = Ctx::new(root.clone());
     hall::init(
         &ctx,
-        InitInput {
+        &InitInput {
             path: Utf8PathBuf::from("."),
             name: Some("acme".to_owned()),
             provider: None,
@@ -80,7 +80,7 @@ fn preview_shows_the_recorded_base_not_always_the_default_branch() {
         },
     )
     .unwrap();
-    crate::action::sync::sync(&ctx, Default::default()).unwrap();
+    crate::action::sync::sync(&ctx, &Default::default()).unwrap();
     promote::promote(
         &ctx,
         PromoteInput {

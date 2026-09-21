@@ -17,7 +17,7 @@ fn seeded_hall() -> (tempfile::TempDir, Utf8PathBuf) {
     let ctx = Ctx::new(root.clone());
     hall::init(
         &ctx,
-        InitInput {
+        &InitInput {
             path: Utf8PathBuf::from("."),
             name: Some("acme".to_owned()),
             provider: None,
@@ -56,7 +56,7 @@ fn input() -> StatusInput {
 #[test]
 fn status_lists_exactly_the_three_spdd_gates() {
     let (_guard, root) = seeded_hall();
-    let report = status(&Ctx::new(root), input()).unwrap();
+    let report = status(&Ctx::new(root), &input()).unwrap();
     assert_eq!(
         report
             .value
@@ -89,7 +89,7 @@ fn status_reports_approval_drift_without_persisting_it() {
     )
     .unwrap();
 
-    let report = status(&ctx, input()).unwrap();
+    let report = status(&ctx, &input()).unwrap();
     assert!(
         report
             .value
@@ -129,7 +129,7 @@ fn status_projects_current_receipt_and_plan_divergence() {
     receipt.write(&layout).unwrap();
     fs::write_text(&plan, "revised plan").unwrap();
 
-    let report = status(&Ctx::new(root), input()).unwrap();
+    let report = status(&Ctx::new(root), &input()).unwrap();
     let receipt = report.value.receipt.unwrap();
     assert_eq!(receipt.status, RunStatus::Active);
     assert!(!receipt.plan_matches);
@@ -142,7 +142,7 @@ fn status_omits_gate_whose_artifact_is_absent_and_never_approved() {
     let (_guard, root) = seeded_hall();
     fs::remove_file(&root.join(".ivar/features/checkout/requirements.md")).unwrap();
 
-    let report = status(&Ctx::new(root), input()).unwrap();
+    let report = status(&Ctx::new(root), &input()).unwrap();
     assert_eq!(
         report
             .value
@@ -168,7 +168,7 @@ fn status_keeps_approved_gate_as_needs_revision_when_its_artifact_is_deleted() {
     .unwrap();
     fs::remove_file(&root.join(".ivar/features/checkout/requirements.md")).unwrap();
 
-    let report = status(&ctx, input()).unwrap();
+    let report = status(&ctx, &input()).unwrap();
     let requirements = report
         .value
         .gates
@@ -182,7 +182,7 @@ fn status_keeps_approved_gate_as_needs_revision_when_its_artifact_is_deleted() {
 #[test]
 fn status_lists_all_three_gates_when_every_artifact_is_present() {
     let (_guard, root) = seeded_hall();
-    let report = status(&Ctx::new(root), input()).unwrap();
+    let report = status(&Ctx::new(root), &input()).unwrap();
     assert_eq!(
         report
             .value
@@ -206,7 +206,7 @@ fn status_refuses_a_path_outside_feature_plans() {
     let (_guard, root) = seeded_hall();
     let failure = status(
         &Ctx::new(root),
-        StatusInput {
+        &StatusInput {
             plan_path: "README.md".to_owned(),
         },
     )
@@ -238,7 +238,7 @@ fn status_invalidates_an_approved_gate_once_an_upstream_artifact_appears() {
     )
     .unwrap();
 
-    let before = status(&ctx, input()).unwrap();
+    let before = status(&ctx, &input()).unwrap();
     assert_eq!(
         before
             .value
@@ -260,7 +260,7 @@ fn status_invalidates_an_approved_gate_once_an_upstream_artifact_appears() {
     )
     .unwrap();
 
-    let after = status(&ctx, input()).unwrap();
+    let after = status(&ctx, &input()).unwrap();
     let states: Vec<_> = after
         .value
         .gates
@@ -300,7 +300,7 @@ fn status_derives_feature_from_features_dir() {
 
     let report = status(
         &ctx,
-        StatusInput {
+        &StatusInput {
             plan_path: ".ivar/features/checkout/plan.md".to_owned(),
         },
     )

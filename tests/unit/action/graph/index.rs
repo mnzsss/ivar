@@ -549,3 +549,13 @@ fn parallel_extraction_indexes_every_file_once() {
     assert!(steps.iter().any(|step| step.starts_with("[64/64] wide:")));
     assert_eq!(recording.clears(), 1);
 }
+
+#[test]
+fn duration_ms_never_wraps_negative_when_read_back_as_i64() {
+    let elapsed = std::time::Duration::from_millis(1_500);
+    let duration_ms = u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX);
+    assert!(
+        i64::try_from(duration_ms).is_ok(),
+        "duration_ms must fit a signed 64-bit count for any JSON number encoder"
+    );
+}

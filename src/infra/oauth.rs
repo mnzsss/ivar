@@ -19,6 +19,7 @@
 //! authorization code, PKCE verifier, or token into its `actual` — those are
 //! redacted or replaced with a generic category.
 
+use std::fmt::Write as _;
 use std::io::Read;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -185,6 +186,10 @@ impl std::fmt::Display for AuthMode {
 /// `ClientSecretBasic`.
 /// `resource` is included only when `Some` (RFC 8707).
 #[allow(clippy::too_many_arguments)]
+/// # Errors
+///
+/// Returns [`Failure`] if the token request fails or the response
+/// cannot be parsed.
 pub fn exchange_code(
     token_endpoint: &str,
     authorization_code: &str,
@@ -265,7 +270,7 @@ pub fn exchange_code(
 
         let mut oauth_err = format!("token endpoint returned {status}: {}", summary.category);
         if let Some(detail) = summary.detail {
-            oauth_err.push_str(&format!(", {detail}"));
+            let _ = write!(oauth_err, ", {detail}");
         }
 
         return Err(Failure::failed("oauth.exchange_code_http", oauth_err)
@@ -319,7 +324,7 @@ fn summarize_error_body(body: &str) -> ErrorSummary {
             ]
             .contains(&s.as_str())
         {
-            category = s.clone();
+            category.clone_from(s);
             break;
         }
     }
@@ -426,7 +431,9 @@ fn encode_component(s: &str, space_as_plus: bool) -> String {
             }
             b' ' if space_as_plus => out.push('+'),
             b' ' => out.push_str("%20"),
-            _ => out.push_str(&format!("%{byte:02X}")),
+            _ => {
+                let _ = write!(out, "%{byte:02X}");
+            }
         }
     }
     out

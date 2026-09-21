@@ -35,7 +35,7 @@ fn update_authored_skill_is_a_noop_with_warning() {
     let ctx = Ctx::new(root);
     let report = update(
         &ctx,
-        UpdateInput {
+        &UpdateInput {
             skills: vec!["refactor".to_owned()],
         },
     )
@@ -55,7 +55,7 @@ fn update_external_skill_attempts_download() {
     let ctx = Ctx::new(root);
     let report = update(
         &ctx,
-        UpdateInput {
+        &UpdateInput {
             skills: vec!["external-skill".to_owned()],
         },
     )
@@ -79,7 +79,7 @@ fn one_failing_skill_does_not_abort_the_batch() {
     let ctx = Ctx::new(root);
     let report = update(
         &ctx,
-        UpdateInput {
+        &UpdateInput {
             skills: vec!["authored".to_owned(), "external".to_owned()],
         },
     )
@@ -100,7 +100,7 @@ fn update_of_nonexistent_skill_is_clean() {
 
     let report = update(
         &ctx,
-        UpdateInput {
+        &UpdateInput {
             skills: vec!["nonexistent".to_owned()],
         },
     )

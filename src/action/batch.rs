@@ -62,6 +62,9 @@ where
                         }
                     };
 
+                    // `rx` lives in the enclosing `thread::scope`, which joins every
+                    // worker before it can drop, so the receiver is always still
+                    // alive here and this send cannot fail.
                     let _ = tx.send((idx, outcome));
                 }
             });

@@ -24,7 +24,7 @@ pub mod run;
 
 use crate::domain::feature::{ApprovalState, Feature};
 use crate::domain::name::FeatureName;
-use crate::error::Failure;
+use crate::error::{Failure, FixAction};
 use crate::store::layout::Layout;
 use crate::store::versioned::{Migration, Policy, Store};
 
@@ -49,19 +49,54 @@ const APPROVALS_FILE: &str = "approvals.json";
 /// variant because the whole point is that the variant is gone.
 const RETIRED_GATE: &str = "execution_graph";
 
+/// The hard `feature.not_found` refusal every feature lookup shares.
+pub(crate) fn feature_not_found(name: &FeatureName) -> Failure {
+    Failure::blocked(
+        "feature.not_found",
+        format!("feature `{name}` does not exist"),
+    )
+    .expected("an existing feature")
+    .actual(format!("`{name}` has no feature.json"))
+    .fix(FixAction::safe(
+        "feature.create_first",
+        format!("Create it first with `ivar feature create {name}`."),
+    ))
+}
+
 impl Feature {
     /// Read `features/<name>/feature.json`. `Ok(None)` when the feature has
     /// never been written — a feature created but never promoted.
     ///
     /// A file newer than this binary understands is a hard error; see
     /// [`Store::read`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Failure`] if the file exists but cannot be read, or
+    /// is newer than this binary understands.
     pub fn read(layout: &Layout, name: &FeatureName) -> Result<Option<Self>, Failure> {
         store(layout, name).read().map_err(Failure::from)
+    }
+
+    /// Read `features/<name>/feature.json`, or a hard `feature.not_found` —
+    /// the refusal shared by every action that needs the feature to exist.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Failure`] if the feature does not exist, or its
+    /// `feature.json` cannot be read.
+    pub fn read_or_not_found(layout: &Layout, name: &FeatureName) -> Result<Self, Failure> {
+        Self::read(layout, name)?.ok_or_else(|| feature_not_found(name))
     }
 
     /// Write this feature to `features/<name>/feature.json`, atomically, in
     /// canonical form. Creates the feature directory if it does not exist —
     /// `feature create` calls this on a brand-new feature.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Failure`] if the feature directory cannot be created
+    /// or the file cannot be written.
     pub fn write(&self, layout: &Layout) -> Result<(), Failure> {
         let dir = layout.feature_dir(&self.name);
         crate::infra::fs::ensure_dir(&dir)?;
@@ -75,6 +110,11 @@ impl ApprovalState {
     ///
     /// A file newer than this binary understands is a hard error; see
     /// [`Store::read`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Failure`] if the file exists but cannot be read, or
+    /// is newer than this binary understands.
     pub fn read(layout: &Layout, name: &FeatureName) -> Result<Option<Self>, Failure> {
         approvals_store(layout, name).read().map_err(Failure::from)
     }
@@ -82,6 +122,11 @@ impl ApprovalState {
     /// Write this approval state to
     /// `features/<name>/planning/approvals.json`, atomically, in canonical
     /// form. Creates the planning directory if it does not exist.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Failure`] if the planning directory cannot be
+    /// created or the file cannot be written.
     pub fn write(&self, layout: &Layout, name: &FeatureName) -> Result<(), Failure> {
         crate::infra::fs::ensure_dir(&layout.planning_dir(name))?;
         approvals_store(layout, name)
@@ -94,6 +139,10 @@ impl ApprovalState {
 /// step (now in [`run::legacy`]), `feature.json` has shipped with `version: 1`
 /// stamped since it first existed — this step exists only to keep the chain contiguous from
 /// 0, which [`Store::new`] requires once any migration is registered.
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "signature is fixed by MigrateFn (store/versioned/mod.rs), shared across every migration step"
+)]
 fn feature_v0_to_v1(value: serde_json::Value) -> Result<serde_json::Value, String> {
     Ok(value)
 }
@@ -105,6 +154,10 @@ fn feature_v0_to_v1(value: serde_json::Value) -> Result<serde_json::Value, Strin
 /// `action`, and the feature's effective base (the declared branch, or the
 /// repo's `default_branch`) is computed from the manifest, which this
 /// module has no access to.
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "signature is fixed by MigrateFn (store/versioned/mod.rs), shared across every migration step"
+)]
 fn feature_v1_to_v2(value: serde_json::Value) -> Result<serde_json::Value, String> {
     Ok(value)
 }
