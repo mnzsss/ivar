@@ -8,6 +8,7 @@ use crate::domain::graph::{
     ComplexityItem, DeadCodeItem, GraphStats, HierarchyItem, MissRecord, UsageStats,
 };
 use crate::error::WriteHuman;
+use crate::store::graph::db::types::now_timestamp;
 #[derive(Debug, Clone, Serialize)]
 pub struct FindOutcome {
     pub query: String,
@@ -173,7 +174,7 @@ impl WriteHuman for StatsOutcome {
                 "  {:<12} {:<4} {:>7} {:>6} {:>6} {:>7} {:>7} {:>11}",
                 "command", "src", "count", "empty", "errors", "p50_ms", "p95_ms", "last_used"
             )?;
-            let now = unix_now();
+            let now = now_timestamp();
             for u in &s.usage {
                 writeln!(
                     w,
@@ -208,7 +209,7 @@ impl WriteHuman for MissesOutcome {
             "Graph misses ({} found, newest first):",
             self.misses.len()
         )?;
-        let now = unix_now();
+        let now = now_timestamp();
         for m in &self.misses {
             writeln!(
                 w,
@@ -248,12 +249,6 @@ impl ToCompact for MissesOutcome {
 
 fn empty_label(u: &UsageStats) -> String {
     u.empty_count.to_string()
-}
-
-pub(crate) fn unix_now() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| i64::try_from(d.as_secs()).unwrap_or(i64::MAX))
 }
 
 fn relative_age(now: i64, then: i64) -> String {

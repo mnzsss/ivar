@@ -324,7 +324,7 @@ pub fn misses_cmd(ctx: &Ctx, input: &MissesInput) -> Outcome<MissesOutcome> {
     let since = input
         .since
         .as_deref()
-        .map(|raw| parse_since(raw, outcome::query::unix_now()))
+        .map(|raw| parse_since(raw, crate::store::graph::db::types::now_timestamp()))
         .transpose()?;
     let db = open_graph_db(ctx)?;
     let _ = db.prune(MISS_RETENTION_DAYS);

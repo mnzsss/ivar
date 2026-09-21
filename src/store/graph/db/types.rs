@@ -70,7 +70,7 @@ pub struct CleanAllStats {
     pub usage_removed: usize,
 }
 
-pub(super) fn now_timestamp() -> i64 {
+pub fn now_timestamp() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| i64::try_from(d.as_secs()).unwrap_or(i64::MAX))

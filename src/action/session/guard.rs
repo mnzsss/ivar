@@ -441,12 +441,6 @@ pub fn guard(provider: Provider, stdin_json: &str) -> Result<GuardOutcome, Failu
 /// unrelated later search.
 const FOLLOWUP_WINDOW_SECS: i64 = 120;
 
-fn current_unix_ts() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| i64::try_from(d.as_secs()).unwrap_or(i64::MAX))
-}
-
 fn record_search_miss_at(cwd: &Utf8Path, ambient_session: Option<String>, pattern: &str) {
     if let Some(session) = crate::action::graph::session::session_key(cwd, ambient_session)
         && let Ok(Some(layout)) = Layout::discover(cwd)
@@ -479,7 +473,7 @@ fn record_search_miss(layout: &Layout, session: &str, pattern: &str) {
     let event = match db.last_graph_call(session) {
         Ok(None) => Some(miss(MissKind::Skipped, None)),
         Ok(Some((ts, query)))
-            if current_unix_ts() - ts <= FOLLOWUP_WINDOW_SECS
+            if crate::store::graph::db::types::now_timestamp() - ts <= FOLLOWUP_WINDOW_SECS
                 && matches!(db.last_miss_since(session, ts), Ok(false)) =>
         {
             Some(miss(MissKind::Followup, query))
