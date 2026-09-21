@@ -269,11 +269,12 @@ fn diagnose_orphan_worktrees(
             }
         };
         for entry in entries {
+            if is_integration_worktree(layout, repo.name(), &entry.path) {
+                continue;
+            }
             let branch = match (&entry.branch, entry.detached) {
                 (Some(branch), _) => branch.as_str(),
-                (None, true) if !is_integration_candidate(layout, repo.name(), &entry.path) => {
-                    "detached"
-                }
+                (None, true) => "detached",
                 (None, _) => continue,
             };
             if entry.branch.is_some()
@@ -327,17 +328,19 @@ fn orphan_diagnosis(
     }
 }
 
-/// Local integration stages its detached candidates at
-/// `<features>/<feature>/integration/<repo>/candidate`.
-fn is_integration_candidate(layout: &Layout, repo: &RepoName, path: &Utf8Path) -> bool {
-    let Ok(relative) = path.strip_prefix(layout.features_dir()) else {
+/// Local integration stages a detached candidate and, for rebase, a temporary
+/// source worktree under `<features>/<feature>/integration/<repo>/`.
+fn is_integration_worktree(layout: &Layout, repo: &RepoName, path: &Utf8Path) -> bool {
+    let Some(feature) = path
+        .strip_prefix(layout.features_dir())
+        .ok()
+        .and_then(|relative| relative.iter().next())
+        .and_then(|name| FeatureName::new(name).ok())
+    else {
         return false;
     };
-    let components: Vec<&str> = relative.iter().collect();
-    matches!(
-        components.as_slice(),
-        [_, "integration", candidate_repo, "candidate"] if *candidate_repo == repo.as_str()
-    )
+    path == layout.integration_candidate(&feature, repo)
+        || path == layout.integration_source(&feature, repo)
 }
 
 /// Every `(repo, branch)` a feature owns: its branch in each repo it promoted.

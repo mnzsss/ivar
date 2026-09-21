@@ -629,6 +629,22 @@ fn doctor_leaves_an_integration_candidate_alone() {
 }
 
 #[test]
+fn doctor_leaves_an_integration_source_worktree_alone() {
+    let (_guard, root, bare) = synced_hall_with_bare();
+    let git = crate::git::System;
+    let source = Layout::at(root.clone()).integration_source(
+        &FeatureName::new("checkout").unwrap(),
+        &crate::domain::name::RepoName::new("api").unwrap(),
+    );
+    crate::git::Git::create_branch(&git, &bare, "ivar-integrate/checkout/api", "main").unwrap();
+    crate::git::Git::add_worktree(&git, &bare, &source, "ivar-integrate/checkout/api").unwrap();
+
+    let report = doctor(&Ctx::new(root)).unwrap();
+
+    assert!(orphan_findings(&report.value).is_empty());
+}
+
+#[test]
 fn doctor_suggests_pruning_a_worktree_whose_directory_is_gone() {
     let (_guard, root, bare) = synced_hall_with_bare();
     let git = crate::git::System;
