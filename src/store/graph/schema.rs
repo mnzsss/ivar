@@ -110,6 +110,9 @@ pub const SCHEMA_VERSION: i64 = 9;
 /// Misses recorded before this version were classified without session
 /// attribution or a quote-aware parser, so they cannot be trusted.
 const MISS_PURGE_VERSION: i64 = 9;
+/// Rows stamped before real-time stamping carry a near-zero `ts`; anything
+/// below this (2001-09-09) cannot be a real observation.
+const LEGACY_MISS_TS_CEILING: i64 = 1_000_000_000;
 
 ///
 /// # Errors
@@ -207,7 +210,9 @@ fn migrate(conn: &Connection) -> rusqlite::Result<()> {
     // lookup there can only seek on the path.
     conn.execute_batch("CREATE INDEX IF NOT EXISTS idx_files_path ON files(path);")?;
     if user_version(conn)? < MISS_PURGE_VERSION {
-        conn.execute_batch("DELETE FROM graph_misses WHERE ts < 1000000000 OR kind = 'skipped';")?;
+        conn.execute_batch(&format!(
+            "DELETE FROM graph_misses WHERE ts < {LEGACY_MISS_TS_CEILING} OR kind = 'skipped';"
+        ))?;
     }
     if user_version(conn)? < SCHEMA_VERSION {
         conn.execute_batch(&format!("PRAGMA user_version = {SCHEMA_VERSION};"))?;
