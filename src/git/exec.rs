@@ -30,7 +30,7 @@ use camino::{Utf8Path, Utf8PathBuf};
 
 use crate::infra::{fs, proc};
 
-use super::Error;
+use super::{Error, WorktreeEntry};
 
 /// A `git` invocation with this module's fail-fast environment already applied.
 ///
@@ -775,6 +775,56 @@ pub(crate) fn move_worktree(
         .arg(from.as_str())
         .arg(to.as_str()))?;
     Ok(())
+}
+
+/// `git --git-dir <git_dir> worktree list --porcelain`, parsed.
+pub(crate) fn list_worktrees(git_dir: &Utf8Path) -> Result<Vec<WorktreeEntry>, Error> {
+    let out = run(&git()
+        .arg("--git-dir")
+        .arg(git_dir.as_str())
+        .arg("worktree")
+        .arg("list")
+        .arg("--porcelain"))?;
+    Ok(parse_worktree_list(&out))
+}
+
+/// `git --git-dir <git_dir> worktree prune` — drop registrations whose
+/// directory no longer exists.
+pub(crate) fn prune_worktrees(git_dir: &Utf8Path) -> Result<(), Error> {
+    run(&git()
+        .arg("--git-dir")
+        .arg(git_dir.as_str())
+        .arg("worktree")
+        .arg("prune"))?;
+    Ok(())
+}
+
+/// Parse `git worktree list --porcelain` records; bare and detached entries
+/// carry no branch.
+pub(crate) fn parse_worktree_list(porcelain: &str) -> Vec<WorktreeEntry> {
+    porcelain
+        .split("\n\n")
+        .filter_map(|record| {
+            let mut lines = record.lines();
+            let path = lines.next()?.strip_prefix("worktree ")?;
+            let mut entry = WorktreeEntry {
+                path: Utf8PathBuf::from(path),
+                branch: None,
+                detached: false,
+                prunable: false,
+            };
+            for line in lines {
+                if let Some(branch) = line.strip_prefix("branch refs/heads/") {
+                    entry.branch = Some(branch.to_owned());
+                } else if line == "detached" {
+                    entry.detached = true;
+                } else if line == "prunable" || line.starts_with("prunable ") {
+                    entry.prunable = true;
+                }
+            }
+            Some(entry)
+        })
+        .collect()
 }
 
 /// Publish `branch` at exactly `at` on `remote`, refused if `remote` already

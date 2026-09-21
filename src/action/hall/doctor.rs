@@ -4,16 +4,16 @@
 // `ivar doctor` — diagnose the hall and suggest fixes.
 // ---------------------------------------------------------------------------
 
-/// One diagnosed problem.
+use std::collections::HashSet;
 use std::io;
 
 use serde::Serialize;
 
-use crate::domain::feature::{RunReceipt, RunStatus};
-use crate::domain::name::FeatureName;
+use crate::domain::feature::{Feature, RunReceipt, RunStatus};
+use crate::domain::name::{FeatureName, RepoName};
 use crate::domain::provider::Provider;
 use crate::error::{Failure, Outcome, Report, WriteHuman};
-use crate::git::{self, Git, TargetState};
+use crate::git::{self, Git, TargetState, WorktreeEntry};
 use crate::harness::commands::{
     self, Inspection as CommandInspection, Integrity as CommandIntegrity,
 };
@@ -27,8 +27,9 @@ use crate::store::manifest::Manifest;
 
 use super::Ctx;
 use super::{discover_hall, read_manifest};
-use camino::Utf8PathBuf;
+use camino::{Utf8Path, Utf8PathBuf};
 
+/// One diagnosed problem.
 #[derive(Debug, Clone, Serialize)]
 pub struct Diagnosis {
     /// A stable code for the problem, e.g. `repo.bare_missing`.
@@ -76,6 +77,7 @@ pub fn doctor(ctx: &Ctx) -> Outcome<DoctorOutcome> {
     findings.extend(diagnose_instructions(&manifest, &layout));
     findings.extend(graph_diagnoses(&layout, &manifest, &git));
     findings.extend(diagnose_orphaned_runs(&layout)?);
+    findings.extend(diagnose_orphan_worktrees(&layout, &manifest, &git));
     check_legacy_working_docs(&layout, &mut findings)?;
 
     Ok(Report::new(DoctorOutcome {
@@ -241,6 +243,157 @@ fn diagnose_orphaned_runs(layout: &Layout) -> Result<Vec<Diagnosis>, Failure> {
         }
     }
     Ok(findings)
+}
+
+fn diagnose_orphan_worktrees(
+    layout: &Layout,
+    manifest: &Manifest,
+    git: &impl Git,
+) -> Vec<Diagnosis> {
+    let owned = match feature_worktrees(layout) {
+        Ok(owned) => owned,
+        // Incomplete ownership data would name live feature worktrees as orphans.
+        Err(unreadable) => return unreadable,
+    };
+    let mut findings = Vec::new();
+    for repo in manifest.repos() {
+        let bare = layout.repo_bare(repo.name());
+        if !bare.is_dir() {
+            continue;
+        }
+        let entries = match git.list_worktrees(&bare) {
+            Ok(entries) => entries,
+            Err(error) => {
+                findings.push(Diagnosis {
+                    code: "repo.worktree_list_failed",
+                    what: format!("could not list the worktrees of `{}`: {error}", repo.name()),
+                    fix: format!("Run `git --git-dir {bare} worktree list` to see why."),
+                });
+                continue;
+            }
+        };
+        for entry in entries {
+            if is_integration_worktree(layout, repo.name(), &entry.path) {
+                continue;
+            }
+            let branch = match (&entry.branch, entry.detached) {
+                (Some(branch), _) => {
+                    if branch == repo.default_branch().as_str()
+                        || owned.contains(&(repo.name().clone(), branch.clone()))
+                    {
+                        continue;
+                    }
+                    branch.as_str()
+                }
+                (None, true) => "detached",
+                (None, false) => continue,
+            };
+            findings.push(orphan_diagnosis(
+                git,
+                &bare,
+                repo.name().as_str(),
+                &entry,
+                branch,
+            ));
+        }
+    }
+    findings
+}
+
+fn orphan_diagnosis(
+    git: &impl Git,
+    bare: &Utf8Path,
+    repo: &str,
+    entry: &WorktreeEntry,
+    branch: &str,
+) -> Diagnosis {
+    let path = &entry.path;
+    if entry.prunable {
+        return Diagnosis {
+            code: "repo.worktree_orphaned",
+            what: format!(
+                "`{path}` in `{repo}` is on branch `{branch}`, which no feature owns — its directory is gone"
+            ),
+            fix: format!(
+                "Run `git --git-dir {bare} worktree prune` to drop the stale registration."
+            ),
+        };
+    }
+    let state = match git.worktree_dirty(path) {
+        Ok(true) => " — it has uncommitted changes".to_owned(),
+        Ok(false) => String::new(),
+        Err(error) => format!(" (could not inspect: {error})"),
+    };
+    Diagnosis {
+        code: "repo.worktree_orphaned",
+        what: format!("`{path}` in `{repo}` is on branch `{branch}`, which no feature owns{state}"),
+        fix: format!(
+            "Inspect it; if nothing is needed, run `git --git-dir {bare} worktree remove {path}`."
+        ),
+    }
+}
+
+/// Local integration stages a detached candidate and, for rebase, a temporary
+/// source worktree under `<features>/<feature>/integration/<repo>/`.
+fn is_integration_worktree(layout: &Layout, repo: &RepoName, path: &Utf8Path) -> bool {
+    let Some(feature) = path
+        .strip_prefix(layout.features_dir())
+        .ok()
+        .and_then(|relative| relative.iter().next())
+        .and_then(|name| FeatureName::new(name).ok())
+    else {
+        return false;
+    };
+    path == layout.integration_candidate(&feature, repo)
+        || path == layout.integration_source(&feature, repo)
+}
+
+/// Every `(repo, branch)` a feature owns: its branch in each repo it promoted.
+/// Fails with one diagnosis per feature record that cannot be read.
+fn feature_worktrees(layout: &Layout) -> Result<HashSet<(RepoName, String)>, Vec<Diagnosis>> {
+    let features_dir = layout.features_dir();
+    if !fs::is_dir(&features_dir).unwrap_or(true) {
+        return Ok(HashSet::new());
+    }
+    let entries = fs::read_dir(&features_dir).map_err(|error| {
+        vec![Diagnosis {
+            code: "feature.record_unreadable",
+            what: format!("could not list the features in `{features_dir}`: {error}"),
+            fix: "Repair the directory's permissions, then rerun `ivar doctor`.".to_owned(),
+        }]
+    })?;
+    let mut owned = HashSet::new();
+    let mut unreadable = Vec::new();
+    for name in entries
+        .iter()
+        .filter_map(|entry| FeatureName::new(entry.file_name()?.to_owned()).ok())
+    {
+        match Feature::read(layout, &name) {
+            Ok(Some(feature)) => {
+                let branch = feature.branch.as_str();
+                owned.extend(
+                    feature
+                        .promotions
+                        .keys()
+                        .map(|repo| (repo.clone(), branch.to_owned())),
+                );
+            }
+            Ok(None) => {}
+            Err(error) => unreadable.push(Diagnosis {
+                code: "feature.record_unreadable",
+                what: format!("the record of feature `{name}` cannot be read: {error}"),
+                fix: format!(
+                    "Repair or remove `{}`; orphan worktrees are not checked until then.",
+                    layout.feature_dir(&name)
+                ),
+            }),
+        }
+    }
+    if unreadable.is_empty() {
+        Ok(owned)
+    } else {
+        Err(unreadable)
+    }
 }
 
 /// Every feature's current receipt that is still in flight — non-terminal.

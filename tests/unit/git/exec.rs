@@ -609,3 +609,48 @@ fn clone_bare_prefixed_cleans_up_destination_on_failure() {
         "partial bare repository was cleaned up"
     );
 }
+
+#[test]
+fn parses_bare_branch_and_detached_entries() {
+    let porcelain = "worktree /h/.bare\nbare\n\n\
+        worktree /h/main\nHEAD aaa\nbranch refs/heads/main\n\n\
+        worktree /h/persisted-parts-guard\nHEAD bbb\nbranch refs/heads/fix/persisted-parts-guard\n\n\
+        worktree /h/candidate\nHEAD ccc\ndetached\n";
+    let entries = parse_worktree_list(porcelain);
+    assert_eq!(entries.len(), 4);
+    assert_eq!(entries[0].branch, None);
+    assert_eq!(entries[1].branch.as_deref(), Some("main"));
+    assert_eq!(
+        entries[2].path,
+        Utf8PathBuf::from("/h/persisted-parts-guard")
+    );
+    assert_eq!(
+        entries[2].branch.as_deref(),
+        Some("fix/persisted-parts-guard")
+    );
+    assert_eq!(entries[3].branch, None);
+}
+
+#[test]
+fn parses_locked_and_prunable_entries_with_reasons() {
+    let porcelain = "worktree /h/locked\nHEAD aaa\nbranch refs/heads/locked\nlocked on a usb stick\n\n\
+        worktree /h/gone\nHEAD bbb\nbranch refs/heads/gone\nprunable gitdir file points to non-existent location\n\n";
+    let entries = parse_worktree_list(porcelain);
+    assert_eq!(entries.len(), 2);
+    assert_eq!(entries[0].branch.as_deref(), Some("locked"));
+    assert!(!entries[0].prunable);
+    assert_eq!(entries[1].branch.as_deref(), Some("gone"));
+    assert!(entries[1].prunable);
+}
+
+#[test]
+fn parses_detached_entries_apart_from_the_bare_entry() {
+    let porcelain = "worktree /h/.bare\nbare\n\n\
+        worktree /h/candidate\nHEAD ccc\ndetached\nprunable gitdir file points to non-existent location\n\n";
+    let entries = parse_worktree_list(porcelain);
+    assert_eq!(entries.len(), 2);
+    assert!(!entries[0].detached);
+    assert!(entries[1].detached);
+    assert!(entries[1].prunable);
+    assert_eq!(entries[1].branch, None);
+}
