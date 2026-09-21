@@ -1368,9 +1368,33 @@ fn a_search_outside_any_session_is_keyed_by_the_ambient_session_id() {
     let db_path = Layout::at(root.clone()).ivar_dir().join("memory.db");
     GraphDb::open(db_path.as_std_path()).unwrap();
 
-    record_search_miss_at(&root, Some("ambient-session".to_owned()), "fn record_miss");
+    record_search_miss_at(
+        &root,
+        None,
+        Some("ambient-session".to_owned()),
+        "fn record_miss",
+    );
 
     let misses = all_misses(&db_path);
     assert_eq!(misses.len(), 1);
     assert_eq!(misses[0].session.as_deref(), Some("ambient-session"));
+}
+
+#[test]
+fn a_search_inside_a_resolved_session_is_keyed_by_that_session() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let env = session_env_in_hall(&root, "6f0c9d5f-0000-4000-8000-0000000007aa");
+    let db_path = Layout::at(root).ivar_dir().join("memory.db");
+    GraphDb::open(db_path.as_std_path()).unwrap();
+
+    record_search_miss_at(
+        &env.view_dir,
+        Some(&env),
+        Some("ambient-session".to_owned()),
+        "fn record_miss",
+    );
+
+    let misses = all_misses(&db_path);
+    assert_eq!(misses.len(), 1);
+    assert_eq!(misses[0].session.as_deref(), Some(env.session_id.as_str()));
 }

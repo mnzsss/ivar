@@ -400,11 +400,11 @@ fn resolve_set_by_target(target: &Utf8Path) -> Option<WritableSet> {
 pub fn guard(provider: Provider, stdin_json: &str) -> Result<GuardOutcome, Failure> {
     let (tool_request, cwd) = crate::providers::parse_tool_request(provider, stdin_json)?;
 
-    let mut set = cwd
+    let session_env = cwd
         .as_deref()
         .and_then(|cwd| crate::action::session::env::SessionEnv::resolve_by_cwd(cwd).ok())
-        .flatten()
-        .and_then(|env| resolve_writable_set(&env));
+        .flatten();
+    let mut set = session_env.as_ref().and_then(resolve_writable_set);
 
     if set.is_none()
         && is_structured_write(&tool_request.tool)
@@ -431,7 +431,12 @@ pub fn guard(provider: Provider, stdin_json: &str) -> Result<GuardOutcome, Failu
     if let Some(pattern) = &tool_request.search_pattern
         && let Some(cwd) = cwd.as_deref()
     {
-        record_search_miss_at(cwd, std::env::var("IVAR_SESSION_ID").ok(), pattern);
+        record_search_miss_at(
+            cwd,
+            session_env.as_ref(),
+            std::env::var("IVAR_SESSION_ID").ok(),
+            pattern,
+        );
     }
 
     Ok(crate::providers::render_decision(provider, &decision))
@@ -441,10 +446,22 @@ pub fn guard(provider: Provider, stdin_json: &str) -> Result<GuardOutcome, Failu
 /// unrelated later search.
 const FOLLOWUP_WINDOW_SECS: i64 = 120;
 
-fn record_search_miss_at(cwd: &Utf8Path, ambient_session: Option<String>, pattern: &str) {
-    if let Some(session) = crate::action::graph::session::session_key(cwd, ambient_session)
-        && let Ok(Some(layout)) = Layout::discover(cwd)
-    {
+fn record_search_miss_at(
+    cwd: &Utf8Path,
+    session_env: Option<&crate::action::session::env::SessionEnv>,
+    ambient_session: Option<String>,
+    pattern: &str,
+) {
+    let Some(session) =
+        crate::action::graph::session::session_key_for(session_env, ambient_session)
+    else {
+        return;
+    };
+    let layout = match session_env {
+        Some(env) => Some(Layout::at(env.hall.clone())),
+        None => Layout::discover(cwd).ok().flatten(),
+    };
+    if let Some(layout) = layout {
         record_search_miss(&layout, &session, pattern);
     }
 }

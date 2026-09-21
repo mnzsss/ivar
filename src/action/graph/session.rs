@@ -77,11 +77,14 @@ pub(crate) fn resolve_session_key(cwd: &Utf8Path) -> Option<String> {
 }
 
 pub(crate) fn session_key(cwd: &Utf8Path, ambient: Option<String>) -> Option<String> {
-    SessionEnv::resolve_by_cwd(cwd)
-        .ok()
-        .flatten()
-        .map(|env| env.session_id)
-        .or(ambient)
+    session_key_for(
+        SessionEnv::resolve_by_cwd(cwd).ok().flatten().as_ref(),
+        ambient,
+    )
+}
+
+pub(crate) fn session_key_for(env: Option<&SessionEnv>, ambient: Option<String>) -> Option<String> {
+    env.map(|env| env.session_id.clone()).or(ambient)
 }
 
 fn detect_feature_from_worktree_path(layout: &Layout, cwd: &Utf8Path) -> Option<Feature> {
