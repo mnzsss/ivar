@@ -105,7 +105,7 @@ END;
 const SEARCH_SCHEMA_VERSION: i64 = 4;
 
 /// The `user_version` a database carries once every migration below has run.
-pub const SCHEMA_VERSION: i64 = 7;
+pub const SCHEMA_VERSION: i64 = 8;
 
 ///
 /// # Errors
@@ -152,14 +152,32 @@ fn switch_to_wal(conn: &Connection) -> rusqlite::Result<()> {
 /// Returns [`rusqlite::Error`] if the transaction cannot be started,
 /// a migration step fails, or the commit fails.
 pub fn apply_migrations(conn: &Connection) -> rusqlite::Result<()> {
-    if user_version(conn)? >= SCHEMA_VERSION {
+    if !needs_migration(conn)? {
         return Ok(());
     }
     let tx = Transaction::new_unchecked(conn, TransactionBehavior::Immediate)?;
-    if user_version(&tx)? < SCHEMA_VERSION {
+    if needs_migration(&tx)? {
         migrate(&tx)?;
     }
     tx.commit()
+}
+
+// Development builds stamped version 8 before `graph_misses`, its `usage_id`
+// column and `idx_usage_session_ts` joined that version, so a database already
+// at 8 may still lack any of them.
+fn needs_migration(conn: &Connection) -> rusqlite::Result<bool> {
+    Ok(user_version(conn)? < SCHEMA_VERSION
+        || !has_schema_object(conn, "graph_misses")?
+        || !has_schema_object(conn, "idx_usage_session_ts")?
+        || !has_column(conn, "graph_misses", "usage_id")?)
+}
+
+fn has_schema_object(conn: &Connection, name: &str) -> rusqlite::Result<bool> {
+    conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE name = ?1)",
+        [name],
+        |row| row.get(0),
+    )
 }
 
 fn user_version(conn: &Connection) -> rusqlite::Result<i64> {
@@ -180,10 +198,14 @@ fn migrate(conn: &Connection) -> rusqlite::Result<()> {
     apply_search_migration(conn)?;
     apply_layer_migration(conn)?;
     apply_usage_migration(conn)?;
+    apply_miss_migration(conn)?;
     // Session views project layer rows under their base repo name, so a file
     // lookup there can only seek on the path.
     conn.execute_batch("CREATE INDEX IF NOT EXISTS idx_files_path ON files(path);")?;
-    conn.execute_batch(&format!("PRAGMA user_version = {SCHEMA_VERSION};"))
+    if user_version(conn)? < SCHEMA_VERSION {
+        conn.execute_batch(&format!("PRAGMA user_version = {SCHEMA_VERSION};"))?;
+    }
+    Ok(())
 }
 
 fn apply_usage_migration(conn: &Connection) -> rusqlite::Result<()> {
@@ -198,7 +220,35 @@ fn apply_usage_migration(conn: &Connection) -> rusqlite::Result<()> {
             error INTEGER NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_usage_command_source ON usage(command, source, duration_ms);",
-    )
+    )?;
+    if !has_column(conn, "usage", "session")? {
+        conn.execute_batch("ALTER TABLE usage ADD COLUMN session TEXT;")?;
+    }
+    if !has_column(conn, "usage", "query")? {
+        conn.execute_batch("ALTER TABLE usage ADD COLUMN query TEXT;")?;
+    }
+    conn.execute_batch("CREATE INDEX IF NOT EXISTS idx_usage_session_ts ON usage(session, ts);")?;
+    Ok(())
+}
+
+fn apply_miss_migration(conn: &Connection) -> rusqlite::Result<()> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS graph_misses (
+            id INTEGER PRIMARY KEY,
+            ts INTEGER NOT NULL,
+            session TEXT,
+            kind TEXT NOT NULL,
+            query TEXT,
+            pattern TEXT,
+            reason TEXT,
+            usage_id INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_graph_misses_session_ts ON graph_misses(session, ts);",
+    )?;
+    if !has_column(conn, "graph_misses", "usage_id")? {
+        conn.execute_batch("ALTER TABLE graph_misses ADD COLUMN usage_id INTEGER;")?;
+    }
+    Ok(())
 }
 
 fn apply_layer_migration(conn: &Connection) -> rusqlite::Result<()> {

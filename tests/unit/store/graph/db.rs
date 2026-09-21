@@ -6,7 +6,10 @@
 )]
 
 use super::*;
-use crate::domain::graph::{Span, Symbol, SymbolKind, UsageEvent, UsageSource};
+use crate::domain::graph::{
+    MissEvent, MissKind, Span, Symbol, SymbolKind, UsageEvent, UsageSource,
+};
+use crate::store::graph::db::usage::MissFilter;
 use tempfile::tempdir;
 
 #[test]
@@ -734,6 +737,8 @@ fn event(
     ms: u64,
     count: Option<usize>,
     error: bool,
+    session: Option<&str>,
+    query: Option<&str>,
 ) -> UsageEvent {
     UsageEvent {
         command: command.to_owned(),
@@ -741,6 +746,8 @@ fn event(
         duration_ms: ms,
         result_count: count,
         error,
+        session: session.map(str::to_owned),
+        query: query.map(str::to_owned),
     }
 }
 
@@ -748,13 +755,37 @@ fn event(
 fn usage_summary_groups_by_command_and_source() {
     let db = GraphDb::open_in_memory().unwrap();
     for ms in [10, 20, 30, 40, 100] {
-        db.record_usage(&event("explore", UsageSource::Cli, ms, Some(3), false))
-            .unwrap();
+        db.record_usage(&event(
+            "explore",
+            UsageSource::Cli,
+            ms,
+            Some(3),
+            false,
+            None,
+            None,
+        ))
+        .unwrap();
     }
-    db.record_usage(&event("explore", UsageSource::Cli, 5, Some(0), false))
-        .unwrap();
-    db.record_usage(&event("explore", UsageSource::Mcp, 7, None, true))
-        .unwrap();
+    db.record_usage(&event(
+        "explore",
+        UsageSource::Cli,
+        5,
+        Some(0),
+        false,
+        None,
+        None,
+    ))
+    .unwrap();
+    db.record_usage(&event(
+        "explore",
+        UsageSource::Mcp,
+        7,
+        None,
+        true,
+        None,
+        None,
+    ))
+    .unwrap();
 
     let summary = db.usage_summary().unwrap();
 
@@ -786,10 +817,33 @@ fn usage_summary_is_empty_without_events() {
 }
 
 #[test]
+fn clean_all_removes_misses() {
+    let db = GraphDb::open_in_memory().unwrap();
+    db.record_miss(&MissEvent {
+        session: Some("sess-1".to_owned()),
+        kind: MissKind::Skipped,
+        query: None,
+        pattern: Some("rg foo".to_owned()),
+        reason: None,
+    })
+    .unwrap();
+    db.clean_all().unwrap();
+    assert!(db.list_misses(&MissFilter::default()).unwrap().is_empty());
+}
+
+#[test]
 fn clean_all_removes_usage() {
     let db = GraphDb::open_in_memory().unwrap();
-    db.record_usage(&event("find", UsageSource::Cli, 1, Some(1), false))
-        .unwrap();
+    db.record_usage(&event(
+        "find",
+        UsageSource::Cli,
+        1,
+        Some(1),
+        false,
+        None,
+        None,
+    ))
+    .unwrap();
     assert_eq!(db.clean_all().unwrap().usage_removed, 1);
     assert!(db.usage_summary().unwrap().is_empty());
 }
@@ -797,8 +851,16 @@ fn clean_all_removes_usage() {
 #[test]
 fn stats_include_recorded_usage() {
     let db = GraphDb::open_in_memory().unwrap();
-    db.record_usage(&event("callers", UsageSource::Cli, 4, Some(2), false))
-        .unwrap();
+    db.record_usage(&event(
+        "callers",
+        UsageSource::Cli,
+        4,
+        Some(2),
+        false,
+        None,
+        None,
+    ))
+    .unwrap();
 
     let stats = db.stats().unwrap();
 
@@ -845,7 +907,15 @@ fn opening_for_usage_records_into_a_migrated_database() {
     drop(GraphDb::open(&path).unwrap());
     GraphDb::open_for_usage(&path)
         .unwrap()
-        .record_usage(&event("find", UsageSource::Cli, 1, Some(1), false))
+        .record_usage(&event(
+            "find",
+            UsageSource::Cli,
+            1,
+            Some(1),
+            false,
+            None,
+            None,
+        ))
         .unwrap();
     assert_eq!(
         GraphDb::open(&path).unwrap().usage_summary().unwrap().len(),
@@ -905,4 +975,166 @@ fn inserting_a_symbol_with_a_usize_id_beyond_i64_is_rejected_not_saturated() {
         }])
         .expect_err("an out-of-range span must not be saturated");
     assert!(err.to_string().contains("too large") || err.to_string().contains("out of range"));
+}
+
+#[test]
+fn record_usage_round_trips_session_and_query() {
+    let db = GraphDb::open_in_memory().unwrap();
+    db.record_usage(&UsageEvent {
+        command: "explore".to_owned(),
+        source: UsageSource::Cli,
+        duration_ms: 3,
+        result_count: Some(1),
+        error: false,
+        session: Some("sess-1".to_owned()),
+        query: Some("enforceSession".to_owned()),
+    })
+    .unwrap();
+
+    let (session, query): (Option<String>, Option<String>) = db
+        .conn()
+        .query_row("SELECT session, query FROM usage", [], |r| {
+            Ok((r.get(0)?, r.get(1)?))
+        })
+        .unwrap();
+    assert_eq!(session.as_deref(), Some("sess-1"));
+    assert_eq!(query.as_deref(), Some("enforceSession"));
+}
+
+#[test]
+fn record_miss_and_list_misses_round_trip() {
+    let db = GraphDb::open_in_memory().unwrap();
+    db.record_miss(&MissEvent {
+        session: Some("sess-1".to_owned()),
+        kind: MissKind::Skipped,
+        query: None,
+        pattern: Some("enforceSession".to_owned()),
+        reason: None,
+    })
+    .unwrap();
+    db.record_miss(&MissEvent {
+        session: Some("sess-1".to_owned()),
+        kind: MissKind::Feedback,
+        query: Some("who calls login".to_owned()),
+        pattern: None,
+        reason: Some("empty result".to_owned()),
+    })
+    .unwrap();
+
+    let all = db.list_misses(&MissFilter::default()).unwrap();
+    assert_eq!(all.len(), 2);
+    assert_eq!(all[0].kind, MissKind::Feedback, "newest first");
+    assert_eq!(all[0].reason.as_deref(), Some("empty result"));
+    assert!(all[0].id > all[1].id);
+
+    let skipped_only = db
+        .list_misses(&MissFilter {
+            kind: Some(MissKind::Skipped),
+            since: None,
+        })
+        .unwrap();
+    assert_eq!(skipped_only.len(), 1);
+    assert_eq!(skipped_only[0].pattern.as_deref(), Some("enforceSession"));
+}
+
+#[test]
+fn list_misses_rejects_an_unknown_stored_kind() {
+    let db = GraphDb::open_in_memory().unwrap();
+    db.conn()
+        .execute(
+            "INSERT INTO graph_misses (ts, kind) VALUES (1, 'bogus')",
+            [],
+        )
+        .unwrap();
+    assert!(db.list_misses(&MissFilter::default()).is_err());
+}
+
+#[test]
+fn last_graph_call_and_has_followup_for_answer_the_guard_questions() {
+    let db = GraphDb::open_in_memory().unwrap();
+    assert_eq!(db.last_graph_call("sess-1").unwrap(), None);
+
+    db.record_usage(&UsageEvent {
+        command: "explore".to_owned(),
+        source: UsageSource::Cli,
+        duration_ms: 1,
+        result_count: Some(2),
+        error: false,
+        session: Some("sess-1".to_owned()),
+        query: Some("enforceSession".to_owned()),
+    })
+    .unwrap();
+
+    let call = db.last_graph_call("sess-1").unwrap().unwrap();
+    assert!(call.ts > 0);
+    assert_eq!(call.query.as_deref(), Some("enforceSession"));
+    assert!(!db.has_followup_for(&call).unwrap());
+
+    db.record_miss(&MissEvent {
+        session: Some("sess-1".to_owned()),
+        kind: MissKind::Skipped,
+        query: None,
+        pattern: Some("rg enforceSession".to_owned()),
+        reason: None,
+    })
+    .unwrap();
+    assert!(!db.has_followup_for(&call).unwrap());
+
+    db.record_followup(
+        &MissEvent {
+            session: Some("sess-1".to_owned()),
+            kind: MissKind::Followup,
+            query: Some("enforceSession".to_owned()),
+            pattern: Some("rg enforceSession".to_owned()),
+            reason: None,
+        },
+        &call,
+    )
+    .unwrap();
+    assert!(db.has_followup_for(&call).unwrap());
+}
+
+#[test]
+fn prune_deletes_old_misses_and_old_usage_rows() {
+    let db = GraphDb::open_in_memory().unwrap();
+    let old_ts = crate::store::graph::db::types::now_timestamp() - 31 * 24 * 60 * 60;
+    db.conn()
+        .execute(
+            "INSERT INTO graph_misses (ts, session, kind, query, pattern, reason)
+             VALUES (?1, 'sess-1', 'skipped', NULL, 'old pattern', NULL)",
+            rusqlite::params![old_ts],
+        )
+        .unwrap();
+    db.record_miss(&MissEvent {
+        session: Some("sess-1".to_owned()),
+        kind: MissKind::Skipped,
+        query: None,
+        pattern: Some("recent pattern".to_owned()),
+        reason: None,
+    })
+    .unwrap();
+    db.conn()
+        .execute(
+            "INSERT INTO usage (command, source, ts, duration_ms, result_count, error, session, query)
+             VALUES ('explore', 'cli', ?1, 1, 1, 0, 'sess-1', 'old query text')",
+            rusqlite::params![old_ts],
+        )
+        .unwrap();
+
+    let removed = db.prune(30).unwrap();
+    assert_eq!(removed, 1);
+
+    let remaining = db.list_misses(&MissFilter::default()).unwrap();
+    assert_eq!(remaining.len(), 1);
+    assert_eq!(remaining[0].pattern.as_deref(), Some("recent pattern"));
+
+    let old_usage: i64 = db
+        .conn()
+        .query_row(
+            "SELECT COUNT(*) FROM usage WHERE ts = ?1",
+            rusqlite::params![old_ts],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(old_usage, 0);
 }

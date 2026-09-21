@@ -400,11 +400,11 @@ fn resolve_set_by_target(target: &Utf8Path) -> Option<WritableSet> {
 pub fn guard(provider: Provider, stdin_json: &str) -> Result<GuardOutcome, Failure> {
     let (tool_request, cwd) = crate::providers::parse_tool_request(provider, stdin_json)?;
 
-    let mut set = cwd
+    let session_env = cwd
         .as_deref()
         .and_then(|cwd| crate::action::session::env::SessionEnv::resolve_by_cwd(cwd).ok())
-        .flatten()
-        .and_then(|env| resolve_writable_set(&env));
+        .flatten();
+    let mut set = session_env.as_ref().and_then(resolve_writable_set);
 
     if set.is_none()
         && is_structured_write(&tool_request.tool)
@@ -428,7 +428,76 @@ pub fn guard(provider: Provider, stdin_json: &str) -> Result<GuardOutcome, Failu
 
     let decision = decide(&resolution, &tool_request);
 
+    if let Some(pattern) = &tool_request.search_pattern
+        && let Some(cwd) = cwd.as_deref()
+    {
+        record_search_miss_at(
+            cwd,
+            session_env.as_ref(),
+            std::env::var("IVAR_SESSION_ID").ok(),
+            pattern,
+        );
+    }
+
     Ok(crate::providers::render_decision(provider, &decision))
+}
+
+/// How long after a graph call a search counts as a follow-up rather than an
+/// unrelated later search.
+const FOLLOWUP_WINDOW_SECS: i64 = 120;
+
+fn record_search_miss_at(
+    cwd: &Utf8Path,
+    session_env: Option<&crate::action::session::env::SessionEnv>,
+    ambient_session: Option<String>,
+    pattern: &str,
+) {
+    let Some(session) =
+        crate::action::graph::session::session_key_for(session_env, ambient_session)
+    else {
+        return;
+    };
+    let layout = match session_env {
+        Some(env) => Some(Layout::at(env.hall.clone())),
+        None => Layout::discover(cwd).ok().flatten(),
+    };
+    if let Some(layout) = layout {
+        record_search_miss(&layout, &session, pattern);
+    }
+}
+
+/// Best-effort classification of one search-tool call as `skipped` or
+/// `followup`. Every failure is swallowed: the guard's decision is already
+/// made, and nothing here may change it or its exit code.
+fn record_search_miss(layout: &Layout, session: &str, pattern: &str) {
+    use crate::domain::graph::{MissEvent, MissKind};
+
+    let db_path = layout.ivar_dir().join("memory.db");
+    if !db_path.exists() {
+        return;
+    }
+    let Ok(db) = crate::store::graph::db::GraphDb::open_for_usage(db_path.as_std_path()) else {
+        return;
+    };
+
+    let miss = |kind, query| MissEvent {
+        session: Some(session.to_owned()),
+        kind,
+        query,
+        pattern: Some(pattern.to_owned()),
+        reason: None,
+    };
+    let _ = match db.last_graph_call(session) {
+        Ok(None) => db.record_miss(&miss(MissKind::Skipped, None)),
+        Ok(Some(call))
+            if crate::store::graph::db::types::now_timestamp() - call.ts
+                <= FOLLOWUP_WINDOW_SECS
+                && matches!(db.has_followup_for(&call), Ok(false)) =>
+        {
+            db.record_followup(&miss(MissKind::Followup, call.query.clone()), &call)
+        }
+        _ => Ok(()),
+    };
 }
 
 /// Try to build a `WritableSet` from a resolved session env.

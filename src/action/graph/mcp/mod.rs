@@ -13,8 +13,8 @@ use std::path::Path;
 use serde_json::{Value, json};
 
 use crate::action::graph::freshness::ensure_session_freshness;
-use crate::action::graph::session::{SessionView, resolve_session_view};
-use crate::domain::graph::{UsageEvent, UsageSource};
+use crate::action::graph::session::{SessionView, resolve_session_key, resolve_session_view};
+use crate::domain::graph::{UsageEvent, UsageSource, truncate_for_storage};
 use crate::store::graph::db::GraphDb;
 use crate::store::layout::Layout;
 pub use dispatch::*;
@@ -35,7 +35,11 @@ relevant files, who depends on them, and the call path between the symbols you n
 names instead of reading them.
 - Trust its callers and blast radius; a grep only adds files outside the index.
 - A file changed since the last index comes back whole and flagged, so its source stays \
-current.";
+current.
+
+If a graph answer was empty or did not actually help (the wrong symbol, a stale result, \
+a call you expected but did not see), call graph_feedback with the query you asked and why \
+it fell short, instead of silently falling back to grep.";
 /// Runs the MCP server loop advertising every graph tool.
 pub fn run_mcp_server<R, W, F>(
     db: &GraphDb,
@@ -74,6 +78,7 @@ where
     W: Write,
     F: FnMut(Option<&str>) -> Result<Value, String>,
 {
+    let _ = db.prune(super::MISS_RETENTION_DAYS);
     for line_res in reader.lines() {
         let line = line_res?;
         let trimmed = line.trim();
@@ -198,26 +203,20 @@ where
             };
 
             let started = std::time::Instant::now();
-            let refreshed = match hall_root {
-                Some(root) => {
-                    let layout = Layout::at(
-                        camino::Utf8PathBuf::from_path_buf(root.to_path_buf()).unwrap_or_default(),
-                    );
-                    refresh_session(db, &layout, cwd)
-                }
-                None => Ok(()),
-            };
-            let outcome = refreshed
-                .and_then(|()| dispatch_tool_call(db, hall_root, name, &tool_args, refresh_index));
+            let query = dispatch::explore_query(&tool_args).map(|q| truncate_for_storage(&q));
+            let (session, outcome) =
+                call_tool_in_session(db, hall_root, cwd, name, &tool_args, refresh_index);
             let _ = db.record_usage(&UsageEvent {
                 command: usage_command(name),
                 source: UsageSource::Mcp,
                 duration_ms: u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
-                result_count: None,
+                result_count: outcome.as_ref().ok().and_then(|(_, count)| *count),
                 error: outcome.is_err(),
+                session,
+                query,
             });
             match outcome {
-                Ok(text_content) => Some(json!({
+                Ok((text_content, _)) => Some(json!({
                     "jsonrpc": "2.0",
                     "id": id,
                     "result": {
@@ -244,6 +243,29 @@ where
     }
 }
 
+type ToolOutcome = Result<(String, Option<usize>), String>;
+
+fn call_tool_in_session<F>(
+    db: &GraphDb,
+    hall_root: Option<&Path>,
+    cwd: &camino::Utf8Path,
+    name: &str,
+    args: &Value,
+    refresh_index: &mut F,
+) -> (Option<String>, ToolOutcome)
+where
+    F: FnMut(Option<&str>) -> Result<Value, String>,
+{
+    match hall_root.map_or(Ok(None), |root| refresh_hall_session(db, root, cwd)) {
+        Ok(session) => {
+            let outcome =
+                dispatch_tool_call(db, hall_root, session.as_deref(), name, args, refresh_index);
+            (session, outcome)
+        }
+        Err(err) => (None, Err(err)),
+    }
+}
+
 fn usage_command(name: &str) -> String {
     let known = list_tools(ToolSurface::All)
         .as_array()
@@ -251,15 +273,30 @@ fn usage_command(name: &str) -> String {
     if known { name } else { "unknown" }.to_owned()
 }
 
-fn refresh_session(db: &GraphDb, layout: &Layout, cwd: &camino::Utf8Path) -> Result<(), String> {
+fn refresh_hall_session(
+    db: &GraphDb,
+    hall_root: &Path,
+    cwd: &camino::Utf8Path,
+) -> Result<Option<String>, String> {
+    let layout =
+        Layout::at(camino::Utf8PathBuf::from_path_buf(hall_root.to_path_buf()).unwrap_or_default());
+    refresh_session(db, &layout, cwd)
+}
+
+fn refresh_session(
+    db: &GraphDb,
+    layout: &Layout,
+    cwd: &camino::Utf8Path,
+) -> Result<Option<String>, String> {
     let view = resolve_session_view(layout, cwd)
         .map_err(|err| format!("could not resolve the ivar session for this call: {err}"))?;
-    ensure_session_freshness(db, layout, &view).map_err(|err| match view {
+    ensure_session_freshness(db, layout, &view).map_err(|err| match &view {
         SessionView::Base { .. } => format!("could not reset the graph to the base view: {err}"),
         SessionView::FeatureSession { feature_name, .. } => format!(
             "the feature layer for `{feature_name}` could not be refreshed, so the graph would answer from stale or base code: {err}"
         ),
-    })
+    })?;
+    Ok(resolve_session_key(cwd))
 }
 
 fn tool_error(id: Option<&Value>, err_msg: &str) -> Value {

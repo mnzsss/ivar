@@ -308,3 +308,112 @@ fn a_database_at_version_six_gains_the_usage_table() {
         .expect("query index");
     assert_eq!(index_count, 1);
 }
+
+#[test]
+fn a_database_at_the_pre_session_query_version_gains_the_new_columns() {
+    let conn = rusqlite::Connection::open_in_memory().unwrap();
+    apply_pragmas(&conn, false).unwrap();
+    conn.execute_batch(MIGRATION_V1).unwrap();
+    conn.execute_batch(
+        "CREATE TABLE usage (
+            id INTEGER PRIMARY KEY,
+            command TEXT NOT NULL,
+            source TEXT NOT NULL,
+            ts INTEGER NOT NULL,
+            duration_ms INTEGER NOT NULL,
+            result_count INTEGER,
+            error INTEGER NOT NULL
+        );
+        PRAGMA user_version = 7;",
+    )
+    .unwrap();
+
+    apply_migrations(&conn).unwrap();
+
+    let mut stmt = conn.prepare("PRAGMA table_info(usage);").unwrap();
+    let mut rows = stmt.query([]).unwrap();
+    let mut names = Vec::new();
+    while let Some(row) = rows.next().unwrap() {
+        names.push(row.get::<_, String>(1).unwrap());
+    }
+    assert!(names.contains(&"session".to_owned()));
+    assert!(names.contains(&"query".to_owned()));
+
+    let version: i64 = conn
+        .query_row("PRAGMA user_version;", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(version, SCHEMA_VERSION);
+}
+
+#[test]
+fn a_database_at_the_current_version_without_graph_misses_gains_the_table() {
+    let conn = Connection::open_in_memory().unwrap();
+    apply_pragmas(&conn, false).unwrap();
+    apply_migrations(&conn).unwrap();
+    conn.execute_batch(&format!(
+        "DROP TABLE graph_misses; PRAGMA user_version = {SCHEMA_VERSION};"
+    ))
+    .unwrap();
+
+    apply_migrations(&conn).unwrap();
+
+    let tables: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'graph_misses'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(tables, 1);
+}
+
+#[test]
+fn a_database_from_a_newer_development_build_still_opens() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("memory.db");
+    crate::store::graph::db::GraphDb::open(&path).unwrap();
+    Connection::open(&path)
+        .unwrap()
+        .execute_batch(&format!("PRAGMA user_version = {};", SCHEMA_VERSION + 1))
+        .unwrap();
+
+    crate::store::graph::db::GraphDb::open(&path).unwrap();
+    crate::store::graph::db::GraphDb::open_for_usage(&path).unwrap();
+}
+
+#[test]
+fn a_database_at_the_current_version_without_the_usage_session_index_gains_it() {
+    let conn = Connection::open_in_memory().unwrap();
+    apply_pragmas(&conn, false).unwrap();
+    apply_migrations(&conn).unwrap();
+    conn.execute_batch(&format!(
+        "DROP INDEX idx_usage_session_ts; PRAGMA user_version = {SCHEMA_VERSION};"
+    ))
+    .unwrap();
+
+    apply_migrations(&conn).unwrap();
+
+    let indexes: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = 'idx_usage_session_ts'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(indexes, 1);
+}
+
+#[test]
+fn a_database_at_the_current_version_without_the_miss_usage_id_gains_it() {
+    let conn = Connection::open_in_memory().unwrap();
+    apply_pragmas(&conn, false).unwrap();
+    apply_migrations(&conn).unwrap();
+    conn.execute_batch(&format!(
+        "ALTER TABLE graph_misses DROP COLUMN usage_id; PRAGMA user_version = {SCHEMA_VERSION};"
+    ))
+    .unwrap();
+
+    apply_migrations(&conn).unwrap();
+
+    assert!(has_column(&conn, "graph_misses", "usage_id").unwrap());
+}

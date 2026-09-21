@@ -4,10 +4,9 @@ use std::io;
 
 use crate::action::graph::compact::{self, ToCompact};
 use crate::action::graph::query;
-use crate::domain::graph::{
-    ComplexityItem, DeadCodeItem, GraphStats, HierarchyItem, UsageSource, UsageStats,
-};
+use crate::domain::graph::{ComplexityItem, DeadCodeItem, GraphStats, HierarchyItem, MissRecord};
 use crate::error::WriteHuman;
+use crate::store::graph::db::types::now_timestamp;
 #[derive(Debug, Clone, Serialize)]
 pub struct FindOutcome {
     pub query: String,
@@ -173,7 +172,7 @@ impl WriteHuman for StatsOutcome {
                 "  {:<12} {:<4} {:>7} {:>6} {:>6} {:>7} {:>7} {:>11}",
                 "command", "src", "count", "empty", "errors", "p50_ms", "p95_ms", "last_used"
             )?;
-            let now = unix_now();
+            let now = now_timestamp();
             for u in &s.usage {
                 writeln!(
                     w,
@@ -181,7 +180,7 @@ impl WriteHuman for StatsOutcome {
                     u.command,
                     u.source.as_str(),
                     u.count,
-                    empty_label(u),
+                    u.empty_count,
                     u.error_count,
                     u.p50_ms,
                     u.p95_ms,
@@ -193,17 +192,57 @@ impl WriteHuman for StatsOutcome {
     }
 }
 
-fn empty_label(u: &UsageStats) -> String {
-    match u.source {
-        UsageSource::Mcp => "-".to_owned(),
-        UsageSource::Cli => u.empty_count.to_string(),
+#[derive(Debug, Clone, Serialize)]
+pub struct MissesOutcome {
+    pub misses: Vec<MissRecord>,
+}
+
+impl WriteHuman for MissesOutcome {
+    fn write_human(&self, w: &mut impl io::Write) -> io::Result<()> {
+        if self.misses.is_empty() {
+            return writeln!(w, "Graph misses: no misses recorded");
+        }
+        writeln!(
+            w,
+            "Graph misses ({} found, newest first):",
+            self.misses.len()
+        )?;
+        let now = now_timestamp();
+        for m in &self.misses {
+            writeln!(
+                w,
+                "  - [{}] {} {} session={} query={} pattern={} reason={}",
+                m.id,
+                relative_age(now, m.ts),
+                m.kind.as_str(),
+                m.session.as_deref().unwrap_or("-"),
+                m.query.as_deref().unwrap_or("-"),
+                m.pattern.as_deref().unwrap_or("-"),
+                m.reason.as_deref().unwrap_or("-"),
+            )?;
+        }
+        Ok(())
     }
 }
 
-fn unix_now() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| i64::try_from(d.as_secs()).unwrap_or(i64::MAX))
+impl ToCompact for MissesOutcome {
+    fn to_compact(&self) -> String {
+        let mut out = String::from("#SCHEMA: id|ts|kind|session|query|pattern|reason");
+        for m in &self.misses {
+            let _ = write!(
+                out,
+                "\n{}|{}|{}|{}|{}|{}|{}",
+                m.id,
+                m.ts,
+                m.kind.as_str(),
+                m.session.as_deref().unwrap_or(""),
+                m.query.as_deref().unwrap_or(""),
+                m.pattern.as_deref().unwrap_or(""),
+                m.reason.as_deref().unwrap_or(""),
+            );
+        }
+        out
+    }
 }
 
 fn relative_age(now: i64, then: i64) -> String {
@@ -381,7 +420,7 @@ impl ToCompact for StatsOutcome {
                 u.source.as_str(),
                 u.count,
                 u.last_used,
-                empty_label(u),
+                u.empty_count,
                 u.error_count,
                 u.p50_ms,
                 u.p95_ms

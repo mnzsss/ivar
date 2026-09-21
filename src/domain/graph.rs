@@ -298,6 +298,17 @@ pub struct UsageEvent {
     pub duration_ms: u64,
     pub result_count: Option<usize>,
     pub error: bool,
+    pub session: Option<String>,
+    pub query: Option<String>,
+}
+
+/// Longest query, pattern or reason text kept in `memory.db`, so a pasted
+/// blob can never bloat it.
+pub const MAX_STORED_TEXT_LEN: usize = 500;
+
+#[must_use]
+pub fn truncate_for_storage(text: &str) -> String {
+    text.chars().take(MAX_STORED_TEXT_LEN).collect()
 }
 
 /// Aggregated usage for one command and source.
@@ -311,6 +322,83 @@ pub struct UsageStats {
     pub error_count: u64,
     pub p50_ms: u64,
     pub p95_ms: u64,
+}
+
+/// Why a search miss was recorded.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum MissKind {
+    Skipped,
+    Followup,
+    Feedback,
+}
+
+impl MissKind {
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Skipped => "skipped",
+            Self::Followup => "followup",
+            Self::Feedback => "feedback",
+        }
+    }
+}
+
+impl std::fmt::Display for MissKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnknownMissKind(pub String);
+
+impl std::fmt::Display for UnknownMissKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "unknown miss kind `{}`: use `skipped`, `followup`, or `feedback`",
+            self.0
+        )
+    }
+}
+
+impl std::error::Error for UnknownMissKind {}
+
+impl std::str::FromStr for MissKind {
+    type Err = UnknownMissKind;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_ascii_lowercase().as_str() {
+            "skipped" => Ok(Self::Skipped),
+            "followup" => Ok(Self::Followup),
+            "feedback" => Ok(Self::Feedback),
+            _ => Err(UnknownMissKind(s.to_owned())),
+        }
+    }
+}
+
+/// One recorded graph-search miss: a skipped, followed-up, or explicitly
+/// flagged graph query.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MissEvent {
+    pub session: Option<String>,
+    pub kind: MissKind,
+    pub query: Option<String>,
+    pub pattern: Option<String>,
+    pub reason: Option<String>,
+}
+
+/// A stored [`MissEvent`], for `--json` output.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct MissRecord {
+    pub id: i64,
+    pub ts: i64,
+    pub session: Option<String>,
+    pub kind: MissKind,
+    pub query: Option<String>,
+    pub pattern: Option<String>,
+    pub reason: Option<String>,
 }
 
 /// High-level statistics for the indexed codebase graph.

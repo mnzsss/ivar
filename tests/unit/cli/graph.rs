@@ -294,3 +294,27 @@ fn test_cli_graph_clean_parsing() {
         other => panic!("expected graph clean, got {other:?}"),
     }
 }
+
+#[test]
+fn test_cli_graph_misses_parsing() {
+    let cli = Cli::try_parse_from([
+        "ivar", "graph", "misses", "--kind", "followup", "--since", "7d", "--json",
+    ])
+    .unwrap();
+    match cli.command {
+        Command::Graph(GraphCommand::Misses(args)) => {
+            assert_eq!(args.kind.as_deref(), Some("followup"));
+            assert_eq!(args.since.as_deref(), Some("7d"));
+        }
+        other => panic!("expected graph misses, got {other:?}"),
+    }
+
+    let bare = Cli::try_parse_from(["ivar", "graph", "misses"]).unwrap();
+    match bare.command {
+        Command::Graph(GraphCommand::Misses(args)) => {
+            assert_eq!(args.kind, None);
+            assert_eq!(args.since, None);
+        }
+        other => panic!("expected graph misses, got {other:?}"),
+    }
+}

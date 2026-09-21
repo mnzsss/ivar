@@ -30,6 +30,7 @@ pub(crate) fn parse_tool_request(
         .map(Utf8PathBuf::from);
     Ok((
         ToolRequest {
+            search_pattern: crate::providers::extract_search_pattern(&input.tool, &input.args),
             tool: input.tool,
             file_path,
         },

@@ -290,7 +290,8 @@ impl GraphDb {
         }))
     }
 
-    /// Cleans all data from the graph database (repos, files, symbols, edges).
+    /// Cleans all data from the graph database (repos, files, symbols, edges,
+    /// usage, misses).
     ///
     /// # Errors
     ///
@@ -317,7 +318,8 @@ impl GraphDb {
              DELETE FROM files;
              DELETE FROM symbols;
              DELETE FROM edges;
-             DELETE FROM usage;",
+             DELETE FROM usage;
+             DELETE FROM graph_misses;",
         )?;
 
         Ok(CleanAllStats {

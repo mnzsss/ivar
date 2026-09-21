@@ -69,6 +69,24 @@ pub fn resolve_session_view(layout: &Layout, cwd: &Utf8Path) -> Result<SessionVi
     build_base_session_view(layout)
 }
 
+/// The ivar session id that keys usage and miss records: the session the cwd
+/// resolves to, else the ambient `IVAR_SESSION_ID`. The guard and the MCP
+/// server must agree on it, or misses never pair with graph calls.
+pub(crate) fn resolve_session_key(cwd: &Utf8Path) -> Option<String> {
+    session_key(cwd, std::env::var("IVAR_SESSION_ID").ok())
+}
+
+pub(crate) fn session_key(cwd: &Utf8Path, ambient: Option<String>) -> Option<String> {
+    session_key_for(
+        SessionEnv::resolve_by_cwd(cwd).ok().flatten().as_ref(),
+        ambient,
+    )
+}
+
+pub(crate) fn session_key_for(env: Option<&SessionEnv>, ambient: Option<String>) -> Option<String> {
+    env.map(|env| env.session_id.clone()).or(ambient)
+}
+
 fn detect_feature_from_worktree_path(layout: &Layout, cwd: &Utf8Path) -> Option<Feature> {
     let repos_dir = layout.repos_dir();
     if !cwd.starts_with(&repos_dir) {
