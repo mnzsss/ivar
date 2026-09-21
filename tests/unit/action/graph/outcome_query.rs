@@ -1,7 +1,7 @@
 #![allow(clippy::unwrap_used)]
 
 use super::*;
-use crate::domain::graph::{GraphStats, UsageEvent};
+use crate::domain::graph::{GraphStats, UsageEvent, UsageSource};
 use crate::error::WriteHuman;
 use crate::store::graph::db::GraphDb;
 
@@ -28,7 +28,7 @@ fn usage(source: UsageSource) -> UsageStats {
 }
 
 #[test]
-fn compact_stats_print_a_dash_for_mcp_empty_counts() {
+fn compact_stats_print_the_real_empty_count_for_mcp_rows_too() {
     let outcome = StatsOutcome(GraphStats {
         repo_count: 0,
         file_count: 0,
@@ -36,11 +36,17 @@ fn compact_stats_print_a_dash_for_mcp_empty_counts() {
         edge_count: 0,
         db_size_bytes: 0,
         layers: Vec::new(),
-        usage: vec![usage(UsageSource::Mcp), usage(UsageSource::Cli)],
+        usage: vec![
+            UsageStats {
+                empty_count: 3,
+                ..usage(UsageSource::Mcp)
+            },
+            usage(UsageSource::Cli),
+        ],
     });
     let compact = outcome.to_compact();
     assert!(
-        compact.contains("\nexplore|mcp|2|1700000000|-|0|1|2"),
+        compact.contains("\nexplore|mcp|2|1700000000|3|0|1|2"),
         "{compact}"
     );
     assert!(

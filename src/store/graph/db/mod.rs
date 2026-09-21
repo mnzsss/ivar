@@ -22,6 +22,13 @@ pub struct GraphDb {
     conn: Connection,
 }
 
+#[cfg(test)]
+impl GraphDb {
+    pub(crate) const fn conn_for_test(&self) -> &Connection {
+        &self.conn
+    }
+}
+
 impl std::fmt::Debug for GraphDb {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("GraphDb").finish()

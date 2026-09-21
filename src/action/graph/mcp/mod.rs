@@ -198,28 +198,22 @@ where
             };
 
             let started = std::time::Instant::now();
-            let refreshed = match hall_root {
-                Some(root) => {
-                    let layout = Layout::at(
-                        camino::Utf8PathBuf::from_path_buf(root.to_path_buf()).unwrap_or_default(),
-                    );
-                    refresh_session(db, &layout, cwd)
-                }
-                None => Ok(()),
-            };
+            let refreshed = hall_root.map_or(Ok(None), |root| refresh_hall_session(db, root, cwd));
+            let session = refreshed.clone().unwrap_or(None);
+            let query = dispatch::explore_query(&tool_args).map(|q| truncate_to_500(&q));
             let outcome = refreshed
-                .and_then(|()| dispatch_tool_call(db, hall_root, name, &tool_args, refresh_index));
+                .and_then(|_| dispatch_tool_call(db, hall_root, name, &tool_args, refresh_index));
             let _ = db.record_usage(&UsageEvent {
                 command: usage_command(name),
                 source: UsageSource::Mcp,
                 duration_ms: u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
-                result_count: None,
+                result_count: outcome.as_ref().ok().and_then(|(_, count)| *count),
                 error: outcome.is_err(),
-                session: None,
-                query: None,
+                session,
+                query,
             });
             match outcome {
-                Ok(text_content) => Some(json!({
+                Ok((text_content, _)) => Some(json!({
                     "jsonrpc": "2.0",
                     "id": id,
                     "result": {
@@ -253,14 +247,38 @@ fn usage_command(name: &str) -> String {
     if known { name } else { "unknown" }.to_owned()
 }
 
-fn refresh_session(db: &GraphDb, layout: &Layout, cwd: &camino::Utf8Path) -> Result<(), String> {
+const MAX_QUERY_LEN: usize = 500;
+
+pub(super) fn truncate_to_500(s: &str) -> String {
+    s.chars().take(MAX_QUERY_LEN).collect()
+}
+
+fn refresh_hall_session(
+    db: &GraphDb,
+    hall_root: &Path,
+    cwd: &camino::Utf8Path,
+) -> Result<Option<String>, String> {
+    let layout =
+        Layout::at(camino::Utf8PathBuf::from_path_buf(hall_root.to_path_buf()).unwrap_or_default());
+    refresh_session(db, &layout, cwd)
+}
+
+fn refresh_session(
+    db: &GraphDb,
+    layout: &Layout,
+    cwd: &camino::Utf8Path,
+) -> Result<Option<String>, String> {
     let view = resolve_session_view(layout, cwd)
         .map_err(|err| format!("could not resolve the ivar session for this call: {err}"))?;
-    ensure_session_freshness(db, layout, &view).map_err(|err| match view {
+    ensure_session_freshness(db, layout, &view).map_err(|err| match &view {
         SessionView::Base { .. } => format!("could not reset the graph to the base view: {err}"),
         SessionView::FeatureSession { feature_name, .. } => format!(
             "the feature layer for `{feature_name}` could not be refreshed, so the graph would answer from stale or base code: {err}"
         ),
+    })?;
+    Ok(match view {
+        SessionView::Base { .. } => None,
+        SessionView::FeatureSession { session_id, .. } => session_id,
     })
 }
 

@@ -1126,10 +1126,52 @@ fn an_unresolvable_session_answers_with_an_error_instead_of_the_base_graph() {
 }
 
 #[test]
-fn a_tool_call_records_mcp_usage_without_a_result_count() {
+fn a_tool_call_records_its_query_and_session_alongside_the_result_count() {
     let (db, temp) = setup_test_mcp_db();
 
     let (_text, is_error) = call_tool(&db, temp.path(), "graph_explore", json!({"query": "main"}));
+    assert!(!is_error);
+
+    let usage_row = db
+        .conn_for_test()
+        .query_row(
+            "SELECT result_count, query, session FROM usage WHERE command = 'graph_explore'",
+            [],
+            |r| {
+                Ok((
+                    r.get::<_, Option<i64>>(0)?,
+                    r.get::<_, Option<String>>(1)?,
+                    r.get::<_, Option<String>>(2)?,
+                ))
+            },
+        )
+        .unwrap();
+    assert_eq!(usage_row.0, Some(2), "execute and helper both match `main`");
+    assert_eq!(usage_row.1.as_deref(), Some("main"));
+    assert_eq!(
+        usage_row.2, None,
+        "no ivar session view is active for this temp hall"
+    );
+
+    let summary = db.usage_summary().unwrap();
+    let explore = summary
+        .iter()
+        .find(|s| s.command == "graph_explore")
+        .expect("graph_explore usage recorded");
+    assert_eq!(explore.count, 1);
+    assert_eq!(explore.empty_count, 0);
+}
+
+#[test]
+fn a_query_matching_nothing_is_recorded_as_an_mcp_empty() {
+    let (db, temp) = setup_test_mcp_db();
+
+    let (_text, is_error) = call_tool(
+        &db,
+        temp.path(),
+        "graph_explore",
+        json!({"query": "no_such_symbol_anywhere"}),
+    );
     assert!(!is_error);
 
     let summary = db.usage_summary().unwrap();
@@ -1138,9 +1180,29 @@ fn a_tool_call_records_mcp_usage_without_a_result_count() {
         .find(|s| s.command == "graph_explore")
         .expect("graph_explore usage recorded");
     assert_eq!(explore.source, crate::domain::graph::UsageSource::Mcp);
-    assert_eq!(explore.count, 1);
-    assert_eq!(explore.empty_count, 0);
-    assert_eq!(explore.error_count, 0);
+    assert_eq!(explore.empty_count, 1);
+}
+
+#[test]
+fn a_500_char_query_is_truncated_before_storage() {
+    let (db, temp) = setup_test_mcp_db();
+
+    call_tool(
+        &db,
+        temp.path(),
+        "graph_explore",
+        json!({"query": "x".repeat(600)}),
+    );
+
+    let stored: Option<String> = db
+        .conn_for_test()
+        .query_row(
+            "SELECT query FROM usage WHERE command = 'graph_explore'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(stored.map(|s| s.len()), Some(500));
 }
 
 #[test]

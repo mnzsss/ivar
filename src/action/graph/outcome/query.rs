@@ -4,9 +4,7 @@ use std::io;
 
 use crate::action::graph::compact::{self, ToCompact};
 use crate::action::graph::query;
-use crate::domain::graph::{
-    ComplexityItem, DeadCodeItem, GraphStats, HierarchyItem, UsageSource, UsageStats,
-};
+use crate::domain::graph::{ComplexityItem, DeadCodeItem, GraphStats, HierarchyItem, UsageStats};
 use crate::error::WriteHuman;
 #[derive(Debug, Clone, Serialize)]
 pub struct FindOutcome {
@@ -194,10 +192,7 @@ impl WriteHuman for StatsOutcome {
 }
 
 fn empty_label(u: &UsageStats) -> String {
-    match u.source {
-        UsageSource::Mcp => "-".to_owned(),
-        UsageSource::Cli => u.empty_count.to_string(),
-    }
+    u.empty_count.to_string()
 }
 
 fn unix_now() -> i64 {
