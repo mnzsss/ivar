@@ -109,9 +109,9 @@ struct PtyLog(Rc<RefCell<Vec<PtyHandle>>>);
 fn shells(count: usize) -> Vec<ShellSpec> {
     (0..count)
         .map(|index| ShellSpec {
-            label: format!("repo-{index}"),
             cwd: Utf8PathBuf::from(format!("/worktrees/repo-{index}")),
             command: Command::new("bash"),
+            unavailable: None,
         })
         .collect()
 }
@@ -519,4 +519,63 @@ fn the_prefix_still_opens_nav_from_a_dead_shell() {
     driver.apply_event(Key::Prefix);
     assert_eq!(driver.mode(), Mode::Nav);
     assert!(driver.apply_event(Key::Char('q')));
+}
+
+/// A driver over exactly one shell the caller has already declared
+/// unopenable, returning the log of spawned PTYs.
+fn driver_with_unavailable(
+    reason: &str,
+) -> (Driver<FakePty, impl FnMut() -> FakePty>, PtyLog) {
+    let log = PtyLog(Rc::new(RefCell::new(Vec::new())));
+    let log_for_factory = log.clone();
+    let factory = move || {
+        let (pty, handle) = FakePty::new();
+        log_for_factory.0.borrow_mut().push(handle);
+        pty
+    };
+    let spec = ShellSpec {
+        cwd: Utf8PathBuf::from("/worktrees/absent"),
+        command: Command::new("bash"),
+        unavailable: Some(reason.to_owned()),
+    };
+    (Driver::new(vec![spec], factory, 80, 24), log)
+}
+
+const ABSENT: &str = "no main worktree; run `ivar sync`";
+
+#[test]
+fn an_unavailable_shell_is_not_spawned_eagerly() {
+    let (_driver, log) = driver_with_unavailable(ABSENT);
+
+    assert!(
+        log.0.borrow().is_empty(),
+        "Driver::new spawns index 0 eagerly; an unavailable shell must not be that spawn"
+    );
+}
+
+#[test]
+fn focusing_an_unavailable_shell_spawns_nothing() {
+    let (mut driver, log) = driver_with_unavailable(ABSENT);
+
+    driver.apply_event(Key::Prefix);
+    driver.apply_event(Key::Enter);
+
+    assert!(
+        log.0.borrow().is_empty(),
+        "enter in nav must not spawn a shell at a path the caller said is absent"
+    );
+}
+
+#[test]
+fn an_unavailable_shell_shows_its_reason_and_promises_no_restart() {
+    let (driver, _log) = driver_with_unavailable(ABSENT);
+
+    let panel = driver.snapshot("hall", &[], "ctrl+o").panel;
+
+    assert_eq!(panel_text(&panel), ABSENT);
+    assert_eq!(
+        panel.state,
+        PanelState::Scrolling,
+        "Exited titles read `enter restarts, q quits`, and a restart cannot work here"
+    );
 }

@@ -395,9 +395,9 @@ fn run_tui(
     // One shell — the agent — running in the view dir. The driver spawns the
     // initially focused shell eagerly, so the agent starts here.
     let shells = vec![ShellSpec {
-        label: "agent".to_owned(),
         cwd: view_dir.to_path_buf(),
         command,
+        unavailable: None,
     }];
     // Sized to the panel, not to the terminal: the agent draws inside the
     // right-hand box, so that is the width its lines have to wrap at.

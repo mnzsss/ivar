@@ -114,9 +114,9 @@ pub fn view(ctx: &Ctx, input: ViewInput) -> Outcome<ViewOutcome> {
         .map(|repo| {
             let worktree = layout.repo_worktree(repo, &feature.branch);
             ShellSpec {
-                label: repo.to_string(),
                 cwd: worktree.clone(),
                 command: proc::Command::new(shell_program.clone()).cwd(&worktree),
+                unavailable: None,
             }
         })
         .collect();
