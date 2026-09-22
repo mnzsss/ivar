@@ -15,7 +15,8 @@
 //!
 //! # One driver, many shells
 //!
-//! A feature view is one shell per promoted repo, each running in its own
+//! A shell view is one shell per row — a feature's promoted repos, or the
+//! hall's repos on their default branches — each running in its own
 //! worktree. The driver owns them all as a [`Vec`] of [`Shell`]s, spawns
 //! lazily (a shell starts the first time it is focused — one process per
 //! repo, not N at start-up), and keeps every shell's output flowing so a

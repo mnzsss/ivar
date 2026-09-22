@@ -136,7 +136,7 @@ pub fn view(ctx: &Ctx, input: ViewInput) -> Outcome<ViewOutcome> {
     // The interactive TUI needs a real terminal; on a pipe, report what a
     // view would have opened instead.
     if term::is_tty(term::Stream::Stdout) {
-        tui::master_detail::run(tui::master_detail::FeatureView {
+        tui::master_detail::run(tui::master_detail::ShellView {
             title: name.to_string(),
             rows,
             shells,

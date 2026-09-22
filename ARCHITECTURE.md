@@ -210,7 +210,7 @@ src/
     pty.rs         the concrete PtsPty adapter over portable-pty, behind the
                    Pty trait the driver is generic over
     key_router.rs  pure reducer: (mode, key) -> (mode, action)
-    master_detail.rs feature view layout, and the one event loop in the crate
+    master_detail.rs the shell-view layout, and the one event loop in the crate
 
   infra/           adapters to the outside world
     fs/            the filesystem primitive set. Nothing else touches std::fs.

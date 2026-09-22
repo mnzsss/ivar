@@ -19,7 +19,7 @@
 //!
 //! It holds **no `store` and no `action` state** — the layering table says
 //! `tui` may not reach them, so the caller pushes in a ready-made
-//! [`FeatureView`] (shells to spawn, rows to list) and reads nothing back.
+//! [`ShellView`] (shells to spawn, rows to list) and reads nothing back.
 
 use std::io;
 use std::time::Duration;
@@ -37,14 +37,15 @@ use crate::tui::key_router::{Direction, Key};
 use crate::tui::pty::PtsPty;
 use crate::tui::widget::{Row, panel_size, render};
 
-/// Everything the feature-view host loop needs, pushed in by the action.
+/// Everything the host loop needs, pushed in by the action: the title, the
+/// sidebar rows, and one shell per row.
 #[derive(Debug, Clone)]
-pub struct FeatureView {
-    /// The title — the feature name.
+pub struct ShellView {
+    /// The title — the feature name, or the hall root for a repo view.
     pub title: String,
-    /// The sidebar rows — promoted repos, with their statuses.
+    /// The sidebar rows, with their statuses.
     pub rows: Vec<Row>,
-    /// The shells to spawn — one per promoted repo, each in its worktree.
+    /// The shells to spawn — one per row, in the same order.
     pub shells: Vec<ShellSpec>,
 }
 
@@ -56,7 +57,7 @@ pub struct FeatureView {
 ///
 /// Returns [`Failure`] if the terminal cannot be initialised, a shell
 /// fails to spawn, or the event loop otherwise fails.
-pub fn run(view: FeatureView) -> Result<(), Failure> {
+pub fn run(view: ShellView) -> Result<(), Failure> {
     let (width, height) = crossterm::terminal::size().unwrap_or((80, 24));
     let prefix = Prefix::from_env();
     // `ratatui::init` enables raw mode and the alternate screen and installs
@@ -175,7 +176,7 @@ impl Prefix {
 /// every shell, and render one frame whenever anything changed.
 fn run_loop(
     terminal: &mut DefaultTerminal,
-    view: FeatureView,
+    view: ShellView,
     area: Rect,
     prefix: &Prefix,
 ) -> Result<(), Failure> {
@@ -188,10 +189,10 @@ fn run_loop(
 
     loop {
         if crossterm::event::poll(Duration::from_millis(50))
-            .map_err(|source| io_failure("feature.tui_poll_failed", &source))?
+            .map_err(|source| io_failure("tui.poll_failed", &source))?
         {
             let event = crossterm::event::read()
-                .map_err(|source| io_failure("feature.tui_read_failed", &source))?;
+                .map_err(|source| io_failure("tui.read_failed", &source))?;
             match event {
                 Event::Key(key) if key.kind == KeyEventKind::Press => {
                     if let Some(key) = map_key(key, prefix) {
@@ -213,7 +214,7 @@ fn run_loop(
                     driver.resize(panel_width, panel_height);
                     terminal
                         .resize(area)
-                        .map_err(|source| io_failure("feature.tui_resize_failed", &source))?;
+                        .map_err(|source| io_failure("tui.resize_failed", &source))?;
                     dirty = true;
                 }
                 _ => {}
@@ -222,7 +223,7 @@ fn run_loop(
 
         if driver
             .pump()
-            .map_err(|source| io_failure("feature.tui_pump_failed", &source))?
+            .map_err(|source| io_failure("tui.pump_failed", &source))?
         {
             dirty = true;
         }
@@ -231,7 +232,7 @@ fn run_loop(
             let snapshot = driver.snapshot(&view.title, &view.rows, prefix.label());
             terminal
                 .draw(|frame| render(&snapshot, frame.area(), frame.buffer_mut()))
-                .map_err(|source| io_failure("feature.tui_render_failed", &source))?;
+                .map_err(|source| io_failure("tui.render_failed", &source))?;
             dirty = false;
         }
     }
