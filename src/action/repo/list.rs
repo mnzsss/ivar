@@ -101,7 +101,7 @@ pub fn list(ctx: &Ctx) -> Outcome<ListOutcome> {
 
 /// Observe one repo's on-disk state without letting any single probe fail
 /// the listing.
-fn status_of(git: &impl git::Git, layout: &Layout, repo: &Repo) -> RepoStatus {
+pub(super) fn status_of(git: &impl git::Git, layout: &Layout, repo: &Repo) -> RepoStatus {
     let bare = layout.repo_bare(repo.name());
     let worktree = layout.repo_worktree(repo.name(), repo.default_branch());
 

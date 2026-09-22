@@ -108,15 +108,15 @@ pub fn view(ctx: &Ctx, input: ViewInput) -> Outcome<ViewOutcome> {
     // Promotions are a BTreeMap, so `keys()` is already repo-name order — the
     // sidebar order and the shell list agree.
     let repos: Vec<RepoName> = feature.promotions.keys().cloned().collect();
-    let shell_program = user_shell();
+    let shell_program = proc::user_shell();
     let shells = repos
         .iter()
         .map(|repo| {
             let worktree = layout.repo_worktree(repo, &feature.branch);
             ShellSpec {
-                label: repo.to_string(),
                 cwd: worktree.clone(),
                 command: proc::Command::new(shell_program.clone()).cwd(&worktree),
+                unavailable: None,
             }
         })
         .collect();
@@ -136,7 +136,7 @@ pub fn view(ctx: &Ctx, input: ViewInput) -> Outcome<ViewOutcome> {
     // The interactive TUI needs a real terminal; on a pipe, report what a
     // view would have opened instead.
     if term::is_tty(term::Stream::Stdout) {
-        tui::master_detail::run(tui::master_detail::FeatureView {
+        tui::master_detail::run(tui::master_detail::ShellView {
             title: name.to_string(),
             rows,
             shells,
@@ -149,20 +149,6 @@ pub fn view(ctx: &Ctx, input: ViewInput) -> Outcome<ViewOutcome> {
         branch: feature.branch.to_string(),
         repos,
     }))
-}
-
-/// The shell each repo's view spawns: the user's `SHELL`, or `bash`.
-fn user_shell() -> String {
-    resolve_shell(std::env::var("SHELL").ok().as_deref())
-}
-
-/// Pure half of [`user_shell`], so the fallback is testable without touching
-/// the process environment.
-#[must_use]
-fn resolve_shell(shell: Option<&str>) -> String {
-    shell
-        .map(str::to_owned)
-        .unwrap_or_else(|| "bash".to_owned())
 }
 
 /// The one-word status the sidebar shows for a promoted repo — the same

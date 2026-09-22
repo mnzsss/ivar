@@ -7,7 +7,7 @@
 //!   `TestBackend` headlessly.
 //! - **`driver` owns every byte of I/O.** PTY reads/writes, spawn, resize.
 //!   Exposes explicit step methods the host loop calls; spawns shells lazily
-//!   (one per promoted repo, on first focus), never background tasks.
+//!   (one per row, on first focus), never background tasks.
 //! - **`key_router` is a pure reducer.** `(mode, key) -> (mode, action)`. The
 //!   only place a keystroke becomes intent.
 //! - **`screen` is the emulator seam.** PTY bytes in, text viewport out. The

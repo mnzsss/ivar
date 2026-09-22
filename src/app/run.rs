@@ -33,7 +33,7 @@ use crate::action::plan::{
 use crate::action::provider::{add as provider_add, list as provider_list};
 use crate::action::repo::{
     add, create as repo_create, list as repo_list, pull, remove, setup as repo_setup,
-    upstream as repo_upstream,
+    upstream as repo_upstream, view as repo_view,
 };
 use crate::action::review::comment as review_comment;
 use crate::action::session::{
@@ -142,6 +142,12 @@ pub fn run(cli: Cli) -> ExitCode {
             ),
             RepoCommand::Setup(args) => respond(
                 repo_setup::setup(&ctx, args.into()),
+                json,
+                &mut stdout,
+                &mut stderr,
+            ),
+            RepoCommand::View(args) => respond(
+                repo_view::view(&ctx, args.into()),
                 json,
                 &mut stdout,
                 &mut stderr,

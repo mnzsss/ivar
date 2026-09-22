@@ -986,3 +986,23 @@ fn execute_checkpoint_requires_a_positive_wave_and_a_summary() {
         .is_err()
     );
 }
+
+#[test]
+fn repo_view_defaults_to_every_declared_repo_and_accepts_a_subset() {
+    let cli = Cli::try_parse_from(["ivar", "repo", "view"]).unwrap();
+    let Command::Repo(RepoCommand::View(args)) = cli.command else {
+        panic!("expected repo view")
+    };
+    let input: repo_view::ViewInput = args.into();
+    assert!(
+        input.repos.is_empty(),
+        "naming no repo means every declared repo, not none"
+    );
+
+    let cli = Cli::try_parse_from(["ivar", "repo", "view", "api", "web"]).unwrap();
+    let Command::Repo(RepoCommand::View(args)) = cli.command else {
+        panic!("expected repo view")
+    };
+    let input: repo_view::ViewInput = args.into();
+    assert_eq!(input.repos, vec!["api".to_owned(), "web".to_owned()]);
+}

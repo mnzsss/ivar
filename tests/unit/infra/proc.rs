@@ -618,3 +618,9 @@ fn exec_reports_a_program_that_never_ran() {
         .expect_err("a program that is not on PATH never replaces this process");
     assert!(matches!(error, Error::Spawn { .. }), "{error:?}");
 }
+
+#[test]
+fn user_shell_falls_back_to_bash_when_unset() {
+    assert_eq!(resolve_shell(None), "bash");
+    assert_eq!(resolve_shell(Some("/usr/bin/fish")), "/usr/bin/fish");
+}

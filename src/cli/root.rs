@@ -15,6 +15,8 @@ use crate::action::feature::deliver;
 use crate::action::hall::InitInput;
 #[cfg(test)]
 use crate::action::repo::create as repo_create;
+#[cfg(test)]
+use crate::action::repo::view as repo_view;
 use crate::action::session::guard_cmd;
 use crate::action::sync::SyncInput;
 use crate::error::Failure;
@@ -187,7 +189,7 @@ pub use plan::{
 pub use provider::{ProviderAddArgs, ProviderCommand};
 pub use repo::{
     RepoAddArgs, RepoCommand, RepoCreateArgs, RepoPullArgs, RepoRemoveArgs, RepoSetupArgs,
-    RepoUpstreamArgs,
+    RepoUpstreamArgs, RepoViewArgs,
 };
 pub use review::{
     CommentAddArgs, CommentCommand, CommentListArgs, CommentResolveArgs, CommentStatusArg,

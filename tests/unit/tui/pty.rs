@@ -92,9 +92,9 @@ fn the_drivers_steps_never_block_on_a_real_shell() {
     use crate::tui::key_router::Key;
 
     let spec = ShellSpec {
-        label: "repo".to_owned(),
         cwd: cwd().to_path_buf(),
         command: Command::new("cat"),
+        unavailable: None,
     };
 
     let (tx, rx) = mpsc::channel();

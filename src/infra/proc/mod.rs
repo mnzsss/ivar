@@ -413,6 +413,22 @@ pub fn exec(command: &Command) -> Result<Option<i32>, Error> {
     }
 }
 
+/// The shell an interactive view spawns: the user's `SHELL`, or `bash`.
+#[must_use]
+pub fn user_shell() -> String {
+    resolve_shell(std::env::var("SHELL").ok().as_deref())
+}
+
+/// Pure half of [`user_shell`], so the fallback is testable without
+/// touching the process environment.
+#[must_use]
+fn resolve_shell(shell: Option<&str>) -> String {
+    match shell {
+        Some(shell) if !shell.is_empty() => shell.to_owned(),
+        _ => "bash".to_owned(),
+    }
+}
+
 fn spawn_error(command: &Command, source: io::Error) -> Error {
     Error::Spawn {
         command: command.display(),

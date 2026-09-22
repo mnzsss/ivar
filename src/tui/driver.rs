@@ -15,7 +15,8 @@
 //!
 //! # One driver, many shells
 //!
-//! A feature view is one shell per promoted repo, each running in its own
+//! A shell view is one shell per row — a feature's promoted repos, or the
+//! hall's repos on their default branches — each running in its own
 //! worktree. The driver owns them all as a [`Vec`] of [`Shell`]s, spawns
 //! lazily (a shell starts the first time it is focused — one process per
 //! repo, not N at start-up), and keeps every shell's output flowing so a
@@ -86,16 +87,19 @@ pub trait Pty {
     fn is_running(&self) -> bool;
 }
 
-/// What a feature view shell is: a command to spawn, and where. One per
-/// promoted repo, pushed in by the action — the driver never reads the hall.
+/// What a shell in a view is: a command to spawn, and where. One per repo,
+/// pushed in by the action — the driver never reads the hall.
 #[derive(Debug, Clone)]
 pub struct ShellSpec {
-    /// The shell's label — the repo name shown in the sidebar.
-    pub label: String,
-    /// The directory the shell runs in — the repo's feature worktree.
+    /// The directory the shell runs in.
     pub cwd: Utf8PathBuf,
     /// The command to spawn (the user's shell).
     pub command: Command,
+    /// Why this shell cannot start, when it cannot. `None` is the ordinary
+    /// case. Set, the panel shows the reason and the driver never attempts
+    /// a spawn: the caller already knows the path is not there, and only
+    /// the caller can say what to run instead.
+    pub unavailable: Option<String>,
 }
 
 /// One shell's state inside the driver. The PTY is `None` until the shell's
@@ -334,6 +338,13 @@ impl<P: Pty, F: FnMut() -> P> Driver<P, F> {
         let Some(shell) = self.shells.get(self.selected) else {
             return Panel::empty();
         };
+        if let Some(reason) = &shell.spec.unavailable {
+            return Panel {
+                lines: vec![Line::raw(reason.clone())],
+                scroll_offset: 0,
+                state: PanelState::Scrolling,
+            };
+        }
         if let Some(error) = &shell.spawn_error {
             return Panel {
                 lines: vec![Line::raw(format!("could not start shell: {error}"))],
@@ -383,7 +394,7 @@ impl<P: Pty, F: FnMut() -> P> Driver<P, F> {
         let Some(shell) = self.shells.get_mut(index) else {
             return;
         };
-        if shell.pty.is_some() || shell.spawn_error.is_some() {
+        if shell.spec.unavailable.is_some() || shell.pty.is_some() || shell.spawn_error.is_some() {
             return;
         }
         let mut pty = (self.factory)();
@@ -407,6 +418,9 @@ impl<P: Pty, F: FnMut() -> P> Driver<P, F> {
         let Some(shell) = self.shells.get_mut(index) else {
             return;
         };
+        if shell.spec.unavailable.is_some() {
+            return;
+        }
         if shell.pty.as_ref().is_some_and(|pty| pty.is_running()) {
             return;
         }
