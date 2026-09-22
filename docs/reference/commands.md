@@ -174,6 +174,15 @@ Run the setup script for one repo
 | `--force-setup` |  |  | Ignore the receipt and run the setup script even if unchanged |
 
 
+##### `ivar repo view`
+
+Open an interactive multi-shell view over the hall's repos — one shell per repo, each running in its default-branch worktree. An inspection view: those worktrees are read-only while a session guards them, and `ivar repo pull` is what refreshes them
+
+| argument | required | description |
+| --- | --- | --- |
+| `repos` | no | Which declared repos to open; opens every declared repo when omitted |
+
+
 ##### `ivar repo upstream`
 
 Manage remote upstream for a repo

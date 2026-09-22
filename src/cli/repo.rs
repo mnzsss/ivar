@@ -2,6 +2,7 @@ use clap::{Args, Subcommand};
 
 use crate::action::repo::{
     add, create as repo_create, pull, remove, setup as repo_setup, upstream as repo_upstream,
+    view as repo_view,
 };
 
 /// The `ivar repo` surface: what a repo is, who owns it, and how the hall's
@@ -25,6 +26,11 @@ pub enum RepoCommand {
     Pull(RepoPullArgs),
     /// Run the setup script for one repo.
     Setup(RepoSetupArgs),
+    /// Open an interactive multi-shell view over the hall's repos — one
+    /// shell per repo, each running in its default-branch worktree. An
+    /// inspection view: those worktrees are read-only while a session
+    /// guards them, and `ivar repo pull` is what refreshes them.
+    View(RepoViewArgs),
     /// Manage remote upstream for a repo.
     Upstream(RepoUpstreamArgs),
 }
@@ -121,6 +127,13 @@ pub struct RepoUpstreamArgs {
     pub remove: bool,
 }
 
+/// Arguments for `ivar repo view`.
+#[derive(Debug, Args)]
+pub struct RepoViewArgs {
+    /// Which declared repos to open; opens every declared repo when omitted.
+    pub repos: Vec<String>,
+}
+
 impl From<RepoAddArgs> for add::AddInput {
     /// `--reuse` / `--fresh` are a tri-state on the wire and an
     /// `Option<bool>` in the action: reuse an existing bare clone, replace it,
@@ -207,5 +220,12 @@ impl From<RepoUpstreamArgs> for repo_upstream::UpstreamInput {
             url: url.unwrap_or_default(),
             remove,
         }
+    }
+}
+
+impl From<RepoViewArgs> for repo_view::ViewInput {
+    fn from(args: RepoViewArgs) -> Self {
+        let RepoViewArgs { repos } = args;
+        Self { repos }
     }
 }
