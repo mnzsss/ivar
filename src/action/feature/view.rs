@@ -151,7 +151,6 @@ pub fn view(ctx: &Ctx, input: ViewInput) -> Outcome<ViewOutcome> {
     }))
 }
 
-
 /// The one-word status the sidebar shows for a promoted repo — the same
 /// words `feature status` uses.
 fn state_word(state: WorktreeState) -> &'static str {

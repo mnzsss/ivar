@@ -172,4 +172,3 @@ fn the_human_surface_lists_the_repos_and_shell_count() {
         "Feature `checkout` (branch: checkout) in /hall:\n  api\n  web\n2 shells opened\n"
     );
 }
-

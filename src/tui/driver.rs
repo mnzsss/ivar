@@ -394,10 +394,7 @@ impl<P: Pty, F: FnMut() -> P> Driver<P, F> {
         let Some(shell) = self.shells.get_mut(index) else {
             return;
         };
-        if shell.spec.unavailable.is_some()
-            || shell.pty.is_some()
-            || shell.spawn_error.is_some()
-        {
+        if shell.spec.unavailable.is_some() || shell.pty.is_some() || shell.spawn_error.is_some() {
             return;
         }
         let mut pty = (self.factory)();

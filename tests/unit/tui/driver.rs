@@ -523,9 +523,7 @@ fn the_prefix_still_opens_nav_from_a_dead_shell() {
 
 /// A driver over exactly one shell the caller has already declared
 /// unopenable, returning the log of spawned PTYs.
-fn driver_with_unavailable(
-    reason: &str,
-) -> (Driver<FakePty, impl FnMut() -> FakePty>, PtyLog) {
+fn driver_with_unavailable(reason: &str) -> (Driver<FakePty, impl FnMut() -> FakePty>, PtyLog) {
     let log = PtyLog(Rc::new(RefCell::new(Vec::new())));
     let log_for_factory = log.clone();
     let factory = move || {

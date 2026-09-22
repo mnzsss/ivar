@@ -71,7 +71,12 @@ fn view_opens_every_declared_repo_on_its_default_branch() {
     assert!(repos[0].openable);
     assert_eq!(repos[0].reason, None);
     assert_eq!(repos[1].name.as_str(), "web");
-    assert!(repos[1].worktree.as_str().ends_with(".ivar/repos/web/trunk"));
+    assert!(
+        repos[1]
+            .worktree
+            .as_str()
+            .ends_with(".ivar/repos/web/trunk")
+    );
     assert!(repos[1].openable);
 }
 
@@ -99,7 +104,10 @@ fn a_repo_without_a_worktree_is_listed_unopenable_and_says_what_to_run() {
         .find(|repo| repo.name.as_str() == "web")
         .expect("a declared repo is listed even when it is not materialised");
     assert!(!web.openable);
-    let reason = web.reason.as_deref().expect("an unopenable repo carries its reason");
+    let reason = web
+        .reason
+        .as_deref()
+        .expect("an unopenable repo carries its reason");
     assert!(
         reason.contains("ivar sync"),
         "the reason names the verb that materialises a worktree: {reason}"

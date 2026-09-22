@@ -81,11 +81,7 @@ impl WriteHuman for ViewOutcome {
             }
         }
         let open = self.repos.iter().filter(|repo| repo.openable).count();
-        writeln!(
-            w,
-            "{open} shell{} opened",
-            if open == 1 { "" } else { "s" }
-        )
+        writeln!(w, "{open} shell{} opened", if open == 1 { "" } else { "s" })
     }
 }
 
@@ -187,16 +183,13 @@ fn select<'a>(declared: &'a [Repo], requested: &[String]) -> Result<Vec<&'a Repo
                 .ok_or_else(|| {
                     let names: Vec<&str> =
                         declared.iter().map(|repo| repo.name().as_str()).collect();
-                    Failure::blocked(
-                        "repo.not_declared",
-                        format!("`{name}` is not in ivar.json"),
-                    )
-                    .expected("a repo declared in ivar.json")
-                    .actual(format!("`{name}` is not declared"))
-                    .fix(FixAction::safe(
-                        "repo.declare_first",
-                        format!("Declared repos: {}.", names.join(", ")),
-                    ))
+                    Failure::blocked("repo.not_declared", format!("`{name}` is not in ivar.json"))
+                        .expected("a repo declared in ivar.json")
+                        .actual(format!("`{name}` is not declared"))
+                        .fix(FixAction::safe(
+                            "repo.declare_first",
+                            format!("Declared repos: {}.", names.join(", ")),
+                        ))
                 })
         })
         .collect()
