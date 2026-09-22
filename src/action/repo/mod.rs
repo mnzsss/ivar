@@ -18,6 +18,7 @@ pub mod pull;
 pub mod remove;
 pub mod setup;
 pub mod upstream;
+pub mod view;
 
 use crate::domain::name::RepoName;
 use crate::error::{Failure, FixAction};

@@ -173,8 +173,3 @@ fn the_human_surface_lists_the_repos_and_shell_count() {
     );
 }
 
-#[test]
-fn user_shell_falls_back_to_bash_when_unset() {
-    assert_eq!(resolve_shell(None), "bash");
-    assert_eq!(resolve_shell(Some("fish")), "fish");
-}

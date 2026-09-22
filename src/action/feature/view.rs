@@ -108,7 +108,7 @@ pub fn view(ctx: &Ctx, input: ViewInput) -> Outcome<ViewOutcome> {
     // Promotions are a BTreeMap, so `keys()` is already repo-name order — the
     // sidebar order and the shell list agree.
     let repos: Vec<RepoName> = feature.promotions.keys().cloned().collect();
-    let shell_program = user_shell();
+    let shell_program = proc::user_shell();
     let shells = repos
         .iter()
         .map(|repo| {
@@ -151,19 +151,6 @@ pub fn view(ctx: &Ctx, input: ViewInput) -> Outcome<ViewOutcome> {
     }))
 }
 
-/// The shell each repo's view spawns: the user's `SHELL`, or `bash`.
-fn user_shell() -> String {
-    resolve_shell(std::env::var("SHELL").ok().as_deref())
-}
-
-/// Pure half of [`user_shell`], so the fallback is testable without touching
-/// the process environment.
-#[must_use]
-fn resolve_shell(shell: Option<&str>) -> String {
-    shell
-        .map(str::to_owned)
-        .unwrap_or_else(|| "bash".to_owned())
-}
 
 /// The one-word status the sidebar shows for a promoted repo — the same
 /// words `feature status` uses.
