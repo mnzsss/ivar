@@ -81,10 +81,14 @@ fn canonicalize_lenient(path: &Utf8Path) -> Utf8PathBuf {
 }
 
 fn hall_sources(layout: &Layout) -> Vec<Utf8PathBuf> {
-    [layout.hall_skills(), layout.hall_skills_local()]
-        .into_iter()
-        .map(|path| canonicalize_lenient(&path))
-        .collect()
+    [
+        layout.hall_skills(),
+        layout.hall_skills_local(),
+        layout.hall_setups(),
+    ]
+    .into_iter()
+    .map(|path| canonicalize_lenient(&path))
+    .collect()
 }
 
 impl WritableSet {

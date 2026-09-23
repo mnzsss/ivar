@@ -175,6 +175,8 @@ fn every_session_may_write_the_hall_root_outside_dot_ivar() {
         assert!(set.allows(&layout.root().join("new-top-level.md")));
         assert!(set.allows(&layout.hall_skills().join("custom/SKILL.md")));
         assert!(set.allows(&layout.hall_skills_local().join("private/SKILL.md")));
+        assert!(set.allows(&layout.hall_setups().join("valhalla.sh")));
+        assert!(set.allows(&layout.hall_setups().join("valhalla.session.sh")));
         assert!(!set.allows(&layout.state()));
         assert!(!set.allows(&layout.ivar_dir().join("cache/target/x")));
         assert!(!set.allows(&default_worktree.join("src/lib.rs")));

@@ -56,9 +56,10 @@ impl Sandbox {
         feature: Option<&Feature>,
         provider: Provider,
     ) -> Result<Self, Failure> {
-        // Ensure canonical hall skill directories exist before filtering nonexistent paths.
+        // Ensure canonical hall source directories exist before filtering nonexistent paths.
         crate::infra::fs::ensure_dir(&layout.hall_skills())?;
         crate::infra::fs::ensure_dir(&layout.hall_skills_local())?;
+        crate::infra::fs::ensure_dir(&layout.hall_setups())?;
 
         let mut candidate_roots: Vec<Utf8PathBuf> = Vec::new();
 
