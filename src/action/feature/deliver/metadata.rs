@@ -1,6 +1,6 @@
 //! Validation, file body resolution, and field inheritance for deliver PR metadata.
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use crate::action::Ctx;
 use crate::action::feature::deliver::input::{DeliverInput, PullRequestMetadata};
@@ -30,6 +30,65 @@ fn unpromoted_repo_override(feature: &Feature, repo: &str) -> Failure {
             feature.name
         ),
     ))
+}
+
+fn unpromoted_only_repo(feature: &Feature, repo: &str) -> Failure {
+    let promoted = feature
+        .promotions
+        .keys()
+        .map(|name| name.as_str())
+        .collect::<Vec<_>>()
+        .join(", ");
+    Failure::blocked(
+        "deliver.unpromoted_only_repo",
+        format!(
+            "repository `{repo}` is not promoted in feature `{}`",
+            feature.name
+        ),
+    )
+    .expected(format!(
+        "`--only` to name a promoted repository: {promoted}"
+    ))
+    .actual(format!(
+        "`--only {repo}`; promoted repositories are {promoted}"
+    ))
+    .fix(FixAction::safe(
+        "deliver.fix_only_selection",
+        format!("Pass `--only` with one of: {promoted}."),
+    ))
+}
+
+fn repo_override_outside_only(repo: &str) -> Failure {
+    Failure::blocked(
+        "deliver.repo_override_outside_only",
+        format!("`--repo {repo}` sets metadata for a repository `--only` does not deliver"),
+    )
+    .expected("every `--repo` group to name a repository selected by `--only`")
+    .actual(format!("`{repo}` is not among the `--only` repositories"))
+    .fix(FixAction::safe(
+        "deliver.align_repo_with_only",
+        format!("Add `--only {repo}` or drop the `--repo {repo}` group."),
+    ))
+}
+
+/// The promoted repositories this delivery covers: every one, unless `--only` narrows it.
+pub(crate) fn selected_repos(
+    feature: &Feature,
+    input: &DeliverInput,
+) -> Result<BTreeSet<RepoName>, Failure> {
+    if input.only.is_empty() {
+        return Ok(feature.promotions.keys().cloned().collect());
+    }
+    input
+        .only
+        .iter()
+        .map(|raw| {
+            RepoName::new(raw)
+                .ok()
+                .filter(|name| feature.promotions.contains_key(name))
+                .ok_or_else(|| unpromoted_only_repo(feature, raw))
+        })
+        .collect()
 }
 
 fn validate_repo_overrides(feature: &Feature, input: &DeliverInput) -> Result<(), Failure> {
@@ -81,6 +140,10 @@ fn validate_repo_overrides(feature: &Feature, input: &DeliverInput) -> Result<()
 
         if !feature.promotions.contains_key(&repo_name) {
             return Err(unpromoted_repo_override(feature, &r_override.repo));
+        }
+
+        if !input.only.is_empty() && !input.only.contains(&r_override.repo) {
+            return Err(repo_override_outside_only(&r_override.repo));
         }
     }
 
