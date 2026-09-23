@@ -384,7 +384,14 @@ pub(crate) fn decide(resolution: &Resolution<'_>, req: &ToolRequest) -> GuardDec
                         .chain(set.feature_dir.as_ref().map(|f| f.to_string()))
                         .chain(set.worktrees.iter().map(|w| w.to_string()))
                         .chain(set.hall_sources.iter().map(|h| h.to_string()))
-                        .chain([format!("{} (except {})", set.hall.root, set.hall.ivar_dir)])
+                        .chain([format!(
+                            "{} (except {})",
+                            set.hall.root,
+                            std::iter::once(set.hall.ivar_dir.to_string())
+                                .chain(set.hall.protected.iter().map(|p| p.to_string()))
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        )])
                         .collect::<Vec<_>>()
                         .join(", "),
                     set.scratch_dir(),

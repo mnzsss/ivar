@@ -1276,15 +1276,27 @@ fn a_resolved_denial_names_the_scratch_dir_and_keeps_the_writable_set() {
         "the denial must name the scratch dir: {}",
         out.body
     );
+    let protected = layout
+        .guard_protected_paths()
+        .iter()
+        .map(|path| canonicalize_lenient(path).to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
     let hall_entry = format!(
-        "{} (except {})",
+        "{} (except {}, {})",
         root.canonicalize_utf8().unwrap(),
-        layout.ivar_dir().canonicalize_utf8().unwrap()
+        layout.ivar_dir().canonicalize_utf8().unwrap(),
+        protected
     );
     assert!(
         out.body.contains(&hall_entry),
-        "the denial must name the hall root and its exclusion: {}",
+        "the denial must name the hall root, its exclusion, and the protected paths: {}",
         out.body
+    );
+    assert!(
+        hall_entry.contains(".git/hooks"),
+        "the protected paths must include .git/hooks: {}",
+        hall_entry
     );
 }
 

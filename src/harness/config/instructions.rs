@@ -194,8 +194,10 @@ pub fn build_block(hall: &HallName, repos: &[RepoName]) -> String {
          `.ivar/features/<feature>/sessions/<session-id>/{SCRATCH_DIR}/` once it is\n\
          bound to a feature). The rest of the hall outside `.ivar/` — docs,\n\
          `HALL.md`, harness config — is writable too, so hall files need no\n\
-         feature. Repos stay read-only until promoted, and a denied write names\n\
-         the writable set for you.\n\n\
+         feature. The hall's git hooks and config, and the provider hook\n\
+         configuration that wires `ivar guard`, stay protected. Repos stay\n\
+         read-only until promoted, and a denied write names the writable set\n\
+         for you.\n\n\
          Its contents are temporary: `ivar session stop` removes the view dir and\n\
          everything in it. Nothing you need to keep belongs there.\n"
     );

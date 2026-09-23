@@ -48,6 +48,7 @@ fn repos_are_listed_in_the_order_given() {
 fn managed_block_says_the_hall_root_outside_dot_ivar_is_writable() {
     let block = build_block(&hall(), &[repo("api")]);
     assert!(block.contains("The rest of the hall outside `.ivar/`"));
+    assert!(block.contains("protected"));
 }
 
 #[test]
