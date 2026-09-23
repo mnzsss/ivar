@@ -335,7 +335,7 @@ impl clap::Args for FeatureDeliverArgs {
         .arg(
             clap::Arg::new("fingerprint")
                 .long("fingerprint")
-                .help("The fingerprint from the preview the human approved; required to apply. It covers `--name`, `--body` and `--draft`, so apply with the same values the preview used. Apply recomputes the preview and refuses when the fingerprint differs — the state has drifted since the preview.")
+                .help("The fingerprint from the preview the human approved; required to apply. It covers `--name`, `--body`, `--draft` and `--only`, so apply with the same values the preview used. Apply recomputes the preview and refuses when the fingerprint differs — the state has drifted since the preview.")
                 .value_name("FINGERPRINT"),
         )
         .arg(
