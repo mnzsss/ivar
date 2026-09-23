@@ -212,6 +212,45 @@ fn sandbox_grants_hall_root_entries_but_never_covers_the_repos_dir() {
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn symlinked_hall_root_entries_stay_out_of_the_kernel_roots() {
+    use std::os::unix::fs::symlink;
+
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root.clone());
+    let view_dir =
+        layout.discovery_session(&SessionId::new("6f0c9d5f-0000-4000-8000-000000000017").unwrap());
+    crate::infra::fs::ensure_dir(&view_dir).unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    let outside = Utf8PathBuf::try_from(outside.path().to_path_buf())
+        .unwrap()
+        .canonicalize_utf8()
+        .unwrap();
+    let default_worktree = layout
+        .repo_worktree(
+            &RepoName::new("api").unwrap(),
+            &BranchName::new("main").unwrap(),
+        )
+        .canonicalize_utf8()
+        .unwrap();
+    symlink(&outside, root.join("outside")).unwrap();
+    symlink(&default_worktree, root.join("api-link")).unwrap();
+
+    let set = WritableSet::from_discovery(&layout, &view_dir).unwrap();
+    let roots = set.roots();
+    let canonical_root = root.canonicalize_utf8().unwrap();
+
+    for excluded in [
+        outside,
+        default_worktree,
+        canonical_root.join("outside"),
+        canonical_root.join("api-link"),
+    ] {
+        assert!(!roots.contains(&excluded), "{excluded} in {roots:?}");
+    }
+}
+
 #[test]
 fn sandbox_roots_never_cover_git_hooks_git_config_or_provider_hook_config() {
     let (_guard, root) = hall_with_promoted_feature();
