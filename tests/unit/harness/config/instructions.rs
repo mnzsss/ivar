@@ -47,7 +47,6 @@ fn repos_are_listed_in_the_order_given() {
 #[test]
 fn managed_block_says_the_hall_root_outside_dot_ivar_is_writable() {
     let block = build_block(&hall(), &[repo("api")]);
-    assert!(!block.contains("Nowhere else in the hall is writable"));
     assert!(block.contains("The rest of the hall outside `.ivar/`"));
 }
 

@@ -106,7 +106,6 @@ fn writable_set_is_view_dir_plus_promoted_worktrees_plus_feature_dir() {
     let api_worktree = layout.repo_worktree(&RepoName::new("api").unwrap(), &feature.branch);
     assert!(set.allows(&api_worktree));
 
-    // Hall-internal state stays outside the set.
     assert!(!set.allows(&layout.state()));
 }
 
@@ -137,7 +136,6 @@ fn discovery_session_writable_set_does_not_include_any_feature_dir() {
     );
     assert!(!set.allows(&api_worktree));
 
-    // Hall-internal state stays outside the set.
     assert!(!set.allows(&layout.state()));
 }
 
@@ -163,9 +161,11 @@ fn every_session_may_write_the_hall_root_outside_dot_ivar() {
         &RepoName::new("api").unwrap(),
         &BranchName::new("main").unwrap(),
     );
+    let foreign_session = "6f0c9d5f-0000-4000-8000-000000000099";
     let foreign_view = layout
         .discovery_sessions_dir()
-        .join("6f0c9d5f-0000-4000-8000-000000000099/notes.md");
+        .join(foreign_session)
+        .join("notes.md");
 
     for set in [&discovery, &feature_set] {
         assert!(set.allows(&layout.root().join("HALL.md")));
@@ -188,7 +188,8 @@ fn every_session_may_write_the_hall_root_outside_dot_ivar() {
         !feature_set.allows(
             &layout
                 .feature_sessions_dir(&feature.name)
-                .join("6f0c9d5f-0000-4000-8000-000000000099/notes.md")
+                .join(foreign_session)
+                .join("notes.md")
         )
     );
 }
