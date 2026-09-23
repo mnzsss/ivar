@@ -47,6 +47,10 @@ to a Feature.
      path's own root, as `<name>/` — there is no `repos/` level), run
      read-only commands.
    - **Never write to repos during discovery.** All repos are read-only.
+     Hall files outside `.ivar/` (docs, `HALL.md`, harness config) are
+     writable, so hall docs can be updated without a feature. The hall's
+     git hooks and config, provider hook and MCP config, and `.env` stay
+     protected.
    - Build understanding of:
      - Problem or opportunity
      - Desired outcome

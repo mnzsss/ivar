@@ -1,5 +1,6 @@
-use camino::Utf8PathBuf;
+use camino::Utf8Path;
 
+use crate::domain::provider::Provider;
 use crate::providers::ManagedArtifact;
 
 /// Embedded plain JavaScript autocomplete extension for OMP.
@@ -190,7 +191,7 @@ export default function ivarExtension(pi) {
 
 pub(crate) fn managed_artifacts() -> Vec<ManagedArtifact> {
     vec![ManagedArtifact {
-        relative_path: Utf8PathBuf::from(".omp/extensions/ivar.js"),
+        relative_path: Utf8Path::new(Provider::OMP_EXTENSIONS_DIR).join("ivar.js"),
         contents: OMP_EXTENSION,
     }]
 }

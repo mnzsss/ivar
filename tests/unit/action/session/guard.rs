@@ -17,7 +17,7 @@ use crate::domain::name::{BranchName, FeatureName, RepoName, SessionId};
 use crate::domain::provider::Provider;
 use crate::store::layout::Layout;
 use crate::store::manifest::{Manifest, Providers, Repo};
-use crate::test_support::{hall_root, seeded_repo};
+use crate::test_support::{hall_root, seed_protected_hall_paths, seeded_repo};
 use camino::Utf8PathBuf;
 
 fn hall_with_promoted_feature() -> (tempfile::TempDir, Utf8PathBuf) {
@@ -106,9 +106,7 @@ fn writable_set_is_view_dir_plus_promoted_worktrees_plus_feature_dir() {
     let api_worktree = layout.repo_worktree(&RepoName::new("api").unwrap(), &feature.branch);
     assert!(set.allows(&api_worktree));
 
-    // Paths outside the set are NOT writable.
-    let hall_root_path = layout.root().to_path_buf();
-    assert!(!set.allows(&hall_root_path));
+    assert!(!set.allows(&layout.state()));
 }
 
 #[test]
@@ -138,13 +136,11 @@ fn discovery_session_writable_set_does_not_include_any_feature_dir() {
     );
     assert!(!set.allows(&api_worktree));
 
-    // Hall root is NOT writable.
-    let hall_root_path = layout.root().to_path_buf();
-    assert!(!set.allows(&hall_root_path));
+    assert!(!set.allows(&layout.state()));
 }
 
 #[test]
-fn discovery_and_feature_sessions_allow_only_canonical_hall_sources() {
+fn every_session_may_write_the_hall_root_outside_dot_ivar() {
     let (_guard, root) = hall_with_promoted_feature();
     let layout = Layout::at(root.clone());
     let feature = Feature::read(&layout, &FeatureName::new("checkout").unwrap())
@@ -161,21 +157,108 @@ fn discovery_and_feature_sessions_allow_only_canonical_hall_sources() {
 
     let discovery = WritableSet::from_discovery(&layout, &discovery_view).unwrap();
     let feature_set = WritableSet::from_session(&layout, &feature, &feature_view).unwrap();
-
-    for set in [&discovery, &feature_set] {
-        assert!(set.allows(&layout.root().join("HALL.md")));
-        assert!(set.allows(&layout.hall_skills().join("custom/SKILL.md")));
-        assert!(set.allows(&layout.hall_skills_local().join("private/SKILL.md")));
-        assert!(!set.allows(&layout.state()));
-        assert!(!set.allows(&layout.root().join(".claude/skills/custom/SKILL.md")));
-        assert!(!set.allows(&layout.root().join("ivar.json")));
-    }
-
     let default_worktree = layout.repo_worktree(
         &RepoName::new("api").unwrap(),
         &BranchName::new("main").unwrap(),
     );
-    assert!(!discovery.allows(&default_worktree.join("src/lib.rs")));
+    let foreign_session = "6f0c9d5f-0000-4000-8000-000000000099";
+    let foreign_view = layout
+        .discovery_sessions_dir()
+        .join(foreign_session)
+        .join("notes.md");
+
+    for set in [&discovery, &feature_set] {
+        assert!(set.allows(&layout.root().join("HALL.md")));
+        assert!(set.allows(&layout.root().join("docs/product/001-topic.md")));
+        assert!(set.allows(&layout.root().join("ivar.json")));
+        assert!(set.allows(&layout.root().join(".claude/skills/custom/SKILL.md")));
+        assert!(set.allows(&layout.root().join("new-top-level.md")));
+        assert!(set.allows(&layout.hall_skills().join("custom/SKILL.md")));
+        assert!(set.allows(&layout.hall_skills_local().join("private/SKILL.md")));
+        assert!(set.allows(&layout.hall_setups().join("valhalla.sh")));
+        assert!(set.allows(&layout.hall_setups().join("valhalla.session.sh")));
+        assert!(!set.allows(&layout.state()));
+        assert!(!set.allows(&layout.ivar_dir().join("cache/target/x")));
+        assert!(!set.allows(&default_worktree.join("src/lib.rs")));
+        assert!(!set.allows(&foreign_view));
+    }
+
+    assert!(!discovery.allows(&layout.feature_dir(&feature.name).join("plan.md")));
+    assert!(
+        !feature_set.allows(
+            &layout
+                .feature_sessions_dir(&feature.name)
+                .join(foreign_session)
+                .join("notes.md")
+        )
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_hall_root_symlink_cannot_escape_the_hall_or_reach_dot_ivar() {
+    use std::os::unix::fs::symlink;
+
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root.clone());
+    let view =
+        layout.discovery_session(&SessionId::new("6f0c9d5f-0000-4000-8000-000000000013").unwrap());
+    crate::infra::fs::ensure_dir(&view).unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    symlink(outside.path(), root.join("outside")).unwrap();
+    let default_worktree = layout.repo_worktree(
+        &RepoName::new("api").unwrap(),
+        &BranchName::new("main").unwrap(),
+    );
+    symlink(&default_worktree, root.join("api-link")).unwrap();
+
+    let set = WritableSet::from_discovery(&layout, &view).unwrap();
+
+    assert!(!set.allows(&root.join("outside/file.md")));
+    assert!(!set.allows(&root.join("api-link/src/lib.rs")));
+}
+
+#[cfg(unix)]
+#[test]
+fn a_dangling_hall_root_symlink_cannot_create_its_target_outside_the_set() {
+    use std::os::unix::fs::symlink;
+
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root.clone());
+    let view =
+        layout.discovery_session(&SessionId::new("6f0c9d5f-0000-4000-8000-000000000014").unwrap());
+    crate::infra::fs::ensure_dir(&view).unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    let outside = Utf8PathBuf::try_from(outside.path().to_path_buf()).unwrap();
+    symlink(outside.join("new.md"), root.join("outside-new.md")).unwrap();
+    let default_worktree = layout.repo_worktree(
+        &RepoName::new("api").unwrap(),
+        &BranchName::new("main").unwrap(),
+    );
+    symlink(default_worktree.join("src/new.rs"), root.join("api-new.rs")).unwrap();
+
+    let set = WritableSet::from_discovery(&layout, &view).unwrap();
+
+    assert!(!set.allows(&root.join("outside-new.md")));
+    assert!(!set.allows(&root.join("api-new.rs")));
+}
+
+#[cfg(unix)]
+#[test]
+fn a_symlink_loop_in_the_hall_root_is_denied() {
+    use std::os::unix::fs::symlink;
+
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root.clone());
+    let view =
+        layout.discovery_session(&SessionId::new("6f0c9d5f-0000-4000-8000-000000000017").unwrap());
+    crate::infra::fs::ensure_dir(&view).unwrap();
+    symlink(root.join("loop-b"), root.join("loop-a")).unwrap();
+    symlink(root.join("loop-a"), root.join("loop-b")).unwrap();
+
+    let set = WritableSet::from_discovery(&layout, &view).unwrap();
+
+    assert!(!set.allows(&root.join("loop-a")));
 }
 
 #[cfg(unix)]
@@ -211,35 +294,18 @@ fn writable_set_roots_include_canonical_hall_sources() {
     crate::infra::fs::ensure_dir(&view_dir).unwrap();
     crate::infra::fs::ensure_dir(&layout.hall_skills()).unwrap();
     crate::infra::fs::ensure_dir(&layout.hall_skills_local()).unwrap();
+    crate::infra::fs::write_text(&layout.root().join("HALL.md"), "# Hall\n").unwrap();
 
     let set = WritableSet::from_session(&layout, &feature, &view_dir).unwrap();
-    let roots = set.roots();
+    let roots = set.roots().unwrap();
 
-    assert!(
-        roots.contains(
-            &layout
-                .root()
-                .join("HALL.md")
-                .canonicalize_utf8()
-                .unwrap()
-                .as_path()
-        )
-    );
-    assert!(roots.contains(&layout.hall_skills().canonicalize_utf8().unwrap().as_path()));
-    assert!(
-        roots.contains(
-            &layout
-                .hall_skills_local()
-                .canonicalize_utf8()
-                .unwrap()
-                .as_path()
-        )
-    );
-    assert_eq!(roots.len(), 6);
+    assert!(roots.contains(&layout.root().join("HALL.md").canonicalize_utf8().unwrap()));
+    assert!(roots.contains(&layout.hall_skills().canonicalize_utf8().unwrap()));
+    assert!(roots.contains(&layout.hall_skills_local().canonicalize_utf8().unwrap()));
 }
 
 #[test]
-fn discovery_writable_set_roots_include_only_view_and_canonical_hall_sources() {
+fn discovery_writable_set_roots_expand_the_hall_root_without_covering_dot_ivar() {
     let (_guard, root) = hall_with_promoted_feature();
     let layout = Layout::at(root.clone());
     let session_id = SessionId::new("6f0c9d5f-0000-4000-8000-000000000000").unwrap();
@@ -247,36 +313,194 @@ fn discovery_writable_set_roots_include_only_view_and_canonical_hall_sources() {
     crate::infra::fs::ensure_dir(&view_dir).unwrap();
     crate::infra::fs::ensure_dir(&layout.hall_skills()).unwrap();
     crate::infra::fs::ensure_dir(&layout.hall_skills_local()).unwrap();
+    crate::infra::fs::ensure_dir(&layout.root().join("docs")).unwrap();
 
     let set = WritableSet::from_discovery(&layout, &view_dir).unwrap();
-    let roots = set.roots();
+    let roots = set.roots().unwrap();
+    let canonical_root = layout.root().canonicalize_utf8().unwrap();
+    let repos = layout.repos_dir().canonicalize_utf8().unwrap();
 
-    assert_eq!(roots.len(), 4);
-    assert!(roots.contains(&view_dir.canonicalize_utf8().unwrap().as_path()));
-    assert!(
-        roots.contains(
-            &layout
-                .root()
-                .join("HALL.md")
-                .canonicalize_utf8()
-                .unwrap()
-                .as_path()
-        )
-    );
-    assert!(roots.contains(&layout.hall_skills().canonicalize_utf8().unwrap().as_path()));
-    assert!(
-        roots.contains(
-            &layout
-                .hall_skills_local()
-                .canonicalize_utf8()
-                .unwrap()
-                .as_path()
-        )
-    );
+    assert!(roots.contains(&view_dir.canonicalize_utf8().unwrap()));
+    assert!(roots.contains(&canonical_root.join("docs")));
+    assert!(roots.contains(&layout.hall_skills().canonicalize_utf8().unwrap()));
+    assert!(!roots.contains(&canonical_root));
+    assert!(!roots.iter().any(|r| repos.starts_with(r)));
+}
+
+const PROTECTED_HALL_PATHS: [&str; 7] = [
+    ".git/hooks",
+    ".git/config",
+    ".claude/settings.json",
+    ".claude/settings.local.json",
+    ".opencode/plugins",
+    ".omp/hooks",
+    ".omp/extensions",
+];
+
+#[test]
+fn the_hall_root_denies_git_hooks_git_config_and_provider_hook_config() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root.clone());
+    let view =
+        layout.discovery_session(&SessionId::new("6f0c9d5f-0000-4000-8000-000000000021").unwrap());
+    crate::infra::fs::ensure_dir(&view).unwrap();
+    seed_protected_hall_paths(&root);
+
+    let set = WritableSet::from_discovery(&layout, &view).unwrap();
+
+    for denied in [
+        ".git/hooks/pre-commit",
+        ".git/config",
+        ".claude/settings.json",
+        ".claude/settings.local.json",
+        ".opencode/plugins/ivar.js",
+        ".opencode/plugins/other.js",
+        ".omp/hooks/pre/ivar.js",
+        ".omp/extensions/ivar.js",
+    ] {
+        assert!(!set.allows(&root.join(denied)), "{denied} must be denied");
+    }
+    assert!(set.allows(&root.join(".git/index")));
+    assert!(set.allows(&root.join(".git/objects/ab/cdef")));
+    assert!(set.allows(&root.join(".claude/skills/custom/SKILL.md")));
+    assert!(set.allows(&root.join("docs/x.md")));
 }
 
 #[test]
-fn discovery_guard_allows_canonical_source_and_denies_generated_mirror() {
+fn hall_root_entries_never_grant_a_protected_path_or_its_ancestor() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root.clone());
+    let view =
+        layout.discovery_session(&SessionId::new("6f0c9d5f-0000-4000-8000-000000000022").unwrap());
+    crate::infra::fs::ensure_dir(&view).unwrap();
+    seed_protected_hall_paths(&root);
+
+    let set = WritableSet::from_discovery(&layout, &view).unwrap();
+    let roots = set.roots().unwrap();
+    let canonical_root = root.canonicalize_utf8().unwrap();
+    let protected = PROTECTED_HALL_PATHS.map(|path| canonical_root.join(path));
+
+    for granted in &roots {
+        assert!(
+            !protected
+                .iter()
+                .any(|p| p.starts_with(granted) || granted.starts_with(p)),
+            "{granted} covers a protected path: {roots:?}"
+        );
+    }
+    assert!(roots.contains(&canonical_root.join(".git/objects")));
+    assert!(roots.contains(&canonical_root.join(".git/index")));
+    assert!(roots.contains(&canonical_root.join(".claude/skills")));
+    assert!(roots.contains(&canonical_root.join("docs")));
+}
+
+#[test]
+fn the_hall_root_protects_mcp_config_opencode_node_modules_and_env() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root.clone());
+    let view =
+        layout.discovery_session(&SessionId::new("6f0c9d5f-0000-4000-8000-000000000024").unwrap());
+    crate::infra::fs::ensure_dir(&view).unwrap();
+    crate::infra::fs::ensure_dir(&root.join(".opencode/node_modules/dep")).unwrap();
+    crate::infra::fs::ensure_dir(&root.join(".opencode/commands")).unwrap();
+    for file in [".mcp.json", "mcp.json", "opencode.json", ".env"] {
+        crate::infra::fs::write_text(&root.join(file), "").unwrap();
+    }
+
+    let set = WritableSet::from_discovery(&layout, &view).unwrap();
+    let roots = set.roots().unwrap();
+    let canonical_root = root.canonicalize_utf8().unwrap();
+
+    for protected in [
+        ".mcp.json",
+        "mcp.json",
+        "opencode.json",
+        ".env",
+        ".opencode/node_modules",
+    ] {
+        assert!(
+            !set.allows(&root.join(protected)),
+            "{protected} must be denied"
+        );
+        let protected = canonical_root.join(protected);
+        assert!(
+            !roots
+                .iter()
+                .any(|r| protected.starts_with(r) || r.starts_with(&protected)),
+            "a root covers {protected}: {roots:?}"
+        );
+    }
+    assert!(!set.allows(&root.join(".opencode/node_modules/dep/index.js")));
+    assert!(roots.contains(&canonical_root.join(".opencode/commands")));
+}
+
+#[cfg(unix)]
+#[test]
+fn hall_root_symlinks_to_protected_paths_are_denied_and_never_granted() {
+    use std::os::unix::fs::symlink;
+
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root.clone());
+    let view =
+        layout.discovery_session(&SessionId::new("6f0c9d5f-0000-4000-8000-000000000025").unwrap());
+    crate::infra::fs::ensure_dir(&view).unwrap();
+    seed_protected_hall_paths(&root);
+    symlink(root.join(".git/hooks"), root.join("x")).unwrap();
+    symlink(root.join(".git"), root.join("g")).unwrap();
+    symlink(root.join(".claude"), root.join("c")).unwrap();
+
+    let set = WritableSet::from_discovery(&layout, &view).unwrap();
+
+    for denied in [
+        "x",
+        "x/pre-commit",
+        "g/hooks/pre-commit",
+        "g/config",
+        "c/settings.json",
+    ] {
+        assert!(!set.allows(&root.join(denied)), "{denied} must be denied");
+    }
+
+    let roots = set.roots().unwrap();
+    let canonical_root = root.canonicalize_utf8().unwrap();
+    for link in ["x", "g", "c"].map(|link| canonical_root.join(link)) {
+        assert!(
+            !roots.iter().any(|r| r.starts_with(&link)),
+            "{link} granted: {roots:?}"
+        );
+    }
+    for target in [".git/hooks", ".git", ".claude"].map(|target| canonical_root.join(target)) {
+        assert!(
+            !roots.iter().any(|r| target.starts_with(r)),
+            "{target} granted: {roots:?}"
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn an_unreadable_hall_dir_fails_the_roots_instead_of_granting_less() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root.clone());
+    let view =
+        layout.discovery_session(&SessionId::new("6f0c9d5f-0000-4000-8000-000000000023").unwrap());
+    crate::infra::fs::ensure_dir(&view).unwrap();
+    seed_protected_hall_paths(&root);
+    let git_dir = root.join(".git");
+    let mode = std::fs::metadata(&git_dir).unwrap().permissions().mode();
+    std::fs::set_permissions(&git_dir, std::fs::Permissions::from_mode(0o000)).unwrap();
+
+    let set = WritableSet::from_discovery(&layout, &view).unwrap();
+    let roots = set.roots();
+    std::fs::set_permissions(&git_dir, std::fs::Permissions::from_mode(mode)).unwrap();
+
+    assert_eq!(roots.unwrap_err().code, "guard.unreadable_hall_root");
+}
+
+#[test]
+fn discovery_guard_allows_a_hall_file_and_denies_ivar_state() {
     let (_guard, root) = hall_with_promoted_feature();
     let layout = Layout::at(root.clone());
     let session_id = SessionId::new("6f0c9d5f-1111-4000-8000-000000000005").unwrap();
@@ -293,9 +517,16 @@ fn discovery_guard_allows_canonical_source_and_denies_generated_mirror() {
     });
     assert!(guard(Provider::Omp, &allow.to_string()).unwrap().exit_zero);
 
+    let docs = serde_json::json!({
+        "tool": "write",
+        "args": { "filePath": layout.root().join("docs/product/001-topic.md") },
+        "cwd": view_dir,
+    });
+    assert!(guard(Provider::Omp, &docs.to_string()).unwrap().exit_zero);
+
     let deny = serde_json::json!({
         "tool": "write",
-        "args": { "filePath": layout.root().join(".omp/skills/custom/SKILL.md") },
+        "args": { "filePath": layout.state() },
         "cwd": layout.discovery_session(&session_id),
     });
     assert!(!guard(Provider::Omp, &deny.to_string()).unwrap().exit_zero);
@@ -1084,11 +1315,10 @@ fn a_resolved_denial_names_the_scratch_dir_and_keeps_the_writable_set() {
     state.write(&view_dir).unwrap();
 
     // cwd inside the view dir resolves the session, so the set is Resolved;
-    // the target sits at the hall root, outside every root of that set —
-    // `hall_sources` admits `HALL.md` by exact match only — so it is denied.
+    // the target sits under `.ivar/`, which the hall-root rule excludes.
     let payload = serde_json::json!({
         "tool": "write",
-        "args": { "filePath": root.join("elsewhere.md") },
+        "args": { "filePath": layout.ivar_dir().join("elsewhere.md") },
         "cwd": view_dir,
     });
 
@@ -1104,6 +1334,52 @@ fn a_resolved_denial_names_the_scratch_dir_and_keeps_the_writable_set() {
             .contains(Layout::session_scratch(&view_dir).as_str()),
         "the denial must name the scratch dir: {}",
         out.body
+    );
+    let protected = layout
+        .guard_protected_paths()
+        .iter()
+        .map(|path| canonicalize_lenient(path).to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
+    let hall_entry = format!(
+        "{} (except {}, {})",
+        root.canonicalize_utf8().unwrap(),
+        layout.ivar_dir().canonicalize_utf8().unwrap(),
+        protected
+    );
+    assert!(
+        out.body.contains(&hall_entry),
+        "the denial must name the hall root, its exclusion, and the protected paths: {}",
+        out.body
+    );
+    assert!(
+        hall_entry.contains(".git/hooks"),
+        "the protected paths must include .git/hooks: {}",
+        hall_entry
+    );
+}
+
+#[test]
+fn a_hall_root_write_from_no_session_cwd_resolves_to_a_live_session() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root.clone());
+    let view_dir =
+        layout.discovery_session(&SessionId::new("6f0c9d5f-0000-4000-8000-000000000014").unwrap());
+    crate::infra::fs::ensure_dir(&view_dir).unwrap();
+    crate::domain::session::SessionState::new(Provider::Omp, "2026-09-23T00:00:00Z")
+        .write(&view_dir)
+        .unwrap();
+
+    let payload = serde_json::json!({
+        "tool": "write",
+        "args": { "filePath": root.join("docs/topic.md") },
+        "cwd": root,
+    });
+
+    assert!(
+        guard(Provider::Omp, &payload.to_string())
+            .unwrap()
+            .exit_zero
     );
 }
 

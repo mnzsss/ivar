@@ -1,5 +1,6 @@
-use camino::Utf8PathBuf;
+use camino::Utf8Path;
 
+use crate::domain::provider::Provider;
 use crate::providers::ManagedArtifact;
 
 /// Embedded plain JavaScript pre-tool hook for OMP.
@@ -46,7 +47,7 @@ export default function ivarGuard(pi) {
 
 pub(crate) fn managed_artifacts() -> Vec<ManagedArtifact> {
     vec![ManagedArtifact {
-        relative_path: Utf8PathBuf::from(".omp/hooks/pre/ivar.js"),
+        relative_path: Utf8Path::new(Provider::OMP_HOOKS_DIR).join("pre/ivar.js"),
         contents: OMP_HOOK,
     }]
 }

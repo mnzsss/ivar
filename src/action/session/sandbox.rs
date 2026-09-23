@@ -56,16 +56,15 @@ impl Sandbox {
         feature: Option<&Feature>,
         provider: Provider,
     ) -> Result<Self, Failure> {
-        // Ensure canonical hall skill directories exist before filtering nonexistent paths.
+        // Ensure canonical hall source directories exist before filtering nonexistent paths.
         crate::infra::fs::ensure_dir(&layout.hall_skills())?;
         crate::infra::fs::ensure_dir(&layout.hall_skills_local())?;
+        crate::infra::fs::ensure_dir(&layout.hall_setups())?;
 
         let mut candidate_roots: Vec<Utf8PathBuf> = Vec::new();
 
-        // 1. Primary write roots from the WritableSet (view dir, feature dir, promoted worktrees).
-        for root in set.roots() {
-            candidate_roots.push(root.to_path_buf());
-        }
+        // 1. Primary write roots from the WritableSet.
+        candidate_roots.extend(set.roots()?);
 
         // 2. Backing git bare repos for any promoted repositories in the feature.
         // Required for git operations (index.lock, refs, objects) within worktrees.

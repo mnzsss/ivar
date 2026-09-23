@@ -192,10 +192,34 @@ impl Provider {
     pub const fn plugins_dir(&self) -> Option<&'static str> {
         match self {
             Self::ClaudeCode => None,
-            Self::OpenCode => Some(".opencode/plugins"),
+            Self::OpenCode => Some(Self::OPENCODE_PLUGINS_DIR),
             Self::Omp => None,
         }
     }
+
+    /// Claude Code's project settings, where ivar wires its hooks.
+    pub const CLAUDE_SETTINGS: &'static str = ".claude/settings.json";
+    /// Claude Code's personal settings, which can carry hooks too.
+    pub const CLAUDE_LOCAL_SETTINGS: &'static str = ".claude/settings.local.json";
+    /// Where OpenCode loads plugin code from.
+    pub const OPENCODE_PLUGINS_DIR: &'static str = ".opencode/plugins";
+    /// Where OMP loads hook code from.
+    pub const OMP_HOOKS_DIR: &'static str = ".omp/hooks";
+    /// Where OMP loads extension code from.
+    pub const OMP_EXTENSIONS_DIR: &'static str = ".omp/extensions";
+
+    /// Hall-relative files and dirs this harness loads hook config or hook
+    /// code from, including the dependencies that code imports. `ivar guard`
+    /// is wired in here, so a write here can disarm it.
+    #[must_use]
+    pub const fn hook_config_paths(&self) -> &'static [&'static str] {
+        match self {
+            Self::ClaudeCode => &[Self::CLAUDE_SETTINGS, Self::CLAUDE_LOCAL_SETTINGS],
+            Self::OpenCode => &[Self::OPENCODE_PLUGINS_DIR, ".opencode/node_modules"],
+            Self::Omp => &[Self::OMP_HOOKS_DIR, Self::OMP_EXTENSIONS_DIR],
+        }
+    }
+
     /// The file this harness's MCP server definitions live in, at the hall
     /// root.
     ///

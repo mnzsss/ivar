@@ -220,6 +220,10 @@ fn accessors_compute_the_documented_paths() {
         Utf8PathBuf::from("/hall/.ivar/setups/api.sh")
     );
     assert_eq!(
+        layout.hall_setups(),
+        Utf8PathBuf::from("/hall/.ivar/setups")
+    );
+    assert_eq!(
         layout.hall_skills(),
         Utf8PathBuf::from("/hall/.ivar/skills")
     );

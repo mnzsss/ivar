@@ -61,7 +61,7 @@
 //!   `execution_dir(&FeatureName)`, `run_receipt(&FeatureName)`,
 //!   `archived_run(&FeatureName, &RunId)`, `archived_board(&FeatureName, &str)`,
 //!   `feature_session(&FeatureName, &SessionId)`, `discovery_session(&SessionId)`,
-//!   `setup_script(&RepoName)`, `session_hook(&RepoName)`, `secrets_dir()`,
+//!   `hall_setups()`, `setup_script(&RepoName)`, `session_hook(&RepoName)`, `secrets_dir()`,
 //!   `hall_skills()`, `plan_dir(&FeatureName)`, `discovery_doc(&FeatureName)`,
 //!   `docs_updates_dir()`,
 //!   `harness_dir(&Provider)`, `commands_dir(&Provider)`.
@@ -369,14 +369,18 @@ impl Layout {
         view_dir.join(crate::domain::session::SCRATCH_DIR)
     }
 
+    /// `<hall>/.ivar/setups/` — committed setup scripts and session hooks.
+    #[must_use]
+    pub fn hall_setups(&self) -> Utf8PathBuf {
+        self.ivar_dir().join("setups")
+    }
+
     /// `<hall>/.ivar/setups/<repo>.sh` — the repo's setup script. Committed:
     /// a git worktree shares history but not untracked files, so a fresh
     /// worktree needs this to bootstrap `.env`, `node_modules`, and so on.
     #[must_use]
     pub fn setup_script(&self, repo: &RepoName) -> Utf8PathBuf {
-        self.ivar_dir()
-            .join("setups")
-            .join(format!("{}.sh", repo.as_str()))
+        self.hall_setups().join(format!("{}.sh", repo.as_str()))
     }
 
     /// `<hall>/.ivar/setups/<repo>.session.sh` — the repo's session hook.
@@ -389,8 +393,7 @@ impl Layout {
     /// session must not share with its siblings.
     #[must_use]
     pub fn session_hook(&self, repo: &RepoName) -> Utf8PathBuf {
-        self.ivar_dir()
-            .join("setups")
+        self.hall_setups()
             .join(format!("{}.session.sh", repo.as_str()))
     }
 
@@ -496,6 +499,33 @@ impl Layout {
     #[must_use]
     pub fn plugins_dir(&self, provider: &Provider) -> Option<Utf8PathBuf> {
         provider.plugins_dir().map(|dir| self.root().join(dir))
+    }
+
+    /// Hall-root paths no session may write although they sit outside
+    /// `.ivar/`, because each launches code outside any sandbox: the hall's
+    /// git hooks and config, every provider's hook config (where `ivar guard`
+    /// is wired) and MCP config, and the hall's `.env`.
+    #[must_use]
+    pub fn guard_protected_paths(&self) -> Vec<Utf8PathBuf> {
+        let git_dir = self.root.join(".git");
+        [
+            git_dir.join("hooks"),
+            git_dir.join("config"),
+            self.root.join(".env"),
+        ]
+        .into_iter()
+        .chain(
+            Provider::ALL
+                .iter()
+                .flat_map(Provider::hook_config_paths)
+                .map(|path| self.root.join(path)),
+        )
+        .chain(
+            Provider::ALL
+                .iter()
+                .map(|provider| self.mcp_config(provider)),
+        )
+        .collect()
     }
 
     /// `<hall>/HALL.md` — the sole editable source of shared hall

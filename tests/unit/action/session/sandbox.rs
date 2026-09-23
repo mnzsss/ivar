@@ -16,7 +16,7 @@ use crate::domain::provider::Provider;
 use crate::domain::session::SessionState;
 use crate::store::layout::Layout;
 use crate::store::manifest::{Manifest, Providers, Repo};
-use crate::test_support::{hall_root, seeded_repo};
+use crate::test_support::{hall_root, seed_protected_hall_paths, seeded_repo};
 use camino::Utf8PathBuf;
 
 fn hall_with_promoted_feature() -> (tempfile::TempDir, Utf8PathBuf) {
@@ -90,8 +90,8 @@ fn sandbox_roots_contain_writable_set_bare_git_dev_null_temp_and_provider_dirs()
     let roots = sandbox.roots();
 
     // 1. Every WritableSet root is present.
-    for r in set.roots() {
-        assert!(roots.iter().any(|p| p == r), "missing WritableSet root {r}");
+    for r in set.roots().unwrap() {
+        assert!(roots.contains(&r), "missing WritableSet root {r}");
     }
 
     // 2. Promoted repo bare git directory is present.
@@ -133,11 +133,8 @@ fn sandbox_discovery_session_derives_roots_without_feature() {
     let sandbox = Sandbox::from_writable_set(&set, &layout, None, Provider::Omp).unwrap();
     let roots = sandbox.roots();
 
-    for r in set.roots() {
-        assert!(
-            roots.iter().any(|p| p == r),
-            "missing discovery WritableSet root {r}"
-        );
+    for r in set.roots().unwrap() {
+        assert!(roots.contains(&r), "missing discovery WritableSet root {r}");
     }
 }
 
@@ -171,9 +168,129 @@ fn discovery_sandbox_contains_canonical_hall_sources() {
             .contains(&layout.hall_skills_local().canonicalize_utf8().unwrap())
     );
     assert!(
+        sandbox
+            .roots()
+            .contains(&layout.hall_setups().canonicalize_utf8().unwrap())
+    );
+    assert!(
         !sandbox
             .roots()
             .contains(&layout.root().canonicalize_utf8().unwrap())
+    );
+}
+
+#[test]
+fn sandbox_grants_hall_root_entries_but_never_covers_the_repos_dir() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root);
+    let view_dir =
+        layout.discovery_session(&SessionId::new("6f0c9d5f-0000-4000-8000-000000000015").unwrap());
+    crate::infra::fs::ensure_dir(&view_dir).unwrap();
+    crate::infra::fs::ensure_dir(&layout.root().join("docs")).unwrap();
+
+    let set = WritableSet::from_discovery(&layout, &view_dir).unwrap();
+    let sandbox = Sandbox::from_writable_set(&set, &layout, None, Provider::ClaudeCode).unwrap();
+    let repos = layout.repos_dir().canonicalize_utf8().unwrap();
+    let temp = Utf8PathBuf::try_from(std::env::temp_dir())
+        .unwrap()
+        .canonicalize_utf8()
+        .unwrap();
+
+    assert!(
+        sandbox
+            .roots()
+            .contains(&layout.root().join("docs").canonicalize_utf8().unwrap())
+    );
+    assert!(
+        !sandbox
+            .roots()
+            .iter()
+            .filter(|r| **r != temp)
+            .any(|r| repos.starts_with(r)),
+        "no sandbox root other than the temp dir may cover .ivar/repos: {:?}",
+        sandbox.roots()
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn symlinked_hall_root_entries_stay_out_of_the_kernel_roots() {
+    use std::os::unix::fs::symlink;
+
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root.clone());
+    let view_dir =
+        layout.discovery_session(&SessionId::new("6f0c9d5f-0000-4000-8000-000000000017").unwrap());
+    crate::infra::fs::ensure_dir(&view_dir).unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    let outside = Utf8PathBuf::try_from(outside.path().to_path_buf())
+        .unwrap()
+        .canonicalize_utf8()
+        .unwrap();
+    let default_worktree = layout
+        .repo_worktree(
+            &RepoName::new("api").unwrap(),
+            &BranchName::new("main").unwrap(),
+        )
+        .canonicalize_utf8()
+        .unwrap();
+    symlink(&outside, root.join("outside")).unwrap();
+    symlink(&default_worktree, root.join("api-link")).unwrap();
+
+    let set = WritableSet::from_discovery(&layout, &view_dir).unwrap();
+    let roots = set.roots().unwrap();
+    let canonical_root = root.canonicalize_utf8().unwrap();
+
+    for excluded in [
+        outside,
+        default_worktree,
+        canonical_root.join("outside"),
+        canonical_root.join("api-link"),
+    ] {
+        assert!(!roots.contains(&excluded), "{excluded} in {roots:?}");
+    }
+}
+
+#[test]
+fn sandbox_roots_never_cover_git_hooks_git_config_or_provider_hook_config() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root.clone());
+    let view_dir =
+        layout.discovery_session(&SessionId::new("6f0c9d5f-0000-4000-8000-000000000016").unwrap());
+    crate::infra::fs::ensure_dir(&view_dir).unwrap();
+    seed_protected_hall_paths(&root);
+
+    let set = WritableSet::from_discovery(&layout, &view_dir).unwrap();
+    let sandbox = Sandbox::from_writable_set(&set, &layout, None, Provider::ClaudeCode).unwrap();
+    let canonical_root = root.canonicalize_utf8().unwrap();
+    let temp = Utf8PathBuf::try_from(std::env::temp_dir())
+        .unwrap()
+        .canonicalize_utf8()
+        .unwrap();
+
+    for protected in [
+        ".git/hooks",
+        ".git/config",
+        ".claude/settings.json",
+        ".opencode/plugins",
+        ".omp/hooks",
+    ]
+    .map(|path| canonical_root.join(path))
+    {
+        assert!(
+            !sandbox
+                .roots()
+                .iter()
+                .filter(|r| **r != temp)
+                .any(|r| protected.starts_with(r) || r.starts_with(&protected)),
+            "a sandbox root covers {protected}: {:?}",
+            sandbox.roots()
+        );
+    }
+    assert!(
+        sandbox
+            .roots()
+            .contains(&canonical_root.join(".git/objects"))
     );
 }
 
