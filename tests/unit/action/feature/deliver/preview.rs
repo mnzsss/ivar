@@ -521,7 +521,7 @@ fn the_human_preview_prints_the_apply_command_and_what_the_fingerprint_covers() 
     let rendered = String::from_utf8(out).unwrap();
     assert!(rendered.contains("fingerprint: abc123"));
     assert!(rendered.contains("apply:       ivar feature deliver checkout --fingerprint abc123"));
-    assert!(rendered.contains("--name, --body and --draft are part of the fingerprint"));
+    assert!(rendered.contains("--name, --body, --draft and --only are part of the fingerprint"));
 }
 
 #[test]

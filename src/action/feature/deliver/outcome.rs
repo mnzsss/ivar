@@ -236,7 +236,7 @@ impl WriteHuman for DeliverOutcome {
                 writeln!(w, "  apply:       {command}")?;
                 writeln!(
                     w,
-                    "  note:        --name, --body and --draft are part of the fingerprint; apply with the same values"
+                    "  note:        --name, --body, --draft and --only are part of the fingerprint; apply with the same values"
                 )?;
             }
             Ok(())
