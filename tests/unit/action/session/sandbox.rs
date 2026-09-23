@@ -16,7 +16,7 @@ use crate::domain::provider::Provider;
 use crate::domain::session::SessionState;
 use crate::store::layout::Layout;
 use crate::store::manifest::{Manifest, Providers, Repo};
-use crate::test_support::{hall_root, seeded_repo};
+use crate::test_support::{hall_root, seed_protected_hall_paths, seeded_repo};
 use camino::Utf8PathBuf;
 
 fn hall_with_promoted_feature() -> (tempfile::TempDir, Utf8PathBuf) {
@@ -258,18 +258,7 @@ fn sandbox_roots_never_cover_git_hooks_git_config_or_provider_hook_config() {
     let view_dir =
         layout.discovery_session(&SessionId::new("6f0c9d5f-0000-4000-8000-000000000016").unwrap());
     crate::infra::fs::ensure_dir(&view_dir).unwrap();
-    for dir in [
-        ".git/hooks",
-        ".git/objects",
-        ".claude",
-        ".opencode/plugins",
-        ".omp/hooks/pre",
-    ] {
-        crate::infra::fs::ensure_dir(&root.join(dir)).unwrap();
-    }
-    for file in [".git/config", ".claude/settings.json"] {
-        crate::infra::fs::write_text(&root.join(file), "").unwrap();
-    }
+    seed_protected_hall_paths(&root);
 
     let set = WritableSet::from_discovery(&layout, &view_dir).unwrap();
     let sandbox = Sandbox::from_writable_set(&set, &layout, None, Provider::ClaudeCode).unwrap();

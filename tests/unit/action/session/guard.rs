@@ -17,7 +17,7 @@ use crate::domain::name::{BranchName, FeatureName, RepoName, SessionId};
 use crate::domain::provider::Provider;
 use crate::store::layout::Layout;
 use crate::store::manifest::{Manifest, Providers, Repo};
-use crate::test_support::{hall_root, seeded_repo};
+use crate::test_support::{hall_root, seed_protected_hall_paths, seeded_repo};
 use camino::Utf8PathBuf;
 
 fn hall_with_promoted_feature() -> (tempfile::TempDir, Utf8PathBuf) {
@@ -336,30 +336,6 @@ const PROTECTED_HALL_PATHS: [&str; 7] = [
     ".omp/hooks",
     ".omp/extensions",
 ];
-
-fn seed_protected_hall_paths(root: &Utf8Path) {
-    for dir in [
-        ".git/hooks",
-        ".git/objects",
-        ".claude/skills",
-        ".opencode/plugins",
-        ".omp/hooks/pre",
-        ".omp/extensions",
-        "docs",
-    ] {
-        crate::infra::fs::ensure_dir(&root.join(dir)).unwrap();
-    }
-    for file in [
-        ".git/config",
-        ".git/index",
-        ".claude/settings.json",
-        ".opencode/plugins/ivar.js",
-        ".omp/hooks/pre/ivar.js",
-        ".omp/extensions/ivar.js",
-    ] {
-        crate::infra::fs::write_text(&root.join(file), "").unwrap();
-    }
-}
 
 #[test]
 fn the_hall_root_denies_git_hooks_git_config_and_provider_hook_config() {

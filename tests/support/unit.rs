@@ -9,7 +9,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use camino::Utf8PathBuf;
+use camino::{Utf8Path, Utf8PathBuf};
 use tempfile::TempDir;
 
 use crate::action::Ctx;
@@ -74,4 +74,31 @@ pub(crate) fn last_graph_query(root: &Utf8PathBuf, session: &str) -> Option<Opti
         .last_graph_call(session)
         .unwrap()
         .map(|call| call.query)
+}
+
+/// Seeds a hall root's git hooks and config and each provider's hook config,
+/// next to unprotected siblings (`.git/objects`, `.git/index`,
+/// `.claude/skills`, `docs`).
+pub(crate) fn seed_protected_hall_paths(root: &Utf8Path) {
+    for dir in [
+        ".git/hooks",
+        ".git/objects",
+        ".claude/skills",
+        ".opencode/plugins",
+        ".omp/hooks/pre",
+        ".omp/extensions",
+        "docs",
+    ] {
+        crate::infra::fs::ensure_dir(&root.join(dir)).unwrap();
+    }
+    for file in [
+        ".git/config",
+        ".git/index",
+        ".claude/settings.json",
+        ".opencode/plugins/ivar.js",
+        ".omp/hooks/pre/ivar.js",
+        ".omp/extensions/ivar.js",
+    ] {
+        crate::infra::fs::write_text(&root.join(file), "").unwrap();
+    }
 }

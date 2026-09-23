@@ -10,8 +10,8 @@ use camino::{Utf8Path, Utf8PathBuf};
 
 /// The set of paths a session is allowed to write into: its view dir, its
 /// feature directory (for feature sessions), the worktrees of promoted repos,
-/// the hall's canonical skill sources (.ivar/skills, .ivar/skills-local), and
-/// the hall root outside `.ivar/`.
+/// the hall sources (`.ivar/skills`, `.ivar/skills-local`, `.ivar/setups`), and
+/// the hall root outside `.ivar/` except its protected paths.
 #[derive(Debug, Clone)]
 pub(crate) struct WritableSet {
     view_dir: Utf8PathBuf,
@@ -29,6 +29,16 @@ struct HallRoot {
     root: Utf8PathBuf,
     ivar_dir: Utf8PathBuf,
     protected: Vec<Utf8PathBuf>,
+}
+
+impl std::fmt::Display for HallRoot {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} (except {}", self.root, self.ivar_dir)?;
+        for protected in &self.protected {
+            write!(f, ", {protected}")?;
+        }
+        f.write_str(")")
+    }
 }
 
 impl HallRoot {
@@ -114,12 +124,14 @@ fn canonicalize_within_hops(path: &Utf8Path, hops_left: usize) -> Utf8PathBuf {
             let (Some(hops_left), Ok(target)) =
                 (hops_left.checked_sub(1), existing.read_link_utf8())
             else {
-                // Relative, while every writable root is absolute: no set allows it.
+                // A link loop or an unreadable link: the empty path lies under
+                // no writable root, so every set denies it.
                 return Utf8PathBuf::new();
             };
-            let target = existing
-                .parent()
-                .map_or(target.clone(), |dir| dir.join(&target));
+            let target = match existing.parent() {
+                Some(dir) => dir.join(target),
+                None => target,
+            };
             let mut resolved = canonicalize_within_hops(&target, hops_left);
             for name in tail.into_iter().rev() {
                 resolved.push(name);
@@ -215,9 +227,10 @@ impl WritableSet {
         })
     }
 
-    /// Whether `path` is inside the view dir, canonical hall sources, feature
-    /// directory when applicable, one of the promoted worktrees, or the hall
-    /// root outside `.ivar/`.
+    /// Whether `path` is inside the view dir, the hall sources (`.ivar/skills`,
+    /// `.ivar/skills-local`, `.ivar/setups`), the feature directory when
+    /// applicable, one of the promoted worktrees, or the hall root outside
+    /// `.ivar/` and its protected paths.
     /// The input path is canonicalised (with parent fallback for not-yet-existing
     /// files) so symlinks cannot escape the set on platforms like macOS where
     /// `/tmp` or `/var` are symlinks.
@@ -384,14 +397,7 @@ pub(crate) fn decide(resolution: &Resolution<'_>, req: &ToolRequest) -> GuardDec
                         .chain(set.feature_dir.as_ref().map(|f| f.to_string()))
                         .chain(set.worktrees.iter().map(|w| w.to_string()))
                         .chain(set.hall_sources.iter().map(|h| h.to_string()))
-                        .chain([format!(
-                            "{} (except {})",
-                            set.hall.root,
-                            std::iter::once(set.hall.ivar_dir.to_string())
-                                .chain(set.hall.protected.iter().map(|p| p.to_string()))
-                                .collect::<Vec<_>>()
-                                .join(", ")
-                        )])
+                        .chain([set.hall.to_string()])
                         .collect::<Vec<_>>()
                         .join(", "),
                     set.scratch_dir(),
