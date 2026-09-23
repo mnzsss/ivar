@@ -19,7 +19,7 @@ pub(crate) struct WritableSet {
     sessions_dir: Option<Utf8PathBuf>,
     worktrees: Vec<Utf8PathBuf>,
     hall_sources: Vec<Utf8PathBuf>,
-    hall: Option<HallRoot>,
+    hall: HallRoot,
 }
 
 /// The hall root minus `.ivar/` and the protected git and hook-config paths:
@@ -192,7 +192,7 @@ impl WritableSet {
             sessions_dir: Some(sessions_dir),
             worktrees,
             hall_sources: hall_sources(layout),
-            hall: Some(HallRoot::new(layout)),
+            hall: HallRoot::new(layout),
         })
     }
 
@@ -211,7 +211,7 @@ impl WritableSet {
             sessions_dir: None,
             worktrees: Vec::new(),
             hall_sources: hall_sources(layout),
-            hall: Some(HallRoot::new(layout)),
+            hall: HallRoot::new(layout),
         })
     }
 
@@ -248,9 +248,7 @@ impl WritableSet {
         {
             return true;
         }
-        self.hall
-            .as_ref()
-            .is_some_and(|hall| hall.allows(&canonical))
+        self.hall.allows(&canonical)
     }
 
     /// The view dir — the canonical root of this set.
@@ -276,15 +274,11 @@ impl WritableSet {
     /// Returns [`Failure`] if a hall dir the expansion walks cannot be read:
     /// granting less than the guard allows would fail writes silently.
     pub(crate) fn roots(&self) -> Result<Vec<Utf8PathBuf>, Failure> {
-        let hall_entries = match &self.hall {
-            Some(hall) => hall.entries()?,
-            None => Vec::new(),
-        };
         Ok(std::iter::once(self.view_dir.clone())
             .chain(self.feature_dir.clone())
             .chain(self.worktrees.iter().cloned())
             .chain(self.hall_sources.iter().cloned())
-            .chain(hall_entries)
+            .chain(self.hall.entries()?)
             .collect())
     }
 
@@ -300,12 +294,17 @@ impl WritableSet {
         let feature_dir = feature_dir.map(canonicalize_lenient);
         let worktrees = worktrees.iter().map(|w| canonicalize_lenient(w)).collect();
         Self {
-            view_dir,
             feature_dir,
             sessions_dir,
             worktrees,
             hall_sources: Vec::new(),
-            hall: None,
+            // A hall whose `.ivar` is its root allows nothing and grants nothing.
+            hall: HallRoot {
+                root: view_dir.clone(),
+                ivar_dir: view_dir.clone(),
+                protected: Vec::new(),
+            },
+            view_dir,
         }
     }
 }
@@ -385,11 +384,7 @@ pub(crate) fn decide(resolution: &Resolution<'_>, req: &ToolRequest) -> GuardDec
                         .chain(set.feature_dir.as_ref().map(|f| f.to_string()))
                         .chain(set.worktrees.iter().map(|w| w.to_string()))
                         .chain(set.hall_sources.iter().map(|h| h.to_string()))
-                        .chain(
-                            set.hall
-                                .as_ref()
-                                .map(|h| format!("{} (except {})", h.root, h.ivar_dir))
-                        )
+                        .chain([format!("{} (except {})", set.hall.root, set.hall.ivar_dir)])
                         .collect::<Vec<_>>()
                         .join(", "),
                     set.scratch_dir(),

@@ -63,7 +63,7 @@ impl Sandbox {
 
         let mut candidate_roots: Vec<Utf8PathBuf> = Vec::new();
 
-        // 1. Primary write roots from the WritableSet (view dir, feature dir, promoted worktrees).
+        // 1. Primary write roots from the WritableSet.
         candidate_roots.extend(set.roots()?);
 
         // 2. Backing git bare repos for any promoted repositories in the feature.
