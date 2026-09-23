@@ -502,20 +502,30 @@ impl Layout {
     }
 
     /// Hall-root paths no session may write although they sit outside
-    /// `.ivar/`: the hall's git hooks and config (git runs hooks outside any
-    /// sandbox) and every provider's hook config (where `ivar guard` is wired).
+    /// `.ivar/`, because each launches code outside any sandbox: the hall's
+    /// git hooks and config, every provider's hook config (where `ivar guard`
+    /// is wired) and MCP config, and the hall's `.env`.
     #[must_use]
     pub fn guard_protected_paths(&self) -> Vec<Utf8PathBuf> {
         let git_dir = self.root.join(".git");
-        [git_dir.join("hooks"), git_dir.join("config")]
-            .into_iter()
-            .chain(
-                Provider::ALL
-                    .iter()
-                    .flat_map(Provider::hook_config_paths)
-                    .map(|path| self.root.join(path)),
-            )
-            .collect()
+        [
+            git_dir.join("hooks"),
+            git_dir.join("config"),
+            self.root.join(".env"),
+        ]
+        .into_iter()
+        .chain(
+            Provider::ALL
+                .iter()
+                .flat_map(Provider::hook_config_paths)
+                .map(|path| self.root.join(path)),
+        )
+        .chain(
+            Provider::ALL
+                .iter()
+                .map(|provider| self.mcp_config(provider)),
+        )
+        .collect()
     }
 
     /// `<hall>/HALL.md` — the sole editable source of shared hall

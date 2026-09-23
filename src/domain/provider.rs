@@ -209,12 +209,13 @@ impl Provider {
     pub const OMP_EXTENSIONS_DIR: &'static str = ".omp/extensions";
 
     /// Hall-relative files and dirs this harness loads hook config or hook
-    /// code from. `ivar guard` is wired in here, so a write here can disarm it.
+    /// code from, including the dependencies that code imports. `ivar guard`
+    /// is wired in here, so a write here can disarm it.
     #[must_use]
     pub const fn hook_config_paths(&self) -> &'static [&'static str] {
         match self {
             Self::ClaudeCode => &[Self::CLAUDE_SETTINGS, Self::CLAUDE_LOCAL_SETTINGS],
-            Self::OpenCode => &[Self::OPENCODE_PLUGINS_DIR],
+            Self::OpenCode => &[Self::OPENCODE_PLUGINS_DIR, ".opencode/node_modules"],
             Self::Omp => &[Self::OMP_HOOKS_DIR, Self::OMP_EXTENSIONS_DIR],
         }
     }

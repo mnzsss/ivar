@@ -418,6 +418,46 @@ fn hall_root_entries_never_grant_a_protected_path_or_its_ancestor() {
     assert!(roots.contains(&canonical_root.join("docs")));
 }
 
+#[test]
+fn the_hall_root_protects_mcp_config_opencode_node_modules_and_env() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root.clone());
+    let view =
+        layout.discovery_session(&SessionId::new("6f0c9d5f-0000-4000-8000-000000000024").unwrap());
+    crate::infra::fs::ensure_dir(&view).unwrap();
+    crate::infra::fs::ensure_dir(&root.join(".opencode/node_modules/dep")).unwrap();
+    crate::infra::fs::ensure_dir(&root.join(".opencode/commands")).unwrap();
+    for file in [".mcp.json", "mcp.json", "opencode.json", ".env"] {
+        crate::infra::fs::write_text(&root.join(file), "").unwrap();
+    }
+
+    let set = WritableSet::from_discovery(&layout, &view).unwrap();
+    let roots = set.roots().unwrap();
+    let canonical_root = root.canonicalize_utf8().unwrap();
+
+    for protected in [
+        ".mcp.json",
+        "mcp.json",
+        "opencode.json",
+        ".env",
+        ".opencode/node_modules",
+    ] {
+        assert!(
+            !set.allows(&root.join(protected)),
+            "{protected} must be denied"
+        );
+        let protected = canonical_root.join(protected);
+        assert!(
+            !roots
+                .iter()
+                .any(|r| protected.starts_with(r) || r.starts_with(&protected)),
+            "a root covers {protected}: {roots:?}"
+        );
+    }
+    assert!(!set.allows(&root.join(".opencode/node_modules/dep/index.js")));
+    assert!(roots.contains(&canonical_root.join(".opencode/commands")));
+}
+
 #[cfg(unix)]
 #[test]
 fn an_unreadable_hall_dir_fails_the_roots_instead_of_granting_less() {
