@@ -460,6 +460,49 @@ fn the_hall_root_protects_mcp_config_opencode_node_modules_and_env() {
 
 #[cfg(unix)]
 #[test]
+fn hall_root_symlinks_to_protected_paths_are_denied_and_never_granted() {
+    use std::os::unix::fs::symlink;
+
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root.clone());
+    let view =
+        layout.discovery_session(&SessionId::new("6f0c9d5f-0000-4000-8000-000000000025").unwrap());
+    crate::infra::fs::ensure_dir(&view).unwrap();
+    seed_protected_hall_paths(&root);
+    symlink(root.join(".git/hooks"), root.join("x")).unwrap();
+    symlink(root.join(".git"), root.join("g")).unwrap();
+    symlink(root.join(".claude"), root.join("c")).unwrap();
+
+    let set = WritableSet::from_discovery(&layout, &view).unwrap();
+
+    for denied in [
+        "x",
+        "x/pre-commit",
+        "g/hooks/pre-commit",
+        "g/config",
+        "c/settings.json",
+    ] {
+        assert!(!set.allows(&root.join(denied)), "{denied} must be denied");
+    }
+
+    let roots = set.roots().unwrap();
+    let canonical_root = root.canonicalize_utf8().unwrap();
+    for link in ["x", "g", "c"].map(|link| canonical_root.join(link)) {
+        assert!(
+            !roots.iter().any(|r| r.starts_with(&link)),
+            "{link} granted: {roots:?}"
+        );
+    }
+    for target in [".git/hooks", ".git", ".claude"].map(|target| canonical_root.join(target)) {
+        assert!(
+            !roots.iter().any(|r| target.starts_with(r)),
+            "{target} granted: {roots:?}"
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
 fn an_unreadable_hall_dir_fails_the_roots_instead_of_granting_less() {
     use std::os::unix::fs::PermissionsExt;
 
