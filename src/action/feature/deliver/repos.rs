@@ -18,6 +18,7 @@ use crate::store::manifest::{Manifest, Repo};
 use super::super::base;
 use super::super::pull_requests::existing_pr;
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn build_repos(
     git: &impl git::Git,
     layout: &Layout,
@@ -25,10 +26,12 @@ pub(crate) fn build_repos(
     feature: &Feature,
     mode: DeliveryMode,
     resolved_metadata: &std::collections::BTreeMap<RepoName, PullRequestMetadata>,
+    selection: &std::collections::BTreeSet<RepoName>,
 ) -> Result<Vec<DeliveryRepo>, Failure> {
     feature
         .promotions
         .iter()
+        .filter(|(repo_name, _)| selection.contains(*repo_name))
         .map(|(repo_name, promotion)| {
             build_repo_entry(
                 git,

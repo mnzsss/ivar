@@ -42,6 +42,7 @@ fn a_push_fingerprint_cannot_be_applied_as_a_land() {
             fingerprint: None,
             global_metadata: PullRequestMetadata::default(),
             repo_overrides: Vec::new(),
+            only: Vec::new(),
         },
     )
     .expect("push preview");
@@ -55,6 +56,7 @@ fn a_push_fingerprint_cannot_be_applied_as_a_land() {
             fingerprint: Some(push_preview.value.preview.fingerprint.clone()),
             global_metadata: PullRequestMetadata::default(),
             repo_overrides: Vec::new(),
+            only: Vec::new(),
         },
     );
     let failure = refused.expect_err("a push fingerprint must not open a land");
@@ -76,6 +78,7 @@ fn a_land_fingerprint_cannot_be_applied_as_a_push() {
             fingerprint: None,
             global_metadata: PullRequestMetadata::default(),
             repo_overrides: Vec::new(),
+            only: Vec::new(),
         },
     )
     .expect("land preview");
@@ -89,6 +92,7 @@ fn a_land_fingerprint_cannot_be_applied_as_a_push() {
             fingerprint: Some(land_preview.value.preview.fingerprint.clone()),
             global_metadata: PullRequestMetadata::default(),
             repo_overrides: Vec::new(),
+            only: Vec::new(),
         },
     );
     let failure = refused.expect_err("a land fingerprint must not open a push");
@@ -185,4 +189,29 @@ fn land_on_default_serialises_as_snake_case_and_has_a_word() {
         serde_json::json!("land_on_default")
     );
     assert_eq!(outcome::action_word(action, None), "land on default");
+}
+
+#[test]
+fn only_restricts_the_land_preview_to_the_selected_repos() {
+    let (_guard, root) = hall_with_promoted(&["api", "web"]);
+    approve_through_plan(&root);
+    let ctx = Ctx::new(root.clone());
+
+    let report = deliver(
+        &ctx,
+        DeliverInput {
+            only: vec!["api".to_owned()],
+            ..land_preview_input("checkout")
+        },
+    )
+    .unwrap();
+
+    let repos: Vec<&str> = report
+        .value
+        .preview
+        .repos
+        .iter()
+        .map(|r| r.repo.as_str())
+        .collect();
+    assert_eq!(repos, vec!["api"]);
 }

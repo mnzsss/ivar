@@ -42,6 +42,7 @@ fn preflight_and_resolve(
 ) -> Result<(FeatureName, Feature, DeliveryPreview), Failure> {
     let feature_name = FeatureName::new(input.feature.clone())?;
     let feature = relations::read_feature(layout, &feature_name)?;
+    let selection = metadata::selected_repos(&feature, input)?;
 
     // Resolve delivery metadata after loading the feature so validation
     // can reject land mode, duplicate and unpromoted groups, and body files.
@@ -87,7 +88,15 @@ fn preflight_and_resolve(
         DeliveryMode::Push
     };
 
-    let mut repos = build_repos(git, layout, manifest, &feature, mode, &resolved_metadata)?;
+    let mut repos = build_repos(
+        git,
+        layout,
+        manifest,
+        &feature,
+        mode,
+        &resolved_metadata,
+        &selection,
+    )?;
     repos.sort_by(|a, b| a.repo.cmp(&b.repo));
     order_by_dependencies(&mut repos);
     let fingerprint = fingerprint_for(&feature_name, mode, plan_gate, &tree_blockers, &repos)?;

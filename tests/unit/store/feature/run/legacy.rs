@@ -368,4 +368,9 @@ fn an_import_over_a_live_native_run_is_refused() {
 
     assert_eq!(failure.code, "execute.legacy_import_blocked");
     assert_eq!(failure.status, Status::Blocked);
+    assert!(
+        failure.fix_actions[0]
+            .what
+            .contains("--report-json <path> --outcome <outcome>")
+    );
 }

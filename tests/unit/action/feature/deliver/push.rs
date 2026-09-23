@@ -229,3 +229,68 @@ fn a_rejected_non_fast_forward_push_names_the_recovery_command() {
     let rendered = String::from_utf8(out).unwrap();
     assert!(rendered.contains("--force-with-lease"), "was: {rendered}");
 }
+
+#[test]
+fn apply_with_only_pushes_only_the_selected_repo() {
+    let (_guard, root) = hall_with_promoted(&["api", "web"]);
+    approve_through_plan(&root);
+    let ctx = Ctx::new(root.clone());
+    let only = vec!["web".to_owned()];
+    let preview = deliver(
+        &ctx,
+        DeliverInput {
+            only: only.clone(),
+            ..preview_input("checkout")
+        },
+    )
+    .unwrap();
+    let fingerprint = preview.value.preview.fingerprint.clone();
+
+    let report = deliver(
+        &ctx,
+        DeliverInput {
+            only,
+            ..apply_input("checkout", &fingerprint)
+        },
+    )
+    .unwrap();
+
+    assert_eq!(report.value.pushes.len(), 1);
+    assert_eq!(report.value.pushes[0].repo.as_str(), "web");
+    assert!(remote_ref(&origin_of(&root, "web"), "checkout").is_some());
+    assert!(remote_ref(&origin_of(&root, "api"), "checkout").is_none());
+}
+
+#[test]
+fn only_a_delivery_of_every_promotion_links_siblings() {
+    let (_guard, root) = hall_with_promoted(&["api", "web"]);
+    approve_through_plan(&root);
+    let ctx = Ctx::new(root.clone());
+    let layout = Layout::at(root.clone());
+    let feature = read_feature(&layout, &FeatureName::new("checkout").unwrap()).unwrap();
+    let preview_of = |only: &[&str]| {
+        deliver(
+            &ctx,
+            DeliverInput {
+                only: only.iter().map(|r| (*r).to_owned()).collect(),
+                ..preview_input("checkout")
+            },
+        )
+        .unwrap()
+        .value
+        .preview
+    };
+
+    assert!(!crate::action::feature::deliver::push::links_siblings(
+        &preview_of(&["api"]),
+        &feature
+    ));
+    assert!(crate::action::feature::deliver::push::links_siblings(
+        &preview_of(&[]),
+        &feature
+    ));
+    assert!(crate::action::feature::deliver::push::links_siblings(
+        &preview_of(&["api", "web"]),
+        &feature
+    ));
+}

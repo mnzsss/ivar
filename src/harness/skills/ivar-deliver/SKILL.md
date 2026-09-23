@@ -24,6 +24,24 @@ ivar feature deliver <feature> --fingerprint <fp>
 
 Run `ivar feature deliver <feature> --help` for the full flag surface.
 
+## Deliver a subset of repos
+
+`--only <repo>` restricts preview and apply to the named promoted repos;
+repeat it to select several. Use it when one repo's PR is already merged and
+another repo of the same feature still needs its PR updated — delivering
+every repo would push the merged branch again and open a new PR for it.
+
+```bash
+ivar feature deliver <feature> --only web --preview
+ivar feature deliver <feature> --only web --fingerprint <fp>
+```
+
+`--only` is part of the fingerprint: apply with the same selection the
+preview used (the printed apply command already carries it). `--repo` does
+not select repos; it only scopes `--name`, `--body` and `--draft`, and a
+`--repo` outside the `--only` selection is refused. A partial delivery leaves
+the Sibling PRs comment untouched.
+
 ## PR metadata
 
 Use `--name`, `--body`, and `--draft` to set the pull request title, body, and draft status.

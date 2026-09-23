@@ -254,7 +254,8 @@ fn guard_conflict(
         .fix(FixAction::safe(
             "execute.finish_run",
             format!(
-                "Finish or abandon run {} first: `ivar feature execute finish {feature}` or \
+                "Finish or abandon run {} first: `ivar feature execute finish {feature} \
+                 --report-json <path> --outcome <outcome>` or \
                  `ivar feature execute start {feature} --plan <path> --restart`.",
                 current.id
             ),

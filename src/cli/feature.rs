@@ -308,6 +308,8 @@ pub struct FeatureDeliverArgs {
     pub global_metadata: deliver::PullRequestMetadata,
     /// Repository-scoped overrides.
     pub repo_overrides: Vec<deliver::RepoMetadataOverride>,
+    /// Promoted repositories to restrict delivery to.
+    pub only: Vec<String>,
 }
 
 impl clap::Args for FeatureDeliverArgs {
@@ -333,7 +335,7 @@ impl clap::Args for FeatureDeliverArgs {
         .arg(
             clap::Arg::new("fingerprint")
                 .long("fingerprint")
-                .help("The fingerprint from the preview the human approved; required to apply. It covers `--name`, `--body` and `--draft`, so apply with the same values the preview used. Apply recomputes the preview and refuses when the fingerprint differs — the state has drifted since the preview.")
+                .help("The fingerprint from the preview the human approved; required to apply. It covers `--name`, `--body`, `--draft` and `--only`, so apply with the same values the preview used. Apply recomputes the preview and refuses when the fingerprint differs — the state has drifted since the preview.")
                 .value_name("FINGERPRINT"),
         )
         .arg(
@@ -353,7 +355,14 @@ impl clap::Args for FeatureDeliverArgs {
         .arg(
             clap::Arg::new("repo")
                 .long("repo")
-                .help("Scope following `--name`, `--body`, and `--draft` flags to this promoted repository.")
+                .help("Scope following `--name`, `--body`, and `--draft` flags to this promoted repository. Does not select which repositories are delivered; use `--only` for that.")
+                .value_name("REPO")
+                .action(clap::ArgAction::Append),
+        )
+        .arg(
+            clap::Arg::new("only")
+                .long("only")
+                .help("Deliver only this promoted repository; repeat to select several. Without it every promoted repository is delivered. Part of the delivery fingerprint: pass the same values to the preview and the apply.")
                 .value_name("REPO")
                 .action(clap::ArgAction::Append),
         )
@@ -385,6 +394,11 @@ impl clap::FromArgMatches for FeatureDeliverArgs {
         let land = matches.get_flag("land");
         let fingerprint = matches.get_one::<String>("fingerprint").cloned();
 
+        let only = matches
+            .get_many::<String>("only")
+            .map(|values| values.cloned().collect())
+            .unwrap_or_default();
+
         let (global_metadata, repo_overrides) = Self::parse_metadata(matches)?;
 
         Ok(Self {
@@ -394,6 +408,7 @@ impl clap::FromArgMatches for FeatureDeliverArgs {
             fingerprint,
             global_metadata,
             repo_overrides,
+            only,
         })
     }
 
@@ -742,6 +757,7 @@ impl From<FeatureDeliverArgs> for deliver::DeliverInput {
             fingerprint,
             global_metadata,
             repo_overrides,
+            only,
         } = args;
 
         Self {
@@ -751,6 +767,7 @@ impl From<FeatureDeliverArgs> for deliver::DeliverInput {
             fingerprint,
             global_metadata,
             repo_overrides,
+            only,
         }
     }
 }

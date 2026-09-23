@@ -89,7 +89,7 @@ pub(crate) fn execute(
 
     // -- Phase 3: link sibling PRs (second pass — URLs only known after phase 2)
     let pr_urls: Vec<String> = pr_url_map.into_values().collect();
-    if !pr_urls.is_empty() {
+    if !pr_urls.is_empty() && links_siblings(&preview, feature) {
         link_sibling_prs(&pr_urls);
     }
 
@@ -104,6 +104,12 @@ pub(crate) fn execute(
         },
         warnings,
     ))
+}
+
+/// A partial delivery cannot see the PRs of the repos it did not select, so
+/// it leaves the Sibling PRs comment of the full delivery intact.
+pub(crate) fn links_siblings(preview: &DeliveryPreview, feature: &Feature) -> bool {
+    preview.repos.len() == feature.promotions.len()
 }
 
 fn check_and_push_one(

@@ -335,6 +335,38 @@ fn ivar_execute_skill_contains_execute_start_and_finish_commands() {
     );
 }
 
+#[test]
+fn ivar_execute_skill_finishes_the_run_with_a_report_and_outcome() {
+    let skill_path = format!(
+        "{}/src/harness/skills/ivar-execute/SKILL.md",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let content = std::fs::read_to_string(skill_path).unwrap();
+
+    assert!(
+        content.contains("ivar feature execute finish <feature> --report-json <path> --outcome"),
+        "skill must show the flags finish requires"
+    );
+    assert!(
+        content.contains("ivar feature execute finish --print-schema"),
+        "skill must point at the report schema"
+    );
+}
+
+#[test]
+fn ivar_execute_skill_delivers_root_features_through_the_deliver_skill() {
+    let skill_path = format!(
+        "{}/src/harness/skills/ivar-execute/SKILL.md",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let content = std::fs::read_to_string(skill_path).unwrap();
+
+    assert!(
+        content.contains("Load the `ivar-deliver` skill"),
+        "root feature delivery must hand off to the ivar-deliver skill"
+    );
+}
+
 /// Wave progress goes into the run receipt; editing `plan.md` mid-run moves
 /// its fingerprint and diverges the run.
 #[test]
@@ -548,6 +580,21 @@ fn deliver_skill_documents_pr_metadata() {
     assert!(
         !body.contains("L-1234"),
         "deliver should not use a Linear identifier as an example title"
+    );
+}
+
+#[test]
+fn deliver_skill_documents_only_selection() {
+    let source = format!(
+        "{}/src/harness/skills/ivar-deliver/SKILL.md",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let body = std::fs::read_to_string(source).unwrap();
+
+    assert!(body.contains("--only"), "deliver should document --only");
+    assert!(
+        body.contains("merged"),
+        "deliver should explain the already-merged PR case"
     );
 }
 

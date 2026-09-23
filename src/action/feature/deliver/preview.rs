@@ -21,6 +21,10 @@ pub(crate) fn apply_command(input: &DeliverInput, fingerprint: &str) -> String {
     if input.land {
         words.push("--land".to_owned());
     }
+    for repo in &input.only {
+        words.push("--only".to_owned());
+        words.push(shell_word(repo));
+    }
     words.push("--fingerprint".to_owned());
     words.push(shell_word(fingerprint));
     push_metadata(&mut words, &input.global_metadata);

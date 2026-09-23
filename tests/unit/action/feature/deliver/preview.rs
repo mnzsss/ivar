@@ -486,6 +486,7 @@ fn apply_command_repeats_every_fingerprinted_flag() {
                 draft: None,
             },
         }],
+        only: Vec::new(),
     };
 
     assert_eq!(
@@ -520,7 +521,7 @@ fn the_human_preview_prints_the_apply_command_and_what_the_fingerprint_covers() 
     let rendered = String::from_utf8(out).unwrap();
     assert!(rendered.contains("fingerprint: abc123"));
     assert!(rendered.contains("apply:       ivar feature deliver checkout --fingerprint abc123"));
-    assert!(rendered.contains("--name, --body and --draft are part of the fingerprint"));
+    assert!(rendered.contains("--name, --body, --draft and --only are part of the fingerprint"));
 }
 
 #[test]
@@ -537,4 +538,69 @@ fn preview_mode_carries_the_apply_command_and_land_flag() {
             preview.preview.fingerprint
         ))
     );
+}
+
+#[test]
+fn apply_command_repeats_every_only_selection() {
+    let input = DeliverInput {
+        feature: "checkout".to_owned(),
+        preview: true,
+        only: vec!["api".to_owned(), "web".to_owned()],
+        ..Default::default()
+    };
+
+    assert_eq!(
+        apply_command(&input, "abc123"),
+        "ivar feature deliver checkout --only api --only web --fingerprint abc123"
+    );
+}
+
+#[test]
+fn only_restricts_the_preview_to_the_selected_repos() {
+    let (_guard, root) = hall_with_promoted(&["api", "web"]);
+    approve_through_plan(&root);
+    let ctx = Ctx::new(root.clone());
+
+    let report = deliver(
+        &ctx,
+        DeliverInput {
+            only: vec!["web".to_owned()],
+            ..preview_input("checkout")
+        },
+    )
+    .unwrap();
+
+    let repos: Vec<&str> = report
+        .value
+        .preview
+        .repos
+        .iter()
+        .map(|r| r.repo.as_str())
+        .collect();
+    assert_eq!(repos, vec!["web"]);
+    assert!(report.value.apply_command.unwrap().contains("--only web"));
+}
+
+#[test]
+fn a_different_selection_fingerprints_differently() {
+    let (_guard, root) = hall_with_promoted(&["api", "web"]);
+    approve_through_plan(&root);
+    let ctx = Ctx::new(root.clone());
+    let fingerprint = |only: &[&str]| {
+        deliver(
+            &ctx,
+            DeliverInput {
+                only: only.iter().map(|r| (*r).to_owned()).collect(),
+                ..preview_input("checkout")
+            },
+        )
+        .unwrap()
+        .value
+        .preview
+        .fingerprint
+    };
+
+    assert_ne!(fingerprint(&["api"]), fingerprint(&["web"]));
+    assert_ne!(fingerprint(&["api"]), fingerprint(&[]));
+    assert_eq!(fingerprint(&["api", "web"]), fingerprint(&[]));
 }
