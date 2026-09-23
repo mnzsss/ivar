@@ -10,7 +10,8 @@ use camino::{Utf8Path, Utf8PathBuf};
 
 /// The set of paths a session is allowed to write into: its view dir, its
 /// feature directory (for feature sessions), the worktrees of promoted repos,
-/// and the hall's canonical sources (HALL.md, .ivar/skills, .ivar/skills-local).
+/// the hall's canonical skill sources (.ivar/skills, .ivar/skills-local), and
+/// the hall root outside `.ivar/`.
 #[derive(Debug, Clone)]
 pub(crate) struct WritableSet {
     view_dir: Utf8PathBuf,
@@ -18,6 +19,39 @@ pub(crate) struct WritableSet {
     sessions_dir: Option<Utf8PathBuf>,
     worktrees: Vec<Utf8PathBuf>,
     hall_sources: Vec<Utf8PathBuf>,
+    hall: Option<HallRoot>,
+}
+
+/// The hall root minus `.ivar/`: shared hall files every session may write.
+#[derive(Debug, Clone)]
+struct HallRoot {
+    root: Utf8PathBuf,
+    ivar_dir: Utf8PathBuf,
+}
+
+impl HallRoot {
+    fn new(layout: &Layout) -> Self {
+        Self {
+            root: canonicalize_lenient(layout.root()),
+            ivar_dir: canonicalize_lenient(&layout.ivar_dir()),
+        }
+    }
+
+    fn allows(&self, canonical: &Utf8Path) -> bool {
+        canonical.starts_with(&self.root) && !canonical.starts_with(&self.ivar_dir)
+    }
+
+    // ponytail: Landlock cannot express "root minus .ivar", so only the
+    // entries present at launch are granted; a new top-level file needs a
+    // relaunch or a write from outside the sandbox.
+    fn entries(&self) -> Vec<Utf8PathBuf> {
+        crate::infra::fs::read_dir(&self.root)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|entry| canonicalize_lenient(&entry))
+            .filter(|entry| *entry != self.root && self.allows(entry))
+            .collect()
+    }
 }
 
 /// Leniently canonicalise `path`. If canonicalisation fails (e.g. for a
@@ -45,15 +79,12 @@ fn canonicalize_lenient(path: &Utf8Path) -> Utf8PathBuf {
     }
     path.to_path_buf()
 }
+
 fn hall_sources(layout: &Layout) -> Vec<Utf8PathBuf> {
-    [
-        layout.root().join("HALL.md"),
-        layout.hall_skills(),
-        layout.hall_skills_local(),
-    ]
-    .into_iter()
-    .map(|path| canonicalize_lenient(&path))
-    .collect()
+    [layout.hall_skills(), layout.hall_skills_local()]
+        .into_iter()
+        .map(|path| canonicalize_lenient(&path))
+        .collect()
 }
 
 impl WritableSet {
@@ -93,11 +124,12 @@ impl WritableSet {
             sessions_dir: Some(sessions_dir),
             worktrees,
             hall_sources: hall_sources(layout),
+            hall: Some(HallRoot::new(layout)),
         })
     }
 
-    /// Build the writable set for a discovery session: the view dir and
-    /// canonical hall sources.
+    /// Build the writable set for a discovery session: the view dir, the
+    /// canonical hall sources, and the hall root outside `.ivar/`.
     pub(crate) fn from_discovery(layout: &Layout, view_dir: &Utf8Path) -> Result<Self, Failure> {
         let view_dir = view_dir.canonicalize_utf8().map_err(|source| {
             Failure::failed(
@@ -111,11 +143,13 @@ impl WritableSet {
             sessions_dir: None,
             worktrees: Vec::new(),
             hall_sources: hall_sources(layout),
+            hall: Some(HallRoot::new(layout)),
         })
     }
 
     /// Whether `path` is inside the view dir, canonical hall sources, feature
-    /// directory when applicable, or one of the promoted worktrees.
+    /// directory when applicable, one of the promoted worktrees, or the hall
+    /// root outside `.ivar/`.
     /// The input path is canonicalised (with parent fallback for not-yet-existing
     /// files) so symlinks cannot escape the set on platforms like macOS where
     /// `/tmp` or `/var` are symlinks.
@@ -139,13 +173,16 @@ impl WritableSet {
         if self.worktrees.iter().any(|wt| canonical.starts_with(wt)) {
             return true;
         }
-        self.hall_sources.iter().any(|root| {
-            if root.file_name() == Some("HALL.md") {
-                canonical == *root
-            } else {
-                canonical.starts_with(root)
-            }
-        })
+        if self
+            .hall_sources
+            .iter()
+            .any(|root| canonical.starts_with(root))
+        {
+            return true;
+        }
+        self.hall
+            .as_ref()
+            .is_some_and(|hall| hall.allows(&canonical))
     }
 
     /// The view dir — the canonical root of this set.
@@ -162,21 +199,16 @@ impl WritableSet {
     }
 
     /// Return the write-allowed root paths: view dir, canonical hall sources,
-    /// feature dir (if present), and every promoted repo worktree. Note that
-    /// `sessions_dir` is an exclusion boundary under `feature_dir` and is not a root.
-    pub(crate) fn roots(&self) -> Vec<&Utf8Path> {
-        let mut roots = Vec::with_capacity(
-            1 + usize::from(self.feature_dir.is_some())
-                + self.worktrees.len()
-                + self.hall_sources.len(),
-        );
-        roots.push(self.view_dir.as_path());
-        if let Some(feature_dir) = &self.feature_dir {
-            roots.push(feature_dir.as_path());
-        }
-        roots.extend(self.worktrees.iter().map(Utf8PathBuf::as_path));
-        roots.extend(self.hall_sources.iter().map(Utf8PathBuf::as_path));
-        roots
+    /// feature dir (if present), every promoted repo worktree, and each
+    /// hall-root entry outside `.ivar/`. Note that `sessions_dir` is an
+    /// exclusion boundary under `feature_dir` and is not a root.
+    pub(crate) fn roots(&self) -> Vec<Utf8PathBuf> {
+        std::iter::once(self.view_dir.clone())
+            .chain(self.feature_dir.clone())
+            .chain(self.worktrees.iter().cloned())
+            .chain(self.hall_sources.iter().cloned())
+            .chain(self.hall.iter().flat_map(HallRoot::entries))
+            .collect()
     }
 
     /// Build a `WritableSet` from explicit parts. Test-only.
@@ -196,6 +228,7 @@ impl WritableSet {
             sessions_dir,
             worktrees,
             hall_sources: Vec::new(),
+            hall: None,
         }
     }
 }
@@ -275,6 +308,11 @@ pub(crate) fn decide(resolution: &Resolution<'_>, req: &ToolRequest) -> GuardDec
                         .chain(set.feature_dir.as_ref().map(|f| f.to_string()))
                         .chain(set.worktrees.iter().map(|w| w.to_string()))
                         .chain(set.hall_sources.iter().map(|h| h.to_string()))
+                        .chain(
+                            set.hall
+                                .as_ref()
+                                .map(|h| format!("{} (except {})", h.root, h.ivar_dir))
+                        )
                         .collect::<Vec<_>>()
                         .join(", "),
                     set.scratch_dir(),
@@ -554,8 +592,9 @@ fn record_search_miss(layout: &Layout, session: &str, pattern: &str) {
 /// Try to build a `WritableSet` from a resolved session env.
 ///
 /// A session with no feature is a discovery session, not an unknown: it
-/// resolves to a set holding the view dir alone. Returning `None` there would
-/// disarm the guard in the one session that may write nothing.
+/// resolves to a set holding the view dir, the canonical hall sources, and
+/// the hall root outside `.ivar/`. Returning `None` there would disarm the
+/// guard for that session.
 fn resolve_writable_set(env: &crate::action::session::env::SessionEnv) -> Option<WritableSet> {
     let layout = Layout::discover(&env.view_dir).ok()??;
     let Some(feature_name) = env.feature.as_ref() else {

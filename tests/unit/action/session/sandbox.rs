@@ -91,7 +91,7 @@ fn sandbox_roots_contain_writable_set_bare_git_dev_null_temp_and_provider_dirs()
 
     // 1. Every WritableSet root is present.
     for r in set.roots() {
-        assert!(roots.iter().any(|p| p == r), "missing WritableSet root {r}");
+        assert!(roots.contains(&r), "missing WritableSet root {r}");
     }
 
     // 2. Promoted repo bare git directory is present.
@@ -134,10 +134,7 @@ fn sandbox_discovery_session_derives_roots_without_feature() {
     let roots = sandbox.roots();
 
     for r in set.roots() {
-        assert!(
-            roots.iter().any(|p| p == r),
-            "missing discovery WritableSet root {r}"
-        );
+        assert!(roots.contains(&r), "missing discovery WritableSet root {r}");
     }
 }
 
