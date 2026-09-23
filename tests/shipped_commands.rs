@@ -335,6 +335,20 @@ fn ivar_execute_skill_contains_execute_start_and_finish_commands() {
     );
 }
 
+#[test]
+fn ivar_execute_skill_delivers_root_features_through_the_deliver_skill() {
+    let skill_path = format!(
+        "{}/src/harness/skills/ivar-execute/SKILL.md",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let content = std::fs::read_to_string(skill_path).unwrap();
+
+    assert!(
+        content.contains("Load the `ivar-deliver` skill"),
+        "root feature delivery must hand off to the ivar-deliver skill"
+    );
+}
+
 /// Wave progress goes into the run receipt; editing `plan.md` mid-run moves
 /// its fingerprint and diverges the run.
 #[test]

@@ -63,8 +63,8 @@ For every question with selectable choices:
 │    │    ivar feature integrate <feature> [--via pr]         │
 │    └─ Root feature (is_subfeature == false):                │
 │         ├─ Default choice: Draft delivery                   │
-│         ├─ Run ivar feature deliver <feature> --preview     │
-│         └─ Apply delivery with confirmed fingerprint        │
+│         └─ Follow the ivar-deliver skill: preview, then     │
+│            apply with the confirmed fingerprint             │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -172,15 +172,7 @@ Before completing the execution workflow or applying delivery / integration chan
          - **(1) Draft delivery (Default):** Create or update pull requests in draft mode.
          - **(2) Ready for review:** Create or update pull requests ready for review.
          - **(3) Cancel / Defer:** Exit without making changes.
-     - **(b) Preview delivery:**
-       - Run side-effect-free preview:
-         ```bash
-         ivar feature deliver <feature> --preview
-         ```
-       - Present the preview output and content fingerprint `<fp>` to the human.
-     - **(c) Apply delivery:**
-       - With explicit human confirmation, apply delivery using the reviewed fingerprint:
-         ```bash
-         ivar feature deliver <feature> --fingerprint <fp>
-         ```
-       - If Draft delivery was selected, ensure PRs are submitted in draft mode.
+     - **(b) Deliver through the skill:**
+       - Load the `ivar-deliver` skill (`/ivar-deliver`) and follow it end to end: its PR metadata and title guidance, the `HALL.md` relation checkpoint between preview and apply, and its fingerprint rules.
+       - Preview with `ivar feature deliver <feature> --preview`, show the human the preview and fingerprint `<fp>`, and apply with `ivar feature deliver <feature> --fingerprint <fp>` after the human confirms.
+       - For Draft delivery, pass `--draft` to both the preview and the apply.
