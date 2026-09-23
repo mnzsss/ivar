@@ -551,6 +551,21 @@ fn deliver_skill_documents_pr_metadata() {
     );
 }
 
+#[test]
+fn deliver_skill_documents_only_selection() {
+    let source = format!(
+        "{}/src/harness/skills/ivar-deliver/SKILL.md",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let body = std::fs::read_to_string(source).unwrap();
+
+    assert!(body.contains("--only"), "deliver should document --only");
+    assert!(
+        body.contains("merged"),
+        "deliver should explain the already-merged PR case"
+    );
+}
+
 /// Every `ivar ...` invocation quoted in shipped prose and repository
 /// documentation must parse against the real CLI.
 ///
