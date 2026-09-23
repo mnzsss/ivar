@@ -90,10 +90,35 @@ impl HallRoot {
 /// file that does not exist yet), walk to the nearest existing ancestor,
 /// canonicalise it, and append the remaining non-existent components,
 /// falling back to the raw path if no ancestor canonicalises.
+///
+/// A dangling symlink on the way resolves to its target, so a write through
+/// it is judged by where the bytes would land.
 fn canonicalize_lenient(path: &Utf8Path) -> Utf8PathBuf {
+    canonicalize_within_hops(path, MAX_SYMLINK_HOPS)
+}
+
+const MAX_SYMLINK_HOPS: usize = 40;
+
+fn canonicalize_within_hops(path: &Utf8Path, hops_left: usize) -> Utf8PathBuf {
     let mut existing = path;
     let mut tail = Vec::new();
     while !existing.exists() {
+        if existing.is_symlink() {
+            let (Some(hops_left), Ok(target)) =
+                (hops_left.checked_sub(1), existing.read_link_utf8())
+            else {
+                // Relative, while every writable root is absolute: no set allows it.
+                return Utf8PathBuf::new();
+            };
+            let target = existing
+                .parent()
+                .map_or(target.clone(), |dir| dir.join(&target));
+            let mut resolved = canonicalize_within_hops(&target, hops_left);
+            for name in tail.into_iter().rev() {
+                resolved.push(name);
+            }
+            return resolved;
+        }
         let Some(name) = existing.file_name() else {
             break;
         };

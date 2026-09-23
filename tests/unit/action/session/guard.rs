@@ -219,6 +219,49 @@ fn a_hall_root_symlink_cannot_escape_the_hall_or_reach_dot_ivar() {
 
 #[cfg(unix)]
 #[test]
+fn a_dangling_hall_root_symlink_cannot_create_its_target_outside_the_set() {
+    use std::os::unix::fs::symlink;
+
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root.clone());
+    let view =
+        layout.discovery_session(&SessionId::new("6f0c9d5f-0000-4000-8000-000000000014").unwrap());
+    crate::infra::fs::ensure_dir(&view).unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    let outside = Utf8PathBuf::try_from(outside.path().to_path_buf()).unwrap();
+    symlink(outside.join("new.md"), root.join("outside-new.md")).unwrap();
+    let default_worktree = layout.repo_worktree(
+        &RepoName::new("api").unwrap(),
+        &BranchName::new("main").unwrap(),
+    );
+    symlink(default_worktree.join("src/new.rs"), root.join("api-new.rs")).unwrap();
+
+    let set = WritableSet::from_discovery(&layout, &view).unwrap();
+
+    assert!(!set.allows(&root.join("outside-new.md")));
+    assert!(!set.allows(&root.join("api-new.rs")));
+}
+
+#[cfg(unix)]
+#[test]
+fn a_symlink_loop_in_the_hall_root_is_denied() {
+    use std::os::unix::fs::symlink;
+
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root.clone());
+    let view =
+        layout.discovery_session(&SessionId::new("6f0c9d5f-0000-4000-8000-000000000017").unwrap());
+    crate::infra::fs::ensure_dir(&view).unwrap();
+    symlink(root.join("loop-b"), root.join("loop-a")).unwrap();
+    symlink(root.join("loop-a"), root.join("loop-b")).unwrap();
+
+    let set = WritableSet::from_discovery(&layout, &view).unwrap();
+
+    assert!(!set.allows(&root.join("loop-a")));
+}
+
+#[cfg(unix)]
+#[test]
 fn canonical_hall_source_symlink_cannot_escape_to_a_default_worktree() {
     use std::os::unix::fs::symlink;
 
