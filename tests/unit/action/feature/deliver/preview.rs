@@ -486,6 +486,7 @@ fn apply_command_repeats_every_fingerprinted_flag() {
                 draft: None,
             },
         }],
+        only: Vec::new(),
     };
 
     assert_eq!(
@@ -536,5 +537,20 @@ fn preview_mode_carries_the_apply_command_and_land_flag() {
             "ivar feature deliver checkout --land --fingerprint {}",
             preview.preview.fingerprint
         ))
+    );
+}
+
+#[test]
+fn apply_command_repeats_every_only_selection() {
+    let input = DeliverInput {
+        feature: "checkout".to_owned(),
+        preview: true,
+        only: vec!["api".to_owned(), "web".to_owned()],
+        ..Default::default()
+    };
+
+    assert_eq!(
+        apply_command(&input, "abc123"),
+        "ivar feature deliver checkout --only api --only web --fingerprint abc123"
     );
 }

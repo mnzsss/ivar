@@ -418,6 +418,7 @@ pub fn run(cli: Cli) -> ExitCode {
                                 fingerprint: args.fingerprint,
                                 global_metadata: args.global_metadata,
                                 repo_overrides: args.repo_overrides,
+                                only: args.only,
                             },
                         ),
                         json,

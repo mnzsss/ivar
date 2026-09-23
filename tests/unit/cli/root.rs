@@ -1006,3 +1006,22 @@ fn repo_view_defaults_to_every_declared_repo_and_accepts_a_subset() {
     let input: repo_view::ViewInput = args.into();
     assert_eq!(input.repos, vec!["api".to_owned(), "web".to_owned()]);
 }
+
+#[test]
+fn feature_deliver_parses_repeated_only_independently_of_repo_groups() {
+    let cli = Cli::try_parse_from([
+        "ivar", "feature", "deliver", "checkout", "--only", "api", "--name", "global", "--only",
+        "web",
+    ])
+    .unwrap();
+
+    match cli.command {
+        Command::Feature(FeatureCommand::Deliver(args)) => {
+            let input: deliver::DeliverInput = args.into();
+            assert_eq!(input.only, vec!["api".to_owned(), "web".to_owned()]);
+            assert_eq!(input.global_metadata.title.as_deref(), Some("global"));
+            assert!(input.repo_overrides.is_empty());
+        }
+        other => panic!("expected feature deliver, got {other:?}"),
+    }
+}

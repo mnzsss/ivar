@@ -37,4 +37,6 @@ pub struct DeliverInput {
     pub global_metadata: PullRequestMetadata,
     /// Ordered repository-scoped metadata overrides.
     pub repo_overrides: Vec<RepoMetadataOverride>,
+    /// Promoted repositories to deliver; empty delivers every promoted repository.
+    pub only: Vec<String>,
 }
