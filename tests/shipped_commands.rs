@@ -336,6 +336,24 @@ fn ivar_execute_skill_contains_execute_start_and_finish_commands() {
 }
 
 #[test]
+fn ivar_execute_skill_finishes_the_run_with_a_report_and_outcome() {
+    let skill_path = format!(
+        "{}/src/harness/skills/ivar-execute/SKILL.md",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let content = std::fs::read_to_string(skill_path).unwrap();
+
+    assert!(
+        content.contains("ivar feature execute finish <feature> --report-json <path> --outcome"),
+        "skill must show the flags finish requires"
+    );
+    assert!(
+        content.contains("ivar feature execute finish --print-schema"),
+        "skill must point at the report schema"
+    );
+}
+
+#[test]
 fn ivar_execute_skill_delivers_root_features_through_the_deliver_skill() {
     let skill_path = format!(
         "{}/src/harness/skills/ivar-execute/SKILL.md",

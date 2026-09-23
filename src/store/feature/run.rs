@@ -170,7 +170,8 @@ pub fn archive(layout: &Layout, receipt: &RunReceipt) -> Result<Utf8PathBuf, Fai
         .actual(receipt.status.to_string())
         .fix(FixAction::safe(
             "execute.finish_run",
-            "Finish the run with `ivar feature execute finish <feature>`, or abandon it with \
+            "Finish the run with `ivar feature execute finish <feature> --report-json <path> \
+             --outcome <outcome>`, or abandon it with \
              `ivar feature execute start <feature> --plan <path> --restart`.",
         )));
     }

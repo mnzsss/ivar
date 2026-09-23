@@ -58,6 +58,7 @@ For every question with selectable choices:
 │ 4. Completion & Delivery / Integration Gate                 │
 │    ├─ Close active execution run:                           │
 │    │    ivar feature execute finish <feature>               │
+│    │      --report-json <path> --outcome <outcome>          │
 │    ├─ Inspect is_subfeature via ivar feature status --json  │
 │    ├─ Subfeature (is_subfeature == true):                   │
 │    │    ivar feature integrate <feature> [--via pr]         │
@@ -149,8 +150,9 @@ Before completing the execution workflow or applying delivery / integration chan
 1. **Finish execution run:**
    - Close the active execution run receipt before proceeding to integration or delivery:
      ```bash
-     ivar feature execute finish <feature>
+     ivar feature execute finish <feature> --report-json <path> --outcome <succeeded|failed|blocked>
      ```
+   - Write the report JSON in the session's `.tmp/` first. `ivar feature execute finish --print-schema` prints its shape: `summary`, `tasks` and `verification` are required, and `deviations`, `blockers`, `follow_ups` and `agents` are optional.
    - An agent following this workflow must never attempt integration or delivery while an execution run remains active.
 
 2. **Branch on feature hierarchy:**
