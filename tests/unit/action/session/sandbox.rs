@@ -175,6 +175,39 @@ fn discovery_sandbox_contains_canonical_hall_sources() {
 }
 
 #[test]
+fn sandbox_grants_hall_root_entries_but_never_covers_the_repos_dir() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root);
+    let view_dir =
+        layout.discovery_session(&SessionId::new("6f0c9d5f-0000-4000-8000-000000000015").unwrap());
+    crate::infra::fs::ensure_dir(&view_dir).unwrap();
+    crate::infra::fs::ensure_dir(&layout.root().join("docs")).unwrap();
+
+    let set = WritableSet::from_discovery(&layout, &view_dir).unwrap();
+    let sandbox = Sandbox::from_writable_set(&set, &layout, None, Provider::ClaudeCode).unwrap();
+    let repos = layout.repos_dir().canonicalize_utf8().unwrap();
+    let temp = Utf8PathBuf::try_from(std::env::temp_dir())
+        .unwrap()
+        .canonicalize_utf8()
+        .unwrap();
+
+    assert!(
+        sandbox
+            .roots()
+            .contains(&layout.root().join("docs").canonicalize_utf8().unwrap())
+    );
+    assert!(
+        !sandbox
+            .roots()
+            .iter()
+            .filter(|r| **r != temp)
+            .any(|r| repos.starts_with(r)),
+        "no sandbox root other than the temp dir may cover .ivar/repos: {:?}",
+        sandbox.roots()
+    );
+}
+
+#[test]
 fn sandbox_status_enum_variants_and_predicates() {
     use crate::action::session::sandbox::SandboxStatus;
 
