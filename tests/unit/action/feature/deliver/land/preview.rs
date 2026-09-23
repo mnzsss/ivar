@@ -190,3 +190,28 @@ fn land_on_default_serialises_as_snake_case_and_has_a_word() {
     );
     assert_eq!(outcome::action_word(action, None), "land on default");
 }
+
+#[test]
+fn only_restricts_the_land_preview_to_the_selected_repos() {
+    let (_guard, root) = hall_with_promoted(&["api", "web"]);
+    approve_through_plan(&root);
+    let ctx = Ctx::new(root.clone());
+
+    let report = deliver(
+        &ctx,
+        DeliverInput {
+            only: vec!["api".to_owned()],
+            ..land_preview_input("checkout")
+        },
+    )
+    .unwrap();
+
+    let repos: Vec<&str> = report
+        .value
+        .preview
+        .repos
+        .iter()
+        .map(|r| r.repo.as_str())
+        .collect();
+    assert_eq!(repos, vec!["api"]);
+}
