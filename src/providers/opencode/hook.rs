@@ -1,5 +1,6 @@
-use camino::Utf8PathBuf;
+use camino::Utf8Path;
 
+use crate::domain::provider::Provider;
 use crate::providers::ManagedArtifact;
 
 /// The embedded plugin source: a single file OpenCode loads from
@@ -44,7 +45,7 @@ export default {
 
 pub(crate) fn managed_artifacts() -> Vec<ManagedArtifact> {
     vec![ManagedArtifact {
-        relative_path: Utf8PathBuf::from(".opencode/plugins/ivar.js"),
+        relative_path: Utf8Path::new(Provider::OPENCODE_PLUGINS_DIR).join("ivar.js"),
         contents: OPENCODE_PLUGIN,
     }]
 }

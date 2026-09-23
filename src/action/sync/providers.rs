@@ -177,7 +177,7 @@ pub(crate) fn sync_settings(
         return;
     }
 
-    let path = layout.harness_dir(&provider).join("settings.json");
+    let path = layout.root().join(Provider::CLAUDE_SETTINGS);
     let label = format!("{} settings.json", provider.config_dir());
 
     let result = if manifest.providers().available().contains(&provider) {

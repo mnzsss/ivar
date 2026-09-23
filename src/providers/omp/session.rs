@@ -1,5 +1,6 @@
-use camino::Utf8PathBuf;
+use camino::{Utf8Path, Utf8PathBuf};
 
+use crate::domain::provider::Provider;
 use crate::providers::SessionProjection;
 
 /// OMP discovers hooks under `.omp/hooks/pre/` and extensions under
@@ -9,11 +10,11 @@ use crate::providers::SessionProjection;
 pub(crate) fn extra_projections() -> Vec<SessionProjection> {
     vec![
         SessionProjection {
-            hall_source: Utf8PathBuf::from(".omp/hooks/pre"),
+            hall_source: Utf8Path::new(Provider::OMP_HOOKS_DIR).join("pre"),
             config_relative_dest: Utf8PathBuf::from("hooks/pre"),
         },
         SessionProjection {
-            hall_source: Utf8PathBuf::from(".omp/extensions"),
+            hall_source: Utf8PathBuf::from(Provider::OMP_EXTENSIONS_DIR),
             config_relative_dest: Utf8PathBuf::from("extensions"),
         },
     ]
