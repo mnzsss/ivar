@@ -192,8 +192,10 @@ pub fn build_block(hall: &HallName, repos: &[RepoName]) -> String {
          directory — `{SCRATCH_DIR}/` inside the session's own view dir\n\
          (`.ivar/sessions/<session-id>/{SCRATCH_DIR}/` for a discovery session,\n\
          `.ivar/features/<feature>/sessions/<session-id>/{SCRATCH_DIR}/` once it is\n\
-         bound to a feature). Nowhere else in the hall is writable, and a denied\n\
-         write names that path for you.\n\n\
+         bound to a feature). The rest of the hall outside `.ivar/` — docs,\n\
+         `HALL.md`, harness config — is writable too, so hall files need no\n\
+         feature. Repos stay read-only until promoted, and a denied write names\n\
+         the writable set for you.\n\n\
          Its contents are temporary: `ivar session stop` removes the view dir and\n\
          everything in it. Nothing you need to keep belongs there.\n"
     );
