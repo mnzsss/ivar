@@ -65,14 +65,20 @@ impl HallRoot {
     // an expanded dir (the hall root, `.git`, `.claude`) is kernel-denied
     // until relaunch; for `.git` that includes `index.lock`, so a sandboxed
     // `git commit` in the hall fails.
-    fn entries(&self) -> Vec<Utf8PathBuf> {
+    fn entries(&self) -> Result<Vec<Utf8PathBuf>, Failure> {
         let mut granted = Vec::new();
-        self.expand(&self.root, &mut granted);
-        granted
+        self.expand(&self.root, &mut granted)?;
+        Ok(granted)
     }
 
-    fn expand(&self, dir: &Utf8Path, granted: &mut Vec<Utf8PathBuf>) {
-        for entry in crate::infra::fs::read_dir(dir).unwrap_or_default() {
+    fn expand(&self, dir: &Utf8Path, granted: &mut Vec<Utf8PathBuf>) -> Result<(), Failure> {
+        let entries = crate::infra::fs::read_dir(dir).map_err(|source| {
+            Failure::failed(
+                "guard.unreadable_hall_root",
+                format!("could not read hall dir `{dir}`: {source}"),
+            )
+        })?;
+        for entry in entries {
             let canonical = canonicalize_lenient(&entry);
             if canonical == self.root || !self.allows(&canonical) {
                 continue;
@@ -80,9 +86,10 @@ impl HallRoot {
             if !self.holds_protected(&canonical) {
                 granted.push(canonical);
             } else if entry.symlink_metadata().is_ok_and(|meta| meta.is_dir()) {
-                self.expand(&entry, granted);
+                self.expand(&entry, granted)?;
             }
         }
+        Ok(())
     }
 }
 
@@ -263,13 +270,22 @@ impl WritableSet {
     /// feature dir (if present), every promoted repo worktree, and each
     /// hall-root entry outside `.ivar/`. Note that `sessions_dir` is an
     /// exclusion boundary under `feature_dir` and is not a root.
-    pub(crate) fn roots(&self) -> Vec<Utf8PathBuf> {
-        std::iter::once(self.view_dir.clone())
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Failure`] if a hall dir the expansion walks cannot be read:
+    /// granting less than the guard allows would fail writes silently.
+    pub(crate) fn roots(&self) -> Result<Vec<Utf8PathBuf>, Failure> {
+        let hall_entries = match &self.hall {
+            Some(hall) => hall.entries()?,
+            None => Vec::new(),
+        };
+        Ok(std::iter::once(self.view_dir.clone())
             .chain(self.feature_dir.clone())
             .chain(self.worktrees.iter().cloned())
             .chain(self.hall_sources.iter().cloned())
-            .chain(self.hall.iter().flat_map(HallRoot::entries))
-            .collect()
+            .chain(hall_entries)
+            .collect())
     }
 
     /// Build a `WritableSet` from explicit parts. Test-only.

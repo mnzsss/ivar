@@ -296,7 +296,7 @@ fn writable_set_roots_include_canonical_hall_sources() {
     crate::infra::fs::write_text(&layout.root().join("HALL.md"), "# Hall\n").unwrap();
 
     let set = WritableSet::from_session(&layout, &feature, &view_dir).unwrap();
-    let roots = set.roots();
+    let roots = set.roots().unwrap();
 
     assert!(roots.contains(&layout.root().join("HALL.md").canonicalize_utf8().unwrap()));
     assert!(roots.contains(&layout.hall_skills().canonicalize_utf8().unwrap()));
@@ -315,7 +315,7 @@ fn discovery_writable_set_roots_expand_the_hall_root_without_covering_dot_ivar()
     crate::infra::fs::ensure_dir(&layout.root().join("docs")).unwrap();
 
     let set = WritableSet::from_discovery(&layout, &view_dir).unwrap();
-    let roots = set.roots();
+    let roots = set.roots().unwrap();
     let canonical_root = layout.root().canonicalize_utf8().unwrap();
     let repos = layout.repos_dir().canonicalize_utf8().unwrap();
 
@@ -399,7 +399,7 @@ fn hall_root_entries_never_grant_a_protected_path_or_its_ancestor() {
     seed_protected_hall_paths(&root);
 
     let set = WritableSet::from_discovery(&layout, &view).unwrap();
-    let roots = set.roots();
+    let roots = set.roots().unwrap();
     let canonical_root = root.canonicalize_utf8().unwrap();
     let protected = PROTECTED_HALL_PATHS.map(|path| canonical_root.join(path));
 
@@ -415,6 +415,28 @@ fn hall_root_entries_never_grant_a_protected_path_or_its_ancestor() {
     assert!(roots.contains(&canonical_root.join(".git/index")));
     assert!(roots.contains(&canonical_root.join(".claude/skills")));
     assert!(roots.contains(&canonical_root.join("docs")));
+}
+
+#[cfg(unix)]
+#[test]
+fn an_unreadable_hall_dir_fails_the_roots_instead_of_granting_less() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root.clone());
+    let view =
+        layout.discovery_session(&SessionId::new("6f0c9d5f-0000-4000-8000-000000000023").unwrap());
+    crate::infra::fs::ensure_dir(&view).unwrap();
+    seed_protected_hall_paths(&root);
+    let git_dir = root.join(".git");
+    let mode = std::fs::metadata(&git_dir).unwrap().permissions().mode();
+    std::fs::set_permissions(&git_dir, std::fs::Permissions::from_mode(0o000)).unwrap();
+
+    let set = WritableSet::from_discovery(&layout, &view).unwrap();
+    let roots = set.roots();
+    std::fs::set_permissions(&git_dir, std::fs::Permissions::from_mode(mode)).unwrap();
+
+    assert_eq!(roots.unwrap_err().code, "guard.unreadable_hall_root");
 }
 
 #[test]

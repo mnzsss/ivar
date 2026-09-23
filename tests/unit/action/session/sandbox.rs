@@ -90,7 +90,7 @@ fn sandbox_roots_contain_writable_set_bare_git_dev_null_temp_and_provider_dirs()
     let roots = sandbox.roots();
 
     // 1. Every WritableSet root is present.
-    for r in set.roots() {
+    for r in set.roots().unwrap() {
         assert!(roots.contains(&r), "missing WritableSet root {r}");
     }
 
@@ -133,7 +133,7 @@ fn sandbox_discovery_session_derives_roots_without_feature() {
     let sandbox = Sandbox::from_writable_set(&set, &layout, None, Provider::Omp).unwrap();
     let roots = sandbox.roots();
 
-    for r in set.roots() {
+    for r in set.roots().unwrap() {
         assert!(roots.contains(&r), "missing discovery WritableSet root {r}");
     }
 }
@@ -238,7 +238,7 @@ fn symlinked_hall_root_entries_stay_out_of_the_kernel_roots() {
     symlink(&default_worktree, root.join("api-link")).unwrap();
 
     let set = WritableSet::from_discovery(&layout, &view_dir).unwrap();
-    let roots = set.roots();
+    let roots = set.roots().unwrap();
     let canonical_root = root.canonicalize_utf8().unwrap();
 
     for excluded in [
