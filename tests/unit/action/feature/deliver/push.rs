@@ -260,3 +260,37 @@ fn apply_with_only_pushes_only_the_selected_repo() {
     assert!(remote_ref(&origin_of(&root, "web"), "checkout").is_some());
     assert!(remote_ref(&origin_of(&root, "api"), "checkout").is_none());
 }
+
+#[test]
+fn only_a_delivery_of_every_promotion_links_siblings() {
+    let (_guard, root) = hall_with_promoted(&["api", "web"]);
+    approve_through_plan(&root);
+    let ctx = Ctx::new(root.clone());
+    let layout = Layout::at(root.clone());
+    let feature = read_feature(&layout, &FeatureName::new("checkout").unwrap()).unwrap();
+    let preview_of = |only: &[&str]| {
+        deliver(
+            &ctx,
+            DeliverInput {
+                only: only.iter().map(|r| (*r).to_owned()).collect(),
+                ..preview_input("checkout")
+            },
+        )
+        .unwrap()
+        .value
+        .preview
+    };
+
+    assert!(!crate::action::feature::deliver::push::links_siblings(
+        &preview_of(&["api"]),
+        &feature
+    ));
+    assert!(crate::action::feature::deliver::push::links_siblings(
+        &preview_of(&[]),
+        &feature
+    ));
+    assert!(crate::action::feature::deliver::push::links_siblings(
+        &preview_of(&["api", "web"]),
+        &feature
+    ));
+}
