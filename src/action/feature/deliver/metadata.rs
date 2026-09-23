@@ -32,6 +32,7 @@ fn unpromoted_repo_override(feature: &Feature, repo: &str) -> Failure {
     ))
 }
 
+/// The `deliver.unpromoted_only_repo` refusal: an `--only` name that is unparseable or not promoted.
 fn unpromoted_only_repo(feature: &Feature, repo: &str) -> Failure {
     let promoted = feature
         .promotions
@@ -58,6 +59,7 @@ fn unpromoted_only_repo(feature: &Feature, repo: &str) -> Failure {
     ))
 }
 
+/// The `deliver.repo_override_outside_only` refusal: a `--repo` metadata group for a repository `--only` leaves out.
 fn repo_override_outside_only(repo: &str) -> Failure {
     Failure::blocked(
         "deliver.repo_override_outside_only",
