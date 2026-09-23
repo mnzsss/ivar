@@ -22,11 +22,13 @@ pub(crate) struct WritableSet {
     hall: Option<HallRoot>,
 }
 
-/// The hall root minus `.ivar/`: shared hall files every session may write.
+/// The hall root minus `.ivar/` and the protected git and hook-config paths:
+/// shared hall files every session may write.
 #[derive(Debug, Clone)]
 struct HallRoot {
     root: Utf8PathBuf,
     ivar_dir: Utf8PathBuf,
+    protected: Vec<Utf8PathBuf>,
 }
 
 impl HallRoot {
@@ -34,23 +36,53 @@ impl HallRoot {
         Self {
             root: canonicalize_lenient(layout.root()),
             ivar_dir: canonicalize_lenient(&layout.ivar_dir()),
+            protected: layout
+                .guard_protected_paths()
+                .iter()
+                .map(|path| canonicalize_lenient(path))
+                .collect(),
         }
     }
 
     fn allows(&self, canonical: &Utf8Path) -> bool {
-        canonical.starts_with(&self.root) && !canonical.starts_with(&self.ivar_dir)
+        canonical.starts_with(&self.root)
+            && !canonical.starts_with(&self.ivar_dir)
+            && !self
+                .protected
+                .iter()
+                .any(|protected| canonical.starts_with(protected))
     }
 
-    // ponytail: Landlock cannot express "root minus .ivar", so only the
-    // entries present at launch are granted; a new top-level file needs a
-    // relaunch or a write from outside the sandbox.
+    fn holds_protected(&self, canonical: &Utf8Path) -> bool {
+        self.protected
+            .iter()
+            .any(|protected| protected.starts_with(canonical))
+    }
+
+    // ponytail: Landlock grants whole subtrees and cannot exclude a sub-path,
+    // so the root is expanded into the entries present at launch, descending
+    // into each real dir that holds a protected path. A new entry directly in
+    // an expanded dir (the hall root, `.git`, `.claude`) is kernel-denied
+    // until relaunch; for `.git` that includes `index.lock`, so a sandboxed
+    // `git commit` in the hall fails.
     fn entries(&self) -> Vec<Utf8PathBuf> {
-        crate::infra::fs::read_dir(&self.root)
-            .unwrap_or_default()
-            .into_iter()
-            .map(|entry| canonicalize_lenient(&entry))
-            .filter(|entry| *entry != self.root && self.allows(entry))
-            .collect()
+        let mut granted = Vec::new();
+        self.expand(&self.root, &mut granted);
+        granted
+    }
+
+    fn expand(&self, dir: &Utf8Path, granted: &mut Vec<Utf8PathBuf>) {
+        for entry in crate::infra::fs::read_dir(dir).unwrap_or_default() {
+            let canonical = canonicalize_lenient(&entry);
+            if canonical == self.root || !self.allows(&canonical) {
+                continue;
+            }
+            if !self.holds_protected(&canonical) {
+                granted.push(canonical);
+            } else if entry.symlink_metadata().is_ok_and(|meta| meta.is_dir()) {
+                self.expand(&entry, granted);
+            }
+        }
     }
 }
 

@@ -501,6 +501,23 @@ impl Layout {
         provider.plugins_dir().map(|dir| self.root().join(dir))
     }
 
+    /// Hall-root paths no session may write although they sit outside
+    /// `.ivar/`: the hall's git hooks and config (git runs hooks outside any
+    /// sandbox) and every provider's hook config (where `ivar guard` is wired).
+    #[must_use]
+    pub fn guard_protected_paths(&self) -> Vec<Utf8PathBuf> {
+        let git_dir = self.root.join(".git");
+        [git_dir.join("hooks"), git_dir.join("config")]
+            .into_iter()
+            .chain(
+                Provider::ALL
+                    .iter()
+                    .flat_map(Provider::hook_config_paths)
+                    .map(|path| self.root.join(path)),
+            )
+            .collect()
+    }
+
     /// `<hall>/HALL.md` — the sole editable source of shared hall
     /// instructions. Committed, and mostly the user's: `harness::config`
     /// owns only the bytes between its two markers.

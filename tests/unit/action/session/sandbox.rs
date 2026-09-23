@@ -213,6 +213,60 @@ fn sandbox_grants_hall_root_entries_but_never_covers_the_repos_dir() {
 }
 
 #[test]
+fn sandbox_roots_never_cover_git_hooks_git_config_or_provider_hook_config() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root.clone());
+    let view_dir =
+        layout.discovery_session(&SessionId::new("6f0c9d5f-0000-4000-8000-000000000016").unwrap());
+    crate::infra::fs::ensure_dir(&view_dir).unwrap();
+    for dir in [
+        ".git/hooks",
+        ".git/objects",
+        ".claude",
+        ".opencode/plugins",
+        ".omp/hooks/pre",
+    ] {
+        crate::infra::fs::ensure_dir(&root.join(dir)).unwrap();
+    }
+    for file in [".git/config", ".claude/settings.json"] {
+        crate::infra::fs::write_text(&root.join(file), "").unwrap();
+    }
+
+    let set = WritableSet::from_discovery(&layout, &view_dir).unwrap();
+    let sandbox = Sandbox::from_writable_set(&set, &layout, None, Provider::ClaudeCode).unwrap();
+    let canonical_root = root.canonicalize_utf8().unwrap();
+    let temp = Utf8PathBuf::try_from(std::env::temp_dir())
+        .unwrap()
+        .canonicalize_utf8()
+        .unwrap();
+
+    for protected in [
+        ".git/hooks",
+        ".git/config",
+        ".claude/settings.json",
+        ".opencode/plugins",
+        ".omp/hooks",
+    ]
+    .map(|path| canonical_root.join(path))
+    {
+        assert!(
+            !sandbox
+                .roots()
+                .iter()
+                .filter(|r| **r != temp)
+                .any(|r| protected.starts_with(r) || r.starts_with(&protected)),
+            "a sandbox root covers {protected}: {:?}",
+            sandbox.roots()
+        );
+    }
+    assert!(
+        sandbox
+            .roots()
+            .contains(&canonical_root.join(".git/objects"))
+    );
+}
+
+#[test]
 fn sandbox_status_enum_variants_and_predicates() {
     use crate::action::session::sandbox::SandboxStatus;
 

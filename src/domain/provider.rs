@@ -196,6 +196,18 @@ impl Provider {
             Self::Omp => None,
         }
     }
+
+    /// Hall-relative files and dirs this harness loads hook config or hook
+    /// code from. `ivar guard` is wired in here, so a write here can disarm it.
+    #[must_use]
+    pub const fn hook_config_paths(&self) -> &'static [&'static str] {
+        match self {
+            Self::ClaudeCode => &[".claude/settings.json", ".claude/settings.local.json"],
+            Self::OpenCode => &[".opencode/plugins"],
+            Self::Omp => &[".omp/hooks", ".omp/extensions"],
+        }
+    }
+
     /// The file this harness's MCP server definitions live in, at the hall
     /// root.
     ///

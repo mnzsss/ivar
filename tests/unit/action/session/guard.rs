@@ -283,6 +283,97 @@ fn discovery_writable_set_roots_expand_the_hall_root_without_covering_dot_ivar()
     assert!(!roots.iter().any(|r| repos.starts_with(r)));
 }
 
+const PROTECTED_HALL_PATHS: [&str; 7] = [
+    ".git/hooks",
+    ".git/config",
+    ".claude/settings.json",
+    ".claude/settings.local.json",
+    ".opencode/plugins",
+    ".omp/hooks",
+    ".omp/extensions",
+];
+
+fn seed_protected_hall_paths(root: &Utf8Path) {
+    for dir in [
+        ".git/hooks",
+        ".git/objects",
+        ".claude/skills",
+        ".opencode/plugins",
+        ".omp/hooks/pre",
+        ".omp/extensions",
+        "docs",
+    ] {
+        crate::infra::fs::ensure_dir(&root.join(dir)).unwrap();
+    }
+    for file in [
+        ".git/config",
+        ".git/index",
+        ".claude/settings.json",
+        ".opencode/plugins/ivar.js",
+        ".omp/hooks/pre/ivar.js",
+        ".omp/extensions/ivar.js",
+    ] {
+        crate::infra::fs::write_text(&root.join(file), "").unwrap();
+    }
+}
+
+#[test]
+fn the_hall_root_denies_git_hooks_git_config_and_provider_hook_config() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root.clone());
+    let view =
+        layout.discovery_session(&SessionId::new("6f0c9d5f-0000-4000-8000-000000000021").unwrap());
+    crate::infra::fs::ensure_dir(&view).unwrap();
+    seed_protected_hall_paths(&root);
+
+    let set = WritableSet::from_discovery(&layout, &view).unwrap();
+
+    for denied in [
+        ".git/hooks/pre-commit",
+        ".git/config",
+        ".claude/settings.json",
+        ".claude/settings.local.json",
+        ".opencode/plugins/ivar.js",
+        ".opencode/plugins/other.js",
+        ".omp/hooks/pre/ivar.js",
+        ".omp/extensions/ivar.js",
+    ] {
+        assert!(!set.allows(&root.join(denied)), "{denied} must be denied");
+    }
+    assert!(set.allows(&root.join(".git/index")));
+    assert!(set.allows(&root.join(".git/objects/ab/cdef")));
+    assert!(set.allows(&root.join(".claude/skills/custom/SKILL.md")));
+    assert!(set.allows(&root.join("docs/x.md")));
+}
+
+#[test]
+fn hall_root_entries_never_grant_a_protected_path_or_its_ancestor() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root.clone());
+    let view =
+        layout.discovery_session(&SessionId::new("6f0c9d5f-0000-4000-8000-000000000022").unwrap());
+    crate::infra::fs::ensure_dir(&view).unwrap();
+    seed_protected_hall_paths(&root);
+
+    let set = WritableSet::from_discovery(&layout, &view).unwrap();
+    let roots = set.roots();
+    let canonical_root = root.canonicalize_utf8().unwrap();
+    let protected = PROTECTED_HALL_PATHS.map(|path| canonical_root.join(path));
+
+    for granted in &roots {
+        assert!(
+            !protected
+                .iter()
+                .any(|p| p.starts_with(granted) || granted.starts_with(p)),
+            "{granted} covers a protected path: {roots:?}"
+        );
+    }
+    assert!(roots.contains(&canonical_root.join(".git/objects")));
+    assert!(roots.contains(&canonical_root.join(".git/index")));
+    assert!(roots.contains(&canonical_root.join(".claude/skills")));
+    assert!(roots.contains(&canonical_root.join("docs")));
+}
+
 #[test]
 fn discovery_guard_allows_a_hall_file_and_denies_ivar_state() {
     let (_guard, root) = hall_with_promoted_feature();
