@@ -83,9 +83,12 @@ pub fn remove_settings(path: &Utf8Path) -> Result<Change, Error> {
         return Ok(Change::Unchanged);
     };
 
-    let removed_any = IVAR_KEYS
-        .iter()
-        .fold(false, |any, key| object.remove(*key).is_some() || any);
+    let mut removed_any = false;
+    for key in IVAR_KEYS {
+        if object.remove(key).is_some() {
+            removed_any = true;
+        }
+    }
 
     if !removed_any {
         return Ok(Change::Unchanged);
