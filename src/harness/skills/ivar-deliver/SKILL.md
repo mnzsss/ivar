@@ -108,6 +108,10 @@ so PR metadata is rejected.
 
 ## Important
 
+- **Never add AI attribution** to `--name`, `--body` or the feature's commits
+  (`Generated with …`, a `Co-Authored-By:` trailer naming an AI agent). Deliver
+  refuses with `deliver.ai_attribution` in preview and apply, naming each repo,
+  commit and line. Rewrite those commit messages and the body, then preview again.
 - **`--fingerprint` is required to apply.** Pass the fingerprint printed by the
   reviewed `--preview` output. Apply never generates a new fingerprint — it
   must match the human-reviewed preview.

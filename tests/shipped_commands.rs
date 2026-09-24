@@ -894,3 +894,27 @@ mod cited_invocations {
         }
     }
 }
+
+#[test]
+fn execute_and_deliver_skills_forbid_ai_attribution() {
+    for skill in ["ivar-execute", "ivar-deliver"] {
+        let source = format!(
+            "{}/src/harness/skills/{skill}/SKILL.md",
+            env!("CARGO_MANIFEST_DIR")
+        );
+        let body = std::fs::read_to_string(source).unwrap();
+        assert!(
+            body.contains("Never add AI attribution"),
+            "{skill} should forbid AI attribution"
+        );
+    }
+    let deliver = std::fs::read_to_string(format!(
+        "{}/src/harness/skills/ivar-deliver/SKILL.md",
+        env!("CARGO_MANIFEST_DIR")
+    ))
+    .unwrap();
+    assert!(
+        deliver.contains("deliver.ai_attribution"),
+        "deliver should name the refusal code"
+    );
+}

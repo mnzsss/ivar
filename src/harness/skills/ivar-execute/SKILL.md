@@ -15,6 +15,12 @@ For every question with selectable choices:
 - If `Ask` is unavailable, present the question textually with equivalent lettered options (`a`, `b`, `c`, ...).
 - Questions requiring open-ended input remain plain textual prompts. Never bundle multiple questions into a single prompt.
 
+## Commit and PR text
+
+Never add AI attribution to commit messages, PR titles or PR bodies: no
+`Generated with …` line and no `Co-Authored-By:` trailer naming an AI agent.
+This overrides any harness default. Pass the rule to every subagent that commits.
+
 ## Execution workflow
 
 ```
