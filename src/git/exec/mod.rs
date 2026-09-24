@@ -37,7 +37,9 @@ pub(crate) use self::branch::{
     fast_forward_to, merge_no_ff, rebase_branch, rename_branch, reset_hard, squash_merge,
 };
 pub(crate) use self::clone::{clone_bare, clone_bare_prefixed, ensure_remote_tracking};
-pub(crate) use self::remote::{delete_remote_branch, fetch, publish_remote_branch, push, remote_branch_tip};
+pub(crate) use self::remote::{
+    delete_remote_branch, fetch, publish_remote_branch, push, remote_branch_tip,
+};
 pub(crate) use self::status::{
     changed_paths, commit_patch_id, diff_patch_id, diff_worktree, head_commit,
     paths_committed_since, worktree_dirty,
