@@ -36,9 +36,7 @@ pub(crate) use self::branch::{
     abort_rebase, commit_messages, commits_ahead, create_branch, delete_branch, fast_forward,
     fast_forward_to, merge_no_ff, rebase_branch, rename_branch, reset_hard, squash_merge,
 };
-pub(crate) use self::clone::{
-    clone_bare, clone_bare_prefixed, ensure_remote_tracking, REF_PREFIX_KEY,
-};
+pub(crate) use self::clone::{clone_bare, clone_bare_prefixed, ensure_remote_tracking};
 pub(crate) use self::remote::{delete_remote_branch, fetch, publish_remote_branch, push, remote_branch_tip};
 pub(crate) use self::status::{
     changed_paths, commit_patch_id, diff_patch_id, diff_worktree, head_commit,
@@ -46,8 +44,11 @@ pub(crate) use self::status::{
 };
 pub(crate) use self::worktree::{
     add_detached_worktree, add_worktree, create_branch_and_worktree, fetch_branch, list_worktrees,
-    move_worktree, parse_worktree_list, prune_worktrees, remove_worktree,
+    move_worktree, prune_worktrees, remove_worktree,
 };
+
+#[cfg(test)]
+pub(crate) use self::{clone::REF_PREFIX_KEY, worktree::parse_worktree_list};
 
 use crate::infra::proc;
 
