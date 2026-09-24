@@ -5,6 +5,7 @@ pub mod land;
 pub mod metadata;
 pub mod outcome;
 
+mod attribution;
 mod preview;
 mod push;
 mod repos;
@@ -109,6 +110,7 @@ fn preflight_and_resolve(
         tree_blockers,
         fingerprint,
     };
+    attribution::check(layout, &preview)?;
 
     Ok((feature_name, feature, preview))
 }

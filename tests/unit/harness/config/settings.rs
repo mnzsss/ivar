@@ -121,3 +121,37 @@ fn a_non_object_file_is_refused() {
     let result = materialise_settings(&path, &hall());
     assert!(result.is_err());
 }
+
+#[test]
+fn materialise_turns_off_harness_attribution() {
+    let (_guard, dir) = utf8_temp_dir();
+    let path = dir.join("settings.json");
+    fs::write_text(&path, r#"{ "attribution": { "commit": "x", "pr": "y" } }"#).unwrap();
+
+    materialise_settings(&path, &hall()).unwrap();
+
+    let doc: serde_json::Value =
+        serde_json::from_str(&fs::read_text(&path).unwrap().unwrap()).unwrap();
+    assert_eq!(
+        doc["attribution"],
+        serde_json::json!({ "commit": "", "pr": "" })
+    );
+}
+
+#[test]
+fn remove_settings_drops_attribution_and_keeps_user_keys() {
+    let (_guard, dir) = utf8_temp_dir();
+    let path = dir.join("settings.json");
+    fs::write_text(
+        &path,
+        r#"{ "permissions": { "allow": [] }, "attribution": { "commit": "", "pr": "" } }"#,
+    )
+    .unwrap();
+
+    assert_eq!(remove_settings(&path).unwrap(), Change::Removed);
+
+    let doc: serde_json::Value =
+        serde_json::from_str(&fs::read_text(&path).unwrap().unwrap()).unwrap();
+    assert!(doc.get("attribution").is_none());
+    assert!(doc.get("permissions").is_some());
+}
