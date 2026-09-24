@@ -5,7 +5,7 @@ use crate::error::{Failure, FixAction};
 use crate::git::exec;
 use crate::store::layout::Layout;
 
-pub(super) fn is_attribution(line: &str) -> bool {
+pub(crate) fn is_attribution(line: &str) -> bool {
     let line = line.trim().to_lowercase();
     line.contains("generated with [claude code]")
         || line.contains("generated with claude code")
