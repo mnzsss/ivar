@@ -571,6 +571,27 @@ pub(crate) fn commits_ahead(git_dir: &Utf8Path, base: &str, branch: &str) -> Res
     Ok(count)
 }
 
+/// `git log --format=%h%x00%B%x1e <base>..<branch>` — each commit's short
+/// SHA and full message, newest first.
+pub(crate) fn commit_messages(
+    git_dir: &Utf8Path,
+    base: &str,
+    branch: &str,
+) -> Result<Vec<(String, String)>, Error> {
+    let command = git()
+        .arg("--git-dir")
+        .arg(git_dir.as_str())
+        .arg("log")
+        .arg("--format=%h%x00%B%x1e")
+        .arg(format!("{base}..{branch}"));
+    let stdout = run(&command)?;
+    Ok(stdout
+        .split('\x1e')
+        .filter_map(|record| record.trim_start().split_once('\0'))
+        .map(|(sha, message)| (sha.to_owned(), message.to_owned()))
+        .collect())
+}
+
 /// `git show <commit> --format= | git patch-id --stable` — the stable
 /// patch-id of one commit's diff.
 ///

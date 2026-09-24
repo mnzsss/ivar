@@ -8,6 +8,7 @@
 use super::*;
 
 mod apply;
+mod attribution;
 pub(super) mod fixture;
 mod land;
 mod metadata;
