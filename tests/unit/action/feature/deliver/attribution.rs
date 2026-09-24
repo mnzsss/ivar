@@ -1,6 +1,6 @@
 use super::fixture::*;
 use super::*;
-
+use crate::action::feature::deliver::attribution as deliver_attribution;
 fn commit_on_checkout(root: &Utf8Path, message: &str) {
     let worktree = Layout::at(root.to_path_buf()).repo_worktree(
         &RepoName::new("api").unwrap(),
@@ -19,14 +19,14 @@ fn recognises_claude_attribution_lines_only() {
         "Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>",
         "co-authored-by: bot <noreply@anthropic.com>",
     ] {
-        assert!(attribution::is_attribution(line), "should flag: {line}");
+        assert!(deliver_attribution::is_attribution(line), "should flag: {line}");
     }
     for line in [
         "Co-Authored-By: Jane Doe <jane@example.com>",
         "docs: explain how Claude Code settings are merged",
         "fix: keep the 🤖 emoji in release notes",
     ] {
-        assert!(!attribution::is_attribution(line), "should pass: {line}");
+        assert!(!deliver_attribution::is_attribution(line), "should pass: {line}");
     }
 }
 
