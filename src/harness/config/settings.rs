@@ -1,5 +1,7 @@
-//! `.claude/settings.json` materialisation: ivar owns the `env` and `hooks`
-//! keys; the user owns everything else.
+//! `.claude/settings.json` materialisation: ivar owns the `env`, `hooks` and
+//! `attribution` keys; the user owns everything else. `attribution` is blanked
+//! so Claude Code adds no AI attribution to commits or PRs, overriding any user
+//! value.
 //!
 //! The pattern is identical to [`super::mcp`]: read the existing document,
 //! merge ivar's keys, compare canonical bytes, write only on change. A file
@@ -16,12 +18,15 @@ use super::{Change, Error};
 /// The keys ivar owns inside `.claude/settings.json`.
 const IVAR_ENV: &str = "env";
 const IVAR_HOOKS: &str = "hooks";
+const IVAR_ATTRIBUTION: &str = "attribution";
+const IVAR_KEYS: [&str; 3] = [IVAR_ENV, IVAR_HOOKS, IVAR_ATTRIBUTION];
 
 /// Materialise the ivar-owned keys at `path` for the given `hall`.
 ///
 /// The file is created when absent, merged when present (replacing exactly
-/// the `env` and `hooks` keys), and left alone when the canonical bytes
-/// already match. A file that exists but is not a JSON object is refused.
+/// the `env`, `hooks` and `attribution` keys), and left alone when the
+/// canonical bytes already match. A file that exists but is not a JSON object is
+/// refused.
 ///
 /// # Errors
 ///
@@ -40,10 +45,10 @@ pub fn materialise_settings(path: &Utf8Path, hall: &HallName) -> Result<Change, 
     })?;
 
     // Replace ivar-owned keys. Extract from ivar_doc first to avoid indexing.
-    let env_value = ivar_doc.get(IVAR_ENV).cloned().unwrap_or_default();
-    let hooks_value = ivar_doc.get(IVAR_HOOKS).cloned().unwrap_or_default();
-    object.insert(IVAR_ENV.to_owned(), env_value);
-    object.insert(IVAR_HOOKS.to_owned(), hooks_value);
+    for key in IVAR_KEYS {
+        let value = ivar_doc.get(key).cloned().unwrap_or_default();
+        object.insert(key.to_owned(), value);
+    }
 
     let rendered = json::to_canonical_string(&doc).map_err(|source| Error::Mcp {
         path: path.to_path_buf(),
@@ -78,10 +83,11 @@ pub fn remove_settings(path: &Utf8Path) -> Result<Change, Error> {
         return Ok(Change::Unchanged);
     };
 
-    let had_env = object.remove(IVAR_ENV).is_some();
-    let had_hooks = object.remove(IVAR_HOOKS).is_some();
+    let removed_any = IVAR_KEYS
+        .iter()
+        .fold(false, |any, key| object.remove(*key).is_some() || any);
 
-    if !had_env && !had_hooks {
+    if !removed_any {
         return Ok(Change::Unchanged);
     }
     let is_empty = object.is_empty();
@@ -89,9 +95,9 @@ pub fn remove_settings(path: &Utf8Path) -> Result<Change, Error> {
     doc::finish_removal(path, is_empty, &doc)
 }
 
-/// The full document ivar wants: `env` holding the hall name, and `hooks`
-/// holding the session lifecycle hooks. Used when the file is absent or when
-/// merging into an existing document.
+/// The full document ivar wants: `env` holding the hall name, `hooks`
+/// holding the session lifecycle hooks, and `attribution` blanked. Used when
+/// the file is absent or when merging into an existing document.
 fn ivar_doc(hall: &HallName) -> serde_json::Value {
     let mut root = serde_json::Map::new();
 
@@ -135,7 +141,10 @@ fn ivar_doc(hall: &HallName) -> serde_json::Value {
         ]),
     );
     root.insert(IVAR_HOOKS.to_owned(), serde_json::Value::Object(hooks));
-
+    root.insert(
+        IVAR_ATTRIBUTION.to_owned(),
+        serde_json::json!({ "commit": "", "pr": "" }),
+    );
     serde_json::Value::Object(root)
 }
 
