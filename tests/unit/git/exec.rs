@@ -5,7 +5,10 @@
     clippy::indexing_slicing
 )]
 
+use camino::{Utf8Path, Utf8PathBuf};
+
 use super::*;
+use crate::infra::fs;
 use crate::test_support::{seeded_repo, utf8_temp_dir};
 
 #[test]

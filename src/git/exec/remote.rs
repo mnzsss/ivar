@@ -3,7 +3,7 @@ use camino::Utf8Path;
 use crate::infra::proc;
 
 use super::super::Error;
-use super::clone::{origin_url, record_push, remote_branch_ref};
+use super::clone::remote_branch_ref;
 use super::{git, run};
 
 /// `git --git-dir <git_dir> fetch --prune --quiet`.
