@@ -19,14 +19,20 @@ fn recognises_claude_attribution_lines_only() {
         "Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>",
         "co-authored-by: bot <noreply@anthropic.com>",
     ] {
-        assert!(deliver_attribution::is_attribution(line), "should flag: {line}");
+        assert!(
+            deliver_attribution::is_attribution(line),
+            "should flag: {line}"
+        );
     }
     for line in [
         "Co-Authored-By: Jane Doe <jane@example.com>",
         "docs: explain how Claude Code settings are merged",
         "fix: keep the 🤖 emoji in release notes",
     ] {
-        assert!(!deliver_attribution::is_attribution(line), "should pass: {line}");
+        assert!(
+            !deliver_attribution::is_attribution(line),
+            "should pass: {line}"
+        );
     }
 }
 
@@ -49,8 +55,9 @@ fn preview_refuses_a_commit_carrying_claude_attribution() {
 fn apply_refuses_a_body_carrying_claude_attribution() {
     let (_guard, root) = hall_with_promoted(&["api"]);
     let mut input = apply_input("checkout", "whatever");
-    input.global_metadata.body =
-        Some("Adds more.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)".to_owned());
+    input.global_metadata.body = Some(
+        "Adds more.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)".to_owned(),
+    );
 
     let failure = deliver(&Ctx::new(root), input).unwrap_err();
 
@@ -60,7 +67,10 @@ fn apply_refuses_a_body_carrying_claude_attribution() {
 #[test]
 fn preview_accepts_a_feature_without_attribution() {
     let (_guard, root) = hall_with_promoted(&["api"]);
-    commit_on_checkout(&root, "feat: more\n\nCo-Authored-By: Jane Doe <jane@example.com>");
+    commit_on_checkout(
+        &root,
+        "feat: more\n\nCo-Authored-By: Jane Doe <jane@example.com>",
+    );
 
     assert!(deliver(&Ctx::new(root), preview_input("checkout")).is_ok());
 }

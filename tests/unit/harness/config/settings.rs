@@ -132,7 +132,10 @@ fn materialise_turns_off_harness_attribution() {
 
     let doc: serde_json::Value =
         serde_json::from_str(&fs::read_text(&path).unwrap().unwrap()).unwrap();
-    assert_eq!(doc["attribution"], serde_json::json!({ "commit": "", "pr": "" }));
+    assert_eq!(
+        doc["attribution"],
+        serde_json::json!({ "commit": "", "pr": "" })
+    );
 }
 
 #[test]

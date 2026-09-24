@@ -112,7 +112,6 @@ fn preflight_and_resolve(
     };
     attribution::check(layout, &preview)?;
 
-
     Ok((feature_name, feature, preview))
 }
 
