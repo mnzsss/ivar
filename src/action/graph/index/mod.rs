@@ -47,7 +47,7 @@ pub fn index_repo(
     let repo_utf8 = Utf8Path::from_path(repo_path).ok_or_else(|| {
         IndexError::Git(crate::git::Error::NotARepository {
             path: Utf8PathBuf::from(repo_path.to_string_lossy().to_string()),
-            detail: "Path is not valid UTF-8".to_string(),
+            detail: "Path is not valid UTF-8".to_owned(),
         })
     })?;
     let git = crate::git::System;
@@ -79,7 +79,7 @@ pub fn index_repo(
 
     let default_branch = git
         .head_branch(repo_utf8)
-        .unwrap_or_else(|_| "main".to_string());
+        .unwrap_or_else(|_| "main".to_owned());
     db.insert_repo(
         repo_id,
         repo_utf8.as_str(),
@@ -102,7 +102,7 @@ pub fn index_repo(
 
     let duration_ms = u64::try_from(start_time.elapsed().as_millis()).unwrap_or(u64::MAX);
     Ok(IndexOutcome {
-        repo: repo_id.to_string(),
+        repo: repo_id.to_owned(),
         files_indexed: num_files_indexed,
         files_deleted: files_to_delete.len(),
         symbols_indexed: num_symbols_indexed,
@@ -116,7 +116,7 @@ pub fn index_repo(
 fn up_to_date_outcome(repo_id: &str, start_time: Instant) -> IndexOutcome {
     let duration_ms = u64::try_from(start_time.elapsed().as_millis()).unwrap_or(u64::MAX);
     IndexOutcome {
-        repo: repo_id.to_string(),
+        repo: repo_id.to_owned(),
         files_indexed: 0,
         files_deleted: 0,
         symbols_indexed: 0,

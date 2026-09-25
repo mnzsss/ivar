@@ -605,8 +605,8 @@ fn full_index_stores_text_without_symbols_and_skips_binary() {
     let db = GraphDb::open_in_memory().unwrap();
     let outcome = index_repo(&db, "app", repo_path, true, &Silent).unwrap();
 
-    assert_eq!(db.search_file_content("release", Some("app"), 10).unwrap()[0].path, ".github/workflows/ci.yml");
-    assert_eq!(db.search_file_content("scratch", Some("app"), 10).unwrap()[0].path, "Dockerfile");
+    assert_eq!(db.search_file_content("release", Some("app"), 10).unwrap().first().map(|f| f.path.as_str()), Some(".github/workflows/ci.yml"));
+    assert_eq!(db.search_file_content("scratch", Some("app"), 10).unwrap().first().map(|f| f.path.as_str()), Some("Dockerfile"));
     assert!(db.get_file("app", "asset.bin").unwrap().is_none());
     assert_eq!(outcome.files_failed.len(), 0, "expected binary exclusion is not a failure");
 }

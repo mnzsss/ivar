@@ -68,52 +68,54 @@ impl ResolvedPath {
 #[derive(Debug, Clone, Default)]
 pub struct ParsedExploreQuery {
     pub raw_query: String,
+    pub target_repo: Option<String>,
     pub path_tokens: Vec<String>,
     pub resolved_paths: Vec<ResolvedPath>,
     pub search_terms: Vec<String>,
     pub route_intent: bool,
 }
 
-/// Checks whether a token looks like a file path or directory.
 pub fn is_path_like(token: &str) -> bool {
-    let t = token.trim();
-    if t.is_empty() {
-        return false;
-    }
-    if t.contains('/') || t.contains('\\') {
-        return true;
-    }
-    matches!(
-        t.rsplit_once('.').map(|(_, ext)| ext),
-        Some(
-            "rs" | "ts"
-                | "tsx"
-                | "js"
-                | "jsx"
-                | "mjs"
-                | "cjs"
-                | "json"
-                | "md"
-                | "toml"
-                | "yaml"
-                | "yml"
-                | "py"
-                | "go"
-                | "c"
-                | "cpp"
-                | "h"
-                | "hpp"
-                | "java"
-                | "kt"
-                | "swift"
-                | "proto"
-                | "sql"
-                | "graphql"
-                | "sh"
-        )
-    )
+    token.contains('/')
+        || token.contains('\\')
+        || token.starts_with('.')
+        || token.contains('-')
+        || (token.contains('.')
+            && token.split('.').next_back().is_some_and(|ext| {
+                matches!(
+                    ext,
+                    "rs" | "ts"
+                        | "tsx"
+                        | "js"
+                        | "jsx"
+                        | "py"
+                        | "go"
+                        | "c"
+                        | "cpp"
+                        | "h"
+                        | "hpp"
+                        | "java"
+                        | "kt"
+                        | "swift"
+                        | "proto"
+                        | "sql"
+                        | "graphql"
+                        | "sh"
+                        | "txt"
+                        | "lock"
+                        | "dockerfile"
+                        | "xml"
+                        | "html"
+                        | "css"
+                        | "scss"
+                        | "json"
+                        | "toml"
+                        | "yaml"
+                        | "yml"
+                        | "md"
+                )
+            }))
 }
-
 /// Detects if terms express route/API intent.
 fn is_route_intent_term(term: &str) -> bool {
     let lower = term.to_ascii_lowercase();
@@ -133,39 +135,60 @@ pub fn resolve_query_paths(
     let conn = db.conn();
     let tokens: Vec<&str> = query.split_whitespace().collect();
 
+    let mut target_repo = repo.map(str::to_owned);
+    let mut unconsumed_tokens = Vec::new();
+
+    // 1. Separate recognized repo names if not already scoped
+    for token in tokens {
+        let clean_token = token
+            .trim_matches(|c: char| c == ',' || c == ';' || c == ':' || c == '"' || c == '\'' || c == '`' || c == '(' || c == ')' || c == '{' || c == '}');
+        if clean_token.is_empty() {
+            continue;
+        }
+        if target_repo.is_none()
+            && !clean_token.contains('/')
+            && !clean_token.contains('\\')
+            && let Ok(Some(repo_row)) = db.get_visible_repo(clean_token)
+        {
+            target_repo = Some(repo_row.id);
+            continue;
+        }
+        unconsumed_tokens.push(clean_token);
+    }
+
+    let effective_repo = target_repo.as_deref();
     let mut path_tokens = Vec::new();
     let mut resolved_paths = Vec::new();
     let mut remaining_words = Vec::new();
     let mut route_intent = false;
 
-    for token in tokens {
-        let clean_token =
-            token.trim_matches(|c: char| c == ',' || c == ';' || c == ':' || c == '"' || c == '\'');
-        if clean_token.is_empty() {
-            continue;
-        }
-
+    for clean_token in unconsumed_tokens {
         if is_route_intent_term(clean_token) {
             route_intent = true;
         }
 
-        if is_path_like(clean_token) {
-            path_tokens.push(clean_token.to_owned());
-            let trimmed = clean_token.trim_start_matches("./");
+        let is_pl = is_path_like(clean_token);
+        let trimmed = clean_token.trim_start_matches("./");
 
-            if let Some(resolved) = resolve_path_token(db, conn, repo, trimmed)? {
+        if is_pl {
+            path_tokens.push(clean_token.to_owned());
+            if let Some(resolved) = resolve_path_token(db, conn, effective_repo, trimmed)? {
                 resolved_paths.push(resolved);
             }
-        } else {
+        }
+        if !clean_token.contains('/') {
             let clean_term = clean_token.trim_matches(|c: char| !c.is_alphanumeric() && c != '_');
             if !clean_term.is_empty() {
                 remaining_words.push(clean_term.to_owned());
             }
+            if clean_token != clean_term && !clean_token.is_empty() {
+                remaining_words.push(clean_token.to_owned());
+            }
         }
     }
-
     Ok(ParsedExploreQuery {
         raw_query: query.to_owned(),
+        target_repo,
         path_tokens,
         resolved_paths,
         search_terms: remaining_words,
@@ -179,7 +202,7 @@ fn resolve_path_token(
     repo: Option<&str>,
     trimmed: &str,
 ) -> Result<Option<ResolvedPath>, QueryError> {
-    // 1. Check exact match: f.path = ?
+    // 1. Check exact match: f.path = ? OR repo = repo AND f.path = subpath
     let mut exact_stmt = conn.prepare_cached(
         "SELECT id, repo, path FROM visible_files WHERE (?1 IS NULL OR repo = ?1) AND path = ?2 LIMIT 2",
     )?;
@@ -197,14 +220,35 @@ fn resolve_path_token(
         }));
     }
 
+    if let Some((repo_cand, rest)) = trimmed.split_once('/')
+        && (repo.is_none() || repo == Some(repo_cand))
+    {
+        let mut repo_prefix_stmt = conn.prepare_cached(
+            "SELECT id, repo, path FROM visible_files WHERE repo = ?1 AND path = ?2 LIMIT 2",
+        )?;
+        let repo_prefix_matches: Vec<(i64, String, String)> = repo_prefix_stmt
+            .query_map(params![repo_cand, rest], |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+            })?
+            .collect::<Result<_, _>>()?;
+
+        if let [(file_id, r, p)] = repo_prefix_matches.as_slice() {
+            return Ok(Some(ResolvedPath::ExactFile {
+                file_id: *file_id,
+                repo: r.clone(),
+                path: p.clone(),
+            }));
+        }
+    }
+
     // 2. Check workspace-relative / suffix match
     let mut rel_stmt = conn.prepare_cached(
         "SELECT id, repo, path FROM visible_files
          WHERE (?1 IS NULL OR repo = ?1)
            AND (
              path = ?2
-             OR path LIKE '%/' || ?2 ESCAPE '\\'
-             OR ?2 LIKE '%/' || path ESCAPE '\\'
+             OR path LIKE '%/' || ?2
+             OR ?2 LIKE '%/' || path
            )
          LIMIT 10",
     )?;
@@ -239,8 +283,8 @@ fn resolve_directory_or_basename(
         "SELECT id, repo, path FROM visible_files
          WHERE (?1 IS NULL OR repo = ?1)
            AND (
-             path LIKE ?2 || '/%' ESCAPE '\\'
-             OR path LIKE '%/' || ?2 || '/%' ESCAPE '\\'
+             path LIKE ?2 || '/%'
+             OR path LIKE '%/' || ?2 || '/%'
            )
          LIMIT 50",
     )?;
@@ -253,7 +297,7 @@ fn resolve_directory_or_basename(
     if dir_matches.is_empty() {
         let mut subtree_stmt = conn.prepare_cached(
             "SELECT id, repo, path FROM visible_files
-             WHERE (?1 IS NULL OR repo = ?1) AND path LIKE ?2 || '/%' ESCAPE '\\'
+             WHERE (?1 IS NULL OR repo = ?1) AND path LIKE ?2 || '/%'
              LIMIT 50",
         )?;
         for (slash, _) in clean_dir.match_indices('/') {
@@ -282,7 +326,7 @@ fn resolve_directory_or_basename(
     let mut base_stmt = conn.prepare_cached(
         "SELECT id, repo, path FROM visible_files
          WHERE (?1 IS NULL OR repo = ?1)
-           AND (path = ?2 OR path LIKE '%/' || ?2 ESCAPE '\\')
+           AND (path = ?2 OR path LIKE '%/' || ?2)
          LIMIT 10",
     )?;
     let base_matches: Vec<(i64, String, String)> = base_stmt

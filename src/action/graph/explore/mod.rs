@@ -42,6 +42,7 @@ pub fn explore_files(
     explore_within(db, hall_root, query, repo, true)
 }
 
+#[allow(clippy::too_many_lines)]
 fn explore_within(
     db: &GraphDb,
     hall_root: &Path,
@@ -53,6 +54,7 @@ fn explore_within(
     if trimmed_query.is_empty() {
         return Ok(ExploreResult {
             query: query.to_owned(),
+            file_matches: Vec::new(),
             primary_symbols: Vec::new(),
             call_flows: Vec::new(),
             impact_summary: None,
@@ -65,7 +67,7 @@ fn explore_within(
         });
     }
 
-    // Step 1: Match query against symbols via structured exploration retrieval pipeline
+    // Step 1: Match query against symbols and files via structured exploration retrieval pipeline
     // (path pinning, weighted OR terms, per-file limits).
     let max_files = if whole_files {
         MAX_REQUESTED_FILES
@@ -74,11 +76,13 @@ fn explore_within(
     };
     let found = query::find::explore_find(db, trimmed_query, repo, max_files)?;
     let candidates = found.symbols;
+    let file_matches = found.files;
     let not_shown = found.not_shown;
 
-    if candidates.is_empty() {
+    if candidates.is_empty() && file_matches.is_empty() {
         return Ok(ExploreResult {
             query: query.to_owned(),
+            file_matches: Vec::new(),
             primary_symbols: Vec::new(),
             call_flows: Vec::new(),
             impact_summary: Some(format!("No symbols found matching query '{query}'.")),
@@ -110,7 +114,6 @@ fn explore_within(
         let code = match get_source_snippet(&mut file_cache, &file_path, start_line, end_line) {
             Ok(snippet) => snippet,
             Err(e) => {
-                // If file cannot be read, format error or fallback gracefully
                 format!("<failed to read source: {e}>")
             }
         };
@@ -137,6 +140,36 @@ fn explore_within(
         });
     }
 
+    // Also include spans for file_matches (content / text matches without symbols)
+    for fm in &file_matches {
+        // If the file already has spans from primary symbols, don't inject fallback spans
+        if file_spans
+            .iter()
+            .any(|f| f.repo == fm.repo && f.file_path == fm.file_path)
+        {
+            continue;
+        }
+
+        let repo_root = if let Some(repo_row) = db.get_visible_repo(&fm.repo)? {
+            PathBuf::from(repo_row.root_path)
+        } else {
+            hall_root.join(&fm.repo)
+        };
+
+        let file_path = repo_root.join(&fm.file_path);
+        let start_line = fm.start_line.max(1);
+        let end_line = start_line + 20;
+
+        let _ = get_source_snippet(&mut file_cache, &file_path, start_line, end_line);
+
+        file_spans.push(FileSpans {
+            repo: fm.repo.clone(),
+            file_path: fm.file_path.clone(),
+            absolute_path: file_path,
+            spans: vec![(start_line, end_line)],
+        });
+    }
+
     let sources = collect_sources(db, &file_cache, file_spans, whole_files)?;
     let flows = named_flows(db, trimmed_query, &candidates)?;
 
@@ -144,10 +177,15 @@ fn explore_within(
     let relations = collect_relations(db, &candidates, repo)?;
 
     // Step 4: Blast radius / impact summary & transitive consumers
-    let (impact_summary, transitive_consumers) = collect_impact(db, &candidates)?;
+    let (impact_summary, transitive_consumers) = if candidates.is_empty() {
+        (None, Vec::new())
+    } else {
+        collect_impact(db, &candidates)?
+    };
 
     Ok(ExploreResult {
         query: query.to_owned(),
+        file_matches,
         primary_symbols,
         call_flows: relations.call_flows,
         impact_summary,

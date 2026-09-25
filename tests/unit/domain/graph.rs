@@ -126,6 +126,14 @@ fn test_graph_stats_json_roundtrip() {
 fn test_explore_result_json_roundtrip() {
     let explore = ExploreResult {
         query: "Symbol".to_owned(),
+        file_matches: vec![FileMatch {
+            repo: "ivar".to_owned(),
+            file_path: "Dockerfile".to_owned(),
+            match_kind: FileMatchKind::ExactBasename,
+            start_line: 1,
+            excerpt: "FROM rust:1.80".to_owned(),
+            content_truncated: false,
+        }],
         flows: Vec::new(),
         not_shown: Vec::new(),
         primary_symbols: vec![SymbolSnippet {
@@ -341,4 +349,12 @@ fn miss_kind_parses_known_kinds_and_rejects_unknown_ones() {
         "\"skipped\""
     );
     assert!(serde_json::from_str::<MissKind>("\"nope\"").is_err());
+}
+
+#[test]
+fn old_explore_result_json_lacking_file_matches_deserializes() {
+    let old_json = r#"{"query":"test","primary_symbols":[],"call_flows":[]}"#;
+    let deserialized: ExploreResult = serde_json::from_str(old_json).expect("deserialize old explore result");
+    assert_eq!(deserialized.query, "test");
+    assert!(deserialized.file_matches.is_empty());
 }

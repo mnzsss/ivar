@@ -57,6 +57,7 @@ fn explore_answers_name_files_the_way_the_agent_sees_them() {
         .expect("insert repo");
 
     let mut res = ExploreResult {
+        file_matches: Vec::new(),
         query: "auth".into(),
         primary_symbols: vec![SymbolSnippet {
             symbol: Symbol {

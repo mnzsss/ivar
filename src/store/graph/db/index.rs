@@ -109,6 +109,7 @@ impl GraphDb {
     /// # Errors
     ///
     /// Returns [`GraphDbError`] if any statement in the transaction fails.
+    #[allow(clippy::too_many_arguments)]
     pub fn index_extracted_file(
         &self,
         repo: &str,

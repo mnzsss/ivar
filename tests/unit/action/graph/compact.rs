@@ -248,6 +248,7 @@ fn test_encode_path() {
 #[test]
 fn test_encode_explore() {
     let explore = ExploreResult {
+        file_matches: Vec::new(),
         query: "fetch".into(),
         primary_symbols: vec![SymbolSnippet {
             symbol: sample_symbol(Some(10), "fetch", SymbolKind::Fn, 1, 0),

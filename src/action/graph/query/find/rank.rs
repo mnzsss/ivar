@@ -3,20 +3,27 @@ use std::collections::HashMap;
 use rusqlite::params;
 
 use super::candidate::{ScoredCandidate, add_score};
-use super::intent::{ParsedExploreQuery, resolve_query_paths};
+use super::intent::{ParsedExploreQuery, ResolvedPath, resolve_query_paths};
 use super::search::{NAME_PREFIX_MATCH, prefix_casings};
 use crate::action::graph::query::types::{QueryError, SymbolLocation, map_symbol_and_path_row};
-use crate::domain::graph::{FileMention, MentionedSymbol, Symbol};
+use crate::domain::graph::{FileMatch, FileMatchKind, FileMention, MentionedSymbol, Symbol};
 use crate::store::graph::db::GraphDb;
 
 type FileCandidates = HashMap<(String, String), Vec<ScoredCandidate>>;
 type PinnedFiles = HashMap<(String, String), bool>;
 
-/// Symbols an explore answer shows source for, and the matching files it leaves out.
+/// Symbols and files an explore answer shows source for, and the matching files it leaves out.
 #[derive(Debug, Clone, Default)]
 pub struct ExploreCandidates {
     pub symbols: Vec<SymbolLocation>,
+    pub files: Vec<FileMatch>,
     pub not_shown: Vec<FileMention>,
+}
+
+impl ExploreCandidates {
+    pub fn is_empty(&self) -> bool {
+        self.symbols.is_empty() && self.files.is_empty()
+    }
 }
 
 /// Symbols in files whose path names the term `?1` or its plural, repo `?2`.
@@ -44,6 +51,8 @@ pub(super) const PATH_TIER_SQL: &str = "WITH matched_files AS MATERIALIZED (
 pub const MAX_EXPLORE_CANDIDATES: usize = 24;
 /// Maximum candidate symbols admitted from a single file when multiple files are matched.
 pub const MAX_SYMBOLS_PER_FILE: usize = 6;
+/// Maximum file matches returned for exploration.
+pub const MAX_FILE_CANDIDATES: usize = 6;
 
 /// Checks if a file path is a test file.
 pub fn is_test_path(path: &str) -> bool {
@@ -65,8 +74,18 @@ pub fn explore_find_candidates(
     Ok(explore_find(db, query, repo, usize::MAX)?.symbols)
 }
 
-/// Ranks files for an exploration the way [`explore_find_candidates`] does, keeps
-/// candidates from the best `max_files` files, and names the other matching files
+#[derive(Debug, Clone)]
+struct ContentHitInfo {
+    repo: String,
+    path: String,
+    rank: f64,
+    start_line: usize,
+    excerpt: String,
+    content_truncated: bool,
+}
+
+/// Ranks files and symbols for an exploration, keeping
+/// candidates from the best `max_files` files, and naming the other matching files
 /// with their best symbols.
 pub fn explore_find(
     db: &GraphDb,
@@ -75,6 +94,7 @@ pub fn explore_find(
     max_files: usize,
 ) -> Result<ExploreCandidates, QueryError> {
     let parsed = resolve_query_paths(db, query, repo)?;
+    let effective_repo = parsed.target_repo.as_deref().or(repo);
     let conn = db.conn();
 
     let (mut file_candidates, pinned_files) = collect_pinned_candidates(conn, &parsed)?;
@@ -83,7 +103,7 @@ pub fn explore_find(
     score_matching_terms(
         conn,
         &terms_to_search,
-        repo,
+        effective_repo,
         parsed.route_intent,
         &mut file_candidates,
     )?;
@@ -92,11 +112,14 @@ pub fn explore_find(
         boost_route_intent_symbols(&mut file_candidates);
     }
 
-    if file_candidates.is_empty() {
+    // Also collect file content matches
+    let content_hits = search_content_hits(db, &terms_to_search, effective_repo)?;
+
+    let ranked_files = rank_all_files(&file_candidates, &pinned_files, &content_hits, &parsed, effective_repo);
+
+    if ranked_files.is_empty() {
         return Ok(ExploreCandidates::default());
     }
-
-    let ranked_files = rank_files(&file_candidates, &pinned_files, &parsed);
 
     let shown_files = ranked_files.len().min(max_files);
     let max_per_file = match shown_files {
@@ -104,12 +127,51 @@ pub fn explore_find(
         files => (MAX_EXPLORE_CANDIDATES / files).clamp(1, MAX_SYMBOLS_PER_FILE),
     };
 
-    Ok(collect_final_candidates(
+    Ok(collect_final_results(
         file_candidates,
+        &content_hits,
         ranked_files,
         shown_files,
         max_per_file,
     ))
+}
+
+fn search_content_hits(
+    db: &GraphDb,
+    terms: &[String],
+    repo: Option<&str>,
+) -> Result<HashMap<(String, String), ContentHitInfo>, QueryError> {
+    let mut hits = HashMap::new();
+    for term in terms {
+        if term.trim().is_empty() {
+            continue;
+        }
+        let term_hits = db.search_file_content(term, repo, 50)?;
+        for hit in term_hits {
+            let key = (hit.repo.clone(), hit.path.clone());
+            let (start_line, excerpt) = find_line_and_excerpt(&hit.indexed_content, term);
+            hits.entry(key).or_insert(ContentHitInfo {
+                repo: hit.repo,
+                path: hit.path,
+                rank: hit.rank,
+                start_line,
+                excerpt,
+                content_truncated: hit.content_truncated,
+            });
+        }
+    }
+    Ok(hits)
+}
+
+fn find_line_and_excerpt(content: &str, term: &str) -> (usize, String) {
+    let term_lower = term.to_ascii_lowercase();
+    for (idx, line) in content.lines().enumerate() {
+        if line.to_ascii_lowercase().contains(&term_lower) {
+            return (idx + 1, line.trim().to_owned());
+        }
+    }
+    let first_line = content.lines().next().unwrap_or("").trim().to_owned();
+    (1, first_line)
 }
 
 /// Step 1: Collect symbols from resolved paths (pinned files and candidate paths).
@@ -122,6 +184,10 @@ fn collect_pinned_candidates(
 
     for res_path in &parsed.resolved_paths {
         let is_pinned = res_path.is_pinned();
+        let is_dir = matches!(res_path, ResolvedPath::DirectorySubtree { .. });
+        if !is_pinned && !is_dir {
+            continue;
+        }
         for (file_id, f_repo, f_path) in res_path.files() {
             let key = (f_repo.clone(), f_path.clone());
             if is_pinned {
@@ -158,7 +224,6 @@ fn collect_pinned_candidates(
 
     Ok((file_candidates, pinned_files))
 }
-
 fn search_terms_for(query: &str, parsed: &ParsedExploreQuery) -> Vec<String> {
     let mut terms_to_search = parsed.search_terms.clone();
     if terms_to_search.is_empty() && parsed.resolved_paths.is_empty() {
@@ -340,101 +405,273 @@ fn boost_route_intent_symbols(file_candidates: &mut FileCandidates) {
     }
 }
 
-struct FileScore {
+#[derive(Debug, Clone)]
+struct RankedFileEntry {
     repo: String,
     path: String,
-    score: f64,
+    constraint_match: u8,
+    exact_evidence: u8,
+    pinned_evidence: u8,
+    structured_score: f64,
+    content_score: f64,
+    loose_score: f64,
+    match_kind: Option<FileMatchKind>,
 }
 
-/// Step 3: Compute aggregate score per file and rank files.
-fn rank_files(
+/// Step 3: Compute deterministic lexicographic ranking for files.
+#[allow(clippy::too_many_lines)]
+fn rank_all_files(
     file_candidates: &FileCandidates,
     pinned_files: &PinnedFiles,
+    content_hits: &HashMap<(String, String), ContentHitInfo>,
     parsed: &ParsedExploreQuery,
-) -> Vec<FileScore> {
+    target_repo: Option<&str>,
+) -> Vec<RankedFileEntry> {
+    let mut all_keys = std::collections::HashSet::new();
+    for key in file_candidates.keys() {
+        all_keys.insert(key.clone());
+    }
+    for key in content_hits.keys() {
+        all_keys.insert(key.clone());
+    }
+    for res_path in &parsed.resolved_paths {
+        for (_, r, p) in res_path.files() {
+            all_keys.insert((r, p));
+        }
+    }
+
     let asks_for_tests = parsed.search_terms.iter().any(|term| {
         let term = term.to_ascii_lowercase();
         term.starts_with("test") || term.starts_with("spec")
     });
-    let mut ranked_files: Vec<FileScore> = file_candidates
-        .iter()
-        .map(|((r, p), cands)| {
-            let is_pinned = pinned_files
-                .get(&(r.clone(), p.clone()))
-                .copied()
-                .unwrap_or(false);
-            let mut sum_score = 0.0;
-            for c in cands {
-                sum_score += c.score;
-            }
-            if !asks_for_tests && is_test_path(p) {
-                sum_score *= 0.5;
-            }
-            let base = if is_pinned { 10000.0 } else { 0.0 };
-            FileScore {
-                repo: r.clone(),
-                path: p.clone(),
-                score: base + sum_score,
-            }
-        })
-        .collect();
 
-    ranked_files.sort_by(|a, b| {
-        b.score
-            .total_cmp(&a.score)
+    let mut ranked = Vec::new();
+
+    for (repo, path) in all_keys {
+        // Check constraint match
+        let constraint_match = if let Some(tr) = target_repo {
+            if repo == tr { 1 } else { 0 }
+        } else {
+            1
+        };
+
+        // Determine exact evidence & pinned evidence & match kind
+        let mut exact_evidence: u8 = 0;
+        let mut pinned_evidence: u8 = 0;
+        let mut match_kind: Option<FileMatchKind> = None;
+
+        for res_path in &parsed.resolved_paths {
+            match res_path {
+                ResolvedPath::ExactFile { repo: r, path: p, .. } => {
+                    if &repo == r && &path == p {
+                        exact_evidence = exact_evidence.max(3);
+                        pinned_evidence = 1;
+                        match_kind = Some(FileMatchKind::ExactPath);
+                    }
+                }
+                ResolvedPath::WorkspaceRelative { repo: r, path: p, .. } => {
+                    if &repo == r && &path == p {
+                        exact_evidence = exact_evidence.max(3);
+                        pinned_evidence = 1;
+                        match_kind = Some(FileMatchKind::ExactPath);
+                    }
+                }
+                ResolvedPath::UnambiguousBasename { repo: r, path: p, .. } => {
+                    if &repo == r && &path == p {
+                        exact_evidence = exact_evidence.max(2);
+                        pinned_evidence = 1;
+                        match_kind = Some(FileMatchKind::ExactBasename);
+                    }
+                }
+                ResolvedPath::AmbiguousBasename { files } => {
+                    if files.iter().any(|(_, r, p)| &repo == r && &path == p) {
+                        exact_evidence = exact_evidence.max(1);
+                        if match_kind.is_none() {
+                            match_kind = Some(FileMatchKind::ExactBasename);
+                        }
+                    }
+                }
+                ResolvedPath::DirectorySubtree { files } => {
+                    if files.iter().any(|(_, r, p)| &repo == r && &path == p) {
+                        pinned_evidence = pinned_evidence.max(1);
+                        if match_kind.is_none() {
+                            match_kind = Some(FileMatchKind::PinnedPath);
+                        }
+                    }
+                }
+            }
+        }
+
+        if pinned_files.get(&(repo.clone(), path.clone())).copied().unwrap_or(false) {
+            pinned_evidence = 1;
+        }
+
+        // Check exact symbol match in this file
+        let sym_cands = file_candidates.get(&(repo.clone(), path.clone()));
+        let mut structured_score = 0.0;
+
+        if let Some(cands) = sym_cands {
+            for c in cands {
+                if parsed.search_terms.iter().any(|t| t == &c.symbol.name || t.eq_ignore_ascii_case(&c.symbol.name)) {
+                    exact_evidence = exact_evidence.max(2);
+                }
+                structured_score += c.score;
+            }
+        }
+
+        let mut content_score = 0.0;
+        if let Some(chit) = content_hits.get(&(repo.clone(), path.clone())) {
+            // Rank from FTS: lower is better or negative; transform to positive score
+            content_score = 100.0 - chit.rank.clamp(-100.0, 100.0);
+            if match_kind.is_none() {
+                match_kind = Some(FileMatchKind::Content);
+            }
+        }
+
+        if !asks_for_tests && is_test_path(&path) {
+            structured_score *= 0.5;
+            content_score *= 0.5;
+        }
+
+        let loose_score = structured_score + content_score;
+        let total_score = if pinned_evidence > 0 {
+            10000.0 + loose_score
+        } else {
+            loose_score
+        };
+
+        ranked.push(RankedFileEntry {
+            repo,
+            path,
+            constraint_match,
+            exact_evidence,
+            pinned_evidence,
+            structured_score,
+            content_score,
+            loose_score: total_score,
+            match_kind,
+        });
+    }
+
+    // Sort by:
+    // (constraint_match DESC, exact_evidence DESC, pinned_evidence DESC, structured_score DESC, content_score DESC, loose_score DESC, repo ASC, path ASC)
+    ranked.sort_by(|a, b| {
+        b.constraint_match
+            .cmp(&a.constraint_match)
+            .then_with(|| b.loose_score.total_cmp(&a.loose_score))
+            .then_with(|| b.exact_evidence.cmp(&a.exact_evidence))
+            .then_with(|| b.pinned_evidence.cmp(&a.pinned_evidence))
+            .then_with(|| b.structured_score.total_cmp(&a.structured_score))
+            .then_with(|| b.content_score.total_cmp(&a.content_score))
             .then_with(|| a.repo.cmp(&b.repo))
             .then_with(|| a.path.cmp(&b.path))
     });
+    let floor = ranked
+        .first()
+        .map_or(0.0, |top| (top.loose_score * 0.25).max(0.0));
+    let has_pinned_or_dir = parsed
+        .resolved_paths
+        .iter()
+        .any(|r| r.is_pinned() || matches!(r, ResolvedPath::DirectorySubtree { .. }));
+    if has_pinned_or_dir {
+        ranked.retain(|file| file.pinned_evidence > 0);
+    } else {
+        ranked.retain(|file| file.loose_score >= floor);
+    }
 
-    let floor = ranked_files.first().map_or(0.0, |top| top.score * 0.25);
-    ranked_files.retain(|file| file.score >= floor);
-
-    ranked_files
+    ranked
 }
 
-/// Step 4: Collect symbols respecting per-file caps and preserve source line order.
-fn collect_final_candidates(
+/// Step 4: Collect symbols and file matches respecting limits.
+fn collect_final_results(
     mut file_candidates: FileCandidates,
-    ranked_files: Vec<FileScore>,
+    content_hits: &HashMap<(String, String), ContentHitInfo>,
+    ranked_files: Vec<RankedFileEntry>,
     shown_files: usize,
     max_per_file: usize,
 ) -> ExploreCandidates {
-    let mut final_candidates = Vec::new();
+    let mut final_symbols = Vec::new();
+    let mut final_files = Vec::new();
     let mut not_shown = Vec::new();
 
     for (rank, file_info) in ranked_files.into_iter().enumerate() {
-        let key = (file_info.repo, file_info.path);
-        let Some(mut cands) = file_candidates.remove(&key) else {
-            continue;
-        };
-        cands.sort_by(|a, b| b.score.total_cmp(&a.score));
-        if rank < shown_files && final_candidates.len() < MAX_EXPLORE_CANDIDATES {
-            cands.truncate((MAX_EXPLORE_CANDIDATES - final_candidates.len()).min(max_per_file));
-            cands.sort_by_key(|c| (c.symbol.span.start_line, c.symbol.span.start_col));
-            final_candidates.extend(cands.into_iter().map(|sc| SymbolLocation {
-                symbol: sc.symbol,
-                file_path: sc.file_path,
-            }));
+        let key = (file_info.repo.clone(), file_info.path.clone());
+        let sym_cands = file_candidates.remove(&key);
+
+        if rank < shown_files {
+            let mut has_symbols = false;
+            if let Some(mut cands) = sym_cands
+                && !cands.is_empty()
+            {
+                has_symbols = true;
+                cands.sort_by(|a, b| b.score.total_cmp(&a.score));
+                if final_symbols.len() < MAX_EXPLORE_CANDIDATES {
+                    cands.truncate((MAX_EXPLORE_CANDIDATES - final_symbols.len()).min(max_per_file));
+                    cands.sort_by_key(|c| (c.symbol.span.start_line, c.symbol.span.start_col));
+                    final_symbols.extend(cands.into_iter().map(|sc| SymbolLocation {
+                        symbol: sc.symbol,
+                        file_path: sc.file_path,
+                    }));
+                }
+            }
+
+            if let Some(hit) = content_hits.get(&key) {
+                if final_files.len() < MAX_FILE_CANDIDATES {
+                    final_files.push(FileMatch {
+                        repo: hit.repo.clone(),
+                        file_path: hit.path.clone(),
+                        match_kind: file_info.match_kind.unwrap_or(FileMatchKind::Content),
+                        start_line: hit.start_line,
+                        excerpt: hit.excerpt.clone(),
+                        content_truncated: hit.content_truncated,
+                    });
+                }
+            } else if let Some(kind) = file_info.match_kind {
+                if final_files.len() < MAX_FILE_CANDIDATES {
+                    final_files.push(FileMatch {
+                        repo: file_info.repo.clone(),
+                        file_path: file_info.path.clone(),
+                        match_kind: kind,
+                        start_line: 1,
+                        excerpt: String::new(),
+                        content_truncated: false,
+                    });
+                }
+            } else if !has_symbols && final_files.len() < MAX_FILE_CANDIDATES {
+                final_files.push(FileMatch {
+                    repo: file_info.repo.clone(),
+                    file_path: file_info.path.clone(),
+                    match_kind: FileMatchKind::Content,
+                    start_line: 1,
+                    excerpt: String::new(),
+                    content_truncated: false,
+                });
+            }
         } else {
-            cands.truncate(MAX_SYMBOLS_PER_FILE);
-            cands.sort_by_key(|c| (c.symbol.span.start_line, c.symbol.span.start_col));
-            let (repo, file_path) = key;
-            not_shown.push(FileMention {
-                repo,
-                file_path,
-                symbols: cands
-                    .into_iter()
-                    .map(|sc| MentionedSymbol {
-                        line: sc.symbol.span.start_line,
-                        name: sc.symbol.name,
-                    })
-                    .collect(),
-            });
+            // Not shown: only include files that have matching symbols
+            if let Some(mut cands) = sym_cands
+                && !cands.is_empty()
+            {
+                cands.truncate(MAX_SYMBOLS_PER_FILE);
+                cands.sort_by_key(|c| (c.symbol.span.start_line, c.symbol.span.start_col));
+                not_shown.push(FileMention {
+                    repo: file_info.repo,
+                    file_path: file_info.path,
+                    symbols: cands
+                        .into_iter()
+                        .map(|sc| MentionedSymbol {
+                            line: sc.symbol.span.start_line,
+                            name: sc.symbol.name,
+                        })
+                        .collect(),
+                });
+            }
         }
     }
 
     ExploreCandidates {
-        symbols: final_candidates,
+        symbols: final_symbols,
+        files: final_files,
         not_shown,
     }
 }

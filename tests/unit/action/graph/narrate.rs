@@ -151,6 +151,7 @@ fn relation(
 
 fn result(query: &str) -> ExploreResult {
     ExploreResult {
+        file_matches: Vec::new(),
         query: query.into(),
         primary_symbols: Vec::new(),
         call_flows: Vec::new(),
