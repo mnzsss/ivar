@@ -57,16 +57,24 @@ fn a_file_with_unchanged_size_and_modification_time_is_not_read_again() {
     let repo_path = temp.path();
     let git_repo = git2::Repository::init(repo_path).expect("git init");
     let file = repo_path.join("lib.rs");
-    fs::write(&file, "pub fn alpha() {}
-").expect("write lib.rs");
+    fs::write(
+        &file,
+        "pub fn alpha() {}
+",
+    )
+    .expect("write lib.rs");
     set_mtime(&file, long_ago());
     create_git_commit(&git_repo, "alpha").expect("commit");
     let db = GraphDb::open_in_memory().expect("open db");
     let first = index_repo(&db, "stat-repo", repo_path, false, &Silent).expect("first index");
     assert_eq!(first.files_indexed, 1);
 
-    fs::write(&file, "pub fn gamma() {}
-").expect("rewrite with the same size");
+    fs::write(
+        &file,
+        "pub fn gamma() {}
+",
+    )
+    .expect("rewrite with the same size");
     set_mtime(&file, long_ago());
     let second = index_repo(&db, "stat-repo", repo_path, false, &Silent).expect("second index");
 
@@ -93,15 +101,23 @@ fn a_file_modified_within_the_second_it_was_indexed_is_hashed_again() {
     let git_repo = git2::Repository::init(repo_path).expect("git init");
     let file = repo_path.join("lib.rs");
     let racy_mtime = std::time::SystemTime::now() + std::time::Duration::from_secs(3600);
-    fs::write(&file, "pub fn alpha() {}
-").expect("write lib.rs");
+    fs::write(
+        &file,
+        "pub fn alpha() {}
+",
+    )
+    .expect("write lib.rs");
     set_mtime(&file, racy_mtime);
     create_git_commit(&git_repo, "alpha").expect("commit");
     let db = GraphDb::open_in_memory().expect("open db");
     index_repo(&db, "racy-repo", repo_path, false, &Silent).expect("first index");
 
-    fs::write(&file, "pub fn gamma() {}
-").expect("rewrite with the same size");
+    fs::write(
+        &file,
+        "pub fn gamma() {}
+",
+    )
+    .expect("rewrite with the same size");
     set_mtime(&file, racy_mtime);
     let second = index_repo(&db, "racy-repo", repo_path, true, &Silent).expect("second index");
 
@@ -561,8 +577,10 @@ fn parallel_extraction_indexes_every_file_once() {
     for n in 0..64 {
         fs::write(
             repo_path.join(format!("mod_{n}.rs")),
-            format!("pub fn function_{n}() {{}}
-"),
+            format!(
+                "pub fn function_{n}() {{}}
+"
+            ),
         )
         .expect("write file");
     }
@@ -597,7 +615,11 @@ fn full_index_stores_text_without_symbols_and_skips_binary() {
     let repo_path = temp.path();
     let repo = git2::Repository::init(repo_path).unwrap();
     fs::create_dir_all(repo_path.join(".github/workflows")).unwrap();
-    fs::write(repo_path.join(".github/workflows/ci.yml"), "name: release\njobs:\n  test: {}\n").unwrap();
+    fs::write(
+        repo_path.join(".github/workflows/ci.yml"),
+        "name: release\njobs:\n  test: {}\n",
+    )
+    .unwrap();
     fs::write(repo_path.join("Dockerfile"), "FROM scratch\n").unwrap();
     fs::write(repo_path.join("asset.bin"), b"text\0binary").unwrap();
     create_git_commit(&repo, "initial commit").unwrap();
@@ -605,8 +627,24 @@ fn full_index_stores_text_without_symbols_and_skips_binary() {
     let db = GraphDb::open_in_memory().unwrap();
     let outcome = index_repo(&db, "app", repo_path, true, &Silent).unwrap();
 
-    assert_eq!(db.search_file_content("release", Some("app"), 10).unwrap().first().map(|f| f.path.as_str()), Some(".github/workflows/ci.yml"));
-    assert_eq!(db.search_file_content("scratch", Some("app"), 10).unwrap().first().map(|f| f.path.as_str()), Some("Dockerfile"));
+    assert_eq!(
+        db.search_file_content("release", Some("app"), 10)
+            .unwrap()
+            .first()
+            .map(|f| f.path.as_str()),
+        Some(".github/workflows/ci.yml")
+    );
+    assert_eq!(
+        db.search_file_content("scratch", Some("app"), 10)
+            .unwrap()
+            .first()
+            .map(|f| f.path.as_str()),
+        Some("Dockerfile")
+    );
     assert!(db.get_file("app", "asset.bin").unwrap().is_none());
-    assert_eq!(outcome.files_failed.len(), 0, "expected binary exclusion is not a failure");
+    assert_eq!(
+        outcome.files_failed.len(),
+        0,
+        "expected binary exclusion is not a failure"
+    );
 }

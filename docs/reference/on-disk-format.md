@@ -33,6 +33,7 @@ half-understood state file is worse than no state file.
   .ivar/setups/<repo>.session.sh committed   per-repo session hook
   .ivar/secrets/                local        secret material (hand-maintained files, plus mcp.env)
   .ivar/state.json              local        hall state, health, bookkeeping
+  .ivar/graph.db                local        codebase dependency graph and text FTS index
   .ivar/repos/                  local        bare clones and worktrees
   .ivar/features/               local        promotion records, Run Receipts, working docs
   .ivar/sessions/               local        discovery-session view dirs
@@ -284,6 +285,20 @@ stores a child list, and no lifecycle field is persisted: the integration state
 is derived from the close record plus receipt freshness. Child branches and
 worktrees are retained after integration so receipt validation stays exact.
 
+
+## Graph database (`.ivar/graph.db`)
+
+The codebase graph is stored locally in SQLite at `.ivar/graph.db`.
+
+### Graph schema v10
+
+Schema version 10 introduces the dedicated `file_content_fts` table and `files.content_truncated`
+column for full-text search across all tracked UTF-8 text files up to 256 KiB per file.
+
+When migrating from older schema versions to v10, existing indexed repository metadata is invalidated
+so that the next `ivar graph index` performs a clean, complete rebuild of all tracked files rather than
+serving partial or incomplete text-search results. Active Feature Session layers join through
+`visible_files` to ensure layer shadowing and tombstones remain authoritative.
 ## Strictness
 
 Config parsing is strict. An unknown key in `ivar.json` is a **hard error naming

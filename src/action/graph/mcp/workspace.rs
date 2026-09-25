@@ -36,6 +36,9 @@ impl WorkspacePaths {
     }
 
     pub fn rewrite_explore(&mut self, db: &GraphDb, res: &mut ExploreResult) {
+        for fm in &mut res.file_matches {
+            self.rewrite(db, &fm.repo, &mut fm.file_path);
+        }
         for snippet in &mut res.primary_symbols {
             self.rewrite(db, &snippet.symbol.repo, &mut snippet.file_path);
         }

@@ -52,7 +52,7 @@ fn test_execute_dead_code_identifies_unreferenced_private_symbol() {
         100,
         "",
         false,
-        &utils_extracted
+        &utils_extracted,
     )
     .unwrap();
 
@@ -82,7 +82,7 @@ fn test_execute_dead_code_identifies_unreferenced_private_symbol() {
         100,
         "",
         false,
-        &test_extracted
+        &test_extracted,
     )
     .unwrap();
 
@@ -139,7 +139,7 @@ fn test_execute_dead_code_identifies_unreferenced_private_symbol() {
         100,
         "",
         false,
-        &caller_extracted
+        &caller_extracted,
     )
     .unwrap();
 

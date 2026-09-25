@@ -7,9 +7,9 @@ use crate::action::graph::query::{
     CalleeInfo, CallerInfo, FileOutline, ImpactItem, ImpactResult, ReferenceSite, SymbolLocation,
 };
 use crate::domain::graph::{
-    Edge, EdgeKind, ExploreImpact, FileMention, MentionedSymbol, OperationalRelation, PathResult,
-    PathStep, Provenance, RelationDirection, RelationEndpoint, SourceExcerpt, SourceFile, Span,
-    Symbol, SymbolKind, SymbolSnippet,
+    Edge, EdgeKind, ExploreImpact, FileMatch, FileMatchKind, FileMention, MentionedSymbol,
+    OperationalRelation, PathResult, PathStep, Provenance, RelationDirection, RelationEndpoint,
+    SourceExcerpt, SourceFile, Span, Symbol, SymbolKind, SymbolSnippet,
 };
 
 fn symbol(name: &str, repo: &str, line: usize) -> Symbol {
@@ -779,4 +779,88 @@ fn an_intent_answer_never_exceeds_the_character_cap() {
     let out = narrate_explore(&res);
 
     assert!(out.len() <= 24_000, "answer has {} chars", out.len());
+}
+fn file_match(path: String, excerpt: &str) -> FileMatch {
+    FileMatch {
+        repo: "api".into(),
+        file_path: path,
+        match_kind: FileMatchKind::Content,
+        start_line: 1,
+        excerpt: excerpt.into(),
+        content_truncated: false,
+    }
+}
+
+fn source_for_match(fm: &FileMatch) -> SourceFile {
+    SourceFile {
+        repo: fm.repo.clone(),
+        file_path: fm.file_path.clone(),
+        line_count: 50,
+        excerpts: vec![SourceExcerpt {
+            start_line: 1,
+            end_line: 50,
+            code: format!("1\t{}\n", fm.excerpt),
+        }],
+        changed_since_index: false,
+    }
+}
+
+fn oversized_ranked_result() -> ExploreResult {
+    let query = "explore oversized ranked symbols";
+    let mut res = result(query);
+    for n in 0..25 {
+        let file = format!("src/module_{n}.ts");
+        res.primary_symbols
+            .push(snippet(&format!("handlerFunction{n}"), "api", &file, 10));
+        res.sources.push(source("api", &file, 300));
+    }
+    res.not_shown = (0..20)
+        .map(|n| FileMention {
+            repo: "api".into(),
+            file_path: format!("services/api/src/deep/nested/extra_file_{n}.ts"),
+            symbols: (0..5)
+                .map(|s| MentionedSymbol {
+                    name: format!("symbol{s}"),
+                    line: s * 10 + 1,
+                })
+                .collect(),
+        })
+        .collect();
+    res
+}
+
+#[test]
+fn importer_list_uses_paths_without_source_bodies() {
+    let mut res = result("session.service importers test files");
+    res.file_matches = (0..30)
+        .map(|n| {
+            file_match(
+                format!("tests/session/importer-{n}.test.ts"),
+                "large source body",
+            )
+        })
+        .collect();
+    res.sources = res.file_matches.iter().map(source_for_match).collect();
+
+    let out = narrate_explore(&res);
+
+    assert!(
+        out.contains("tests/session/importer-0.test.ts"),
+        "got: {out}"
+    );
+    assert!(!out.contains("large source body"), "got: {out}");
+    assert!(out.contains("Next: call `graph_explore`"), "got: {out}");
+    assert!(out.len() <= MAX_OUTPUT_CHARS, "len: {}", out.len());
+}
+
+#[test]
+fn truncated_output_names_omissions_and_exact_follow_up() {
+    let res = oversized_ranked_result();
+
+    let out = narrate_explore(&res);
+
+    assert!(out.len() <= MAX_OUTPUT_CHARS, "len: {}", out.len());
+    assert!(out.contains("Not shown"), "got: {out}");
+    assert!(out.contains("{\"paths\":["), "got: {out}");
+    assert!(out.contains("graph_explore"), "got: {out}");
 }

@@ -18,14 +18,14 @@ use crate::action::progress::Progress;
 use crate::git::Git;
 use crate::infra::graph::parser::SupportedLanguage;
 use crate::store::graph::db::GraphDb;
-use crate::store::graph::extractor::{extract_file, ExtractedFile};
+use crate::store::graph::extractor::{ExtractedFile, extract_file};
 use crate::store::layout::Layout;
 use crate::store::manifest::Manifest;
 
 pub mod types;
 pub use types::{
-    is_ignored_dir, is_ignored_file_path, is_ignored_path, FileFailure, HallIndex, IndexError,
-    IndexOutcome, RepoFailure, TextClassification,
+    FileFailure, HallIndex, IndexError, IndexOutcome, RepoFailure, TextClassification,
+    is_ignored_dir, is_ignored_file_path, is_ignored_path,
 };
 
 /// Indexes a single repository, returning statistics on what was added/updated.

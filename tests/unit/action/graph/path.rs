@@ -38,7 +38,7 @@ fn test_shortest_path_same_node() -> Result<(), Box<dyn std::error::Error>> {
         100,
         "",
         false,
-        &file_extracted
+        &file_extracted,
     )?;
 
     let res = find_shortest_path(&db, "Solo", "Solo", 5)?;
@@ -174,7 +174,7 @@ fn test_shortest_path_bidirectional_chain() -> Result<(), Box<dyn std::error::Er
         100,
         "",
         false,
-        &file_extracted
+        &file_extracted,
     )?;
 
     let conn = db.conn();

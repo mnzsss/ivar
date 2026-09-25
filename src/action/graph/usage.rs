@@ -31,7 +31,7 @@ pub fn record_usage_at(db_path: &Path, event: &UsageEvent) {
 
 impl ResultCount for ExploreOutcome {
     fn result_count(&self) -> Option<usize> {
-        Some(self.0.primary_symbols.len())
+        Some(self.0.primary_symbols.len() + self.0.file_matches.len())
     }
 }
 

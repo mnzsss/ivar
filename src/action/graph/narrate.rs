@@ -16,7 +16,8 @@ use crate::action::graph::query::{
     CalleeInfo, CallerInfo, FileOutline, ImpactResult, ReferenceSite, SymbolLocation,
 };
 use crate::domain::graph::{
-    EdgeKind, ExploreResult, FileMention, MentionedSymbol, Provenance, SourceFile, SymbolSnippet,
+    EdgeKind, ExploreResult, FileMatch, FileMention, MentionedSymbol, Provenance, SourceFile,
+    SymbolSnippet,
 };
 
 /// Definitions listed for a symbol before the rest are left out.
@@ -46,8 +47,20 @@ struct FileMatches<'a> {
     repo: &'a str,
     path: &'a str,
     symbols: Vec<&'a SymbolSnippet>,
+    file_matches: Vec<&'a FileMatch>,
 }
 
+fn is_list_intent(query: &str) -> bool {
+    let q = query.to_ascii_lowercase();
+    q.contains("importer")
+        || q.contains("importers")
+        || q.contains("caller")
+        || q.contains("callers")
+        || q.contains("test file")
+        || q.contains("test files")
+        || q.contains("list files")
+        || q.contains("files importing")
+}
 /// Renders an exploration as Markdown that leads with consequences.
 ///
 /// The blast radius comes before the source: a model reading top-down learns
@@ -75,7 +88,7 @@ fn narrate_explore_within(res: &ExploreResult, max_chars: usize) -> String {
 
     let _ = writeln!(out, "**Exploration: {}**\n", res.query);
 
-    if res.primary_symbols.is_empty() {
+    if res.primary_symbols.is_empty() && res.file_matches.is_empty() {
         out.push_str(
             "No symbols matched.\n\n\
              The index may predate the code: call `refresh_index`, then retry. \
@@ -86,17 +99,54 @@ fn narrate_explore_within(res: &ExploreResult, max_chars: usize) -> String {
     }
 
     let files = files_in_rank_order(res);
-    let _ = writeln!(
-        out,
-        "Found {} symbol{} across {} file{}.\n",
-        res.primary_symbols.len(),
-        plural(res.primary_symbols.len()),
-        files.len(),
-        plural(files.len()),
-    );
+    if !res.primary_symbols.is_empty() {
+        let _ = writeln!(
+            out,
+            "Found {} symbol{} across {} file{}.\n",
+            res.primary_symbols.len(),
+            plural(res.primary_symbols.len()),
+            files.len(),
+            plural(files.len()),
+        );
+    } else {
+        let _ = writeln!(
+            out,
+            "Found {} file match{} across {} file{}.\n",
+            res.file_matches.len(),
+            plural(res.file_matches.len()),
+            files.len(),
+            plural(files.len()),
+        );
+    }
 
     narrate_named_flows(&mut out, res);
     narrate_blast_radius(&mut out, res);
+
+    if is_list_intent(&res.query) && res.primary_symbols.is_empty() {
+        out.push_str("**Matching Files**\n\n");
+        for file in &files {
+            let _ = writeln!(out, "- `{}` ({})", file.path, file.repo);
+        }
+        let file_mentions: Vec<FileMention> = files
+            .iter()
+            .map(|f| FileMention {
+                repo: f.repo.to_owned(),
+                file_path: f.path.to_owned(),
+                symbols: f
+                    .symbols
+                    .iter()
+                    .map(|s| MentionedSymbol {
+                        name: s.symbol.name.clone(),
+                        line: s.symbol.span.start_line,
+                    })
+                    .collect(),
+            })
+            .collect();
+        let mentions_refs: Vec<&FileMention> = file_mentions.iter().collect();
+        narrate_next_call(&mut out, &mentions_refs);
+        return out;
+    }
+
     let left_out = narrate_source(&mut out, res, &files, max_chars);
     narrate_not_shown(&mut out, &left_out, &res.not_shown);
 
@@ -314,7 +364,7 @@ pub fn narrate_outline(outline: &FileOutline) -> String {
     out
 }
 
-/// Groups matched symbols by file in the order explore ranked them.
+/// Groups matched symbols and file matches by file in the order explore ranked them.
 fn files_in_rank_order(res: &ExploreResult) -> Vec<FileMatches<'_>> {
     let mut files: Vec<FileMatches<'_>> = Vec::new();
     for snippet in &res.primary_symbols {
@@ -327,12 +377,26 @@ fn files_in_rank_order(res: &ExploreResult) -> Vec<FileMatches<'_>> {
                 repo: &snippet.symbol.repo,
                 path: &snippet.file_path,
                 symbols: vec![snippet],
+                file_matches: Vec::new(),
+            }),
+        }
+    }
+    for fm in &res.file_matches {
+        match files
+            .iter_mut()
+            .find(|f| f.repo == fm.repo && f.path == fm.file_path)
+        {
+            Some(file) => file.file_matches.push(fm),
+            None => files.push(FileMatches {
+                repo: &fm.repo,
+                path: &fm.file_path,
+                symbols: Vec::new(),
+                file_matches: vec![fm],
             }),
         }
     }
     files
 }
-
 /// Leads with the path between the symbols a query named together.
 fn narrate_named_flows(out: &mut String, res: &ExploreResult) {
     if res.flows.is_empty() {
@@ -643,7 +707,13 @@ fn file_block(file: &FileMatches<'_>, source: Option<&SourceFile>) -> String {
         .iter()
         .map(|s| format!("`{}` {}", s.symbol.name, s.symbol.span.start_line))
         .collect();
-    let _ = writeln!(block, ") · {}\n", names.join(", "));
+    if !names.is_empty() {
+        let _ = writeln!(block, ") · {}\n", names.join(", "));
+    } else if !file.file_matches.is_empty() {
+        let _ = writeln!(block, ") · matched file\n");
+    } else {
+        let _ = writeln!(block, ")\n");
+    }
 
     let language = fence_language(file.path);
     for excerpt in source.map(|s| s.excerpts.as_slice()).unwrap_or_default() {

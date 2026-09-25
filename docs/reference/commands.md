@@ -1095,8 +1095,14 @@ is there to answer.** Run either with output piped and they print what they
 rewrite of a committed file should be reachable by a script that nobody is
 watching. There is no `--yes`.
 
-**`ivar graph index` declares the graph MCP server.** When no `mcp` entry in
-`ivar.json` already runs `ivar graph mcp`, it adds
+**`ivar graph index` indexes all tracked text files and declares the graph MCP server.**
+The graph index covers every Git-tracked UTF-8 textual file across all declared repositories
+(including configuration, workflows, documentation, schema files, and dotfiles) regardless of
+extension, up to 256 KiB of searchable content per file. Files with recognized tree-sitter grammars
+receive structural symbols and call edges; other plain-text files are indexed for path, basename, and
+full-text content search without synthetic AST symbols. Binary files (containing NUL bytes or invalid
+UTF-8), untracked files, Git-ignored files, and ignored build/dependency directories are excluded.
+When no `mcp` entry in `ivar.json` already runs `ivar graph mcp`, it adds
 `{"name":"graph","type":"local","command":"ivar","args":["graph","mcp"]}` and
 reports `mcp_registration` (`registered`, `already_declared`, `name_clash`,
 `needs_migration`, `failed` or `skipped`), with `next_command: "ivar sync"`
@@ -1106,6 +1112,15 @@ with a warning; an `ivar.json` that still needs `ivar migrate` is left alone
 without one, so indexing still exits cleanly; `--no-mcp` skips registration
 entirely.
 
+**`ivar graph explore` unifies structural and textual retrieval with bounded output.**
+Retrieval applies lexicographic ranking precedence: unambiguous repository/path constraints, exact
+symbol or basename matches, path-pinned matches, structured symbol names, content FTS, and loose
+symbol FTS. Active Feature Session layers shadow base worktrees and honor file tombstones through
+`visible_files`. Queries with explicit list intent (e.g. `importers`, `callers`, `test files`) return
+compact ranked paths and metadata while suppressing large source bodies. All MCP output formats
+(Markdown, JSON, compact) rewrite paths to safe workspace-relative paths. Responses enforce
+deterministic character budgets (18,000 characters for exploratory queries; 24,000 for requested-file
+lookups) and report omitted files under `not_shown` alongside an exact `paths` continuation query.
 **`ivar graph misses` shows where the graph fell short.** The guard records a
 `skipped` miss when a session greps (Grep, Glob, or an `rg`/`grep` Bash
 command) without having asked the graph anything, and a `followup` miss for the

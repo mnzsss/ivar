@@ -115,7 +115,7 @@ impl Fixture {
         String::from_utf8_lossy(&out.stdout).trim().to_owned()
     }
 
-        fn write(&self, path: &str, content: &str) {
+    fn write(&self, path: &str, content: &str) {
         let full = self.wt.join(path);
         if let Some(parent) = full.parent() {
             std::fs::create_dir_all(parent).unwrap();
@@ -272,10 +272,34 @@ fn feature_layer_text_add_modify_delete_shadows_the_base() {
         ("docs/base.md", "base sentinel\n"),
         ("docs/deleted.md", "must disappear\n"),
     ]);
-    fx.db.insert_repo("core", fx.wt.as_str(), "main", Some(&fx.base_commit)).unwrap();
+    fx.db
+        .insert_repo("core", fx.wt.as_str(), "main", Some(&fx.base_commit))
+        .unwrap();
     let empty = ExtractedFile::default();
-    fx.db.index_extracted_file("core", "docs/base.md", "h_base", 1, 50, "base sentinel\n", false, &empty).unwrap();
-    fx.db.index_extracted_file("core", "docs/deleted.md", "h_del", 1, 50, "must disappear\n", false, &empty).unwrap();
+    fx.db
+        .index_extracted_file(
+            "core",
+            "docs/base.md",
+            "h_base",
+            1,
+            50,
+            "base sentinel\n",
+            false,
+            &empty,
+        )
+        .unwrap();
+    fx.db
+        .index_extracted_file(
+            "core",
+            "docs/deleted.md",
+            "h_del",
+            1,
+            50,
+            "must disappear\n",
+            false,
+            &empty,
+        )
+        .unwrap();
 
     // Feature changes
     fx.write("docs/base.md", "feature sentinel\n");
@@ -286,10 +310,34 @@ fn feature_layer_text_add_modify_delete_shadows_the_base() {
     assert_eq!(res.indexed_files, 2);
     assert_eq!(res.tombstoned_files, 1);
     let layer_repo = format!("core/{}", res.layer_id);
-    fx.db.configure_session_mode(&[("core", &layer_repo)]).unwrap();
+    fx.db
+        .configure_session_mode(&[("core", &layer_repo)])
+        .unwrap();
 
-    assert!(fx.db.search_file_content("base sentinel", Some("core"), 10).unwrap().is_empty());
-    assert_eq!(fx.db.search_file_content("feature sentinel", Some("core"), 10).unwrap()[0].path, "docs/base.md");
-    assert_eq!(fx.db.search_file_content("added sentinel", Some("core"), 10).unwrap()[0].path, "docs/added.md");
-    assert!(fx.db.search_file_content("must disappear", Some("core"), 10).unwrap().is_empty());
+    assert!(
+        fx.db
+            .search_file_content("base sentinel", Some("core"), 10)
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(
+        fx.db
+            .search_file_content("feature sentinel", Some("core"), 10)
+            .unwrap()[0]
+            .path,
+        "docs/base.md"
+    );
+    assert_eq!(
+        fx.db
+            .search_file_content("added sentinel", Some("core"), 10)
+            .unwrap()[0]
+            .path,
+        "docs/added.md"
+    );
+    assert!(
+        fx.db
+            .search_file_content("must disappear", Some("core"), 10)
+            .unwrap()
+            .is_empty()
+    );
 }

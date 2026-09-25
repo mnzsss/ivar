@@ -127,7 +127,10 @@ pub enum TextClassification {
 
 pub(crate) fn classify_text(bytes: Vec<u8>) -> TextClassification {
     let probe_len = bytes.len().min(8192);
-    if bytes.get(..probe_len).is_some_and(|slice| slice.contains(&b'\0')) {
+    if bytes
+        .get(..probe_len)
+        .is_some_and(|slice| slice.contains(&b'\0'))
+    {
         return TextClassification::Binary;
     }
 

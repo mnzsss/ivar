@@ -295,10 +295,11 @@ fn apply_layer_migration(conn: &Connection) -> rusqlite::Result<()> {
     )
 }
 
-
 fn apply_content_fts_migration(conn: &Connection) -> rusqlite::Result<()> {
     if !has_column(conn, "files", "content_truncated")? {
-        conn.execute_batch("ALTER TABLE files ADD COLUMN content_truncated INTEGER NOT NULL DEFAULT 0;")?;
+        conn.execute_batch(
+            "ALTER TABLE files ADD COLUMN content_truncated INTEGER NOT NULL DEFAULT 0;",
+        )?;
     }
     conn.execute_batch(FILE_CONTENT_FTS)?;
     if user_version(conn)? < 10 {

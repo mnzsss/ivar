@@ -749,7 +749,6 @@ fn requested_paths_come_back_whole_beyond_the_intent_budget() {
     }
 }
 
-
 struct ExploreFixture {
     pub(super) db: GraphDb,
     pub(super) temp: tempfile::TempDir,
@@ -768,10 +767,21 @@ impl ExploreFixture {
         }
         fs::write(&file_path, content).expect("write file");
 
-        let _ = self.db.insert_repo(repo, repo_dir.to_str().unwrap(), "main", None);
+        let _ = self
+            .db
+            .insert_repo(repo, repo_dir.to_str().unwrap(), "main", None);
         let hash = crate::infra::hash::text(content);
         let empty_extracted = crate::store::graph::extractor::ExtractedFile::default();
-        let _ = self.db.index_extracted_file(repo, path, &hash, 100, content.len() as i64, content, false, &empty_extracted);
+        let _ = self.db.index_extracted_file(
+            repo,
+            path,
+            &hash,
+            100,
+            content.len() as i64,
+            content,
+            false,
+            &empty_extracted,
+        );
     }
 }
 
@@ -786,7 +796,13 @@ fn text_only_hit_builds_an_explore_result_without_fake_symbols() {
     let fixture = explore_fixture();
     fixture.index_text("app", "Dockerfile", "FROM scratch\n# release-image\n");
 
-    let result = explore(&fixture.db, fixture.root(), "Dockerfile release-image", Some("app")).unwrap();
+    let result = explore(
+        &fixture.db,
+        fixture.root(),
+        "Dockerfile release-image",
+        Some("app"),
+    )
+    .unwrap();
 
     assert!(result.primary_symbols.is_empty());
     assert_eq!(result.file_matches[0].file_path, "Dockerfile");

@@ -88,6 +88,8 @@ pub fn is_path_like(token: &str) -> bool {
                         | "tsx"
                         | "js"
                         | "jsx"
+                        | "mjs"
+                        | "cjs"
                         | "py"
                         | "go"
                         | "c"
@@ -140,8 +142,18 @@ pub fn resolve_query_paths(
 
     // 1. Separate recognized repo names if not already scoped
     for token in tokens {
-        let clean_token = token
-            .trim_matches(|c: char| c == ',' || c == ';' || c == ':' || c == '"' || c == '\'' || c == '`' || c == '(' || c == ')' || c == '{' || c == '}');
+        let clean_token = token.trim_matches(|c: char| {
+            c == ','
+                || c == ';'
+                || c == ':'
+                || c == '"'
+                || c == '\''
+                || c == '`'
+                || c == '('
+                || c == ')'
+                || c == '{'
+                || c == '}'
+        });
         if clean_token.is_empty() {
             continue;
         }

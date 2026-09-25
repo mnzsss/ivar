@@ -95,7 +95,7 @@ fn test_direct_test_file_change_selects_itself() -> Result<(), Box<dyn std::erro
         1000,
         "",
         false,
-        &test_extracted
+        &test_extracted,
     )?;
 
     let result = find_affected_tests(
@@ -152,7 +152,7 @@ fn test_direct_test_consumer_one_hop_explanation() -> Result<(), Box<dyn std::er
         1000,
         "",
         false,
-        &src_extracted
+        &src_extracted,
     )?;
 
     let test_extracted = ExtractedFile {
@@ -192,7 +192,7 @@ fn test_direct_test_consumer_one_hop_explanation() -> Result<(), Box<dyn std::er
         1000,
         "",
         false,
-        &test_extracted
+        &test_extracted,
     )?;
 
     let result = find_affected_tests(&db, &["src/core.rs".to_owned()], Some("test_repo"), 5)?;
@@ -247,7 +247,7 @@ fn test_find_affected_tests_transitive() -> Result<(), Box<dyn std::error::Error
         1000,
         "",
         false,
-        &utils_extracted
+        &utils_extracted,
     )?;
 
     // 2. src/core.rs defines `core_work` and calls `helper_fn`
@@ -288,7 +288,7 @@ fn test_find_affected_tests_transitive() -> Result<(), Box<dyn std::error::Error
         1000,
         "",
         false,
-        &core_extracted
+        &core_extracted,
     )?;
 
     // 3. tests/core_test.rs defines `test_core_feature` and calls `core_work`
@@ -329,7 +329,7 @@ fn test_find_affected_tests_transitive() -> Result<(), Box<dyn std::error::Error
         1000,
         "",
         false,
-        &test_extracted
+        &test_extracted,
     )?;
 
     // Query affected tests for src/utils.rs
@@ -391,7 +391,7 @@ fn test_cross_repo_test_consumer() -> Result<(), Box<dyn std::error::Error>> {
         1000,
         "",
         false,
-        &lib_extracted
+        &lib_extracted,
     )?;
 
     let front_test_extracted = ExtractedFile {
@@ -431,7 +431,7 @@ fn test_cross_repo_test_consumer() -> Result<(), Box<dyn std::error::Error>> {
         1000,
         "",
         false,
-        &front_test_extracted
+        &front_test_extracted,
     )?;
 
     let result = find_affected_tests(
@@ -484,7 +484,16 @@ fn test_affected_tests_multi_repo_identical_paths() -> Result<(), Box<dyn std::e
         }],
         edges: vec![],
     };
-    db.index_extracted_file("repo_alpha", "src/a.rs", "hash_a", 100, 1000, "", false, &alpha_src)?;
+    db.index_extracted_file(
+        "repo_alpha",
+        "src/a.rs",
+        "hash_a",
+        100,
+        1000,
+        "",
+        false,
+        &alpha_src,
+    )?;
 
     let alpha_test = ExtractedFile {
         symbols: vec![Symbol {
@@ -522,7 +531,7 @@ fn test_affected_tests_multi_repo_identical_paths() -> Result<(), Box<dyn std::e
         1000,
         "",
         false,
-        &alpha_test
+        &alpha_test,
     )?;
 
     let beta_src = ExtractedFile {
@@ -541,7 +550,16 @@ fn test_affected_tests_multi_repo_identical_paths() -> Result<(), Box<dyn std::e
         }],
         edges: vec![],
     };
-    db.index_extracted_file("repo_beta", "src/b.rs", "hash_b", 200, 1000, "", false, &beta_src)?;
+    db.index_extracted_file(
+        "repo_beta",
+        "src/b.rs",
+        "hash_b",
+        200,
+        1000,
+        "",
+        false,
+        &beta_src,
+    )?;
 
     let beta_test = ExtractedFile {
         symbols: vec![Symbol {
@@ -579,7 +597,7 @@ fn test_affected_tests_multi_repo_identical_paths() -> Result<(), Box<dyn std::e
         1000,
         "",
         false,
-        &beta_test
+        &beta_test,
     )?;
 
     let result = find_affected_tests(

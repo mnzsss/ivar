@@ -115,7 +115,13 @@ pub fn explore_find(
     // Also collect file content matches
     let content_hits = search_content_hits(db, &terms_to_search, effective_repo)?;
 
-    let ranked_files = rank_all_files(&file_candidates, &pinned_files, &content_hits, &parsed, effective_repo);
+    let ranked_files = rank_all_files(
+        &file_candidates,
+        &pinned_files,
+        &content_hits,
+        &parsed,
+        effective_repo,
+    );
 
     if ranked_files.is_empty() {
         return Ok(ExploreCandidates::default());
@@ -462,21 +468,27 @@ fn rank_all_files(
 
         for res_path in &parsed.resolved_paths {
             match res_path {
-                ResolvedPath::ExactFile { repo: r, path: p, .. } => {
+                ResolvedPath::ExactFile {
+                    repo: r, path: p, ..
+                } => {
                     if &repo == r && &path == p {
                         exact_evidence = exact_evidence.max(3);
                         pinned_evidence = 1;
                         match_kind = Some(FileMatchKind::ExactPath);
                     }
                 }
-                ResolvedPath::WorkspaceRelative { repo: r, path: p, .. } => {
+                ResolvedPath::WorkspaceRelative {
+                    repo: r, path: p, ..
+                } => {
                     if &repo == r && &path == p {
                         exact_evidence = exact_evidence.max(3);
                         pinned_evidence = 1;
                         match_kind = Some(FileMatchKind::ExactPath);
                     }
                 }
-                ResolvedPath::UnambiguousBasename { repo: r, path: p, .. } => {
+                ResolvedPath::UnambiguousBasename {
+                    repo: r, path: p, ..
+                } => {
                     if &repo == r && &path == p {
                         exact_evidence = exact_evidence.max(2);
                         pinned_evidence = 1;
@@ -502,7 +514,11 @@ fn rank_all_files(
             }
         }
 
-        if pinned_files.get(&(repo.clone(), path.clone())).copied().unwrap_or(false) {
+        if pinned_files
+            .get(&(repo.clone(), path.clone()))
+            .copied()
+            .unwrap_or(false)
+        {
             pinned_evidence = 1;
         }
 
@@ -512,7 +528,11 @@ fn rank_all_files(
 
         if let Some(cands) = sym_cands {
             for c in cands {
-                if parsed.search_terms.iter().any(|t| t == &c.symbol.name || t.eq_ignore_ascii_case(&c.symbol.name)) {
+                if parsed
+                    .search_terms
+                    .iter()
+                    .any(|t| t == &c.symbol.name || t.eq_ignore_ascii_case(&c.symbol.name))
+                {
                     exact_evidence = exact_evidence.max(2);
                 }
                 structured_score += c.score;
@@ -606,7 +626,8 @@ fn collect_final_results(
                 has_symbols = true;
                 cands.sort_by(|a, b| b.score.total_cmp(&a.score));
                 if final_symbols.len() < MAX_EXPLORE_CANDIDATES {
-                    cands.truncate((MAX_EXPLORE_CANDIDATES - final_symbols.len()).min(max_per_file));
+                    cands
+                        .truncate((MAX_EXPLORE_CANDIDATES - final_symbols.len()).min(max_per_file));
                     cands.sort_by_key(|c| (c.symbol.span.start_line, c.symbol.span.start_col));
                     final_symbols.extend(cands.into_iter().map(|sc| SymbolLocation {
                         symbol: sc.symbol,

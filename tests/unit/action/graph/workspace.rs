@@ -8,7 +8,10 @@
 use super::*;
 use tempfile::tempdir;
 
-use crate::domain::graph::{FileMention, SourceFile, Span, Symbol, SymbolKind, SymbolSnippet};
+use crate::domain::graph::{
+    FileMatch, FileMatchKind, FileMention, SourceExcerpt, SourceFile, Span, Symbol, SymbolKind,
+    SymbolSnippet,
+};
 
 #[test]
 fn a_repo_inside_the_workspace_takes_its_relative_directory() {
@@ -194,4 +197,93 @@ fn an_answer_that_leaves_files_out_hands_over_the_explore_call_that_returns_them
         assert!(answer.contains(&format!("`{path}`")));
     }
     assert!(!answer.contains("Next: call"));
+}
+struct WorkspaceMcpFixture {
+    db: GraphDb,
+    workspace: tempfile::TempDir,
+    res: ExploreResult,
+}
+
+impl WorkspaceMcpFixture {
+    fn dispatch(&self, format: &str) -> String {
+        use crate::action::graph::compact;
+        use crate::action::graph::mcp::workspace::WorkspacePaths;
+        use crate::action::graph::narrate;
+
+        let mut res = self.res.clone();
+        WorkspacePaths::new(Some(self.workspace.path().to_path_buf()))
+            .rewrite_explore(&self.db, &mut res);
+        match format {
+            "json" => serde_json::to_string(&res).expect("json serialize"),
+            "compact" => compact::encode_explore(&res),
+            _ => narrate::narrate_explore(&res),
+        }
+    }
+}
+
+fn workspace_fixture_with_file_match(repo_name: &str, file_rel_path: &str) -> WorkspaceMcpFixture {
+    let workspace = tempdir().expect("workspace");
+    let repo_root = workspace.path().join(repo_name);
+    std::fs::create_dir_all(&repo_root).expect("create repo dir");
+    let db = GraphDb::open_in_memory().expect("open db");
+    db.insert_repo(
+        repo_name,
+        repo_root.to_str().expect("utf8 path"),
+        "main",
+        None,
+    )
+    .expect("insert repo");
+
+    let res = ExploreResult {
+        query: "workflow".into(),
+        file_matches: vec![FileMatch {
+            repo: repo_name.into(),
+            file_path: file_rel_path.into(),
+            match_kind: FileMatchKind::ExactPath,
+            start_line: 1,
+            excerpt: "name: CI".into(),
+            content_truncated: false,
+        }],
+        primary_symbols: Vec::new(),
+        call_flows: Vec::new(),
+        impact_summary: None,
+        direct_relations: Vec::new(),
+        entry_points: Vec::new(),
+        transitive_consumers: Vec::new(),
+        sources: vec![SourceFile {
+            repo: repo_name.into(),
+            file_path: file_rel_path.into(),
+            line_count: 10,
+            excerpts: vec![SourceExcerpt {
+                start_line: 1,
+                end_line: 10,
+                code: "1\tname: CI".into(),
+            }],
+            changed_since_index: false,
+        }],
+        flows: Vec::new(),
+        not_shown: Vec::new(),
+    };
+
+    WorkspaceMcpFixture { db, workspace, res }
+}
+
+#[test]
+fn every_mcp_format_rewrites_file_matches_before_rendering() {
+    let fixture = workspace_fixture_with_file_match("frontend", ".github/workflows/ci.yml");
+
+    let markdown = fixture.dispatch("markdown");
+    let json = fixture.dispatch("json");
+    let compact = fixture.dispatch("compact");
+
+    for output in [markdown, json, compact] {
+        assert!(
+            output.contains("frontend/.github/workflows/ci.yml"),
+            "{output}"
+        );
+        assert!(
+            !output.contains("\".github/workflows/ci.yml\""),
+            "repo-relative path leaked: {output}"
+        );
+    }
 }

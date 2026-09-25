@@ -64,7 +64,7 @@ fn test_execute_complexity_ranking_and_threshold() {
         100,
         "",
         false,
-        &extracted
+        &extracted,
     )
     .unwrap();
 

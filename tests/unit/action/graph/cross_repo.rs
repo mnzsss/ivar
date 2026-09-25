@@ -45,7 +45,7 @@ fn test_http_client_calls_link_to_routes_with_path_parameters() {
                 symbol("api", "GET /projects/:id", route(), 10),
             ],
             edges: vec![],
-        }
+        },
     )
     .expect("index api");
 
@@ -76,7 +76,7 @@ fn test_http_client_calls_link_to_routes_with_path_parameters() {
                 request("GET /projects/:param", 3),
                 request("GET /projects", 5),
             ],
-        }
+        },
     )
     .expect("index web");
 
@@ -138,7 +138,7 @@ fn test_cross_repo_import_linking() {
         500,
         "",
         false,
-        &backend_extracted
+        &backend_extracted,
     )
     .expect("index backend");
 
@@ -181,7 +181,7 @@ fn test_cross_repo_import_linking() {
         300,
         "",
         false,
-        &web_extracted
+        &web_extracted,
     )
     .expect("index web");
 
@@ -254,7 +254,7 @@ fn test_cross_repo_cli_execution_linking() {
         400,
         "",
         false,
-        &cli_extracted
+        &cli_extracted,
     )
     .expect("index cli");
 
@@ -297,7 +297,7 @@ fn test_cross_repo_cli_execution_linking() {
         350,
         "",
         false,
-        &orca_extracted
+        &orca_extracted,
     )
     .expect("index orca");
 
@@ -356,7 +356,7 @@ fn test_cross_repo_http_linking() {
         400,
         "",
         false,
-        &server_extracted
+        &server_extracted,
     )
     .expect("index server");
 
@@ -399,7 +399,7 @@ fn test_cross_repo_http_linking() {
         350,
         "",
         false,
-        &client_extracted
+        &client_extracted,
     )
     .expect("index client");
 

@@ -463,7 +463,11 @@ fn schema_v10_creates_file_content_search_and_invalidates_old_freshness() {
 
     assert_eq!(user_version(&conn).unwrap(), 10);
     let commit: Option<String> = conn
-        .query_row("SELECT last_indexed_commit FROM repos WHERE id = 'app'", [], |row| row.get(0))
+        .query_row(
+            "SELECT last_indexed_commit FROM repos WHERE id = 'app'",
+            [],
+            |row| row.get(0),
+        )
         .unwrap();
     assert_eq!(commit, None, "v10 requires a complete text-content reindex");
     conn.query_row("SELECT count(*) FROM file_content_fts", [], |_| Ok(()))

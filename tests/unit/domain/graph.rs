@@ -354,7 +354,8 @@ fn miss_kind_parses_known_kinds_and_rejects_unknown_ones() {
 #[test]
 fn old_explore_result_json_lacking_file_matches_deserializes() {
     let old_json = r#"{"query":"test","primary_symbols":[],"call_flows":[]}"#;
-    let deserialized: ExploreResult = serde_json::from_str(old_json).expect("deserialize old explore result");
+    let deserialized: ExploreResult =
+        serde_json::from_str(old_json).expect("deserialize old explore result");
     assert_eq!(deserialized.query, "test");
     assert!(deserialized.file_matches.is_empty());
 }

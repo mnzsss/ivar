@@ -4,13 +4,13 @@ use camino::Utf8Path;
 use sha2::{Digest, Sha256};
 
 use crate::action::graph::index::types::{
-    classify_text, is_ignored_file_path, is_ignored_path, TextClassification,
+    TextClassification, classify_text, is_ignored_file_path, is_ignored_path,
 };
 use crate::error::Failure;
 use crate::git::{Git, System as GitSystem, WorktreeDiff};
 use crate::infra::graph::parser::SupportedLanguage;
 use crate::store::graph::db::{FileRow, GraphDb};
-use crate::store::graph::extractor::{extract_file, ExtractedFile};
+use crate::store::graph::extractor::{ExtractedFile, extract_file};
 use crate::store::layout::Layout;
 
 /// Result of ensuring a layer is indexed.
