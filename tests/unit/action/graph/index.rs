@@ -648,3 +648,51 @@ fn full_index_stores_text_without_symbols_and_skips_binary() {
         "expected binary exclusion is not a failure"
     );
 }
+
+#[test]
+fn test_index_repo_dirty_worktree_incremental_flow() {
+    let temp = tempdir().expect("tempdir");
+    let repo_path = temp.path();
+    let git_repo = git2::Repository::init(repo_path).expect("git init");
+
+    let file1 = repo_path.join("main.rs");
+    fs::write(
+        &file1,
+        r#"
+        pub fn initial_func() {}
+        "#,
+    )
+    .expect("write main.rs");
+
+    create_git_commit(&git_repo, "Initial commit").expect("commit");
+
+    let db = GraphDb::open_in_memory().expect("open db");
+
+    let outcome1 = index_repo(&db, "test-repo", repo_path, false, &Silent).expect("initial index");
+    assert_eq!(outcome1.files_indexed, 1);
+    assert!(!outcome1.skipped_up_to_date);
+
+    let outcome2 = index_repo(&db, "test-repo", repo_path, false, &Silent).expect("clean index");
+    assert!(outcome2.skipped_up_to_date);
+    assert_eq!(outcome2.files_indexed, 0);
+
+    fs::write(
+        &file1,
+        r#"
+        pub fn initial_func() {}
+        pub fn dirty_added_func() {}
+        "#,
+    )
+    .expect("modify main.rs");
+
+    let outcome3 = index_repo(&db, "test-repo", repo_path, false, &Silent).expect("dirty index");
+    assert!(
+        !outcome3.skipped_up_to_date,
+        "dirty worktree must not be skipped as up to date"
+    );
+    assert_eq!(outcome3.files_indexed, 1);
+
+    let found = db.search_symbols_fts("dirty_added_func", 10).expect("search");
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0].name, "dirty_added_func");
+}

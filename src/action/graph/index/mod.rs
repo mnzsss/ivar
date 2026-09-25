@@ -58,6 +58,7 @@ pub fn index_repo(
     if !force_full
         && let Some(head) = &head_commit
         && last_indexed.as_deref() == Some(head.as_str())
+        && !git.worktree_dirty(repo_utf8).unwrap_or(true)
     {
         return Ok(up_to_date_outcome(repo_id, start_time));
     }
