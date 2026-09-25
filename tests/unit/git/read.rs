@@ -594,3 +594,21 @@ fn diff_worktree_files_reports_add_modify_delete() {
     let diff2 = diff_worktree_files(&repo, Some(&base)).unwrap();
     assert!(diff2.deleted.iter().any(|p| p == "README.md"));
 }
+
+#[test]
+fn tracked_files_excludes_untracked_and_ignored_paths() {
+    let (_guard, dir) = utf8_temp_dir();
+    let repo = seeded_repo(&dir.join("repo"), "main");
+    std::fs::write(repo.join("tracked.yml"), "name: tracked\n").unwrap();
+    git(&repo, &["add", "tracked.yml"]);
+    git(&repo, &["commit", "-m", "track yaml"]);
+    std::fs::write(repo.join("scratch.txt"), "untracked\n").unwrap();
+    std::fs::write(repo.join(".gitignore"), "ignored.log\n").unwrap();
+    std::fs::write(repo.join("ignored.log"), "ignored\n").unwrap();
+
+    let paths = tracked_files(&repo).unwrap();
+
+    assert!(paths.iter().any(|path| path == "tracked.yml"));
+    assert!(!paths.iter().any(|path| path == "scratch.txt"));
+    assert!(!paths.iter().any(|path| path == "ignored.log"));
+}

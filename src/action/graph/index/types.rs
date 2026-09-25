@@ -6,8 +6,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::infra::graph::parser::SupportedLanguage;
-use crate::store::graph::db::GraphDbError;
+use crate::store::graph::db::{GraphDbError, MAX_INDEXED_CONTENT_BYTES};
 
 /// Error encountered during repository indexing.
 #[derive(Debug, Error)]
@@ -32,14 +31,14 @@ pub struct IndexOutcome {
     pub files_failed: Vec<FileFailure>,
 }
 
-/// A file the indexer could not read or parse, left out of this run.
+/// Details of a single file indexing failure.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct FileFailure {
     pub path: String,
     pub reason: String,
 }
 
-/// A repository whose indexing run failed as a whole.
+/// A repository whose indexing failed.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct RepoFailure {
     pub repo: String,
@@ -60,19 +59,6 @@ impl FileFailure {
             reason: reason.to_string(),
         }
     }
-}
-
-pub fn is_supported_file(path: &Path) -> bool {
-    let path_str = path.to_string_lossy();
-    if path_str.ends_with(".min.js")
-        || path_str.ends_with(".min.ts")
-        || path_str.ends_with(".bundle.js")
-        || path_str.ends_with(".d.ts.map")
-    {
-        return false;
-    }
-    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-    SupportedLanguage::from_extension(ext).is_some()
 }
 
 pub fn is_ignored_dir(name: &std::ffi::OsStr) -> bool {
@@ -119,4 +105,49 @@ pub fn is_ignored_path(path: &Path) -> bool {
         }
     }
     false
+}
+
+pub fn is_ignored_file_path(path: &Path) -> bool {
+    let path_str = path.to_string_lossy();
+    path_str.ends_with(".min.js")
+        || path_str.ends_with(".min.ts")
+        || path_str.ends_with(".bundle.js")
+        || path_str.ends_with(".d.ts.map")
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TextClassification {
+    Binary,
+    Text {
+        content: String,
+        indexed_len: usize,
+        truncated: bool,
+    },
+}
+
+pub(crate) fn classify_text(bytes: Vec<u8>) -> TextClassification {
+    let probe_len = bytes.len().min(8192);
+    if bytes[..probe_len].contains(&b'\0') {
+        return TextClassification::Binary;
+    }
+
+    let Ok(content) = String::from_utf8(bytes) else {
+        return TextClassification::Binary;
+    };
+
+    if content.len() <= MAX_INDEXED_CONTENT_BYTES {
+        let len = content.len();
+        TextClassification::Text {
+            content,
+            indexed_len: len,
+            truncated: false,
+        }
+    } else {
+        let indexed_len = content.floor_char_boundary(MAX_INDEXED_CONTENT_BYTES);
+        TextClassification::Text {
+            content,
+            indexed_len,
+            truncated: true,
+        }
+    }
 }

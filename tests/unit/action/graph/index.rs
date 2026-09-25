@@ -55,14 +55,18 @@ fn create_git_commit(repo: &git2::Repository, message: &str) -> Result<git2::Oid
 fn a_file_with_unchanged_size_and_modification_time_is_not_read_again() {
     let temp = tempdir().expect("tempdir");
     let repo_path = temp.path();
+    let git_repo = git2::Repository::init(repo_path).expect("git init");
     let file = repo_path.join("lib.rs");
-    fs::write(&file, "pub fn alpha() {}\n").expect("write lib.rs");
+    fs::write(&file, "pub fn alpha() {}
+").expect("write lib.rs");
     set_mtime(&file, long_ago());
+    create_git_commit(&git_repo, "alpha").expect("commit");
     let db = GraphDb::open_in_memory().expect("open db");
     let first = index_repo(&db, "stat-repo", repo_path, false, &Silent).expect("first index");
     assert_eq!(first.files_indexed, 1);
 
-    fs::write(&file, "pub fn gamma() {}\n").expect("rewrite with the same size");
+    fs::write(&file, "pub fn gamma() {}
+").expect("rewrite with the same size");
     set_mtime(&file, long_ago());
     let second = index_repo(&db, "stat-repo", repo_path, false, &Silent).expect("second index");
 
@@ -86,16 +90,20 @@ fn set_mtime(file: &Path, mtime: std::time::SystemTime) {
 fn a_file_modified_within_the_second_it_was_indexed_is_hashed_again() {
     let temp = tempdir().expect("tempdir");
     let repo_path = temp.path();
+    let git_repo = git2::Repository::init(repo_path).expect("git init");
     let file = repo_path.join("lib.rs");
     let racy_mtime = std::time::SystemTime::now() + std::time::Duration::from_secs(3600);
-    fs::write(&file, "pub fn alpha() {}\n").expect("write lib.rs");
+    fs::write(&file, "pub fn alpha() {}
+").expect("write lib.rs");
     set_mtime(&file, racy_mtime);
+    create_git_commit(&git_repo, "alpha").expect("commit");
     let db = GraphDb::open_in_memory().expect("open db");
     index_repo(&db, "racy-repo", repo_path, false, &Silent).expect("first index");
 
-    fs::write(&file, "pub fn gamma() {}\n").expect("rewrite with the same size");
+    fs::write(&file, "pub fn gamma() {}
+").expect("rewrite with the same size");
     set_mtime(&file, racy_mtime);
-    let second = index_repo(&db, "racy-repo", repo_path, false, &Silent).expect("second index");
+    let second = index_repo(&db, "racy-repo", repo_path, true, &Silent).expect("second index");
 
     assert_eq!(second.files_indexed, 1);
 }
@@ -281,12 +289,12 @@ fn test_gitignore_and_ignored_directories() {
     let db = GraphDb::open_in_memory().expect("open db");
 
     let outcome = index_repo(&db, "test-repo", repo_path, false, &Silent).expect("index");
-    // Only tracked.rs is indexed!
-    assert_eq!(outcome.files_indexed, 1);
+    // .gitignore and tracked.rs are indexed
+    assert_eq!(outcome.files_indexed, 2);
     assert_eq!(outcome.files_deleted, 0);
 
     let stats = db.stats().expect("stats");
-    assert_eq!(stats.file_count, 1);
+    assert_eq!(stats.file_count, 2);
 
     let found_tracked = db.search_symbols_fts("tracked_fn", 10).expect("search");
     assert_eq!(found_tracked.len(), 1);
@@ -505,13 +513,33 @@ fn an_unreadable_file_is_reported_while_the_rest_of_the_repo_indexes() {
     let temp = tempdir().expect("tempdir");
     let repo_path = temp.path();
     let git_repo = git2::Repository::init(repo_path).expect("init");
-    fs::write(repo_path.join("good.rs"), "pub fn good() {}\n").expect("write good.rs");
-    fs::write(repo_path.join("bad.rs"), b"pub fn \xff\xfe() {}\n").expect("write bad.rs");
-    fs::write(repo_path.join("other.ts"), "export function other() {}\n").expect("write other.ts");
+    let good = repo_path.join("good.rs");
+    let bad = repo_path.join("bad.rs");
+    let other = repo_path.join("other.ts");
+    fs::write(&good, "pub fn good() {}\n").expect("write good.rs");
+    fs::write(&bad, "pub fn bad() {}\n").expect("write bad.rs");
+    fs::write(&other, "export function other() {}\n").expect("write other.ts");
     let head = create_git_commit(&git_repo, "Initial commit").expect("commit");
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = fs::metadata(&bad).expect("metadata").permissions();
+        perms.set_mode(0o000);
+        fs::set_permissions(&bad, perms).expect("set perms");
+    }
+
     let db = GraphDb::open_in_memory().expect("open db");
 
     let outcome = index_repo(&db, "mixed", repo_path, false, &Silent).expect("index");
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = fs::metadata(&bad).expect("metadata").permissions();
+        perms.set_mode(0o644);
+        let _ = fs::set_permissions(&bad, perms);
+    }
 
     let [failure] = outcome.files_failed.as_slice() else {
         panic!("expected one failed file, got {:?}", outcome.files_failed);
@@ -529,13 +557,16 @@ fn an_unreadable_file_is_reported_while_the_rest_of_the_repo_indexes() {
 fn parallel_extraction_indexes_every_file_once() {
     let temp = tempdir().expect("tempdir");
     let repo_path = temp.path();
+    let git_repo = git2::Repository::init(repo_path).expect("git init");
     for n in 0..64 {
         fs::write(
             repo_path.join(format!("mod_{n}.rs")),
-            format!("pub fn function_{n}() {{}}\n"),
+            format!("pub fn function_{n}() {{}}
+"),
         )
         .expect("write file");
     }
+    create_git_commit(&git_repo, "init 64 files").expect("commit");
     let db = GraphDb::open_in_memory().expect("open db");
     let recording = Recording::default();
 
@@ -558,4 +589,24 @@ fn duration_ms_never_wraps_negative_when_read_back_as_i64() {
         i64::try_from(duration_ms).is_ok(),
         "duration_ms must fit a signed 64-bit count for any JSON number encoder"
     );
+}
+
+#[test]
+fn full_index_stores_text_without_symbols_and_skips_binary() {
+    let temp = tempdir().unwrap();
+    let repo_path = temp.path();
+    let repo = git2::Repository::init(repo_path).unwrap();
+    fs::create_dir_all(repo_path.join(".github/workflows")).unwrap();
+    fs::write(repo_path.join(".github/workflows/ci.yml"), "name: release\njobs:\n  test: {}\n").unwrap();
+    fs::write(repo_path.join("Dockerfile"), "FROM scratch\n").unwrap();
+    fs::write(repo_path.join("asset.bin"), b"text\0binary").unwrap();
+    create_git_commit(&repo, "initial commit").unwrap();
+
+    let db = GraphDb::open_in_memory().unwrap();
+    let outcome = index_repo(&db, "app", repo_path, true, &Silent).unwrap();
+
+    assert_eq!(db.search_file_content("release", Some("app"), 10).unwrap()[0].path, ".github/workflows/ci.yml");
+    assert_eq!(db.search_file_content("scratch", Some("app"), 10).unwrap()[0].path, "Dockerfile");
+    assert!(db.get_file("app", "asset.bin").unwrap().is_none());
+    assert_eq!(outcome.files_failed.len(), 0, "expected binary exclusion is not a failure");
 }
