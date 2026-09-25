@@ -716,7 +716,10 @@ fn test_index_repo_dirty_worktree_incremental_flow() {
         .search_symbols_fts("dirty_added_func", 10)
         .expect("search");
     assert_eq!(found.len(), 1);
-    assert_eq!(found[0].name, "dirty_added_func");
+    assert_eq!(
+        found.first().map(|s| s.name.as_str()),
+        Some("dirty_added_func")
+    );
 
     // 2. Uncommitted addition of untracked Rust file
     let file3 = repo_path.join("untracked.rs");
@@ -743,7 +746,10 @@ fn test_index_repo_dirty_worktree_incremental_flow() {
 
     let found_untracked = db.search_symbols_fts("untracked_func", 10).expect("search");
     assert_eq!(found_untracked.len(), 1);
-    assert_eq!(found_untracked[0].name, "untracked_func");
+    assert_eq!(
+        found_untracked.first().map(|s| s.name.as_str()),
+        Some("untracked_func")
+    );
 
     // 3. Uncommitted deletion of tracked file
     fs::remove_file(&file2).expect("remove extra.rs");
