@@ -679,8 +679,16 @@ fn test_index_repo_dirty_worktree_incremental_flow() {
     let outcome1 = index_repo(&db, "test-repo", repo_path, false, &Silent).expect("initial index");
     assert_eq!(outcome1.files_indexed, 2);
     assert!(!outcome1.skipped_up_to_date);
-    assert!(db.get_file("test-repo", "main.rs").expect("get main.rs").is_some());
-    assert!(db.get_file("test-repo", "extra.rs").expect("get extra.rs").is_some());
+    assert!(
+        db.get_file("test-repo", "main.rs")
+            .expect("get main.rs")
+            .is_some()
+    );
+    assert!(
+        db.get_file("test-repo", "extra.rs")
+            .expect("get extra.rs")
+            .is_some()
+    );
 
     let outcome2 = index_repo(&db, "test-repo", repo_path, false, &Silent).expect("clean index");
     assert!(outcome2.skipped_up_to_date);
@@ -696,14 +704,17 @@ fn test_index_repo_dirty_worktree_incremental_flow() {
     )
     .expect("modify main.rs");
 
-    let outcome3 = index_repo(&db, "test-repo", repo_path, false, &Silent).expect("dirty edit index");
+    let outcome3 =
+        index_repo(&db, "test-repo", repo_path, false, &Silent).expect("dirty edit index");
     assert!(
         !outcome3.skipped_up_to_date,
         "dirty worktree must not be skipped as up to date"
     );
     assert_eq!(outcome3.files_indexed, 1);
 
-    let found = db.search_symbols_fts("dirty_added_func", 10).expect("search");
+    let found = db
+        .search_symbols_fts("dirty_added_func", 10)
+        .expect("search");
     assert_eq!(found.len(), 1);
     assert_eq!(found[0].name, "dirty_added_func");
 
@@ -724,7 +735,11 @@ fn test_index_repo_dirty_worktree_incremental_flow() {
         "dirty worktree with untracked file must not be skipped"
     );
     assert_eq!(outcome4.files_indexed, 1);
-    assert!(db.get_file("test-repo", "untracked.rs").expect("get untracked.rs").is_some());
+    assert!(
+        db.get_file("test-repo", "untracked.rs")
+            .expect("get untracked.rs")
+            .is_some()
+    );
 
     let found_untracked = db.search_symbols_fts("untracked_func", 10).expect("search");
     assert_eq!(found_untracked.len(), 1);
@@ -740,7 +755,11 @@ fn test_index_repo_dirty_worktree_incremental_flow() {
         "dirty worktree with deleted file must not be skipped"
     );
     assert_eq!(outcome5.files_deleted, 1);
-    assert!(db.get_file("test-repo", "extra.rs").expect("get extra.rs").is_none());
+    assert!(
+        db.get_file("test-repo", "extra.rs")
+            .expect("get extra.rs")
+            .is_none()
+    );
 
     let found_deleted = db.search_symbols_fts("extra_func", 10).expect("search");
     assert_eq!(found_deleted.len(), 0);
