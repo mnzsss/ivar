@@ -357,6 +357,8 @@ fn run_extraction_jobs(
                         &content_hash,
                         job.mtime_ns,
                         job.size_bytes,
+                        "",
+                        false,
                         &extracted,
                     )?;
                     num_symbols_indexed += sym_count;

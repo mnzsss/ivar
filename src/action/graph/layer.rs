@@ -217,6 +217,8 @@ fn index_layer_file(
         &hash,
         mtime_ns,
         size_bytes,
+        "",
+        false,
         &extracted,
     )
     .map_err(|e| layer_error(format!("Failed to index {rel_path}: {e}")))?;

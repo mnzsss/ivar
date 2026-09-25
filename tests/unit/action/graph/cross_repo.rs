@@ -37,13 +37,15 @@ fn test_http_client_calls_link_to_routes_with_path_parameters() {
         "h1",
         1,
         10,
+        "",
+        false,
         &ExtractedFile {
             symbols: vec![
                 symbol("api", "GET /projects", route(), 1),
                 symbol("api", "GET /projects/:id", route(), 10),
             ],
             edges: vec![],
-        },
+        }
     )
     .expect("index api");
 
@@ -66,13 +68,15 @@ fn test_http_client_calls_link_to_routes_with_path_parameters() {
         "h2",
         1,
         10,
+        "",
+        false,
         &ExtractedFile {
             symbols: vec![symbol("web", "projectsApi", SymbolKind::Fn, 1)],
             edges: vec![
                 request("GET /projects/:param", 3),
                 request("GET /projects", 5),
             ],
-        },
+        }
     )
     .expect("index web");
 
@@ -132,7 +136,9 @@ fn test_cross_repo_import_linking() {
         "hash_b1",
         100,
         500,
-        &backend_extracted,
+        "",
+        false,
+        &backend_extracted
     )
     .expect("index backend");
 
@@ -173,7 +179,9 @@ fn test_cross_repo_import_linking() {
         "hash_w1",
         100,
         300,
-        &web_extracted,
+        "",
+        false,
+        &web_extracted
     )
     .expect("index web");
 
@@ -244,7 +252,9 @@ fn test_cross_repo_cli_execution_linking() {
         "hash_cli1",
         100,
         400,
-        &cli_extracted,
+        "",
+        false,
+        &cli_extracted
     )
     .expect("index cli");
 
@@ -285,7 +295,9 @@ fn test_cross_repo_cli_execution_linking() {
         "hash_orca1",
         100,
         350,
-        &orca_extracted,
+        "",
+        false,
+        &orca_extracted
     )
     .expect("index orca");
 
@@ -342,7 +354,9 @@ fn test_cross_repo_http_linking() {
         "hash_srv1",
         100,
         400,
-        &server_extracted,
+        "",
+        false,
+        &server_extracted
     )
     .expect("index server");
 
@@ -383,7 +397,9 @@ fn test_cross_repo_http_linking() {
         "hash_fe1",
         100,
         350,
-        &client_extracted,
+        "",
+        false,
+        &client_extracted
     )
     .expect("index client");
 

@@ -447,3 +447,25 @@ fn migrating_to_nine_purges_legacy_and_skipped_misses_once() {
         .unwrap();
     assert_eq!(patterns, ["rg bar", "rg new"]);
 }
+
+#[test]
+fn schema_v10_creates_file_content_search_and_invalidates_old_freshness() {
+    let conn = Connection::open_in_memory().unwrap();
+    apply_migrations(&conn).unwrap();
+    conn.execute(
+        "INSERT INTO repos (id, root_path, default_branch, last_indexed_commit, indexed_at) VALUES ('app', '/tmp/app', 'main', 'old-head', 1)",
+        [],
+    )
+    .unwrap();
+    conn.pragma_update(None, "user_version", 9).unwrap();
+
+    apply_migrations(&conn).unwrap();
+
+    assert_eq!(user_version(&conn).unwrap(), 10);
+    let commit: Option<String> = conn
+        .query_row("SELECT last_indexed_commit FROM repos WHERE id = 'app'", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(commit, None, "v10 requires a complete text-content reindex");
+    conn.query_row("SELECT count(*) FROM file_content_fts", [], |_| Ok(()))
+        .expect("file content FTS exists");
+}

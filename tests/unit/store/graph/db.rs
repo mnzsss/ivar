@@ -474,7 +474,7 @@ fn test_index_extracted_file_resolves_from_symbol_id() {
         }],
     };
 
-    db.index_extracted_file("ivar", "src/lib.rs", "h_test", 1, 100, &extracted)
+    db.index_extracted_file("ivar", "src/lib.rs", "h_test", 1, 100, "", false, &extracted)
         .unwrap();
 
     let (from_sym_id, caller_id): (Option<i64>, i64) = db
@@ -553,7 +553,7 @@ fn test_index_extracted_file_duplicate_symbol_names_resolves_correct_from_symbol
         ],
     };
 
-    db.index_extracted_file("ivar", "src/workers.rs", "h_test", 1, 100, &extracted)
+    db.index_extracted_file("ivar", "src/workers.rs", "h_test", 1, 100, "", false, &extracted)
         .unwrap();
 
     let sym_ids: Vec<i64> = db
@@ -707,7 +707,7 @@ fn test_index_extracted_file_duplicate_target_names_resolves_or_leaves_unresolve
         ],
     };
 
-    db.index_extracted_file("ivar", "src/workers.rs", "h_test", 1, 100, &extracted)
+    db.index_extracted_file("ivar", "src/workers.rs", "h_test", 1, 100, "", false, &extracted)
         .unwrap();
 
     let worker_a_helper_id: i64 = db
@@ -1154,4 +1154,55 @@ fn usage_summary_leaves_out_hook_rows() {
     .unwrap();
     assert!(db.usage_summary().unwrap().is_empty());
     assert!(db.last_graph_call("s").unwrap().is_some());
+}
+
+#[test]
+fn indexed_content_is_searchable_replaced_and_deleted_with_its_file() {
+    let db = GraphDb::open_in_memory().unwrap();
+    db.insert_repo("app", "/tmp/app", "main", None).unwrap();
+    let empty = crate::store::graph::extractor::ExtractedFile::default();
+    db.index_extracted_file(
+        "app", ".github/workflows/ci.yml", "h1", 1, 50,
+        "name: release sentinel-old", false, &empty,
+    )
+    .unwrap();
+    assert_eq!(db.search_file_content("sentinel-old", Some("app"), 10).unwrap().len(), 1);
+
+    db.index_extracted_file(
+        "app", ".github/workflows/ci.yml", "h2", 2, 50,
+        "name: release sentinel-new", true, &empty,
+    )
+    .unwrap();
+    assert!(db.search_file_content("sentinel-old", Some("app"), 10).unwrap().is_empty());
+    let hits = db.search_file_content("sentinel-new", Some("app"), 10).unwrap();
+    assert_eq!(hits[0].path, ".github/workflows/ci.yml");
+    assert!(hits[0].content_truncated);
+
+    db.delete_file_cascade("app", ".github/workflows/ci.yml").unwrap();
+    assert!(db.search_file_content("sentinel-new", Some("app"), 10).unwrap().is_empty());
+}
+
+
+#[test]
+fn indexed_content_search_handles_punctuation_and_quotes() {
+    let db = GraphDb::open_in_memory().unwrap();
+    db.insert_repo("app", "/tmp/app", "main", None).unwrap();
+    let empty = crate::store::graph::extractor::ExtractedFile::default();
+    db.index_extracted_file(
+        "app",
+        "config/settings.json",
+        "h1",
+        1,
+        100,
+        r#"{"key-name": "value:with:colons", "quoted": "hello \"world\""}"#,
+        false,
+        &empty,
+    )
+    .unwrap();
+
+    assert_eq!(db.search_file_content("key-name", Some("app"), 10).unwrap().len(), 1);
+    assert_eq!(db.search_file_content("value:with:colons", Some("app"), 10).unwrap().len(), 1);
+    assert_eq!(db.search_file_content(r#"hello "world""#, Some("app"), 10).unwrap().len(), 1);
+    assert_eq!(db.search_file_content("   ", Some("app"), 10).unwrap().len(), 0);
+    assert_eq!(db.search_file_content("", Some("app"), 10).unwrap().len(), 0);
 }

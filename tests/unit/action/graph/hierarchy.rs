@@ -35,7 +35,9 @@ fn test_execute_hierarchy_bases_and_implementations() {
         "h_base",
         1,
         100,
-        &base_extracted,
+        "",
+        false,
+        &base_extracted
     )
     .unwrap();
 
@@ -63,7 +65,9 @@ fn test_execute_hierarchy_bases_and_implementations() {
         "h_core",
         1,
         100,
-        &core_trait_extracted,
+        "",
+        false,
+        &core_trait_extracted
     )
     .unwrap();
 
@@ -118,7 +122,9 @@ fn test_execute_hierarchy_bases_and_implementations() {
         "h_auth",
         1,
         100,
-        &auth_extracted,
+        "",
+        false,
+        &auth_extracted
     )
     .unwrap();
 
@@ -158,7 +164,9 @@ fn test_execute_hierarchy_bases_and_implementations() {
         "h_custom",
         1,
         100,
-        &custom_extracted,
+        "",
+        false,
+        &custom_extracted
     )
     .unwrap();
 

@@ -145,7 +145,7 @@ impl GraphDb {
     /// Returns [`GraphDbError`] if the query fails.
     pub fn get_file(&self, repo: &str, path: &str) -> Result<Option<FileRow>> {
         let mut stmt = self.conn.prepare_cached(
-            "SELECT id, repo, path, content_hash, mtime_ns, size_bytes, indexed_at FROM files WHERE repo = ?1 AND path = ?2",
+            "SELECT id, repo, path, content_hash, mtime_ns, size_bytes, content_truncated, indexed_at FROM files WHERE repo = ?1 AND path = ?2",
         )?;
         let result = stmt
             .query_row(params![repo, path], |row| {
@@ -156,7 +156,8 @@ impl GraphDb {
                     content_hash: row.get(3)?,
                     mtime_ns: row.get(4)?,
                     size_bytes: row.get(5)?,
-                    indexed_at: row.get(6)?,
+                    content_truncated: row.get::<_, i64>(6)? != 0,
+                    indexed_at: row.get(7)?,
                 })
             })
             .optional()?;
@@ -184,7 +185,7 @@ impl GraphDb {
     /// Returns [`GraphDbError`] if the query fails.
     pub fn get_files_for_repo(&self, repo: &str) -> Result<Vec<FileRow>> {
         let mut stmt = self.conn.prepare_cached(
-            "SELECT id, repo, path, content_hash, mtime_ns, size_bytes, indexed_at FROM files WHERE repo = ?1 ORDER BY path ASC",
+            "SELECT id, repo, path, content_hash, mtime_ns, size_bytes, content_truncated, indexed_at FROM files WHERE repo = ?1 ORDER BY path ASC",
         )?;
         let rows = stmt.query_map(params![repo], |row| {
             Ok(FileRow {
@@ -194,7 +195,8 @@ impl GraphDb {
                 content_hash: row.get(3)?,
                 mtime_ns: row.get(4)?,
                 size_bytes: row.get(5)?,
-                indexed_at: row.get(6)?,
+                content_truncated: row.get::<_, i64>(6)? != 0,
+                indexed_at: row.get(7)?,
             })
         })?;
         let mut files = Vec::new();
@@ -210,6 +212,18 @@ impl GraphDb {
     ///
     /// Returns [`GraphDbError`] if the delete statement fails.
     pub fn delete_file(&self, repo: &str, path: &str) -> Result<()> {
+        let file_id: Option<i64> = self
+            .conn
+            .query_row(
+                "SELECT id FROM files WHERE repo = ?1 AND path = ?2",
+                params![repo, path],
+                |row| row.get(0),
+            )
+            .optional()?;
+        if let Some(id) = file_id {
+            self.conn
+                .execute("DELETE FROM file_content_fts WHERE rowid = ?1", params![id])?;
+        }
         self.conn.execute(
             "DELETE FROM files WHERE repo = ?1 AND path = ?2",
             params![repo, path],

@@ -62,7 +62,9 @@ fn test_execute_complexity_ranking_and_threshold() {
         "h_compute",
         1,
         100,
-        &extracted,
+        "",
+        false,
+        &extracted
     )
     .unwrap();
 

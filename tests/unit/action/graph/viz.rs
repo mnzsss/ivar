@@ -174,9 +174,9 @@ fn test_collect_viz_data_and_repo_filter() {
         edges: vec![],
     };
 
-    db.index_extracted_file("repo_a", "src/a.rs", "hash_a", 1, 100, &extracted_a)
+    db.index_extracted_file("repo_a", "src/a.rs", "hash_a", 1, 100, "", false, &extracted_a)
         .unwrap();
-    db.index_extracted_file("repo_b", "src/b.rs", "hash_b", 1, 200, &extracted_b)
+    db.index_extracted_file("repo_b", "src/b.rs", "hash_b", 1, 200, "", false, &extracted_b)
         .unwrap();
 
     // 1. All repos
@@ -241,7 +241,7 @@ fn test_execute_viz_writes_file_to_disk() {
         edges: vec![],
     };
 
-    db.index_extracted_file("repo_1", "src/server.ts", "hash_s", 1, 500, &extracted)
+    db.index_extracted_file("repo_1", "src/server.ts", "hash_s", 1, 500, "", false, &extracted)
         .unwrap();
 
     let tmp = tempdir().expect("temp dir");
