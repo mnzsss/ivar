@@ -216,3 +216,21 @@ None of this is a security boundary. It is a guardrail against plausible
 mistakes — an agent committing to `main` because that is where it happened to
 be — and it is built for a hall where the person running it wants the guardrail.
 It will not stop a determined process running as your user.
+
+## Codebase graph indexing and plain-text bounds
+
+The codebase graph indexes all Git-tracked UTF-8 text files, but applies clear operational bounds:
+
+- **Searchable content bound:** Each file is indexed up to a maximum of 256 KiB of UTF-8 content.
+  Content beyond this bound is not indexed for full-text search, and the file record marks
+  `content_truncated: true`. Exact requested-file retrieval still reads the full current file from disk.
+- **Binary and unparseable files:** Files containing NUL bytes or invalid UTF-8 within the content probe
+  are rejected as binary and skipped without failing the repository index.
+- **Excluded files:** Untracked files, Git-ignored files, and ignored build/dependency directories
+  (such as `target/`, `node_modules/`, `.git/`, `.ivar/`) are not indexed.
+- **Plain-text files without grammars:** Text files lacking tree-sitter grammars participate in path,
+  basename, and full-text search, but do not produce synthetic AST symbols, callers, callees, or
+  call graph edges.
+- **Response budgets and truncation:** Exploration outputs enforce deterministic budgets (18,000 characters
+  for standard exploration; 24,000 for explicit file requests). When files or sources exceed budgets,
+  omitted files are listed under `not_shown` with an exact JSON `paths` continuation call.

@@ -785,3 +785,206 @@ fn test_explore_find_candidates_resolves_a_directory_given_with_its_workspace_pr
             .collect()
     );
 }
+
+use crate::action::graph::query::find::explore_find;
+
+struct RetrievalTestDb {
+    pub(super) db: GraphDb,
+}
+
+impl std::ops::Deref for RetrievalTestDb {
+    type Target = GraphDb;
+    fn deref(&self) -> &Self::Target {
+        &self.db
+    }
+}
+
+impl RetrievalTestDb {
+    pub(super) fn index_text(&self, repo: &str, path: &str, content: &str) {
+        let _ = self
+            .db
+            .insert_repo(repo, &format!("/path/to/{repo}"), "main", None);
+        let hash = crate::infra::hash::text(content);
+        let _ = self
+            .db
+            .upsert_file(repo, path, &hash, 100, content.len() as i64)
+            .expect("upsert file");
+        let empty_extracted = crate::store::graph::extractor::ExtractedFile::default();
+        let _ = self.db.index_extracted_file(
+            repo,
+            path,
+            &hash,
+            100,
+            content.len() as i64,
+            content,
+            false,
+            &empty_extracted,
+        );
+    }
+
+    pub(super) fn index_symbol_and_text(&self, repo: &str, path: &str, name: &str, content: &str) {
+        let _ = self
+            .db
+            .insert_repo(repo, &format!("/path/to/{repo}"), "main", None);
+        let hash = crate::infra::hash::text(content);
+        let _ = self
+            .db
+            .upsert_file(repo, path, &hash, 100, content.len() as i64)
+            .expect("upsert file");
+        let sym = Symbol {
+            id: None,
+            file_id: None,
+            repo: repo.to_owned(),
+            name: name.to_owned(),
+            kind: SymbolKind::Fn,
+            scope: None,
+            signature: Some(format!("fn {name}()")),
+            docstring: None,
+            span: Span::new(1, 1, 5, 1),
+            is_exported: true,
+            complexity: None,
+        };
+        let extracted = crate::store::graph::extractor::ExtractedFile {
+            symbols: vec![sym],
+            edges: vec![],
+        };
+        let _ = self.db.index_extracted_file(
+            repo,
+            path,
+            &hash,
+            100,
+            content.len() as i64,
+            content,
+            false,
+            &extracted,
+        );
+    }
+
+    pub(super) fn index_symbol(&self, repo: &str, path: &str, name: &str) {
+        self.index_symbol_and_text(repo, path, name, name);
+    }
+}
+
+fn retrieval_fixture() -> RetrievalTestDb {
+    let db = GraphDb::open_in_memory().expect("open in-memory db");
+    RetrievalTestDb { db }
+}
+
+fn retrieval_fixture_with_feedback_corpus() -> RetrievalTestDb {
+    let db = retrieval_fixture();
+    // Feedback corpus items:
+    // 1. RankingToolbar border divider
+    db.index_symbol_and_text(
+        "frontend",
+        "apps/console/src/screens/dashboard/contacts/ranking/toolbar.tsx",
+        "RankingToolbar",
+        "RankingToolbar border divider component",
+    );
+    db.index_text(
+        "frontend",
+        "apps/console/src/components/generic/divider.tsx",
+        "border divider generic",
+    );
+    db.index_text(
+        "frontend",
+        "apps/console/src/components/generic/border.tsx",
+        "border divider generic",
+    );
+    db.index_text(
+        "backend",
+        "src/ranking/divider.rs",
+        "border divider ranking backend",
+    );
+
+    // 2. ranking-row.tsx ranking table row
+    db.index_text(
+        "frontend",
+        "apps/console/src/screens/dashboard/contacts/ranking/ranking-row.tsx",
+        "ranking table row export default function RankingRow()",
+    );
+    db.index_text(
+        "frontend",
+        "apps/console/src/screens/dashboard/contacts/ranking/table.tsx",
+        "ranking table row render",
+    );
+    db.index_text("backend", "src/ranking/table.rs", "ranking table row rust");
+
+    // 3. node-toolbar duplicateNode
+    db.index_symbol(
+        "frontend",
+        "apps/console/src/screens/canvas/node-toolbar/actions.ts",
+        "duplicateNode",
+    );
+    db.index_symbol(
+        "frontend",
+        "apps/console/src/screens/canvas/other-toolbar/actions.ts",
+        "duplicateNodeOther",
+    );
+    db.index_text(
+        "frontend",
+        "apps/console/src/screens/canvas/node-toolbar/index.tsx",
+        "node-toolbar component duplicateNode",
+    );
+    db.index_text(
+        "frontend",
+        "apps/console/src/screens/canvas/other/index.tsx",
+        "duplicateNode in different file",
+    );
+
+    db
+}
+
+#[test]
+fn repo_workflow_query_returns_the_named_repos_yaml_first() {
+    let db = retrieval_fixture();
+    db.index_text(
+        "frontend",
+        ".github/workflows/ci.yml",
+        "uses: actions/checkout@v4",
+    );
+    db.index_text(
+        "backend",
+        ".github/workflows/release.yml",
+        "uses: actions/checkout@v3",
+    );
+    db.index_symbol("frontend", "src/actions.ts", "WorkflowAction");
+
+    let found = explore_find(
+        &db,
+        "frontend .github/workflows actions dependencies",
+        None,
+        6,
+    )
+    .unwrap();
+
+    assert_eq!(found.files[0].repo, "frontend");
+    assert_eq!(found.files[0].file_path, ".github/workflows/ci.yml");
+    assert!(found.files.iter().all(|hit| hit.repo == "frontend"));
+}
+
+#[test]
+fn exact_symbol_and_basename_beat_many_generic_matches() {
+    let db = retrieval_fixture_with_feedback_corpus();
+
+    let toolbar = explore_find(&db, "RankingToolbar border divider", None, 6).unwrap();
+    assert_eq!(toolbar.symbols[0].symbol.name, "RankingToolbar");
+    let row = explore_find(&db, "ranking-row.tsx ranking table row", None, 6).unwrap();
+    assert_eq!(
+        row.files[0].file_path,
+        "apps/console/src/screens/dashboard/contacts/ranking/ranking-row.tsx"
+    );
+}
+#[test]
+fn hybrid_path_symbol_query_keeps_results_inside_the_pinned_path() {
+    let db = retrieval_fixture_with_feedback_corpus();
+
+    let found = explore_find(&db, "node-toolbar duplicateNode", Some("frontend"), 6).unwrap();
+
+    assert_eq!(found.symbols[0].symbol.name, "duplicateNode");
+    assert!(
+        found
+            .files
+            .iter()
+            .all(|hit| hit.file_path.contains("node-toolbar"))
+    );
+}

@@ -3,11 +3,14 @@
 use camino::Utf8Path;
 use sha2::{Digest, Sha256};
 
+use crate::action::graph::index::types::{
+    TextClassification, classify_text, is_ignored_file_path, is_ignored_path,
+};
 use crate::error::Failure;
 use crate::git::{Git, System as GitSystem, WorktreeDiff};
 use crate::infra::graph::parser::SupportedLanguage;
 use crate::store::graph::db::{FileRow, GraphDb};
-use crate::store::graph::extractor::extract_file;
+use crate::store::graph::extractor::{ExtractedFile, extract_file};
 use crate::store::layout::Layout;
 
 /// Result of ensuring a layer is indexed.
@@ -137,6 +140,10 @@ pub fn ensure_layer_indexed(
 
     let mut indexed_count = 0;
     for rel_path in &diff.modified_or_added {
+        let p_std = rel_path.as_std_path();
+        if is_ignored_file_path(p_std) || is_ignored_path(p_std) {
+            continue;
+        }
         let existing = stale.remove(rel_path.as_str());
         if index_layer_file(db, &layer_repo, worktree, rel_path, existing.as_ref())? {
             indexed_count += 1;
@@ -180,13 +187,11 @@ fn index_layer_file(
     existing: Option<&FileRow>,
 ) -> Result<bool, Failure> {
     let full_path = worktree.join(rel_path);
-    let lang = rel_path
-        .extension()
-        .and_then(SupportedLanguage::from_extension);
     let meta = std::fs::metadata(&full_path).ok().filter(|m| m.is_file());
-    let (Some(lang), Some(meta)) = (lang, meta) else {
+    let Some(meta) = meta else {
         return drop_layer_file(db, layer_repo, rel_path, existing);
     };
+
     let mtime_ns = mtime_ns(&meta);
     let size_bytes = i64::try_from(meta.len()).unwrap_or(i64::MAX);
     if let Some(row) = existing
@@ -197,10 +202,11 @@ fn index_layer_file(
         return Ok(false);
     }
 
-    let Ok(content) = std::fs::read_to_string(&full_path) else {
+    let Ok(bytes) = std::fs::read(&full_path) else {
         return drop_layer_file(db, layer_repo, rel_path, existing);
     };
-    let hash = hex(&Sha256::digest(content.as_bytes()));
+
+    let hash = hex(&Sha256::digest(&bytes));
     if let Some(row) = existing
         && row.content_hash == hash
     {
@@ -209,14 +215,35 @@ fn index_layer_file(
         return Ok(false);
     }
 
-    let extracted = extract_file(layer_repo, rel_path.as_str(), &content, lang)
-        .map_err(|e| layer_error(format!("Failed to extract {rel_path}: {e}")))?;
+    let (content, indexed_len, truncated) = match classify_text(bytes) {
+        TextClassification::Binary => return drop_layer_file(db, layer_repo, rel_path, existing),
+        TextClassification::Text {
+            content,
+            indexed_len,
+            truncated,
+        } => (content, indexed_len, truncated),
+    };
+
+    let lang = rel_path
+        .extension()
+        .and_then(SupportedLanguage::from_extension);
+
+    let extracted = match lang {
+        Some(lang) => extract_file(layer_repo, rel_path.as_str(), &content, lang)
+            .map_err(|e| layer_error(format!("Failed to extract {rel_path}: {e}")))?,
+        None => ExtractedFile::default(),
+    };
+
+    let indexed_content = &content[..indexed_len];
+
     db.index_extracted_file(
         layer_repo,
         rel_path.as_str(),
         &hash,
         mtime_ns,
         size_bytes,
+        indexed_content,
+        truncated,
         &extracted,
     )
     .map_err(|e| layer_error(format!("Failed to index {rel_path}: {e}")))?;

@@ -37,6 +37,8 @@ fn test_http_client_calls_link_to_routes_with_path_parameters() {
         "h1",
         1,
         10,
+        "",
+        false,
         &ExtractedFile {
             symbols: vec![
                 symbol("api", "GET /projects", route(), 1),
@@ -66,6 +68,8 @@ fn test_http_client_calls_link_to_routes_with_path_parameters() {
         "h2",
         1,
         10,
+        "",
+        false,
         &ExtractedFile {
             symbols: vec![symbol("web", "projectsApi", SymbolKind::Fn, 1)],
             edges: vec![
@@ -132,6 +136,8 @@ fn test_cross_repo_import_linking() {
         "hash_b1",
         100,
         500,
+        "",
+        false,
         &backend_extracted,
     )
     .expect("index backend");
@@ -173,6 +179,8 @@ fn test_cross_repo_import_linking() {
         "hash_w1",
         100,
         300,
+        "",
+        false,
         &web_extracted,
     )
     .expect("index web");
@@ -244,6 +252,8 @@ fn test_cross_repo_cli_execution_linking() {
         "hash_cli1",
         100,
         400,
+        "",
+        false,
         &cli_extracted,
     )
     .expect("index cli");
@@ -285,6 +295,8 @@ fn test_cross_repo_cli_execution_linking() {
         "hash_orca1",
         100,
         350,
+        "",
+        false,
         &orca_extracted,
     )
     .expect("index orca");
@@ -342,6 +354,8 @@ fn test_cross_repo_http_linking() {
         "hash_srv1",
         100,
         400,
+        "",
+        false,
         &server_extracted,
     )
     .expect("index server");
@@ -383,6 +397,8 @@ fn test_cross_repo_http_linking() {
         "hash_fe1",
         100,
         350,
+        "",
+        false,
         &client_extracted,
     )
     .expect("index client");

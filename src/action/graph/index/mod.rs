@@ -1,10 +1,7 @@
-//! Fast incremental Git diff codebase graph indexer.
+//! Codebase graph indexing orchestrator.
 //!
-//! Synchronously detects repository changes using `git2` diff delta against the last indexed
-//! commit OID, parses modified/added files via Tree-sitter, deletes obsolete files/symbols/edges,
-//! and updates dangling references in SQLite.
-
-pub mod types;
+//! Traverses repository source files, parses definitions and references via tree-sitter,
+//! and persists symbol tables, reference edges, and FTS indexes to SQLite.
 
 use std::collections::HashSet;
 use std::num::NonZeroUsize;
@@ -13,28 +10,32 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc;
 use std::time::Instant;
 
-use camino::Utf8Path;
+use camino::{Utf8Path, Utf8PathBuf};
+use sha2::{Digest, Sha256};
+use types::classify_text;
 
+use crate::action::progress::Progress;
 use crate::git::Git;
 use crate::infra::graph::parser::SupportedLanguage;
-use crate::infra::hash;
-use crate::infra::progress::Progress;
 use crate::store::graph::db::GraphDb;
 use crate::store::graph::extractor::{ExtractedFile, extract_file};
 use crate::store::layout::Layout;
 use crate::store::manifest::Manifest;
-pub use types::*;
 
-/// Incrementally indexes a git repository into the GraphDb.
+pub mod types;
+pub use types::{
+    FileFailure, HallIndex, IndexError, IndexOutcome, RepoFailure, TextClassification,
+    is_ignored_dir, is_ignored_file_path, is_ignored_path,
+};
+
+/// Indexes a single repository, returning statistics on what was added/updated.
 ///
-/// Fast Path:
-/// If the last indexed commit matches HEAD and there are no uncommitted working tree changes,
-/// returns immediately with `skipped_up_to_date = true` in <1ms.
+/// If `force_full` is false and the repository HEAD matches the indexed HEAD,
+/// indexing is skipped entirely.
 ///
-/// Delta Path:
-/// Computes diffs against the last indexed commit (or scans the full tree on first index),
-/// processes deleted files, extracts AST symbols/edges for modified & added files, and
-/// updates the last indexed commit OID.
+/// # Errors
+///
+/// Returns [`IndexError`] if Git discovery, AST parsing, or SQLite transactions fail.
 pub fn index_repo(
     db: &GraphDb,
     repo_id: &str,
@@ -43,24 +44,20 @@ pub fn index_repo(
     progress: &dyn Progress,
 ) -> Result<IndexOutcome, IndexError> {
     let start_time = Instant::now();
-    let git = crate::git::System;
-    let repo_utf8 = Utf8Path::from_path(repo_path).ok_or_else(|| crate::git::Error::NotUtf8 {
-        display: repo_path.to_string_lossy().to_string(),
+    let repo_utf8 = Utf8Path::from_path(repo_path).ok_or_else(|| {
+        IndexError::Git(crate::git::Error::NotARepository {
+            path: Utf8PathBuf::from(repo_path.to_string_lossy().to_string()),
+            detail: "Path is not valid UTF-8".to_owned(),
+        })
     })?;
-
-    let default_branch = git
-        .head_branch(repo_utf8)
-        .unwrap_or_else(|_| "main".to_owned());
-    db.insert_repo(repo_id, &repo_path.to_string_lossy(), &default_branch, None)?;
+    let git = crate::git::System;
 
     let head_commit = git.head_commit(repo_utf8).ok();
     let last_indexed = db.get_repo_last_commit(repo_id)?;
 
-    // Fast Path: HEAD unchanged and working tree clean
     if !force_full
-        && let (Some(head_sha), Some(last_commit_str)) = (&head_commit, &last_indexed)
-        && head_sha == last_commit_str
-        && !git.worktree_dirty(repo_utf8).unwrap_or(true)
+        && let Some(head) = &head_commit
+        && last_indexed.as_deref() == Some(head.as_str())
     {
         return Ok(up_to_date_outcome(repo_id, start_time));
     }
@@ -76,53 +73,38 @@ pub fn index_repo(
         &head_commit,
     )?;
 
-    if listed_by_git_diff
-        && files_to_index.is_empty()
-        && files_to_delete.is_empty()
-        && let (Some(head_sha), Some(last_head_str)) = (&head_commit, &last_indexed)
-        && head_sha == last_head_str
-    {
+    if !force_full && files_to_index.is_empty() && files_to_delete.is_empty() {
         return Ok(up_to_date_outcome(repo_id, start_time));
     }
 
-    let num_files_deleted = files_to_delete.len();
+    let default_branch = git
+        .head_branch(repo_utf8)
+        .unwrap_or_else(|_| "main".to_owned());
+    db.insert_repo(
+        repo_id,
+        repo_utf8.as_str(),
+        &default_branch,
+        head_commit.as_deref(),
+    )?;
 
-    let index_res = (|| -> Result<(usize, usize, usize, Vec<FileFailure>), IndexError> {
-        let (jobs, mut files_failed) = build_extract_jobs(
-            db,
-            repo_id,
-            repo_path,
-            &files_to_index,
-            force_full,
-            listed_by_git_diff,
-        )?;
-        let (num_files_indexed, num_symbols_indexed, num_edges_indexed, job_failures) =
-            run_extraction_jobs(&jobs, repo_id, db, progress, &files_to_delete)?;
-        files_failed.extend(job_failures);
-        Ok((
-            num_files_indexed,
-            num_symbols_indexed,
-            num_edges_indexed,
-            files_failed,
-        ))
-    })();
+    let (jobs, mut files_failed) = build_extract_jobs(
+        db,
+        repo_id,
+        repo_path,
+        &files_to_index,
+        force_full,
+        listed_by_git_diff,
+    )?;
 
-    progress.clear();
-    let (num_files_indexed, num_symbols_indexed, num_edges_indexed, files_failed) = index_res?;
-
-    if num_files_indexed > 0 || num_files_deleted > 0 {
-        db.relink_dangling_edges(repo_id)?;
-    }
-
-    if let Some(head_str) = &head_commit {
-        db.update_repo_commit(repo_id, head_str)?;
-    }
+    let (num_files_indexed, num_symbols_indexed, num_edges_indexed, job_failures) =
+        run_extraction_jobs(&jobs, repo_id, db, progress, &files_to_delete)?;
+    files_failed.extend(job_failures);
 
     let duration_ms = u64::try_from(start_time.elapsed().as_millis()).unwrap_or(u64::MAX);
     Ok(IndexOutcome {
         repo: repo_id.to_owned(),
         files_indexed: num_files_indexed,
-        files_deleted: num_files_deleted,
+        files_deleted: files_to_delete.len(),
         symbols_indexed: num_symbols_indexed,
         edges_indexed: num_edges_indexed,
         duration_ms,
@@ -153,7 +135,7 @@ fn discover_changed_files(
     git: &dyn crate::git::Git,
     db: &GraphDb,
     repo_id: &str,
-    repo_path: &Path,
+    _repo_path: &Path,
     repo_utf8: &Utf8Path,
     force_full: bool,
     last_indexed: &Option<String>,
@@ -169,13 +151,13 @@ fn discover_changed_files(
                 listed_by_git_diff = true;
                 for p in diff.modified_or_added {
                     let p_std = p.as_std_path();
-                    if is_supported_file(p_std) && !is_ignored_path(p_std) {
+                    if !is_ignored_file_path(p_std) && !is_ignored_path(p_std) {
                         files_to_index.push(p.to_string());
                     }
                 }
                 for p in diff.deleted {
                     let p_std = p.as_std_path();
-                    if is_supported_file(p_std) && !is_ignored_path(p_std) {
+                    if !is_ignored_file_path(p_std) && !is_ignored_path(p_std) {
                         files_to_delete.push(p.to_string());
                     }
                 }
@@ -198,21 +180,13 @@ fn discover_changed_files(
         files_to_delete.clear();
         let mut seen = HashSet::new();
 
-        for entry in walkdir::WalkDir::new(repo_path)
-            .into_iter()
-            .filter_entry(|e| !is_ignored_dir(e.file_name()))
-            .filter_map(Result::ok)
-        {
-            if entry.file_type().is_file()
-                && let Ok(rel) = entry.path().strip_prefix(repo_path)
-                && is_supported_file(rel)
-                && !is_ignored_path(rel)
-                && let Some(rel_utf8) = Utf8Path::from_path(rel)
-                && !git.is_path_ignored(repo_utf8, rel_utf8).unwrap_or(false)
-            {
-                let rel_str = rel.to_string_lossy().to_string();
-                if seen.insert(rel_str.clone()) {
-                    files_to_index.push(rel_str);
+        let tracked = git.tracked_files(repo_utf8)?;
+        for path in tracked {
+            let p_std = path.as_std_path();
+            if !is_ignored_file_path(p_std) && !is_ignored_path(p_std) {
+                let path_str = path.to_string();
+                if seen.insert(path_str.clone()) {
+                    files_to_index.push(path_str);
                 }
             }
         }
@@ -246,13 +220,10 @@ fn build_extract_jobs(
             continue;
         }
 
-        let Some(lang) = Path::new(rel_path)
+        let lang = Path::new(rel_path)
             .extension()
             .and_then(|e| e.to_str())
-            .and_then(SupportedLanguage::from_extension)
-        else {
-            continue;
-        };
+            .and_then(SupportedLanguage::from_extension);
 
         let metadata = match std::fs::metadata(&full_path) {
             Ok(metadata) => metadata,
@@ -343,12 +314,15 @@ fn run_extraction_jobs(
             ));
             match extraction {
                 Extraction::Unchanged => {}
+                Extraction::Binary => {}
                 Extraction::Failed(reason) => files_failed.push(FileFailure {
                     path: job.rel_path.clone(),
                     reason,
                 }),
                 Extraction::Extracted {
                     content_hash,
+                    indexed_content,
+                    truncated,
                     extracted,
                 } => {
                     let (sym_count, edge_count) = db.index_extracted_file(
@@ -357,6 +331,8 @@ fn run_extraction_jobs(
                         &content_hash,
                         job.mtime_ns,
                         job.size_bytes,
+                        &indexed_content,
+                        truncated,
                         &extracted,
                     )?;
                     num_symbols_indexed += sym_count;
@@ -371,6 +347,10 @@ fn run_extraction_jobs(
         db.delete_file_cascade(repo_id, del)?;
     }
 
+    if total > 0 {
+        progress.clear();
+    }
+
     Ok((
         num_files_indexed,
         num_symbols_indexed,
@@ -382,7 +362,7 @@ fn run_extraction_jobs(
 struct ExtractJob {
     rel_path: String,
     full_path: PathBuf,
-    lang: SupportedLanguage,
+    lang: Option<SupportedLanguage>,
     size_bytes: i64,
     mtime_ns: i64,
     known_hash: Option<String>,
@@ -390,28 +370,60 @@ struct ExtractJob {
 
 enum Extraction {
     Unchanged,
+    Binary,
     Extracted {
         content_hash: String,
+        indexed_content: String,
+        truncated: bool,
         extracted: ExtractedFile,
     },
     Failed(String),
 }
 
+fn hex(bytes: &[u8]) -> String {
+    use std::fmt::Write;
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for b in bytes {
+        let _ = write!(out, "{b:02x}");
+    }
+    out
+}
+
 fn extract_job(repo_id: &str, job: &ExtractJob) -> Extraction {
-    let content = match std::fs::read_to_string(&job.full_path) {
-        Ok(content) => content,
+    let bytes = match std::fs::read(&job.full_path) {
+        Ok(bytes) => bytes,
         Err(error) => return Extraction::Failed(error.to_string()),
     };
-    let content_hash = hash::text(&content);
+
+    let content_hash = hex(&Sha256::digest(&bytes));
     if job.known_hash.as_deref() == Some(content_hash.as_str()) {
         return Extraction::Unchanged;
     }
-    match extract_file(repo_id, &job.rel_path, &content, job.lang) {
-        Ok(extracted) => Extraction::Extracted {
-            content_hash,
-            extracted,
+
+    let (content, indexed_len, truncated) = match classify_text(bytes) {
+        TextClassification::Binary => return Extraction::Binary,
+        TextClassification::Text {
+            content,
+            indexed_len,
+            truncated,
+        } => (content, indexed_len, truncated),
+    };
+
+    let extracted = match job.lang {
+        Some(lang) => match extract_file(repo_id, &job.rel_path, &content, lang) {
+            Ok(extracted) => extracted,
+            Err(error) => return Extraction::Failed(error.to_string()),
         },
-        Err(error) => Extraction::Failed(error.to_string()),
+        None => ExtractedFile::default(),
+    };
+
+    let indexed_content = content[..indexed_len].to_string();
+
+    Extraction::Extracted {
+        content_hash,
+        indexed_content,
+        truncated,
+        extracted,
     }
 }
 

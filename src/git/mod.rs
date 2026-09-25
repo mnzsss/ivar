@@ -769,6 +769,15 @@ pub trait Git {
     ) -> Result<WorktreeDiff, Error> {
         read::diff_worktree_files(worktree, since_commit)
     }
+
+    /// Every file currently tracked in the repository index, sorted.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error`] if the repository index cannot be read.
+    fn tracked_files(&self, worktree: &Utf8Path) -> Result<Vec<Utf8PathBuf>, Error> {
+        read::tracked_files(worktree)
+    }
 }
 
 /// One worktree registered with a bare repository.
@@ -1074,6 +1083,10 @@ impl Git for System {
         since_commit: Option<&str>,
     ) -> Result<WorktreeDiff, Error> {
         read::diff_worktree_files(worktree, since_commit)
+    }
+
+    fn tracked_files(&self, worktree: &Utf8Path) -> Result<Vec<Utf8PathBuf>, Error> {
+        read::tracked_files(worktree)
     }
 }
 

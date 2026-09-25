@@ -71,31 +71,31 @@ where
                 explore::explore(db, root, &q, repo)
             }
             .map_err(|e| format!("explore failed: {e}"))?;
-            let count = Some(res.primary_symbols.len());
-            // A model reads this over MCP to pick its next file, so Markdown is the
-            // default; see `narrate`.
+            let count = Some(if !res.file_matches.is_empty() {
+                res.file_matches.len() + res.primary_symbols.len()
+            } else {
+                res.primary_symbols.len()
+            });
+            WorkspacePaths::from_current_dir().rewrite_explore(db, &mut res);
             let text = match args.get("format").and_then(Value::as_str) {
                 Some("compact") => Ok(compact::encode_explore(&res)),
                 Some("json") => serde_json::to_string_pretty(&res).map_err(|e| e.to_string()),
-                _ => {
-                    WorkspacePaths::from_current_dir().rewrite_explore(db, &mut res);
-                    Ok(if requests_files {
-                        let mut answer = narrate::narrate_requested_files(&res);
-                        if !unindexed.is_empty() {
-                            let names: Vec<String> =
-                                unindexed.iter().map(|path| format!("`{path}`")).collect();
-                            let _ = write!(
-                                answer,
-                                "\nNot indexed: {}. No indexed file matches, so Read it directly \
-                                 or call `refresh_index` if it is new.\n",
-                                names.join(", ")
-                            );
-                        }
-                        answer
-                    } else {
-                        narrate::narrate_explore(&res)
-                    })
-                }
+                _ => Ok(if requests_files {
+                    let mut answer = narrate::narrate_requested_files(&res);
+                    if !unindexed.is_empty() {
+                        let names: Vec<String> =
+                            unindexed.iter().map(|path| format!("`{path}`")).collect();
+                        let _ = write!(
+                            answer,
+                            "\nNot indexed: {}. No indexed file matches, so Read it directly \
+                             or call `refresh_index` if it is new.\n",
+                            names.join(", ")
+                        );
+                    }
+                    answer
+                } else {
+                    narrate::narrate_explore(&res)
+                }),
             }?;
             Ok((text, count))
         }

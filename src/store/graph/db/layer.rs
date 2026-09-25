@@ -41,7 +41,7 @@ const BASE_VIEWS: &str = "
     FROM repos r WHERE r.id NOT LIKE '%/%';
 
     CREATE TEMP VIEW visible_files AS
-    SELECT f.id, f.repo, f.path, f.content_hash, f.mtime_ns, f.size_bytes
+    SELECT f.id, f.repo, f.path, f.content_hash, f.mtime_ns, f.size_bytes, f.content_truncated
     FROM files f WHERE f.repo NOT LIKE '%/%';
 
     CREATE TEMP VIEW visible_symbols AS
@@ -68,7 +68,7 @@ const SESSION_VIEWS: &str = "
 
     CREATE TEMP VIEW visible_files AS
     SELECT f.id, COALESCE((SELECT sl.repo FROM session_layers sl WHERE sl.layer_repo = f.repo), f.repo) AS repo,
-           f.path, f.content_hash, f.mtime_ns, f.size_bytes
+           f.path, f.content_hash, f.mtime_ns, f.size_bytes, f.content_truncated
     FROM files f
     WHERE (f.repo NOT LIKE '%/%' OR f.repo IN (SELECT layer_repo FROM session_layers))
       AND f.id NOT IN (SELECT id FROM hidden_files);

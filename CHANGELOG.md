@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- *(graph)* index all tracked UTF-8 text files up to 256 KiB with dedicated SQLite FTS5 plane in schema v10
+- *(graph)* unified lexicographic ranking across resolved constraints, exact symbols/paths, baselines, structured names, and content FTS
+- *(graph)* compact path-only output for explicit list intent and bounded deterministic output with exact continuation data
+- *(graph)* uniform workspace-relative path rewriting across Markdown, JSON, and compact MCP formats
+
+### Changed
+
+- *(graph)* graph database schema advanced to v10 with full reindex invalidation on migration
+
+### Fixed
+
+- *(graph)* ensure active Feature Session shadowing and file tombstones join through `visible_files` for content search
 ## [0.11.0](https://github.com/mnzsss/ivar/compare/v0.10.0...v0.11.0) - 2026-09-21
 
 ### Added

@@ -20,6 +20,7 @@ pub const AFFECTED_RECOMMENDATION_SCHEMA: &str = "#SCHEMA: repo|test_file|direct
 pub const PATH_SCHEMA: &str = "#SCHEMA: step|symbol|kind|file|edge_kind";
 pub const RELATION_SCHEMA: &str = "#SCHEMA: source_symbol|source_repo|source_file|direction|target_symbol|target_repo|target_file|edge_kind|provenance|confidence|line|hop_count|cross_repo";
 pub const EXPLORE_IMPACT_SCHEMA: &str = "#SCHEMA: symbol|repo|file|depth|path_via|cross_repo";
+pub const FILE_MATCH_SCHEMA: &str = "#SCHEMA: repo|file|match_kind|line|excerpt|truncated";
 /// Trait for converting domain types and results to compact pipe-delimited string representations.
 pub trait ToCompact {
     fn to_compact(&self) -> String;
@@ -217,24 +218,48 @@ pub fn encode_path(path: Option<&PathResult>) -> String {
 
 /// Encodes explore results combining primary symbols, entry points, direct relations, and transitive consumers.
 pub fn encode_explore(explore: &ExploreResult) -> String {
-    let mut out = String::from(SYMBOL_SCHEMA);
-    for sym_snippet in &explore.primary_symbols {
-        let sym = &sym_snippet.symbol;
-        let id_str = sym.id.map_or_else(String::new, |id| id.to_string());
-        let kind = symbol_kind_to_str(&sym.kind);
-        let complexity_str = sym.complexity.map_or_else(String::new, |c| c.to_string());
-        out.push('\n');
-        let _ = write!(
-            out,
-            "{}|{}|{}|{}|{}|{}|{}",
-            id_str,
-            sym.name,
-            kind,
-            sym_snippet.file_path,
-            sym.span.start_line,
-            sym.span.start_col,
-            complexity_str
-        );
+    let mut out = String::new();
+    if !explore.file_matches.is_empty() {
+        out.push_str(FILE_MATCH_SCHEMA);
+        for fm in &explore.file_matches {
+            let kind_str = match fm.match_kind {
+                crate::domain::graph::FileMatchKind::ExactPath => "exact_path",
+                crate::domain::graph::FileMatchKind::ExactBasename => "exact_basename",
+                crate::domain::graph::FileMatchKind::PinnedPath => "pinned_path",
+                crate::domain::graph::FileMatchKind::Content => "content",
+            };
+            let clean_excerpt = fm.excerpt.replace('\n', " ").replace('|', "/");
+            out.push('\n');
+            let _ = write!(
+                out,
+                "{}|{}|{}|{}|{}|{}",
+                fm.repo, fm.file_path, kind_str, fm.start_line, clean_excerpt, fm.content_truncated
+            );
+        }
+    }
+    if !explore.primary_symbols.is_empty() || explore.file_matches.is_empty() {
+        if !out.is_empty() {
+            out.push('\n');
+        }
+        out.push_str(SYMBOL_SCHEMA);
+        for sym_snippet in &explore.primary_symbols {
+            let sym = &sym_snippet.symbol;
+            let id_str = sym.id.map_or_else(String::new, |id| id.to_string());
+            let kind = symbol_kind_to_str(&sym.kind);
+            let complexity_str = sym.complexity.map_or_else(String::new, |c| c.to_string());
+            out.push('\n');
+            let _ = write!(
+                out,
+                "{}|{}|{}|{}|{}|{}|{}",
+                id_str,
+                sym.name,
+                kind,
+                sym_snippet.file_path,
+                sym.span.start_line,
+                sym.span.start_col,
+                complexity_str
+            );
+        }
     }
     if !explore.direct_relations.is_empty() {
         out.push('\n');

@@ -93,6 +93,8 @@ fn test_direct_test_file_change_selects_itself() -> Result<(), Box<dyn std::erro
         "hash_dt",
         100,
         1000,
+        "",
+        false,
         &test_extracted,
     )?;
 
@@ -148,6 +150,8 @@ fn test_direct_test_consumer_one_hop_explanation() -> Result<(), Box<dyn std::er
         "hash_c",
         100,
         1000,
+        "",
+        false,
         &src_extracted,
     )?;
 
@@ -186,6 +190,8 @@ fn test_direct_test_consumer_one_hop_explanation() -> Result<(), Box<dyn std::er
         "hash_ct",
         101,
         1000,
+        "",
+        false,
         &test_extracted,
     )?;
 
@@ -239,6 +245,8 @@ fn test_find_affected_tests_transitive() -> Result<(), Box<dyn std::error::Error
         "hash_u",
         100,
         1000,
+        "",
+        false,
         &utils_extracted,
     )?;
 
@@ -278,6 +286,8 @@ fn test_find_affected_tests_transitive() -> Result<(), Box<dyn std::error::Error
         "hash_c",
         101,
         1000,
+        "",
+        false,
         &core_extracted,
     )?;
 
@@ -317,6 +327,8 @@ fn test_find_affected_tests_transitive() -> Result<(), Box<dyn std::error::Error
         "hash_t",
         102,
         1000,
+        "",
+        false,
         &test_extracted,
     )?;
 
@@ -377,6 +389,8 @@ fn test_cross_repo_test_consumer() -> Result<(), Box<dyn std::error::Error>> {
         "hash_b",
         100,
         1000,
+        "",
+        false,
         &lib_extracted,
     )?;
 
@@ -415,6 +429,8 @@ fn test_cross_repo_test_consumer() -> Result<(), Box<dyn std::error::Error>> {
         "hash_ft",
         101,
         1000,
+        "",
+        false,
         &front_test_extracted,
     )?;
 
@@ -468,7 +484,16 @@ fn test_affected_tests_multi_repo_identical_paths() -> Result<(), Box<dyn std::e
         }],
         edges: vec![],
     };
-    db.index_extracted_file("repo_alpha", "src/a.rs", "hash_a", 100, 1000, &alpha_src)?;
+    db.index_extracted_file(
+        "repo_alpha",
+        "src/a.rs",
+        "hash_a",
+        100,
+        1000,
+        "",
+        false,
+        &alpha_src,
+    )?;
 
     let alpha_test = ExtractedFile {
         symbols: vec![Symbol {
@@ -504,6 +529,8 @@ fn test_affected_tests_multi_repo_identical_paths() -> Result<(), Box<dyn std::e
         "hash_at",
         101,
         1000,
+        "",
+        false,
         &alpha_test,
     )?;
 
@@ -523,7 +550,16 @@ fn test_affected_tests_multi_repo_identical_paths() -> Result<(), Box<dyn std::e
         }],
         edges: vec![],
     };
-    db.index_extracted_file("repo_beta", "src/b.rs", "hash_b", 200, 1000, &beta_src)?;
+    db.index_extracted_file(
+        "repo_beta",
+        "src/b.rs",
+        "hash_b",
+        200,
+        1000,
+        "",
+        false,
+        &beta_src,
+    )?;
 
     let beta_test = ExtractedFile {
         symbols: vec![Symbol {
@@ -559,6 +595,8 @@ fn test_affected_tests_multi_repo_identical_paths() -> Result<(), Box<dyn std::e
         "hash_bt",
         201,
         1000,
+        "",
+        false,
         &beta_test,
     )?;
 

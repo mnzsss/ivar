@@ -5,6 +5,18 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::domain::graph::{EdgeKind, Provenance, SymbolKind};
 
+pub const MAX_INDEXED_CONTENT_BYTES: usize = 256 * 1024;
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct FileContentHit {
+    pub file_id: i64,
+    pub repo: String,
+    pub path: String,
+    pub rank: f64,
+    pub indexed_content: String,
+    pub content_truncated: bool,
+}
+
 /// Graph database errors.
 #[derive(Debug, thiserror::Error)]
 pub enum GraphDbError {
@@ -39,6 +51,7 @@ pub struct FileRow {
     pub content_hash: String,
     pub mtime_ns: i64,
     pub size_bytes: i64,
+    pub content_truncated: bool,
     pub indexed_at: i64,
 }
 

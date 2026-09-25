@@ -14,29 +14,44 @@ use crate::error::WriteHuman;
 pub struct ExploreOutcome(pub ExploreResult);
 
 fn write_primary_symbols(w: &mut impl io::Write, res: &ExploreResult) -> io::Result<()> {
-    if res.primary_symbols.is_empty() {
+    if res.primary_symbols.is_empty() && res.file_matches.is_empty() {
         writeln!(w, "  No symbols found matching query.")?;
     } else {
-        writeln!(w, "  Primary Implementation & Source:")?;
-        for sym in &res.primary_symbols {
-            writeln!(
-                w,
-                "    - {} [{}] ({}) in {} ({}:{}-{})",
-                sym.symbol.name,
-                sym.symbol.repo,
-                sym.symbol.kind,
-                sym.file_path,
-                sym.file_path,
-                sym.start_line,
-                sym.end_line
-            )?;
-            if let Some(sig) = &sym.symbol.signature {
-                writeln!(w, "      Signature: {}", sig)?;
+        if !res.primary_symbols.is_empty() {
+            writeln!(w, "  Primary Implementation & Source:")?;
+            for sym in &res.primary_symbols {
+                writeln!(
+                    w,
+                    "    - {} [{}] ({}) in {} ({}:{}-{})",
+                    sym.symbol.name,
+                    sym.symbol.repo,
+                    sym.symbol.kind,
+                    sym.file_path,
+                    sym.file_path,
+                    sym.start_line,
+                    sym.end_line
+                )?;
+                if let Some(sig) = &sym.symbol.signature {
+                    writeln!(w, "      Signature: {}", sig)?;
+                }
+                if !sym.code.is_empty() {
+                    writeln!(w, "      Source:")?;
+                    for line in sym.code.lines() {
+                        writeln!(w, "        {}", line)?;
+                    }
+                }
             }
-            if !sym.code.is_empty() {
-                writeln!(w, "      Source:")?;
-                for line in sym.code.lines() {
-                    writeln!(w, "        {}", line)?;
+        }
+        if !res.file_matches.is_empty() {
+            writeln!(w, "  Matched Files:")?;
+            for fm in &res.file_matches {
+                writeln!(
+                    w,
+                    "    - [{}] {} ({:?}, line {})",
+                    fm.repo, fm.file_path, fm.match_kind, fm.start_line
+                )?;
+                if !fm.excerpt.is_empty() {
+                    writeln!(w, "      Excerpt: {}", fm.excerpt)?;
                 }
             }
         }

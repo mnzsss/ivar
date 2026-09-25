@@ -50,6 +50,8 @@ fn test_execute_dead_code_identifies_unreferenced_private_symbol() {
         "h_utils",
         1,
         100,
+        "",
+        false,
         &utils_extracted,
     )
     .unwrap();
@@ -78,6 +80,8 @@ fn test_execute_dead_code_identifies_unreferenced_private_symbol() {
         "h_test",
         1,
         100,
+        "",
+        false,
         &test_extracted,
     )
     .unwrap();
@@ -133,6 +137,8 @@ fn test_execute_dead_code_identifies_unreferenced_private_symbol() {
         "h_caller",
         1,
         100,
+        "",
+        false,
         &caller_extracted,
     )
     .unwrap();

@@ -36,6 +36,8 @@ fn test_shortest_path_same_node() -> Result<(), Box<dyn std::error::Error>> {
         "hash_solo",
         100,
         100,
+        "",
+        false,
         &file_extracted,
     )?;
 
@@ -170,6 +172,8 @@ fn test_shortest_path_bidirectional_chain() -> Result<(), Box<dyn std::error::Er
         "hash_main",
         100,
         100,
+        "",
+        false,
         &file_extracted,
     )?;
 

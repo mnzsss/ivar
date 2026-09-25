@@ -471,3 +471,24 @@ pub(crate) fn diff_worktree_files(
 #[cfg(test)]
 #[path = "../../tests/unit/git/read.rs"]
 mod tests;
+
+/// Every file currently tracked in the repository index, sorted.
+pub(crate) fn tracked_files(worktree: &Utf8Path) -> Result<Vec<Utf8PathBuf>, Error> {
+    let repository = open(worktree)?;
+    let index = repository.index().map_err(|source| Error::Refused {
+        command: format!("git -C {worktree} status"),
+        detail: source.message().to_owned(),
+    })?;
+
+    let mut paths = Vec::with_capacity(index.len());
+    for entry in index.iter() {
+        // Skip directory / tree / submodule entries if any; regular file, executable, symlink
+        let path_str = match std::str::from_utf8(&entry.path) {
+            Ok(s) => s,
+            Err(_) => continue,
+        };
+        paths.push(Utf8PathBuf::from(path_str));
+    }
+    paths.sort();
+    Ok(paths)
+}

@@ -514,10 +514,33 @@ pub struct MentionedSymbol {
     pub line: usize,
 }
 
+/// The match kind of a matched file in exploration.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum FileMatchKind {
+    ExactPath,
+    ExactBasename,
+    PinnedPath,
+    Content,
+}
+
+/// A file matched by an exploration query.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct FileMatch {
+    pub repo: String,
+    pub file_path: String,
+    pub match_kind: FileMatchKind,
+    pub start_line: usize,
+    pub excerpt: String,
+    pub content_truncated: bool,
+}
+
 /// Result of an exploration query across the graph.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct ExploreResult {
     pub query: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub file_matches: Vec<FileMatch>,
     pub primary_symbols: Vec<SymbolSnippet>,
     pub call_flows: Vec<CallFlowItem>,
     pub impact_summary: Option<String>,

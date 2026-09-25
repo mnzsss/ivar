@@ -102,10 +102,17 @@ END;
 
 /// Databases below this `user_version` lack word search, and their rows predate
 /// import references, JSX and HTTP client edges, so every file is re-extracted.
+const FILE_CONTENT_FTS: &str = r#"
+CREATE VIRTUAL TABLE IF NOT EXISTS file_content_fts USING fts5(
+    content,
+    tokenize='unicode61'
+);
+"#;
+
 const SEARCH_SCHEMA_VERSION: i64 = 4;
 
 /// The `user_version` a database carries once every migration below has run.
-pub const SCHEMA_VERSION: i64 = 9;
+pub const SCHEMA_VERSION: i64 = 10;
 
 /// Misses recorded before this version were classified without session
 /// attribution or a quote-aware parser, so they cannot be trusted.
@@ -176,7 +183,9 @@ fn needs_migration(conn: &Connection) -> rusqlite::Result<bool> {
     Ok(user_version(conn)? < SCHEMA_VERSION
         || !has_schema_object(conn, "graph_misses")?
         || !has_schema_object(conn, "idx_usage_session_ts")?
-        || !has_column(conn, "graph_misses", "usage_id")?)
+        || !has_column(conn, "graph_misses", "usage_id")?
+        || !has_column(conn, "files", "content_truncated")?
+        || !has_schema_object(conn, "file_content_fts")?)
 }
 
 fn has_schema_object(conn: &Connection, name: &str) -> rusqlite::Result<bool> {
@@ -206,6 +215,7 @@ fn migrate(conn: &Connection) -> rusqlite::Result<()> {
     apply_layer_migration(conn)?;
     apply_usage_migration(conn)?;
     apply_miss_migration(conn)?;
+    apply_content_fts_migration(conn)?;
     // Session views project layer rows under their base repo name, so a file
     // lookup there can only seek on the path.
     conn.execute_batch("CREATE INDEX IF NOT EXISTS idx_files_path ON files(path);")?;
@@ -283,6 +293,22 @@ fn apply_layer_migration(conn: &Connection) -> rusqlite::Result<()> {
             PRIMARY KEY(layer_id, path)
         );",
     )
+}
+
+fn apply_content_fts_migration(conn: &Connection) -> rusqlite::Result<()> {
+    if !has_column(conn, "files", "content_truncated")? {
+        conn.execute_batch(
+            "ALTER TABLE files ADD COLUMN content_truncated INTEGER NOT NULL DEFAULT 0;",
+        )?;
+    }
+    conn.execute_batch(FILE_CONTENT_FTS)?;
+    if user_version(conn)? < 10 {
+        conn.execute_batch(
+            "UPDATE repos SET last_indexed_commit = NULL;
+             UPDATE layers SET head_commit = NULL, fingerprint = NULL;",
+        )?;
+    }
+    Ok(())
 }
 
 fn apply_search_migration(conn: &Connection) -> rusqlite::Result<()> {

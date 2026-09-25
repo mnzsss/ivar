@@ -4,7 +4,7 @@ use rusqlite::params;
 
 use super::GraphDb;
 use super::row;
-use super::types::{Result, edge_kind_to_str, now_timestamp, provenance_to_str};
+use super::types::{FileContentHit, Result, edge_kind_to_str, now_timestamp, provenance_to_str};
 use crate::domain::graph::Span;
 use crate::store::graph::extractor::ExtractedFile;
 
@@ -93,7 +93,6 @@ fn resolve_edge_endpoints(
             return Some(candidate.id);
         }
 
-        // Ambiguous duplicate names without definitive evidence -> leave unresolved
         None
     });
 
@@ -101,40 +100,55 @@ fn resolve_edge_endpoints(
 }
 
 impl GraphDb {
-    /// Indexes an extracted file's symbols and edges inside a transaction.
+    /// Indexes an extracted file's symbols, edges, and content inside a transaction.
     ///
-    /// Updates the `files` record, deletes any old symbols and edges for the file,
-    /// inserts new symbols, resolves local intra-file targets and enclosing symbol IDs,
+    /// Updates the `files` record, deletes any old symbols, edges, and FTS content for the file,
+    /// inserts new FTS content, inserts new symbols, resolves local intra-file targets and enclosing symbol IDs,
     /// and inserts new edges.
     ///
     /// # Errors
     ///
-    /// Returns [`GraphDbError`] if any statement in the transaction
-    /// fails.
+    /// Returns [`GraphDbError`] if any statement in the transaction fails.
+    #[allow(clippy::too_many_arguments)]
     pub fn index_extracted_file(
         &self,
-        repo_id: &str,
-        file_path: &str,
-        content_hash: &str,
+        repo: &str,
+        path: &str,
+        hash: &str,
         mtime_ns: i64,
         size_bytes: i64,
+        indexed_content: &str,
+        content_truncated: bool,
         extracted: &ExtractedFile,
     ) -> Result<(usize, usize)> {
         self.in_transaction(|| -> Result<(usize, usize)> {
             let now = now_timestamp();
             let mut file_stmt = self.conn.prepare_cached(
-                "INSERT INTO files (repo, path, content_hash, mtime_ns, size_bytes, indexed_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+                "INSERT INTO files (repo, path, content_hash, mtime_ns, size_bytes, content_truncated, indexed_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
                  ON CONFLICT(repo, path) DO UPDATE SET
                     content_hash = excluded.content_hash,
                     mtime_ns = excluded.mtime_ns,
                     size_bytes = excluded.size_bytes,
+                    content_truncated = excluded.content_truncated,
                     indexed_at = excluded.indexed_at
                  RETURNING id",
             )?;
             let file_id: i64 = file_stmt.query_row(
-                params![repo_id, file_path, content_hash, mtime_ns, size_bytes, now],
+                params![repo, path, hash, mtime_ns, size_bytes, content_truncated as i64, now],
                 |row| row.get(0),
+            )?;
+
+            // Delete old FTS content for this file
+            self.conn.execute(
+                "DELETE FROM file_content_fts WHERE rowid = ?1",
+                params![file_id],
+            )?;
+
+            // Insert new FTS content
+            self.conn.execute(
+                "INSERT INTO file_content_fts (rowid, content) VALUES (?1, ?2)",
+                params![file_id, indexed_content],
             )?;
 
             // Delete old symbols for this file (cascades to edges from symbols)
@@ -158,7 +172,7 @@ impl GraphDb {
                 Vec::with_capacity(extracted.symbols.len());
             let num_symbols = extracted.symbols.len();
             for sym in &extracted.symbols {
-                let sym_id = row::insert_symbol(&mut sym_stmt, Some(file_id), repo_id, sym)?;
+                let sym_id = row::insert_symbol(&mut sym_stmt, Some(file_id), repo, sym)?;
                 syms_by_name
                     .entry(sym.name.clone())
                     .or_default()
@@ -184,7 +198,7 @@ impl GraphDb {
                     resolve_edge_endpoints(edge, &sym_spans, &syms_by_name);
 
                 edge_stmt.execute(params![
-                    repo_id,
+                    repo,
                     file_id,
                     from_symbol_id,
                     to_symbol_id,
@@ -199,5 +213,66 @@ impl GraphDb {
 
             Ok((num_symbols, num_edges))
         })
+    }
+
+    /// Full-text searches indexed file content joined through visible_files using SQLite FTS5 bm25.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GraphDbError`] if the query fails.
+    pub fn search_file_content(
+        &self,
+        query: &str,
+        repo: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<FileContentHit>> {
+        if query.trim().is_empty() {
+            return Ok(Vec::new());
+        }
+        let fts_query = format!("\"{}\"", query.replace('"', "\"\""));
+        let sql = match repo {
+            Some(_) => {
+                "SELECT vf.id, vf.repo, vf.path, fts.rank, fts.content, vf.content_truncated
+                 FROM file_content_fts fts
+                 JOIN visible_files vf ON fts.rowid = vf.id
+                 WHERE file_content_fts MATCH ?1 AND vf.repo = ?2
+                 ORDER BY fts.rank, vf.repo, vf.path
+                 LIMIT ?3"
+            }
+            None => {
+                "SELECT vf.id, vf.repo, vf.path, fts.rank, fts.content, vf.content_truncated
+                 FROM file_content_fts fts
+                 JOIN visible_files vf ON fts.rowid = vf.id
+                 WHERE file_content_fts MATCH ?1
+                 ORDER BY fts.rank, vf.repo, vf.path
+                 LIMIT ?2"
+            }
+        };
+
+        let mut stmt = self.conn.prepare_cached(sql)?;
+        let map_row = |row: &rusqlite::Row| -> rusqlite::Result<FileContentHit> {
+            Ok(FileContentHit {
+                file_id: row.get(0)?,
+                repo: row.get(1)?,
+                path: row.get(2)?,
+                rank: row.get(3)?,
+                indexed_content: row.get(4)?,
+                content_truncated: row.get::<_, i64>(5)? != 0,
+            })
+        };
+        let limit_i64 = i64::try_from(limit).unwrap_or(i64::MAX);
+        let mut results = Vec::new();
+        if let Some(r) = repo {
+            let rows = stmt.query_map(params![fts_query, r, limit_i64], map_row)?;
+            for row in rows {
+                results.push(row?);
+            }
+        } else {
+            let rows = stmt.query_map(params![fts_query, limit_i64], map_row)?;
+            for row in rows {
+                results.push(row?);
+            }
+        }
+        Ok(results)
     }
 }
