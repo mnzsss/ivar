@@ -12,7 +12,7 @@ use std::path::Path;
 
 use serde_json::{Value, json};
 
-use crate::action::graph::freshness::ensure_session_freshness;
+use crate::action::graph::freshness::ensure_session_freshness_watched;
 use crate::action::graph::session::{SessionView, resolve_session_key, resolve_session_view};
 use crate::domain::graph::{UsageEvent, UsageSource, truncate_for_storage};
 use crate::store::graph::db::GraphDb;
@@ -342,11 +342,11 @@ fn refresh_session(
     db: &GraphDb,
     layout: &Layout,
     cwd: &camino::Utf8Path,
-    _leader: Option<crate::action::graph::watch::LeaderState>,
+    leader: Option<crate::action::graph::watch::LeaderState>,
 ) -> Result<Option<String>, String> {
     let view = resolve_session_view(layout, cwd)
         .map_err(|err| format!("could not resolve the ivar session for this call: {err}"))?;
-    ensure_session_freshness(db, layout, &view).map_err(|err| match &view {
+    ensure_session_freshness_watched(db, layout, &view, leader).map_err(|err| match &view {
         SessionView::Base { .. } => format!("could not reset the graph to the base view: {err}"),
         SessionView::FeatureSession { feature_name, .. } => format!(
             "the feature layer for `{feature_name}` could not be refreshed, so the graph would answer from stale or base code: {err}"

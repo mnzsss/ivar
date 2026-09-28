@@ -4,6 +4,11 @@ pub mod lease;
 pub mod scopes;
 pub(crate) mod worker;
 
+use std::time::Duration;
+
+pub const WATCH_TIMEOUT: Duration = Duration::from_secs(2);
+pub const WATCH_POLL: Duration = Duration::from_millis(20);
+
 use crate::action::graph::watch::lease::Lease;
 use crate::action::graph::watch::worker::Worker;
 use crate::store::graph::db::GraphDb;
