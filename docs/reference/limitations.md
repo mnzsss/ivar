@@ -161,8 +161,8 @@ hook protocol:
 - **MCP authentication inspection and multi-provider auth:**
   - **Claude Code:** `ivar mcp status` reads `~/.claude/.credentials.json` directly. When Claude stores credentials in the OS Keychain (such as on macOS), or when credentials cannot be decrypted from disk, local state is reported as `unknown`. Use `ivar mcp status --live` to inspect runtime connectivity via `claude mcp list`.
   - **Harness live inspection (`--live`):** `--live` parses plain-text output from `claude mcp list` and `opencode mcp list`. If the underlying harness changes its human-readable status formatting, unrecognized lines fail closed to `unknown` rather than guessing. Note that `--live` invokes `claude mcp list`, which connects to every declared server and can take several seconds.
-  - **OMP:** OMP provides no live status command; `ivar mcp status --live` falls back to checking the local store entry and marks the source as `local`.
-  - **Doctor diagnostic:** `ivar doctor` diagnoses missing MCP credentials using offline local store checks only; it does not execute `--live` network probes or invoke harness subprocesses.
+  - **OMP:** OMP provides no live status command; `ivar mcp status` (with or without `--live`) determines credentials by running `omp token` and marks the source as `local`.
+  - **Doctor diagnostic:** `ivar doctor` diagnoses missing MCP credentials using offline local store checks only (it never runs `claude mcp list` or `opencode mcp list`); for OMP, that local check runs `omp token`.
   - **Multi-provider authorization (`--all-providers`):** `ivar mcp auth --all-providers` runs authentication for each available provider independently; it never copies or shares tokens between providers (one grant each). After completing all legs, ivar performs a post-run dropped-grant check (`mcp.grant_dropped`) if two or more legs were not skipped, warning if a previously granted leg lost its authorization due to subsequent provider logins.
 ## What protects the default branch
 
