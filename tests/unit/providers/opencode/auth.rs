@@ -502,3 +502,139 @@ fn credential_debug_redacts_every_secret() {
     assert!(!rendered.contains("test-secret"));
     assert!(!rendered.contains("test-client-id"));
 }
+
+use crate::domain::mcp::CredentialState;
+
+// -- credential_state_under ------------------------------------------------
+
+#[test]
+fn opencode_absent_store_returns_missing() {
+    let (_dir, root) = utf8_temp_dir();
+    let state = credential_state_under(&root, "acme-figma", 1_700_000_000.0);
+    assert_eq!(state, CredentialState::Missing);
+}
+
+#[test]
+fn opencode_unparseable_store_returns_unknown() {
+    let (_dir, root) = utf8_temp_dir();
+    let path = store_path(&root);
+    fs::ensure_dir(path.parent().unwrap()).unwrap();
+    fs::write_text(&path, "invalid json").unwrap();
+    let state = credential_state_under(&root, "acme-figma", 1_700_000_000.0);
+    assert_eq!(state, CredentialState::Unknown);
+}
+
+#[test]
+fn opencode_entry_without_tokens_returns_missing() {
+    let (_dir, root) = utf8_temp_dir();
+    let path = store_path(&root);
+    json::write_canonical(
+        &path,
+        &serde_json::json!({
+            "acme-figma": { "serverUrl": "https://mcp.figma.com/mcp" }
+        }),
+    )
+    .unwrap();
+    let state = credential_state_under(&root, "acme-figma", 1_700_000_000.0);
+    assert_eq!(state, CredentialState::Missing);
+}
+
+#[test]
+fn opencode_empty_access_token_returns_missing() {
+    let (_dir, root) = utf8_temp_dir();
+    let path = store_path(&root);
+    json::write_canonical(
+        &path,
+        &serde_json::json!({
+            "acme-figma": {
+                "tokens": {
+                    "accessToken": "",
+                    "refreshToken": "refresh-token"
+                }
+            }
+        }),
+    )
+    .unwrap();
+    let state = credential_state_under(&root, "acme-figma", 1_700_000_000.0);
+    assert_eq!(state, CredentialState::Missing);
+}
+
+#[test]
+fn opencode_unexpired_tokens_returns_authenticated() {
+    let (_dir, root) = utf8_temp_dir();
+    let path = store_path(&root);
+    json::write_canonical(
+        &path,
+        &serde_json::json!({
+            "acme-figma": {
+                "tokens": {
+                    "accessToken": "valid-token",
+                    "expiresAt": 1_800_000_000.0
+                }
+            }
+        }),
+    )
+    .unwrap();
+    let state = credential_state_under(&root, "acme-figma", 1_700_000_000.0);
+    assert_eq!(state, CredentialState::Authenticated);
+}
+
+#[test]
+fn opencode_tokens_without_expiry_returns_authenticated() {
+    let (_dir, root) = utf8_temp_dir();
+    let path = store_path(&root);
+    json::write_canonical(
+        &path,
+        &serde_json::json!({
+            "acme-figma": {
+                "tokens": {
+                    "accessToken": "valid-token"
+                }
+            }
+        }),
+    )
+    .unwrap();
+    let state = credential_state_under(&root, "acme-figma", 1_700_000_000.0);
+    assert_eq!(state, CredentialState::Authenticated);
+}
+
+#[test]
+fn opencode_expired_tokens_with_refresh_returns_expired() {
+    let (_dir, root) = utf8_temp_dir();
+    let path = store_path(&root);
+    json::write_canonical(
+        &path,
+        &serde_json::json!({
+            "acme-figma": {
+                "tokens": {
+                    "accessToken": "old-token",
+                    "refreshToken": "refresh-token",
+                    "expiresAt": 1_600_000_000.0
+                }
+            }
+        }),
+    )
+    .unwrap();
+    let state = credential_state_under(&root, "acme-figma", 1_700_000_000.0);
+    assert_eq!(state, CredentialState::Expired);
+}
+
+#[test]
+fn opencode_expired_tokens_without_refresh_returns_missing() {
+    let (_dir, root) = utf8_temp_dir();
+    let path = store_path(&root);
+    json::write_canonical(
+        &path,
+        &serde_json::json!({
+            "acme-figma": {
+                "tokens": {
+                    "accessToken": "old-token",
+                    "expiresAt": 1_600_000_000.0
+                }
+            }
+        }),
+    )
+    .unwrap();
+    let state = credential_state_under(&root, "acme-figma", 1_700_000_000.0);
+    assert_eq!(state, CredentialState::Missing);
+}
