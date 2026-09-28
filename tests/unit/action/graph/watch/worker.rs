@@ -306,9 +306,10 @@ fn symlinked_worktree_and_control_dirs_classify_canonical_fs_events() {
     );
 
     let canonical_session = real_root
-        .join(".ivar/features/feat/sessions/0a2d7418")
+        .join(".ivar/features/feat/sessions")
         .canonicalize_utf8()
-        .unwrap_or_else(|_| real_root.join(".ivar/features/feat/sessions/0a2d7418"));
+        .unwrap()
+        .join("0a2d7418");
     let control_event = Event {
         kind: EventKind::Create(CreateKind::Folder),
         paths: vec![canonical_session.as_std_path().to_path_buf()],
