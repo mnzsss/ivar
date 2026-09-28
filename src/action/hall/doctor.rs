@@ -24,6 +24,8 @@ use crate::store::graph::db::GraphDb;
 use crate::store::graph::schema::SCHEMA_VERSION;
 use crate::store::layout::Layout;
 use crate::store::manifest::Manifest;
+use crate::domain::mcp::{AuthRequirement, CredentialState};
+use crate::providers;
 
 use super::Ctx;
 use super::{discover_hall, read_manifest};
@@ -87,6 +89,7 @@ pub fn doctor(ctx: &Ctx) -> Outcome<DoctorOutcome> {
     findings.extend(graph_diagnoses(&layout, &manifest, &git));
     findings.extend(diagnose_orphaned_runs(&layout)?);
     findings.extend(diagnose_orphan_worktrees(&layout, &manifest, &git));
+    findings.extend(diagnose_mcp_auth(&manifest, &providers::credential_state));
     check_legacy_working_docs(&layout, &mut findings)?;
 
     let graph_watch_leader = crate::action::graph::watch::lease::leader_pid(&layout);
@@ -727,4 +730,40 @@ fn instruction_diagnosis(inspection: &instructions::Inspection) -> Option<Diagno
             fix: "Run `ivar sync` — it removes the entry, including a regular file.".to_owned(),
         }),
     }
+}
+pub fn diagnose_mcp_auth(
+    manifest: &Manifest,
+    state_of: &dyn Fn(Provider, &str, &str) -> CredentialState,
+) -> Vec<Diagnosis> {
+    let mut findings = Vec::new();
+    let hall = manifest.name().as_str();
+
+    for server in manifest.mcp_servers() {
+        if server.auth_requirement() != AuthRequirement::Required {
+            continue;
+        }
+        let url = server.url.as_deref().unwrap_or("");
+        let materialised = format!("{hall}-{}", server.name);
+
+        for &provider in manifest.providers().available() {
+            let state = state_of(provider, &materialised, url);
+            if state == CredentialState::Missing {
+                findings.push(Diagnosis {
+                    code: "mcp.auth_missing",
+                    what: format!(
+                        "`{}` is not authenticated for {}",
+                        server.name,
+                        provider.id()
+                    ),
+                    fix: format!(
+                        "Run `ivar mcp auth {} --provider {}`.",
+                        server.name,
+                        provider.id()
+                    ),
+                });
+            }
+        }
+    }
+
+    findings
 }

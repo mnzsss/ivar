@@ -152,7 +152,6 @@ use serde::Serialize;
 use crate::action::Ctx;
 use crate::domain::provider::Provider;
 use crate::error::{Outcome, Report, Warning, WriteHuman};
-use crate::store::manifest::Manifest;
 
 use super::{resolve_provider, resolve_server};
 use super::super::{discover_hall, read_manifest};

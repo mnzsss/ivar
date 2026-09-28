@@ -93,6 +93,7 @@ pub(crate) fn local_rows(
     rows
 }
 
+#[allow(dead_code)]
 pub(crate) fn apply_live(
     rows: &mut [StatusRow],
     live: &BTreeMap<Provider, BTreeMap<String, CredentialState>>,

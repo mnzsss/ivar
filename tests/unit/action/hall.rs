@@ -1551,3 +1551,55 @@ fn doctor_names_unfinished_catchup_only_when_no_leader_is_alive() {
     );
     assert_eq!(report.value.graph_watch_leader, Some(std::process::id()));
 }
+
+use crate::domain::mcp::{CredentialState, McpOauth, McpServerDef};
+#[test]
+fn doctor_diagnoses_missing_mcp_auth() {
+    let (_guard, root) = hall_root();
+    let ctx = Ctx::new(root.clone());
+    init(&ctx, &fresh_input()).unwrap();
+
+    let layout = Layout::at(root.clone());
+    let manifest = Manifest::read(&layout).unwrap().unwrap();
+    let updated = manifest
+        .with_mcp_servers(vec![
+            McpServerDef::new("figma", "http")
+                .url("https://mcp.figma.com/mcp")
+                .oauth(McpOauth::public("cid")),
+        ])
+        .unwrap();
+    Manifest::write(&layout, &updated).unwrap();
+
+    let mock_state = |_p: Provider, _name: &str, _url: &str| -> CredentialState {
+        CredentialState::Missing
+    };
+
+    let diagnoses = diagnose_mcp_auth(&updated, &mock_state);
+    assert_eq!(diagnoses.len(), updated.providers().available().len());
+    assert_eq!(diagnoses[0].code, "mcp.auth_missing");
+    assert!(diagnoses[0].what.contains("figma"));
+    assert!(diagnoses[0].fix.contains("ivar mcp auth figma --provider"));
+}
+
+#[test]
+fn doctor_ignores_mcp_servers_not_requiring_auth() {
+    let (_guard, root) = hall_root();
+    let ctx = Ctx::new(root.clone());
+    init(&ctx, &fresh_input()).unwrap();
+
+    let layout = Layout::at(root.clone());
+    let manifest = Manifest::read(&layout).unwrap().unwrap();
+    let updated = manifest
+        .with_mcp_servers(vec![
+            McpServerDef::new("docs", "local").command("npx"),
+            McpServerDef::new("sentry", "http").url("https://sentry.io/mcp"),
+        ])
+        .unwrap();
+
+    let mock_state = |_p: Provider, _name: &str, _url: &str| -> CredentialState {
+        CredentialState::Missing
+    };
+
+    let diagnoses = diagnose_mcp_auth(&updated, &mock_state);
+    assert!(diagnoses.is_empty());
+}
