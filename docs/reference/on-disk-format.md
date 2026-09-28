@@ -33,7 +33,8 @@ half-understood state file is worse than no state file.
   .ivar/setups/<repo>.session.sh committed   per-repo session hook
   .ivar/secrets/                local        secret material (hand-maintained files, plus mcp.env)
   .ivar/state.json              local        hall state, health, bookkeeping
-  .ivar/graph.db                local        codebase dependency graph and text FTS index
+  .ivar/memory.db               local        codebase dependency graph and text FTS index
+  .ivar/graph-watch.lock        local        graph watcher leader lease (pid)
   .ivar/repos/                  local        bare clones and worktrees
   .ivar/features/               local        promotion records, Run Receipts, working docs
   .ivar/sessions/               local        discovery-session view dirs
@@ -286,9 +287,9 @@ is derived from the close record plus receipt freshness. Child branches and
 worktrees are retained after integration so receipt validation stays exact.
 
 
-## Graph database (`.ivar/graph.db`)
+## Graph database (`.ivar/memory.db`)
 
-The codebase graph is stored locally in SQLite at `.ivar/graph.db`.
+The codebase graph is stored locally in SQLite at `.ivar/memory.db`.
 
 ### Graph schema v10
 
@@ -299,6 +300,30 @@ When migrating from older schema versions to v10, existing indexed repository me
 so that the next `ivar graph index` performs a clean, complete rebuild of all tracked files rather than
 serving partial or incomplete text-search results. Active Feature Session layers join through
 `visible_files` to ensure layer shadowing and tombstones remain authoritative.
+
+### Graph schema v11
+
+Schema version 11 adds `watch_scopes`, one row per scope the graph watcher keeps fresh:
+`base:<repo>` for a default-branch worktree, `layer:<feature>:<repo>` for a feature layer.
+
+| Column | Meaning |
+| --- | --- |
+| `observed` | Bursts of filesystem events seen for the scope (monotonic) |
+| `indexed` | Highest `observed` value whose reindex finished |
+| `needs_catchup` | `1` until the leader re-ran the git incremental path for the scope |
+| `error` | Last reindex failure, cleared by the next success |
+| `updated_at` | Unix seconds of the last change |
+
+A scope is settled when `indexed >= observed`, `needs_catchup = 0` and `error` is null.
+Migrating from v10 keeps the existing index.
+
+### Watcher lease (`.ivar/graph-watch.lock`)
+
+Every `ivar graph mcp` process tries a non-blocking exclusive lock on this file on each tool call.
+The holder is the leader: it watches the hall and is the only process that reindexes from events.
+The file holds the leader's pid. The kernel releases the lock when the leader exits, and the next
+tool call from any other server takes over, runs the git catch-up and starts watching.
+
 ## Strictness
 
 Config parsing is strict. An unknown key in `ivar.json` is a **hard error naming
