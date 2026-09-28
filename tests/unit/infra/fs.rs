@@ -48,6 +48,19 @@ fn read_symlink_resolves_a_real_symlink() {
     assert_eq!(read_symlink(&link).unwrap(), SymlinkTarget::Target(target));
 }
 
+#[test]
+fn canonicalize_resolves_symlinks_and_normalizes_paths() {
+    let (_dir, root) = utf8_temp_dir();
+    let target = root.join("target_dir");
+    ensure_dir(&target).unwrap();
+    let link = root.join("link_dir");
+    create_symlink(&target, &link).unwrap();
+
+    let canonical_target = canonicalize(&target).unwrap();
+    let canonical_link = canonicalize(&link).unwrap();
+    assert_eq!(canonical_link, canonical_target);
+}
+
 #[cfg(unix)]
 #[test]
 fn unreadable_file_is_a_hard_error_not_absent() {

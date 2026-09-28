@@ -461,7 +461,7 @@ fn schema_v10_creates_file_content_search_and_invalidates_old_freshness() {
 
     apply_migrations(&conn).unwrap();
 
-    assert_eq!(user_version(&conn).unwrap(), 10);
+    assert_eq!(user_version(&conn).unwrap(), SCHEMA_VERSION);
     let commit: Option<String> = conn
         .query_row(
             "SELECT last_indexed_commit FROM repos WHERE id = 'app'",
@@ -472,4 +472,40 @@ fn schema_v10_creates_file_content_search_and_invalidates_old_freshness() {
     assert_eq!(commit, None, "v10 requires a complete text-content reindex");
     conn.query_row("SELECT count(*) FROM file_content_fts", [], |_| Ok(()))
         .expect("file content FTS exists");
+}
+
+#[test]
+fn a_v10_database_gains_watch_scopes_without_losing_its_index() {
+    let conn = Connection::open_in_memory().unwrap();
+    apply_migrations(&conn).unwrap();
+    conn.execute_batch(
+        "INSERT INTO repos (id, root_path, default_branch, last_indexed_commit, indexed_at)
+             VALUES ('api', '/x', 'main', 'abc', 0);
+         DROP TABLE watch_scopes;
+         PRAGMA user_version = 10;",
+    )
+    .unwrap();
+    apply_migrations(&conn).unwrap();
+
+    let version: i64 = conn
+        .query_row("PRAGMA user_version", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(version, 11);
+    let commit: Option<String> = conn
+        .query_row(
+            "SELECT last_indexed_commit FROM repos WHERE id = 'api'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        commit.as_deref(),
+        Some("abc"),
+        "v10 → v11 must not force a rebuild"
+    );
+    conn.execute(
+        "INSERT INTO watch_scopes (scope, updated_at) VALUES ('base:api', 0)",
+        [],
+    )
+    .unwrap();
 }

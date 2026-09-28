@@ -51,3 +51,6 @@ mod viewer;
 
 #[path = "graph/mcp_registration.rs"]
 mod mcp_registration;
+
+#[path = "graph/watcher.rs"]
+mod watcher;

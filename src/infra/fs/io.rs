@@ -261,6 +261,23 @@ pub fn is_real_dir(path: &Utf8Path) -> Result<bool, Error> {
     }
 }
 
+/// Canonicalize `path`, resolving all symlinks and normalizing the path.
+///
+/// # Errors
+///
+/// Returns [`Error`] if the path does not exist, cannot be resolved, or is not UTF-8.
+pub fn canonicalize(path: &Utf8Path) -> Result<Utf8PathBuf, Error> {
+    match fs_err::canonicalize(path.as_std_path()) {
+        Ok(p) => Utf8PathBuf::from_path_buf(p).map_err(|source| Error::NotUtf8 {
+            display: source.to_string_lossy().into_owned(),
+        }),
+        Err(source) => Err(Error::Read {
+            path: path.to_owned(),
+            source,
+        }),
+    }
+}
+
 /// Full metadata for `path` (following symlinks). `Ok(None)` if absent.
 /// # Errors
 ///

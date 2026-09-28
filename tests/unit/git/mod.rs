@@ -283,6 +283,39 @@ fn worktree_dirty_sees_untracked_files_as_dirty() {
 
     assert!(System.worktree_dirty(&worktree).unwrap());
 }
+#[test]
+fn worktree_dirty_does_not_mutate_index_or_take_locks() {
+    let (_guard, dir) = utf8_temp_dir();
+    let repo = seeded_repo(&dir.join("repo"), "main");
+    let index_path = repo.join(".git/index");
+
+    let before_bytes = std::fs::read(&index_path).unwrap();
+    let before_mtime = std::fs::metadata(&index_path).unwrap().modified().unwrap();
+
+    // Rewrite the tracked file with identical content and a newer mtime.
+    let readme_path = repo.join("README.md");
+    let file = std::fs::OpenOptions::new()
+        .write(true)
+        .open(&readme_path)
+        .unwrap();
+    let future_mtime = before_mtime + std::time::Duration::from_secs(3);
+    file.set_modified(future_mtime).unwrap();
+    drop(file);
+
+    assert!(!System.worktree_dirty(&repo).unwrap());
+
+    let after_bytes = std::fs::read(&index_path).unwrap();
+    let after_mtime = std::fs::metadata(&index_path).unwrap().modified().unwrap();
+
+    assert_eq!(
+        before_bytes, after_bytes,
+        "git status must not refresh the index when checking worktree dirtiness"
+    );
+    assert_eq!(
+        before_mtime, after_mtime,
+        "git status must not update the index mtime when checking worktree dirtiness"
+    );
+}
 
 // -- changed_paths ---------------------------------------------------------
 

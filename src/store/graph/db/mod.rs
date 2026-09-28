@@ -8,6 +8,7 @@ pub(crate) mod row;
 pub mod symbols;
 pub mod types;
 pub mod usage;
+pub mod watch;
 
 use std::path::Path;
 

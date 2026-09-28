@@ -1063,9 +1063,15 @@ fn call_tool_at(db: &GraphDb, root: &std::path::Path, cwd: &camino::Utf8Path) ->
         "method": "tools/call",
         "params": { "name": "graph_explore", "arguments": { "query": "execute" } }
     });
-    let resp = handle_json_rpc_at(db, Some(root), cwd, ToolSurface::All, &req, &mut |_| {
-        Ok(json!({"status": "ok"}))
-    })
+    let resp = handle_json_rpc_at(
+        db,
+        Some(root),
+        cwd,
+        ToolSurface::All,
+        &req,
+        &mut |_| Ok(json!({"status": "ok"})),
+        None,
+    )
     .expect("response");
     (
         resp["result"]["content"][0]["text"]
@@ -1143,6 +1149,7 @@ fn a_tool_call_records_its_query_and_session_alongside_the_result_count() {
         ToolSurface::All,
         &req,
         &mut |_| Ok(json!({"status": "ok"})),
+        None,
     )
     .expect("response");
     assert!(!resp["result"]["isError"].as_bool().unwrap_or(false));

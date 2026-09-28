@@ -20,6 +20,7 @@ pub mod session;
 pub mod usage;
 pub mod view;
 pub mod viz;
+pub mod watch;
 
 use std::io;
 use std::path::Path;
@@ -160,7 +161,7 @@ pub fn file_cmd(ctx: &Ctx, args: &FileInput) -> Outcome<FileOutcome> {
     Ok(Report::new(FileOutcome(outline)))
 }
 
-fn lock_index(layout: &Layout) -> Result<std::fs::File, Failure> {
+pub(crate) fn lock_index(layout: &Layout) -> Result<std::fs::File, Failure> {
     let lock_path = layout.ivar_dir().join("memory.lock");
     let lock_file = std::fs::File::create(lock_path.as_std_path()).map_err(|err| {
         Failure::failed(
@@ -356,7 +357,9 @@ pub fn mcp_cmd(ctx: &Ctx, tools: mcp::ToolSurface) -> Outcome<McpOutcome> {
     let stdout = io::stdout();
     let stdin_lock = stdin.lock();
     let stdout_lock = stdout.lock();
-    mcp::run_mcp_server_with_tools(
+    let mut watch = watch::Watch::new(layout.clone());
+    let _ = watch.probe(&db);
+    mcp::run_mcp_server_watched(
         &db,
         Some(layout.root().as_std_path()),
         tools,
@@ -374,6 +377,7 @@ pub fn mcp_cmd(ctx: &Ctx, tools: mcp::ToolSurface) -> Outcome<McpOutcome> {
             .map_err(|err| err.to_string())?;
             serde_json::to_value(report.value).map_err(|err| err.to_string())
         },
+        &mut watch,
     )
     .map_err(|err| Failure::failed("graph.mcp_failed", err.to_string()))?;
     Ok(Report::new(McpOutcome))

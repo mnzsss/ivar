@@ -47,18 +47,27 @@ pub struct DoctorOutcome {
     pub root: Utf8PathBuf,
     /// Every diagnosed problem. Empty means a healthy hall.
     pub findings: Vec<Diagnosis>,
+    /// PID of the live graph watch leader, if one is running.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub graph_watch_leader: Option<u32>,
 }
 
 impl WriteHuman for DoctorOutcome {
     fn write_human(&self, w: &mut impl io::Write) -> io::Result<()> {
         if self.findings.is_empty() {
             writeln!(w, "No problems found in {}.", self.root)?;
+            if let Some(pid) = self.graph_watch_leader {
+                writeln!(w, "Graph watcher: leader pid {pid}.")?;
+            }
             return Ok(());
         }
         writeln!(w, "Problems in {}:", self.root)?;
         for finding in &self.findings {
             writeln!(w, "  - {} — {}", finding.code, finding.what)?;
             writeln!(w, "    fix: {}", finding.fix)?;
+        }
+        if let Some(pid) = self.graph_watch_leader {
+            writeln!(w, "Graph watcher: leader pid {pid}.")?;
         }
         Ok(())
     }
@@ -80,9 +89,11 @@ pub fn doctor(ctx: &Ctx) -> Outcome<DoctorOutcome> {
     findings.extend(diagnose_orphan_worktrees(&layout, &manifest, &git));
     check_legacy_working_docs(&layout, &mut findings)?;
 
+    let graph_watch_leader = crate::action::graph::watch::lease::leader_pid(&layout);
     Ok(Report::new(DoctorOutcome {
         root: layout.root().to_path_buf(),
         findings,
+        graph_watch_leader,
     }))
 }
 
@@ -543,6 +554,25 @@ fn graph_diagnoses(layout: &Layout, manifest: &Manifest, git: &impl Git) -> Vec<
                     repo.name()
                 ),
                 fix: format!("Run `ivar graph index --repo {}`.", repo.name()),
+            });
+        }
+    }
+    let leader = crate::action::graph::watch::lease::leader_pid(layout);
+    for row in db.watch_scopes().unwrap_or_default() {
+        if let Some(error) = &row.error {
+            findings.push(Diagnosis {
+                code: "graph.watch_scope_failed",
+                what: format!(
+                    "the graph watcher could not reindex `{}`: {error}",
+                    row.scope
+                ),
+                fix: "Run `ivar graph index`; the watcher retries on the next change.".to_owned(),
+            });
+        } else if leader.is_none() && (row.needs_catchup || row.indexed < row.observed) {
+            findings.push(Diagnosis {
+                code: "graph.watch_catchup_pending",
+                what: format!("graph scope `{}` has changes no watcher indexed", row.scope),
+                fix: "Run `ivar graph index`, or start `ivar graph mcp` to catch up.".to_owned(),
             });
         }
     }

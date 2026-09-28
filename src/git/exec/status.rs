@@ -11,7 +11,11 @@ use super::{git, run};
 /// as dirty — a push does not carry them, and the preview saying "clean" while
 /// `git status` disagrees would be a lie the human acts on.
 pub(crate) fn worktree_dirty(path: &Utf8Path) -> Result<bool, Error> {
-    let stdout = run(&git().cwd(path).arg("status").arg("--porcelain"))?;
+    let stdout = run(&git()
+        .cwd(path)
+        .arg("--no-optional-locks")
+        .arg("status")
+        .arg("--porcelain"))?;
     Ok(!stdout.is_empty())
 }
 
@@ -36,6 +40,7 @@ pub(crate) fn worktree_dirty(path: &Utf8Path) -> Result<bool, Error> {
 pub(crate) fn changed_paths(path: &Utf8Path) -> Result<Vec<Utf8PathBuf>, Error> {
     let stdout = run(&git()
         .cwd(path)
+        .arg("--no-optional-locks")
         .arg("status")
         .arg("--porcelain")
         .arg("-z")
