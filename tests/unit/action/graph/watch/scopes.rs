@@ -136,3 +136,15 @@ fn a_burst_fires_after_the_quiet_window_and_is_capped_under_continuous_events() 
     );
     assert_eq!(deb.next_deadline(), None);
 }
+
+#[test]
+fn session_directories_are_control_paths_not_scopes() {
+    let mut set = WatchSet::default();
+    set.add_control(Utf8Path::new("/hall/.ivar/features/feat/sessions"));
+    assert!(set.is_control(Utf8Path::new("/hall/.ivar/features/feat/sessions/0a2d7418")));
+    assert_eq!(
+        set.classify(Utf8Path::new("/hall/.ivar/features/feat/sessions/0a2d7418")),
+        None
+    );
+    assert!(!set.is_control(Utf8Path::new("/hall/.ivar/features/feat/plan.md")));
+}

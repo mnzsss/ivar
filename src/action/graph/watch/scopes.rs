@@ -32,6 +32,7 @@ enum DirRole {
 #[derive(Debug, Default)]
 pub struct WatchSet {
     dirs: BTreeMap<Utf8PathBuf, (Scope, DirRole)>,
+    control_dirs: BTreeSet<Utf8PathBuf>,
 }
 
 impl WatchSet {
@@ -82,6 +83,19 @@ impl WatchSet {
         let dir_buf = dir.to_path_buf();
         self.dirs.insert(dir_buf.clone(), (scope.clone(), role));
         dir_buf
+    }
+
+    /// Adds a control directory (e.g. `.ivar/features` or `.ivar/features/<f>/sessions`) to the watch set.
+    pub fn add_control(&mut self, dir: &Utf8Path) -> Utf8PathBuf {
+        let dir_buf = dir.to_path_buf();
+        self.control_dirs.insert(dir_buf.clone());
+        dir_buf
+    }
+
+    /// Checks if a path is inside or equals any watched control directory.
+    #[must_use]
+    pub fn is_control(&self, path: &Utf8Path) -> bool {
+        self.control_dirs.iter().any(|cd| path.starts_with(cd))
     }
 
     /// Removes all directories associated with a scope and returns them.

@@ -2,6 +2,7 @@
 
 use crate::action::graph::layer::ensure_layer_indexed;
 use crate::action::graph::session::SessionView;
+use crate::action::graph::watch::worker::base_commit_for;
 use crate::error::Failure;
 use crate::store::graph::db::GraphDb;
 use crate::store::layout::Layout;
@@ -30,23 +31,13 @@ pub fn ensure_session_freshness(
         } => {
             let mut active = Vec::new();
             for repo in repos.iter().filter(|repo| repo.is_layer) {
-                let base_commit = match db.get_repo_last_commit(&repo.repo_name).map_err(|e| {
-                    Failure::failed(
-                        "graph.freshness_error",
-                        format!("Failed to get repo last commit: {e}"),
-                    )
-                })? {
-                    Some(commit) => commit,
-                    None => match &repo.base_commit {
-                        Some(commit) => commit.clone(),
-                        None => {
-                            return Err(Failure::failed(
-                                "graph.freshness_error",
-                                format!("base graph index missing for repo `{}`", repo.repo_name),
-                            ));
-                        }
-                    },
-                };
+                let base_commit = base_commit_for(db, &repo.repo_name, repo.base_commit.as_deref())
+                    .ok_or_else(|| {
+                        Failure::failed(
+                            "graph.freshness_error",
+                            format!("base graph index missing for repo `{}`", repo.repo_name),
+                        )
+                    })?;
                 let result = ensure_layer_indexed(
                     db,
                     layout,

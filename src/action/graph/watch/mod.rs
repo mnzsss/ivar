@@ -68,9 +68,11 @@ impl Watch {
 
 fn default_discover() -> worker::Discover {
     Box::new(|layout, _| {
-        read_manifest_quiet(layout)
+        let mut targets = read_manifest_quiet(layout)
             .map(|m| worker::base_targets(layout, &m))
-            .unwrap_or_default()
+            .unwrap_or_default();
+        targets.extend(worker::layer_targets(layout));
+        targets
     })
 }
 

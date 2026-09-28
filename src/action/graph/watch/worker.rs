@@ -1,7 +1,12 @@
 //! Background worker thread for automatic graph reindexing.
 
-#![allow(clippy::needless_pass_by_value, clippy::collapsible_if)]
+#![allow(
+    clippy::needless_pass_by_value,
+    clippy::collapsible_if,
+    clippy::too_many_arguments
+)]
 
+use std::collections::BTreeSet;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver};
@@ -14,20 +19,23 @@ use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use crate::action::Failure;
 use crate::action::graph::cross_repo;
 use crate::action::graph::index;
+use crate::action::graph::layer::ensure_layer_indexed;
 use crate::action::graph::watch::scopes::{Debouncer, Scope, WatchSet};
 use crate::action::progress::Silent;
+use crate::action::session::lookup;
+use crate::domain::feature::Feature;
+use crate::domain::name::FeatureName;
 use crate::git::{Git, System as GitSystem};
 use crate::store::graph::db::GraphDb;
 use crate::store::layout::Layout;
 use crate::store::manifest::Manifest;
-
 pub(crate) const TICK: Duration = Duration::from_millis(50);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum TargetKind {
     Base,
+    Layer { promotion_base: Option<String> },
 }
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Target {
     pub scope: Scope,
@@ -98,9 +106,96 @@ pub(crate) fn base_targets(layout: &Layout, manifest: &Manifest) -> Vec<Target> 
     }
     targets
 }
+/// Returns the base commit for a repo's layer indexing, checking `db.get_repo_last_commit` first
+/// and falling back to `promotion_base`.
+#[must_use]
+pub(crate) fn base_commit_for(
+    db: &GraphDb,
+    repo: &str,
+    promotion_base: Option<&str>,
+) -> Option<String> {
+    db.get_repo_last_commit(repo)
+        .ok()
+        .flatten()
+        .or_else(|| promotion_base.map(str::to_owned))
+}
+
+/// Constructs layer targets for all features with live sessions whose worktrees exist.
+#[must_use]
+pub(crate) fn layer_targets(layout: &Layout) -> Vec<Target> {
+    let mut targets = Vec::new();
+    let features: BTreeSet<FeatureName> = lookup::list_all(layout)
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|s| s.feature)
+        .collect();
+
+    for name in features {
+        let Ok(Some(feature)) = Feature::read(layout, &name) else {
+            continue;
+        };
+        for (repo, promotion) in &feature.promotions {
+            let worktree = layout.repo_worktree(repo, &feature.branch);
+            if !worktree.as_std_path().exists() {
+                continue;
+            }
+            let dot_git = worktree.join(".git");
+            let gitdir = if dot_git.is_file() {
+                let Ok(content) = std::fs::read_to_string(dot_git.as_std_path()) else {
+                    continue;
+                };
+                let Some(rest) = content.strip_prefix("gitdir: ") else {
+                    continue;
+                };
+                let trimmed = rest.trim();
+                let p = Utf8Path::new(trimmed);
+                if p.is_absolute() {
+                    p.to_path_buf()
+                } else {
+                    worktree.join(p)
+                }
+            } else if dot_git.is_dir() {
+                dot_git
+            } else {
+                continue;
+            };
+
+            let branch = feature.branch.as_str();
+            let branch_path = Utf8Path::new(branch);
+            let branch_parent = branch_path.parent();
+            let branch_leaf = branch_path.file_name().unwrap_or(branch).to_owned();
+
+            let branch_ref_dir = match branch_parent {
+                Some(p) if !p.as_str().is_empty() => gitdir.join("refs/heads").join(p),
+                _ => gitdir.join("refs/heads"),
+            };
+
+            let git_meta = vec![
+                (
+                    gitdir.clone(),
+                    vec!["HEAD".to_owned(), "packed-refs".to_owned()],
+                ),
+                (branch_ref_dir, vec![branch_leaf]),
+            ];
+
+            targets.push(Target {
+                scope: Scope::Layer {
+                    feature: name.as_str().to_owned(),
+                    repo: repo.as_str().to_owned(),
+                },
+                worktree,
+                git_meta,
+                kind: TargetKind::Layer {
+                    promotion_base: promotion.base.as_ref().map(|b| b.as_str().to_owned()),
+                },
+            });
+        }
+    }
+    targets
+}
 
 fn reindex(layout: &Layout, db: &GraphDb, target: &Target) -> Result<(), Failure> {
-    match target.kind {
+    match &target.kind {
         TargetKind::Base => {
             let Scope::Base { ref repo } = target.scope else {
                 return Err(Failure::failed(
@@ -119,6 +214,22 @@ fn reindex(layout: &Layout, db: &GraphDb, target: &Target) -> Result<(), Failure
             }
             Ok(())
         }
+        TargetKind::Layer { promotion_base } => {
+            let Scope::Layer { feature, repo } = &target.scope else {
+                return Err(Failure::failed(
+                    "graph.watch_reindex",
+                    "Expected layer scope for layer target",
+                ));
+            };
+            let base = base_commit_for(db, repo, promotion_base.as_deref()).ok_or_else(|| {
+                Failure::failed(
+                    "graph.watch_reindex",
+                    format!("base graph index missing for repo `{repo}`"),
+                )
+            })?;
+            ensure_layer_indexed(db, layout, feature, repo, &target.worktree, &base)?;
+            Ok(())
+        }
     }
 }
 
@@ -130,6 +241,7 @@ fn handle_fs_event(
     db: &GraphDb,
     targets: &[Target],
     now: Instant,
+    rediscover: &mut bool,
 ) {
     if matches!(event.kind, EventKind::Access(_)) {
         return;
@@ -144,6 +256,9 @@ fn handle_fs_event(
         let Ok(utf8_path) = Utf8Path::from_path(path).ok_or(()) else {
             continue;
         };
+        if set.is_control(utf8_path) {
+            *rediscover = true;
+        }
         if matches!(
             event.kind,
             EventKind::Create(notify::event::CreateKind::Folder)
@@ -183,12 +298,100 @@ fn process_due_scopes(
             })
             .unwrap_or((0, false));
 
+        let repo_last_commit_before = if let Scope::Base { ref repo } = target.scope {
+            db.get_repo_last_commit(repo).ok().flatten()
+        } else {
+            None
+        };
+
         match reindex(layout, db, target) {
             Ok(()) => {
                 let _ = db.watch_finish(&key, seq, was_catchup);
+
+                // When a base repo's commit changes, invalidate all layer scopes of the same repo.
+                if let Scope::Base { ref repo } = target.scope {
+                    let repo_last_commit_after = db.get_repo_last_commit(repo).ok().flatten();
+                    if repo_last_commit_after != repo_last_commit_before {
+                        for other in targets {
+                            if let Scope::Layer {
+                                repo: ref layer_repo,
+                                ..
+                            } = other.scope
+                            {
+                                if layer_repo == repo {
+                                    let _ = deb.record(other.scope.clone(), now);
+                                    let _ = db.watch_bump_observed(&other.scope.key());
+                                }
+                            }
+                        }
+                    }
+                }
             }
             Err(err) => {
                 let _ = db.watch_fail(&key, &err.to_string());
+            }
+        }
+    }
+}
+
+fn register_and_watch_target(
+    layout: &Layout,
+    db: &GraphDb,
+    target: &Target,
+    set: &mut WatchSet,
+    watcher: &mut RecommendedWatcher,
+    git: &GitSystem,
+) {
+    let key = target.scope.key();
+    if db.watch_register(&key).is_err() {
+        return;
+    }
+
+    let tracked = git.tracked_files(&target.worktree).unwrap_or_default();
+    let wt_dirs = set.add_worktree(&target.scope, &target.worktree, &tracked);
+    for dir in wt_dirs {
+        let _ = watcher.watch(dir.as_std_path(), RecursiveMode::NonRecursive);
+    }
+
+    for (dir, names) in &target.git_meta {
+        let name_refs: Vec<&str> = names.iter().map(String::as_str).collect();
+        let d = set.add_git_meta(&target.scope, dir, &name_refs);
+        let _ = watcher.watch(d.as_std_path(), RecursiveMode::NonRecursive);
+    }
+
+    let observed_at_start = db
+        .watch_scopes()
+        .ok()
+        .and_then(|rows| {
+            rows.into_iter()
+                .find(|r| r.scope == key)
+                .map(|r| r.observed)
+        })
+        .unwrap_or(0);
+
+    match reindex(layout, db, target) {
+        Ok(()) => {
+            let _ = db.watch_finish(&key, observed_at_start, true);
+        }
+        Err(err) => {
+            let _ = db.watch_fail(&key, &err.to_string());
+        }
+    }
+}
+
+fn add_control_dirs(layout: &Layout, set: &mut WatchSet, watcher: &mut RecommendedWatcher) {
+    let features_dir = layout.features_dir();
+    let d = set.add_control(&features_dir);
+    let _ = watcher.watch(d.as_std_path(), RecursiveMode::NonRecursive);
+
+    if let Ok(entries) = crate::infra::fs::read_dir(&features_dir) {
+        for entry in entries {
+            if let Some(name) = entry.file_name()
+                && let Ok(feat_name) = FeatureName::new(name)
+            {
+                let sessions_dir = layout.feature_sessions_dir(&feat_name);
+                let sd = set.add_control(&sessions_dir);
+                let _ = watcher.watch(sd.as_std_path(), RecursiveMode::NonRecursive);
             }
         }
     }
@@ -210,45 +413,15 @@ fn run(
     let mut deb = Debouncer::new(Debouncer::QUIET, Debouncer::CAP);
     let git = GitSystem;
 
-    let targets = discover(&layout, &db);
+    add_control_dirs(&layout, &mut set, &mut watcher);
+
+    let mut targets = discover(&layout, &db);
 
     for target in &targets {
-        let key = target.scope.key();
-        if db.watch_register(&key).is_err() {
-            continue;
-        }
-
-        let tracked = git.tracked_files(&target.worktree).unwrap_or_default();
-        let wt_dirs = set.add_worktree(&target.scope, &target.worktree, &tracked);
-        for dir in wt_dirs {
-            let _ = watcher.watch(dir.as_std_path(), RecursiveMode::NonRecursive);
-        }
-
-        for (dir, names) in &target.git_meta {
-            let name_refs: Vec<&str> = names.iter().map(String::as_str).collect();
-            let d = set.add_git_meta(&target.scope, dir, &name_refs);
-            let _ = watcher.watch(d.as_std_path(), RecursiveMode::NonRecursive);
-        }
-
-        let observed_at_start = db
-            .watch_scopes()
-            .ok()
-            .and_then(|rows| {
-                rows.into_iter()
-                    .find(|r| r.scope == key)
-                    .map(|r| r.observed)
-            })
-            .unwrap_or(0);
-
-        match reindex(&layout, &db, target) {
-            Ok(()) => {
-                let _ = db.watch_finish(&key, observed_at_start, true);
-            }
-            Err(err) => {
-                let _ = db.watch_fail(&key, &err.to_string());
-            }
-        }
+        register_and_watch_target(&layout, &db, target, &mut set, &mut watcher, &git);
     }
+
+    let mut rediscover = false;
 
     while !stop.load(Ordering::Relaxed) {
         let now = Instant::now();
@@ -261,7 +434,16 @@ fn run(
 
         match rx.recv_timeout(timeout) {
             Ok(Ok(event)) => {
-                handle_fs_event(&event, &mut watcher, &mut set, &mut deb, &db, &targets, now);
+                handle_fs_event(
+                    &event,
+                    &mut watcher,
+                    &mut set,
+                    &mut deb,
+                    &db,
+                    &targets,
+                    now,
+                    &mut rediscover,
+                );
             }
             Ok(Err(error)) => {
                 for t in &targets {
@@ -272,6 +454,32 @@ fn run(
             }
             Err(mpsc::RecvTimeoutError::Timeout) => {}
             Err(mpsc::RecvTimeoutError::Disconnected) => break,
+        }
+
+        if rediscover {
+            rediscover = false;
+            add_control_dirs(&layout, &mut set, &mut watcher);
+            let new_targets = discover(&layout, &db);
+
+            // Targets gone: remove scope from set, unwatch paths, forget from DB
+            for old_t in &targets {
+                if !new_targets.iter().any(|t| t.scope == old_t.scope) {
+                    let unwatched = set.remove_scope(&old_t.scope);
+                    for p in unwatched {
+                        let _ = watcher.unwatch(p.as_std_path());
+                    }
+                    let _ = db.watch_forget(&old_t.scope.key());
+                }
+            }
+
+            // Targets new: register, watch, and catch-up
+            for new_t in &new_targets {
+                if !targets.iter().any(|t| t.scope == new_t.scope) {
+                    register_and_watch_target(&layout, &db, new_t, &mut set, &mut watcher, &git);
+                }
+            }
+
+            targets = new_targets;
         }
 
         let now = Instant::now();

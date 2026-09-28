@@ -126,3 +126,48 @@ fn a_second_server_takes_over_when_the_leader_exits() {
     });
     follower.close();
 }
+
+fn layer_scopes(hall: &TestHall) -> Vec<String> {
+    let conn =
+        rusqlite::Connection::open(hall.root().join(".ivar/memory.db").as_std_path()).unwrap();
+    let mut stmt = conn
+        .prepare("SELECT scope FROM watch_scopes WHERE scope LIKE 'layer:%' ORDER BY scope")
+        .unwrap();
+    stmt.query_map([], |r| r.get(0))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap()
+}
+
+#[test]
+fn the_leader_watches_a_feature_session_while_it_lives() {
+    let hall = TestHall::new();
+    hall.commit_base("api", &[("src/lib.ts", "export function alphaFn() {}\n")]);
+    hall.graph_command(hall.root(), &["index", "--repo", "api"]);
+    let worktree = hall.promote("rename", "api");
+    let view = hall.connect_view("rename");
+    let mut server = Mcp::spawn(hall.root());
+    server.call(1, "alphaFn");
+
+    eventually("layer scope registered", || {
+        layer_scopes(&hall) == vec!["layer:rename:api".to_owned()]
+    });
+
+    hall.write(&worktree, "src/extra.ts", "export function deltaFn() {}\n");
+    let mut session_server = Mcp::spawn(&view);
+    assert!(
+        session_server
+            .call(1, "deltaFn")
+            .contains("export function deltaFn")
+    );
+    session_server.close();
+
+    let id = view.file_name().unwrap().to_owned();
+    crate::common::ivar()
+        .current_dir(hall.root())
+        .args(["session", "stop", &id])
+        .assert()
+        .success();
+    eventually("layer scope forgotten", || layer_scopes(&hall).is_empty());
+    server.close();
+}

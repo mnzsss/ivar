@@ -144,3 +144,52 @@ fn dropping_the_worker_stops_it_within_a_tick() {
     drop(worker);
     assert!(started.elapsed() < Duration::from_secs(2));
 }
+
+#[test]
+fn a_layer_target_is_reindexed_on_an_uncommitted_edit_against_the_indexed_base() {
+    let (_tmp, layout, repo) = hall_with_repo();
+    let db_path = layout.ivar_dir().join("memory.db");
+    let db = GraphDb::open(db_path.as_std_path()).unwrap();
+    crate::action::graph::index::index_repo(
+        &db,
+        "api",
+        repo.as_std_path(),
+        false,
+        &crate::infra::progress::Silent,
+    )
+    .unwrap();
+    let layer = Target {
+        scope: Scope::Layer {
+            feature: "feat".into(),
+            repo: "api".into(),
+        },
+        worktree: repo.clone(),
+        git_meta: vec![(repo.join(".git"), vec!["HEAD".into()])],
+        kind: TargetKind::Layer {
+            promotion_base: None,
+        },
+    };
+    let _worker = Worker::spawn(
+        layout.clone(),
+        db_path,
+        Box::new(move |_, _| vec![layer.clone()]),
+    )
+    .unwrap();
+    wait_for("layer catch-up", || {
+        db.watch_settled(&["layer:feat:api"]).unwrap()
+    });
+
+    std::fs::write(repo.join("src/extra.rs"), "pub fn delta() {}\n").unwrap();
+
+    wait_for("layer reindex", || {
+        db.conn()
+            .query_row(
+                "SELECT COUNT(*) FROM symbols WHERE repo LIKE 'api/%' AND name = 'delta'",
+                [],
+                |r| r.get::<_, i64>(0),
+            )
+            .unwrap()
+            == 1
+            && db.watch_settled(&["layer:feat:api"]).unwrap()
+    });
+}
