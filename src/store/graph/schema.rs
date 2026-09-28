@@ -112,7 +112,7 @@ CREATE VIRTUAL TABLE IF NOT EXISTS file_content_fts USING fts5(
 const SEARCH_SCHEMA_VERSION: i64 = 4;
 
 /// The `user_version` a database carries once every migration below has run.
-pub const SCHEMA_VERSION: i64 = 10;
+pub const SCHEMA_VERSION: i64 = 11;
 
 /// Misses recorded before this version were classified without session
 /// attribution or a quote-aware parser, so they cannot be trusted.
@@ -185,7 +185,8 @@ fn needs_migration(conn: &Connection) -> rusqlite::Result<bool> {
         || !has_schema_object(conn, "idx_usage_session_ts")?
         || !has_column(conn, "graph_misses", "usage_id")?
         || !has_column(conn, "files", "content_truncated")?
-        || !has_schema_object(conn, "file_content_fts")?)
+        || !has_schema_object(conn, "file_content_fts")?
+        || !has_schema_object(conn, "watch_scopes")?)
 }
 
 fn has_schema_object(conn: &Connection, name: &str) -> rusqlite::Result<bool> {
@@ -216,6 +217,7 @@ fn migrate(conn: &Connection) -> rusqlite::Result<()> {
     apply_usage_migration(conn)?;
     apply_miss_migration(conn)?;
     apply_content_fts_migration(conn)?;
+    apply_watch_migration(conn)?;
     // Session views project layer rows under their base repo name, so a file
     // lookup there can only seek on the path.
     conn.execute_batch("CREATE INDEX IF NOT EXISTS idx_files_path ON files(path);")?;
@@ -309,6 +311,19 @@ fn apply_content_fts_migration(conn: &Connection) -> rusqlite::Result<()> {
         )?;
     }
     Ok(())
+}
+
+fn apply_watch_migration(conn: &Connection) -> rusqlite::Result<()> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS watch_scopes (
+            scope TEXT PRIMARY KEY,
+            observed INTEGER NOT NULL DEFAULT 0,
+            indexed INTEGER NOT NULL DEFAULT 0,
+            needs_catchup INTEGER NOT NULL DEFAULT 1,
+            error TEXT,
+            updated_at INTEGER NOT NULL
+        );",
+    )
 }
 
 fn apply_search_migration(conn: &Connection) -> rusqlite::Result<()> {
