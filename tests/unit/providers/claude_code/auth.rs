@@ -1,3 +1,5 @@
+#![allow(clippy::unwrap_used)]
+
 use crate::domain::mcp::CredentialState;
 use crate::infra::json;
 use crate::test_support::utf8_temp_dir;
