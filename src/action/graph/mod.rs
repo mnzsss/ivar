@@ -161,7 +161,7 @@ pub fn file_cmd(ctx: &Ctx, args: &FileInput) -> Outcome<FileOutcome> {
     Ok(Report::new(FileOutcome(outline)))
 }
 
-fn lock_index(layout: &Layout) -> Result<std::fs::File, Failure> {
+pub(crate) fn lock_index(layout: &Layout) -> Result<std::fs::File, Failure> {
     let lock_path = layout.ivar_dir().join("memory.lock");
     let lock_file = std::fs::File::create(lock_path.as_std_path()).map_err(|err| {
         Failure::failed(
