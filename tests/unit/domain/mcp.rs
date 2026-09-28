@@ -275,10 +275,16 @@ fn server_def_auth_requirement_classification() {
     assert_eq!(local.auth_requirement(), AuthRequirement::NotApplicable);
 
     let http_no_oauth = McpServerDef::new("sentry", "http").url("https://sentry.io/mcp");
-    assert_eq!(http_no_oauth.auth_requirement(), AuthRequirement::NotRequired);
+    assert_eq!(
+        http_no_oauth.auth_requirement(),
+        AuthRequirement::NotRequired
+    );
 
     let http_with_oauth = McpServerDef::new("figma", "http")
         .url("https://mcp.figma.com/mcp")
         .oauth(McpOauth::public("client-123"));
-    assert_eq!(http_with_oauth.auth_requirement(), AuthRequirement::Required);
+    assert_eq!(
+        http_with_oauth.auth_requirement(),
+        AuthRequirement::Required
+    );
 }

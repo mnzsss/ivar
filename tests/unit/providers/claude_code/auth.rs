@@ -1,14 +1,19 @@
 #![allow(clippy::unwrap_used)]
 
+use super::*;
 use crate::domain::mcp::CredentialState;
 use crate::infra::json;
 use crate::test_support::utf8_temp_dir;
-use super::*;
 
 #[test]
 fn absent_credentials_file_returns_unknown() {
     let (_dir, root) = utf8_temp_dir();
-    let state = credential_state_under(&root, "acme-linear", "https://mcp.linear.app/mcp", 1_700_000_000_000);
+    let state = credential_state_under(
+        &root,
+        "acme-linear",
+        "https://mcp.linear.app/mcp",
+        1_700_000_000_000,
+    );
     assert_eq!(state, CredentialState::Unknown);
 }
 
@@ -17,7 +22,12 @@ fn unparseable_credentials_file_returns_unknown() {
     let (_dir, root) = utf8_temp_dir();
     let path = root.join(".credentials.json");
     crate::infra::fs::write_text(&path, "not json").unwrap();
-    let state = credential_state_under(&root, "acme-linear", "https://mcp.linear.app/mcp", 1_700_000_000_000);
+    let state = credential_state_under(
+        &root,
+        "acme-linear",
+        "https://mcp.linear.app/mcp",
+        1_700_000_000_000,
+    );
     assert_eq!(state, CredentialState::Unknown);
 }
 
@@ -30,8 +40,14 @@ fn missing_entry_returns_missing() {
         &serde_json::json!({
             "mcpOAuth": {}
         }),
-    ).unwrap();
-    let state = credential_state_under(&root, "acme-linear", "https://mcp.linear.app/mcp", 1_700_000_000_000);
+    )
+    .unwrap();
+    let state = credential_state_under(
+        &root,
+        "acme-linear",
+        "https://mcp.linear.app/mcp",
+        1_700_000_000_000,
+    );
     assert_eq!(state, CredentialState::Missing);
 }
 
@@ -52,8 +68,14 @@ fn empty_access_token_returns_missing() {
                 }
             }
         }),
-    ).unwrap();
-    let state = credential_state_under(&root, "acme-linear", "https://mcp.linear.app/mcp", 1_700_000_000_000);
+    )
+    .unwrap();
+    let state = credential_state_under(
+        &root,
+        "acme-linear",
+        "https://mcp.linear.app/mcp",
+        1_700_000_000_000,
+    );
     assert_eq!(state, CredentialState::Missing);
 }
 
@@ -73,8 +95,14 @@ fn valid_unexpired_entry_returns_authenticated() {
                 }
             }
         }),
-    ).unwrap();
-    let state = credential_state_under(&root, "acme-linear", "https://mcp.linear.app/mcp", 1_700_000_000_000);
+    )
+    .unwrap();
+    let state = credential_state_under(
+        &root,
+        "acme-linear",
+        "https://mcp.linear.app/mcp",
+        1_700_000_000_000,
+    );
     assert_eq!(state, CredentialState::Authenticated);
 }
 
@@ -94,8 +122,14 @@ fn null_expires_at_never_expires_and_returns_authenticated() {
                 }
             }
         }),
-    ).unwrap();
-    let state = credential_state_under(&root, "acme-linear", "https://mcp.linear.app/mcp", 1_700_000_000_000);
+    )
+    .unwrap();
+    let state = credential_state_under(
+        &root,
+        "acme-linear",
+        "https://mcp.linear.app/mcp",
+        1_700_000_000_000,
+    );
     assert_eq!(state, CredentialState::Authenticated);
 }
 
@@ -116,8 +150,14 @@ fn expired_entry_with_refresh_token_returns_expired() {
                 }
             }
         }),
-    ).unwrap();
-    let state = credential_state_under(&root, "acme-linear", "https://mcp.linear.app/mcp", 1_700_000_000_000);
+    )
+    .unwrap();
+    let state = credential_state_under(
+        &root,
+        "acme-linear",
+        "https://mcp.linear.app/mcp",
+        1_700_000_000_000,
+    );
     assert_eq!(state, CredentialState::Expired);
 }
 
@@ -138,8 +178,14 @@ fn expired_entry_without_refresh_token_returns_missing() {
                 }
             }
         }),
-    ).unwrap();
-    let state = credential_state_under(&root, "acme-linear", "https://mcp.linear.app/mcp", 1_700_000_000_000);
+    )
+    .unwrap();
+    let state = credential_state_under(
+        &root,
+        "acme-linear",
+        "https://mcp.linear.app/mcp",
+        1_700_000_000_000,
+    );
     assert_eq!(state, CredentialState::Missing);
 }
 
@@ -166,7 +212,13 @@ fn best_matching_entry_is_selected_when_multiple_hashes_present() {
                 }
             }
         }),
-    ).unwrap();
-    let state = credential_state_under(&root, "acme-linear", "https://mcp.linear.app/mcp", 1_700_000_000_000);
+    )
+    .unwrap();
+    let state = credential_state_under(
+        &root,
+        "acme-linear",
+        "https://mcp.linear.app/mcp",
+        1_700_000_000_000,
+    );
     assert_eq!(state, CredentialState::Authenticated);
 }

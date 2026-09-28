@@ -46,7 +46,10 @@ pub(crate) fn resolve_server<'a>(
         })
 }
 
-pub(crate) fn resolve_provider(manifest: &Manifest, raw: Option<&str>) -> Result<Provider, Failure> {
+pub(crate) fn resolve_provider(
+    manifest: &Manifest,
+    raw: Option<&str>,
+) -> Result<Provider, Failure> {
     match raw {
         Some(value) => value.parse::<Provider>().map_err(Failure::from),
         None => Ok(manifest.providers().default_provider()),

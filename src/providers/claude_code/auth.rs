@@ -73,7 +73,11 @@ pub(crate) fn credential_state_under(
     // Filter to entries with non-empty accessToken
     let with_tokens: Vec<&&ClaudeOAuthEntry> = matching
         .iter()
-        .filter(|e| e.access_token.as_ref().is_some_and(|t| !t.trim().is_empty()))
+        .filter(|e| {
+            e.access_token
+                .as_ref()
+                .is_some_and(|t| !t.trim().is_empty())
+        })
         .collect();
 
     if with_tokens.is_empty() {

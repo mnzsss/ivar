@@ -10,6 +10,7 @@ use std::io;
 use serde::Serialize;
 
 use crate::domain::feature::{Feature, RunReceipt, RunStatus};
+use crate::domain::mcp::{AuthRequirement, CredentialState};
 use crate::domain::name::{FeatureName, RepoName};
 use crate::domain::provider::Provider;
 use crate::error::{Failure, Outcome, Report, WriteHuman};
@@ -20,12 +21,11 @@ use crate::harness::commands::{
 use crate::harness::config::{build_block, instructions};
 use crate::harness::skills::{self, Inspection as SkillInspection, Integrity as SkillIntegrity};
 use crate::infra::fs;
+use crate::providers;
 use crate::store::graph::db::GraphDb;
 use crate::store::graph::schema::SCHEMA_VERSION;
 use crate::store::layout::Layout;
 use crate::store::manifest::Manifest;
-use crate::domain::mcp::{AuthRequirement, CredentialState};
-use crate::providers;
 
 use super::Ctx;
 use super::{discover_hall, read_manifest};

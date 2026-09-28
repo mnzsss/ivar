@@ -153,8 +153,8 @@ use crate::action::Ctx;
 use crate::domain::provider::Provider;
 use crate::error::{Outcome, Report, Warning, WriteHuman};
 
-use super::{resolve_provider, resolve_server};
 use super::super::{discover_hall, read_manifest};
+use super::{resolve_provider, resolve_server};
 
 mod dispatch;
 mod flow;
@@ -411,7 +411,6 @@ fn all_providers_report(server: &str, runs: Vec<ProviderRun>) -> Report<AuthOutc
         warnings,
     )
 }
-
 
 #[cfg(test)]
 #[path = "../../../../tests/unit/action/mcp/auth.rs"]

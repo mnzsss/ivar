@@ -23,7 +23,7 @@ mod status;
 
 pub use cleanup::CleanupOutcome;
 pub use cleanup::cleanup;
-pub use doctor::{diagnose_mcp_auth, Diagnosis, DoctorOutcome, doctor};
+pub use doctor::{Diagnosis, DoctorOutcome, diagnose_mcp_auth, doctor};
 pub use init::InitInput;
 pub use init::InitOutcome;
 pub use init::init;

@@ -1570,9 +1570,8 @@ fn doctor_diagnoses_missing_mcp_auth() {
         .unwrap();
     Manifest::write(&layout, &updated).unwrap();
 
-    let mock_state = |_p: Provider, _name: &str, _url: &str| -> CredentialState {
-        CredentialState::Missing
-    };
+    let mock_state =
+        |_p: Provider, _name: &str, _url: &str| -> CredentialState { CredentialState::Missing };
 
     let diagnoses = diagnose_mcp_auth(&updated, &mock_state);
     assert_eq!(diagnoses.len(), updated.providers().available().len());
@@ -1596,9 +1595,8 @@ fn doctor_ignores_mcp_servers_not_requiring_auth() {
         ])
         .unwrap();
 
-    let mock_state = |_p: Provider, _name: &str, _url: &str| -> CredentialState {
-        CredentialState::Missing
-    };
+    let mock_state =
+        |_p: Provider, _name: &str, _url: &str| -> CredentialState { CredentialState::Missing };
 
     let diagnoses = diagnose_mcp_auth(&updated, &mock_state);
     assert!(diagnoses.is_empty());

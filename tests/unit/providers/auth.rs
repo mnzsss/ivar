@@ -103,13 +103,24 @@ use crate::providers::credential_state;
 #[test]
 fn credential_state_dispatch_for_claude_missing_store() {
     // With empty environment/fresh dir, claude without ~/.claude/.credentials.json yields Unknown or Missing
-    let state = credential_state(Provider::ClaudeCode, "non-existent", "https://example.com/mcp");
-    assert!(matches!(state, CredentialState::Unknown | CredentialState::Missing));
+    let state = credential_state(
+        Provider::ClaudeCode,
+        "non-existent",
+        "https://example.com/mcp",
+    );
+    assert!(matches!(
+        state,
+        CredentialState::Unknown | CredentialState::Missing
+    ));
 }
 
 #[test]
 fn credential_state_dispatch_for_opencode_missing_store() {
-    let state = credential_state(Provider::OpenCode, "non-existent", "https://example.com/mcp");
+    let state = credential_state(
+        Provider::OpenCode,
+        "non-existent",
+        "https://example.com/mcp",
+    );
     assert_eq!(state, CredentialState::Missing);
 }
 
