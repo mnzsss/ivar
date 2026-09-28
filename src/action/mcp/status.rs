@@ -44,19 +44,35 @@ impl WriteHuman for StatusOutcome {
             return Ok(());
         }
 
+        let server_width = self
+            .rows
+            .iter()
+            .map(|r| r.server.len())
+            .max()
+            .unwrap_or(0)
+            .max("SERVER".len());
+
+        let provider_width = self
+            .rows
+            .iter()
+            .map(|r| r.provider.id().len())
+            .max()
+            .unwrap_or(0)
+            .max("PROVIDER".len());
+
         writeln!(
             w,
-            "{:<20} {:<15} {:<20}",
+            "{:<server_width$} {:<provider_width$} {:<20}",
             "SERVER", "PROVIDER", "STATE (SOURCE)"
         )?;
         for row in &self.rows {
             let state_desc = match row.source {
-                StateSource::Local => format!("{:?}", row.state),
-                StateSource::Live => format!("{:?} (live)", row.state),
+                StateSource::Local => row.state.as_str().to_owned(),
+                StateSource::Live => format!("{} (live)", row.state.as_str()),
             };
             writeln!(
                 w,
-                "{:<20} {:<15} {:<20}",
+                "{:<server_width$} {:<provider_width$} {:<20}",
                 row.server,
                 row.provider.id(),
                 state_desc
@@ -126,9 +142,9 @@ pub(crate) fn status_report(rows: Vec<StatusRow>) -> Report<StatusOutcome> {
                 "mcp.auth_needs_attention",
                 format!("{}/{}", row.server, row.provider.id()),
                 format!(
-                    "`{}` is {:?} for {}; run `ivar mcp auth {} --provider {}`",
+                    "`{}` is {} for {}; run `ivar mcp auth {} --provider {}`",
                     row.server,
-                    row.state,
+                    row.state.as_str(),
                     row.provider.id(),
                     row.server,
                     row.provider.id()

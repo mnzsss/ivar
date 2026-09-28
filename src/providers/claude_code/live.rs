@@ -1,7 +1,6 @@
 use crate::domain::mcp::CredentialState;
 use std::collections::BTreeMap;
 
-#[allow(dead_code)]
 pub(crate) fn parse_mcp_list(stdout: &str) -> BTreeMap<String, CredentialState> {
     let mut map = BTreeMap::new();
     for line in stdout.lines() {

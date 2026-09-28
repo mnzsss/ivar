@@ -66,10 +66,30 @@ pub enum CredentialState {
 }
 
 impl CredentialState {
+    /// The canonical kebab-case identifier for this credential state,
+    /// matching its serde serialization.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::NotApplicable => "not-applicable",
+            Self::NotRequired => "not-required",
+            Self::Authenticated => "authenticated",
+            Self::Expired => "expired",
+            Self::Missing => "missing",
+            Self::Unknown => "unknown",
+        }
+    }
+
     /// Whether this state indicates an issue requiring human or tool attention.
     #[must_use]
     pub fn needs_attention(self) -> bool {
         matches!(self, Self::Expired | Self::Missing | Self::Unknown)
+    }
+}
+
+impl fmt::Display for CredentialState {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.pad(self.as_str())
     }
 }
 

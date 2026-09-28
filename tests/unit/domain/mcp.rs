@@ -258,6 +258,27 @@ fn credential_state_serde_uses_kebab_case() {
         "\"unknown\""
     );
 }
+#[test]
+fn credential_state_as_str_matches_serde_output_for_every_variant() {
+    let variants = [
+        CredentialState::NotApplicable,
+        CredentialState::NotRequired,
+        CredentialState::Authenticated,
+        CredentialState::Expired,
+        CredentialState::Missing,
+        CredentialState::Unknown,
+    ];
+
+    for variant in variants {
+        let serde_json_str = match serde_json::to_string(&variant) {
+            Ok(s) => s,
+            Err(e) => panic!("failed to serialize CredentialState: {e}"),
+        };
+        let expected_json = format!("\"{}\"", variant.as_str());
+        assert_eq!(serde_json_str, expected_json);
+        assert_eq!(variant.to_string(), variant.as_str());
+    }
+}
 
 #[test]
 fn credential_state_needs_attention() {
