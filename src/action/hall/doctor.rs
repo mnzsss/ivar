@@ -562,7 +562,10 @@ fn graph_diagnoses(layout: &Layout, manifest: &Manifest, git: &impl Git) -> Vec<
         if let Some(error) = &row.error {
             findings.push(Diagnosis {
                 code: "graph.watch_scope_failed",
-                what: format!("the graph watcher could not reindex `{}`: {error}", row.scope),
+                what: format!(
+                    "the graph watcher could not reindex `{}`: {error}",
+                    row.scope
+                ),
                 fix: "Run `ivar graph index`; the watcher retries on the next change.".to_owned(),
             });
         } else if leader.is_none() && (row.needs_catchup || row.indexed < row.observed) {

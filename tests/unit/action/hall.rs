@@ -1502,32 +1502,52 @@ fn doctor_names_a_graph_schema_other_than_the_expected_one() {
 #[test]
 fn doctor_names_a_scope_the_watcher_could_not_reindex() {
     let (_guard, root) = hall_with_indexed_graph();
-    let db = crate::store::graph::db::GraphDb::open(root.join(".ivar/memory.db").as_std_path()).unwrap();
+    let db =
+        crate::store::graph::db::GraphDb::open(root.join(".ivar/memory.db").as_std_path()).unwrap();
     db.watch_register("base:api").unwrap();
-    db.watch_fail("base:api", "index_repo: permission denied").unwrap();
+    db.watch_fail("base:api", "index_repo: permission denied")
+        .unwrap();
     drop(db);
 
     let report = doctor(&Ctx::new(root)).unwrap();
 
     let failed = finding(&report.value, "graph.watch_scope_failed");
-    assert!(failed.what.contains("base:api") && failed.what.contains("permission denied"), "was: {}", failed.what);
+    assert!(
+        failed.what.contains("base:api") && failed.what.contains("permission denied"),
+        "was: {}",
+        failed.what
+    );
 }
 
 #[test]
 fn doctor_names_unfinished_catchup_only_when_no_leader_is_alive() {
     let (_guard, root) = hall_with_indexed_graph();
-    let db = crate::store::graph::db::GraphDb::open(root.join(".ivar/memory.db").as_std_path()).unwrap();
+    let db =
+        crate::store::graph::db::GraphDb::open(root.join(".ivar/memory.db").as_std_path()).unwrap();
     db.watch_register("base:api").unwrap(); // needs_catchup = 1
     drop(db);
 
     let report = doctor(&Ctx::new(root.clone())).unwrap();
     let pending = finding(&report.value, "graph.watch_catchup_pending");
-    assert!(pending.fix.contains("ivar graph index"), "was: {}", pending.fix);
+    assert!(
+        pending.fix.contains("ivar graph index"),
+        "was: {}",
+        pending.fix
+    );
     assert_eq!(report.value.graph_watch_leader, None);
 
     let layout = crate::store::layout::Layout::at(root.clone());
-    let _lease = crate::action::graph::watch::lease::Lease::try_acquire(&layout).unwrap().unwrap();
+    let _lease = crate::action::graph::watch::lease::Lease::try_acquire(&layout)
+        .unwrap()
+        .unwrap();
     let report = doctor(&Ctx::new(root)).unwrap();
-    assert!(report.value.findings.iter().all(|f| f.code != "graph.watch_catchup_pending"), "a live leader is catching up");
+    assert!(
+        report
+            .value
+            .findings
+            .iter()
+            .all(|f| f.code != "graph.watch_catchup_pending"),
+        "a live leader is catching up"
+    );
     assert_eq!(report.value.graph_watch_leader, Some(std::process::id()));
 }
