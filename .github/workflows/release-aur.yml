@@ -171,13 +171,20 @@ jobs:
 
           install -d -m 0700 -o aurbuild -g aurbuild /home/aurbuild/.ssh
           printf '%s\n' "$AUR_SSH_PRIVATE_KEY" > /home/aurbuild/.ssh/aur
-          ssh-keyscan aur.archlinux.org > /home/aurbuild/.ssh/known_hosts
+          # AUR rate-limits SSH connections per IP and drops the excess with
+          # "Connection closed by remote host". Pinning the host key (the
+          # fingerprint published on aur.archlinux.org) saves ssh-keyscan's
+          # connections, and ControlMaster funnels help/clone/push through one.
+          echo 'aur.archlinux.org ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEuBKrPzbawxA/k2g6NcyV5jmqwJ2s+zpgZGZ7tpLIcN' > /home/aurbuild/.ssh/known_hosts
           cat > /home/aurbuild/.ssh/config <<'SSHCONF'
           Host aur.archlinux.org
             HostName aur.archlinux.org
             User aur
             IdentityFile /home/aurbuild/.ssh/aur
             IdentitiesOnly yes
+            ControlMaster auto
+            ControlPath /home/aurbuild/.ssh/cm-%C
+            ControlPersist 10m
           SSHCONF
           chmod 0600 /home/aurbuild/.ssh/aur /home/aurbuild/.ssh/config
           chown aurbuild:aurbuild /home/aurbuild/.ssh/aur /home/aurbuild/.ssh/config /home/aurbuild/.ssh/known_hosts
