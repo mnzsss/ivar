@@ -52,7 +52,9 @@ pub fn index_repo(
     })?;
     let git = crate::git::System;
 
-    let head_commit = git.head_commit(repo_utf8).ok();
+    // In-process through git2: `git rev-parse HEAD` as a subprocess costs
+    // about 1 ms on every clean fast-path call (ADR-0001 §3).
+    let head_commit = git.revision_commit(repo_utf8, "HEAD").ok();
     let last_indexed = db.get_repo_last_commit(repo_id)?;
 
     if !force_full

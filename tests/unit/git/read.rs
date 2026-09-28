@@ -102,6 +102,39 @@ fn worktree_git_dir_of_a_linked_worktree_is_under_the_bare_repository() {
     assert!(git_dir.as_str().contains("worktrees"), "was: {git_dir}");
 }
 
+/// The graph index reads a hall worktree's `HEAD` through this function. A
+/// hall worktree is a linked worktree of a bare clone, so `HEAD` must be the
+/// worktree's own commit — never the bare repository's.
+#[test]
+fn revision_commit_head_of_a_linked_worktree_is_that_worktrees_commit() {
+    let (_guard, dir) = utf8_temp_dir();
+    let origin = seeded_repo(&dir.join("origin"), "main");
+    let bare = dir.join("api.bare");
+    exec::clone_bare(origin.as_str(), &bare).unwrap();
+    let worktree = dir.join("api/main");
+    exec::add_worktree(&bare, &worktree, "main").unwrap();
+    git(&worktree, &["checkout", "-b", "feature"]);
+    git(&worktree, &["commit", "--allow-empty", "-m", "on feature"]);
+
+    let head = revision_commit(&worktree, "HEAD").unwrap();
+
+    assert_eq!(head, exec::head_commit(&worktree).unwrap());
+    assert_ne!(head, revision_commit(&bare, "HEAD").unwrap());
+}
+
+/// An unborn `HEAD` names no commit. `index_repo` turns this error into
+/// "no known HEAD" and runs full discovery, so it must be an error, not a
+/// made-up id.
+#[test]
+fn revision_commit_head_of_a_repository_with_no_commits_is_refused() {
+    let (_guard, dir) = utf8_temp_dir();
+    let repo = empty_repo(&dir.join("repo"), "main");
+
+    let error = revision_commit(&repo, "HEAD").expect_err("unborn HEAD names no commit");
+
+    assert!(matches!(error, Error::Refused { .. }), "got {error:?}");
+}
+
 #[test]
 fn is_ancestor_true_for_a_direct_parent() {
     let (_guard, dir) = utf8_temp_dir();
