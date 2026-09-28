@@ -77,9 +77,10 @@ jobs:
       - name: test
         run: cargo test --all-features
 
-      # The graph simulation is ignored by regular test and coverage runs.
+      # The graph simulation is `#[ignore]`d by the plain `cargo test` above and
+      # by coverage, so it runs here explicitly. On pull requests too: gated to
+      # pushes on main, it let #122's dirty-worktree regression merge green.
       - name: test graph
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: cargo test --profile e2e --test graph --all-features -- --ignored simulation
   msrv:
     name: msrv
