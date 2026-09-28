@@ -193,3 +193,139 @@ fn a_layer_target_is_reindexed_on_an_uncommitted_edit_against_the_indexed_base()
             && db.watch_settled(&["layer:feat:api"]).unwrap()
     });
 }
+
+#[test]
+fn symlinked_worktree_and_control_dirs_classify_canonical_fs_events() {
+    use notify::event::{CreateKind, ModifyKind};
+    use notify::{Event, EventKind, Watcher};
+
+    let real_tmp = tempfile::tempdir().unwrap();
+    let real_root = Utf8PathBuf::from_path_buf(real_tmp.path().to_path_buf()).unwrap();
+    let symlink_tmp = tempfile::tempdir().unwrap();
+    let symlink_root = Utf8PathBuf::from_path_buf(symlink_tmp.path().join("symlink_hall")).unwrap();
+
+    crate::infra::fs::create_symlink(&real_root, &symlink_root).unwrap();
+    let real_repo = real_root.join(".ivar/repos/api/main");
+    std::fs::create_dir_all(real_repo.join("src")).unwrap();
+    std::fs::create_dir_all(real_root.join(".ivar/features/feat/sessions")).unwrap();
+
+    git(&real_repo, &["init", "-b", "main"]);
+    git(&real_repo, &["config", "user.name", "t"]);
+    git(&real_repo, &["config", "user.email", "t@t"]);
+    std::fs::write(real_repo.join("src/lib.rs"), "pub fn alpha() {}\n").unwrap();
+    git(&real_repo, &["add", "."]);
+    git(&real_repo, &["commit", "-m", "init"]);
+    let manifest_content = r#"{
+  "version": 4,
+  "name": "symlink-hall",
+  "providers": {
+    "available": ["claude-code"],
+    "default": "claude-code"
+  },
+  "integration": {
+    "strategy": "squash",
+    "via": "local"
+  },
+  "repos": [
+    {
+      "name": "api",
+      "url": "https://github.com/example/api",
+      "default_branch": "main"
+    }
+  ]
+}"#;
+    std::fs::write(real_root.join("ivar.json"), manifest_content).unwrap();
+
+    let sym_layout = Layout::at(symlink_root.clone());
+    let sym_manifest = crate::store::manifest::Manifest::read(&sym_layout)
+        .unwrap()
+        .unwrap();
+    let base_targets =
+        crate::action::graph::watch::worker::base_targets(&sym_layout, &sym_manifest);
+    assert_eq!(base_targets.len(), 1);
+
+    let db_path = real_root.join(".ivar/memory.db");
+    let db = GraphDb::open(db_path.as_std_path()).unwrap();
+
+    let mut set = crate::action::graph::watch::scopes::WatchSet::default();
+    let (tx, _rx) = std::sync::mpsc::channel();
+    let mut watcher = notify::RecommendedWatcher::new(
+        move |res| {
+            let _ = tx.send(res);
+        },
+        notify::Config::default(),
+    )
+    .unwrap();
+
+    crate::action::graph::watch::worker::registry::add_control_dirs(
+        &sym_layout,
+        &mut set,
+        &mut watcher,
+    );
+    let git_sys = crate::git::System;
+    let mut deb = crate::action::graph::watch::scopes::Debouncer::new(
+        Duration::from_millis(150),
+        Duration::from_millis(1000),
+    );
+
+    crate::action::graph::watch::worker::registry::register_and_watch_target(
+        &sym_layout,
+        &db,
+        &mut deb,
+        &base_targets[0],
+        &mut set,
+        &mut watcher,
+        &git_sys,
+        Instant::now(),
+    );
+
+    let canonical_file = real_repo.join("src/lib.rs").canonicalize_utf8().unwrap();
+    let event = Event {
+        kind: EventKind::Modify(ModifyKind::Any),
+        paths: vec![canonical_file.as_std_path().to_path_buf()],
+        attrs: notify::event::EventAttributes::default(),
+    };
+
+    let mut rediscover = false;
+    crate::action::graph::watch::worker::event_loop::handle_fs_event(
+        &event,
+        &mut watcher,
+        &mut set,
+        &mut deb,
+        &db,
+        &base_targets,
+        Instant::now(),
+        &mut rediscover,
+    );
+
+    let scope = Scope::Base { repo: "api".into() };
+    assert!(
+        deb.due(Instant::now() + Duration::from_millis(200))
+            .contains(&scope),
+        "Canonical file path event must be classified and recorded in debouncer"
+    );
+
+    let canonical_session = real_root
+        .join(".ivar/features/feat/sessions/0a2d7418")
+        .canonicalize_utf8()
+        .unwrap_or_else(|_| real_root.join(".ivar/features/feat/sessions/0a2d7418"));
+    let control_event = Event {
+        kind: EventKind::Create(CreateKind::Folder),
+        paths: vec![canonical_session.as_std_path().to_path_buf()],
+        attrs: notify::event::EventAttributes::default(),
+    };
+    crate::action::graph::watch::worker::event_loop::handle_fs_event(
+        &control_event,
+        &mut watcher,
+        &mut set,
+        &mut deb,
+        &db,
+        &base_targets,
+        Instant::now(),
+        &mut rediscover,
+    );
+    assert!(
+        rediscover,
+        "Canonical control dir event must set rediscover"
+    );
+}

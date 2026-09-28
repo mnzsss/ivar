@@ -23,15 +23,18 @@ pub(super) fn register_and_watch_target(
         return;
     }
 
-    let tracked = git.tracked_files(&target.worktree).unwrap_or_default();
-    let wt_dirs = set.add_worktree(&target.scope, &target.worktree, &tracked);
+    let canonical_worktree = crate::infra::fs::canonicalize(&target.worktree)
+        .unwrap_or_else(|_| target.worktree.clone());
+    let tracked = git.tracked_files(&canonical_worktree).unwrap_or_default();
+    let wt_dirs = set.add_worktree(&target.scope, &canonical_worktree, &tracked);
     for dir in wt_dirs {
         let _ = watcher.watch(dir.as_std_path(), RecursiveMode::NonRecursive);
     }
 
     for (dir, names) in &target.git_meta {
+        let canonical_dir = crate::infra::fs::canonicalize(dir).unwrap_or_else(|_| dir.clone());
         let name_refs: Vec<&str> = names.iter().map(String::as_str).collect();
-        let d = set.add_git_meta(&target.scope, dir, &name_refs);
+        let d = set.add_git_meta(&target.scope, &canonical_dir, &name_refs);
         let _ = watcher.watch(d.as_std_path(), RecursiveMode::NonRecursive);
     }
 
@@ -62,7 +65,8 @@ pub(super) fn add_control_dirs(
     set: &mut WatchSet,
     watcher: &mut RecommendedWatcher,
 ) {
-    let features_dir = layout.features_dir();
+    let features_dir = crate::infra::fs::canonicalize(&layout.features_dir())
+        .unwrap_or_else(|_| layout.features_dir());
     let d = set.add_control(&features_dir);
     let _ = watcher.watch(d.as_std_path(), RecursiveMode::NonRecursive);
 
@@ -72,7 +76,9 @@ pub(super) fn add_control_dirs(
                 && let Ok(feat_name) = FeatureName::new(name)
             {
                 let sessions_dir = layout.feature_sessions_dir(&feat_name);
-                let sd = set.add_control(&sessions_dir);
+                let canonical_sessions =
+                    crate::infra::fs::canonicalize(&sessions_dir).unwrap_or(sessions_dir);
+                let sd = set.add_control(&canonical_sessions);
                 let _ = watcher.watch(sd.as_std_path(), RecursiveMode::NonRecursive);
             }
         }

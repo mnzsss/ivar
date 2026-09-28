@@ -26,6 +26,10 @@ pub(crate) struct Target {
 
 pub(crate) type Discover = Box<dyn FnMut(&Layout, &GraphDb) -> Vec<Target> + Send>;
 
+fn canonical_or_same(path: Utf8PathBuf) -> Utf8PathBuf {
+    crate::infra::fs::canonicalize(&path).unwrap_or(path)
+}
+
 fn resolve_git_meta(gitdir: &Utf8Path, branch: &str) -> Vec<(Utf8PathBuf, Vec<String>)> {
     let branch_path = Utf8Path::new(branch);
     let branch_parent = branch_path.parent();
@@ -37,30 +41,34 @@ fn resolve_git_meta(gitdir: &Utf8Path, branch: &str) -> Vec<(Utf8PathBuf, Vec<St
             let trimmed = content.trim();
             let p = Utf8Path::new(trimmed);
             if p.is_absolute() {
-                p.to_path_buf()
+                canonical_or_same(p.to_path_buf())
             } else {
-                gitdir.join(p)
+                canonical_or_same(gitdir.join(p))
             }
         } else {
-            gitdir.to_path_buf()
+            canonical_or_same(gitdir.to_path_buf())
         }
     } else {
-        gitdir.to_path_buf()
+        canonical_or_same(gitdir.to_path_buf())
     };
 
+    let canonical_gitdir = canonical_or_same(gitdir.to_path_buf());
+
     let branch_ref_dir = match branch_parent {
-        Some(p) if !p.as_str().is_empty() => common_gitdir.join("refs/heads").join(p),
-        _ => common_gitdir.join("refs/heads"),
+        Some(p) if !p.as_str().is_empty() => {
+            canonical_or_same(common_gitdir.join("refs/heads").join(p))
+        }
+        _ => canonical_or_same(common_gitdir.join("refs/heads")),
     };
 
     let mut git_meta = vec![
         (
-            gitdir.to_path_buf(),
+            canonical_gitdir.clone(),
             vec!["HEAD".to_owned(), "packed-refs".to_owned()],
         ),
         (branch_ref_dir, vec![branch_leaf]),
     ];
-    if common_gitdir != gitdir {
+    if common_gitdir != canonical_gitdir {
         git_meta.push((
             common_gitdir,
             vec!["HEAD".to_owned(), "packed-refs".to_owned()],
@@ -107,7 +115,7 @@ pub(crate) fn base_targets(layout: &Layout, manifest: &Manifest) -> Vec<Target> 
             scope: Scope::Base {
                 repo: repo.name().as_str().to_owned(),
             },
-            worktree,
+            worktree: canonical_or_same(worktree),
             git_meta,
             kind: TargetKind::Base,
         });
@@ -177,7 +185,7 @@ pub(crate) fn layer_targets(layout: &Layout) -> Vec<Target> {
                     feature: name.as_str().to_owned(),
                     repo: repo.as_str().to_owned(),
                 },
-                worktree,
+                worktree: canonical_or_same(worktree),
                 git_meta,
                 kind: TargetKind::Layer {
                     promotion_base: promotion.base.as_ref().map(|b| b.as_str().to_owned()),
