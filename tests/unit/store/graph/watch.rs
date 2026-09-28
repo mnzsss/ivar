@@ -6,14 +6,20 @@ use crate::store::graph::db::GraphDb;
 fn a_scope_is_settled_only_after_its_catchup_and_every_observed_burst_are_indexed() {
     let db = GraphDb::open_in_memory().unwrap();
     db.watch_register("base:api").unwrap();
-    assert!(!db.watch_settled(&["base:api"]).unwrap(), "a registered scope needs catch-up");
+    assert!(
+        !db.watch_settled(&["base:api"]).unwrap(),
+        "a registered scope needs catch-up"
+    );
 
     db.watch_finish("base:api", 0, true).unwrap();
     assert!(db.watch_settled(&["base:api"]).unwrap());
 
     let seq = db.watch_bump_observed("base:api").unwrap();
     assert_eq!(seq, 1);
-    assert!(!db.watch_settled(&["base:api"]).unwrap(), "an observed burst is pending");
+    assert!(
+        !db.watch_settled(&["base:api"]).unwrap(),
+        "an observed burst is pending"
+    );
 
     db.watch_finish("base:api", seq, false).unwrap();
     assert!(db.watch_settled(&["base:api"]).unwrap());

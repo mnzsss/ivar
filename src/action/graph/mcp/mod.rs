@@ -70,8 +70,51 @@ pub fn run_mcp_server_with_tools<R, W, F>(
     hall_root: Option<&Path>,
     tools: ToolSurface,
     reader: R,
+    writer: W,
+    refresh_index: F,
+) -> io::Result<()>
+where
+    R: BufRead,
+    W: Write,
+    F: FnMut(Option<&str>) -> Result<Value, String>,
+{
+    serve(db, hall_root, tools, reader, writer, refresh_index, None)
+}
+
+/// Runs the MCP server loop with an active file watcher on `watch`.
+pub fn run_mcp_server_watched<R, W, F>(
+    db: &GraphDb,
+    hall_root: Option<&Path>,
+    tools: ToolSurface,
+    reader: R,
+    writer: W,
+    refresh_index: F,
+    watch: &mut crate::action::graph::watch::Watch,
+) -> io::Result<()>
+where
+    R: BufRead,
+    W: Write,
+    F: FnMut(Option<&str>) -> Result<Value, String>,
+{
+    serve(
+        db,
+        hall_root,
+        tools,
+        reader,
+        writer,
+        refresh_index,
+        Some(watch),
+    )
+}
+
+fn serve<R, W, F>(
+    db: &GraphDb,
+    hall_root: Option<&Path>,
+    tools: ToolSurface,
+    reader: R,
     mut writer: W,
     mut refresh_index: F,
+    mut watch: Option<&mut crate::action::graph::watch::Watch>,
 ) -> io::Result<()>
 where
     R: BufRead,
@@ -87,7 +130,14 @@ where
         }
 
         if let Ok(req) = serde_json::from_str::<Value>(trimmed) {
-            if let Some(resp) = handle_json_rpc(db, hall_root, tools, &req, &mut refresh_index) {
+            if let Some(resp) = handle_json_rpc(
+                db,
+                hall_root,
+                tools,
+                &req,
+                &mut refresh_index,
+                watch.as_deref_mut(),
+            ) {
                 let bytes = serde_json::to_vec(&resp)?;
                 writer.write_all(&bytes)?;
                 writer.write_all(b"\n")?;
@@ -119,13 +169,14 @@ pub fn handle_json_rpc<F>(
     tools: ToolSurface,
     req: &Value,
     refresh_index: &mut F,
+    watch: Option<&mut crate::action::graph::watch::Watch>,
 ) -> Option<Value>
 where
     F: FnMut(Option<&str>) -> Result<Value, String>,
 {
     let cwd = camino::Utf8PathBuf::from_path_buf(std::env::current_dir().unwrap_or_default())
         .unwrap_or_default();
-    handle_json_rpc_at(db, hall_root, &cwd, tools, req, refresh_index)
+    handle_json_rpc_at(db, hall_root, &cwd, tools, req, refresh_index, watch)
 }
 
 fn handle_json_rpc_at<F>(
@@ -135,6 +186,7 @@ fn handle_json_rpc_at<F>(
     tools: ToolSurface,
     req: &Value,
     refresh_index: &mut F,
+    watch: Option<&mut crate::action::graph::watch::Watch>,
 ) -> Option<Value>
 where
     F: FnMut(Option<&str>) -> Result<Value, String>,
@@ -205,7 +257,7 @@ where
             let started = std::time::Instant::now();
             let query = dispatch::explore_query(&tool_args).map(|q| truncate_for_storage(&q));
             let (session, outcome) =
-                call_tool_in_session(db, hall_root, cwd, name, &tool_args, refresh_index);
+                call_tool_in_session(db, hall_root, cwd, name, &tool_args, refresh_index, watch);
             let _ = db.record_usage(&UsageEvent {
                 command: usage_command(name),
                 source: UsageSource::Mcp,
@@ -252,11 +304,12 @@ fn call_tool_in_session<F>(
     name: &str,
     args: &Value,
     refresh_index: &mut F,
+    watch: Option<&mut crate::action::graph::watch::Watch>,
 ) -> (Option<String>, ToolOutcome)
 where
     F: FnMut(Option<&str>) -> Result<Value, String>,
 {
-    match hall_root.map_or(Ok(None), |root| refresh_hall_session(db, root, cwd)) {
+    match hall_root.map_or(Ok(None), |root| refresh_hall_session(db, root, cwd, watch)) {
         Ok(session) => {
             let outcome =
                 dispatch_tool_call(db, hall_root, session.as_deref(), name, args, refresh_index);
@@ -277,16 +330,19 @@ fn refresh_hall_session(
     db: &GraphDb,
     hall_root: &Path,
     cwd: &camino::Utf8Path,
+    watch: Option<&mut crate::action::graph::watch::Watch>,
 ) -> Result<Option<String>, String> {
     let layout =
         Layout::at(camino::Utf8PathBuf::from_path_buf(hall_root.to_path_buf()).unwrap_or_default());
-    refresh_session(db, &layout, cwd)
+    let leader = watch.map(|w| w.probe(db));
+    refresh_session(db, &layout, cwd, leader)
 }
 
 fn refresh_session(
     db: &GraphDb,
     layout: &Layout,
     cwd: &camino::Utf8Path,
+    _leader: Option<crate::action::graph::watch::LeaderState>,
 ) -> Result<Option<String>, String> {
     let view = resolve_session_view(layout, cwd)
         .map_err(|err| format!("could not resolve the ivar session for this call: {err}"))?;

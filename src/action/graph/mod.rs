@@ -357,7 +357,9 @@ pub fn mcp_cmd(ctx: &Ctx, tools: mcp::ToolSurface) -> Outcome<McpOutcome> {
     let stdout = io::stdout();
     let stdin_lock = stdin.lock();
     let stdout_lock = stdout.lock();
-    mcp::run_mcp_server_with_tools(
+    let mut watch = watch::Watch::new(layout.clone());
+    let _ = watch.probe(&db);
+    mcp::run_mcp_server_watched(
         &db,
         Some(layout.root().as_std_path()),
         tools,
@@ -375,6 +377,7 @@ pub fn mcp_cmd(ctx: &Ctx, tools: mcp::ToolSurface) -> Outcome<McpOutcome> {
             .map_err(|err| err.to_string())?;
             serde_json::to_value(report.value).map_err(|err| err.to_string())
         },
+        &mut watch,
     )
     .map_err(|err| Failure::failed("graph.mcp_failed", err.to_string()))?;
     Ok(Report::new(McpOutcome))

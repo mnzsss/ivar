@@ -43,7 +43,9 @@ impl Lease {
             .and_then(|()| {
                 std::io::Write::write_all(&mut file, std::process::id().to_string().as_bytes())
             })
-            .map_err(|e| Failure::failed("graph.watch_lease", format!("write pid to {path}: {e}")))?;
+            .map_err(|e| {
+                Failure::failed("graph.watch_lease", format!("write pid to {path}: {e}"))
+            })?;
         Ok(Some(Lease { file }))
     }
 }

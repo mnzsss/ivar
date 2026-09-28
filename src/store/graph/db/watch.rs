@@ -129,7 +129,9 @@ impl GraphDb {
             "SELECT indexed >= observed AND needs_catchup = 0 AND error IS NULL FROM watch_scopes WHERE scope = ?1",
         )?;
         for scope in scopes {
-            let settled: Option<bool> = stmt.query_row(params![scope], |row| row.get(0)).optional()?;
+            let settled: Option<bool> = stmt
+                .query_row(params![scope], |row| row.get(0))
+                .optional()?;
             if !settled.unwrap_or(false) {
                 return Ok(false);
             }

@@ -487,12 +487,22 @@ fn a_v10_database_gains_watch_scopes_without_losing_its_index() {
     .unwrap();
     apply_migrations(&conn).unwrap();
 
-    let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+    let version: i64 = conn
+        .query_row("PRAGMA user_version", [], |r| r.get(0))
+        .unwrap();
     assert_eq!(version, 11);
     let commit: Option<String> = conn
-        .query_row("SELECT last_indexed_commit FROM repos WHERE id = 'api'", [], |r| r.get(0))
+        .query_row(
+            "SELECT last_indexed_commit FROM repos WHERE id = 'api'",
+            [],
+            |r| r.get(0),
+        )
         .unwrap();
-    assert_eq!(commit.as_deref(), Some("abc"), "v10 → v11 must not force a rebuild");
+    assert_eq!(
+        commit.as_deref(),
+        Some("abc"),
+        "v10 → v11 must not force a rebuild"
+    );
     conn.execute(
         "INSERT INTO watch_scopes (scope, updated_at) VALUES ('base:api', 0)",
         [],

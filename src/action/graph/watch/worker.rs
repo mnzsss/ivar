@@ -1,6 +1,6 @@
 //! Background worker thread for automatic graph reindexing.
 
-#![allow(dead_code, clippy::needless_pass_by_value, clippy::collapsible_if)]
+#![allow(clippy::needless_pass_by_value, clippy::collapsible_if)]
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
