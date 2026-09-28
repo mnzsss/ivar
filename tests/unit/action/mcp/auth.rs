@@ -6,9 +6,11 @@
 )]
 
 use super::*;
+use crate::action::mcp::{resolve_provider, resolve_server};
 use crate::domain::mcp::McpServerDef;
 use crate::error::Status;
 use crate::store::layout::Layout;
+use crate::store::manifest::Manifest;
 use crate::test_support::seeded_hall;
 
 /// Declare one MCP server on the seeded hall's manifest and write it back.
