@@ -1,13 +1,13 @@
+use serde::Serialize;
 use std::collections::BTreeMap;
 use std::io;
-use serde::Serialize;
 
-use crate::action::{discover_hall, read_manifest, Ctx};
+use super::{resolve_provider, resolve_server};
+use crate::action::{Ctx, discover_hall, read_manifest};
 use crate::domain::mcp::{AuthRequirement, CredentialState, McpServerDef};
 use crate::domain::provider::Provider;
 use crate::error::{Outcome, Report, Warning, WriteHuman};
 use crate::providers;
-use super::{resolve_provider, resolve_server};
 
 #[derive(Debug, Clone)]
 pub struct StatusInput {
@@ -44,7 +44,11 @@ impl WriteHuman for StatusOutcome {
             return Ok(());
         }
 
-        writeln!(w, "{:<20} {:<15} {:<20}", "SERVER", "PROVIDER", "STATE (SOURCE)")?;
+        writeln!(
+            w,
+            "{:<20} {:<15} {:<20}",
+            "SERVER", "PROVIDER", "STATE (SOURCE)"
+        )?;
         for row in &self.rows {
             let state_desc = match row.source {
                 StateSource::Local => format!("{:?}", row.state),
@@ -93,13 +97,15 @@ pub(crate) fn local_rows(
     rows
 }
 
-#[allow(dead_code)]
 pub(crate) fn apply_live(
     rows: &mut [StatusRow],
     live: &BTreeMap<Provider, BTreeMap<String, CredentialState>>,
 ) {
     for row in rows.iter_mut() {
-        if matches!(row.state, CredentialState::NotApplicable | CredentialState::NotRequired) {
+        if matches!(
+            row.state,
+            CredentialState::NotApplicable | CredentialState::NotRequired
+        ) {
             continue;
         }
         if let Some(provider_entries) = live.get(&row.provider) {
@@ -156,7 +162,36 @@ pub fn status(ctx: &Ctx, input: &StatusInput) -> Outcome<StatusOutcome> {
     );
 
     if input.live {
-        let _ = &mut rows;
+        let mut live_map = BTreeMap::new();
+        let needed_providers: std::collections::BTreeSet<Provider> = rows
+            .iter()
+            .filter(|r| {
+                !matches!(
+                    r.state,
+                    CredentialState::NotApplicable | CredentialState::NotRequired
+                )
+            })
+            .map(|r| r.provider)
+            .collect();
+
+        for provider in needed_providers {
+            if let Some(result) = providers::live_states(provider, layout.root()) {
+                match result {
+                    Ok(map) => {
+                        live_map.insert(provider, map);
+                    }
+                    Err(_) => {
+                        // Probe failure is not fatal: map fails closed per row
+                        let mut map = BTreeMap::new();
+                        for r in rows.iter().filter(|r| r.provider == provider) {
+                            map.insert(r.materialised_name.clone(), CredentialState::Unknown);
+                        }
+                        live_map.insert(provider, map);
+                    }
+                }
+            }
+        }
+        apply_live(&mut rows, &live_map);
     }
 
     Ok(status_report(rows))

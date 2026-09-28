@@ -103,6 +103,41 @@ fn apply_live_updates_eligible_rows() {
 }
 
 #[test]
+fn apply_live_retains_local_when_provider_absent_and_marks_server_absent_as_unknown() {
+    let mut rows = vec![
+        StatusRow {
+            server: "figma".to_owned(),
+            materialised_name: "acme-figma".to_owned(),
+            provider: Provider::ClaudeCode,
+            state: CredentialState::Authenticated,
+            source: StateSource::Local,
+        },
+        StatusRow {
+            server: "omp-server".to_owned(),
+            materialised_name: "acme-omp-server".to_owned(),
+            provider: Provider::Omp,
+            state: CredentialState::Authenticated,
+            source: StateSource::Local,
+        },
+    ];
+
+    let mut live_map = BTreeMap::new();
+    live_map.insert(Provider::ClaudeCode, BTreeMap::new());
+
+    apply_live(&mut rows, &live_map);
+
+    let [r0, r1] = rows.as_slice() else {
+        panic!("expected 2 rows, got {}", rows.len());
+    };
+
+    assert_eq!(r0.source, StateSource::Live);
+    assert_eq!(r0.state, CredentialState::Unknown);
+
+    assert_eq!(r1.source, StateSource::Local);
+    assert_eq!(r1.state, CredentialState::Authenticated);
+}
+
+#[test]
 fn status_report_generates_warnings_for_attention_states() {
     let rows = vec![
         StatusRow {
