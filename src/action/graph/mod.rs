@@ -20,6 +20,7 @@ pub mod session;
 pub mod usage;
 pub mod view;
 pub mod viz;
+pub mod watch;
 
 use std::io;
 use std::path::Path;
