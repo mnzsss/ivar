@@ -47,7 +47,9 @@ pub(super) fn handle_fs_event(
                 let _ = watcher.watch(d.as_std_path(), RecursiveMode::NonRecursive);
             }
         }
-        if let Some(scope) = set.classify(utf8_path) {
+        let classified = set.classify(utf8_path);
+        if let Some(scope) = classified {
+            deb.clear_failures(&scope);
             if deb.record(scope.clone(), now) {
                 let _ = db.watch_bump_observed(&scope.key());
             }
@@ -86,6 +88,7 @@ pub(super) fn process_due_scopes(
 
         match reindex(layout, db, target) {
             Ok(()) => {
+                deb.clear_failures(&scope);
                 let _ = db.watch_finish(&key, seq, was_catchup);
 
                 // When a base repo's commit changes, invalidate all layer scopes of the same repo.
@@ -99,6 +102,7 @@ pub(super) fn process_due_scopes(
                             } = other.scope
                             {
                                 if layer_repo == repo {
+                                    deb.clear_failures(&other.scope);
                                     let _ = deb.record(other.scope.clone(), now);
                                     let _ = db.watch_bump_observed(&other.scope.key());
                                 }
@@ -109,6 +113,7 @@ pub(super) fn process_due_scopes(
             }
             Err(err) => {
                 let _ = db.watch_fail(&key, &err.to_string());
+                deb.record_failure(scope, now);
             }
         }
     }
@@ -134,8 +139,18 @@ pub(super) fn run(
 
     let mut targets = discover(&layout, &db);
 
+    let now = Instant::now();
     for target in &targets {
-        register_and_watch_target(&layout, &db, target, &mut set, &mut watcher, &git);
+        register_and_watch_target(
+            &layout,
+            &db,
+            &mut deb,
+            target,
+            &mut set,
+            &mut watcher,
+            &git,
+            now,
+        );
     }
 
     let mut rediscover = false;
@@ -192,7 +207,16 @@ pub(super) fn run(
             // Targets new: register, watch, and catch-up
             for new_t in &new_targets {
                 if !targets.iter().any(|t| t.scope == new_t.scope) {
-                    register_and_watch_target(&layout, &db, new_t, &mut set, &mut watcher, &git);
+                    register_and_watch_target(
+                        &layout,
+                        &db,
+                        &mut deb,
+                        new_t,
+                        &mut set,
+                        &mut watcher,
+                        &git,
+                        now,
+                    );
                 }
             }
 

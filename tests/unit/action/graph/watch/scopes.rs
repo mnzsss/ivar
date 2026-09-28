@@ -138,6 +138,29 @@ fn a_burst_fires_after_the_quiet_window_and_is_capped_under_continuous_events() 
 }
 
 #[test]
+fn a_failed_scope_is_retried_with_bounded_backoff() {
+    let t0 = Instant::now();
+    let ms = Duration::from_millis;
+    let mut deb = Debouncer::new(ms(150), ms(1000));
+
+    deb.record_failure(base(), t0);
+    // 1st failure backoff: 150ms
+    assert!(deb.due(t0 + ms(100)).is_empty(), "not due before backoff");
+    assert_eq!(deb.due(t0 + ms(150)), vec![base()], "due at backoff");
+
+    // 2nd failure backoff: 300ms
+    deb.record_failure(base(), t0 + ms(150));
+    assert!(deb.due(t0 + ms(300)).is_empty());
+    assert_eq!(deb.due(t0 + ms(450)), vec![base()]);
+
+    // Success clears failures
+    deb.clear_failures(&base());
+    deb.record_failure(base(), t0 + ms(500));
+    // Reset back to 1st failure backoff: 150ms
+    assert_eq!(deb.due(t0 + ms(650)), vec![base()]);
+}
+
+#[test]
 fn session_directories_are_control_paths_not_scopes() {
     let mut set = WatchSet::default();
     set.add_control(Utf8Path::new("/hall/.ivar/features/feat/sessions"));

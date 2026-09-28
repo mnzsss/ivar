@@ -26,6 +26,49 @@ pub(crate) struct Target {
 
 pub(crate) type Discover = Box<dyn FnMut(&Layout, &GraphDb) -> Vec<Target> + Send>;
 
+fn resolve_git_meta(gitdir: &Utf8Path, branch: &str) -> Vec<(Utf8PathBuf, Vec<String>)> {
+    let branch_path = Utf8Path::new(branch);
+    let branch_parent = branch_path.parent();
+    let branch_leaf = branch_path.file_name().unwrap_or(branch).to_owned();
+
+    let common_dir = gitdir.join("commondir");
+    let common_gitdir = if common_dir.is_file() {
+        if let Ok(content) = std::fs::read_to_string(common_dir.as_std_path()) {
+            let trimmed = content.trim();
+            let p = Utf8Path::new(trimmed);
+            if p.is_absolute() {
+                p.to_path_buf()
+            } else {
+                gitdir.join(p)
+            }
+        } else {
+            gitdir.to_path_buf()
+        }
+    } else {
+        gitdir.to_path_buf()
+    };
+
+    let branch_ref_dir = match branch_parent {
+        Some(p) if !p.as_str().is_empty() => common_gitdir.join("refs/heads").join(p),
+        _ => common_gitdir.join("refs/heads"),
+    };
+
+    let mut git_meta = vec![
+        (
+            gitdir.to_path_buf(),
+            vec!["HEAD".to_owned(), "packed-refs".to_owned()],
+        ),
+        (branch_ref_dir, vec![branch_leaf]),
+    ];
+    if common_gitdir != gitdir {
+        git_meta.push((
+            common_gitdir,
+            vec!["HEAD".to_owned(), "packed-refs".to_owned()],
+        ));
+    }
+    git_meta
+}
+
 /// Constructs base targets from declared repos in the manifest whose worktrees exist.
 #[must_use]
 pub(crate) fn base_targets(layout: &Layout, manifest: &Manifest) -> Vec<Target> {
@@ -58,22 +101,7 @@ pub(crate) fn base_targets(layout: &Layout, manifest: &Manifest) -> Vec<Target> 
         };
 
         let branch = repo.default_branch().as_str();
-        let branch_path = Utf8Path::new(branch);
-        let branch_parent = branch_path.parent();
-        let branch_leaf = branch_path.file_name().unwrap_or(branch).to_owned();
-
-        let branch_ref_dir = match branch_parent {
-            Some(p) if !p.as_str().is_empty() => gitdir.join("refs/heads").join(p),
-            _ => gitdir.join("refs/heads"),
-        };
-
-        let git_meta = vec![
-            (
-                gitdir.clone(),
-                vec!["HEAD".to_owned(), "packed-refs".to_owned()],
-            ),
-            (branch_ref_dir, vec![branch_leaf]),
-        ];
+        let git_meta = resolve_git_meta(&gitdir, branch);
 
         targets.push(Target {
             scope: Scope::Base {
@@ -142,22 +170,7 @@ pub(crate) fn layer_targets(layout: &Layout) -> Vec<Target> {
             };
 
             let branch = feature.branch.as_str();
-            let branch_path = Utf8Path::new(branch);
-            let branch_parent = branch_path.parent();
-            let branch_leaf = branch_path.file_name().unwrap_or(branch).to_owned();
-
-            let branch_ref_dir = match branch_parent {
-                Some(p) if !p.as_str().is_empty() => gitdir.join("refs/heads").join(p),
-                _ => gitdir.join("refs/heads"),
-            };
-
-            let git_meta = vec![
-                (
-                    gitdir.clone(),
-                    vec!["HEAD".to_owned(), "packed-refs".to_owned()],
-                ),
-                (branch_ref_dir, vec![branch_leaf]),
-            ];
+            let git_meta = resolve_git_meta(&gitdir, branch);
 
             targets.push(Target {
                 scope: Scope::Layer {

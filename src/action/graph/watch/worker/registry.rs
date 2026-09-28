@@ -1,6 +1,6 @@
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 
-use crate::action::graph::watch::scopes::WatchSet;
+use crate::action::graph::watch::scopes::{Debouncer, WatchSet};
 use crate::action::graph::watch::worker::Target;
 use crate::action::graph::watch::worker::reindex::reindex;
 use crate::domain::name::FeatureName;
@@ -11,10 +11,12 @@ use crate::store::layout::Layout;
 pub(super) fn register_and_watch_target(
     layout: &Layout,
     db: &GraphDb,
+    deb: &mut Debouncer,
     target: &Target,
     set: &mut WatchSet,
     watcher: &mut RecommendedWatcher,
     git: &GitSystem,
+    now: std::time::Instant,
 ) {
     let key = target.scope.key();
     if db.watch_register(&key).is_err() {
@@ -45,10 +47,12 @@ pub(super) fn register_and_watch_target(
 
     match reindex(layout, db, target) {
         Ok(()) => {
+            deb.clear_failures(&target.scope);
             let _ = db.watch_finish(&key, observed_at_start, true);
         }
         Err(err) => {
             let _ = db.watch_fail(&key, &err.to_string());
+            deb.record_failure(target.scope.clone(), now);
         }
     }
 }
