@@ -53,6 +53,34 @@ pub enum McpTransport {
     Local,
 }
 
+/// State of credentials for an MCP server × provider pair.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CredentialState {
+    NotApplicable,
+    NotRequired,
+    Authenticated,
+    Expired,
+    Missing,
+    Unknown,
+}
+
+impl CredentialState {
+    /// Whether this state indicates an issue requiring human or tool attention.
+    #[must_use]
+    pub fn needs_attention(self) -> bool {
+        matches!(self, Self::Expired | Self::Missing | Self::Unknown)
+    }
+}
+
+/// Whether an MCP server definition requires authentication.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AuthRequirement {
+    NotApplicable,
+    NotRequired,
+    Required,
+}
+
 /// Validation errors for an MCP server definition.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum McpValidationError {
@@ -266,6 +294,18 @@ impl McpServerDef {
     #[must_use]
     pub fn materialised_name(&self, hall: &HallName) -> String {
         format!("{hall}-{}", self.name)
+    }
+
+    /// Derive whether this server definition requires authentication.
+    #[must_use]
+    pub fn auth_requirement(&self) -> AuthRequirement {
+        if self.type_ == "local" {
+            AuthRequirement::NotApplicable
+        } else if self.oauth.is_some() {
+            AuthRequirement::Required
+        } else {
+            AuthRequirement::NotRequired
+        }
     }
 }
 

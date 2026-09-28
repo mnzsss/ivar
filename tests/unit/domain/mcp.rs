@@ -228,3 +228,57 @@ fn a_public_client_carries_no_secret_env_name() {
     let parsed: McpServerDef = serde_json::from_value(rendered).unwrap();
     assert_eq!(parsed, def);
 }
+
+// -- CredentialState & AuthRequirement ------------------------------------
+
+#[test]
+fn credential_state_serde_uses_kebab_case() {
+    assert_eq!(
+        serde_json::to_string(&CredentialState::NotApplicable).unwrap(),
+        "\"not-applicable\""
+    );
+    assert_eq!(
+        serde_json::to_string(&CredentialState::NotRequired).unwrap(),
+        "\"not-required\""
+    );
+    assert_eq!(
+        serde_json::to_string(&CredentialState::Authenticated).unwrap(),
+        "\"authenticated\""
+    );
+    assert_eq!(
+        serde_json::to_string(&CredentialState::Expired).unwrap(),
+        "\"expired\""
+    );
+    assert_eq!(
+        serde_json::to_string(&CredentialState::Missing).unwrap(),
+        "\"missing\""
+    );
+    assert_eq!(
+        serde_json::to_string(&CredentialState::Unknown).unwrap(),
+        "\"unknown\""
+    );
+}
+
+#[test]
+fn credential_state_needs_attention() {
+    assert!(!CredentialState::NotApplicable.needs_attention());
+    assert!(!CredentialState::NotRequired.needs_attention());
+    assert!(!CredentialState::Authenticated.needs_attention());
+    assert!(CredentialState::Expired.needs_attention());
+    assert!(CredentialState::Missing.needs_attention());
+    assert!(CredentialState::Unknown.needs_attention());
+}
+
+#[test]
+fn server_def_auth_requirement_classification() {
+    let local = McpServerDef::new("docs", "local").command("npx");
+    assert_eq!(local.auth_requirement(), AuthRequirement::NotApplicable);
+
+    let http_no_oauth = McpServerDef::new("sentry", "http").url("https://sentry.io/mcp");
+    assert_eq!(http_no_oauth.auth_requirement(), AuthRequirement::NotRequired);
+
+    let http_with_oauth = McpServerDef::new("figma", "http")
+        .url("https://mcp.figma.com/mcp")
+        .oauth(McpOauth::public("client-123"));
+    assert_eq!(http_with_oauth.auth_requirement(), AuthRequirement::Required);
+}
