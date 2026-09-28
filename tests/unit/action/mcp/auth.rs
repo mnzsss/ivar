@@ -288,3 +288,36 @@ fn all_providers_report_single_leg_summary_is_silent() {
     let rendered = String::from_utf8(rendered).unwrap();
     assert!(!rendered.contains("Succeeded:"));
 }
+
+#[test]
+fn provider_order_puts_claude_code_first_if_present() {
+    let available = vec![Provider::OpenCode, Provider::ClaudeCode, Provider::Omp];
+    let order = provider_order(&available);
+    assert_eq!(
+        order,
+        vec![Provider::ClaudeCode, Provider::OpenCode, Provider::Omp]
+    );
+}
+
+#[test]
+fn provider_order_preserves_order_if_claude_code_absent() {
+    let available = vec![Provider::OpenCode, Provider::Omp];
+    let order = provider_order(&available);
+    assert_eq!(order, vec![Provider::OpenCode, Provider::Omp]);
+}
+
+#[test]
+fn write_human_for_skipped_provider_run() {
+    let run = ProviderRun {
+        provider: Provider::OpenCode,
+        preregistration: Preregistration::NotNeeded,
+        command: String::new(),
+        auth_method: AuthMethod::Skipped,
+        authenticated: true,
+        error: None,
+    };
+    let mut buf = Vec::new();
+    run.write_human("linear", &mut buf).unwrap();
+    let output = String::from_utf8(buf).unwrap();
+    assert!(output.contains("[opencode] `linear` already authenticated — skipped."));
+}

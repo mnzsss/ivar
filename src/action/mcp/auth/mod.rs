@@ -244,6 +244,21 @@ pub enum AuthMethod {
     /// Ivar performed the OAuth authorization-code flow itself, printing
     /// the authorization URL and running a temporary loopback listener.
     InternalOAuthFlow,
+    /// The provider was already authenticated; re-authorization was skipped.
+    Skipped,
+}
+
+pub(super) fn provider_order(available: &[Provider]) -> Vec<Provider> {
+    let mut order = Vec::with_capacity(available.len());
+    if available.contains(&Provider::ClaudeCode) {
+        order.push(Provider::ClaudeCode);
+    }
+    for &p in available {
+        if p != Provider::ClaudeCode {
+            order.push(p);
+        }
+    }
+    order
 }
 
 /// What `ivar mcp auth` did: one [`ProviderRun`] per provider attempted.
@@ -334,6 +349,10 @@ impl ProviderRun {
                     w,
                     "[{provider}] authenticated `{server}` via Ivar's OAuth flow.",
                 ),
+                AuthMethod::Skipped => writeln!(
+                    w,
+                    "[{provider}] `{server}` already authenticated — skipped.",
+                ),
             }
         } else {
             writeln!(
@@ -361,17 +380,32 @@ pub fn auth(ctx: &Ctx, input: &AuthInput) -> Outcome<AuthOutcome> {
     let materialised_name = server.materialised_name(manifest.name());
 
     if input.all_providers {
-        // Sequential on purpose (`R-ALL-SEQUENTIAL`): `.map` over an
-        // iterator, not a spawned task per provider — the next provider's
-        // `proc::inherit` does not start until this one returns. Order
-        // follows `providers.available` exactly, since `.map`/`.collect`
-        // never reorders.
-        let runs: Vec<ProviderRun> = manifest
-            .providers()
-            .available()
-            .iter()
-            .map(|&provider| run_provider(&layout, &manifest, server, &materialised_name, provider))
-            .collect();
+        let ordered = provider_order(manifest.providers().available());
+        let mut runs = Vec::with_capacity(ordered.len());
+        let server_url = server.url.as_deref().unwrap_or_default();
+
+        for provider in ordered {
+            let state =
+                crate::providers::credential_state(provider, &materialised_name, server_url);
+            if state == crate::domain::mcp::CredentialState::Authenticated {
+                runs.push(ProviderRun {
+                    provider,
+                    preregistration: Preregistration::NotNeeded,
+                    command: String::new(),
+                    auth_method: AuthMethod::Skipped,
+                    authenticated: true,
+                    error: None,
+                });
+            } else {
+                runs.push(run_provider(
+                    &layout,
+                    &manifest,
+                    server,
+                    &materialised_name,
+                    provider,
+                ));
+            }
+        }
 
         return Ok(all_providers_report(&server.name, runs));
     }
