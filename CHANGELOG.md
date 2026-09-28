@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.0](https://github.com/mnzsss/ivar/compare/v0.11.0...v0.12.0) - 2026-09-28
+
+### Added
+
+- add mcp status and single-consent all-providers auth ([#125](https://github.com/mnzsss/ivar/pull/125))
+- keep the graph fresh with a file watcher ([#124](https://github.com/mnzsss/ivar/pull/124))
+- *(graph)* index all git-tracked text files and unify retrieval ([#122](https://github.com/mnzsss/ivar/pull/122))
+- prevent AI attribution in deliveries ([#121](https://github.com/mnzsss/ivar/pull/121))
+- let sessions write the hall root outside .ivar ([#120](https://github.com/mnzsss/ivar/pull/120))
+- *(deliver)* select repos with --only ([#119](https://github.com/mnzsss/ivar/pull/119))
+
+### Fixed
+
+- *(graph)* reindex dirty worktrees on the index fast path ([#123](https://github.com/mnzsss/ivar/pull/123))
+- *(graph)* report real graph misses ([#117](https://github.com/mnzsss/ivar/pull/117))
+- *(deliver)* Update pull requests idempotently ([#115](https://github.com/mnzsss/ivar/pull/115))
+
+### Other
+
+- Add ivar repo view: one shell per repo on its default branch ([#118](https://github.com/mnzsss/ivar/pull/118))
+
 ## [0.11.0](https://github.com/mnzsss/ivar/compare/v0.10.0...v0.11.0) - 2026-09-21
 
 ### Added
