@@ -7,7 +7,10 @@ pub const LEASE_FILE: &str = "graph-watch.lock";
 
 #[derive(Debug)]
 pub struct Lease {
-    #[allow(dead_code)]
+    #[expect(
+        dead_code,
+        reason = "held only to keep the kernel flock alive until the lease drops"
+    )]
     file: std::fs::File,
 }
 
