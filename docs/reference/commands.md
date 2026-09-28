@@ -858,6 +858,20 @@ Authenticate one MCP server. Resolves the server from `ivar.json`'s `mcp` array 
 | `--all-providers` |  |  | Authenticate every provider the hall lists (`providers.available`), one at a time — never concurrently, since each provider's login command takes over the terminal and waits on a browser. Every provider is attempted even if an earlier one fails; the run is reported as needing attention (not a clean success) the moment any of them does. Conflicts with `--provider` |
 
 
+##### `ivar mcp status`
+
+Report credential status across declared MCP servers and available providers
+
+| argument | required | description |
+| --- | --- | --- |
+| `server` | no | The server's name, as declared in `ivar.json`'s `mcp` array. When omitted, reports all servers |
+
+| flag | value | default | description |
+| --- | --- | --- | --- |
+| `--provider` | `<PROVIDER>` |  | The provider to inspect. Defaults to checking all available providers in the hall |
+| `--live` |  |  | Query live harness status via provider CLI rather than inspecting local credential stores only |
+
+
 #### `ivar graph`
 
 Query and index the codebase dependency graph

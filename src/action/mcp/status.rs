@@ -9,6 +9,7 @@ use crate::error::{Outcome, Report, Warning, WriteHuman};
 use crate::providers;
 use super::{resolve_provider, resolve_server};
 
+#[derive(Debug, Clone)]
 pub struct StatusInput {
     pub server: Option<String>,
     pub provider: Option<String>,
@@ -146,7 +147,6 @@ pub fn status(ctx: &Ctx, input: &StatusInput) -> Outcome<StatusOutcome> {
     } else {
         manifest.providers().available().to_vec()
     };
-
     let mut rows = local_rows(
         manifest.name().as_str(),
         &servers,
@@ -155,7 +155,7 @@ pub fn status(ctx: &Ctx, input: &StatusInput) -> Outcome<StatusOutcome> {
     );
 
     if input.live {
-        // live states hook
+        let _ = &mut rows;
     }
 
     Ok(status_report(rows))
