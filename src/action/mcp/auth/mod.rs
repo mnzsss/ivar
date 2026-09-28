@@ -383,6 +383,7 @@ pub fn auth(ctx: &Ctx, input: &AuthInput) -> Outcome<AuthOutcome> {
         let ordered = provider_order(manifest.providers().available());
         let mut runs = Vec::with_capacity(ordered.len());
         let server_url = server.url.as_deref().unwrap_or_default();
+        let mut non_skipped_count = 0;
 
         for provider in ordered {
             let state =
@@ -397,6 +398,7 @@ pub fn auth(ctx: &Ctx, input: &AuthInput) -> Outcome<AuthOutcome> {
                     error: None,
                 });
             } else {
+                non_skipped_count += 1;
                 runs.push(run_provider(
                     &layout,
                     &manifest,
@@ -407,7 +409,33 @@ pub fn auth(ctx: &Ctx, input: &AuthInput) -> Outcome<AuthOutcome> {
             }
         }
 
-        return Ok(all_providers_report(&server.name, runs));
+        let mut report = all_providers_report(&server.name, runs);
+
+        if non_skipped_count >= 2 {
+            let mut after = std::collections::BTreeMap::new();
+            for &p in manifest.providers().available() {
+                match p {
+                    Provider::ClaudeCode | Provider::OpenCode => {
+                        if let Some(Ok(map)) = crate::providers::live_states(p, layout.root())
+                            && let Some(&st) = map.get(&materialised_name)
+                        {
+                            after.insert(p, st);
+                        }
+                    }
+                    Provider::Omp => {
+                        let st =
+                            crate::providers::credential_state(p, &materialised_name, server_url);
+                        after.insert(p, st);
+                    }
+                }
+            }
+            let dropped = dropped_grants(&server.name, &report.value.runs, &after);
+            for warning in dropped {
+                report.warn(warning);
+            }
+        }
+
+        return Ok(report);
     }
 
     let provider = resolve_provider(&manifest, input.provider.as_deref())?;
@@ -444,6 +472,31 @@ fn all_providers_report(server: &str, runs: Vec<ProviderRun>) -> Report<AuthOutc
         },
         warnings,
     )
+}
+
+pub(super) fn dropped_grants(
+    server: &str,
+    runs: &[ProviderRun],
+    after: &std::collections::BTreeMap<Provider, crate::domain::mcp::CredentialState>,
+) -> Vec<Warning> {
+    let mut warnings = Vec::new();
+    for run in runs {
+        if run.authenticated
+            && let Some(&state) = after.get(&run.provider)
+            && state == crate::domain::mcp::CredentialState::Missing
+        {
+            let provider_id = run.provider.id();
+            warnings.push(Warning::new(
+                "mcp.grant_dropped",
+                provider_id,
+                format!(
+                    "`{server}` lost its {provider_id} grant after later authorizations; \
+                     run `ivar mcp auth {server} --provider {provider_id}`"
+                ),
+            ));
+        }
+    }
+    warnings
 }
 
 #[cfg(test)]

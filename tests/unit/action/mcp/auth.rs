@@ -7,7 +7,7 @@
 
 use super::*;
 use crate::action::mcp::{resolve_provider, resolve_server};
-use crate::domain::mcp::McpServerDef;
+use crate::domain::mcp::{CredentialState, McpServerDef};
 use crate::error::Status;
 use crate::store::layout::Layout;
 use crate::store::manifest::Manifest;
@@ -320,4 +320,64 @@ fn write_human_for_skipped_provider_run() {
     run.write_human("linear", &mut buf).unwrap();
     let output = String::from_utf8(buf).unwrap();
     assert!(output.contains("[opencode] `linear` already authenticated — skipped."));
+}
+
+#[test]
+fn dropped_grants_warns_for_previously_authenticated_provider_now_missing() {
+    let runs = vec![
+        ProviderRun {
+            provider: Provider::ClaudeCode,
+            preregistration: Preregistration::NotNeeded,
+            command: "claude mcp login".into(),
+            auth_method: AuthMethod::ProviderCommand,
+            authenticated: true,
+            error: None,
+        },
+        ProviderRun {
+            provider: Provider::OpenCode,
+            preregistration: Preregistration::NotNeeded,
+            command: String::new(),
+            auth_method: AuthMethod::InternalOAuthFlow,
+            authenticated: true,
+            error: None,
+        },
+    ];
+
+    let mut after = std::collections::BTreeMap::new();
+    // ClaudeCode lost its grant after OpenCode ran
+    after.insert(Provider::ClaudeCode, CredentialState::Missing);
+    after.insert(Provider::OpenCode, CredentialState::Authenticated);
+
+    let warnings = dropped_grants("linear", &runs, &after);
+    assert_eq!(warnings.len(), 1);
+    assert_eq!(warnings[0].code, "mcp.grant_dropped");
+    assert_eq!(warnings[0].subject, Provider::ClaudeCode.id());
+    assert!(
+        warnings[0]
+            .what
+            .contains("`linear` lost its claude-code grant after later authorizations")
+    );
+    assert!(
+        warnings[0]
+            .what
+            .contains("run `ivar mcp auth linear --provider claude-code`")
+    );
+}
+
+#[test]
+fn dropped_grants_empty_when_all_grants_survive() {
+    let runs = vec![ProviderRun {
+        provider: Provider::ClaudeCode,
+        preregistration: Preregistration::NotNeeded,
+        command: "claude mcp login".into(),
+        auth_method: AuthMethod::ProviderCommand,
+        authenticated: true,
+        error: None,
+    }];
+
+    let mut after = std::collections::BTreeMap::new();
+    after.insert(Provider::ClaudeCode, CredentialState::Authenticated);
+
+    let warnings = dropped_grants("linear", &runs, &after);
+    assert!(warnings.is_empty());
 }
