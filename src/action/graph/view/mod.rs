@@ -7,7 +7,7 @@ pub mod server;
 pub mod types;
 
 pub use error::ViewError;
-pub use lifecycle::{ViewSession, execute_view_session, launch_browser, prepare_view_session};
+pub use lifecycle::{ViewSession, execute_view_session, prepare_view_session};
 pub use query::*;
 pub use router::{
     HttpRequest, HttpResponse, parse_http_request, route_request, validate_security_headers,

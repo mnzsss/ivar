@@ -26,6 +26,7 @@ use crate::action::feature::{
 };
 use crate::action::hall;
 use crate::action::mcp::auth as mcp_auth;
+use crate::action::mcp::status as mcp_status;
 use crate::action::plan::approve::{self as plan_approve};
 use crate::action::plan::{
     create as plan_create, list as plan_list, show as plan_show, status as plan_status,
@@ -885,6 +886,12 @@ pub fn run(cli: Cli) -> ExitCode {
         Command::Mcp(cmd) => match cmd {
             McpCommand::Auth(args) => respond(
                 mcp_auth::auth(&ctx, &args.into()),
+                json,
+                &mut stdout,
+                &mut stderr,
+            ),
+            McpCommand::Status(args) => respond(
+                mcp_status::status(&ctx, &args.into()),
                 json,
                 &mut stdout,
                 &mut stderr,

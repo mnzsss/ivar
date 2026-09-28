@@ -38,11 +38,11 @@ use camino::{Utf8Path, Utf8PathBuf};
 use serde::Serialize;
 use std::collections::BTreeMap;
 
+use crate::domain::mcp::CredentialState;
 use crate::error::{Failure, FixAction};
 use crate::infra::oauth::Tokens;
 use crate::infra::{fs, json};
 use crate::providers::Credential;
-
 pub(crate) const LOGIN_SUBCOMMAND: [&str; 2] = ["mcp", "auth"];
 
 /// Client registration info stored alongside tokens in OpenCode's
@@ -157,6 +157,74 @@ pub(crate) fn has_tokens_under(data_dir: &Utf8Path, server_name: &str) -> Result
         .get(server_name)
         .and_then(|value| value.get("tokens"))
         .is_some_and(serde_json::Value::is_object))
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RawTokens {
+    #[serde(default)]
+    access_token: Option<String>,
+    #[serde(default)]
+    refresh_token: Option<String>,
+    #[serde(default)]
+    expires_at: Option<f64>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RawEntry {
+    #[serde(default)]
+    tokens: Option<RawTokens>,
+}
+
+/// Inspect OpenCode credentials under `data_dir` for `name`.
+pub(crate) fn credential_state_under(
+    data_dir: &Utf8Path,
+    name: &str,
+    now_s: f64,
+) -> CredentialState {
+    let path = store_path(data_dir);
+    let content = match fs::read_text(&path) {
+        Ok(Some(text)) => text,
+        Ok(None) => return CredentialState::Missing,
+        Err(_) => return CredentialState::Unknown,
+    };
+
+    let map: BTreeMap<String, RawEntry> = match serde_json::from_str(&content) {
+        Ok(m) => m,
+        Err(_) => return CredentialState::Unknown,
+    };
+
+    let Some(entry) = map.get(name) else {
+        return CredentialState::Missing;
+    };
+
+    let Some(tokens) = &entry.tokens else {
+        return CredentialState::Missing;
+    };
+
+    let Some(access_token) = &tokens.access_token else {
+        return CredentialState::Missing;
+    };
+
+    if access_token.trim().is_empty() {
+        return CredentialState::Missing;
+    }
+
+    match tokens.expires_at {
+        Some(exp) if exp <= now_s => {
+            if tokens
+                .refresh_token
+                .as_ref()
+                .is_some_and(|rt| !rt.trim().is_empty())
+            {
+                CredentialState::Expired
+            } else {
+                CredentialState::Missing
+            }
+        }
+        _ => CredentialState::Authenticated,
+    }
 }
 
 /// Write an `Entry` into the store under `server_name`, preserving every

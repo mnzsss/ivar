@@ -53,6 +53,54 @@ pub enum McpTransport {
     Local,
 }
 
+/// State of credentials for an MCP server × provider pair.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CredentialState {
+    NotApplicable,
+    NotRequired,
+    Authenticated,
+    Expired,
+    Missing,
+    Unknown,
+}
+
+impl CredentialState {
+    /// The canonical kebab-case identifier for this credential state,
+    /// matching its serde serialization.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::NotApplicable => "not-applicable",
+            Self::NotRequired => "not-required",
+            Self::Authenticated => "authenticated",
+            Self::Expired => "expired",
+            Self::Missing => "missing",
+            Self::Unknown => "unknown",
+        }
+    }
+
+    /// Whether this state indicates an issue requiring human or tool attention.
+    #[must_use]
+    pub fn needs_attention(self) -> bool {
+        matches!(self, Self::Expired | Self::Missing | Self::Unknown)
+    }
+}
+
+impl fmt::Display for CredentialState {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.pad(self.as_str())
+    }
+}
+
+/// Whether an MCP server definition requires authentication.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AuthRequirement {
+    NotApplicable,
+    NotRequired,
+    Required,
+}
+
 /// Validation errors for an MCP server definition.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum McpValidationError {
@@ -266,6 +314,18 @@ impl McpServerDef {
     #[must_use]
     pub fn materialised_name(&self, hall: &HallName) -> String {
         format!("{hall}-{}", self.name)
+    }
+
+    /// Derive whether this server definition requires authentication.
+    #[must_use]
+    pub fn auth_requirement(&self) -> AuthRequirement {
+        if self.type_ == "local" {
+            AuthRequirement::NotApplicable
+        } else if self.oauth.is_some() {
+            AuthRequirement::Required
+        } else {
+            AuthRequirement::NotRequired
+        }
     }
 }
 

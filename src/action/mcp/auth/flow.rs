@@ -120,9 +120,14 @@ impl FlowOps for RealFlowOps {
         CallbackServer::bind(state, CALLBACK_TIMEOUT)
     }
     fn output_url(&self, url: &str) {
+        if let Err(e) = crate::infra::browser::open(url) {
+            let _ = writeln!(io::stderr().lock(), "Could not open a browser: {e}");
+        }
+        let is_tty = crate::infra::term::is_tty(crate::infra::term::Stream::Stderr);
+        let rendered = render_url(url, is_tty);
         let _ = writeln!(
             io::stderr().lock(),
-            "Open this URL to authenticate:\n\n  {url}\n"
+            "Open this URL to authenticate:\n\n  {rendered}\n"
         );
     }
     fn wait_code(&self, listener: CallbackServer) -> Result<AuthorizationCode, Failure> {
@@ -170,6 +175,14 @@ pub(super) fn run_internal_flow_inner(
         provider,
     };
     run_internal_flow_pipeline(&ops, server, materialised_name)
+}
+
+pub(super) fn render_url(url: &str, tty: bool) -> String {
+    if tty {
+        format!("\x1b]8;;{url}\x1b\\{url}\x1b]8;;\x1b\\")
+    } else {
+        url.to_owned()
+    }
 }
 
 /// The `scope` parameter for the authorization request: every scope the

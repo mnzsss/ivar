@@ -56,6 +56,14 @@ fn a_file_with_unchanged_size_and_modification_time_is_not_read_again() {
     let temp = tempdir().expect("tempdir");
     let repo_path = temp.path();
     let git_repo = git2::Repository::init(repo_path).expect("git init");
+    // The rewrite below changes ctime, which git's stat check also compares
+    // (at second granularity), so a run that crosses a second boundary would
+    // see the file as modified. Trust only size and mtime, the premise here.
+    git_repo
+        .config()
+        .expect("repo config")
+        .set_bool("core.trustctime", false)
+        .expect("disable core.trustctime");
     let file = repo_path.join("lib.rs");
     fs::write(
         &file,

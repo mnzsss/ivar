@@ -54,9 +54,7 @@ pub use query::{
     find_symbols, get_callees, get_callers, get_file_outline, get_graph_stats, get_impact,
 };
 pub use usage::{ResultCount, record_usage};
-pub use view::lifecycle::{
-    ViewSession, execute_view_session, launch_browser, prepare_view_session,
-};
+pub use view::lifecycle::{ViewSession, execute_view_session, prepare_view_session};
 pub use viz::{VizError, execute_viz};
 fn open_graph_db(ctx: &Ctx) -> Result<GraphDb, Failure> {
     let layout = discover_hall(ctx)?;

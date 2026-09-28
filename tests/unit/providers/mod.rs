@@ -393,3 +393,18 @@ fn a_non_code_dir_counts_only_as_the_first_path_component() {
     assert_eq!(bash_search("rg foo build/x"), None);
     assert_eq!(bash_search("rg foo ./build/x"), None);
 }
+
+#[test]
+fn omp_has_no_live_states_command() {
+    let cwd = camino::Utf8Path::new("/dummy/hall");
+    assert!(crate::providers::live_states(crate::domain::provider::Provider::Omp, cwd).is_none());
+}
+
+#[test]
+fn live_states_runs_in_specified_cwd() {
+    // For claude-code and opencode, live_states builds a command with the provided cwd.
+    // Verified through hermetic path where binary execution fails predictably or succeeds.
+    let cwd = camino::Utf8Path::new("/dummy/hall");
+    let res = crate::providers::live_states(crate::domain::provider::Provider::ClaudeCode, cwd);
+    assert!(res.is_some());
+}

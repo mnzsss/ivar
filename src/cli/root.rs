@@ -182,7 +182,7 @@ pub use feature::{
     FeatureRenameArgs, FeatureReparentArgs, FeatureStatusArgs, FeatureViewArgs,
     FeatureWorkspaceArgs,
 };
-pub use mcp::{McpAuthArgs, McpCommand};
+pub use mcp::{McpAuthArgs, McpCommand, McpStatusArgs};
 pub use plan::{
     PlanApproveArgs, PlanCommand, PlanCreateArgs, PlanInvalidateArgs, PlanShowArgs, PlanStatusArgs,
 };

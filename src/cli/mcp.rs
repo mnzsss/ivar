@@ -1,8 +1,9 @@
 use clap::{Args, Subcommand};
 
 use crate::action::mcp::auth as mcp_auth;
+use crate::action::mcp::status as mcp_status;
 
-/// The `ivar mcp` surface: authenticating the hall's declared MCP servers
+/// The `ivar mcp` surface: authenticating and inspecting the hall's declared MCP servers
 /// under the session's provider.
 #[derive(Debug, Subcommand)]
 pub enum McpCommand {
@@ -23,6 +24,8 @@ pub enum McpCommand {
     /// provider is attempted even after an earlier one fails, and the command
     /// reports which succeeded and which failed rather than stopping at the first problem.
     Auth(McpAuthArgs),
+    /// Report credential status across declared MCP servers and available providers.
+    Status(McpStatusArgs),
 }
 
 /// Arguments for `ivar mcp auth`.
@@ -55,6 +58,34 @@ impl From<McpAuthArgs> for mcp_auth::AuthInput {
             server,
             provider,
             all_providers,
+        }
+    }
+}
+
+/// Arguments for `ivar mcp status`.
+#[derive(Debug, Args)]
+pub struct McpStatusArgs {
+    /// The server's name, as declared in `ivar.json`'s `mcp` array. When omitted, reports all servers.
+    pub server: Option<String>,
+    /// The provider to inspect. Defaults to checking all available providers in the hall.
+    #[arg(long)]
+    pub provider: Option<String>,
+    /// Query live harness status via provider CLI rather than inspecting local credential stores only.
+    #[arg(long)]
+    pub live: bool,
+}
+
+impl From<McpStatusArgs> for mcp_status::StatusInput {
+    fn from(args: McpStatusArgs) -> Self {
+        let McpStatusArgs {
+            server,
+            provider,
+            live,
+        } = args;
+        Self {
+            server,
+            provider,
+            live,
         }
     }
 }

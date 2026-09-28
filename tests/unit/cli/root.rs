@@ -1025,3 +1025,39 @@ fn feature_deliver_parses_repeated_only_independently_of_repo_groups() {
         other => panic!("expected feature deliver, got {other:?}"),
     }
 }
+#[test]
+fn mcp_status_parses_flags() {
+    let cli = Cli::try_parse_from([
+        "ivar",
+        "mcp",
+        "status",
+        "figma",
+        "--provider",
+        "claude-code",
+        "--live",
+    ])
+    .unwrap();
+
+    match cli.command {
+        Command::Mcp(McpCommand::Status(args)) => {
+            assert_eq!(args.server.as_deref(), Some("figma"));
+            assert_eq!(args.provider.as_deref(), Some("claude-code"));
+            assert!(args.live);
+        }
+        other => panic!("expected mcp status, got {other:?}"),
+    }
+}
+
+#[test]
+fn mcp_status_parses_defaults_when_flags_omitted() {
+    let cli = Cli::try_parse_from(["ivar", "mcp", "status"]).unwrap();
+
+    match cli.command {
+        Command::Mcp(McpCommand::Status(args)) => {
+            assert_eq!(args.server, None);
+            assert_eq!(args.provider, None);
+            assert!(!args.live);
+        }
+        other => panic!("expected mcp status, got {other:?}"),
+    }
+}

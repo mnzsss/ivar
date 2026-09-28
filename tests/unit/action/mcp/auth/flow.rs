@@ -526,3 +526,17 @@ fn an_empty_scope_list_sends_no_scope_parameter() {
         "an empty list is not a scope request for the empty string"
     );
 }
+
+#[test]
+fn render_url_formats_osc8_hyperlink_on_tty() {
+    let url = "https://example.com/oauth/authorize?client_id=123";
+    let rendered = flow::render_url(url, true);
+    assert_eq!(rendered, format!("\x1b]8;;{url}\x1b\\{url}\x1b]8;;\x1b\\"));
+}
+
+#[test]
+fn render_url_returns_plain_url_off_tty() {
+    let url = "https://example.com/oauth/authorize?client_id=123";
+    let rendered = flow::render_url(url, false);
+    assert_eq!(rendered, url);
+}

@@ -150,12 +150,11 @@ use std::io;
 use serde::Serialize;
 
 use crate::action::Ctx;
-use crate::domain::mcp::McpServerDef;
 use crate::domain::provider::Provider;
-use crate::error::{Failure, FixAction, Outcome, Report, Warning, WriteHuman};
-use crate::store::manifest::Manifest;
+use crate::error::{Outcome, Report, Warning, WriteHuman};
 
 use super::super::{discover_hall, read_manifest};
+use super::{resolve_provider, resolve_server};
 
 mod dispatch;
 mod flow;
@@ -245,6 +244,21 @@ pub enum AuthMethod {
     /// Ivar performed the OAuth authorization-code flow itself, printing
     /// the authorization URL and running a temporary loopback listener.
     InternalOAuthFlow,
+    /// The provider was already authenticated; re-authorization was skipped.
+    Skipped,
+}
+
+pub(super) fn provider_order(available: &[Provider]) -> Vec<Provider> {
+    let mut order = Vec::with_capacity(available.len());
+    if available.contains(&Provider::ClaudeCode) {
+        order.push(Provider::ClaudeCode);
+    }
+    for &p in available {
+        if p != Provider::ClaudeCode {
+            order.push(p);
+        }
+    }
+    order
 }
 
 /// What `ivar mcp auth` did: one [`ProviderRun`] per provider attempted.
@@ -335,6 +349,10 @@ impl ProviderRun {
                     w,
                     "[{provider}] authenticated `{server}` via Ivar's OAuth flow.",
                 ),
+                AuthMethod::Skipped => writeln!(
+                    w,
+                    "[{provider}] `{server}` already authenticated — skipped.",
+                ),
             }
         } else {
             writeln!(
@@ -362,19 +380,62 @@ pub fn auth(ctx: &Ctx, input: &AuthInput) -> Outcome<AuthOutcome> {
     let materialised_name = server.materialised_name(manifest.name());
 
     if input.all_providers {
-        // Sequential on purpose (`R-ALL-SEQUENTIAL`): `.map` over an
-        // iterator, not a spawned task per provider — the next provider's
-        // `proc::inherit` does not start until this one returns. Order
-        // follows `providers.available` exactly, since `.map`/`.collect`
-        // never reorders.
-        let runs: Vec<ProviderRun> = manifest
-            .providers()
-            .available()
-            .iter()
-            .map(|&provider| run_provider(&layout, &manifest, server, &materialised_name, provider))
-            .collect();
+        let ordered = provider_order(manifest.providers().available());
+        let mut runs = Vec::with_capacity(ordered.len());
+        let server_url = server.url.as_deref().unwrap_or_default();
+        let mut non_skipped_count = 0;
 
-        return Ok(all_providers_report(&server.name, runs));
+        for provider in ordered {
+            let state =
+                crate::providers::credential_state(provider, &materialised_name, server_url);
+            if state == crate::domain::mcp::CredentialState::Authenticated {
+                runs.push(ProviderRun {
+                    provider,
+                    preregistration: Preregistration::NotNeeded,
+                    command: String::new(),
+                    auth_method: AuthMethod::Skipped,
+                    authenticated: true,
+                    error: None,
+                });
+            } else {
+                non_skipped_count += 1;
+                runs.push(run_provider(
+                    &layout,
+                    &manifest,
+                    server,
+                    &materialised_name,
+                    provider,
+                ));
+            }
+        }
+
+        let mut report = all_providers_report(&server.name, runs);
+
+        if non_skipped_count >= 2 {
+            let mut after = std::collections::BTreeMap::new();
+            for &p in manifest.providers().available() {
+                match p {
+                    Provider::ClaudeCode | Provider::OpenCode => {
+                        if let Some(Ok(map)) = crate::providers::live_states(p, layout.root())
+                            && let Some(&st) = map.get(&materialised_name)
+                        {
+                            after.insert(p, st);
+                        }
+                    }
+                    Provider::Omp => {
+                        let st =
+                            crate::providers::credential_state(p, &materialised_name, server_url);
+                        after.insert(p, st);
+                    }
+                }
+            }
+            let dropped = dropped_grants(&server.name, &report.value.runs, &after);
+            for warning in dropped {
+                report.warn(warning);
+            }
+        }
+
+        return Ok(report);
     }
 
     let provider = resolve_provider(&manifest, input.provider.as_deref())?;
@@ -413,43 +474,29 @@ fn all_providers_report(server: &str, runs: Vec<ProviderRun>) -> Report<AuthOutc
     )
 }
 
-/// Find `name` in the manifest's declared MCP servers, or a [`Failure`]
-/// listing every name that *is* declared.
-fn resolve_server<'a>(manifest: &'a Manifest, name: &str) -> Result<&'a McpServerDef, Failure> {
-    manifest
-        .mcp_servers()
-        .iter()
-        .find(|server| server.name == name)
-        .ok_or_else(|| {
-            let declared: Vec<&str> = manifest
-                .mcp_servers()
-                .iter()
-                .map(|server| server.name.as_str())
-                .collect();
-            let known = if declared.is_empty() {
-                "(no servers declared in ivar.json's `mcp` array)".to_owned()
-            } else {
-                declared.join(", ")
-            };
-            Failure::blocked(
-                "mcp.server_not_found",
-                format!("no MCP server named `{name}` in ivar.json"),
-            )
-            .expected(format!("one of the declared servers: {known}"))
-            .actual(format!("`{name}` is not declared"))
-            .fix(FixAction::safe(
-                "mcp.check_declared_servers",
-                "Check the `mcp` array in ivar.json for the server's declared name.",
-            ))
-        })
-}
-
-/// `input.provider`, parsed; or the hall's default when omitted.
-fn resolve_provider(manifest: &Manifest, raw: Option<&str>) -> Result<Provider, Failure> {
-    match raw {
-        Some(value) => value.parse::<Provider>().map_err(Failure::from),
-        None => Ok(manifest.providers().default_provider()),
+pub(super) fn dropped_grants(
+    server: &str,
+    runs: &[ProviderRun],
+    after: &std::collections::BTreeMap<Provider, crate::domain::mcp::CredentialState>,
+) -> Vec<Warning> {
+    let mut warnings = Vec::new();
+    for run in runs {
+        if run.authenticated
+            && let Some(&state) = after.get(&run.provider)
+            && state == crate::domain::mcp::CredentialState::Missing
+        {
+            let provider_id = run.provider.id();
+            warnings.push(Warning::new(
+                "mcp.grant_dropped",
+                provider_id,
+                format!(
+                    "`{server}` lost its {provider_id} grant after later authorizations; \
+                     run `ivar mcp auth {server} --provider {provider_id}`"
+                ),
+            ));
+        }
     }
+    warnings
 }
 
 #[cfg(test)]

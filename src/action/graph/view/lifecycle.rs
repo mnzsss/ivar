@@ -9,7 +9,6 @@ use crate::action::graph::view::query::validate_bounds;
 use crate::action::graph::view::server::ViewerServer;
 use crate::action::graph::view::types::InitialView;
 use crate::error::WriteHuman;
-use crate::infra::proc;
 use crate::store::graph::db::GraphDb;
 
 #[derive(Debug)]
@@ -33,24 +32,6 @@ impl ViewSession {
     }
 }
 
-pub fn launch_browser(url: &str) -> OpenAttempt {
-    #[cfg(target_os = "macos")]
-    let command = proc::Command::new("open").arg(url);
-
-    #[cfg(target_os = "windows")]
-    let command = proc::Command::new("cmd").args(["/c", "start", "", url]);
-
-    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-    let command = proc::Command::new("xdg-open").arg(url);
-
-    match proc::detach(&command) {
-        Ok(()) => OpenAttempt::Opened,
-        Err(e) => OpenAttempt::Failed {
-            reason: e.to_string(),
-        },
-    }
-}
-
 pub fn prepare_view_session(db: GraphDb, input: GraphViewInput) -> Result<ViewSession, ViewError> {
     let bind_addr = match input.port {
         Some(port) => format!("127.0.0.1:{port}"),
@@ -68,7 +49,12 @@ pub fn prepare_view_session(db: GraphDb, input: GraphViewInput) -> Result<ViewSe
     let open = if input.no_open {
         OpenAttempt::NotRequested
     } else {
-        launch_browser(&url)
+        match crate::infra::browser::open(&url) {
+            Ok(()) => OpenAttempt::Opened,
+            Err(e) => OpenAttempt::Failed {
+                reason: e.to_string(),
+            },
+        }
     };
 
     let outcome = GraphViewOutcome {

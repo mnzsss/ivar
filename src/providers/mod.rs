@@ -6,13 +6,14 @@ pub mod opencode;
 mod search;
 
 use crate::domain::guard::{GuardDecision, GuardOutcome, ToolRequest};
-use crate::domain::mcp::{McpServerDef, McpTransport};
+use crate::domain::mcp::{CredentialState, McpServerDef, McpTransport};
 use crate::domain::provider::Provider;
 use crate::error::{Failure, FixAction};
+use crate::infra::fs;
 use crate::infra::oauth::Tokens;
 use crate::infra::proc::Command;
 use camino::Utf8PathBuf;
-
+use std::time::{SystemTime, UNIX_EPOCH};
 /// A managed standalone file artifact owned by a provider.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ManagedArtifact {
@@ -266,6 +267,76 @@ pub fn has_credentials(
         Provider::ClaudeCode => Ok(false),
         Provider::OpenCode => opencode::auth::has_entry(name),
         Provider::Omp => Ok(server_url.is_some_and(omp::auth::has_entry)),
+    }
+}
+
+/// Inspect the credential state for a given provider × server name × URL tuple.
+#[must_use]
+pub fn credential_state(provider: Provider, name: &str, server_url: &str) -> CredentialState {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default();
+    #[allow(clippy::cast_possible_truncation)]
+    let now_ms = now.as_millis() as u64;
+    let now_s = now.as_secs_f64();
+
+    match provider {
+        Provider::ClaudeCode => match claude_code::auth::config_dir() {
+            Ok(dir) => claude_code::auth::credential_state_under(&dir, name, server_url, now_ms),
+            Err(_) => CredentialState::Unknown,
+        },
+        Provider::OpenCode => match fs::data_dir() {
+            Ok(dir) => opencode::auth::credential_state_under(&dir, name, now_s),
+            Err(_) => CredentialState::Unknown,
+        },
+        Provider::Omp => {
+            if omp::auth::has_entry(server_url) {
+                CredentialState::Authenticated
+            } else {
+                CredentialState::Missing
+            }
+        }
+    }
+}
+
+/// Probe the provider harness's live MCP status in the given hall `cwd`.
+///
+/// Returns `None` for providers without a live probe command (e.g. OMP).
+/// For Claude Code (`claude mcp list`) and OpenCode (`opencode mcp list`),
+/// runs the command in `cwd`, captures stdout, and parses the output into
+/// a map of materialised server name -> CredentialState.
+pub fn live_states(
+    provider: Provider,
+    cwd: &camino::Utf8Path,
+) -> Option<Result<std::collections::BTreeMap<String, CredentialState>, Failure>> {
+    match provider {
+        Provider::Omp => None,
+        Provider::ClaudeCode => {
+            let cmd = Command::new("claude").args(["mcp", "list"]).cwd(cwd);
+            let output = match crate::infra::proc::capture(&cmd) {
+                Ok(out) => out,
+                Err(e) => {
+                    return Some(Err(Failure::failed(
+                        "provider.claude_mcp_list_failed",
+                        format!("could not run `claude mcp list`: {e}"),
+                    )));
+                }
+            };
+            Some(Ok(claude_code::live::parse_mcp_list(&output.stdout)))
+        }
+        Provider::OpenCode => {
+            let cmd = Command::new("opencode").args(["mcp", "list"]).cwd(cwd);
+            let output = match crate::infra::proc::capture(&cmd) {
+                Ok(out) => out,
+                Err(e) => {
+                    return Some(Err(Failure::failed(
+                        "provider.opencode_mcp_list_failed",
+                        format!("could not run `opencode mcp list`: {e}"),
+                    )));
+                }
+            };
+            Some(Ok(opencode::live::parse_mcp_list(&output.stdout)))
+        }
     }
 }
 
