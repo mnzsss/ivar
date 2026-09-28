@@ -1,7 +1,14 @@
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing
+)]
+
 use std::collections::BTreeMap;
 
 use crate::action::mcp::status::{
-    apply_live, local_rows, status_report, StateSource, StatusOutcome, StatusRow,
+    StateSource, StatusOutcome, StatusRow, apply_live, local_rows, status_report,
 };
 use crate::domain::mcp::{CredentialState, McpOauth, McpServerDef};
 use crate::domain::provider::Provider;
@@ -27,30 +34,33 @@ fn local_rows_builds_matrix_respecting_auth_requirement() {
     };
 
     let rows = local_rows(hall, &servers, &providers, &mock_state);
+    let [r0, r1, r2, _r3, r4, r5] = rows.as_slice() else {
+        panic!("expected 6 rows, got {}", rows.len());
+    };
 
     // docs: local -> NotApplicable for all providers
-    assert_eq!(rows[0].server, "docs");
-    assert_eq!(rows[0].provider, Provider::ClaudeCode);
-    assert_eq!(rows[0].state, CredentialState::NotApplicable);
-    assert_eq!(rows[0].source, StateSource::Local);
+    assert_eq!(r0.server, "docs");
+    assert_eq!(r0.provider, Provider::ClaudeCode);
+    assert_eq!(r0.state, CredentialState::NotApplicable);
+    assert_eq!(r0.source, StateSource::Local);
 
-    assert_eq!(rows[1].server, "docs");
-    assert_eq!(rows[1].provider, Provider::OpenCode);
-    assert_eq!(rows[1].state, CredentialState::NotApplicable);
+    assert_eq!(r1.server, "docs");
+    assert_eq!(r1.provider, Provider::OpenCode);
+    assert_eq!(r1.state, CredentialState::NotApplicable);
 
     // sentry: http w/o oauth -> NotRequired
-    assert_eq!(rows[2].server, "sentry");
-    assert_eq!(rows[2].provider, Provider::ClaudeCode);
-    assert_eq!(rows[2].state, CredentialState::NotRequired);
+    assert_eq!(r2.server, "sentry");
+    assert_eq!(r2.provider, Provider::ClaudeCode);
+    assert_eq!(r2.state, CredentialState::NotRequired);
 
     // figma: http w/ oauth -> uses mock_state
-    assert_eq!(rows[4].server, "figma");
-    assert_eq!(rows[4].provider, Provider::ClaudeCode);
-    assert_eq!(rows[4].state, CredentialState::Authenticated);
+    assert_eq!(r4.server, "figma");
+    assert_eq!(r4.provider, Provider::ClaudeCode);
+    assert_eq!(r4.state, CredentialState::Authenticated);
 
-    assert_eq!(rows[5].server, "figma");
-    assert_eq!(rows[5].provider, Provider::OpenCode);
-    assert_eq!(rows[5].state, CredentialState::Missing);
+    assert_eq!(r5.server, "figma");
+    assert_eq!(r5.provider, Provider::OpenCode);
+    assert_eq!(r5.state, CredentialState::Missing);
 }
 
 #[test]
@@ -79,13 +89,17 @@ fn apply_live_updates_eligible_rows() {
 
     apply_live(&mut rows, &live_map);
 
+    let [r0, r1] = rows.as_slice() else {
+        panic!("expected 2 rows, got {}", rows.len());
+    };
+
     // docs stays Local / NotApplicable
-    assert_eq!(rows[0].source, StateSource::Local);
-    assert_eq!(rows[0].state, CredentialState::NotApplicable);
+    assert_eq!(r0.source, StateSource::Local);
+    assert_eq!(r0.state, CredentialState::NotApplicable);
 
     // figma becomes Live / Authenticated
-    assert_eq!(rows[1].source, StateSource::Live);
-    assert_eq!(rows[1].state, CredentialState::Authenticated);
+    assert_eq!(r1.source, StateSource::Live);
+    assert_eq!(r1.state, CredentialState::Authenticated);
 }
 
 #[test]
@@ -109,10 +123,16 @@ fn status_report_generates_warnings_for_attention_states() {
 
     let report = status_report(rows);
     assert!(!report.is_clean());
-    assert_eq!(report.warnings.len(), 1);
-    assert_eq!(report.warnings[0].code, "mcp.auth_needs_attention");
-    assert_eq!(report.warnings[0].subject.as_str(), "figma/claude-code");
-    assert!(report.warnings[0].what.contains("ivar mcp auth figma --provider claude-code"));
+    let [warning] = report.warnings.as_slice() else {
+        panic!("expected 1 warning, got {:?}", report.warnings);
+    };
+    assert_eq!(warning.code, "mcp.auth_needs_attention");
+    assert_eq!(warning.subject.as_str(), "figma/claude-code");
+    assert!(
+        warning
+            .what
+            .contains("ivar mcp auth figma --provider claude-code")
+    );
 }
 
 #[test]
@@ -126,7 +146,7 @@ fn no_token_or_secret_appears_in_serialized_or_debug_output() {
     };
     let outcome = StatusOutcome { rows: vec![row] };
 
-    let json_str = serde_json::to_string(&outcome).unwrap();
+    let json_str = serde_json::to_string(&outcome).expect("serialize outcome to json");
     let debug_str = format!("{outcome:?}");
 
     // Verify no secret substrings or token fields exist in data structures
