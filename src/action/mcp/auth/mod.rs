@@ -150,11 +150,11 @@ use std::io;
 use serde::Serialize;
 
 use crate::action::Ctx;
-use crate::domain::mcp::McpServerDef;
 use crate::domain::provider::Provider;
-use crate::error::{Failure, FixAction, Outcome, Report, Warning, WriteHuman};
+use crate::error::{Outcome, Report, Warning, WriteHuman};
 use crate::store::manifest::Manifest;
 
+use super::{resolve_provider, resolve_server};
 use super::super::{discover_hall, read_manifest};
 
 mod dispatch;
@@ -413,44 +413,6 @@ fn all_providers_report(server: &str, runs: Vec<ProviderRun>) -> Report<AuthOutc
     )
 }
 
-/// Find `name` in the manifest's declared MCP servers, or a [`Failure`]
-/// listing every name that *is* declared.
-fn resolve_server<'a>(manifest: &'a Manifest, name: &str) -> Result<&'a McpServerDef, Failure> {
-    manifest
-        .mcp_servers()
-        .iter()
-        .find(|server| server.name == name)
-        .ok_or_else(|| {
-            let declared: Vec<&str> = manifest
-                .mcp_servers()
-                .iter()
-                .map(|server| server.name.as_str())
-                .collect();
-            let known = if declared.is_empty() {
-                "(no servers declared in ivar.json's `mcp` array)".to_owned()
-            } else {
-                declared.join(", ")
-            };
-            Failure::blocked(
-                "mcp.server_not_found",
-                format!("no MCP server named `{name}` in ivar.json"),
-            )
-            .expected(format!("one of the declared servers: {known}"))
-            .actual(format!("`{name}` is not declared"))
-            .fix(FixAction::safe(
-                "mcp.check_declared_servers",
-                "Check the `mcp` array in ivar.json for the server's declared name.",
-            ))
-        })
-}
-
-/// `input.provider`, parsed; or the hall's default when omitted.
-fn resolve_provider(manifest: &Manifest, raw: Option<&str>) -> Result<Provider, Failure> {
-    match raw {
-        Some(value) => value.parse::<Provider>().map_err(Failure::from),
-        None => Ok(manifest.providers().default_provider()),
-    }
-}
 
 #[cfg(test)]
 #[path = "../../../../tests/unit/action/mcp/auth.rs"]
