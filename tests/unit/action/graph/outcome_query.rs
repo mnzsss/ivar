@@ -153,3 +153,138 @@ fn misses_compact_has_schema_and_one_row_per_miss() {
         "#SCHEMA: id|ts|kind|session|query|pattern|reason\n1|100|feedback|sess-1|get_callers|rg get_callers|"
     );
 }
+
+#[test]
+fn cli_explore_outcome_caps_direct_relations_at_max_list_items_with_remainder() {
+    use crate::action::graph::outcome::ops::ExploreOutcome;
+    use crate::domain::graph::{
+        EdgeKind, ExploreResult, OperationalRelation, Provenance, RelationDirection,
+        RelationEndpoint,
+    };
+
+    let direct_relations: Vec<OperationalRelation> = (0..100)
+        .map(|i| OperationalRelation {
+            source: RelationEndpoint {
+                symbol_name: format!("caller_{i}"),
+                symbol_kind: None,
+                repo: "api".to_owned(),
+                file_path: format!("src/caller_{i}.rs"),
+            },
+            target: RelationEndpoint {
+                symbol_name: "target_fn".to_owned(),
+                symbol_kind: None,
+                repo: "api".to_owned(),
+                file_path: "src/target.rs".to_owned(),
+            },
+            direction: RelationDirection::Incoming,
+            edge_kind: EdgeKind::Calls,
+            provenance: Provenance::Extracted,
+            confidence: 1.0,
+            line: i + 1,
+            hop_count: 1,
+            cross_repo: false,
+        })
+        .collect();
+
+    let res = ExploreResult {
+        query: "target_fn".to_owned(),
+        file_matches: Vec::new(),
+        primary_symbols: Vec::new(),
+        call_flows: Vec::new(),
+        impact_summary: None,
+        direct_relations,
+        entry_points: Vec::new(),
+        transitive_consumers: Vec::new(),
+        sources: Vec::new(),
+        flows: Vec::new(),
+        not_shown: Vec::new(),
+    };
+
+    let mut buf = Vec::new();
+    ExploreOutcome(res).write_human(&mut buf).unwrap();
+    let text = String::from_utf8(buf).unwrap();
+
+    assert!(
+        text.contains("caller_0 [api:src/caller_0.rs]"),
+        "first item should be printed"
+    );
+    assert!(
+        text.contains("caller_39 [api:src/caller_39.rs]"),
+        "40th item should be printed"
+    );
+    assert!(
+        !text.contains("caller_40 [api:src/caller_40.rs]"),
+        "41st item must be capped"
+    );
+    assert!(
+        text.contains("…and 60 more"),
+        "remainder summary must state omitted item count, got: {text}"
+    );
+}
+
+#[test]
+fn cli_explore_outcome_stops_appending_sections_when_exceeding_max_output_chars() {
+    use crate::action::graph::narrate::MAX_OUTPUT_CHARS;
+    use crate::action::graph::outcome::ops::ExploreOutcome;
+    use crate::domain::graph::{
+        ExploreImpact, ExploreResult, Span, Symbol, SymbolKind, SymbolSnippet,
+    };
+
+    // Create a large primary symbol source that consumes almost all characters
+    let long_code = "x".repeat(MAX_OUTPUT_CHARS + 500);
+    let primary_symbols = vec![SymbolSnippet {
+        symbol: Symbol {
+            id: Some(1),
+            file_id: Some(1),
+            repo: "api".to_owned(),
+            name: "huge_fn".to_owned(),
+            kind: SymbolKind::Fn,
+            scope: None,
+            signature: Some("pub fn huge_fn()".to_owned()),
+            docstring: None,
+            span: Span::new(1, 1, 100, 1),
+            is_exported: true,
+            complexity: None,
+        },
+        file_path: "src/huge.rs".to_owned(),
+        code: long_code,
+        start_line: 1,
+        end_line: 100,
+    }];
+
+    let transitive_consumers = vec![ExploreImpact {
+        symbol_name: "consumer_fn".to_owned(),
+        repo: "api".to_owned(),
+        file_path: "src/consumer.rs".to_owned(),
+        depth: 2,
+        path_via: vec!["intermediate_fn".to_owned()],
+        cross_repo: false,
+    }];
+
+    let res = ExploreResult {
+        query: "huge_fn".to_owned(),
+        file_matches: Vec::new(),
+        primary_symbols,
+        call_flows: Vec::new(),
+        impact_summary: Some("Large impact summary".to_owned()),
+        direct_relations: Vec::new(),
+        entry_points: Vec::new(),
+        transitive_consumers,
+        sources: Vec::new(),
+        flows: Vec::new(),
+        not_shown: Vec::new(),
+    };
+
+    let mut buf = Vec::new();
+    ExploreOutcome(res).write_human(&mut buf).unwrap();
+    let text = String::from_utf8(buf).unwrap();
+
+    assert!(
+        !text.contains("Transitive Consumers:"),
+        "transitive consumers should be omitted once buffer budget is exceeded"
+    );
+    assert!(
+        !text.contains("Impact Summary:"),
+        "impact summary should be omitted once buffer budget is exceeded"
+    );
+}

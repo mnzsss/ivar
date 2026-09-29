@@ -31,10 +31,10 @@ const MAX_NOT_SHOWN_FILES: usize = 10;
 /// Symbol names listed for one file that got no source.
 const MAX_NAMES_PER_FILE: usize = 6;
 /// Entries a callers, callees or impact answer lists before counting the rest.
-const MAX_LIST_ITEMS: usize = 40;
+pub(crate) const MAX_LIST_ITEMS: usize = 40;
 /// Every later turn repeats an answer, so it stays well under the ~25K characters
 /// at which hosts save a tool result to a file the agent then has to Read.
-const MAX_OUTPUT_CHARS: usize = 18_000;
+pub(crate) const MAX_OUTPUT_CHARS: usize = 18_000;
 /// A `paths` answer may run longer, still under the ~25K-character threshold.
 const MAX_REQUESTED_OUTPUT_CHARS: usize = 24_000;
 /// Room kept after the source for the not-shown list and the next call, so no
