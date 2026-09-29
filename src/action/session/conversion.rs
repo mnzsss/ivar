@@ -127,7 +127,7 @@ pub fn convert(ctx: &Ctx, input: &ConvertInput) -> Outcome<ConvertOutcome> {
     //    scanning for the marker rather than taken from the caller.
     if let Some((feature_name, transition)) = find_pending_transition(&layout, &input.session_id)? {
         let outcome = resume(&layout, &manifest, &feature_name, transition)?;
-        return Ok(mark_discovery_converted(ctx, &feature_name, outcome));
+        return Ok(mark_discovery_converted(&layout, &feature_name, outcome));
     }
 
     // 2. Locate the session and verify it is a discovery session.
@@ -158,7 +158,7 @@ pub fn convert(ctx: &Ctx, input: &ConvertInput) -> Outcome<ConvertOutcome> {
     };
     write_transition(&layout, &feature_name, &transition)?;
     let outcome = run_conversion(&layout, &manifest, &feature_name, &feature, transition)?;
-    Ok(mark_discovery_converted(ctx, &feature_name, outcome))
+    Ok(mark_discovery_converted(&layout, &feature_name, outcome))
 }
 
 fn resolve_discovery_session(
@@ -546,16 +546,15 @@ fn find_pending_transition(
 /// A failure here must not undo a completed conversion — the session is
 /// already bound — so it is reported as a warning, not an error.
 fn mark_discovery_converted(
-    ctx: &Ctx,
+    layout: &Layout,
     feature_name: &FeatureName,
     mut outcome: Report<ConvertOutcome>,
 ) -> Report<ConvertOutcome> {
-    let marked = crate::action::discovery::close::close(
-        ctx,
-        crate::action::discovery::close::CloseInput {
-            name: feature_name.as_str().to_owned(),
-            outcome: crate::domain::discovery::DiscoveryStatus::Converted,
-        },
+    let path = layout.discovery_doc(feature_name);
+    let marked = crate::action::discovery::close::close_at(
+        &path,
+        feature_name,
+        crate::domain::discovery::DiscoveryStatus::Converted,
     );
     if let Err(failure) = marked {
         outcome.warnings.push(Warning::new(

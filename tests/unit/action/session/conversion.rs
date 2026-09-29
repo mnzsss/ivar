@@ -214,6 +214,40 @@ fn convert_moves_the_view_dir_and_rebuilds_symlinks() {
     assert!(!fs::exists(&transition_path(&layout, &feature_name())).unwrap());
     unguard_worktrees(&root);
 }
+#[test]
+fn conversion_from_moved_discovery_cwd_marks_doc_converted() {
+    let (_guard, root) = hall_with_discovery_session();
+    let layout = Layout::at(root.clone());
+    let old_dir = discovery_view_dir(&layout);
+    let ctx = Ctx::new(old_dir.clone());
+    associate_discovery(&ctx, "checkout", DISCOVERY_ID);
+
+    let report = convert(
+        &ctx,
+        &ConvertInput {
+            session_id: DISCOVERY_ID.to_owned(),
+        },
+    )
+    .unwrap();
+    let doc_path = layout.discovery_doc(&feature_name());
+    let doc = crate::store::discovery::parse(&fs::read_text(&doc_path).unwrap().unwrap());
+    assert!(
+        report.warnings.is_empty(),
+        "conversion must not warn after moving cwd"
+    );
+    assert_eq!(
+        doc.frontmatter.status,
+        crate::domain::discovery::DiscoveryStatus::Converted
+    );
+    assert!(!fs::exists(&old_dir).unwrap());
+    let new_dir = layout.feature_session(&feature_name(), &SessionId::new(DISCOVERY_ID).unwrap());
+    assert_eq!(
+        SessionState::read(&new_dir).unwrap().unwrap().feature().unwrap(),
+        &feature_name()
+    );
+    unguard_worktrees(&root);
+}
+
 
 /// Conversion binds the discovery session to the feature, and the rematerialised
 /// View Dir gains what a feature session carries: the bootstrap instructions,
