@@ -368,6 +368,7 @@ fn has_uri_scheme(s: &str) -> bool {
 pub(crate) enum Resolution<'a> {
     Resolved(&'a WritableSet),
     Unresolved { scratch_dirs: Vec<Utf8PathBuf> },
+    Ambiguous { features: Vec<String> },
 }
 
 /// Decide whether a tool request is allowed inside the session.
@@ -415,6 +416,12 @@ pub(crate) fn decide(
         }
         Resolution::Unresolved { scratch_dirs } => GuardDecision::Deny {
             reason: unresolved_reason(scratch_dirs),
+        },
+        Resolution::Ambiguous { features } => GuardDecision::Deny {
+            reason: format!(
+                "write target matches session-specific roots of multiple conflicting features: {}",
+                features.join(", ")
+            ),
         },
     }
 }
@@ -626,6 +633,7 @@ fn resolve_target(cwd: Option<&Utf8Path>, file_path: &Utf8Path) -> Option<Utf8Pa
 }
 
 /// Target resolution outcome when resolving a writable set from a target path.
+#[derive(Debug)]
 enum TargetResolution {
     None,
     SharedHall(WritableSet),
@@ -856,9 +864,7 @@ pub fn guard(provider: Provider, stdin_json: &str) -> Result<GuardOutcome, Failu
 
     let resolution = match (&set, ambiguous_features) {
         (Some(set), _) => Resolution::Resolved(set),
-        (None, Some(_features)) => Resolution::Unresolved {
-            scratch_dirs: Vec::new(),
-        },
+        (None, Some(features)) => Resolution::Ambiguous { features },
         (None, None) => Resolution::Unresolved {
             scratch_dirs: live_scratch_dirs(cwd.as_deref()),
         },

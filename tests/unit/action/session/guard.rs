@@ -2005,3 +2005,102 @@ fn symlinked_claude_skills_remain_writable() {
     let out = guard(Provider::ClaudeCode, &payload.to_string()).unwrap();
     assert!(out.exit_zero);
 }
+
+#[test]
+fn ambiguous_target_matching_multiple_features_denies_and_names_all_conflicting_features() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root.clone());
+    let ctx = crate::action::Ctx::new(root.clone());
+
+    // Create a second feature "billing" promoting the same repo "api"
+    feature_create::create(
+        &ctx,
+        CreateInput {
+            name: "billing".to_owned(),
+            branch: None,
+            base: None,
+            parent: None,
+            via: None,
+            strategy: None,
+        },
+    )
+    .unwrap();
+    crate::action::sync::sync(&ctx, &Default::default()).unwrap();
+    feature_promote::promote(
+        &ctx,
+        PromoteInput {
+            feature: "billing".to_owned(),
+            repo: "api".to_owned(),
+            base: None,
+        },
+    )
+    .unwrap();
+
+    // Session for checkout feature
+    let feat_checkout = Feature::read(&layout, &FeatureName::new("checkout").unwrap())
+        .unwrap()
+        .unwrap();
+    let id_checkout = SessionId::new("6f0c9d5f-0000-4000-8000-000000000081").unwrap();
+    let view_checkout = layout.feature_session(&feat_checkout.name, &id_checkout);
+    crate::infra::fs::ensure_dir(&view_checkout).unwrap();
+    let mut state_checkout =
+        crate::domain::session::SessionState::new(Provider::Omp, "2026-09-29T00:00:00Z");
+    state_checkout.bind(feat_checkout.name.clone(), "2026-09-29T00:00:00Z");
+    state_checkout.write(&view_checkout).unwrap();
+
+    // Session for billing feature
+    let feat_billing = Feature::read(&layout, &FeatureName::new("billing").unwrap())
+        .unwrap()
+        .unwrap();
+    let id_billing = SessionId::new("6f0c9d5f-0000-4000-8000-000000000082").unwrap();
+    let view_billing = layout.feature_session(&feat_billing.name, &id_billing);
+    crate::infra::fs::ensure_dir(&view_billing).unwrap();
+    let mut state_billing =
+        crate::domain::session::SessionState::new(Provider::Omp, "2026-09-29T00:00:00Z");
+    state_billing.bind(feat_billing.name.clone(), "2026-09-29T00:00:00Z");
+    state_billing.write(&view_billing).unwrap();
+
+    // Test decide() directly with Resolution::Ambiguous
+    let req = ToolRequest {
+        tool: "write".into(),
+        file_path: Some(root.join("some/path.rs")),
+        search_pattern: None,
+    };
+    let decision = decide(
+        &Resolution::Ambiguous {
+            features: vec!["billing".to_owned(), "checkout".to_owned()],
+        },
+        &req,
+        req.file_path.as_deref(),
+    );
+    match decision {
+        GuardDecision::Deny { reason } => {
+            assert!(reason.contains("conflicting features"));
+            assert!(reason.contains("billing"));
+            assert!(reason.contains("checkout"));
+        }
+        GuardDecision::Allow => panic!("expected deny for ambiguous resolution"),
+    }
+
+    // Verify decide() when multiple discovery sessions are also present
+    let decision_multi = decide(
+        &Resolution::Ambiguous {
+            features: vec![
+                "6f0c9d5f-0000-4000-8000-000000000001".to_owned(),
+                "billing".to_owned(),
+                "checkout".to_owned(),
+            ],
+        },
+        &req,
+        req.file_path.as_deref(),
+    );
+    match decision_multi {
+        GuardDecision::Deny { reason } => {
+            assert!(reason.contains("conflicting features"));
+            assert!(reason.contains("6f0c9d5f-0000-4000-8000-000000000001"));
+            assert!(reason.contains("billing"));
+            assert!(reason.contains("checkout"));
+        }
+        GuardDecision::Allow => panic!("expected deny for ambiguous resolution"),
+    }
+}
