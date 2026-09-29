@@ -70,6 +70,14 @@ Read the detailed, candid comparison: [Why not just `git worktree`?](docs/why-no
 curl -fsSL ivar.run/install | sh
 ```
 
+The installer defaults to zero telemetry, and the installed `ivar` binary never
+makes network requests for analytics. To optionally help count successful
+installations:
+
+```sh
+curl -fsSL ivar.run/install | IVAR_INSTALL_ANALYTICS=1 sh
+```
+
 Prefer to build from source?
 
 ```sh

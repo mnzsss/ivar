@@ -29,6 +29,17 @@ so the last line is a fact about the file on your disk rather than about the
 release it asked for. If your shell resolves a different `ivar` — an older
 build earlier in `PATH` — the script says so and names the file that wins.
 
+By default, the installer sends zero telemetry and makes no network requests
+beyond downloading the release binary and its checksum. The installed `ivar`
+binary is completely local and never sends analytics. If you want to help count
+successful installations, you can explicitly opt in:
+
+```sh
+curl -fsSL ivar.run/install | IVAR_INSTALL_ANALYTICS=1 sh
+```
+
+This sends a single anonymous install success event after the binary has been
+verified and placed.
 On Arch, `yay -S ivar-bin` installs the same prebuilt binary through pacman, and
 `yay -S ivar` builds it from the release tag.
 
