@@ -193,10 +193,11 @@ fn explore_within(
                 });
             }
             // Attach explicit span to matched FileSpans entry
-            if let Some(entry) = file_spans
-                .iter_mut()
-                .find(|f| f.file_path.ends_with(path_part))
-            {
+            if let Some(entry) = file_spans.iter_mut().find(|f| {
+                f.file_path == path_part
+                    || f.file_path.ends_with(path_part)
+                    || path_part.ends_with(&f.file_path)
+            }) {
                 entry.spans = vec![(start, end)];
                 entry.explicit_span = true;
             }

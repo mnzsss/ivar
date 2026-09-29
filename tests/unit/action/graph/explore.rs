@@ -881,3 +881,47 @@ fn test_explore_ranged_path_invalid_range_errors() {
     );
     assert!(err_order.is_err(), "start > end must error");
 }
+#[test]
+fn test_explore_ranged_path_hall_relative_matches() {
+    let temp = tempfile::tempdir().expect("create temp dir");
+    let hall_root = temp.path();
+    let repo_dir = hall_root.join(".ivar/repos/computron/main");
+    std::fs::create_dir_all(repo_dir.join("src/core")).expect("create dirs");
+
+    let lines: Vec<String> = (1..=300).map(|i| format!("// line {i}\n")).collect();
+    let content = lines.concat();
+    std::fs::write(repo_dir.join("src/core/prompt.ts"), &content).expect("write file");
+
+    let db = GraphDb::open_in_memory().expect("open memory db");
+    db.insert_repo("computron", repo_dir.to_str().unwrap(), "main", None)
+        .expect("insert repo");
+    db.upsert_file(
+        "computron",
+        "src/core/prompt.ts",
+        "h_prompt",
+        100,
+        content.len() as i64,
+    )
+    .expect("upsert file");
+
+    // Query using hall-relative path
+    let res = crate::action::graph::explore::explore_files(
+        &db,
+        hall_root,
+        ".ivar/repos/computron/main/src/core/prompt.ts:82-237",
+        None,
+    )
+    .expect("explore_files with hall-relative ranged path");
+
+    assert_eq!(res.sources.len(), 1);
+    let source = &res.sources[0];
+    assert_eq!(source.file_path, "src/core/prompt.ts");
+    assert_eq!(source.excerpts.len(), 1);
+    let excerpt = &source.excerpts[0];
+    assert_eq!(excerpt.start_line, 82);
+    assert_eq!(excerpt.end_line, 237);
+    assert!(excerpt.code.contains("82\t// line 82"));
+    assert!(excerpt.code.contains("237\t// line 237"));
+    assert!(!excerpt.code.contains("81\t// line 81"));
+    assert!(!excerpt.code.contains("238\t// line 238"));
+}
