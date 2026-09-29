@@ -47,9 +47,8 @@ pub(super) const PATH_TIER_SQL: &str = "WITH matched_files AS MATERIALIZED (
      ORDER BY m.id ASC
      LIMIT 200";
 
-/// Maximum candidates returned for hero explore.
-pub const MAX_EXPLORE_CANDIDATES: usize = 24;
-/// Maximum candidate symbols admitted from a single file when multiple files are matched.
+/// Maximum candidates returned for hero explore (combined symbols + matched files).
+pub const MAX_EXPLORE_CANDIDATES: usize = 20;
 pub const MAX_SYMBOLS_PER_FILE: usize = 6;
 /// Maximum file matches returned for exploration.
 pub const MAX_FILE_CANDIDATES: usize = 6;
@@ -614,51 +613,41 @@ fn collect_final_results(
     let mut final_files = Vec::new();
     let mut not_shown = Vec::new();
 
-    for (rank, file_info) in ranked_files.into_iter().enumerate() {
+    // Pass 1: Reserve files for pinned/exact or content hits first
+    for (rank, file_info) in ranked_files.iter().enumerate() {
+        if rank >= shown_files {
+            break;
+        }
         let key = (file_info.repo.clone(), file_info.path.clone());
-        let sym_cands = file_candidates.remove(&key);
+        let has_symbols = file_candidates.get(&key).is_some_and(|c| !c.is_empty());
 
-        if rank < shown_files {
-            let mut has_symbols = false;
-            if let Some(mut cands) = sym_cands
-                && !cands.is_empty()
-            {
-                has_symbols = true;
-                cands.sort_by(|a, b| b.score.total_cmp(&a.score));
-                if final_symbols.len() < MAX_EXPLORE_CANDIDATES {
-                    cands
-                        .truncate((MAX_EXPLORE_CANDIDATES - final_symbols.len()).min(max_per_file));
-                    cands.sort_by_key(|c| (c.symbol.span.start_line, c.symbol.span.start_col));
-                    final_symbols.extend(cands.into_iter().map(|sc| SymbolLocation {
-                        symbol: sc.symbol,
-                        file_path: sc.file_path,
-                    }));
-                }
-            }
-
+        if final_files.len() < MAX_FILE_CANDIDATES
+            && (final_files.len() + final_symbols.len()) < MAX_EXPLORE_CANDIDATES
+        {
             if let Some(hit) = content_hits.get(&key) {
-                if final_files.len() < MAX_FILE_CANDIDATES {
-                    final_files.push(FileMatch {
-                        repo: hit.repo.clone(),
-                        file_path: hit.path.clone(),
-                        match_kind: file_info.match_kind.unwrap_or(FileMatchKind::Content),
-                        start_line: hit.start_line,
-                        excerpt: hit.excerpt.clone(),
-                        content_truncated: hit.content_truncated,
-                    });
-                }
-            } else if let Some(kind) = file_info.match_kind {
-                if final_files.len() < MAX_FILE_CANDIDATES {
+                final_files.push(FileMatch {
+                    repo: hit.repo.clone(),
+                    file_path: hit.path.clone(),
+                    match_kind: file_info
+                        .match_kind
+                        .clone()
+                        .unwrap_or(FileMatchKind::Content),
+                    start_line: hit.start_line,
+                    excerpt: hit.excerpt.clone(),
+                    content_truncated: hit.content_truncated,
+                });
+            } else if let Some(kind) = &file_info.match_kind {
+                if !has_symbols {
                     final_files.push(FileMatch {
                         repo: file_info.repo.clone(),
                         file_path: file_info.path.clone(),
-                        match_kind: kind,
+                        match_kind: kind.clone(),
                         start_line: 1,
                         excerpt: String::new(),
                         content_truncated: false,
                     });
                 }
-            } else if !has_symbols && final_files.len() < MAX_FILE_CANDIDATES {
+            } else if !has_symbols {
                 final_files.push(FileMatch {
                     repo: file_info.repo.clone(),
                     file_path: file_info.path.clone(),
@@ -668,25 +657,46 @@ fn collect_final_results(
                     content_truncated: false,
                 });
             }
-        } else {
-            // Not shown: only include files that have matching symbols
+        }
+    }
+
+    // Pass 2: Collect symbols up to remaining budget
+    for (rank, file_info) in ranked_files.into_iter().enumerate() {
+        let key = (file_info.repo.clone(), file_info.path.clone());
+        let sym_cands = file_candidates.remove(&key);
+
+        if rank < shown_files {
             if let Some(mut cands) = sym_cands
                 && !cands.is_empty()
             {
-                cands.truncate(MAX_SYMBOLS_PER_FILE);
-                cands.sort_by_key(|c| (c.symbol.span.start_line, c.symbol.span.start_col));
-                not_shown.push(FileMention {
-                    repo: file_info.repo,
-                    file_path: file_info.path,
-                    symbols: cands
-                        .into_iter()
-                        .map(|sc| MentionedSymbol {
-                            line: sc.symbol.span.start_line,
-                            name: sc.symbol.name,
-                        })
-                        .collect(),
-                });
+                cands.sort_by(|a, b| b.score.total_cmp(&a.score));
+                let remaining_budget =
+                    MAX_EXPLORE_CANDIDATES.saturating_sub(final_symbols.len() + final_files.len());
+                if remaining_budget > 0 {
+                    cands.truncate(remaining_budget.min(max_per_file));
+                    cands.sort_by_key(|c| (c.symbol.span.start_line, c.symbol.span.start_col));
+                    final_symbols.extend(cands.into_iter().map(|sc| SymbolLocation {
+                        symbol: sc.symbol,
+                        file_path: sc.file_path,
+                    }));
+                }
             }
+        } else if let Some(mut cands) = sym_cands
+            && !cands.is_empty()
+        {
+            cands.truncate(MAX_SYMBOLS_PER_FILE);
+            cands.sort_by_key(|c| (c.symbol.span.start_line, c.symbol.span.start_col));
+            not_shown.push(FileMention {
+                repo: file_info.repo,
+                file_path: file_info.path,
+                symbols: cands
+                    .into_iter()
+                    .map(|sc| MentionedSymbol {
+                        line: sc.symbol.span.start_line,
+                        name: sc.symbol.name,
+                    })
+                    .collect(),
+            });
         }
     }
 

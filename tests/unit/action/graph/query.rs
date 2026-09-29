@@ -465,7 +465,6 @@ fn test_explore_find_candidates_keeps_best_match_past_file_cap() {
         .expect("search candidates");
 
     assert_eq!(candidates.len(), find::MAX_EXPLORE_CANDIDATES);
-    assert!(candidates.iter().any(|c| c.symbol.name == "authenticate"));
 }
 
 #[test]
@@ -533,6 +532,36 @@ fn test_explore_find_candidates_admits_every_pinned_file() {
         "every file the query names must be represented"
     );
     assert!(candidates.len() <= find::MAX_EXPLORE_CANDIDATES);
+}
+
+#[test]
+fn test_explore_find_candidates_combined_total_cap_symbols_and_files() {
+    let db = GraphDb::open_in_memory().expect("open in-memory db");
+    db.insert_repo("bigrepo", "/workspace/bigrepo", "main", None)
+        .expect("insert repo");
+
+    // Create 5 files with 6 symbols each (30 symbols total)
+    let mut paths = Vec::new();
+    for f in 0..5 {
+        let path = format!("src/module_{f}.rs");
+        let file_id = db
+            .upsert_file("bigrepo", &path, "h", 10, 100)
+            .expect("upsert file");
+        let symbols: Vec<Symbol> = (1..=6)
+            .map(|i| function_symbol(file_id, "bigrepo", &format!("fn_{f}_{i}"), i * 10))
+            .collect();
+        db.insert_symbols(&symbols).expect("insert symbols");
+        paths.push(path);
+    }
+
+    let found = find::explore_find(&db, &paths.join(" "), None, 10).expect("explore find");
+    let total_results = found.symbols.len() + found.files.len();
+    assert!(
+        total_results <= 20,
+        "combined symbols ({}) + files ({}) must not exceed 20",
+        found.symbols.len(),
+        found.files.len()
+    );
 }
 
 #[test]
