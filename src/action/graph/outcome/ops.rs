@@ -1,15 +1,17 @@
-use crate::action::feature::workspace::OpenAttempt;
-use crate::action::graph::view::types::ViewSeed;
 use std::fmt::Write as _;
-
-use serde::Serialize;
-use std::io;
+use std::io::{self, Write as _};
 use std::path::PathBuf;
 
+use serde::Serialize;
+
+use crate::action::feature::workspace::OpenAttempt;
 use crate::action::graph::compact::{self, ToCompact};
 use crate::action::graph::index::{IndexOutcome, RepoFailure};
+use crate::action::graph::narrate::{MAX_LIST_ITEMS, MAX_OUTPUT_CHARS};
+use crate::action::graph::view::types::ViewSeed;
 use crate::domain::graph::{AffectedResult, ExploreResult, PathResult};
 use crate::error::WriteHuman;
+
 #[derive(Debug, Clone, Serialize)]
 pub struct ExploreOutcome(pub ExploreResult);
 
@@ -62,7 +64,7 @@ fn write_primary_symbols(w: &mut impl io::Write, res: &ExploreResult) -> io::Res
 fn write_entry_points(w: &mut impl io::Write, res: &ExploreResult) -> io::Result<()> {
     if !res.entry_points.is_empty() {
         writeln!(w, "  Entry Points:")?;
-        for ep in &res.entry_points {
+        for ep in res.entry_points.iter().take(MAX_LIST_ITEMS) {
             let cross_str = if ep.cross_repo { " [cross-repo]" } else { "" };
             writeln!(
                 w,
@@ -78,6 +80,13 @@ fn write_entry_points(w: &mut impl io::Write, res: &ExploreResult) -> io::Result
                 cross_str
             )?;
         }
+        if res.entry_points.len() > MAX_LIST_ITEMS {
+            writeln!(
+                w,
+                "    - …and {} more",
+                res.entry_points.len() - MAX_LIST_ITEMS
+            )?;
+        }
     }
     Ok(())
 }
@@ -88,7 +97,7 @@ fn write_direct_relations_or_call_flows(
 ) -> io::Result<()> {
     if !res.direct_relations.is_empty() {
         writeln!(w, "  Direct Relations:")?;
-        for rel in &res.direct_relations {
+        for rel in res.direct_relations.iter().take(MAX_LIST_ITEMS) {
             let cross_str = if rel.cross_repo { " [cross-repo]" } else { "" };
             let dir_arrow = match rel.direction {
                 crate::domain::graph::RelationDirection::Incoming => "<-",
@@ -111,13 +120,27 @@ fn write_direct_relations_or_call_flows(
                 cross_str
             )?;
         }
+        if res.direct_relations.len() > MAX_LIST_ITEMS {
+            writeln!(
+                w,
+                "    - …and {} more",
+                res.direct_relations.len() - MAX_LIST_ITEMS
+            )?;
+        }
     } else if !res.call_flows.is_empty() {
         writeln!(w, "  Call Flows:")?;
-        for flow in &res.call_flows {
+        for flow in res.call_flows.iter().take(MAX_LIST_ITEMS) {
             writeln!(
                 w,
                 "    - {} -> {} ({:?}, line {})",
                 flow.caller, flow.callee, flow.edge_kind, flow.line
+            )?;
+        }
+        if res.call_flows.len() > MAX_LIST_ITEMS {
+            writeln!(
+                w,
+                "    - …and {} more",
+                res.call_flows.len() - MAX_LIST_ITEMS
             )?;
         }
     }
@@ -127,7 +150,7 @@ fn write_direct_relations_or_call_flows(
 fn write_transitive_consumers(w: &mut impl io::Write, res: &ExploreResult) -> io::Result<()> {
     if !res.transitive_consumers.is_empty() {
         writeln!(w, "  Transitive Consumers:")?;
-        for c in &res.transitive_consumers {
+        for c in res.transitive_consumers.iter().take(MAX_LIST_ITEMS) {
             let cross_str = if c.cross_repo { " [cross-repo]" } else { "" };
             let via = if c.path_via.is_empty() {
                 String::new()
@@ -140,6 +163,13 @@ fn write_transitive_consumers(w: &mut impl io::Write, res: &ExploreResult) -> io
                 c.symbol_name, c.repo, c.file_path, c.depth, via, cross_str
             )?;
         }
+        if res.transitive_consumers.len() > MAX_LIST_ITEMS {
+            writeln!(
+                w,
+                "    - …and {} more",
+                res.transitive_consumers.len() - MAX_LIST_ITEMS
+            )?;
+        }
     }
     Ok(())
 }
@@ -147,15 +177,24 @@ fn write_transitive_consumers(w: &mut impl io::Write, res: &ExploreResult) -> io
 impl WriteHuman for ExploreOutcome {
     fn write_human(&self, w: &mut impl io::Write) -> io::Result<()> {
         let res = &self.0;
-        writeln!(w, "Explore results for query `{}`:", res.query)?;
-        write_primary_symbols(w, res)?;
-        write_entry_points(w, res)?;
-        write_direct_relations_or_call_flows(w, res)?;
-        write_transitive_consumers(w, res)?;
-        if let Some(impact) = &res.impact_summary {
-            writeln!(w, "  Impact Summary: {}", impact)?;
+        let mut buf = Vec::new();
+        writeln!(buf, "Explore results for query `{}`:", res.query)?;
+        write_primary_symbols(&mut buf, res)?;
+        if buf.len() < MAX_OUTPUT_CHARS {
+            write_entry_points(&mut buf, res)?;
         }
-        Ok(())
+        if buf.len() < MAX_OUTPUT_CHARS {
+            write_direct_relations_or_call_flows(&mut buf, res)?;
+        }
+        if buf.len() < MAX_OUTPUT_CHARS {
+            write_transitive_consumers(&mut buf, res)?;
+        }
+        if buf.len() < MAX_OUTPUT_CHARS
+            && let Some(impact) = &res.impact_summary
+        {
+            writeln!(buf, "  Impact Summary: {}", impact)?;
+        }
+        w.write_all(&buf)
     }
 }
 

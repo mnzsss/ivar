@@ -1058,10 +1058,42 @@ fn record_miss_and_list_misses_round_trip() {
         .list_misses(&MissFilter {
             kind: Some(MissKind::Skipped),
             since: None,
+            limit: None,
         })
         .unwrap();
     assert_eq!(skipped_only.len(), 1);
     assert_eq!(skipped_only[0].pattern.as_deref(), Some("enforceSession"));
+}
+
+#[test]
+fn list_misses_honors_limit_and_ordering() {
+    let db = GraphDb::open_in_memory().unwrap();
+    for i in 1..=15 {
+        db.record_miss(&MissEvent {
+            session: Some(format!("sess-{i}")),
+            kind: MissKind::Skipped,
+            query: Some(format!("query-{i}")),
+            pattern: Some(format!("pattern-{i}")),
+            reason: None,
+        })
+        .unwrap();
+    }
+
+    // Default (limit None) returns all 15, newest first
+    let all = db.list_misses(&MissFilter::default()).unwrap();
+    assert_eq!(all.len(), 15);
+    assert_eq!(all[0].session.as_deref(), Some("sess-15"));
+
+    // Explicit limit of 5 returns newest 5
+    let limited = db
+        .list_misses(&MissFilter {
+            limit: Some(5),
+            ..Default::default()
+        })
+        .unwrap();
+    assert_eq!(limited.len(), 5);
+    assert_eq!(limited[0].session.as_deref(), Some("sess-15"));
+    assert_eq!(limited[4].session.as_deref(), Some("sess-11"));
 }
 
 #[test]

@@ -12,6 +12,13 @@ pub enum ExploreError {
     Path(#[from] PathError),
     #[error("Database error: {0}")]
     Db(#[from] crate::store::graph::db::GraphDbError),
+    #[error("Invalid line range {start}-{end} for {path}: {reason}")]
+    InvalidRange {
+        path: String,
+        start: usize,
+        end: usize,
+        reason: String,
+    },
     #[error("I/O error reading source file {path}: {source}")]
     Io {
         path: PathBuf,

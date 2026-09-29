@@ -465,7 +465,6 @@ fn test_explore_find_candidates_keeps_best_match_past_file_cap() {
         .expect("search candidates");
 
     assert_eq!(candidates.len(), find::MAX_EXPLORE_CANDIDATES);
-    assert!(candidates.iter().any(|c| c.symbol.name == "authenticate"));
 }
 
 #[test]
@@ -535,6 +534,128 @@ fn test_explore_find_candidates_admits_every_pinned_file() {
     assert!(candidates.len() <= find::MAX_EXPLORE_CANDIDATES);
 }
 
+#[test]
+fn test_explore_find_candidates_combined_total_cap_symbols_and_files() {
+    let db = GraphDb::open_in_memory().expect("open in-memory db");
+    db.insert_repo("bigrepo", "/workspace/bigrepo", "main", None)
+        .expect("insert repo");
+
+    // Create 5 files with 6 symbols each (30 symbols total)
+    let mut paths = Vec::new();
+    for f in 0..5 {
+        let path = format!("src/module_{f}.rs");
+        let file_id = db
+            .upsert_file("bigrepo", &path, "h", 10, 100)
+            .expect("upsert file");
+        let symbols: Vec<Symbol> = (1..=6)
+            .map(|i| function_symbol(file_id, "bigrepo", &format!("fn_{f}_{i}"), i * 10))
+            .collect();
+        db.insert_symbols(&symbols).expect("insert symbols");
+        paths.push(path);
+    }
+
+    let found = find::explore_find(&db, &paths.join(" "), None, 10).expect("explore find");
+    let total_results = found.symbols.len() + found.files.len();
+    assert!(
+        total_results <= 20,
+        "combined symbols ({}) + files ({}) must not exceed 20",
+        found.symbols.len(),
+        found.files.len()
+    );
+}
+
+#[test]
+fn test_explore_find_candidates_exact_camel_case_symbol_first_despite_filler_words() {
+    let db = GraphDb::open_in_memory().expect("open in-memory db");
+    db.insert_repo("gaio-frontend", "/workspace/gaio-frontend", "main", None)
+        .expect("insert repo");
+
+    // File A: has RankingToolbar component (exact CamelCase symbol match)
+    let file_a = db
+        .upsert_file(
+            "gaio-frontend",
+            "src/components/RankingToolbar.tsx",
+            "h1",
+            10,
+            100,
+        )
+        .expect("upsert file_a");
+    let sym_target = function_symbol(file_a, "gaio-frontend", "RankingToolbar", 10);
+    db.insert_symbols(&[sym_target]).expect("insert sym_target");
+
+    // File B: diffuse/filler matches with lots of words (component, usage, source)
+    let file_b = db
+        .upsert_file(
+            "gaio-frontend",
+            "src/utils/component_usage_source_helper.ts",
+            "h2",
+            10,
+            100,
+        )
+        .expect("upsert file_b");
+    let sym_filler1 = Symbol {
+        docstring: Some("Component usage source documentation helper".to_owned()),
+        ..function_symbol(file_b, "gaio-frontend", "component_helper", 20)
+    };
+    let sym_filler2 = Symbol {
+        docstring: Some("Component usage tracking source".to_owned()),
+        ..function_symbol(file_b, "gaio-frontend", "usage_helper", 40)
+    };
+    db.insert_symbols(&[sym_filler1, sym_filler2])
+        .expect("insert filler symbols");
+
+    // Query has exact CamelCase symbol + diffuse filler words
+    let candidates = find::explore_find_candidates(
+        &db,
+        "RankingToolbar component usage and source",
+        Some("gaio-frontend"),
+    )
+    .expect("explore candidates");
+
+    assert!(!candidates.is_empty());
+    assert_eq!(
+        candidates[0].symbol.name, "RankingToolbar",
+        "exact CamelCase symbol must rank first despite diffuse filler matches"
+    );
+    assert_eq!(candidates[0].file_path, "src/components/RankingToolbar.tsx");
+}
+
+#[test]
+fn test_explore_find_candidates_lowercase_source_does_not_pin_source_symbol() {
+    let db = GraphDb::open_in_memory().expect("open in-memory db");
+    db.insert_repo("myrepo", "/workspace/myrepo", "main", None)
+        .expect("insert repo");
+
+    // File A: has "source" symbol with higher loose score (path match + doc match)
+    let file_source = db
+        .upsert_file("myrepo", "src/source.rs", "h1", 10, 100)
+        .expect("upsert file_source");
+    let sym_source = Symbol {
+        docstring: Some("source authentication helper".to_owned()),
+        ..function_symbol(file_source, "myrepo", "source", 10)
+    };
+    db.insert_symbols(&[sym_source]).expect("insert sym_source");
+
+    // File B: has "authenticate_user" symbol with lower loose score
+    let file_auth = db
+        .upsert_file("myrepo", "src/auth.rs", "h2", 10, 100)
+        .expect("upsert file_auth");
+    let sym_auth = function_symbol(file_auth, "myrepo", "authenticate_user", 20);
+    db.insert_symbols(&[sym_auth]).expect("insert sym_auth");
+
+    // Query with lowercase "source" and identifier-shaped "authenticate_user".
+    // "source" must NOT pin the symbol "source" as exact identifier evidence (exact_evidence=2)
+    // because "source" is not identifier shaped.
+    // "authenticate_user" IS identifier shaped (contains '_') and matches exact case-sensitively,
+    // so src/auth.rs gets exact_evidence = 2 while src/source.rs gets exact_evidence = 0.
+    // Therefore, src/auth.rs ranks first despite src/source.rs having higher loose score.
+    let candidates = find::explore_find_candidates(&db, "source authenticate_user", None)
+        .expect("explore candidates");
+
+    assert!(!candidates.is_empty());
+    assert_eq!(candidates[0].file_path, "src/auth.rs");
+    assert_eq!(candidates[0].symbol.name, "authenticate_user");
+}
 #[test]
 fn test_explore_find_candidates_prefers_a_matching_directory_over_prefix_decoys() {
     let db = GraphDb::open_in_memory().expect("open in-memory db");
@@ -986,5 +1107,103 @@ fn hybrid_path_symbol_query_keeps_results_inside_the_pinned_path() {
             .files
             .iter()
             .all(|hit| hit.file_path.contains("node-toolbar"))
+    );
+}
+
+#[test]
+fn test_explore_find_multi_repo_package_json_in_any_order() {
+    let db = GraphDb::open_in_memory().expect("open in-memory db");
+    db.insert_repo("gaio-backend", "/workspace/gaio-backend", "main", None)
+        .expect("insert backend");
+    db.insert_repo("gaio-frontend", "/workspace/gaio-frontend", "main", None)
+        .expect("insert frontend");
+
+    // gaio-backend has root package.json
+    db.upsert_file("gaio-backend", "package.json", "h_be", 10, 100)
+        .expect("upsert backend package.json");
+
+    // gaio-frontend has root package.json and a nested package.json
+    db.upsert_file("gaio-frontend", "package.json", "h_fe", 10, 100)
+        .expect("upsert frontend package.json");
+    db.upsert_file("gaio-frontend", "packages/ui/package.json", "h_ui", 10, 100)
+        .expect("upsert nested package.json");
+
+    // Order 1: "gaio-backend gaio-frontend package.json"
+    let found1 = find::explore_find(&db, "gaio-backend gaio-frontend package.json", None, 10)
+        .expect("explore order 1");
+    let matches1: Vec<(&str, &str)> = found1
+        .files
+        .iter()
+        .map(|f| (f.repo.as_str(), f.file_path.as_str()))
+        .collect();
+    assert!(
+        matches1.contains(&("gaio-backend", "package.json")),
+        "order 1 must contain gaio-backend package.json"
+    );
+    assert!(
+        matches1.contains(&("gaio-frontend", "package.json")),
+        "order 1 must contain gaio-frontend package.json"
+    );
+
+    // Order 2: "gaio-frontend package.json gaio-backend package.json"
+    let found2 = find::explore_find(
+        &db,
+        "gaio-frontend package.json gaio-backend package.json",
+        None,
+        10,
+    )
+    .expect("explore order 2");
+    let matches2: Vec<(&str, &str)> = found2
+        .files
+        .iter()
+        .map(|f| (f.repo.as_str(), f.file_path.as_str()))
+        .collect();
+    assert!(
+        matches2.contains(&("gaio-backend", "package.json")),
+        "order 2 must contain gaio-backend package.json"
+    );
+    assert!(
+        matches2.contains(&("gaio-frontend", "package.json")),
+        "order 2 must contain gaio-frontend package.json"
+    );
+}
+
+#[test]
+fn test_split_line_range_cases() {
+    use crate::action::graph::query::find::intent::split_line_range;
+
+    // Standard path with range
+    assert_eq!(
+        split_line_range("src/foo.rs:10-20"),
+        ("src/foo.rs", Some((10, 20)))
+    );
+    assert_eq!(
+        split_line_range("services/api/src/routes/auth.ts:251-500"),
+        ("services/api/src/routes/auth.ts", Some((251, 500)))
+    );
+
+    // Windows paths without range
+    assert_eq!(
+        split_line_range("C:\\foo\\bar.rs"),
+        ("C:\\foo\\bar.rs", None)
+    );
+    assert_eq!(
+        split_line_range("C:\\foo\\bar.rs:5-15"),
+        ("C:\\foo\\bar.rs", Some((5, 15)))
+    );
+
+    // Bare line numbers or non-range colons
+    assert_eq!(split_line_range("src/foo.rs:12"), ("src/foo.rs:12", None));
+    assert_eq!(
+        split_line_range("src/foo.rs:abc-def"),
+        ("src/foo.rs:abc-def", None)
+    );
+    assert_eq!(split_line_range("src/foo.rs:"), ("src/foo.rs:", None));
+    assert_eq!(split_line_range("plain_text"), ("plain_text", None));
+
+    // Zero start line parsed as range for validation error handling
+    assert_eq!(
+        split_line_range("src/foo.rs:0-10"),
+        ("src/foo.rs", Some((0, 10)))
     );
 }

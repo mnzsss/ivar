@@ -128,6 +128,7 @@ fn explore_within(
                 file_path: candidate.file_path.clone(),
                 absolute_path: file_path.clone(),
                 spans: vec![(start_line, end_line)],
+                explicit_span: false,
             }),
         }
 
@@ -167,9 +168,68 @@ fn explore_within(
             file_path: fm.file_path.clone(),
             absolute_path: file_path,
             spans: vec![(start_line, end_line)],
+            explicit_span: false,
         });
     }
+    // Validate and record line range on FileSpans
+    for token in query.split_whitespace() {
+        let clean = token.trim_matches([',', ';', '"', '\'']);
+        let (path_part, range_opt) = query::find::split_line_range(clean);
+        if let Some((start, end)) = range_opt {
+            if start == 0 {
+                return Err(ExploreError::InvalidRange {
+                    path: path_part.to_owned(),
+                    start,
+                    end,
+                    reason: "1-based line numbers required (start must be >= 1)".to_owned(),
+                });
+            }
+            if start > end {
+                return Err(ExploreError::InvalidRange {
+                    path: path_part.to_owned(),
+                    start,
+                    end,
+                    reason: format!("start line {start} exceeds end line {end}"),
+                });
+            }
+            // Attach explicit span to matched FileSpans entry and update primary_symbols
+            if let Some(entry) = file_spans
+                .iter_mut()
+                .find(|f| matches_path(&f.file_path, path_part))
+            {
+                entry.spans = vec![(start, end)];
+                entry.explicit_span = true;
 
+                for sym in primary_symbols
+                    .iter_mut()
+                    .filter(|s| matches_path(&s.file_path, path_part))
+                {
+                    let sliced_start = sym.start_line.max(start);
+                    let sliced_end = sym.end_line.min(end);
+                    if sliced_start <= sliced_end {
+                        sym.start_line = sliced_start;
+                        sym.end_line = sliced_end;
+                        if let Ok(snippet) = get_source_snippet(
+                            &mut file_cache,
+                            &entry.absolute_path,
+                            sliced_start,
+                            sliced_end,
+                        ) {
+                            sym.code = snippet;
+                        }
+                    } else {
+                        sym.start_line = start;
+                        sym.end_line = end;
+                        if let Ok(snippet) =
+                            get_source_snippet(&mut file_cache, &entry.absolute_path, start, end)
+                        {
+                            sym.code = snippet;
+                        }
+                    }
+                }
+            }
+        }
+    }
     let sources = collect_sources(db, &file_cache, file_spans, whole_files)?;
     let flows = named_flows(db, trimmed_query, &candidates)?;
 
@@ -196,6 +256,16 @@ fn explore_within(
         flows,
         not_shown,
     })
+}
+
+fn matches_path(file_path: &str, query_path: &str) -> bool {
+    file_path == query_path
+        || file_path
+            .strip_suffix(query_path)
+            .is_some_and(|prefix| prefix.ends_with('/'))
+        || query_path
+            .strip_suffix(file_path)
+            .is_some_and(|prefix| prefix.ends_with('/'))
 }
 
 #[cfg(test)]

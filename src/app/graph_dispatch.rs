@@ -326,11 +326,17 @@ pub(super) fn dispatch_graph(
         ),
         GraphCommand::Stats => respond_graph(stats_cmd(ctx), json, compact, stdout, stderr),
         GraphCommand::Misses(args) => {
+            let limit = if args.limit == 0 {
+                None
+            } else {
+                Some(args.limit)
+            };
             let result = misses_cmd(
                 ctx,
                 &MissesInput {
                     kind: args.kind,
                     since: args.since,
+                    limit,
                 },
             );
             respond_misses(result, json, compact, stdout, stderr)

@@ -107,4 +107,5 @@ pub struct CleanInput {
 pub struct MissesInput {
     pub kind: Option<String>,
     pub since: Option<String>,
+    pub limit: Option<usize>,
 }

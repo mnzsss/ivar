@@ -68,11 +68,39 @@ impl ResolvedPath {
 #[derive(Debug, Clone, Default)]
 pub struct ParsedExploreQuery {
     pub raw_query: String,
-    pub target_repo: Option<String>,
+    pub target_repos: Vec<String>,
     pub path_tokens: Vec<String>,
     pub resolved_paths: Vec<ResolvedPath>,
     pub search_terms: Vec<String>,
     pub route_intent: bool,
+}
+
+/// Checks if a token is identifier-shaped (contains an uppercase letter after a lowercase one,
+/// contains an underscore, or is a dotted filename basename).
+pub(crate) fn is_identifier_shaped(token: &str) -> bool {
+    if token.is_empty() {
+        return false;
+    }
+    if token.contains('_') {
+        return true;
+    }
+    let mut saw_lower = false;
+    for c in token.chars() {
+        if c.is_lowercase() {
+            saw_lower = true;
+        } else if saw_lower && c.is_uppercase() {
+            return true;
+        }
+    }
+    if token.contains('.')
+        && token
+            .split('.')
+            .next_back()
+            .is_some_and(|ext| !ext.is_empty())
+    {
+        return true;
+    }
+    false
 }
 
 pub fn is_path_like(token: &str) -> bool {
@@ -118,6 +146,35 @@ pub fn is_path_like(token: &str) -> bool {
                 )
             }))
 }
+
+/// Splits an optional trailing line range suffix `:<start>-<end>` (1-based inclusive)
+/// from a file path token. Suffix must end in `:\d+-\d+`.
+/// Returns `(path, Some((start, end)))` or `(token, None)`.
+pub fn split_line_range(token: &str) -> (&str, Option<(usize, usize)>) {
+    if let Some(colon_pos) = token.rfind(':') {
+        // Guard against Windows drive paths (e.g. C:\foo) where colon is at index 1 and followed by slash
+        if colon_pos == 1
+            && token
+                .chars()
+                .next()
+                .is_some_and(|c| c.is_ascii_alphabetic())
+        {
+            return (token, None);
+        }
+        let (path_part, suffix) = token.split_at(colon_pos);
+        let range_part = &suffix[1..];
+        if let Some((start_str, end_str)) = range_part.split_once('-')
+            && !start_str.is_empty()
+            && !end_str.is_empty()
+            && start_str.chars().all(|c| c.is_ascii_digit())
+            && end_str.chars().all(|c| c.is_ascii_digit())
+            && let (Ok(start), Ok(end)) = (start_str.parse::<usize>(), end_str.parse::<usize>())
+        {
+            return (path_part, Some((start, end)));
+        }
+    }
+    (token, None)
+}
 /// Detects if terms express route/API intent.
 fn is_route_intent_term(term: &str) -> bool {
     let lower = term.to_ascii_lowercase();
@@ -137,10 +194,10 @@ pub fn resolve_query_paths(
     let conn = db.conn();
     let tokens: Vec<&str> = query.split_whitespace().collect();
 
-    let mut target_repo = repo.map(str::to_owned);
+    let mut target_repos: Vec<String> = repo.map(|r| vec![r.to_owned()]).unwrap_or_default();
     let mut unconsumed_tokens = Vec::new();
 
-    // 1. Separate recognized repo names if not already scoped
+    // 1. Separate recognized repo names
     for token in tokens {
         let clean_token = token.trim_matches(|c: char| {
             c == ','
@@ -157,18 +214,18 @@ pub fn resolve_query_paths(
         if clean_token.is_empty() {
             continue;
         }
-        if target_repo.is_none()
-            && !clean_token.contains('/')
+        if !clean_token.contains('/')
             && !clean_token.contains('\\')
             && let Ok(Some(repo_row)) = db.get_visible_repo(clean_token)
         {
-            target_repo = Some(repo_row.id);
+            if !target_repos.contains(&repo_row.id) {
+                target_repos.push(repo_row.id);
+            }
             continue;
         }
         unconsumed_tokens.push(clean_token);
     }
 
-    let effective_repo = target_repo.as_deref();
     let mut path_tokens = Vec::new();
     let mut resolved_paths = Vec::new();
     let mut remaining_words = Vec::new();
@@ -179,13 +236,24 @@ pub fn resolve_query_paths(
             route_intent = true;
         }
 
-        let is_pl = is_path_like(clean_token);
-        let trimmed = clean_token.trim_start_matches("./");
+        let (path_token, _line_range) = split_line_range(clean_token);
+        let is_pl = is_path_like(path_token);
+        let trimmed = path_token.trim_start_matches("./");
 
         if is_pl {
-            path_tokens.push(clean_token.to_owned());
-            if let Some(resolved) = resolve_path_token(db, conn, effective_repo, trimmed)? {
-                resolved_paths.push(resolved);
+            path_tokens.push(path_token.to_owned());
+            if target_repos.is_empty() {
+                if let Some(resolved) = resolve_path_token(db, conn, None, trimmed)? {
+                    resolved_paths.push(resolved);
+                }
+            } else {
+                for target_repo in &target_repos {
+                    if let Some(resolved) =
+                        resolve_path_token(db, conn, Some(target_repo.as_str()), trimmed)?
+                    {
+                        resolved_paths.push(resolved);
+                    }
+                }
             }
         }
         if !clean_token.contains('/') {
@@ -200,7 +268,7 @@ pub fn resolve_query_paths(
     }
     Ok(ParsedExploreQuery {
         raw_query: query.to_owned(),
-        target_repo,
+        target_repos,
         path_tokens,
         resolved_paths,
         search_terms: remaining_words,

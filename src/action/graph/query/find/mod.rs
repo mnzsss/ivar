@@ -7,7 +7,9 @@ pub mod rank;
 pub mod search;
 
 pub use candidate::ScoredCandidate;
-pub use intent::{ParsedExploreQuery, ResolvedPath, is_path_like, resolve_query_paths};
+pub use intent::{
+    ParsedExploreQuery, ResolvedPath, is_path_like, resolve_query_paths, split_line_range,
+};
 pub use rank::{
     ExploreCandidates, MAX_EXPLORE_CANDIDATES, MAX_SYMBOLS_PER_FILE, explore_find,
     explore_find_candidates, is_test_path,

@@ -333,7 +333,11 @@ pub fn misses_cmd(ctx: &Ctx, input: &MissesInput) -> Outcome<MissesOutcome> {
     let db = open_graph_db(ctx)?;
     let _ = db.prune(MISS_RETENTION_DAYS);
     let misses = db
-        .list_misses(&MissFilter { kind, since })
+        .list_misses(&MissFilter {
+            kind,
+            since,
+            limit: input.limit,
+        })
         .map_err(|err| Failure::failed("graph.misses_failed", err.to_string()))?;
     Ok(Report::new(MissesOutcome { misses }))
 }

@@ -42,7 +42,7 @@ fn tool_graph_explore() -> Value {
             "type": "object",
             "properties": {
                 "query": { "type": "string", "description": "Symbol names, file or directory paths, or a short intent, several at once (e.g. \"login apiRequest\" or \"services/api/src/routes/auth.ts services/api/src/routes/admin.ts\")" },
-                "paths": { "type": "array", "items": { "type": "string" }, "description": "Files to return whole, as the paths an answer names" },
+                "paths": { "type": "array", "items": { "type": "string" }, "description": "Files or line ranges to return, as the paths an answer names (e.g. [\"src/huge.ts:251-500\"]) or full file paths" },
                 "repo": { "type": "string", "description": "Optional repository filter" },
                 "format": { "type": "string", "enum": ["markdown", "json", "compact"], "description": "Output format: 'markdown' (default, includes source snippets — best for discovery and replacing grep+read), 'json' for raw struct, or 'compact' (pipe-delimited, no source — for programmatic parsing of large results)" }
             }
