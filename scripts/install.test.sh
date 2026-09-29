@@ -38,9 +38,10 @@ FAKE_BIN="$WORK/fake-bin"          # fake executables, injected via PATH
 FAKE_TMP="$WORK/fake-tmp"          # fake `mktemp` lands its dirs here
 DEST="$WORK/dest"                  # IVAR_INSTALL_DIR used by the tests
 CURL_LOG="$WORK/curl.log"
+EVENT_LOG="$WORK/events.log"
 
 SAVED_PATH="$PATH"
-export SAVED_PATH FAKE_BIN FAKE_TMP DEST CURL_LOG
+export SAVED_PATH FAKE_BIN FAKE_TMP DEST CURL_LOG EVENT_LOG
 
 mkdir -p "$FAKE_BIN"
 
@@ -59,6 +60,7 @@ EOF
 # curl — never talks to the network. Logs every invocation, then serves the
 # fake artifact files: any `-o` target ending in `.sha256` gets the sidecar,
 # anything else gets the binary. FAKE_CURL_FAIL=1 simulates a dead upstream.
+# If -d/--data is passed, logs the POST body to $CURL_LOG and $EVENT_LOG.
 cat > "$FAKE_BIN/curl" <<'EOF'
 #!/bin/sh
 printf 'curl %s\n' "$*" >> "$CURL_LOG"
@@ -66,12 +68,30 @@ if [ "${FAKE_CURL_FAIL:-0}" = "1" ]; then
     printf 'curl: fake network failure\n' >&2
     exit 1
 fi
+
 out=""
 prev=""
+data_payload=""
 for a in "$@"; do
-    [ "$prev" = "-o" ] && out="$a"
+    if [ "$prev" = "-d" ] || [ "$prev" = "--data" ] || [ "$prev" = "--data-raw" ]; then
+        data_payload="$a"
+    fi
+    if [ "$prev" = "-o" ]; then
+        out="$a"
+    fi
     prev="$a"
 done
+
+if [ -n "$data_payload" ]; then
+    printf 'POST_DATA:%s\n' "$data_payload" >> "$CURL_LOG"
+    printf 'event:curl_post\n' >> "$EVENT_LOG"
+    if [ "${FAKE_COLLECTOR_FAIL:-0}" = "1" ]; then
+        printf 'curl: fake collector failure\n' >&2
+        exit 1
+    fi
+    exit 0
+fi
+
 case "$out" in
     *.sha256) cp "$FAKE_SHA_FILE" "$out" ;;
     *)        cp "$FAKE_BIN_FILE" "$out" ;;
@@ -108,9 +128,9 @@ done
 # mv — logs, then delegates so the artifact really lands in the destination.
 cat > "$FAKE_BIN/mv" <<'EOF'
 #!/bin/sh
+printf 'event:mv\n' >> "$EVENT_LOG"
 exec env PATH="$SAVED_PATH" mv "$@"
 EOF
-
 chmod +x "$FAKE_BIN"/*
 
 # ── helpers ────────────────────────────────────────────────────────────
@@ -473,6 +493,77 @@ if [ "$RUN_RC" -eq 0 ] \
     ok "a symlinked PATH entry to the install is not mistaken for another ivar"
 else
     bad "symlinked PATH entry (rc=$RUN_RC: $(cat "$WORK/run.out"))"
+fi
+
+# Analytics: default install makes NO analytics POST request
+write_fake_artifact "$WORK/no-analytics-art" "9.9.9"
+: > "$CURL_LOG"
+: > "$EVENT_LOG"
+run_installer FAKE_UNAME_S="Linux" FAKE_UNAME_M="x86_64" \
+    IVAR_BASE_URL="https://dl.example.test/ivar" \
+    IVAR_INSTALL_DIR="$DEST" \
+    FAKE_BIN_FILE="$WORK/no-analytics-art/ivar" \
+    FAKE_SHA_FILE="$WORK/no-analytics-art/ivar.sha256"
+if [ "$RUN_RC" -eq 0 ] && ! grep -q "POST_DATA:" "$CURL_LOG"; then
+    ok "default install makes no analytics request"
+else
+    bad "default install made an unexpected analytics request"
+fi
+
+# Analytics: opt-in IVAR_INSTALL_ANALYTICS=1 sends exact install_success payload after mv
+write_fake_artifact "$WORK/optin-art" "9.9.9"
+: > "$CURL_LOG"
+: > "$EVENT_LOG"
+run_installer FAKE_UNAME_S="Linux" FAKE_UNAME_M="x86_64" \
+    IVAR_BASE_URL="https://dl.example.test/ivar" \
+    IVAR_INSTALL_DIR="$DEST" \
+    IVAR_INSTALL_ANALYTICS="1" \
+    FAKE_BIN_FILE="$WORK/optin-art/ivar" \
+    FAKE_SHA_FILE="$WORK/optin-art/ivar.sha256"
+EXPECTED_PAYLOAD='{"type":"event","payload":{"website":"d0a36b51-cb15-4393-a7d3-f274a6627e54","hostname":"ivar.run","url":"/install","name":"install_success"}}'
+EVENTS="$(tr '\n' ',' < "$EVENT_LOG")"
+if [ "$RUN_RC" -eq 0 ] \
+    && grep -Fq "POST_DATA:$EXPECTED_PAYLOAD" "$CURL_LOG" \
+    && [ "$EVENTS" = "event:mv,event:curl_post," ]; then
+    ok "opted-in install sends exact minimal install_success event strictly after mv"
+else
+    bad "opted-in install failed to send expected payload or violated event ordering (got events: $EVENTS)"
+fi
+
+# Analytics: failed checksum never sends analytics even if opted in
+mkdir -p "$WORK/bad-optin-art"
+printf '#!/bin/sh\necho bad\n' > "$WORK/bad-optin-art/ivar"
+chmod +x "$WORK/bad-optin-art/ivar"
+printf '%064d  ivar\n' 0 > "$WORK/bad-optin-art/ivar.sha256"
+: > "$CURL_LOG"
+: > "$EVENT_LOG"
+run_installer FAKE_UNAME_S="Linux" FAKE_UNAME_M="x86_64" \
+    IVAR_BASE_URL="https://dl.example.test/ivar" \
+    IVAR_INSTALL_DIR="$DEST" \
+    IVAR_INSTALL_ANALYTICS="1" \
+    FAKE_BIN_FILE="$WORK/bad-optin-art/ivar" \
+    FAKE_SHA_FILE="$WORK/bad-optin-art/ivar.sha256"
+if [ "$RUN_RC" -ne 0 ] && ! grep -q "POST_DATA:" "$CURL_LOG"; then
+    ok "failed install sends no analytics request even when opted in"
+else
+    bad "failed install incorrectly sent an analytics request"
+fi
+
+# Analytics: collector failure or network timeout is nonfatal to installation
+write_fake_artifact "$WORK/collector-fail-art" "9.9.9"
+: > "$CURL_LOG"
+: > "$EVENT_LOG"
+run_installer FAKE_UNAME_S="Linux" FAKE_UNAME_M="x86_64" \
+    IVAR_BASE_URL="https://dl.example.test/ivar" \
+    IVAR_INSTALL_DIR="$DEST" \
+    IVAR_INSTALL_ANALYTICS="1" \
+    FAKE_COLLECTOR_FAIL="1" \
+    FAKE_BIN_FILE="$WORK/collector-fail-art/ivar" \
+    FAKE_SHA_FILE="$WORK/collector-fail-art/ivar.sha256"
+if [ "$RUN_RC" -eq 0 ] && [ -f "$DEST/ivar" ]; then
+    ok "collector failure is nonfatal and leaves verified binary installed"
+else
+    bad "collector failure prevented successful installation"
 fi
 
 # ── summary ────────────────────────────────────────────────────────────

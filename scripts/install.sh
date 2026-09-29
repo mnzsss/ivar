@@ -104,6 +104,16 @@ abs_path() { # path
         || printf '%s\n' "$1"
 }
 
+report_install() {
+    [ "${IVAR_INSTALL_ANALYTICS:-0}" = "1" ] || return 0
+    _payload='{"type":"event","payload":{"website":"d0a36b51-cb15-4393-a7d3-f274a6627e54","hostname":"ivar.run","url":"/install","name":"install_success"}}'
+    curl -fsS -m 3 \
+        -H 'Content-Type: application/json' \
+        -H 'User-Agent: ivar-installer' \
+        -d "$_payload" \
+        https://cloud.umami.is/api/send >/dev/null 2>&1 || :
+}
+
 main() {
     platform="$(detect_platform)"
 
@@ -132,6 +142,7 @@ main() {
     chmod 755 "$tmpdir/ivar"
     mkdir -p "$IVAR_INSTALL_DIR"
     mv "$tmpdir/ivar" "$IVAR_INSTALL_DIR/ivar"
+    report_install
 
     version="$(installed_version "$IVAR_INSTALL_DIR/ivar")"
     if [ -n "$version" ]; then
@@ -162,5 +173,6 @@ main() {
         printf '    export PATH="%s:$PATH"\n' "$IVAR_INSTALL_DIR"
     fi
 }
+
 
 main "$@"
