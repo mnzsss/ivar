@@ -1109,3 +1109,61 @@ fn hybrid_path_symbol_query_keeps_results_inside_the_pinned_path() {
             .all(|hit| hit.file_path.contains("node-toolbar"))
     );
 }
+
+#[test]
+fn test_explore_find_multi_repo_package_json_in_any_order() {
+    let db = GraphDb::open_in_memory().expect("open in-memory db");
+    db.insert_repo("gaio-backend", "/workspace/gaio-backend", "main", None)
+        .expect("insert backend");
+    db.insert_repo("gaio-frontend", "/workspace/gaio-frontend", "main", None)
+        .expect("insert frontend");
+
+    // gaio-backend has root package.json
+    db.upsert_file("gaio-backend", "package.json", "h_be", 10, 100)
+        .expect("upsert backend package.json");
+
+    // gaio-frontend has root package.json and a nested package.json
+    db.upsert_file("gaio-frontend", "package.json", "h_fe", 10, 100)
+        .expect("upsert frontend package.json");
+    db.upsert_file("gaio-frontend", "packages/ui/package.json", "h_ui", 10, 100)
+        .expect("upsert nested package.json");
+
+    // Order 1: "gaio-backend gaio-frontend package.json"
+    let found1 = find::explore_find(&db, "gaio-backend gaio-frontend package.json", None, 10)
+        .expect("explore order 1");
+    let matches1: Vec<(&str, &str)> = found1
+        .files
+        .iter()
+        .map(|f| (f.repo.as_str(), f.file_path.as_str()))
+        .collect();
+    assert!(
+        matches1.contains(&("gaio-backend", "package.json")),
+        "order 1 must contain gaio-backend package.json"
+    );
+    assert!(
+        matches1.contains(&("gaio-frontend", "package.json")),
+        "order 1 must contain gaio-frontend package.json"
+    );
+
+    // Order 2: "gaio-frontend package.json gaio-backend package.json"
+    let found2 = find::explore_find(
+        &db,
+        "gaio-frontend package.json gaio-backend package.json",
+        None,
+        10,
+    )
+    .expect("explore order 2");
+    let matches2: Vec<(&str, &str)> = found2
+        .files
+        .iter()
+        .map(|f| (f.repo.as_str(), f.file_path.as_str()))
+        .collect();
+    assert!(
+        matches2.contains(&("gaio-backend", "package.json")),
+        "order 2 must contain gaio-backend package.json"
+    );
+    assert!(
+        matches2.contains(&("gaio-frontend", "package.json")),
+        "order 2 must contain gaio-frontend package.json"
+    );
+}

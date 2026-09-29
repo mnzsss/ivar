@@ -93,7 +93,11 @@ pub fn explore_find(
     max_files: usize,
 ) -> Result<ExploreCandidates, QueryError> {
     let parsed = resolve_query_paths(db, query, repo)?;
-    let effective_repo = parsed.target_repo.as_deref().or(repo);
+    let single_repo_scope = if parsed.target_repos.len() == 1 {
+        parsed.target_repos.first().map(String::as_str)
+    } else {
+        repo
+    };
     let conn = db.conn();
 
     let (mut file_candidates, pinned_files) = collect_pinned_candidates(conn, &parsed)?;
@@ -102,7 +106,7 @@ pub fn explore_find(
     score_matching_terms(
         conn,
         &terms_to_search,
-        effective_repo,
+        single_repo_scope,
         parsed.route_intent,
         &mut file_candidates,
     )?;
@@ -112,16 +116,15 @@ pub fn explore_find(
     }
 
     // Also collect file content matches
-    let content_hits = search_content_hits(db, &terms_to_search, effective_repo)?;
+    let content_hits = search_content_hits(db, &terms_to_search, single_repo_scope)?;
 
     let ranked_files = rank_all_files(
         &file_candidates,
         &pinned_files,
         &content_hits,
         &parsed,
-        effective_repo,
+        &parsed.target_repos,
     );
-
     if ranked_files.is_empty() {
         return Ok(ExploreCandidates::default());
     }
@@ -430,7 +433,7 @@ fn rank_all_files(
     pinned_files: &PinnedFiles,
     content_hits: &HashMap<(String, String), ContentHitInfo>,
     parsed: &ParsedExploreQuery,
-    target_repo: Option<&str>,
+    target_repos: &[String],
 ) -> Vec<RankedFileEntry> {
     let mut all_keys = std::collections::HashSet::new();
     for key in file_candidates.keys() {
@@ -454,11 +457,12 @@ fn rank_all_files(
 
     for (repo, path) in all_keys {
         // Check constraint match
-        let constraint_match = if let Some(tr) = target_repo {
-            if repo == tr { 1 } else { 0 }
-        } else {
-            1
-        };
+        let constraint_match =
+            if target_repos.is_empty() || target_repos.iter().any(|tr| tr == &repo) {
+                1
+            } else {
+                0
+            };
 
         // Determine exact evidence & pinned evidence & match kind
         let mut exact_evidence: u8 = 0;
