@@ -192,18 +192,44 @@ fn explore_within(
                     reason: format!("start line {start} exceeds end line {end}"),
                 });
             }
-            // Attach explicit span to matched FileSpans entry
-            if let Some(entry) = file_spans.iter_mut().find(|f| {
-                f.file_path == path_part
-                    || f.file_path.ends_with(path_part)
-                    || path_part.ends_with(&f.file_path)
-            }) {
+            // Attach explicit span to matched FileSpans entry and update primary_symbols
+            if let Some(entry) = file_spans
+                .iter_mut()
+                .find(|f| matches_path(&f.file_path, path_part))
+            {
                 entry.spans = vec![(start, end)];
                 entry.explicit_span = true;
+
+                for sym in primary_symbols
+                    .iter_mut()
+                    .filter(|s| matches_path(&s.file_path, path_part))
+                {
+                    let sliced_start = sym.start_line.max(start);
+                    let sliced_end = sym.end_line.min(end);
+                    if sliced_start <= sliced_end {
+                        sym.start_line = sliced_start;
+                        sym.end_line = sliced_end;
+                        if let Ok(snippet) = get_source_snippet(
+                            &mut file_cache,
+                            &entry.absolute_path,
+                            sliced_start,
+                            sliced_end,
+                        ) {
+                            sym.code = snippet;
+                        }
+                    } else {
+                        sym.start_line = start;
+                        sym.end_line = end;
+                        if let Ok(snippet) =
+                            get_source_snippet(&mut file_cache, &entry.absolute_path, start, end)
+                        {
+                            sym.code = snippet;
+                        }
+                    }
+                }
             }
         }
     }
-
     let sources = collect_sources(db, &file_cache, file_spans, whole_files)?;
     let flows = named_flows(db, trimmed_query, &candidates)?;
 
@@ -230,6 +256,16 @@ fn explore_within(
         flows,
         not_shown,
     })
+}
+
+fn matches_path(file_path: &str, query_path: &str) -> bool {
+    file_path == query_path
+        || file_path
+            .strip_suffix(query_path)
+            .is_some_and(|prefix| prefix.ends_with('/'))
+        || query_path
+            .strip_suffix(file_path)
+            .is_some_and(|prefix| prefix.ends_with('/'))
 }
 
 #[cfg(test)]

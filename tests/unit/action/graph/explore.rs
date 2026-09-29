@@ -925,3 +925,106 @@ fn test_explore_ranged_path_hall_relative_matches() {
     assert!(!excerpt.code.contains("81\t// line 81"));
     assert!(!excerpt.code.contains("238\t// line 238"));
 }
+
+#[test]
+fn test_explore_ranged_path_boundary_matching() {
+    let temp = tempfile::tempdir().expect("create temp dir");
+    let hall_root = temp.path();
+    let repo_dir = hall_root.join("api");
+    std::fs::create_dir_all(repo_dir.join("src")).expect("create dirs");
+
+    let lines_data: Vec<String> = (1..=50).map(|i| format!("// data line {i}\n")).collect();
+    let content_data = lines_data.concat();
+    std::fs::write(repo_dir.join("src/data.ts"), &content_data).expect("write file");
+
+    let lines_a: Vec<String> = (1..=50).map(|i| format!("// a line {i}\n")).collect();
+    let content_a = lines_a.concat();
+    std::fs::write(repo_dir.join("src/a.ts"), &content_a).expect("write file");
+
+    let db = GraphDb::open_in_memory().expect("open memory db");
+    db.insert_repo("api", repo_dir.to_str().unwrap(), "main", None)
+        .expect("insert repo");
+    db.upsert_file(
+        "api",
+        "src/data.ts",
+        "h_data",
+        50,
+        content_data.len() as i64,
+    )
+    .expect("upsert data.ts");
+    db.upsert_file("api", "src/a.ts", "h_a", 50, content_a.len() as i64)
+        .expect("upsert a.ts");
+
+    // Ranged query for "a.ts:10-20 src/data.ts"
+    let res = crate::action::graph::explore::explore_files(
+        &db,
+        hall_root,
+        "a.ts:10-20 src/data.ts",
+        Some("api"),
+    )
+    .expect("explore_files with ranged a.ts and whole data.ts");
+
+    let source_a = res
+        .sources
+        .iter()
+        .find(|s| s.file_path == "src/a.ts")
+        .expect("find src/a.ts");
+    assert_eq!(source_a.excerpts.len(), 1);
+    assert_eq!(source_a.excerpts[0].start_line, 10);
+    assert_eq!(source_a.excerpts[0].end_line, 20);
+
+    let source_data = res
+        .sources
+        .iter()
+        .find(|s| s.file_path == "src/data.ts")
+        .expect("find src/data.ts");
+    // data.ts was not given a line range, so it must not have matched "a.ts" range
+    assert_eq!(source_data.excerpts[0].start_line, 1);
+    assert_eq!(source_data.excerpts[0].end_line, 50);
+}
+
+#[test]
+fn test_explore_ranged_path_slices_primary_symbols() {
+    let temp = tempfile::tempdir().expect("create temp dir");
+    let hall_root = temp.path();
+    let repo_dir = hall_root.join("api");
+    std::fs::create_dir_all(repo_dir.join("src")).expect("create dirs");
+
+    let lines: Vec<String> = (1..=200)
+        .map(|i| {
+            if i == 5 {
+                "pub fn big_func() {\n".to_owned()
+            } else if i == 150 {
+                "}\n".to_owned()
+            } else {
+                format!("    // step {i}\n")
+            }
+        })
+        .collect();
+    let content = lines.concat();
+    std::fs::write(repo_dir.join("src/large.rs"), &content).expect("write file");
+
+    let db = GraphDb::open_in_memory().expect("open memory db");
+    db.insert_repo("api", repo_dir.to_str().unwrap(), "main", None)
+        .expect("insert repo");
+    let file_id = db
+        .upsert_file("api", "src/large.rs", "h_large", 200, content.len() as i64)
+        .expect("upsert file");
+    db.insert_symbols(&[fn_symbol(file_id, "big_func", 5, 150)])
+        .expect("insert symbol");
+
+    // Explore query for "src/large.rs:20-30"
+    let res =
+        crate::action::graph::explore::explore(&db, hall_root, "src/large.rs:20-30", Some("api"))
+            .expect("explore with range");
+
+    assert_eq!(res.primary_symbols.len(), 1);
+    let sym = &res.primary_symbols[0];
+    assert_eq!(sym.symbol.name, "big_func");
+    assert_eq!(sym.start_line, 20);
+    assert_eq!(sym.end_line, 30);
+    assert!(sym.code.contains("20\t    // step 20"));
+    assert!(sym.code.contains("30\t    // step 30"));
+    assert!(!sym.code.contains("19\t"));
+    assert!(!sym.code.contains("31\t"));
+}
