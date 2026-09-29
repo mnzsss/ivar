@@ -378,32 +378,41 @@ pub(crate) enum Resolution<'a> {
 /// An absent set means neither the cwd nor the target resolved a session, so
 /// the denial names both: the caller's next move is to check where the target
 /// lives, not only where the agent stands.
-pub(crate) fn decide(resolution: &Resolution<'_>, req: &ToolRequest) -> GuardDecision {
+pub(crate) fn decide(
+    resolution: &Resolution<'_>,
+    req: &ToolRequest,
+    target: Option<&Utf8Path>,
+) -> GuardDecision {
     if !is_structured_write(&req.tool) {
         return GuardDecision::Allow;
     }
-    if let Some(path) = &req.file_path
-        && has_uri_scheme(path.as_str())
+    if req
+        .file_path
+        .as_ref()
+        .is_some_and(|p| has_uri_scheme(p.as_str()))
     {
         return GuardDecision::Allow;
     }
     match resolution {
-        Resolution::Resolved(set) => match &req.file_path {
-            Some(path) if set.allows(path) => GuardDecision::Allow,
-            _ => GuardDecision::Deny {
-                reason: format!(
-                    "writable set: {}; temporary files belong in {}",
-                    std::iter::once(set.view_dir().to_string())
-                        .chain(set.feature_dir.as_ref().map(|f| f.to_string()))
-                        .chain(set.worktrees.iter().map(|w| w.to_string()))
-                        .chain(set.hall_sources.iter().map(|h| h.to_string()))
-                        .chain([set.hall.to_string()])
-                        .collect::<Vec<_>>()
-                        .join(", "),
-                    set.scratch_dir(),
-                ),
-            },
-        },
+        Resolution::Resolved(set) => {
+            if target.is_some_and(|path| set.allows(path)) {
+                GuardDecision::Allow
+            } else {
+                GuardDecision::Deny {
+                    reason: format!(
+                        "writable set: {}; temporary files belong in {}",
+                        std::iter::once(set.view_dir().to_string())
+                            .chain(set.feature_dir.as_ref().map(|f| f.to_string()))
+                            .chain(set.worktrees.iter().map(|w| w.to_string()))
+                            .chain(set.hall_sources.iter().map(|h| h.to_string()))
+                            .chain([set.hall.to_string()])
+                            .collect::<Vec<_>>()
+                            .join(", "),
+                        set.scratch_dir(),
+                    ),
+                }
+            }
+        }
         Resolution::Unresolved { scratch_dirs } => GuardDecision::Deny {
             reason: unresolved_reason(scratch_dirs),
         },
@@ -423,6 +432,16 @@ fn unresolved_reason(scratch_dirs: &[Utf8PathBuf]) -> String {
                 .map(ToString::to_string)
                 .collect::<Vec<_>>()
                 .join(", ")
+        ),
+    }
+}
+fn relative_no_session_reason(relative_path: &Utf8Path, cwd: Option<&Utf8Path>) -> String {
+    match cwd {
+        Some(cwd) => format!(
+            "relative path `{relative_path}` was resolved against `{cwd}`, which belongs to no ivar session; use an absolute path inside your session's worktree or view dir"
+        ),
+        None => format!(
+            "relative path `{relative_path}` was resolved without a cwd, which belongs to no ivar session; use an absolute path inside your session's worktree or view dir"
         ),
     }
 }
@@ -448,25 +467,34 @@ fn live_scratch_dirs(from: Option<&Utf8Path>) -> Vec<Utf8PathBuf> {
         .collect()
 }
 
-/// Resolve the target path for a tool request: absolute paths are returned
-/// as-is, relative paths are joined to payload cwd, and absent cwd/target
-/// returns `None`. Targets with an RFC 3986 URI scheme (e.g. `xd://...`, `memory://...`)
-/// return `None` so they are not treated as filesystem targets.
+/// Resolve the target path for a tool request: absolute paths are leniently
+/// canonicalized, relative paths are joined to payload cwd and leniently
+/// canonicalized, and absent cwd/target returns `None`. Targets with an RFC 3986
+/// URI scheme (e.g. `xd://...`, `memory://...`) return `None` so they are not
+/// treated as filesystem targets.
 fn resolve_target(cwd: Option<&Utf8Path>, file_path: &Utf8Path) -> Option<Utf8PathBuf> {
     if has_uri_scheme(file_path.as_str()) {
-        None
-    } else if file_path.is_absolute() {
-        Some(file_path.to_path_buf())
-    } else {
-        cwd.map(|base| base.join(file_path))
+        return None;
     }
+    let absolute = if file_path.is_absolute() {
+        file_path.to_path_buf()
+    } else {
+        cwd?.join(file_path)
+    };
+    Some(canonicalize_lenient(&absolute))
+}
+
+/// Target resolution outcome when resolving a writable set from a target path.
+enum TargetResolution {
+    None,
+    SharedHall(WritableSet),
+    Unique(WritableSet),
+    Ambiguous(Vec<String>),
 }
 
 /// Resolve the authoritative writable set for a target path when cwd resolves
-/// no session. Discovers layout from the target's nearest existing ancestor,
-/// enumerates all live sessions, builds each writable set, keeps those that
-/// allow `target`, and picks the one with the greatest `started_at` timestamp.
-fn resolve_set_by_target(target: &Utf8Path) -> Option<WritableSet> {
+/// no session.
+fn resolve_set_by_target(target: &Utf8Path) -> TargetResolution {
     let mut current = target;
     let existing_ancestor = loop {
         if current.exists() {
@@ -478,8 +506,16 @@ fn resolve_set_by_target(target: &Utf8Path) -> Option<WritableSet> {
         }
     };
 
-    let layout = Layout::discover(existing_ancestor).ok()??;
-    let mut sessions = super::lookup::list_discovery(&layout).ok()?;
+    let Ok(Some(layout)) = Layout::discover(existing_ancestor) else {
+        return TargetResolution::None;
+    };
+
+    // 1. Check session-specific roots across all live sessions.
+    let mut discovery_sessions = super::lookup::list_discovery(&layout).unwrap_or_default();
+    discovery_sessions.retain(|s| s.state.is_some());
+
+    let mut feature_matching_sessions: Vec<(crate::domain::name::FeatureName, crate::domain::session::SessionRef)> = Vec::new();
+
     if let Ok(entries) = crate::infra::fs::read_dir(&layout.features_dir()) {
         for entry in entries {
             let Some(name) = entry.file_name() else {
@@ -488,35 +524,117 @@ fn resolve_set_by_target(target: &Utf8Path) -> Option<WritableSet> {
             let Ok(feature_name) = crate::domain::name::FeatureName::new(name) else {
                 continue;
             };
-            if let Ok(Some(session)) = super::lookup::most_recent(&layout, &feature_name) {
-                sessions.push(session);
+            let Ok(Some(feature)) = Feature::read(&layout, &feature_name) else {
+                continue;
+            };
+            let feature_dir = canonicalize_lenient(&layout.feature_dir(&feature_name));
+            let sessions_dir = canonicalize_lenient(&layout.feature_sessions_dir(&feature_name));
+
+            // Check if target is inside a specific session view dir under this feature
+            let mut matched_specific_session = false;
+            if let Ok(sessions) = super::lookup::list_feature(&layout, &feature_name) {
+                for s in sessions {
+                    if s.state.is_some() {
+                        let view = canonicalize_lenient(&s.view_dir);
+                        if target == view || target.starts_with(&view) {
+                            feature_matching_sessions.push((feature_name.clone(), s));
+                            matched_specific_session = true;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if !matched_specific_session {
+                let target_in_feature_dir = target.starts_with(&feature_dir) && !target.starts_with(&sessions_dir);
+                let target_in_promoted_worktree = feature.promotions.keys().any(|repo| {
+                    let wt = canonicalize_lenient(&layout.repo_worktree(repo, &feature.branch));
+                    target == wt || target.starts_with(&wt)
+                });
+
+                if target_in_feature_dir || target_in_promoted_worktree {
+                    if let Ok(Some(session)) = super::lookup::most_recent(&layout, &feature_name) {
+                        if session.state.is_some() {
+                            feature_matching_sessions.push((feature_name.clone(), session));
+                        }
+                    }
+                }
             }
         }
     }
 
-    let mut candidates = Vec::new();
-    for session in sessions {
-        let Some(state) = session.state.as_ref() else {
-            continue;
-        };
-        let env = crate::action::session::env::SessionEnv::build(
-            &layout,
-            &session.id,
-            &session.view_dir,
-            state.provider,
-            state.feature.as_ref(),
-        );
-        let Some(set) = resolve_writable_set(&env) else {
-            continue;
-        };
-        if set.allows(target) {
-            candidates.push((state.started_at.clone(), set));
+    let mut matching_discovery = Vec::new();
+    for s in discovery_sessions {
+        let view = canonicalize_lenient(&s.view_dir);
+        if target == view || target.starts_with(&view) {
+            matching_discovery.push(s);
         }
     }
 
-    // Sort descending by started_at; stable sort preserves enumeration order on ties
-    candidates.sort_by(|a, b| b.0.cmp(&a.0));
-    candidates.into_iter().next().map(|(_, set)| set)
+    // Deduplicate matching features
+    let mut unique_features: std::collections::BTreeMap<String, crate::domain::session::SessionRef> = std::collections::BTreeMap::new();
+    for (feat, session) in feature_matching_sessions {
+        unique_features.entry(feat.to_string()).or_insert(session);
+    }
+
+    let total_session_matches = unique_features.len() + matching_discovery.len();
+    if total_session_matches > 1 {
+        let mut names: Vec<String> = unique_features.into_keys().collect();
+        for d in matching_discovery {
+            names.push(d.id.to_string());
+        }
+        names.sort();
+        return TargetResolution::Ambiguous(names);
+    }
+
+    if let Some((_, session)) = unique_features.into_iter().next() {
+        if let Some(state) = &session.state {
+            let env = crate::action::session::env::SessionEnv::build(
+                &layout,
+                &session.id,
+                &session.view_dir,
+                state.provider,
+                state.feature.as_ref(),
+            );
+            if let Some(set) = resolve_writable_set(&env) {
+                return TargetResolution::Unique(set);
+            }
+        }
+    }
+
+    if let Some(session) = matching_discovery.into_iter().next() {
+        if let Some(state) = &session.state {
+            let env = crate::action::session::env::SessionEnv::build(
+                &layout,
+                &session.id,
+                &session.view_dir,
+                state.provider,
+                state.feature.as_ref(),
+            );
+            if let Some(set) = resolve_writable_set(&env) {
+                return TargetResolution::Unique(set);
+            }
+        }
+    }
+
+    // 2. Target does not lie in any session-specific root.
+    // Check shared hall space (HallRoot::allows or hall_sources).
+    let hall_root = HallRoot::new(&layout);
+    let is_hall_source = hall_sources(&layout).iter().any(|hs| target.starts_with(hs));
+    if hall_root.allows(target) || is_hall_source {
+        let dummy_view = layout.root().to_path_buf();
+        let set = WritableSet {
+            view_dir: dummy_view,
+            feature_dir: None,
+            sessions_dir: None,
+            worktrees: Vec::new(),
+            hall_sources: hall_sources(&layout),
+            hall: hall_root,
+        };
+        return TargetResolution::SharedHall(set);
+    }
+
+    TargetResolution::None
 }
 
 /// Run the guard: parse stdin JSON, resolve the session, decide, and
@@ -530,28 +648,62 @@ pub fn guard(provider: Provider, stdin_json: &str) -> Result<GuardOutcome, Failu
         .flatten();
     let mut set = session_env.as_ref().and_then(resolve_writable_set);
 
+    let target = tool_request
+        .file_path
+        .as_ref()
+        .and_then(|fp| resolve_target(cwd.as_deref(), fp));
+
+    let mut ambiguous_features = None;
+
+    if set.is_none()
+        && is_structured_write(&tool_request.tool)
+        && let Some(target_path) = target.as_deref()
+    {
+        let is_relative = tool_request
+            .file_path
+            .as_ref()
+            .is_some_and(|p| !p.is_absolute());
+        if is_relative {
+            // Relative writes whose cwd resolves no session are denied.
+            // Do not resolve set by target for relative writes.
+        } else {
+            match resolve_set_by_target(target_path) {
+                TargetResolution::Unique(s) | TargetResolution::SharedHall(s) => {
+                    set = Some(s);
+                }
+                TargetResolution::Ambiguous(features) => {
+                    ambiguous_features = Some(features);
+                }
+                TargetResolution::None => {}
+            }
+        }
+    }
+
+    let mut relative_denial = None;
     if set.is_none()
         && is_structured_write(&tool_request.tool)
         && let Some(file_path) = &tool_request.file_path
-        && let Some(target) = resolve_target(cwd.as_deref(), file_path)
+        && !file_path.is_absolute()
+        && !has_uri_scheme(file_path.as_str())
     {
-        set = resolve_set_by_target(&target);
+        relative_denial = Some(relative_no_session_reason(file_path, cwd.as_deref()));
     }
 
-    let resolution = match &set {
-        Some(set) => Resolution::Resolved(set),
-        // Only a structured write reaches a denial here, and only a denial
-        // needs the list — so nothing else pays for the walk.
-        None if is_structured_write(&tool_request.tool) => Resolution::Unresolved {
-            scratch_dirs: live_scratch_dirs(cwd.as_deref()),
-        },
-        None => Resolution::Unresolved {
+    let resolution = match (&set, ambiguous_features) {
+        (Some(set), _) => Resolution::Resolved(set),
+        (None, Some(_features)) => Resolution::Unresolved {
             scratch_dirs: Vec::new(),
+        },
+        (None, None) => Resolution::Unresolved {
+            scratch_dirs: live_scratch_dirs(cwd.as_deref()),
         },
     };
 
-    let decision = decide(&resolution, &tool_request);
-
+    let decision = if let Some(reason) = relative_denial {
+        GuardDecision::Deny { reason }
+    } else {
+        decide(&resolution, &tool_request, target.as_deref())
+    };
     if matches!(decision, GuardDecision::Allow)
         && is_graph_explore_tool(&tool_request.tool)
         && let Some(cwd) = cwd.as_deref()

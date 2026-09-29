@@ -557,7 +557,8 @@ fn reads_are_never_denied() {
             &Resolution::Unresolved {
                 scratch_dirs: Vec::new()
             },
-            &req
+            &req,
+            req.file_path.as_deref()
         ),
         GuardDecision::Allow
     ));
@@ -571,7 +572,7 @@ fn writes_outside_the_set_are_denied_with_a_reason_naming_the_set() {
         file_path: Some("/etc/passwd".into()),
         search_pattern: None,
     };
-    match decide(&Resolution::Resolved(&set), &req) {
+    match decide(&Resolution::Resolved(&set), &req, req.file_path.as_deref()) {
         GuardDecision::Deny { reason } => {
             assert!(
                 reason.contains("writable"),
@@ -603,7 +604,7 @@ fn every_structured_write_tool_is_denied_outside_the_set() {
             file_path: Some("/etc/passwd".into()),
             search_pattern: None,
         };
-        match decide(&Resolution::Resolved(&set), &req) {
+        match decide(&Resolution::Resolved(&set), &req, req.file_path.as_deref()) {
             GuardDecision::Deny { reason } => assert!(
                 reason.contains("writable"),
                 "`{tool}` must name the set: {reason}"
@@ -662,9 +663,10 @@ fn writes_inside_the_set_are_allowed_and_shell_is_never_classified() {
             &Resolution::Resolved(&set),
             &ToolRequest {
                 tool: "Edit".into(),
-                file_path: Some(in_set),
+                file_path: Some(in_set.clone()),
                 search_pattern: None,
-            }
+            },
+            Some(&in_set)
         ),
         GuardDecision::Allow
     ));
@@ -675,7 +677,8 @@ fn writes_inside_the_set_are_allowed_and_shell_is_never_classified() {
                 tool: "Bash".into(),
                 file_path: None,
                 search_pattern: None,
-            }
+            },
+            None
         ),
         GuardDecision::Allow
     ));
@@ -1042,10 +1045,41 @@ fn hall_root_cwd_denies_a_relative_target() {
     let out = guard(Provider::Omp, &payload.to_string()).unwrap();
     assert!(!out.exit_zero);
     assert!(
-        out.body
-            .contains("no ivar session resolves from the cwd or the target path")
-            || out.body.contains("writable set:")
+        out.body.contains("relative path")
+            && out.body.contains("belongs to no ivar session")
     );
+}
+#[test]
+fn relative_write_in_session_uses_payload_cwd() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root);
+    let feature = Feature::read(&layout, &FeatureName::new("checkout").unwrap())
+        .unwrap()
+        .unwrap();
+    let id = SessionId::new("6f0c9d5f-0000-4000-8000-000000000071").unwrap();
+    let view = layout.feature_session(&feature.name, &id);
+    crate::infra::fs::ensure_dir(&view).unwrap();
+    let mut state = crate::domain::session::SessionState::new(Provider::Omp, "2026-09-29T00:00:00Z");
+    state.bind(feature.name, "2026-09-29T00:00:00Z");
+    state.write(&view).unwrap();
+    let payload = serde_json::json!({"tool":"write","args":{"filePath":"notes/deep/new.md"},"cwd":view});
+    assert!(guard(Provider::Omp, &payload.to_string()).unwrap().exit_zero);
+}
+
+#[test]
+fn relative_hall_target_does_not_choose_the_latest_discovery() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root.clone());
+    let id = SessionId::new("6f0c9d5f-0000-4000-8000-000000000072").unwrap();
+    let view = layout.discovery_session(&id);
+    crate::infra::fs::ensure_dir(&view).unwrap();
+    crate::domain::session::SessionState::new(Provider::Omp, "2026-09-29T00:00:00Z")
+        .write(&view).unwrap();
+    let payload = serde_json::json!({"tool":"write","args":{"filePath":"apps/new.rs"},"cwd":root});
+    let out = guard(Provider::Omp, &payload.to_string()).unwrap();
+    assert!(!out.exit_zero);
+    assert!(out.body.contains("absolute"));
+    assert!(!out.body.contains(view.as_str()));
 }
 
 #[test]
@@ -1148,14 +1182,14 @@ fn hall_root_cwd_selects_the_most_recent_session_of_the_feature() {
     assert!(out_new.exit_zero);
     assert_eq!(out_new.body, "");
 
-    // Target older session's view_dir notes.txt -> denied
+    // Target older session's view_dir notes.txt -> allowed for its own view dir
     let payload_old = serde_json::json!({
         "tool": "write",
         "args": { "filePath": view_old.join("notes.txt") },
         "cwd": root,
     });
     let out_old = guard(Provider::Omp, &payload_old.to_string()).unwrap();
-    assert!(!out_old.exit_zero);
+    assert!(out_old.exit_zero);
 }
 
 #[test]
@@ -1656,7 +1690,7 @@ fn guard_decision_is_unchanged_when_recording_fails() {
     };
     let set = resolve_writable_set(&env).unwrap();
     assert!(matches!(
-        decide(&Resolution::Resolved(&set), &req),
+        decide(&Resolution::Resolved(&set), &req, req.file_path.as_deref()),
         GuardDecision::Allow
     ));
 }
