@@ -918,3 +918,61 @@ fn execute_and_deliver_skills_forbid_ai_attribution() {
         "deliver should name the refusal code"
     );
 }
+
+/// `ivar provider remove` strips the provider's `ivar-*` commands and never
+/// touches a command file the user wrote.
+#[test]
+fn provider_remove_strips_ivar_commands_and_keeps_user_commands() {
+    let (_guard, root) = hall_root();
+    ivar().current_dir(&root).arg("init").assert().success();
+    ivar()
+        .current_dir(&root)
+        .args(["provider", "add", "opencode"])
+        .assert()
+        .success();
+    std::fs::write(root.join(".opencode/commands/mine.md"), "mine\n").unwrap();
+
+    ivar()
+        .current_dir(&root)
+        .args(["provider", "remove", "opencode"])
+        .assert()
+        .success();
+
+    for id in SHIPPED_IDS {
+        assert!(
+            !root
+                .join(".opencode/commands")
+                .join(format!("ivar-{id}.md"))
+                .exists(),
+            "{id} must be removed with the provider"
+        );
+    }
+    assert_eq!(
+        std::fs::read_to_string(root.join(".opencode/commands/mine.md")).unwrap(),
+        "mine\n"
+    );
+}
+
+/// Removing the default provider without `--default` is refused.
+#[test]
+fn provider_remove_of_the_default_requires_a_new_default() {
+    let (_guard, root) = hall_root();
+    ivar().current_dir(&root).arg("init").assert().success();
+    ivar()
+        .current_dir(&root)
+        .args(["provider", "add", "opencode"])
+        .assert()
+        .success();
+
+    ivar()
+        .current_dir(&root)
+        .args(["provider", "remove", "claude-code"])
+        .assert()
+        .failure();
+    ivar()
+        .current_dir(&root)
+        .args(["provider", "remove", "claude-code", "--default", "opencode"])
+        .assert()
+        .success();
+    assert!(!root.join(".claude/settings.json").exists());
+}

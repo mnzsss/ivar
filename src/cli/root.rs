@@ -186,7 +186,7 @@ pub use mcp::{McpAuthArgs, McpCommand, McpStatusArgs};
 pub use plan::{
     PlanApproveArgs, PlanCommand, PlanCreateArgs, PlanInvalidateArgs, PlanShowArgs, PlanStatusArgs,
 };
-pub use provider::{ProviderAddArgs, ProviderCommand};
+pub use provider::{ProviderAddArgs, ProviderCommand, ProviderRemoveArgs};
 pub use repo::{
     RepoAddArgs, RepoCommand, RepoCreateArgs, RepoPullArgs, RepoRemoveArgs, RepoSetupArgs,
     RepoUpstreamArgs, RepoViewArgs,

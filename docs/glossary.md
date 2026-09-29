@@ -55,10 +55,11 @@ is in the SPDD cycle. At  for feature sessions,
 view, never a copy: it dies with the view dir.
 
 **Provider** — the agent harness that runs inside a session: Claude Code or
-OpenCode. Chosen at `ivar init`, added later with `ivar provider add`, selected
-per session with `--provider`. Each discovers config differently, so hall config
-and view dir contents are generated per provider. During execution, the
-provider coordinates work and Ivar records the Run Receipt.
+OpenCode. Chosen at `ivar init`, added later with `ivar provider add`, removed
+with `ivar provider remove`, selected per session with `--provider`. Each
+discovers config differently, so hall config and view dir contents are
+generated per provider. During execution, the provider coordinates work and
+Ivar records the Run Receipt.
 
 ## Sessions
 

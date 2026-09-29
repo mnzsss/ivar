@@ -581,6 +581,19 @@ Register a new provider by name
 | `name` | yes | The provider's name (e.g. `claude-code`, `opencode`, `omp`) |
 
 
+##### `ivar provider remove`
+
+Unregister a provider and tear down its hall config
+
+| argument | required | description |
+| --- | --- | --- |
+| `name` | yes | The provider's name (e.g. `claude-code`, `opencode`, `omp`) |
+
+| flag | value | default | description |
+| --- | --- | --- | --- |
+| `--default` | `<DEFAULT>` |  | The provider to make the default. Required when removing the current default |
+
+
 #### `ivar discovery`
 
 Manage discovery docs: a unit of work's working brief
