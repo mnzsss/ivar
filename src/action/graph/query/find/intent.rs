@@ -75,6 +75,29 @@ pub struct ParsedExploreQuery {
     pub route_intent: bool,
 }
 
+/// Checks if a token is identifier-shaped (contains an uppercase letter after a lowercase one,
+/// contains an underscore, or is a dotted filename basename).
+pub(crate) fn is_identifier_shaped(token: &str) -> bool {
+    if token.is_empty() {
+        return false;
+    }
+    if token.contains('_') {
+        return true;
+    }
+    let mut saw_lower = false;
+    for c in token.chars() {
+        if c.is_lowercase() {
+            saw_lower = true;
+        } else if saw_lower && c.is_uppercase() {
+            return true;
+        }
+    }
+    if token.contains('.') && token.split('.').next_back().is_some_and(|ext| !ext.is_empty()) {
+        return true;
+    }
+    false
+}
+
 pub fn is_path_like(token: &str) -> bool {
     token.contains('/')
         || token.contains('\\')

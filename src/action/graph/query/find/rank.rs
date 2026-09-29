@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use rusqlite::params;
 
 use super::candidate::{ScoredCandidate, add_score};
-use super::intent::{ParsedExploreQuery, ResolvedPath, resolve_query_paths};
+use super::intent::{ParsedExploreQuery, ResolvedPath, is_identifier_shaped, resolve_query_paths};
 use super::search::{NAME_PREFIX_MATCH, prefix_casings};
 use crate::action::graph::query::types::{QueryError, SymbolLocation, map_symbol_and_path_row};
 use crate::domain::graph::{FileMatch, FileMatchKind, FileMention, MentionedSymbol, Symbol};
@@ -530,7 +530,7 @@ fn rank_all_files(
                 if parsed
                     .search_terms
                     .iter()
-                    .any(|t| t == &c.symbol.name || t.eq_ignore_ascii_case(&c.symbol.name))
+                    .any(|t| is_identifier_shaped(t) && t == &c.symbol.name)
                 {
                     exact_evidence = exact_evidence.max(2);
                 }
@@ -577,9 +577,9 @@ fn rank_all_files(
     ranked.sort_by(|a, b| {
         b.constraint_match
             .cmp(&a.constraint_match)
-            .then_with(|| b.loose_score.total_cmp(&a.loose_score))
             .then_with(|| b.exact_evidence.cmp(&a.exact_evidence))
             .then_with(|| b.pinned_evidence.cmp(&a.pinned_evidence))
+            .then_with(|| b.loose_score.total_cmp(&a.loose_score))
             .then_with(|| b.structured_score.total_cmp(&a.structured_score))
             .then_with(|| b.content_score.total_cmp(&a.content_score))
             .then_with(|| a.repo.cmp(&b.repo))
@@ -595,7 +595,7 @@ fn rank_all_files(
     if has_pinned_or_dir {
         ranked.retain(|file| file.pinned_evidence > 0);
     } else {
-        ranked.retain(|file| file.loose_score >= floor);
+        ranked.retain(|file| file.exact_evidence >= 2 || file.loose_score >= floor);
     }
 
     ranked
@@ -674,7 +674,12 @@ fn collect_final_results(
                     MAX_EXPLORE_CANDIDATES.saturating_sub(final_symbols.len() + final_files.len());
                 if remaining_budget > 0 {
                     cands.truncate(remaining_budget.min(max_per_file));
-                    cands.sort_by_key(|c| (c.symbol.span.start_line, c.symbol.span.start_col));
+                    // Keep candidates in score order (highest score first); break ties by line number
+                    cands.sort_by(|a, b| {
+                        b.score
+                            .total_cmp(&a.score)
+                            .then_with(|| (a.symbol.span.start_line, a.symbol.span.start_col).cmp(&(b.symbol.span.start_line, b.symbol.span.start_col)))
+                    });
                     final_symbols.extend(cands.into_iter().map(|sc| SymbolLocation {
                         symbol: sc.symbol,
                         file_path: sc.file_path,
