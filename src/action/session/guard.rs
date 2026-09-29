@@ -398,9 +398,10 @@ pub(crate) fn decide(
             if target.is_some_and(|path| set.allows(path)) {
                 GuardDecision::Allow
             } else {
+                let guidance = denial_guidance(Some(set), target, req.file_path.as_deref());
                 GuardDecision::Deny {
                     reason: format!(
-                        "writable set: {}; temporary files belong in {}",
+                        "writable set: {}; {guidance}",
                         std::iter::once(set.view_dir().to_string())
                             .chain(set.feature_dir.as_ref().map(|f| f.to_string()))
                             .chain(set.worktrees.iter().map(|w| w.to_string()))
@@ -408,7 +409,6 @@ pub(crate) fn decide(
                             .chain([set.hall.to_string()])
                             .collect::<Vec<_>>()
                             .join(", "),
-                        set.scratch_dir(),
                     ),
                 }
             }
@@ -416,6 +416,116 @@ pub(crate) fn decide(
         Resolution::Unresolved { scratch_dirs } => GuardDecision::Deny {
             reason: unresolved_reason(scratch_dirs),
         },
+    }
+}
+
+/// Classify a write denial to tell the agent where the write can go instead.
+fn denial_guidance(
+    set: Option<&WritableSet>,
+    target: Option<&Utf8Path>,
+    original: Option<&Utf8Path>,
+) -> String {
+    // Check target path or original path for Claude scratchpad
+    let is_scratchpad = |p: &Utf8Path| -> bool {
+        let s = p.as_str();
+        (s.contains("/claude-") || s.contains("\\claude-")) && s.contains("/scratchpad")
+            || s.contains("scratchpad") && s.contains("/tmp/")
+    };
+
+    if target.is_some_and(is_scratchpad) || original.is_some_and(is_scratchpad) {
+        if let Some(set) = set {
+            return format!("scratchpad writes are not permitted; temporary files belong in {}", set.scratch_dir());
+        }
+        return "scratchpad writes are not permitted; temporary files belong in the session's scratch directory".to_string();
+    }
+
+    // Check for Claude Code auto-memory (~/.claude/projects/.../memory/...)
+    let is_auto_memory = |p: &Utf8Path| -> bool {
+        let s = p.as_str();
+        s.contains(".claude/projects/") && s.contains("/memory")
+    };
+
+    if target.is_some_and(is_auto_memory) || original.is_some_and(is_auto_memory) {
+        return "auto-memory writes outside the hall are not permitted; durable notes belong in hall docs or .ivar/skills".to_string();
+    }
+
+    let scratch_suffix = match set {
+        Some(set) => format!("; temporary files belong in {}", set.scratch_dir()),
+        None => "; temporary files belong in the session's scratch directory".to_string(),
+    };
+
+    if let Some(target) = target {
+        // Discover layout if possible
+        let mut current = target;
+        let existing_ancestor = loop {
+            if current.exists() {
+                break current;
+            }
+            match current.parent() {
+                Some(parent) => current = parent,
+                None => break current,
+            }
+        };
+
+        if let Ok(Some(layout)) = Layout::discover(existing_ancestor) {
+            // Check protected hall paths
+            let protected_paths: Vec<Utf8PathBuf> = layout
+                .guard_protected_paths()
+                .into_iter()
+                .map(|p| canonicalize_lenient(&p))
+                .collect();
+
+            if protected_paths.iter().any(|p| target == p || target.starts_with(p)) {
+                return format!("this path is ivar-managed and protected; change it through the owning `ivar` command{scratch_suffix}");
+            }
+
+            // Check if target is in an unpromoted repo
+            let repos_dir = canonicalize_lenient(&layout.repos_dir());
+            if target.starts_with(&repos_dir) {
+                // Check if target belongs to a specific repo
+                if let Ok(entries) = crate::infra::fs::read_dir(&layout.repos_dir()) {
+                    for entry in entries {
+                        let canonical_entry = canonicalize_lenient(&entry);
+                        if target.starts_with(&canonical_entry) {
+                            if let Some(repo_name) = entry.file_name() {
+                                return format!("repo `{repo_name}` is not promoted in this feature; run `ivar feature promote {repo_name}` to make it writable{scratch_suffix}");
+                            }
+                        }
+                    }
+                }
+                return format!("this repo is not promoted in this feature; run `ivar feature promote <repo>` to make it writable{scratch_suffix}");
+            }
+
+            // Check if target is inside another session view dir or feature dir
+            let features_dir = canonicalize_lenient(&layout.features_dir());
+            let discovery_sessions_dir = canonicalize_lenient(&layout.discovery_sessions_dir());
+
+            if target.starts_with(&discovery_sessions_dir) || target.starts_with(&features_dir) {
+                if let Some(set) = set {
+                    if target.starts_with(&features_dir) {
+                        if let Some(fd) = &set.feature_dir {
+                            if !target.starts_with(fd) {
+                                return format!("writes to another feature's directory are not permitted; writes belong in your feature directory `{fd}` or view dir `{}`{scratch_suffix}", set.view_dir());
+                            }
+                        }
+                    }
+                    return format!("writes to another session's view dir are not permitted; writes belong in your view dir `{}`{scratch_suffix}", set.view_dir());
+                }
+                return format!("writes to another session's view dir or feature are not permitted; writes belong in your own view dir or feature directory{scratch_suffix}");
+            }
+
+            // Check other .ivar/ state
+            let ivar_dir = canonicalize_lenient(&layout.ivar_dir());
+            if target.starts_with(&ivar_dir) {
+                return format!("`.ivar/` state is managed by ivar; use the matching `ivar` command{scratch_suffix}");
+            }
+        }
+    }
+
+    if let Some(set) = set {
+        format!("temporary files belong in {}", set.scratch_dir())
+    } else {
+        "temporary files belong in the session's scratch directory".to_string()
     }
 }
 

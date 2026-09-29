@@ -1840,3 +1840,153 @@ fn an_opencode_graph_explore_hook_payload_records_a_hook_usage_row() {
 fn an_omp_graph_explore_hook_payload_records_a_hook_usage_row() {
     assert_hook_payload_records_graph_call(Provider::Omp);
 }
+
+#[test]
+fn claude_scratchpad_denial_directs_to_session_tmp() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root);
+    let id = SessionId::new("6f0c9d5f-0000-4000-8000-000000000073").unwrap();
+    let view = layout.discovery_session(&id);
+    crate::infra::fs::ensure_dir(&view).unwrap();
+    crate::domain::session::SessionState::new(Provider::ClaudeCode, "2026-09-29T00:00:00Z")
+        .write(&view)
+        .unwrap();
+    let payload = serde_json::json!({
+        "tool_name":"Write",
+        "tool_input":{"file_path":"/tmp/claude-1000/-home-user-hall/123/scratchpad/draft.md"},
+        "cwd":view
+    });
+    let out = guard(Provider::ClaudeCode, &payload.to_string()).unwrap();
+    assert!(!out.body.is_empty());
+    assert!(out.body.contains("scratchpad"));
+    assert!(out.body.contains(Layout::session_scratch(&view).as_str()));
+}
+
+#[test]
+fn claude_auto_memory_denial_directs_outside_hall() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root);
+    let id = SessionId::new("6f0c9d5f-0000-4000-8000-000000000074").unwrap();
+    let view = layout.discovery_session(&id);
+    crate::infra::fs::ensure_dir(&view).unwrap();
+    crate::domain::session::SessionState::new(Provider::ClaudeCode, "2026-09-29T00:00:00Z")
+        .write(&view)
+        .unwrap();
+    let payload = serde_json::json!({
+        "tool_name":"Write",
+        "tool_input":{"file_path":"/home/user/.claude/projects/-home-user-hall/memory/notes.md"},
+        "cwd":view
+    });
+    let out = guard(Provider::ClaudeCode, &payload.to_string()).unwrap();
+    assert!(out.body.contains("deny"));
+    assert!(out.body.contains("auto-memory writes outside the hall are not permitted"));
+    assert!(out.body.contains("hall docs or .ivar/skills"));
+}
+
+#[test]
+fn unpromoted_repo_denial_suggests_feature_promote() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root);
+    let feature = Feature::read(&layout, &FeatureName::new("checkout").unwrap())
+        .unwrap()
+        .unwrap();
+    let id = SessionId::new("6f0c9d5f-0000-4000-8000-000000000075").unwrap();
+    let view = layout.feature_session(&feature.name, &id);
+    crate::infra::fs::ensure_dir(&view).unwrap();
+    let mut state = crate::domain::session::SessionState::new(Provider::Omp, "2026-09-29T00:00:00Z");
+    state.bind(feature.name.clone(), "2026-09-29T00:00:00Z");
+    state.write(&view).unwrap();
+
+    let unpromoted_wt = layout.repo_worktree(
+        &RepoName::new("api").unwrap(),
+        &BranchName::new("main").unwrap(),
+    );
+    crate::infra::fs::ensure_dir(&unpromoted_wt).unwrap();
+
+    let payload = serde_json::json!({
+        "tool":"edit",
+        "args":{"filePath":unpromoted_wt.join("src/main.rs")},
+        "cwd":view
+    });
+    let out = guard(Provider::Omp, &payload.to_string()).unwrap();
+    assert!(!out.exit_zero);
+    assert!(out.body.contains("ivar feature promote api"));
+}
+
+#[test]
+fn protected_hook_config_denial_suggests_owning_ivar_command() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root.clone());
+    let id = SessionId::new("6f0c9d5f-0000-4000-8000-000000000076").unwrap();
+    let view = layout.discovery_session(&id);
+    crate::infra::fs::ensure_dir(&view).unwrap();
+    crate::domain::session::SessionState::new(Provider::Omp, "2026-09-29T00:00:00Z")
+        .write(&view)
+        .unwrap();
+
+    let payload = serde_json::json!({
+        "tool":"write",
+        "args":{"filePath":root.join(".git/hooks/pre-commit")},
+        "cwd":view
+    });
+    let out = guard(Provider::Omp, &payload.to_string()).unwrap();
+    assert!(!out.exit_zero);
+    assert!(out.body.contains("protected"));
+    assert!(out.body.contains("owning `ivar` command"));
+}
+
+#[test]
+fn foreign_session_view_denial_directs_to_own_view() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root);
+    let id1 = SessionId::new("6f0c9d5f-0000-4000-8000-000000000077").unwrap();
+    let view1 = layout.discovery_session(&id1);
+    crate::infra::fs::ensure_dir(&view1).unwrap();
+    crate::domain::session::SessionState::new(Provider::Omp, "2026-09-29T00:00:00Z")
+        .write(&view1)
+        .unwrap();
+
+    let id2 = SessionId::new("6f0c9d5f-0000-4000-8000-000000000078").unwrap();
+    let view2 = layout.discovery_session(&id2);
+    crate::infra::fs::ensure_dir(&view2).unwrap();
+    crate::domain::session::SessionState::new(Provider::Omp, "2026-09-29T00:00:00Z")
+        .write(&view2)
+        .unwrap();
+
+    let payload = serde_json::json!({
+        "tool":"write",
+        "args":{"filePath":view2.join("scratch.md")},
+        "cwd":view1
+    });
+    let out = guard(Provider::Omp, &payload.to_string()).unwrap();
+    assert!(!out.exit_zero);
+    assert!(out.body.contains("writes to another session's view dir are not permitted"));
+    assert!(out.body.contains(view1.as_str()));
+}
+
+#[test]
+fn symlinked_claude_skills_remain_writable() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root.clone());
+    let id = SessionId::new("6f0c9d5f-0000-4000-8000-000000000079").unwrap();
+    let view = layout.discovery_session(&id);
+    crate::infra::fs::ensure_dir(&view).unwrap();
+    crate::domain::session::SessionState::new(Provider::ClaudeCode, "2026-09-29T00:00:00Z")
+        .write(&view)
+        .unwrap();
+
+    // .claude/skills/my-skill -> .ivar/skills/my-skill
+    let hall_skills = layout.hall_skills();
+    crate::infra::fs::ensure_dir(&hall_skills.join("my-skill")).unwrap();
+    let claude_skills = root.join(".claude/skills");
+    crate::infra::fs::ensure_dir(&claude_skills).unwrap();
+    crate::infra::fs::create_symlink(&hall_skills.join("my-skill"), &claude_skills.join("my-skill")).unwrap();
+
+    let payload = serde_json::json!({
+        "tool_name":"Write",
+        "tool_input":{"file_path":claude_skills.join("my-skill/SKILL.md")},
+        "cwd":view
+    });
+    let out = guard(Provider::ClaudeCode, &payload.to_string()).unwrap();
+    assert!(out.exit_zero);
+}

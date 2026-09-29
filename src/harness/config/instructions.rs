@@ -188,7 +188,10 @@ pub fn build_block(hall: &HallName, repos: &[RepoName]) -> String {
     );
     let _ = write!(
         block,
-        "\nWrite temporary and working files in the current session's scratch\n\
+        "\nFor edit/write, use absolute paths inside the current session's worktree\n\
+         or view dir. Store temporary files in the session's `{SCRATCH_DIR}/` rather\n\
+         than a harness scratchpad.\n\n\
+         Write temporary and working files in the current session's scratch\n\
          directory — `{SCRATCH_DIR}/` inside the session's own view dir\n\
          (`.ivar/sessions/<session-id>/{SCRATCH_DIR}/` for a discovery session,\n\
          `.ivar/features/<feature>/sessions/<session-id>/{SCRATCH_DIR}/` once it is\n\
