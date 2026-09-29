@@ -31,7 +31,9 @@ use crate::action::plan::approve::{self as plan_approve};
 use crate::action::plan::{
     create as plan_create, list as plan_list, show as plan_show, status as plan_status,
 };
-use crate::action::provider::{add as provider_add, list as provider_list};
+use crate::action::provider::{
+    add as provider_add, list as provider_list, remove as provider_remove,
+};
 use crate::action::repo::{
     add, create as repo_create, list as repo_list, pull, remove, setup as repo_setup,
     upstream as repo_upstream, view as repo_view,
@@ -628,6 +630,12 @@ pub fn run(cli: Cli) -> ExitCode {
             }
             ProviderCommand::Add(args) => respond(
                 provider_add::add(&ctx, &args.into()),
+                json,
+                &mut stdout,
+                &mut stderr,
+            ),
+            ProviderCommand::Remove(args) => respond(
+                provider_remove::remove(&ctx, &args.into()),
                 json,
                 &mut stdout,
                 &mut stderr,
