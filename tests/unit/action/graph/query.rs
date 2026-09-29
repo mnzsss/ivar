@@ -626,23 +626,35 @@ fn test_explore_find_candidates_lowercase_source_does_not_pin_source_symbol() {
     db.insert_repo("myrepo", "/workspace/myrepo", "main", None)
         .expect("insert repo");
 
-    let file_id = db
-        .upsert_file("myrepo", "src/types.rs", "h", 10, 100)
-        .expect("upsert file");
-    let sym_source = function_symbol(file_id, "myrepo", "Source", 10);
-    let sym_auth = function_symbol(file_id, "myrepo", "authenticate_user", 20);
-    db.insert_symbols(&[sym_source, sym_auth])
-        .expect("insert symbols");
+    // File A: has "source" symbol with higher loose score (path match + doc match)
+    let file_source = db
+        .upsert_file("myrepo", "src/source.rs", "h1", 10, 100)
+        .expect("upsert file_source");
+    let sym_source = Symbol {
+        docstring: Some("source authentication helper".to_owned()),
+        ..function_symbol(file_source, "myrepo", "source", 10)
+    };
+    db.insert_symbols(&[sym_source]).expect("insert sym_source");
 
-    // Query with lowercase "source" should not treat "Source" as an exact identifier pin
+    // File B: has "authenticate_user" symbol with lower loose score
+    let file_auth = db
+        .upsert_file("myrepo", "src/auth.rs", "h2", 10, 100)
+        .expect("upsert file_auth");
+    let sym_auth = function_symbol(file_auth, "myrepo", "authenticate_user", 20);
+    db.insert_symbols(&[sym_auth]).expect("insert sym_auth");
+
+    // Query with lowercase "source" and identifier-shaped "authenticate_user".
+    // "source" must NOT pin the symbol "source" as exact identifier evidence (exact_evidence=2)
+    // because "source" is not identifier shaped.
+    // "authenticate_user" IS identifier shaped (contains '_') and matches exact case-sensitively,
+    // so src/auth.rs gets exact_evidence = 2 while src/source.rs gets exact_evidence = 0.
+    // Therefore, src/auth.rs ranks first despite src/source.rs having higher loose score.
     let candidates = find::explore_find_candidates(&db, "source authenticate_user", None)
         .expect("explore candidates");
 
-    // Both symbols in the file are returned in source line order;
-    // "authenticate_user" is present among candidates.
-    let names: Vec<_> = candidates.iter().map(|c| c.symbol.name.as_str()).collect();
-    assert!(names.contains(&"authenticate_user"));
-    assert!(names.contains(&"Source"));
+    assert!(!candidates.is_empty());
+    assert_eq!(candidates[0].file_path, "src/auth.rs");
+    assert_eq!(candidates[0].symbol.name, "authenticate_user");
 }
 #[test]
 fn test_explore_find_candidates_prefers_a_matching_directory_over_prefix_decoys() {
