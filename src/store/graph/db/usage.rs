@@ -235,7 +235,9 @@ impl GraphDb {
              LIMIT ?3",
         )?;
         let kind = filter.kind.map(MissKind::as_str);
-        let limit_param = filter.limit.map_or(-1_i64, |l| l as i64);
+        let limit_param = filter
+            .limit
+            .map_or(-1_i64, |l| i64::try_from(l).unwrap_or(i64::MAX));
         let rows = stmt.query_map(params![kind, filter.since, limit_param], |r| {
             Ok(MissRecord {
                 id: r.get(0)?,

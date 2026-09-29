@@ -674,12 +674,7 @@ fn collect_final_results(
                     MAX_EXPLORE_CANDIDATES.saturating_sub(final_symbols.len() + final_files.len());
                 if remaining_budget > 0 {
                     cands.truncate(remaining_budget.min(max_per_file));
-                    // Keep candidates in score order (highest score first); break ties by line number
-                    cands.sort_by(|a, b| {
-                        b.score
-                            .total_cmp(&a.score)
-                            .then_with(|| (a.symbol.span.start_line, a.symbol.span.start_col).cmp(&(b.symbol.span.start_line, b.symbol.span.start_col)))
-                    });
+                    cands.sort_by_key(|c| (c.symbol.span.start_line, c.symbol.span.start_col));
                     final_symbols.extend(cands.into_iter().map(|sc| SymbolLocation {
                         symbol: sc.symbol,
                         file_path: sc.file_path,

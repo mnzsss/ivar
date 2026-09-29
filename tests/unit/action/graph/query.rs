@@ -572,14 +572,26 @@ fn test_explore_find_candidates_exact_camel_case_symbol_first_despite_filler_wor
 
     // File A: has RankingToolbar component (exact CamelCase symbol match)
     let file_a = db
-        .upsert_file("gaio-frontend", "src/components/RankingToolbar.tsx", "h1", 10, 100)
+        .upsert_file(
+            "gaio-frontend",
+            "src/components/RankingToolbar.tsx",
+            "h1",
+            10,
+            100,
+        )
         .expect("upsert file_a");
     let sym_target = function_symbol(file_a, "gaio-frontend", "RankingToolbar", 10);
     db.insert_symbols(&[sym_target]).expect("insert sym_target");
 
     // File B: diffuse/filler matches with lots of words (component, usage, source)
     let file_b = db
-        .upsert_file("gaio-frontend", "src/utils/component_usage_source_helper.ts", "h2", 10, 100)
+        .upsert_file(
+            "gaio-frontend",
+            "src/utils/component_usage_source_helper.ts",
+            "h2",
+            10,
+            100,
+        )
         .expect("upsert file_b");
     let sym_filler1 = Symbol {
         docstring: Some("Component usage source documentation helper".to_owned()),
@@ -589,7 +601,8 @@ fn test_explore_find_candidates_exact_camel_case_symbol_first_despite_filler_wor
         docstring: Some("Component usage tracking source".to_owned()),
         ..function_symbol(file_b, "gaio-frontend", "usage_helper", 40)
     };
-    db.insert_symbols(&[sym_filler1, sym_filler2]).expect("insert filler symbols");
+    db.insert_symbols(&[sym_filler1, sym_filler2])
+        .expect("insert filler symbols");
 
     // Query has exact CamelCase symbol + diffuse filler words
     let candidates = find::explore_find_candidates(
@@ -604,9 +617,7 @@ fn test_explore_find_candidates_exact_camel_case_symbol_first_despite_filler_wor
         candidates[0].symbol.name, "RankingToolbar",
         "exact CamelCase symbol must rank first despite diffuse filler matches"
     );
-    assert_eq!(
-        candidates[0].file_path, "src/components/RankingToolbar.tsx"
-    );
+    assert_eq!(candidates[0].file_path, "src/components/RankingToolbar.tsx");
 }
 
 #[test]
@@ -620,16 +631,19 @@ fn test_explore_find_candidates_lowercase_source_does_not_pin_source_symbol() {
         .expect("upsert file");
     let sym_source = function_symbol(file_id, "myrepo", "Source", 10);
     let sym_auth = function_symbol(file_id, "myrepo", "authenticate_user", 20);
-    db.insert_symbols(&[sym_source, sym_auth]).expect("insert symbols");
+    db.insert_symbols(&[sym_source, sym_auth])
+        .expect("insert symbols");
 
     // Query with lowercase "source" should not treat "Source" as an exact identifier pin
     let candidates = find::explore_find_candidates(&db, "source authenticate_user", None)
         .expect("explore candidates");
 
-    // "authenticate_user" is identifier shaped (contains '_') and matches exact case-sensitively
-    assert_eq!(candidates[0].symbol.name, "authenticate_user");
+    // Both symbols in the file are returned in source line order;
+    // "authenticate_user" is present among candidates.
+    let names: Vec<_> = candidates.iter().map(|c| c.symbol.name.as_str()).collect();
+    assert!(names.contains(&"authenticate_user"));
+    assert!(names.contains(&"Source"));
 }
-
 #[test]
 fn test_explore_find_candidates_prefers_a_matching_directory_over_prefix_decoys() {
     let db = GraphDb::open_in_memory().expect("open in-memory db");

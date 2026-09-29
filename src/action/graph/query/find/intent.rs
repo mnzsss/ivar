@@ -92,7 +92,12 @@ pub(crate) fn is_identifier_shaped(token: &str) -> bool {
             return true;
         }
     }
-    if token.contains('.') && token.split('.').next_back().is_some_and(|ext| !ext.is_empty()) {
+    if token.contains('.')
+        && token
+            .split('.')
+            .next_back()
+            .is_some_and(|ext| !ext.is_empty())
+    {
         return true;
     }
     false
