@@ -146,6 +146,35 @@ pub fn is_path_like(token: &str) -> bool {
                 )
             }))
 }
+
+/// Splits an optional trailing line range suffix `:<start>-<end>` (1-based inclusive)
+/// from a file path token. Suffix must end in `:\d+-\d+`.
+/// Returns `(path, Some((start, end)))` or `(token, None)`.
+pub fn split_line_range(token: &str) -> (&str, Option<(usize, usize)>) {
+    if let Some(colon_pos) = token.rfind(':') {
+        // Guard against Windows drive paths (e.g. C:\foo) where colon is at index 1 and followed by slash
+        if colon_pos == 1
+            && token
+                .chars()
+                .next()
+                .is_some_and(|c| c.is_ascii_alphabetic())
+        {
+            return (token, None);
+        }
+        let (path_part, suffix) = token.split_at(colon_pos);
+        let range_part = &suffix[1..];
+        if let Some((start_str, end_str)) = range_part.split_once('-')
+            && !start_str.is_empty()
+            && !end_str.is_empty()
+            && start_str.chars().all(|c| c.is_ascii_digit())
+            && end_str.chars().all(|c| c.is_ascii_digit())
+            && let (Ok(start), Ok(end)) = (start_str.parse::<usize>(), end_str.parse::<usize>())
+        {
+            return (path_part, Some((start, end)));
+        }
+    }
+    (token, None)
+}
 /// Detects if terms express route/API intent.
 fn is_route_intent_term(term: &str) -> bool {
     let lower = term.to_ascii_lowercase();
@@ -207,11 +236,12 @@ pub fn resolve_query_paths(
             route_intent = true;
         }
 
-        let is_pl = is_path_like(clean_token);
-        let trimmed = clean_token.trim_start_matches("./");
+        let (path_token, _line_range) = split_line_range(clean_token);
+        let is_pl = is_path_like(path_token);
+        let trimmed = path_token.trim_start_matches("./");
 
         if is_pl {
-            path_tokens.push(clean_token.to_owned());
+            path_tokens.push(path_token.to_owned());
             if target_repos.is_empty() {
                 if let Some(resolved) = resolve_path_token(db, conn, None, trimmed)? {
                     resolved_paths.push(resolved);

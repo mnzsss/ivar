@@ -7,7 +7,7 @@ use serde_json::Value;
 
 use super::workspace::WorkspacePaths;
 use crate::action::graph::query::QueryError;
-use crate::action::graph::query::find::{is_path_like, resolve_query_paths};
+use crate::action::graph::query::find::{is_path_like, resolve_query_paths, split_line_range};
 use crate::action::graph::{
     affected, compact, complexity, dead_code, explore, hierarchy, narrate, path, query,
 };
@@ -465,19 +465,25 @@ fn file_request(
     let explicit = args.get("paths").is_some() || args.get("files").is_some();
     let tokens: Vec<&str> = query
         .split_whitespace()
-        .map(|token| token.trim_matches([',', ';', ':', '"', '\'']))
+        .map(|token| token.trim_matches([',', ';', '"', '\'']))
         .filter(|token| !token.is_empty())
         .collect();
-    let all_paths = tokens.iter().all(|token| is_path_like(token));
+    let all_paths = tokens.iter().all(|token| {
+        let (path, _) = split_line_range(token);
+        is_path_like(path)
+    });
     if !explicit && !all_paths {
         return Ok((false, Vec::new()));
     }
     let mut unindexed = Vec::new();
-    for token in tokens.iter().filter(|token| is_path_like(token)) {
-        let parsed =
-            resolve_query_paths(db, token, repo).map_err(|e| format!("explore failed: {e}"))?;
-        if parsed.resolved_paths.is_empty() {
-            unindexed.push((*token).to_owned());
+    for token in &tokens {
+        let (path, _) = split_line_range(token);
+        if is_path_like(path) {
+            let parsed =
+                resolve_query_paths(db, path, repo).map_err(|e| format!("explore failed: {e}"))?;
+            if parsed.resolved_paths.is_empty() {
+                unindexed.push((*token).to_owned());
+            }
         }
     }
     let serve_files = explicit || unindexed.len() < tokens.len();

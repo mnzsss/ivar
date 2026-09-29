@@ -128,6 +128,7 @@ fn explore_within(
                 file_path: candidate.file_path.clone(),
                 absolute_path: file_path.clone(),
                 spans: vec![(start_line, end_line)],
+                explicit_span: false,
             }),
         }
 
@@ -167,7 +168,39 @@ fn explore_within(
             file_path: fm.file_path.clone(),
             absolute_path: file_path,
             spans: vec![(start_line, end_line)],
+            explicit_span: false,
         });
+    }
+    // Validate and record line range on FileSpans
+    for token in query.split_whitespace() {
+        let clean = token.trim_matches([',', ';', '"', '\'']);
+        let (path_part, range_opt) = query::find::split_line_range(clean);
+        if let Some((start, end)) = range_opt {
+            if start == 0 {
+                return Err(ExploreError::InvalidRange {
+                    path: path_part.to_owned(),
+                    start,
+                    end,
+                    reason: "1-based line numbers required (start must be >= 1)".to_owned(),
+                });
+            }
+            if start > end {
+                return Err(ExploreError::InvalidRange {
+                    path: path_part.to_owned(),
+                    start,
+                    end,
+                    reason: format!("start line {start} exceeds end line {end}"),
+                });
+            }
+            // Attach explicit span to matched FileSpans entry
+            if let Some(entry) = file_spans
+                .iter_mut()
+                .find(|f| f.file_path.ends_with(path_part))
+            {
+                entry.spans = vec![(start, end)];
+                entry.explicit_span = true;
+            }
+        }
     }
 
     let sources = collect_sources(db, &file_cache, file_spans, whole_files)?;

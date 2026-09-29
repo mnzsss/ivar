@@ -589,9 +589,12 @@ fn narrate_source(
             out.push_str(&block);
             emitted = true;
         } else if !emitted {
+            let line_count = source.map(|s| s.line_count).unwrap_or(0);
             out.push_str(&truncate_block(
                 &block,
                 limit.saturating_sub(out.len() + 160),
+                file.path,
+                line_count,
             ));
             emitted = true;
         } else {
@@ -736,7 +739,7 @@ fn is_whole_file(source: &SourceFile) -> bool {
     matches!(source.excerpts.as_slice(), [only] if only.start_line == 1 && only.end_line == source.line_count)
 }
 
-fn truncate_block(block: &str, max_len: usize) -> String {
+fn truncate_block(block: &str, max_len: usize, path: &str, line_count: usize) -> String {
     let mut cut = String::new();
     let mut last_line = None;
     for line in block.lines() {
@@ -756,10 +759,11 @@ fn truncate_block(block: &str, max_len: usize) -> String {
         cut.push_str("```\n");
     }
     if let Some(n) = last_line {
+        let next_start = n + 1;
+        let last_target = line_count.max(next_start);
         let _ = writeln!(
             cut,
-            "\n…truncated after line {n}. Call `graph_explore` with the names in this file for \
-             the rest; do not Read it."
+            "\n…truncated after line {n}. Call `graph_explore` with paths: [\"{path}:{next_start}-{last_target}\"] for the rest; do not Read it."
         );
     }
     cut

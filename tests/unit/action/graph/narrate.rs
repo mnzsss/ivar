@@ -555,6 +555,67 @@ fn a_file_larger_than_the_limit_is_cut_at_a_line() {
         "got tail: {}",
         &out[out.len() - 200..]
     );
+    assert!(
+        out.contains("Call `graph_explore` with paths: [\"src/huge.ts:"),
+        "got tail: {}",
+        &out[out.len() - 200..]
+    );
+}
+
+#[test]
+fn test_narrate_truncation_note_names_next_range() {
+    let res = ExploreResult {
+        query: "huge".to_owned(),
+        file_matches: Vec::new(),
+        primary_symbols: vec![SymbolSnippet {
+            symbol: Symbol {
+                id: Some(1),
+                file_id: Some(1),
+                repo: "api".to_owned(),
+                name: "huge".to_owned(),
+                kind: SymbolKind::Fn,
+                scope: None,
+                signature: Some("pub fn huge()".to_owned()),
+                docstring: None,
+                span: Span::new(1, 1, 1000, 1),
+                is_exported: true,
+                complexity: None,
+            },
+            file_path: "src/huge.ts".to_owned(),
+            code: "huge code".to_owned(),
+            start_line: 1,
+            end_line: 1000,
+        }],
+        call_flows: Vec::new(),
+        impact_summary: None,
+        direct_relations: Vec::new(),
+        entry_points: Vec::new(),
+        transitive_consumers: Vec::new(),
+        sources: vec![SourceFile {
+            repo: "api".to_owned(),
+            file_path: "src/huge.ts".to_owned(),
+            line_count: 2_000,
+            excerpts: vec![SourceExcerpt {
+                start_line: 1,
+                end_line: 2_000,
+                code: (1..=2_000).map(|i| format!("{i}\tline {i}\n")).collect(),
+            }],
+            changed_since_index: false,
+        }],
+        flows: Vec::new(),
+        not_shown: Vec::new(),
+    };
+
+    let out = narrate_explore(&res);
+    assert!(
+        out.contains("…truncated after line"),
+        "must contain truncation notice, got: {out}"
+    );
+    assert!(
+        out.contains("Call `graph_explore` with paths: [\"src/huge.ts:")
+            && out.contains("-2000\"] for the rest; do not Read it."),
+        "must name next line range follow up call, got: {out}"
+    );
 }
 
 /// The JSON form spent its tokens on ids, spans and nulls the model never used.

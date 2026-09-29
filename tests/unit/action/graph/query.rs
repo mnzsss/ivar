@@ -1167,3 +1167,43 @@ fn test_explore_find_multi_repo_package_json_in_any_order() {
         "order 2 must contain gaio-frontend package.json"
     );
 }
+
+#[test]
+fn test_split_line_range_cases() {
+    use crate::action::graph::query::find::intent::split_line_range;
+
+    // Standard path with range
+    assert_eq!(
+        split_line_range("src/foo.rs:10-20"),
+        ("src/foo.rs", Some((10, 20)))
+    );
+    assert_eq!(
+        split_line_range("services/api/src/routes/auth.ts:251-500"),
+        ("services/api/src/routes/auth.ts", Some((251, 500)))
+    );
+
+    // Windows paths without range
+    assert_eq!(
+        split_line_range("C:\\foo\\bar.rs"),
+        ("C:\\foo\\bar.rs", None)
+    );
+    assert_eq!(
+        split_line_range("C:\\foo\\bar.rs:5-15"),
+        ("C:\\foo\\bar.rs", Some((5, 15)))
+    );
+
+    // Bare line numbers or non-range colons
+    assert_eq!(split_line_range("src/foo.rs:12"), ("src/foo.rs:12", None));
+    assert_eq!(
+        split_line_range("src/foo.rs:abc-def"),
+        ("src/foo.rs:abc-def", None)
+    );
+    assert_eq!(split_line_range("src/foo.rs:"), ("src/foo.rs:", None));
+    assert_eq!(split_line_range("plain_text"), ("plain_text", None));
+
+    // Zero start line parsed as range for validation error handling
+    assert_eq!(
+        split_line_range("src/foo.rs:0-10"),
+        ("src/foo.rs", Some((0, 10)))
+    );
+}

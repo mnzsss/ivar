@@ -808,3 +808,76 @@ fn text_only_hit_builds_an_explore_result_without_fake_symbols() {
     assert_eq!(result.file_matches[0].file_path, "Dockerfile");
     assert!(result.sources[0].excerpts[0].code.contains("release-image"));
 }
+
+#[test]
+fn test_explore_ranged_path_returns_exact_lines() {
+    let temp = tempfile::tempdir().expect("create temp dir");
+    let hall_root = temp.path();
+    let repo_dir = hall_root.join("api");
+    std::fs::create_dir_all(repo_dir.join("src")).expect("create dirs");
+
+    let lines: Vec<String> = (1..=100).map(|i| format!("fn line_{i}() {{}}\n")).collect();
+    let content = lines.concat();
+    std::fs::write(repo_dir.join("src/large.rs"), &content).expect("write file");
+
+    let db = GraphDb::open_in_memory().expect("open memory db");
+    db.insert_repo("api", repo_dir.to_str().unwrap(), "main", None)
+        .expect("insert repo");
+    db.upsert_file("api", "src/large.rs", "h_large", 100, content.len() as i64)
+        .expect("upsert file");
+
+    // Request range 20-30
+    let res = crate::action::graph::explore::explore_files(
+        &db,
+        hall_root,
+        "src/large.rs:20-30",
+        Some("api"),
+    )
+    .expect("explore_files with range");
+
+    assert_eq!(res.sources.len(), 1);
+    let source = &res.sources[0];
+    assert_eq!(source.file_path, "src/large.rs");
+    assert_eq!(source.excerpts.len(), 1);
+    let excerpt = &source.excerpts[0];
+    assert_eq!(excerpt.start_line, 20);
+    assert_eq!(excerpt.end_line, 30);
+    assert!(excerpt.code.contains("20\tfn line_20()"));
+    assert!(excerpt.code.contains("30\tfn line_30()"));
+    assert!(!excerpt.code.contains("19\tfn line_19()"));
+    assert!(!excerpt.code.contains("31\tfn line_31()"));
+}
+
+#[test]
+fn test_explore_ranged_path_invalid_range_errors() {
+    let temp = tempfile::tempdir().expect("create temp dir");
+    let hall_root = temp.path();
+    let repo_dir = hall_root.join("api");
+    std::fs::create_dir_all(repo_dir.join("src")).expect("create dirs");
+    let content = "fn main() {}\n";
+    std::fs::write(repo_dir.join("src/main.rs"), content).expect("write file");
+
+    let db = GraphDb::open_in_memory().expect("open memory db");
+    db.insert_repo("api", repo_dir.to_str().unwrap(), "main", None)
+        .expect("insert repo");
+    db.upsert_file("api", "src/main.rs", "h_main", 1, content.len() as i64)
+        .expect("upsert file");
+
+    // Start == 0
+    let err_zero = crate::action::graph::explore::explore_files(
+        &db,
+        hall_root,
+        "src/main.rs:0-10",
+        Some("api"),
+    );
+    assert!(err_zero.is_err(), "start=0 must error");
+
+    // Start > End
+    let err_order = crate::action::graph::explore::explore_files(
+        &db,
+        hall_root,
+        "src/main.rs:20-10",
+        Some("api"),
+    );
+    assert!(err_order.is_err(), "start > end must error");
+}
