@@ -1044,10 +1044,7 @@ fn hall_root_cwd_denies_a_relative_target() {
 
     let out = guard(Provider::Omp, &payload.to_string()).unwrap();
     assert!(!out.exit_zero);
-    assert!(
-        out.body.contains("relative path")
-            && out.body.contains("belongs to no ivar session")
-    );
+    assert!(out.body.contains("relative path") && out.body.contains("belongs to no ivar session"));
 }
 #[test]
 fn relative_write_in_session_uses_payload_cwd() {
@@ -1059,11 +1056,17 @@ fn relative_write_in_session_uses_payload_cwd() {
     let id = SessionId::new("6f0c9d5f-0000-4000-8000-000000000071").unwrap();
     let view = layout.feature_session(&feature.name, &id);
     crate::infra::fs::ensure_dir(&view).unwrap();
-    let mut state = crate::domain::session::SessionState::new(Provider::Omp, "2026-09-29T00:00:00Z");
+    let mut state =
+        crate::domain::session::SessionState::new(Provider::Omp, "2026-09-29T00:00:00Z");
     state.bind(feature.name, "2026-09-29T00:00:00Z");
     state.write(&view).unwrap();
-    let payload = serde_json::json!({"tool":"write","args":{"filePath":"notes/deep/new.md"},"cwd":view});
-    assert!(guard(Provider::Omp, &payload.to_string()).unwrap().exit_zero);
+    let payload =
+        serde_json::json!({"tool":"write","args":{"filePath":"notes/deep/new.md"},"cwd":view});
+    assert!(
+        guard(Provider::Omp, &payload.to_string())
+            .unwrap()
+            .exit_zero
+    );
 }
 
 #[test]
@@ -1074,7 +1077,8 @@ fn relative_hall_target_does_not_choose_the_latest_discovery() {
     let view = layout.discovery_session(&id);
     crate::infra::fs::ensure_dir(&view).unwrap();
     crate::domain::session::SessionState::new(Provider::Omp, "2026-09-29T00:00:00Z")
-        .write(&view).unwrap();
+        .write(&view)
+        .unwrap();
     let payload = serde_json::json!({"tool":"write","args":{"filePath":"apps/new.rs"},"cwd":root});
     let out = guard(Provider::Omp, &payload.to_string()).unwrap();
     assert!(!out.exit_zero);
@@ -1879,7 +1883,10 @@ fn claude_auto_memory_denial_directs_outside_hall() {
     });
     let out = guard(Provider::ClaudeCode, &payload.to_string()).unwrap();
     assert!(out.body.contains("deny"));
-    assert!(out.body.contains("auto-memory writes outside the hall are not permitted"));
+    assert!(
+        out.body
+            .contains("auto-memory writes outside the hall are not permitted")
+    );
     assert!(out.body.contains("hall docs or .ivar/skills"));
 }
 
@@ -1893,7 +1900,8 @@ fn unpromoted_repo_denial_suggests_feature_promote() {
     let id = SessionId::new("6f0c9d5f-0000-4000-8000-000000000075").unwrap();
     let view = layout.feature_session(&feature.name, &id);
     crate::infra::fs::ensure_dir(&view).unwrap();
-    let mut state = crate::domain::session::SessionState::new(Provider::Omp, "2026-09-29T00:00:00Z");
+    let mut state =
+        crate::domain::session::SessionState::new(Provider::Omp, "2026-09-29T00:00:00Z");
     state.bind(feature.name.clone(), "2026-09-29T00:00:00Z");
     state.write(&view).unwrap();
 
@@ -1960,7 +1968,10 @@ fn foreign_session_view_denial_directs_to_own_view() {
     });
     let out = guard(Provider::Omp, &payload.to_string()).unwrap();
     assert!(!out.exit_zero);
-    assert!(out.body.contains("writes to another session's view dir are not permitted"));
+    assert!(
+        out.body
+            .contains("writes to another session's view dir are not permitted")
+    );
     assert!(out.body.contains(view1.as_str()));
 }
 
@@ -1980,7 +1991,11 @@ fn symlinked_claude_skills_remain_writable() {
     crate::infra::fs::ensure_dir(&hall_skills.join("my-skill")).unwrap();
     let claude_skills = root.join(".claude/skills");
     crate::infra::fs::ensure_dir(&claude_skills).unwrap();
-    crate::infra::fs::create_symlink(&hall_skills.join("my-skill"), &claude_skills.join("my-skill")).unwrap();
+    crate::infra::fs::create_symlink(
+        &hall_skills.join("my-skill"),
+        &claude_skills.join("my-skill"),
+    )
+    .unwrap();
 
     let payload = serde_json::json!({
         "tool_name":"Write",

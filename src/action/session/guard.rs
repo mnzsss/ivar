@@ -434,9 +434,12 @@ fn denial_guidance(
 
     if target.is_some_and(is_scratchpad) || original.is_some_and(is_scratchpad) {
         if let Some(set) = set {
-            return format!("scratchpad writes are not permitted; temporary files belong in {}", set.scratch_dir());
+            return format!(
+                "scratchpad writes are not permitted; temporary files belong in {}",
+                set.scratch_dir()
+            );
         }
-        return "scratchpad writes are not permitted; temporary files belong in the session's scratch directory".to_string();
+        return "scratchpad writes are not permitted; temporary files belong in the session's scratch directory".to_owned();
     }
 
     // Check for Claude Code auto-memory (~/.claude/projects/.../memory/...)
@@ -446,87 +449,115 @@ fn denial_guidance(
     };
 
     if target.is_some_and(is_auto_memory) || original.is_some_and(is_auto_memory) {
-        return "auto-memory writes outside the hall are not permitted; durable notes belong in hall docs or .ivar/skills".to_string();
+        return "auto-memory writes outside the hall are not permitted; durable notes belong in hall docs or .ivar/skills".to_owned();
     }
 
     let scratch_suffix = match set {
         Some(set) => format!("; temporary files belong in {}", set.scratch_dir()),
-        None => "; temporary files belong in the session's scratch directory".to_string(),
+        None => "; temporary files belong in the session's scratch directory".to_owned(),
     };
 
-    if let Some(target) = target {
-        // Discover layout if possible
-        let mut current = target;
-        let existing_ancestor = loop {
-            if current.exists() {
-                break current;
-            }
-            match current.parent() {
-                Some(parent) => current = parent,
-                None => break current,
-            }
-        };
-
-        if let Ok(Some(layout)) = Layout::discover(existing_ancestor) {
-            // Check protected hall paths
-            let protected_paths: Vec<Utf8PathBuf> = layout
-                .guard_protected_paths()
-                .into_iter()
-                .map(|p| canonicalize_lenient(&p))
-                .collect();
-
-            if protected_paths.iter().any(|p| target == p || target.starts_with(p)) {
-                return format!("this path is ivar-managed and protected; change it through the owning `ivar` command{scratch_suffix}");
-            }
-
-            // Check if target is in an unpromoted repo
-            let repos_dir = canonicalize_lenient(&layout.repos_dir());
-            if target.starts_with(&repos_dir) {
-                // Check if target belongs to a specific repo
-                if let Ok(entries) = crate::infra::fs::read_dir(&layout.repos_dir()) {
-                    for entry in entries {
-                        let canonical_entry = canonicalize_lenient(&entry);
-                        if target.starts_with(&canonical_entry) {
-                            if let Some(repo_name) = entry.file_name() {
-                                return format!("repo `{repo_name}` is not promoted in this feature; run `ivar feature promote {repo_name}` to make it writable{scratch_suffix}");
-                            }
-                        }
-                    }
-                }
-                return format!("this repo is not promoted in this feature; run `ivar feature promote <repo>` to make it writable{scratch_suffix}");
-            }
-
-            // Check if target is inside another session view dir or feature dir
-            let features_dir = canonicalize_lenient(&layout.features_dir());
-            let discovery_sessions_dir = canonicalize_lenient(&layout.discovery_sessions_dir());
-
-            if target.starts_with(&discovery_sessions_dir) || target.starts_with(&features_dir) {
-                if let Some(set) = set {
-                    if target.starts_with(&features_dir) {
-                        if let Some(fd) = &set.feature_dir {
-                            if !target.starts_with(fd) {
-                                return format!("writes to another feature's directory are not permitted; writes belong in your feature directory `{fd}` or view dir `{}`{scratch_suffix}", set.view_dir());
-                            }
-                        }
-                    }
-                    return format!("writes to another session's view dir are not permitted; writes belong in your view dir `{}`{scratch_suffix}", set.view_dir());
-                }
-                return format!("writes to another session's view dir or feature are not permitted; writes belong in your own view dir or feature directory{scratch_suffix}");
-            }
-
-            // Check other .ivar/ state
-            let ivar_dir = canonicalize_lenient(&layout.ivar_dir());
-            if target.starts_with(&ivar_dir) {
-                return format!("`.ivar/` state is managed by ivar; use the matching `ivar` command{scratch_suffix}");
-            }
-        }
+    if let Some(target) = target
+        && let Some(msg) = classify_layout_path_denial(target, set, &scratch_suffix)
+    {
+        return msg;
     }
 
     if let Some(set) = set {
         format!("temporary files belong in {}", set.scratch_dir())
     } else {
-        "temporary files belong in the session's scratch directory".to_string()
+        "temporary files belong in the session's scratch directory".to_owned()
     }
+}
+
+fn classify_layout_path_denial(
+    target: &Utf8Path,
+    set: Option<&WritableSet>,
+    scratch_suffix: &str,
+) -> Option<String> {
+    let mut current = target;
+    let existing_ancestor = loop {
+        if current.exists() {
+            break current;
+        }
+        match current.parent() {
+            Some(parent) => current = parent,
+            None => break current,
+        }
+    };
+
+    let layout = Layout::discover(existing_ancestor).ok()??;
+
+    // Check protected hall paths
+    let protected_paths: Vec<Utf8PathBuf> = layout
+        .guard_protected_paths()
+        .into_iter()
+        .map(|p| canonicalize_lenient(&p))
+        .collect();
+
+    if protected_paths
+        .iter()
+        .any(|p| target == p || target.starts_with(p))
+    {
+        return Some(format!(
+            "this path is ivar-managed and protected; change it through the owning `ivar` command{scratch_suffix}"
+        ));
+    }
+
+    // Check if target is in an unpromoted repo
+    let repos_dir = canonicalize_lenient(&layout.repos_dir());
+    if target.starts_with(&repos_dir) {
+        if let Ok(entries) = crate::infra::fs::read_dir(&layout.repos_dir()) {
+            for entry in entries {
+                let canonical_entry = canonicalize_lenient(&entry);
+                if target.starts_with(&canonical_entry)
+                    && let Some(repo_name) = entry.file_name()
+                {
+                    return Some(format!(
+                        "repo `{repo_name}` is not promoted in this feature; run `ivar feature promote {repo_name}` to make it writable{scratch_suffix}"
+                    ));
+                }
+            }
+        }
+        return Some(format!(
+            "this repo is not promoted in this feature; run `ivar feature promote <repo>` to make it writable{scratch_suffix}"
+        ));
+    }
+
+    // Check if target is inside another session view dir or feature dir
+    let features_dir = canonicalize_lenient(&layout.features_dir());
+    let discovery_sessions_dir = canonicalize_lenient(&layout.discovery_sessions_dir());
+
+    if target.starts_with(&discovery_sessions_dir) || target.starts_with(&features_dir) {
+        if let Some(set) = set {
+            if target.starts_with(&features_dir)
+                && let Some(fd) = &set.feature_dir
+                && !target.starts_with(fd)
+            {
+                return Some(format!(
+                    "writes to another feature's directory are not permitted; writes belong in your feature directory `{fd}` or view dir `{}`{scratch_suffix}",
+                    set.view_dir()
+                ));
+            }
+            return Some(format!(
+                "writes to another session's view dir are not permitted; writes belong in your view dir `{}`{scratch_suffix}",
+                set.view_dir()
+            ));
+        }
+        return Some(format!(
+            "writes to another session's view dir or feature are not permitted; writes belong in your own view dir or feature directory{scratch_suffix}"
+        ));
+    }
+
+    // Check other .ivar/ state
+    let ivar_dir = canonicalize_lenient(&layout.ivar_dir());
+    if target.starts_with(&ivar_dir) {
+        return Some(format!(
+            "`.ivar/` state is managed by ivar; use the matching `ivar` command{scratch_suffix}"
+        ));
+    }
+
+    None
 }
 
 /// The unresolved denial's reason. The first sentence is unchanged and
@@ -604,6 +635,100 @@ enum TargetResolution {
 
 /// Resolve the authoritative writable set for a target path when cwd resolves
 /// no session.
+fn match_feature_sessions(
+    layout: &Layout,
+    target: &Utf8Path,
+) -> Vec<(
+    crate::domain::name::FeatureName,
+    crate::domain::session::SessionRef,
+)> {
+    let mut feature_matching_sessions = Vec::new();
+    let Ok(entries) = crate::infra::fs::read_dir(&layout.features_dir()) else {
+        return feature_matching_sessions;
+    };
+
+    for entry in entries {
+        let Some(name) = entry.file_name() else {
+            continue;
+        };
+        let Ok(feature_name) = crate::domain::name::FeatureName::new(name) else {
+            continue;
+        };
+        let Ok(Some(feature)) = Feature::read(layout, &feature_name) else {
+            continue;
+        };
+        let feature_dir = canonicalize_lenient(&layout.feature_dir(&feature_name));
+        let sessions_dir = canonicalize_lenient(&layout.feature_sessions_dir(&feature_name));
+
+        // Check if target is inside a specific session view dir under this feature
+        let mut matched_specific_session = false;
+        if let Ok(sessions) = super::lookup::list_feature(layout, &feature_name) {
+            for s in sessions {
+                if s.state.is_some() {
+                    let view = canonicalize_lenient(&s.view_dir);
+                    if target == view || target.starts_with(&view) {
+                        feature_matching_sessions.push((feature_name.clone(), s));
+                        matched_specific_session = true;
+                        break;
+                    }
+                }
+            }
+        }
+
+        if !matched_specific_session {
+            let target_in_feature_dir =
+                target.starts_with(&feature_dir) && !target.starts_with(&sessions_dir);
+            let target_in_promoted_worktree = feature.promotions.keys().any(|repo| {
+                let wt = canonicalize_lenient(&layout.repo_worktree(repo, &feature.branch));
+                target == wt || target.starts_with(&wt)
+            });
+
+            if (target_in_feature_dir || target_in_promoted_worktree)
+                && let Ok(Some(session)) = super::lookup::most_recent(layout, &feature_name)
+                && session.state.is_some()
+            {
+                feature_matching_sessions.push((feature_name.clone(), session));
+            }
+        }
+    }
+
+    feature_matching_sessions
+}
+
+fn match_discovery_sessions(
+    layout: &Layout,
+    target: &Utf8Path,
+) -> Vec<crate::domain::session::SessionRef> {
+    let mut discovery_sessions = super::lookup::list_discovery(layout).unwrap_or_default();
+    discovery_sessions.retain(|s| s.state.is_some());
+
+    let mut matching = Vec::new();
+    for s in discovery_sessions {
+        let view = canonicalize_lenient(&s.view_dir);
+        if target == view || target.starts_with(&view) {
+            matching.push(s);
+        }
+    }
+    matching
+}
+
+fn resolve_session_writable_set(
+    layout: &Layout,
+    session: &crate::domain::session::SessionRef,
+) -> Option<WritableSet> {
+    let state = session.state.as_ref()?;
+    let env = crate::action::session::env::SessionEnv::build(
+        layout,
+        &session.id,
+        &session.view_dir,
+        state.provider,
+        state.feature.as_ref(),
+    );
+    resolve_writable_set(&env)
+}
+
+/// Resolve the authoritative writable set for a target path when cwd resolves
+/// no session.
 fn resolve_set_by_target(target: &Utf8Path) -> TargetResolution {
     let mut current = target;
     let existing_ancestor = loop {
@@ -621,68 +746,14 @@ fn resolve_set_by_target(target: &Utf8Path) -> TargetResolution {
     };
 
     // 1. Check session-specific roots across all live sessions.
-    let mut discovery_sessions = super::lookup::list_discovery(&layout).unwrap_or_default();
-    discovery_sessions.retain(|s| s.state.is_some());
-
-    let mut feature_matching_sessions: Vec<(crate::domain::name::FeatureName, crate::domain::session::SessionRef)> = Vec::new();
-
-    if let Ok(entries) = crate::infra::fs::read_dir(&layout.features_dir()) {
-        for entry in entries {
-            let Some(name) = entry.file_name() else {
-                continue;
-            };
-            let Ok(feature_name) = crate::domain::name::FeatureName::new(name) else {
-                continue;
-            };
-            let Ok(Some(feature)) = Feature::read(&layout, &feature_name) else {
-                continue;
-            };
-            let feature_dir = canonicalize_lenient(&layout.feature_dir(&feature_name));
-            let sessions_dir = canonicalize_lenient(&layout.feature_sessions_dir(&feature_name));
-
-            // Check if target is inside a specific session view dir under this feature
-            let mut matched_specific_session = false;
-            if let Ok(sessions) = super::lookup::list_feature(&layout, &feature_name) {
-                for s in sessions {
-                    if s.state.is_some() {
-                        let view = canonicalize_lenient(&s.view_dir);
-                        if target == view || target.starts_with(&view) {
-                            feature_matching_sessions.push((feature_name.clone(), s));
-                            matched_specific_session = true;
-                            break;
-                        }
-                    }
-                }
-            }
-
-            if !matched_specific_session {
-                let target_in_feature_dir = target.starts_with(&feature_dir) && !target.starts_with(&sessions_dir);
-                let target_in_promoted_worktree = feature.promotions.keys().any(|repo| {
-                    let wt = canonicalize_lenient(&layout.repo_worktree(repo, &feature.branch));
-                    target == wt || target.starts_with(&wt)
-                });
-
-                if target_in_feature_dir || target_in_promoted_worktree {
-                    if let Ok(Some(session)) = super::lookup::most_recent(&layout, &feature_name) {
-                        if session.state.is_some() {
-                            feature_matching_sessions.push((feature_name.clone(), session));
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    let mut matching_discovery = Vec::new();
-    for s in discovery_sessions {
-        let view = canonicalize_lenient(&s.view_dir);
-        if target == view || target.starts_with(&view) {
-            matching_discovery.push(s);
-        }
-    }
+    let feature_matching_sessions = match_feature_sessions(&layout, target);
+    let matching_discovery = match_discovery_sessions(&layout, target);
 
     // Deduplicate matching features
-    let mut unique_features: std::collections::BTreeMap<String, crate::domain::session::SessionRef> = std::collections::BTreeMap::new();
+    let mut unique_features: std::collections::BTreeMap<
+        String,
+        crate::domain::session::SessionRef,
+    > = std::collections::BTreeMap::new();
     for (feat, session) in feature_matching_sessions {
         unique_features.entry(feat.to_string()).or_insert(session);
     }
@@ -697,40 +768,24 @@ fn resolve_set_by_target(target: &Utf8Path) -> TargetResolution {
         return TargetResolution::Ambiguous(names);
     }
 
-    if let Some((_, session)) = unique_features.into_iter().next() {
-        if let Some(state) = &session.state {
-            let env = crate::action::session::env::SessionEnv::build(
-                &layout,
-                &session.id,
-                &session.view_dir,
-                state.provider,
-                state.feature.as_ref(),
-            );
-            if let Some(set) = resolve_writable_set(&env) {
-                return TargetResolution::Unique(set);
-            }
-        }
+    if let Some((_, session)) = unique_features.into_iter().next()
+        && let Some(set) = resolve_session_writable_set(&layout, &session)
+    {
+        return TargetResolution::Unique(set);
     }
 
-    if let Some(session) = matching_discovery.into_iter().next() {
-        if let Some(state) = &session.state {
-            let env = crate::action::session::env::SessionEnv::build(
-                &layout,
-                &session.id,
-                &session.view_dir,
-                state.provider,
-                state.feature.as_ref(),
-            );
-            if let Some(set) = resolve_writable_set(&env) {
-                return TargetResolution::Unique(set);
-            }
-        }
+    if let Some(session) = matching_discovery.into_iter().next()
+        && let Some(set) = resolve_session_writable_set(&layout, &session)
+    {
+        return TargetResolution::Unique(set);
     }
 
     // 2. Target does not lie in any session-specific root.
     // Check shared hall space (HallRoot::allows or hall_sources).
     let hall_root = HallRoot::new(&layout);
-    let is_hall_source = hall_sources(&layout).iter().any(|hs| target.starts_with(hs));
+    let is_hall_source = hall_sources(&layout)
+        .iter()
+        .any(|hs| target.starts_with(hs));
     if hall_root.allows(target) || is_hall_source {
         let dummy_view = layout.root().to_path_buf();
         let set = WritableSet {

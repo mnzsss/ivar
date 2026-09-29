@@ -78,10 +78,7 @@ pub(crate) fn close_at(
     ) {
         return Err(Failure::blocked(
             "discovery.not_a_closure",
-            format!(
-                "`{}` is not a way to end a discovery",
-                outcome.as_str()
-            ),
+            format!("`{}` is not a way to end a discovery", outcome.as_str()),
         )
         .expected("`converted` or `abandoned`")
         .actual(format!("`{}`", outcome.as_str()))

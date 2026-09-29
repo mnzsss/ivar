@@ -242,12 +242,15 @@ fn conversion_from_moved_discovery_cwd_marks_doc_converted() {
     assert!(!fs::exists(&old_dir).unwrap());
     let new_dir = layout.feature_session(&feature_name(), &SessionId::new(DISCOVERY_ID).unwrap());
     assert_eq!(
-        SessionState::read(&new_dir).unwrap().unwrap().feature().unwrap(),
+        SessionState::read(&new_dir)
+            .unwrap()
+            .unwrap()
+            .feature()
+            .unwrap(),
         &feature_name()
     );
     unguard_worktrees(&root);
 }
-
 
 /// Conversion binds the discovery session to the feature, and the rematerialised
 /// View Dir gains what a feature session carries: the bootstrap instructions,
