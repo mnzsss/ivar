@@ -557,7 +557,8 @@ fn reads_are_never_denied() {
             &Resolution::Unresolved {
                 scratch_dirs: Vec::new()
             },
-            &req
+            &req,
+            req.file_path.as_deref()
         ),
         GuardDecision::Allow
     ));
@@ -571,7 +572,7 @@ fn writes_outside_the_set_are_denied_with_a_reason_naming_the_set() {
         file_path: Some("/etc/passwd".into()),
         search_pattern: None,
     };
-    match decide(&Resolution::Resolved(&set), &req) {
+    match decide(&Resolution::Resolved(&set), &req, req.file_path.as_deref()) {
         GuardDecision::Deny { reason } => {
             assert!(
                 reason.contains("writable"),
@@ -603,7 +604,7 @@ fn every_structured_write_tool_is_denied_outside_the_set() {
             file_path: Some("/etc/passwd".into()),
             search_pattern: None,
         };
-        match decide(&Resolution::Resolved(&set), &req) {
+        match decide(&Resolution::Resolved(&set), &req, req.file_path.as_deref()) {
             GuardDecision::Deny { reason } => assert!(
                 reason.contains("writable"),
                 "`{tool}` must name the set: {reason}"
@@ -662,9 +663,10 @@ fn writes_inside_the_set_are_allowed_and_shell_is_never_classified() {
             &Resolution::Resolved(&set),
             &ToolRequest {
                 tool: "Edit".into(),
-                file_path: Some(in_set),
+                file_path: Some(in_set.clone()),
                 search_pattern: None,
-            }
+            },
+            Some(&in_set)
         ),
         GuardDecision::Allow
     ));
@@ -675,7 +677,8 @@ fn writes_inside_the_set_are_allowed_and_shell_is_never_classified() {
                 tool: "Bash".into(),
                 file_path: None,
                 search_pattern: None,
-            }
+            },
+            None
         ),
         GuardDecision::Allow
     ));
@@ -1041,11 +1044,46 @@ fn hall_root_cwd_denies_a_relative_target() {
 
     let out = guard(Provider::Omp, &payload.to_string()).unwrap();
     assert!(!out.exit_zero);
+    assert!(out.body.contains("relative path") && out.body.contains("belongs to no ivar session"));
+}
+#[test]
+fn relative_write_in_session_uses_payload_cwd() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root);
+    let feature = Feature::read(&layout, &FeatureName::new("checkout").unwrap())
+        .unwrap()
+        .unwrap();
+    let id = SessionId::new("6f0c9d5f-0000-4000-8000-000000000071").unwrap();
+    let view = layout.feature_session(&feature.name, &id);
+    crate::infra::fs::ensure_dir(&view).unwrap();
+    let mut state =
+        crate::domain::session::SessionState::new(Provider::Omp, "2026-09-29T00:00:00Z");
+    state.bind(feature.name, "2026-09-29T00:00:00Z");
+    state.write(&view).unwrap();
+    let payload =
+        serde_json::json!({"tool":"write","args":{"filePath":"notes/deep/new.md"},"cwd":view});
     assert!(
-        out.body
-            .contains("no ivar session resolves from the cwd or the target path")
-            || out.body.contains("writable set:")
+        guard(Provider::Omp, &payload.to_string())
+            .unwrap()
+            .exit_zero
     );
+}
+
+#[test]
+fn relative_hall_target_does_not_choose_the_latest_discovery() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root.clone());
+    let id = SessionId::new("6f0c9d5f-0000-4000-8000-000000000072").unwrap();
+    let view = layout.discovery_session(&id);
+    crate::infra::fs::ensure_dir(&view).unwrap();
+    crate::domain::session::SessionState::new(Provider::Omp, "2026-09-29T00:00:00Z")
+        .write(&view)
+        .unwrap();
+    let payload = serde_json::json!({"tool":"write","args":{"filePath":"apps/new.rs"},"cwd":root});
+    let out = guard(Provider::Omp, &payload.to_string()).unwrap();
+    assert!(!out.exit_zero);
+    assert!(out.body.contains("absolute"));
+    assert!(!out.body.contains(view.as_str()));
 }
 
 #[test]
@@ -1148,14 +1186,14 @@ fn hall_root_cwd_selects_the_most_recent_session_of_the_feature() {
     assert!(out_new.exit_zero);
     assert_eq!(out_new.body, "");
 
-    // Target older session's view_dir notes.txt -> denied
+    // Target older session's view_dir notes.txt -> allowed for its own view dir
     let payload_old = serde_json::json!({
         "tool": "write",
         "args": { "filePath": view_old.join("notes.txt") },
         "cwd": root,
     });
     let out_old = guard(Provider::Omp, &payload_old.to_string()).unwrap();
-    assert!(!out_old.exit_zero);
+    assert!(out_old.exit_zero);
 }
 
 #[test]
@@ -1656,7 +1694,7 @@ fn guard_decision_is_unchanged_when_recording_fails() {
     };
     let set = resolve_writable_set(&env).unwrap();
     assert!(matches!(
-        decide(&Resolution::Resolved(&set), &req),
+        decide(&Resolution::Resolved(&set), &req, req.file_path.as_deref()),
         GuardDecision::Allow
     ));
 }
@@ -1805,4 +1843,264 @@ fn an_opencode_graph_explore_hook_payload_records_a_hook_usage_row() {
 #[test]
 fn an_omp_graph_explore_hook_payload_records_a_hook_usage_row() {
     assert_hook_payload_records_graph_call(Provider::Omp);
+}
+
+#[test]
+fn claude_scratchpad_denial_directs_to_session_tmp() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root);
+    let id = SessionId::new("6f0c9d5f-0000-4000-8000-000000000073").unwrap();
+    let view = layout.discovery_session(&id);
+    crate::infra::fs::ensure_dir(&view).unwrap();
+    crate::domain::session::SessionState::new(Provider::ClaudeCode, "2026-09-29T00:00:00Z")
+        .write(&view)
+        .unwrap();
+    let payload = serde_json::json!({
+        "tool_name":"Write",
+        "tool_input":{"file_path":"/tmp/claude-1000/-home-user-hall/123/scratchpad/draft.md"},
+        "cwd":view
+    });
+    let out = guard(Provider::ClaudeCode, &payload.to_string()).unwrap();
+    assert!(!out.body.is_empty());
+    assert!(out.body.contains("scratchpad"));
+    assert!(out.body.contains(Layout::session_scratch(&view).as_str()));
+}
+
+#[test]
+fn claude_auto_memory_denial_directs_outside_hall() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root);
+    let id = SessionId::new("6f0c9d5f-0000-4000-8000-000000000074").unwrap();
+    let view = layout.discovery_session(&id);
+    crate::infra::fs::ensure_dir(&view).unwrap();
+    crate::domain::session::SessionState::new(Provider::ClaudeCode, "2026-09-29T00:00:00Z")
+        .write(&view)
+        .unwrap();
+    let payload = serde_json::json!({
+        "tool_name":"Write",
+        "tool_input":{"file_path":"/home/user/.claude/projects/-home-user-hall/memory/notes.md"},
+        "cwd":view
+    });
+    let out = guard(Provider::ClaudeCode, &payload.to_string()).unwrap();
+    assert!(out.body.contains("deny"));
+    assert!(
+        out.body
+            .contains("auto-memory writes outside the hall are not permitted")
+    );
+    assert!(out.body.contains("hall docs or .ivar/skills"));
+}
+
+#[test]
+fn unpromoted_repo_denial_suggests_feature_promote() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root);
+    let feature = Feature::read(&layout, &FeatureName::new("checkout").unwrap())
+        .unwrap()
+        .unwrap();
+    let id = SessionId::new("6f0c9d5f-0000-4000-8000-000000000075").unwrap();
+    let view = layout.feature_session(&feature.name, &id);
+    crate::infra::fs::ensure_dir(&view).unwrap();
+    let mut state =
+        crate::domain::session::SessionState::new(Provider::Omp, "2026-09-29T00:00:00Z");
+    state.bind(feature.name.clone(), "2026-09-29T00:00:00Z");
+    state.write(&view).unwrap();
+
+    let unpromoted_wt = layout.repo_worktree(
+        &RepoName::new("api").unwrap(),
+        &BranchName::new("main").unwrap(),
+    );
+    crate::infra::fs::ensure_dir(&unpromoted_wt).unwrap();
+
+    let payload = serde_json::json!({
+        "tool":"edit",
+        "args":{"filePath":unpromoted_wt.join("src/main.rs")},
+        "cwd":view
+    });
+    let out = guard(Provider::Omp, &payload.to_string()).unwrap();
+    assert!(!out.exit_zero);
+    assert!(out.body.contains("ivar feature promote api"));
+}
+
+#[test]
+fn protected_hook_config_denial_suggests_owning_ivar_command() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root.clone());
+    let id = SessionId::new("6f0c9d5f-0000-4000-8000-000000000076").unwrap();
+    let view = layout.discovery_session(&id);
+    crate::infra::fs::ensure_dir(&view).unwrap();
+    crate::domain::session::SessionState::new(Provider::Omp, "2026-09-29T00:00:00Z")
+        .write(&view)
+        .unwrap();
+
+    let payload = serde_json::json!({
+        "tool":"write",
+        "args":{"filePath":root.join(".git/hooks/pre-commit")},
+        "cwd":view
+    });
+    let out = guard(Provider::Omp, &payload.to_string()).unwrap();
+    assert!(!out.exit_zero);
+    assert!(out.body.contains("protected"));
+    assert!(out.body.contains("owning `ivar` command"));
+}
+
+#[test]
+fn foreign_session_view_denial_directs_to_own_view() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root);
+    let id1 = SessionId::new("6f0c9d5f-0000-4000-8000-000000000077").unwrap();
+    let view1 = layout.discovery_session(&id1);
+    crate::infra::fs::ensure_dir(&view1).unwrap();
+    crate::domain::session::SessionState::new(Provider::Omp, "2026-09-29T00:00:00Z")
+        .write(&view1)
+        .unwrap();
+
+    let id2 = SessionId::new("6f0c9d5f-0000-4000-8000-000000000078").unwrap();
+    let view2 = layout.discovery_session(&id2);
+    crate::infra::fs::ensure_dir(&view2).unwrap();
+    crate::domain::session::SessionState::new(Provider::Omp, "2026-09-29T00:00:00Z")
+        .write(&view2)
+        .unwrap();
+
+    let payload = serde_json::json!({
+        "tool":"write",
+        "args":{"filePath":view2.join("scratch.md")},
+        "cwd":view1
+    });
+    let out = guard(Provider::Omp, &payload.to_string()).unwrap();
+    assert!(!out.exit_zero);
+    assert!(
+        out.body
+            .contains("writes to another session's view dir are not permitted")
+    );
+    assert!(out.body.contains(view1.as_str()));
+}
+
+#[test]
+fn symlinked_claude_skills_remain_writable() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root.clone());
+    let id = SessionId::new("6f0c9d5f-0000-4000-8000-000000000079").unwrap();
+    let view = layout.discovery_session(&id);
+    crate::infra::fs::ensure_dir(&view).unwrap();
+    crate::domain::session::SessionState::new(Provider::ClaudeCode, "2026-09-29T00:00:00Z")
+        .write(&view)
+        .unwrap();
+
+    // .claude/skills/my-skill -> .ivar/skills/my-skill
+    let hall_skills = layout.hall_skills();
+    crate::infra::fs::ensure_dir(&hall_skills.join("my-skill")).unwrap();
+    let claude_skills = root.join(".claude/skills");
+    crate::infra::fs::ensure_dir(&claude_skills).unwrap();
+    crate::infra::fs::create_symlink(
+        &hall_skills.join("my-skill"),
+        &claude_skills.join("my-skill"),
+    )
+    .unwrap();
+
+    let payload = serde_json::json!({
+        "tool_name":"Write",
+        "tool_input":{"file_path":claude_skills.join("my-skill/SKILL.md")},
+        "cwd":view
+    });
+    let out = guard(Provider::ClaudeCode, &payload.to_string()).unwrap();
+    assert!(out.exit_zero);
+}
+
+#[test]
+fn ambiguous_target_matching_multiple_features_denies_and_names_all_conflicting_features() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root.clone());
+    let ctx = crate::action::Ctx::new(root.clone());
+
+    // Create a second feature "billing" promoting the same repo "api"
+    feature_create::create(
+        &ctx,
+        CreateInput {
+            name: "billing".to_owned(),
+            branch: None,
+            base: None,
+            parent: None,
+            via: None,
+            strategy: None,
+        },
+    )
+    .unwrap();
+    crate::action::sync::sync(&ctx, &Default::default()).unwrap();
+    feature_promote::promote(
+        &ctx,
+        PromoteInput {
+            feature: "billing".to_owned(),
+            repo: "api".to_owned(),
+            base: None,
+        },
+    )
+    .unwrap();
+
+    // Session for checkout feature
+    let feat_checkout = Feature::read(&layout, &FeatureName::new("checkout").unwrap())
+        .unwrap()
+        .unwrap();
+    let id_checkout = SessionId::new("6f0c9d5f-0000-4000-8000-000000000081").unwrap();
+    let view_checkout = layout.feature_session(&feat_checkout.name, &id_checkout);
+    crate::infra::fs::ensure_dir(&view_checkout).unwrap();
+    let mut state_checkout =
+        crate::domain::session::SessionState::new(Provider::Omp, "2026-09-29T00:00:00Z");
+    state_checkout.bind(feat_checkout.name.clone(), "2026-09-29T00:00:00Z");
+    state_checkout.write(&view_checkout).unwrap();
+
+    // Session for billing feature
+    let feat_billing = Feature::read(&layout, &FeatureName::new("billing").unwrap())
+        .unwrap()
+        .unwrap();
+    let id_billing = SessionId::new("6f0c9d5f-0000-4000-8000-000000000082").unwrap();
+    let view_billing = layout.feature_session(&feat_billing.name, &id_billing);
+    crate::infra::fs::ensure_dir(&view_billing).unwrap();
+    let mut state_billing =
+        crate::domain::session::SessionState::new(Provider::Omp, "2026-09-29T00:00:00Z");
+    state_billing.bind(feat_billing.name.clone(), "2026-09-29T00:00:00Z");
+    state_billing.write(&view_billing).unwrap();
+
+    // Test decide() directly with Resolution::Ambiguous
+    let req = ToolRequest {
+        tool: "write".into(),
+        file_path: Some(root.join("some/path.rs")),
+        search_pattern: None,
+    };
+    let decision = decide(
+        &Resolution::Ambiguous {
+            features: vec!["billing".to_owned(), "checkout".to_owned()],
+        },
+        &req,
+        req.file_path.as_deref(),
+    );
+    match decision {
+        GuardDecision::Deny { reason } => {
+            assert!(reason.contains("conflicting features"));
+            assert!(reason.contains("billing"));
+            assert!(reason.contains("checkout"));
+        }
+        GuardDecision::Allow => panic!("expected deny for ambiguous resolution"),
+    }
+
+    // Verify decide() when multiple discovery sessions are also present
+    let decision_multi = decide(
+        &Resolution::Ambiguous {
+            features: vec![
+                "6f0c9d5f-0000-4000-8000-000000000001".to_owned(),
+                "billing".to_owned(),
+                "checkout".to_owned(),
+            ],
+        },
+        &req,
+        req.file_path.as_deref(),
+    );
+    match decision_multi {
+        GuardDecision::Deny { reason } => {
+            assert!(reason.contains("conflicting features"));
+            assert!(reason.contains("6f0c9d5f-0000-4000-8000-000000000001"));
+            assert!(reason.contains("billing"));
+            assert!(reason.contains("checkout"));
+        }
+        GuardDecision::Allow => panic!("expected deny for ambiguous resolution"),
+    }
 }

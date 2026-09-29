@@ -12,7 +12,7 @@
 
 use std::io;
 
-use camino::Utf8PathBuf;
+use camino::{Utf8Path, Utf8PathBuf};
 use serde::Serialize;
 
 use crate::action::Ctx;
@@ -62,38 +62,43 @@ impl WriteHuman for CloseOutcome {
 pub fn close(ctx: &Ctx, input: CloseInput) -> Outcome<CloseOutcome> {
     let layout = discover_hall(ctx)?;
     let name = FeatureName::new(input.name)?;
+    let path = super::resolve_doc_path(ctx, &layout, &name);
+    close_at(&path, &name, input.outcome)
+}
 
+/// Close a discovery document at a specific path.
+pub(crate) fn close_at(
+    path: &Utf8Path,
+    name: &FeatureName,
+    outcome: DiscoveryStatus,
+) -> Outcome<CloseOutcome> {
     if !matches!(
-        input.outcome,
+        outcome,
         DiscoveryStatus::Converted | DiscoveryStatus::Abandoned
     ) {
         return Err(Failure::blocked(
             "discovery.not_a_closure",
-            format!(
-                "`{}` is not a way to end a discovery",
-                input.outcome.as_str()
-            ),
+            format!("`{}` is not a way to end a discovery", outcome.as_str()),
         )
         .expected("`converted` or `abandoned`")
-        .actual(format!("`{}`", input.outcome.as_str()))
+        .actual(format!("`{}`", outcome.as_str()))
         .fix(FixAction::safe(
             "discovery.choose_an_outcome",
             "Close with `--outcome converted` or `--outcome abandoned`.",
         )));
     }
 
-    let path = super::resolve_doc_path(ctx, &layout, &name);
-    let mut doc = super::load_at(&path, &name)?;
-    super::ensure_writable(&doc, &name)?;
+    let mut doc = super::load_at(path, name)?;
+    super::ensure_writable(&doc, name)?;
 
-    doc.frontmatter.status = input.outcome;
+    doc.frontmatter.status = outcome;
     doc.frontmatter.updated_at = rfc3339_now();
 
-    fs::write_text(&path, &crate::store::discovery::render(&doc)?)?;
+    fs::write_text(path, &crate::store::discovery::render(&doc)?)?;
 
     Ok(Report::new(CloseOutcome {
-        path,
-        status: input.outcome,
+        path: path.to_path_buf(),
+        status: outcome,
     }))
 }
 
