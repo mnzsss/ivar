@@ -132,6 +132,7 @@ impl GraphDb {
 pub struct MissFilter {
     pub kind: Option<MissKind>,
     pub since: Option<i64>,
+    pub limit: Option<usize>,
 }
 
 /// A CLI/MCP graph query recorded in `usage`.
@@ -230,10 +231,12 @@ impl GraphDb {
         let mut stmt = self.conn.prepare(
             "SELECT id, ts, session, kind, query, pattern, reason FROM graph_misses
              WHERE (?1 IS NULL OR kind = ?1) AND (?2 IS NULL OR ts >= ?2)
-             ORDER BY ts DESC, id DESC",
+             ORDER BY ts DESC, id DESC
+             LIMIT ?3",
         )?;
         let kind = filter.kind.map(MissKind::as_str);
-        let rows = stmt.query_map(params![kind, filter.since], |r| {
+        let limit_param = filter.limit.map_or(-1_i64, |l| l as i64);
+        let rows = stmt.query_map(params![kind, filter.since, limit_param], |r| {
             Ok(MissRecord {
                 id: r.get(0)?,
                 ts: r.get(1)?,

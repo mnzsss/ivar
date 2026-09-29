@@ -43,6 +43,7 @@ fn input(kind: Option<&str>, since: Option<&str>) -> MissesInput {
     MissesInput {
         kind: kind.map(str::to_owned),
         since: since.map(str::to_owned),
+        limit: None,
     }
 }
 

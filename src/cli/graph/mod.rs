@@ -287,4 +287,7 @@ pub struct GraphMissesArgs {
     /// relative duration like `30m`, `24h`, or `7d`.
     #[arg(long)]
     pub since: Option<String>,
+    /// Maximum number of misses to display (0 for unlimited).
+    #[arg(long, default_value_t = 10)]
+    pub limit: usize,
 }

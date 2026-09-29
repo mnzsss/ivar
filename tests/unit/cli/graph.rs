@@ -318,3 +318,30 @@ fn test_cli_graph_misses_parsing() {
         other => panic!("expected graph misses, got {other:?}"),
     }
 }
+
+#[test]
+fn test_cli_graph_misses_limit_parsing() {
+    let default_cli = Cli::try_parse_from(["ivar", "graph", "misses"]).unwrap();
+    match default_cli.command {
+        Command::Graph(GraphCommand::Misses(args)) => {
+            assert_eq!(args.limit, 10);
+        }
+        other => panic!("expected graph misses, got {other:?}"),
+    }
+
+    let custom_cli = Cli::try_parse_from(["ivar", "graph", "misses", "--limit", "25"]).unwrap();
+    match custom_cli.command {
+        Command::Graph(GraphCommand::Misses(args)) => {
+            assert_eq!(args.limit, 25);
+        }
+        other => panic!("expected graph misses, got {other:?}"),
+    }
+
+    let zero_cli = Cli::try_parse_from(["ivar", "graph", "misses", "--limit", "0"]).unwrap();
+    match zero_cli.command {
+        Command::Graph(GraphCommand::Misses(args)) => {
+            assert_eq!(args.limit, 0);
+        }
+        other => panic!("expected graph misses, got {other:?}"),
+    }
+}
