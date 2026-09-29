@@ -1097,6 +1097,7 @@ List recorded graph misses (skipped/follow-up searches, feedback)
 | --- | --- | --- | --- |
 | `--kind` | `<KIND>` |  | Filter by miss kind: `skipped`, `followup`, or `feedback` |
 | `--since` | `<SINCE>` |  | Only include misses at or after this time: a Unix timestamp, or a relative duration like `30m`, `24h`, or `7d` |
+| `--limit` | `<LIMIT>` | `10` | Maximum number of misses to display (0 for unlimited) |
 
 
 #### `ivar guard`
@@ -1142,12 +1143,12 @@ entirely.
 **`ivar graph explore` unifies structural and textual retrieval with bounded output.**
 Retrieval applies lexicographic ranking precedence: unambiguous repository/path constraints, exact
 symbol or basename matches, path-pinned matches, structured symbol names, content FTS, and loose
-symbol FTS. Active Feature Session layers shadow base worktrees and honor file tombstones through
-`visible_files`. Queries with explicit list intent (e.g. `importers`, `callers`, `test files`) return
-compact ranked paths and metadata while suppressing large source bodies. All MCP output formats
-(Markdown, JSON, compact) rewrite paths to safe workspace-relative paths. Responses enforce
-deterministic character budgets (18,000 characters for exploratory queries; 24,000 for requested-file
-lookups) and report omitted files under `not_shown` alongside an exact `paths` continuation query.
+symbol FTS. Total candidates are capped at 20 across symbols and files (`MAX_EXPLORE_CANDIDATES = 20`),
+reserving slots for pinned and exact matches first. Multi-repo queries consume all named visible repositories.
+CLI relation sections (entry points, callers/callees, transitive consumers) are capped at 40 items (`MAX_LIST_ITEMS`)
+with `…and N more` and an 18,000 character output budget. Specific file slices can be requested with
+`path:START-END` line ranges, and block truncation notices specify the exact continuation slice `path:<n+1>-<last>`.
+
 **`ivar graph misses` shows where the graph fell short.** The guard records a
 `skipped` miss when a session greps (Grep, Glob, or an `rg`/`grep` Bash
 command) without having asked the graph anything, and a `followup` miss for the
@@ -1155,11 +1156,10 @@ first grep within two minutes of a graph call, carrying that call's query. The
 `graph_feedback` MCP tool, advertised under both `--tools` surfaces, lets the
 agent record a `feedback` miss with the query it asked and why the answer did
 not help. `--kind skipped|followup|feedback` filters by kind; `--since` takes a
-Unix timestamp or `Nm`/`Nh`/`Nd`. `--json` prints a bare array of misses, newest
-first, not the usual report object. Misses and usage rows are kept for 30 days, so
-`ivar graph stats` reports a 30-day window; `ivar graph misses`, `ivar graph
-stats`, and the MCP server at startup prune older rows.
-
+Unix timestamp or `Nm`/`Nh`/`Nd`. `--limit <N>` (default 10, 0 for all) bounds
+the returned rows. `--json` prints a bare array of misses, newest first, not the usual report object.
+Misses and usage rows are kept for 30 days, so `ivar graph stats` reports a 30-day window; `ivar graph misses`,
+`ivar graph stats`, and the MCP server at startup prune older rows.
 **`ivar session start` is the one verb that takes over your terminal.** It opens
 a TUI. Everything else prints and exits.
 
