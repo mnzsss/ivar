@@ -417,6 +417,15 @@ pub fn bridge_remove_commands(
     }
 }
 
+/// Resolves the user's home directory.
+///
+/// # Errors
+///
+/// Returns [`Failure`] if no home directory variable resolves to an absolute path.
+pub fn user_home() -> Result<Utf8PathBuf, Failure> {
+    omp::commands::user_home()
+}
+
 #[cfg(test)]
 #[path = "../../tests/unit/providers/mod.rs"]
 mod tests;

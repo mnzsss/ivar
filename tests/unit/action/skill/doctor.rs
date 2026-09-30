@@ -1,4 +1,9 @@
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing
+)]
 
 use super::*;
 use crate::action::skill::sync as skill_sync;
@@ -121,4 +126,66 @@ fn the_human_surface_reports_clean_state() {
     outcome.write_human(&mut out).unwrap();
 
     assert_eq!(String::from_utf8(out).unwrap(), "No problems found.\n");
+}
+
+fn hall_with_repo_skill(repo_skill: &str) -> (tempfile::TempDir, camino::Utf8PathBuf) {
+    use crate::domain::name::{BranchName, HallName, RepoName};
+    use crate::domain::provider::Provider;
+    use crate::store::manifest::{Manifest, Providers, Repo};
+
+    let (guard, root) = seeded_hall();
+    let layout = Layout::at(root.clone());
+    let manifest = Manifest::new(
+        HallName::new("acme").unwrap(),
+        Providers::new(vec![Provider::ClaudeCode], Provider::ClaudeCode),
+        vec![Repo::new(
+            RepoName::new("api").unwrap(),
+            root.join("origin-api").as_str(),
+            BranchName::new("main").unwrap(),
+        )],
+        None,
+    )
+    .unwrap();
+    Manifest::write(&layout, &manifest).unwrap();
+    let dir = layout
+        .repo_worktree(
+            &RepoName::new("api").unwrap(),
+            &BranchName::new("main").unwrap(),
+        )
+        .join(".claude/skills")
+        .join(repo_skill);
+    fs::ensure_dir(&dir).unwrap();
+    fs::write_text(
+        &dir.join("SKILL.md"),
+        &format!("---\nname: {repo_skill}\n---\n"),
+    )
+    .unwrap();
+    (guard, root)
+}
+
+#[test]
+fn repo_skill_problems_reports_a_repo_skill_shadowed_by_a_hall_skill() {
+    let (_guard, root) = hall_with_repo_skill("commit");
+    write_skill(&root, "commit");
+    let layout = Layout::at(root.clone());
+    // The hall skill must be visible where harnesses look for it.
+    let _ = skill_sync::sync(&Ctx::new(root.clone())).unwrap();
+
+    let problems = repo_skill_problems(&layout, None);
+
+    assert_eq!(problems.len(), 1, "{problems:?}");
+    assert_eq!(problems[0].code, "skill.repo_prefixed");
+    assert_eq!(problems[0].subject, "api/.claude/skills/commit");
+    assert!(
+        problems[0].what.contains("api--commit"),
+        "{}",
+        problems[0].what
+    );
+}
+
+#[test]
+fn repo_skill_problems_is_empty_when_names_are_unique() {
+    let (_guard, root) = hall_with_repo_skill("react-doctor");
+
+    assert!(repo_skill_problems(&Layout::at(root), None).is_empty());
 }

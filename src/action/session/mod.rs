@@ -20,6 +20,7 @@ pub(crate) mod launch;
 pub(crate) mod lookup;
 pub mod prune;
 pub mod relay;
+pub(crate) mod repo_skills;
 pub mod sandbox;
 pub mod start;
 pub mod stop;
