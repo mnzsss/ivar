@@ -5,14 +5,17 @@
 
 use std::io;
 
-use camino::Utf8PathBuf;
+use camino::{Utf8Path, Utf8PathBuf};
 use serde::Serialize;
 
 use crate::action::Ctx;
+use crate::action::session::repo_skills;
 use crate::domain::skill_sync::{MaterialStatus, Target, TargetId};
 use crate::error::{FixAction, Outcome, Report, WriteHuman};
 #[cfg(test)]
 use crate::infra::fs;
+use crate::store::layout::Layout;
+use crate::store::manifest::Manifest;
 use crate::store::render;
 use crate::store::skill;
 
@@ -85,9 +88,10 @@ pub fn doctor(ctx: &Ctx) -> Outcome<DoctorOutcome> {
     let targets = build_doctor_targets(&skills, &layout);
 
     let mut problems = collision_problems(collisions);
+    let home = crate::providers::user_home().ok();
+    problems.extend(repo_skill_problems(&layout, home.as_deref()));
     problems.extend(target_status_problems(&skills, &targets));
     problems.extend(orphaned_state_problems(&skills, &state));
-
     let count = problems.len() as u64;
 
     Ok(Report::new(DoctorOutcome {
@@ -139,6 +143,31 @@ fn collision_problems(collisions: Vec<crate::error::Warning>) -> Vec<Problem> {
         });
     }
     problems
+}
+
+fn repo_skill_problems(layout: &Layout, home: Option<&Utf8Path>) -> Vec<Problem> {
+    let Ok(Some(manifest)) = Manifest::read(layout) else {
+        return Vec::new();
+    };
+    let mut skills = Vec::new();
+    for repo in manifest.repos() {
+        let worktree = layout.repo_worktree(repo.name(), repo.default_branch());
+        skills.extend(repo_skills::scan_repo(repo.name().as_str(), &worktree).skills);
+    }
+    let reserved = repo_skills::reserved_names(&repo_skills::reserved_dirs(layout.root(), home));
+    repo_skills::plan(skills, &reserved)
+        .warnings
+        .into_iter()
+        .map(|w| Problem {
+            code: w.code,
+            subject: w.subject,
+            what: w.what,
+            fix_action: FixAction::unsafe_(
+                "skill.rename_repo_skill",
+                "Rename the repo skill or the hall/user skill so each name is unique.",
+            ),
+        })
+        .collect()
 }
 
 fn target_status_problems(
