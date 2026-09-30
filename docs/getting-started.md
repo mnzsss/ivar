@@ -31,7 +31,9 @@ build earlier in `PATH` — the script says so and names the file that wins.
 
 By default, the installer sends zero telemetry and makes no network requests
 beyond downloading the release binary and its checksum. The installed `ivar`
-binary is completely local and never sends analytics. If you want to help count
+binary never sends analytics. It checks for a newer
+release at most once per 20 hours and says so in one line on stderr — run
+`ivar upgrade` to take it, or set `IVAR_NO_UPDATE_CHECK=1` to stop checking. If you want to help count
 successful installations, you can explicitly opt in:
 
 ```sh
