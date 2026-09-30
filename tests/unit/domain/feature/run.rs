@@ -1355,3 +1355,158 @@ fn a_wave_checkpoint_round_trips_through_json() {
     let back: RunReceipt = serde_json::from_str(&json).unwrap();
     assert_eq!(back, receipt);
 }
+#[test]
+fn run_mode_parses_valid_and_rejects_unknown() {
+    assert_eq!(RunMode::parse("default").unwrap(), RunMode::Default);
+    assert_eq!(RunMode::parse("goal").unwrap(), RunMode::Goal);
+
+    let err = RunMode::parse("turbo").unwrap_err();
+    assert_eq!(err, UnknownRunMode("turbo".to_owned()));
+    assert_eq!(
+        err.to_string(),
+        "unknown mode `turbo` — expected one of: default, goal"
+    );
+
+    let failure: Failure = err.into();
+    assert_eq!(failure.code, "execute.unknown_mode");
+}
+
+#[test]
+fn run_mode_display_and_serde_round_trip() {
+    assert_eq!(RunMode::Default.to_string(), "default");
+    assert_eq!(RunMode::Goal.to_string(), "goal");
+
+    assert_eq!(
+        serde_json::to_string(&RunMode::Default).unwrap(),
+        "\"default\""
+    );
+    assert_eq!(serde_json::to_string(&RunMode::Goal).unwrap(), "\"goal\"");
+    assert_eq!(
+        serde_json::from_str::<RunMode>("\"default\"").unwrap(),
+        RunMode::Default
+    );
+    assert_eq!(
+        serde_json::from_str::<RunMode>("\"goal\"").unwrap(),
+        RunMode::Goal
+    );
+}
+
+#[test]
+fn run_receipt_with_mode_sets_mode_without_checkpoint() {
+    let receipt = started().with_mode(RunMode::Goal);
+    assert_eq!(receipt.mode, RunMode::Goal);
+    assert_eq!(receipt.checkpoints.len(), 1);
+    assert_eq!(receipt.checkpoints[0].kind, CheckpointKind::Started);
+
+    let json = serde_json::to_string(&receipt).unwrap();
+    assert!(json.contains("\"mode\":\"goal\""));
+}
+
+#[test]
+fn run_receipt_deserializes_missing_mode_as_default() {
+    let receipt = started();
+    let mut value = serde_json::to_value(&receipt).unwrap();
+    value.as_object_mut().unwrap().remove("mode");
+
+    let deserialized: RunReceipt = serde_json::from_value(value).unwrap();
+    assert_eq!(deserialized.mode, RunMode::Default);
+}
+
+#[test]
+fn change_mode_switches_active_or_blocked_run_and_records_checkpoint() {
+    let mut receipt = started();
+    assert_eq!(receipt.mode, RunMode::Default);
+
+    // Switching to same mode returns Ok(false) with no new checkpoint
+    let changed = receipt
+        .change_mode(
+            RunMode::Default,
+            session("02"),
+            Provider::ClaudeCode,
+            "2026-08-14T01:00:00Z",
+        )
+        .unwrap();
+    assert!(!changed);
+    assert_eq!(receipt.checkpoints.len(), 1);
+
+    // Switching Default -> Goal on active run
+    let changed = receipt
+        .change_mode(
+            RunMode::Goal,
+            session("02"),
+            Provider::ClaudeCode,
+            "2026-08-14T02:00:00Z",
+        )
+        .unwrap();
+    assert!(changed);
+    assert_eq!(receipt.mode, RunMode::Goal);
+    assert_eq!(receipt.checkpoints.len(), 2);
+    let cp = &receipt.checkpoints[1];
+    assert_eq!(cp.kind, CheckpointKind::ModeChanged);
+    assert_eq!(cp.status, RunStatus::Active);
+    assert_eq!(cp.mode_from, Some(RunMode::Default));
+    assert_eq!(cp.mode_to, Some(RunMode::Goal));
+    assert_eq!(cp.session.as_ref().unwrap(), &session("02"));
+
+    // Block the run and switch Goal -> Default on blocked run
+    receipt
+        .block(
+            report(),
+            diff(),
+            session("03"),
+            Provider::ClaudeCode,
+            "2026-08-14T03:00:00Z",
+        )
+        .unwrap();
+    assert_eq!(receipt.status, RunStatus::Blocked);
+
+    let changed = receipt
+        .change_mode(
+            RunMode::Default,
+            session("04"),
+            Provider::ClaudeCode,
+            "2026-08-14T04:00:00Z",
+        )
+        .unwrap();
+    assert!(changed);
+    assert_eq!(receipt.mode, RunMode::Default);
+    assert_eq!(receipt.checkpoints.len(), 4);
+    let cp = &receipt.checkpoints[3];
+    assert_eq!(cp.kind, CheckpointKind::ModeChanged);
+    assert_eq!(cp.status, RunStatus::Blocked);
+    assert_eq!(cp.mode_from, Some(RunMode::Goal));
+    assert_eq!(cp.mode_to, Some(RunMode::Default));
+}
+
+#[test]
+fn change_mode_refuses_terminal_run() {
+    let mut receipt = started();
+    receipt
+        .terminate(
+            RunOutcome::Succeeded,
+            report(),
+            diff(),
+            session("02"),
+            Provider::ClaudeCode,
+            "2026-08-14T05:00:00Z",
+        )
+        .unwrap();
+    assert_eq!(receipt.status, RunStatus::Succeeded);
+
+    let err = receipt
+        .change_mode(
+            RunMode::Goal,
+            session("03"),
+            Provider::ClaudeCode,
+            "2026-08-14T06:00:00Z",
+        )
+        .unwrap_err();
+    assert_eq!(
+        err,
+        RunTransition::AlreadyTerminal {
+            status: RunStatus::Succeeded,
+            operation: "change-mode",
+        }
+    );
+    assert_eq!(receipt.mode, RunMode::Default);
+}

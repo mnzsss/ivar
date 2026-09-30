@@ -7,6 +7,7 @@ use super::coordinator::CoordinatorReport;
 use super::evidence::{RunBaseline, RunDiff};
 use super::id::RunId;
 use super::legacy::LegacyEvidence;
+use super::mode::RunMode;
 use super::status::{RunOutcome, RunProvenance, RunStatus};
 use crate::domain::name::{FeatureName, SessionId};
 use crate::domain::provider::Provider;
@@ -39,6 +40,9 @@ pub struct RunReceipt {
     /// SHA-256 of that plan's content at start — or at the last accepted
     /// revision.
     pub plan_fingerprint: String,
+    /// Execution mode recorded for this run.
+    #[serde(default)]
+    pub mode: RunMode,
     /// When the run was created.
     pub started_at: String,
     /// When it last changed.
@@ -97,6 +101,7 @@ impl RunReceipt {
             status: RunStatus::Active,
             plan_path: plan_path.into(),
             plan_fingerprint: fingerprint.clone(),
+            mode: RunMode::Default,
             started_at: at.clone(),
             updated_at: at.clone(),
             terminated_at: None,
@@ -117,6 +122,8 @@ impl RunReceipt {
                 plan_fingerprint_from: None,
                 plan_fingerprint_to: Some(fingerprint),
                 wave: None,
+                mode_from: None,
+                mode_to: None,
             }],
             final_diff: None,
             outcome: None,
@@ -134,6 +141,51 @@ impl RunReceipt {
     #[must_use]
     pub fn current_coordinator(&self) -> Option<&CoordinatorEntry> {
         self.coordinators.last()
+    }
+    /// Set the initial mode of the run builder.
+    #[must_use]
+    pub fn with_mode(mut self, mode: RunMode) -> Self {
+        self.mode = mode;
+        self
+    }
+
+    /// Switch the execution mode of an active or blocked run.
+    ///
+    /// Returns whether anything changed: the same mode records nothing, so a
+    /// resume that repeats `--mode` leaves no noise in the history.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RunTransition`] if the run is neither `Active` nor `Blocked`.
+    pub fn change_mode(
+        &mut self,
+        mode: RunMode,
+        session: SessionId,
+        provider: Provider,
+        at: impl Into<String>,
+    ) -> Result<bool, RunTransition> {
+        self.require(&[RunStatus::Active, RunStatus::Blocked], "change-mode")?;
+        if self.mode == mode {
+            return Ok(false);
+        }
+        let old = self.mode;
+        self.mode = mode;
+        let at = at.into();
+        self.push(RunCheckpoint {
+            at,
+            kind: CheckpointKind::ModeChanged,
+            status: self.status,
+            session: Some(session),
+            provider: Some(provider),
+            report: None,
+            diff: None,
+            plan_fingerprint_from: None,
+            plan_fingerprint_to: None,
+            wave: None,
+            mode_from: Some(old),
+            mode_to: Some(mode),
+        });
+        Ok(true)
     }
 
     /// Attach a coordinator to a non-terminal run and make it active again.
@@ -177,6 +229,8 @@ impl RunReceipt {
             plan_fingerprint_from: None,
             plan_fingerprint_to: None,
             wave: None,
+            mode_from: None,
+            mode_to: None,
         });
         Ok(())
     }
@@ -212,6 +266,8 @@ impl RunReceipt {
             plan_fingerprint_from: None,
             plan_fingerprint_to: None,
             wave: None,
+            mode_from: None,
+            mode_to: None,
         });
         Ok(())
     }
@@ -249,6 +305,8 @@ impl RunReceipt {
             plan_fingerprint_from: Some(self.plan_fingerprint.clone()),
             plan_fingerprint_to: Some(observed_fingerprint.into()),
             wave: None,
+            mode_from: None,
+            mode_to: None,
         });
         Ok(())
     }
@@ -297,6 +355,8 @@ impl RunReceipt {
             plan_fingerprint_from: Some(previous),
             plan_fingerprint_to: Some(new_fingerprint),
             wave: None,
+            mode_from: None,
+            mode_to: None,
         });
         Ok(())
     }
@@ -342,6 +402,8 @@ impl RunReceipt {
             plan_fingerprint_from: None,
             plan_fingerprint_to: None,
             wave: None,
+            mode_from: None,
+            mode_to: None,
         });
         Ok(())
     }
@@ -377,6 +439,8 @@ impl RunReceipt {
                 number,
                 summary: summary.into(),
             }),
+            mode_from: None,
+            mode_to: None,
         });
         Ok(())
     }
@@ -416,6 +480,8 @@ impl RunReceipt {
             plan_fingerprint_from: None,
             plan_fingerprint_to: None,
             wave: None,
+            mode_from: None,
+            mode_to: None,
         });
         Ok(())
     }
@@ -448,6 +514,7 @@ impl RunReceipt {
             status,
             plan_path: plan_path.into(),
             plan_fingerprint: fingerprint,
+            mode: RunMode::Default,
             started_at: at.clone(),
             updated_at: at.clone(),
             terminated_at: Some(at.clone()),
@@ -464,6 +531,8 @@ impl RunReceipt {
                 plan_fingerprint_from: None,
                 plan_fingerprint_to: None,
                 wave: None,
+                mode_from: None,
+                mode_to: None,
             }],
             final_diff: None,
             outcome,

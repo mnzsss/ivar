@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use super::coordinator::CoordinatorReport;
 use super::evidence::RunDiff;
+use super::mode::RunMode;
 use super::status::RunStatus;
 use crate::domain::name::SessionId;
 use crate::domain::provider::Provider;
@@ -49,6 +50,8 @@ pub enum CheckpointKind {
     LegacyImport,
     /// A coordinator recorded an approved wave.
     Wave,
+    /// A coordinator switched the run's execution mode on resume.
+    ModeChanged,
 }
 
 impl fmt::Display for CheckpointKind {
@@ -63,6 +66,7 @@ impl fmt::Display for CheckpointKind {
             Self::Interrupted => "interrupted",
             Self::LegacyImport => "legacy-import",
             Self::Wave => "wave",
+            Self::ModeChanged => "mode-changed",
         };
         f.pad(name)
     }
@@ -107,6 +111,12 @@ pub struct RunCheckpoint {
     /// The wave this checkpoint records, when it is a wave checkpoint.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub wave: Option<WaveProgress>,
+    /// The execution mode before this checkpoint, when the checkpoint changed it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode_from: Option<RunMode>,
+    /// The execution mode adopted at this checkpoint, when the checkpoint changed it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode_to: Option<RunMode>,
 }
 
 /// What a coordinator recorded when a wave was approved.

@@ -41,6 +41,7 @@ mod coordinator;
 mod evidence;
 mod id;
 mod legacy;
+mod mode;
 mod receipt;
 mod status;
 
@@ -56,6 +57,7 @@ pub use evidence::{
 };
 pub use id::{InvalidRunId, RunId};
 pub use legacy::{LegacyEvidence, LegacyJournalEntry, LegacyWorkstream};
+pub use mode::{RunMode, UnknownRunMode};
 pub use receipt::{RunReceipt, RunTransition};
 pub use status::{RunOutcome, RunProvenance, RunStatus, UnknownRunOutcome};
 
