@@ -47,8 +47,9 @@ ivar 0.13.0 is available (you have 0.12.0) — run `ivar upgrade`
 The check sends nothing but a `User-Agent`, waits at most 800 ms, and never
 changes a command's output or exit code. It is off when `IVAR_NO_UPDATE_CHECK`
 is set to anything non-empty, when `CI` is set, with `--json`, when stderr is
-not a terminal, and for the verbs other programs read (`guard`,
-`session env`, `graph mcp`, `git-credential`).
+not a terminal, and for the verbs other programs read (`guard`, `session env`,
+`session relay`, `graph mcp`, `git-credential`). `ivar upgrade` itself never
+prints the notice.
 
 ## The promise
 
