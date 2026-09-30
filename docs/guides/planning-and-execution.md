@@ -68,6 +68,7 @@ After the plan gate is approved, start a Run Receipt from a Feature Session:
 
 ```sh
 ivar feature execute start checkout --plan .ivar/features/checkout/plan.md
+ivar feature execute start checkout --plan .ivar/features/checkout/plan.md --mode goal
 ```
 
 A Run Receipt is persistent local evidence under
@@ -77,17 +78,42 @@ and attaches the current session and provider to the receipt.
 
 The execution lifecycle is coordinated by the `ivar-execute` skill. The active provider acts strictly as coordinator: it reads `plan.md` and `../../tasks/`, executing the plan wave by wave without modifying code directly.
 
+### Execution modes
+
+`ivar feature execute start` accepts `--mode <default|goal>`. The mode is
+recorded on the Run Receipt and reported by `ivar feature execute status`.
+
+- **`default`** — the mode of a new Run when `--mode` is omitted. The
+  coordinator stops for a human decision at every wave gate, at every
+  validation failure, and when choosing which review findings to fix.
+- **`goal`** — the coordinator runs every wave without stopping. It makes up
+  to 3 fix attempts per wave for a failing validation, then records the
+  failure under Deferred validation failures and moves on. After the waves it
+  fixes every Standards review and Spec review finding and reruns both
+  reviews, for up to 3 rounds; findings still open go to the finish report's
+  `follow_ups`. It then finishes the Run — `succeeded`, or `failed` when a
+  deferred failure or finding remains — and stops before
+  `ivar feature deliver` and `ivar feature integrate`, handing delivery to
+  the human. On Claude Code the skill prints a ready-to-paste `/goal`
+  command so the harness keeps the session going until that condition
+  holds; on other providers the skill runs the same loop itself.
+
+On `--resume`, omitting `--mode` keeps the Run's recorded mode. Passing a
+different mode switches it and records a `mode-changed` checkpoint; passing
+the same mode records nothing. `--restart` without `--mode` starts a
+`default` Run.
+
 ### Guided wave execution lifecycle
 
 1. **Subagent isolation:** For each wave, the coordinator dispatches ONE native subagent per task packet, handing the subagent only its specific task packet context to carry out Red → Green → Refactor steps. Subagents never edit `plan.md`.
 2. **Wave lightweight validation:** At the end of each wave, the coordinator runs explicit lightweight validation commands (such as scoped unit tests, type checks, or linters) declared in `plan.md`.
-3. **Deferred validation failures:** If a validation check fails, the human chooses between fixing now (dispatching a fix subagent) or deferring the failure. Deferred validation failures are recorded in the wave's checkpoint summary and carried forward into the post-wave review and correction cycle.
-4. **Wave checkpoints:** Passing validation (or deferred failures with approval) prompts for explicit human approval before advancing to the next wave. The coordinator records the approved wave with `ivar feature execute checkpoint`, passing the wave number to `--wave` and its summary to `--summary`, and never edits `plan.md` during a run, because any edit diverges the run.
+3. **Deferred validation failures:** If a validation check fails, in default mode the human chooses between fixing now (dispatching a fix subagent) or deferring the failure; in goal mode the coordinator makes up to 3 fix attempts, then defers. Deferred validation failures are recorded in the wave's checkpoint summary and carried forward into the post-wave review and correction cycle.
+4. **Wave checkpoints:** Passing validation (or deferred failures) records the wave with `ivar feature execute checkpoint`, passing the wave number to `--wave` and its summary to `--summary`. In default mode the coordinator asks for explicit human approval before advancing to the next wave; in goal mode it advances on its own. It never edits `plan.md` during a run, because any edit diverges the run.
 5. **Dual-axis review barrier:** After all waves complete, the coordinator dispatches two isolated reviews:
    - **Standards review:** Evaluates code quality, conventions, and repo standards.
    - **Spec review:** Verifies implementation against `requirements.md` and `plan.md`.
-   The coordinator barriers on both reports before presenting findings and running a human-guided fix loop.
-6. **Gated delivery gate:** Delivery defaults to Draft delivery (`--preview`, followed by applying delivery in draft mode).
+   The coordinator barriers on both reports before presenting findings and running the fix loop: human-guided in default mode, automatic for up to 3 rounds in goal mode.
+6. **Gated delivery gate:** Delivery defaults to Draft delivery (`--preview`, followed by applying delivery in draft mode). A goal-mode Run stops after `ivar feature execute finish` and leaves delivery to the human.
 
 Ivar does not schedule work, launch headless provider
 processes, parse transcripts, or store native-subagent identifiers. Ask a human

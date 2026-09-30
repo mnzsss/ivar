@@ -114,10 +114,17 @@ and `run.json` is removed, making room for the next Run. `ivar feature close`
 preserves this directory and refuses while a non-terminal receipt holds the
 lock.
 
-A receipt contains the approved plan fingerprint, an immutable baseline
-snapshot, coordinator session/provider lineage, checkpoints, a structured report
-when supplied, and exact final snapshot evidence. It is an audit record, not a
-provider transcript, subagent registry, or scheduler state.
+A receipt (schema version 2) contains the approved plan fingerprint, the
+execution `mode` (`default` or `goal`), an immutable baseline snapshot,
+coordinator session/provider lineage, checkpoints — including wave progress
+and `mode-changed` entries, which carry `mode_from` and `mode_to` — a
+structured report when supplied, and exact final snapshot evidence. It is an
+audit record, not a provider transcript, subagent registry, or scheduler
+state.
+
+A schema version 1 receipt, current or archived, is migrated on read: Ivar
+adds `"mode": "default"`, sets `version` to 2, and rewrites the file. A
+receipt newer than this binary understands is refused.
 
 Older local execution records are migrated on read. Ivar archives the original
 legacy record under `archive/boards/` and creates a provider-neutral receipt. A
