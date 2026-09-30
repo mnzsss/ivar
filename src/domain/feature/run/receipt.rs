@@ -142,6 +142,7 @@ impl RunReceipt {
     pub fn current_coordinator(&self) -> Option<&CoordinatorEntry> {
         self.coordinators.last()
     }
+
     /// Set the initial mode of the run builder.
     #[must_use]
     pub fn with_mode(mut self, mode: RunMode) -> Self {
