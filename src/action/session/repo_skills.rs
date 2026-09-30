@@ -65,20 +65,70 @@ struct NameOnly {
     name: Option<String>,
 }
 
+/// Extract the first top-level `name:` value from frontmatter lines, stripping
+/// surrounding matching quotes (`'` or `"`).
+fn extract_name_line(lines: impl Iterator<Item = impl AsRef<str>>) -> Option<String> {
+    for line in lines {
+        let line = line.as_ref();
+        if let Some(rest) = line.strip_prefix("name:") {
+            let val = rest.trim();
+            let stripped = if (val.starts_with('"') && val.ends_with('"') && val.len() >= 2)
+                || (val.starts_with('\'') && val.ends_with('\'') && val.len() >= 2)
+            {
+                val[1..val.len() - 1].trim()
+            } else {
+                val
+            };
+            if !stripped.is_empty() {
+                return Some(stripped.to_owned());
+            }
+        }
+    }
+    None
+}
+
 /// The identity a harness gives `dir/SKILL.md`: its frontmatter `name`, or
-/// the directory name when the frontmatter has none. `Err` carries the
-/// parse error text.
+/// the directory name when the frontmatter has none or cannot be parsed.
+/// `Err` is returned only when the file cannot be read from disk (I/O error).
 fn skill_name(dir: &Utf8Path) -> Result<Option<String>, String> {
     let path = dir.join("SKILL.md");
     let Some(text) = fs::read_text(&path).map_err(|e| e.to_string())? else {
         return Ok(None);
     };
-    let meta: NameOnly = frontmatter::parse(&text).map_err(|e| e.to_string())?;
-    Ok(Some(
-        meta.name
-            .filter(|n| !n.trim().is_empty())
-            .unwrap_or_else(|| dir.file_name().unwrap_or_default().to_owned()),
-    ))
+
+    let fallback_dir = || dir.file_name().unwrap_or_default().to_owned();
+
+    match frontmatter::split(&text) {
+        Ok(split) => {
+            if let Some(block) = split.frontmatter {
+                if let Ok(meta) = serde_saphyr::from_str::<NameOnly>(block)
+                    && let Some(n) = meta.name.filter(|n| !n.trim().is_empty())
+                {
+                    return Ok(Some(n));
+                }
+                let name = extract_name_line(block.lines()).unwrap_or_else(fallback_dir);
+                Ok(Some(name))
+            } else {
+                Ok(Some(fallback_dir()))
+            }
+        }
+        Err(_) => {
+            // Unterminated fence: scan lines after the opening fence up to the
+            // first blank or `#` line / end of file.
+            let mut lines = text.lines();
+            if let Some(first) = lines.next()
+                && first.trim() == "---"
+            {
+                let block_lines = lines.take_while(|l| {
+                    let t = l.trim();
+                    !t.is_empty() && !t.starts_with('#')
+                });
+                let name = extract_name_line(block_lines).unwrap_or_else(fallback_dir);
+                return Ok(Some(name));
+            }
+            Ok(Some(fallback_dir()))
+        }
+    }
 }
 
 pub(crate) fn scan_repo(repo: &str, repo_root: &Utf8Path) -> Scan {

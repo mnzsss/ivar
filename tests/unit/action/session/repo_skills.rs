@@ -72,17 +72,47 @@ fn scan_falls_back_to_the_dir_name_when_frontmatter_has_no_name() {
 }
 
 #[test]
-fn scan_skips_malformed_frontmatter_with_a_warning() {
+fn scan_recovers_the_name_from_an_unterminated_frontmatter_fence() {
     let (_g, root) = utf8_temp_dir();
-    write_skill(
-        &root.join(".claude/skills/broken"),
-        "---\nname: [unclosed\n---",
-    );
+    let skill_dir = root.join(".claude/skills/broken");
+    fs::ensure_dir(&skill_dir).unwrap();
+    fs::write_text(&skill_dir.join("SKILL.md"), "---\nname: broken\n# body\n").unwrap();
 
     let scan = scan_repo("valhalla", &root);
 
-    assert!(scan.skills.is_empty());
-    assert_eq!(scan.warnings[0].code, "skill.repo_unreadable");
+    assert_eq!(scan.skills.len(), 1);
+    assert_eq!(scan.skills[0].name, "broken");
+    assert!(scan.warnings.is_empty());
+}
+
+#[test]
+fn scan_reads_the_name_when_other_frontmatter_fields_are_invalid_yaml() {
+    let (_g, root) = utf8_temp_dir();
+    write_skill(
+        &root.join(".claude/skills/tauri"),
+        "---\nname: tauri\ndescription: Use it. Triggers on: #[tauri::command], invoke()\n---",
+    );
+
+    let scan = scan_repo("mrunner", &root);
+
+    assert_eq!(scan.skills.len(), 1);
+    assert_eq!(scan.skills[0].name, "tauri");
+    assert!(scan.warnings.is_empty());
+}
+
+#[test]
+fn scan_falls_back_to_dir_name_when_invalid_yaml_has_no_name() {
+    let (_g, root) = utf8_temp_dir();
+    write_skill(
+        &root.join(".claude/skills/fallback_dir"),
+        "---\ndescription: Triggers on: #[tauri::command], invoke()\n---",
+    );
+
+    let scan = scan_repo("mrunner", &root);
+
+    assert_eq!(scan.skills.len(), 1);
+    assert_eq!(scan.skills[0].name, "fallback_dir");
+    assert!(scan.warnings.is_empty());
 }
 
 #[test]
