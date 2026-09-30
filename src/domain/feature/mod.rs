@@ -71,6 +71,7 @@ pub use run::{
     AgentRole, ChangeKind, CheckStatus, CheckpointKind, CoordinatorEntry, CoordinatorReport,
     InvalidRunId, LegacyEvidence, LegacyJournalEntry, LegacyWorkstream, PathChange, PathEvidence,
     PathState, RUN_CURRENT_VERSION, RepoBaseline, RepoDiff, RunBaseline, RunCheckpoint, RunDiff,
-    RunId, RunOutcome, RunProvenance, RunReceipt, RunStatus, RunTransition, TaskResult, TaskStatus,
-    UnknownRunOutcome, VerificationCheck, WaveProgress, classify_change,
+    RunId, RunMode, RunOutcome, RunProvenance, RunReceipt, RunStatus, RunTransition, TaskResult,
+    TaskStatus, UnknownRunMode, UnknownRunOutcome, VerificationCheck, WaveProgress,
+    classify_change,
 };

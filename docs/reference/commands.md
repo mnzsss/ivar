@@ -320,6 +320,7 @@ Start a new run, resume a blocked run, or restart a non-terminal run
 | `--plan` | `<PLAN>` |  | Plan file; defaults to `.ivar/features/<feature>/plan.md` |
 | `--resume` |  |  |  |
 | `--restart` |  |  |  |
+| `--mode` | `<MODE>` |  | Execution mode: `default` keeps every human gate; `goal` runs to the delivery gate without stopping. Omitted on `--resume`, the run keeps its recorded mode; omitted otherwise, a new run is `default` |
 
 
 ###### `ivar feature execute finish`

@@ -234,6 +234,11 @@ pub struct ExecuteStartArgs {
     pub resume: bool,
     #[arg(long, conflicts_with = "resume")]
     pub restart: bool,
+    /// Execution mode: `default` keeps every human gate; `goal` runs to the delivery gate
+    /// without stopping. Omitted on `--resume`, the run keeps its recorded mode; omitted
+    /// otherwise, a new run is `default`.
+    #[arg(long, value_parser = clap::builder::PossibleValuesParser::new(["default", "goal"]))]
+    pub mode: Option<String>,
 }
 
 /// Arguments for `ivar feature execute finish`.
@@ -557,12 +562,14 @@ impl From<ExecuteStartArgs> for start::StartInput {
             plan,
             resume,
             restart,
+            mode,
         } = args;
         Self {
             feature: feature.unwrap_or_default(),
             plan,
             resume,
             restart,
+            mode,
         }
     }
 }
