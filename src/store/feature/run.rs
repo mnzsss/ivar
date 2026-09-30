@@ -40,7 +40,7 @@ use crate::domain::name::FeatureName;
 use crate::error::{Failure, FixAction};
 use crate::infra::fs;
 use crate::store::layout::Layout;
-use crate::store::versioned::{Policy, Store};
+use crate::store::versioned::{Migration, Policy, Store};
 
 pub use legacy::{Import, import};
 
@@ -277,17 +277,28 @@ pub fn history(layout: &Layout, feature: &FeatureName) -> Result<Vec<RunReceipt>
     Ok(receipts)
 }
 
+/// Migrate a run receipt from v1 → v2. v2 records the execution mode; every
+/// v1 run was a default-mode run, so the step writes that explicitly and the
+/// persisted v2 file carries the field instead of relying on its absence.
+fn run_v1_to_v2(mut value: serde_json::Value) -> Result<serde_json::Value, String> {
+    let root = value
+        .as_object_mut()
+        .ok_or("run receipt must be an object")?;
+    root.entry("mode")
+        .or_insert_with(|| serde_json::Value::String("default".to_owned()));
+    Ok(value)
+}
+
 /// The versioned store over a feature's current receipt.
 ///
-/// The chain is empty and `current` is 1 on purpose: `run.json` has never had
-/// an unversioned predecessor, so — exactly as with `ivar.json` — there is no
-/// v0 → v1 step to write, and a file with no `version` field is refused on
-/// schema grounds rather than adopted. Every future schema change adds its step
-/// here and none is ever pruned.
+/// `run.json` has never had an unversioned predecessor, so — exactly as with
+/// `ivar.json` — there is no v0 → v1 step, and a file with no `version` field
+/// is refused on schema grounds rather than adopted. Every schema change adds
+/// its step here and none is ever pruned.
 fn current_store(layout: &Layout, feature: &FeatureName) -> Store<RunReceipt> {
     Store::new(
         layout.run_receipt(feature),
-        Vec::new(),
+        vec![Migration::new(1, 2, run_v1_to_v2)],
         RUN_CURRENT_VERSION,
         Policy::Local,
     )
@@ -298,8 +309,12 @@ fn current_store(layout: &Layout, feature: &FeatureName) -> Store<RunReceipt> {
 fn archive_store(layout: &Layout, feature: &FeatureName, id: &RunId) -> Store<RunReceipt> {
     Store::new(
         layout.archived_run(feature, id),
-        Vec::new(),
+        vec![Migration::new(1, 2, run_v1_to_v2)],
         RUN_CURRENT_VERSION,
         Policy::Local,
     )
 }
+
+#[cfg(test)]
+#[path = "../../../tests/unit/store/feature/run/versioning.rs"]
+mod tests;

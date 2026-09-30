@@ -32,10 +32,9 @@
 //! transition tests deterministic and what keeps the receipt free of `store`,
 //! `git`, `harness` and `cli`.
 //!
-//! Persisted at `features/<feature>/execution/run.json` (schema v1,
-//! `Policy::Local`) by `store::feature::run`; archived receipts live under
-//! `execution/archive/runs/<run-id>.json`.
-
+/// Persisted at `features/<feature>/execution/run.json` (schema v2,
+/// `Policy::Local`) by `store::feature::run`; archived receipts live under
+/// `execution/archive/runs/<run-id>.json`.
 mod checkpoint;
 mod coordinator;
 mod evidence;
@@ -45,7 +44,8 @@ mod mode;
 mod receipt;
 mod status;
 
-pub const RUN_CURRENT_VERSION: u32 = 1;
+/// The current schema version for [`RunReceipt`].
+pub const RUN_CURRENT_VERSION: u32 = 2;
 
 pub use checkpoint::{CheckpointKind, CoordinatorEntry, RunCheckpoint, WaveProgress};
 pub use coordinator::{
