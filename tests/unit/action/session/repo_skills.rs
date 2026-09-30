@@ -11,7 +11,7 @@ use std::collections::BTreeSet;
 use camino::{Utf8Path, Utf8PathBuf};
 
 use super::*;
-use crate::infra::fs;
+use crate::infra::{fs, json};
 use crate::test_support::utf8_temp_dir;
 
 fn write_skill(dir: &Utf8Path, frontmatter: &str) {
@@ -191,5 +191,167 @@ fn rename_frontmatter_adds_a_name_when_there_is_none() {
     assert_eq!(
         rename_frontmatter("# no frontmatter\n", "r--x"),
         "---\nname: r--x\n---\n# no frontmatter\n"
+    );
+}
+
+/// A view dir with one repo symlink `valhalla` → a real repo dir holding
+/// `.claude/skills/<name>/SKILL.md` for each name.
+fn view_with_repo(skills: &[&str]) -> (tempfile::TempDir, Utf8PathBuf, Utf8PathBuf) {
+    let (guard, root) = utf8_temp_dir();
+    let repo = root.join("repo");
+    for name in skills {
+        write_skill(
+            &repo.join(".claude/skills").join(name),
+            &format!("---\nname: {name}\ndescription: d\n---"),
+        );
+    }
+    let view = root.join("view");
+    fs::ensure_dir(&view).unwrap();
+    fs::replace_symlink_if_changed(&repo, &view.join("valhalla")).unwrap();
+    let skills_dir = view.join(".claude/skills");
+    (guard, view, skills_dir)
+}
+
+fn planned(name: &str, placement: Placement) -> Planned {
+    let dest_name = match placement {
+        Placement::Bare => name.to_owned(),
+        Placement::Prefixed => format!("valhalla--{name}"),
+    };
+    Planned {
+        skill: skill("valhalla", name),
+        dest_name,
+        placement,
+    }
+}
+
+fn plan_of(entries: Vec<Planned>) -> Plan {
+    Plan {
+        entries,
+        warnings: Vec::new(),
+    }
+}
+
+#[test]
+fn apply_links_a_bare_skill_through_the_view_repo_symlink() {
+    let (_g, view, skills_dir) = view_with_repo(&["react-doctor"]);
+
+    apply(
+        &view,
+        &skills_dir,
+        &plan_of(vec![planned("react-doctor", Placement::Bare)]),
+    )
+    .unwrap();
+
+    let link = skills_dir.join("react-doctor");
+    match fs::read_symlink(&link).unwrap() {
+        fs::SymlinkTarget::Target(t) => assert_eq!(t, "../../valhalla/.claude/skills/react-doctor"),
+        other => panic!("expected a symlink, got {other:?}"),
+    }
+    assert!(
+        fs::read_text(&link.join("SKILL.md"))
+            .unwrap()
+            .unwrap()
+            .contains("name: react-doctor")
+    );
+}
+
+#[test]
+fn apply_copies_a_prefixed_skill_and_renames_its_frontmatter() {
+    let (_g, view, skills_dir) = view_with_repo(&["commit"]);
+
+    apply(
+        &view,
+        &skills_dir,
+        &plan_of(vec![planned("commit", Placement::Prefixed)]),
+    )
+    .unwrap();
+
+    let dest = skills_dir.join("valhalla--commit");
+    assert!(matches!(
+        fs::read_symlink(&dest).unwrap(),
+        fs::SymlinkTarget::NotASymlink
+    ));
+    let text = fs::read_text(&dest.join("SKILL.md")).unwrap().unwrap();
+    assert!(text.starts_with("---\nname: valhalla--commit\n"), "{text}");
+}
+
+#[test]
+fn apply_removes_stale_owned_entries_and_keeps_foreign_ones() {
+    let (_g, view, skills_dir) = view_with_repo(&["a", "b"]);
+    apply(
+        &view,
+        &skills_dir,
+        &plan_of(vec![
+            planned("a", Placement::Bare),
+            planned("b", Placement::Prefixed),
+        ]),
+    )
+    .unwrap();
+    write_skill(&skills_dir.join("mine"), "---\nname: mine\n---");
+
+    apply(&view, &skills_dir, &Plan::default()).unwrap();
+
+    assert!(!fs::exists(&skills_dir.join("a")).unwrap());
+    assert!(!fs::exists(&skills_dir.join("valhalla--b")).unwrap());
+    assert!(fs::exists(&skills_dir.join("mine/SKILL.md")).unwrap());
+    assert_eq!(
+        json::read::<Record>(&skills_dir.join(RECORD_FILE)).unwrap(),
+        Some(Record::default())
+    );
+}
+
+#[test]
+fn apply_never_overwrites_an_entry_it_does_not_own() {
+    let (_g, view, skills_dir) = view_with_repo(&["react-doctor"]);
+    write_skill(
+        &skills_dir.join("react-doctor"),
+        "---\nname: react-doctor\ndescription: hand-made\n---",
+    );
+
+    let warnings = apply(
+        &view,
+        &skills_dir,
+        &plan_of(vec![planned("react-doctor", Placement::Bare)]),
+    )
+    .unwrap();
+
+    assert!(
+        fs::read_text(&skills_dir.join("react-doctor/SKILL.md"))
+            .unwrap()
+            .unwrap()
+            .contains("hand-made")
+    );
+    assert_eq!(warnings[0].code, "skill.repo_skipped");
+}
+
+#[test]
+fn apply_keeps_a_copy_the_user_edited_and_warns() {
+    let (_g, view, skills_dir) = view_with_repo(&["commit"]);
+    let p = plan_of(vec![planned("commit", Placement::Prefixed)]);
+    apply(&view, &skills_dir, &p).unwrap();
+    fs::write_atomic(&skills_dir.join("valhalla--commit/notes.md"), b"edited").unwrap();
+
+    let warnings = apply(&view, &skills_dir, &p).unwrap();
+
+    assert!(fs::exists(&skills_dir.join("valhalla--commit/notes.md")).unwrap());
+    assert_eq!(warnings[0].code, "skill.repo_skipped");
+}
+
+#[test]
+fn apply_is_idempotent() {
+    let (_g, view, skills_dir) = view_with_repo(&["a", "commit"]);
+    let p = plan_of(vec![
+        planned("a", Placement::Bare),
+        planned("commit", Placement::Prefixed),
+    ]);
+    apply(&view, &skills_dir, &p).unwrap();
+    let before = fs::read_text(&skills_dir.join(RECORD_FILE)).unwrap();
+
+    let warnings = apply(&view, &skills_dir, &p).unwrap();
+
+    assert!(warnings.is_empty());
+    assert_eq!(
+        fs::read_text(&skills_dir.join(RECORD_FILE)).unwrap(),
+        before
     );
 }
