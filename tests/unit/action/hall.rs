@@ -109,6 +109,11 @@ fn migrate_refuses_a_file_newer_than_this_build_without_touching_it() {
     // makes `bin/ivar.rs` exit 1 instead of 0.
     assert!(!report.is_clean(), "a too-new hall must not exit clean");
     assert_eq!(report.warnings[0].code, "hall.manifest_too_new");
+    assert!(
+        report.warnings[0].what.contains("`ivar upgrade`"),
+        "{}",
+        report.warnings[0].what
+    );
     assert_eq!(
         fs::read_text(&root.join("ivar.json")).unwrap().unwrap(),
         on_disk,

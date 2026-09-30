@@ -536,7 +536,8 @@ fn graph_diagnoses(layout: &Layout, manifest: &Manifest, git: &impl Git) -> Vec<
         findings.push(Diagnosis {
             code: "graph.schema_mismatch",
             what: format!("graph schema is version {version}, this ivar expects {SCHEMA_VERSION}"),
-            fix: "Run `ivar graph index` to migrate it, or upgrade ivar if it is newer.".to_owned(),
+            fix: "Run `ivar graph index` to migrate it, or run `ivar upgrade` if it is newer."
+                .to_owned(),
         });
     }
 

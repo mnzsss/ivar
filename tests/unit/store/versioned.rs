@@ -185,6 +185,11 @@ fn too_new_failure_names_both_versions_and_points_at_upgrading() {
     assert_eq!(failure.actual, Some("schema version 7".to_owned()));
     assert_eq!(failure.fix_actions.len(), 1);
     assert!(!failure.fix_actions[0].safe);
+    assert_eq!(failure.fix_actions[0].code, "store.upgrade_ivar");
+    assert_eq!(
+        failure.fix_actions[0].command.as_deref(),
+        Some("ivar upgrade")
+    );
 }
 
 // -- inspect is safe even on a too-new file ------------------------------
