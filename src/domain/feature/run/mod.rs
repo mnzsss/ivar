@@ -32,9 +32,10 @@
 //! transition tests deterministic and what keeps the receipt free of `store`,
 //! `git`, `harness` and `cli`.
 //!
-/// Persisted at `features/<feature>/execution/run.json` (schema v2,
-/// `Policy::Local`) by `store::feature::run`; archived receipts live under
-/// `execution/archive/runs/<run-id>.json`.
+//! Persisted at `features/<feature>/execution/run.json` (schema v2,
+//! `Policy::Local`) by `store::feature::run`; archived receipts live under
+//! `execution/archive/runs/<run-id>.json`.
+
 mod checkpoint;
 mod coordinator;
 mod evidence;
