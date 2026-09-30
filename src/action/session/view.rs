@@ -57,6 +57,7 @@
 
 use camino::Utf8Path;
 
+use crate::action::session::repo_skills;
 use crate::domain::feature::Feature;
 use crate::domain::provider::Provider;
 use crate::error::{Failure, Warning};
@@ -89,6 +90,12 @@ pub(crate) struct MaterialiseReport {
 /// which instruction file the View Dir gets.
 ///
 /// A repo whose worktree is missing is skipped with the rest still linked —
+///
+/// Each linked repo's own skills (`.omp/skills`, `.agents/skills`,
+/// `.claude/skills`, `.opencode/skills`) are projected into the config dir's
+/// `skills/`, linked through the repo symlink so promotion retargets them; a
+/// name the hall or the user already uses is prefixed `<repo>--<name>` instead
+/// of shadowing it.
 /// the session should still open for the repos that are there.
 pub(crate) fn materialise(
     layout: &Layout,
@@ -150,9 +157,40 @@ pub(crate) fn materialise(
     }
 
     let mut report = MaterialiseReport::default();
+    materialise_repo_skills(layout, manifest, provider, view_dir, &mut report);
     materialise_session_instructions(layout, provider, feature, view_dir, &mut report)?;
 
     Ok(report)
+}
+
+/// Project the skills each linked repo ships into the session's skills dir
+/// (see `repo_skills`). Never fails the session: any error becomes a warning.
+fn materialise_repo_skills(
+    layout: &Layout,
+    manifest: &Manifest,
+    provider: Provider,
+    view_dir: &Utf8Path,
+    report: &mut MaterialiseReport,
+) {
+    let home = match crate::providers::user_home() {
+        Ok(home) => Some(home),
+        Err(failure) => {
+            report.warnings.push(Warning::new(
+                "skill.repo_home_unavailable",
+                view_dir.as_str(),
+                format!("user skill dirs not checked for name collisions: {failure}"),
+            ));
+            None
+        }
+    };
+    match repo_skills::materialise(layout, manifest, provider, view_dir, home.as_deref()) {
+        Ok(warnings) => report.warnings.extend(warnings),
+        Err(failure) => report.warnings.push(Warning::new(
+            "skill.repo_unreadable",
+            view_dir.as_str(),
+            format!("repo skills not projected: {failure}"),
+        )),
+    }
 }
 
 /// Write the provider-native instruction file (`CLAUDE.md` / `AGENTS.md`) at

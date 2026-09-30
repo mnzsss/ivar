@@ -1638,3 +1638,131 @@ fn re_materialising_keeps_what_is_already_in_the_scratch_dir() {
         "re-materialisation must not clear scratch"
     );
 }
+
+fn write_repo_skill(dir: &camino::Utf8Path, name: &str) {
+    fs::ensure_dir(dir).unwrap();
+    fs::write_text(
+        &dir.join("SKILL.md"),
+        &format!("---\nname: {name}\ndescription: d\n---\n# body\n"),
+    )
+    .unwrap();
+}
+
+fn checkout_view(root: &camino::Utf8Path, provider: Provider) -> Utf8PathBuf {
+    let layout = Layout::at(root.to_path_buf());
+    let manifest = Manifest::read(&layout).unwrap().unwrap();
+    let feature = Feature::read(&layout, &FeatureName::new("checkout").unwrap())
+        .unwrap()
+        .unwrap();
+    let view_dir = layout.feature_session(
+        &FeatureName::new("checkout").unwrap(),
+        &crate::domain::name::SessionId::new(uuid::Uuid::new_v4().to_string()).unwrap(),
+    );
+    crate::action::session::view::materialise(
+        &layout,
+        &manifest,
+        Some(&feature),
+        provider,
+        &view_dir,
+    )
+    .unwrap();
+    view_dir
+}
+
+#[test]
+fn materialise_links_repo_skills_for_every_provider() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let worktree = Layout::at(root.clone()).repo_worktree(
+        &RepoName::new("api").unwrap(),
+        &BranchName::new("checkout").unwrap(),
+    );
+    write_repo_skill(
+        &worktree.join(".claude/skills/ivar-probe-api-skill"),
+        "ivar-probe-api-skill",
+    );
+
+    for provider in Provider::ALL {
+        let view_dir = checkout_view(&root, provider);
+        let link = view_dir
+            .join(provider.skills_dir())
+            .join("ivar-probe-api-skill");
+        match fs::read_symlink(&link).unwrap() {
+            fs::SymlinkTarget::Target(t) => {
+                assert_eq!(
+                    t, "../../api/.claude/skills/ivar-probe-api-skill",
+                    "{provider:?}"
+                )
+            }
+            other => panic!("{provider:?}: expected a symlink, got {other:?}"),
+        }
+        assert!(
+            fs::is_file(&link.join("SKILL.md")).unwrap(),
+            "{provider:?}: link must resolve"
+        );
+    }
+}
+
+#[test]
+fn materialise_prefixes_a_repo_skill_that_a_hall_skill_already_names() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let worktree = Layout::at(root.clone()).repo_worktree(
+        &RepoName::new("api").unwrap(),
+        &BranchName::new("checkout").unwrap(),
+    );
+    write_repo_skill(
+        &worktree.join(".claude/skills/ivar-probe-shared"),
+        "ivar-probe-shared",
+    );
+    write_repo_skill(
+        &root.join(".claude/skills/ivar-probe-shared"),
+        "ivar-probe-shared",
+    );
+
+    let view_dir = checkout_view(&root, Provider::ClaudeCode);
+
+    let skills = view_dir.join(".claude/skills");
+    assert!(
+        !fs::exists(&skills.join("ivar-probe-shared")).unwrap(),
+        "the hall skill must not be shadowed"
+    );
+    let text = fs::read_text(&skills.join("api--ivar-probe-shared/SKILL.md"))
+        .unwrap()
+        .unwrap();
+    assert!(
+        text.starts_with("---\nname: api--ivar-probe-shared\n"),
+        "{text}"
+    );
+}
+
+#[test]
+fn materialise_drops_a_repo_skill_removed_from_the_repo() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let worktree = Layout::at(root.clone()).repo_worktree(
+        &RepoName::new("api").unwrap(),
+        &BranchName::new("checkout").unwrap(),
+    );
+    let dir = worktree.join(".claude/skills/ivar-probe-gone");
+    write_repo_skill(&dir, "ivar-probe-gone");
+    let layout = Layout::at(root.clone());
+    let manifest = Manifest::read(&layout).unwrap().unwrap();
+    let feature = Feature::read(&layout, &FeatureName::new("checkout").unwrap())
+        .unwrap()
+        .unwrap();
+    let view_dir = checkout_view(&root, Provider::Omp);
+    assert!(fs::exists(&view_dir.join(".omp/skills/ivar-probe-gone")).unwrap());
+
+    fs::remove_path(&dir).unwrap();
+    crate::action::session::view::materialise(
+        &layout,
+        &manifest,
+        Some(&feature),
+        Provider::Omp,
+        &view_dir,
+    )
+    .unwrap();
+
+    assert!(matches!(
+        fs::read_symlink(&view_dir.join(".omp/skills/ivar-probe-gone")).unwrap(),
+        fs::SymlinkTarget::Absent
+    ));
+}
