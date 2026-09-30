@@ -295,6 +295,7 @@ pub fn run(cli: Cli) -> ExitCode {
                                     plan: args.plan,
                                     resume: args.resume,
                                     restart: args.restart,
+                                    mode: args.mode,
                                 },
                             ),
                             json,

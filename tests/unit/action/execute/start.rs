@@ -109,6 +109,7 @@ fn execute_start_pins_normalized_plan_fingerprint() {
             plan: Some(plan.to_string()),
             resume: false,
             restart: false,
+            mode: None,
         },
     )
     .unwrap();
@@ -148,8 +149,8 @@ fn execute_restart_accepts_an_approved_plan_with_recorded_progress() {
         plan: Some(plan.to_string()),
         resume: false,
         restart,
+        mode: None,
     };
-    execute_start::start(&ctx, start_input(false)).unwrap();
 
     fs::write_text(
         &plan,
@@ -179,9 +180,193 @@ fn execute_start_without_plan_uses_the_feature_plan() {
             plan: None,
             resume: false,
             restart: false,
+            mode: None,
         },
     )
     .expect("an omitted --plan must resolve to the feature's plan.md");
 
     assert_eq!(outcome.value.receipt.plan_path, plan);
+}
+#[test]
+fn execute_start_records_specified_mode() {
+    let (_guard, root) = seeded_execution_hall();
+    let ctx = Ctx::new(root.clone());
+    let layout = discover_hall(&ctx).unwrap();
+    let feature = FeatureName::new("child-feature").unwrap();
+    let plan = layout.plan_dir(&feature).join("plan.md");
+    fs::write_text(&plan, "# Plan\n\n- [ ] Execute task\n").unwrap();
+    approve_plan(&ctx);
+    write_feature_session(&layout, &feature);
+
+    let outcome = execute_start::start(
+        &ctx,
+        execute_start::StartInput {
+            feature: feature.to_string(),
+            plan: None,
+            resume: false,
+            restart: false,
+            mode: Some("goal".to_owned()),
+        },
+    )
+    .unwrap();
+
+    assert_eq!(
+        outcome.value.receipt.mode,
+        crate::domain::feature::RunMode::Goal
+    );
+
+    let mut human = Vec::new();
+    outcome.value.write_human(&mut human).unwrap();
+    let human = String::from_utf8(human).unwrap();
+    assert!(human.contains("(mode goal)"));
+}
+
+#[test]
+fn execute_start_omitted_mode_defaults_to_default_mode() {
+    let (_guard, root) = seeded_execution_hall();
+    let ctx = Ctx::new(root.clone());
+    let layout = discover_hall(&ctx).unwrap();
+    let feature = FeatureName::new("child-feature").unwrap();
+    let plan = layout.plan_dir(&feature).join("plan.md");
+    fs::write_text(&plan, "# Plan\n\n- [ ] Execute task\n").unwrap();
+    approve_plan(&ctx);
+    write_feature_session(&layout, &feature);
+
+    let outcome = execute_start::start(
+        &ctx,
+        execute_start::StartInput {
+            feature: feature.to_string(),
+            plan: None,
+            resume: false,
+            restart: false,
+            mode: None,
+        },
+    )
+    .unwrap();
+
+    assert_eq!(
+        outcome.value.receipt.mode,
+        crate::domain::feature::RunMode::Default
+    );
+}
+
+#[test]
+fn execute_resume_without_mode_preserves_existing_mode() {
+    let (_guard, root) = seeded_execution_hall();
+    let ctx = Ctx::new(root.clone());
+    let layout = discover_hall(&ctx).unwrap();
+    let feature = FeatureName::new("child-feature").unwrap();
+    let plan = layout.plan_dir(&feature).join("plan.md");
+    fs::write_text(&plan, "# Plan\n\n- [ ] Execute task\n").unwrap();
+    approve_plan(&ctx);
+    write_feature_session(&layout, &feature);
+
+    execute_start::start(
+        &ctx,
+        execute_start::StartInput {
+            feature: feature.to_string(),
+            plan: None,
+            resume: false,
+            restart: false,
+            mode: Some("goal".to_owned()),
+        },
+    )
+    .unwrap();
+
+    let resumed = execute_start::start(
+        &ctx,
+        execute_start::StartInput {
+            feature: feature.to_string(),
+            plan: None,
+            resume: true,
+            restart: false,
+            mode: None,
+        },
+    )
+    .unwrap();
+
+    assert_eq!(
+        resumed.value.receipt.mode,
+        crate::domain::feature::RunMode::Goal
+    );
+}
+
+#[test]
+fn execute_resume_with_mode_switches_mode_and_appends_checkpoint() {
+    let (_guard, root) = seeded_execution_hall();
+    let ctx = Ctx::new(root.clone());
+    let layout = discover_hall(&ctx).unwrap();
+    let feature = FeatureName::new("child-feature").unwrap();
+    let plan = layout.plan_dir(&feature).join("plan.md");
+    fs::write_text(&plan, "# Plan\n\n- [ ] Execute task\n").unwrap();
+    approve_plan(&ctx);
+    write_feature_session(&layout, &feature);
+
+    execute_start::start(
+        &ctx,
+        execute_start::StartInput {
+            feature: feature.to_string(),
+            plan: None,
+            resume: false,
+            restart: false,
+            mode: Some("goal".to_owned()),
+        },
+    )
+    .unwrap();
+
+    let resumed = execute_start::start(
+        &ctx,
+        execute_start::StartInput {
+            feature: feature.to_string(),
+            plan: None,
+            resume: true,
+            restart: false,
+            mode: Some("default".to_owned()),
+        },
+    )
+    .unwrap();
+
+    assert_eq!(
+        resumed.value.receipt.mode,
+        crate::domain::feature::RunMode::Default
+    );
+    let last_cp = resumed.value.receipt.checkpoints.last().unwrap();
+    assert_eq!(
+        last_cp.kind,
+        crate::domain::feature::CheckpointKind::ModeChanged
+    );
+    assert_eq!(
+        last_cp.mode_from,
+        Some(crate::domain::feature::RunMode::Goal)
+    );
+    assert_eq!(
+        last_cp.mode_to,
+        Some(crate::domain::feature::RunMode::Default)
+    );
+}
+
+#[test]
+fn execute_start_rejects_invalid_mode() {
+    let (_guard, root) = seeded_execution_hall();
+    let ctx = Ctx::new(root.clone());
+    let layout = discover_hall(&ctx).unwrap();
+    let feature = FeatureName::new("child-feature").unwrap();
+    let plan = layout.plan_dir(&feature).join("plan.md");
+    fs::write_text(&plan, "# Plan\n\n- [ ] Execute task\n").unwrap();
+    approve_plan(&ctx);
+    write_feature_session(&layout, &feature);
+
+    let err = execute_start::start(
+        &ctx,
+        execute_start::StartInput {
+            feature: feature.to_string(),
+            plan: None,
+            resume: false,
+            restart: false,
+            mode: Some("turbo".to_owned()),
+        },
+    )
+    .unwrap_err();
+
+    assert_eq!(err.code, "execute.unknown_mode");
 }

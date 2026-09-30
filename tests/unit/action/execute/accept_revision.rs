@@ -99,6 +99,7 @@ fn start_run(ctx: &Ctx, feature: &FeatureName, plan: &Utf8Path, resume: bool) {
             plan: Some(plan.to_string()),
             resume,
             restart: false,
+            mode: None,
         },
     )
     .unwrap();

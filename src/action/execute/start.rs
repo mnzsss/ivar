@@ -21,6 +21,7 @@ pub struct StartInput {
     pub plan: Option<String>,
     pub resume: bool,
     pub restart: bool,
+    pub mode: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -31,7 +32,11 @@ pub struct StartOutcome {
 }
 impl WriteHuman for StartOutcome {
     fn write_human(&self, w: &mut impl io::Write) -> io::Result<()> {
-        writeln!(w, "Run {} is {}", self.receipt.id, self.receipt.status)
+        writeln!(
+            w,
+            "Run {} is {} (mode {})",
+            self.receipt.id, self.receipt.status, self.receipt.mode
+        )
     }
 }
 
@@ -42,6 +47,11 @@ pub fn start(ctx: &Ctx, input: StartInput) -> Outcome<StartOutcome> {
             "--resume and --restart cannot be used together",
         ));
     }
+    let mode = input
+        .mode
+        .as_deref()
+        .map(crate::domain::feature::RunMode::parse)
+        .transpose()?;
     let layout = discover_hall(ctx)?;
     let feature = FeatureName::new(input.feature)?;
     let plan = super::plan_path(ctx, &layout, &feature, input.plan.as_deref());
@@ -78,7 +88,10 @@ pub fn start(ctx: &Ctx, input: StartInput) -> Outcome<StartOutcome> {
             receipt.write(&layout)?;
             run::archive_current(&layout, &feature)?;
         } else if input.resume {
-            receipt.resume(session.id, state.provider, now)?;
+            receipt.resume(session.id.clone(), state.provider, now.clone())?;
+            if let Some(mode) = mode {
+                receipt.change_mode(mode, session.id, state.provider, now)?;
+            }
             receipt.write(&layout)?;
             return Ok(Report::new(StartOutcome {
                 receipt_path: run::current_path(&layout, &feature),
@@ -114,7 +127,8 @@ pub fn start(ctx: &Ctx, input: StartInput) -> Outcome<StartOutcome> {
         session.id,
         state.provider,
         now,
-    );
+    )
+    .with_mode(mode.unwrap_or_default());
     receipt.write(&layout)?;
     Ok(Report::new(StartOutcome {
         receipt_path: run::current_path(&layout, &feature),
