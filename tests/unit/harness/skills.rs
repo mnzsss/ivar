@@ -11,7 +11,7 @@ use std::collections::BTreeSet;
 #[test]
 fn catalog_is_complete_unique_and_current() {
     let skills = catalog();
-    assert_eq!(skills.len(), 3);
+    assert_eq!(skills.len(), 4);
 
     let ids = skills.iter().map(|skill| skill.id).collect::<BTreeSet<_>>();
     assert_eq!(ids.len(), skills.len());
@@ -25,6 +25,26 @@ fn catalog_is_complete_unique_and_current() {
         assert!(skill.skill_md().starts_with("---\n"));
         assert!(skill.skill_md().contains("name:"));
         assert!(skill.skill_md().contains("description:"));
+    }
+}
+
+#[test]
+fn subfeatures_skill_walks_the_parallel_children_loop() {
+    let skill = catalog()
+        .iter()
+        .find(|skill| skill.id == "subfeatures")
+        .expect("subfeatures is shipped");
+    let body = skill.skill_md();
+    for step in [
+        "ivar feature create <child> --parent <parent>",
+        "ivar feature promote <parent> <repo>",
+        "ivar session start <child>",
+        "ivar feature status <parent> --recursive",
+        "ivar plan approve <child> plan",
+        "ivar feature integrate <child>",
+        "ivar feature deliver <parent> --preview",
+    ] {
+        assert!(body.contains(step), "missing: {step}");
     }
 }
 
