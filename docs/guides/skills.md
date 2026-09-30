@@ -104,6 +104,23 @@ at the hall root and harnesses find them by walking up from the view dir. That i
 the right scope for "how this team works" and the wrong scope for "how this one
 repo builds" — repo-specific instructions belong in the repo.
 
+## Repo skills in sessions
+
+A repo can ship its own skills in `.omp/skills/`, `.agents/skills/`,
+`.claude/skills/` or `.opencode/skills/`. Every session projects them into its
+own config dir (`<view>/.claude/skills/`, `.omp/skills/`, `.opencode/skills/`),
+linked through the session's repo symlink — so a promoted repo shows its
+feature branch's skills and every other repo its default branch's.
+
+- Repo skills never shadow a hall or user skill. On a name clash the repo skill
+  is copied in as `<repo>--<name>`, with its frontmatter `name` rewritten.
+  Two repos shipping the same name both get the prefix.
+- Only sessions see repo skills; the hall root and `ivar skill sync` do not.
+- `ivar skill doctor` lists repo skills that sessions rename
+  (`skill.repo_prefixed`) or drop (`skill.repo_skipped`).
+- ivar records what it put there in `skills/.ivar-repo-skills.json` and removes
+  only those entries when a repo stops shipping a skill.
+
 There is no hosted skill sync in `ivar`, and no account. The hall's git repo does
 the sharing.
 
