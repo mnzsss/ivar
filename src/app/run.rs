@@ -50,6 +50,8 @@ use crate::action::skill::{
     update as skill_update,
 };
 use crate::action::sync;
+use crate::action::upgrade::Notice;
+use crate::action::upgrade::command as upgrade_cmd;
 use crate::app::respond::{current_dir, respond, respond_batch, respond_failure};
 use crate::cli::root::{
     Cli, Command, CommentCommand, DiscoveryCommand, ExecuteCommand, FeatureCommand, McpCommand,
@@ -103,7 +105,11 @@ pub fn run(cli: Cli) -> ExitCode {
     let mut stdout = io::stdout().lock();
     let mut stderr = io::stderr().lock();
 
-    match cli.command {
+    // Decided from the cache before the command runs; printed after it, so
+    // the line never interleaves with the command's own output.
+    let notice = Notice::start(&super::notice::notice_context(json, &cli.command));
+
+    let code = match cli.command {
         Command::Init(args) => respond(
             hall::init(&ctx, &args.into()),
             json,
@@ -906,6 +912,12 @@ pub fn run(cli: Cli) -> ExitCode {
                 &mut stderr,
             ),
         },
+        Command::Upgrade(args) => respond(
+            upgrade_cmd::upgrade(&args.into()),
+            json,
+            &mut stdout,
+            &mut stderr,
+        ),
         Command::Graph(cmd) => super::graph_dispatch::dispatch_graph(
             cmd,
             &ctx,
@@ -925,5 +937,7 @@ pub fn run(cli: Cli) -> ExitCode {
                 }
             }
         }
-    }
+    };
+    notice.finish(&mut stderr);
+    code
 }
