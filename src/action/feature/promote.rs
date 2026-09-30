@@ -16,7 +16,10 @@
 //! the declared base names a branch this repo does not have, promotion still
 //! proceeds: it falls back to `default_branch`, records that as the fact, and
 //! warns (`feature.base_absent`) naming the repo, the base that was asked
-//! for, and the one that was used instead.
+//! for, and the one that was used instead. A child with no `--base` whose
+//! parent does not promote the repo first asks to promote the parent
+//! (non-interactive runs refuse with `feature.parent_promotion_required`), so
+//! the fallback applies only to an explicit base.
 //!
 //! # Adopting a branch that already exists
 //!
@@ -80,7 +83,7 @@ use crate::store::manifest::Manifest;
 use crate::store::setup_receipt::Receipt;
 
 use super::super::{discover_hall, read_manifest};
-use super::mutation;
+use super::{mutation, parent_promotion, relations};
 use crate::action::session::{lookup, view};
 use crate::action::{Ctx, SETUP_INTERPRETER, worktree_env};
 
@@ -177,6 +180,22 @@ pub fn promote(ctx: &Ctx, input: PromoteInput) -> Outcome<PromoteOutcome> {
 
     let repo = find_promotable_repo(&manifest, &feature, &repo_name, &feature_name)?;
 
+    let mut warnings = Vec::new();
+    if input.base.is_none()
+        && let Some(parent_name) = feature.parent.clone()
+    {
+        let parent = relations::read_feature(&layout, &parent_name)?;
+        if !parent.promotions.contains_key(&repo_name) {
+            warnings.extend(parent_promotion::ensure(
+                ctx,
+                parent_promotion::Caller::Promote,
+                &feature,
+                &parent,
+                &repo_name,
+            )?);
+        }
+    }
+
     let bare = layout.repo_bare(&repo_name);
     let worktree = layout.repo_worktree(&repo_name, &feature.branch);
     let default_branch = repo.default_branch();
@@ -206,7 +225,6 @@ pub fn promote(ctx: &Ctx, input: PromoteInput) -> Outcome<PromoteOutcome> {
         default_branch,
         &repo_name,
     );
-    let mut warnings = Vec::new();
     warnings.extend(base_warning);
 
     setup_or_adopt_branch(

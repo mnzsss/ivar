@@ -263,6 +263,17 @@ fn init_rejects_nesting_inside_an_existing_hall() {
 
     assert_eq!(error.status, Status::Blocked);
     assert_eq!(error.code, "hall.nested");
+    assert!(
+        error
+            .actual
+            .as_deref()
+            .unwrap()
+            .contains("act on that hall")
+    );
+    assert_eq!(
+        error.fix_actions[0].command.as_deref(),
+        Some("cd \"$(mktemp -d)\" && ivar init")
+    );
 }
 
 #[test]

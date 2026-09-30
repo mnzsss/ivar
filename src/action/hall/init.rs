@@ -216,12 +216,17 @@ fn nested_inside(attempted: &Utf8Path, existing_root: &Utf8Path) -> Failure {
     )
     .expected("a directory outside any existing hall")
     .actual(format!(
-        "already inside the hall rooted at `{existing_root}`"
+        "already inside the hall rooted at `{existing_root}`; every ivar command run here would act on that hall"
     ))
-    .fix(FixAction::safe(
-        "hall.choose_outside_directory",
-        format!("Choose a directory outside the existing hall at `{existing_root}`."),
-    ))
+    .fix(
+        FixAction::safe(
+            "hall.choose_outside_directory",
+            format!(
+                "Create the new hall outside `{existing_root}`, for a throwaway one a fresh temp dir."
+            ),
+        )
+        .command("cd \"$(mktemp -d)\" && ivar init"),
+    )
 }
 
 /// The hall's name: `raw` if given, otherwise derived from `root`'s final

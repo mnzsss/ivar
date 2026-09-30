@@ -467,3 +467,13 @@ fn review_checks_affected_consumers_with_fallback() {
         "was: {content}"
     );
 }
+
+#[test]
+fn feature_create_command_does_not_assume_multiple_repos() {
+    let command = catalog()
+        .iter()
+        .find(|command| command.id == "feature-create")
+        .expect("feature-create is shipped");
+    assert!(!command.content.contains("cross-repo"));
+    assert!(command.content.contains("one repo or several"));
+}

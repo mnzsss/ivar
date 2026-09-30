@@ -9,7 +9,7 @@ use super::*;
 use crate::action::feature::create::CreateInput;
 use crate::action::feature::create::create as create_action;
 use crate::action::hall::{self, InitInput};
-use crate::domain::feature::Feature;
+use crate::domain::feature::{Feature, WorktreeState};
 use crate::domain::name::{BranchName, HallName, SessionId};
 use crate::domain::provider::Provider;
 use crate::domain::session::SessionState;
@@ -547,4 +547,105 @@ fn promote_repoints_live_feature_sessions_at_the_feature_worktree() {
         std::path::Path::new(root.join(".ivar/repos/api/checkout").as_str()),
         "promote must repoint every live session of the feature at the new worktree"
     );
+}
+
+/// `hall_with_feature` plus `checkout-ui`, a child of `checkout`; neither
+/// promotes `api` yet.
+fn hall_with_child() -> (tempfile::TempDir, Utf8PathBuf) {
+    let (guard, root) = hall_with_feature();
+    create_action(
+        &Ctx::new(root.clone()),
+        CreateInput {
+            name: "checkout-ui".to_owned(),
+            branch: None,
+            base: None,
+            parent: Some("checkout".to_owned()),
+            via: None,
+            strategy: None,
+        },
+    )
+    .unwrap();
+    (guard, root)
+}
+
+fn read(root: &Utf8PathBuf, name: &str) -> Feature {
+    Feature::read(&Layout::at(root.clone()), &FeatureName::new(name).unwrap())
+        .unwrap()
+        .unwrap()
+}
+
+#[test]
+fn promoting_a_child_before_its_parent_blocks_noninteractive_with_the_exact_command() {
+    let (_guard, root) = hall_with_child();
+    let ctx = Ctx::new(root.clone());
+
+    let failure = promote(&ctx, promote_input("checkout-ui", "api")).unwrap_err();
+
+    assert_eq!(failure.status, Status::Blocked);
+    assert_eq!(failure.code, "feature.parent_promotion_required");
+    assert_eq!(
+        failure.fix_actions[0].command.as_deref(),
+        Some("ivar feature promote checkout api")
+    );
+    assert!(read(&root, "checkout-ui").promotions.is_empty());
+    assert!(read(&root, "checkout").promotions.is_empty());
+    assert!(!root.join(".ivar/repos/api/checkout-ui").exists());
+}
+
+#[test]
+fn a_declined_parent_promotion_blocks_the_child_without_mutation() {
+    let (_guard, root) = hall_with_child();
+    let ctx = Ctx::new(root.clone()).with_confirm(crate::action::confirm::fixed(false));
+
+    let failure = promote(&ctx, promote_input("checkout-ui", "api")).unwrap_err();
+
+    assert_eq!(failure.code, "feature.parent_promotion_required");
+    assert!(read(&root, "checkout-ui").promotions.is_empty());
+    assert!(!root.join(".ivar/repos/api/checkout").exists());
+}
+
+#[test]
+fn a_confirmed_parent_promotion_cuts_the_child_from_the_parent_branch() {
+    let (_guard, root) = hall_with_child();
+    let ctx = Ctx::new(root.clone()).with_confirm(crate::action::confirm::fixed(true));
+
+    let report = promote(&ctx, promote_input("checkout-ui", "api")).unwrap();
+
+    assert!(
+        report
+            .warnings
+            .iter()
+            .all(|w| w.code != "feature.base_absent")
+    );
+    let api = RepoName::new("api").unwrap();
+    assert_eq!(
+        read(&root, "checkout").worktree_state(&api),
+        Some(WorktreeState::Ready)
+    );
+    assert_eq!(
+        read(&root, "checkout-ui").promotions[&api].base,
+        Some(BranchName::new("checkout").unwrap())
+    );
+}
+
+#[test]
+fn an_explicit_base_skips_the_parent_question() {
+    let (_guard, root) = hall_with_child();
+    let ctx = Ctx::new(root.clone());
+
+    promote(
+        &ctx,
+        PromoteInput {
+            feature: "checkout-ui".to_owned(),
+            repo: "api".to_owned(),
+            base: Some("main".to_owned()),
+        },
+    )
+    .unwrap();
+
+    assert_eq!(
+        read(&root, "checkout-ui").promotions[&RepoName::new("api").unwrap()].base,
+        Some(BranchName::new("main").unwrap())
+    );
+    assert!(read(&root, "checkout").promotions.is_empty());
 }

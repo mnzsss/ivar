@@ -74,27 +74,48 @@ pub struct CreateOutcome {
 impl WriteHuman for CreateOutcome {
     fn write_human(&self, w: &mut impl io::Write) -> io::Result<()> {
         match (&self.parent, &self.base) {
-            (Some(parent), Some(base)) => writeln!(
-                w,
-                "Created subfeature `{}` of `{parent}` (branch: {}, base: {base}) in {}",
-                self.name, self.branch, self.root
-            ),
-            (Some(parent), None) => writeln!(
-                w,
-                "Created subfeature `{}` of `{parent}` (branch: {}) in {}",
-                self.name, self.branch, self.root
-            ),
-            (None, Some(base)) => writeln!(
-                w,
-                "Created feature `{}` (branch: {}, base: {base}) in {}",
-                self.name, self.branch, self.root
-            ),
-            (None, None) => writeln!(
-                w,
-                "Created feature `{}` (branch: {}) in {}",
-                self.name, self.branch, self.root
-            ),
+            (Some(parent), Some(base)) => {
+                writeln!(
+                    w,
+                    "Created subfeature `{}` of `{parent}` (branch: {}, base: {base}) in {}",
+                    self.name, self.branch, self.root
+                )?;
+            }
+            (Some(parent), None) => {
+                writeln!(
+                    w,
+                    "Created subfeature `{}` of `{parent}` (branch: {}) in {}",
+                    self.name, self.branch, self.root
+                )?;
+            }
+            (None, Some(base)) => {
+                writeln!(
+                    w,
+                    "Created feature `{}` (branch: {}, base: {base}) in {}",
+                    self.name, self.branch, self.root
+                )?;
+            }
+            (None, None) => {
+                writeln!(
+                    w,
+                    "Created feature `{}` (branch: {}) in {}",
+                    self.name, self.branch, self.root
+                )?;
+            }
         }
+        if let Some(parent) = &self.parent {
+            writeln!(
+                w,
+                "Next: promote a repo into `{parent}` before `{name}` (`ivar feature promote {parent} <repo>`).",
+                name = self.name
+            )?;
+            writeln!(
+                w,
+                "Before `ivar feature integrate {name}`, approve its plan: `ivar plan create {name} plan`, then `ivar plan approve {name} plan`.",
+                name = self.name
+            )?;
+        }
+        Ok(())
     }
 }
 

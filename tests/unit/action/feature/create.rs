@@ -197,6 +197,27 @@ fn the_human_surface_names_the_base_when_declared() {
     );
 }
 
+#[test]
+fn the_human_surface_of_a_subfeature_names_the_next_steps() {
+    let outcome = CreateOutcome {
+        root: Utf8PathBuf::from("/hall"),
+        name: FeatureName::new("checkout-ui").unwrap(),
+        branch: BranchName::new("checkout-ui").unwrap(),
+        base: Some(BranchName::new("checkout").unwrap()),
+        parent: Some(FeatureName::new("checkout").unwrap()),
+    };
+
+    let mut out = Vec::new();
+    outcome.write_human(&mut out).unwrap();
+
+    assert_eq!(
+        String::from_utf8(out).unwrap(),
+        "Created subfeature `checkout-ui` of `checkout` (branch: checkout-ui, base: checkout) in /hall\n\
+         Next: promote a repo into `checkout` before `checkout-ui` (`ivar feature promote checkout <repo>`).\n\
+         Before `ivar feature integrate checkout-ui`, approve its plan: `ivar plan create checkout-ui plan`, then `ivar plan approve checkout-ui plan`.\n"
+    );
+}
+
 /// `--base` declares the branch new promotions should start from — recorded
 /// on the feature so `promote` can read it back.
 #[test]

@@ -91,4 +91,9 @@ const SKILLS: &[ShippedSkill] = &[
         ],
         legacy_sha256: None,
     },
+    ShippedSkill {
+        id: "subfeatures",
+        files: &[skill_file!("ivar-subfeatures", "SKILL.md")],
+        legacy_sha256: None,
+    },
 ];

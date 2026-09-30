@@ -1,10 +1,10 @@
 ---
-description: Create a new persistent feature for cross-repo work.
+description: Create a new persistent feature — one branch across one repo or several.
 ---
 
 # Feature Create
 
-`/ivar-feature-create` creates a new persistent feature for cross-repo work.
+`/ivar-feature-create` creates a new persistent feature: one branch, promoted into one repo or several.
 
 ## Usage
 
@@ -34,7 +34,7 @@ ivar feature create <child> --parent <current>
 ## When to use
 
 - Transitioning from a discovery session to implementation.
-- Starting a new cross-repo feature from inside an active session.
+- Starting a new feature from inside an active session.
 - **As the coordinator**: automatically create a child for an isolatable
   request that falls **outside the approved plan**. Run
   `ivar feature create <child> --parent <current>` yourself, then **announce**

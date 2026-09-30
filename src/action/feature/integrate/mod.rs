@@ -53,7 +53,7 @@ use crate::store::manifest::Manifest;
 use super::super::{discover_hall, read_manifest};
 use super::close::{self, CloseInput};
 use super::lifecycle::read_close;
-use super::promote::{self, PromoteInput};
+use super::parent_promotion;
 use super::relations;
 use super::verification;
 use crate::action::Ctx;
@@ -220,10 +220,13 @@ pub fn integrate(ctx: &Ctx, input: IntegrateInput) -> Outcome<IntegrateOutcome> 
         )
         .expected("the `plan` gate in state approved")
         .actual(format!("the plan gate is `{plan_gate}`"))
-        .fix(FixAction::safe(
-            "integration.approve_plan",
-            format!("Approve it with `ivar plan approve {name} plan`, then integrate again."),
-        )));
+        .fix(
+            FixAction::safe(
+                "integration.approve_plan",
+                format!("Approve it with `ivar plan approve {name} plan`, then integrate again."),
+            )
+            .command(format!("ivar plan approve {name} plan")),
+        ));
     }
 
     // 3. Leaves first: every blocking descendant refuses the whole run, and
@@ -250,9 +253,16 @@ pub fn integrate(ctx: &Ctx, input: IntegrateInput) -> Outcome<IntegrateOutcome> 
     // 7. Preflight every repo in two passes, so a later repo's refusal can
     // never leave an earlier repo's parent promotion behind.
     let needs_parent_promotion = preflight_repos(&layout, &manifest, &git, &child, &parent)?;
-    needs_parent_promotion
-        .iter()
-        .try_for_each(|repo| ensure_parent_promotion(ctx, &child, &parent, repo))?;
+    needs_parent_promotion.iter().try_for_each(|repo| {
+        parent_promotion::ensure(
+            ctx,
+            parent_promotion::Caller::Integrate,
+            &child,
+            &parent,
+            repo,
+        )
+        .map(|_| ())
+    })?;
 
     // 7. Per-repo, in name order: reuse, re-verify, or resume. Each result is
     // persisted immediately — partial and resumable, never atomic. The child
@@ -625,79 +635,6 @@ fn resume_repo(
             child_results,
         ),
     }
-}
-
-/// Ask about (or refuse with the exact command for) promoting `repo` into the
-/// parent. Interactive runs ask; everything else refuses before any mutation.
-fn ensure_parent_promotion(
-    ctx: &Ctx,
-    child: &Feature,
-    parent: &Feature,
-    repo: &RepoName,
-) -> Result<(), Failure> {
-    let question = format!(
-        "Feature `{}` does not promote `{repo}`, but `{repo}`'s work will land on its branch. Promote `{repo}` into `{}`?",
-        parent.name, parent.name
-    );
-    if !ctx.confirm(
-        &question,
-        Some("This promotes the repo into the parent feature."),
-    )? {
-        return Err(parent_promotion_required(child, parent, repo));
-    }
-    promote::promote(
-        ctx,
-        PromoteInput {
-            feature: parent.name.to_string(),
-            repo: repo.to_string(),
-            base: None,
-        },
-    )
-    .map(|_| ())
-    .map_err(|failure| {
-        Failure::failed(
-            "integration.parent_promotion_failed",
-            format!(
-                "promoting `{repo}` into `{}` failed; no receipt was recorded",
-                parent.name
-            ),
-        )
-        .actual(failure.what)
-        .fix(
-            FixAction::safe(
-                "integration.promote_manually",
-                format!(
-                    "Run `ivar feature promote {} {repo}`, then integrate again.",
-                    parent.name
-                ),
-            )
-            .command(format!("ivar feature promote {} {repo}", parent.name)),
-        )
-    })
-}
-
-/// The refusal for a missing parent promotion on a non-interactive run: the
-/// exact safe fix command, and nothing mutated.
-fn parent_promotion_required(child: &Feature, parent: &Feature, repo: &RepoName) -> Failure {
-    Failure::blocked(
-        "integration.parent_promotion_required",
-        format!(
-            "`{repo}` is not promoted into `{}`, which must receive `{}`'s work",
-            parent.name, child.name
-        ),
-    )
-    .expected("the parent to promote every repo the child promotes")
-    .actual(format!("`{repo}` is missing from `{}`", parent.name))
-    .fix(
-        FixAction::safe(
-            "integration.promote_parent",
-            format!(
-                "Promote `{repo}` into `{}`, then integrate again.",
-                parent.name
-            ),
-        )
-        .command(format!("ivar feature promote {} {repo}", parent.name)),
-    )
 }
 
 /// An unrestricted live session cannot coexist with a first successful

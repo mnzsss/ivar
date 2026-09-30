@@ -24,6 +24,7 @@ pub mod integrate;
 mod lifecycle;
 pub mod list;
 mod mutation;
+mod parent_promotion;
 pub mod promote;
 pub mod prune;
 mod pull_requests;
