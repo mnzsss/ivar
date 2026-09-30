@@ -396,10 +396,13 @@ fn normalize(
         )
         .expected(format!("v{BOARD_VERSION} or older"))
         .actual(format!("v{detected}"))
-        .fix(FixAction::safe(
-            "store.upgrade_ivar",
-            "Upgrade ivar to a version that understands this hall.",
-        )));
+        .fix(
+            FixAction::safe(
+                "store.upgrade_ivar",
+                "Upgrade ivar to a version that understands this hall.",
+            )
+            .command("ivar upgrade"),
+        ));
     }
 
     for (from, to, step) in STEPS {

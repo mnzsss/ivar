@@ -11,6 +11,46 @@ OAuth entries, allowing OMP to refresh OAuth tokens automatically via rendered `
 | in git? | gitignored | **committed** |
 | when the format moves | migrates itself, silently | waits for you |
 
+## Upgrading `ivar` itself
+
+```sh
+ivar upgrade            # install the latest release the way this one was installed
+ivar upgrade --check    # just report current and latest; install nothing
+```
+
+`ivar upgrade` looks at where the running binary lives and uses the channel
+that put it there:
+
+| binary in | channel | what runs |
+| --- | --- | --- |
+| `$IVAR_INSTALL_DIR` or `~/.local/bin` | installer | `curl -fsSL https://ivar.run/install \| sh`, into the same directory |
+| `$CARGO_HOME/bin` (`~/.cargo/bin`) | cargo | `cargo install ivar --locked` |
+| `/usr/bin` | system (AUR) | nothing — prints `paru -S ivar-bin` / `yay -S ivar-bin` |
+| anywhere else | unknown | nothing — prints every supported command |
+
+It prints the command before running it, does nothing when you are already on
+the latest release, never uses `sudo`, and exits non-zero if the command fails
+or the latest release cannot be determined.
+
+### The update notice
+
+At most once per 20 hours, an interactive `ivar` asks GitHub which tag
+`github.com/mnzsss/ivar/releases/latest` redirects to and caches the answer in
+`$XDG_CACHE_HOME/ivar/update-check.json` (`~/.cache/ivar/` on Linux,
+`~/Library/Caches/ivar/` on macOS). When a newer release is cached, the next
+command ends with one stderr line:
+
+```
+ivar 0.13.0 is available (you have 0.12.0) — run `ivar upgrade`
+```
+
+The check sends nothing but a `User-Agent`, waits at most 800 ms, and never
+changes a command's output or exit code. It is off when `IVAR_NO_UPDATE_CHECK`
+is set to anything non-empty, when `CI` is set, with `--json`, when stderr is
+not a terminal, and for the verbs other programs read (`guard`, `session env`,
+`session relay`, `graph mcp`, `git-credential`). `ivar upgrade` itself never
+prints the notice.
+
 ## The promise
 
 > There will never be a hall you cannot open.
@@ -65,12 +105,12 @@ blocked: ivar.json is at schema version 2, but this build of ivar only
          understands up to version 1
 ```
 
-Upgrade `ivar`. That is the whole fix — `ivar migrate` cannot help here, and
+Run `ivar upgrade`. That is the whole fix — `ivar migrate` cannot help here, and
 running it will tell you so rather than pretending:
 
 ```
 ivar.json is at version 2; this build understands up to 1.
-warning: schema version 2, but this build understands up to 1 — upgrade ivar;
+warning: schema version 2, but this build understands up to 1 — run `ivar upgrade`;
          this command cannot help
 ```
 

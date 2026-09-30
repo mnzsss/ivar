@@ -122,10 +122,13 @@ impl From<Error> for Failure {
             Error::TooNew { found, highest, .. } => Failure::blocked(code, what)
                 .expected(format!("schema version {highest} or older"))
                 .actual(format!("schema version {found}"))
-                .fix(FixAction::unsafe_(
-                    "store.upgrade_ivar",
-                    format!("Upgrade ivar to a version that understands schema version {found}."),
-                )),
+                .fix(
+                    FixAction::unsafe_(
+                        "store.upgrade_ivar",
+                        format!("Upgrade ivar to a version that understands schema version {found}."),
+                    )
+                    .command("ivar upgrade"),
+                ),
             Error::CommittedRefusesImplicitUpgrade {
                 on_disk, current, ..
             } => Failure::blocked(code, what)

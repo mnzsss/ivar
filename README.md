@@ -71,8 +71,10 @@ curl -fsSL ivar.run/install | sh
 ```
 
 The installer defaults to zero telemetry, and the installed `ivar` binary never
-makes network requests for analytics. To optionally help count successful
-installations:
+sends analytics. Its only unrequested request is the update check: at most once
+per 20 hours it asks GitHub for the latest release tag, sending nothing but a
+`User-Agent` (turn it off with `IVAR_NO_UPDATE_CHECK=1`). To optionally help
+count successful installations:
 
 ```sh
 curl -fsSL ivar.run/install | IVAR_INSTALL_ANALYTICS=1 sh
@@ -118,6 +120,8 @@ walks through both paths.
 watch your files, index your repositories, or keep a daemon. It arranges local
 directories, worktrees, and provider configuration, then gets out of the way.
 
+The one exception is the update check described above; `ivar upgrade` then
+updates `ivar` through whichever channel installed it.
 It uses your existing GitHub credentials only when it must clone a repository or
 open a pull request as you. Read [Concepts](docs/concepts.md) and
 [Limitations](docs/reference/limitations.md) for the exact boundaries.

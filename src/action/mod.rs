@@ -31,6 +31,7 @@ pub mod review;
 pub mod session;
 pub mod skill;
 pub mod sync;
+pub mod upgrade;
 
 use std::io;
 use std::sync::Arc;

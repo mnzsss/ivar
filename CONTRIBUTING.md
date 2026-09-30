@@ -15,9 +15,12 @@ read; some sit for a while.
 > `ivar` is local-only. It never talks to a server. Anything that requires a
 > hosted service is out of scope.
 
-That line is architectural, not commercial, and you can verify it: there is no
-network client in this repo, and no telemetry — not even opt-in. A pull request
-that adds a server call will be declined on that basis, however good it is.
+That line is architectural, not commercial, and you can verify it: every
+network call in this repo is one the user asked for, with one named exception —
+the update check in `src/infra/release.rs`, which reads a public GitHub
+redirect and honours `IVAR_NO_UPDATE_CHECK=1`. There is no telemetry — not even
+opt-in. A pull request that adds a server call, or a second unrequested
+request, will be declined on that basis, however good it is.
 
 ## The gate
 

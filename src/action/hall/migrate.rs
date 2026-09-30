@@ -127,7 +127,7 @@ pub fn migrate(ctx: &Ctx) -> Outcome<MigrateOutcome> {
                 "hall.manifest_too_new",
                 manifest_path.to_string(),
                 format!(
-                    "schema version {found}, but this build understands up to {highest} — upgrade ivar; this command cannot help"
+                    "schema version {found}, but this build understands up to {highest} — run `ivar upgrade`; this command cannot help"
                 ),
             );
             return Ok(Report::with_warnings(

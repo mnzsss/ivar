@@ -3,6 +3,7 @@
 use clap::CommandFactory as _;
 
 use super::*;
+use crate::action::upgrade::command::UpgradeInput;
 
 #[test]
 fn feature_deliver_parses_grouped_metadata_and_preserves_order() {
@@ -1059,5 +1060,20 @@ fn mcp_status_parses_defaults_when_flags_omitted() {
             assert!(!args.live);
         }
         other => panic!("expected mcp status, got {other:?}"),
+    }
+}
+
+#[test]
+fn upgrade_parses_with_and_without_check() {
+    let cli = Cli::try_parse_from(["ivar", "upgrade"]).unwrap();
+    match cli.command {
+        Command::Upgrade(args) => assert!(!UpgradeInput::from(args).check),
+        other => panic!("expected Upgrade, got {other:?}"),
+    }
+
+    let cli = Cli::try_parse_from(["ivar", "upgrade", "--check"]).unwrap();
+    match cli.command {
+        Command::Upgrade(args) => assert!(UpgradeInput::from(args).check),
+        other => panic!("expected Upgrade, got {other:?}"),
     }
 }

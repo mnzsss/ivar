@@ -283,6 +283,47 @@ fn data_dir_failure() -> Failure {
         ))
 }
 
+/// Resolve the base directory for disposable per-user caches:
+/// `$XDG_CACHE_HOME` (absolute) on every platform, else `$HOME/Library/Caches`
+/// on macOS and `$HOME/.cache` elsewhere. Same fallthrough rules as
+/// [`data_dir`]: a relative or empty variable is unset, never an error.
+///
+/// # Errors
+///
+/// Returns [`Failure`] naming both variables when neither resolves.
+pub fn cache_dir() -> Result<Utf8PathBuf, Failure> {
+    cache_dir_from(
+        std::env::var("XDG_CACHE_HOME").ok(),
+        std::env::var("HOME").ok(),
+        std::env::consts::OS,
+    )
+}
+
+fn cache_dir_from(
+    xdg_cache_home: Option<String>,
+    home: Option<String>,
+    os: &str,
+) -> Result<Utf8PathBuf, Failure> {
+    if let Some(path) = absolute_non_empty(xdg_cache_home) {
+        return Ok(path);
+    }
+    let home = home
+        .filter(|h| !h.is_empty())
+        .ok_or_else(cache_dir_failure)?;
+    let home = Utf8PathBuf::from(home);
+    Ok(match os {
+        "macos" => home.join("Library").join("Caches"),
+        _ => home.join(".cache"),
+    })
+}
+
+fn cache_dir_failure() -> Failure {
+    Failure::blocked(
+        "fs.cache_dir_unresolved",
+        "could not resolve a cache directory: neither XDG_CACHE_HOME nor HOME is set",
+    )
+}
+
 /// A unique sibling path in the same directory as `path`, for the
 /// write-to-temp-then-rename dance. Never collides across concurrent callers —
 /// suffixed with a fresh UUID, not a counter — and never leaves the containing

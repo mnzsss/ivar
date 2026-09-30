@@ -157,6 +157,10 @@ fn a_board_newer_than_this_ivar_is_refused() {
 
     assert_eq!(failure.code, "store.version_too_new");
     assert_eq!(failure.status, Status::Blocked);
+    assert_eq!(
+        failure.fix_actions[0].command.as_deref(),
+        Some("ivar upgrade")
+    );
 }
 
 #[test]

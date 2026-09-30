@@ -848,7 +848,14 @@ legal).
 
 - **No async runtime, no daemon, no server, no socket, no telemetry.** The
   local-only claim is verifiable by `rg` over this repo, and it should stay that
-  way.
+  way. Every network call is one you asked for (`deliver`, `mcp auth`, a
+  tarball fetch) — with **one named exception**: the update check
+  (`src/infra/release.rs`). At most once per 20 hours, and only on an
+  interactive release build, `ivar` asks GitHub where
+  `github.com/mnzsss/ivar/releases/latest` redirects, caches the answer in
+  `$XDG_CACHE_HOME/ivar/update-check.json`, and prints one stderr line when a
+  newer release exists. It sends nothing but a `User-Agent`, never blocks a
+  command for more than 800 ms, and `IVAR_NO_UPDATE_CHECK=1` turns it off.
 - **No Ivar-owned provider scheduler.** Provider-native subagents, dependency
   coordination, transcripts, event folding, and per-subagent write contracts
   belong to the active provider. Ivar keeps only the local Run Receipt boundary.

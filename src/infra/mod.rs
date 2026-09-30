@@ -21,4 +21,5 @@ pub mod mcp_oauth;
 pub mod oauth;
 pub mod proc;
 pub mod progress;
+pub mod release;
 pub mod term;

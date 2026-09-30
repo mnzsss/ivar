@@ -2,7 +2,7 @@
 //!
 //! The settled v1 surface (ARCHITECTURE.md's module map):
 //! `ivar init · sync · status · doctor · cleanup · migrate · repo · feature ·
-//! session · provider · plan · skill · mcp`. Every verb dispatches to an action file that
+//! session · provider · plan · skill · mcp · upgrade`. Every verb dispatches to an action file that
 //! returns `Failure::blocked("…not implemented yet")` — never a silent success
 //! and never `todo!()`. See ARCHITECTURE.md's build order: those verbs land in
 //! later slices, not stubbed 40-deep now.
@@ -19,8 +19,8 @@ use crate::action::repo::create as repo_create;
 use crate::action::repo::view as repo_view;
 use crate::action::session::guard_cmd;
 use crate::action::sync::SyncInput;
+use crate::action::upgrade::command::UpgradeInput;
 use crate::error::Failure;
-
 /// Mount the repos a feature spans into one directory, on one branch, for
 /// one agent session.
 #[derive(Debug, Parser)]
@@ -107,11 +107,34 @@ pub enum Command {
     Graph(super::graph::GraphCommand),
     /// Guard: evaluate a tool request against the session's writable set.
     Guard(GuardArgs),
+    /// Upgrade ivar through the channel that installed it.
+    ///
+    /// Runs the installer again for an installer install and
+    /// `cargo install ivar --locked` for a cargo install, printing the
+    /// command first. A package-manager or unrecognised install gets the
+    /// command to run instead. Nothing runs when this is already the latest
+    /// release.
+    Upgrade(UpgradeArgs),
     /// Answer git's credential helper protocol on stdin. Registered as
     /// `credential.https://github.com.helper = !ivar git-credential` so a
     /// token never lands in `.git/config`.
     #[command(hide = true)]
     GitCredential(GitCredentialArgs),
+}
+
+/// Options for `ivar upgrade`.
+#[derive(Debug, Args)]
+pub struct UpgradeArgs {
+    /// Only report the current and latest version; install nothing.
+    #[arg(long)]
+    pub check: bool,
+}
+
+impl From<UpgradeArgs> for UpgradeInput {
+    fn from(args: UpgradeArgs) -> Self {
+        let UpgradeArgs { check } = args;
+        Self { check }
+    }
 }
 
 /// The operation git appends when it invokes a credential helper.

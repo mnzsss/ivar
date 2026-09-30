@@ -36,7 +36,9 @@ use camino::Utf8Path;
 
 /// The compiled `ivar` binary, ready to be given arguments.
 pub(crate) fn ivar() -> Command {
-    Command::cargo_bin("ivar").expect("binary builds")
+    let mut command = Command::cargo_bin("ivar").expect("binary builds");
+    command.env("IVAR_NO_UPDATE_CHECK", "1");
+    command
 }
 
 /// Rewrite a hall's `ivar.json` to declare `repos` as `(name, url, branch)`.

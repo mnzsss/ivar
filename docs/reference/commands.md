@@ -1109,6 +1109,15 @@ Guard: evaluate a tool request against the session's writable set
 | --- | --- | --- | --- |
 | `--provider` | `<PROVIDER>` |  | The provider whose hook protocol to use for output shaping |
 
+
+#### `ivar upgrade`
+
+Upgrade ivar through the channel that installed it. Runs the installer again for an installer install and `cargo install ivar --locked` for a cargo install, printing the command first. A package-manager or unrecognised install gets the command to run instead. Nothing runs when this is already the latest release.
+
+| flag | value | default | description |
+| --- | --- | --- | --- |
+| `--check` |  |  | Only report the current and latest version; install nothing |
+
 <!-- END GENERATED COMMANDS -->
 
 ## Notes the generator cannot give you
