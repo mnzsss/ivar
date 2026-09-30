@@ -178,6 +178,10 @@ fn integrate_requires_the_plan_gate() {
 
     let failure = integrate(&ctx, integrate_input("unapproved")).unwrap_err();
     assert_eq!(failure.code, "integration.plan_not_approved");
+    assert_eq!(
+        failure.fix_actions[0].command.as_deref(),
+        Some("ivar plan approve unapproved plan")
+    );
 }
 
 #[test]

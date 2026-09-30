@@ -220,10 +220,13 @@ pub fn integrate(ctx: &Ctx, input: IntegrateInput) -> Outcome<IntegrateOutcome> 
         )
         .expected("the `plan` gate in state approved")
         .actual(format!("the plan gate is `{plan_gate}`"))
-        .fix(FixAction::safe(
-            "integration.approve_plan",
-            format!("Approve it with `ivar plan approve {name} plan`, then integrate again."),
-        )));
+        .fix(
+            FixAction::safe(
+                "integration.approve_plan",
+                format!("Approve it with `ivar plan approve {name} plan`, then integrate again."),
+            )
+            .command(format!("ivar plan approve {name} plan")),
+        ));
     }
 
     // 3. Leaves first: every blocking descendant refuses the whole run, and
