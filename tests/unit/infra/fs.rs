@@ -802,6 +802,41 @@ fn data_dir_from_windows_fails_without_any_path() {
     assert_eq!(failure.code, "fs.data_dir");
 }
 
+// -- cache_dir: the same pure-cascade shape as data_dir ----------------------
+
+#[test]
+fn cache_dir_from_uses_xdg_cache_home_when_absolute() {
+    let resolved = cache_dir_from(
+        Some("/xdg/cache".to_owned()),
+        Some("/home/u".to_owned()),
+        "linux",
+    )
+    .unwrap();
+    assert_eq!(resolved, Utf8PathBuf::from("/xdg/cache"));
+}
+
+#[test]
+fn cache_dir_from_ignores_a_relative_or_empty_xdg_cache_home() {
+    for xdg in ["relative/cache", ""] {
+        let resolved =
+            cache_dir_from(Some(xdg.to_owned()), Some("/home/u".to_owned()), "linux").unwrap();
+        assert_eq!(resolved, Utf8PathBuf::from("/home/u/.cache"), "{xdg:?}");
+    }
+}
+
+#[test]
+fn cache_dir_from_uses_library_caches_on_macos() {
+    let resolved = cache_dir_from(None, Some("/Users/u".to_owned()), "macos").unwrap();
+    assert_eq!(resolved, Utf8PathBuf::from("/Users/u/Library/Caches"));
+}
+
+#[test]
+fn cache_dir_from_fails_naming_what_it_looked_for() {
+    let failure = cache_dir_from(None, None, "linux").unwrap_err();
+    assert!(failure.what.contains("XDG_CACHE_HOME"), "{}", failure.what);
+    assert!(failure.what.contains("HOME"), "{}", failure.what);
+}
+
 // -- write_sensitive_atomic -------------------------------------------------
 
 #[test]
