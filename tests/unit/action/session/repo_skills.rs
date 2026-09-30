@@ -10,7 +10,10 @@ use std::collections::BTreeSet;
 
 use camino::{Utf8Path, Utf8PathBuf};
 
-use super::*;
+use super::apply::*;
+use super::naming::*;
+use super::scan::*;
+use super::skill_md::*;
 use crate::infra::{fs, json};
 use crate::test_support::utf8_temp_dir;
 
