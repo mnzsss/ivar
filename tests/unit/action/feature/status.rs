@@ -330,6 +330,15 @@ fn feature_status_json_surfaces_subfeature_plan_approval_and_pr_url() {
     promote::promote(
         &ctx,
         PromoteInput {
+            feature: "checkout".to_owned(),
+            repo: "api".to_owned(),
+            base: None,
+        },
+    )
+    .unwrap();
+    promote::promote(
+        &ctx,
+        PromoteInput {
             feature: child.to_string(),
             repo: "api".to_owned(),
             base: None,
@@ -422,6 +431,15 @@ fn feature_status_falls_back_to_integration_receipt_pr_url() {
     )
     .unwrap();
 
+    promote::promote(
+        &ctx,
+        PromoteInput {
+            feature: "checkout".to_owned(),
+            repo: "api".to_owned(),
+            base: None,
+        },
+    )
+    .unwrap();
     promote::promote(
         &ctx,
         PromoteInput {

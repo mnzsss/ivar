@@ -449,7 +449,7 @@ fn parent_missing_repo_hall() -> (tempfile::TempDir, Utf8PathBuf) {
         },
     )
     .unwrap();
-    // The parent promotes only web; the child promotes both.
+    // The parent promotes only web; the child promotes both, api from main.
     promote::promote(
         &ctx,
         PromoteInput {
@@ -465,7 +465,7 @@ fn parent_missing_repo_hall() -> (tempfile::TempDir, Utf8PathBuf) {
             PromoteInput {
                 feature: "child".to_owned(),
                 repo: repo.to_owned(),
-                base: None,
+                base: (repo == "api").then(|| "main".to_owned()),
             },
         )
         .unwrap();

@@ -211,14 +211,14 @@ fn the_cli_can_create_reparent_and_refuse_after_work_starts() {
     );
     assert_eq!(failure["code"], "feature.reparent_work_started");
 
-    // Reparenting after a promotion refuses too. (The promote warns — the
-    // reparented base branch does not exist in the repo yet — and still
-    // succeeds with exit 1.)
-    ivar()
-        .current_dir(&root)
-        .args(["feature", "promote", "child", "api"])
-        .assert()
-        .code(predicate::in_iter([0, 1]));
+    // Reparenting after a promotion refuses too.
+    for feature in ["parent-b", "child"] {
+        ivar()
+            .current_dir(&root)
+            .args(["feature", "promote", feature, "api"])
+            .assert()
+            .success();
+    }
     let failure = failure_output(
         &root,
         &["feature", "reparent", "child", "--parent", "parent"],
