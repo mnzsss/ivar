@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.0](https://github.com/mnzsss/ivar/compare/v0.12.0...v0.13.0) - 2026-09-30
+
+### Added
+
+- add ivar upgrade and a release notice ([#134](https://github.com/mnzsss/ivar/pull/134))
+- add a goal execution mode ([#133](https://github.com/mnzsss/ivar/pull/133))
+- tighten graph explore precision and bound its output ([#131](https://github.com/mnzsss/ivar/pull/131))
+- add opt-in install count to shell installer ([#129](https://github.com/mnzsss/ivar/pull/129))
+- add ivar provider remove ([#127](https://github.com/mnzsss/ivar/pull/127))
+
+### Fixed
+
+- stop silent traps in the subfeature workflow ([#132](https://github.com/mnzsss/ivar/pull/132))
+- normalize guard target resolution and clarify denial guidance ([#130](https://github.com/mnzsss/ivar/pull/130))
+
 ## [0.12.0](https://github.com/mnzsss/ivar/compare/v0.11.0...v0.12.0) - 2026-09-28
 
 ### Added
