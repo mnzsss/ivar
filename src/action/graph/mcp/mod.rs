@@ -4,6 +4,7 @@
 //! default, or every graph tool on request. Operates synchronously over standard I/O streams.
 
 pub mod dispatch;
+mod explore_output;
 pub mod tools;
 pub mod workspace;
 
@@ -39,7 +40,11 @@ current.
 
 If a graph answer was empty or did not actually help (the wrong symbol, a stale result, \
 a call you expected but did not see), call graph_feedback with the query you asked and why \
-it fell short, instead of silently falling back to grep.";
+it fell short, instead of silently falling back to grep.
+
+Structured compact and JSON exploration responses are byte-bounded. When a \
+response reports partial output, follow its next graph_explore arguments to \
+inspect omitted evidence; partial does not mean that other callers do not exist.";
 /// Runs the MCP server loop advertising every graph tool.
 pub fn run_mcp_server<R, W, F>(
     db: &GraphDb,

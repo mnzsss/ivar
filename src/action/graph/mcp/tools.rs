@@ -35,7 +35,7 @@ pub fn list_tools(surface: ToolSurface) -> Value {
 fn tool_graph_explore() -> Value {
     json!({
         "name": "graph_explore",
-        "description": "PRIMARY TOOL, call it first for any question about this code and before any edit: it returns the verbatim, line-numbered source of the relevant files (treat it as already Read), who depends on them, and the call path between the symbols you name. Query with symbol names, file or directory paths, or a short intent, several at once. When an answer lists files under \"Not shown\", send the `Next:` call it gives. Files requested via `paths` come back as full source, cheaper than reading them one by one.",
+        "description": "PRIMARY TOOL, call it first for any question about this code and before any edit: it returns the verbatim, line-numbered source of the relevant files (treat it as already Read), who depends on them, and the call path between the symbols you name. Query with symbol names, file or directory paths, or a short intent, several at once. When an answer lists files under \"Not shown\", send the `Next:` call it gives. Files requested via `paths` come back as full source, cheaper than reading them one by one. Compact and JSON may report partial output: use the supplied next arguments to inspect omitted evidence.",
         "_meta": { "anthropic/alwaysLoad": true },
         "annotations": { "readOnlyHint": true },
         "inputSchema": {
@@ -44,7 +44,7 @@ fn tool_graph_explore() -> Value {
                 "query": { "type": "string", "description": "Symbol names, file or directory paths, or a short intent, several at once (e.g. \"login apiRequest\" or \"services/api/src/routes/auth.ts services/api/src/routes/admin.ts\")" },
                 "paths": { "type": "array", "items": { "type": "string" }, "description": "Files or line ranges to return, as the paths an answer names (e.g. [\"src/huge.ts:251-500\"]) or full file paths" },
                 "repo": { "type": "string", "description": "Optional repository filter" },
-                "format": { "type": "string", "enum": ["markdown", "json", "compact"], "description": "Output format: 'markdown' (default, includes source snippets — best for discovery and replacing grep+read), 'json' for raw struct, or 'compact' (pipe-delimited, no source — for programmatic parsing of large results)" }
+                "format": { "type": "string", "enum": ["markdown", "json", "compact"], "description": "Output format: 'markdown' (default, source and continuation guidance), 'json' (structured result), or 'compact' (pipe-delimited, no source). MCP JSON and compact text are limited to 18,000 UTF-8 bytes, or 24,000 for requested files. Partial results report omitted evidence and next graph_explore arguments; CLI machine-readable output remains complete." }
             }
         }
     })

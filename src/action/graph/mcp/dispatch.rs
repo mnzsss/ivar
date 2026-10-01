@@ -5,6 +5,7 @@ use std::path::Path;
 
 use serde_json::Value;
 
+use super::explore_output::{ExploreFormat, render_explore};
 use super::workspace::WorkspacePaths;
 use crate::action::graph::query::QueryError;
 use crate::action::graph::query::find::{is_path_like, resolve_query_paths, split_line_range};
@@ -78,8 +79,8 @@ where
             });
             WorkspacePaths::from_current_dir().rewrite_explore(db, &mut res);
             let text = match args.get("format").and_then(Value::as_str) {
-                Some("compact") => Ok(compact::encode_explore(&res)),
-                Some("json") => serde_json::to_string_pretty(&res).map_err(|e| e.to_string()),
+                Some("compact") => render_explore(&res, ExploreFormat::Compact, requests_files),
+                Some("json") => render_explore(&res, ExploreFormat::Json, requests_files),
                 _ => Ok(if requests_files {
                     let mut answer = narrate::narrate_requested_files(&res);
                     if !unindexed.is_empty() {

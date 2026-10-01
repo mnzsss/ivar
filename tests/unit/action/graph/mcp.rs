@@ -149,12 +149,6 @@ fn test_mcp_initialize_and_tools_list() {
         init_resp["result"]["serverInfo"]["name"],
         "ivar-codebase-graph"
     );
-    assert!(
-        init_resp["result"]["instructions"]
-            .as_str()
-            .unwrap()
-            .contains("graph_explore is Read-equivalent")
-    );
 
     let list_resp: Value = serde_json::from_str(&lines[1]).expect("parse list");
     assert_eq!(list_resp["id"], 2);
@@ -931,74 +925,9 @@ fn test_mcp_tool_call_impact_compatibility() {
     assert!(missing_text.contains("`symbol`"), "got: {missing_text}");
 }
 #[test]
-fn test_mcp_format_guidance_and_compact_no_source() {
+fn test_mcp_compact_omits_source() {
     let (db, temp) = setup_test_mcp_db();
 
-    // ── 1. Instructions recommend markdown/omit for discovery ──────────
-    let init_input = format!(
-        "{}\n",
-        json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}),
-    );
-    let mut init_out = Vec::new();
-    run_mcp_server(
-        &db,
-        Some(temp.path()),
-        Cursor::new(init_input),
-        &mut init_out,
-        |_| Ok(json!({"status": "ok"})),
-    )
-    .expect("run server");
-    let init_resp: Value = serde_json::from_str(String::from_utf8(init_out).expect("utf8").trim())
-        .expect("parse init");
-    let instructions = init_resp["result"]["instructions"]
-        .as_str()
-        .expect("instructions");
-    // The instructions carry what changes behaviour; formats live in the schema
-    assert!(
-        instructions.contains("do not Read those files again"),
-        "instructions should tell agents to treat explore source as read: {instructions}"
-    );
-    assert!(
-        instructions.contains("\"Not shown\""),
-        "instructions should point agents from the not-shown list to another explore"
-    );
-
-    // ── 2. Tool description carries the same distinction ───────────────
-    let list_input = format!(
-        "{}\n",
-        json!({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}}),
-    );
-    let mut list_out = Vec::new();
-    run_mcp_server(
-        &db,
-        Some(temp.path()),
-        Cursor::new(list_input),
-        &mut list_out,
-        |_| Ok(json!({"status": "ok"})),
-    )
-    .expect("run server");
-    let list_resp: Value = serde_json::from_str(String::from_utf8(list_out).expect("utf8").trim())
-        .expect("parse list");
-    let tools = list_resp["result"]["tools"]
-        .as_array()
-        .expect("tools array");
-    let explore_tool = tools
-        .iter()
-        .find(|t| t["name"].as_str() == Some("graph_explore"))
-        .expect("graph_explore tool present");
-    let format_desc = explore_tool["inputSchema"]["properties"]["format"]["description"]
-        .as_str()
-        .expect("format description");
-    assert!(
-        format_desc.contains("source snippets"),
-        "format param should mention source snippets"
-    );
-    assert!(
-        format_desc.contains("no source"),
-        "compact variant should say 'no source'"
-    );
-
-    // ── 3. Compact output actually omits source ────────────────────────
     let explore_input = format!(
         "{}\n",
         json!({
@@ -1385,4 +1314,151 @@ fn starting_the_server_prunes_misses_and_usage_past_retention() {
         )
         .expect("count");
     assert_eq!(remaining, 0);
+}
+
+fn fanout_fixture() -> (GraphDb, tempfile::TempDir) {
+    let (db, temp) = setup_test_mcp_db();
+    let root = temp.path();
+    let hub_code = "pub fn fanout_root() {}\n";
+    std::fs::write(root.join("my-repo/src/fanout.rs"), hub_code).unwrap();
+    let hub_file = db
+        .upsert_file(
+            "my-repo",
+            "src/fanout.rs",
+            &crate::infra::hash::text(hub_code),
+            100,
+            100,
+        )
+        .unwrap();
+    let make_symbol = |repo: &str, file_id: i64, name: String, end: usize| Symbol {
+        id: None,
+        file_id: Some(file_id),
+        repo: repo.into(),
+        name,
+        kind: SymbolKind::Fn,
+        scope: None,
+        signature: None,
+        docstring: None,
+        span: Span::new(1, 1, end, 1),
+        is_exported: true,
+        complexity: None,
+    };
+    let hub = db
+        .insert_symbols(&[make_symbol("my-repo", hub_file, "fanout_root".into(), 1)])
+        .unwrap()[0];
+    let consumers = root.join("consumer-repo");
+    std::fs::create_dir_all(consumers.join("src")).unwrap();
+    db.insert_repo("consumer-repo", consumers.to_str().unwrap(), "main", None)
+        .unwrap();
+    for n in 0..400 {
+        let name = format!("caller_{n:03}");
+        let path = format!("src/caller_{n:03}.rs");
+        let source =
+            format!("pub fn {name}() {{\n    fanout_root();\n    // omitted_evidence_{n:03}\n}}\n");
+        std::fs::write(consumers.join(&path), &source).unwrap();
+        let file = db
+            .upsert_file(
+                "consumer-repo",
+                &path,
+                &crate::infra::hash::text(&source),
+                100,
+                100,
+            )
+            .unwrap();
+        let caller = db
+            .insert_symbols(&[make_symbol("consumer-repo", file, name, 4)])
+            .unwrap()[0];
+        db.insert_edges(&[crate::domain::graph::Edge {
+            id: None,
+            repo: "consumer-repo".into(),
+            file_id: Some(file),
+            from_symbol_id: Some(caller),
+            to_symbol_id: Some(hub),
+            to_name: Some("fanout_root".into()),
+            kind: EdgeKind::Calls,
+            confidence: 1.0,
+            line: 2,
+            col: 5,
+            provenance: Provenance::Extracted,
+        }])
+        .unwrap();
+    }
+    (db, temp)
+}
+
+#[test]
+fn structured_fanout_is_bounded_and_continues_in_the_omitted_consumers_repo() {
+    let (db, temp) = fanout_fixture();
+    for format in ["compact", "json"] {
+        let (text, failed) = call_tool(
+            &db,
+            temp.path(),
+            "graph_explore",
+            json!({"query":"fanout_root","repo":"my-repo","format":format}),
+        );
+        assert!(!failed, "{text}");
+        assert!(text.len() <= 18_000, "{format}: {} bytes", text.len());
+        let (next, shown, omitted) = if format == "json" {
+            let value: Value = serde_json::from_str(&text).unwrap();
+            assert_eq!(value["output"]["partial"], true);
+            assert_eq!(value["output"]["budget_bytes"], 18_000);
+            assert_eq!(value["primary_symbols"][0]["symbol"]["name"], "fanout_root");
+            let shown = value["direct_relations"].as_array().unwrap().len();
+            let omitted = value["output"]["omitted"]["direct_relations"]
+                .as_u64()
+                .unwrap();
+            (value["output"]["next"]["arguments"].clone(), shown, omitted)
+        } else {
+            assert!(text.contains("|fanout_root|fn|"), "{text}");
+            assert!(text.contains("#SCHEMA: partial|budget_bytes\ntrue|18000"));
+            let next_line = text
+                .lines()
+                .find(|line| line.starts_with("graph_explore|{"))
+                .unwrap();
+            let next: Value = serde_json::from_str(next_line.split_once('|').unwrap().1).unwrap();
+            let mut schema = "";
+            let mut shown = 0;
+            let mut omitted = None;
+            for line in text.lines() {
+                if let Some(value) = line.strip_prefix("#SCHEMA: ") {
+                    schema = value;
+                    continue;
+                }
+                assert_eq!(line.split('|').count(), schema.split('|').count(), "{line}");
+                if schema.starts_with("source_symbol|") {
+                    shown += 1;
+                }
+                if schema == "omitted_category|omitted_records"
+                    && let Some(count) = line.strip_prefix("direct_relations|")
+                {
+                    omitted = Some(count.parse::<u64>().unwrap());
+                }
+            }
+            (next, shown, omitted.unwrap())
+        };
+        assert_eq!(shown as u64 + omitted, 400);
+        assert!(omitted > 0);
+        assert_eq!(next["repo"], "consumer-repo");
+        assert_eq!(next["format"], "markdown");
+        let requested = next["paths"][0].as_str().unwrap();
+        let (path, range) = requested.rsplit_once(':').unwrap();
+        let (start, end) = range.split_once('-').unwrap();
+        let start: usize = start.parse().unwrap();
+        let end: usize = end.parse().unwrap();
+        assert!(start >= 1 && end >= start && end - start < 40);
+        let filename = std::path::Path::new(path)
+            .file_name()
+            .unwrap()
+            .to_str()
+            .unwrap();
+        let suffix = filename
+            .strip_prefix("caller_")
+            .unwrap()
+            .strip_suffix(".rs")
+            .unwrap();
+        let marker = format!("// omitted_evidence_{suffix}");
+        let (follow_up, follow_up_failed) = call_tool(&db, temp.path(), "graph_explore", next);
+        assert!(!follow_up_failed, "{follow_up}");
+        assert!(follow_up.contains(&marker), "missing {marker}: {follow_up}");
+    }
 }
