@@ -10,6 +10,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Bound compact and JSON graph exploration MCP responses with explicit omissions and source follow-up, while preserving complete machine-readable CLI output.
+- Make `/ivar-*` commands available in omp even though `ivar sync` gitignores `.omp/commands/ivar-*.md`: the shipped `.omp/extensions/ivar.js` now registers them itself, at the hall root and in every session.
+
+### Removed
+
+- The OMP profile command bridge: `ivar` no longer writes symlinks into `~/.omp/agent/commands` (or a profile's `commands/`). Leftover links are harmless; remove them with `find ~/.omp -path '*/commands/ivar-*.md' -type l -delete`.
 
 ## [0.13.0](https://github.com/mnzsss/ivar/compare/v0.12.0...v0.13.0) - 2026-09-30
 

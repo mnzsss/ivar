@@ -14,7 +14,7 @@ pub(crate) fn config_dir() -> Result<Utf8PathBuf, Failure> {
     if let Ok(dir) = std::env::var("CLAUDE_CONFIG_DIR") {
         return Ok(Utf8PathBuf::from(dir));
     }
-    let home = crate::providers::omp::commands::user_home()?;
+    let home = crate::providers::user_home()?;
     Ok(home.join(".claude"))
 }
 

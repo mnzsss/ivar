@@ -390,40 +390,54 @@ pub fn verify_authenticated(
     }
 }
 
-/// Reconciles provider-specific active profile commands bridge (e.g. OMP profile commands).
-pub fn bridge_sync_commands(
-    provider: Provider,
-    hall_commands_dir: &camino::Utf8Path,
-    command_file_names: &[&str],
-    warnings: &mut Vec<crate::error::Warning>,
-) {
-    match provider {
-        Provider::Omp => {
-            omp::commands::bridge_sync(hall_commands_dir, command_file_names, warnings)
+/// Resolves user home directory from `HOME` (or `USERPROFILE` on Windows).
+///
+/// # Errors
+///
+/// Returns [`Failure`] if no home directory variable resolves to an
+/// absolute path.
+pub fn user_home_from(
+    home: Option<String>,
+    userprofile: Option<String>,
+    os: &str,
+) -> Result<Utf8PathBuf, Failure> {
+    if let Some(path) = home.filter(|h| !h.is_empty()) {
+        let p = Utf8PathBuf::from(path);
+        if p.is_absolute() {
+            return Ok(p);
         }
-        Provider::ClaudeCode | Provider::OpenCode => {}
     }
+    if os == "windows"
+        && let Some(path) = userprofile.filter(|u| !u.is_empty())
+    {
+        let p = Utf8PathBuf::from(&path);
+        // On Windows (or cross-platform test), path starting with "C:\" or "\" or "/" is absolute
+        if p.is_absolute() || path.chars().nth(1) == Some(':') {
+            return Ok(p);
+        }
+    }
+    Err(
+        Failure::failed("fs.user_home", "could not resolve user home directory")
+            .expected("$HOME (or on Windows, %USERPROFILE%) set to an absolute path")
+            .actual("no home directory variable resolved to an absolute path")
+            .fix(FixAction::safe(
+                "fs.set_home",
+                "Set $HOME or %USERPROFILE% to an absolute path.",
+            )),
+    )
 }
 
-/// Removes provider-specific active profile commands bridge for this hall.
-pub fn bridge_remove_commands(
-    provider: Provider,
-    hall_commands_dir: &camino::Utf8Path,
-    warnings: &mut Vec<crate::error::Warning>,
-) {
-    match provider {
-        Provider::Omp => omp::commands::bridge_remove(hall_commands_dir, warnings),
-        Provider::ClaudeCode | Provider::OpenCode => {}
-    }
-}
-
-/// Resolves the user's home directory.
+/// Resolves the user's home directory from the live process environment.
 ///
 /// # Errors
 ///
 /// Returns [`Failure`] if no home directory variable resolves to an absolute path.
 pub fn user_home() -> Result<Utf8PathBuf, Failure> {
-    omp::commands::user_home()
+    user_home_from(
+        std::env::var("HOME").ok(),
+        std::env::var("USERPROFILE").ok(),
+        std::env::consts::OS,
+    )
 }
 
 #[cfg(test)]

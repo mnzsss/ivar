@@ -230,14 +230,8 @@ pub(crate) fn sync_commands(
     let path = layout.commands_dir(&provider);
     let enabled = manifest.providers().available().contains(&provider);
     let result = if enabled {
-        let res = commands::materialise(&path);
-        let catalog = commands::catalog();
-        let names: Vec<String> = catalog.iter().map(|c| c.file_name()).collect();
-        let name_refs: Vec<&str> = names.iter().map(|s| s.as_str()).collect();
-        crate::providers::bridge_sync_commands(provider, &path, &name_refs, warnings);
-        res
+        commands::materialise(&path)
     } else {
-        crate::providers::bridge_remove_commands(provider, &path, warnings);
         commands::remove(&path)
     };
     match result {
@@ -262,20 +256,14 @@ pub(crate) fn sync_commands(
     }
 }
 pub(crate) fn materialise_commands(layout: &Layout, provider: Provider) -> Option<Warning> {
-    let mut warnings = Vec::new();
     let path = layout.commands_dir(&provider);
-    if let Err(error) = commands::materialise(&path) {
-        warnings.push(Warning::new(
+    commands::materialise(&path).err().map(|error| {
+        Warning::new(
             "provider.commands_not_materialised",
             provider.id(),
             format!("official commands could not be written: {error}; run `ivar sync` to repair"),
-        ));
-    }
-    let catalog = commands::catalog();
-    let names: Vec<String> = catalog.iter().map(|c| c.file_name()).collect();
-    let name_refs: Vec<&str> = names.iter().map(|s| s.as_str()).collect();
-    crate::providers::bridge_sync_commands(provider, &path, &name_refs, &mut warnings);
-    warnings.into_iter().next()
+        )
+    })
 }
 
 pub(crate) fn sync_shipped_skills(
