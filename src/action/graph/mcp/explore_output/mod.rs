@@ -6,7 +6,10 @@
 //! omission metadata and actionable continuation calls when the budget is exceeded.
 
 mod compact;
+mod compact_row;
 mod json;
+mod json_build;
+mod json_encode;
 mod next;
 
 use crate::domain::graph::ExploreResult;
