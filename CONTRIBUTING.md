@@ -120,6 +120,12 @@ place as more commits land — one PR per release cycle, not one per merge.
 **Merging that PR is the act of publishing.** It tags the commit, creates the
 GitHub Release, and publishes to crates.io. Do not merge it to "keep it tidy".
 
+Merging it does not rerun the test suite. The release PR is the only change in
+that commit (the version, `Cargo.lock` and the changelog), and CI already ran on
+the PR. The `ci` run on `main` for that commit skips its jobs and still
+succeeds, which is what lets `release` publish. A commit titled `chore: release`
+that touches any other file runs CI as usual.
+
 Three things then happen on that tag, in order:
 
 1. `release binaries` builds the four platform binaries the install script
