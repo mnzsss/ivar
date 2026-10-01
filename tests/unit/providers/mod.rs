@@ -408,3 +408,19 @@ fn live_states_runs_in_specified_cwd() {
     let res = crate::providers::live_states(crate::domain::provider::Provider::ClaudeCode, cwd);
     assert!(res.is_some());
 }
+
+#[test]
+fn user_home_from_resolution() {
+    use camino::Utf8PathBuf;
+
+    assert_eq!(
+        providers::user_home_from(Some("/home/user".to_owned()), None, "linux").unwrap(),
+        Utf8PathBuf::from("/home/user")
+    );
+    assert_eq!(
+        providers::user_home_from(None, Some("C:\\Users\\User".to_owned()), "windows").unwrap(),
+        Utf8PathBuf::from("C:\\Users\\User")
+    );
+    assert!(providers::user_home_from(None, None, "linux").is_err());
+    assert!(providers::user_home_from(Some("relative/path".to_owned()), None, "linux").is_err());
+}

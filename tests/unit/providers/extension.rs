@@ -6,94 +6,153 @@
     clippy::indexing_slicing
 )]
 
-use crate::domain::provider::Provider;
-use crate::providers::{self, omp};
+//! Executes the embedded `.omp/extensions/ivar.js` in `node` against a fake
+//! omp extension API, so the tests observe what omp would register and send.
+
 use camino::Utf8Path;
+use serde_json::{Value, json};
+
+use crate::domain::provider::Provider;
+use crate::providers;
+use crate::test_support::utf8_temp_dir;
+
+/// Fake omp `ExtensionAPI`. argv: extension path, commands dir, JSON steps.
+/// A step is `{"invoke":[name,args]}` or `{"write":[file,content]}`.
+const HARNESS: &str = r#"
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { pathToFileURL } from "node:url";
+
+const [, , extensionPath, commandsDir, stepsJson] = process.argv;
+const commands = new Map();
+const sent = [];
+const events = [];
+const pi = {
+  registerCommand(name, options) { commands.set(name, options); },
+  sendUserMessage(content) { sent.push(content); },
+  on(event, handler) { events.push([event, handler]); },
+};
+const { default: factory } = await import(pathToFileURL(extensionPath).href);
+factory(pi);
+
+const descriptions = {};
+for (const [name, options] of commands) descriptions[name] = options.description ?? null;
+
+let autocomplete = false;
+for (const [event, handler] of events) {
+  if (event !== "session_start") continue;
+  let wrap = null;
+  await handler({}, { ui: { addAutocompleteProvider(f) { wrap = f; } } });
+  if (wrap) {
+    const current = { getSuggestions: async () => ({ items: [{ value: "from-current" }], prefix: "" }) };
+    const result = await wrap(current).getSuggestions(["hello"], 0, 5, undefined);
+    autocomplete = result?.items?.[0]?.value === "from-current";
+  }
+}
+
+const ctx = { ui: { notify() {} } };
+for (const step of JSON.parse(stepsJson)) {
+  if (step.invoke) await commands.get(step.invoke[0]).handler(step.invoke[1], ctx);
+  if (step.write) writeFileSync(join(commandsDir, step.write[0]), step.write[1]);
+}
+
+console.log(JSON.stringify({ names: [...commands.keys()].sort(), descriptions, sent, autocomplete }));
+"#;
+
+/// Lays out `<root>/.omp/extensions/ivar.js` exactly where `ivar sync` puts
+/// it, plus `<root>/.omp/commands/<file>` for each `(file, content)`, and runs
+/// the harness. `commands: None` leaves the commands dir absent.
+fn run_extension(commands: Option<&[(&str, &str)]>, steps: &Value) -> Value {
+    let artifacts = providers::managed_artifacts(Provider::Omp);
+    let ext_rel = Utf8Path::new(".omp/extensions/ivar.js");
+    let extension = artifacts
+        .iter()
+        .find(|a| a.relative_path == ext_rel)
+        .unwrap_or_else(|| panic!("expected artifact at {ext_rel}, found: {artifacts:?}"));
+
+    let (_guard, root) = utf8_temp_dir();
+    let ext_path = root.join(ext_rel);
+    std::fs::create_dir_all(ext_path.parent().unwrap()).unwrap();
+    std::fs::write(&ext_path, extension.contents).unwrap();
+    let commands_dir = root.join(".omp/commands");
+    if let Some(files) = commands {
+        std::fs::create_dir_all(&commands_dir).unwrap();
+        for (name, content) in files {
+            std::fs::write(commands_dir.join(name), content).unwrap();
+        }
+    }
+    let harness = root.join("harness.mjs");
+    std::fs::write(&harness, HARNESS).unwrap();
+
+    let output = std::process::Command::new("node")
+        .arg(&harness)
+        .arg(&ext_path)
+        .arg(&commands_dir)
+        .arg(steps.to_string())
+        .env_remove("IVAR_FEATURE")
+        .output()
+        .unwrap_or_else(|e| panic!("node is required to test the embedded omp extension: {e}"));
+    assert!(
+        output.status.success(),
+        "extension harness failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    serde_json::from_slice(&output.stdout).unwrap()
+}
+
+const CONNECT: &str = "---\ndescription: Attach to a session\nargument-hint: <feature-name>\n---\nRun `ivar session connect --feature $ARGUMENTS --create`.\n";
+const SYNC: &str = "---\ndescription: Sync the hall\n---\nSync body.\n";
 
 #[test]
-fn omp_extension_artifact_declared_at_exact_path_and_dependency_free() {
-    let artifacts = providers::managed_artifacts(Provider::Omp);
-    let ext_path = Utf8Path::new(".omp/extensions/ivar.js");
-    let artifact = artifacts
-        .iter()
-        .find(|a| a.relative_path == ext_path)
-        .unwrap_or_else(|| panic!("expected artifact at {ext_path}, found: {artifacts:?}"));
-
-    assert_eq!(artifact.contents, omp::extension::OMP_EXTENSION);
-
-    // Banner comment distinct from pre-tool guard hook
-    assert!(
-        artifact
-            .contents
-            .contains("// ivar autocomplete extension for OMP")
-    );
-    assert!(
-        !artifact
-            .contents
-            .contains("// ivar pre-tool guard hook for OMP")
+fn registers_one_command_per_ivar_file_with_its_description() {
+    let out = run_extension(
+        Some(&[
+            ("ivar-connect.md", CONNECT),
+            ("ivar-sync.md", SYNC),
+            ("ivar-broken.md", "---\ndescription: never closed\nbody\n"),
+            ("notes.md", "---\ndescription: not ours\n---\nx\n"),
+        ]),
+        &json!([]),
     );
 
-    // OMP loads extension modules as ESM default-exported functions
-    assert!(artifact.contents.contains("export default function"));
-    assert!(artifact.contents.contains("addAutocompleteProvider"));
+    assert_eq!(out["names"], json!(["ivar-connect", "ivar-sync"]));
+    assert_eq!(out["descriptions"]["ivar-connect"], "Attach to a session");
+    assert_eq!(out["descriptions"]["ivar-sync"], "Sync the hall");
+    assert_eq!(out["autocomplete"], true);
+}
 
-    // Plain ESM and node builtins only; no CommonJS require
-    assert!(!artifact.contents.contains("require("));
-    assert!(artifact.contents.contains("node:child_process"));
+#[test]
+fn invocation_expands_arguments_and_rereads_the_file() {
+    let out = run_extension(
+        Some(&[("ivar-connect.md", CONNECT), ("ivar-sync.md", SYNC)]),
+        &json!([
+            {"invoke": ["ivar-connect", "  demo-feature  "]},
+            {"invoke": ["ivar-connect", "p$$q $& r"]},
+            {"invoke": ["ivar-connect", ""]},
+            {"invoke": ["ivar-sync", ""]},
+            {"invoke": ["ivar-sync", "extra words"]},
+            {"write": ["ivar-connect.md", "---\ndescription: changed\n---\nRewritten $ARGUMENTS\n"]},
+            {"invoke": ["ivar-connect", "x"]},
+        ]),
+    );
 
-    // R-COMP-BOUND: Early exit when session is already bound to a feature
-    assert!(artifact.contents.contains("process.env.IVAR_FEATURE"));
+    assert_eq!(
+        out["sent"],
+        json!([
+            "Run `ivar session connect --feature demo-feature --create`.\n",
+            "Run `ivar session connect --feature p$$q $& r --create`.\n",
+            "Run `ivar session connect --feature  --create`.\n",
+            "Sync body.\n",
+            "Sync body.\n\nextra words",
+            "Rewritten x\n",
+        ])
+    );
+}
 
-    // R-COMP-COMMANDS: Exactly the 8 commands taking an existing feature
-    let completed_commands = [
-        "/ivar-connect",
-        "/ivar-promote",
-        "/ivar-deliver",
-        "/ivar-feature-status",
-        "/ivar-feature-cleanup",
-        "/ivar-plan",
-        "/ivar-review",
-        "/ivar-workspace",
-    ];
-    for cmd in completed_commands {
-        assert!(
-            artifact.contents.contains(cmd),
-            "extension must match command prefix: {cmd}"
-        );
-    }
+#[test]
+fn missing_commands_dir_registers_nothing_and_keeps_autocomplete() {
+    let out = run_extension(None, &json!([]));
 
-    // R-COMP-EXCLUDE: The 7 commands taking no existing feature must not be listed as triggers
-    let excluded_commands = [
-        "/ivar-feature-create",
-        "/ivar-discovery",
-        "/ivar-execute",
-        "/ivar-relations",
-        "/ivar-repo-setup",
-        "/ivar-repo-list",
-        "/ivar-sync",
-    ];
-    for cmd in excluded_commands {
-        assert!(
-            !artifact.contents.contains(cmd),
-            "extension must NOT complete excluded command: {cmd}"
-        );
-    }
-
-    // R-COMP-SOURCE: Candidate fetching via ivar CLI
-    assert!(artifact.contents.contains("execFileSync"));
-    assert!(artifact.contents.contains("\"ivar\""));
-    assert!(artifact.contents.contains("\"feature\""));
-    assert!(artifact.contents.contains("\"list\""));
-    assert!(artifact.contents.contains("\"--json\""));
-
-    // R-COMP-DELEGATE: Complete method delegation surface
-    // Required methods
-    assert!(artifact.contents.contains("getSuggestions"));
-    assert!(artifact.contents.contains("applyCompletion"));
-    // Optional methods forwarded conditionally
-    assert!(artifact.contents.contains("getInlineHint"));
-    assert!(artifact.contents.contains("trySyncSlashCompletion"));
-    assert!(artifact.contents.contains("trySyncInlineReplace"));
-    assert!(artifact.contents.contains("getForceFileSuggestions"));
-    assert!(artifact.contents.contains("shouldTriggerFileCompletion"));
+    assert_eq!(out["names"], json!([]));
+    assert_eq!(out["autocomplete"], true);
 }

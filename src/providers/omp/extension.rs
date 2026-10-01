@@ -3,25 +3,97 @@ use camino::Utf8Path;
 use crate::domain::provider::Provider;
 use crate::providers::ManagedArtifact;
 
-/// Embedded plain JavaScript autocomplete extension for OMP.
+/// Embedded plain JavaScript extension for OMP.
 ///
 /// OMP discovers `.omp/extensions/*.js` and loads each one **in-process** as
 /// an ES module whose default export is a factory receiving the extension API
 /// (`ExtensionAPI`, documented in `@oh-my-pi/pi-coding-agent`).
 ///
-/// The extension registers an autocomplete provider via `ctx.ui.addAutocompleteProvider`
-/// on `session_start`. When the user is typing the argument for any shipped `/ivar-*`
-/// command that accepts an existing feature, it provides completion candidates by
-/// querying `ivar feature list --json`.
+/// It does two things:
 ///
-/// In a session bound to a feature (`IVAR_FEATURE` is set), or for lines not matching
-/// the targeted commands, it delegates entirely to the live `current` provider.
-/// Every method (both required and optional) is faithfully forwarded to `current`
-/// so standard file and command completions continue uninterrupted.
-pub const OMP_EXTENSION: &str = r#"// ivar autocomplete extension for OMP
+/// - **Registers the shipped `/ivar-*` commands** from the `.omp/commands/`
+///   next to its own real path, via `pi.registerCommand`. OMP's file-command
+///   discovery skips gitignored files, and `ivar sync` gitignores
+///   `.omp/commands/ivar-*.md`; extension commands bypass that discovery and
+///   take precedence over file commands of the same name. Each invocation
+///   re-reads its file, strips the frontmatter, substitutes `$ARGUMENTS`
+///   (or appends the arguments when the body has none) and sends the result
+///   with `pi.sendUserMessage`.
+/// - **Completes feature names** for the `/ivar-*` commands that take an
+///   existing feature, from `ivar feature list --json`, delegating every
+///   other line (and every line in a feature-bound session) to the live
+///   `current` provider.
+pub const OMP_EXTENSION: &str = r#"// ivar extension for OMP: /ivar-* commands and feature-name autocomplete
 // Materialised by `ivar sync`. Do not edit.
 
 import { execFileSync } from "node:child_process";
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const COMMAND_FILE = /^ivar-[a-z0-9-]+\.md$/;
+
+// Returns { meta, body }, or null when a frontmatter block is opened but never closed.
+function splitFrontmatter(raw) {
+  if (!/^---\r?\n/.test(raw)) return { meta: {}, body: raw };
+  const match = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(raw);
+  if (!match) return null;
+  const meta = {};
+  for (const line of match[1].split(/\r?\n/)) {
+    const colon = line.indexOf(":");
+    if (colon > 0) meta[line.slice(0, colon).trim()] = line.slice(colon + 1).trim();
+  }
+  return { meta, body: raw.slice(match[0].length) };
+}
+
+function expandArguments(body, args) {
+  const text = String(args ?? "").trim();
+  if (body.includes("$ARGUMENTS")) return body.replaceAll("$ARGUMENTS", () => text);
+  return text ? `${body.trimEnd()}\n\n${text}` : body;
+}
+
+function registerCommands(pi) {
+  if (typeof pi.registerCommand !== "function" || typeof pi.sendUserMessage !== "function") {
+    return;
+  }
+  const dir = fileURLToPath(new URL("../commands/", import.meta.url));
+  let files;
+  try {
+    files = readdirSync(dir).filter((name) => COMMAND_FILE.test(name)).sort();
+  } catch (_err) {
+    return;
+  }
+  for (const file of files) {
+    const path = join(dir, file);
+    let parsed;
+    try {
+      parsed = splitFrontmatter(readFileSync(path, "utf-8"));
+    } catch (_err) {
+      continue;
+    }
+    if (!parsed) continue;
+    try {
+      pi.registerCommand(file.slice(0, -".md".length), {
+        description: parsed.meta.description || undefined,
+        handler: async (args, ctx) => {
+          let current;
+          try {
+            current = splitFrontmatter(readFileSync(path, "utf-8"));
+          } catch (_err) {
+            current = null;
+          }
+          if (!current) {
+            ctx?.ui?.notify?.(`ivar: could not read ${path}; run \`ivar sync\``, "error");
+            return;
+          }
+          pi.sendUserMessage(expandArguments(current.body, args));
+        },
+      });
+    } catch (_err) {
+      // A rejected registration (e.g. a name clash) must not stop the others.
+    }
+  }
+}
 
 const TARGET_COMMANDS = [
   "/ivar-connect",
@@ -78,6 +150,7 @@ function matchTargetCommand(lineBeforeCursor) {
 }
 
 export default function ivarExtension(pi) {
+  registerCommands(pi);
   pi.on("session_start", async (_event, ctx) => {
     if (!ctx?.ui?.addAutocompleteProvider) {
       return;

@@ -161,3 +161,30 @@ fn a_second_sync_leaves_every_managed_file_byte_identical() {
     ];
     assert_eq!(before, after);
 }
+
+#[test]
+fn omp_init_and_sync_never_write_the_omp_profile() {
+    let (_hall_guard, root) = hall_root();
+    let (_home_guard, home) = hall_root();
+    let run = |args: &[&str]| {
+        ivar()
+            .current_dir(&root)
+            .env("HOME", &home)
+            .env_remove("PI_CONFIG_DIR")
+            .env_remove("OMP_PROFILE")
+            .env_remove("PI_PROFILE")
+            .args(args)
+            .assert()
+            .success();
+    };
+
+    run(&["init", "--name", "acme", "--provider", "omp"]);
+    run(&["sync"]);
+
+    assert!(root.join(".omp/commands/ivar-connect.md").is_file());
+    assert!(root.join(".omp/extensions/ivar.js").is_file());
+    assert!(
+        !home.join(".omp/agent/commands").exists(),
+        "ivar must not write into the omp profile commands dir"
+    );
+}
