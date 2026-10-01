@@ -216,99 +216,154 @@ pub fn encode_path(path: Option<&PathResult>) -> String {
     out
 }
 
-/// Encodes explore results combining primary symbols, entry points, direct relations, and transitive consumers.
-pub fn encode_explore(explore: &ExploreResult) -> String {
-    let mut out = String::new();
+pub(crate) enum ExploreRecord<'a> {
+    FileMatch(&'a crate::domain::graph::FileMatch),
+    PrimarySymbol(&'a crate::domain::graph::SymbolSnippet),
+    DirectRelation(&'a crate::domain::graph::OperationalRelation),
+    TransitiveConsumer(&'a crate::domain::graph::ExploreImpact),
+}
+impl ExploreRecord<'_> {
+    pub(crate) fn write_to(&self, out: &mut impl std::fmt::Write) -> std::fmt::Result {
+        match self {
+            Self::FileMatch(fm) => {
+                let kind_str = match fm.match_kind {
+                    crate::domain::graph::FileMatchKind::ExactPath => "exact_path",
+                    crate::domain::graph::FileMatchKind::ExactBasename => "exact_basename",
+                    crate::domain::graph::FileMatchKind::PinnedPath => "pinned_path",
+                    crate::domain::graph::FileMatchKind::Content => "content",
+                };
+                write!(
+                    out,
+                    "{}|{}|{}|{}|",
+                    fm.repo, fm.file_path, kind_str, fm.start_line
+                )?;
+                for ch in fm.excerpt.chars() {
+                    out.write_char(match ch {
+                        '\n' => ' ',
+                        '|' => '/',
+                        other => other,
+                    })?;
+                }
+                write!(out, "|{}", fm.content_truncated)
+            }
+            Self::PrimarySymbol(snippet) => {
+                let sym = &snippet.symbol;
+                if let Some(id) = sym.id {
+                    write!(out, "{id}")?;
+                }
+                write!(
+                    out,
+                    "|{}|{}|{}|{}|{}|",
+                    sym.name,
+                    symbol_kind_to_str(&sym.kind),
+                    snippet.file_path,
+                    sym.span.start_line,
+                    sym.span.start_col
+                )?;
+                if let Some(value) = sym.complexity {
+                    write!(out, "{value}")?;
+                }
+                Ok(())
+            }
+            Self::DirectRelation(rel) => {
+                write!(
+                    out,
+                    "{}|{}|{}|{}|{}|{}|{}|{}|{}|{:.2}|{}|{}|{}",
+                    rel.source.symbol_name,
+                    rel.source.repo,
+                    rel.source.file_path,
+                    match rel.direction {
+                        crate::domain::graph::RelationDirection::Incoming => "incoming",
+                        crate::domain::graph::RelationDirection::Outgoing => "outgoing",
+                    },
+                    rel.target.symbol_name,
+                    rel.target.repo,
+                    rel.target.file_path,
+                    rel.edge_kind.as_str(),
+                    rel.provenance.as_str(),
+                    rel.confidence,
+                    rel.line,
+                    rel.hop_count,
+                    rel.cross_repo
+                )
+            }
+            Self::TransitiveConsumer(consumer) => {
+                write!(
+                    out,
+                    "{}|{}|{}|{}|",
+                    consumer.symbol_name, consumer.repo, consumer.file_path, consumer.depth
+                )?;
+                for (index, name) in consumer.path_via.iter().enumerate() {
+                    if index != 0 {
+                        out.write_str(" -> ")?;
+                    }
+                    out.write_str(name)?;
+                }
+                write!(out, "|{}", consumer.cross_repo)
+            }
+        }
+    }
+}
+
+pub(crate) fn write_explore(
+    explore: &ExploreResult,
+    out: &mut impl std::fmt::Write,
+) -> std::fmt::Result {
+    let mut has_emitted = false;
     if !explore.file_matches.is_empty() {
-        out.push_str(FILE_MATCH_SCHEMA);
+        out.write_str(FILE_MATCH_SCHEMA)?;
+        has_emitted = true;
         for fm in &explore.file_matches {
-            let kind_str = match fm.match_kind {
-                crate::domain::graph::FileMatchKind::ExactPath => "exact_path",
-                crate::domain::graph::FileMatchKind::ExactBasename => "exact_basename",
-                crate::domain::graph::FileMatchKind::PinnedPath => "pinned_path",
-                crate::domain::graph::FileMatchKind::Content => "content",
-            };
-            let clean_excerpt = fm.excerpt.replace('\n', " ").replace('|', "/");
-            out.push('\n');
-            let _ = write!(
-                out,
-                "{}|{}|{}|{}|{}|{}",
-                fm.repo, fm.file_path, kind_str, fm.start_line, clean_excerpt, fm.content_truncated
-            );
+            out.write_char('\n')?;
+            ExploreRecord::FileMatch(fm).write_to(out)?;
         }
     }
     if !explore.primary_symbols.is_empty() || explore.file_matches.is_empty() {
-        if !out.is_empty() {
-            out.push('\n');
+        if has_emitted {
+            out.write_char('\n')?;
         }
-        out.push_str(SYMBOL_SCHEMA);
+        out.write_str(SYMBOL_SCHEMA)?;
+        has_emitted = true;
         for sym_snippet in &explore.primary_symbols {
-            let sym = &sym_snippet.symbol;
-            let id_str = sym.id.map_or_else(String::new, |id| id.to_string());
-            let kind = symbol_kind_to_str(&sym.kind);
-            let complexity_str = sym.complexity.map_or_else(String::new, |c| c.to_string());
-            out.push('\n');
-            let _ = write!(
-                out,
-                "{}|{}|{}|{}|{}|{}|{}",
-                id_str,
-                sym.name,
-                kind,
-                sym_snippet.file_path,
-                sym.span.start_line,
-                sym.span.start_col,
-                complexity_str
-            );
+            out.write_char('\n')?;
+            ExploreRecord::PrimarySymbol(sym_snippet).write_to(out)?;
         }
     }
     if !explore.direct_relations.is_empty() {
-        out.push('\n');
-        out.push_str(RELATION_SCHEMA);
+        if has_emitted {
+            out.write_char('\n')?;
+        }
+        out.write_str(RELATION_SCHEMA)?;
+        has_emitted = true;
         for rel in &explore.direct_relations {
-            let dir_str = match rel.direction {
-                crate::domain::graph::RelationDirection::Incoming => "incoming",
-                crate::domain::graph::RelationDirection::Outgoing => "outgoing",
-            };
-            let edge_str = rel.edge_kind.as_str();
-            let prov_str = rel.provenance.as_str();
-            out.push('\n');
-            let _ = write!(
-                out,
-                "{}|{}|{}|{}|{}|{}|{}|{}|{}|{:.2}|{}|{}|{}",
-                rel.source.symbol_name,
-                rel.source.repo,
-                rel.source.file_path,
-                dir_str,
-                rel.target.symbol_name,
-                rel.target.repo,
-                rel.target.file_path,
-                edge_str,
-                prov_str,
-                rel.confidence,
-                rel.line,
-                rel.hop_count,
-                rel.cross_repo
-            );
+            out.write_char('\n')?;
+            ExploreRecord::DirectRelation(rel).write_to(out)?;
         }
     }
     if !explore.transitive_consumers.is_empty() {
-        out.push('\n');
-        out.push_str(EXPLORE_IMPACT_SCHEMA);
+        if has_emitted {
+            out.write_char('\n')?;
+        }
+        out.write_str(EXPLORE_IMPACT_SCHEMA)?;
         for c in &explore.transitive_consumers {
-            out.push('\n');
-            let _ = write!(
-                out,
-                "{}|{}|{}|{}|{}|{}",
-                c.symbol_name,
-                c.repo,
-                c.file_path,
-                c.depth,
-                c.path_via.join(" -> "),
-                c.cross_repo
-            );
+            out.write_char('\n')?;
+            ExploreRecord::TransitiveConsumer(c).write_to(out)?;
         }
     }
-    out
+    Ok(())
+}
+
+struct ExploreDisplay<'a>(&'a ExploreResult);
+
+impl std::fmt::Display for ExploreDisplay<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write_explore(self.0, f)
+    }
+}
+
+/// Encodes explore results combining primary symbols, entry points, direct relations, and transitive consumers.
+pub fn encode_explore(explore: &ExploreResult) -> String {
+    ExploreDisplay(explore).to_string()
 }
 
 impl ToCompact for &[SymbolLocation] {

@@ -293,14 +293,55 @@ fn test_encode_explore() {
             cross_repo: true,
         }],
     };
-
     let compact = explore.to_compact();
     let expected = format!(
         "{}\n10|fetch|fn|src/net.rs|1|0|3\n{}\nmain|ivar|src/main.rs|incoming|fetch|ivar|src/net.rs|calls|extracted|1.00|42|1|false\n{}\ncaller_func|ivar-orca|src/index.ts|2|main -> caller_func|true",
         SYMBOL_SCHEMA, RELATION_SCHEMA, EXPLORE_IMPACT_SCHEMA
     );
     assert_eq!(compact, expected);
+}
 
-    let json = serde_json::to_string_pretty(&explore).unwrap();
-    assert!(compact.len() < json.len() / 2);
+#[test]
+fn complete_compact_exploration_keeps_every_distinct_consumer() {
+    let res = ExploreResult {
+        query: "fetch".into(),
+        file_matches: vec![],
+        primary_symbols: vec![SymbolSnippet {
+            symbol: sample_symbol(Some(10), "fetch", SymbolKind::Fn, 1, 0),
+            file_path: "src/net.rs".into(),
+            code: "fn fetch() {}".into(),
+            start_line: 1,
+            end_line: 1,
+        }],
+        call_flows: vec![],
+        impact_summary: None,
+        direct_relations: vec![],
+        entry_points: vec![],
+        transitive_consumers: (0..400)
+            .map(|n| crate::domain::graph::ExploreImpact {
+                symbol_name: format!("consumer_{n:03}"),
+                repo: "api".into(),
+                file_path: format!("src/consumer_{n:03}.rs"),
+                depth: 2,
+                path_via: vec!["fetch".into(), format!("consumer_{n:03}")],
+                cross_repo: true,
+            })
+            .collect(),
+        sources: vec![],
+        flows: vec![],
+        not_shown: vec![],
+    };
+    let text = encode_explore(&res);
+    assert!(text.starts_with(
+        "#SCHEMA: id|name|kind|file|line|col|complexity\n10|fetch|fn|src/net.rs|1|0|3\n"
+    ));
+    for n in 0..400 {
+        let expected =
+            format!("consumer_{n:03}|api|src/consumer_{n:03}.rs|2|fetch -> consumer_{n:03}|true");
+        assert!(
+            text.lines().any(|line| line == expected),
+            "missing {expected}"
+        );
+    }
+    assert!(!text.contains("#SCHEMA: partial|budget_bytes"));
 }

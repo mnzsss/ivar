@@ -1155,9 +1155,37 @@ Retrieval applies lexicographic ranking precedence: unambiguous repository/path 
 symbol or basename matches, path-pinned matches, structured symbol names, content FTS, and loose
 symbol FTS. Total candidates are capped at 20 across symbols and files (`MAX_EXPLORE_CANDIDATES = 20`),
 reserving slots for pinned and exact matches first. Multi-repo queries consume all named visible repositories.
-CLI relation sections (entry points, callers/callees, transitive consumers) are capped at 40 items (`MAX_LIST_ITEMS`)
+Human-readable CLI relation sections (entry points, callers/callees, transitive consumers) are capped at 40 items (`MAX_LIST_ITEMS`)
 with `…and N more` and an 18,000 character output budget. Specific file slices can be requested with
 `path:START-END` line ranges, and block truncation notices specify the exact continuation slice `path:<n+1>-<last>`.
+
+**`graph_explore` MCP structured output has a byte budget.** Compact and JSON
+responses are limited to 18,000 UTF-8 bytes of MCP text, or 24,000 for explicitly
+requested files. Schemas, escaped values, separators, and continuation metadata
+count toward the limit. These byte limits are not guarantees about a host's
+model-token limit. Markdown retains its existing source-range behavior.
+
+A complete structured response keeps its existing representation. An oversized
+JSON response keeps the existing result fields and adds `output` with
+`partial: true`, `budget_bytes`, per-category `omitted` record counts,
+`omitted_fields` for oversized scalar values, and `next` when omitted located
+evidence can be inspected. Rows are omitted whole; a partial result does not
+claim that omitted callers, consumers, or source do not exist.
+
+An oversized compact response retains its normal schemas and complete rows and
+adds `#SCHEMA: partial|budget_bytes`,
+`#SCHEMA: omitted_category|omitted_records`, and, when available,
+`#SCHEMA: next_tool|next_arguments`. The next_arguments cell is single-line JSON;
+a literal pipe in its values is encoded as `\u007c` so it stays one cell.
+
+Follow the returned `graph_explore` arguments: they name an actual repository and
+source interval using Markdown, rather than repeating the broad query. This is
+targeted evidence inspection, not cursor pagination of every graph relation.
+Oversized source-less scalar text can be omitted without inventing a source
+follow-up. An unrepresentable evidence identity is an explicit rendering error,
+not silent truncation. Machine-readable `ivar graph explore --json` and
+`--compact` keep their complete output contract; only MCP structured responses
+use this budget.
 
 **`ivar graph misses` shows where the graph fell short.** The guard records a
 `skipped` miss when a session greps (Grep, Glob, or an `rg`/`grep` Bash

@@ -29,11 +29,50 @@ env:
   RUSTFLAGS: -D warnings
 
 jobs:
+  # The commit that merging the release PR puts on main only bumps the version
+  # and the changelog; the PR that produced it already passed this gate. This
+  # job recognises that commit so the jobs below skip it. It still succeeds, so
+  # the run concludes `success` and release.yml, which waits on this workflow,
+  # goes straight to publishing.
+  #
+  # The commit message alone is not trusted: a squash title is editable by
+  # whoever merges. The commit must also touch nothing but the files
+  # release-plz writes, so a code change cannot skip CI by being titled
+  # `chore: release`.
+  release-commit:
+    name: release commit
+    runs-on: ubuntu-latest
+    outputs:
+      release: ${{ steps.detect.outputs.release }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 2
+      - name: detect release commit
+        id: detect
+        env:
+          EVENT: ${{ github.event_name }}
+          MESSAGE: ${{ github.event.head_commit.message }}
+        run: |
+          release=false
+          if [ "$EVENT" = push ]; then
+            subject=$(printf '%s' "$MESSAGE" | head -n1)
+            case "$subject" in
+              "chore: release"*)
+                extra=$(git diff --name-only HEAD^ HEAD | grep -v -x -e Cargo.toml -e Cargo.lock -e CHANGELOG.md || true)
+                if [ -z "$extra" ]; then release=true; fi
+                ;;
+            esac
+          fi
+          echo "release=$release" >> "$GITHUB_OUTPUT"
+          echo "release commit: $release" >> "$GITHUB_STEP_SUMMARY"
+
   gate:
     name: gate (${{ matrix.os }})
     # Draft PRs are a work-in-progress marker, not a review request — skip
     # their runs and arm CI via ready_for_review instead.
-    if: github.event.pull_request.draft == false
+    needs: release-commit
+    if: github.event.pull_request.draft == false && needs.release-commit.outputs.release != 'true'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -84,7 +123,8 @@ jobs:
         run: cargo test --profile e2e --test graph --all-features -- --ignored simulation
   msrv:
     name: msrv
-    if: github.event.pull_request.draft == false
+    needs: release-commit
+    if: github.event.pull_request.draft == false && needs.release-commit.outputs.release != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -102,7 +142,8 @@ jobs:
 
   coverage:
     name: coverage (report only)
-    if: github.event.pull_request.draft == false
+    needs: release-commit
+    if: github.event.pull_request.draft == false && needs.release-commit.outputs.release != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
