@@ -127,6 +127,7 @@ fn invocation_expands_arguments_and_rereads_the_file() {
         Some(&[("ivar-connect.md", CONNECT), ("ivar-sync.md", SYNC)]),
         &json!([
             {"invoke": ["ivar-connect", "  demo-feature  "]},
+            {"invoke": ["ivar-connect", "p$$q $& r"]},
             {"invoke": ["ivar-connect", ""]},
             {"invoke": ["ivar-sync", ""]},
             {"invoke": ["ivar-sync", "extra words"]},
@@ -139,6 +140,7 @@ fn invocation_expands_arguments_and_rereads_the_file() {
         out["sent"],
         json!([
             "Run `ivar session connect --feature demo-feature --create`.\n",
+            "Run `ivar session connect --feature p$$q $& r --create`.\n",
             "Run `ivar session connect --feature  --create`.\n",
             "Sync body.\n",
             "Sync body.\n\nextra words",

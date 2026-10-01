@@ -48,7 +48,7 @@ function splitFrontmatter(raw) {
 
 function expandArguments(body, args) {
   const text = String(args ?? "").trim();
-  if (body.includes("$ARGUMENTS")) return body.replaceAll("$ARGUMENTS", text);
+  if (body.includes("$ARGUMENTS")) return body.replaceAll("$ARGUMENTS", () => text);
   return text ? `${body.trimEnd()}\n\n${text}` : body;
 }
 
