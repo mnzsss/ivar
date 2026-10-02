@@ -79,7 +79,7 @@ pub(super) trait FlowOps {
         resource: Option<&str>,
     ) -> Result<Tokens, Failure>;
     fn write(&self, name: &str, credential: &Credential<'_>) -> Result<(), Failure>;
-    fn verify(&self, name: &str, server_url: Option<&str>) -> Result<bool, Failure>;
+    fn verify(&self, name: &str) -> Result<bool, Failure>;
 }
 
 struct RealFlowOps {
@@ -151,8 +151,8 @@ impl FlowOps for RealFlowOps {
     fn write(&self, name: &str, credential: &Credential<'_>) -> Result<(), Failure> {
         crate::providers::install_credentials(self.provider, name, credential).map(|_| ())
     }
-    fn verify(&self, name: &str, server_url: Option<&str>) -> Result<bool, Failure> {
-        Ok(crate::providers::verify_authenticated(self.provider, name, server_url).is_ok())
+    fn verify(&self, name: &str) -> Result<bool, Failure> {
+        Ok(crate::providers::verify_authenticated(self.provider, name).is_ok())
     }
 }
 
@@ -291,7 +291,7 @@ pub(super) fn run_internal_flow_pipeline(
     ops.write(materialised_name, &credential)?;
 
     // Step 9: Verify
-    if !ops.verify(materialised_name, Some(server_url))? {
+    if !ops.verify(materialised_name)? {
         return Err(Failure::failed(
             "flow.verify_failed",
             "token exchange succeeded but has_tokens returned false after write",

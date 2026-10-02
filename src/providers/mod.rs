@@ -267,7 +267,7 @@ pub fn credential_state(provider: Provider, name: &str, server_url: &str) -> Cre
             Err(_) => CredentialState::Unknown,
         },
         Provider::Omp => {
-            if omp::auth::has_entry(server_url) {
+            if omp::auth::has_entry(name) {
                 CredentialState::Authenticated
             } else {
                 CredentialState::Missing
@@ -337,33 +337,12 @@ pub fn login_subcommand(provider: Provider) -> Option<[&'static str; 2]> {
 ///
 /// # Errors
 ///
-/// Returns [`Failure`] if `server_url` is required but missing, or
-/// the provider's own verification fails.
-pub fn verify_authenticated(
-    provider: Provider,
-    name: &str,
-    server_url: Option<&str>,
-) -> Result<(), Failure> {
+/// Returns [`Failure`] if the provider's own verification fails.
+pub fn verify_authenticated(provider: Provider, name: &str) -> Result<(), Failure> {
     match provider {
         Provider::ClaudeCode => Ok(()),
         Provider::OpenCode => opencode::auth::verify_authenticated(name),
-        Provider::Omp => {
-            let Some(server_url) = server_url else {
-                return Err(Failure::blocked(
-                    "omp_auth.missing_server_url",
-                    format!(
-                        "cannot verify OMP authentication for MCP server `{name}` without a server URL"
-                    ),
-                )
-                .expected("a server URL for OMP credential binding lookup")
-                .actual("no server URL provided")
-                .fix(FixAction::safe(
-                    "mcp.check_config",
-                    "Configure a `url` for the MCP server before authenticating with OMP.",
-                )));
-            };
-            omp::auth::verify_authenticated(server_url)
-        }
+        Provider::Omp => omp::auth::verify_authenticated(name),
     }
 }
 

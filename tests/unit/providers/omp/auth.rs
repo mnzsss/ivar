@@ -11,7 +11,7 @@ use crate::infra::oauth::Tokens;
 use crate::infra::proc::Output;
 use crate::providers::omp::auth::{
     credential_binding_from, credential_id, credential_json, import_command, logout_command,
-    parse_import_result, verify_result_from_output,
+    parse_import_result, verify_installed_token, verify_result_from_output,
 };
 
 #[test]
@@ -282,4 +282,46 @@ fn credential_id_is_per_hall_and_outside_the_reserved_profile_prefix() {
     assert_eq!(id, "mcp_oauth_ivar:acme-linear");
     assert!(id.starts_with("mcp_oauth_"));
     assert!(!id.starts_with("mcp_oauth:profile:"));
+}
+
+#[test]
+fn logout_then_import_target_the_per_hall_credential_id() {
+    let id = credential_id("acme-linear");
+    let path = camino::Utf8Path::new("/tmp/cred.json");
+
+    assert_eq!(
+        [
+            logout_command(&id).display(),
+            import_command(path, &id).display()
+        ],
+        [
+            "omp auth-broker logout --provider mcp_oauth_ivar:acme-linear --json".to_owned(),
+            "omp auth-broker import /tmp/cred.json --provider mcp_oauth_ivar:acme-linear --json"
+                .to_owned(),
+        ]
+    );
+}
+
+#[test]
+fn installed_token_must_be_the_one_just_written() {
+    let id = "mcp_oauth_ivar:acme-linear";
+    let stale = Output {
+        code: Some(0),
+        stdout: "old-access-token\n".to_owned(),
+        stderr: String::new(),
+    };
+
+    let err = verify_installed_token(&stale, "new-access-token", id).unwrap_err();
+
+    assert_eq!(err.code, "omp_auth.stale_token");
+    let rendered = format!("{err:?}{err}");
+    assert!(!rendered.contains("old-access-token"));
+    assert!(!rendered.contains("new-access-token"));
+
+    let fresh = Output {
+        code: Some(0),
+        stdout: "new-access-token\n".to_owned(),
+        stderr: String::new(),
+    };
+    assert!(verify_installed_token(&fresh, "new-access-token", id).is_ok());
 }
