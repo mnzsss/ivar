@@ -139,9 +139,9 @@
 //! [`Preregistered`], which is deliberately not `Serialize`), and [`attempt`]
 //! passes it straight into [`auth_command`]'s [`proc::Command::env`] for that
 //! child — never to Claude, never to `ivar.json`, and never to `--json` output.
-//! disk, never for a second run. On the `Skipped` path — a manifest that
-//! already carries `oauth` — `ivar` never held this run's secret in the
-//! first place, so [`ensure_secret_env_set`] fails early, naming the
+//! disk, never for a second run. On the [`Preregistration::Skipped`] path —
+//! a manifest that already carries `oauth` — `ivar` never held this run's
+//! secret in the first place, so [`ensure_secret_env_set`] fails early, naming the
 //! variable, rather than let a missing export surface later as the same
 //! confusing `client_secret_basic` error.
 
@@ -244,8 +244,6 @@ pub enum AuthMethod {
     /// Ivar performed the OAuth authorization-code flow itself, printing
     /// the authorization URL and running a temporary loopback listener.
     InternalOAuthFlow,
-    /// The provider was already authenticated; re-authorization was skipped.
-    Skipped,
 }
 
 pub(super) fn provider_order(available: &[Provider]) -> Vec<Provider> {
@@ -349,10 +347,6 @@ impl ProviderRun {
                     w,
                     "[{provider}] authenticated `{server}` via Ivar's OAuth flow.",
                 ),
-                AuthMethod::Skipped => writeln!(
-                    w,
-                    "[{provider}] `{server}` already authenticated — skipped.",
-                ),
             }
         } else {
             writeln!(
@@ -381,37 +375,16 @@ pub fn auth(ctx: &Ctx, input: &AuthInput) -> Outcome<AuthOutcome> {
 
     if input.all_providers {
         let ordered = provider_order(manifest.providers().available());
-        let mut runs = Vec::with_capacity(ordered.len());
         let server_url = server.url.as_deref().unwrap_or_default();
-        let mut non_skipped_count = 0;
-
-        for provider in ordered {
-            let state =
-                crate::providers::credential_state(provider, &materialised_name, server_url);
-            if state == crate::domain::mcp::CredentialState::Authenticated {
-                runs.push(ProviderRun {
-                    provider,
-                    preregistration: Preregistration::NotNeeded,
-                    command: String::new(),
-                    auth_method: AuthMethod::Skipped,
-                    authenticated: true,
-                    error: None,
-                });
-            } else {
-                non_skipped_count += 1;
-                runs.push(run_provider(
-                    &layout,
-                    &manifest,
-                    server,
-                    &materialised_name,
-                    provider,
-                ));
-            }
-        }
+        let runs: Vec<ProviderRun> = ordered
+            .iter()
+            .map(|&provider| run_provider(&layout, &manifest, server, &materialised_name, provider))
+            .collect();
+        let ran = runs.len();
 
         let mut report = all_providers_report(&server.name, runs);
 
-        if non_skipped_count >= 2 {
+        if ran >= 2 {
             let mut after = std::collections::BTreeMap::new();
             for &p in manifest.providers().available() {
                 match p {
