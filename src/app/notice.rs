@@ -1,7 +1,7 @@
 //! Which runs may print the update notice. The decision itself is
 //! `domain::upgrade::notice_enabled`; this reads the process state it needs.
 
-use crate::action::upgrade::notice::current_version;
+use crate::action::upgrade::notice::{current_version, is_dev_build};
 use crate::cli::GraphCommand;
 use crate::cli::root::{Command, SessionCommand};
 use crate::domain::upgrade::NoticeContext;
@@ -29,6 +29,7 @@ pub(super) fn notice_context(json: bool, command: &Command) -> NoticeContext {
         machine_output: json,
         machine_verb: is_machine_verb(command),
         release_build: !cfg!(debug_assertions)
+            && !is_dev_build()
             && current_version().is_some_and(|v| v.to_string() != "0.0.0"),
     }
 }

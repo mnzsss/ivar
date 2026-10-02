@@ -47,6 +47,12 @@ fn rejects_prereleases_and_malformed_versions() {
 }
 
 #[test]
+fn a_dev_build_parses_as_its_base_version() {
+    assert_eq!(v("0.13.0-dev+abc1234"), v("0.13.0"));
+    assert!(v("0.13.0-dev+abc1234") < v("0.13.1"));
+}
+
+#[test]
 fn orders_numerically_not_lexically() {
     assert!(v("0.10.0") > v("0.9.9"));
     assert!(v("1.0.0") > v("0.99.99"));

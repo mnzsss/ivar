@@ -401,7 +401,7 @@ Preview, then push, a feature's promoted repos. `--preview` prints the side-effe
 | flag | value | default | description |
 | --- | --- | --- | --- |
 | `--preview` |  |  | Print the delivery preview and push nothing. |
-| `--land` |  |  | Land feature branches into default branches locally (fast-forward only). |
+| `--land` |  |  | Land feature branches into default branches (fast-forward only), then push each default branch to its remote. |
 | `--fingerprint` | `<FINGERPRINT>` |  | The fingerprint from the preview the human approved; required to apply. It covers `--name`, `--body`, `--draft` and `--only`, so apply with the same values the preview used. Apply recomputes the preview and refuses when the fingerprint differs — the state has drifted since the preview. |
 | `--name` | `<TITLE>` |  | Pull request title. If placed before any `--repo`, applies globally; if placed after a `--repo`, applies to that repo. Part of the delivery fingerprint: pass the same value to the preview and the apply. |
 | `--body` | `<BODY>` |  | Pull request body text, or a path to a `.md` / `.txt` file — either `./relative` or absolute. If placed before any `--repo`, applies globally; if placed after a `--repo`, applies to that repo. Part of the delivery fingerprint: pass the same value to the preview and the apply. |
@@ -430,6 +430,10 @@ Delete a feature: its worktrees, its directory under `.ivar/`, and its plans. Re
 | argument | required | description |
 | --- | --- | --- |
 | `name` | no | The feature to delete |
+
+| flag | value | default | description |
+| --- | --- | --- | --- |
+| `--force` |  |  | Delete even with a live session or uncommitted or untracked changes in a promoted worktree, discarding them |
 
 
 ##### `ivar feature rebase`
@@ -529,11 +533,15 @@ Promote a discovery session to a feature session, keeping its name
 
 ##### `ivar session stop`
 
-Stop a session — tear down its view dir and end any running harness. Omitting the session stops *every* session in the hall
+Stop a session — tear down its view dir and end any running harness. Omitting the session stops `$IVAR_SESSION_ID`; `--all` stops every session in the hall
 
 | argument | required | description |
 | --- | --- | --- |
-| `session` | no | The session to stop — its id, or a unique prefix of one. Omitting it stops **every** session in the hall: every discovery session and every feature's sessions, not just this feature's and not just the most recent. Pass `$IVAR_SESSION_ID` to stop only your own. |
+| `session` | no | The session to stop — its id, or a unique prefix of one. Defaults to `$IVAR_SESSION_ID`; with neither, the command stops nothing and fails |
+
+| flag | value | default | description |
+| --- | --- | --- | --- |
+| `--all` |  |  | Stop every session in the hall: every discovery session and every feature's sessions |
 
 
 ##### `ivar session prune`
@@ -547,7 +555,7 @@ Relay session info: four-line output contract for external consumers
 
 | argument | required | description |
 | --- | --- | --- |
-| `feature` | yes | The feature to relay a session for |
+| `feature` | no | The feature to relay a session for. Defaults to the session's feature |
 
 | flag | value | default | description |
 | --- | --- | --- | --- |
@@ -719,7 +727,7 @@ Show approval gate status for a plan file. Omits a gate that has no artifact and
 
 | argument | required | description |
 | --- | --- | --- |
-| `plan_path` | yes | Path to the plan file (plan.md or similar) |
+| `target` | no | The feature, or a path to a file under its feature directory (e.g. its plan.md) |
 
 
 #### `ivar review`
@@ -738,7 +746,7 @@ Add a comment on a line range of a file in one of the feature's repos
 
 | argument | required | description |
 | --- | --- | --- |
-| `feature` | yes | The feature under review |
+| `feature` | no | The feature under review |
 
 | flag | value | default | description |
 | --- | --- | --- | --- |
@@ -754,7 +762,7 @@ List a feature's review comments
 
 | argument | required | description |
 | --- | --- | --- |
-| `feature` | yes | The feature under review |
+| `feature` | no | The feature under review |
 
 | flag | value | default | description |
 | --- | --- | --- | --- |
@@ -768,7 +776,7 @@ Mark a review comment resolved
 
 | argument | required | description |
 | --- | --- | --- |
-| `feature` | yes | The feature under review |
+| `feature` | no | The feature under review |
 | `id` | yes | The comment id, e.g. `c1` |
 
 

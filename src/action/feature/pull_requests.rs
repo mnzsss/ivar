@@ -414,6 +414,11 @@ fn observe_merge_with(
     }
 }
 
+/// The forge state of the pull request at `url`: `OPEN`, `MERGED`, `CLOSED`.
+pub(crate) fn pull_request_state(git_dir: &Utf8Path, url: &str) -> Result<String, Failure> {
+    view_pull_request(git_dir, url).map(|pr| pr.state)
+}
+
 /// One `gh pr view` — the observation primitive.
 fn view_pull_request(git_dir: &Utf8Path, url: &str) -> Result<PullRequest, Failure> {
     let output = capture(
@@ -432,17 +437,12 @@ fn view_pull_request(git_dir: &Utf8Path, url: &str) -> Result<PullRequest, Failu
     Ok(record.into())
 }
 
-// -- delivery compatibility -------------------------------------------------
-//
-// Delivery's preview may collapse lookup errors to "new PR" where it
-// intentionally does; apply uses the strict [`find_pull_request`]. The helper
-// below keeps the preview's best-effort shape.
-
-/// The open pull request for `branch`, when there is one —
-/// best-effort: a `gh` failure means "no PR", which is the preview's
-/// intentional answer.
-pub(crate) fn existing_pr(git_dir: &Utf8Path, branch: &str) -> Option<PullRequest> {
-    find_pull_request(git_dir, branch, "open").ok().flatten()
+/// The open pull request for `branch`, when there is one.
+pub(crate) fn existing_pr(
+    git_dir: &Utf8Path,
+    branch: &str,
+) -> Result<Option<PullRequest>, Failure> {
+    find_pull_request(git_dir, branch, "open")
 }
 
 /// Add a comment to each PR linking it to its siblings.

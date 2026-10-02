@@ -48,6 +48,25 @@ instead — GitHub access goes through a trait, and the fake is what tests see.
 Coverage is reported, not enforced. Do not let a coverage number push you into
 writing a test you do not believe in.
 
+## Testing a candidate locally
+
+`cargo test --test personas` runs the persona suite: the compiled binary driven
+through throwaway halls with an isolated HOME, local remotes and no network. A
+fix for a lifecycle bug lands with a scenario there that fails before the fix.
+
+To try a candidate by hand, install it somewhere that cannot shadow your real
+`ivar`, and point it at a scratch hall:
+
+```sh
+cargo install --path . --locked --root /tmp/ivar-rc
+IVAR_NO_UPDATE_CHECK=1 /tmp/ivar-rc/bin/ivar --version
+```
+
+A build from a checkout reports `X.Y.Z-dev+<sha>` and never shows the update
+notice, unless `IVAR_RELEASE=1` is set, as the release workflows and the AUR
+package do. A build from a crates.io download has no checkout and reports the
+plain version.
+
 ## Licensing
 
 There is no CLA, and nothing here asks you to assign copyright. Your
@@ -140,6 +159,21 @@ Three things then happen on that tag, in order:
    from `packaging/aur/`. It is skipped with a warning, not a failure, when
    `AUR_SSH_PRIVATE_KEY` is not configured — see
    [`packaging/aur/README.md`](packaging/aur/README.md).
+
+Before merging the release PR, and right after it publishes, go through the
+release checklist. The site and the packages live outside this repository, so
+nothing here checks them for you:
+
+- [ ] The persona suite passes on the release PR (`personas` job in CI).
+- [ ] In `valhalla`, `apps/heimdall/content/docs/quickstart.mdx` says the
+      commands were verified against the version being released.
+- [ ] `apps/heimdall/content/docs/changelog.mdx` has an entry for the version,
+      including any exit-code or JSON change that `ivar-bb` users need to know
+      about.
+- [ ] The docs drift check passes against the release binary:
+      `node apps/heimdall/scripts/check-ivar-drift.mjs --ivar <binary>`.
+- [ ] `release aur` published `ivar` and `ivar-bin`, and
+      `yay -S ivar-bin && ivar --version` reports the plain version.
 
 Both take the tag as a `workflow_dispatch` input, so a step that fails after a
 release is already out is re-run alone rather than by cutting a new version:

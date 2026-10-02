@@ -120,7 +120,10 @@ jobs:
         with:
           key: ${{ matrix.target }}
 
+      # Without IVAR_RELEASE the binary reports a `-dev+<sha>` version (build.rs).
       - name: build
+        env:
+          IVAR_RELEASE: "1"
         run: cargo build --release --locked --target ${{ matrix.target }}
 
       # The binary is already stripped — `[profile.release] strip = true`.
@@ -209,6 +212,14 @@ jobs:
               exit 1
             }
           fi
+
+      # The persona suite against a release build of this tag, before upload.
+      # Only where the runner can execute it, for the same reason as `native`.
+      - name: personas
+        if: matrix.native
+        env:
+          IVAR_RELEASE: "1"
+        run: cargo test --release --locked --target ${{ matrix.target }} --test personas
 
       - name: upload
         env:

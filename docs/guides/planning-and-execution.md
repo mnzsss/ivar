@@ -58,7 +58,8 @@ To reopen a gate deliberately:
 ivar plan invalidate checkout analysis    # and everything downstream
 ```
 
-`ivar plan status <path>` reports the gate state of a plan file. It may also
+`ivar plan status <feature|path>` reports the gate state of a feature's plan,
+named by the feature or by a file under its directory. It may also
 perform a local-only migration of legacy execution evidence; it never changes a
 repository or remote.
 

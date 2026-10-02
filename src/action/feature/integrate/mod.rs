@@ -44,7 +44,7 @@ use crate::domain::feature::{
 };
 use crate::domain::name::{BranchName, FeatureName, RepoName};
 use crate::domain::session::rfc3339_now;
-use crate::error::{Failure, FixAction, Outcome, Report, Warning, WriteHuman};
+use crate::error::{Failure, FixAction, Outcome, Report, WriteHuman};
 use crate::git::{self, Git};
 use crate::infra::fs;
 use crate::store::layout::Layout;
@@ -171,7 +171,11 @@ impl WriteHuman for IntegrateOutcome {
             writeln!(w, "  {}  {}{}{detail}", repo.repo, repo.status, result)?;
         }
         if self.closed_integrated {
-            writeln!(w, "Closed `{}` as integrated.", self.feature)?;
+            writeln!(
+                w,
+                "Closed `{}` as integrated; the outcome is final.",
+                self.feature
+            )?;
         }
         Ok(())
     }
@@ -192,22 +196,27 @@ pub fn integrate(ctx: &Ctx, input: IntegrateInput) -> Outcome<IntegrateOutcome> 
     // 1. The child and its immediate parent. The tree is validated by the
     // read: a missing parent or a cycle refuses before anything else.
     relations::read_all(&layout)?;
-    let child = relations::read_feature(&layout, &name)?;
-    let parent_name = child.parent.clone().ok_or_else(|| {
-        Failure::blocked(
-            "integration.root_refused",
-            format!("feature `{name}` is a root and cannot be integrated"),
-        )
-        .expected("a child feature (one with a parent) to integrate")
-        .actual("this feature has no parent")
-        .fix(
-            FixAction::safe(
-                "integration.deliver_root",
-                format!("Deliver the root instead: `ivar feature deliver {name}`."),
+    let parent_name = relations::read_feature(&layout, &name)?
+        .parent
+        .ok_or_else(|| {
+            Failure::blocked(
+                "integration.root_refused",
+                format!("feature `{name}` is a root and cannot be integrated"),
             )
-            .command(format!("ivar feature deliver {name}")),
-        )
-    })?;
+            .expected("a child feature (one with a parent) to integrate")
+            .actual("this feature has no parent")
+            .fix(
+                FixAction::safe(
+                    "integration.deliver_root",
+                    format!("Deliver the root instead: `ivar feature deliver {name}`."),
+                )
+                .command(format!("ivar feature deliver {name}")),
+            )
+        })?;
+    // Everything below reads and moves the parent, so it runs under the
+    // parent's lock, and the child is re-read under it.
+    let _parent_lock = parent_integration_lock(&layout, &parent_name)?;
+    let child = relations::read_feature(&layout, &name)?;
     let parent = relations::read_feature(&layout, &parent_name)?;
 
     // 2. The plan gate must be approved — integration is a planned act, and
@@ -238,7 +247,7 @@ pub fn integrate(ctx: &Ctx, input: IntegrateInput) -> Outcome<IntegrateOutcome> 
 
     // 4 & 5. No live session that could still write a first receipt, and no
     // non-terminal run already holding the child's lock.
-    ensure_no_conflicting_session_or_run(&layout, &name, &child)?;
+    ensure_no_conflicting_session_or_run(&layout, &name, &parent_name, &child)?;
 
     // 6. Resolve the policy once. The resolved relationship/base/policy is
     // frozen by the first persisted receipt: a rerun reuses each receipt's
@@ -268,33 +277,45 @@ pub fn integrate(ctx: &Ctx, input: IntegrateInput) -> Outcome<IntegrateOutcome> 
     // persisted immediately — partial and resumable, never atomic. The child
     // is re-read after each repo so the next persist carries every earlier
     // receipt, never clobbering it.
-    let (repos_out, mut warnings) =
-        run_integration_repos(&layout, &manifest, &git, &child, &parent, policy, &name);
+    let repos_out =
+        run_integration_repos(&layout, &manifest, &git, &child, &parent, policy, &name)?;
     let child = relations::read_feature(&layout, &name)?;
 
     // 13. Close as integrated only when every receipt is fresh and passing.
-    let (state, closed_integrated) = final_state(
-        ctx,
-        &layout,
-        &manifest,
-        &git,
-        &child,
-        &parent,
-        &mut warnings,
-    )?;
+    let (state, closed_integrated) = final_state(ctx, &layout, &manifest, &git, &child, &parent)?;
 
-    Ok(Report::with_warnings(
-        IntegrateOutcome {
-            root: layout.root().to_path_buf(),
-            feature: name,
-            parent: parent_name,
-            policy,
-            repos: repos_out,
-            state,
-            closed_integrated,
-        },
-        warnings,
-    ))
+    Ok(Report::new(IntegrateOutcome {
+        root: layout.root().to_path_buf(),
+        feature: name,
+        parent: parent_name,
+        policy,
+        repos: repos_out,
+        state,
+        closed_integrated,
+    }))
+}
+
+const INTEGRATE_LOCK: &str = "integrate.lock";
+
+/// Block until this process holds `parent`'s integration lock, which
+/// serializes every integrate into that parent. Released when dropped.
+///
+/// # Errors
+///
+/// Returns [`Failure`] if the lock file cannot be created or locked.
+pub(crate) fn parent_integration_lock(
+    layout: &Layout,
+    parent: &FeatureName,
+) -> Result<std::fs::File, Failure> {
+    Ok(fs::lock_exclusive(
+        &layout.feature_dir(parent).join(INTEGRATE_LOCK),
+    )?)
+}
+
+/// Whether an integrate into `parent` holds its lock right now.
+pub(crate) fn parent_integration_running(layout: &Layout, parent: &FeatureName) -> bool {
+    std::fs::File::open(layout.feature_dir(parent).join(INTEGRATE_LOCK))
+        .is_ok_and(|file| matches!(file.try_lock(), Err(std::fs::TryLockError::WouldBlock)))
 }
 
 /// Pass 1 of the whole-run preflight for one repo: every refusal that does
@@ -386,7 +407,9 @@ fn preflight_repos(
 /// Integrate every promoted repo, in name order: reuse, re-verify, or
 /// resume. Each result is persisted immediately — partial and resumable,
 /// never atomic. `child` is re-read after each repo so the next persist
-/// carries every earlier receipt, never clobbering it.
+/// carries every earlier receipt, never clobbering it. A repo that breaks
+/// mid-run (a conflict, a refused PR) does not stop the batch, but fails the
+/// run once every repo has had its turn.
 fn run_integration_repos(
     layout: &Layout,
     manifest: &Manifest,
@@ -395,41 +418,39 @@ fn run_integration_repos(
     parent: &Feature,
     policy: IntegrationPolicy,
     name: &FeatureName,
-) -> (Vec<RepoIntegration>, Vec<Warning>) {
+) -> Result<Vec<RepoIntegration>, Failure> {
     let mut child = child.clone();
     let mut repos_out = Vec::new();
-    let mut warnings = Vec::new();
+    let mut broken = Vec::new();
     for repo in child.promotions.keys().cloned().collect::<Vec<_>>() {
         match integrate_repo(layout, manifest, git, &child, parent, &repo, policy) {
             Ok(entry) => repos_out.push(entry),
-            Err(failure) => {
-                // A repo that breaks mid-run (checks failed, candidate failed,
-                // PR refused) stops that repo but lets the batch continue with
-                // a warning — successful receipts stay reused, and the
-                // resumable ones stay resumable.
-                warnings.push(Warning::new(
-                    "integration.repo_blocked",
-                    repo.as_str(),
-                    failure.to_string(),
-                ));
-                repos_out.push(RepoIntegration {
-                    repo: repo.clone(),
-                    source_sha: git
-                        .revision_commit(&layout.repo_bare(&repo), child.branch.as_str())
-                        .unwrap_or_default(),
-                    target_branch: parent.branch.clone(),
-                    result_sha: None,
-                    status: RepoIntegrationStatus::Failed,
-                    pr_url: None,
-                    detail: Some(failure.what.clone()),
-                });
-            }
+            Err(failure) => broken.push(format!("{repo}: {}", failure.what)),
         }
         if let Ok(fresh) = relations::read_feature(layout, name) {
             child = fresh;
         }
     }
-    (repos_out, warnings)
+    if broken.is_empty() {
+        return Ok(repos_out);
+    }
+    Err(Failure::failed(
+        "integration.repo_failed",
+        format!(
+            "integrating `{name}` into `{}` failed in {} repo(s)",
+            parent.name,
+            broken.len()
+        ),
+    )
+    .expected("every repo to integrate, or to record its failed checks")
+    .actual(broken.join("\n"))
+    .fix(
+        FixAction::safe(
+            "integration.retry",
+            format!("Fix the cause in the child, then run `ivar feature integrate {name}` again."),
+        )
+        .command(format!("ivar feature integrate {name}")),
+    ))
 }
 
 /// A failed receipt is resumable only while its source and result are
@@ -645,6 +666,7 @@ fn resume_repo(
 fn ensure_no_conflicting_session_or_run(
     layout: &Layout,
     name: &FeatureName,
+    parent: &FeatureName,
     child: &Feature,
 ) -> Result<(), Failure> {
     if !child.has_any_receipt() && has_live_sessions(layout, name)? {
@@ -656,10 +678,17 @@ fn ensure_no_conflicting_session_or_run(
         )
         .expected("no live feature session before the first successful receipt")
         .actual("a session view dir exists under the feature")
-        .fix(FixAction::safe(
-            "integration.stop_session_first",
-            format!("Stop the session first, then run `ivar feature integrate {name}` again."),
-        )));
+        .fix(
+            FixAction::safe(
+                "integration.integrate_from_parent",
+                format!(
+                    "In the child's session run `ivar feature execute finish {name}` and stop \
+                     that session, then integrate it from the `{parent}` session: \
+                     `ivar feature integrate {name}`."
+                ),
+            )
+            .command(format!("ivar feature integrate {name}")),
+        ));
     }
     if let Some(receipt) = RunReceipt::read(layout, name)?
         && receipt.holds_lock()
@@ -673,10 +702,7 @@ fn ensure_no_conflicting_session_or_run(
         )
         .expected("a terminal run receipt before integrating the feature")
         .actual("the current run is still active and holds the feature lock")
-        .fix(FixAction::safe(
-            "execute.finish_or_interrupt",
-            "Finish, accept the revision, or interrupt the run before integrating the feature.",
-        )));
+        .fix(crate::action::execute::finish_or_interrupt_fix(name)));
     }
     Ok(())
 }
@@ -726,7 +752,6 @@ fn final_state(
     git: &impl Git,
     child: &Feature,
     parent: &Feature,
-    warnings: &mut Vec<Warning>,
 ) -> Result<(FeatureIntegrationState, bool), Failure> {
     if read_close(layout, &child.name)?.is_some() {
         return Ok((FeatureIntegrationState::Integrated, false));
@@ -750,20 +775,13 @@ fn final_state(
     }
 
     // Every promotion is receipted, fresh, and passing: close as integrated.
-    let report = close::close(
+    close::close(
         ctx,
         CloseInput {
             name: child.name.to_string(),
             outcome: "integrated".to_owned(),
         },
     )?;
-    if !report.value.already_closed {
-        warnings.push(Warning::new(
-            "integration.closed_integrated",
-            child.name.to_string(),
-            "Closed the child as integrated; the outcome is final.".to_owned(),
-        ));
-    }
     Ok((FeatureIntegrationState::Integrated, true))
 }
 

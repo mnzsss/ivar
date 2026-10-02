@@ -15,6 +15,7 @@ use crate::domain::provider::Provider;
 use crate::store::layout::Layout;
 use crate::store::manifest::{Manifest, Providers, Repo};
 use crate::test_support::{hall_root, seeded_repo};
+use camino::Utf8PathBuf;
 
 /// A hall with `api` promoted into `checkout`, plus a detached session.
 fn hall_with_detached_session() -> (tempfile::TempDir, Utf8PathBuf) {
@@ -118,7 +119,14 @@ fn stop_ends_a_live_session_and_removes_the_view_dir() {
 
     assert!(fs::is_dir(&view_dir).unwrap());
 
-    let report = stop(&ctx, &StopInput { session: Some(id) }).unwrap();
+    let report = stop(
+        &ctx,
+        &StopInput {
+            session: Some(id),
+            all: false,
+        },
+    )
+    .unwrap();
 
     assert_eq!(report.value.stopped, 1);
     assert!(
@@ -129,24 +137,39 @@ fn stop_ends_a_live_session_and_removes_the_view_dir() {
 }
 
 #[test]
-fn stop_of_an_already_stopped_session_is_a_no_op() {
+fn stop_of_an_already_stopped_session_is_not_found() {
     let (_guard, root) = hall_with_detached_session();
     let ctx = Ctx::new(root.clone());
     let id = session_id_of(&root);
+    let input = StopInput {
+        session: Some(id),
+        all: false,
+    };
+    stop(&ctx, &input).unwrap();
 
-    // First stop: removes the view dir.
-    stop(
-        &ctx,
-        &StopInput {
-            session: Some(id.clone()),
-        },
-    )
-    .unwrap();
+    let failure = stop(&ctx, &input).unwrap_err();
 
-    // Second stop: the view dir is already gone → no-op.
-    let report = stop(&ctx, &StopInput { session: Some(id) }).unwrap();
+    assert_eq!(failure.code, "session.not_found");
+    unguard_worktrees(&root);
+}
 
-    assert_eq!(report.value.stopped, 0, "already-stopped must be a no-op");
+#[test]
+fn stop_without_a_target_stops_nothing() {
+    let (_guard, root) = hall_with_detached_session();
+    let ctx = Ctx::new(root.clone());
+    let input = StopInput {
+        session: None,
+        all: false,
+    };
+
+    let failure = stop(&ctx, &input).unwrap_err();
+
+    assert_eq!(failure.code, "session.stop_target_missing");
+    assert!(
+        root.join(".ivar/features/checkout/sessions")
+            .join(session_id_of(&root))
+            .is_dir()
+    );
     unguard_worktrees(&root);
 }
 
@@ -169,7 +192,14 @@ fn stop_all_stops_every_live_session() {
     )
     .unwrap();
 
-    let report = stop(&ctx, &StopInput { session: None }).unwrap();
+    let report = stop(
+        &ctx,
+        &StopInput {
+            session: None,
+            all: true,
+        },
+    )
+    .unwrap();
 
     assert_eq!(report.value.stopped, 2);
 
@@ -190,7 +220,14 @@ fn stop_emits_human_output() {
     let ctx = Ctx::new(root.clone());
     let id = session_id_of(&root);
 
-    let report = stop(&ctx, &StopInput { session: Some(id) }).unwrap();
+    let report = stop(
+        &ctx,
+        &StopInput {
+            session: Some(id),
+            all: false,
+        },
+    )
+    .unwrap();
 
     let mut out = Vec::new();
     report.value.write_human(&mut out).unwrap();

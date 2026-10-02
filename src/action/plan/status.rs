@@ -1,4 +1,4 @@
-//! `ivar plan status <plan-path>` — show the three SPDD gates and run receipt.
+//! `ivar plan status <FEATURE|PATH>` — show the three SPDD gates and run receipt.
 //!
 //! The status surface reconciles approval drift without rewriting it. It may
 //! import a legacy `board.json` into immutable receipt evidence; that local
@@ -22,7 +22,7 @@ use super::super::discover_hall;
 
 #[derive(Debug, Clone)]
 pub struct StatusInput {
-    /// A file or directory under `.ivar/features/<feature>/`.
+    /// A feature name, or a file or directory under `.ivar/features/<feature>/`.
     pub plan_path: String,
 }
 
@@ -146,6 +146,12 @@ fn derive_feature(
     plan_path: &str,
 ) -> Result<(FeatureName, Utf8PathBuf), Failure> {
     let resolved = ctx.resolve(Utf8Path::new(plan_path));
+    if let Ok(feature) = FeatureName::new(plan_path)
+        && fs::is_dir(&layout.feature_dir(&feature))?
+    {
+        let plan = layout.plan_dir(&feature).join("plan.md");
+        return Ok((feature, plan));
+    }
     let canonical = canonicalize_lenient(&resolved)?;
     let dir = if fs::is_dir(&canonical)? {
         canonical
@@ -206,7 +212,7 @@ fn not_a_plan(path: &Utf8Path, layout: &Layout) -> Failure {
     .actual("the path does not sit under the hall's features directory for a feature")
     .fix(FixAction::safe(
         "plan.status_pass_plan_path",
-        "Pass the plan path relative to the hall root, e.g. `.ivar/features/checkout/plan.md`.",
+        "Pass a feature name, or the plan path relative to the hall root, e.g. `.ivar/features/checkout/plan.md`.",
     ))
 }
 

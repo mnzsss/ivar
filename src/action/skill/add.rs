@@ -148,7 +148,7 @@ pub fn add(ctx: &Ctx, input: &AddInput) -> Outcome<AddOutcome> {
     let layout = discover_hall(ctx)?;
 
     let ext = parse_source(&input.repo, input.path.as_deref(), input.ref_.as_deref())?;
-    let temp_dir = fetch_and_extract(&ext)?;
+    let temp_dir = fetch_and_extract(ctx, &ext)?;
     let candidates = discover_candidates(temp_dir.path())?;
     let filtered = select_candidates(&ext, candidates)?;
     let chosen = choose_skills(ctx, &ext.repo, &filtered)?;
@@ -170,8 +170,8 @@ pub fn add(ctx: &Ctx, input: &AddInput) -> Outcome<AddOutcome> {
     }))
 }
 
-fn fetch_and_extract(ext: &ExternalRef) -> Result<fs::TempDir, Failure> {
-    let tarball_bytes = crate::infra::github::fetch_tarball(&ext.repo, &ext.git_ref)?;
+fn fetch_and_extract(ctx: &Ctx, ext: &ExternalRef) -> Result<fs::TempDir, Failure> {
+    let tarball_bytes = ctx.fetch_tarball(&ext.repo, &ext.git_ref)?;
 
     let temp_dir = fs::TempDir::new().map_err(|e| {
         Failure::failed(

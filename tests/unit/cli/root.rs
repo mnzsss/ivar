@@ -771,10 +771,8 @@ fn parse_optional_feature_positionals_omitted_and_supplied() {
 }
 
 #[test]
-fn session_relay_remains_required_positional() {
-    assert!(
-        Cli::try_parse_from(["ivar", "session", "relay", "--provider", "claude-code"]).is_err()
-    );
+fn session_relay_feature_positional_is_optional() {
+    assert!(Cli::try_parse_from(["ivar", "session", "relay", "--provider", "claude-code"]).is_ok());
     assert!(
         Cli::try_parse_from([
             "ivar",
@@ -845,12 +843,22 @@ fn parses_review_comment_add() {
     };
     assert_eq!(
         (
-            args.feature.as_str(),
+            args.feature.as_deref(),
             args.lines.as_str(),
             args.body.as_str()
         ),
-        ("checkout", "3-5", "- rename this")
+        (Some("checkout"), "3-5", "- rename this")
     );
+}
+
+#[test]
+fn review_comment_resolve_parses_with_the_feature_omitted() {
+    let parsed = Cli::try_parse_from(["ivar", "review", "comment", "resolve", "c1"]).unwrap();
+    let Command::Review(ReviewCommand::Comment(CommentCommand::Resolve(args))) = parsed.command
+    else {
+        panic!("expected review comment resolve")
+    };
+    assert_eq!((args.feature, args.id.as_str()), (None, "c1"));
 }
 
 #[test]

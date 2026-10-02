@@ -7,7 +7,7 @@ use crate::action::{Ctx, discover_hall};
 use crate::domain::feature::{CoordinatorReport, RunOutcome, RunReceipt};
 use crate::domain::name::FeatureName;
 use crate::domain::session::rfc3339_now;
-use crate::error::{Failure, Outcome, Report, WriteHuman};
+use crate::error::{Failure, FixAction, Outcome, Report, WriteHuman};
 use crate::infra::fs;
 use crate::store::feature::run;
 
@@ -68,8 +68,8 @@ pub fn finish(ctx: &Ctx, input: FinishInput) -> Outcome<FinishOutcome> {
     let feature = FeatureName::new(input.feature)?;
     let plan = super::plan_path(ctx, &layout, &feature, input.plan.as_deref());
     super::import_legacy(&layout, &feature, plan.clone())?;
-    let mut receipt = RunReceipt::read(&layout, &feature)?
-        .ok_or_else(|| Failure::blocked("execute.run_missing", "no current run receipt exists"))?;
+    let mut receipt =
+        RunReceipt::read(&layout, &feature)?.ok_or_else(|| super::run_missing(&feature))?;
     let (session_id, provider) = super::resolve_coordinator(&layout, &feature, &receipt)?;
     let report: CoordinatorReport = serde_json::from_str(
         &fs::read_text(&ctx.resolve(Utf8Path::new(&input.report_json)))?.ok_or_else(|| {
@@ -86,9 +86,20 @@ pub fn finish(ctx: &Ctx, input: FinishInput) -> Outcome<FinishOutcome> {
     if plan_fingerprint != receipt.plan_fingerprint {
         receipt.diverge(plan_fingerprint, Some(report), session_id, provider, now)?;
         receipt.write(&layout)?;
+        let command = format!("ivar plan approve {feature} plan");
         return Err(Failure::blocked(
             "execute.plan_diverged",
             "the approved plan changed while this run was active",
+        )
+        .fix(
+            FixAction::safe(
+                "execute.accept_revision",
+                format!(
+                    "Approve the revised plan with `{command}`, then accept it with \
+                     `ivar feature execute accept-revision {feature}`."
+                ),
+            )
+            .command(command),
         ));
     }
     if outcome == RunOutcome::Blocked {

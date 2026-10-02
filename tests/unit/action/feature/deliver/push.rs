@@ -38,11 +38,11 @@ fn a_branch_the_remote_already_carries_is_not_reported_as_unpushed() {
     let repo = &report.value.preview.repos[0];
     assert!(
         !repo
-            .blockers
+            .pending
             .iter()
-            .any(|blocker| blocker.contains("not pushed")),
+            .any(|pending| pending.contains("not pushed")),
         "was: {:?}",
-        repo.blockers
+        repo.pending
     );
 }
 

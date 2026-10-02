@@ -1057,3 +1057,52 @@ fn preview_counts_a_worktree_whose_directory_is_gone_as_missing() {
             .any(|blocker| matches!(blocker, CleanupBlocker::MissingWorktree { .. }))
     );
 }
+
+#[test]
+fn a_blocked_cleanup_names_the_preview_command() {
+    let (_guard, root) = hall_with_feature(&[], None);
+    let ctx = Ctx::new(root.clone());
+    let layout = Layout::at(root.clone());
+    let preview = run_preview(&root);
+    assert_eq!(preview.blockers, vec![CleanupBlocker::EmptyFeature]);
+    fs::ensure_dir(&layout.docs_updates_dir()).unwrap();
+    let record_rel_path = Utf8PathBuf::from("docs/updates/001-checkout.cleanup.json");
+    fs::write_text(
+        &root.join(&record_rel_path),
+        &format!(
+            r#"{{
+                "schema_version": 1,
+                "feature": "checkout",
+                "branch": "checkout",
+                "fingerprint": "{}",
+                "approvals": {{
+                    "delivery": {{ "approved": true, "at": "2026-08-28T12:00:00Z" }},
+                    "documentation": {{ "decision": "not_required", "paths": [], "reason": "Refactoring", "at": "2026-08-28T12:05:00Z" }},
+                    "teardown": {{ "approved": true, "at": "2026-08-28T12:10:00Z" }}
+                }},
+                "outcome": null
+            }}"#,
+            preview.fingerprint
+        ),
+    )
+    .unwrap();
+
+    let err = cleanup(
+        &ctx,
+        CleanupInput {
+            feature: "checkout".to_owned(),
+            preview: false,
+            record: Some(record_rel_path),
+            session_id: None,
+        },
+    )
+    .unwrap_err();
+
+    assert_eq!(err.code, "feature.cleanup_blocked");
+    assert!(
+        err.fix_actions
+            .iter()
+            .any(|fix| fix.command.as_deref() == Some("ivar feature cleanup checkout --preview")),
+        "{err:?}"
+    );
+}

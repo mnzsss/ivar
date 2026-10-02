@@ -120,3 +120,27 @@ fn resolve_multi_features_prompts_and_returns_selection_when_interactive() {
     let result = resolve_multi_features(&ctx, None, "Select features");
     assert_eq!(result.unwrap(), vec!["alpha", "beta"]);
 }
+
+#[test]
+fn resolve_single_feature_infers_the_session_feature() {
+    let (_guard, root) = seeded_hall();
+    let ctx = Ctx::new(root).with_session_feature(Some("alpha".into()));
+    let result = resolve_single_feature(&ctx, None, "Select feature");
+    assert_eq!(result.unwrap(), "alpha");
+}
+
+#[test]
+fn resolve_single_feature_prefers_the_explicit_feature_over_the_session() {
+    let (_guard, root) = seeded_hall();
+    let ctx = Ctx::new(root).with_session_feature(Some("alpha".into()));
+    let result = resolve_single_feature(&ctx, Some("beta".into()), "Select feature");
+    assert_eq!(result.unwrap(), "beta");
+}
+
+#[test]
+fn resolve_multi_features_never_infers_the_session_feature() {
+    let (_guard, root) = seeded_hall();
+    let ctx = Ctx::new(root).with_session_feature(Some("alpha".into()));
+    let err = resolve_multi_features(&ctx, None, "Select features").unwrap_err();
+    assert_eq!(err.code, "feature.missing_argument");
+}

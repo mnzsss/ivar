@@ -122,3 +122,13 @@ so PR metadata is rejected.
   relation context with the Analysis. Offer `/ivar-relations` only for concrete,
   unreflected evidence. Deferring it does not block apply and does not invalidate
   the delivery fingerprint — and this checkpoint never writes `HALL.md` directly.
+- Ask one question after the preview: **(a) Apply**, **(b) Cancel**. Put any
+  `/ivar-relations` suggestion in the same message as a note, not a second gate.
+
+## After delivery
+
+- **CI fails or a reviewer requests changes:** read `gh pr checks <pr>`, fix on
+  the feature branch, commit, then preview again (the fingerprint changes) and
+  apply.
+- **Merged:** run `/ivar-feature-cleanup` once every promoted repo's PR is
+  merged, possibly days later. Until then, keep the feature.

@@ -24,7 +24,7 @@ use crate::error::Failure;
 /// Mount the repos a feature spans into one directory, on one branch, for
 /// one agent session.
 #[derive(Debug, Parser)]
-#[command(version, about, long_about = None)]
+#[command(version = env!("IVAR_BUILD_VERSION"), about, long_about = None)]
 pub struct Cli {
     /// Emit machine-readable output.
     ///

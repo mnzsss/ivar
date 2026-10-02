@@ -976,3 +976,89 @@ fn provider_remove_of_the_default_requires_a_new_default() {
         .success();
     assert!(!root.join(".claude/settings.json").exists());
 }
+
+fn shipped(path: &str) -> String {
+    std::fs::read_to_string(format!("{}/src/harness/{path}", env!("CARGO_MANIFEST_DIR"))).unwrap()
+}
+
+#[test]
+fn every_review_loop_in_execute_has_a_round_cap() {
+    let execute = shipped("skills/ivar-execute/SKILL.md");
+    assert!(
+        !execute.contains("until 0 findings"),
+        "goal mode must not demand zero smells"
+    );
+    assert!(
+        execute.matches("at most").count() >= 2,
+        "default and goal review loops both need a cap"
+    );
+    assert!(!execute.contains('┌'), "the diagram duplicates Phases 1-4");
+    assert!(
+        execute.contains("## Recovery"),
+        "execute must document recovery"
+    );
+    for case in ["usage limit", "subagent", "CI fails after deliver"] {
+        assert!(execute.contains(case), "recovery must cover: {case}");
+    }
+    assert!(shipped("skills/ivar-execute/references/subagent.md").contains("Design ref"));
+}
+
+#[test]
+fn subfeatures_starts_children_detached_with_real_plans() {
+    let skill = shipped("skills/ivar-subfeatures/SKILL.md");
+    assert!(skill.contains("ivar session start <child> --detached"));
+    assert!(skill.contains("ivar session sandbox --session <id> -- "));
+    assert!(skill.contains("Wave 0"));
+    assert!(
+        !skill.contains("ivar plan create <child> plan\nivar plan approve <child> plan"),
+        "children must not approve an empty template"
+    );
+}
+
+#[test]
+fn phase_transitions_offer_approve_and_continue_and_templates_match_execute() {
+    for path in ["skills/ivar-plan/SKILL.md", "skills/ivar-execute/SKILL.md"] {
+        assert!(
+            shipped(path).contains("Approve and continue"),
+            "{path} needs a combined gate"
+        );
+    }
+    let template = shipped("skills/ivar-plan/references/plan-template.md");
+    for stale in [
+        "Deferred validation failures",
+        "Human approval",
+        "✅",
+        "| Done |",
+    ] {
+        assert!(
+            !template.contains(stale),
+            "plan-template still tracks progress: {stale}"
+        );
+    }
+    assert!(shipped("skills/ivar-plan/references/task-template.md").contains("**Design ref:**"));
+    assert!(shipped("skills/ivar-plan/SKILL.md").contains("On omp"));
+    assert!(shipped("skills/ivar-deliver/SKILL.md").contains("## After delivery"));
+}
+
+#[test]
+fn shipped_text_names_only_env_vars_ivar_exports() {
+    for path in [
+        "commands/feature-cleanup.md",
+        "commands/discovery.md",
+        "commands/connect.md",
+    ] {
+        assert!(
+            !shipped(path).contains("IVAR_SESSION_TYPE"),
+            "{path} uses an unset variable"
+        );
+    }
+    assert!(
+        !shipped("commands/discovery.md").contains("look in `.claude/skills/`"),
+        "a view dir never holds the hall's ivar-plan skill"
+    );
+    assert!(
+        shipped("commands/connect.md").contains("Claude Code"),
+        "workdir is opencode/omp only"
+    );
+    assert!(shipped("commands/sync.md").contains(".omp/commands/"));
+}

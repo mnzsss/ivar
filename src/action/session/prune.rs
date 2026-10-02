@@ -57,17 +57,10 @@ pub fn prune(ctx: &Ctx) -> Outcome<PruneOutcome> {
         }
     }
 
-    let mut pruned = 0u32;
-    for session in sessions {
-        if !is_dead(&session) {
-            continue; // live: never touched
-        }
-        if remove_view_dir(&session.view_dir) {
-            pruned += 1;
-        }
-    }
+    let dead = sessions.into_iter().filter(is_dead);
+    let (pruned, warnings) = super::stop::end_each(&layout, dead);
 
-    Ok(Report::new(PruneOutcome { pruned }))
+    Ok(Report::with_warnings(PruneOutcome { pruned }, warnings))
 }
 
 /// Every session in the hall — discovery and feature sessions alike.
@@ -126,14 +119,6 @@ fn prune_refused(session: &SessionRef, lock: &Utf8PathBuf) -> Failure {
         "session.prune_after_conversion",
         "Wait for the in-flight conversion to finish (or fail), then run `ivar session prune` again.",
     ))
-}
-
-/// Remove the View Dir. Returns whether it existed and was removed.
-fn remove_view_dir(view_dir: &Utf8PathBuf) -> bool {
-    if !fs::exists(view_dir).unwrap_or(false) {
-        return false;
-    }
-    std::fs::remove_dir_all(view_dir.as_std_path()).is_ok()
 }
 
 #[cfg(test)]

@@ -509,6 +509,22 @@ pub trait Git {
     /// Returns [`Error`] if `base` or `branch` does not exist in `git_dir`.
     fn commits_ahead(&self, git_dir: &Utf8Path, base: &str, branch: &str) -> Result<u64, Error>;
 
+    /// Whether `commit` (a full sha) lies on the first-parent history of
+    /// `from`, strictly behind it: a branch that never carried a commit of
+    /// its own, as opposed to one merged in as a second parent.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error`] if `from` or `commit` does not exist in `git_dir`.
+    fn first_parent_reaches(
+        &self,
+        git_dir: &Utf8Path,
+        from: &str,
+        commit: &str,
+    ) -> Result<bool, Error> {
+        exec::first_parent_reaches(git_dir, from, commit)
+    }
+
     /// Whether `ancestor` is an ancestor of `descendant` — reachable from it by
     /// following parent links — in the repository at `git_dir`.
     ///

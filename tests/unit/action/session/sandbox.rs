@@ -9,7 +9,7 @@ use crate::action::feature::create::{self as feature_create, CreateInput};
 use crate::action::feature::promote::{self as feature_promote, PromoteInput};
 use crate::action::hall::{self, InitInput};
 use crate::action::session::guard::WritableSet;
-use crate::action::session::sandbox::Sandbox;
+use crate::action::session::sandbox::{Sandbox, sandbox_temp_root};
 use crate::domain::feature::Feature;
 use crate::domain::name::{BranchName, FeatureName, RepoName, SessionId};
 use crate::domain::provider::Provider;
@@ -17,7 +17,7 @@ use crate::domain::session::SessionState;
 use crate::store::layout::Layout;
 use crate::store::manifest::{Manifest, Providers, Repo};
 use crate::test_support::{hall_root, seed_protected_hall_paths, seeded_repo};
-use camino::Utf8PathBuf;
+use camino::{Utf8Path, Utf8PathBuf};
 
 fn hall_with_promoted_feature() -> (tempfile::TempDir, Utf8PathBuf) {
     let (guard, root) = hall_root();
@@ -85,8 +85,14 @@ fn sandbox_roots_contain_writable_set_bare_git_dev_null_temp_and_provider_dirs()
     crate::infra::fs::ensure_dir(&view_dir).unwrap();
 
     let set = WritableSet::from_session(&layout, &feature, &view_dir).unwrap();
-    let sandbox =
-        Sandbox::from_writable_set(&set, &layout, Some(&feature), Provider::ClaudeCode).unwrap();
+    let sandbox = Sandbox::from_writable_set(
+        &set,
+        &layout,
+        Some(&feature),
+        Provider::ClaudeCode,
+        &session_id,
+    )
+    .unwrap();
     let roots = sandbox.roots();
 
     // 1. Every WritableSet root is present.
@@ -112,12 +118,16 @@ fn sandbox_roots_contain_writable_set_bare_git_dev_null_temp_and_provider_dirs()
         );
     }
 
-    // 4. System temp dir is present.
-    let temp_dir = Utf8PathBuf::try_from(std::env::temp_dir()).unwrap();
-    let temp_canonical = temp_dir.canonicalize_utf8().unwrap_or(temp_dir);
+    // 4. The private temp root is present, the temp dir holding the hall is not.
+    let temp = system_temp_dir();
+    let private = temp.join(format!("ivar-{session_id}"));
     assert!(
-        roots.iter().any(|p| p == &temp_canonical),
-        "missing temp dir {temp_canonical}"
+        roots.contains(&private),
+        "missing private temp root {private}"
+    );
+    assert!(
+        !roots.contains(&temp),
+        "the temp dir holding the hall is a root"
     );
 }
 
@@ -130,7 +140,8 @@ fn sandbox_discovery_session_derives_roots_without_feature() {
     crate::infra::fs::ensure_dir(&view_dir).unwrap();
 
     let set = WritableSet::from_discovery(&layout, &view_dir).unwrap();
-    let sandbox = Sandbox::from_writable_set(&set, &layout, None, Provider::Omp).unwrap();
+    let sandbox =
+        Sandbox::from_writable_set(&set, &layout, None, Provider::Omp, &session_id).unwrap();
     let roots = sandbox.roots();
 
     for r in set.roots().unwrap() {
@@ -142,15 +153,16 @@ fn sandbox_discovery_session_derives_roots_without_feature() {
 fn discovery_sandbox_contains_canonical_hall_sources() {
     let (_guard, root) = hall_with_promoted_feature();
     let layout = Layout::at(root);
-    let view_dir =
-        layout.discovery_session(&SessionId::new("6f0c9d5f-0000-4000-8000-000000000004").unwrap());
+    let session_id = SessionId::new("6f0c9d5f-0000-4000-8000-000000000004").unwrap();
+    let view_dir = layout.discovery_session(&session_id);
     crate::infra::fs::ensure_dir(&view_dir).unwrap();
     crate::infra::fs::write_text(&layout.root().join("HALL.md"), "# Hall\n").unwrap();
     crate::infra::fs::ensure_dir(&layout.hall_skills()).unwrap();
     crate::infra::fs::ensure_dir(&layout.hall_skills_local()).unwrap();
 
     let set = WritableSet::from_discovery(&layout, &view_dir).unwrap();
-    let sandbox = Sandbox::from_writable_set(&set, &layout, None, Provider::ClaudeCode).unwrap();
+    let sandbox =
+        Sandbox::from_writable_set(&set, &layout, None, Provider::ClaudeCode, &session_id).unwrap();
 
     assert!(
         sandbox
@@ -183,18 +195,15 @@ fn discovery_sandbox_contains_canonical_hall_sources() {
 fn sandbox_grants_hall_root_entries_but_never_covers_the_repos_dir() {
     let (_guard, root) = hall_with_promoted_feature();
     let layout = Layout::at(root);
-    let view_dir =
-        layout.discovery_session(&SessionId::new("6f0c9d5f-0000-4000-8000-000000000015").unwrap());
+    let session_id = SessionId::new("6f0c9d5f-0000-4000-8000-000000000015").unwrap();
+    let view_dir = layout.discovery_session(&session_id);
     crate::infra::fs::ensure_dir(&view_dir).unwrap();
     crate::infra::fs::ensure_dir(&layout.root().join("docs")).unwrap();
 
     let set = WritableSet::from_discovery(&layout, &view_dir).unwrap();
-    let sandbox = Sandbox::from_writable_set(&set, &layout, None, Provider::ClaudeCode).unwrap();
+    let sandbox =
+        Sandbox::from_writable_set(&set, &layout, None, Provider::ClaudeCode, &session_id).unwrap();
     let repos = layout.repos_dir().canonicalize_utf8().unwrap();
-    let temp = Utf8PathBuf::try_from(std::env::temp_dir())
-        .unwrap()
-        .canonicalize_utf8()
-        .unwrap();
 
     assert!(
         sandbox
@@ -202,12 +211,8 @@ fn sandbox_grants_hall_root_entries_but_never_covers_the_repos_dir() {
             .contains(&layout.root().join("docs").canonicalize_utf8().unwrap())
     );
     assert!(
-        !sandbox
-            .roots()
-            .iter()
-            .filter(|r| **r != temp)
-            .any(|r| repos.starts_with(r)),
-        "no sandbox root other than the temp dir may cover .ivar/repos: {:?}",
+        !sandbox.roots().iter().any(|r| repos.starts_with(r)),
+        "no sandbox root may cover .ivar/repos: {:?}",
         sandbox.roots()
     );
 }
@@ -255,18 +260,15 @@ fn symlinked_hall_root_entries_stay_out_of_the_kernel_roots() {
 fn sandbox_roots_never_cover_git_hooks_git_config_or_provider_hook_config() {
     let (_guard, root) = hall_with_promoted_feature();
     let layout = Layout::at(root.clone());
-    let view_dir =
-        layout.discovery_session(&SessionId::new("6f0c9d5f-0000-4000-8000-000000000016").unwrap());
+    let session_id = SessionId::new("6f0c9d5f-0000-4000-8000-000000000016").unwrap();
+    let view_dir = layout.discovery_session(&session_id);
     crate::infra::fs::ensure_dir(&view_dir).unwrap();
     seed_protected_hall_paths(&root);
 
     let set = WritableSet::from_discovery(&layout, &view_dir).unwrap();
-    let sandbox = Sandbox::from_writable_set(&set, &layout, None, Provider::ClaudeCode).unwrap();
+    let sandbox =
+        Sandbox::from_writable_set(&set, &layout, None, Provider::ClaudeCode, &session_id).unwrap();
     let canonical_root = root.canonicalize_utf8().unwrap();
-    let temp = Utf8PathBuf::try_from(std::env::temp_dir())
-        .unwrap()
-        .canonicalize_utf8()
-        .unwrap();
 
     for protected in [
         ".git/hooks",
@@ -281,7 +283,6 @@ fn sandbox_roots_never_cover_git_hooks_git_config_or_provider_hook_config() {
             !sandbox
                 .roots()
                 .iter()
-                .filter(|r| **r != temp)
                 .any(|r| protected.starts_with(r) || r.starts_with(&protected)),
             "a sandbox root covers {protected}: {:?}",
             sandbox.roots()
@@ -382,7 +383,7 @@ fn launcher_refuses_a_program_that_is_not_the_session_provider() {
 
 #[test]
 #[cfg(target_os = "linux")]
-fn sandbox_apply_executes_on_linux_without_error() {
+fn sandbox_apply_is_enforced_when_the_kernel_supports_the_requested_abi() {
     let (_guard, root) = hall_with_promoted_feature();
     let layout = Layout::at(root.clone());
     let feature = Feature::read(&layout, &FeatureName::new("checkout").unwrap())
@@ -393,12 +394,34 @@ fn sandbox_apply_executes_on_linux_without_error() {
     crate::infra::fs::ensure_dir(&view_dir).unwrap();
 
     let set = WritableSet::from_session(&layout, &feature, &view_dir).unwrap();
-    let sandbox =
-        Sandbox::from_writable_set(&set, &layout, Some(&feature), Provider::ClaudeCode).unwrap();
+    let sandbox = Sandbox::from_writable_set(
+        &set,
+        &layout,
+        Some(&feature),
+        Provider::ClaudeCode,
+        &session_id,
+    )
+    .unwrap();
 
-    // Verify apply executes successfully or yields Unavailable on kernel boundary without crashing
-    let status = sandbox.apply();
-    assert!(status.is_ok(), "sandbox.apply() failed: {:?}", status.err());
+    // Landlock restricts only the calling thread: this test's own.
+    let status = sandbox.apply().unwrap();
+    if kernel_supports_landlock_scopes() {
+        assert_eq!(
+            status,
+            crate::action::session::sandbox::SandboxStatus::Enforced
+        );
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn kernel_supports_landlock_scopes() -> bool {
+    use landlock::{ABI, AccessFs, CompatLevel, Compatible, Ruleset, RulesetAttr, Scope};
+    Ruleset::default()
+        .set_compatibility(CompatLevel::HardRequirement)
+        .handle_access(AccessFs::from_write(ABI::V5))
+        .and_then(|r| r.scope(Scope::Signal | Scope::AbstractUnixSocket))
+        .and_then(|r| r.create())
+        .is_ok()
 }
 
 // Note on `sandbox.process_failed` testability at this seam:
@@ -417,3 +440,132 @@ fn sandbox_apply_executes_on_linux_without_error() {
 //    `provider_command`'s binary name without violating `ensure_provider_binary`.
 // Thus, `sandbox.process_failed` cannot be driven from `run_launcher` in unit tests without executing
 // a real provider binary or introducing test-only seams into production code.
+
+fn system_temp_dir() -> Utf8PathBuf {
+    Utf8PathBuf::try_from(std::env::temp_dir())
+        .unwrap()
+        .canonicalize_utf8()
+        .unwrap()
+}
+
+#[test]
+fn a_temp_dir_holding_the_hall_narrows_to_a_private_session_dir() {
+    let id = SessionId::new("6f0c9d5f-0000-4000-8000-000000000021").unwrap();
+    let root = sandbox_temp_root(
+        Utf8Path::new("/tmp"),
+        &[Utf8PathBuf::from("/tmp/work/hall")],
+        &id,
+    );
+    assert_eq!(
+        root,
+        Utf8PathBuf::from("/tmp/ivar-6f0c9d5f-0000-4000-8000-000000000021")
+    );
+}
+
+#[test]
+fn a_temp_dir_inside_the_hall_narrows_to_a_private_session_dir() {
+    let id = SessionId::new("6f0c9d5f-0000-4000-8000-000000000024").unwrap();
+    let root = sandbox_temp_root(
+        Utf8Path::new("/home/u/hall/.git"),
+        &[Utf8PathBuf::from("/home/u/hall")],
+        &id,
+    );
+    assert_eq!(
+        root,
+        Utf8PathBuf::from("/home/u/hall/.git/ivar-6f0c9d5f-0000-4000-8000-000000000024")
+    );
+}
+
+#[test]
+fn a_temp_dir_outside_the_hall_is_kept_whole() {
+    let id = SessionId::new("6f0c9d5f-0000-4000-8000-000000000022").unwrap();
+    let root = sandbox_temp_root(
+        Utf8Path::new("/var/tmp"),
+        &[
+            Utf8PathBuf::from("/home/u/hall"),
+            Utf8PathBuf::from("/home/u/hall/.env"),
+        ],
+        &id,
+    );
+    assert_eq!(root, Utf8PathBuf::from("/var/tmp"));
+}
+
+#[test]
+fn a_temp_dir_holding_a_symlinked_protected_path_narrows_to_a_private_session_dir() {
+    let id = SessionId::new("6f0c9d5f-0000-4000-8000-000000000027").unwrap();
+    let root = sandbox_temp_root(
+        Utf8Path::new("/tmp"),
+        &[
+            Utf8PathBuf::from("/home/u/hall"),
+            Utf8PathBuf::from("/tmp/dotfiles/hall.env"),
+        ],
+        &id,
+    );
+    assert_eq!(
+        root,
+        Utf8PathBuf::from("/tmp/ivar-6f0c9d5f-0000-4000-8000-000000000027")
+    );
+}
+
+// The test hall lives under the system temp dir (tempfile), so the narrowing always applies.
+#[test]
+fn the_temp_dir_holding_the_hall_is_never_a_sandbox_root() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root.clone());
+    let id = SessionId::new("6f0c9d5f-0000-4000-8000-000000000025").unwrap();
+    let view_dir = layout.discovery_session(&id);
+    crate::infra::fs::ensure_dir(&view_dir).unwrap();
+    let set = WritableSet::from_discovery(&layout, &view_dir).unwrap();
+
+    let sandbox =
+        Sandbox::from_writable_set(&set, &layout, None, Provider::ClaudeCode, &id).unwrap();
+    let private = system_temp_dir().join(format!("ivar-{id}"));
+
+    assert_eq!(sandbox.temp_root(), private);
+    assert!(sandbox.roots().contains(&private));
+    assert!(
+        !sandbox.roots().iter().any(|r| root.starts_with(r)),
+        "{:?}",
+        sandbox.roots()
+    );
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(&private).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o700);
+    }
+    std::fs::remove_dir_all(&private).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn a_planted_symlink_at_the_private_temp_root_fails_closed() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root.clone());
+    let id = SessionId::new("6f0c9d5f-0000-4000-8000-000000000026").unwrap();
+    let view_dir = layout.discovery_session(&id);
+    crate::infra::fs::ensure_dir(&view_dir).unwrap();
+    let set = WritableSet::from_discovery(&layout, &view_dir).unwrap();
+    let private = system_temp_dir().join(format!("ivar-{id}"));
+    let _ = std::fs::remove_file(&private).or_else(|_| std::fs::remove_dir_all(&private));
+    std::os::unix::fs::symlink(&root, &private).unwrap();
+
+    let error = Sandbox::from_writable_set(&set, &layout, None, Provider::ClaudeCode, &id)
+        .expect_err("a symlink must never redirect the temp grant");
+    std::fs::remove_file(&private).unwrap();
+
+    assert_eq!(error.code, "sandbox.untrusted_temp_root");
+}
+
+#[cfg(unix)]
+#[test]
+fn a_dangling_symlinked_protected_path_is_judged_where_it_resolves() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root.clone());
+    let (_outside_guard, outside) = crate::test_support::canonical_temp_dir();
+    std::os::unix::fs::symlink(outside.join("hall.env"), root.join(".env")).unwrap();
+
+    let paths = super::hall_paths(&layout);
+
+    assert!(paths.contains(&outside.join("hall.env")), "{paths:?}");
+}

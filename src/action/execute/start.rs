@@ -76,12 +76,16 @@ pub fn start(ctx: &Ctx, input: StartInput) -> Outcome<StartOutcome> {
     if approvals.record(Gate::Plan).is_none_or(|record| {
         !matches!(record.artifact_fingerprint.as_deref(), Some(fp) if fp == plan_fingerprint || fp == raw_fingerprint)
     }) {
-        return Err(Failure::blocked(
-            "execute.plan_not_approved",
+        return Err(super::plan_not_approved(
+            &feature,
             "the supplied plan is not the currently approved plan",
         ));
     }
     let now = rfc3339_now();
+    crate::infra::fs::ensure_dir(&layout.execution_dir(&feature))?;
+    let _run_lock = crate::infra::fs::lock_exclusive(
+        &layout.run_receipt(&feature).with_extension("json.lock"),
+    )?;
     if let Some(mut receipt) = RunReceipt::read(&layout, &feature)? {
         if input.restart && receipt.holds_lock() {
             receipt.interrupt(now.clone())?;
@@ -102,7 +106,8 @@ pub fn start(ctx: &Ctx, input: StartInput) -> Outcome<StartOutcome> {
             return Err(Failure::blocked(
                 "execute.run_active",
                 format!("run {} is {}", receipt.id, receipt.status),
-            ));
+            )
+            .fix(super::finish_or_interrupt_fix(&feature)));
         } else {
             run::archive_current(&layout, &feature)?;
         }

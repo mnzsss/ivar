@@ -6,13 +6,8 @@
 )]
 
 use super::*;
-use crate::domain::name::HallName;
 use crate::infra::fs;
 use crate::test_support::utf8_temp_dir;
-
-fn hall() -> HallName {
-    HallName::new("acme").unwrap()
-}
 
 #[test]
 fn materialise_preserves_user_permissions_and_sandbox() {
@@ -32,13 +27,12 @@ fn materialise_preserves_user_permissions_and_sandbox() {
     )
     .unwrap();
 
-    let change = materialise_settings(&path, &hall()).unwrap();
+    let change = materialise_settings(&path).unwrap();
     assert_eq!(change, Change::Updated);
 
     let doc: serde_json::Value =
         serde_json::from_str(&fs::read_text(&path).unwrap().unwrap()).unwrap();
-    // ivar's keys are present.
-    assert_eq!(doc["env"]["IVAR_HALL"], serde_json::json!("acme"));
+    assert!(doc.get("env").is_none(), "settings carry no env: {doc}");
     // Claude Code's schema: each entry is a matcher + a `hooks` array.
     for event in ["SessionStart", "PreToolUse"] {
         let entry = &doc["hooks"][event][0];
@@ -62,10 +56,10 @@ fn materialise_is_idempotent() {
     let (_guard, dir) = utf8_temp_dir();
     let path = dir.join("settings.json");
 
-    let first = materialise_settings(&path, &hall()).unwrap();
+    let first = materialise_settings(&path).unwrap();
     assert_eq!(first, Change::Created);
 
-    let second = materialise_settings(&path, &hall()).unwrap();
+    let second = materialise_settings(&path).unwrap();
     assert_eq!(second, Change::Unchanged);
 }
 
@@ -73,7 +67,7 @@ fn materialise_is_idempotent() {
 fn remove_settings_deletes_file_when_only_ivar_keys() {
     let (_guard, dir) = utf8_temp_dir();
     let path = dir.join("settings.json");
-    materialise_settings(&path, &hall()).unwrap();
+    materialise_settings(&path).unwrap();
 
     let change = remove_settings(&path).unwrap();
     assert_eq!(change, Change::Removed);
@@ -88,7 +82,7 @@ fn remove_settings_preserves_user_keys() {
         &path,
         r#"{
   "permissions": { "allow": ["Bash(npm run *)"] },
-  "env": { "IVAR_HALL": "acme" },
+  "env": { "IVAR_HALL": "/tmp/acme" },
   "hooks": { "SessionStart": [] }
 }"#,
     )
@@ -102,6 +96,55 @@ fn remove_settings_preserves_user_keys() {
     assert_eq!(doc["permissions"]["allow"][0], "Bash(npm run *)");
     assert!(doc.get("env").is_none());
     assert!(doc.get("hooks").is_none());
+}
+
+fn read_doc(path: &Utf8Path) -> serde_json::Value {
+    serde_json::from_str(&fs::read_text(path).unwrap().unwrap()).unwrap()
+}
+
+#[test]
+fn materialise_writes_no_ivar_hall() {
+    let (_guard, dir) = utf8_temp_dir();
+    let path = dir.join("settings.json");
+
+    materialise_settings(&path).unwrap();
+
+    let doc = read_doc(&path);
+    assert!(doc.pointer("/env/IVAR_HALL").is_none(), "{doc}");
+    assert!(doc.get("env").is_none(), "{doc}");
+}
+
+#[test]
+fn materialise_keeps_user_env_and_strips_legacy_ivar_hall() {
+    let (_guard, dir) = utf8_temp_dir();
+    let path = dir.join("settings.json");
+    fs::write_text(&path, r#"{ "env": { "FOO": "1", "IVAR_HALL": "acme" } }"#).unwrap();
+
+    assert_eq!(materialise_settings(&path).unwrap(), Change::Updated);
+
+    assert_eq!(read_doc(&path)["env"], serde_json::json!({ "FOO": "1" }));
+}
+
+#[test]
+fn materialise_drops_env_left_empty_by_legacy_ivar_hall() {
+    let (_guard, dir) = utf8_temp_dir();
+    let path = dir.join("settings.json");
+    fs::write_text(&path, r#"{ "env": { "IVAR_HALL": "acme" } }"#).unwrap();
+
+    materialise_settings(&path).unwrap();
+
+    assert!(read_doc(&path).get("env").is_none());
+}
+
+#[test]
+fn remove_settings_strips_legacy_ivar_hall_and_keeps_user_env() {
+    let (_guard, dir) = utf8_temp_dir();
+    let path = dir.join("settings.json");
+    fs::write_text(&path, r#"{ "env": { "FOO": "1", "IVAR_HALL": "acme" } }"#).unwrap();
+
+    assert_eq!(remove_settings(&path).unwrap(), Change::Removed);
+
+    assert_eq!(read_doc(&path)["env"], serde_json::json!({ "FOO": "1" }));
 }
 
 #[test]
@@ -118,7 +161,7 @@ fn a_non_object_file_is_refused() {
     let path = dir.join("settings.json");
     fs::write_text(&path, r#""just a string""#).unwrap();
 
-    let result = materialise_settings(&path, &hall());
+    let result = materialise_settings(&path);
     assert!(result.is_err());
 }
 
@@ -128,7 +171,7 @@ fn materialise_turns_off_harness_attribution() {
     let path = dir.join("settings.json");
     fs::write_text(&path, r#"{ "attribution": { "commit": "x", "pr": "y" } }"#).unwrap();
 
-    materialise_settings(&path, &hall()).unwrap();
+    materialise_settings(&path).unwrap();
 
     let doc: serde_json::Value =
         serde_json::from_str(&fs::read_text(&path).unwrap().unwrap()).unwrap();

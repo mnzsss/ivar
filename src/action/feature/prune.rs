@@ -3,13 +3,16 @@
 //! A feature is prunable when **every** promoted repo's feature branch is
 //! fully merged into that repo's effective base (no commits ahead) — the
 //! base `promote` recorded for that repo, or, absent a recorded base, the
-//! repo's default branch — or when no repo is promoted at all. A feature
+//! repo's default branch — and carried commits of its own that landed there.
+//! A feature with no promoted repo, or whose branch never left its base's
+//! first-parent history, has landed nothing and is kept. A feature
 //! merged into its base is prunable even while that base itself is still
 //! open: mergedness is measured against what the feature actually branched
 //! from, not against whichever default branch a repo happens to declare. It
 //! is never prunable while it has a **live session** — a feature with an
 //! open session view dir is off-limits no matter how merged its branches
-//! are, because the session is using it.
+//! are, because the session is using it, and teardown goes through
+//! `feature delete` without `--force`, so a dirty worktree is kept too.
 //!
 //! Pruning is best-effort per feature, like every batch verb here: a feature
 //! that cannot be judged (its clone is missing, its repo left the manifest)
@@ -29,7 +32,7 @@ use crate::action::session::lookup as session_lookup;
 use crate::domain::feature::{
     DeliveryFacts, DeliveryRepoFacts, DeliveryVerdict, Feature, classify_delivery,
 };
-use crate::domain::name::FeatureName;
+use crate::domain::name::{FeatureName, RepoName};
 use crate::error::{Failure, Outcome, Report, Status, WriteHuman};
 use crate::git::{self, TargetState};
 use crate::infra::fs;
@@ -101,6 +104,7 @@ pub fn prune(ctx: &Ctx) -> Outcome<PruneOutcome> {
                 ctx,
                 DeleteInput {
                     name: name.to_string(),
+                    force: false,
                 },
             ) {
                 Ok(report) => {
@@ -138,6 +142,9 @@ fn classify(
     manifest: &Manifest,
     feature: &Feature,
 ) -> Verdict {
+    if feature.promotions.is_empty() {
+        return Verdict::Keep("no repo is promoted, so nothing has landed".to_owned());
+    }
     let (live_sessions, session_inspection_error) =
         match session_lookup::list_feature(layout, &feature.name) {
             Ok(sessions) => (
@@ -199,7 +206,11 @@ fn classify(
     };
 
     match classify_delivery(&delivery_facts) {
-        DeliveryVerdict::Delivered => Verdict::Prune,
+        DeliveryVerdict::Delivered => match unstarted_repo(git, layout, manifest, feature) {
+            Ok(None) => Verdict::Prune,
+            Ok(Some(repo)) => Verdict::Keep(format!("`{repo}` has no commits of its own")),
+            Err(error) => Verdict::Keep(error),
+        },
         DeliveryVerdict::Blocked(blockers) => {
             let reason = blockers
                 .first()
@@ -208,6 +219,43 @@ fn classify(
             Verdict::Keep(reason)
         }
     }
+}
+
+/// The first promoted repo whose feature branch never carried a commit of its
+/// own: its tip is its base's tip, or lies on the base's first-parent history.
+/// Zero commits ahead alone cannot tell such a branch from a merged one. A repo
+/// with an integration receipt has landed by definition.
+// ponytail: a branch landed by fast-forward also sits on the first-parent
+// history, so it is kept; consult the persisted PR state once deliver records it.
+fn unstarted_repo(
+    git: &impl git::Git,
+    layout: &Layout,
+    manifest: &Manifest,
+    feature: &Feature,
+) -> Result<Option<RepoName>, String> {
+    for (repo, promotion) in &feature.promotions {
+        if promotion.integration_receipt.is_some() {
+            continue;
+        }
+        let Some(manifest_repo) = manifest.repos().iter().find(|r| r.name() == repo) else {
+            continue;
+        };
+        let base = base::resolve(feature, promotion, manifest_repo.default_branch());
+        let bare = layout.repo_bare(repo);
+        let inspect = |error: git::Error| format!("cannot check `{repo}`: {error}");
+        let tip = git
+            .revision_commit(&bare, feature.branch.as_str())
+            .map_err(inspect)?;
+        let base_tip = git.revision_commit(&bare, base.as_str()).map_err(inspect)?;
+        if tip == base_tip
+            || git
+                .first_parent_reaches(&bare, base.as_str(), &tip)
+                .map_err(inspect)?
+        {
+            return Ok(Some(repo.clone()));
+        }
+    }
+    Ok(None)
 }
 
 /// What to do with one feature.

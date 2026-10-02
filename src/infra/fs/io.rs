@@ -543,3 +543,20 @@ fn lexically_normalise(path: &std::path::Path) -> std::path::PathBuf {
     }
     normalised
 }
+
+/// Block until this process holds an exclusive advisory lock on `path`,
+/// creating the file if needed. The lock is released when the returned file
+/// is dropped.
+///
+/// # Errors
+///
+/// Returns [`Error::Write`] if the file cannot be created or locked.
+pub fn lock_exclusive(path: &Utf8Path) -> Result<std::fs::File, Error> {
+    let write_error = |source| Error::Write {
+        path: path.to_path_buf(),
+        source,
+    };
+    let file = std::fs::File::create(path.as_std_path()).map_err(write_error)?;
+    file.lock().map_err(write_error)?;
+    Ok(file)
+}

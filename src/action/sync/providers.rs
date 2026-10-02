@@ -190,7 +190,7 @@ pub(crate) fn sync_settings(
     let label = format!("{} settings.json", provider.config_dir());
 
     let result = if manifest.providers().available().contains(&provider) {
-        config::materialise_settings(&path, manifest.name())
+        config::materialise_settings(&path)
     } else {
         config::remove_settings(&path)
     };

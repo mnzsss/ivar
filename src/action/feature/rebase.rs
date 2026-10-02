@@ -129,7 +129,7 @@ pub fn rebase(ctx: &Ctx, input: RebaseInput) -> Outcome<RebaseOutcome> {
     let git = git::System;
 
     let name = FeatureName::new(input.name)?;
-    let mut feature = Feature::read(&layout, &name)?.ok_or_else(|| {
+    let feature = Feature::read(&layout, &name)?.ok_or_else(|| {
         Failure::blocked(
             "feature.not_found",
             format!("feature `{name}` does not exist"),
@@ -188,12 +188,14 @@ pub fn rebase(ctx: &Ctx, input: RebaseInput) -> Outcome<RebaseOutcome> {
     if let Some(onto) = &onto
         && !collapsed.is_empty()
     {
-        for repo_name in &collapsed {
-            if let Some(promotion) = feature.promotions.get_mut(repo_name) {
-                promotion.base = Some(onto.clone());
+        Feature::update(&layout, &name, |stored| {
+            for repo_name in &collapsed {
+                if let Some(promotion) = stored.promotions.get_mut(repo_name) {
+                    promotion.base = Some(onto.clone());
+                }
             }
-        }
-        feature.write(&layout)?;
+            Ok(())
+        })?;
     }
 
     Ok(Report::with_warnings(

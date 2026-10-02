@@ -38,8 +38,9 @@ ivar feature create <child> --parent <current>
 - **As the coordinator**: automatically create a child for an isolatable
   request that falls **outside the approved plan**. Run
   `ivar feature create <child> --parent <current>` yourself, then **announce**
-  the new child — do not ask permission. The executor never creates features;
-  it stops and reports, and you create.
+  the new child — do not ask permission. A request outside the plan is not a
+  plan change: only a change to the approved plan's own scope stops for the
+  human. The executor never creates features; it stops and reports, and you create.
 
 ## Critical
 

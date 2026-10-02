@@ -37,12 +37,16 @@ use crate::infra::fs;
 use super::super::discover_hall;
 use super::relations;
 use crate::action::Ctx;
+use crate::action::session::lookup as session_lookup;
 
 /// What `ivar feature delete` needs.
 #[derive(Debug, Clone)]
 pub struct DeleteInput {
     /// The feature's name.
     pub name: String,
+    /// Delete even with a live session or uncommitted or untracked changes
+    /// in a promoted worktree, discarding them.
+    pub force: bool,
 }
 
 pub use crate::domain::feature::WorktreeRemoval;
@@ -136,6 +140,25 @@ pub fn delete(ctx: &Ctx, input: DeleteInput) -> Outcome<DeleteOutcome> {
         )));
     }
 
+    if !input.force {
+        let at_risk = work_at_risk(&layout, &git, &feature);
+        if !at_risk.is_empty() {
+            return Err(Failure::blocked(
+                "feature.delete_unsaved_work",
+                format!("cannot delete feature `{name}`: it has work that would be lost"),
+            )
+            .expected("no live session and a clean worktree in every promoted repo")
+            .actual(at_risk.join("; "))
+            .fix(
+                FixAction::unsafe_(
+                    "feature.delete_force",
+                    "Commit or stop the work first, or discard it with `--force`.",
+                )
+                .command(format!("ivar feature delete {name} --force")),
+            ));
+        }
+    }
+
     // Preflight: every path under the feature directory must be removable.
     // Nothing is mutated while any blocker stands.
     let blockers = collect_blockers(&layout.feature_dir(&name));
@@ -208,6 +231,40 @@ pub fn delete(ctx: &Ctx, input: DeleteInput) -> Outcome<DeleteOutcome> {
         },
         warnings,
     ))
+}
+
+/// What deleting `feature` would destroy: its live sessions and every promoted
+/// worktree with uncommitted or untracked changes, one sentence each. A
+/// worktree or session list that cannot be read counts too, since it cannot
+/// be proven safe.
+fn work_at_risk(
+    layout: &crate::store::layout::Layout,
+    git: &impl Git,
+    feature: &crate::domain::feature::Feature,
+) -> Vec<String> {
+    let mut at_risk = match session_lookup::list_feature(layout, &feature.name) {
+        Ok(sessions) => sessions
+            .iter()
+            .map(|session| format!("session `{}` is live", session.id))
+            .collect(),
+        Err(failure) => vec![format!("cannot check its sessions: {}", failure.what)],
+    };
+    for repo in feature.promotions.keys() {
+        let bare = layout.repo_bare(repo);
+        let dirty =
+            git::lookup_worktree(git, &bare, feature.branch.as_str()).and_then(|worktree| {
+                match worktree {
+                    Some(worktree) if !worktree.prunable => git.worktree_dirty(&worktree.path),
+                    _ => Ok(false),
+                }
+            });
+        match dirty {
+            Ok(false) => {}
+            Ok(true) => at_risk.push(format!("`{repo}` has uncommitted or untracked changes")),
+            Err(error) => at_risk.push(format!("cannot check `{repo}`: {error}")),
+        }
+    }
+    at_risk
 }
 
 fn teardown_worktrees(

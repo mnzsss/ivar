@@ -6,11 +6,10 @@
 use crate::domain::feature::{
     Feature, IntegrationReceipt, IntegrationStrategy, IntegrationVia, VerificationEvidence,
 };
-use crate::domain::name::RepoName;
+use crate::domain::name::{FeatureName, RepoName};
 use crate::domain::session::rfc3339_now;
 use crate::error::{Failure, FixAction};
 use crate::git::Git;
-use crate::infra::fs;
 use crate::store::layout::Layout;
 use crate::store::manifest::Manifest;
 
@@ -21,7 +20,6 @@ use super::{RepoIntegration, RepoIntegrationStatus};
 /// A staged local candidate, ready to be applied to the real parent once its
 /// checks are confirmed passing.
 struct StagedCandidate {
-    worktree: camino::Utf8PathBuf,
     temp_branch: Option<String>,
     parent_sha: String,
     checks_passed: bool,
@@ -41,6 +39,35 @@ pub(crate) fn integrate_local(
     source_sha: &str,
     child_results: Vec<crate::domain::feature::VerificationResult>,
 ) -> Result<RepoIntegration, Failure> {
+    clear_staging(layout, git, &child.name, repo);
+    let integrated = integrate_staged(
+        layout,
+        manifest,
+        git,
+        child,
+        parent,
+        repo,
+        strategy,
+        source_sha,
+        child_results,
+    );
+    clear_staging(layout, git, &child.name, repo);
+    integrated
+}
+
+/// [`integrate_local`]'s body; staging is cleared around it on every path.
+#[allow(clippy::too_many_arguments)]
+fn integrate_staged(
+    layout: &Layout,
+    manifest: &Manifest,
+    git: &impl Git,
+    child: &Feature,
+    parent: &Feature,
+    repo: &RepoName,
+    strategy: IntegrationStrategy,
+    source_sha: &str,
+    child_results: Vec<crate::domain::feature::VerificationResult>,
+) -> Result<RepoIntegration, Failure> {
     let bare = layout.repo_bare(repo);
     let parent_worktree = layout.repo_worktree(repo, &parent.branch);
     let checks = verification::checks_for(manifest, repo);
@@ -49,13 +76,6 @@ pub(crate) fn integrate_local(
         layout, git, child, parent, repo, strategy, source_sha, &checks,
     )?;
     if !staged.checks_passed {
-        cleanup_staging(
-            layout,
-            git,
-            repo,
-            std::slice::from_ref(&staged.worktree),
-            staged.temp_branch.as_deref(),
-        )?;
         return Ok(RepoIntegration {
             repo: repo.clone(),
             source_sha: source_sha.to_owned(),
@@ -69,13 +89,6 @@ pub(crate) fn integrate_local(
 
     // The candidate passed and the parent must still be exactly where it was.
     if git.revision_commit(&bare, parent.branch.as_str())? != staged.parent_sha {
-        cleanup_staging(
-            layout,
-            git,
-            repo,
-            std::slice::from_ref(&staged.worktree),
-            staged.temp_branch.as_deref(),
-        )?;
         return Err(Failure::blocked(
             "integration.parent_moved",
             format!(
@@ -94,13 +107,7 @@ pub(crate) fn integrate_local(
     let result_sha =
         apply_candidate_to_parent(layout, git, child, parent, repo, strategy, &staged)?;
 
-    let parent_run = verification::run(&checks, &parent_worktree)?;
-    let passed = parent_run.results.iter().all(|result| result.success);
-
-    // 11. Persist the receipt immediately — success and post-parent failure
-    // alike; a merged-then-failed-parent-check is recorded, never reverted.
-    let fingerprint = verification::fingerprint(&checks)?;
-    let receipt = IntegrationReceipt {
+    let mut receipt = IntegrationReceipt {
         source_sha: source_sha.to_owned(),
         target_branch: parent.branch.clone(),
         result_sha: result_sha.clone(),
@@ -108,24 +115,21 @@ pub(crate) fn integrate_local(
         strategy,
         pr_url: None,
         verification: VerificationEvidence {
-            command_fingerprint: fingerprint,
+            command_fingerprint: verification::fingerprint(&checks)?,
             child: child_results,
-            parent: parent_run.results,
+            parent: vec![parent_checks_pending()],
             pr_checks: Vec::new(),
             verified_at: rfc3339_now(),
         },
     };
-    persist_receipt(layout, child, repo, receipt)?;
+    persist_receipt(layout, child, repo, receipt.clone())?;
 
-    // Remove only the temporary staging worktrees/refs; the child's branch
-    // and worktree are retained.
-    cleanup_staging(
-        layout,
-        git,
-        repo,
-        std::slice::from_ref(&staged.worktree),
-        staged.temp_branch.as_deref(),
-    )?;
+    // Success and post-parent failure alike are recorded, never reverted.
+    let parent_run = verification::run(&checks, &parent_worktree)?;
+    let passed = parent_run.results.iter().all(|result| result.success);
+    receipt.verification.parent = parent_run.results;
+    receipt.verification.verified_at = rfc3339_now();
+    persist_receipt(layout, child, repo, receipt)?;
 
     Ok(RepoIntegration {
         repo: repo.clone(),
@@ -167,14 +171,13 @@ fn stage_candidate(
     // The rebase strategy stages in a temporary source worktree and
     // fast-forwards the parent; merge/squash stage in a detached candidate.
     if strategy == IntegrationStrategy::Rebase {
-        let temp_branch = format!("ivar-integrate/{}/{}", child.name, repo);
+        let temp_branch = rebase_branch(&child.name, repo);
         git.create_branch(&bare, &temp_branch, source_sha)?;
         let source_wt = layout.integration_source(&child.name, repo);
         git.add_worktree(&bare, &source_wt, &temp_branch)?;
         git.rebase_branch(&source_wt, parent.branch.as_str())?;
         let checks_passed = parent_checks_pass(&source_wt, checks)?;
         Ok(StagedCandidate {
-            worktree: source_wt,
             temp_branch: Some(temp_branch),
             parent_sha,
             checks_passed,
@@ -192,7 +195,6 @@ fn stage_candidate(
         }
         let checks_passed = parent_checks_pass(&candidate, checks)?;
         Ok(StagedCandidate {
-            worktree: candidate,
             temp_branch: None,
             parent_sha,
             checks_passed,
@@ -413,12 +415,10 @@ fn merge_pr_and_advance_parent(
     git.fetch_branch(&parent_worktree, parent.branch.as_str())?;
     git.fast_forward(&parent_worktree)?;
 
-    // The parent's checks run after the observed merge.
+    // Written once the local parent carries the merge, so a resumed run finds
+    // `result_sha` in the parent's history.
     let checks = verification::checks_for(manifest, repo);
-    let parent_run = verification::run(&checks, &parent_worktree)?;
-    let passed = parent_run.results.iter().all(|result| result.success);
-
-    let receipt = IntegrationReceipt {
+    let mut receipt = IntegrationReceipt {
         source_sha: source_sha.to_owned(),
         target_branch: parent.branch.clone(),
         result_sha: result_sha.clone(),
@@ -428,11 +428,18 @@ fn merge_pr_and_advance_parent(
         verification: VerificationEvidence {
             command_fingerprint: verification::fingerprint(&checks)?,
             child: child_results,
-            parent: parent_run.results,
+            parent: vec![parent_checks_pending()],
             pr_checks,
             verified_at: rfc3339_now(),
         },
     };
+    persist_receipt(layout, child, repo, receipt.clone())?;
+
+    // The parent's checks run after the observed merge.
+    let parent_run = verification::run(&checks, &parent_worktree)?;
+    let passed = parent_run.results.iter().all(|result| result.success);
+    receipt.verification.parent = parent_run.results;
+    receipt.verification.verified_at = rfc3339_now();
     persist_receipt(layout, child, repo, receipt)?;
 
     Ok(RepoIntegration {
@@ -462,6 +469,17 @@ fn parent_checks_pass(worktree: &camino::Utf8Path, checks: &[String]) -> Result<
         .all(|result| result.success))
 }
 
+/// The placeholder parent evidence of a provisional receipt: written the
+/// moment the parent branch moves, it reads as failed evidence, so a rerun
+/// resumes at parent verification instead of merging again.
+pub(super) fn parent_checks_pending() -> crate::domain::feature::VerificationResult {
+    crate::domain::feature::VerificationResult::failed(
+        "parent checks",
+        None,
+        "the parent branch moved but its checks have not run yet; run `ivar feature integrate` again",
+    )
+}
+
 /// The squash commit message: traceable back to the child.
 fn squash_message(child: &Feature, repo: &RepoName) -> String {
     format!("Integrate `{}` ({}) into its parent", child.name, repo)
@@ -476,31 +494,29 @@ pub(crate) fn persist_receipt(
     repo: &RepoName,
     receipt: IntegrationReceipt,
 ) -> Result<(), Failure> {
-    let mut updated = child.clone();
-    if let Some(promotion) = updated.promotions.get_mut(repo) {
-        promotion.integration_receipt = Some(receipt);
-    }
-    updated.write(layout)
+    Feature::update(layout, &child.name, |updated| {
+        if let Some(promotion) = updated.promotions.get_mut(repo) {
+            promotion.integration_receipt = Some(receipt);
+        }
+        Ok(())
+    })
 }
 
-/// Remove the temporary staging worktrees that were actually created (and the
-/// rebase temp branch, when there was one) — never the child's own branch or
-/// worktree.
-fn cleanup_staging(
-    layout: &Layout,
-    git: &impl Git,
-    repo: &RepoName,
-    worktrees: &[camino::Utf8PathBuf],
-    temp_branch: Option<&str>,
-) -> Result<(), Failure> {
+/// The temporary branch the rebase strategy replays the child onto.
+fn rebase_branch(child: &FeatureName, repo: &RepoName) -> String {
+    format!("ivar-integrate/{child}/{repo}")
+}
+
+/// Remove every staging worktree and the rebase branch `child` can leave in
+/// `repo` — never the child's own branch or worktree. Best effort: whatever
+/// does not exist is skipped.
+fn clear_staging(layout: &Layout, git: &impl Git, child: &FeatureName, repo: &RepoName) {
     let bare = layout.repo_bare(repo);
-    for wt in worktrees {
-        if fs::is_dir(wt)? {
-            let _ = git.remove_worktree(&bare, wt);
-        }
+    for worktree in [
+        layout.integration_candidate(child, repo),
+        layout.integration_source(child, repo),
+    ] {
+        let _ = git.remove_worktree(&bare, &worktree);
     }
-    if let Some(branch) = temp_branch {
-        let _ = git.delete_branch(&bare, branch);
-    }
-    Ok(())
+    let _ = git.delete_branch(&bare, &rebase_branch(child, repo));
 }

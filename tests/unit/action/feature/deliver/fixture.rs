@@ -224,6 +224,7 @@ pub(super) fn delivery_repo(name: &str, dependencies: Vec<&str>) -> DeliveryRepo
             .map(|dep| RepoName::new(dep).unwrap())
             .collect(),
         blockers: Vec::new(),
+        pending: Vec::new(),
         pr_url: None,
         default_branch: None,
         ff_possible: None,

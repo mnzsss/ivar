@@ -34,7 +34,8 @@ mod worktree;
 
 pub(crate) use self::branch::{
     abort_rebase, commit_messages, commits_ahead, create_branch, delete_branch, fast_forward,
-    fast_forward_to, merge_no_ff, rebase_branch, rename_branch, reset_hard, squash_merge,
+    fast_forward_to, first_parent_reaches, merge_no_ff, rebase_branch, rename_branch, reset_hard,
+    squash_merge,
 };
 pub(crate) use self::clone::{clone_bare, clone_bare_prefixed, ensure_remote_tracking};
 pub(crate) use self::remote::{

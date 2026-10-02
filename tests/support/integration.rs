@@ -37,7 +37,9 @@ use camino::Utf8Path;
 /// The compiled `ivar` binary, ready to be given arguments.
 pub(crate) fn ivar() -> Command {
     let mut command = Command::cargo_bin("ivar").expect("binary builds");
-    command.env("IVAR_NO_UPDATE_CHECK", "1");
+    command
+        .env("IVAR_NO_UPDATE_CHECK", "1")
+        .env_remove("IVAR_FEATURE");
     command
 }
 

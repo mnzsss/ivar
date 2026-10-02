@@ -14,6 +14,7 @@ use crate::action::Ctx;
 use crate::action::session::env::SessionEnv;
 use crate::domain::discovery::DiscoveryDoc;
 use crate::domain::name::FeatureName;
+use crate::domain::session::SessionRef;
 use crate::error::{Failure, FixAction};
 use crate::infra::fs;
 use crate::store::discovery;
@@ -37,6 +38,59 @@ pub(crate) fn resolve_doc_path(ctx: &Ctx, layout: &Layout, name: &FeatureName) -
         return env.view_dir.join("discovery.md");
     }
     layout.discovery_doc(name)
+}
+
+/// Move an unconverted discovery session's doc out of its View Dir, so
+/// removing the View Dir never takes the doc with it.
+///
+/// The doc lands where `discovery create` writes outside a session,
+/// `.ivar/features/<name>/discovery.md`, named by its front matter, or by the
+/// session id when that name is unusable or already holds a doc. Returns the
+/// new path, or `None` when there was nothing to move.
+///
+/// # Errors
+///
+/// When the doc cannot be read or moved, or both target names are taken; the
+/// caller must then keep the View Dir.
+pub(crate) fn rescue_session_doc(
+    layout: &Layout,
+    session: &SessionRef,
+) -> Result<Option<Utf8PathBuf>, Failure> {
+    if session.feature.is_some() {
+        return Ok(None);
+    }
+    let source = session.view_dir.join("discovery.md");
+    let Some(text) = fs::read_text(&source)? else {
+        return Ok(None);
+    };
+    let by_name = FeatureName::new(discovery::parse(&text).frontmatter.name).ok();
+    let by_session = FeatureName::new(session.id.as_str()).ok();
+    let mut free_targets = Vec::new();
+    for name in [by_name, by_session].into_iter().flatten() {
+        let path = layout.discovery_doc(&name);
+        if !fs::exists(&path)? {
+            free_targets.push(path);
+        }
+    }
+    let Some(target) = free_targets.into_iter().next() else {
+        return Err(Failure::blocked(
+            "discovery.rescue_target_taken",
+            format!("cannot keep the discovery doc of session `{}`", session.id),
+        )
+        .expected("a free `.ivar/features/<name>/discovery.md` for the doc")
+        .actual(format!(
+            "both candidate paths already hold a doc; `{source}` is kept"
+        ))
+        .fix(FixAction::safe(
+            "discovery.move_by_hand",
+            format!("Move `{source}` somewhere safe, then stop the session again."),
+        )));
+    };
+    if let Some(parent) = target.parent() {
+        fs::ensure_dir(parent)?;
+    }
+    fs::rename(&source, &target)?;
+    Ok(Some(target))
 }
 
 /// Read a discovery doc at an exact path.

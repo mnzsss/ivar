@@ -8,13 +8,14 @@ use serde::Serialize;
 
 use super::super::{discover_hall, read_manifest};
 use super::base;
+use super::pull_requests::{MERGED, pull_request_state};
 use super::relations::TreeEntry;
 use crate::action::Ctx;
 #[cfg(test)]
 use crate::domain::feature::Feature;
 use crate::domain::feature::{ApprovalState, Gate, GateState, WorktreeState, effective_base};
 use crate::domain::name::{BranchName, FeatureName, RepoName};
-use crate::error::{Outcome, Report, WriteHuman};
+use crate::error::{Outcome, Report, Warning, WriteHuman};
 use crate::git::{self, Git, TargetState};
 
 /// One promoted repo's status within a feature.
@@ -43,6 +44,17 @@ pub struct RepoDetail {
     /// or from the integration receipt if already integrated.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pr_url: Option<String>,
+    /// The forge state of a root feature's delivered PR — `OPEN`, `MERGED`,
+    /// `CLOSED` — asked of `gh` when status runs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pr_state: Option<String>,
+    /// Why the promotion's setup failed, when it did.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    /// The command that retries a failed promotion or recreates a missing
+    /// worktree. `None` for a ready promotion whose worktree is present.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retry: Option<String>,
 }
 /// What `ivar feature status` found.
 #[derive(Debug, Clone, Serialize)]
@@ -91,6 +103,25 @@ impl WriteHuman for StatusOutcome {
                 state_word(detail.state),
                 base_word(detail),
             )?;
+            if let Some(url) = &detail.pr_url {
+                match &detail.pr_state {
+                    Some(state) => writeln!(w, "    pr: {url} ({})", state.to_lowercase())?,
+                    None => writeln!(w, "    pr: {url}")?,
+                }
+            }
+            if let Some(reason) = &detail.reason {
+                writeln!(w, "    reason: {reason}")?;
+            }
+            if let Some(retry) = &detail.retry {
+                writeln!(w, "    retry: {retry}")?;
+            }
+        }
+        if self.every_pr_merged() {
+            writeln!(
+                w,
+                "  every pull request merged; close it: ivar feature close {} --outcome delivered",
+                self.name
+            )?;
         }
         if let Some(tree) = &self.tree {
             writeln!(w, "Subtree:")?;
@@ -111,6 +142,16 @@ impl WriteHuman for StatusOutcome {
             }
         }
         Ok(())
+    }
+}
+
+impl StatusOutcome {
+    fn every_pr_merged(&self) -> bool {
+        !self.repos.is_empty()
+            && self
+                .repos
+                .iter()
+                .all(|detail| detail.pr_state.as_deref() == Some(MERGED))
     }
 }
 
@@ -149,6 +190,7 @@ pub fn status(ctx: &Ctx, input: StatusInput) -> Outcome<StatusOutcome> {
     let feature = super::relations::read_feature(&layout, &name)?;
 
     let mut repos = Vec::new();
+    let mut warnings = Vec::new();
     for (repo, promotion) in &feature.promotions {
         let worktree = layout.repo_worktree(repo, &feature.branch);
         let present = matches!(
@@ -180,6 +222,25 @@ pub fn status(ctx: &Ctx, input: StatusInput) -> Outcome<StatusOutcome> {
                 .and_then(|r| r.pr_url.clone())
         });
 
+        // Only a root delivers its own PR; a child's PR belongs to integrate.
+        let pr_state = match (&feature.parent, &promotion.pr_url) {
+            (None, Some(url)) => match pull_request_state(&layout.repo_bare(repo), url) {
+                Ok(state) => Some(state),
+                Err(failure) => {
+                    warnings.push(Warning::new(
+                        "feature.pr_state_unknown",
+                        repo.as_str(),
+                        failure.what,
+                    ));
+                    None
+                }
+            },
+            _ => None,
+        };
+
+        let retry = (promotion.worktree == WorktreeState::Failed || !present)
+            .then(|| format!("ivar feature promote {name} {repo}"));
+
         repos.push(RepoDetail {
             repo: repo.clone(),
             worktree,
@@ -188,6 +249,9 @@ pub fn status(ctx: &Ctx, input: StatusInput) -> Outcome<StatusOutcome> {
             base,
             base_diverged,
             pr_url,
+            pr_state,
+            reason: promotion.reason.clone(),
+            retry,
         });
     }
     repos.sort_by(|a, b| a.repo.cmp(&b.repo));
@@ -205,16 +269,19 @@ pub fn status(ctx: &Ctx, input: StatusInput) -> Outcome<StatusOutcome> {
         .map(|state| state == GateState::Approved)
         .unwrap_or(false);
 
-    Ok(Report::new(StatusOutcome {
-        root: layout.root().to_path_buf(),
-        name,
-        branch: feature.branch.to_string(),
-        is_subfeature: feature.parent.is_some(),
-        parent: feature.parent,
-        plan_approved,
-        repos,
-        tree,
-    }))
+    Ok(Report::with_warnings(
+        StatusOutcome {
+            root: layout.root().to_path_buf(),
+            name,
+            branch: feature.branch.to_string(),
+            is_subfeature: feature.parent.is_some(),
+            parent: feature.parent,
+            plan_approved,
+            repos,
+            tree,
+        },
+        warnings,
+    ))
 }
 
 /// What `ivar feature status` needs.

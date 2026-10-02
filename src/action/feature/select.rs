@@ -28,10 +28,17 @@ fn interactive_feature_options(ctx: &Ctx) -> Result<Vec<SelectOption>, Failure> 
     Ok(features.iter().map(summary_to_select_option).collect())
 }
 
+/// The feature of the session this process runs in, from `$IVAR_FEATURE`.
+#[must_use]
+pub fn feature_from_env() -> Option<String> {
+    std::env::var("IVAR_FEATURE").ok().filter(|v| !v.is_empty())
+}
+
 /// Resolve a single feature name.
 ///
-/// If `explicit` is provided (`Some`), returns it immediately.
-/// If `explicit` is `None`:
+/// If `explicit` is provided (`Some`), returns it immediately; otherwise the
+/// session's feature ([`Ctx::with_session_feature`]) when there is one.
+/// If neither is set:
 /// - When non-interactive, returns `feature.missing_argument` failure.
 /// - Otherwise lists features from the hall. If empty, returns `feature.no_features_available` failure.
 /// - Prompts the user via `ctx.confirm.select_one(prompt, &options)`.
@@ -41,7 +48,7 @@ pub fn resolve_single_feature(
     explicit: Option<String>,
     prompt: &str,
 ) -> Result<String, Failure> {
-    if let Some(name) = explicit {
+    if let Some(name) = explicit.or_else(|| ctx.session_feature().map(str::to_owned)) {
         return Ok(name);
     }
 
@@ -58,7 +65,8 @@ pub fn resolve_single_feature(
     Ok(selected.id.clone())
 }
 
-/// Resolve one or more feature names.
+/// Resolve one or more feature names. Never falls back to the session's
+/// feature: these are destructive verbs, and an implicit target is the bug.
 ///
 /// If `explicit` is provided (`Some`), returns `vec![explicit]` immediately.
 /// If `explicit` is `None`:

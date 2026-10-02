@@ -967,3 +967,27 @@ fn remove_path_leaves_a_hardlinked_file_outside_the_tree_read_only() {
     let mode = std::fs::metadata(&store_file).unwrap().permissions().mode();
     assert_eq!(mode & 0o222, 0);
 }
+
+#[test]
+fn lock_exclusive_holds_a_second_locker_until_the_first_is_dropped() {
+    let (_guard, dir) = utf8_temp_dir();
+    let path = dir.join("run.json.lock");
+    let first = lock_exclusive(&path).unwrap();
+    let released = Arc::new(AtomicBool::new(false));
+
+    let waiter = {
+        let (path, released) = (path.clone(), Arc::clone(&released));
+        std::thread::spawn(move || {
+            let _second = lock_exclusive(&path).unwrap();
+            released.load(Ordering::SeqCst)
+        })
+    };
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    released.store(true, Ordering::SeqCst);
+    drop(first);
+
+    assert!(
+        waiter.join().unwrap(),
+        "the second lock was granted while the first was held"
+    );
+}

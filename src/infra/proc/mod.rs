@@ -348,6 +348,63 @@ pub fn inherit(command: &Command) -> Result<Option<i32>, Error> {
     Ok(status.code())
 }
 
+/// Run `command` to completion with stdout and stderr written to `log`
+/// (truncated first) and stdin at `/dev/null`. Returns the exit code
+/// (`None` for a signal death).
+///
+/// For a long child that must outlive whatever reads this process's output:
+/// with inherited streams, a caller piping `ivar` into `head` closes the pipe
+/// and the child dies of `SIGPIPE` halfway through its work.
+///
+/// # Errors
+///
+/// Returns [`Error::Spawn`] if `log` cannot be created, or `command`
+/// cannot be spawned or waited on.
+pub fn to_log(command: &Command, log: &camino::Utf8Path) -> Result<Option<i32>, Error> {
+    let stdout =
+        std::fs::File::create(log.as_std_path()).map_err(|source| spawn_error(command, source))?;
+    let stderr = stdout
+        .try_clone()
+        .map_err(|source| spawn_error(command, source))?;
+    let status = command
+        .to_std()
+        .stdin(Stdio::null())
+        .stdout(stdout)
+        .stderr(stderr)
+        .status()
+        .map_err(|source| spawn_error(command, source))?;
+
+    Ok(status.code())
+}
+
+/// The last non-blank line of the log [`to_log`] wrote, if any — the line a
+/// failing script most likely ended on. Only the log's tail is read, control
+/// characters (terminal colour codes) are dropped, and the line is cut to
+/// [`LAST_LINE_MAX`] characters, because it is stored and printed as-is.
+#[must_use]
+pub fn last_log_line(log: &camino::Utf8Path) -> Option<String> {
+    use std::io::{Read, Seek, SeekFrom};
+
+    let mut file = std::fs::File::open(log.as_std_path()).ok()?;
+    let len = file.metadata().ok()?.len();
+    file.seek(SeekFrom::Start(len.saturating_sub(LOG_TAIL_BYTES)))
+        .ok()?;
+    let mut tail = Vec::new();
+    file.read_to_end(&mut tail).ok()?;
+    String::from_utf8_lossy(&tail)
+        .lines()
+        .rev()
+        .map(|line| line.chars().filter(|c| !c.is_control()).collect::<String>())
+        .find(|line| !line.trim().is_empty())
+        .map(|line| line.trim().chars().take(LAST_LINE_MAX).collect())
+}
+
+/// How much of a log's end [`last_log_line`] reads.
+const LOG_TAIL_BYTES: u64 = 4096;
+
+/// The longest line [`last_log_line`] returns, in characters.
+const LAST_LINE_MAX: usize = 200;
+
 /// Spawn `command` and return the moment it is running, without waiting for
 /// it and without giving it any stream.
 ///

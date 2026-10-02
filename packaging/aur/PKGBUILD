@@ -48,6 +48,8 @@ build() {
     # Arch Rust packaging guidelines ask for.
     export RUSTUP_TOOLCHAIN=stable
     export CARGO_TARGET_DIR=target
+    # Without it the binary would report a `-dev` version (see build.rs).
+    export IVAR_RELEASE=1
     cargo build --frozen --release
 }
 
@@ -55,6 +57,7 @@ check() {
     cd "$pkgname-$pkgver"
     export RUSTUP_TOOLCHAIN=stable
     export CARGO_TARGET_DIR=target
+    export IVAR_RELEASE=1
     # Test fixtures force their own identity, but ivar's own commit paths
     # deliberately do not — a commit landing in a user's repository carries
     # that user's authorship, not the tool's. So they inherit the machine's

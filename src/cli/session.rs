@@ -3,7 +3,7 @@ use clap::{Args, Subcommand};
 
 use crate::action::session::{
     connect as session_connect, conversion as session_conversion, env_cmd as session_env_cmd,
-    relay as session_relay, start as session_start, stop as session_stop,
+    start as session_start, stop as session_stop,
 };
 
 /// The `ivar session` surface.
@@ -18,7 +18,8 @@ pub enum SessionCommand {
     /// Promote a discovery session to a feature session, keeping its name.
     Convert(SessionConvertArgs),
     /// Stop a session — tear down its view dir and end any running harness.
-    /// Omitting the session stops *every* session in the hall.
+    /// Omitting the session stops `$IVAR_SESSION_ID`; `--all` stops every
+    /// session in the hall.
     Stop(SessionStopArgs),
     /// Remove dead sessions: view dirs that exist but hold no readable
     /// `state.json`. A session with a readable record is never touched.
@@ -94,12 +95,14 @@ pub struct SessionConvertArgs {
 /// Arguments for `ivar session stop`.
 #[derive(Debug, Args)]
 pub struct SessionStopArgs {
-    /// The session to stop — its id, or a unique prefix of one.
-    ///
-    /// Omitting it stops **every** session in the hall: every discovery
-    /// session and every feature's sessions, not just this feature's and not
-    /// just the most recent. Pass `$IVAR_SESSION_ID` to stop only your own.
+    /// The session to stop — its id, or a unique prefix of one. Defaults to
+    /// `$IVAR_SESSION_ID`; with neither, the command stops nothing and fails.
     pub session: Option<String>,
+
+    /// Stop every session in the hall: every discovery session and every
+    /// feature's sessions.
+    #[arg(long, conflicts_with = "session")]
+    pub all: bool,
 }
 
 /// Arguments for `ivar session relay`.
@@ -109,8 +112,8 @@ pub struct SessionStopArgs {
 /// relay action — so its surface mirrors start's relay flags.
 #[derive(Debug, Args)]
 pub struct SessionRelayArgs {
-    /// The feature to relay a session for.
-    pub feature: String,
+    /// The feature to relay a session for. Defaults to the session's feature.
+    pub feature: Option<String>,
     /// The provider to relay to. Required — relay must switch providers.
     #[arg(long)]
     pub provider: String,
@@ -175,14 +178,7 @@ impl From<SessionConvertArgs> for session_conversion::ConvertInput {
 
 impl From<SessionStopArgs> for session_stop::StopInput {
     fn from(args: SessionStopArgs) -> Self {
-        let SessionStopArgs { session } = args;
-        Self { session }
-    }
-}
-
-impl From<SessionRelayArgs> for session_relay::RelayInput {
-    fn from(args: SessionRelayArgs) -> Self {
-        let SessionRelayArgs { feature, provider } = args;
-        Self { feature, provider }
+        let SessionStopArgs { session, all } = args;
+        Self { session, all }
     }
 }

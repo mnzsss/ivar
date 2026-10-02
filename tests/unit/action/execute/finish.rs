@@ -222,6 +222,13 @@ fn execute_finish_detects_semantic_plan_divergence() {
     .expect_err("finish should fail when plan text changed");
 
     assert_eq!(err.code, "execute.plan_diverged");
+    assert!(
+        err.fix_actions[0]
+            .command
+            .as_deref()
+            .is_some_and(|command| command.starts_with("ivar plan approve ")),
+        "{err:?}"
+    );
 }
 
 #[test]

@@ -96,7 +96,7 @@ pub fn update(ctx: &Ctx, input: &UpdateInput) -> Outcome<UpdateOutcome> {
             Some(_) => {
                 // Attempt to re-download and extract from upstream.
                 // This is best-effort — a failed download produces a warning, not a hard error.
-                match try_download_and_extract(&skill_dir, &fm) {
+                match try_download_and_extract(ctx, &skill_dir, &fm) {
                     Ok(()) => {}
                     Err(e) => {
                         warnings.push(Warning::new(
@@ -137,6 +137,7 @@ pub fn update(ctx: &Ctx, input: &UpdateInput) -> Outcome<UpdateOutcome> {
 /// Returns `Err` on network or extraction failure — the caller converts this to
 /// a warning so one bad download never aborts the batch.
 fn try_download_and_extract(
+    ctx: &Ctx,
     skill_dir: &camino::Utf8Path,
     fm: &crate::domain::skill::SkillFrontmatter,
 ) -> Result<(), String> {
@@ -145,8 +146,9 @@ fn try_download_and_extract(
     };
 
     // Fetch tarball from GitHub and extract it into a temp directory.
-    let tarball_bytes =
-        crate::infra::github::fetch_tarball(&ext.repo, &ext.git_ref).map_err(|e| e.to_string())?;
+    let tarball_bytes = ctx
+        .fetch_tarball(&ext.repo, &ext.git_ref)
+        .map_err(|e| e.to_string())?;
 
     let temp_dir = fs::TempDir::new().map_err(|e| e.to_string())?;
     super::extract_tarball_into(&tarball_bytes, temp_dir.path()).map_err(|e| e.to_string())?;

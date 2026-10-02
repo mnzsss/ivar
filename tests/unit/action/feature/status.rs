@@ -148,6 +148,9 @@ fn the_human_surface_lists_repos_and_their_states() {
             base: Some(BranchName::new("main").unwrap()),
             base_diverged: false,
             pr_url: None,
+            pr_state: None,
+            reason: None,
+            retry: None,
         }],
         tree: None,
     };
@@ -177,6 +180,9 @@ fn the_human_surface_marks_a_diverged_base() {
             base: Some(BranchName::new("main").unwrap()),
             base_diverged: true,
             pr_url: None,
+            pr_state: None,
+            reason: None,
+            retry: None,
         }],
         tree: None,
     };
@@ -400,6 +406,9 @@ fn feature_status_json_omits_none_parent_and_none_pr_url() {
             base: Some(BranchName::new("main").unwrap()),
             base_diverged: false,
             pr_url: None,
+            pr_state: None,
+            reason: None,
+            retry: None,
         }],
         tree: None,
     };

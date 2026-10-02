@@ -287,3 +287,25 @@ fn hall_with_detached_session() -> (tempfile::TempDir, Utf8PathBuf) {
 
     (guard, root)
 }
+
+#[test]
+fn prune_keeps_the_doc_of_a_dead_discovery_session() {
+    let (_guard, root) = hall_with_two_sessions();
+    let ctx = Ctx::new(root.clone());
+    let layout = Layout::at(root.clone());
+    let dead = layout
+        .discovery_sessions_dir()
+        .join("2c6e6f1e-2d8a-4b3a-9c2a-6a7f6f9a1b2c");
+    fs::ensure_dir(&dead).unwrap();
+    fs::write_text(
+        &dead.join("discovery.md"),
+        "---\nname: notes\nstatus: exploring\n---\nkept\n",
+    )
+    .unwrap();
+
+    prune(&ctx).unwrap();
+
+    assert!(!dead.exists(), "the dead view dir is pruned");
+    let doc = layout.discovery_doc(&FeatureName::new("notes").unwrap());
+    assert!(fs::read_text(&doc).unwrap().unwrap().contains("kept"));
+}

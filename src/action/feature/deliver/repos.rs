@@ -57,14 +57,15 @@ pub(crate) fn build_repos(
 /// `ls-remote` is a read, so the preview stays side-effect-free, which is
 /// the property that matters; it already reaches the network for the PR
 /// action just below.
-fn push_readiness_blockers(
+fn push_readiness(
     git: &impl git::Git,
     bare: &Utf8Path,
     worktree: &Utf8Path,
     feature: &Feature,
     declared: &Repo,
-) -> Result<Vec<String>, Failure> {
+) -> Result<(Vec<String>, Vec<String>), Failure> {
     let mut blockers = Vec::new();
+    let mut pending = Vec::new();
 
     let branch_exists = git
         .list_branches(bare)?
@@ -90,15 +91,15 @@ fn push_readiness_blockers(
                         .commits_ahead(bare, &tip, feature.branch.as_str())
                         .unwrap_or(ahead);
                     if unpushed > 0 {
-                        blockers.push(format!("{unpushed} commit(s) not pushed"));
+                        pending.push(format!("{unpushed} commit(s) not pushed"));
                     }
                 }
-                Ok(None) => blockers.push(format!("{ahead} commit(s) not pushed")),
+                Ok(None) => pending.push(format!("{ahead} commit(s) not pushed")),
                 // What the remote holds is unknown, so the doubt is the
                 // report. git's own sentence is left out on purpose: this
                 // text is part of the fingerprint apply is gated on, and
                 // must not vary with the wording of a network error.
-                Err(_) => blockers.push(format!(
+                Err(_) => pending.push(format!(
                     "{ahead} commit(s) of unconfirmed delivery — the remote did not answer"
                 )),
             }
@@ -113,7 +114,7 @@ fn push_readiness_blockers(
         blockers.push("worktree has uncommitted changes".to_owned());
     }
 
-    Ok(blockers)
+    Ok((blockers, pending))
 }
 
 type LandModeChecks = (
@@ -241,7 +242,7 @@ fn build_repo_entry(
     let worktree = layout.repo_worktree(repo_name, &feature.branch);
     ensure_repo_cloned_for_delivery(git, &bare, repo_name)?;
 
-    let mut blockers = push_readiness_blockers(git, &bare, &worktree, feature, declared)?;
+    let (mut blockers, pending) = push_readiness(git, &bare, &worktree, feature, declared)?;
 
     // Predict the delivery action: only GitHub remotes get a PR. A repo
     // on any other host (a local path, a mirror, GitLab) is push-only —
@@ -255,7 +256,7 @@ fn build_repo_entry(
     // `ConvertToDraft` — and apply would then create a second PR.
     // A non-GitHub remote or land mode observes nothing and calls no `gh`.
     let existing = if mode == DeliveryMode::Push && opens_pull_requests(declared) {
-        existing_pr(&bare, feature.branch.as_str())
+        existing_pr(&bare, feature.branch.as_str())?
     } else {
         None
     };
@@ -320,6 +321,7 @@ fn build_repo_entry(
         base_branch: base::resolve(feature, promotion, declared.default_branch()),
         dependencies: Vec::new(),
         blockers,
+        pending,
         pr_url: None,
         default_branch,
         ff_possible,

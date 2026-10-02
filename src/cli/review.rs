@@ -21,11 +21,22 @@ pub enum CommentCommand {
     Resolve(CommentResolveArgs),
 }
 
+impl CommentCommand {
+    /// The feature every comment subcommand acts on.
+    pub fn feature_mut(&mut self) -> &mut Option<String> {
+        match self {
+            Self::Add(args) => &mut args.feature,
+            Self::List(args) => &mut args.feature,
+            Self::Resolve(args) => &mut args.feature,
+        }
+    }
+}
+
 /// Arguments for `ivar review comment add`.
 #[derive(Debug, Args)]
 pub struct CommentAddArgs {
     /// The feature under review.
-    pub feature: String,
+    pub feature: Option<String>,
     /// The repo the file belongs to.
     #[arg(long)]
     pub repo: String,
@@ -44,7 +55,7 @@ pub struct CommentAddArgs {
 #[derive(Debug, Args)]
 pub struct CommentListArgs {
     /// The feature under review.
-    pub feature: String,
+    pub feature: Option<String>,
     /// Only comments on this repo.
     #[arg(long)]
     pub repo: Option<String>,
@@ -62,9 +73,10 @@ pub enum CommentStatusArg {
 
 /// Arguments for `ivar review comment resolve`.
 #[derive(Debug, Args)]
+#[command(allow_missing_positional = true)]
 pub struct CommentResolveArgs {
     /// The feature under review.
-    pub feature: String,
+    pub feature: Option<String>,
     /// The comment id, e.g. `c1`.
     pub id: String,
 }
@@ -79,7 +91,7 @@ impl From<CommentAddArgs> for review_comment::AddInput {
             body,
         } = args;
         Self {
-            feature,
+            feature: feature.unwrap_or_default(),
             repo,
             file,
             lines,
@@ -96,7 +108,7 @@ impl From<CommentListArgs> for review_comment::ListInput {
             status,
         } = args;
         Self {
-            feature,
+            feature: feature.unwrap_or_default(),
             repo,
             status: status.map(|s| match s {
                 CommentStatusArg::Open => review_comment::CommentStatus::Open,
@@ -109,6 +121,9 @@ impl From<CommentListArgs> for review_comment::ListInput {
 impl From<CommentResolveArgs> for review_comment::ResolveInput {
     fn from(args: CommentResolveArgs) -> Self {
         let CommentResolveArgs { feature, id } = args;
-        Self { feature, id }
+        Self {
+            feature: feature.unwrap_or_default(),
+            id,
+        }
     }
 }

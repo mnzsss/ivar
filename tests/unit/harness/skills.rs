@@ -38,7 +38,7 @@ fn subfeatures_skill_walks_the_parallel_children_loop() {
     for step in [
         "ivar feature create <child> --parent <parent>",
         "ivar feature promote <parent> <repo>",
-        "ivar session start <child>",
+        "ivar session start <child> --detached",
         "ivar feature status <parent> --recursive",
         "ivar plan approve <child> plan",
         "ivar feature integrate <child>",
@@ -360,8 +360,8 @@ fn plan_has_three_approval_gates_and_hands_off_to_execute() {
     assert!(content.contains("approve analysis"), "was: {content}");
     assert!(content.contains("approve plan"), "was: {content}");
     assert!(content.contains("ivar-execute"), "was: {content}");
-    assert!(content.contains("Done"), "was: {content}");
-    assert!(content.contains("✅"), "was: {content}");
+    assert!(!content.contains("| Done |"), "was: {content}");
+    assert!(!content.contains("✅"), "was: {content}");
     assert!(!content.contains("approve graph"), "was: {content}");
 }
 

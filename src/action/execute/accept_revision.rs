@@ -7,7 +7,7 @@ use crate::action::{Ctx, discover_hall};
 use crate::domain::feature::{ApprovalState, Gate, RunReceipt};
 use crate::domain::name::FeatureName;
 use crate::domain::session::rfc3339_now;
-use crate::error::{Failure, Outcome, Report, WriteHuman};
+use crate::error::{Outcome, Report, WriteHuman};
 use crate::infra::hash;
 use crate::store::feature::run;
 
@@ -40,13 +40,13 @@ pub fn accept_revision(ctx: &Ctx, input: AcceptRevisionInput) -> Outcome<AcceptR
     if approvals.record(Gate::Plan).is_none_or(|record| {
         !matches!(record.artifact_fingerprint.as_deref(), Some(fp) if fp == plan_fingerprint || fp == raw_fingerprint)
     }) {
-        return Err(Failure::blocked(
-            "execute.plan_not_approved",
+        return Err(super::plan_not_approved(
+            &feature,
             "the supplied plan is not currently approved",
         ));
     }
-    let mut receipt = RunReceipt::read(&layout, &feature)?
-        .ok_or_else(|| Failure::blocked("execute.run_missing", "no current run receipt exists"))?;
+    let mut receipt =
+        RunReceipt::read(&layout, &feature)?.ok_or_else(|| super::run_missing(&feature))?;
     let (session_id, provider) = super::resolve_coordinator(&layout, &feature, &receipt)?;
     receipt.accept_revision(plan_fingerprint, session_id, provider, rfc3339_now())?;
     receipt.write(&layout)?;

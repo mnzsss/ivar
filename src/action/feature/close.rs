@@ -125,10 +125,7 @@ pub fn close(ctx: &Ctx, input: CloseInput) -> Outcome<CloseOutcome> {
         )
         .expected("a terminal run receipt before closing the feature")
         .actual("the current run is still resumable and holds the feature lock")
-        .fix(FixAction::safe(
-            "execute.finish_or_interrupt",
-            "Finish, accept the revision, or interrupt the run before closing the feature.",
-        )));
+        .fix(crate::action::execute::finish_or_interrupt_fix(&name)));
     }
 
     // Idempotency gate: an outcome already recorded means the feature is

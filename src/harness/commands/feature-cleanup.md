@@ -25,7 +25,9 @@ ivar feature cleanup <feature> --record docs/updates/<NNN>-<feature>.cleanup.jso
 
 - You must be inside a **hall** (`ivar status` succeeds).
 - The target feature must exist in `ivar feature list`.
-- Feature sessions (`$IVAR_SESSION_TYPE == "feature"`) are supported, but **discovery sessions** (`$IVAR_SESSION_TYPE == "discovery"`) are rejected.
+- Feature sessions are supported, but **discovery sessions** are rejected. A
+  discovery session is one where `ivar session env` prints `IVAR_SESSION_ID`
+  but no `IVAR_FEATURE`.
 
 ## Feature Resolution
 

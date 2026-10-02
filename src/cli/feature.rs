@@ -305,7 +305,8 @@ pub struct FeatureDeliverArgs {
     pub feature: Option<String>,
     /// Print the delivery preview and push nothing.
     pub preview: bool,
-    /// Land feature branches into default branches locally (fast-forward only).
+    /// Land feature branches into default branches (fast-forward only), then
+    /// push each default branch to its remote.
     pub land: bool,
     /// The fingerprint from the preview the human approved; required to apply.
     pub fingerprint: Option<String>,
@@ -334,7 +335,7 @@ impl clap::Args for FeatureDeliverArgs {
         .arg(
             clap::Arg::new("land")
                 .long("land")
-                .help("Land feature branches into default branches locally (fast-forward only).")
+                .help("Land feature branches into default branches (fast-forward only), then push each default branch to its remote.")
                 .action(clap::ArgAction::SetTrue),
         )
         .arg(
@@ -438,6 +439,10 @@ pub struct FeatureCloseArgs {
 pub struct FeatureDeleteArgs {
     /// The feature to delete.
     pub name: Option<String>,
+    /// Delete even with a live session or uncommitted or untracked changes
+    /// in a promoted worktree, discarding them.
+    #[arg(long)]
+    pub force: bool,
 }
 
 /// Arguments for `ivar feature rebase`.
@@ -791,9 +796,10 @@ impl From<FeatureCloseArgs> for close::CloseInput {
 
 impl From<FeatureDeleteArgs> for delete::DeleteInput {
     fn from(args: FeatureDeleteArgs) -> Self {
-        let FeatureDeleteArgs { name } = args;
+        let FeatureDeleteArgs { name, force } = args;
         Self {
             name: name.unwrap_or_default(),
+            force,
         }
     }
 }
