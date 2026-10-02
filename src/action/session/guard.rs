@@ -270,6 +270,7 @@ impl WritableSet {
             hall: HallRoot::new(layout),
         })
     }
+
     /// Whether `path` is inside the view dir, the hall sources (`.ivar/skills`,
     /// `.ivar/skills-local`, `.ivar/setups`), the feature directory when
     /// applicable, one of the promoted worktrees, or the hall root outside
@@ -328,6 +329,7 @@ impl WritableSet {
         self.hall.allows(&canonical)
     }
 
+    /// The view dir — the canonical root of this set.
     pub(crate) fn view_dir(&self) -> &Utf8Path {
         &self.view_dir
     }
