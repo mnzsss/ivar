@@ -132,12 +132,21 @@ impl WriteHuman for StatusOutcome {
                 } else {
                     format!("  blocked by: {}", entry.blockers.join(", "))
                 };
+                let run_str = match &entry.run {
+                    Some(run) => match run.last_wave {
+                        Some(w) => format!("  run {} wave {}", run.status, w),
+                        None => format!("  run {}", run.status),
+                    },
+                    None => "  no run".to_owned(),
+                };
                 writeln!(
                     w,
-                    "{indent}{}  state {}  repos {}{blockers}",
+                    "{indent}{}  state {}  plan {}  repos {}{run_str}  sessions {}{blockers}",
                     entry.feature,
                     entry.state,
+                    entry.plan_gate,
                     entry.repos.len(),
+                    entry.sessions.len(),
                 )?;
             }
         }

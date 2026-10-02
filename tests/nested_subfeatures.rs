@@ -223,25 +223,47 @@ fn the_cli_can_create_reparent_and_refuse_after_work_starts() {
     );
     assert_eq!(failure["code"], "feature.reparent_work_started");
 
-    // List/status expose the tree with depth and immediate targets.
+    // List/status expose the tree with depth, immediate targets, and orchestration fields.
     let status = json_output(&root, &["feature", "status", "parent-b", "--recursive"]);
     let tree = status["tree"].as_array().unwrap();
-    let rendered: Vec<(String, usize)> = tree
-        .iter()
-        .map(|entry| {
-            (
-                entry["feature"].as_str().unwrap().to_owned(),
-                entry["depth"].as_u64().unwrap() as usize,
-            )
-        })
-        .collect();
+    assert_eq!(tree.len(), 3);
+
+    // parent-b
+    assert_eq!(tree[0]["feature"], "parent-b");
+    assert_eq!(tree[0]["depth"], 0);
+    assert_eq!(tree[0]["plan_gate"], "pending");
+    assert!(tree[0]["run"].is_null());
+    assert_eq!(tree[0]["sessions"], serde_json::json!([]));
+
+    // child
+    assert_eq!(tree[1]["feature"], "child");
+    assert_eq!(tree[1]["depth"], 1);
+    assert_eq!(tree[1]["plan_gate"], "pending");
+    assert!(tree[1]["run"].is_null());
+    assert_eq!(tree[1]["sessions"], serde_json::json!([]));
+
+    // leaf
+    assert_eq!(tree[2]["feature"], "leaf");
+    assert_eq!(tree[2]["depth"], 2);
+    assert_eq!(tree[2]["plan_gate"], "pending");
+    assert!(tree[2]["run"].is_null());
+    assert_eq!(tree[2]["sessions"], serde_json::json!([]));
+
+    // Approving child's plan updates plan_gate in tree.
+    approve_plan(&root, "child");
+    let status_after_plan = json_output(&root, &["feature", "status", "parent-b", "--recursive"]);
+    let tree_after_plan = status_after_plan["tree"].as_array().unwrap();
+    assert_eq!(tree_after_plan[1]["plan_gate"], "approved");
+
+    // Starting a detached session on child reflects in sessions array.
+    let session = json_output(&root, &["session", "start", "child", "--detached"]);
+    let session_id = session["session_id"].as_str().unwrap();
+    let status_after_session =
+        json_output(&root, &["feature", "status", "parent-b", "--recursive"]);
+    let tree_after_session = status_after_session["tree"].as_array().unwrap();
     assert_eq!(
-        rendered,
-        [
-            ("parent-b".to_owned(), 0),
-            ("child".to_owned(), 1),
-            ("leaf".to_owned(), 2)
-        ]
+        tree_after_session[1]["sessions"],
+        serde_json::json!([session_id])
     );
 }
 

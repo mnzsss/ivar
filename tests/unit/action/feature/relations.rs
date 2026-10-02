@@ -431,6 +431,58 @@ fn subtree_status_renders_the_tree_in_pre_order_with_depth_and_state() {
     assert_eq!(entries[0].repos.len(), 1);
 }
 
+#[test]
+fn subtree_status_populates_plan_gate_run_and_sessions() {
+    let (_guard, layout) = seeded_relation_hall();
+    let manifest = Manifest::read(&layout).unwrap().unwrap();
+    let root_name = FeatureName::new("root").unwrap();
+    let child_name = FeatureName::new("child").unwrap();
+    write_feature(&layout, "root", None, None);
+    write_feature(&layout, "child", Some("root"), None);
+
+    // Create an active run receipt with a wave checkpoint for child
+    let mut receipt = crate::domain::feature::RunReceipt::start(
+        crate::domain::feature::RunId::new("00000000-0000-4000-8000-000000000001").unwrap(),
+        child_name.clone(),
+        "plans/child/plan.md",
+        "hash123",
+        crate::domain::feature::RunBaseline::empty(),
+        crate::domain::name::SessionId::new("00000000-0000-4000-8000-000000000002").unwrap(),
+        crate::domain::provider::Provider::ClaudeCode,
+        crate::domain::session::rfc3339_now(),
+    );
+    receipt
+        .checkpoint_wave(
+            2,
+            "wave 2 done",
+            crate::domain::name::SessionId::new("00000000-0000-4000-8000-000000000002").unwrap(),
+            crate::domain::provider::Provider::ClaudeCode,
+            crate::domain::session::rfc3339_now(),
+        )
+        .unwrap();
+    receipt.write(&layout).unwrap();
+
+    let entries = subtree_status(&crate::git::System, &layout, &manifest, &root_name).unwrap();
+    assert_eq!(entries.len(), 2);
+    let child_entry = &entries[1];
+    assert_eq!(child_entry.feature, child_name);
+    assert_eq!(
+        child_entry.plan_gate,
+        crate::domain::feature::GateState::Pending
+    );
+    assert_eq!(
+        child_entry.run,
+        Some(crate::action::feature::relations::TreeRun {
+            status: crate::domain::feature::RunStatus::Active,
+            last_wave: Some(2),
+        })
+    );
+    assert_eq!(
+        child_entry.sessions,
+        Vec::<crate::domain::name::SessionId>::new()
+    );
+}
+
 // -- receipt freshness ------------------------------------------------------
 
 #[test]

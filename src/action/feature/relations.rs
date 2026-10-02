@@ -18,9 +18,10 @@ use std::collections::{BTreeMap, HashSet};
 use serde::Serialize;
 
 use crate::domain::feature::{
-    ClassificationFacts, Feature, FeatureIntegrationState, IntegrationReceipt, classify,
+    ClassificationFacts, Feature, FeatureIntegrationState, GateState, IntegrationReceipt,
+    RunReceipt, RunStatus, classify,
 };
-use crate::domain::name::{FeatureName, RepoName};
+use crate::domain::name::{FeatureName, RepoName, SessionId};
 use crate::error::{Failure, FixAction};
 use crate::git::Git;
 use crate::infra::fs;
@@ -29,6 +30,16 @@ use crate::store::manifest::Manifest;
 
 use super::lifecycle::read_close;
 use super::verification;
+
+/// Execution status of a feature in the tree.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct TreeRun {
+    /// The current lifecycle status of the run.
+    pub status: RunStatus,
+    /// The highest wave recorded by wave checkpoints, if any.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_wave: Option<u32>,
+}
 
 /// One feature's position and health in the derived tree, in deterministic
 /// pre-order. Used by recursive status and by blocker reporting; the flat
@@ -50,6 +61,13 @@ pub struct TreeEntry {
     /// The names of descendants that block this feature, each rendered as
     /// `name (state)`.
     pub blockers: Vec<String>,
+    /// The effective plan gate approval state.
+    pub plan_gate: GateState,
+    /// The active or terminal run, if one exists.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub run: Option<TreeRun>,
+    /// Live session ids belonging to this feature.
+    pub sessions: Vec<SessionId>,
 }
 
 /// How a receipt measures against live state. The evidence-vs-freshness split
@@ -449,6 +467,92 @@ fn facts_of(
 /// Depth-first, deterministic pre-order walk over `root`'s subtree, filling
 /// `entries`. The tree was validated by [`read_all`], so parent references
 /// inside the walk always resolve.
+fn read_tree_run(layout: &Layout, feature: &FeatureName) -> Result<Option<TreeRun>, Failure> {
+    let Some(receipt) = RunReceipt::read(layout, feature)? else {
+        return Ok(None);
+    };
+    let last_wave = receipt
+        .checkpoints
+        .iter()
+        .filter_map(|c| c.wave.as_ref().map(|w| w.number))
+        .max();
+    Ok(Some(TreeRun {
+        status: receipt.status,
+        last_wave,
+    }))
+}
+
+/// All live session IDs for a feature.
+pub(crate) fn feature_session_ids(
+    layout: &Layout,
+    feature: &FeatureName,
+) -> Result<Vec<SessionId>, Failure> {
+    let dir = layout.feature_sessions_dir(feature);
+    if !fs::is_dir(&dir)? {
+        return Ok(Vec::new());
+    }
+    let mut sessions = Vec::new();
+    for entry in fs::read_dir(&dir)? {
+        let Some(name) = entry.file_name() else {
+            continue;
+        };
+        if !fs::is_dir(&entry)? {
+            continue;
+        }
+        let id = match SessionId::new(name) {
+            Ok(id) => id,
+            Err(_) => {
+                let mut bytes = [0u8; 16];
+                for (i, b) in name.as_bytes().iter().enumerate() {
+                    if let Some(slot) = bytes.get_mut(i % 16) {
+                        *slot ^= *b;
+                    }
+                }
+                // Set UUID version 4 and variant RFC4122
+                if let Some(b) = bytes.get_mut(6) {
+                    *b = (*b & 0x0f) | 0x40;
+                }
+                if let Some(b) = bytes.get_mut(8) {
+                    *b = (*b & 0x3f) | 0x80;
+                }
+                let uuid = uuid::Uuid::from_bytes(bytes);
+                SessionId::new(uuid.to_string()).map_err(|e| {
+                    Failure::failed(
+                        "session.invalid",
+                        format!("synthesized session id invalid: {e}"),
+                    )
+                })?
+            }
+        };
+        sessions.push(id);
+    }
+    sessions.sort();
+    Ok(sessions)
+}
+
+fn make_entry(
+    layout: &Layout,
+    feature: &Feature,
+    depth: usize,
+    state: FeatureIntegrationState,
+    blockers: Vec<String>,
+) -> Result<TreeEntry, Failure> {
+    let plan_gate = crate::action::plan::effective_plan_gate(layout, &feature.name)?;
+    let run = read_tree_run(layout, &feature.name)?;
+    let sessions = feature_session_ids(layout, &feature.name)?;
+    Ok(TreeEntry {
+        feature: feature.name.clone(),
+        parent: feature.parent.clone(),
+        depth,
+        state,
+        repos: feature.promotions.keys().cloned().collect(),
+        blockers,
+        plan_gate,
+        run,
+        sessions,
+    })
+}
+
 fn walk(
     git: &impl Git,
     layout: &Layout,
@@ -470,14 +574,7 @@ fn walk(
         .map(|entry| format!("{} ({})", entry.feature, entry.state))
         .collect();
 
-    entries.push(TreeEntry {
-        feature: feature.name.clone(),
-        parent: feature.parent.clone(),
-        depth,
-        state,
-        repos: feature.promotions.keys().cloned().collect(),
-        blockers,
-    });
+    entries.push(make_entry(layout, feature, depth, state, blockers)?);
 
     let mut children: Vec<&Feature> = map
         .values()
@@ -491,9 +588,6 @@ fn walk(
     Ok(())
 }
 
-/// The blocking descendants of `feature`, using the already-read `map` — the
-/// shared core of [`blocking_descendants`] and the per-entry `blockers` in
-/// [`subtree_status`].
 fn blocking_entries(
     git: &impl Git,
     layout: &Layout,
@@ -510,19 +604,11 @@ fn blocking_entries(
             .copied();
         let state = state_of(git, layout, manifest, descendant, parent_feature)?;
         if blocks(&state) {
-            blockers.push(TreeEntry {
-                feature: descendant.name.clone(),
-                parent: descendant.parent.clone(),
-                depth,
-                state,
-                repos: descendant.promotions.keys().cloned().collect(),
-                blockers: Vec::new(),
-            });
+            blockers.push(make_entry(layout, descendant, depth, state, Vec::new())?);
         }
     }
     Ok(blockers)
 }
-
 /// Validate the whole derived tree: every parent reference resolves, and no
 /// parent chain cycles. Runs on every tree read; a corrupt tree is refused as
 /// a whole.
