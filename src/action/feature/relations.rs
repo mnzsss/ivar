@@ -19,7 +19,7 @@ use serde::Serialize;
 
 use crate::domain::feature::{
     ClassificationFacts, Feature, FeatureIntegrationState, GateState, IntegrationReceipt,
-    RunReceipt, RunStatus, classify,
+    RunStatus, classify,
 };
 use crate::domain::name::{FeatureName, RepoName};
 use crate::error::{Failure, FixAction};
@@ -464,9 +464,13 @@ fn facts_of(
     })
 }
 
-/// Read the tree run receipt for a feature, if any.
+/// Read the newest run receipt for a feature, current or archived, so a
+/// finished run still shows its terminal status.
 fn read_tree_run(layout: &Layout, feature: &FeatureName) -> Result<Option<TreeRun>, Failure> {
-    let Some(receipt) = RunReceipt::read(layout, feature)? else {
+    let Some(receipt) = crate::store::feature::run::history(layout, feature)?
+        .into_iter()
+        .next()
+    else {
         return Ok(None);
     };
     let last_wave = receipt

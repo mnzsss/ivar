@@ -265,6 +265,58 @@ fn the_cli_can_create_reparent_and_refuse_after_work_starts() {
         tree_after_session[1]["sessions"],
         serde_json::json!([session_id])
     );
+
+    // Executing child to a finished run still reports the terminal status in tree.
+    ivar()
+        .current_dir(&root)
+        .args(["feature", "execute", "start", "child", "--mode", "goal"])
+        .assert()
+        .success();
+    ivar()
+        .current_dir(&root)
+        .args([
+            "feature",
+            "execute",
+            "checkpoint",
+            "child",
+            "--wave",
+            "1",
+            "--summary",
+            "x",
+        ])
+        .assert()
+        .success();
+    let report_file = root.join("report.json");
+    std::fs::write(
+        &report_file,
+        serde_json::json!({
+            "summary": "s",
+            "tasks": [{"title": "t", "status": "completed", "result": "r"}],
+            "verification": [{"command": "c", "status": "passed", "summary": "s"}]
+        })
+        .to_string(),
+    )
+    .unwrap();
+    ivar()
+        .current_dir(&root)
+        .args([
+            "feature",
+            "execute",
+            "finish",
+            "child",
+            "--report-json",
+            report_file.as_str(),
+            "--outcome",
+            "succeeded",
+        ])
+        .assert()
+        .success();
+    let status_after_finish = json_output(&root, &["feature", "status", "parent-b", "--recursive"]);
+    let tree_after_finish = status_after_finish["tree"].as_array().unwrap();
+    assert_eq!(
+        tree_after_finish[1]["run"],
+        serde_json::json!({"status": "succeeded", "last_wave": 1})
+    );
 }
 
 // -- leaves-first local integration ------------------------------------------
