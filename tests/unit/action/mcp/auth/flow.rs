@@ -508,3 +508,35 @@ fn render_url_returns_plain_url_off_tty() {
     let rendered = flow::render_url(url, false);
     assert_eq!(rendered, url);
 }
+
+#[test]
+fn omp_config_is_rerendered_from_the_manifest_on_disk() {
+    let (_guard, root) = crate::test_support::hall_root();
+    let layout = crate::store::layout::Layout::at(&root);
+    crate::infra::fs::write_text(
+        &layout.manifest(),
+        &serde_json::json!({
+            "version": 2,
+            "name": "acme",
+            "integration": { "via": "local", "strategy": "squash" },
+            "providers": { "available": ["omp"], "default": "omp" },
+            "repos": [],
+            "mcp": [ { "name": "linear", "type": "http", "url": "https://mcp.linear.app/mcp" } ],
+        })
+        .to_string(),
+    )
+    .unwrap();
+
+    flow::rematerialise_mcp(&layout, Provider::Omp).unwrap();
+
+    let rendered: serde_json::Value = serde_json::from_str(
+        &crate::infra::fs::read_text(&layout.mcp_config(&Provider::Omp))
+            .unwrap()
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        rendered.pointer("/mcpServers/acme-linear/auth/credentialId"),
+        Some(&serde_json::json!("mcp_oauth_ivar:acme-linear"))
+    );
+}

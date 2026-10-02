@@ -31,6 +31,7 @@ use std::io::{self, Write};
 use std::time::Duration;
 
 use crate::domain::mcp::McpServerDef;
+use crate::domain::provider::Provider;
 use crate::error::Failure;
 use crate::providers::Credential;
 use crate::store::layout::Layout;
@@ -86,6 +87,19 @@ struct RealFlowOps {
     layout: Layout,
     manifest: Manifest,
     provider: crate::domain::provider::Provider,
+}
+
+pub(super) fn rematerialise_mcp(layout: &Layout, provider: Provider) -> Result<(), Failure> {
+    let Some(manifest) = Manifest::read(layout)? else {
+        return Ok(());
+    };
+    crate::harness::config::materialise_mcp(
+        &layout.mcp_config(&provider),
+        provider,
+        manifest.mcp_servers(),
+        manifest.name(),
+    )?;
+    Ok(())
 }
 
 impl FlowOps for RealFlowOps {
@@ -149,7 +163,11 @@ impl FlowOps for RealFlowOps {
         )
     }
     fn write(&self, name: &str, credential: &Credential<'_>) -> Result<(), Failure> {
-        crate::providers::install_credentials(self.provider, name, credential).map(|_| ())
+        crate::providers::install_credentials(self.provider, name, credential)?;
+        if self.provider == Provider::Omp {
+            rematerialise_mcp(&self.layout, self.provider)?;
+        }
+        Ok(())
     }
     fn verify(&self, name: &str) -> Result<bool, Failure> {
         Ok(crate::providers::verify_authenticated(self.provider, name).is_ok())
