@@ -18,13 +18,13 @@ other terminal or session is launched by hand.
 
 ## Ground rules
 
-- **One level of subagents.** Use one level of subagents; a subagent never spawns subagents. You dispatch
+- **One level of subagents.** A subagent never spawns subagents. You dispatch
   every planner, implementer and reviewer yourself.
 - **Return-only results.** You never message a running subagent. Each prompt
   carries everything the subagent needs; it finishes by returning its result.
   A subagent that needs a decision returns `needs_input` (see
   `references/child-planner.md`) and you dispatch a fresh one with the answer.
-- **Absolute paths only.** Pass absolute paths in prompts; every path in a prompt is absolute. Resolve child
+- **Absolute paths only.** Every path in a prompt is absolute. Resolve child
   worktrees from `ivar feature status <child> --json` (`repos[].worktree`) and
   feature dirs as `<hall>/.ivar/features/<child>/`.
 - **State lives on disk, not in this conversation.** Before every step, read

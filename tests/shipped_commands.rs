@@ -1011,9 +1011,9 @@ fn subfeatures_orchestrates_children_with_subagents_from_the_parent_session() {
     assert!(!skill.contains("never launch a provider yourself"));
     // Portable subagent contract: one level, return-only.
     for rule in [
-        "one level of subagents",
+        "One level of subagents",
         "never message a running subagent",
-        "absolute paths",
+        "Absolute paths only",
         "needs_input",
         "Wave 0",
         "references/child-planner.md",
