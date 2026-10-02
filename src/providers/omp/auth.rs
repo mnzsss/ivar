@@ -247,7 +247,7 @@ pub(crate) fn verify_legacy_binding_removed(
 
 /// Whether omp already holds a usable token for this server.
 ///
-/// omp is keyed by the per-hall credential id that `mcp.json` declares for
+/// omp is keyed by the per-hall credential id that `.omp/mcp.json` declares for
 /// the materialised name. A non-zero exit or empty stdout is "no credential",
 /// not an error: the caller is asking whether one exists, and "no" is an
 /// answer.
