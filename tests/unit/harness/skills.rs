@@ -46,6 +46,12 @@ fn subfeatures_skill_walks_the_parallel_children_loop() {
     ] {
         assert!(body.contains(step), "missing: {step}");
     }
+    for reference in ["references/child-planner.md", "references/state.md"] {
+        assert!(
+            skill.files.iter().any(|file| file.path == reference),
+            "{reference} is linked from SKILL.md but not shipped"
+        );
+    }
 }
 
 #[test]
