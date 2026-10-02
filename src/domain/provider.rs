@@ -133,9 +133,6 @@ impl Provider {
     /// here without being added there too.
     pub const ALL: [Provider; 3] = [Provider::ClaudeCode, Provider::OpenCode, Provider::Omp];
 
-    /// The hall-root omp MCP file that sync clears ivar's servers out of.
-    pub const LEGACY_OMP_MCP_CONFIG: &'static str = "mcp.json";
-
     /// The stable wire string: as it appears in `ivar.json` and in
     /// `--provider`. Kebab-case, never reworded.
     pub const fn id(&self) -> &'static str {

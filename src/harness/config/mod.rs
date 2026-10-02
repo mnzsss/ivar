@@ -3,16 +3,17 @@
 //!
 //! The canonical hall instructions and the provider root aliases live in
 //! [`instructions`] — this module's job is everything else `harness::config`
-//! materialises: the MCP server definitions at the hall root, managed provider
-//! artifacts (hooks and plugins), and the session bootstrap block (see [`session`]).
+//! materialises: the MCP server definitions at the hall root (omp's under
+//! `.omp/`), managed provider artifacts (hooks and plugins), and the session
+//! bootstrap block (see [`session`]).
 //!
 //! # MCP config materialisation: one key at a time
 //!
 //! The hall's MCP server definitions materialise at the hall root — `.mcp.json`
-//! for Claude Code, `opencode.json` for OpenCode — discovered by walk-up from
-//! every session's View Dir. [`materialise_mcp`] and [`remove_mcp`] apply the
-//! "the file belongs to the user" rule with a JSON key standing in for the
-//! marker pair:
+//! for Claude Code, `opencode.json` for OpenCode, `.omp/mcp.json` for omp —
+//! discovered by walk-up from every session's View Dir. [`materialise_mcp`]
+//! and [`remove_mcp`] apply the "the file belongs to the user" rule with a
+//! JSON key standing in for the marker pair:
 //!
 //! - `.mcp.json` is *exclusively* an MCP file, so `ivar` owns it wholesale.
 //! - `opencode.json` is OpenCode's **general** config — model, permissions,
@@ -58,7 +59,7 @@ mod settings;
 pub mod instructions;
 
 pub use instructions::{Change, MANAGED_END, MANAGED_START, build_block, materialise, remove};
-pub use mcp::{materialise_mcp, remove_mcp};
+pub use mcp::{materialise_mcp, remove_hall_servers, remove_mcp};
 pub use settings::{materialise_settings, remove_settings};
 
 /// Everything that can go wrong maintaining an MCP config or managed artifact.

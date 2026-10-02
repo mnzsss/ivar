@@ -105,6 +105,16 @@ pub fn mcp_root_key(provider: Provider) -> &'static str {
     }
 }
 
+/// A hall-root MCP file the provider also reads, from which sync removes this
+/// hall's servers.
+#[must_use]
+pub fn legacy_mcp_config(provider: Provider) -> Option<&'static str> {
+    match provider {
+        Provider::Omp => Some(omp::mcp::LEGACY_ROOT_CONFIG),
+        Provider::ClaudeCode | Provider::OpenCode => None,
+    }
+}
+
 /// Renders a single MCP server definition into provider-native JSON shape.
 ///
 /// `transport` is the canonical interpretation of the manifest's `type`,

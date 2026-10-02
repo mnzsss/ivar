@@ -3,6 +3,11 @@ use crate::providers::omp::auth::credential_id;
 
 pub(crate) const ROOT_KEY: &str = "mcpServers";
 
+/// The hall-root MCP file omp also reads; sync removes this hall's servers
+/// from it. omp lets `opencode.json`'s `mcp` entries win over this file, so a
+/// leftover copy of the hall's servers here is dead config.
+pub(crate) const LEGACY_ROOT_CONFIG: &str = "mcp.json";
+
 /// OMP's spelling: canonical `http` stays `http`, canonical `local` becomes
 /// `stdio`.
 pub(crate) fn server_doc(

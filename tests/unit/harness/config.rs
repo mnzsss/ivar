@@ -390,15 +390,14 @@ fn removing_mcp_when_there_is_nothing_to_remove_is_unchanged() {
 
 #[test]
 fn omp_config_is_written_under_the_omp_directory_even_when_it_is_missing() {
-    let (_dir, root) = crate::test_support::utf8_temp_dir();
-    let mcp_path = root.join(Provider::Omp.mcp_config_path());
+    let (_guard, dir) = utf8_temp_dir();
+    let mcp_path = dir.join(Provider::Omp.mcp_config_path());
     let servers = vec![McpServerDef::new("linear", "http").url("https://mcp.linear.app/mcp")];
 
     materialise_mcp(&mcp_path, Provider::Omp, &servers, &hall()).unwrap();
 
     let parsed: serde_json::Value =
-        serde_json::from_str(&fs::read_text(&root.join(".omp/mcp.json")).unwrap().unwrap())
-            .unwrap();
+        serde_json::from_str(&fs::read_text(&dir.join(".omp/mcp.json")).unwrap().unwrap()).unwrap();
     assert_eq!(
         parsed.pointer("/mcpServers/acme-linear/auth/credentialId"),
         Some(&serde_json::json!("mcp_oauth_ivar:acme-linear"))

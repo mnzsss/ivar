@@ -746,9 +746,32 @@ fn sync_moves_omp_servers_out_of_the_legacy_root_mcp_json() {
 
     assert!(
         !fs::exists(&root.join("mcp.json")).unwrap(),
-        "a root mcp.json holding only ivar's servers is removed"
+        "a root mcp.json holding only this hall's servers is removed"
     );
     assert!(fs::exists(&root.join(".omp/mcp.json")).unwrap());
+}
+
+#[test]
+fn sync_keeps_user_servers_in_the_legacy_root_mcp_json() {
+    let (_guard, root) = hall_with_all_providers();
+    fs::write_text(
+        &root.join("mcp.json"),
+        r#"{"mcpServers":{"acme-old":{"type":"http","url":"https://old.example/mcp"},"mine":{"type":"http","url":"https://mine.example/mcp"}}}"#,
+    )
+    .unwrap();
+    let ctx = Ctx::new(root.clone());
+
+    sync(&ctx, &SyncInput::default()).unwrap();
+
+    let parsed: serde_json::Value =
+        serde_json::from_str(&fs::read_text(&root.join("mcp.json")).unwrap().unwrap()).unwrap();
+    assert_eq!(
+        parsed,
+        serde_json::json!({
+            "mcpServers": { "mine": { "type": "http", "url": "https://mine.example/mcp" } }
+        }),
+        "only this hall's servers leave the root mcp.json"
+    );
 }
 
 #[test]
