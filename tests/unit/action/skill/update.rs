@@ -47,12 +47,19 @@ fn update_authored_skill_is_a_noop_with_warning() {
     assert_eq!(report.warnings[0].subject, "refactor");
 }
 
+fn offline(_repo: &str, _ref: &str) -> Result<Vec<u8>, crate::error::Failure> {
+    Err(crate::error::Failure::failed(
+        "test.offline",
+        "unit tests never reach the network",
+    ))
+}
+
 #[test]
-fn update_external_skill_attempts_download() {
+fn update_external_skill_never_reaches_the_network_in_tests() {
     let (_guard, root) = seeded_hall();
     write_skill(&root, "external-skill", Some("owner/toolkit"));
 
-    let ctx = Ctx::new(root);
+    let ctx = Ctx::new(root).with_tarball_fetcher(offline);
     let report = update(
         &ctx,
         &UpdateInput {
@@ -61,11 +68,9 @@ fn update_external_skill_attempts_download() {
     )
     .unwrap();
 
-    // The download will fail (no real network), but it should be recorded
-    // as a warning, not a hard error.
     assert_eq!(report.value.processed, 1);
-    assert!(!report.warnings.is_empty());
     assert_eq!(report.warnings[0].code, "skill.update.download_failed");
+    assert!(report.warnings[0].what.contains("never reach the network"));
 }
 
 #[test]
@@ -73,10 +78,10 @@ fn one_failing_skill_does_not_abort_the_batch() {
     let (_guard, root) = seeded_hall();
     // Authored skill — no-op (always succeeds)
     write_skill(&root, "authored", None);
-    // External skill — will fail to download
+    // External skill — its download fails
     write_skill(&root, "external", Some("owner/toolkit"));
 
-    let ctx = Ctx::new(root);
+    let ctx = Ctx::new(root).with_tarball_fetcher(offline);
     let report = update(
         &ctx,
         &UpdateInput {

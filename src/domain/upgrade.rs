@@ -23,10 +23,12 @@ pub struct Version {
 }
 
 impl Version {
-    /// Parses a version string like `"0.13.0"` or `"v0.13.0"`.
+    /// Parses a version string like `"0.13.0"` or `"v0.13.0"`. A local
+    /// build's `"0.13.0-dev+<sha>"` parses as its base version.
     #[must_use]
     pub fn parse(text: &str) -> Option<Self> {
         let bare = text.strip_prefix('v').unwrap_or(text);
+        let bare = bare.split_once("-dev+").map_or(bare, |(base, _)| base);
         let mut parts = bare.split('.');
         let mut next = || -> Option<u64> {
             let part = parts.next()?;

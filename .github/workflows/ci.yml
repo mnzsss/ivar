@@ -121,6 +121,28 @@ jobs:
       # pushes on main, it let #122's dirty-worktree regression merge green.
       - name: test graph
         run: cargo test --profile e2e --test graph --all-features -- --ignored simulation
+
+  # The persona suite also runs inside the gate's `cargo test`; this job runs it
+  # again with no network at all, so a scenario that quietly reaches out fails
+  # here instead of passing on a runner that happens to be online.
+  personas:
+    name: personas (network off)
+    needs: release-commit
+    if: github.event.pull_request.draft == false && needs.release-commit.outputs.release != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      - name: build
+        run: cargo test --locked --test personas --no-run
+      # Ubuntu's AppArmor policy blocks unprivileged user namespaces, which
+      # `unshare -rn` needs to drop the network without root.
+      - name: allow user namespaces
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - name: test
+        run: unshare -rn cargo test --locked --offline --test personas
+
   msrv:
     name: msrv
     needs: release-commit

@@ -24,9 +24,16 @@ pub struct Notice {
     deadline: Instant,
 }
 
-/// The current crate version parsed into domain `Version`, or `None` if unparseable.
+const BUILD_VERSION: &str = env!("IVAR_BUILD_VERSION");
+
+/// The running build's version parsed into domain `Version`, or `None` if unparseable.
 pub fn current_version() -> Option<Version> {
-    Version::parse(env!("CARGO_PKG_VERSION"))
+    Version::parse(BUILD_VERSION)
+}
+
+/// Whether this binary was built from a local checkout rather than released.
+pub fn is_dev_build() -> bool {
+    BUILD_VERSION.contains("-dev+")
 }
 
 impl Notice {
