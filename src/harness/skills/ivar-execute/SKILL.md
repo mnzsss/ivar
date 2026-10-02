@@ -99,7 +99,7 @@ In goal mode, the coordinator MUST print clear evidence blocks to the transcript
 │    │      --report-json <path> --outcome <outcome>          │
 │    ├─ Goal mode STOP: hand delivery/integration to human    │
 │    ├─ Default mode branch on is_subfeature:                 │
-│    │    ├─ Subfeature: ivar feature integrate <feature>     │
+│    │    ├─ Subfeature: stop; parent session integrates      │
 │    │    └─ Root feature: Draft delivery via ivar-deliver    │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -220,13 +220,14 @@ Before completing the execution workflow or applying delivery / integration chan
        ```text
        Execution run finished with outcome: <outcome>.
        Status: <quoted output of ivar feature execute status <feature>>
-       To integrate this subfeature: ivar feature integrate <feature>
+       Integrate this subfeature from the parent session: ivar feature integrate <feature>
        To deliver this root feature: /ivar-deliver (or ivar feature deliver <feature> --preview)
        ```
    - **Default mode:**
      - Inspect the feature status from `ivar feature status <feature> --json` and check `is_subfeature`.
      - **Subfeature (`is_subfeature == true`):**
-       Run `ivar feature integrate <feature>` (or `ivar feature integrate <feature> --via pr` if integration via PR is configured / requested).
+       Do not integrate from this session: a child's session ends at `ivar feature execute finish`.
+       Print "Integrate from the parent session: `ivar feature integrate <feature>`" (add `--via pr` if integration via PR is configured / requested).
      - **Root feature (`is_subfeature == false`):**
        - **(a) Prompt delivery choice:**
          Ask the human to choose between:

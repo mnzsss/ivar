@@ -288,7 +288,10 @@ fn diagnose_orphan_worktrees(
             }
         };
         for entry in entries {
-            if is_integration_worktree(layout, repo.name(), &entry.path) {
+            if let Some(owner) = integration_staging_owner(layout, repo.name(), &entry.path) {
+                if integration_running(layout, &owner) {
+                    continue;
+                }
                 findings.push(Diagnosis {
                     code: "integrate.staging_stale",
                     what: format!(
@@ -298,8 +301,7 @@ fn diagnose_orphan_worktrees(
                         repo.name()
                     ),
                     fix: format!(
-                        "If no `ivar feature integrate` is running, run \
-                         `git --git-dir {bare} worktree remove --force {}`.",
+                        "Remove it with `git --git-dir {bare} worktree remove --force {}`.",
                         entry.path
                     ),
                 });
@@ -360,19 +362,34 @@ fn orphan_diagnosis(
     }
 }
 
-/// Local integration stages a detached candidate and, for rebase, a temporary
-/// source worktree under `<features>/<feature>/integration/<repo>/`.
-fn is_integration_worktree(layout: &Layout, repo: &RepoName, path: &Utf8Path) -> bool {
-    let Some(feature) = path
+/// The feature whose integration staging `path` is. Local integration
+/// stages a detached candidate and, for rebase, a temporary source worktree
+/// under `<features>/<feature>/integration/<repo>/`.
+fn integration_staging_owner(
+    layout: &Layout,
+    repo: &RepoName,
+    path: &Utf8Path,
+) -> Option<FeatureName> {
+    let feature = path
         .strip_prefix(layout.features_dir())
         .ok()
         .and_then(|relative| relative.iter().next())
-        .and_then(|name| FeatureName::new(name).ok())
-    else {
-        return false;
-    };
-    path == layout.integration_candidate(&feature, repo)
-        || path == layout.integration_source(&feature, repo)
+        .and_then(|name| FeatureName::new(name).ok())?;
+    (path == layout.integration_candidate(&feature, repo)
+        || path == layout.integration_source(&feature, repo))
+    .then_some(feature)
+}
+
+/// Whether an integrate of `child` into its parent is running now, so its
+/// staging is live rather than left behind.
+fn integration_running(layout: &Layout, child: &FeatureName) -> bool {
+    Feature::read(layout, child)
+        .ok()
+        .flatten()
+        .and_then(|feature| feature.parent)
+        .is_some_and(|parent| {
+            crate::action::feature::integrate::parent_integration_running(layout, &parent)
+        })
 }
 
 /// Every `(repo, branch)` a feature owns: its branch in each repo it promoted.

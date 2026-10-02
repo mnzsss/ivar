@@ -492,12 +492,10 @@ fn a_head_movement_after_the_pr_blocks_the_merge_with_match_head_commit() {
 
     // Rerun: the PR's recorded head no longer matches the source, so the
     // merge is refused via `--match-head-commit` — exactly like the real gh.
-    // The refused repo is reported as failed (exit 1, with the warning), and
-    // no receipt is recorded.
-    let rerun = json_gh_output(
-        &root,
-        &fake,
-        &[
+    // The refused repo fails the run (exit 2, ok:false), and no receipt is
+    // recorded.
+    let output = ivar_on_github(&root, &fake)
+        .args([
             "feature",
             "integrate",
             "child",
@@ -505,17 +503,20 @@ fn a_head_movement_after_the_pr_blocks_the_merge_with_match_head_commit() {
             "pr",
             "--strategy",
             "squash",
-        ],
-    );
-    assert_eq!(rerun["repos"][0]["status"], "failed");
+            "--json",
+        ])
+        .assert()
+        .code(2)
+        .get_output()
+        .stdout
+        .clone();
+    let rerun: serde_json::Value = serde_json::from_slice(&output).expect("valid json");
+    assert_eq!(rerun["ok"], false);
+    assert_eq!(rerun["code"], "integration.repo_failed");
     assert!(
-        rerun["repos"][0]["detail"]
-            .as_str()
-            .unwrap()
-            .contains("does not match head"),
+        rerun.to_string().contains("does not match head"),
         "was: {rerun}"
     );
-    assert_eq!(rerun["closed_integrated"], false);
 }
 
 /// `ivar` on the fake gh, accepting exit 0 or 1 (the close warning).

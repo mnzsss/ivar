@@ -910,3 +910,100 @@ fn a_failed_repo_is_resumable_while_a_successful_repo_stays_locked() {
         "the successful repo A must stay byte-for-byte locked"
     );
 }
+
+// -- interrupted after the parent moved ---------------------------------------
+
+#[test]
+fn the_receipt_is_persisted_before_the_parent_checks_run() {
+    // Only the parent worktree (branch `parent`) demands the receipt; the
+    // child and the detached candidate pass.
+    let (_guard, root) = seeded_child_hall(&[
+        r#"test "$(git branch --show-current)" != parent || grep -q integration_receipt ../../../features/child/feature.json"#,
+    ]);
+    let ctx = Ctx::new(root);
+
+    let report = integrate(&ctx, integrate_input("child")).unwrap();
+
+    assert_eq!(
+        report.value.repos[0].status,
+        RepoIntegrationStatus::Integrated
+    );
+}
+
+#[test]
+fn an_integrate_interrupted_after_the_parent_moved_resumes_at_verification() {
+    let (_guard, root) = seeded_child_hall(&["true"]);
+    let ctx = Ctx::new(root.clone());
+    let layout = Layout::at(&root);
+    let bare = layout.repo_bare(&api());
+    let parent_wt = layout.repo_worktree(&api(), &BranchName::new("parent").unwrap());
+    git(&parent_wt, &["merge", "--squash", "child"]);
+    git(
+        &parent_wt,
+        &["commit", "-m", "landed before the interruption"],
+    );
+    let moved = crate::git::System.revision_commit(&bare, "parent").unwrap();
+    let child = Feature::read(&layout, &FeatureName::new("child").unwrap())
+        .unwrap()
+        .unwrap();
+    let provisional = crate::domain::feature::IntegrationReceipt {
+        source_sha: crate::git::System.revision_commit(&bare, "child").unwrap(),
+        target_branch: BranchName::new("parent").unwrap(),
+        result_sha: moved.clone(),
+        via: IntegrationVia::Local,
+        strategy: IntegrationStrategy::Squash,
+        pr_url: None,
+        verification: VerificationEvidence {
+            command_fingerprint: verification::fingerprint(&["true".to_owned()]).unwrap(),
+            child: Vec::new(),
+            parent: vec![apply::parent_checks_pending()],
+            pr_checks: Vec::new(),
+            verified_at: rfc3339_now(),
+        },
+    };
+    persist_receipt(&layout, &child, &api(), provisional).unwrap();
+
+    let report = integrate(&ctx, integrate_input("child")).unwrap();
+
+    assert_eq!(report.value.repos[0].status, RepoIntegrationStatus::Reused);
+    assert!(report.value.closed_integrated);
+    assert_eq!(
+        crate::git::System.revision_commit(&bare, "parent").unwrap(),
+        moved,
+        "no second merge"
+    );
+}
+
+// -- the per-parent lock ------------------------------------------------------
+
+#[test]
+fn the_parent_lock_is_visible_while_it_is_held() {
+    let (_guard, root) = seeded_child_hall(&["true"]);
+    let layout = Layout::at(&root);
+    let parent = FeatureName::new("parent").unwrap();
+
+    let lock = parent_integration_lock(&layout, &parent).unwrap();
+    assert!(parent_integration_running(&layout, &parent));
+    drop(lock);
+    assert!(!parent_integration_running(&layout, &parent));
+}
+
+#[test]
+fn the_session_live_fix_points_at_the_parent_session() {
+    let (_guard, root) = seeded_child_hall(&["true"]);
+    let ctx = Ctx::new(root.clone());
+    let layout = Layout::at(&root);
+    fs::ensure_dir(
+        &layout
+            .feature_sessions_dir(&FeatureName::new("child").unwrap())
+            .join("sess-1"),
+    )
+    .unwrap();
+
+    let failure = integrate(&ctx, integrate_input("child")).unwrap_err();
+
+    assert_eq!(failure.code, "integration.session_live");
+    let fix = &failure.fix_actions[0].what;
+    assert!(fix.contains("ivar feature execute finish child"), "{fix}");
+    assert!(fix.contains("from the `parent` session"), "{fix}");
+}
