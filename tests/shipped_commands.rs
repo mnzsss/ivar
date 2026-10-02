@@ -1016,6 +1016,53 @@ fn subfeatures_starts_children_detached_with_real_plans() {
 }
 
 #[test]
+fn ivar_execute_skill_supports_explicit_feature_and_orchestrator_handoff() {
+    let execute = shipped("skills/ivar-execute/SKILL.md");
+
+    // Frontmatter argument-hint must take optional feature
+    assert!(
+        execute.contains("argument-hint: [feature] [plan-path] [--mode goal|default]"),
+        "ivar-execute must declare [feature] in argument-hint"
+    );
+
+    // Phase 1.1 feature resolution & plan default
+    assert!(
+        execute.contains("Resolve the target feature from `$ARGUMENTS`"),
+        "Phase 1.1 must resolve target feature from arguments with fallback"
+    );
+    assert!(
+        execute.contains("`.ivar/features/<feature>/plan.md`"),
+        "Phase 1.1 default plan must be relative to hall root"
+    );
+
+    // Phase 4.2 report path
+    assert!(
+        execute.contains(".tmp/<feature>-run-report.json"),
+        "Phase 4.2 report filename must include feature name"
+    );
+
+    // Phase 4.4 hand-off branching for child-session vs parent orchestrator
+    assert!(
+        execute.contains("If this session belongs to the parent"),
+        "Phase 4.4 must handle orchestrator returning control to ivar-subfeatures"
+    );
+    assert!(
+        execute.contains("Stop this session, then integrate from the parent session"),
+        "Phase 4.4 must retain stop instruction when session belongs to child"
+    );
+
+    // Recovery detached session startup
+    assert!(
+        execute.contains("Root feature driven by `ivar-subfeatures`"),
+        "Phase 4.4 must return a parent Wave 0 run to the orchestrator"
+    );
+    assert!(
+        execute.contains("ivar session start <feature> --detached"),
+        "Recovery must instruct orchestrator to start detached child session"
+    );
+}
+
+#[test]
 fn phase_transitions_offer_approve_and_continue_and_templates_match_execute() {
     for path in ["skills/ivar-plan/SKILL.md", "skills/ivar-execute/SKILL.md"] {
         assert!(

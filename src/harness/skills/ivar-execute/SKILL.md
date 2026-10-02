@@ -1,7 +1,7 @@
 ---
 name: ivar-execute
 description: Execute an approved feature plan wave by wave with subagent isolation, lightweight validation, dual-axis review barrier, and gated delivery.
-argument-hint: [plan-path] [--mode goal|default]
+argument-hint: [feature] [plan-path] [--mode goal|default]
 ---
 
 # ivar-execute
@@ -50,7 +50,7 @@ Print evidence to the transcript: each wave's validation output and result, each
 
 ## Phase 1: Preparation
 
-1. Resolve `$IVAR_FEATURE` and `$IVAR_SESSION_PATH`. The plan is `$ARGUMENTS` or `../../plan.md` relative to `$IVAR_SESSION_PATH`; parse `--mode <goal|default>`.
+1. Resolve the target feature from `$ARGUMENTS` (first positional non-path token), falling back to `$IVAR_FEATURE`. Resolve `<plan-path>` from arguments or default to `.ivar/features/<feature>/plan.md` (resolved from the hall root); parse `--mode <goal|default>`.
 2. Run `ivar feature status <feature> --json` and confirm the plan gate is approved; otherwise stop and ask for approval.
 3. Every wave in `plan.md` must declare lightweight validation commands (scoped tests, type checks, targeted linters). If one lacks them, stop: the plan must be updated and re-approved.
 4. Run `ivar feature execute start <feature> [--plan <plan-path>] [--mode <mode>]`. A run already in progress is resumed per "Recovery" below.
@@ -89,14 +89,17 @@ Process waves in plan order; never start Wave `K+1` before Wave `K` is checkpoin
 ## Phase 4: Finish and hand off
 
 1. Pick the outcome: `succeeded` (validation green, no blocking findings), `failed` (deferred failures or blocking findings left at the cap), or `blocked` (an unrecoverable blocker).
-2. Write the report to the session's `.tmp/ivar-run-report.json`. `ivar feature execute finish --print-schema` prints its shape: `summary`, `tasks` and `verification` are required; `deviations`, `blockers`, `follow_ups` and `agents` are optional. Capped findings go in `follow_ups`.
+2. Write the report to the session's `.tmp/<feature>-run-report.json`. `ivar feature execute finish --print-schema` prints its shape: `summary`, `tasks` and `verification` are required; `deviations`, `blockers`, `follow_ups` and `agents` are optional. Capped findings go in `follow_ups`.
 3. Close the run, then print `ivar feature execute status <feature>` verbatim:
    ```bash
    ivar feature execute finish <feature> --report-json <path> --outcome <succeeded|failed|blocked>
    ```
    Never integrate or deliver while a run is active.
 4. Hand off by `is_subfeature` from `ivar feature status <feature> --json`:
-   - **Subfeature:** stop. A child's session ends at `ivar feature execute finish`; the parent session integrates. Print "Stop this session, then integrate from the parent session: `ivar feature integrate <feature>`" (add `--via pr` when configured).
+   - **Subfeature:**
+     - If this session belongs to the parent (orchestrating a child from parent context): return control to the `ivar-subfeatures` loop (which stops the child session and integrates).
+     - If this session belongs to the child (`$IVAR_FEATURE` matches the target feature): stop. A child's session ends at `ivar feature execute finish`; the parent session integrates. Print "Stop this session, then integrate from the parent session: `ivar feature integrate <feature>`" (add `--via pr` when configured).
+   - **Root feature driven by `ivar-subfeatures`** (its Wave 0 run on the parent): return control to the `ivar-subfeatures` loop; it creates the children next.
    - **Root feature, goal mode:** stop and print the outcome, the quoted status, and "To deliver: /ivar-deliver". Do NOT run `ivar feature integrate` or `ivar feature deliver`.
    - **Root feature, default mode:** ask — **(a) Draft delivery** (default), **(b) Ready for review**, **(c) Cancel / defer**. Load the `ivar-deliver` skill (`/ivar-deliver`) and follow it end to end: preview with `ivar feature deliver <feature> --preview` (plus `--draft` for Draft delivery), show the preview and fingerprint `<fp>`, and apply with `ivar feature deliver <feature> --fingerprint <fp>` (same `--draft`) once the human confirms.
 
@@ -105,5 +108,5 @@ Process waves in plan order; never start Wave `K+1` before Wave `K` is checkpoin
 - **A usage limit or a dead coordinator:** run `ivar feature execute status <feature> --json`, find the last `wave <n>:` checkpoint, run `git status` in each promoted worktree, then `ivar feature execute start <feature> --resume` and continue at wave n+1. A plain `start` refuses with `execute.run_active`.
 - **Dead or stuck subagent:** run `git status` and `git diff` in its worktree; keep edits that match the packet, `git stash` the rest, and re-dispatch the same packet with a note on what already landed.
 - **Abandon the run:** `ivar feature execute interrupt <feature>`, or `ivar feature execute start <feature> --restart` to start over. Both are the human's call.
-- **No live session:** `execute start` needs one, and a subagent cannot open one. Stop and ask the human to run `/ivar-connect <feature>`.
+- **No live session:** `execute start` needs one. An orchestrating coordinator in a parent session runs `ivar session start <feature> --detached` itself; a standalone child session stops and asks the human to run `/ivar-connect <feature>`.
 - **CI fails after deliver:** `gh pr checks <pr>` shows the failing job. Fix on the feature branch (dispatch a subagent), commit, then run `/ivar-deliver` again: a new preview, a new fingerprint, apply. A reviewer's requested changes take the same path.
