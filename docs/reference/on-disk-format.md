@@ -44,7 +44,7 @@ half-understood state file is worse than no state file.
   .claude/skills/               local        derived materialised skills (Claude Code)
   .opencode/skills/             local        derived materialised skills (OpenCode)
   .omp/skills/                  local        derived materialised skills (OMP)
-  mcp.json                      local        derived MCP configuration (OMP root)
+  .omp/mcp.json                 local        derived MCP configuration (OMP)
 ```
 
 "Committed" means it belongs in your hall's git history and your teammates get it
@@ -79,7 +79,7 @@ committed.
 
 The `ivar-*.md` workflow commands under each provider's command directory
 (`.claude/commands/`, `.opencode/commands/`, `.omp/commands/`), MCP documents
-(`.mcp.json`, `opencode.json`, root `mcp.json`), and guard artifacts
+(`.mcp.json`, `opencode.json`, `.omp/mcp.json`), and guard artifacts
 (`.claude/settings.json`, `.opencode/plugins/ivar.js`, `.omp/hooks/pre/ivar.js`) are
 local derived state: `ivar init`, `ivar provider add`, and
 `ivar sync` recreate or repair them from the binary, so they are never

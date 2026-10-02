@@ -16,12 +16,10 @@
 //! (`gberaudo/opencode-mcp-figma`) writes. The writer returns, justified
 //! by `R-PERSIST` and `R-HONEST`.
 //!
-//! # Conflict detection
+//! # Replacement
 //!
-//! `write_entry` never overwrites an existing same-name entry (`R-CONFLICT`,
-//! `C-NO-OVERWRITE`). If the key already exists, the write is aborted with
-//! a `Failure::blocked` identifying the server name and store path. The
-//! user must remove it explicitly.
+//! An existing entry under `server_name` is replaced; every other entry is
+//! preserved.
 //!
 //! # Secrets
 //!
@@ -130,21 +128,6 @@ pub(crate) fn read_map_under(
     Ok(store.unwrap_or_default())
 }
 
-/// Whether the store contains any entry (including one with only
-/// `codeVerifier`, `{}`, `clientInfo`, etc.) under `server_name`.
-///
-/// `Ok(false)` for a missing file or a missing entry — those are not
-/// errors. An error means the file exists but could not be parsed.
-pub(crate) fn has_entry(server_name: &str) -> Result<bool, Failure> {
-    has_entry_under(&fs::data_dir()?, server_name)
-}
-
-/// [`has_entry`], parameterised on the data directory.
-pub(crate) fn has_entry_under(data_dir: &Utf8Path, server_name: &str) -> Result<bool, Failure> {
-    let map = read_map_under(data_dir)?;
-    Ok(map.contains_key(server_name))
-}
-
 /// Whether OpenCode's own store shows a completed token exchange for
 /// `server_name`.
 ///
@@ -230,11 +213,10 @@ pub(crate) fn credential_state_under(
 /// Write an `Entry` into the store under `server_name`, preserving every
 /// existing unrelated entry.
 ///
-/// # Conflict check
+/// # Replacement
 ///
-/// If `server_name` already exists in the store, this returns
-/// `Failure::blocked` (`R-CONFLICT`, `C-NO-OVERWRITE`). The entry is
-/// never overwritten — the user must remove it explicitly.
+/// An existing entry under `server_name` is replaced; every other entry is
+/// preserved.
 ///
 /// # Atomicity
 ///
@@ -248,21 +230,6 @@ pub(crate) fn write_entry_under(
 ) -> Result<(), Failure> {
     let path = store_path(data_dir);
     let mut map = read_map_under(data_dir)?;
-
-    if map.contains_key(server_name) {
-        return Err(Failure::blocked(
-            "opencode_auth.conflict",
-            format!("the store at {path} already has an entry for \"{server_name}\""),
-        )
-        .expected("no existing entry for this server name")
-        .actual("an entry already exists under this key")
-        .fix(FixAction::unsafe_(
-            "opencode_auth.remove_entry",
-            format!(
-                "Remove the \"{server_name}\" entry from {path} explicitly before re-authenticating."
-            ),
-        )));
-    }
 
     let store_entry = StoreEntry {
         server_url: entry.server_url.clone(),

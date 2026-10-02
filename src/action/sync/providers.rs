@@ -160,6 +160,15 @@ pub(crate) fn sync_mcp(
         Ok(change) => entries.push(Entry::new(provider.id(), label, change.into())),
         Err(error) => record_failure(entries, warnings, provider.id(), &label, error.into()),
     }
+
+    if let Some(legacy_file) = crate::providers::legacy_mcp_config(provider) {
+        let legacy = layout.root().join(legacy_file);
+        let label = format!("{legacy_file} MCP config");
+        match config::remove_hall_servers(&legacy, provider, manifest.name()) {
+            Ok(change) => entries.push(Entry::new(provider.id(), label, change.into())),
+            Err(error) => record_failure(entries, warnings, provider.id(), &label, error.into()),
+        }
+    }
 }
 
 /// Materialise or remove the provider's settings file (`.claude/settings.json`

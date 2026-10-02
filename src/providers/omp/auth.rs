@@ -12,6 +12,11 @@ use crate::infra::fs::{TempDir, write_sensitive_atomic};
 use crate::infra::oauth::Tokens;
 use crate::infra::proc::{self, Command};
 use crate::providers::{Credential, Provider, launch_contract};
+
+pub(crate) fn credential_id(materialised_name: &str) -> String {
+    format!("mcp_oauth_ivar:{materialised_name}")
+}
+
 pub(crate) fn credential_binding(server_url: &str) -> String {
     let omp_profile = std::env::var("OMP_PROFILE").ok();
     let pi_profile = std::env::var("PI_PROFILE").ok();
@@ -156,22 +161,23 @@ pub(crate) fn parse_import_result(stdout: &str, binding: &str) -> Result<(), Fai
     )))
 }
 
-pub(crate) fn install_credentials(_name: &str, credential: &Credential<'_>) -> Result<(), Failure> {
-    let binding = credential_binding(credential.server_url);
+fn token_command(id: &str) -> Command {
+    Command::new(launch_contract(Provider::Omp).binary)
+        .arg("token")
+        .arg(id)
+}
+
+pub(crate) fn install_credentials(name: &str, credential: &Credential<'_>) -> Result<(), Failure> {
+    let id = credential_id(name);
     let payload = credential_json(credential.tokens)?;
 
     let temp_dir = TempDir::new()?;
     let cred_path = temp_dir.path().join("credential.json");
     write_sensitive_atomic(&cred_path, payload.as_bytes())?;
 
-    // 1. Logout existing binding (idempotent reset)
-    let logout_cmd = logout_command(&binding);
-    let _logout_output = proc::capture(&logout_cmd)?;
-
-    // 2. Import new credential
-    let import_cmd = import_command(&cred_path, &binding);
-    let import_output = proc::capture(&import_cmd)?;
-
+    // `auth-broker import` onto an existing id reports success but keeps the old token.
+    proc::capture(&logout_command(&id))?;
+    let import_output = proc::capture(&import_command(&cred_path, &id))?;
     if import_output.code != Some(0) {
         return Err(Failure::failed(
             "omp_auth.import_command_failed",
@@ -186,31 +192,74 @@ pub(crate) fn install_credentials(_name: &str, credential: &Credential<'_>) -> R
             "Check OMP setup and run `ivar mcp auth` again.",
         )));
     }
+    parse_import_result(&import_output.stdout, &id)?;
 
-    parse_import_result(&import_output.stdout, &binding)
+    // A leftover URL-keyed credential is omp's fallback when the per-hall id is missing.
+    let legacy_binding = credential_binding(credential.server_url);
+    proc::capture(&logout_command(&legacy_binding))?;
+
+    let token_output = proc::capture(&token_command(&id))?;
+    verify_installed_token(&token_output, &credential.tokens.access_token, &id)?;
+
+    let legacy_output = proc::capture(&token_command(&legacy_binding))?;
+    verify_legacy_binding_removed(&legacy_output, &legacy_binding)
+}
+
+pub(crate) fn verify_installed_token(
+    output: &proc::Output,
+    expected_access: &str,
+    id: &str,
+) -> Result<(), Failure> {
+    verify_result_from_output(output, id)?;
+    if output.stdout.trim() == expected_access {
+        return Ok(());
+    }
+    Err(Failure::failed(
+        "omp_auth.stale_token",
+        format!("`omp token {id}` returned a different token than the one just imported"),
+    )
+    .expected("the access token just imported")
+    .actual("another access token")
+    .fix(FixAction::safe(
+        "mcp.retry_auth",
+        "Run `ivar mcp auth` again to replace the credential.",
+    )))
+}
+
+pub(crate) fn verify_legacy_binding_removed(
+    output: &proc::Output,
+    binding: &str,
+) -> Result<(), Failure> {
+    if output.code != Some(0) || output.stdout.trim().is_empty() {
+        return Ok(());
+    }
+    Err(Failure::failed(
+        "omp_auth.legacy_binding_remains",
+        format!("omp still holds the shared credential `{binding}` after logout"),
+    )
+    .expected(format!("no credential stored under `{binding}`"))
+    .actual("a stored credential")
+    .fix(FixAction::safe(
+        "omp_auth.logout_legacy_binding",
+        format!("Run `omp auth-broker logout '{binding}'`, then `ivar mcp auth` again."),
+    )))
 }
 
 /// Whether omp already holds a usable token for this server.
 ///
-/// omp keys its store by MCP endpoint, so the server URL is the lookup key —
-/// the materialised name never enters it. A non-zero exit or empty stdout is
-/// "no credential", not an error: the caller is asking whether one exists,
-/// and "no" is an answer.
-pub(crate) fn has_entry(server_url: &str) -> bool {
-    let binding = credential_binding(server_url);
-    let binary = launch_contract(Provider::Omp).binary;
-    let cmd = Command::new(binary).arg("token").arg(&binding);
-
-    proc::capture(&cmd).is_ok_and(|out| out.code == Some(0) && !out.stdout.trim().is_empty())
+/// omp is keyed by the per-hall credential id that `.omp/mcp.json` declares for
+/// the materialised name. A non-zero exit or empty stdout is "no credential",
+/// not an error: the caller is asking whether one exists, and "no" is an
+/// answer.
+pub(crate) fn has_entry(name: &str) -> bool {
+    proc::capture(&token_command(&credential_id(name)))
+        .is_ok_and(|out| out.code == Some(0) && !out.stdout.trim().is_empty())
 }
 
-pub(crate) fn verify_authenticated(server_url: &str) -> Result<(), Failure> {
-    let binding = credential_binding(server_url);
-    let binary = launch_contract(Provider::Omp).binary;
-    let cmd = Command::new(binary).arg("token").arg(&binding);
-
-    let output = proc::capture(&cmd)?;
-    verify_result_from_output(&output, &binding)
+pub(crate) fn verify_authenticated(name: &str) -> Result<(), Failure> {
+    let id = credential_id(name);
+    let output = proc::capture(&token_command(&id))?;
+    verify_result_from_output(&output, &id)
 }
 
 pub(crate) fn verify_result_from_output(

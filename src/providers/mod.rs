@@ -105,6 +105,16 @@ pub fn mcp_root_key(provider: Provider) -> &'static str {
     }
 }
 
+/// A hall-root MCP file the provider also reads, from which sync removes this
+/// hall's servers.
+#[must_use]
+pub fn legacy_mcp_config(provider: Provider) -> Option<&'static str> {
+    match provider {
+        Provider::Omp => Some(omp::mcp::LEGACY_ROOT_CONFIG),
+        Provider::ClaudeCode | Provider::OpenCode => None,
+    }
+}
+
 /// Renders a single MCP server definition into provider-native JSON shape.
 ///
 /// `transport` is the canonical interpretation of the manifest's `type`,
@@ -247,29 +257,6 @@ pub fn install_credentials(
     }
 }
 
-/// Whether an existing entry for `name` would be overwritten.
-///
-/// `server_url` is what `omp` keys its store by — it stores credentials per
-/// MCP endpoint, not per name — and is `None` for a provider that needs none.
-/// Claude Code keeps no store Ivar can inspect, so it never reports a
-/// conflict: its own login command owns that decision.
-///
-/// # Errors
-///
-/// Returns [`Failure`] if the provider's credential store cannot be
-/// read.
-pub fn has_credentials(
-    provider: Provider,
-    name: &str,
-    server_url: Option<&str>,
-) -> Result<bool, Failure> {
-    match provider {
-        Provider::ClaudeCode => Ok(false),
-        Provider::OpenCode => opencode::auth::has_entry(name),
-        Provider::Omp => Ok(server_url.is_some_and(omp::auth::has_entry)),
-    }
-}
-
 /// Inspect the credential state for a given provider × server name × URL tuple.
 #[must_use]
 pub fn credential_state(provider: Provider, name: &str, server_url: &str) -> CredentialState {
@@ -290,7 +277,7 @@ pub fn credential_state(provider: Provider, name: &str, server_url: &str) -> Cre
             Err(_) => CredentialState::Unknown,
         },
         Provider::Omp => {
-            if omp::auth::has_entry(server_url) {
+            if omp::auth::has_entry(name) {
                 CredentialState::Authenticated
             } else {
                 CredentialState::Missing
@@ -360,33 +347,12 @@ pub fn login_subcommand(provider: Provider) -> Option<[&'static str; 2]> {
 ///
 /// # Errors
 ///
-/// Returns [`Failure`] if `server_url` is required but missing, or
-/// the provider's own verification fails.
-pub fn verify_authenticated(
-    provider: Provider,
-    name: &str,
-    server_url: Option<&str>,
-) -> Result<(), Failure> {
+/// Returns [`Failure`] if the provider's own verification fails.
+pub fn verify_authenticated(provider: Provider, name: &str) -> Result<(), Failure> {
     match provider {
         Provider::ClaudeCode => Ok(()),
         Provider::OpenCode => opencode::auth::verify_authenticated(name),
-        Provider::Omp => {
-            let Some(server_url) = server_url else {
-                return Err(Failure::blocked(
-                    "omp_auth.missing_server_url",
-                    format!(
-                        "cannot verify OMP authentication for MCP server `{name}` without a server URL"
-                    ),
-                )
-                .expected("a server URL for OMP credential binding lookup")
-                .actual("no server URL provided")
-                .fix(FixAction::safe(
-                    "mcp.check_config",
-                    "Configure a `url` for the MCP server before authenticating with OMP.",
-                )));
-            };
-            omp::auth::verify_authenticated(server_url)
-        }
+        Provider::Omp => omp::auth::verify_authenticated(name),
     }
 }
 

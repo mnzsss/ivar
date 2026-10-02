@@ -403,7 +403,8 @@ fn the_hall_root_protects_mcp_config_opencode_node_modules_and_env() {
     crate::infra::fs::ensure_dir(&view).unwrap();
     crate::infra::fs::ensure_dir(&root.join(".opencode/node_modules/dep")).unwrap();
     crate::infra::fs::ensure_dir(&root.join(".opencode/commands")).unwrap();
-    for file in [".mcp.json", "mcp.json", "opencode.json", ".env"] {
+    crate::infra::fs::ensure_dir(&root.join(".omp")).unwrap();
+    for file in [".mcp.json", ".omp/mcp.json", "opencode.json", ".env"] {
         crate::infra::fs::write_text(&root.join(file), "").unwrap();
     }
 
@@ -413,7 +414,7 @@ fn the_hall_root_protects_mcp_config_opencode_node_modules_and_env() {
 
     for protected in [
         ".mcp.json",
-        "mcp.json",
+        ".omp/mcp.json",
         "opencode.json",
         ".env",
         ".opencode/node_modules",

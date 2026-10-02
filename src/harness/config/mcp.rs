@@ -111,6 +111,48 @@ pub fn remove_mcp(path: &Utf8Path, provider: Provider) -> Result<Change, Error> 
     doc::finish_removal(path, is_empty, &doc)
 }
 
+/// Take this hall's servers — the `mcpServers` entries named `<hall>-…` —
+/// out of the config at `path`, leaving every server the user wrote.
+///
+/// An emptied `mcpServers` key is dropped, and the file is deleted when
+/// nothing else is left. Absent file, non-object file, or no matching
+/// server is [`Change::Unchanged`], as in [`remove_mcp`].
+///
+/// # Errors
+///
+/// Returns [`Error`] if the existing config cannot be parsed as JSON or the
+/// remaining document cannot be written.
+pub fn remove_hall_servers(
+    path: &Utf8Path,
+    provider: Provider,
+    hall: &HallName,
+) -> Result<Change, Error> {
+    let (existing, _) = doc::read_doc(path)?;
+    let Some(mut doc) = existing else {
+        return Ok(Change::Unchanged);
+    };
+    let Some(object) = doc.as_object_mut() else {
+        return Ok(Change::Unchanged);
+    };
+    let root_key = providers::mcp_root_key(provider);
+    let Some(servers) = object.get_mut(root_key).and_then(|v| v.as_object_mut()) else {
+        return Ok(Change::Unchanged);
+    };
+
+    let prefix = format!("{hall}-");
+    let before = servers.len();
+    servers.retain(|name, _| !name.starts_with(&prefix));
+    if servers.len() == before {
+        return Ok(Change::Unchanged);
+    }
+    if servers.is_empty() {
+        object.remove(root_key);
+    }
+    let is_empty = object.is_empty();
+
+    doc::finish_removal(path, is_empty, &doc)
+}
+
 /// The full document `ivar` wants for `provider`: its `mcp` key holding
 /// `servers`, plus OpenCode's `$schema`. Used only when the file is absent —
 /// an existing file is merged key-by-key instead ([`materialise_mcp`]).

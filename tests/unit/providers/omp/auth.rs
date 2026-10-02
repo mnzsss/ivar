@@ -10,7 +10,8 @@ use crate::infra::fs::{TempDir, write_sensitive_atomic};
 use crate::infra::oauth::Tokens;
 use crate::infra::proc::Output;
 use crate::providers::omp::auth::{
-    credential_binding_from, credential_json, import_command, logout_command, parse_import_result,
+    credential_binding_from, credential_id, credential_json, import_command, logout_command,
+    parse_import_result, verify_installed_token, verify_legacy_binding_removed,
     verify_result_from_output,
 };
 
@@ -274,4 +275,82 @@ fn token_value_in_stdout_does_not_leak_into_verify_failure() {
         !rendered_actual.contains(secret_token),
         "token leaked into actual: {rendered_actual}"
     );
+}
+
+#[test]
+fn credential_id_is_per_hall_and_outside_the_reserved_profile_prefix() {
+    let id = credential_id("acme-linear");
+    assert_eq!(id, "mcp_oauth_ivar:acme-linear");
+    assert!(id.starts_with("mcp_oauth_"));
+    assert!(!id.starts_with("mcp_oauth:profile:"));
+}
+
+#[test]
+fn logout_then_import_target_the_per_hall_credential_id() {
+    let id = credential_id("acme-linear");
+    let path = camino::Utf8Path::new("/tmp/cred.json");
+
+    assert_eq!(
+        [
+            logout_command(&id).display(),
+            import_command(path, &id).display()
+        ],
+        [
+            "omp auth-broker logout --provider mcp_oauth_ivar:acme-linear --json".to_owned(),
+            "omp auth-broker import /tmp/cred.json --provider mcp_oauth_ivar:acme-linear --json"
+                .to_owned(),
+        ]
+    );
+}
+
+#[test]
+fn installed_token_must_be_the_one_just_written() {
+    let id = "mcp_oauth_ivar:acme-linear";
+    let stale = Output {
+        code: Some(0),
+        stdout: "old-access-token\n".to_owned(),
+        stderr: String::new(),
+    };
+
+    let err = verify_installed_token(&stale, "new-access-token", id).unwrap_err();
+
+    assert_eq!(err.code, "omp_auth.stale_token");
+    let rendered = format!("{err:?}{err}");
+    assert!(!rendered.contains("old-access-token"));
+    assert!(!rendered.contains("new-access-token"));
+
+    let fresh = Output {
+        code: Some(0),
+        stdout: "new-access-token\n".to_owned(),
+        stderr: String::new(),
+    };
+    assert!(verify_installed_token(&fresh, "new-access-token", id).is_ok());
+}
+
+#[test]
+fn surviving_legacy_binding_fails_without_leaking_the_token() {
+    let binding = "mcp_oauth:profile:default:https://mcp.linear.app/mcp";
+    let survivor = Output {
+        code: Some(0),
+        stdout: "tok\n".to_owned(),
+        stderr: String::new(),
+    };
+
+    let err = verify_legacy_binding_removed(&survivor, binding).unwrap_err();
+
+    assert_eq!(err.code, "omp_auth.legacy_binding_remains");
+    let rendered = format!("{err:?}{err}");
+    assert!(rendered.contains(binding));
+    assert!(!rendered.contains("tok"));
+}
+
+#[test]
+fn absent_legacy_binding_passes() {
+    let missing = Output {
+        code: Some(1),
+        stdout: String::new(),
+        stderr: String::new(),
+    };
+
+    assert!(verify_legacy_binding_removed(&missing, "mcp_oauth:profile:default:u").is_ok());
 }

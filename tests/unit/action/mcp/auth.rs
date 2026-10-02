@@ -307,22 +307,6 @@ fn provider_order_preserves_order_if_claude_code_absent() {
 }
 
 #[test]
-fn write_human_for_skipped_provider_run() {
-    let run = ProviderRun {
-        provider: Provider::OpenCode,
-        preregistration: Preregistration::NotNeeded,
-        command: String::new(),
-        auth_method: AuthMethod::Skipped,
-        authenticated: true,
-        error: None,
-    };
-    let mut buf = Vec::new();
-    run.write_human("linear", &mut buf).unwrap();
-    let output = String::from_utf8(buf).unwrap();
-    assert!(output.contains("[opencode] `linear` already authenticated — skipped."));
-}
-
-#[test]
 fn dropped_grants_warns_for_previously_authenticated_provider_now_missing() {
     let runs = vec![
         ProviderRun {

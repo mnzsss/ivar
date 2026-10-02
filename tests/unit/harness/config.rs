@@ -389,13 +389,29 @@ fn removing_mcp_when_there_is_nothing_to_remove_is_unchanged() {
 // -- materialise_mcp: OMP -----------------------------------------------
 
 #[test]
-fn omp_writes_local_and_http_servers_to_a_hall_root_mcp_document() {
+fn omp_config_is_written_under_the_omp_directory_even_when_it_is_missing() {
+    let (_guard, dir) = utf8_temp_dir();
+    let mcp_path = dir.join(Provider::Omp.mcp_config_path());
+    let servers = vec![McpServerDef::new("linear", "http").url("https://mcp.linear.app/mcp")];
+
+    materialise_mcp(&mcp_path, Provider::Omp, &servers, &hall()).unwrap();
+
+    let parsed: serde_json::Value =
+        serde_json::from_str(&fs::read_text(&dir.join(".omp/mcp.json")).unwrap().unwrap()).unwrap();
+    assert_eq!(
+        parsed.pointer("/mcpServers/acme-linear/auth/credentialId"),
+        Some(&serde_json::json!("mcp_oauth_ivar:acme-linear"))
+    );
+}
+
+#[test]
+fn omp_writes_local_and_http_servers_to_the_omp_mcp_document() {
     let (_guard, dir) = utf8_temp_dir();
     let mcp_path = dir.join(Provider::Omp.mcp_config_path());
     assert_eq!(
         Provider::Omp.mcp_config_path(),
-        "mcp.json",
-        "OMP reads its servers from mcp.json at the hall root"
+        ".omp/mcp.json",
+        "OMP reads its servers from .omp/mcp.json"
     );
 
     let servers = vec![

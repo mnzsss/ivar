@@ -129,7 +129,8 @@ fn omp_renders_http_server_preserving_query_string_verbatim() {
         rendered,
         serde_json::json!({
             "type": "http",
-            "url": exact_url
+            "url": exact_url,
+            "auth": { "type": "oauth", "credentialId": "mcp_oauth_ivar:acme-remote-http" }
         })
     );
 }
