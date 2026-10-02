@@ -307,15 +307,6 @@ fn provider_order_preserves_order_if_claude_code_absent() {
 }
 
 #[test]
-fn every_auth_method_is_an_attempt_never_a_skip() {
-    for method in [AuthMethod::ProviderCommand, AuthMethod::InternalOAuthFlow] {
-        match method {
-            AuthMethod::ProviderCommand | AuthMethod::InternalOAuthFlow => {}
-        }
-    }
-}
-
-#[test]
 fn dropped_grants_warns_for_previously_authenticated_provider_now_missing() {
     let runs = vec![
         ProviderRun {

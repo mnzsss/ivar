@@ -31,10 +31,11 @@
 //!    `.ivar/secrets/mcp.env`. Every other combination (a different provider, a
 //!    server with no `url`, a host Figma never gated) is
 //!    [`Preregistration::NotNeeded`].
-//! 3. **Dispatch.** For OpenCode + Figma hosts, Ivar performs the OAuth
-//!    authorization-code flow itself ([`dispatch::internal_flow`]): conflict
-//!    check, endpoint discovery, URL print, callback listener, code exchange,
-//!    and credential-store write. For Claude Code and non-Figma servers,
+//! 3. **Dispatch.** For omp always, and for OpenCode on Figma hosts, Ivar
+//!    performs the OAuth authorization-code flow itself
+//!    ([`dispatch::internal_flow`]): endpoint discovery, URL print, callback
+//!    listener, code exchange, and a credential-store write that replaces any
+//!    existing entry. For Claude Code and OpenCode on non-Figma servers,
 //!    the harness's own login command — `claude mcp login <name>` or
 //!    `opencode mcp auth <name>` — runs through [`proc::inherit`].
 //!    `inherit` is not optional for the provider-owned path: the command

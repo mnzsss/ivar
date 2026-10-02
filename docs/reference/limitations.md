@@ -164,7 +164,9 @@ hook protocol:
   - **OMP:** OMP provides no live status command; `ivar mcp status` (with or without `--live`) determines credentials by running `omp token` and marks the source as `local`.
   - **Doctor diagnostic:** `ivar doctor` diagnoses missing MCP credentials using offline local store checks only (it never runs `claude mcp list` or `opencode mcp list`); for OMP, that local check runs `omp token`.
   - **Multi-provider authorization (`--all-providers`):** `ivar mcp auth --all-providers` runs authentication for each available provider independently, including providers that are already authenticated; it never copies or shares tokens between providers (one grant each). After completing all legs, ivar performs a post-run dropped-grant check (`mcp.grant_dropped`) when two or more providers ran, warning if a previously granted leg lost its authorization due to subsequent provider logins.
-  - **Credential replacement:** `ivar mcp auth` always replaces an existing credential; there is no conflict refusal.
+  - **Credential replacement:** `ivar mcp auth` always replaces an existing credential.
+  - **OMP upgrade:** after upgrading ivar, omp users run `ivar mcp auth <server> --provider omp` once in each hall; until then omp reports the server as missing.
+
 ## What protects the default branch
 
 Protection is layered, and the layers are not equally strong. Each one below
