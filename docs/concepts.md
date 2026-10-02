@@ -146,6 +146,7 @@ command), so a child is never silently cut from the default branch. The
 shipped `ivar-subfeatures` skill orchestrates the parallel loop with subagents
 from the parent session — plans each child, executes goal-mode runs, integrates
 leaves as they finish, and prepares the parent delivery preview once.
+
 Each repo's integration is recorded in a **receipt** — source SHA, parent
 branch, result SHA, policy, PR URL, and the verification evidence — the moment
 it lands. Multi-repo integration is partial and resumable, never atomic: a
