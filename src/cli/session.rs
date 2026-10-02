@@ -18,7 +18,8 @@ pub enum SessionCommand {
     /// Promote a discovery session to a feature session, keeping its name.
     Convert(SessionConvertArgs),
     /// Stop a session — tear down its view dir and end any running harness.
-    /// Omitting the session stops *every* session in the hall.
+    /// Omitting the session stops `$IVAR_SESSION_ID`; `--all` stops every
+    /// session in the hall.
     Stop(SessionStopArgs),
     /// Remove dead sessions: view dirs that exist but hold no readable
     /// `state.json`. A session with a readable record is never touched.
@@ -94,12 +95,14 @@ pub struct SessionConvertArgs {
 /// Arguments for `ivar session stop`.
 #[derive(Debug, Args)]
 pub struct SessionStopArgs {
-    /// The session to stop — its id, or a unique prefix of one.
-    ///
-    /// Omitting it stops **every** session in the hall: every discovery
-    /// session and every feature's sessions, not just this feature's and not
-    /// just the most recent. Pass `$IVAR_SESSION_ID` to stop only your own.
+    /// The session to stop — its id, or a unique prefix of one. Defaults to
+    /// `$IVAR_SESSION_ID`; with neither, the command stops nothing and fails.
     pub session: Option<String>,
+
+    /// Stop every session in the hall: every discovery session and every
+    /// feature's sessions.
+    #[arg(long, conflicts_with = "session")]
+    pub all: bool,
 }
 
 /// Arguments for `ivar session relay`.
@@ -175,8 +178,8 @@ impl From<SessionConvertArgs> for session_conversion::ConvertInput {
 
 impl From<SessionStopArgs> for session_stop::StopInput {
     fn from(args: SessionStopArgs) -> Self {
-        let SessionStopArgs { session } = args;
-        Self { session }
+        let SessionStopArgs { session, all } = args;
+        Self { session, all }
     }
 }
 

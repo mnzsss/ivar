@@ -70,7 +70,8 @@ fn the_maintainer_release_smoke_passes_for_every_provider() {
         assert_eq!(session["provider"], provider, "{session}");
         let view_dir = Utf8PathBuf::from(session["view_dir"].as_str().unwrap());
         assert!(view_dir.is_dir(), "{provider}: no view dir");
-        let stopped = run_ok(&root, &["session", "stop"]);
+        let id = session["session_id"].as_str().unwrap();
+        let stopped = run_ok(&root, &["session", "stop", id]);
         assert_eq!(stopped["stopped"], 1, "{provider}: {stopped}");
         assert!(!view_dir.exists(), "{provider}: view dir survived stop");
 

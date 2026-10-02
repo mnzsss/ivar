@@ -85,6 +85,7 @@ fn hall_with_promoted_feature_on(branch: Option<&str>) -> (tempfile::TempDir, Ut
 fn delete_input(name: &str) -> DeleteInput {
     DeleteInput {
         name: name.to_owned(),
+        force: false,
     }
 }
 
@@ -239,7 +240,11 @@ fn delete_propagates_a_worktree_existence_check_failure() {
     )
     .unwrap();
 
-    let result = delete(&ctx, delete_input("checkout"));
+    let forced = DeleteInput {
+        force: true,
+        ..delete_input("checkout")
+    };
+    let result = delete(&ctx, forced);
 
     fs_err::set_permissions(
         repo_dir.as_std_path(),
@@ -306,6 +311,7 @@ fn delete_removes_the_features_working_documents() {
         &ctx,
         DeleteInput {
             name: "checkout".to_owned(),
+            force: false,
         },
     )
     .unwrap();
@@ -395,4 +401,25 @@ fn delete_keeps_the_record_when_a_worktree_cannot_be_removed() {
             .unwrap()
             .is_some()
     );
+}
+
+#[test]
+fn delete_refuses_an_untracked_file_in_a_worktree_unless_forced() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let ctx = Ctx::new(root.clone());
+    let draft = root.join(".ivar/repos/api/checkout/draft.md");
+    fs::write_text(&draft, "unsaved\n").unwrap();
+
+    let failure = delete(&ctx, delete_input("checkout")).unwrap_err();
+
+    assert_eq!(failure.code, "feature.delete_unsaved_work");
+    assert!(
+        fs::is_file(&draft).unwrap(),
+        "a refused delete kept the draft"
+    );
+    let forced = DeleteInput {
+        force: true,
+        ..delete_input("checkout")
+    };
+    assert!(delete(&ctx, forced).unwrap().value.feature_removed);
 }

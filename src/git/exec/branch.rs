@@ -114,6 +114,29 @@ pub(crate) fn commits_ahead(git_dir: &Utf8Path, base: &str, branch: &str) -> Res
     Ok(count)
 }
 
+/// Whether `commit` (a full sha) lies on `from`'s first-parent history —
+/// `git rev-list --first-parent --parents <commit>..<from>` ends at a commit
+/// whose first parent is `commit`. A branch merged into `from` sits on a
+/// second parent instead. `false` when `from` is `commit` itself or behind it.
+pub(crate) fn first_parent_reaches(
+    git_dir: &Utf8Path,
+    from: &str,
+    commit: &str,
+) -> Result<bool, Error> {
+    let stdout = run(&git()
+        .arg("--git-dir")
+        .arg(git_dir.as_str())
+        .arg("rev-list")
+        .arg("--first-parent")
+        .arg("--parents")
+        .arg(format!("{commit}..{from}")))?;
+    let first_parent = stdout
+        .lines()
+        .last()
+        .and_then(|line| line.split_whitespace().nth(1));
+    Ok(first_parent == Some(commit))
+}
+
 /// `git log --format=%h%x00%B%x1e <base>..<branch>` — each commit's short
 /// SHA and full message, newest first.
 pub(crate) fn commit_messages(

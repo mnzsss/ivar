@@ -16,8 +16,7 @@ use crate::store::manifest::{Manifest, Providers, Repo};
 use crate::test_support::{git, hall_root, seeded_repo};
 
 /// A hall with one synced repo and one promoted feature (`checkout`) —
-/// its branch is off `main` with no new commits, so it is immediately
-/// merged.
+/// its branch is off `main` with no new commits.
 fn hall_with_promoted_feature() -> (tempfile::TempDir, Utf8PathBuf) {
     let (guard, root) = hall_root();
     let ctx = Ctx::new(root.clone());
@@ -133,6 +132,49 @@ fn hall_with_promoted_feature_based_on_an_open_base() -> (tempfile::TempDir, Utf
     (guard, root)
 }
 
+/// Commit on `checkout` and merge it into `base` as a second parent, the way
+/// a pull request lands.
+fn land_checkout_into(root: &Utf8PathBuf, base: &str) {
+    let worktree = root.join(".ivar/repos/api/checkout");
+    std::fs::write(worktree.join("landed.md"), "landed\n").unwrap();
+    git(&worktree, &["add", "landed.md"]);
+    git(&worktree, &["commit", "-m", "landed"]);
+    let bare = root.join(".ivar/repos/api/.bare");
+    let rev_parse = |rev: &str| run_in(&bare, &["rev-parse", rev]);
+    let merge = run_in(
+        &bare,
+        &[
+            "-c",
+            "user.name=ivar tests",
+            "-c",
+            "user.email=tests@ivar.invalid",
+            "commit-tree",
+            &rev_parse("checkout^{tree}"),
+            "-p",
+            &rev_parse(base),
+            "-p",
+            &rev_parse("checkout"),
+            "-m",
+            "land",
+        ],
+    );
+    run_in(
+        &bare,
+        &["update-ref", &format!("refs/heads/{base}"), &merge],
+    );
+}
+
+fn run_in(git_dir: &Utf8PathBuf, args: &[&str]) -> String {
+    let output = std::process::Command::new("git")
+        .arg("--git-dir")
+        .arg(git_dir.as_str())
+        .args(args)
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "git {args:?}: {output:?}");
+    String::from_utf8(output.stdout).unwrap().trim().to_owned()
+}
+
 fn feature_dir(root: &Utf8PathBuf) -> Utf8PathBuf {
     root.join(".ivar/features/checkout")
 }
@@ -141,6 +183,7 @@ fn feature_dir(root: &Utf8PathBuf) -> Utf8PathBuf {
 fn prune_deletes_a_feature_whose_branch_is_merged() {
     let (_guard, root) = hall_with_promoted_feature();
     let ctx = Ctx::new(root.clone());
+    land_checkout_into(&root, "main");
 
     let report = prune(&ctx).unwrap();
 
@@ -239,6 +282,7 @@ fn prune_keeps_a_feature_whose_clone_is_missing() {
 fn prune_deletes_a_feature_merged_into_its_still_open_base() {
     let (_guard, root) = hall_with_promoted_feature_based_on_an_open_base();
     let ctx = Ctx::new(root.clone());
+    land_checkout_into(&root, "develop");
 
     let report = prune(&ctx).unwrap();
 
@@ -268,4 +312,22 @@ fn the_human_surface_names_pruned_and_kept() {
         String::from_utf8(out).unwrap(),
         "Pruned feature `checkout`.\nKept `checkout` — has a live session.\n"
     );
+}
+
+#[test]
+fn prune_keeps_a_feature_with_no_commits_of_its_own() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let ctx = Ctx::new(root.clone());
+
+    let report = prune(&ctx).unwrap();
+
+    assert!(report.value.pruned.is_empty());
+    assert!(
+        report.value.kept[0]
+            .reason
+            .contains("no commits of its own"),
+        "reason was: {}",
+        report.value.kept[0].reason
+    );
+    assert!(feature_dir(&root).join("feature.json").exists());
 }

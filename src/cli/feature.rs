@@ -438,6 +438,10 @@ pub struct FeatureCloseArgs {
 pub struct FeatureDeleteArgs {
     /// The feature to delete.
     pub name: Option<String>,
+    /// Delete even with a live session or uncommitted or untracked changes
+    /// in a promoted worktree, discarding them.
+    #[arg(long)]
+    pub force: bool,
 }
 
 /// Arguments for `ivar feature rebase`.
@@ -791,9 +795,10 @@ impl From<FeatureCloseArgs> for close::CloseInput {
 
 impl From<FeatureDeleteArgs> for delete::DeleteInput {
     fn from(args: FeatureDeleteArgs) -> Self {
-        let FeatureDeleteArgs { name } = args;
+        let FeatureDeleteArgs { name, force } = args;
         Self {
             name: name.unwrap_or_default(),
+            force,
         }
     }
 }

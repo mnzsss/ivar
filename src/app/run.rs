@@ -469,7 +469,13 @@ pub fn run(cli: Cli) -> ExitCode {
             },
             FeatureCommand::Delete(args) => match args.name {
                 Some(name) => respond(
-                    delete::delete(&ctx, delete::DeleteInput { name }),
+                    delete::delete(
+                        &ctx,
+                        delete::DeleteInput {
+                            name,
+                            force: args.force,
+                        },
+                    ),
                     json,
                     &mut stdout,
                     &mut stderr,
@@ -477,7 +483,13 @@ pub fn run(cli: Cli) -> ExitCode {
                 None => match resolve_multi_features(&ctx, None, "Select features to delete") {
                     Ok(targets) => {
                         let items = run_feature_batch(&targets, 4, |f| {
-                            delete::delete(&ctx, delete::DeleteInput { name: f.to_owned() })
+                            delete::delete(
+                                &ctx,
+                                delete::DeleteInput {
+                                    name: f.to_owned(),
+                                    force: args.force,
+                                },
+                            )
                         });
                         respond_batch(items, json, &mut stdout, &mut stderr)
                     }
@@ -598,12 +610,16 @@ pub fn run(cli: Cli) -> ExitCode {
                 &mut stdout,
                 &mut stderr,
             ),
-            SessionCommand::Stop(args) => respond(
-                session_stop::stop(&ctx, &args.into()),
-                json,
-                &mut stdout,
-                &mut stderr,
-            ),
+            SessionCommand::Stop(args) => {
+                let mut input: session_stop::StopInput = args.into();
+                input.session = input.session.or_else(|| session_id.clone());
+                respond(
+                    session_stop::stop(&ctx, &input),
+                    json,
+                    &mut stdout,
+                    &mut stderr,
+                )
+            }
             SessionCommand::Prune => {
                 respond(session_prune::prune(&ctx), json, &mut stdout, &mut stderr)
             }

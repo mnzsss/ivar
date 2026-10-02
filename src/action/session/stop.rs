@@ -1,17 +1,19 @@
-//! `ivar session stop [session]` — end a session by removing its View Dir.
+//! `ivar session stop [session] [--all]` — end a session by removing its View Dir.
 //!
 //! Liveness is a filesystem fact: a session is live while its View Dir exists.
-//! Removing the View Dir marks it stopped. Calling `stop` on an already-stopped
-//! session (View Dir already gone) is a no-op.
+//! Removing the View Dir marks it stopped. Stopping every session takes an
+//! explicit `--all`; a session id that matches nothing is an error.
 
 use std::io;
 
-use camino::Utf8PathBuf;
 use serde::Serialize;
 
 use crate::action::Ctx;
-use crate::error::{Outcome, Report, WriteHuman};
+use crate::action::discovery;
+use crate::domain::session::SessionRef;
+use crate::error::{Failure, FixAction, Outcome, Report, Warning, WriteHuman};
 use crate::infra::fs;
+use crate::store::layout::Layout;
 
 use super::super::discover_hall;
 use super::lookup;
@@ -19,9 +21,11 @@ use super::lookup;
 /// What `ivar session stop` needs.
 #[derive(Debug, Clone)]
 pub struct StopInput {
-    /// The session id, or a unique prefix of one. `None` stops all live
-    /// sessions.
+    /// The session id, or a unique prefix of one. The CLI fills it from
+    /// `$IVAR_SESSION_ID` when no id is given.
     pub session: Option<String>,
+    /// Stop every live session in the hall; `session` is ignored.
+    pub all: bool,
 }
 
 /// What `ivar session stop` did.
@@ -37,74 +41,78 @@ impl WriteHuman for StopOutcome {
     }
 }
 
-/// End a session (or all sessions): remove the View Dir(s).
+/// End one session, or every session with `all`: remove the View Dir(s).
 ///
-/// If no session is named, stops every live session in the hall. An already-
-/// stopped session (View Dir gone) is a no-op — never a failure.
+/// # Errors
+///
+/// Blocked when neither a session nor `all` is given, and when the session
+/// matches no live session or more than one.
 pub fn stop(ctx: &Ctx, input: &StopInput) -> Outcome<StopOutcome> {
     let layout = discover_hall(ctx)?;
 
-    match &input.session {
-        Some(id_prefix) => {
-            // Single-session stop: locate it, remove its View Dir. An
-            // already-stopped session (View Dir gone) is a no-op — the
-            // lookup cannot see it, and that is not a failure.
-            let session = match lookup::resolve(&layout, Some(id_prefix), None) {
-                Ok(session) => session,
-                Err(failure) if failure.code == "session.not_found" => {
-                    return Ok(Report::new(StopOutcome { stopped: 0 }));
-                }
-                Err(failure) => return Err(failure),
-            };
-            let stopped = remove_view_dir(&session.view_dir);
-            Ok(Report::new(StopOutcome {
-                stopped: if stopped { 1 } else { 0 },
-            }))
-        }
-        None => {
-            // All-sessions stop: enumerate every session, remove each View Dir.
-            let mut count = 0u32;
-
-            // Discovery sessions.
-            for session in lookup::list_discovery(&layout)? {
-                if remove_view_dir(&session.view_dir) {
-                    count += 1;
-                }
-            }
-
-            // Feature sessions.
-            if fs::is_dir(&layout.features_dir())? {
-                for entry in fs::read_dir(&layout.features_dir())? {
-                    let Some(name) = entry.file_name() else {
-                        continue;
-                    };
-                    let Ok(feature_name) = crate::domain::name::FeatureName::new(name) else {
-                        continue;
-                    };
-                    for session in lookup::list_feature(&layout, &feature_name)? {
-                        if remove_view_dir(&session.view_dir) {
-                            count += 1;
-                        }
-                    }
-                }
-            }
-
-            Ok(Report::new(StopOutcome { stopped: count }))
-        }
+    if input.all {
+        return stop_all(&layout);
     }
+    let Some(id_prefix) = &input.session else {
+        return Err(
+            Failure::blocked("session.stop_target_missing", "no session to stop")
+                .expected("a session id, `$IVAR_SESSION_ID`, or `--all`")
+                .actual("none given")
+                .fix(FixAction::safe(
+                    "session.stop_name_target",
+                    "Pass the session id, or `--all` to stop every session in the hall.",
+                )),
+        );
+    };
+    let session = lookup::resolve(&layout, Some(id_prefix), None)?;
+    let stopped = end(&layout, &session)?;
+    Ok(Report::new(StopOutcome {
+        stopped: u32::from(stopped),
+    }))
 }
 
-/// Remove the View Dir. Returns whether it existed and was removed.
-///
-/// Idempotent: if the View Dir is already gone, returns `false` — the caller
-/// treats this as a no-op, not a failure.
-fn remove_view_dir(view_dir: &Utf8PathBuf) -> bool {
-    if !fs::exists(view_dir).unwrap_or(false) {
-        return false;
+fn stop_all(layout: &Layout) -> Outcome<StopOutcome> {
+    let (stopped, warnings) = end_each(layout, lookup::list_all(layout)?);
+    Ok(Report::with_warnings(StopOutcome { stopped }, warnings))
+}
+
+/// End every session in `sessions`, best-effort: a session whose discovery doc
+/// cannot be kept stays live and becomes a warning, never an abort.
+pub(crate) fn end_each(
+    layout: &Layout,
+    sessions: impl IntoIterator<Item = SessionRef>,
+) -> (u32, Vec<Warning>) {
+    let mut ended = 0u32;
+    let mut warnings = Vec::new();
+    for session in sessions {
+        match end(layout, &session) {
+            Ok(true) => ended += 1,
+            Ok(false) => {}
+            Err(failure) => warnings.push(Warning::new(
+                "session.stop_skipped",
+                session.id.as_str(),
+                failure.what,
+            )),
+        }
     }
-    // Use std::fs::remove_dir_all: the View Dir may contain symlinked repos
-    // and config dirs; removing it recursively is the right cleanup.
-    std::fs::remove_dir_all(view_dir.as_std_path()).is_ok()
+    (ended, warnings)
+}
+
+/// End `session`: keep its discovery doc, then remove its View Dir. Returns
+/// whether the View Dir existed and was removed.
+///
+/// # Errors
+///
+/// When the discovery doc cannot be kept; the View Dir is then left in place.
+pub(crate) fn end(layout: &Layout, session: &SessionRef) -> Result<bool, Failure> {
+    discovery::rescue_session_doc(layout, session)?;
+    let view_dir = &session.view_dir;
+    if !fs::exists(view_dir).unwrap_or(false) {
+        return Ok(false);
+    }
+    // The View Dir may hold symlinked repos and config dirs; removing it
+    // recursively is the right cleanup.
+    Ok(std::fs::remove_dir_all(view_dir.as_std_path()).is_ok())
 }
 
 #[cfg(test)]

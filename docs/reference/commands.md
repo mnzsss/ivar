@@ -431,6 +431,10 @@ Delete a feature: its worktrees, its directory under `.ivar/`, and its plans. Re
 | --- | --- | --- |
 | `name` | no | The feature to delete |
 
+| flag | value | default | description |
+| --- | --- | --- | --- |
+| `--force` |  |  | Delete even with a live session or uncommitted or untracked changes in a promoted worktree, discarding them |
+
 
 ##### `ivar feature rebase`
 
@@ -529,11 +533,15 @@ Promote a discovery session to a feature session, keeping its name
 
 ##### `ivar session stop`
 
-Stop a session — tear down its view dir and end any running harness. Omitting the session stops *every* session in the hall
+Stop a session — tear down its view dir and end any running harness. Omitting the session stops `$IVAR_SESSION_ID`; `--all` stops every session in the hall
 
 | argument | required | description |
 | --- | --- | --- |
-| `session` | no | The session to stop — its id, or a unique prefix of one. Omitting it stops **every** session in the hall: every discovery session and every feature's sessions, not just this feature's and not just the most recent. Pass `$IVAR_SESSION_ID` to stop only your own. |
+| `session` | no | The session to stop — its id, or a unique prefix of one. Defaults to `$IVAR_SESSION_ID`; with neither, the command stops nothing and fails |
+
+| flag | value | default | description |
+| --- | --- | --- | --- |
+| `--all` |  |  | Stop every session in the hall: every discovery session and every feature's sessions |
 
 
 ##### `ivar session prune`
