@@ -172,10 +172,11 @@ pub fn reparent(ctx: &Ctx, input: ReparentInput) -> Outcome<ReparentOutcome> {
     }
 
     // Exactly one persisted mutation: parent and derived base together.
-    let mut updated = child;
-    updated.parent = Some(new_parent_name.clone());
-    updated.base = Some(new_parent.branch.clone());
-    updated.write(&layout)?;
+    Feature::update(&layout, &child.name, |updated| {
+        updated.parent = Some(new_parent_name.clone());
+        updated.base = Some(new_parent.branch.clone());
+        Ok(())
+    })?;
 
     Ok(Report::new(ReparentOutcome {
         root: layout.root().to_path_buf(),

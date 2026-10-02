@@ -32,6 +32,12 @@ pub(crate) fn sync_repo(
         Err(failure) => return record_failure(entries, warnings, &surface, "bare clone", failure),
     }
 
+    // Drops registrations whose directory was deleted by hand, which would
+    // otherwise make `git worktree add` refuse that path.
+    if let Err(error) = git.prune_worktrees(&bare) {
+        record_failure(entries, warnings, &surface, "worktree prune", error.into());
+    }
+
     match ensure_worktree(git, &bare, &worktree, branch) {
         Ok(change) => entries.push(Entry::new(&surface, format!("worktree {branch}"), change)),
         Err(failure) => {

@@ -82,6 +82,10 @@ pub fn start(ctx: &Ctx, input: StartInput) -> Outcome<StartOutcome> {
         ));
     }
     let now = rfc3339_now();
+    crate::infra::fs::ensure_dir(&layout.execution_dir(&feature))?;
+    let _run_lock = crate::infra::fs::lock_exclusive(
+        &layout.run_receipt(&feature).with_extension("json.lock"),
+    )?;
     if let Some(mut receipt) = RunReceipt::read(&layout, &feature)? {
         if input.restart && receipt.holds_lock() {
             receipt.interrupt(now.clone())?;

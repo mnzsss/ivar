@@ -79,6 +79,7 @@ impl Feature {
                 base: None,
                 pr_url: None,
                 integration_receipt: None,
+                reason: None,
             },
         );
     }
@@ -186,6 +187,10 @@ pub struct Promotion {
     /// integration is resumable. `None` until integration reaches this repo.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub integration_receipt: Option<IntegrationReceipt>,
+    /// Why the setup script left this promotion [`WorktreeState::Failed`]:
+    /// its exit and the last line it printed. `None` once a run succeeds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
 }
 /// The state of a feature's worktree for a promoted repo.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

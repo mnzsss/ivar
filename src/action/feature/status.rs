@@ -43,6 +43,13 @@ pub struct RepoDetail {
     /// or from the integration receipt if already integrated.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pr_url: Option<String>,
+    /// Why the promotion's setup failed, when it did.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    /// The command that retries a failed promotion or recreates a missing
+    /// worktree. `None` for a ready promotion whose worktree is present.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retry: Option<String>,
 }
 /// What `ivar feature status` found.
 #[derive(Debug, Clone, Serialize)]
@@ -91,6 +98,12 @@ impl WriteHuman for StatusOutcome {
                 state_word(detail.state),
                 base_word(detail),
             )?;
+            if let Some(reason) = &detail.reason {
+                writeln!(w, "    reason: {reason}")?;
+            }
+            if let Some(retry) = &detail.retry {
+                writeln!(w, "    retry: {retry}")?;
+            }
         }
         if let Some(tree) = &self.tree {
             writeln!(w, "Subtree:")?;
@@ -180,6 +193,9 @@ pub fn status(ctx: &Ctx, input: StatusInput) -> Outcome<StatusOutcome> {
                 .and_then(|r| r.pr_url.clone())
         });
 
+        let retry = (promotion.worktree == WorktreeState::Failed || !present)
+            .then(|| format!("ivar feature promote {name} {repo}"));
+
         repos.push(RepoDetail {
             repo: repo.clone(),
             worktree,
@@ -188,6 +204,8 @@ pub fn status(ctx: &Ctx, input: StatusInput) -> Outcome<StatusOutcome> {
             base,
             base_diverged,
             pr_url,
+            reason: promotion.reason.clone(),
+            retry,
         });
     }
     repos.sort_by(|a, b| a.repo.cmp(&b.repo));

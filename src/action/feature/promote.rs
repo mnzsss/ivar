@@ -49,8 +49,19 @@
 //! on disk. The repo *is* promoted. Raising here would exit non-zero over a
 //! state that stands, and leave the record claiming `ready` for a worktree
 //! that was never bootstrapped. Instead the promotion is recorded as
-//! [`WorktreeState::Failed`] and the failure is reported as the warning
-//! `feature.setup_script_failed`.
+//! [`WorktreeState::Failed`] with its reason (the exit and the script's last
+//! output line) and the failure is reported as the warning
+//! `feature.setup_script_failed`. The script's output goes to
+//! `.ivar/features/<feature>/setup-<repo>.log`, so a caller that closes its
+//! end of a pipe cannot kill the script halfway.
+//!
+//! # Retrying
+//!
+//! Promoting a repo that is already promoted retries it when its record is
+//! `failed` or its worktree is gone: a stale worktree registration is pruned,
+//! the worktree is recreated (or adopted, when an interrupted promote left it
+//! on disk), and the setup script runs again. A promotion that stands is
+//! refused as `feature.already_promoted`.
 //!
 //! # Live sessions are repointed
 //!
@@ -65,7 +76,8 @@
 //! worktree, whose write bits the kernel has cleared. Re-materialising one
 //! session can fail without the promotion being wrong, so a session that
 //! cannot be repointed warns (`session.not_repointed`) and the rest are
-//! still repointed.
+//! still repointed. A session whose agent is running warns
+//! `session.restart_required`: its sandbox was fixed when the agent launched.
 
 use std::io;
 
@@ -161,27 +173,29 @@ pub fn promote(ctx: &Ctx, input: PromoteInput) -> Outcome<PromoteOutcome> {
     let feature_name = FeatureName::new(input.feature)?;
     let repo_name = RepoName::new(input.repo)?;
 
-    let mut feature = Feature::read(&layout, &feature_name)?.ok_or_else(|| {
-        Failure::blocked(
-            "feature.not_found",
-            format!("feature `{feature_name}` does not exist"),
-        )
-        .expected("an existing feature")
-        .actual(format!("`{feature_name}` has no feature.json"))
-        .fix(FixAction::safe(
-            "feature.create_first",
-            format!("Create it first with `ivar feature create {feature_name}`."),
-        ))
-    })?;
+    let feature = Feature::read_or_not_found(&layout, &feature_name)?;
+    let repo = find_manifest_repo(&manifest, &repo_name)?;
 
-    // Promotion membership is a feature-wide fact: frozen by the first
-    // integration receipt of any kind.
-    mutation::ensure_structure_mutable(&layout, &feature)?;
-
-    let repo = find_promotable_repo(&manifest, &feature, &repo_name, &feature_name)?;
+    let bare = layout.repo_bare(&repo_name);
+    let worktree = layout.repo_worktree(&repo_name, &feature.branch);
+    let worktree_present = git.target_state(&worktree)? == TargetState::Repository;
+    let existing = feature.promotions.get(&repo_name).cloned();
 
     let mut warnings = Vec::new();
-    if input.base.is_none()
+    match &existing {
+        // A failed setup or a worktree gone from disk is retried by promoting
+        // again; only a promotion that stands is refused.
+        Some(promotion) if promotion.worktree != WorktreeState::Failed && worktree_present => {
+            return Err(already_promoted(&repo_name, &feature_name));
+        }
+        Some(_) => {}
+        // Promotion membership is a feature-wide fact: frozen by the first
+        // integration receipt of any kind.
+        None => mutation::ensure_structure_mutable(&layout, &feature)?,
+    }
+
+    if existing.is_none()
+        && input.base.is_none()
         && let Some(parent_name) = feature.parent.clone()
     {
         let parent = relations::read_feature(&layout, &parent_name)?;
@@ -196,8 +210,6 @@ pub fn promote(ctx: &Ctx, input: PromoteInput) -> Outcome<PromoteOutcome> {
         }
     }
 
-    let bare = layout.repo_bare(&repo_name);
-    let worktree = layout.repo_worktree(&repo_name, &feature.branch);
     let default_branch = repo.default_branch();
     let base_override = input.base.map(BranchName::new).transpose()?;
     let declared_base = base_override.as_ref().or(feature.base.as_ref());
@@ -218,34 +230,37 @@ pub fn promote(ctx: &Ctx, input: PromoteInput) -> Outcome<PromoteOutcome> {
         .iter()
         .any(|existing| existing == feature.branch.as_str());
 
-    let (base, base_warning) = resolve_base_and_warn(
-        &existing_branches,
-        declared_base,
-        candidate_base,
-        default_branch,
-        &repo_name,
-    );
-    warnings.extend(base_warning);
+    let base = match existing
+        .as_ref()
+        .and_then(|promotion| promotion.base.clone())
+    {
+        Some(recorded) => recorded,
+        None => {
+            let (base, base_warning) = resolve_base_and_warn(
+                &existing_branches,
+                declared_base,
+                candidate_base,
+                default_branch,
+                &repo_name,
+            );
+            warnings.extend(base_warning);
+            base
+        }
+    };
 
-    setup_or_adopt_branch(
-        &git,
-        &layout,
-        &bare,
-        &worktree,
-        &feature,
-        adopted_branch,
-        &base,
-    )?;
-
-    // The worktree exists. Record the promotion before running the setup
-    // script, so a script failure leaves the record at `Failed` (retried on
-    // the next promote/sync) rather than absent.
-    feature.promote(repo_name.clone());
-    if let Some(promotion) = feature.promotions.get_mut(&repo_name) {
-        promotion.base = Some(base);
+    // A worktree already on disk is one an interrupted promote created before
+    // it could record the promotion; it is adopted as it stands.
+    if !worktree_present {
+        // `git worktree add` refuses a path git still registers after its
+        // directory was deleted.
+        git.prune_worktrees(&bare)?;
+        setup_or_adopt_branch(&git, &bare, &worktree, &feature, adopted_branch, &base)?;
     }
-    feature.set_worktree_state(&repo_name, WorktreeState::Ready);
-    feature.write(&layout)?;
+
+    // Recorded before the setup script runs, so a script failure leaves the
+    // record at `Failed` (retried by promoting again) rather than absent. The
+    // script itself runs outside the feature lock: it can take minutes.
+    let feature = record_ready(&layout, &feature_name, &repo_name, base)?;
 
     let (setup_ran, setup_failure) = run_setup_script(
         &git,
@@ -255,11 +270,14 @@ pub fn promote(ctx: &Ctx, input: PromoteInput) -> Outcome<PromoteOutcome> {
         &feature.branch,
         &feature.name,
     )?;
-    if let Some(warning) = setup_failure {
-        // The worktree exists but was never bootstrapped: say so on the
-        // record, so `feature status` does not report it as ready.
-        feature.set_worktree_state(&repo_name, WorktreeState::Failed);
-        feature.write(&layout)?;
+    if let Some(SetupFailure { warning, reason }) = setup_failure {
+        Feature::update(&layout, &feature_name, |stored| {
+            if let Some(promotion) = stored.promotions.get_mut(&repo_name) {
+                promotion.worktree = WorktreeState::Failed;
+                promotion.reason = Some(reason);
+            }
+            Ok(())
+        })?;
         warnings.push(warning);
     }
 
@@ -280,17 +298,32 @@ pub fn promote(ctx: &Ctx, input: PromoteInput) -> Outcome<PromoteOutcome> {
     ))
 }
 
-/// The base is recorded as a fact about where the branch starts, never
-/// re-derived by probing ancestry. When it was declared explicitly but names
-/// a branch this repo does not have, promotion still proceeds — falling back
-/// to `default_branch` and warning, rather than refusing — because the
-fn find_promotable_repo<'a>(
+/// Record `repo` as promoted and ready on `base`, clearing any earlier
+/// failure, and return the feature as written.
+fn record_ready(
+    layout: &Layout,
+    feature: &FeatureName,
+    repo: &RepoName,
+    base: BranchName,
+) -> Result<Feature, Failure> {
+    Feature::update(layout, feature, |stored| {
+        if !stored.promotions.contains_key(repo) {
+            stored.promote(repo.clone());
+        }
+        if let Some(promotion) = stored.promotions.get_mut(repo) {
+            promotion.base = Some(base);
+            promotion.worktree = WorktreeState::Ready;
+            promotion.reason = None;
+        }
+        Ok(stored.clone())
+    })
+}
+
+fn find_manifest_repo<'a>(
     manifest: &'a Manifest,
-    feature: &Feature,
     repo_name: &RepoName,
-    feature_name: &FeatureName,
 ) -> Result<&'a crate::store::manifest::Repo, Failure> {
-    let repo = manifest
+    manifest
         .repos()
         .iter()
         .find(|repo| repo.name() == repo_name)
@@ -305,22 +338,20 @@ fn find_promotable_repo<'a>(
                 "repo.add_first",
                 format!("Add `{repo_name}` with `ivar repo add {repo_name} <url>` first."),
             ))
-        })?;
+        })
+}
 
-    if feature.is_promoted(repo_name) {
-        return Err(Failure::blocked(
-            "feature.already_promoted",
-            format!("`{repo_name}` is already promoted into `{feature_name}`"),
-        )
-        .expected("a repo not yet promoted into this feature")
-        .actual("this repo's promotion record already exists")
-        .fix(FixAction::safe(
-            "feature.demote_first",
-            format!("Run `ivar feature demote {feature_name} {repo_name}` to remove it first."),
-        )));
-    }
-
-    Ok(repo)
+fn already_promoted(repo_name: &RepoName, feature_name: &FeatureName) -> Failure {
+    Failure::blocked(
+        "feature.already_promoted",
+        format!("`{repo_name}` is already promoted into `{feature_name}`"),
+    )
+    .expected("a repo not yet promoted into this feature")
+    .actual("this repo's promotion record already exists and its worktree is ready")
+    .fix(FixAction::safe(
+        "feature.demote_first",
+        format!("Run `ivar feature demote {feature_name} {repo_name}` to remove it first."),
+    ))
 }
 
 /// Promotion works on the bare clone `ivar sync` materialised; it never
@@ -392,14 +423,12 @@ fn resolve_base_and_warn(
 /// exists, or created off `base` otherwise.
 fn setup_or_adopt_branch(
     git: &impl git::Git,
-    layout: &Layout,
     bare: &camino::Utf8Path,
     worktree: &camino::Utf8Path,
     feature: &Feature,
     adopted_branch: bool,
     base: &BranchName,
 ) -> Result<(), Failure> {
-    let _ = layout;
     if adopted_branch {
         // Checked out as-is. No rebase, no reset: those commits are someone's
         // work, and `ivar feature rebase` is the verb that moves them.
@@ -410,11 +439,19 @@ fn setup_or_adopt_branch(
     Ok(())
 }
 
+/// A setup script that did not exit cleanly: the warning to report, and the
+/// reason to record on the promotion.
+struct SetupFailure {
+    warning: Warning,
+    reason: String,
+}
+
 /// Run the repo's setup script in the feature worktree, if there is one.
 ///
-/// Returns whether the script ran cleanly, and the warning to report when it
-/// did not. `(false, None)` means the repo has no script. Output is streamed,
-/// not captured, the same as `sync` — a `pnpm install` is minutes long.
+/// Returns whether the script ran cleanly, and what to report when it did
+/// not. `(false, None)` means the repo has no script. Output goes to
+/// `.ivar/features/<feature>/setup-<repo>.log`, never the caller's stdout —
+/// see [`proc::to_log`].
 ///
 /// A non-zero exit is data, not an error: the caller records
 /// [`WorktreeState::Failed`] and reports the warning. Only the steps that must
@@ -427,7 +464,7 @@ fn run_setup_script(
     worktree: &camino::Utf8Path,
     branch: &BranchName,
     feature: &FeatureName,
-) -> Result<(bool, Option<Warning>), Failure> {
+) -> Result<(bool, Option<SetupFailure>), Failure> {
     let script = layout.setup_script(repo);
     if !fs::is_file(&script)? {
         return Ok((false, None));
@@ -445,28 +482,34 @@ fn run_setup_script(
         return Ok((true, None));
     }
 
-    let code = proc::inherit(&setup_command(
-        layout, repo, worktree, &script, branch, feature,
-    ))?;
+    let log = layout
+        .feature_dir(feature)
+        .join(format!("setup-{repo}.log"));
+    let code = proc::to_log(
+        &setup_command(layout, repo, worktree, &script, branch, feature),
+        &log,
+    )?;
     Receipt::write(&git_dir, &Receipt::of_run(&fingerprint, code))?;
 
     if code != Some(0) {
         let ended = match code {
-            Some(code) => format!("exited {code}"),
-            None => "was killed by a signal".to_owned(),
+            Some(code) => format!("exit {code}"),
+            None => "killed by a signal".to_owned(),
         };
-        return Ok((
-            false,
-            Some(Warning::new(
-                "feature.setup_script_failed",
-                repo.as_str(),
-                format!(
-                    "`{script}` {ended}; `{repo}` is promoted but its worktree at `{worktree}` \
-                     is not bootstrapped — read the script's output above, then run the \
-                     remaining steps in that worktree yourself"
-                ),
-            )),
-        ));
+        let reason = match proc::last_log_line(&log) {
+            Some(line) => format!("setup script failed ({ended}): {line}"),
+            None => format!("setup script failed ({ended})"),
+        };
+        let warning = Warning::new(
+            "feature.setup_script_failed",
+            repo.as_str(),
+            format!(
+                "{reason}; `{repo}` is promoted but its worktree at `{worktree}` is not \
+                 bootstrapped — read `{log}`, fix the cause, then retry with \
+                 `ivar feature promote {feature} {repo}`"
+            ),
+        );
+        return Ok((false, Some(SetupFailure { warning, reason })));
     }
 
     Ok((true, None))
@@ -495,6 +538,22 @@ fn repoint_live_sessions(
             .as_ref()
             .map(SessionState::provider)
             .unwrap_or_else(|| manifest.providers().default_provider());
+        // Landlock rules are fixed when the agent launches and can only
+        // narrow, so a running agent cannot gain write access to the new
+        // worktree however its view dir is relinked.
+        let binary = crate::providers::launch_contract(provider).binary;
+        if proc::is_program_running_in(&session.view_dir, binary) {
+            warnings.push(Warning::new(
+                "session.restart_required",
+                session.id.to_string(),
+                format!(
+                    "this session's agent is running under a sandbox fixed at launch and cannot \
+                     write to the newly promoted worktree; restart it with \
+                     `ivar session start {} --resume`",
+                    feature.name
+                ),
+            ));
+        }
         match view::materialise(layout, manifest, Some(feature), provider, &session.view_dir) {
             Ok(report) => warnings.extend(report.warnings),
             Err(failure) => warnings.push(Warning::new(

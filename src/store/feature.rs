@@ -41,6 +41,9 @@ const APPROVALS_VERSION: u32 = 2;
 /// map and rewriting one file is atomic through the canonical writer.
 const FEATURE_FILE: &str = "feature.json";
 
+/// The advisory lock every [`Feature::update`] of one feature serialises on.
+const LOCK_FILE: &str = "feature.json.lock";
+
 /// The filename each feature's approval state lives in, under its planning
 /// directory.
 const APPROVALS_FILE: &str = "approvals.json";
@@ -101,6 +104,34 @@ impl Feature {
         let dir = layout.feature_dir(&self.name);
         crate::infra::fs::ensure_dir(&dir)?;
         store(layout, &self.name).write(self).map_err(Failure::from)
+    }
+
+    /// Read `features/<name>/feature.json`, apply `f`, and write the result,
+    /// holding an exclusive lock on `feature.json.lock` throughout — the one
+    /// way to change an existing feature record. Two writers that each read,
+    /// modify and write would otherwise drop whichever update lands first.
+    ///
+    /// Nothing is written when `f` fails. Keep `f` short: every other writer
+    /// of this feature waits on it.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Failure`] if the lock cannot be taken, the feature does not
+    /// exist, `f` fails, or the record cannot be written.
+    pub fn update<R>(
+        layout: &Layout,
+        name: &FeatureName,
+        f: impl FnOnce(&mut Feature) -> Result<R, Failure>,
+    ) -> Result<R, Failure> {
+        let dir = layout.feature_dir(name);
+        if !crate::infra::fs::is_dir(&dir)? {
+            return Err(feature_not_found(name));
+        }
+        let _lock = crate::infra::fs::lock_exclusive(&dir.join(LOCK_FILE))?;
+        let mut feature = Self::read_or_not_found(layout, name)?;
+        let out = f(&mut feature)?;
+        feature.write(layout)?;
+        Ok(out)
     }
 }
 
@@ -242,3 +273,7 @@ fn approvals_store(layout: &Layout, name: &FeatureName) -> Store<ApprovalState> 
         Policy::Local,
     )
 }
+
+#[cfg(test)]
+#[path = "../../tests/unit/store/feature.rs"]
+mod tests;

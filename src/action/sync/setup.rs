@@ -1,5 +1,7 @@
 //! The setup-script half of `ivar sync`: run each repo's `.ivar/setups/<repo>.sh`
-//! when it needs running, streamed, with the `IVAR_*` environment contract.
+//! when it needs running, with the `IVAR_*` environment contract. Its output
+//! goes to `ivar-setup.log` in the worktree's git dir, beside the setup
+//! receipt — see [`proc::to_log`].
 
 use camino::Utf8Path;
 
@@ -49,16 +51,17 @@ pub(crate) fn run_setup_script(
     //
     // The guard is a value, not a pair of statements: the re-guard happens on
     // drop, so a failure anywhere below cannot leave the worktree writable.
+    let log = git_dir.join(SETUP_LOG);
     let code = {
         let _guard = fs::LiftedGuard::lift(&[worktree])?;
-        proc::inherit(&setup_command(layout, repo, worktree, &script))?
+        proc::to_log(&setup_command(layout, repo, worktree, &script), &log)?
     };
     // Recorded before the exit code is judged, so a failed run is remembered as
     // failed — which is what makes the next sync retry it instead of skipping.
     Receipt::write(&git_dir, &Receipt::of_run(&fingerprint, code))?;
 
     if code != Some(0) {
-        return Err(setup_script_failed(&script, code));
+        return Err(setup_script_failed(&script, code, &log));
     }
 
     Ok(Some(Entry::new(
@@ -96,18 +99,25 @@ pub(crate) fn setup_command(
     // thing.
 }
 
-pub(crate) fn setup_script_failed(script: &Utf8Path, code: Option<i32>) -> Failure {
+/// The setup script's output log, inside the worktree's git dir.
+const SETUP_LOG: &str = "ivar-setup.log";
+
+pub(crate) fn setup_script_failed(script: &Utf8Path, code: Option<i32>, log: &Utf8Path) -> Failure {
     let ended = match code {
         Some(code) => format!("exited {code}"),
         None => "was killed by a signal".to_owned(),
     };
+    let what = match proc::last_log_line(log) {
+        Some(line) => format!("`{script}` {ended}: {line}"),
+        None => format!("`{script}` {ended}"),
+    };
 
-    Failure::failed("sync.setup_script_failed", format!("`{script}` {ended}"))
+    Failure::failed("sync.setup_script_failed", what)
         .expected("the setup script to exit 0")
         .actual(ended)
         .fix(FixAction::safe(
             "sync.read_setup_output",
-            "Read the script's output above — it ran with its own stdout and stderr attached.",
+            format!("Read the script's output in `{log}`."),
         ))
         .fix(
             FixAction::safe(

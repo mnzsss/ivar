@@ -183,12 +183,14 @@ fn reparent_children(layout: &Layout, from: &FeatureName, to: &FeatureName) -> R
         let Ok(feature_name) = FeatureName::new(name.to_owned()) else {
             continue;
         };
-        if let Some(mut feature) = Feature::read(layout, &feature_name)?
+        if let Some(feature) = Feature::read(layout, &feature_name)?
             && feature.name == feature_name
             && feature.parent.as_ref() == Some(from)
         {
-            feature.parent = Some(to.clone());
-            feature.write(layout)?;
+            Feature::update(layout, &feature_name, |feature| {
+                feature.parent = Some(to.clone());
+                Ok(())
+            })?;
         }
     }
     Ok(())
@@ -263,10 +265,11 @@ pub(super) fn perform_step(
                     fs::create_symlink(&plan.new_dir, &plan.old_dir)?;
                 }
             }
-            let mut feature = plan.old_feature.clone();
-            feature.name = plan.new_name.clone();
-            feature.branch = plan.new_branch.clone();
-            feature.write(layout)?;
+            Feature::update(layout, &plan.new_name, |feature| {
+                feature.name = plan.new_name.clone();
+                feature.branch = plan.new_branch.clone();
+                Ok(())
+            })?;
             Ok(Step::UpdateChildren)
         }
         Step::UpdateChildren => {
@@ -379,7 +382,11 @@ pub(super) fn undo_step(
                     fs::rename(&plan.new_dir, &plan.old_dir)?;
                 }
             }
-            plan.old_feature.write(layout)?;
+            Feature::update(layout, &plan.old_feature.name, |feature| {
+                feature.name = plan.old_feature.name.clone();
+                feature.branch = plan.old_feature.branch.clone();
+                Ok(())
+            })?;
             Ok(Step::RemoteOps)
         }
         Step::RemoteOps => {

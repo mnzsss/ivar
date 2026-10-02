@@ -624,3 +624,21 @@ fn user_shell_falls_back_to_bash_when_unset() {
     assert_eq!(resolve_shell(None), "bash");
     assert_eq!(resolve_shell(Some("/usr/bin/fish")), "/usr/bin/fish");
 }
+
+#[test]
+fn last_log_line_strips_control_characters_and_bounds_its_length() {
+    let (_guard, dir) = utf8_temp_dir();
+    let log = dir.join("setup.log");
+    let long = "x".repeat(500);
+    std::fs::write(
+        &log,
+        format!("first\n\u{1b}[31mpub get failed {long}\u{1b}[0m\n\n"),
+    )
+    .unwrap();
+
+    let line = last_log_line(&log).unwrap();
+
+    assert!(line.starts_with("[31mpub get failed"), "{line}");
+    assert!(!line.contains('\u{1b}'));
+    assert_eq!(line.chars().count(), 200);
+}

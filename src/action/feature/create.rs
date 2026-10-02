@@ -193,6 +193,25 @@ pub fn create(ctx: &Ctx, input: CreateInput) -> Outcome<CreateOutcome> {
         )));
     }
 
+    if let Some(owner) = relations::read_all(&layout)?
+        .into_iter()
+        .find(|other| other.branch == branch)
+    {
+        return Err(Failure::blocked(
+            "feature.branch_taken",
+            format!(
+                "branch `{branch}` already belongs to feature `{}`",
+                owner.name
+            ),
+        )
+        .expected("a branch no other feature records")
+        .actual(format!("`{}` records `{branch}`", owner.name))
+        .fix(FixAction::safe(
+            "feature.pick_branch",
+            "Pass a different `--branch`, or keep working in the feature that owns it.",
+        )));
+    }
+
     let mut feature = Feature::new(name.clone(), branch.clone());
     feature.base.clone_from(&base);
     feature.parent.clone_from(&parent);

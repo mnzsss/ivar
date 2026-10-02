@@ -4,12 +4,12 @@
 // `ivar doctor` — diagnose the hall and suggest fixes.
 // ---------------------------------------------------------------------------
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::io;
 
 use serde::Serialize;
 
-use crate::domain::feature::{Feature, RunReceipt, RunStatus};
+use crate::domain::feature::{Feature, RunReceipt, RunStatus, WorktreeState};
 use crate::domain::mcp::{AuthRequirement, CredentialState};
 use crate::domain::name::{FeatureName, RepoName};
 use crate::domain::provider::Provider;
@@ -89,6 +89,7 @@ pub fn doctor(ctx: &Ctx) -> Outcome<DoctorOutcome> {
     findings.extend(graph_diagnoses(&layout, &manifest, &git));
     findings.extend(diagnose_orphaned_runs(&layout)?);
     findings.extend(diagnose_orphan_worktrees(&layout, &manifest, &git));
+    findings.extend(diagnose_feature_state(&layout, &git));
     findings.extend(diagnose_mcp_auth(&manifest, &providers::credential_state));
     check_legacy_working_docs(&layout, &mut findings)?;
 
@@ -288,6 +289,20 @@ fn diagnose_orphan_worktrees(
         };
         for entry in entries {
             if is_integration_worktree(layout, repo.name(), &entry.path) {
+                findings.push(Diagnosis {
+                    code: "integrate.staging_stale",
+                    what: format!(
+                        "`{}` is integration staging for `{}` left behind by an integrate that \
+                         did not finish",
+                        entry.path,
+                        repo.name()
+                    ),
+                    fix: format!(
+                        "If no `ivar feature integrate` is running, run \
+                         `git --git-dir {bare} worktree remove --force {}`.",
+                        entry.path
+                    ),
+                });
                 continue;
             }
             let branch = match (&entry.branch, entry.detached) {
@@ -328,9 +343,7 @@ fn orphan_diagnosis(
             what: format!(
                 "`{path}` in `{repo}` is on branch `{branch}`, which no feature owns — its directory is gone"
             ),
-            fix: format!(
-                "Run `git --git-dir {bare} worktree prune` to drop the stale registration."
-            ),
+            fix: "Run `ivar sync` to drop the stale registration.".to_owned(),
         };
     }
     let state = match git.worktree_dirty(path) {
@@ -365,9 +378,92 @@ fn is_integration_worktree(layout: &Layout, repo: &RepoName, path: &Utf8Path) ->
 /// Every `(repo, branch)` a feature owns: its branch in each repo it promoted.
 /// Fails with one diagnosis per feature record that cannot be read.
 fn feature_worktrees(layout: &Layout) -> Result<HashSet<(RepoName, String)>, Vec<Diagnosis>> {
+    Ok(feature_records(layout)?
+        .iter()
+        .flat_map(|feature| {
+            feature
+                .promotions
+                .keys()
+                .map(|repo| (repo.clone(), feature.branch.to_string()))
+        })
+        .collect())
+}
+
+/// Promotions that are failed or whose worktree is gone, and branches more
+/// than one feature records. Unreadable records are reported by
+/// [`diagnose_orphan_worktrees`], so they are skipped here.
+fn diagnose_feature_state(layout: &Layout, git: &impl Git) -> Vec<Diagnosis> {
+    let Ok(features) = feature_records(layout) else {
+        return Vec::new();
+    };
+    let mut findings = Vec::new();
+    let mut owners: BTreeMap<&str, Vec<&FeatureName>> = BTreeMap::new();
+    for feature in &features {
+        owners
+            .entry(feature.branch.as_str())
+            .or_default()
+            .push(&feature.name);
+        for (repo, promotion) in &feature.promotions {
+            let retry = format!(
+                "Run `ivar feature promote {} {repo}` to retry it.",
+                feature.name
+            );
+            let worktree = layout.repo_worktree(repo, &feature.branch);
+            if promotion.worktree == WorktreeState::Failed {
+                let reason = promotion.reason.as_deref().unwrap_or("setup script failed");
+                findings.push(Diagnosis {
+                    code: "feature.promotion_failed",
+                    what: format!(
+                        "`{repo}` in feature `{}` failed to promote: {reason}",
+                        feature.name
+                    ),
+                    fix: retry,
+                });
+            } else if matches!(
+                git.target_state(&worktree),
+                Ok(TargetState::Absent | TargetState::Occupied)
+            ) {
+                findings.push(Diagnosis {
+                    code: "feature.promotion_worktree_missing",
+                    what: format!(
+                        "`{repo}` is promoted into feature `{}` but `{worktree}` is not a worktree",
+                        feature.name
+                    ),
+                    fix: retry,
+                });
+            }
+        }
+    }
+    for (branch, names) in owners {
+        if let [first, .., last] = names.as_slice() {
+            findings.push(Diagnosis {
+                code: "feature.branch_shared",
+                what: format!(
+                    "branch `{branch}` is recorded by features {}",
+                    names
+                        .iter()
+                        .map(|name| format!("`{name}`"))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ),
+                fix: format!(
+                    "Keep the branch on one feature. If `{last}` has no promoted repos, give it \
+                     its own with `ivar feature rename {last} --branch <new-branch>`; otherwise \
+                     that rename moves the git branch `{first}` also uses, so decide which \
+                     feature holds the work first."
+                ),
+            });
+        }
+    }
+    findings
+}
+
+/// Every readable feature record in the hall. Fails with one diagnosis per
+/// record that cannot be read.
+fn feature_records(layout: &Layout) -> Result<Vec<Feature>, Vec<Diagnosis>> {
     let features_dir = layout.features_dir();
     if !fs::is_dir(&features_dir).unwrap_or(true) {
-        return Ok(HashSet::new());
+        return Ok(Vec::new());
     }
     let entries = fs::read_dir(&features_dir).map_err(|error| {
         vec![Diagnosis {
@@ -376,22 +472,14 @@ fn feature_worktrees(layout: &Layout) -> Result<HashSet<(RepoName, String)>, Vec
             fix: "Repair the directory's permissions, then rerun `ivar doctor`.".to_owned(),
         }]
     })?;
-    let mut owned = HashSet::new();
+    let mut records = Vec::new();
     let mut unreadable = Vec::new();
     for name in entries
         .iter()
         .filter_map(|entry| FeatureName::new(entry.file_name()?.to_owned()).ok())
     {
         match Feature::read(layout, &name) {
-            Ok(Some(feature)) => {
-                let branch = feature.branch.as_str();
-                owned.extend(
-                    feature
-                        .promotions
-                        .keys()
-                        .map(|repo| (repo.clone(), branch.to_owned())),
-                );
-            }
+            Ok(Some(feature)) => records.push(feature),
             Ok(None) => {}
             Err(error) => unreadable.push(Diagnosis {
                 code: "feature.record_unreadable",
@@ -404,7 +492,7 @@ fn feature_worktrees(layout: &Layout) -> Result<HashSet<(RepoName, String)>, Vec
         }
     }
     if unreadable.is_empty() {
-        Ok(owned)
+        Ok(records)
     } else {
         Err(unreadable)
     }

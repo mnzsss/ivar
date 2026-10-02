@@ -476,11 +476,12 @@ pub(crate) fn persist_receipt(
     repo: &RepoName,
     receipt: IntegrationReceipt,
 ) -> Result<(), Failure> {
-    let mut updated = child.clone();
-    if let Some(promotion) = updated.promotions.get_mut(repo) {
-        promotion.integration_receipt = Some(receipt);
-    }
-    updated.write(layout)
+    Feature::update(layout, &child.name, |updated| {
+        if let Some(promotion) = updated.promotions.get_mut(repo) {
+            promotion.integration_receipt = Some(receipt);
+        }
+        Ok(())
+    })
 }
 
 /// Remove the temporary staging worktrees that were actually created (and the

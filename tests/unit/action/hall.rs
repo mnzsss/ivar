@@ -702,7 +702,7 @@ fn doctor_leaves_an_integration_source_worktree_alone() {
 }
 
 #[test]
-fn doctor_suggests_pruning_a_worktree_whose_directory_is_gone() {
+fn doctor_suggests_sync_for_a_worktree_whose_directory_is_gone() {
     let (_guard, root, bare) = synced_hall_with_bare();
     let git = crate::git::System;
     let stray = root.join(".ivar/repos/api/stray");
@@ -715,7 +715,7 @@ fn doctor_suggests_pruning_a_worktree_whose_directory_is_gone() {
     let finding = finding(&report.value, "repo.worktree_orphaned");
     assert!(finding.what.contains("its directory is gone"));
     assert!(!finding.what.contains("uncommitted"));
-    assert!(finding.fix.contains("worktree prune"));
+    assert!(finding.fix.contains("ivar sync"));
 }
 
 #[test]

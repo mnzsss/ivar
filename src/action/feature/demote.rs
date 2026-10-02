@@ -55,39 +55,27 @@ pub fn demote(ctx: &Ctx, input: DemoteInput) -> Outcome<DemoteOutcome> {
     let feature_name = FeatureName::new(input.feature)?;
     let repo_name = RepoName::new(input.repo)?;
 
-    let mut feature =
-        crate::domain::feature::Feature::read(&layout, &feature_name)?.ok_or_else(|| {
-            Failure::blocked(
-                "feature.not_found",
-                format!("feature `{feature_name}` does not exist"),
+    crate::domain::feature::Feature::update(&layout, &feature_name, |feature| {
+        // Removing a repo is a membership change — frozen once this promotion
+        // carries a successful receipt, and by the whole-child `integrated`
+        // close.
+        super::mutation::ensure_promotion_mutable(&layout, feature, &repo_name)?;
+
+        if feature.demote(&repo_name) {
+            Ok(())
+        } else {
+            Err(Failure::blocked(
+                "feature.not_promoted",
+                format!("`{repo_name}` is not promoted into `{feature_name}`"),
             )
-            .expected("an existing feature")
-            .actual(format!("`{feature_name}` has no feature.json"))
+            .expected("a repo currently promoted into this feature")
+            .actual("this repo has no promotion record here")
             .fix(FixAction::safe(
-                "feature.create_first",
-                format!("Create it first with `ivar feature create {feature_name}`."),
-            ))
-        })?;
-
-    // Removing a repo is a membership change — frozen once this promotion
-    // carries a successful receipt, and by the whole-child `integrated`
-    // close.
-    super::mutation::ensure_promotion_mutable(&layout, &feature, &repo_name)?;
-
-    if !feature.demote(&repo_name) {
-        return Err(Failure::blocked(
-            "feature.not_promoted",
-            format!("`{repo_name}` is not promoted into `{feature_name}`"),
-        )
-        .expected("a repo currently promoted into this feature")
-        .actual("this repo has no promotion record here")
-        .fix(FixAction::safe(
-            "feature.promote_first",
-            format!("Run `ivar feature promote {feature_name} {repo_name}` first."),
-        )));
-    }
-
-    feature.write(&layout)?;
+                "feature.promote_first",
+                format!("Run `ivar feature promote {feature_name} {repo_name}` first."),
+            )))
+        }
+    })?;
 
     Ok(Report::new(DemoteOutcome {
         root: layout.root().to_path_buf(),
