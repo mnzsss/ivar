@@ -143,9 +143,9 @@ ivar feature deliver checkout-v2 --preview
 Promote the parent into a repo before any child promotes it: a child
 promoted first asks to promote the parent (or refuses with the exact
 command), so a child is never silently cut from the default branch. The
-shipped `ivar-subfeatures` skill walks the parallel loop — one session per
-child, integrate each as it finishes, deliver the parent once.
-
+shipped `ivar-subfeatures` skill orchestrates the parallel loop with subagents
+from the parent session — plans each child, executes goal-mode runs, integrates
+leaves as they finish, and prepares the parent delivery preview once.
 Each repo's integration is recorded in a **receipt** — source SHA, parent
 branch, result SHA, policy, PR URL, and the verification evidence — the moment
 it lands. Multi-repo integration is partial and resumable, never atomic: a

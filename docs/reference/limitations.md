@@ -74,9 +74,9 @@ coordination, reviews, or isolated branches when you need stronger separation.
 On Linux (kernel >= 5.13 with Landlock support), Ivar applies a kernel-enforced
 write sandbox (`Landlock`) to the provider process before running it. Filesystem
 writes outside the session's writable set (the view directory, feature directory,
-and promoted worktrees) are denied directly by the kernel, even from arbitrary shell
-commands and grandchild subprocesses. On non-Linux platforms (such as macOS) or older
-kernels, Ivar runs without kernel sandboxing and relies on the advisory tool guard.
+descendant feature directories, and promoted worktrees) are denied directly by the kernel.
+For feature sessions, directory grants on `.ivar/features/` and promoted repo directories
+enable dynamic child feature creation and promotion mid-session. The cost: Bash inside a feature session can, at the kernel level, write any feature's record under `.ivar/features/` and any worktree of those repos, including the read-only default-branch checkout, whose write bits are cleared on its root only. Edit and Write stay limited to the feature's subtree by `ivar guard`.
 
 Ivar does not control or schedule native provider subagents. The active provider
 creates, schedules, monitors, and synthesizes subagents. The Run Receipt records exact
