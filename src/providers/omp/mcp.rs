@@ -1,11 +1,12 @@
 use crate::domain::mcp::{McpServerDef, McpTransport};
+use crate::providers::omp::auth::credential_id;
 
 pub(crate) const ROOT_KEY: &str = "mcpServers";
 
 /// OMP's spelling: canonical `http` stays `http`, canonical `local` becomes
 /// `stdio`.
 pub(crate) fn server_doc(
-    _name: &str,
+    name: &str,
     server: &McpServerDef,
     transport: McpTransport,
 ) -> serde_json::Value {
@@ -29,21 +30,29 @@ pub(crate) fn server_doc(
     if let Some(env) = &server.env {
         object.insert("env".to_owned(), serde_json::json!(env));
     }
-    if let Some(oauth) = &server.oauth
-        && let Some(token_url) = &oauth.token_url
-    {
+    if transport == McpTransport::Http {
         let mut auth = serde_json::Map::new();
         auth.insert("type".to_owned(), serde_json::json!("oauth"));
-        auth.insert("clientId".to_owned(), serde_json::json!(oauth.client_id));
-        if let Some(secret_env) = &oauth.client_secret_env {
-            auth.insert(
-                "clientSecret".to_owned(),
-                serde_json::json!(format!("${{{secret_env}}}")),
-            );
-        }
-        auth.insert("tokenUrl".to_owned(), serde_json::json!(token_url));
-        if let Some(resource) = &oauth.resource {
-            auth.insert("resource".to_owned(), serde_json::json!(resource));
+        // omp resolves `auth.credentialId` verbatim and rejects an id under
+        // `mcp_oauth:profile:` unless it is the server's URL key.
+        auth.insert(
+            "credentialId".to_owned(),
+            serde_json::json!(credential_id(name)),
+        );
+        if let Some(oauth) = &server.oauth
+            && let Some(token_url) = &oauth.token_url
+        {
+            auth.insert("clientId".to_owned(), serde_json::json!(oauth.client_id));
+            if let Some(secret_env) = &oauth.client_secret_env {
+                auth.insert(
+                    "clientSecret".to_owned(),
+                    serde_json::json!(format!("${{{secret_env}}}")),
+                );
+            }
+            auth.insert("tokenUrl".to_owned(), serde_json::json!(token_url));
+            if let Some(resource) = &oauth.resource {
+                auth.insert("resource".to_owned(), serde_json::json!(resource));
+            }
         }
         object.insert("auth".to_owned(), serde_json::Value::Object(auth));
     }

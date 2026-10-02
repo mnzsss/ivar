@@ -64,21 +64,39 @@ fn client_secret_is_rendered_as_env_var_and_raw_secret_never_appears() {
 }
 
 #[test]
-fn server_without_oauth_or_without_token_url_renders_no_auth_key() {
-    // 1. Server with no oauth at all
-    let server_no_oauth = McpServerDef::new("linear", "http").url("https://mcp.linear.app/mcp");
-    let doc1 = server_doc("acme-linear", &server_no_oauth, McpTransport::Http);
-    assert!(doc1.get("auth").is_none(), "auth key must not exist");
+fn oauth_server_declares_the_per_hall_credential_id() {
+    let server = McpServerDef::new("linear", "http")
+        .url("https://mcp.linear.app/mcp")
+        .oauth(
+            McpOauth::new("client-123", "IVAR_MCP_ACME_LINEAR_SECRET")
+                .token_url("https://mcp.linear.app/token"),
+        );
 
-    // 2. Server with oauth but no token_url
-    let server_no_token_url = McpServerDef::new("figma", "http")
-        .url("https://mcp.figma.com/mcp")
-        .oauth(McpOauth::new("client-123", "IVAR_MCP_ACME_FIGMA_SECRET"));
-    let doc2 = server_doc("acme-figma", &server_no_token_url, McpTransport::Http);
-    assert!(
-        doc2.get("auth").is_none(),
-        "auth key must not exist when token_url is None"
+    let doc = server_doc("acme-linear", &server, McpTransport::Http);
+
+    assert_eq!(doc["auth"]["credentialId"], "mcp_oauth_ivar:acme-linear");
+    assert_eq!(doc["auth"]["tokenUrl"], "https://mcp.linear.app/token");
+}
+
+#[test]
+fn http_server_without_token_url_still_declares_its_credential_id() {
+    let server = McpServerDef::new("linear", "http").url("https://mcp.linear.app/mcp");
+
+    let doc = server_doc("acme-linear", &server, McpTransport::Http);
+
+    assert_eq!(
+        doc["auth"],
+        serde_json::json!({ "type": "oauth", "credentialId": "mcp_oauth_ivar:acme-linear" })
     );
+}
+
+#[test]
+fn local_server_renders_no_auth_key() {
+    let server = McpServerDef::new("graph", "local").command("ivar");
+
+    let doc = server_doc("acme-graph", &server, McpTransport::Local);
+
+    assert!(doc.get("auth").is_none());
 }
 
 #[test]

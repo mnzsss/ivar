@@ -12,6 +12,11 @@ use crate::infra::fs::{TempDir, write_sensitive_atomic};
 use crate::infra::oauth::Tokens;
 use crate::infra::proc::{self, Command};
 use crate::providers::{Credential, Provider, launch_contract};
+
+pub(crate) fn credential_id(materialised_name: &str) -> String {
+    format!("mcp_oauth_ivar:{materialised_name}")
+}
+
 pub(crate) fn credential_binding(server_url: &str) -> String {
     let omp_profile = std::env::var("OMP_PROFILE").ok();
     let pi_profile = std::env::var("PI_PROFILE").ok();

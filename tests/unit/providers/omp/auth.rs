@@ -10,8 +10,8 @@ use crate::infra::fs::{TempDir, write_sensitive_atomic};
 use crate::infra::oauth::Tokens;
 use crate::infra::proc::Output;
 use crate::providers::omp::auth::{
-    credential_binding_from, credential_json, import_command, logout_command, parse_import_result,
-    verify_result_from_output,
+    credential_binding_from, credential_id, credential_json, import_command, logout_command,
+    parse_import_result, verify_result_from_output,
 };
 
 #[test]
@@ -274,4 +274,12 @@ fn token_value_in_stdout_does_not_leak_into_verify_failure() {
         !rendered_actual.contains(secret_token),
         "token leaked into actual: {rendered_actual}"
     );
+}
+
+#[test]
+fn credential_id_is_per_hall_and_outside_the_reserved_profile_prefix() {
+    let id = credential_id("acme-linear");
+    assert_eq!(id, "mcp_oauth_ivar:acme-linear");
+    assert!(id.starts_with("mcp_oauth_"));
+    assert!(!id.starts_with("mcp_oauth:profile:"));
 }
