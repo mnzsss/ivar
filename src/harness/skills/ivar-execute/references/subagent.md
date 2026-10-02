@@ -16,6 +16,7 @@ directory and must not spend rounds discovering it.
 - Task packet: <absolute path to tasks/NN-<name>.md>
 - Plan: <absolute path to plan.md>
 - Requirements: <absolute path to requirements.md>
+- Design ref: <the packet's **Design ref:** (Figma node URL or id), or none>
 
 ## Boundaries
 - Allowed files: <exactly the Files section of the task packet, absolute>

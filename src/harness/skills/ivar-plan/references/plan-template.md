@@ -8,12 +8,11 @@ scaffolds in `plan.md`:
 - **Structure** — file/module organization
 - **Changes** — implementation organized into sequential waves (`### Wave N — <outcome>`)
   with point budget (`**Budget:** 0 / 8 points`, ceiling 8 per wave), prerequisites, a
-  task table (`| Task | Points | Blocked by | Outcome | Done |` — `[x]` when a task is
-  complete, `[ ]` while pending), checkboxed exit criteria (`- [ ]`, flipped to `- [x]`
-  as each is met), and a wave-complete marker (`### Wave N — <outcome> ✅` once every
-  exit criterion is met).
+  task table (`| Task | Points | Blocked by | Outcome |`), and exit criteria.
+  When the work splits into parallel subfeatures, Wave 0 lands everything two
+  children would both edit (dependency manifests, routes, theme, shared registries)
+  on the parent first.
 - **Lightweight validation** — per-wave executable commands verifying observable contracts.
-- **Deferred validation failures** — documented failures carried forward.
 - **Verification** — the checks that demonstrate the change is complete.
   Each build or test check must be at least as wide as the readers the
   packets declare: a check narrower than its blast radius reports green
@@ -23,6 +22,10 @@ scaffolds in `plan.md`:
 - **Safeguards** — things to watch out for
 
 Use `ivar graph explore <query>` to check direct and transitive consumers, relation paths, and blast radius when populating task readers, interfaces, and safeguards. Fall back to direct source grep and file reads when graph evidence is absent, empty, or unmodeled.
+
+`plan.md` is frozen once approved: any edit, even ticking a box, sends the
+gate back to needs-revision. Progress and deferred failures live in
+`ivar feature execute checkpoint`, never in this file.
 
 When Requirements and Analysis exist, reference them near the top of the
 canvas (for example `Requirements: ../../requirements.md
@@ -60,24 +63,18 @@ The implementation, split into sequential waves.
 **Budget:** 0 / 8 points
 **Prerequisites:** none
 
-| Task | Points | Blocked by | Outcome | Done |
-| --- | ---: | --- | --- | --- |
-| `tasks/01-<semantic-name>.md` | 1 | — | <outcome> | [ ] |
+| Task | Points | Blocked by | Outcome |
+| --- | ---: | --- | --- |
+| `tasks/01-<semantic-name>.md` | 1 | — | <outcome> |
 
 #### Lightweight validation
 
 - `<exact command>` — <observable contract checked>
 
-#### Deferred validation failures
-
-- None.
-
 #### Exit criteria
 
-- [ ] Verification checks pass.
-- [ ] Executed points ≤ 8.
-- [ ] Deviations recorded.
-- [ ] Human approval requested and granted to start Wave N+1.
+- Lightweight validation passes.
+- Executed points ≤ 8.
 
 ## Verification
 

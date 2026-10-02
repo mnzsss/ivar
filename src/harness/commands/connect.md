@@ -45,8 +45,9 @@ refuses.
 3. Work inside `IVAR_SESSION_PATH` from here on.
 
    > **IMPORTANT FOR AI AGENTS:** your bash tool does NOT persist `cd` across
-   > turns. For EVERY subsequent bash call, set the `workdir` parameter to
-   > `$IVAR_SESSION_PATH`, or use absolute paths under it.
+   > turns. Use absolute paths under `$IVAR_SESSION_PATH` in every bash call.
+   > OpenCode and omp also accept a `workdir` parameter; Claude Code's Bash
+   > tool has none.
 
 4. Discover promoted repos with `ivar feature status "$IVAR_FEATURE"`.
 

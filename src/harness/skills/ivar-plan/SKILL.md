@@ -82,10 +82,9 @@ default is the only guard, and the rest is on you.
    - Non-functional requirements (performance, security)
    - Constraints
 
-3. **Pause for human approval.** Show the requirements to the user. Only
-   proceed after they approve.
-
-4. Call `ivar plan approve <feature> requirements`.
+3. **Gate.** Show the requirements and ask: **(a) Approve and continue** to
+   Analysis, **(b) Revise**. On (a), call `ivar plan approve <feature> requirements`
+   and start Phase 2 in the same turn.
 
 ## Phase 2: Analysis
 
@@ -105,10 +104,9 @@ blocks approval of this artifact. This checkpoint never edits `HALL.md`;
    Query `ivar graph explore <query>` to inspect repo-qualified relations, provenance, confidence, entry points, and bounded dependency flow. Graph evidence is advisory: if graph queries are stale, empty, unsupported, or unavailable, fall back directly to source search and file reading. Graph evidence supplements source inspection and never creates, approves, or bypasses an approval gate.
 3. Write the Analysis artifact to `../../analysis.md` (relative to `$IVAR_SESSION_PATH`).
 
-4. **Pause for human approval.** Show the analysis to the user. Only proceed
-after they approve.
-
-5. Call `ivar plan approve <feature> analysis`.
+4. **Gate.** Show the analysis and ask: **(a) Approve and continue** to the
+   Plan, **(b) Revise**. On (a), call `ivar plan approve <feature> analysis` and
+   start Phase 3 in the same turn.
 
 ## Phase 3: Plan
 
@@ -125,7 +123,8 @@ after they approve.
    tool's `model` to `haiku`, and to `sonnet` only when `haiku` cannot hold the
    plan. On OpenCode, dispatch through an agent whose configured model is that
    provider's small tier; when only the default agent exists, use it and say so
-   in the report. Report the model you ran, so nobody has to guess whether the
+   in the report. On omp, dispatch the task through its smallest configured
+   model role (e.g. `smol`), falling back to the default and saying so. Report the model you ran, so nobody has to guess whether the
    review fell back to the coordinator's.
 
    The subagent evaluates the plan against `requirements.md` (the spec) across these categories:
@@ -152,20 +151,21 @@ after they approve.
 
    Calibration: approve unless there are serious gaps; minor wording and "nice to have" suggestions do not block approval. When the reviewer raises issues, update the plan/tasks and re-review, at most twice. If the second re-review still reports Issues Found, list what remains and hand it to the human gate in step 5.
 
-5. **Pause for human approval.** Show the plan, task packets, and plan review status to the user. Only proceed after they approve.
+5. **Gate.** Show the plan, task packets, and plan review status, and ask:
+   - **(a) Approve and continue** — execute with `/ivar-execute` in default mode.
+   - **(b) Approve and continue in goal mode** — `/ivar-execute --mode goal`.
+   - **(c) Approve only** — stop after approval.
+   - **(d) Revise.**
 
-6. Call `ivar plan approve <feature> plan`.
+6. On (a), (b) or (c), call `ivar plan approve <feature> plan`.
 
 ## Execution
 
-After the Plan gate is approved, offer execution — do not start it:
-
-> The plan is approved. Run `ivar-execute ../../plan.md` to
-> execute it.
-
-**Never run `ivar-execute` automatically.** Approving a plan and executing it
-are two decisions, and the human makes both. `/ivar-discovery` states the same
-rule for its own phase transition: it offers `/ivar-plan` and never runs it.
+Start `/ivar-execute` only when the human picked (a) or (b) at the Plan gate;
+that one answer approves the plan and starts execution. Never start it on your
+own. After (c), the human runs `/ivar-execute` when ready.
 
 That workflow executes the plan wave by wave and records each approved wave in
 the run receipt with `ivar feature execute checkpoint`, leaving `plan.md` untouched.
+Editing `plan.md` after approval, even to tick a box, sends the gate back to
+needs-revision.

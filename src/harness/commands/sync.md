@@ -18,7 +18,8 @@ In order:
    commands (`/ivar-*`). A provider the hall no longer lists has all three
    stripped.
 
-The command directories (`.claude/commands/`, `.opencode/commands/`) contain
+The command directories (`.claude/commands/`, `.opencode/commands/`,
+`.omp/commands/`) contain
 **derived state**: `ivar` owns exactly the files named `ivar-*.md`, and
 reconciles them on every sync — missing or modified official commands are
 restored, leftover `ivar-*` files are removed. Every other file in those
