@@ -195,10 +195,14 @@ pub(crate) fn install_credentials(name: &str, credential: &Credential<'_>) -> Re
     parse_import_result(&import_output.stdout, &id)?;
 
     // A leftover URL-keyed credential is omp's fallback when the per-hall id is missing.
-    proc::capture(&logout_command(&credential_binding(credential.server_url)))?;
+    let legacy_binding = credential_binding(credential.server_url);
+    proc::capture(&logout_command(&legacy_binding))?;
 
     let token_output = proc::capture(&token_command(&id))?;
-    verify_installed_token(&token_output, &credential.tokens.access_token, &id)
+    verify_installed_token(&token_output, &credential.tokens.access_token, &id)?;
+
+    let legacy_output = proc::capture(&token_command(&legacy_binding))?;
+    verify_legacy_binding_removed(&legacy_output, &legacy_binding)
 }
 
 pub(crate) fn verify_installed_token(
@@ -219,6 +223,25 @@ pub(crate) fn verify_installed_token(
     .fix(FixAction::safe(
         "mcp.retry_auth",
         "Run `ivar mcp auth` again to replace the credential.",
+    )))
+}
+
+pub(crate) fn verify_legacy_binding_removed(
+    output: &proc::Output,
+    binding: &str,
+) -> Result<(), Failure> {
+    if output.code != Some(0) || output.stdout.trim().is_empty() {
+        return Ok(());
+    }
+    Err(Failure::failed(
+        "omp_auth.legacy_binding_remains",
+        format!("omp still holds the shared credential `{binding}` after logout"),
+    )
+    .expected(format!("no credential stored under `{binding}`"))
+    .actual("a stored credential")
+    .fix(FixAction::safe(
+        "omp_auth.logout_legacy_binding",
+        format!("Run `omp auth-broker logout '{binding}'`, then `ivar mcp auth` again."),
     )))
 }
 

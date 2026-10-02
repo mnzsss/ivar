@@ -11,7 +11,8 @@ use crate::infra::oauth::Tokens;
 use crate::infra::proc::Output;
 use crate::providers::omp::auth::{
     credential_binding_from, credential_id, credential_json, import_command, logout_command,
-    parse_import_result, verify_installed_token, verify_result_from_output,
+    parse_import_result, verify_installed_token, verify_legacy_binding_removed,
+    verify_result_from_output,
 };
 
 #[test]
@@ -324,4 +325,32 @@ fn installed_token_must_be_the_one_just_written() {
         stderr: String::new(),
     };
     assert!(verify_installed_token(&fresh, "new-access-token", id).is_ok());
+}
+
+#[test]
+fn surviving_legacy_binding_fails_without_leaking_the_token() {
+    let binding = "mcp_oauth:profile:default:https://mcp.linear.app/mcp";
+    let survivor = Output {
+        code: Some(0),
+        stdout: "tok\n".to_owned(),
+        stderr: String::new(),
+    };
+
+    let err = verify_legacy_binding_removed(&survivor, binding).unwrap_err();
+
+    assert_eq!(err.code, "omp_auth.legacy_binding_remains");
+    let rendered = format!("{err:?}{err}");
+    assert!(rendered.contains(binding));
+    assert!(!rendered.contains("tok"));
+}
+
+#[test]
+fn absent_legacy_binding_passes() {
+    let missing = Output {
+        code: Some(1),
+        stdout: String::new(),
+        stderr: String::new(),
+    };
+
+    assert!(verify_legacy_binding_removed(&missing, "mcp_oauth:profile:default:u").is_ok());
 }
