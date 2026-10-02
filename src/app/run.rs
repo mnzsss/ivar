@@ -19,7 +19,9 @@ use crate::action::discovery::show as discovery_show;
 use crate::action::execute::{
     accept_revision, checkpoint, finish, interrupt, start, status as execute_status,
 };
-use crate::action::feature::select::{resolve_multi_features, resolve_single_feature};
+use crate::action::feature::select::{
+    feature_from_env, resolve_multi_features, resolve_single_feature,
+};
 use crate::action::feature::{
     cleanup, close, create, delete, deliver, demote, integrate, list as feature_list, promote,
     prune as feature_prune, rebase, rename, reparent, status, view, workspace,
@@ -92,6 +94,7 @@ pub fn run(cli: Cli) -> ExitCode {
     // consent. Everything that must ask before it acts (`cleanup`, `migrate`,
     // and later integration's parent-promotion prompt) reads this one decision.
     let ctx = Ctx::new(current_dir())
+        .with_session_feature(feature_from_env())
         .with_progress(progress::reporter(!json))
         .with_confirm(confirm::reporter(
             !json
@@ -747,26 +750,35 @@ pub fn run(cli: Cli) -> ExitCode {
                 )
             }
         },
-        Command::Review(ReviewCommand::Comment(cmd)) => match cmd {
-            CommentCommand::Add(args) => respond(
-                review_comment::add(&ctx, args.into()),
-                json,
-                &mut stdout,
-                &mut stderr,
-            ),
-            CommentCommand::List(args) => respond(
-                review_comment::list(&ctx, args.into()),
-                json,
-                &mut stdout,
-                &mut stderr,
-            ),
-            CommentCommand::Resolve(args) => respond(
-                review_comment::resolve(&ctx, &args.into()),
-                json,
-                &mut stdout,
-                &mut stderr,
-            ),
-        },
+        Command::Review(ReviewCommand::Comment(mut cmd)) => {
+            let explicit = cmd.feature_mut().take();
+            match resolve_single_feature(&ctx, explicit, "Select a feature to review") {
+                Ok(feature) => {
+                    *cmd.feature_mut() = Some(feature);
+                    match cmd {
+                        CommentCommand::Add(args) => respond(
+                            review_comment::add(&ctx, args.into()),
+                            json,
+                            &mut stdout,
+                            &mut stderr,
+                        ),
+                        CommentCommand::List(args) => respond(
+                            review_comment::list(&ctx, args.into()),
+                            json,
+                            &mut stdout,
+                            &mut stderr,
+                        ),
+                        CommentCommand::Resolve(args) => respond(
+                            review_comment::resolve(&ctx, &args.into()),
+                            json,
+                            &mut stdout,
+                            &mut stderr,
+                        ),
+                    }
+                }
+                Err(failure) => respond_failure(&failure, json, &mut stdout, &mut stderr),
+            }
+        }
         Command::Plan(cmd) => match cmd {
             PlanCommand::Create(args) => {
                 match resolve_single_feature(
@@ -846,12 +858,17 @@ pub fn run(cli: Cli) -> ExitCode {
                     Err(failure) => respond_failure(&failure, json, &mut stdout, &mut stderr),
                 }
             }
-            PlanCommand::Status(args) => respond(
-                plan_status::status(&ctx, &args.into()),
-                json,
-                &mut stdout,
-                &mut stderr,
-            ),
+            PlanCommand::Status(args) => {
+                match resolve_single_feature(&ctx, args.target, "Select a feature to inspect") {
+                    Ok(target) => respond(
+                        plan_status::status(&ctx, &plan_status::StatusInput { plan_path: target }),
+                        json,
+                        &mut stdout,
+                        &mut stderr,
+                    ),
+                    Err(failure) => respond_failure(&failure, json, &mut stdout, &mut stderr),
+                }
+            }
         },
         Command::Skill(cmd) => match cmd {
             SkillCommand::List => respond(skill_list::list(&ctx), json, &mut stdout, &mut stderr),

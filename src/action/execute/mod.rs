@@ -7,7 +7,7 @@ use crate::action::Ctx;
 use crate::domain::feature::RunId;
 use crate::domain::name::FeatureName;
 use crate::domain::session::rfc3339_now;
-use crate::error::Failure;
+use crate::error::{Failure, FixAction};
 use crate::store::feature::run;
 use crate::store::layout::Layout;
 
@@ -63,6 +63,45 @@ pub(crate) fn plan_path(
         || layout.plan_dir(feature).join("plan.md"),
         |plan| ctx.resolve(Utf8Path::new(plan)),
     )
+}
+
+/// The fix every "run has no receipt yet" refusal offers.
+pub(crate) fn start_run_fix(feature: &FeatureName) -> FixAction {
+    let command = format!("ivar feature execute start {feature}");
+    FixAction::safe(
+        "execute.start_run",
+        format!("Start a run with `{command}`."),
+    )
+    .command(command)
+}
+
+pub(crate) fn run_missing(feature: &FeatureName) -> Failure {
+    Failure::blocked("execute.run_missing", "no current run receipt exists")
+        .fix(start_run_fix(feature))
+}
+
+pub(crate) fn plan_not_approved(feature: &FeatureName, what: &str) -> Failure {
+    let command = format!("ivar plan approve {feature} plan");
+    Failure::blocked("execute.plan_not_approved", what.to_owned()).fix(
+        FixAction::safe(
+            "execute.approve_plan",
+            format!("Approve the plan with `{command}`, then run this again."),
+        )
+        .command(command),
+    )
+}
+
+/// Abandoning a run discards the coordinator's place in it, so a human decides.
+pub(crate) fn finish_or_interrupt_fix(feature: &FeatureName) -> FixAction {
+    let command = format!("ivar feature execute interrupt {feature}");
+    FixAction::unsafe_(
+        "execute.finish_or_interrupt",
+        format!(
+            "Finish the run with `ivar feature execute finish {feature}`, accept a revision with \
+             `ivar feature execute accept-revision {feature}`, or abandon it with `{command}`."
+        ),
+    )
+    .command(command)
 }
 
 /// Preserve legacy execution evidence before an action reads or changes receipts.

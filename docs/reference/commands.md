@@ -727,7 +727,7 @@ Show approval gate status for a plan file. Omits a gate that has no artifact and
 
 | argument | required | description |
 | --- | --- | --- |
-| `plan_path` | yes | Path to the plan file (plan.md or similar) |
+| `target` | no | The feature, or a path to a file under its feature directory (e.g. its plan.md) |
 
 
 #### `ivar review`
@@ -746,7 +746,7 @@ Add a comment on a line range of a file in one of the feature's repos
 
 | argument | required | description |
 | --- | --- | --- |
-| `feature` | yes | The feature under review |
+| `feature` | no | The feature under review |
 
 | flag | value | default | description |
 | --- | --- | --- | --- |
@@ -762,7 +762,7 @@ List a feature's review comments
 
 | argument | required | description |
 | --- | --- | --- |
-| `feature` | yes | The feature under review |
+| `feature` | no | The feature under review |
 
 | flag | value | default | description |
 | --- | --- | --- | --- |
@@ -776,7 +776,7 @@ Mark a review comment resolved
 
 | argument | required | description |
 | --- | --- | --- |
-| `feature` | yes | The feature under review |
+| `feature` | no | The feature under review |
 | `id` | yes | The comment id, e.g. `c1` |
 
 

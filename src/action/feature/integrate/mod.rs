@@ -44,7 +44,7 @@ use crate::domain::feature::{
 };
 use crate::domain::name::{BranchName, FeatureName, RepoName};
 use crate::domain::session::rfc3339_now;
-use crate::error::{Failure, FixAction, Outcome, Report, Warning, WriteHuman};
+use crate::error::{Failure, FixAction, Outcome, Report, WriteHuman};
 use crate::git::{self, Git};
 use crate::infra::fs;
 use crate::store::layout::Layout;
@@ -171,7 +171,11 @@ impl WriteHuman for IntegrateOutcome {
             writeln!(w, "  {}  {}{}{detail}", repo.repo, repo.status, result)?;
         }
         if self.closed_integrated {
-            writeln!(w, "Closed `{}` as integrated.", self.feature)?;
+            writeln!(
+                w,
+                "Closed `{}` as integrated; the outcome is final.",
+                self.feature
+            )?;
         }
         Ok(())
     }
@@ -276,31 +280,19 @@ pub fn integrate(ctx: &Ctx, input: IntegrateInput) -> Outcome<IntegrateOutcome> 
     let repos_out =
         run_integration_repos(&layout, &manifest, &git, &child, &parent, policy, &name)?;
     let child = relations::read_feature(&layout, &name)?;
-    let mut warnings = Vec::new();
 
     // 13. Close as integrated only when every receipt is fresh and passing.
-    let (state, closed_integrated) = final_state(
-        ctx,
-        &layout,
-        &manifest,
-        &git,
-        &child,
-        &parent,
-        &mut warnings,
-    )?;
+    let (state, closed_integrated) = final_state(ctx, &layout, &manifest, &git, &child, &parent)?;
 
-    Ok(Report::with_warnings(
-        IntegrateOutcome {
-            root: layout.root().to_path_buf(),
-            feature: name,
-            parent: parent_name,
-            policy,
-            repos: repos_out,
-            state,
-            closed_integrated,
-        },
-        warnings,
-    ))
+    Ok(Report::new(IntegrateOutcome {
+        root: layout.root().to_path_buf(),
+        feature: name,
+        parent: parent_name,
+        policy,
+        repos: repos_out,
+        state,
+        closed_integrated,
+    }))
 }
 
 const INTEGRATE_LOCK: &str = "integrate.lock";
@@ -710,10 +702,7 @@ fn ensure_no_conflicting_session_or_run(
         )
         .expected("a terminal run receipt before integrating the feature")
         .actual("the current run is still active and holds the feature lock")
-        .fix(FixAction::safe(
-            "execute.finish_or_interrupt",
-            "Finish, accept the revision, or interrupt the run before integrating the feature.",
-        )));
+        .fix(crate::action::execute::finish_or_interrupt_fix(name)));
     }
     Ok(())
 }
@@ -763,7 +752,6 @@ fn final_state(
     git: &impl Git,
     child: &Feature,
     parent: &Feature,
-    warnings: &mut Vec<Warning>,
 ) -> Result<(FeatureIntegrationState, bool), Failure> {
     if read_close(layout, &child.name)?.is_some() {
         return Ok((FeatureIntegrationState::Integrated, false));
@@ -787,20 +775,13 @@ fn final_state(
     }
 
     // Every promotion is receipted, fresh, and passing: close as integrated.
-    let report = close::close(
+    close::close(
         ctx,
         CloseInput {
             name: child.name.to_string(),
             outcome: "integrated".to_owned(),
         },
     )?;
-    if !report.value.already_closed {
-        warnings.push(Warning::new(
-            "integration.closed_integrated",
-            child.name.to_string(),
-            "Closed the child as integrated; the outcome is final.".to_owned(),
-        ));
-    }
     Ok((FeatureIntegrationState::Integrated, true))
 }
 

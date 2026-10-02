@@ -1,7 +1,7 @@
 use clap::{Args, Subcommand};
 
 use crate::action::plan::approve as plan_approve;
-use crate::action::plan::{create as plan_create, show as plan_show, status as plan_status};
+use crate::action::plan::{create as plan_create, show as plan_show};
 
 /// The `ivar plan` surface: the SPDD artifacts, committed per feature, and
 /// the approval gates that transition a feature through the SPDD lifecycle.
@@ -73,8 +73,9 @@ pub struct PlanInvalidateArgs {
 /// Arguments for `ivar plan status`.
 #[derive(Debug, Args)]
 pub struct PlanStatusArgs {
-    /// Path to the plan file (plan.md or similar).
-    pub plan_path: String,
+    /// The feature, or a path to a file under its feature directory (e.g. its plan.md).
+    #[arg(value_name = "FEATURE|PATH")]
+    pub target: Option<String>,
 }
 
 impl From<PlanCreateArgs> for plan_create::CreateInput {
@@ -114,12 +115,5 @@ impl From<PlanInvalidateArgs> for plan_approve::InvalidateInput {
             feature: feature.unwrap_or_default(),
             gate,
         }
-    }
-}
-
-impl From<PlanStatusArgs> for plan_status::StatusInput {
-    fn from(args: PlanStatusArgs) -> Self {
-        let PlanStatusArgs { plan_path } = args;
-        Self { plan_path }
     }
 }

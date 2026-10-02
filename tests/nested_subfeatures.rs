@@ -120,14 +120,12 @@ fn approve_plan(root: &Utf8Path, feature: &str) {
 }
 
 fn json_output(root: &Utf8Path, args: &[&str]) -> serde_json::Value {
-    // A successful run may exit 1 when it carries warnings (e.g. the
-    // integration close notice); only a real failure (exit 2) is refused.
     let output = ivar()
         .current_dir(root)
         .args(args)
         .arg("--json")
         .assert()
-        .code(predicate::in_iter([0, 1]))
+        .success()
         .get_output()
         .stdout
         .clone();

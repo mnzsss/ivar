@@ -101,6 +101,10 @@ fn execute_checkpoint_refuses_when_no_run_exists() {
     .unwrap_err();
 
     assert_eq!(failure.code, "execute.run_missing");
+    assert_eq!(
+        failure.fix_actions[0].command.as_deref(),
+        Some("ivar feature execute start child-feature")
+    );
 }
 
 #[test]

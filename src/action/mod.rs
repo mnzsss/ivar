@@ -98,6 +98,9 @@ pub struct Ctx {
     /// The network seam for skill downloads. Private: reached through
     /// [`Ctx::fetch_tarball`], so a unit test can keep every download offline.
     tarball_fetcher: TarballFetcher,
+    /// The feature of the session this run belongs to, which a
+    /// single-feature verb falls back to when its argument is omitted.
+    session_feature: Option<String>,
 }
 
 impl Ctx {
@@ -110,7 +113,19 @@ impl Ctx {
             progress: Arc::new(progress::Silent),
             confirm: confirm::reporter(false),
             tarball_fetcher: crate::infra::github::fetch_tarball,
+            session_feature: None,
         }
+    }
+
+    /// The same context, inside `feature`'s session.
+    #[must_use]
+    pub fn with_session_feature(mut self, feature: Option<String>) -> Self {
+        self.session_feature = feature;
+        self
+    }
+
+    pub(crate) fn session_feature(&self) -> Option<&str> {
+        self.session_feature.as_deref()
     }
 
     /// The same context, reporting progress to `progress`.

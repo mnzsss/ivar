@@ -157,6 +157,7 @@ pub(crate) fn plan_not_approved(
                 "Approve it with `ivar plan approve {feature} plan`, then preview and apply again."
             ),
         )
+        .command(format!("ivar plan approve {feature} plan"))
     } else {
         FixAction::safe(
             "deliver.write_plan",
@@ -164,6 +165,7 @@ pub(crate) fn plan_not_approved(
                 "Write a plan with `ivar plan create {feature} plan`, approve it with `ivar plan approve {feature} plan`, then preview and apply again."
             ),
         )
+        .command(format!("ivar plan create {feature} plan"))
     })
 }
 

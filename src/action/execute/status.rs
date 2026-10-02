@@ -70,6 +70,7 @@ pub fn status(ctx: &Ctx, input: StatusInput) -> Outcome<StatusOutcome> {
         &feature,
         super::plan_path(ctx, &layout, &feature, input.plan.as_deref()),
     )?;
+    let asked_for_one_run = input.run.is_some();
     let receipts = if let Some(id) = input.run {
         RunReceipt::find(&layout, &feature, &RunId::new(id)?)?
             .into_iter()
@@ -80,10 +81,12 @@ pub fn status(ctx: &Ctx, input: StatusInput) -> Outcome<StatusOutcome> {
         RunReceipt::read(&layout, &feature)?.into_iter().collect()
     };
     if receipts.is_empty() {
-        return Err(Failure::blocked(
-            "execute.run_missing",
-            "no matching run receipt exists",
-        ));
+        let missing = Failure::blocked("execute.run_missing", "no matching run receipt exists");
+        return Err(if asked_for_one_run {
+            missing
+        } else {
+            missing.fix(super::start_run_fix(&feature))
+        });
     }
     Ok(Report::new(StatusOutcome { receipts }))
 }

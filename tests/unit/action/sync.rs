@@ -1301,14 +1301,14 @@ fn sync_materialises_settings_and_artifacts_per_provider() {
         root.join(".omp/hooks/pre/ivar.js").is_file(),
         ".omp/hooks/pre/ivar.js must be created for OMP"
     );
-    // The settings file carries ivar's env key.
+    // Settings are committed, so they carry no clone-specific hall root.
     let settings: serde_json::Value = serde_json::from_str(
         &fs::read_text(&root.join(".claude/settings.json"))
             .unwrap()
             .unwrap(),
     )
     .unwrap();
-    assert_eq!(settings["env"]["IVAR_HALL"], serde_json::json!("acme"));
+    assert!(settings.pointer("/env/IVAR_HALL").is_none(), "{settings}");
 }
 
 #[test]

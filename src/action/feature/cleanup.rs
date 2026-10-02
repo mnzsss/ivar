@@ -365,12 +365,20 @@ fn validate_record_against_preview(
     }
 
     if !preview.blockers.is_empty() {
+        let command = format!("ivar feature cleanup {} --preview", preview.feature);
         return Err(Failure::blocked(
             "feature.cleanup_blocked",
             format!(
                 "feature `{}` cannot be cleaned up due to blockers",
                 preview.feature
             ),
+        )
+        .fix(
+            FixAction::safe(
+                "feature.cleanup_resolve_blockers",
+                format!("List the blockers with `{command}`, resolve them, then clean up again."),
+            )
+            .command(command),
         ));
     }
 

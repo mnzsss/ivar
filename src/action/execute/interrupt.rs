@@ -31,8 +31,8 @@ impl WriteHuman for InterruptOutcome {
 pub fn interrupt(ctx: &Ctx, input: InterruptInput) -> Outcome<InterruptOutcome> {
     let layout = discover_hall(ctx)?;
     let feature = FeatureName::new(input.feature)?;
-    let mut receipt = RunReceipt::read(&layout, &feature)?
-        .ok_or_else(|| Failure::blocked("execute.run_missing", "no current run receipt exists"))?;
+    let mut receipt =
+        RunReceipt::read(&layout, &feature)?.ok_or_else(|| super::run_missing(&feature))?;
     if !receipt.holds_lock() {
         return Err(Failure::blocked(
             "execute.run_not_active",

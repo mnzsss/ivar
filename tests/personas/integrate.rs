@@ -48,7 +48,12 @@ fn integrate_a_conflicted_child_can_be_retried_after_it_is_fixed() {
     let worktree = root.join(".ivar/repos/app/profile");
     git(&worktree, &["mv", "routes.txt", "profile-routes.txt"]);
     git(&worktree, &["commit", "-m", "own routes file"]);
-    let retried = run_ok(&root, &["feature", "integrate", "profile"]);
+    let retried = isolated_ivar(&home(&root))
+        .current_dir(&root)
+        .args(["feature", "integrate", "profile", "--json"])
+        .assert()
+        .success();
+    let retried: serde_json::Value = serde_json::from_slice(&retried.get_output().stdout).unwrap();
     assert_eq!(retried["closed_integrated"], true, "{retried}");
 }
 

@@ -7,7 +7,7 @@ use crate::action::{Ctx, discover_hall};
 use crate::domain::feature::RunReceipt;
 use crate::domain::name::FeatureName;
 use crate::domain::session::rfc3339_now;
-use crate::error::{Failure, Outcome, Report, WriteHuman};
+use crate::error::{Outcome, Report, WriteHuman};
 use crate::store::feature::run;
 
 #[derive(Debug, Clone)]
@@ -41,8 +41,8 @@ impl WriteHuman for CheckpointOutcome {
 pub fn checkpoint(ctx: &Ctx, input: CheckpointInput) -> Outcome<CheckpointOutcome> {
     let layout = discover_hall(ctx)?;
     let feature = FeatureName::new(input.feature)?;
-    let mut receipt = RunReceipt::read(&layout, &feature)?
-        .ok_or_else(|| Failure::blocked("execute.run_missing", "no current run receipt exists"))?;
+    let mut receipt =
+        RunReceipt::read(&layout, &feature)?.ok_or_else(|| super::run_missing(&feature))?;
     let (session, provider) = super::resolve_coordinator(&layout, &feature, &receipt)?;
     receipt.checkpoint_wave(input.wave, input.summary, session, provider, rfc3339_now())?;
     receipt.write(&layout)?;
