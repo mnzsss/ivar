@@ -157,7 +157,9 @@ hook protocol:
   scoped to the active omp profile (`OMP_PROFILE` or `PI_PROFILE`, defaulting to
   `default`). Switching profiles requires re-authenticating for that profile.
   However, credentials do not require manual re-authentication on expiry: omp
-  natively refreshes tokens using the rendered `auth` block in `mcp.json`.
+  natively refreshes tokens using the rendered `auth` block in `.omp/mcp.json`.
+  omp reads `.omp/mcp.json` ahead of `opencode.json`'s `mcp` entries, so the
+  per-hall `credentialId` is the one it uses.
 - **MCP authentication inspection and multi-provider auth:**
   - **Claude Code:** `ivar mcp status` reads `~/.claude/.credentials.json` directly. When Claude stores credentials in the OS Keychain (such as on macOS), or when credentials cannot be decrypted from disk, local state is reported as `unknown`. Use `ivar mcp status --live` to inspect runtime connectivity via `claude mcp list`.
   - **Harness live inspection (`--live`):** `--live` parses plain-text output from `claude mcp list` and `opencode mcp list`. If the underlying harness changes its human-readable status formatting, unrecognized lines fail closed to `unknown` rather than guessing. Note that `--live` invokes `claude mcp list`, which connects to every declared server and can take several seconds.
