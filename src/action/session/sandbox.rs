@@ -69,10 +69,13 @@ impl Sandbox {
         // 1. Primary write roots from the WritableSet.
         candidate_roots.extend(set.roots()?);
 
-        // 2. Backing git bare repos for any promoted repositories in the feature.
-        // Required for git operations (index.lock, refs, objects) within worktrees.
+        // 2. Feature directory grants for feature sessions:
+        // For a feature session, grant .ivar/features/ and .ivar/repos/<repo>/ for each promoted repo.
+        // This enables mid-session creation of child features, detached child sessions, and child worktrees.
         if let Some(feature) = feature {
+            candidate_roots.push(layout.features_dir());
             for repo in feature.promotions.keys() {
+                candidate_roots.push(layout.repo_dir(repo));
                 candidate_roots.push(layout.repo_bare(repo));
             }
         }
