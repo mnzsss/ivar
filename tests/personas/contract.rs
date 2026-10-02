@@ -49,6 +49,35 @@ fn contract_a_feature_session_infers_its_feature() {
         .success();
 }
 
+fn relay_failure(cmd: &mut assert_cmd::Command) -> serde_json::Value {
+    let failed = cmd
+        .args(["session", "relay", "--provider", "codex", "--json"])
+        .assert()
+        .failure();
+    serde_json::from_slice(&failed.get_output().stdout).unwrap()
+}
+
+#[test]
+fn contract_session_relay_infers_its_feature() {
+    let (_guard, root) = hall_root();
+    one_repo_hall(&root);
+
+    let body = relay_failure(ivar_at(&root).env("IVAR_FEATURE", "ghost"));
+
+    assert_ne!(body["code"], "feature.missing_argument", "{body}");
+    assert!(body.to_string().contains("ghost"), "{body}");
+}
+
+#[test]
+fn contract_session_relay_without_a_feature_is_a_missing_argument() {
+    let (_guard, root) = hall_root();
+    one_repo_hall(&root);
+
+    let body = relay_failure(&mut ivar_at(&root));
+
+    assert_eq!(body["code"], "feature.missing_argument", "{body}");
+}
+
 #[test]
 fn contract_a_destructive_verb_never_infers_its_feature() {
     let (_guard, root) = hall_root();

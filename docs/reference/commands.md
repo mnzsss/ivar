@@ -555,7 +555,7 @@ Relay session info: four-line output contract for external consumers
 
 | argument | required | description |
 | --- | --- | --- |
-| `feature` | yes | The feature to relay a session for |
+| `feature` | no | The feature to relay a session for. Defaults to the session's feature |
 
 | flag | value | default | description |
 | --- | --- | --- | --- |

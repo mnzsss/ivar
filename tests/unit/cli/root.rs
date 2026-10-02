@@ -771,10 +771,8 @@ fn parse_optional_feature_positionals_omitted_and_supplied() {
 }
 
 #[test]
-fn session_relay_remains_required_positional() {
-    assert!(
-        Cli::try_parse_from(["ivar", "session", "relay", "--provider", "claude-code"]).is_err()
-    );
+fn session_relay_feature_positional_is_optional() {
+    assert!(Cli::try_parse_from(["ivar", "session", "relay", "--provider", "claude-code"]).is_ok());
     assert!(
         Cli::try_parse_from([
             "ivar",

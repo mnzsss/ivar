@@ -626,12 +626,23 @@ pub fn run(cli: Cli) -> ExitCode {
             SessionCommand::Prune => {
                 respond(session_prune::prune(&ctx), json, &mut stdout, &mut stderr)
             }
-            SessionCommand::Relay(args) => respond(
-                session_relay::relay(&ctx, args.into()),
-                json,
-                &mut stdout,
-                &mut stderr,
-            ),
+            SessionCommand::Relay(args) => {
+                match resolve_single_feature(&ctx, args.feature, "Select a feature to relay") {
+                    Ok(feature) => respond(
+                        session_relay::relay(
+                            &ctx,
+                            session_relay::RelayInput {
+                                feature,
+                                provider: args.provider,
+                            },
+                        ),
+                        json,
+                        &mut stdout,
+                        &mut stderr,
+                    ),
+                    Err(failure) => respond_failure(&failure, json, &mut stdout, &mut stderr),
+                }
+            }
             SessionCommand::Env(args) => respond(
                 session_env_cmd::run(&ctx, &args.into()),
                 json,

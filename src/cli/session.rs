@@ -3,7 +3,7 @@ use clap::{Args, Subcommand};
 
 use crate::action::session::{
     connect as session_connect, conversion as session_conversion, env_cmd as session_env_cmd,
-    relay as session_relay, start as session_start, stop as session_stop,
+    start as session_start, stop as session_stop,
 };
 
 /// The `ivar session` surface.
@@ -112,8 +112,8 @@ pub struct SessionStopArgs {
 /// relay action — so its surface mirrors start's relay flags.
 #[derive(Debug, Args)]
 pub struct SessionRelayArgs {
-    /// The feature to relay a session for.
-    pub feature: String,
+    /// The feature to relay a session for. Defaults to the session's feature.
+    pub feature: Option<String>,
     /// The provider to relay to. Required — relay must switch providers.
     #[arg(long)]
     pub provider: String,
@@ -180,12 +180,5 @@ impl From<SessionStopArgs> for session_stop::StopInput {
     fn from(args: SessionStopArgs) -> Self {
         let SessionStopArgs { session, all } = args;
         Self { session, all }
-    }
-}
-
-impl From<SessionRelayArgs> for session_relay::RelayInput {
-    fn from(args: SessionRelayArgs) -> Self {
-        let SessionRelayArgs { feature, provider } = args;
-        Self { feature, provider }
     }
 }
