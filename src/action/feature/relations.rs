@@ -21,7 +21,7 @@ use crate::domain::feature::{
     ClassificationFacts, Feature, FeatureIntegrationState, GateState, IntegrationReceipt,
     RunReceipt, RunStatus, classify,
 };
-use crate::domain::name::{FeatureName, RepoName, SessionId};
+use crate::domain::name::{FeatureName, RepoName};
 use crate::error::{Failure, FixAction};
 use crate::git::Git;
 use crate::infra::fs;
@@ -67,7 +67,7 @@ pub struct TreeEntry {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub run: Option<TreeRun>,
     /// Live session ids belonging to this feature.
-    pub sessions: Vec<SessionId>,
+    pub sessions: Vec<String>,
 }
 
 /// How a receipt measures against live state. The evidence-vs-freshness split
@@ -464,9 +464,7 @@ fn facts_of(
     })
 }
 
-/// Depth-first, deterministic pre-order walk over `root`'s subtree, filling
-/// `entries`. The tree was validated by [`read_all`], so parent references
-/// inside the walk always resolve.
+/// Read the tree run receipt for a feature, if any.
 fn read_tree_run(layout: &Layout, feature: &FeatureName) -> Result<Option<TreeRun>, Failure> {
     let Some(receipt) = RunReceipt::read(layout, feature)? else {
         return Ok(None);
@@ -482,11 +480,14 @@ fn read_tree_run(layout: &Layout, feature: &FeatureName) -> Result<Option<TreeRu
     }))
 }
 
-/// All live session IDs for a feature.
-pub(crate) fn feature_session_ids(
+/// File names of every entry under the feature sessions directory.
+///
+/// Session view dirs are named by session id; any entry counts, which is the
+/// unrestricted-session fact integrate checks.
+pub(crate) fn feature_session_entries(
     layout: &Layout,
     feature: &FeatureName,
-) -> Result<Vec<SessionId>, Failure> {
+) -> Result<Vec<String>, Failure> {
     let dir = layout.feature_sessions_dir(feature);
     if !fs::is_dir(&dir)? {
         return Ok(Vec::new());
@@ -496,40 +497,13 @@ pub(crate) fn feature_session_ids(
         let Some(name) = entry.file_name() else {
             continue;
         };
-        if !fs::is_dir(&entry)? {
-            continue;
-        }
-        let id = match SessionId::new(name) {
-            Ok(id) => id,
-            Err(_) => {
-                let mut bytes = [0u8; 16];
-                for (i, b) in name.as_bytes().iter().enumerate() {
-                    if let Some(slot) = bytes.get_mut(i % 16) {
-                        *slot ^= *b;
-                    }
-                }
-                // Set UUID version 4 and variant RFC4122
-                if let Some(b) = bytes.get_mut(6) {
-                    *b = (*b & 0x0f) | 0x40;
-                }
-                if let Some(b) = bytes.get_mut(8) {
-                    *b = (*b & 0x3f) | 0x80;
-                }
-                let uuid = uuid::Uuid::from_bytes(bytes);
-                SessionId::new(uuid.to_string()).map_err(|e| {
-                    Failure::failed(
-                        "session.invalid",
-                        format!("synthesized session id invalid: {e}"),
-                    )
-                })?
-            }
-        };
-        sessions.push(id);
+        sessions.push(name.to_owned());
     }
     sessions.sort();
     Ok(sessions)
 }
 
+/// Construct a [`TreeEntry`] with all computed fields for a feature.
 fn make_entry(
     layout: &Layout,
     feature: &Feature,
@@ -539,7 +513,7 @@ fn make_entry(
 ) -> Result<TreeEntry, Failure> {
     let plan_gate = crate::action::plan::effective_plan_gate(layout, &feature.name)?;
     let run = read_tree_run(layout, &feature.name)?;
-    let sessions = feature_session_ids(layout, &feature.name)?;
+    let sessions = feature_session_entries(layout, &feature.name)?;
     Ok(TreeEntry {
         feature: feature.name.clone(),
         parent: feature.parent.clone(),
@@ -553,6 +527,9 @@ fn make_entry(
     })
 }
 
+/// Depth-first, deterministic pre-order walk over `root`'s subtree, filling
+/// `entries`. The tree was validated by [`read_all`], so parent references
+/// inside the walk always resolve.
 fn walk(
     git: &impl Git,
     layout: &Layout,
@@ -588,6 +565,9 @@ fn walk(
     Ok(())
 }
 
+/// The blocking descendants of `feature`, using the already-read `map` — the
+/// shared core of [`blocking_descendants`] and the per-entry `blockers` in
+/// [`subtree_status`].
 fn blocking_entries(
     git: &impl Git,
     layout: &Layout,
@@ -609,6 +589,7 @@ fn blocking_entries(
     }
     Ok(blockers)
 }
+
 /// Validate the whole derived tree: every parent reference resolves, and no
 /// parent chain cycles. Runs on every tree read; a corrupt tree is refused as
 /// a whole.

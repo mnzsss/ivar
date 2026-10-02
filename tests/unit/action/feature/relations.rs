@@ -477,10 +477,27 @@ fn subtree_status_populates_plan_gate_run_and_sessions() {
             last_wave: Some(2),
         })
     );
-    assert_eq!(
-        child_entry.sessions,
-        Vec::<crate::domain::name::SessionId>::new()
-    );
+    assert_eq!(child_entry.sessions, Vec::<String>::new());
+}
+
+#[test]
+fn subtree_status_reports_non_uuid_session_entries_as_they_are() {
+    let (_guard, layout) = seeded_relation_hall();
+    let manifest = Manifest::read(&layout).unwrap().unwrap();
+    let root_name = FeatureName::new("root").unwrap();
+    let child_name = FeatureName::new("child").unwrap();
+    write_feature(&layout, "root", None, None);
+    write_feature(&layout, "child", Some("root"), None);
+
+    // Create a non-UUID session entry under child's sessions dir
+    let sess_dir = layout.feature_sessions_dir(&child_name).join("sess-1");
+    crate::infra::fs::ensure_dir(&sess_dir).unwrap();
+
+    let entries = subtree_status(&crate::git::System, &layout, &manifest, &root_name).unwrap();
+    assert_eq!(entries.len(), 2);
+    let child_entry = &entries[1];
+    assert_eq!(child_entry.feature, child_name);
+    assert_eq!(child_entry.sessions, vec!["sess-1".to_owned()]);
 }
 
 // -- receipt freshness ------------------------------------------------------

@@ -669,7 +669,8 @@ fn ensure_no_conflicting_session_or_run(
     parent: &FeatureName,
     child: &Feature,
 ) -> Result<(), Failure> {
-    if !child.has_any_receipt() && !super::relations::feature_session_ids(layout, name)?.is_empty()
+    if !child.has_any_receipt()
+        && !super::relations::feature_session_entries(layout, name)?.is_empty()
     {
         return Err(Failure::blocked(
             "integration.session_live",
