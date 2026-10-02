@@ -150,96 +150,6 @@ fn a_non_object_tokens_value_is_not_authenticated() {
 }
 
 // ---------------------------------------------------------------------------
-// has_entry_under
-// ---------------------------------------------------------------------------
-
-#[test]
-fn has_entry_returns_false_when_store_is_absent() {
-    let (_dir, root) = utf8_temp_dir();
-    assert!(!has_entry_under(&root, "acme-figma").unwrap());
-}
-
-#[test]
-fn has_entry_returns_true_when_entry_has_only_code_verifier() {
-    let (_dir, root) = utf8_temp_dir();
-    let path = store_path(&root);
-    json::write_canonical(
-        &path,
-        &serde_json::json!({
-            "acme-figma": { "codeVerifier": "abc" },
-        }),
-    )
-    .unwrap();
-
-    assert!(has_entry_under(&root, "acme-figma").unwrap());
-}
-
-#[test]
-fn has_entry_returns_true_for_empty_object_entry() {
-    let (_dir, root) = utf8_temp_dir();
-    let path = store_path(&root);
-    json::write_canonical(
-        &path,
-        &serde_json::json!({
-            "acme-figma": {},
-        }),
-    )
-    .unwrap();
-
-    assert!(has_entry_under(&root, "acme-figma").unwrap());
-}
-
-#[test]
-fn has_entry_returns_true_for_entry_with_client_info_only() {
-    let (_dir, root) = utf8_temp_dir();
-    let path = store_path(&root);
-    json::write_canonical(
-        &path,
-        &serde_json::json!({
-            "acme-figma": {
-                "clientInfo": { "clientId": "xyz" }
-            },
-        }),
-    )
-    .unwrap();
-
-    assert!(has_entry_under(&root, "acme-figma").unwrap());
-}
-
-#[test]
-fn has_entry_returns_true_for_full_entry() {
-    let (_dir, root) = utf8_temp_dir();
-    let path = store_path(&root);
-    json::write_canonical(
-        &path,
-        &serde_json::json!({
-            "acme-figma": {
-                "tokens": { "accessToken": "abc" },
-                "clientInfo": { "clientId": "xyz" }
-            },
-        }),
-    )
-    .unwrap();
-
-    assert!(has_entry_under(&root, "acme-figma").unwrap());
-}
-
-#[test]
-fn has_entry_returns_false_for_different_name() {
-    let (_dir, root) = utf8_temp_dir();
-    let path = store_path(&root);
-    json::write_canonical(
-        &path,
-        &serde_json::json!({
-            "acme-linear": {},
-        }),
-    )
-    .unwrap();
-
-    assert!(!has_entry_under(&root, "acme-figma").unwrap());
-}
-
-// ---------------------------------------------------------------------------
 // write_entry_under
 // ---------------------------------------------------------------------------
 
@@ -385,19 +295,6 @@ fn write_entry_under_returns_error_for_invalid_json_and_leaves_bytes_unchanged()
         original_bytes, after_bytes,
         "invalid JSON must not modify the file"
     );
-}
-
-#[test]
-fn has_entry_under_returns_error_for_invalid_json() {
-    let (_dir, root) = utf8_temp_dir();
-    let path = store_path(&root);
-    if let Some(parent) = path.parent() {
-        fs::ensure_dir(parent).unwrap();
-    }
-    fs::write_text(&path, "{bad json").unwrap();
-
-    let result = has_entry_under(&root, "acme-figma");
-    assert!(result.is_err(), "invalid JSON should produce an error");
 }
 
 // ---------------------------------------------------------------------------

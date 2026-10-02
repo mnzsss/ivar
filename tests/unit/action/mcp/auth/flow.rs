@@ -21,7 +21,6 @@ use crate::providers::Credential;
 
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum PipelineEvent {
-    ConflictCheck,
     Preregister,
     Discover,
     Bind,
@@ -137,7 +136,6 @@ fn provider_run_command_shows_provider_command_label() {
 
 struct MockOps {
     events: RefCell<Vec<PipelineEvent>>,
-    conflict: bool,
     fail_at: Option<PipelineEvent>,
     written: RefCell<Option<(String, String, Option<String>, Tokens)>>,
     /// What step 2 hands back. Defaults to a client already registered with a
@@ -153,7 +151,6 @@ impl Default for MockOps {
     fn default() -> Self {
         Self {
             events: RefCell::new(Vec::new()),
-            conflict: false,
             fail_at: None,
             written: RefCell::new(None),
             prereg: None,
@@ -166,13 +163,6 @@ impl Default for MockOps {
 impl FlowOps for MockOps {
     fn provider(&self) -> Provider {
         self.provider
-    }
-    fn check_conflict(&self, _: &str, _: &str) -> Result<bool, Failure> {
-        self.events.borrow_mut().push(PipelineEvent::ConflictCheck);
-        if self.fail_at == Some(PipelineEvent::ConflictCheck) {
-            return Err(Failure::failed("fail", "fail"));
-        }
-        Ok(self.conflict)
     }
     fn preregister(
         &self,
@@ -288,21 +278,8 @@ impl FlowOps for MockOps {
 }
 
 #[test]
-fn conflict_is_checked_before_any_side_effect() {
-    let ops = MockOps {
-        conflict: true,
-        fail_at: None,
-        ..Default::default()
-    };
-    let server = McpServerDef::new("figma", "http").url("https://mcp.figma.com/mcp");
-    let _ = flow::run_internal_flow_pipeline(&ops, &server, "figma");
-    assert_eq!(*ops.events.borrow(), vec![PipelineEvent::ConflictCheck]);
-}
-
-#[test]
 fn discovery_failure_does_not_write_credentials() {
     let ops = MockOps {
-        conflict: false,
         fail_at: Some(PipelineEvent::Discover),
         ..Default::default()
     };
@@ -314,7 +291,6 @@ fn discovery_failure_does_not_write_credentials() {
 #[test]
 fn callback_failure_does_not_write_credentials() {
     let ops = MockOps {
-        conflict: false,
         fail_at: Some(PipelineEvent::Wait),
         ..Default::default()
     };
@@ -326,7 +302,6 @@ fn callback_failure_does_not_write_credentials() {
 #[test]
 fn exchange_failure_does_not_write_credentials() {
     let ops = MockOps {
-        conflict: false,
         fail_at: Some(PipelineEvent::Exchange),
         ..Default::default()
     };
@@ -337,17 +312,12 @@ fn exchange_failure_does_not_write_credentials() {
 
 #[test]
 fn successful_flow_runs_in_contract_order() {
-    let ops = MockOps {
-        conflict: false,
-        fail_at: None,
-        ..Default::default()
-    };
+    let ops = MockOps::default();
     let server = McpServerDef::new("figma", "http").url("https://mcp.figma.com/mcp");
     let _ = flow::run_internal_flow_pipeline(&ops, &server, "figma");
     assert_eq!(
         *ops.events.borrow(),
         vec![
-            PipelineEvent::ConflictCheck,
             PipelineEvent::Discover,
             PipelineEvent::Preregister,
             PipelineEvent::Bind,
@@ -363,7 +333,6 @@ fn successful_flow_runs_in_contract_order() {
 #[test]
 fn internal_flow_threads_omp_provider_through_to_credential_installer() {
     let ops = MockOps {
-        conflict: false,
         fail_at: None,
         provider: Provider::Omp,
         ..Default::default()
@@ -378,7 +347,6 @@ fn internal_flow_threads_omp_provider_through_to_credential_installer() {
 #[test]
 fn successful_flow_builds_complete_credential() {
     let ops = MockOps {
-        conflict: false,
         fail_at: None,
         ..Default::default()
     };

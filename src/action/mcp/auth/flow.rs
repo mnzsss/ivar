@@ -7,20 +7,19 @@
 //! here are keyed `flow.*` — the flow is generic, and only the Figma
 //! exception in `infra::figma` raises `figma.*`.
 //!
-//! 1. **Conflict check** — `providers::has_credentials(provider, materialised_name)`
-//!    before anything else (`R-CONFLICT`).
+//! 1. **Endpoint discovery** — \[`mcp_oauth::discover_oauth_endpoints`\].
 //! 2. **Pre-registration** — reuse [`preregister_if_needed`] for
 //!    client_id / client_secret.
-//! 3. **Endpoint discovery** — \[`mcp_oauth::discover_oauth_endpoints`\].
-//! 4. **PKCE + state** — [`oauth::pkce_pair`] and [`oauth::state`].
-//! 5. **Listener** — bind `127.0.0.1:19876` before printing the URL.
-//! 6. **Print URL** — authorization URL for manual browser opening.
-//! 7. **Wait for callback** — validate state, receive code.
-//! 8. **Code exchange** — [`oauth::exchange_code`].
-//! 9. **Persist** — [`providers::install_credentials`].
-//! 10. **Verify** — [`providers::verify_authenticated`].
+//! 3. **PKCE + state** — [`oauth::pkce_pair`] and [`oauth::state`].
+//! 4. **Listener** — bind `127.0.0.1:19876` before printing the URL.
+//! 5. **Print URL** — authorization URL for manual browser opening.
+//! 6. **Wait for callback** — validate state, receive code.
+//! 7. **Code exchange** — [`oauth::exchange_code`].
+//! 8. **Persist** — [`providers::install_credentials`], replacing any
+//!    existing entry for the server.
+//! 9. **Verify** — [`providers::verify_authenticated`].
 //!
-//! Failure at any step before 9 leaves the credential store unchanged
+//! Failure at any step before 8 leaves the credential store unchanged
 //! (`R-ATOMIC`). `Ctrl+C` terminates the process; the OS releases the
 //! loopback socket; nothing partial is written.
 //! # Module boundaries
@@ -32,7 +31,7 @@ use std::io::{self, Write};
 use std::time::Duration;
 
 use crate::domain::mcp::McpServerDef;
-use crate::error::{Failure, FixAction};
+use crate::error::Failure;
 use crate::providers::Credential;
 use crate::store::layout::Layout;
 use crate::store::manifest::Manifest;
@@ -40,7 +39,6 @@ use crate::store::manifest::Manifest;
 use super::preregister::{Preregistered, preregister_if_needed};
 use super::{AuthMethod, Preregistration, ProviderRun};
 
-use crate::infra::fs;
 use crate::infra::http_callback::{AuthorizationCode, CallbackServer, OAUTH_REDIRECT_URI};
 use crate::infra::mcp_oauth::{self, DiscoveryOutcome, OAuthEndpoints};
 use crate::infra::oauth::{self, AuthMode, Tokens};
@@ -59,7 +57,6 @@ const INTERNAL_FLOW_LABEL: &str = "ivar oauth";
 
 pub(super) trait FlowOps {
     fn provider(&self) -> crate::domain::provider::Provider;
-    fn check_conflict(&self, name: &str, server_url: &str) -> Result<bool, Failure>;
     fn preregister(
         &self,
         server: &McpServerDef,
@@ -94,9 +91,6 @@ struct RealFlowOps {
 impl FlowOps for RealFlowOps {
     fn provider(&self) -> crate::domain::provider::Provider {
         self.provider
-    }
-    fn check_conflict(&self, name: &str, server_url: &str) -> Result<bool, Failure> {
-        crate::providers::has_credentials(self.provider, name, Some(server_url))
     }
     fn preregister(
         &self,
@@ -211,9 +205,6 @@ pub(super) fn run_internal_flow_pipeline(
 ) -> Result<ProviderRun, Failure> {
     let provider = ops.provider();
 
-    // The server URL is the conflict check's lookup key for a provider that
-    // stores credentials per endpoint (omp), so it is resolved first. Reading
-    // a manifest field is not a side effect — step 1 still precedes them all.
     let server_url = server.url.as_deref().ok_or_else(|| {
         Failure::blocked(
             "flow.no_server_url",
@@ -221,12 +212,7 @@ pub(super) fn run_internal_flow_pipeline(
         )
     })?;
 
-    // Step 1: Conflict check
-    if ops.check_conflict(materialised_name, server_url)? {
-        return Err(conflict_failure(ops.provider(), materialised_name));
-    }
-
-    // Step 2: Discover endpoints
+    // Step 1: Discover endpoints
     let endpoints = match ops.discover(server_url)? {
         DiscoveryOutcome::Endpoints(endpoints) => endpoints,
         DiscoveryOutcome::NoAuthRequired => {
@@ -241,7 +227,7 @@ pub(super) fn run_internal_flow_pipeline(
         }
     };
 
-    // Step 3: Pre-register
+    // Step 2: Pre-register
     let preregistered = ops.preregister(server, materialised_name, &endpoints)?;
     let preregistration = preregistered.report.clone();
 
@@ -265,10 +251,10 @@ pub(super) fn run_internal_flow_pipeline(
     let (verifier, challenge) = oauth::pkce_pair();
     let state = oauth::state();
 
-    // Step 5: Bind listener
+    // Step 4: Bind listener
     let listener = ops.bind(&state.0)?;
 
-    // Step 6: Print URL
+    // Step 5: Print URL
     let scope = scope_parameter(&endpoints);
     let auth_url = oauth::authorize_url(
         &endpoints.authorization_endpoint,
@@ -281,10 +267,10 @@ pub(super) fn run_internal_flow_pipeline(
     );
     ops.output_url(&auth_url);
 
-    // Step 7: Wait for callback
+    // Step 6: Wait for callback
     let code = ops.wait_code(listener)?;
 
-    // Step 8: Exchange code
+    // Step 7: Exchange code
     let tokens = ops.exchange(
         &endpoints.token_endpoint,
         &code.0,
@@ -295,7 +281,7 @@ pub(super) fn run_internal_flow_pipeline(
         endpoints.resource.as_deref(),
     )?;
 
-    // Step 9: Persist
+    // Step 8: Persist
     let credential = Credential {
         server_url,
         client_id: &client_id,
@@ -304,7 +290,7 @@ pub(super) fn run_internal_flow_pipeline(
     };
     ops.write(materialised_name, &credential)?;
 
-    // Step 10: Verify
+    // Step 9: Verify
     if !ops.verify(materialised_name, Some(server_url))? {
         return Err(Failure::failed(
             "flow.verify_failed",
@@ -322,45 +308,6 @@ pub(super) fn run_internal_flow_pipeline(
         authenticated: true,
         error: None,
     })
-}
-
-/// Build the conflict failure, naming the server and the store that holds it.
-///
-/// The store is the provider's own, so the remediation must be too: naming
-/// OpenCode's `mcp-auth.json` to someone re-running under omp sends them to
-/// edit a file their credential is not in.
-fn conflict_failure(
-    provider: crate::domain::provider::Provider,
-    materialised_name: &str,
-) -> Failure {
-    let (path, removal) = match provider {
-        crate::domain::provider::Provider::Omp => (
-            "omp's credential vault".to_owned(),
-            "run `omp auth-broker logout <provider-id>`".to_owned(),
-        ),
-        _ => {
-            let path = fs::data_dir()
-                .map(|d| d.join("opencode").join("mcp-auth.json"))
-                .map(|p| p.to_string())
-                .unwrap_or_else(|_| "OpenCode's mcp-auth.json".to_owned());
-            let removal = format!("delete the entry from {path}");
-            (path, removal)
-        }
-    };
-
-    Failure::blocked(
-        "flow.conflict",
-        format!("the credential store already has an entry for \"{materialised_name}\""),
-    )
-    .expected("no existing entry for this server name in the credential store")
-    .actual(format!("an entry already exists at {path}"))
-    .fix(FixAction::unsafe_(
-        "flow.remove_entry",
-        format!(
-            "Remove the \"{materialised_name}\" entry from the credential store \
-             explicitly before re-authenticating: {removal}."
-        ),
-    ))
 }
 
 #[cfg(test)]

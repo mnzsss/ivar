@@ -247,29 +247,6 @@ pub fn install_credentials(
     }
 }
 
-/// Whether an existing entry for `name` would be overwritten.
-///
-/// `server_url` is what `omp` keys its store by — it stores credentials per
-/// MCP endpoint, not per name — and is `None` for a provider that needs none.
-/// Claude Code keeps no store Ivar can inspect, so it never reports a
-/// conflict: its own login command owns that decision.
-///
-/// # Errors
-///
-/// Returns [`Failure`] if the provider's credential store cannot be
-/// read.
-pub fn has_credentials(
-    provider: Provider,
-    name: &str,
-    server_url: Option<&str>,
-) -> Result<bool, Failure> {
-    match provider {
-        Provider::ClaudeCode => Ok(false),
-        Provider::OpenCode => opencode::auth::has_entry(name),
-        Provider::Omp => Ok(server_url.is_some_and(omp::auth::has_entry)),
-    }
-}
-
 /// Inspect the credential state for a given provider × server name × URL tuple.
 #[must_use]
 pub fn credential_state(provider: Provider, name: &str, server_url: &str) -> CredentialState {

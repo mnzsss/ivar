@@ -130,21 +130,6 @@ pub(crate) fn read_map_under(
     Ok(store.unwrap_or_default())
 }
 
-/// Whether the store contains any entry (including one with only
-/// `codeVerifier`, `{}`, `clientInfo`, etc.) under `server_name`.
-///
-/// `Ok(false)` for a missing file or a missing entry — those are not
-/// errors. An error means the file exists but could not be parsed.
-pub(crate) fn has_entry(server_name: &str) -> Result<bool, Failure> {
-    has_entry_under(&fs::data_dir()?, server_name)
-}
-
-/// [`has_entry`], parameterised on the data directory.
-pub(crate) fn has_entry_under(data_dir: &Utf8Path, server_name: &str) -> Result<bool, Failure> {
-    let map = read_map_under(data_dir)?;
-    Ok(map.contains_key(server_name))
-}
-
 /// Whether OpenCode's own store shows a completed token exchange for
 /// `server_name`.
 ///
