@@ -236,39 +236,32 @@ fn write_entry_under_file_has_0600_mode_on_unix() {
 }
 
 // ---------------------------------------------------------------------------
-// Conflict detection (R-CONFLICT, C-NO-OVERWRITE)
+// Replacement
 // ---------------------------------------------------------------------------
 
 #[test]
-fn write_entry_under_aborts_on_same_name_conflict() {
+fn write_entry_under_replaces_same_name_and_keeps_other_entries() {
     let (_dir, root) = utf8_temp_dir();
     let path = store_path(&root);
     json::write_canonical(
         &path,
         &serde_json::json!({
             "acme-figma": { "codeVerifier": "existing" },
+            "acme-linear": { "codeVerifier": "untouched" },
         }),
     )
     .unwrap();
-    let original_bytes = fs::read_bytes(&path).unwrap().unwrap();
 
-    let entry = test_entry("https://mcp.figma.com");
-    let result = write_entry_under(&root, "acme-figma", &entry);
+    write_entry_under(&root, "acme-figma", &test_entry("https://mcp.figma.com")).unwrap();
 
-    let err = result.unwrap_err();
-    assert_eq!(err.code, "opencode_auth.conflict");
-    assert!(
-        err.what.contains("acme-figma"),
-        "error must name the conflicting server: {}",
-        err.what
-    );
-
-    // The file must be unchanged.
-    let after_bytes = fs::read_bytes(&path).unwrap().unwrap();
+    let parsed: serde_json::Value =
+        serde_json::from_str(&fs::read_text(&path).unwrap().unwrap()).unwrap();
     assert_eq!(
-        original_bytes, after_bytes,
-        "conflict must not modify the store"
+        parsed["acme-figma"]["tokens"]["accessToken"],
+        "test-access-token"
     );
+    assert!(parsed["acme-figma"].get("codeVerifier").is_none());
+    assert_eq!(parsed["acme-linear"]["codeVerifier"], "untouched");
 }
 
 // ---------------------------------------------------------------------------
@@ -342,20 +335,33 @@ fn install_credentials_writes_the_opencode_entry_shape() {
 }
 
 #[test]
-fn install_credentials_refuses_to_overwrite_an_existing_entry() {
+fn install_credentials_replaces_an_existing_entry() {
     let (_guard, root) = crate::test_support::hall_root();
     let (tokens, url, client_id) = credential_fixture();
-    let credential = Credential {
+    let first = Credential {
         server_url: &url,
         client_id: &client_id,
         client_secret: None,
         tokens: &tokens,
     };
+    install_credentials_under(&root, "acme-figma", &first).unwrap();
 
-    install_credentials_under(&root, "acme-figma", &credential).unwrap();
-    let err = install_credentials_under(&root, "acme-figma", &credential).unwrap_err();
+    let replacement = Tokens {
+        access_token: "replacement-access".to_owned(),
+        ..tokens.clone()
+    };
+    let second = Credential {
+        tokens: &replacement,
+        ..first.clone()
+    };
+    install_credentials_under(&root, "acme-figma", &second).unwrap();
 
-    assert_eq!(err.code, "opencode_auth.conflict");
+    let parsed: serde_json::Value =
+        serde_json::from_str(&fs::read_text(&store_path(&root)).unwrap().unwrap()).unwrap();
+    assert_eq!(
+        parsed["acme-figma"]["tokens"]["accessToken"],
+        "replacement-access"
+    );
 }
 
 /// The diagnostic this returns is the one `dispatch.rs` returned before the
