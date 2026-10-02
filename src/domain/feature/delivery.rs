@@ -119,10 +119,14 @@ pub struct DeliveryRepo {
     /// declares no cross-repo dependencies, so this is empty for every repo;
     /// the ordering machinery that consumes it exists for when it is not.
     pub dependencies: Vec<RepoName>,
-    /// Everything that stands between the current state and a clean push:
-    /// a dirty worktree, commits that have never been pushed. Informational
-    /// in the preview; the fingerprint gate is what apply actually enforces.
+    /// Everything that refuses this repo's delivery: a dirty worktree, a
+    /// branch never materialised, and in land mode whatever stops the
+    /// fast-forward. Apply refuses while any is present.
     pub blockers: Vec<String>,
+    /// The work this delivery carries to the remote — commits not pushed yet,
+    /// or not confirmed pushed. What deliver is for, so never a blocker.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pending: Vec<String>,
     /// The created or updated PR URL, recorded after apply. Present only when
     /// the action was [`DeliveryAction::NewPr`] or
     /// [`DeliveryAction::UpdatePr`] and the PR step succeeded.

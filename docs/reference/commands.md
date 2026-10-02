@@ -401,7 +401,7 @@ Preview, then push, a feature's promoted repos. `--preview` prints the side-effe
 | flag | value | default | description |
 | --- | --- | --- | --- |
 | `--preview` |  |  | Print the delivery preview and push nothing. |
-| `--land` |  |  | Land feature branches into default branches locally (fast-forward only). |
+| `--land` |  |  | Land feature branches into default branches (fast-forward only), then push each default branch to its remote. |
 | `--fingerprint` | `<FINGERPRINT>` |  | The fingerprint from the preview the human approved; required to apply. It covers `--name`, `--body`, `--draft` and `--only`, so apply with the same values the preview used. Apply recomputes the preview and refuses when the fingerprint differs — the state has drifted since the preview. |
 | `--name` | `<TITLE>` |  | Pull request title. If placed before any `--repo`, applies globally; if placed after a `--repo`, applies to that repo. Part of the delivery fingerprint: pass the same value to the preview and the apply. |
 | `--body` | `<BODY>` |  | Pull request body text, or a path to a `.md` / `.txt` file — either `./relative` or absolute. If placed before any `--repo`, applies globally; if placed after a `--repo`, applies to that repo. Part of the delivery fingerprint: pass the same value to the preview and the apply. |

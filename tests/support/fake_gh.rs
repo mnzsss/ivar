@@ -221,6 +221,10 @@ emit_pr() {
 
 case "$sub" in
   "pr list")
+    if [ -f "$GH_FAKE_STATE.fail_list" ]; then
+      printf 'fake gh: pr list fails\n' >&2
+      exit 1
+    fi
     # Let apply's fingerprint observation see the PR, then model it
     # disappearing before execution performs its second observation.
     if [ "${GH_FAKE_LIST_EMPTY_AFTER_FIRST:-0}" = "1" ] &&
@@ -481,6 +485,11 @@ impl FakeGh {
         std::fs::write(format!("{}.malformed_view.{json_fields}", self.state), "").unwrap();
     }
 
+    /// Make `gh pr list` fail from now on.
+    pub(crate) fn fail_pr_list(&self) {
+        std::fs::write(format!("{}.fail_list", self.state), "").unwrap();
+    }
+
     /// Make `gh api user` fail from now on.
     pub(crate) fn fail_api_user(&self) {
         std::fs::write(format!("{}.fail_api_user", self.state), "").unwrap();
@@ -550,6 +559,22 @@ impl FakeGh {
         }
         content.push_str(&line);
         std::fs::write(&self.state, content).unwrap();
+    }
+
+    /// Set the forge state (`OPEN`, `MERGED`, `CLOSED`) of an existing PR.
+    pub(crate) fn set_pr_state(&self, url: &str, pr_state: &str) {
+        let state = std::fs::read_to_string(&self.state).unwrap_or_default();
+        let updated: String = state
+            .lines()
+            .map(|line| {
+                let mut fields: Vec<&str> = line.split('|').collect();
+                if fields.get(2) == Some(&url) && fields.len() > 4 {
+                    fields[4] = pr_state;
+                }
+                format!("{}\n", fields.join("|"))
+            })
+            .collect();
+        std::fs::write(&self.state, updated).unwrap();
     }
 
     /// Set the draft state (field 8) of an existing PR in the fake state.

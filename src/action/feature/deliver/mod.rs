@@ -21,7 +21,8 @@ use crate::action::feature::relations::read_feature;
 use crate::action::feature::verification;
 use crate::action::read_manifest;
 use crate::domain::feature::{
-    DeliveryMode, DeliveryPreview, DeliveryTreeBlocker, Feature, FeatureIntegrationState, GateState,
+    DeliveryMode, DeliveryPreview, DeliveryTreeBlocker, Feature, FeatureIntegrationState, Gate,
+    GateState,
 };
 use crate::domain::name::FeatureName;
 use crate::error::{Failure, FixAction, Outcome, Report};
@@ -30,7 +31,8 @@ use crate::store::layout::Layout;
 use crate::store::manifest::Manifest;
 
 use preview::{
-    apply_command, fingerprint_for, plan_gate_state, plan_not_approved, preview_required,
+    apply_command, blocked, blockers, fingerprint_for, plan_gate_state, plan_not_approved,
+    preview_required,
 };
 use repos::{build_repos, order_by_dependencies};
 
@@ -162,6 +164,7 @@ pub fn deliver(ctx: &Ctx, input: DeliverInput) -> Outcome<DeliverOutcome> {
         let apply_command = apply_command(&input, &preview.fingerprint);
         return Ok(Report::new(DeliverOutcome {
             root: layout.root().to_path_buf(),
+            blockers: blockers(&preview),
             preview,
             apply_command: Some(apply_command),
             pushes: Vec::new(),
@@ -193,7 +196,13 @@ pub fn deliver(ctx: &Ctx, input: DeliverInput) -> Outcome<DeliverOutcome> {
     }
 
     if preview.plan_gate != GateState::Approved {
-        return Err(plan_not_approved(&feature_name, preview.plan_gate));
+        let plan_written =
+            crate::action::plan::artifact_path(&layout, &feature_name, Gate::Plan).exists();
+        return Err(plan_not_approved(
+            &feature_name,
+            preview.plan_gate,
+            plan_written,
+        ));
     }
 
     let expected = input
@@ -221,6 +230,7 @@ pub fn deliver(ctx: &Ctx, input: DeliverInput) -> Outcome<DeliverOutcome> {
 
     if input.land {
         let plans = land::preflight(&git, &layout, &feature, &preview)?;
+        refuse_blockers(&feature_name, &preview)?;
         let mut warnings = Vec::new();
         let checks = run_land_checks(&manifest, &layout, &feature, &preview)?;
         let land_results = land::execute(&git, &layout, &plans, &mut warnings)?;
@@ -228,6 +238,7 @@ pub fn deliver(ctx: &Ctx, input: DeliverInput) -> Outcome<DeliverOutcome> {
             DeliverOutcome {
                 root: layout.root().to_path_buf(),
                 preview,
+                blockers: Vec::new(),
                 apply_command: None,
                 pushes: Vec::new(),
                 land: land_results,
@@ -237,7 +248,19 @@ pub fn deliver(ctx: &Ctx, input: DeliverInput) -> Outcome<DeliverOutcome> {
         ));
     }
 
+    refuse_blockers(&feature_name, &preview)?;
     push::execute(&git, &layout, &manifest, &feature_name, &feature, preview)
+}
+
+/// The catch-all after the specific refusals above: whatever the preview
+/// still lists refuses here, so no listed blocker is ever informational.
+fn refuse_blockers(feature: &FeatureName, preview: &DeliveryPreview) -> Result<(), Failure> {
+    let remaining = blockers(preview);
+    if remaining.is_empty() {
+        Ok(())
+    } else {
+        Err(blocked(feature, &remaining))
+    }
 }
 
 /// One sentence for why a descendant's state blocks delivery.

@@ -1,8 +1,8 @@
 use crate::common::{FakeGh, git, hall_root, ivar, seeded_repo};
 use crate::support::{
-    approve_through_plan, as_github_remotes, as_unreachable_github_remote,
-    deliver_on_github_expecting_warnings, preview_fingerprint, setup_deliver_hall,
-    setup_deliver_hall_with_base,
+    approve_through_plan, as_github_remotes, as_unreachable_github_remote, deliver_on_github,
+    deliver_on_github_expecting_warnings, ivar_on_github, preview_fingerprint, setup_deliver_hall,
+    setup_deliver_hall_with_base, setup_two_repo_hall,
 };
 use predicates::prelude::*;
 
@@ -242,7 +242,7 @@ fn a_failed_push_becomes_a_warning_not_an_abort() {
 // classification these tests exercise end to end.
 
 #[test]
-fn delivering_with_an_unreachable_remote_reports_the_base_as_unconfirmed_never_absent() {
+fn delivering_with_an_unreachable_remote_never_reports_the_base_absent() {
     let (_guard, root) = hall_root();
     setup_deliver_hall(&root);
     approve_through_plan(&root, "checkout");
@@ -252,20 +252,23 @@ fn delivering_with_an_unreachable_remote_reports_the_base_as_unconfirmed_never_a
     let applied = deliver_on_github_expecting_warnings(&root, &fake, &rewrites, "checkout");
 
     let warnings = applied["warnings"].as_array().expect("warnings array");
-    let warning = warnings
-        .iter()
-        .find(|w| w["code"] == "feature.base_unconfirmed")
-        .unwrap_or_else(|| panic!("no base_unconfirmed warning; warnings were: {warnings:?}"));
-    let what = warning["what"].as_str().unwrap().to_lowercase();
     assert!(
-        !what.contains("absent"),
-        "an unanswered remote must never be reported as an absent base: {what}"
+        warnings.iter().any(|w| w["code"] == "deliver.push_failed"),
+        "the unanswered push is reported: {warnings:?}"
+    );
+    assert!(
+        warnings.iter().all(|w| !w["what"]
+            .as_str()
+            .unwrap()
+            .to_lowercase()
+            .contains("absent")),
+        "an unanswered remote must never be reported as an absent base: {warnings:?}"
     );
     assert!(applied["preview"]["repos"][0]["pr_url"].is_null());
     assert_eq!(
         fake.log().matches("pr create").count(),
         0,
-        "no PR may be attempted against an unconfirmed base"
+        "no PR may be attempted for a repo the remote never received"
     );
 }
 
@@ -453,4 +456,109 @@ fn the_whole_path_from_an_empty_directory_to_a_pushed_branch_runs_on_cli_verbs_o
         "the feature branch never reached the origin: {}",
         String::from_utf8_lossy(&output.stderr)
     );
+}
+
+// -- apply: PRs follow pushes ----------------------------------------------------
+
+#[test]
+fn a_repo_whose_push_failed_gets_no_pull_request() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let (_guard, root) = hall_root();
+    setup_two_repo_hall(&root);
+    approve_through_plan(&root, "checkout");
+    let fake = FakeGh::install(&root);
+    let rewrites = as_github_remotes(&root);
+    let hook = root
+        .parent()
+        .unwrap()
+        .join("origins/web/.git/hooks/pre-receive");
+    std::fs::write(&hook, "#!/bin/sh\nexit 1\n").unwrap();
+    std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+    let applied = deliver_on_github_expecting_warnings(&root, &fake, &rewrites, "checkout");
+
+    let pushes = applied["pushes"].as_array().expect("pushes array");
+    let web = pushes
+        .iter()
+        .find(|push| push["repo"] == "web")
+        .expect("web push result");
+    assert_eq!(web["ok"], false, "the rejected push is reported");
+    assert!(web["pr"].is_null(), "no PR for an unpushed repo: {web}");
+    assert_eq!(
+        fake.log().matches("pr create").count(),
+        1,
+        "only the pushed repo gets a PR: {}",
+        fake.log()
+    );
+}
+
+#[test]
+fn a_gh_failure_is_not_reported_as_no_pull_request() {
+    let (_guard, root) = hall_root();
+    setup_deliver_hall(&root);
+    let fake = FakeGh::install(&root);
+    let rewrites = as_github_remotes(&root);
+    fake.fail_pr_list();
+
+    ivar_on_github(&fake, &rewrites)
+        .current_dir(&root)
+        .args(["feature", "deliver", "checkout", "--preview"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("gh pr list"));
+}
+
+// -- apply: the PR is remembered --------------------------------------------------
+
+#[test]
+fn a_delivered_pr_is_remembered_and_its_merge_shows_in_status() {
+    let (_guard, root) = hall_root();
+    setup_deliver_hall(&root);
+    approve_through_plan(&root, "checkout");
+    let fake = FakeGh::install(&root);
+    let rewrites = as_github_remotes(&root);
+    let applied = deliver_on_github(&root, &fake, &rewrites, "checkout");
+    let url = applied["pushes"][0]["pr"]["url"]
+        .as_str()
+        .expect("a PR was opened")
+        .to_owned();
+    fake.set_pr_state(&url, "MERGED");
+
+    let output = ivar_on_github(&fake, &rewrites)
+        .current_dir(&root)
+        .args(["feature", "status", "checkout", "--json"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let status: serde_json::Value = serde_json::from_slice(&output).expect("valid json");
+
+    assert_eq!(status["repos"][0]["pr_url"], url.as_str());
+    assert_eq!(status["repos"][0]["pr_state"], "MERGED");
+}
+
+#[test]
+fn status_reports_a_gh_failure_instead_of_a_pr_state() {
+    let (_guard, root) = hall_root();
+    setup_deliver_hall(&root);
+    approve_through_plan(&root, "checkout");
+    let fake = FakeGh::install(&root);
+    let rewrites = as_github_remotes(&root);
+    deliver_on_github(&root, &fake, &rewrites, "checkout");
+    fake.fail_pr_view("url,number,state,mergeCommit,headRefOid,isDraft");
+
+    let output = ivar_on_github(&fake, &rewrites)
+        .current_dir(&root)
+        .args(["feature", "status", "checkout", "--json"])
+        .assert()
+        .code(1)
+        .get_output()
+        .stdout
+        .clone();
+    let status: serde_json::Value = serde_json::from_slice(&output).expect("valid json");
+
+    assert!(status["repos"][0].get("pr_state").is_none());
+    assert_eq!(status["warnings"][0]["code"], "feature.pr_state_unknown");
 }

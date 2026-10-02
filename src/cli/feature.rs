@@ -305,7 +305,8 @@ pub struct FeatureDeliverArgs {
     pub feature: Option<String>,
     /// Print the delivery preview and push nothing.
     pub preview: bool,
-    /// Land feature branches into default branches locally (fast-forward only).
+    /// Land feature branches into default branches (fast-forward only), then
+    /// push each default branch to its remote.
     pub land: bool,
     /// The fingerprint from the preview the human approved; required to apply.
     pub fingerprint: Option<String>,
@@ -334,7 +335,7 @@ impl clap::Args for FeatureDeliverArgs {
         .arg(
             clap::Arg::new("land")
                 .long("land")
-                .help("Land feature branches into default branches locally (fast-forward only).")
+                .help("Land feature branches into default branches (fast-forward only), then push each default branch to its remote.")
                 .action(clap::ArgAction::SetTrue),
         )
         .arg(

@@ -87,6 +87,16 @@ pub(crate) fn execute(
         }
     }
 
+    if !pr_url_map.is_empty()
+        && let Err(failure) = remember_pull_requests(layout, feature_name, &pr_url_map)
+    {
+        warnings.push(Warning::new(
+            "deliver.pr_url_not_saved",
+            feature_name.as_str(),
+            failure.what,
+        ));
+    }
+
     // -- Phase 3: link sibling PRs (second pass — URLs only known after phase 2)
     let pr_urls: Vec<String> = pr_url_map.into_values().collect();
     if !pr_urls.is_empty() && links_siblings(&preview, feature) {
@@ -97,6 +107,7 @@ pub(crate) fn execute(
         DeliverOutcome {
             root: layout.root().to_path_buf(),
             preview,
+            blockers: Vec::new(),
             apply_command: None,
             pushes,
             land: Vec::new(),
@@ -104,6 +115,23 @@ pub(crate) fn execute(
         },
         warnings,
     ))
+}
+
+/// Stored on each promotion so `feature status` can later ask the forge
+/// whether the delivery merged.
+fn remember_pull_requests(
+    layout: &Layout,
+    feature_name: &FeatureName,
+    pr_urls: &BTreeMap<RepoName, String>,
+) -> Result<(), Failure> {
+    Feature::update(layout, feature_name, |feature| {
+        for (repo, url) in pr_urls {
+            if let Some(promotion) = feature.promotions.get_mut(repo) {
+                promotion.pr_url = Some(url.clone());
+            }
+        }
+        Ok(())
+    })
 }
 
 /// A partial delivery cannot see the PRs of the repos it did not select, so
@@ -197,6 +225,9 @@ fn create_pr_for_repo(
     ) {
         return None;
     }
+    if !pushes.iter().any(|push| push.repo == repo.repo && push.ok) {
+        return None;
+    }
 
     let bare = layout.repo_bare(&repo.repo);
 
@@ -285,38 +316,31 @@ fn open_or_update_pr(
 ) -> (Result<PullRequest, Failure>, bool) {
     let want_draft = repo.draft.is_some();
     match repo.action {
-        DeliveryAction::UpdatePr => {
-            // Try to find existing PR; if it exists, do a partial edit; otherwise create new.
-            existing_pr(bare, repo.local_branch.as_str()).map_or_else(
-                || {
-                    (
-                        create_pull_request(
-                            bare,
-                            &repo.local_branch,
-                            &repo.base_branch,
-                            feature_name,
-                            repo.pr_title.as_deref(),
-                            repo.pr_body.as_deref(),
-                            want_draft,
-                        ),
-                        false,
-                    )
-                },
-                |pr| {
-                    // PR exists — do a safe partial edit (only supplied fields change).
-                    (
-                        edit_pull_request(
-                            bare,
-                            &pr.url,
-                            repo.pr_title.as_deref(),
-                            repo.pr_body.as_deref(),
-                        )
-                        .map(|_| pr),
-                        true,
-                    )
-                },
-            )
-        }
+        DeliveryAction::UpdatePr => match existing_pr(bare, repo.local_branch.as_str()) {
+            Err(failure) => (Err(failure), false),
+            Ok(None) => (
+                create_pull_request(
+                    bare,
+                    &repo.local_branch,
+                    &repo.base_branch,
+                    feature_name,
+                    repo.pr_title.as_deref(),
+                    repo.pr_body.as_deref(),
+                    want_draft,
+                ),
+                false,
+            ),
+            Ok(Some(pr)) => (
+                edit_pull_request(
+                    bare,
+                    &pr.url,
+                    repo.pr_title.as_deref(),
+                    repo.pr_body.as_deref(),
+                )
+                .map(|_| pr),
+                true,
+            ),
+        },
         DeliveryAction::NewPr => (
             create_pull_request(
                 bare,

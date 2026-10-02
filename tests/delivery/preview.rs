@@ -30,14 +30,14 @@ fn preview_lists_every_promoted_repo_with_its_delivery_facts() {
     assert_eq!(repo["action"], "push_only");
     assert_eq!(repo["base_branch"], "main");
     assert!(repo["dependencies"].is_array());
-    // There should be a blocker about unpushed commits.
-    let blockers = repo["blockers"].as_array().expect("blockers is an array");
+    // Unpushed commits are the work deliver carries, so pending, not a blocker.
+    assert_eq!(repo["blockers"], serde_json::json!([]));
+    let pending = repo["pending"].as_array().expect("pending is an array");
     assert!(
-        blockers.iter().any(|b| {
-            let s = b.as_str().unwrap_or("");
-            s.contains("commit") || s.contains("push")
-        }),
-        "expected an unpushed-commits blocker, got: {blockers:?}"
+        pending
+            .iter()
+            .any(|p| p.as_str().unwrap_or("").contains("not pushed")),
+        "expected the unpushed commits as pending, got: {pending:?}"
     );
     // No pr_url in preview (nothing created yet).
     assert!(repo["pr_url"].is_null());

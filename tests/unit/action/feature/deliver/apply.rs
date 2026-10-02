@@ -72,6 +72,7 @@ fn the_human_apply_surface_reports_each_push() {
             tree_blockers: Vec::new(),
             fingerprint: "abc123".to_owned(),
         },
+        blockers: Vec::new(),
         apply_command: None,
         pushes: vec![
             PushResult {

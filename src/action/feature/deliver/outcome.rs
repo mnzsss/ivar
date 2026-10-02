@@ -74,6 +74,9 @@ pub struct DeliverOutcome {
     pub root: Utf8PathBuf,
     /// The preview summary, present for both preview and apply mode.
     pub preview: DeliveryPreview,
+    /// Everything that refuses apply, present in preview mode when any is.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub blockers: Vec<String>,
     /// The exact command that applies this preview, present in preview mode.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub apply_command: Option<String>,
@@ -123,6 +126,9 @@ fn write_human_push_preview(w: &mut impl io::Write, outcome: &DeliverOutcome) ->
         } else {
             writeln!(w, "    action:  {}", action_word(repo.action, repo.draft))?;
         }
+        for pending in &repo.pending {
+            writeln!(w, "    pending: {pending}")?;
+        }
         if repo.blockers.is_empty() {
             writeln!(w, "    blockers: none")?;
         } else {
@@ -155,6 +161,7 @@ fn write_human_land_preview(w: &mut impl io::Write, outcome: &DeliverOutcome) ->
             "  {}  {} -> {}  {}",
             repo.repo, repo.local_branch, target, ff_verdict
         )?;
+        writeln!(w, "    then push {target} to {}", repo.remote)?;
         for blocker in &repo.blockers {
             writeln!(w, "    blocker: {blocker}")?;
         }
@@ -231,6 +238,9 @@ impl WriteHuman for DeliverOutcome {
                 DeliveryMode::Land => write_human_land_preview(w, self)?,
             }
             writeln!(w, "  plan gate:   {}", self.preview.plan_gate)?;
+            for blocker in &self.blockers {
+                writeln!(w, "  blocked:     {blocker}")?;
+            }
             writeln!(w, "  fingerprint: {}", self.preview.fingerprint)?;
             if let Some(command) = &self.apply_command {
                 writeln!(w, "  apply:       {command}")?;

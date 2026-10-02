@@ -177,8 +177,8 @@ pub struct Promotion {
     /// `feature.json`, which predates this field, still deserialises.
     #[serde(default)]
     pub base: Option<BranchName>,
-    /// The URL of the pull request opened or found for this repo's promotion,
-    /// persisted immediately when `integrate --via pr` runs.
+    /// The URL of the pull request opened or found for this repo's promotion:
+    /// set by `integrate --via pr` for a child and by `deliver` for a root.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pr_url: Option<String>,
     /// The durable receipt of this repo's integration into the feature's

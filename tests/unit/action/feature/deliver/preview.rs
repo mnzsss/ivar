@@ -19,14 +19,15 @@ fn preview_lists_every_promoted_repo_with_its_delivery_facts() {
     assert_eq!(repo.action, DeliveryAction::PushOnly);
     assert_eq!(repo.base_branch.as_str(), "main");
     assert!(repo.dependencies.is_empty());
-    // One commit beyond main, no upstream: the unpushed blocker.
+    // One commit beyond main, no upstream: pending work, not a blocker.
     assert!(
-        repo.blockers
+        repo.pending
             .iter()
-            .any(|blocker| blocker.contains("1 commit(s) not pushed")),
+            .any(|pending| pending.contains("1 commit(s) not pushed")),
         "was: {:?}",
-        repo.blockers
+        repo.pending
     );
+    assert!(repo.blockers.is_empty(), "was: {:?}", repo.blockers);
     // Preview is side-effect-free: the remote has no branch yet.
     assert!(remote_ref(&origin_of(&root, "api"), "checkout").is_none());
 }
@@ -280,6 +281,7 @@ fn the_human_preview_surface_lists_each_repo_and_the_fingerprint() {
             tree_blockers: Vec::new(),
             fingerprint: "abc123".to_owned(),
         },
+        blockers: Vec::new(),
         apply_command: None,
         pushes: Vec::new(),
         land: Vec::new(),
@@ -378,6 +380,7 @@ fn human_preview_renders_new_pr_draft() {
             tree_blockers: Vec::new(),
             fingerprint: "abc123".to_owned(),
         },
+        blockers: Vec::new(),
         apply_command: None,
         pushes: Vec::new(),
         land: Vec::new(),
@@ -408,6 +411,7 @@ fn human_preview_renders_convert_pr_to_draft() {
             tree_blockers: Vec::new(),
             fingerprint: "abc123".to_owned(),
         },
+        blockers: Vec::new(),
         apply_command: None,
         pushes: Vec::new(),
         land: Vec::new(),
@@ -447,6 +451,7 @@ fn human_preview_without_draft_omits_draft_text() {
             tree_blockers: Vec::new(),
             fingerprint: "abc123".to_owned(),
         },
+        blockers: Vec::new(),
         apply_command: None,
         pushes: Vec::new(),
         land: Vec::new(),
@@ -509,6 +514,7 @@ fn the_human_preview_prints_the_apply_command_and_what_the_fingerprint_covers() 
             tree_blockers: Vec::new(),
             fingerprint: "abc123".to_owned(),
         },
+        blockers: Vec::new(),
         apply_command: Some("ivar feature deliver checkout --fingerprint abc123".to_owned()),
         pushes: Vec::new(),
         land: Vec::new(),
