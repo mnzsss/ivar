@@ -25,3 +25,21 @@ mod multi_repo;
 
 #[path = "personas/release_smoke.rs"]
 mod release_smoke;
+
+#[path = "personas/data_safety.rs"]
+mod data_safety;
+
+#[path = "personas/guard.rs"]
+mod guard;
+
+#[path = "personas/promote.rs"]
+mod promote;
+
+#[path = "personas/integrate.rs"]
+mod integrate;
+
+#[path = "personas/deliver.rs"]
+mod deliver;
+
+#[path = "personas/contract.rs"]
+mod contract;
