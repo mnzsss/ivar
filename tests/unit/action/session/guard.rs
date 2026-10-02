@@ -2105,3 +2105,61 @@ fn ambiguous_target_matching_multiple_features_denies_and_names_all_conflicting_
         GuardDecision::Allow => panic!("expected deny for ambiguous resolution"),
     }
 }
+
+#[test]
+fn a_dotdot_through_a_missing_directory_cannot_escape_the_view_dir() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root.clone());
+    let view =
+        layout.discovery_session(&SessionId::new("6f0c9d5f-0000-4000-8000-000000000020").unwrap());
+    crate::infra::fs::ensure_dir(&view).unwrap();
+    let set = WritableSet::from_discovery(&layout, &view).unwrap();
+
+    assert!(!set.allows(&view.join("missing/../../../../.git/hooks/pre-commit")));
+    assert!(!set.allows(&view.join("missing/../../../../../escaped.md")));
+    assert!(set.allows(&view.join("notes.md")));
+}
+
+#[test]
+fn a_dotdot_through_a_missing_directory_is_denied_from_every_writable_root() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root.clone());
+    let feature = Feature::read(&layout, &FeatureName::new("checkout").unwrap())
+        .unwrap()
+        .unwrap();
+    let view = layout.feature_session(
+        &feature.name,
+        &SessionId::new("6f0c9d5f-0000-4000-8000-000000000023").unwrap(),
+    );
+    crate::infra::fs::ensure_dir(&view).unwrap();
+    crate::infra::fs::ensure_dir(&root.join("docs")).unwrap();
+    let set = WritableSet::from_session(&layout, &feature, &view).unwrap();
+    let hall = root.canonicalize_utf8().unwrap();
+    let roots = set.roots().unwrap();
+    assert!(roots.len() >= 5, "{roots:?}");
+
+    for writable in roots {
+        let depth = writable.strip_prefix(&hall).unwrap().components().count();
+        let to_hall = writable.join("missing").join("../".repeat(depth + 1));
+        assert!(
+            !set.allows(&to_hall.join(".git/hooks/pre-commit")),
+            "escape from {writable}"
+        );
+        assert!(
+            !set.allows(&to_hall.join("../escaped.md")),
+            "escape from {writable}"
+        );
+    }
+}
+
+#[test]
+fn a_root_that_resolves_to_the_empty_path_allows_nothing() {
+    let (_tmp, dir) = crate::test_support::canonical_temp_dir();
+    let view = dir.join("view");
+    crate::infra::fs::ensure_dir(&view).unwrap();
+    let set = WritableSet::from_parts(view.clone(), None, &[dir.join("missing/../worktree")]);
+
+    assert!(!set.allows(Utf8Path::new("/etc/passwd")));
+    assert!(!set.allows(&dir.join("elsewhere.md")));
+    assert!(set.allows(&view.join("notes.md")));
+}

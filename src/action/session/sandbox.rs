@@ -2,12 +2,13 @@
 //! from a `WritableSet`, backing git repositories, platform devices, and provider
 //! runtime state.
 
-use crate::action::session::guard::WritableSet;
+use crate::action::session::guard::{WritableSet, canonicalize_lenient};
 use crate::domain::feature::Feature;
+use crate::domain::name::SessionId;
 use crate::domain::provider::Provider;
 use crate::error::Failure;
 use crate::store::layout::Layout;
-use camino::Utf8PathBuf;
+use camino::{Utf8Path, Utf8PathBuf};
 
 /// Status of the kernel-enforced write sandbox.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -46,6 +47,7 @@ impl SandboxStatus {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Sandbox {
     roots: Vec<Utf8PathBuf>,
+    temp_root: Utf8PathBuf,
 }
 
 impl Sandbox {
@@ -55,6 +57,7 @@ impl Sandbox {
         layout: &Layout,
         feature: Option<&Feature>,
         provider: Provider,
+        session: &SessionId,
     ) -> Result<Self, Failure> {
         // Ensure canonical hall source directories exist before filtering nonexistent paths.
         crate::infra::fs::ensure_dir(&layout.hall_skills())?;
@@ -81,7 +84,13 @@ impl Sandbox {
         // 4. Temporary directory for compiler/tool outputs.
         let temp_dir = Utf8PathBuf::try_from(std::env::temp_dir())
             .unwrap_or_else(|_| Utf8PathBuf::from("/tmp"));
-        candidate_roots.push(temp_dir);
+        let temp_dir = temp_dir.canonicalize_utf8().unwrap_or(temp_dir);
+        let hall_paths = hall_paths(layout);
+        let temp_root = sandbox_temp_root(&temp_dir, &hall_paths, session);
+        if temp_root != temp_dir {
+            create_private_dir(&temp_root, &canonicalize_lenient(layout.root()))?;
+        }
+        candidate_roots.push(temp_root.clone());
 
         // 5. Shared cargo target cache if it exists under the hall layout.
         let cache_dir = layout.root().join(".ivar").join("cache");
@@ -105,7 +114,15 @@ impl Sandbox {
             }
         }
 
-        Ok(Self { roots: final_roots })
+        Ok(Self {
+            roots: final_roots,
+            temp_root,
+        })
+    }
+
+    /// The one temp dir the session may write, exported to the provider as `TMPDIR`.
+    pub(crate) fn temp_root(&self) -> &Utf8Path {
+        &self.temp_root
     }
 
     /// Return the list of canonical roots that will be added to the ruleset.
@@ -171,12 +188,13 @@ impl Sandbox {
                 }
             };
 
-            // Non-directory file descriptors (like /dev/null or config files) cannot receive
-            // directory-specific write rights (MakeDir, RemoveDir) in Landlock.
+            // A file rule (like /dev/null or a config file) accepts only file rights; any
+            // directory right on it (Refer, MakeDir, ...) is stripped by the crate, which
+            // then reports the whole ruleset as partially enforced.
             let rights = if path.is_dir() {
                 write_rights
             } else {
-                write_rights & (AccessFs::WriteFile | AccessFs::Truncate | AccessFs::Refer)
+                write_rights & (AccessFs::WriteFile | AccessFs::Truncate)
             };
 
             ruleset = match ruleset.add_rule(PathBeneath::new(path_fd, rights)) {
@@ -273,6 +291,82 @@ fn provider_runtime_roots(provider: Provider) -> Vec<Utf8PathBuf> {
     dirs
 }
 
+/// The hall root, `.ivar` and the protected paths, each resolved the
+/// way the guard resolves a target: a protected path that is a dangling
+/// symlink lives where its target would be created.
+fn hall_paths(layout: &Layout) -> Vec<Utf8PathBuf> {
+    [layout.root().to_path_buf(), layout.ivar_dir()]
+        .into_iter()
+        .chain(layout.guard_protected_paths())
+        .map(|path| canonicalize_lenient(&path))
+        .collect()
+}
+
+/// The temp dir a session may write. `hall_paths` comes from [`hall_paths`]. A temp dir that contains any of them, or lies
+/// inside one, would grant it, so it narrows to a private per-session dir
+/// beneath it.
+pub(crate) fn sandbox_temp_root(
+    temp_dir: &Utf8Path,
+    hall_paths: &[Utf8PathBuf],
+    session: &SessionId,
+) -> Utf8PathBuf {
+    if hall_paths
+        .iter()
+        .any(|path| path.starts_with(temp_dir) || temp_dir.starts_with(path))
+    {
+        temp_dir.join(format!("ivar-{session}"))
+    } else {
+        temp_dir.to_path_buf()
+    }
+}
+
+/// Create the private temp dir, or accept an existing one only when it is a
+/// real directory, private, and owned by the hall's owner: the dir sits in a
+/// shared temp dir under a predictable name, and a planted symlink would
+/// redirect the kernel grant wherever it points.
+#[cfg(unix)]
+fn create_private_dir(dir: &Utf8Path, hall_root: &Utf8Path) -> Result<(), Failure> {
+    use std::os::unix::fs::{DirBuilderExt, MetadataExt, PermissionsExt};
+
+    match std::fs::DirBuilder::new().mode(0o700).create(dir) {
+        Ok(()) => return Ok(()),
+        Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {}
+        Err(err) => {
+            return Err(Failure::failed(
+                "sandbox.temp_root_failed",
+                format!("could not create the session temp dir `{dir}`: {err}"),
+            ));
+        }
+    }
+    let trusted = match (std::fs::symlink_metadata(dir), std::fs::metadata(hall_root)) {
+        (Ok(meta), Ok(hall)) => {
+            meta.file_type().is_dir()
+                && meta.uid() == hall.uid()
+                && meta.permissions().mode() & 0o077 == 0
+        }
+        _ => false,
+    };
+    if trusted {
+        return Ok(());
+    }
+    Err(Failure::blocked(
+        "sandbox.untrusted_temp_root",
+        format!(
+            "the session temp dir `{dir}` exists but is not a private directory owned by the hall's owner"
+        ),
+    )
+    .fix(crate::error::FixAction::safe(
+        "sandbox.remove_untrusted_temp_root",
+        format!("Inspect and remove `{dir}`, then relaunch the session."),
+    )))
+}
+
+#[cfg(not(unix))]
+fn create_private_dir(dir: &Utf8Path, _hall_root: &Utf8Path) -> Result<(), Failure> {
+    crate::infra::fs::ensure_dir(dir)?;
+    Ok(())
+}
+
 /// Run the internal launcher: resolve the session from disk, rebuild its
 /// provider launch, apply the sandbox, and exec the provider.
 ///
@@ -326,7 +420,14 @@ pub fn run_launcher(
         None => WritableSet::from_discovery(&layout, &session_ref.view_dir)?,
     };
 
-    let sandbox = Sandbox::from_writable_set(&set, &layout, feature.as_ref(), state.provider)?;
+    let sandbox = Sandbox::from_writable_set(
+        &set,
+        &layout,
+        feature.as_ref(),
+        state.provider,
+        &session_ref.id,
+    )?;
+    let command = command.env("TMPDIR", sandbox.temp_root().as_str());
     let status = sandbox.apply()?;
 
     match &status {

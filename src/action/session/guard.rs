@@ -55,7 +55,7 @@ impl HallRoot {
     }
 
     fn allows(&self, canonical: &Utf8Path) -> bool {
-        canonical.starts_with(&self.root)
+        within(canonical, &self.root)
             && !canonical.starts_with(&self.ivar_dir)
             && !self
                 .protected
@@ -106,12 +106,30 @@ impl HallRoot {
 /// Leniently canonicalise `path`. If canonicalisation fails (e.g. for a
 /// file that does not exist yet), walk to the nearest existing ancestor,
 /// canonicalise it, and append the remaining non-existent components,
-/// falling back to the raw path if no ancestor canonicalises.
+/// falling back to the raw path if no ancestor canonicalises. A result that
+/// still holds a `..` is unknowable, so it becomes the empty path, which no
+/// writable root contains.
 ///
 /// A dangling symlink on the way resolves to its target, so a write through
 /// it is judged by where the bytes would land.
-fn canonicalize_lenient(path: &Utf8Path) -> Utf8PathBuf {
-    canonicalize_within_hops(path, MAX_SYMLINK_HOPS)
+pub(crate) fn canonicalize_lenient(path: &Utf8Path) -> Utf8PathBuf {
+    let resolved = canonicalize_within_hops(path, MAX_SYMLINK_HOPS);
+    if resolved
+        .components()
+        .any(|component| matches!(component, camino::Utf8Component::ParentDir))
+    {
+        // A `..` that survived resolution sits under a missing directory, so
+        // where the bytes land cannot be known yet: the empty path lies under
+        // no writable root.
+        return Utf8PathBuf::new();
+    }
+    resolved
+}
+
+// The empty path is a prefix of every path, so a root that resolved to it
+// must grant nothing rather than everything.
+fn within(path: &Utf8Path, root: &Utf8Path) -> bool {
+    !root.as_str().is_empty() && path.starts_with(root)
 }
 
 const MAX_SYMLINK_HOPS: usize = 40;
@@ -236,7 +254,7 @@ impl WritableSet {
     /// `/tmp` or `/var` are symlinks.
     pub(crate) fn allows(&self, path: &Utf8Path) -> bool {
         let canonical = canonicalize_lenient(path);
-        if canonical.starts_with(&self.view_dir) {
+        if within(&canonical, &self.view_dir) {
             return true;
         }
         if let Some(sessions_dir) = &self.sessions_dir
@@ -247,17 +265,17 @@ impl WritableSet {
         if self
             .feature_dir
             .as_ref()
-            .is_some_and(|fd| canonical.starts_with(fd))
+            .is_some_and(|fd| within(&canonical, fd))
         {
             return true;
         }
-        if self.worktrees.iter().any(|wt| canonical.starts_with(wt)) {
+        if self.worktrees.iter().any(|wt| within(&canonical, wt)) {
             return true;
         }
         if self
             .hall_sources
             .iter()
-            .any(|root| canonical.starts_with(root))
+            .any(|root| within(&canonical, root))
         {
             return true;
         }
@@ -791,9 +809,7 @@ fn resolve_set_by_target(target: &Utf8Path) -> TargetResolution {
     // 2. Target does not lie in any session-specific root.
     // Check shared hall space (HallRoot::allows or hall_sources).
     let hall_root = HallRoot::new(&layout);
-    let is_hall_source = hall_sources(&layout)
-        .iter()
-        .any(|hs| target.starts_with(hs));
+    let is_hall_source = hall_sources(&layout).iter().any(|hs| within(target, hs));
     if hall_root.allows(target) || is_hall_source {
         let dummy_view = layout.root().to_path_buf();
         let set = WritableSet {
