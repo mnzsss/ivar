@@ -160,6 +160,17 @@ pub(crate) fn sync_mcp(
         Ok(change) => entries.push(Entry::new(provider.id(), label, change.into())),
         Err(error) => record_failure(entries, warnings, provider.id(), &label, error.into()),
     }
+
+    // omp lets `opencode.json`'s `mcp` entries win over a root `mcp.json`, so
+    // a leftover root copy of ivar's servers is dead config.
+    if provider == Provider::Omp {
+        let legacy = layout.root().join(Provider::LEGACY_OMP_MCP_CONFIG);
+        let label = format!("{} MCP config", Provider::LEGACY_OMP_MCP_CONFIG);
+        match config::remove_mcp(&legacy, provider) {
+            Ok(change) => entries.push(Entry::new(provider.id(), label, change.into())),
+            Err(error) => record_failure(entries, warnings, provider.id(), &label, error.into()),
+        }
+    }
 }
 
 /// Materialise or remove the provider's settings file (`.claude/settings.json`

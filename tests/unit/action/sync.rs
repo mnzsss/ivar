@@ -732,6 +732,42 @@ fn sync_removes_the_omp_mcp_document_when_omp_leaves_the_hall() {
     );
 }
 
+#[test]
+fn sync_moves_omp_servers_out_of_the_legacy_root_mcp_json() {
+    let (_guard, root) = hall_with_all_providers();
+    fs::write_text(
+        &root.join("mcp.json"),
+        r#"{"mcpServers":{"acme-old":{"type":"http","url":"https://old.example/mcp"}}}"#,
+    )
+    .unwrap();
+    let ctx = Ctx::new(root.clone());
+
+    sync(&ctx, &SyncInput::default()).unwrap();
+
+    assert!(
+        !fs::exists(&root.join("mcp.json")).unwrap(),
+        "a root mcp.json holding only ivar's servers is removed"
+    );
+    assert!(fs::exists(&root.join(".omp/mcp.json")).unwrap());
+}
+
+#[test]
+fn sync_keeps_unrelated_keys_in_the_legacy_root_mcp_json() {
+    let (_guard, root) = hall_with_all_providers();
+    fs::write_text(
+        &root.join("mcp.json"),
+        r#"{"mcpServers":{"acme-old":{"type":"http"}},"custom":true}"#,
+    )
+    .unwrap();
+    let ctx = Ctx::new(root.clone());
+
+    sync(&ctx, &SyncInput::default()).unwrap();
+
+    let parsed: serde_json::Value =
+        serde_json::from_str(&fs::read_text(&root.join("mcp.json")).unwrap().unwrap()).unwrap();
+    assert_eq!(parsed, serde_json::json!({ "custom": true }));
+}
+
 // -- official workflow commands -------------------------------------------
 
 /// A hall whose `ivar.json` lists all providers.
