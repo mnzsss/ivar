@@ -18,6 +18,9 @@ pub(crate) struct WritableSet {
     feature_dir: Option<Utf8PathBuf>,
     sessions_dir: Option<Utf8PathBuf>,
     worktrees: Vec<Utf8PathBuf>,
+    descendant_feature_dirs: Vec<Utf8PathBuf>,
+    descendant_sessions_dirs: Vec<Utf8PathBuf>,
+    descendant_worktrees: Vec<Utf8PathBuf>,
     hall_sources: Vec<Utf8PathBuf>,
     hall: HallRoot,
 }
@@ -216,11 +219,31 @@ impl WritableSet {
                 })
             })
             .collect::<Result<Vec<_>, Failure>>()?;
+        let mut descendant_feature_dirs = Vec::new();
+        let mut descendant_sessions_dirs = Vec::new();
+        let mut descendant_worktrees = Vec::new();
+
+        if let Ok(descendants) = crate::action::feature::descendants(layout, &feature.name) {
+            for desc in descendants {
+                let desc_feat_dir = canonicalize_lenient(&layout.feature_dir(&desc.name));
+                let desc_sess_dir = canonicalize_lenient(&layout.feature_sessions_dir(&desc.name));
+                descendant_feature_dirs.push(desc_feat_dir);
+                descendant_sessions_dirs.push(desc_sess_dir);
+                for repo in desc.promotions.keys() {
+                    let wt = layout.repo_worktree(repo, &desc.branch);
+                    descendant_worktrees.push(canonicalize_lenient(&wt));
+                }
+            }
+        }
+
         Ok(Self {
             view_dir,
             feature_dir: Some(feature_dir),
             sessions_dir: Some(sessions_dir),
             worktrees,
+            descendant_feature_dirs,
+            descendant_sessions_dirs,
+            descendant_worktrees,
             hall_sources: hall_sources(layout),
             hall: HallRoot::new(layout),
         })
@@ -240,6 +263,9 @@ impl WritableSet {
             feature_dir: None,
             sessions_dir: None,
             worktrees: Vec::new(),
+            descendant_feature_dirs: Vec::new(),
+            descendant_sessions_dirs: Vec::new(),
+            descendant_worktrees: Vec::new(),
             hall_sources: hall_sources(layout),
             hall: HallRoot::new(layout),
         })
@@ -263,13 +289,34 @@ impl WritableSet {
             return false;
         }
         if self
+            .descendant_sessions_dirs
+            .iter()
+            .any(|sd| canonical.starts_with(sd))
+        {
+            return false;
+        }
+        if self
             .feature_dir
             .as_ref()
             .is_some_and(|fd| within(&canonical, fd))
         {
             return true;
         }
+        if self
+            .descendant_feature_dirs
+            .iter()
+            .any(|fd| within(&canonical, fd))
+        {
+            return true;
+        }
         if self.worktrees.iter().any(|wt| within(&canonical, wt)) {
+            return true;
+        }
+        if self
+            .descendant_worktrees
+            .iter()
+            .any(|wt| within(&canonical, wt))
+        {
             return true;
         }
         if self
@@ -307,7 +354,9 @@ impl WritableSet {
     pub(crate) fn roots(&self) -> Result<Vec<Utf8PathBuf>, Failure> {
         Ok(std::iter::once(self.view_dir.clone())
             .chain(self.feature_dir.clone())
+            .chain(self.descendant_feature_dirs.iter().cloned())
             .chain(self.worktrees.iter().cloned())
+            .chain(self.descendant_worktrees.iter().cloned())
             .chain(self.hall_sources.iter().cloned())
             .chain(self.hall.entries()?)
             .collect())
@@ -328,6 +377,9 @@ impl WritableSet {
             feature_dir,
             sessions_dir,
             worktrees,
+            descendant_feature_dirs: Vec::new(),
+            descendant_sessions_dirs: Vec::new(),
+            descendant_worktrees: Vec::new(),
             hall_sources: Vec::new(),
             // A hall whose `.ivar` is its root allows nothing and grants nothing.
             hall: HallRoot {
@@ -817,6 +869,9 @@ fn resolve_set_by_target(target: &Utf8Path) -> TargetResolution {
             feature_dir: None,
             sessions_dir: None,
             worktrees: Vec::new(),
+            descendant_feature_dirs: Vec::new(),
+            descendant_sessions_dirs: Vec::new(),
+            descendant_worktrees: Vec::new(),
             hall_sources: hall_sources(&layout),
             hall: hall_root,
         };

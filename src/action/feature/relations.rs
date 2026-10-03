@@ -18,7 +18,8 @@ use std::collections::{BTreeMap, HashSet};
 use serde::Serialize;
 
 use crate::domain::feature::{
-    ClassificationFacts, Feature, FeatureIntegrationState, IntegrationReceipt, classify,
+    ClassificationFacts, Feature, FeatureIntegrationState, GateState, IntegrationReceipt,
+    RunStatus, classify,
 };
 use crate::domain::name::{FeatureName, RepoName};
 use crate::error::{Failure, FixAction};
@@ -29,6 +30,16 @@ use crate::store::manifest::Manifest;
 
 use super::lifecycle::read_close;
 use super::verification;
+
+/// Execution status of a feature in the tree.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct TreeRun {
+    /// The current lifecycle status of the run.
+    pub status: RunStatus,
+    /// The highest wave recorded by wave checkpoints, if any.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_wave: Option<u32>,
+}
 
 /// One feature's position and health in the derived tree, in deterministic
 /// pre-order. Used by recursive status and by blocker reporting; the flat
@@ -50,6 +61,13 @@ pub struct TreeEntry {
     /// The names of descendants that block this feature, each rendered as
     /// `name (state)`.
     pub blockers: Vec<String>,
+    /// The effective plan gate approval state.
+    pub plan_gate: GateState,
+    /// The active or terminal run, if one exists.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub run: Option<TreeRun>,
+    /// Live session ids belonging to this feature.
+    pub sessions: Vec<String>,
 }
 
 /// How a receipt measures against live state. The evidence-vs-freshness split
@@ -446,6 +464,73 @@ fn facts_of(
     })
 }
 
+/// Read the newest run receipt for a feature, current or archived, so a
+/// finished run still shows its terminal status.
+fn read_tree_run(layout: &Layout, feature: &FeatureName) -> Result<Option<TreeRun>, Failure> {
+    let Some(receipt) = crate::store::feature::run::history(layout, feature)?
+        .into_iter()
+        .next()
+    else {
+        return Ok(None);
+    };
+    let last_wave = receipt
+        .checkpoints
+        .iter()
+        .filter_map(|c| c.wave.as_ref().map(|w| w.number))
+        .max();
+    Ok(Some(TreeRun {
+        status: receipt.status,
+        last_wave,
+    }))
+}
+
+/// File names of every entry under the feature sessions directory.
+///
+/// Session view dirs are named by session id; any entry counts, which is the
+/// unrestricted-session fact integrate checks.
+pub(crate) fn feature_session_entries(
+    layout: &Layout,
+    feature: &FeatureName,
+) -> Result<Vec<String>, Failure> {
+    let dir = layout.feature_sessions_dir(feature);
+    if !fs::is_dir(&dir)? {
+        return Ok(Vec::new());
+    }
+    let mut sessions = Vec::new();
+    for entry in fs::read_dir(&dir)? {
+        let Some(name) = entry.file_name() else {
+            continue;
+        };
+        sessions.push(name.to_owned());
+    }
+    sessions.sort();
+    Ok(sessions)
+}
+
+/// Construct a [`TreeEntry`] with all computed fields for a feature.
+fn make_entry(
+    layout: &Layout,
+    feature: &Feature,
+    depth: usize,
+    state: FeatureIntegrationState,
+    blockers: Vec<String>,
+) -> Result<TreeEntry, Failure> {
+    let plan_gate = crate::action::plan::effective_plan_gate(layout, &feature.name)?;
+    let run = read_tree_run(layout, &feature.name)?;
+    let sessions = feature_session_entries(layout, &feature.name)?;
+    Ok(TreeEntry {
+        feature: feature.name.clone(),
+        parent: feature.parent.clone(),
+        depth,
+        state,
+        repos: feature.promotions.keys().cloned().collect(),
+        blockers,
+        plan_gate,
+        run,
+        sessions,
+    })
+}
+
 /// Depth-first, deterministic pre-order walk over `root`'s subtree, filling
 /// `entries`. The tree was validated by [`read_all`], so parent references
 /// inside the walk always resolve.
@@ -470,14 +555,7 @@ fn walk(
         .map(|entry| format!("{} ({})", entry.feature, entry.state))
         .collect();
 
-    entries.push(TreeEntry {
-        feature: feature.name.clone(),
-        parent: feature.parent.clone(),
-        depth,
-        state,
-        repos: feature.promotions.keys().cloned().collect(),
-        blockers,
-    });
+    entries.push(make_entry(layout, feature, depth, state, blockers)?);
 
     let mut children: Vec<&Feature> = map
         .values()
@@ -510,14 +588,7 @@ fn blocking_entries(
             .copied();
         let state = state_of(git, layout, manifest, descendant, parent_feature)?;
         if blocks(&state) {
-            blockers.push(TreeEntry {
-                feature: descendant.name.clone(),
-                parent: descendant.parent.clone(),
-                depth,
-                state,
-                repos: descendant.promotions.keys().cloned().collect(),
-                blockers: Vec::new(),
-            });
+            blockers.push(make_entry(layout, descendant, depth, state, Vec::new())?);
         }
     }
     Ok(blockers)

@@ -246,7 +246,7 @@ pub(super) fn reconciled(
 /// stamps (see `action::feature::lifecycle`); without that, closing a feature
 /// would invalidate the gate that authorised the close, and a second
 /// `integrate` on a closed child would be refused.
-pub(super) fn effective_plan_gate(
+pub(crate) fn effective_plan_gate(
     layout: &Layout,
     feature: &FeatureName,
 ) -> Result<GateState, Failure> {

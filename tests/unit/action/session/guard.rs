@@ -2163,3 +2163,207 @@ fn a_root_that_resolves_to_the_empty_path_allows_nothing() {
     assert!(!set.allows(&dir.join("elsewhere.md")));
     assert!(set.allows(&view.join("notes.md")));
 }
+
+#[test]
+fn parent_session_writable_set_allows_descendant_feature_dir_and_worktrees_but_denies_siblings() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root.clone());
+    let ctx = crate::action::Ctx::new(root.clone());
+
+    // Create child feature "checkout-child" under parent "checkout"
+    feature_create::create(
+        &ctx,
+        CreateInput {
+            name: "checkout-child".to_owned(),
+            branch: None,
+            base: None,
+            parent: Some("checkout".to_owned()),
+            via: None,
+            strategy: None,
+        },
+    )
+    .unwrap();
+    crate::action::sync::sync(&ctx, &Default::default()).unwrap();
+    feature_promote::promote(
+        &ctx,
+        PromoteInput {
+            feature: "checkout-child".to_owned(),
+            repo: "api".to_owned(),
+            base: None,
+        },
+    )
+    .unwrap();
+
+    // Create unrelated sibling feature "billing" (no parent)
+    feature_create::create(
+        &ctx,
+        CreateInput {
+            name: "billing".to_owned(),
+            branch: None,
+            base: None,
+            parent: None,
+            via: None,
+            strategy: None,
+        },
+    )
+    .unwrap();
+    crate::action::sync::sync(&ctx, &Default::default()).unwrap();
+    feature_promote::promote(
+        &ctx,
+        PromoteInput {
+            feature: "billing".to_owned(),
+            repo: "api".to_owned(),
+            base: None,
+        },
+    )
+    .unwrap();
+
+    let parent_feature = Feature::read(&layout, &FeatureName::new("checkout").unwrap())
+        .unwrap()
+        .unwrap();
+    let child_feature = Feature::read(&layout, &FeatureName::new("checkout-child").unwrap())
+        .unwrap()
+        .unwrap();
+    let sibling_feature = Feature::read(&layout, &FeatureName::new("billing").unwrap())
+        .unwrap()
+        .unwrap();
+
+    let session_id = SessionId::new("6f0c9d5f-0000-4000-8000-000000000000").unwrap();
+    let parent_view = layout.feature_session(&parent_feature.name, &session_id);
+    crate::infra::fs::ensure_dir(&parent_view).unwrap();
+
+    let set = WritableSet::from_session(&layout, &parent_feature, &parent_view).unwrap();
+
+    // 1. Parent's own paths are writable.
+    let parent_feat_dir = layout.feature_dir(&parent_feature.name);
+    let parent_worktree =
+        layout.repo_worktree(&RepoName::new("api").unwrap(), &parent_feature.branch);
+    assert!(set.allows(&parent_view));
+    assert!(set.allows(&parent_feat_dir.join("plan.md")));
+    assert!(set.allows(&parent_worktree.join("src/lib.rs")));
+
+    // 2. Child feature's dir and promoted worktrees are writable from parent session.
+    let child_feat_dir = layout.feature_dir(&child_feature.name);
+    let child_worktree =
+        layout.repo_worktree(&RepoName::new("api").unwrap(), &child_feature.branch);
+    assert!(set.allows(&child_feat_dir));
+    assert!(set.allows(&child_feat_dir.join("plan.md")));
+    assert!(set.allows(&child_feat_dir.join("tasks/01-init.md")));
+    assert!(set.allows(&child_worktree));
+    assert!(set.allows(&child_worktree.join("src/lib.rs")));
+
+    // 3. Child's sessions dir is an exclusion boundary.
+    let child_sessions_dir = layout.feature_sessions_dir(&child_feature.name);
+    assert!(!set.allows(&child_sessions_dir.join("6f0c9d5f-0000-4000-8000-000000000001/view")));
+
+    // 4. Sibling feature is strictly denied.
+    let sibling_feat_dir = layout.feature_dir(&sibling_feature.name);
+    let sibling_worktree =
+        layout.repo_worktree(&RepoName::new("api").unwrap(), &sibling_feature.branch);
+    assert!(!set.allows(&sibling_feat_dir));
+    assert!(!set.allows(&sibling_feat_dir.join("plan.md")));
+    assert!(!set.allows(&sibling_worktree));
+    assert!(!set.allows(&sibling_worktree.join("src/lib.rs")));
+}
+
+#[test]
+fn guard_tool_request_from_parent_session_allows_child_worktree_and_denies_sibling_worktree() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root.clone());
+    let ctx = crate::action::Ctx::new(root.clone());
+
+    feature_create::create(
+        &ctx,
+        CreateInput {
+            name: "checkout-child".to_owned(),
+            branch: None,
+            base: None,
+            parent: Some("checkout".to_owned()),
+            via: None,
+            strategy: None,
+        },
+    )
+    .unwrap();
+    crate::action::sync::sync(&ctx, &Default::default()).unwrap();
+    feature_promote::promote(
+        &ctx,
+        PromoteInput {
+            feature: "checkout-child".to_owned(),
+            repo: "api".to_owned(),
+            base: None,
+        },
+    )
+    .unwrap();
+
+    feature_create::create(
+        &ctx,
+        CreateInput {
+            name: "billing".to_owned(),
+            branch: None,
+            base: None,
+            parent: None,
+            via: None,
+            strategy: None,
+        },
+    )
+    .unwrap();
+    crate::action::sync::sync(&ctx, &Default::default()).unwrap();
+    feature_promote::promote(
+        &ctx,
+        PromoteInput {
+            feature: "billing".to_owned(),
+            repo: "api".to_owned(),
+            base: None,
+        },
+    )
+    .unwrap();
+
+    let parent_feature = Feature::read(&layout, &FeatureName::new("checkout").unwrap())
+        .unwrap()
+        .unwrap();
+    let child_feature = Feature::read(&layout, &FeatureName::new("checkout-child").unwrap())
+        .unwrap()
+        .unwrap();
+    let sibling_feature = Feature::read(&layout, &FeatureName::new("billing").unwrap())
+        .unwrap()
+        .unwrap();
+
+    let session_id = SessionId::new("6f0c9d5f-0000-4000-8000-000000000010").unwrap();
+    let parent_view = layout.feature_session(&parent_feature.name, &session_id);
+    crate::infra::fs::ensure_dir(&parent_view).unwrap();
+    let mut state =
+        crate::domain::session::SessionState::new(Provider::ClaudeCode, "2026-10-02T00:00:00Z");
+    state.bind(parent_feature.name.clone(), "2026-10-02T00:00:00Z");
+    state.write(&parent_view).unwrap();
+
+    let child_worktree =
+        layout.repo_worktree(&RepoName::new("api").unwrap(), &child_feature.branch);
+    let sibling_worktree =
+        layout.repo_worktree(&RepoName::new("api").unwrap(), &sibling_feature.branch);
+
+    // Write to child worktree from parent session cwd -> allowed
+    let child_payload = serde_json::json!({
+        "tool_name": "Write",
+        "tool_input": { "file_path": child_worktree.join("src/lib.rs") },
+        "cwd": parent_view
+    });
+    let child_res = guard(Provider::ClaudeCode, &child_payload.to_string()).unwrap();
+    let child_body: serde_json::Value = serde_json::from_str(&child_res.body).unwrap();
+    assert_eq!(
+        child_body["hookSpecificOutput"]["permissionDecision"],
+        "allow"
+    );
+
+    // Write to sibling worktree from parent session cwd -> denied
+    let sibling_payload = serde_json::json!({
+        "tool_name": "Write",
+        "tool_input": { "file_path": sibling_worktree.join("src/lib.rs") },
+        "cwd": parent_view
+    });
+    let sibling_res = guard(Provider::ClaudeCode, &sibling_payload.to_string()).unwrap();
+    let sibling_body: serde_json::Value = serde_json::from_str(&sibling_res.body).unwrap();
+    assert_eq!(
+        sibling_body["hookSpecificOutput"]["permissionDecision"],
+        "deny"
+    );
+}

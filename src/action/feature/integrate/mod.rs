@@ -669,7 +669,9 @@ fn ensure_no_conflicting_session_or_run(
     parent: &FeatureName,
     child: &Feature,
 ) -> Result<(), Failure> {
-    if !child.has_any_receipt() && has_live_sessions(layout, name)? {
+    if !child.has_any_receipt()
+        && !super::relations::feature_session_entries(layout, name)?.is_empty()
+    {
         return Err(Failure::blocked(
             "integration.session_live",
             format!(
@@ -730,16 +732,6 @@ fn resolved_policy(
         strategy: strategy.map(IntegrationStrategy::parse).transpose()?,
     };
     Ok(IntegrationPolicy::resolve(cli, child.integration, hall))
-}
-
-/// Whether a feature has any session view dir — live or detached, the
-/// unrestricted-session fact.
-fn has_live_sessions(layout: &Layout, feature: &FeatureName) -> Result<bool, Failure> {
-    let dir = layout.feature_sessions_dir(feature);
-    if !fs::is_dir(&dir)? {
-        return Ok(false);
-    }
-    Ok(!fs::read_dir(&dir)?.is_empty())
 }
 
 /// Re-validate every receipt after the per-repo pass; close as integrated

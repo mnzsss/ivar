@@ -41,6 +41,7 @@ pub mod workspace;
 // mutations can enforce partial-integration boundaries without reaching into
 // this module's internals. See `mutation` for the scopes.
 pub(crate) use mutation::{ensure_not_fully_integrated, ensure_unrestricted_session_allowed};
+pub(crate) use relations::descendants;
 
 pub mod select;
 

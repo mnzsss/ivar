@@ -1004,14 +1004,124 @@ fn every_review_loop_in_execute_has_a_round_cap() {
 }
 
 #[test]
-fn subfeatures_starts_children_detached_with_real_plans() {
+fn subfeatures_orchestrates_children_with_subagents_from_the_parent_session() {
     let skill = shipped("skills/ivar-subfeatures/SKILL.md");
-    assert!(skill.contains("ivar session start <child> --detached"));
-    assert!(skill.contains("ivar session sandbox --session <id> -- "));
-    assert!(skill.contains("Wave 0"));
+    // The manual one-terminal-per-child flow is gone.
+    assert!(!skill.contains("ivar session sandbox --session"));
+    assert!(!skill.contains("never launch a provider yourself"));
+    // Portable subagent contract: one level, return-only.
+    for rule in [
+        "One level of subagents",
+        "never message a running subagent",
+        "Absolute paths only",
+        "needs_input",
+        "Wave 0",
+        "references/child-planner.md",
+        "references/state.md",
+        "ivar-execute/references/subagent.md",
+    ] {
+        assert!(skill.contains(rule), "subfeatures must state: {rule}");
+    }
+    // Every provider names its dispatch mechanism.
+    for provider in ["Claude Code", "OpenCode", "omp"] {
+        assert!(skill.contains(provider), "dispatch for {provider}");
+    }
+    // The child lifecycle, in order.
+    let order = [
+        "ivar feature create <child> --parent <parent>",
+        "ivar plan approve <child> plan",
+        "ivar session start <child> --detached --json",
+        "ivar feature execute start <child> --mode goal",
+        "ivar feature execute finish <child>",
+        "ivar session stop <session-id>",
+        "ivar feature integrate <child>",
+        "ivar feature deliver <parent> --preview",
+    ];
+    let positions: Vec<usize> = order
+        .iter()
+        .map(|step| {
+            skill
+                .find(step)
+                .unwrap_or_else(|| panic!("missing: {step}"))
+        })
+        .collect();
     assert!(
-        !skill.contains("ivar plan create <child> plan\nivar plan approve <child> plan"),
-        "children must not approve an empty template"
+        positions.windows(2).all(|pair| pair[0] < pair[1]),
+        "lifecycle out of order: {positions:?}"
+    );
+    // It stops before applying delivery.
+    assert!(!skill.contains("ivar feature deliver <parent> --fingerprint"));
+
+    let planner = shipped("skills/ivar-subfeatures/references/child-planner.md");
+    for field in [
+        "status: done",
+        "status: needs_input",
+        "questions:",
+        "### Decisions",
+        "absolute",
+    ] {
+        assert!(
+            planner.contains(field),
+            "child-planner must define: {field}"
+        );
+    }
+    let state = shipped("skills/ivar-subfeatures/references/state.md");
+    for column in [
+        "plan_gate",
+        "run",
+        "sessions",
+        "last_wave",
+        "needs_revision",
+        "diverged",
+    ] {
+        assert!(state.contains(column), "state table must read: {column}");
+    }
+}
+
+#[test]
+fn ivar_execute_skill_supports_explicit_feature_and_orchestrator_handoff() {
+    let execute = shipped("skills/ivar-execute/SKILL.md");
+
+    // Frontmatter argument-hint must take optional feature
+    assert!(
+        execute.contains("argument-hint: [feature] [plan-path] [--mode goal|default]"),
+        "ivar-execute must declare [feature] in argument-hint"
+    );
+
+    // Phase 1.1 feature resolution & plan default
+    assert!(
+        execute.contains("Resolve the target feature from `$ARGUMENTS`"),
+        "Phase 1.1 must resolve target feature from arguments with fallback"
+    );
+    assert!(
+        execute.contains("`.ivar/features/<feature>/plan.md`"),
+        "Phase 1.1 default plan must be relative to hall root"
+    );
+
+    // Phase 4.2 report path
+    assert!(
+        execute.contains(".tmp/<feature>-run-report.json"),
+        "Phase 4.2 report filename must include feature name"
+    );
+
+    // Phase 4.4 hand-off branching for child-session vs parent orchestrator
+    assert!(
+        execute.contains("If this session belongs to the parent"),
+        "Phase 4.4 must handle orchestrator returning control to ivar-subfeatures"
+    );
+    assert!(
+        execute.contains("Stop this session, then integrate from the parent session"),
+        "Phase 4.4 must retain stop instruction when session belongs to child"
+    );
+
+    // Recovery detached session startup
+    assert!(
+        execute.contains("Root feature driven by `ivar-subfeatures`"),
+        "Phase 4.4 must return a parent Wave 0 run to the orchestrator"
+    );
+    assert!(
+        execute.contains("ivar session start <feature> --detached"),
+        "Recovery must instruct orchestrator to start detached child session"
     );
 }
 

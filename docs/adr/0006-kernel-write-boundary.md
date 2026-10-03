@@ -89,3 +89,19 @@ binaries.
 - ADR-0003's observation that "the hook is the error message, not the barrier" becomes
   the deliberate architectural reality.
 - Non-Linux platforms continue to rely on the advisory hook layer.
+
+### Amendment: Descendant and Subfeature Write Grants
+
+To support subfeature orchestration from a parent feature session without requiring an
+unsandboxed broker:
+1. The kernel Landlock sandbox grants directory-level write access to `.ivar/features/`
+   and `.ivar/repos/<repo>/` for all repositories promoted by the parent at launch.
+2. The dynamic `WritableSet::from_session` hook evaluates the descendant feature tree on
+   every tool call, restricting structured file edits (`Write`, `Edit`) to the parent
+   feature and its active descendants.
+3. Unpromoted repositories stay outside the kernel grant; sibling and ancestor features
+   stay outside the hook's set.
+4. Accepted cost: Landlock cannot exclude sub-paths or add rules after restrict, so Bash
+   in a feature session can write other features' records and any worktree of the promoted
+   repos, including the default-branch checkout. Rejected alternatives: an unsandboxed
+   orchestrator session, and an unsandboxed ivar broker.

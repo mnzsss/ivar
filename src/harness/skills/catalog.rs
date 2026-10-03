@@ -93,7 +93,11 @@ const SKILLS: &[ShippedSkill] = &[
     },
     ShippedSkill {
         id: "subfeatures",
-        files: &[skill_file!("ivar-subfeatures", "SKILL.md")],
+        files: &[
+            skill_file!("ivar-subfeatures", "SKILL.md"),
+            skill_file!("ivar-subfeatures", "references/child-planner.md"),
+            skill_file!("ivar-subfeatures", "references/state.md"),
+        ],
         legacy_sha256: None,
     },
 ];

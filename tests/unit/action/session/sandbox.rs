@@ -569,3 +569,74 @@ fn a_dangling_symlinked_protected_path_is_judged_where_it_resolves() {
 
     assert!(paths.contains(&outside.join("hall.env")), "{paths:?}");
 }
+
+#[test]
+fn feature_session_sandbox_grants_features_dir_and_promoted_repo_dirs() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root.clone());
+    let feature = Feature::read(&layout, &FeatureName::new("checkout").unwrap())
+        .unwrap()
+        .unwrap();
+    let session_id = SessionId::new("6f0c9d5f-0000-4000-8000-000000000001").unwrap();
+    let view_dir = layout.feature_session(&feature.name, &session_id);
+    crate::infra::fs::ensure_dir(&view_dir).unwrap();
+
+    let set = WritableSet::from_session(&layout, &feature, &view_dir).unwrap();
+    let sandbox = Sandbox::from_writable_set(
+        &set,
+        &layout,
+        Some(&feature),
+        Provider::ClaudeCode,
+        &session_id,
+    )
+    .unwrap();
+
+    let roots = sandbox.roots();
+
+    // Feature sessions grant the canonical .ivar/features directory for mid-session child creation
+    let canonical_features_dir = layout.features_dir().canonicalize_utf8().unwrap();
+    assert!(
+        roots.contains(&canonical_features_dir),
+        "sandbox roots must contain canonical features_dir {canonical_features_dir}: {roots:?}"
+    );
+
+    // Feature sessions grant the canonical repo directory under .ivar/repos/<repo> for promoted repos
+    let canonical_api_repo_dir = layout
+        .repo_dir(&RepoName::new("api").unwrap())
+        .canonicalize_utf8()
+        .unwrap();
+    assert!(
+        roots.contains(&canonical_api_repo_dir),
+        "sandbox roots must contain canonical repo_dir {canonical_api_repo_dir}: {roots:?}"
+    );
+}
+
+#[test]
+fn discovery_session_sandbox_does_not_grant_features_dir_or_repo_dirs() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root.clone());
+    let session_id = SessionId::new("6f0c9d5f-0000-4000-8000-000000000002").unwrap();
+    let view_dir = layout.discovery_session(&session_id);
+    crate::infra::fs::ensure_dir(&view_dir).unwrap();
+
+    let set = WritableSet::from_discovery(&layout, &view_dir).unwrap();
+    let sandbox =
+        Sandbox::from_writable_set(&set, &layout, None, Provider::ClaudeCode, &session_id).unwrap();
+
+    let roots = sandbox.roots();
+
+    let features_dir = layout.features_dir().canonicalize_utf8().unwrap();
+    assert!(
+        !roots.contains(&features_dir),
+        "discovery sandbox roots must not contain features_dir: {roots:?}"
+    );
+
+    let api_repo_dir = layout
+        .repo_dir(&RepoName::new("api").unwrap())
+        .canonicalize_utf8()
+        .unwrap();
+    assert!(
+        !roots.contains(&api_repo_dir),
+        "discovery sandbox roots must not contain repo_dir: {roots:?}"
+    );
+}
