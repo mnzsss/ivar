@@ -119,8 +119,10 @@ fn the_human_surface_lists_repos_with_their_state() {
     let mut out = Vec::new();
     outcome.write_human(&mut out).unwrap();
 
+    let stripped = anstream::adapter::strip_str(&String::from_utf8(out).unwrap()).to_string();
+
     assert_eq!(
-        String::from_utf8(out).unwrap(),
-        "Repos in /hall:\n  api  cloned  main  ← git@example.com:acme/api.git  [dev, main]\n"
+        stripped,
+        "Repos in /hall:\nREPO  CLONE   BRANCH  REMOTE                        BRANCHES\napi   cloned  main    git@example.com:acme/api.git  dev, main\n"
     );
 }

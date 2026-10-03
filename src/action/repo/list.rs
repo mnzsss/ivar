@@ -50,29 +50,29 @@ impl WriteHuman for ListOutcome {
             return Ok(());
         }
         writeln!(w, "Repos in {}:", self.root)?;
+        let mut table =
+            crate::infra::table::new(&["REPO", "CLONE", "BRANCH", "REMOTE", "BRANCHES"]);
         for repo in &self.repos {
             let bare = if repo.bare_cloned {
                 "cloned"
             } else {
                 "missing"
             };
-            let worktree = if repo.default_worktree {
-                String::new()
+            let branch = if repo.default_worktree {
+                repo.default_branch.clone()
             } else {
-                " (no worktree)".to_owned()
+                format!("{} (no worktree)", repo.default_branch)
             };
-            let branches = if repo.branches.is_empty() {
-                String::new()
-            } else {
-                format!("  [{}]", repo.branches.join(", "))
-            };
-            writeln!(
-                w,
-                "  {}  {bare}  {}{worktree}  ← {}{branches}",
-                repo.name, repo.default_branch, repo.url,
-            )?;
+            let branches = repo.branches.join(", ");
+            table.add_row(vec![
+                repo.name.as_str(),
+                bare,
+                &branch,
+                &repo.url,
+                &branches,
+            ]);
         }
-        Ok(())
+        crate::infra::table::write(w, &table)
     }
 }
 

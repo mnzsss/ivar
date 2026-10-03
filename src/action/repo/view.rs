@@ -70,16 +70,15 @@ pub struct ViewOutcome {
 impl WriteHuman for ViewOutcome {
     fn write_human(&self, w: &mut impl io::Write) -> io::Result<()> {
         writeln!(w, "Repos in {}:", self.root)?;
+        let mut table = crate::infra::table::new(&["REPO", "BRANCH", "WORKTREE / STATUS"]);
         for repo in &self.repos {
-            match &repo.reason {
-                None => writeln!(
-                    w,
-                    "  {}  {}  {}",
-                    repo.name, repo.default_branch, repo.worktree
-                )?,
-                Some(reason) => writeln!(w, "  {}  {reason}", repo.name)?,
-            }
+            let target = match &repo.reason {
+                None => repo.worktree.as_str(),
+                Some(reason) => reason.as_str(),
+            };
+            table.add_row(vec![repo.name.as_str(), &repo.default_branch, target]);
         }
+        crate::infra::table::write(w, &table)?;
         let open = self.repos.iter().filter(|repo| repo.openable).count();
         writeln!(w, "{open} shell{} opened", if open == 1 { "" } else { "s" })
     }

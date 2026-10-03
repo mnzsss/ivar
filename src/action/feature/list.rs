@@ -58,18 +58,18 @@ impl WriteHuman for ListOutcome {
             return Ok(());
         }
         writeln!(w, "Features in {}:", self.root)?;
+        let mut table = crate::infra::table::new(&["FEATURE", "BRANCH", "PROMOTED", "STATE"]);
         for feature in &self.features {
-            writeln!(
-                w,
-                "  {}  branch {}  promoted {}/{}  state {}",
-                feature.name,
-                feature.branch,
-                feature.ready_count,
-                feature.promoted_count,
-                feature.state,
-            )?;
+            let promoted = format!("{}/{}", feature.ready_count, feature.promoted_count);
+            let state = feature.state.to_string();
+            table.add_row(vec![
+                feature.name.as_str(),
+                &feature.branch,
+                &promoted,
+                &state,
+            ]);
         }
-        Ok(())
+        crate::infra::table::write(w, &table)
     }
 }
 

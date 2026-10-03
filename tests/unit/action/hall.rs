@@ -1453,9 +1453,11 @@ fn the_human_surface_of_status_names_the_health() {
     let mut out = Vec::new();
     outcome.write_human(&mut out).unwrap();
 
+    let stripped = anstream::adapter::strip_str(&String::from_utf8(out).unwrap()).to_string();
+
     assert_eq!(
-        String::from_utf8(out).unwrap(),
-        "Hall at /hall — operational\n  api  cloned  worktree ok\n"
+        stripped,
+        "Hall at /hall — operational\nREPO  CLONE   WORKTREE\napi   cloned  worktree ok\n"
     );
 }
 

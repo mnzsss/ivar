@@ -42,17 +42,15 @@ impl WriteHuman for ListOutcome {
             return Ok(());
         }
         writeln!(w, "Skills in {}:", self.root)?;
+        let mut table = crate::infra::table::new(&["SKILL", "DESCRIPTION", "ORIGIN"]);
         for skill in &self.skills {
-            // Origin is printed for personal skills only. A hall skill is the
-            // shared, expected case and needs no annotation; a personal one is
-            // invisible to everyone else, which is worth saying out loud.
             let origin = match skill.root {
-                SkillRoot::Hall => "",
-                SkillRoot::Local => "  (local)",
+                SkillRoot::Hall => "hall",
+                SkillRoot::Local => "local",
             };
-            writeln!(w, "  {}  {}{origin}", skill.id, skill.description)?;
+            table.add_row(vec![skill.id.as_str(), &skill.description, origin]);
         }
-        Ok(())
+        crate::infra::table::write(w, &table)
     }
 }
 /// List the skills in both roots.

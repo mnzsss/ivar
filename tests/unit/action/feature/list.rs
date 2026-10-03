@@ -92,8 +92,10 @@ fn the_human_surface_lists_features_with_their_counts() {
     let mut out = Vec::new();
     outcome.write_human(&mut out).unwrap();
 
+    let stripped = anstream::adapter::strip_str(&String::from_utf8(out).unwrap()).to_string();
+
     assert_eq!(
-        String::from_utf8(out).unwrap(),
-        "Features in /hall:\n  checkout  branch checkout  promoted 1/2  state active\n"
+        stripped,
+        "Features in /hall:\nFEATURE   BRANCH    PROMOTED  STATE\ncheckout  checkout  1/2       active\n"
     );
 }
