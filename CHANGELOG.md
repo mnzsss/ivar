@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.0](https://github.com/mnzsss/ivar/compare/v0.13.0...v0.14.0) - 2026-10-03
+
+### Added
+
+- orchestrate subfeatures with subagents from the parent session ([#141](https://github.com/mnzsss/ivar/pull/141))
+- harden the feature and session lifecycle ([#140](https://github.com/mnzsss/ivar/pull/140))
+- project repo skills into sessions ([#135](https://github.com/mnzsss/ivar/pull/135))
+
+### Fixed
+
+- always replace MCP credentials and scope omp tokens per hall ([#139](https://github.com/mnzsss/ivar/pull/139))
+- register ivar commands through the omp extension ([#138](https://github.com/mnzsss/ivar/pull/138))
+- bound compact and JSON graph MCP responses ([#137](https://github.com/mnzsss/ivar/pull/137))
+
 ### Fixed
 
 - Bound compact and JSON graph exploration MCP responses with explicit omissions and source follow-up, while preserving complete machine-readable CLI output.
