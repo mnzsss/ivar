@@ -25,6 +25,7 @@ pub(super) fn read_doc(
         path: path.to_path_buf(),
         source: json::Error::Parse {
             path: path.to_path_buf(),
+            text: text.clone(),
             source,
         },
     })?;

@@ -105,10 +105,11 @@ pub fn list(ctx: &Ctx) -> Outcome<ListOutcome> {
 /// The `description` from a skill's `SKILL.md` frontmatter, or an empty
 /// string when it cannot be read.
 fn read_description(skill_dir: &camino::Utf8Path) -> String {
-    let Ok(Some(source)) = fs::read_text(&skill_dir.join("SKILL.md")) else {
+    let skill_path = skill_dir.join("SKILL.md");
+    let Ok(Some(source)) = fs::read_text(&skill_path) else {
         return String::new();
     };
-    frontmatter::parse::<SkillMeta>(&source)
+    frontmatter::parse_at::<SkillMeta>(&skill_path, &source)
         .map(|meta| meta.description)
         .unwrap_or_default()
 }

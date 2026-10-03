@@ -196,3 +196,17 @@ fn replace_surfaces_unterminated_fences_in_the_source() {
     let error = replace(source, &Doc::default()).unwrap_err();
     assert!(matches!(error, FrontmatterError::UnterminatedFence { .. }));
 }
+
+#[test]
+fn parse_at_attaches_source_span_offset_by_opening_fence() {
+    let (_tmp, root) = crate::test_support::utf8_temp_dir();
+    let path = root.join("plan.md");
+    let invalid_frontmatter = "---\nrepos:\n  - [invalid yaml\n---\n# Body\n";
+
+    let err = parse_at::<Doc>(&path, invalid_frontmatter).unwrap_err();
+    let span = err.source.expect("parse_at failure must attach SourceSpan");
+    assert_eq!(span.path, path);
+    assert_eq!(span.line, 3);
+    assert!(span.column >= 1);
+    assert_eq!(span.text, invalid_frontmatter);
+}
