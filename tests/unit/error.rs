@@ -1,34 +1,109 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use super::*;
+use anstream::ColorChoice;
+use anstream::adapter::strip_str;
+
+fn sample_failure() -> Failure {
+    Failure::blocked("repo.dirty", "api has uncommitted changes")
+        .expected("a clean worktree")
+        .actual("3 modified files")
+        .fix(FixAction::safe("commit", "commit the changes").command("git commit -a"))
+        .fix(FixAction::unsafe_("discard", "discard the changes"))
+}
 
 #[test]
 fn blocked_and_failed_render_different_labels() {
-    assert_eq!(Failure::blocked("x.y", "nope").to_string(), "blocked: nope");
-    assert_eq!(Failure::failed("x.y", "nope").to_string(), "error: nope");
+    let blocked = Failure::blocked("repo.dirty", "dirty");
+    let failed = Failure::failed("repo.dirty", "dirty");
+    assert_eq!(blocked.label(), "blocked:");
+    assert_eq!(failed.label(), "error:");
 }
 
 #[test]
 fn human_form_orders_fixes_and_marks_the_unsafe_one() {
-    let failure = Failure::blocked("repo.dirty", "api has uncommitted changes")
-        .expected("a clean worktree")
-        .actual("3 modified files")
-        .fix(FixAction::safe("commit", "commit the changes").command("git commit -a"))
-        .fix(FixAction::unsafe_("discard", "discard the changes"));
+    let failure = sample_failure();
+    let mut buf = Vec::new();
+    failure.write_human(&mut buf).unwrap();
+    let rendered = String::from_utf8(buf).unwrap();
 
+    let plain = "blocked: api has uncommitted changes\n  expected: a clean worktree\n  actual:   3 modified files\n  try:\n    1. commit the changes\n       $ git commit -a\n    2. discard the changes (needs you)\n";
+    assert_eq!(strip_str(&rendered).to_string(), plain);
+    assert!(rendered.contains("\x1b[31mblocked:\x1b[0m"));
+    assert!(rendered.contains("\x1b[2mexpected:\x1b[0m"));
+    assert!(rendered.contains("\x1b[2mactual:\x1b[0m"));
+    assert!(rendered.contains("\x1b[2mtry:\x1b[0m"));
+    assert!(rendered.contains("\x1b[36m$\x1b[0m"));
+    assert!(rendered.contains("\x1b[33m(needs you)\x1b[0m"));
+}
+
+#[test]
+fn failure_write_human_renders_styled_output_matching_stripped_plain() {
+    let failure = sample_failure();
+    let mut buf = Vec::new();
+    failure.write_human(&mut buf).unwrap();
+    let rendered = String::from_utf8(buf).unwrap();
+
+    let plain = "blocked: api has uncommitted changes\n  expected: a clean worktree\n  actual:   3 modified files\n  try:\n    1. commit the changes\n       $ git commit -a\n    2. discard the changes (needs you)\n";
+    assert_eq!(strip_str(&rendered).to_string(), plain);
+}
+
+#[test]
+fn values_never_sit_inside_style_spans() {
+    let failure = sample_failure();
+    let mut buf = Vec::new();
+    failure.write_human(&mut buf).unwrap();
+    let rendered = String::from_utf8(buf).unwrap();
+
+    for value in [
+        "api has uncommitted changes",
+        "a clean worktree",
+        "3 modified files",
+        "commit the changes",
+        "git commit -a",
+        "discard the changes",
+    ] {
+        assert!(
+            rendered.contains(value),
+            "value `{value}` was broken up or painted"
+        );
+    }
+}
+
+#[test]
+fn auto_stream_with_color_choice_never_emits_no_escape_bytes() {
+    let failure = sample_failure();
     let mut out = Vec::new();
-    failure.write_human(&mut out).unwrap();
+    {
+        let mut stream = anstream::AutoStream::new(&mut out, ColorChoice::Never);
+        failure.write_human(&mut stream).unwrap();
+    }
+    assert!(
+        !out.contains(&0x1b),
+        "AutoStream with ColorChoice::Never must not write escape byte 0x1b"
+    );
+    let plain = "blocked: api has uncommitted changes\n  expected: a clean worktree\n  actual:   3 modified files\n  try:\n    1. commit the changes\n       $ git commit -a\n    2. discard the changes (needs you)\n";
+    assert_eq!(String::from_utf8(out).unwrap(), plain);
+}
+
+#[test]
+fn warning_write_human_renders_styled_output_and_strips_cleanly() {
+    let warning = Warning::new("repo.unreachable", "api", "remote did not answer");
+    let mut buf = Vec::new();
+    warning.write_human(&mut buf).unwrap();
+    let rendered = String::from_utf8(buf).unwrap();
 
     assert_eq!(
-        String::from_utf8(out).unwrap(),
-        "blocked: api has uncommitted changes\n\
-             \x20 expected: a clean worktree\n\
-             \x20 actual:   3 modified files\n\
-             \x20 try:\n\
-             \x20   1. commit the changes\n\
-             \x20      $ git commit -a\n\
-             \x20   2. discard the changes (needs you)\n"
+        strip_str(&rendered).to_string(),
+        "warning: api: remote did not answer\n"
     );
+    assert!(rendered.starts_with("\x1b[33mwarning:\x1b[0m"));
+}
+
+#[test]
+fn paint_wraps_text_with_style_and_resets() {
+    let s = paint(DANGER, "danger text");
+    assert_eq!(s, "\x1b[31mdanger text\x1b[0m");
 }
 
 #[test]
@@ -49,149 +124,6 @@ fn a_failed_failure_reports_its_kind_in_the_json() {
     assert_eq!(json.get("kind"), Some(&serde_json::json!("failed")));
     assert!(json.get("status").is_none(), "{json}");
     assert_eq!(failure.status, Status::Failed);
-}
-
-/// Strip every SGR sequence. Deliberately a separate, dumb implementation
-/// rather than anything reused from the code under test — a stripper that
-/// shared the writer's idea of an escape code could not catch a malformed
-/// one.
-fn strip_ansi(text: &str) -> String {
-    let mut out = String::new();
-    let mut chars = text.chars();
-    while let Some(c) = chars.next() {
-        if c == '\x1b' {
-            // Consume through the terminating 'm' of the CSI sequence.
-            for inner in chars.by_ref() {
-                if inner == 'm' {
-                    break;
-                }
-            }
-        } else {
-            out.push(c);
-        }
-    }
-    out
-}
-
-fn sample_failure() -> Failure {
-    Failure::blocked("repo.dirty", "api has uncommitted changes")
-        .expected("a clean worktree")
-        .actual("3 modified files")
-        .fix(FixAction::safe("commit", "commit the changes").command("git commit -a"))
-        .fix(FixAction::unsafe_("discard", "discard the changes"))
-}
-
-fn render(failure: &Failure, palette: &Palette) -> String {
-    let mut out = Vec::new();
-    failure.write_painted(&mut out, palette).unwrap();
-    String::from_utf8(out).unwrap()
-}
-
-#[test]
-fn a_plain_palette_is_byte_for_byte_the_unpainted_form() {
-    let failure = sample_failure();
-
-    let mut via_write_human = Vec::new();
-    failure.write_human(&mut via_write_human).unwrap();
-
-    assert_eq!(
-        String::from_utf8(via_write_human).unwrap(),
-        render(&failure, &Palette::plain()),
-        "write_human must stay exactly Palette::plain, or every byte-for-byte \
-             assertion in this crate silently changes meaning"
-    );
-}
-
-#[test]
-fn colour_adds_only_escape_codes_and_never_changes_the_text() {
-    let failure = sample_failure();
-
-    let painted = render(&failure, &Palette::colour());
-    let plain = render(&failure, &Palette::plain());
-
-    assert_ne!(painted, plain, "the colour palette painted nothing");
-    assert_eq!(
-        strip_ansi(&painted),
-        plain,
-        "colour altered the layout, not just its decoration"
-    );
-}
-
-#[test]
-fn every_painted_span_is_closed_by_a_reset() {
-    let painted = render(&sample_failure(), &Palette::colour());
-
-    // Every escape sequence is either an opening code or a reset, so a
-    // balanced render has exactly twice as many as it has resets.
-    let escapes = painted.matches("\x1b[").count();
-    let resets = painted.matches(RESET).count();
-    assert_eq!(
-        escapes,
-        resets * 2,
-        "each painted span should be one opening code plus one reset; an \
-             unbalanced count leaks colour into the text that follows"
-    );
-}
-
-#[test]
-fn values_never_carry_escape_codes() {
-    let painted = render(&sample_failure(), &Palette::colour());
-
-    // The value strings must appear verbatim, unpainted — the --json
-    // surface shows these same strings raw, and the two must agree.
-    for value in [
-        "api has uncommitted changes",
-        "a clean worktree",
-        "3 modified files",
-        "commit the changes",
-        "git commit -a",
-    ] {
-        assert!(
-            painted.contains(value),
-            "value `{value}` was broken up or painted"
-        );
-    }
-}
-
-#[test]
-fn the_unsafe_marker_keeps_its_space_outside_the_paint() {
-    let painted = render(&sample_failure(), &Palette::colour());
-
-    assert!(
-        painted.contains(&format!(" {YELLOW}(needs you){RESET}")),
-        "the separating space must precede the escape code, not sit inside it"
-    );
-}
-
-#[test]
-fn a_warning_paints_only_its_label() {
-    let warning = Warning::new("repo.unreachable", "api", "remote did not answer");
-
-    let mut plain = Vec::new();
-    warning
-        .write_painted(&mut plain, &Palette::plain())
-        .unwrap();
-    let plain = String::from_utf8(plain).unwrap();
-
-    let mut painted = Vec::new();
-    warning
-        .write_painted(&mut painted, &Palette::colour())
-        .unwrap();
-    let painted = String::from_utf8(painted).unwrap();
-
-    // The unpainted form is the Display form plus a newline: one wording,
-    // so a caller using either cannot show the user something different.
-    assert_eq!(plain, format!("{warning}\n"));
-    assert_eq!(strip_ansi(&painted), plain);
-    assert!(painted.starts_with(&format!("{YELLOW}warning:{RESET}")));
-}
-
-#[test]
-fn a_plain_palette_is_the_default_so_a_pipe_never_gets_colour() {
-    assert_eq!(Palette::default(), Palette::plain());
-    assert!(!Palette::default().is_colour());
-    assert!(Palette::from_decision(true).is_colour());
-    assert!(!Palette::from_decision(false).is_colour());
 }
 
 #[test]

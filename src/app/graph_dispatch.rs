@@ -14,12 +14,7 @@ use crate::action::graph::{
 };
 use crate::cli::graph::GraphCommand;
 use crate::domain::graph::{UsageEvent, UsageSource, truncate_for_storage};
-use crate::error::{Failure, Outcome, Palette, Report, WriteHuman};
-use crate::infra::term;
-
-fn stderr_palette() -> Palette {
-    Palette::from_decision(term::colour_for(term::Stream::Stderr, None))
-}
+use crate::error::{Failure, Outcome, Report, WriteHuman};
 
 fn write_json(w: &mut impl io::Write, value: &impl Serialize) -> io::Result<()> {
     let rendered = serde_json::to_string(value)
@@ -36,7 +31,7 @@ fn respond_failure(
     if json {
         let _ = write_json(stdout, &failure);
     } else {
-        let _ = failure.write_painted(stderr, &stderr_palette());
+        let _ = failure.write_human(stderr);
     }
     ExitCode::from(2)
 }
@@ -65,9 +60,8 @@ where
                 let _ = write_json(stdout, &report);
             } else {
                 let _ = report.value.write_human(stdout);
-                let palette = stderr_palette();
                 for warning in &report.warnings {
-                    let _ = warning.write_painted(stderr, &palette);
+                    let _ = warning.write_human(stderr);
                 }
             }
             exit

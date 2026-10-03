@@ -19,122 +19,39 @@
 //! [`Warning`] — inside `Ok`. [`Failure`] is reserved for "the whole operation is
 //! unsalvageable".
 //!
-//! Colour lives here too, as [`Palette`], for one reason: the layout of a
+//! Colour lives here too, as style roles, for one reason: the layout of a
 //! failure must have exactly **one** code path. A second, colour-aware renderer
 //! elsewhere would be a copy of this module's line ordering that drifts from it
-//! the first time either side is edited. So the layout stays here and takes a
-//! palette; [`Palette::plain`] is byte-for-byte what it always was, and colour
-//! is decoration applied around the same `writeln!` calls, never a second pass
-//! over a different shape. `infra::term` decides *whether* to colour; this
-//! module decides *what* the paint means.
+//! the first time either side is edited. So the layout stays here and uses
+//! [`paint`] with style roles; stream filtering is handled at the stream
+//! boundary via `anstream::AutoStream`, and colour is decoration applied around
+//! the same `writeln!` calls, never a second pass over a different shape.
+//! `infra::term` decides *whether* to colour; this module decides *what* the
+//! paint means.
 //!
 //! Module error types live with their module, as `thiserror` enums, and convert
 //! here via `From`. That conversion is where a mechanical error acquires a code
 //! and a fix action, so it belongs to the module that knows what went wrong — not
 //! to this one.
 
-use std::borrow::Cow;
 use std::fmt;
 use std::io;
 
+use anstyle::{AnsiColor, Effects, Style};
 use serde::Serialize;
 use serde::ser::Serializer;
 
-/// Which roles the human surface paints, and whether it paints at all.
-///
-/// Hand-rolled SGR rather than a colour crate. The whole vocabulary is the five
-/// constants below, they have no edge cases at this size, and a binary whose
-/// pitch is "read the source and check" is the wrong place to spend a
-/// dependency on `"\x1b[31m"`. See [`crate::infra::term`] for the decision of
-/// *whether* to emit any of it.
-///
-/// [`Palette::plain`] must stay byte-identical to an unpainted render — there is
-/// a test for exactly that, because it is what lets every existing
-/// byte-for-byte assertion keep its meaning.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Palette {
-    colour: bool,
-}
+/// Style roles for human CLI output.
+pub const DANGER: Style = Style::new().fg_color(Some(anstyle::Color::Ansi(AnsiColor::Red)));
+pub const CAUTION: Style = Style::new().fg_color(Some(anstyle::Color::Ansi(AnsiColor::Yellow)));
+pub const MUTED: Style = Style::new().effects(Effects::DIMMED);
+pub const COMMAND: Style = Style::new().fg_color(Some(anstyle::Color::Ansi(AnsiColor::Cyan)));
+pub const HEADER: Style = Style::new().effects(Effects::BOLD);
 
-/// Reset every attribute. Emitted after each painted span so a span never
-/// leaks into the text after it — including when a write is cut short.
-const RESET: &str = "\x1b[0m";
-/// Red: the failure label itself.
-const RED: &str = "\x1b[31m";
-/// Yellow: something that needs a human.
-const YELLOW: &str = "\x1b[33m";
-/// Dim: structural labels that guide the eye but carry no news.
-const DIM: &str = "\x1b[2m";
-/// Cyan: a command the reader can copy and run.
-const CYAN: &str = "\x1b[36m";
-
-impl Palette {
-    /// A painting palette.
-    #[must_use]
-    pub const fn colour() -> Self {
-        Self { colour: true }
-    }
-
-    /// No escape codes at all. The default, and what every byte-for-byte test
-    /// asserts against.
-    #[must_use]
-    pub const fn plain() -> Self {
-        Self { colour: false }
-    }
-
-    /// Build from an already-made decision — typically
-    /// [`crate::infra::term::colour_for`].
-    #[must_use]
-    pub const fn from_decision(colour: bool) -> Self {
-        if colour {
-            Self::colour()
-        } else {
-            Self::plain()
-        }
-    }
-
-    /// Whether this palette emits anything.
-    #[must_use]
-    pub const fn is_colour(&self) -> bool {
-        self.colour
-    }
-
-    /// Wrap `text` in `code`, or hand it back untouched when plain.
-    fn paint<'a>(&self, code: &str, text: &'a str) -> Cow<'a, str> {
-        if self.colour {
-            Cow::Owned(format!("{code}{text}{RESET}"))
-        } else {
-            Cow::Borrowed(text)
-        }
-    }
-
-    /// The failure label — `blocked:` / `error:`.
-    fn danger<'a>(&self, text: &'a str) -> Cow<'a, str> {
-        self.paint(RED, text)
-    }
-
-    /// Something a human has to decide: the `warning:` label, `(needs you)`.
-    fn caution<'a>(&self, text: &'a str) -> Cow<'a, str> {
-        self.paint(YELLOW, text)
-    }
-
-    /// A structural label: `expected:`, `actual:`, `try:`.
-    fn muted<'a>(&self, text: &'a str) -> Cow<'a, str> {
-        self.paint(DIM, text)
-    }
-
-    /// A runnable command.
-    fn command<'a>(&self, text: &'a str) -> Cow<'a, str> {
-        self.paint(CYAN, text)
-    }
-}
-
-impl Default for Palette {
-    /// Plain. Colour is something a surface opts into after asking
-    /// `infra::term`, never a default that leaks into a pipe.
-    fn default() -> Self {
-        Self::plain()
-    }
+/// Wrap `text` in `style` and reset after.
+#[must_use]
+pub fn paint(style: Style, text: &str) -> String {
+    format!("{style}{text}{style:#}")
 }
 
 /// Whether a failure happened before or after the operation began.
@@ -277,41 +194,24 @@ impl Failure {
         self
     }
 
-    /// Render the full human form, unpainted: the summary, the mismatch, then
-    /// the ordered fixes.
+    /// Render the failure layout with anstyle style roles.
     ///
-    /// Equivalent to [`write_painted`](Self::write_painted) with
-    /// [`Palette::plain`], and kept as its own name because most callers — and
-    /// every byte-for-byte test — want exactly that.
+    /// Stream filtering (stripping styles on non-tty/Never) is performed
+    /// by `anstream::AutoStream` at the stream boundary.
     ///
     /// # Errors
     ///
     /// Returns [`io::Error`] if `w` cannot be written to.
     pub fn write_human(&self, w: &mut impl io::Write) -> io::Result<()> {
-        self.write_painted(w, &Palette::plain())
-    }
-
-    /// The one layout for a failure. `palette` decorates it; it never changes
-    /// which lines appear, their order, or their text.
-    ///
-    /// Only the labels are painted. `what`, `expected`, `actual` and each fix's
-    /// sentence are *values*, and a value never gets an escape code inside it —
-    /// that is what keeps this consistent with the `--json` surface, where the
-    /// same strings appear raw.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`io::Error`] if `w` cannot be written to.
-    pub fn write_painted(&self, w: &mut impl io::Write, palette: &Palette) -> io::Result<()> {
-        writeln!(w, "{} {}", palette.danger(self.label()), self.what)?;
+        writeln!(w, "{} {}", paint(DANGER, self.label()), self.what)?;
         if let Some(expected) = &self.expected {
-            writeln!(w, "  {} {expected}", palette.muted("expected:"))?;
+            writeln!(w, "  {} {expected}", paint(MUTED, "expected:"))?;
         }
         if let Some(actual) = &self.actual {
-            writeln!(w, "  {}   {actual}", palette.muted("actual:"))?;
+            writeln!(w, "  {}   {actual}", paint(MUTED, "actual:"))?;
         }
         if !self.fix_actions.is_empty() {
-            writeln!(w, "  {}", palette.muted("try:"))?;
+            writeln!(w, "  {}", paint(MUTED, "try:"))?;
             for (index, action) in self.fix_actions.iter().enumerate() {
                 // The space belongs outside the paint: a trailing space inside a
                 // coloured span is invisible but still styled, and shows up as a
@@ -319,11 +219,11 @@ impl Failure {
                 let needs_human = if action.safe {
                     String::new()
                 } else {
-                    format!(" {}", palette.caution("(needs you)"))
+                    format!(" {}", paint(CAUTION, "(needs you)"))
                 };
                 writeln!(w, "    {}. {}{needs_human}", index + 1, action.what)?;
                 if let Some(command) = &action.command {
-                    writeln!(w, "       {} {command}", palette.command("$"))?;
+                    writeln!(w, "       {} {command}", paint(COMMAND, "$"))?;
                 }
             }
         }
@@ -373,17 +273,16 @@ impl Warning {
         }
     }
 
-    /// The one layout for a warning. As with [`Failure::write_painted`], only
-    /// the label is painted — subject and text are values.
+    /// Render the warning layout with anstyle style roles.
     ///
     /// # Errors
     ///
     /// Returns [`io::Error`] if `w` cannot be written to.
-    pub fn write_painted(&self, w: &mut impl io::Write, palette: &Palette) -> io::Result<()> {
+    pub fn write_human(&self, w: &mut impl io::Write) -> io::Result<()> {
         writeln!(
             w,
             "{} {}: {}",
-            palette.caution("warning:"),
+            paint(CAUTION, "warning:"),
             self.subject,
             self.what
         )

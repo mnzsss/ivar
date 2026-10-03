@@ -102,3 +102,23 @@ fn is_tty_does_not_panic_for_either_stream() {
     let _ = is_tty(Stream::Stdout);
     let _ = is_tty(Stream::Stderr);
 }
+
+#[test]
+fn choice_from_maps_booleans_to_color_choices() {
+    use anstream::ColorChoice;
+    assert_eq!(choice_from(true), ColorChoice::Always);
+    assert_eq!(choice_from(false), ColorChoice::Never);
+}
+
+#[test]
+fn auto_stream_never_choice_strips_painted_bytes() {
+    use anstream::ColorChoice;
+    let mut out = Vec::new();
+    {
+        let mut stream = anstream::AutoStream::new(&mut out, ColorChoice::Never);
+        use std::io::Write;
+        write!(stream, "\x1b[31mred text\x1b[0m").unwrap();
+    }
+    assert!(!out.contains(&0x1b));
+    assert_eq!(String::from_utf8(out).unwrap(), "red text");
+}

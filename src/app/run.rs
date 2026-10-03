@@ -105,8 +105,8 @@ pub fn run(cli: Cli) -> ExitCode {
 
     let session_id = std::env::var("IVAR_SESSION_ID").ok();
 
-    let mut stdout = io::stdout().lock();
-    let mut stderr = io::stderr().lock();
+    let mut stdout = term::auto(io::stdout(), term::Stream::Stdout);
+    let mut stderr = term::auto(io::stderr(), term::Stream::Stderr);
 
     // Decided from the cache before the command runs; printed after it, so
     // the line never interleaves with the command's own output.
