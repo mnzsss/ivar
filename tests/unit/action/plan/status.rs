@@ -308,3 +308,35 @@ fn status_derives_feature_from_features_dir() {
 
     assert_eq!(report.value.feature.as_str(), "checkout");
 }
+
+#[test]
+fn the_human_surface_renders_gates_table() {
+    let outcome = StatusOutcome {
+        root: Utf8PathBuf::from("/hall"),
+        feature: FeatureName::new("checkout").unwrap(),
+        plan_path: Utf8PathBuf::from(".ivar/features/checkout/plan.md"),
+        gates: vec![
+            GateStatus {
+                gate: Gate::Requirements,
+                state: GateState::Approved,
+                invalidated_by: None,
+            },
+            GateStatus {
+                gate: Gate::Plan,
+                state: GateState::NeedsRevision,
+                invalidated_by: Some("requirements.md changed".to_owned()),
+            },
+        ],
+        receipt: None,
+        evidence_available: false,
+    };
+
+    let mut out = Vec::new();
+    outcome.write_human(&mut out).unwrap();
+    let stripped = anstream::adapter::strip_str(&String::from_utf8(out).unwrap()).to_string();
+
+    assert_eq!(
+        stripped,
+        "SPDD status for feature `checkout` (plan: .ivar/features/checkout/plan.md):\nGATE          STATE           NOTE\nrequirements  approved\nplan          needs-revision  requirements.md changed\n"
+    );
+}

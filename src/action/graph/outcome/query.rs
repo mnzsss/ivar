@@ -155,38 +155,60 @@ impl WriteHuman for StatsOutcome {
         writeln!(w, "  DB Size:      {} bytes", s.db_size_bytes)?;
         if !s.layers.is_empty() {
             writeln!(w, "\nFeature Layers ({}):", s.layers.len())?;
-            for layer in &s.layers {
-                writeln!(
-                    w,
-                    "  - [{}] repo: {}, files: {}, base: {}",
-                    layer.feature, layer.repo, layer.file_count, layer.base_commit
-                )?;
+            let mut table = crate::infra::table::new(&["FEATURE", "REPO", "FILES", "BASE"]);
+            if let Some(col) = table.column_mut(2) {
+                col.set_cell_alignment(comfy_table::CellAlignment::Right);
             }
+            for layer in &s.layers {
+                let count_str = layer.file_count.to_string();
+                table.add_row(vec![
+                    &layer.feature,
+                    &layer.repo,
+                    &count_str,
+                    &layer.base_commit,
+                ]);
+            }
+            crate::infra::table::write(w, &table)?;
         }
         if s.usage.is_empty() {
             writeln!(w, "\nUsage: none recorded")?;
         } else {
             writeln!(w, "\nUsage:")?;
-            writeln!(
-                w,
-                "  {:<12} {:<4} {:>7} {:>6} {:>6} {:>7} {:>7} {:>11}",
-                "command", "src", "count", "empty", "errors", "p50_ms", "p95_ms", "last_used"
-            )?;
+            let mut table = crate::infra::table::new(&[
+                "COMMAND",
+                "SRC",
+                "COUNT",
+                "EMPTY",
+                "ERRORS",
+                "P50_MS",
+                "P95_MS",
+                "LAST_USED",
+            ]);
+            for col_idx in [2, 3, 4, 5, 6] {
+                if let Some(col) = table.column_mut(col_idx) {
+                    col.set_cell_alignment(comfy_table::CellAlignment::Right);
+                }
+            }
             let now = now_timestamp();
             for u in &s.usage {
-                writeln!(
-                    w,
-                    "  {:<12} {:<4} {:>7} {:>6} {:>6} {:>7} {:>7} {:>11}",
-                    u.command,
+                let count = u.count.to_string();
+                let empty = u.empty_count.to_string();
+                let errors = u.error_count.to_string();
+                let p50 = u.p50_ms.to_string();
+                let p95 = u.p95_ms.to_string();
+                let last = relative_age(now, u.last_used);
+                table.add_row(vec![
+                    &u.command,
                     u.source.as_str(),
-                    u.count,
-                    u.empty_count,
-                    u.error_count,
-                    u.p50_ms,
-                    u.p95_ms,
-                    relative_age(now, u.last_used)
-                )?;
+                    &count,
+                    &empty,
+                    &errors,
+                    &p50,
+                    &p95,
+                    &last,
+                ]);
             }
+            crate::infra::table::write(w, &table)?;
         }
         Ok(())
     }

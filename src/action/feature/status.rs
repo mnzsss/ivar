@@ -89,31 +89,35 @@ impl WriteHuman for StatusOutcome {
         )?;
         if self.repos.is_empty() {
             writeln!(w, "  no repos promoted")?;
-        }
-        for detail in &self.repos {
-            let present = if detail.worktree_present {
-                "present"
-            } else {
-                "missing"
-            };
-            writeln!(
-                w,
-                "  {}  {}  worktree {present}  base: {}",
-                detail.repo,
-                state_word(detail.state),
-                base_word(detail),
-            )?;
-            if let Some(url) = &detail.pr_url {
-                match &detail.pr_state {
-                    Some(state) => writeln!(w, "    pr: {url} ({})", state.to_lowercase())?,
-                    None => writeln!(w, "    pr: {url}")?,
+        } else {
+            let mut table = crate::infra::table::new(&["REPO", "STATE", "WORKTREE", "BASE", "PR"]);
+            for detail in &self.repos {
+                let present = if detail.worktree_present {
+                    "present"
+                } else {
+                    "missing"
+                };
+                let pr = match (&detail.pr_url, &detail.pr_state) {
+                    (Some(url), Some(state)) => format!("{url} ({})", state.to_lowercase()),
+                    (Some(url), None) => url.clone(),
+                    (None, _) => String::new(),
+                };
+                table.add_row(vec![
+                    detail.repo.as_str(),
+                    state_word(detail.state),
+                    present,
+                    &base_word(detail),
+                    &pr,
+                ]);
+            }
+            crate::infra::table::write(w, &table)?;
+            for detail in &self.repos {
+                if let Some(reason) = &detail.reason {
+                    writeln!(w, "  {} reason: {reason}", detail.repo)?;
                 }
-            }
-            if let Some(reason) = &detail.reason {
-                writeln!(w, "    reason: {reason}")?;
-            }
-            if let Some(retry) = &detail.retry {
-                writeln!(w, "    retry: {retry}")?;
+                if let Some(retry) = &detail.retry {
+                    writeln!(w, "  {} retry: {retry}", detail.repo)?;
+                }
             }
         }
         if self.every_pr_merged() {
@@ -134,7 +138,7 @@ impl WriteHuman for StatusOutcome {
                 };
                 let run_str = match &entry.run {
                     Some(run) => match run.last_wave {
-                        Some(w) => format!("  run {} wave {}", run.status, w),
+                        Some(wave) => format!("  run {} wave {}", run.status, wave),
                         None => format!("  run {}", run.status),
                     },
                     None => "  no run".to_owned(),

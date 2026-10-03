@@ -97,16 +97,12 @@ impl WriteHuman for ListOutcome {
             return Ok(());
         }
         writeln!(w, "Discoveries in {}:", self.root)?;
+        let mut table = crate::infra::table::new(&["DISCOVERY", "STATUS", "TITLE"]);
         for entry in &self.discoveries {
-            writeln!(
-                w,
-                "  {}  [{}]  {}",
-                entry.name,
-                entry.status.as_str(),
-                entry.title
-            )?;
+            let name = entry.name.to_string();
+            table.add_row(vec![&name, entry.status.as_str(), &entry.title]);
         }
-        Ok(())
+        crate::infra::table::write(w, &table)
     }
 }
 

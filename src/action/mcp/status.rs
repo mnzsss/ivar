@@ -44,41 +44,15 @@ impl WriteHuman for StatusOutcome {
             return Ok(());
         }
 
-        let server_width = self
-            .rows
-            .iter()
-            .map(|r| r.server.len())
-            .max()
-            .unwrap_or(0)
-            .max("SERVER".len());
-
-        let provider_width = self
-            .rows
-            .iter()
-            .map(|r| r.provider.id().len())
-            .max()
-            .unwrap_or(0)
-            .max("PROVIDER".len());
-
-        writeln!(
-            w,
-            "{:<server_width$} {:<provider_width$} {:<20}",
-            "SERVER", "PROVIDER", "STATE (SOURCE)"
-        )?;
+        let mut table = crate::infra::table::new(&["SERVER", "PROVIDER", "STATE (SOURCE)"]);
         for row in &self.rows {
             let state_desc = match row.source {
                 StateSource::Local => row.state.as_str().to_owned(),
                 StateSource::Live => format!("{} (live)", row.state.as_str()),
             };
-            writeln!(
-                w,
-                "{:<server_width$} {:<provider_width$} {:<20}",
-                row.server,
-                row.provider.id(),
-                state_desc
-            )?;
+            table.add_row(vec![row.server.as_str(), row.provider.id(), &state_desc]);
         }
-        Ok(())
+        crate::infra::table::write(w, &table)
     }
 }
 
