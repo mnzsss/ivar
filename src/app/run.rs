@@ -93,6 +93,12 @@ pub fn run(cli: Cli) -> ExitCode {
         cli.color.as_override(),
     ));
 
+    if !json && term::is_tty(term::Stream::Stdout) {
+        term::prime_table_width(Some(term::width()));
+    } else {
+        term::prime_table_width(None);
+    }
+
     // The progress sink, decided once for the same reason the colour caches are
     // primed above: `--json` is a machine-shaped run and wants no redraw line
     // even on stderr. `progress::reporter` asks the is-it-a-tty half.

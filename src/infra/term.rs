@@ -94,6 +94,18 @@ pub fn decide_colour(
 
 static COLOUR: OnceLock<bool> = OnceLock::new();
 static COLOUR_STDERR: OnceLock<bool> = OnceLock::new();
+static TABLE_WIDTH: OnceLock<Option<u16>> = OnceLock::new();
+
+/// Prime the table width for the process. First call wins; subsequent calls are ignored.
+pub fn prime_table_width(width: Option<u16>) {
+    let _ = TABLE_WIDTH.set(width);
+}
+
+/// The primed table width, or `None` if unprimed.
+#[must_use]
+pub fn table_width() -> Option<u16> {
+    TABLE_WIDTH.get().copied().flatten()
+}
 
 /// Whether to emit colour. Decided once, from the real environment and the
 /// real tty state, then cached for the lifetime of the process.
