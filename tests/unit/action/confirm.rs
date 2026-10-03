@@ -141,3 +141,33 @@ fn the_seam_carries_onto_ctx_and_defaults_to_never() {
     let ctx = crate::action::Ctx::new(root);
     assert!(!ctx.confirm("Anything?", None).unwrap());
 }
+
+#[test]
+fn select_items_formats_labels_matching_existing_option_rendering() {
+    let options = vec![
+        SelectOption {
+            id: "feature-a".to_owned(),
+            description: Some("first feature description".to_owned()),
+            path_if_any: "plans/feature-a".to_owned(),
+        },
+        SelectOption {
+            id: "feature-b".to_owned(),
+            description: None,
+            path_if_any: "".to_owned(),
+        },
+    ];
+    let items = select_items(&options);
+    assert_eq!(
+        items,
+        vec![
+            "feature-a — first feature description".to_owned(),
+            "feature-b".to_owned(),
+        ]
+    );
+}
+
+#[test]
+fn select_items_returns_empty_vector_when_options_are_empty() {
+    let items = select_items(&[]);
+    assert!(items.is_empty());
+}
