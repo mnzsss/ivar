@@ -204,6 +204,40 @@ pub fn auto<S: anstream::stream::RawStream>(raw: S, stream: Stream) -> anstream:
     anstream::AutoStream::new(raw, choice(stream))
 }
 
+/// The `--color` value in `args`, read before clap parses so help and usage
+/// errors honour it. Mirrors `ColorMode::as_override`: `always` → `Some(true)`,
+/// `never` → `Some(false)`, `auto`/absent/unknown → `None`. The flag is global,
+/// so it may appear anywhere; the last one wins; nothing after `--` counts.
+#[must_use]
+pub fn color_flag(args: &[std::ffi::OsString]) -> Option<bool> {
+    fn value(v: &str) -> Option<Option<bool>> {
+        match v {
+            "always" => Some(Some(true)),
+            "never" => Some(Some(false)),
+            "auto" => Some(None),
+            _ => None,
+        }
+    }
+    let mut result = None;
+    let mut iter = args.iter().filter_map(|a| a.to_str());
+    while let Some(arg) = iter.next() {
+        if arg == "--" {
+            break;
+        }
+        let found = if let Some(v) = arg.strip_prefix("--color=") {
+            value(v)
+        } else if arg == "--color" {
+            iter.next().and_then(value)
+        } else {
+            None
+        };
+        if let Some(decision) = found {
+            result = decision;
+        }
+    }
+    result
+}
+
 #[cfg(test)]
 #[path = "../../tests/unit/infra/term.rs"]
 mod tests;

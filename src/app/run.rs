@@ -6,6 +6,8 @@
 use std::io::{self, Write};
 use std::process::ExitCode;
 
+use clap::{CommandFactory as _, FromArgMatches as _};
+
 use camino::Utf8PathBuf;
 
 use crate::action::Ctx;
@@ -985,3 +987,47 @@ pub fn run(cli: Cli) -> ExitCode {
     notice.finish(&mut stderr);
     code
 }
+
+/// Parse argv with the styled command. Pure: no stream, no exit.
+pub(crate) fn try_parse(args: &[std::ffi::OsString]) -> Result<Cli, clap::Error> {
+    let matches = Cli::command().try_get_matches_from(args)?;
+    Cli::from_arg_matches(&matches)
+}
+
+/// Parse argv, or render clap's help/version/usage error and exit.
+///
+/// Clap would decide colour itself (it ignores `FORCE_COLOR` and `--color`),
+/// so the error is rendered here instead: on the stream clap names
+/// (`use_stderr`: usage errors → stderr, `--help`/`--version` → stdout),
+/// painted only if `term` says that stream may be. Priming `colour_for` with
+/// the scanned flag is the same value `run` primes with afterwards.
+#[allow(clippy::needless_pass_by_value)]
+pub fn parse(args: Vec<std::ffi::OsString>) -> Cli {
+    match try_parse(&args) {
+        Ok(cli) => cli,
+        Err(err) => {
+            let stream = if err.use_stderr() {
+                term::Stream::Stderr
+            } else {
+                term::Stream::Stdout
+            };
+            let colour = term::colour_for(stream, term::color_flag(&args));
+            let rendered = err.render();
+            let text = if colour {
+                rendered.ansi().to_string()
+            } else {
+                rendered.to_string()
+            };
+            let _ = if err.use_stderr() {
+                write!(io::stderr(), "{text}")
+            } else {
+                write!(io::stdout(), "{text}")
+            };
+            std::process::exit(err.exit_code());
+        }
+    }
+}
+
+#[cfg(test)]
+#[path = "../../tests/unit/app/run.rs"]
+mod tests;

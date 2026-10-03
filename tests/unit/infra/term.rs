@@ -122,3 +122,50 @@ fn auto_stream_never_choice_strips_painted_bytes() {
     assert!(!out.contains(&0x1b));
     assert_eq!(String::from_utf8(out).unwrap(), "red text");
 }
+
+fn argv(args: &[&str]) -> Vec<std::ffi::OsString> {
+    args.iter().map(std::ffi::OsString::from).collect()
+}
+
+#[test]
+fn color_flag_reads_both_spellings_anywhere_before_the_separator() {
+    assert_eq!(color_flag(&argv(&["ivar", "status"])), None);
+    assert_eq!(
+        color_flag(&argv(&["ivar", "--color", "never", "status"])),
+        Some(false)
+    );
+    assert_eq!(
+        color_flag(&argv(&["ivar", "status", "--color=always"])),
+        Some(true)
+    );
+    assert_eq!(color_flag(&argv(&["ivar", "--color", "auto"])), None);
+}
+
+#[test]
+fn color_flag_last_occurrence_wins() {
+    assert_eq!(
+        color_flag(&argv(&["ivar", "--color", "never", "--color=always"])),
+        Some(true)
+    );
+    assert_eq!(
+        color_flag(&argv(&["ivar", "--color=always", "--color", "auto"])),
+        None
+    );
+}
+
+#[test]
+fn color_flag_ignores_everything_after_double_dash() {
+    assert_eq!(
+        color_flag(&argv(&["ivar", "x", "--", "--color", "always"])),
+        None
+    );
+    assert_eq!(
+        color_flag(&argv(&["ivar", "--color=never", "--", "--color=always"])),
+        Some(false)
+    );
+}
+
+#[test]
+fn color_flag_ignores_an_unknown_value_so_clap_reports_it() {
+    assert_eq!(color_flag(&argv(&["ivar", "--color", "sometimes"])), None);
+}

@@ -231,8 +231,7 @@ impl Failure {
     }
 
     /// The word this failure's status renders as. The single source for both
-    /// [`fmt::Display`] and [`write_painted`](Self::write_painted), so the
-    /// painted and unpainted forms cannot disagree about it.
+    /// [`fmt::Display`] and [`write_human`](Self::write_human), so the
     const fn label(&self) -> &'static str {
         match self.status {
             Status::Blocked => "blocked:",
