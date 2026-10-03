@@ -84,14 +84,19 @@ pub fn run(cli: Cli) -> ExitCode {
     //
     // Both streams are primed because they are redirected independently: the
     // value goes to stdout, failures and warnings to stderr.
-    let _ = term::colour_for(term::Stream::Stdout, cli.color.as_override());
-    let _ = term::colour_for(term::Stream::Stderr, cli.color.as_override());
+    //
+    // Hook verbs are read by a program, so they are primed off: `FORCE_COLOR`
+    // or `--color always` in the user's shell must not reach a hook's bytes.
+    let colour_override = if super::notice::is_hook_verb(&cli.command) {
+        Some(false)
+    } else {
+        cli.color.as_override()
+    };
+    let _ = term::colour_for(term::Stream::Stdout, colour_override);
+    let _ = term::colour_for(term::Stream::Stderr, colour_override);
     // indicatif and dialoguer paint through `console`, which has its own
     // global switch; give it ivar's stderr decision so both follow the flag.
-    console::set_colors_enabled_stderr(term::colour_for(
-        term::Stream::Stderr,
-        cli.color.as_override(),
-    ));
+    console::set_colors_enabled_stderr(term::colour_for(term::Stream::Stderr, colour_override));
 
     if !json && term::is_tty(term::Stream::Stdout) {
         term::prime_table_width(Some(term::width()));
