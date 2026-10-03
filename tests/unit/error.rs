@@ -180,3 +180,51 @@ fn an_outcome_carrying_its_own_ok_key_is_refused_rather_than_rendered() {
 
     assert!(error.to_string().contains("`ok`"), "{error}");
 }
+
+#[test]
+fn failure_with_source_span_serializes_location_in_json_and_skips_text_and_label() {
+    let span = SourceSpan::new(
+        "ivar.json",
+        "{\n  \"name\": Foo,\n}\n",
+        2,
+        11,
+        "expected value",
+    );
+    let failure = Failure::failed("json.parse_failed", "invalid JSON syntax").at(span);
+    let json = serde_json::to_string(&failure).unwrap();
+    assert!(json.contains(r#""location":{"path":"ivar.json","line":2,"column":11}"#));
+    assert!(!json.contains("expected value"));
+    assert!(!json.contains("Foo"));
+}
+
+#[test]
+fn failure_without_source_span_omits_location_key_in_json() {
+    let failure = Failure::failed("general.error", "something failed");
+    let json = serde_json::to_string(&failure).unwrap();
+    assert!(!json.contains("location"));
+}
+
+#[test]
+fn failure_with_source_span_renders_exact_human_snippet_layout() {
+    let source_text = "{\n  \"name\": Foo,\n}\n";
+    let span = SourceSpan::new("ivar.json", source_text, 2, 11, "expected value");
+    let failure = Failure::failed("json.parse_failed", "syntax error in ivar.json")
+        .expected("valid JSON")
+        .actual("expected value at line 2 column 11")
+        .at(span);
+    let mut out = Vec::new();
+    failure.write_human(&mut out).unwrap();
+    let rendered = String::from_utf8(out).unwrap();
+    let stripped = anstream::adapter::strip_str(&rendered).to_string();
+
+    let expected = "\
+error: syntax error in ivar.json
+ --> ivar.json:2:11
+  |
+2 |   \"name\": Foo,
+  |           ^^^ expected value
+  expected: valid JSON
+  actual:   expected value at line 2 column 11
+";
+    assert_eq!(stripped, expected);
+}

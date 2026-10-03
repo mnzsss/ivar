@@ -38,9 +38,9 @@ use std::fmt;
 use std::io;
 
 use anstyle::{AnsiColor, Effects, Style};
+use camino::Utf8PathBuf;
 use serde::Serialize;
 use serde::ser::Serializer;
-
 /// Style roles for human CLI output.
 pub const DANGER: Style = Style::new().fg_color(Some(anstyle::Color::Ansi(AnsiColor::Red)));
 pub const CAUTION: Style = Style::new().fg_color(Some(anstyle::Color::Ansi(AnsiColor::Yellow)));
@@ -54,6 +54,73 @@ pub fn paint(style: Style, text: &str) -> String {
     format!("{style}{text}{style:#}")
 }
 
+/// A byte range in a source file, with context for rendering.
+///
+/// `line` and `column` are 1-based, for humans reading the rendered output.
+/// `text` and `label` are kept out of the JSON surface.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct SourceLocation {
+    /// Source file path.
+    pub path: Utf8PathBuf,
+    /// 1-based line number.
+    pub line: usize,
+    /// 1-based column number.
+    pub column: usize,
+}
+
+/// A spanned region within a source text.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceSpan {
+    /// Source file path.
+    pub path: Utf8PathBuf,
+    /// 1-based line number.
+    pub line: usize,
+    /// 1-based column number.
+    pub column: usize,
+    /// Source text.
+    pub text: String,
+    /// Annotation label.
+    pub label: String,
+}
+
+impl SourceSpan {
+    /// Create a new source span with 1-based line and column numbers.
+    #[must_use]
+    pub fn new(
+        path: impl Into<Utf8PathBuf>,
+        text: impl Into<String>,
+        line: usize,
+        column: usize,
+        label: impl Into<String>,
+    ) -> Self {
+        Self {
+            path: path.into(),
+            line,
+            column,
+            text: text.into(),
+            label: label.into(),
+        }
+    }
+
+    /// Extract the serialized location component.
+    #[must_use]
+    pub fn location(&self) -> SourceLocation {
+        SourceLocation {
+            path: self.path.clone(),
+            line: self.line,
+            column: self.column,
+        }
+    }
+}
+
+impl Serialize for SourceSpan {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        self.location().serialize(serializer)
+    }
+}
 /// Whether a failure happened before or after the operation began.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -138,6 +205,12 @@ pub struct Failure {
     /// failure.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub details: Option<serde_json::Value>,
+    /// Source span context when this failure corresponds to a file location.
+    #[serde(
+        rename(serialize = "location"),
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub source: Option<Box<SourceSpan>>,
 }
 
 impl Failure {
@@ -163,6 +236,7 @@ impl Failure {
             actual: None,
             fix_actions: Vec::new(),
             details: None,
+            source: None,
         }
     }
 
@@ -194,6 +268,13 @@ impl Failure {
         self
     }
 
+    /// Attach source span context for snippet rendering and location serialization.
+    #[must_use]
+    pub fn at(mut self, span: SourceSpan) -> Self {
+        self.source = Some(Box::new(span));
+        self
+    }
+
     /// Render the failure layout with anstyle style roles.
     ///
     /// Stream filtering (stripping styles on non-tty/Never) is performed
@@ -204,6 +285,61 @@ impl Failure {
     /// Returns [`io::Error`] if `w` cannot be written to.
     pub fn write_human(&self, w: &mut impl io::Write) -> io::Result<()> {
         writeln!(w, "{} {}", paint(DANGER, self.label()), self.what)?;
+
+        if let Some(span) = &self.source {
+            // Compute byte offset for (line, column) 1-based in span.text
+            let mut line_start_offset = 0;
+            let mut current_line = 1;
+            for (offset, ch) in span.text.char_indices() {
+                if current_line == span.line {
+                    break;
+                }
+                if ch == '\n' {
+                    current_line += 1;
+                    line_start_offset = offset + 1;
+                }
+            }
+            let line_rest = span.text.get(line_start_offset..).unwrap_or("");
+            let line_len = line_rest.find('\n').unwrap_or(line_rest.len());
+            let col_offset = span.column.saturating_sub(1);
+            let span_start = (line_start_offset + col_offset).min(line_start_offset + line_len);
+
+            // Extend span across token characters (until delimiter/whitespace) or clamp to line end
+            let remaining_line = span
+                .text
+                .get(span_start..line_start_offset + line_len)
+                .unwrap_or("");
+            let token_len = remaining_line
+                .chars()
+                .take_while(|c| {
+                    !c.is_whitespace()
+                        && *c != ','
+                        && *c != ':'
+                        && *c != ';'
+                        && *c != '}'
+                        && *c != ']'
+                })
+                .map(char::len_utf8)
+                .sum::<usize>()
+                .max(1);
+            let span_end = (span_start + token_len).min(line_start_offset + line_len);
+            let byte_range = span_start..span_end;
+
+            let snippet = annotate_snippets::Snippet::source(&span.text)
+                .path(span.path.as_str())
+                .annotation(
+                    annotate_snippets::AnnotationKind::Primary
+                        .span(byte_range)
+                        .label(&span.label),
+                );
+            let report = &[
+                annotate_snippets::Group::with_level(annotate_snippets::Level::ERROR)
+                    .element(snippet),
+            ];
+            let rendered = annotate_snippets::Renderer::styled().render(report);
+            writeln!(w, "{rendered}")?;
+        }
+
         if let Some(expected) = &self.expected {
             writeln!(w, "  {} {expected}", paint(MUTED, "expected:"))?;
         }
@@ -213,9 +349,6 @@ impl Failure {
         if !self.fix_actions.is_empty() {
             writeln!(w, "  {}", paint(MUTED, "try:"))?;
             for (index, action) in self.fix_actions.iter().enumerate() {
-                // The space belongs outside the paint: a trailing space inside a
-                // coloured span is invisible but still styled, and shows up as a
-                // stray background cell on some terminals.
                 let needs_human = if action.safe {
                     String::new()
                 } else {
