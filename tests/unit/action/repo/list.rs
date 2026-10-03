@@ -75,21 +75,53 @@ fn list_reports_a_declared_repo_before_any_sync() {
     assert_eq!(repo.name.as_str(), "api");
     assert_eq!(repo.default_branch, "main");
     assert!(!repo.bare_cloned, "not synced yet");
-    assert!(repo.branches.is_empty());
+    assert!(repo.features.is_empty());
 }
 
 #[test]
-fn list_reports_a_synced_repo_with_its_branches() {
-    let (_guard, root) = hall_with(&[("api", "main")]);
+fn list_reports_a_synced_repo_with_the_features_promoting_it() {
+    let (_guard, root) = hall_with(&[("api", "main"), ("web", "main")]);
     let ctx = Ctx::new(root.clone());
     crate::action::sync::sync(&ctx, &Default::default()).unwrap();
+    for name in ["zeta", "alpha"] {
+        crate::action::feature::create::create(
+            &ctx,
+            crate::action::feature::create::CreateInput {
+                name: name.to_owned(),
+                branch: None,
+                base: None,
+                parent: None,
+                via: None,
+                strategy: None,
+            },
+        )
+        .unwrap();
+        crate::action::feature::promote::promote(
+            &ctx,
+            crate::action::feature::promote::PromoteInput {
+                feature: name.to_owned(),
+                repo: "api".to_owned(),
+                base: None,
+            },
+        )
+        .unwrap();
+    }
 
     let report = list(&ctx).unwrap();
 
-    let repo = &report.value.repos[0];
-    assert!(repo.bare_cloned);
-    assert!(repo.default_worktree);
-    assert!(repo.branches.contains(&"main".to_owned()));
+    let api = &report.value.repos[0];
+    assert!(api.bare_cloned);
+    assert!(api.default_worktree);
+    let names: Vec<&str> = api.features.iter().map(FeatureName::as_str).collect();
+    assert_eq!(
+        names,
+        vec!["alpha", "zeta"],
+        "sorted, feature branches only"
+    );
+    assert!(
+        report.value.repos[1].features.is_empty(),
+        "web is promoted nowhere"
+    );
 }
 
 #[test]
@@ -106,14 +138,27 @@ fn list_outside_a_hall_is_blocked() {
 fn the_human_surface_lists_repos_with_their_state() {
     let outcome = ListOutcome {
         root: Utf8PathBuf::from("/hall"),
-        repos: vec![RepoStatus {
-            name: RepoName::new("api").unwrap(),
-            url: "git@example.com:acme/api.git".to_owned(),
-            default_branch: "main".to_owned(),
-            bare_cloned: true,
-            default_worktree: true,
-            branches: vec!["dev".to_owned(), "main".to_owned()],
-        }],
+        repos: vec![
+            RepoStatus {
+                name: RepoName::new("api").unwrap(),
+                url: "git@example.com:acme/api.git".to_owned(),
+                default_branch: "main".to_owned(),
+                bare_cloned: true,
+                default_worktree: true,
+                features: vec![
+                    FeatureName::new("login").unwrap(),
+                    FeatureName::new("search").unwrap(),
+                ],
+            },
+            RepoStatus {
+                name: RepoName::new("web").unwrap(),
+                url: "git@example.com:acme/web.git".to_owned(),
+                default_branch: "main".to_owned(),
+                bare_cloned: true,
+                default_worktree: true,
+                features: Vec::new(),
+            },
+        ],
     };
 
     let mut out = Vec::new();
@@ -123,6 +168,6 @@ fn the_human_surface_lists_repos_with_their_state() {
 
     assert_eq!(
         stripped,
-        "Repos in /hall:\nREPO  CLONE   BRANCH  REMOTE                        BRANCHES\napi   cloned  main    git@example.com:acme/api.git  dev, main\n"
+        "Repos in /hall:\nREPO  CLONE   BRANCH  REMOTE                        FEATURES\napi   cloned  main    git@example.com:acme/api.git  login, search\nweb   cloned  main    git@example.com:acme/web.git  -\n"
     );
 }
