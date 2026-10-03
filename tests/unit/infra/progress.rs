@@ -2,74 +2,54 @@
 
 use super::*;
 
-#[test]
-fn a_message_that_fits_is_unchanged() {
-    assert_eq!(fit("acme: fetching", 80), "acme: fetching");
+use indicatif::ProgressDrawTarget;
+
+fn hidden() -> Stderr {
+    Stderr::with_target(ProgressDrawTarget::hidden)
 }
 
 #[test]
-fn a_message_exactly_the_width_is_not_truncated() {
-    assert_eq!(fit("abcde", 5), "abcde");
-}
-
-#[test]
-fn a_longer_message_is_cut_and_ellipsised_to_the_width() {
-    let line = fit("abcdefghij", 5);
-    assert_eq!(line, "abcd…");
-    assert_eq!(line.chars().count(), 5);
-}
-
-#[test]
-fn a_zero_width_produces_nothing() {
-    assert_eq!(fit("anything", 0), "");
-}
-
-#[test]
-fn a_width_of_one_produces_only_the_ellipsis() {
-    assert_eq!(fit("anything", 1), "…");
-}
-
-#[test]
-fn control_characters_become_spaces_so_the_redraw_stays_on_one_line() {
-    // A newline would move the cursor off the row the next `\r` returns to,
-    // and the erase would then blank the wrong line.
-    assert_eq!(fit("a\nb\tc\rd", 80), "a b c d");
-}
-
-#[test]
-fn flattening_happens_before_truncation_so_the_width_still_holds() {
-    let line = fit("aaaa\nbbbb", 5);
-    assert_eq!(line.chars().count(), 5);
-    assert!(!line.contains('\n'));
-}
-
-#[test]
-fn silent_reports_nothing_and_never_panics() {
-    let silent = Silent;
-    silent.step("acme: fetching");
-    silent.clear();
-    silent.clear();
-}
-
-#[test]
-fn clearing_a_stderr_reporter_that_never_stepped_writes_nothing() {
-    let reporter = Stderr::new();
+fn nothing_is_drawn_until_the_first_step() {
+    // `reporter(true)` builds this for every human tty run, including verbs
+    // that never report progress and hook verbs: they must get no spinner.
+    let reporter = hidden();
+    assert!(!reporter.is_started());
     reporter.clear();
-    assert_eq!(*reporter.live(), 0);
+    assert!(
+        !reporter.is_started(),
+        "clear on an idle reporter starts nothing"
+    );
 }
 
 #[test]
-fn a_step_remembers_the_line_length_and_a_clear_forgets_it() {
-    let reporter = Stderr::new();
-    reporter.step("acme");
-    assert_eq!(*reporter.live(), 4);
-    reporter.clear();
-    assert_eq!(*reporter.live(), 0);
-    // Idempotent: a second clear has nothing to erase.
-    reporter.clear();
-    assert_eq!(*reporter.live(), 0);
+fn a_step_starts_the_spinner_with_that_message_and_the_next_replaces_it() {
+    let reporter = hidden();
+    reporter.step("[1/2] acme: fetching");
+    assert!(reporter.is_started());
+    assert_eq!(reporter.message().as_deref(), Some("[1/2] acme: fetching"));
+    reporter.step("[2/2] web: fetching");
+    assert_eq!(reporter.message().as_deref(), Some("[2/2] web: fetching"));
 }
 
+#[test]
+fn clear_removes_the_spinner_idempotently_and_a_later_step_starts_a_new_one() {
+    let reporter = hidden();
+    reporter.step("indexing");
+    reporter.clear();
+    assert!(!reporter.is_started());
+    reporter.clear();
+    assert!(!reporter.is_started());
+    reporter.step("again");
+    assert_eq!(reporter.message().as_deref(), Some("again"));
+}
+
+#[test]
+fn control_characters_become_spaces_so_the_spinner_stays_on_one_line() {
+    assert_eq!(one_line("a\nb\tc\rd"), "a b c d");
+    let reporter = hidden();
+    reporter.step("two\nlines");
+    assert_eq!(reporter.message().as_deref(), Some("two lines"));
+}
 #[test]
 fn a_reporter_nobody_wants_is_silent_even_with_a_terminal() {
     // `--json` is the caller saying no. The tty half cannot override it.

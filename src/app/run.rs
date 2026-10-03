@@ -86,6 +86,12 @@ pub fn run(cli: Cli) -> ExitCode {
     // value goes to stdout, failures and warnings to stderr.
     let _ = term::colour_for(term::Stream::Stdout, cli.color.as_override());
     let _ = term::colour_for(term::Stream::Stderr, cli.color.as_override());
+    // indicatif and dialoguer paint through `console`, which has its own
+    // global switch; give it ivar's stderr decision so both follow the flag.
+    console::set_colors_enabled_stderr(term::colour_for(
+        term::Stream::Stderr,
+        cli.color.as_override(),
+    ));
 
     // The progress sink, decided once for the same reason the colour caches are
     // primed above: `--json` is a machine-shaped run and wants no redraw line
