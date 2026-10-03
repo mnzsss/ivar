@@ -262,10 +262,11 @@ pub(super) fn plan_declared_repos(
     layout: &Layout,
     feature: &FeatureName,
 ) -> Result<Vec<RepoName>, Failure> {
-    let Some(source) = fs::read_text(&artifact_path(layout, feature, Gate::Plan))? else {
+    let path = artifact_path(layout, feature, Gate::Plan);
+    let Some(source) = fs::read_text(&path)? else {
         return Ok(Vec::new());
     };
-    frontmatter::parse::<PlanFrontmatter>(&source)?
+    frontmatter::parse_at::<PlanFrontmatter>(&path, &source)?
         .repos
         .into_iter()
         .map(|name| RepoName::new(name).map_err(Failure::from))

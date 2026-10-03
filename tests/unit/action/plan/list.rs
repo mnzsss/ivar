@@ -61,9 +61,10 @@ fn the_human_surface_lists_artifacts_per_feature() {
 
     let mut out = Vec::new();
     outcome.write_human(&mut out).unwrap();
+    let stripped = anstream::adapter::strip_str(&String::from_utf8(out).unwrap()).to_string();
 
     assert_eq!(
-        String::from_utf8(out).unwrap(),
-        "Plans in /hall:\n  checkout  [requirements.md, plan.md]\n"
+        stripped,
+        "Plans in /hall:\nFEATURE   ARTIFACTS\ncheckout  requirements.md, plan.md\n"
     );
 }

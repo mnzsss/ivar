@@ -4,9 +4,6 @@
 
 use std::process::ExitCode;
 
-use clap::Parser;
-use ivar::cli::root::Cli;
-
 fn main() -> ExitCode {
-    ivar::app::run::run(Cli::parse())
+    ivar::app::run::run(ivar::app::run::parse(std::env::args_os().collect()))
 }

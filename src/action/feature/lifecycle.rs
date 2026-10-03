@@ -106,7 +106,7 @@ pub(crate) fn read_close(
     let Some(plan_source) = fs::read_text(&plan_path)? else {
         return Ok(None);
     };
-    let frontmatter = frontmatter::parse::<PlanFrontmatter>(&plan_source)?;
+    let frontmatter = frontmatter::parse_at::<PlanFrontmatter>(&plan_path, &plan_source)?;
     let Some(outcome) = frontmatter.outcome else {
         return Ok(None);
     };
@@ -128,7 +128,7 @@ pub(crate) fn write_close(
     let plan_source = fs::read_text(&plan_path)?.unwrap_or_default();
 
     let closed_at = rfc3339_now();
-    let mut updated = frontmatter::parse::<PlanFrontmatter>(&plan_source)?;
+    let mut updated = frontmatter::parse_at::<PlanFrontmatter>(&plan_path, &plan_source)?;
     updated.outcome = Some(outcome.to_string());
     updated.closed_at = Some(closed_at.clone());
     let rendered = frontmatter::replace(&plan_source, &updated)?;

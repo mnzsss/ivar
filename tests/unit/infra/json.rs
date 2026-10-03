@@ -178,3 +178,18 @@ fn reading_accepts_non_canonical_but_valid_json() {
     let value: Option<serde_json::Value> = read(&path).unwrap();
     assert_eq!(value, Some(serde_json::json!({"a": 2, "b": 1})));
 }
+
+#[test]
+fn parse_failure_attaches_source_span_with_line_and_column() {
+    let (_tmp, root) = utf8_temp_dir();
+    let path = root.join("broken.json");
+    let invalid_json = "{\n  \"valid\": true,\n  \"broken\": ,\n}";
+    fs::write_text(&path, invalid_json).unwrap();
+
+    let err: Failure = read::<serde_json::Value>(&path).unwrap_err().into();
+    let span = err.source.expect("parse failure must attach SourceSpan");
+    assert_eq!(span.path, path);
+    assert_eq!(span.line, 3);
+    assert!(span.column >= 1);
+    assert_eq!(span.text, invalid_json);
+}

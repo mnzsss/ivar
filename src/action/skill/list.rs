@@ -42,17 +42,15 @@ impl WriteHuman for ListOutcome {
             return Ok(());
         }
         writeln!(w, "Skills in {}:", self.root)?;
+        let mut table = crate::infra::table::new(&["SKILL", "DESCRIPTION", "ORIGIN"]);
         for skill in &self.skills {
-            // Origin is printed for personal skills only. A hall skill is the
-            // shared, expected case and needs no annotation; a personal one is
-            // invisible to everyone else, which is worth saying out loud.
             let origin = match skill.root {
-                SkillRoot::Hall => "",
-                SkillRoot::Local => "  (local)",
+                SkillRoot::Hall => "hall",
+                SkillRoot::Local => "local",
             };
-            writeln!(w, "  {}  {}{origin}", skill.id, skill.description)?;
+            table.add_row(vec![skill.id.as_str(), &skill.description, origin]);
         }
-        Ok(())
+        crate::infra::table::write(w, &table)
     }
 }
 /// List the skills in both roots.
@@ -105,10 +103,11 @@ pub fn list(ctx: &Ctx) -> Outcome<ListOutcome> {
 /// The `description` from a skill's `SKILL.md` frontmatter, or an empty
 /// string when it cannot be read.
 fn read_description(skill_dir: &camino::Utf8Path) -> String {
-    let Ok(Some(source)) = fs::read_text(&skill_dir.join("SKILL.md")) else {
+    let skill_path = skill_dir.join("SKILL.md");
+    let Ok(Some(source)) = fs::read_text(&skill_path) else {
         return String::new();
     };
-    frontmatter::parse::<SkillMeta>(&source)
+    frontmatter::parse_at::<SkillMeta>(&skill_path, &source)
         .map(|meta| meta.description)
         .unwrap_or_default()
 }

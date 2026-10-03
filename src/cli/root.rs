@@ -21,10 +21,21 @@ use crate::action::session::guard_cmd;
 use crate::action::sync::SyncInput;
 use crate::action::upgrade::command::UpgradeInput;
 use crate::error::Failure;
+/// Help and usage-error styles. The same roles the failure layout uses, so
+/// `--help` and `error:` read as one product. Whether they are emitted is
+/// decided per stream in `app::run::parse`, never by clap.
+pub const STYLES: clap::builder::Styles = clap::builder::Styles::styled()
+    .header(crate::error::HEADER)
+    .usage(crate::error::HEADER)
+    .literal(crate::error::COMMAND)
+    .placeholder(crate::error::MUTED)
+    .valid(crate::error::COMMAND)
+    .invalid(crate::error::DANGER)
+    .error(crate::error::DANGER);
 /// Mount the repos a feature spans into one directory, on one branch, for
 /// one agent session.
 #[derive(Debug, Parser)]
-#[command(version = env!("IVAR_BUILD_VERSION"), about, long_about = None)]
+#[command(version = env!("IVAR_BUILD_VERSION"), about, long_about = None, styles = STYLES)]
 pub struct Cli {
     /// Emit machine-readable output.
     ///

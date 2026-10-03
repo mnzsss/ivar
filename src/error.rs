@@ -19,124 +19,108 @@
 //! [`Warning`] — inside `Ok`. [`Failure`] is reserved for "the whole operation is
 //! unsalvageable".
 //!
-//! Colour lives here too, as [`Palette`], for one reason: the layout of a
+//! Colour lives here too, as style roles, for one reason: the layout of a
 //! failure must have exactly **one** code path. A second, colour-aware renderer
 //! elsewhere would be a copy of this module's line ordering that drifts from it
-//! the first time either side is edited. So the layout stays here and takes a
-//! palette; [`Palette::plain`] is byte-for-byte what it always was, and colour
-//! is decoration applied around the same `writeln!` calls, never a second pass
-//! over a different shape. `infra::term` decides *whether* to colour; this
-//! module decides *what* the paint means.
+//! the first time either side is edited. So the layout stays here and uses
+//! [`paint`] with style roles; stream filtering is handled at the stream
+//! boundary via `anstream::AutoStream`, and colour is decoration applied around
+//! the same `writeln!` calls, never a second pass over a different shape.
+//! `infra::term` decides *whether* to colour; this module decides *what* the
+//! paint means.
 //!
 //! Module error types live with their module, as `thiserror` enums, and convert
 //! here via `From`. That conversion is where a mechanical error acquires a code
 //! and a fix action, so it belongs to the module that knows what went wrong — not
 //! to this one.
 
-use std::borrow::Cow;
 use std::fmt;
 use std::io;
 
+use anstyle::{AnsiColor, Effects, Style};
+use camino::Utf8PathBuf;
 use serde::Serialize;
 use serde::ser::Serializer;
+/// Style roles for human CLI output.
+pub const DANGER: Style = Style::new().fg_color(Some(anstyle::Color::Ansi(AnsiColor::Red)));
+pub const CAUTION: Style = Style::new().fg_color(Some(anstyle::Color::Ansi(AnsiColor::Yellow)));
+pub const MUTED: Style = Style::new().effects(Effects::DIMMED);
+pub const COMMAND: Style = Style::new().fg_color(Some(anstyle::Color::Ansi(AnsiColor::Cyan)));
+pub const HEADER: Style = Style::new().effects(Effects::BOLD);
 
-/// Which roles the human surface paints, and whether it paints at all.
-///
-/// Hand-rolled SGR rather than a colour crate. The whole vocabulary is the five
-/// constants below, they have no edge cases at this size, and a binary whose
-/// pitch is "read the source and check" is the wrong place to spend a
-/// dependency on `"\x1b[31m"`. See [`crate::infra::term`] for the decision of
-/// *whether* to emit any of it.
-///
-/// [`Palette::plain`] must stay byte-identical to an unpainted render — there is
-/// a test for exactly that, because it is what lets every existing
-/// byte-for-byte assertion keep its meaning.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Palette {
-    colour: bool,
+/// Wrap `text` in `style` and reset after.
+#[must_use]
+pub fn paint(style: Style, text: &str) -> String {
+    format!("{style}{text}{style:#}")
 }
 
-/// Reset every attribute. Emitted after each painted span so a span never
-/// leaks into the text after it — including when a write is cut short.
-const RESET: &str = "\x1b[0m";
-/// Red: the failure label itself.
-const RED: &str = "\x1b[31m";
-/// Yellow: something that needs a human.
-const YELLOW: &str = "\x1b[33m";
-/// Dim: structural labels that guide the eye but carry no news.
-const DIM: &str = "\x1b[2m";
-/// Cyan: a command the reader can copy and run.
-const CYAN: &str = "\x1b[36m";
+/// A byte range in a source file, with context for rendering.
+///
+/// `line` and `column` are 1-based, for humans reading the rendered output.
+/// `text` and `label` are kept out of the JSON surface.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct SourceLocation {
+    /// Source file path.
+    pub path: Utf8PathBuf,
+    /// 1-based line number.
+    pub line: usize,
+    /// 1-based column number.
+    pub column: usize,
+}
 
-impl Palette {
-    /// A painting palette.
-    #[must_use]
-    pub const fn colour() -> Self {
-        Self { colour: true }
-    }
+/// A spanned region within a source text.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceSpan {
+    /// Source file path.
+    pub path: Utf8PathBuf,
+    /// 1-based line number.
+    pub line: usize,
+    /// 1-based column number.
+    pub column: usize,
+    /// Source text.
+    pub text: String,
+    /// Annotation label.
+    pub label: String,
+}
 
-    /// No escape codes at all. The default, and what every byte-for-byte test
-    /// asserts against.
+impl SourceSpan {
+    /// Create a new source span with 1-based line and column numbers.
     #[must_use]
-    pub const fn plain() -> Self {
-        Self { colour: false }
-    }
-
-    /// Build from an already-made decision — typically
-    /// [`crate::infra::term::colour_for`].
-    #[must_use]
-    pub const fn from_decision(colour: bool) -> Self {
-        if colour {
-            Self::colour()
-        } else {
-            Self::plain()
+    pub fn new(
+        path: impl Into<Utf8PathBuf>,
+        text: impl Into<String>,
+        line: usize,
+        column: usize,
+        label: impl Into<String>,
+    ) -> Self {
+        Self {
+            path: path.into(),
+            line,
+            column,
+            text: text.into(),
+            label: label.into(),
         }
     }
 
-    /// Whether this palette emits anything.
+    /// Extract the serialized location component.
     #[must_use]
-    pub const fn is_colour(&self) -> bool {
-        self.colour
-    }
-
-    /// Wrap `text` in `code`, or hand it back untouched when plain.
-    fn paint<'a>(&self, code: &str, text: &'a str) -> Cow<'a, str> {
-        if self.colour {
-            Cow::Owned(format!("{code}{text}{RESET}"))
-        } else {
-            Cow::Borrowed(text)
+    pub fn location(&self) -> SourceLocation {
+        SourceLocation {
+            path: self.path.clone(),
+            line: self.line,
+            column: self.column,
         }
     }
-
-    /// The failure label — `blocked:` / `error:`.
-    fn danger<'a>(&self, text: &'a str) -> Cow<'a, str> {
-        self.paint(RED, text)
-    }
-
-    /// Something a human has to decide: the `warning:` label, `(needs you)`.
-    fn caution<'a>(&self, text: &'a str) -> Cow<'a, str> {
-        self.paint(YELLOW, text)
-    }
-
-    /// A structural label: `expected:`, `actual:`, `try:`.
-    fn muted<'a>(&self, text: &'a str) -> Cow<'a, str> {
-        self.paint(DIM, text)
-    }
-
-    /// A runnable command.
-    fn command<'a>(&self, text: &'a str) -> Cow<'a, str> {
-        self.paint(CYAN, text)
-    }
 }
 
-impl Default for Palette {
-    /// Plain. Colour is something a surface opts into after asking
-    /// `infra::term`, never a default that leaks into a pipe.
-    fn default() -> Self {
-        Self::plain()
+impl Serialize for SourceSpan {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        self.location().serialize(serializer)
     }
 }
-
 /// Whether a failure happened before or after the operation began.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -221,6 +205,12 @@ pub struct Failure {
     /// failure.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub details: Option<serde_json::Value>,
+    /// Source span context when this failure corresponds to a file location.
+    #[serde(
+        rename(serialize = "location"),
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub source: Option<Box<SourceSpan>>,
 }
 
 impl Failure {
@@ -246,6 +236,7 @@ impl Failure {
             actual: None,
             fix_actions: Vec::new(),
             details: None,
+            source: None,
         }
     }
 
@@ -277,53 +268,95 @@ impl Failure {
         self
     }
 
-    /// Render the full human form, unpainted: the summary, the mismatch, then
-    /// the ordered fixes.
+    /// Attach source span context for snippet rendering and location serialization.
+    #[must_use]
+    pub fn at(mut self, span: SourceSpan) -> Self {
+        self.source = Some(Box::new(span));
+        self
+    }
+
+    /// Render the failure layout with anstyle style roles.
     ///
-    /// Equivalent to [`write_painted`](Self::write_painted) with
-    /// [`Palette::plain`], and kept as its own name because most callers — and
-    /// every byte-for-byte test — want exactly that.
+    /// Stream filtering (stripping styles on non-tty/Never) is performed
+    /// by `anstream::AutoStream` at the stream boundary.
     ///
     /// # Errors
     ///
     /// Returns [`io::Error`] if `w` cannot be written to.
     pub fn write_human(&self, w: &mut impl io::Write) -> io::Result<()> {
-        self.write_painted(w, &Palette::plain())
-    }
+        writeln!(w, "{} {}", paint(DANGER, self.label()), self.what)?;
 
-    /// The one layout for a failure. `palette` decorates it; it never changes
-    /// which lines appear, their order, or their text.
-    ///
-    /// Only the labels are painted. `what`, `expected`, `actual` and each fix's
-    /// sentence are *values*, and a value never gets an escape code inside it —
-    /// that is what keeps this consistent with the `--json` surface, where the
-    /// same strings appear raw.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`io::Error`] if `w` cannot be written to.
-    pub fn write_painted(&self, w: &mut impl io::Write, palette: &Palette) -> io::Result<()> {
-        writeln!(w, "{} {}", palette.danger(self.label()), self.what)?;
+        if let Some(span) = &self.source {
+            // Compute byte offset for (line, column) 1-based in span.text
+            let mut line_start_offset = 0;
+            let mut current_line = 1;
+            for (offset, ch) in span.text.char_indices() {
+                if current_line == span.line {
+                    break;
+                }
+                if ch == '\n' {
+                    current_line += 1;
+                    line_start_offset = offset + 1;
+                }
+            }
+            let line_rest = span.text.get(line_start_offset..).unwrap_or("");
+            let line_len = line_rest.find('\n').unwrap_or(line_rest.len());
+            let col_offset = span.column.saturating_sub(1);
+            let span_start = (line_start_offset + col_offset).min(line_start_offset + line_len);
+
+            // Extend span across token characters (until delimiter/whitespace) or clamp to line end
+            let remaining_line = span
+                .text
+                .get(span_start..line_start_offset + line_len)
+                .unwrap_or("");
+            let token_len = remaining_line
+                .chars()
+                .take_while(|c| {
+                    !c.is_whitespace()
+                        && *c != ','
+                        && *c != ':'
+                        && *c != ';'
+                        && *c != '}'
+                        && *c != ']'
+                })
+                .map(char::len_utf8)
+                .sum::<usize>()
+                .max(1);
+            let span_end = (span_start + token_len).min(line_start_offset + line_len);
+            let byte_range = span_start..span_end;
+
+            let snippet = annotate_snippets::Snippet::source(&span.text)
+                .path(span.path.as_str())
+                .annotation(
+                    annotate_snippets::AnnotationKind::Primary
+                        .span(byte_range)
+                        .label(&span.label),
+                );
+            let report = &[
+                annotate_snippets::Group::with_level(annotate_snippets::Level::ERROR)
+                    .element(snippet),
+            ];
+            let rendered = annotate_snippets::Renderer::styled().render(report);
+            writeln!(w, "{rendered}")?;
+        }
+
         if let Some(expected) = &self.expected {
-            writeln!(w, "  {} {expected}", palette.muted("expected:"))?;
+            writeln!(w, "  {} {expected}", paint(MUTED, "expected:"))?;
         }
         if let Some(actual) = &self.actual {
-            writeln!(w, "  {}   {actual}", palette.muted("actual:"))?;
+            writeln!(w, "  {}   {actual}", paint(MUTED, "actual:"))?;
         }
         if !self.fix_actions.is_empty() {
-            writeln!(w, "  {}", palette.muted("try:"))?;
+            writeln!(w, "  {}", paint(MUTED, "try:"))?;
             for (index, action) in self.fix_actions.iter().enumerate() {
-                // The space belongs outside the paint: a trailing space inside a
-                // coloured span is invisible but still styled, and shows up as a
-                // stray background cell on some terminals.
                 let needs_human = if action.safe {
                     String::new()
                 } else {
-                    format!(" {}", palette.caution("(needs you)"))
+                    format!(" {}", paint(CAUTION, "(needs you)"))
                 };
                 writeln!(w, "    {}. {}{needs_human}", index + 1, action.what)?;
                 if let Some(command) = &action.command {
-                    writeln!(w, "       {} {command}", palette.command("$"))?;
+                    writeln!(w, "       {} {command}", paint(COMMAND, "$"))?;
                 }
             }
         }
@@ -331,8 +364,7 @@ impl Failure {
     }
 
     /// The word this failure's status renders as. The single source for both
-    /// [`fmt::Display`] and [`write_painted`](Self::write_painted), so the
-    /// painted and unpainted forms cannot disagree about it.
+    /// [`fmt::Display`] and [`write_human`](Self::write_human), so the
     const fn label(&self) -> &'static str {
         match self.status {
             Status::Blocked => "blocked:",
@@ -373,17 +405,16 @@ impl Warning {
         }
     }
 
-    /// The one layout for a warning. As with [`Failure::write_painted`], only
-    /// the label is painted — subject and text are values.
+    /// Render the warning layout with anstyle style roles.
     ///
     /// # Errors
     ///
     /// Returns [`io::Error`] if `w` cannot be written to.
-    pub fn write_painted(&self, w: &mut impl io::Write, palette: &Palette) -> io::Result<()> {
+    pub fn write_human(&self, w: &mut impl io::Write) -> io::Result<()> {
         writeln!(
             w,
             "{} {}: {}",
-            palette.caution("warning:"),
+            paint(CAUTION, "warning:"),
             self.subject,
             self.what
         )

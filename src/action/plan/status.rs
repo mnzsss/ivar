@@ -65,12 +65,12 @@ impl WriteHuman for StatusOutcome {
             "SPDD status for feature `{}` (plan: {}):",
             self.feature, self.plan_path
         )?;
+        let mut table = crate::infra::table::new(&["GATE", "STATE", "NOTE"]);
         for gate in &self.gates {
-            match &gate.invalidated_by {
-                Some(reason) => writeln!(w, "  {:<16} {:<16} — {reason}", gate.gate, gate.state)?,
-                None => writeln!(w, "  {:<16} {}", gate.gate, gate.state)?,
-            }
+            let note = gate.invalidated_by.as_deref().unwrap_or("");
+            table.add_row(vec![&gate.gate.to_string(), &gate.state.to_string(), note]);
         }
+        crate::infra::table::write(w, &table)?;
         if let Some(receipt) = &self.receipt {
             writeln!(w, "Run {}: {}", receipt.id, receipt.status)?;
             if !receipt.plan_matches {
