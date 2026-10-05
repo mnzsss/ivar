@@ -815,13 +815,15 @@ fn create_and_delete_branch_are_a_temporary_lifecycle() {
 }
 
 #[test]
-fn merge_no_ff_produces_a_two_parent_merge_commit() {
+fn merge_no_ff_produces_a_two_parent_merge_commit_with_the_message() {
     let (guard, bare, parent_wt) = integration_repo();
     let _ = guard;
     let parent_before = rev_parse(&bare, "parent");
     let child_tip = rev_parse(&bare, "child");
 
-    System.merge_no_ff(&parent_wt, "child").unwrap();
+    System
+        .merge_no_ff(&parent_wt, "child", "feat: add checkout tax")
+        .unwrap();
 
     let parent_after = rev_parse(&bare, "parent");
     assert_ne!(parent_after, parent_before);
@@ -831,6 +833,14 @@ fn merge_no_ff_produces_a_two_parent_merge_commit() {
         child_tip,
         rev_parse(&bare, "child"),
         "the child never moves"
+    );
+    let output = std::process::Command::new("git")
+        .args(["-C", parent_wt.as_str(), "log", "-1", "--format=%B"])
+        .output()
+        .unwrap();
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout).trim(),
+        "feat: add checkout tax"
     );
 }
 
@@ -911,7 +921,8 @@ fn the_parent_is_untouched_until_the_merge_is_explicitly_invoked() {
     // starts at the parent's tip and fast-forwards to the child's — the
     // "rebase then ff" topology — while merge/squash start at the child's tip
     // and fold the child's commits in.
-    let merge: &dyn Fn(&Utf8Path) -> Result<(), Error> = &|wt| System.merge_no_ff(wt, "child");
+    let merge: &dyn Fn(&Utf8Path) -> Result<(), Error> =
+        &|wt| System.merge_no_ff(wt, "child", "merge");
     let squash: &dyn Fn(&Utf8Path) -> Result<(), Error> =
         &|wt| System.squash_merge(wt, "child", "squash");
     let rebase: &dyn Fn(&Utf8Path) -> Result<(), Error> =
@@ -947,7 +958,7 @@ fn the_parent_is_untouched_until_the_merge_is_explicitly_invoked() {
     );
 
     // The explicit merge moves the parent.
-    System.merge_no_ff(&parent_wt, "child").unwrap();
+    System.merge_no_ff(&parent_wt, "child", "merge").unwrap();
     assert_ne!(rev_parse(&bare, "parent"), parent_before);
 }
 

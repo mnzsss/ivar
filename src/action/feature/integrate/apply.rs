@@ -190,7 +190,11 @@ fn stage_candidate(
                 child.branch.as_str(),
                 &squash_message(child, repo),
             )?,
-            IntegrationStrategy::Merge => git.merge_no_ff(&candidate, child.branch.as_str())?,
+            IntegrationStrategy::Merge => git.merge_no_ff(
+                &candidate,
+                child.branch.as_str(),
+                &squash_message(child, repo),
+            )?,
             IntegrationStrategy::Rebase => unreachable!("handled above"),
         }
         let checks_passed = parent_checks_pass(&candidate, checks)?;
@@ -230,7 +234,11 @@ fn apply_candidate_to_parent(
             child.branch.as_str(),
             &squash_message(child, repo),
         )?,
-        IntegrationStrategy::Merge => git.merge_no_ff(&parent_worktree, child.branch.as_str())?,
+        IntegrationStrategy::Merge => git.merge_no_ff(
+            &parent_worktree,
+            child.branch.as_str(),
+            &squash_message(child, repo),
+        )?,
     }
     Ok(git.revision_commit(&bare, parent.branch.as_str())?)
 }

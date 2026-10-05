@@ -46,15 +46,16 @@ pub(crate) fn delete_branch(git_dir: &Utf8Path, branch: &str) -> Result<(), Erro
     Ok(())
 }
 
-/// `git -C <worktree> merge --no-ff --no-edit <source>` — a merge commit
-/// with the default message, never a fast-forward. `--no-edit` is what keeps
-/// git from opening an editor for the auto-generated message.
-pub(crate) fn merge_no_ff(worktree: &Utf8Path, source: &str) -> Result<(), Error> {
+/// `git -C <worktree> merge --no-ff -m <message> <source>` — a merge commit
+/// with `message`, never a fast-forward. An explicit `-m` means git never
+/// opens an editor.
+pub(crate) fn merge_no_ff(worktree: &Utf8Path, source: &str, message: &str) -> Result<(), Error> {
     run(&git()
         .cwd(worktree)
         .arg("merge")
         .arg("--no-ff")
-        .arg("--no-edit")
+        .arg("-m")
+        .arg(message)
         .arg(source))?;
     Ok(())
 }
