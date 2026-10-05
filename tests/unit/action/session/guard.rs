@@ -1267,7 +1267,6 @@ fn scheme_prefixed_targets_are_allowed() {
     let (_guard, root) = hall_with_promoted_feature();
 
     let schemes = [
-        "xd://ast_edit",
         "xd://ast_grep",
         "memory://scratchpad",
         "artifact://output-log",
@@ -1290,6 +1289,18 @@ fn scheme_prefixed_targets_are_allowed() {
         );
         assert_eq!(out.body, "");
     }
+
+    // Under R-GUARD-XD-OTHER, xd://ast_edit without parseable content fails closed and is denied
+    let payload_ast = serde_json::json!({
+        "tool": "write",
+        "args": { "path": "xd://ast_edit" },
+        "cwd": root,
+    });
+    let out_ast = guard(Provider::Omp, &payload_ast.to_string()).unwrap();
+    assert!(
+        !out_ast.exit_zero,
+        "xd://ast_edit without parseable content must be denied"
+    );
 }
 
 #[test]

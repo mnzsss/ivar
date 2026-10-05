@@ -137,3 +137,56 @@ fn omp_mv_outside_writable_set_is_denied() {
 
     assert!(!output.status.success());
 }
+
+#[test]
+fn omp_write_xd_ast_edit_targeting_unpromoted_file_denies_and_lsp_hover_allows() {
+    let (_guard, root) = hall_root();
+    one_repo_hall(&root);
+    let view = root.join(".ivar/sessions/6f0c9d5f-0000-4000-8000-000000000030");
+    std::fs::create_dir_all(&view).unwrap();
+    std::fs::write(
+        view.join("state.json"),
+        r#"{"version":1,"provider":"omp","started_at":"2026-10-02T00:00:00Z"}"#,
+    )
+    .unwrap();
+
+    // Deny: write xd://ast_edit with target outside session
+    let payload_ast = serde_json::json!({
+        "tool": "write",
+        "args": {
+            "path": "xd://ast_edit",
+            "content": "{\"paths\": [\"/etc/passwd\"]}"
+        },
+        "cwd": view,
+    });
+    let out_ast = isolated_ivar(&home(&root))
+        .current_dir(&root)
+        .args(["guard", "--provider", "omp"])
+        .write_stdin(payload_ast.to_string())
+        .output()
+        .unwrap();
+    assert!(
+        !out_ast.status.success(),
+        "xd://ast_edit targeting /etc/passwd must be denied"
+    );
+
+    // Allow: xd://lsp hover (read-only)
+    let payload_hover = serde_json::json!({
+        "tool": "write",
+        "args": {
+            "path": "xd://lsp",
+            "content": "{\"action\": \"hover\", \"file\": \"/etc/passwd\"}"
+        },
+        "cwd": view,
+    });
+    let out_hover = isolated_ivar(&home(&root))
+        .current_dir(&root)
+        .args(["guard", "--provider", "omp"])
+        .write_stdin(payload_hover.to_string())
+        .output()
+        .unwrap();
+    assert!(
+        out_hover.status.success(),
+        "xd://lsp hover is read-only and allowed"
+    );
+}

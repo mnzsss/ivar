@@ -73,3 +73,107 @@ fn extract_reads_hashline_headers_mv_and_apply_patch_lines() {
         ]
     );
 }
+
+#[test]
+fn extract_xd_ast_edit_and_direct_ast_edit_targets_and_handles_globs() {
+    // xd://ast_edit with glob paths
+    let write_ast = serde_json::json!({
+        "path": "xd://ast_edit",
+        "content": "{\"paths\": [\"src/**/*.rs\", \"tests/unit/foo.rs\", \"*.ts\"]}"
+    });
+    let extracted = extract("write", &write_ast);
+    assert!(extracted.writes);
+    assert_eq!(
+        extracted.targets,
+        vec![
+            Utf8PathBuf::from("src"),
+            Utf8PathBuf::from("tests/unit/foo.rs"),
+            Utf8PathBuf::from(".")
+        ]
+    );
+
+    // Direct ast_edit tool
+    let direct_ast = serde_json::json!({
+        "paths": ["crates/core/src/lib.rs"]
+    });
+    let extracted_direct = extract("ast_edit", &direct_ast);
+    assert!(extracted_direct.writes);
+    assert_eq!(
+        extracted_direct.targets,
+        vec![Utf8PathBuf::from("crates/core/src/lib.rs")]
+    );
+
+    // Unparseable JSON content on xd://ast_edit fails closed (writes=true, targets=[])
+    let corrupt_ast = serde_json::json!({
+        "path": "xd://ast_edit",
+        "content": "not-json"
+    });
+    let extracted_corrupt = extract("write", &corrupt_ast);
+    assert!(extracted_corrupt.writes);
+    assert!(extracted_corrupt.targets.is_empty());
+}
+
+#[test]
+fn extract_xd_lsp_and_direct_lsp_mutating_actions_and_read_only_actions() {
+    // Mutating rename
+    let lsp_rename = serde_json::json!({
+        "path": "xd://lsp",
+        "content": "{\"action\": \"rename\", \"file\": \"src/lib.rs\", \"new_name\": \"foo\"}"
+    });
+    let extracted = extract("write", &lsp_rename);
+    assert!(extracted.writes);
+    assert_eq!(extracted.targets, vec![Utf8PathBuf::from("src/lib.rs")]);
+
+    // Mutating rename with file == "*"
+    let lsp_wildcard = serde_json::json!({
+        "path": "xd://lsp",
+        "content": "{\"action\": \"rename\", \"file\": \"*\", \"new_name\": \"foo\"}"
+    });
+    let extracted_wild = extract("write", &lsp_wildcard);
+    assert!(extracted_wild.writes);
+    assert_eq!(extracted_wild.targets, vec![Utf8PathBuf::from(".")]);
+
+    // Rename_file has two targets: file and new_name
+    let lsp_mv = serde_json::json!({
+        "path": "xd://lsp",
+        "content": "{\"action\": \"rename_file\", \"file\": \"src/old.rs\", \"new_name\": \"src/new.rs\"}"
+    });
+    let extracted_mv = extract("write", &lsp_mv);
+    assert!(extracted_mv.writes);
+    assert_eq!(
+        extracted_mv.targets,
+        vec![
+            Utf8PathBuf::from("src/old.rs"),
+            Utf8PathBuf::from("src/new.rs")
+        ]
+    );
+
+    // Read-only rename with apply: false
+    let lsp_dry_rename = serde_json::json!({
+        "path": "xd://lsp",
+        "content": "{\"action\": \"rename\", \"file\": \"src/lib.rs\", \"apply\": false}"
+    });
+    let extracted_dry = extract("write", &lsp_dry_rename);
+    assert!(!extracted_dry.writes);
+
+    // Read-only hover
+    let lsp_hover = serde_json::json!({
+        "path": "xd://lsp",
+        "content": "{\"action\": \"hover\", \"file\": \"src/lib.rs\"}"
+    });
+    let extracted_hover = extract("write", &lsp_hover);
+    assert!(!extracted_hover.writes);
+
+    // Direct lsp code_actions with apply: true is a write
+    let direct_lsp = serde_json::json!({
+        "action": "code_actions",
+        "file": "src/lib.rs",
+        "apply": true
+    });
+    let extracted_code_actions = extract("lsp", &direct_lsp);
+    assert!(extracted_code_actions.writes);
+    assert_eq!(
+        extracted_code_actions.targets,
+        vec![Utf8PathBuf::from("src/lib.rs")]
+    );
+}
