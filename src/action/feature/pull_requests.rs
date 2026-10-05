@@ -337,27 +337,31 @@ pub(crate) fn required_checks(
 }
 
 /// Explicitly request the merge of the PR at `url`, mapping `strategy` to the
-/// one matching flag. Always passes `--match-head-commit <source_sha>`, never
-/// `--admin`, and never deletes the branch — protection, auto-merge, and
-/// merge queues are `gh`'s business and it keeps them.
+/// one matching flag. `subject` is the merge commit's subject for `squash`
+/// and `merge`; `rebase` creates no merge commit and passes none. Always
+/// passes `--match-head-commit <source_sha>`, never `--admin`, and never
+/// deletes the branch — protection, auto-merge, and merge queues are `gh`'s
+/// business and it keeps them.
 pub(crate) fn request_merge(
     git_dir: &Utf8Path,
     url: &str,
     source_sha: &str,
     strategy: IntegrationStrategy,
+    subject: &str,
 ) -> Result<(), Failure> {
     let flag = match strategy {
         IntegrationStrategy::Merge => "--merge",
         IntegrationStrategy::Squash => "--squash",
         IntegrationStrategy::Rebase => "--rebase",
     };
-    let output = capture(
-        &proc::Command::new("gh")
-            .args(["pr", "merge", url, flag, "--match-head-commit", source_sha])
-            .cwd(git_dir),
+    let mut args = vec!["pr", "merge", url, flag, "--match-head-commit", source_sha];
+    if strategy != IntegrationStrategy::Rebase {
+        args.extend(["--subject", subject]);
+    }
+    capture(
+        &proc::Command::new("gh").args(args).cwd(git_dir),
         "pr merge",
     )?;
-    let _ = output;
     Ok(())
 }
 /// Observe the PR at `url` until it merges: poll `gh pr view` every

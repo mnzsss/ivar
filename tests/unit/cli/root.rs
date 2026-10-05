@@ -364,6 +364,7 @@ fn feature_integrate_args_convert_into_integrate_input() {
         feature: Some("child".to_owned()),
         via: Some("pr".to_owned()),
         strategy: Some("merge".to_owned()),
+        name: Some("feat: add checkout tax".to_owned()),
     };
 
     let input: crate::action::feature::integrate::IntegrateInput = args.into();
@@ -371,8 +372,8 @@ fn feature_integrate_args_convert_into_integrate_input() {
     assert_eq!(input.feature, "child");
     assert_eq!(input.via.as_deref(), Some("pr"));
     assert_eq!(input.strategy.as_deref(), Some("merge"));
+    assert_eq!(input.name.as_deref(), Some("feat: add checkout tax"));
 }
-
 #[test]
 fn feature_status_args_convert_into_status_input() {
     let args = FeatureStatusArgs {

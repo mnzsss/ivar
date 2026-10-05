@@ -299,6 +299,7 @@ pub fn run(cli: Cli) -> ExitCode {
                                 feature,
                                 via: args.via,
                                 strategy: args.strategy,
+                                name: args.name,
                             },
                         ),
                         json,

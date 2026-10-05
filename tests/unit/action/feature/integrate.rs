@@ -137,6 +137,7 @@ fn integrate_input(feature: &str) -> IntegrateInput {
         feature: feature.to_owned(),
         via: None,
         strategy: None,
+        name: None,
     }
 }
 
@@ -299,6 +300,7 @@ fn the_three_local_strategies_all_land_the_work() {
                 feature: "child".to_owned(),
                 via: None,
                 strategy: Some(strategy.to_owned()),
+                name: None,
             },
         )
         .unwrap();
@@ -315,6 +317,93 @@ fn the_three_local_strategies_all_land_the_work() {
             "{strategy} must land the work"
         );
     }
+}
+/// The subject of the parent branch's tip commit in the api repo.
+fn parent_subject(root: &camino::Utf8Path) -> String {
+    let bare = Layout::at(root.to_path_buf()).repo_bare(&api());
+    let output = std::process::Command::new("git")
+        .args([
+            "--git-dir",
+            bare.as_str(),
+            "log",
+            "-1",
+            "--format=%s",
+            "parent",
+        ])
+        .output()
+        .unwrap();
+    String::from_utf8_lossy(&output.stdout).trim().to_owned()
+}
+
+#[test]
+fn local_squash_and_merge_commit_with_the_given_name() {
+    for strategy in ["squash", "merge"] {
+        let (_guard, root) = seeded_child_hall(&["true"]);
+        let ctx = Ctx::new(root.clone());
+
+        integrate(
+            &ctx,
+            IntegrateInput {
+                feature: "child".to_owned(),
+                via: None,
+                strategy: Some(strategy.to_owned()),
+                name: Some("feat: add checkout tax".to_owned()),
+            },
+        )
+        .unwrap();
+
+        assert_eq!(
+            parent_subject(&root),
+            "feat: add checkout tax",
+            "{strategy}"
+        );
+    }
+}
+
+#[test]
+fn without_a_name_the_commit_is_a_semantic_integrate_message() {
+    for strategy in ["squash", "merge"] {
+        let (_guard, root) = seeded_child_hall(&["true"]);
+        let ctx = Ctx::new(root.clone());
+
+        integrate(
+            &ctx,
+            IntegrateInput {
+                strategy: Some(strategy.to_owned()),
+                ..integrate_input("child")
+            },
+        )
+        .unwrap();
+
+        assert_eq!(parent_subject(&root), "feat: integrate child", "{strategy}");
+    }
+}
+
+#[test]
+fn a_name_carrying_ai_attribution_is_refused_before_the_parent_moves() {
+    let (_guard, root) = seeded_child_hall(&["true"]);
+    let ctx = Ctx::new(root.clone());
+    let bare = Layout::at(root.clone()).repo_bare(&api());
+    let before = crate::git::System.revision_commit(&bare, "parent").unwrap();
+
+    let failure = integrate(
+        &ctx,
+        IntegrateInput {
+            name: Some(
+                "feat: add checkout tax\n\nCo-Authored-By: Claude <noreply@anthropic.com>"
+                    .to_owned(),
+            ),
+            ..integrate_input("child")
+        },
+    )
+    .unwrap_err();
+
+    assert_eq!(failure.code, "integration.ai_attribution");
+    assert_eq!(
+        crate::git::System.revision_commit(&bare, "parent").unwrap(),
+        before,
+        "nothing moves"
+    );
 }
 
 #[test]

@@ -273,6 +273,7 @@ Integrate a child into its immediate parent, leaves first: each promoted repo's 
 | --- | --- | --- | --- |
 | `--via` | `<VIA>` |  | The via override for this run: `pr` or `local`. Ignored once the first receipt froze the policy |
 | `--strategy` | `<STRATEGY>` |  | The strategy override for this run: `squash`, `merge`, or `rebase`. Ignored once the first receipt froze the policy |
+| `--name` | `<NAME>` |  | The integration title, e.g. `feat: add checkout tax`: the squash or merge commit message on the parent, and with `--via pr` the PR title and merge subject. Defaults to `feat: integrate <child>` |
 
 
 ##### `ivar feature reparent`

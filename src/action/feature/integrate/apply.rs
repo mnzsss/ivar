@@ -36,6 +36,7 @@ pub(crate) fn integrate_local(
     parent: &Feature,
     repo: &RepoName,
     strategy: IntegrationStrategy,
+    title: &str,
     source_sha: &str,
     child_results: Vec<crate::domain::feature::VerificationResult>,
 ) -> Result<RepoIntegration, Failure> {
@@ -48,6 +49,7 @@ pub(crate) fn integrate_local(
         parent,
         repo,
         strategy,
+        title,
         source_sha,
         child_results,
     );
@@ -65,6 +67,7 @@ fn integrate_staged(
     parent: &Feature,
     repo: &RepoName,
     strategy: IntegrationStrategy,
+    title: &str,
     source_sha: &str,
     child_results: Vec<crate::domain::feature::VerificationResult>,
 ) -> Result<RepoIntegration, Failure> {
@@ -73,7 +76,7 @@ fn integrate_staged(
     let checks = verification::checks_for(manifest, repo);
 
     let staged = stage_candidate(
-        layout, git, child, parent, repo, strategy, source_sha, &checks,
+        layout, git, child, parent, repo, strategy, title, source_sha, &checks,
     )?;
     if !staged.checks_passed {
         return Ok(RepoIntegration {
@@ -105,7 +108,7 @@ fn integrate_staged(
     }
 
     let result_sha =
-        apply_candidate_to_parent(layout, git, child, parent, repo, strategy, &staged)?;
+        apply_candidate_to_parent(layout, git, child, parent, repo, strategy, title, &staged)?;
 
     let mut receipt = IntegrationReceipt {
         source_sha: source_sha.to_owned(),
@@ -161,6 +164,7 @@ fn stage_candidate(
     parent: &Feature,
     repo: &RepoName,
     strategy: IntegrationStrategy,
+    title: &str,
     source_sha: &str,
     checks: &[String],
 ) -> Result<StagedCandidate, Failure> {
@@ -185,16 +189,12 @@ fn stage_candidate(
     } else {
         git.add_detached_worktree(&bare, &candidate, &parent_sha)?;
         match strategy {
-            IntegrationStrategy::Squash => git.squash_merge(
-                &candidate,
-                child.branch.as_str(),
-                &squash_message(child, repo),
-            )?,
-            IntegrationStrategy::Merge => git.merge_no_ff(
-                &candidate,
-                child.branch.as_str(),
-                &squash_message(child, repo),
-            )?,
+            IntegrationStrategy::Squash => {
+                git.squash_merge(&candidate, child.branch.as_str(), title)?;
+            }
+            IntegrationStrategy::Merge => {
+                git.merge_no_ff(&candidate, child.branch.as_str(), title)?;
+            }
             IntegrationStrategy::Rebase => unreachable!("handled above"),
         }
         let checks_passed = parent_checks_pass(&candidate, checks)?;
@@ -208,6 +208,7 @@ fn stage_candidate(
 
 /// Apply a passing staged candidate to the real parent worktree, returning
 /// the resulting parent SHA.
+#[allow(clippy::too_many_arguments)]
 fn apply_candidate_to_parent(
     layout: &Layout,
     git: &impl Git,
@@ -215,6 +216,7 @@ fn apply_candidate_to_parent(
     parent: &Feature,
     repo: &RepoName,
     strategy: IntegrationStrategy,
+    title: &str,
     staged: &StagedCandidate,
 ) -> Result<String, Failure> {
     let bare = layout.repo_bare(repo);
@@ -229,20 +231,15 @@ fn apply_candidate_to_parent(
             })?;
             git.fast_forward_to(&parent_worktree, temp_branch)?
         }
-        IntegrationStrategy::Squash => git.squash_merge(
-            &parent_worktree,
-            child.branch.as_str(),
-            &squash_message(child, repo),
-        )?,
-        IntegrationStrategy::Merge => git.merge_no_ff(
-            &parent_worktree,
-            child.branch.as_str(),
-            &squash_message(child, repo),
-        )?,
+        IntegrationStrategy::Squash => {
+            git.squash_merge(&parent_worktree, child.branch.as_str(), title)?;
+        }
+        IntegrationStrategy::Merge => {
+            git.merge_no_ff(&parent_worktree, child.branch.as_str(), title)?;
+        }
     }
     Ok(git.revision_commit(&bare, parent.branch.as_str())?)
 }
-
 /// What waiting on a PR's required checks found: ready to merge, or already
 /// blocked with the `RepoIntegration` to return.
 enum PrCheckOutcome {
@@ -261,13 +258,13 @@ pub(crate) fn integrate_pr(
     parent: &Feature,
     repo: &RepoName,
     strategy: IntegrationStrategy,
+    title: &str,
     source_sha: &str,
     child_results: Vec<crate::domain::feature::VerificationResult>,
 ) -> Result<RepoIntegration, Failure> {
     let bare = layout.repo_bare(repo);
 
-    let pr = push_and_resolve_pr(git, &bare, manifest, child, parent, repo)?;
-
+    let pr = push_and_resolve_pr(git, &bare, manifest, child, parent, repo, title)?;
     let mut updated = child.clone();
     if let Some(promotion) = updated.promotions.get_mut(repo) {
         promotion.pr_url = Some(pr.url.clone());
@@ -287,6 +284,7 @@ pub(crate) fn integrate_pr(
         parent,
         repo,
         strategy,
+        title,
         source_sha,
         &pr,
         pr_checks,
@@ -304,6 +302,7 @@ fn push_and_resolve_pr(
     child: &Feature,
     parent: &Feature,
     repo: &RepoName,
+    title: &str,
 ) -> Result<pull_requests::PullRequest, Failure> {
     let url = manifest
         .repos()
@@ -321,13 +320,16 @@ fn push_and_resolve_pr(
     )?;
 
     match pull_requests::find_pull_request(bare, child.branch.as_str(), "all")? {
-        Some(pr) => Ok(pr),
+        Some(pr) => {
+            pull_requests::edit_pull_request(bare, &pr.url, Some(title), None)?;
+            Ok(pr)
+        }
         None => pull_requests::create_pull_request(
             bare,
             &child.branch,
             &parent.branch,
             &child.name,
-            None,
+            Some(title),
             None,
             false,
         ),
@@ -402,6 +404,7 @@ fn merge_pr_and_advance_parent(
     parent: &Feature,
     repo: &RepoName,
     strategy: IntegrationStrategy,
+    title: &str,
     source_sha: &str,
     pr: &pull_requests::PullRequest,
     pr_checks: Vec<crate::domain::feature::PrCheckResult>,
@@ -410,7 +413,7 @@ fn merge_pr_and_advance_parent(
     let bare = layout.repo_bare(repo);
 
     // Merge, observe, then bring the parent up to the observed result.
-    pull_requests::request_merge(&bare, &pr.url, source_sha, strategy)?;
+    pull_requests::request_merge(&bare, &pr.url, source_sha, strategy, title)?;
     let merged = pull_requests::observe_merge(&bare, &pr.url)?;
     let result_sha = merged.merge_commit.ok_or_else(|| {
         Failure::failed(
@@ -486,11 +489,6 @@ pub(super) fn parent_checks_pending() -> crate::domain::feature::VerificationRes
         None,
         "the parent branch moved but its checks have not run yet; run `ivar feature integrate` again",
     )
-}
-
-/// The squash commit message: traceable back to the child.
-fn squash_message(child: &Feature, repo: &RepoName) -> String {
-    format!("Integrate `{}` ({}) into its parent", child.name, repo)
 }
 
 /// Persist `receipt` onto `child`'s promotion for `repo`, in one feature

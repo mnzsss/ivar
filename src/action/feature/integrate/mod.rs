@@ -71,6 +71,39 @@ pub struct IntegrateInput {
     pub via: Option<String>,
     /// A strategy override — `squash`, `merge`, or `rebase`, unvalidated.
     pub strategy: Option<String>,
+    /// The integration title — the squash or merge commit message on the
+    /// parent, and with `--via pr` the PR title and merge subject. Defaults
+    /// to `feat: integrate <child>`.
+    pub name: Option<String>,
+}
+
+pub(crate) fn default_title(feature: &FeatureName) -> String {
+    format!("feat: integrate {feature}")
+}
+
+/// Refuse a title that carries AI attribution — the same lines
+/// `ivar feature deliver` refuses — before anything moves. Deliberately
+/// checked first, ahead of the root, plan-gate and descendant refusals: a
+/// bad title is wrong whatever the tree's state.
+fn refuse_attribution(feature: &FeatureName, title: &str) -> Result<(), Failure> {
+    let findings: Vec<&str> = title
+        .lines()
+        .filter(|line| super::deliver::attribution::is_attribution(line))
+        .map(str::trim)
+        .collect();
+    if findings.is_empty() {
+        return Ok(());
+    }
+    Err(Failure::blocked(
+        "integration.ai_attribution",
+        format!("the integration title for `{feature}` carries AI attribution"),
+    )
+    .expected("no AI attribution in the --name title")
+    .actual(findings.join("; "))
+    .fix(FixAction::safe(
+        "integration.remove_ai_attribution",
+        "Drop the attribution lines from --name, then integrate again.",
+    )))
 }
 
 /// One repo's integration result within a run.
@@ -192,7 +225,8 @@ pub fn integrate(ctx: &Ctx, input: IntegrateInput) -> Outcome<IntegrateOutcome> 
     let manifest = read_manifest(&layout)?;
     let git = git::System;
     let name = FeatureName::new(input.feature)?;
-
+    let title = input.name.unwrap_or_else(|| default_title(&name));
+    refuse_attribution(&name, &title)?;
     // 1. The child and its immediate parent. The tree is validated by the
     // read: a missing parent or a cycle refuses before anything else.
     relations::read_all(&layout)?;
@@ -277,8 +311,9 @@ pub fn integrate(ctx: &Ctx, input: IntegrateInput) -> Outcome<IntegrateOutcome> 
     // persisted immediately — partial and resumable, never atomic. The child
     // is re-read after each repo so the next persist carries every earlier
     // receipt, never clobbering it.
-    let repos_out =
-        run_integration_repos(&layout, &manifest, &git, &child, &parent, policy, &name)?;
+    let repos_out = run_integration_repos(
+        &layout, &manifest, &git, &child, &parent, policy, &title, &name,
+    )?;
     let child = relations::read_feature(&layout, &name)?;
 
     // 13. Close as integrated only when every receipt is fresh and passing.
@@ -410,6 +445,7 @@ fn preflight_repos(
 /// carries every earlier receipt, never clobbering it. A repo that breaks
 /// mid-run (a conflict, a refused PR) does not stop the batch, but fails the
 /// run once every repo has had its turn.
+#[allow(clippy::too_many_arguments)]
 fn run_integration_repos(
     layout: &Layout,
     manifest: &Manifest,
@@ -417,13 +453,14 @@ fn run_integration_repos(
     child: &Feature,
     parent: &Feature,
     policy: IntegrationPolicy,
+    title: &str,
     name: &FeatureName,
 ) -> Result<Vec<RepoIntegration>, Failure> {
     let mut child = child.clone();
     let mut repos_out = Vec::new();
     let mut broken = Vec::new();
     for repo in child.promotions.keys().cloned().collect::<Vec<_>>() {
-        match integrate_repo(layout, manifest, git, &child, parent, &repo, policy) {
+        match integrate_repo(layout, manifest, git, &child, parent, &repo, policy, title) {
             Ok(entry) => repos_out.push(entry),
             Err(failure) => broken.push(format!("{repo}: {}", failure.what)),
         }
@@ -510,6 +547,7 @@ fn integrate_repo(
     parent: &Feature,
     repo: &RepoName,
     policy: IntegrationPolicy,
+    title: &str,
 ) -> Result<RepoIntegration, Failure> {
     let bare = layout.repo_bare(repo);
     let source_sha = git.revision_commit(&bare, child.branch.as_str())?;
@@ -527,6 +565,7 @@ fn integrate_repo(
             parent,
             repo,
             policy,
+            title,
             &source_sha,
         );
     };
@@ -608,6 +647,7 @@ fn resume_repo(
     parent: &Feature,
     repo: &RepoName,
     policy: IntegrationPolicy,
+    title: &str,
     source_sha: &str,
 ) -> Result<RepoIntegration, Failure> {
     // 7/8. The preflight already guaranteed the parent promotion (or refused
@@ -641,6 +681,7 @@ fn resume_repo(
             parent,
             repo,
             policy.strategy,
+            title,
             source_sha,
             child_results,
         ),
@@ -652,6 +693,7 @@ fn resume_repo(
             parent,
             repo,
             policy.strategy,
+            title,
             source_sha,
             child_results,
         ),

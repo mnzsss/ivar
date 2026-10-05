@@ -142,6 +142,11 @@ pub struct FeatureIntegrateArgs {
     /// Ignored once the first receipt froze the policy.
     #[arg(long)]
     pub strategy: Option<String>,
+    /// The integration title, e.g. `feat: add checkout tax`: the squash or
+    /// merge commit message on the parent, and with `--via pr` the PR title
+    /// and merge subject. Defaults to `feat: integrate <child>`.
+    #[arg(long)]
+    pub name: Option<String>,
 }
 
 /// Arguments for `ivar feature reparent`.
@@ -526,11 +531,13 @@ impl From<FeatureIntegrateArgs> for integrate::IntegrateInput {
             feature,
             via,
             strategy,
+            name,
         } = args;
         Self {
             feature: feature.unwrap_or_default(),
             via,
             strategy,
+            name,
         }
     }
 }
