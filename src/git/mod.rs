@@ -377,14 +377,14 @@ pub trait Git {
     /// Returns [`Error`] if `branch` does not exist or cannot be deleted.
     fn delete_branch(&self, git_dir: &Utf8Path, branch: &str) -> Result<(), Error>;
 
-    /// `git -C <worktree> merge --no-ff --no-edit <source>` — a merge commit
-    /// that is never a fast-forward, with git's default message (so no editor
-    /// opens).
+    /// `git -C <worktree> merge --no-ff -m <message> <source>` — a merge commit
+    /// that is never a fast-forward, with `message` as its full message (so no
+    /// editor opens).
     ///
     /// # Errors
     ///
     /// Returns [`Error`] if the merge fails, e.g. on a conflict.
-    fn merge_no_ff(&self, worktree: &Utf8Path, source: &str) -> Result<(), Error>;
+    fn merge_no_ff(&self, worktree: &Utf8Path, source: &str, message: &str) -> Result<(), Error>;
 
     /// `git -C <worktree> merge --squash <source>` followed by
     /// `git commit -m <message>` — the squash strategy's two steps.
@@ -949,8 +949,8 @@ impl Git for System {
         exec::delete_branch(git_dir, branch)
     }
 
-    fn merge_no_ff(&self, worktree: &Utf8Path, source: &str) -> Result<(), Error> {
-        exec::merge_no_ff(worktree, source)
+    fn merge_no_ff(&self, worktree: &Utf8Path, source: &str, message: &str) -> Result<(), Error> {
+        exec::merge_no_ff(worktree, source, message)
     }
 
     fn squash_merge(&self, worktree: &Utf8Path, source: &str, message: &str) -> Result<(), Error> {

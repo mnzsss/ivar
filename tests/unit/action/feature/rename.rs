@@ -116,8 +116,13 @@ impl git::Git for DummyRemoteGit {
     fn delete_branch(&self, git_dir: &Utf8Path, branch: &str) -> Result<(), git::Error> {
         self.system.delete_branch(git_dir, branch)
     }
-    fn merge_no_ff(&self, worktree: &Utf8Path, source: &str) -> Result<(), git::Error> {
-        self.system.merge_no_ff(worktree, source)
+    fn merge_no_ff(
+        &self,
+        worktree: &Utf8Path,
+        source: &str,
+        message: &str,
+    ) -> Result<(), git::Error> {
+        self.system.merge_no_ff(worktree, source, message)
     }
     fn squash_merge(
         &self,
@@ -734,8 +739,13 @@ impl git::Git for FailingGit {
     fn delete_branch(&self, git_dir: &Utf8Path, branch: &str) -> Result<(), git::Error> {
         self.dummy.delete_branch(git_dir, branch)
     }
-    fn merge_no_ff(&self, worktree: &Utf8Path, source: &str) -> Result<(), git::Error> {
-        self.dummy.merge_no_ff(worktree, source)
+    fn merge_no_ff(
+        &self,
+        worktree: &Utf8Path,
+        source: &str,
+        message: &str,
+    ) -> Result<(), git::Error> {
+        self.dummy.merge_no_ff(worktree, source, message)
     }
     fn squash_merge(
         &self,
@@ -998,8 +1008,13 @@ impl git::Git for RaceGit {
     fn delete_branch(&self, git_dir: &Utf8Path, branch: &str) -> Result<(), git::Error> {
         self.system.delete_branch(git_dir, branch)
     }
-    fn merge_no_ff(&self, worktree: &Utf8Path, source: &str) -> Result<(), git::Error> {
-        self.system.merge_no_ff(worktree, source)
+    fn merge_no_ff(
+        &self,
+        worktree: &Utf8Path,
+        source: &str,
+        message: &str,
+    ) -> Result<(), git::Error> {
+        self.system.merge_no_ff(worktree, source, message)
     }
     fn squash_merge(
         &self,
@@ -1612,8 +1627,13 @@ impl git::Git for PublishedRemoteGit {
     fn delete_branch(&self, git_dir: &Utf8Path, branch: &str) -> Result<(), git::Error> {
         self.dummy.delete_branch(git_dir, branch)
     }
-    fn merge_no_ff(&self, worktree: &Utf8Path, source: &str) -> Result<(), git::Error> {
-        self.dummy.merge_no_ff(worktree, source)
+    fn merge_no_ff(
+        &self,
+        worktree: &Utf8Path,
+        source: &str,
+        message: &str,
+    ) -> Result<(), git::Error> {
+        self.dummy.merge_no_ff(worktree, source, message)
     }
     fn squash_merge(
         &self,

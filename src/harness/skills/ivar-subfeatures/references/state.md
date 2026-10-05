@@ -20,7 +20,7 @@ that mention it.
 | `run.status` is `diverged` | stop and ask the human: the approved plan changed under the run |
 | `run.status` is `failed` or `interrupted` | ask the human (step 4) before anything else |
 | `run.status` is `succeeded`, `sessions` not empty | `ivar session stop <session-id>` for each id |
-| `run.status` terminal, `sessions` empty, `state` is `active` | `ivar feature integrate <child>` |
+| `run.status` terminal, `sessions` empty, `state` is `active` | `ivar feature integrate <child> --name "<type>: <short message>"` (title rules in SKILL.md step 5) |
 
 When every child is done, continue at the final review. A parent entry
 (`depth` 0) with an approved plan and a terminal or absent `run` is ready

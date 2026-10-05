@@ -5,7 +5,7 @@ pub mod land;
 pub mod metadata;
 pub mod outcome;
 
-mod attribution;
+pub(crate) mod attribution;
 mod preview;
 mod push;
 mod repos;

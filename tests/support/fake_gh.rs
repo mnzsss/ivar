@@ -7,7 +7,7 @@
 //! gh pr list --head <branch> --state <open|all> --json url,number,state,mergeCommit,headRefOid
 //! gh pr create --base <parent> --head <child> --title <title> --body <body>
 //! gh pr checks <url> --required --json name,bucket,state,link
-//! gh pr merge <url> --merge|--squash|--rebase --match-head-commit <sha>
+//! gh pr merge <url> --merge|--squash|--rebase --match-head-commit <sha> [--subject <text>]
 //! gh pr view <url> --json url,number,state,mergeCommit,headRefOid
 //! gh pr comment <url> --body <body>
 //! ```
@@ -141,6 +141,7 @@ body=""
 required=0
 match_sha=""
 strategy=""
+subject=""
 comment_body=""
 draft=0
 undo=0
@@ -154,6 +155,7 @@ while [ $# -gt 0 ]; do
     --body) body="$2"; shift 2 ;;
     --required) required=1; shift ;;
     --match-head-commit) match_sha="$2"; shift 2 ;;
+    --subject) subject="$2"; shift 2 ;;
     --url) url="$2"; shift 2 ;;
     --draft) draft=1; shift ;;
     --undo) undo=1; shift ;;
@@ -371,14 +373,15 @@ case "$sub" in
     case "$strategy" in
       --squash)
         git -C "$origin" merge -q --squash "$lookup_head"
-        git -C "$origin" -c user.name="ivar fake" -c user.email="fake@ivar.invalid" commit -q -m "fake squash merge of $lookup_head"
+        git -C "$origin" -c user.name="ivar fake" -c user.email="fake@ivar.invalid" commit -q -m "${subject:-fake squash merge of $lookup_head}"
         ;;
       --rebase)
         git -C "$origin" -c user.name="ivar fake" -c user.email="fake@ivar.invalid" rebase -q "$pr_base" "$lookup_head"
+        git -C "$origin" checkout -q "$pr_base"
         git -C "$origin" merge -q --ff-only "$lookup_head"
         ;;
       *)
-        git -C "$origin" -c user.name="ivar fake" -c user.email="fake@ivar.invalid" merge -q --no-ff "$lookup_head" -m "fake merge of $lookup_head"
+        git -C "$origin" -c user.name="ivar fake" -c user.email="fake@ivar.invalid" merge -q --no-ff "$lookup_head" -m "${subject:-fake merge of $lookup_head}"
         ;;
     esac
     # Queued-then-merged: a merge request through a queue lands QUEUED, and

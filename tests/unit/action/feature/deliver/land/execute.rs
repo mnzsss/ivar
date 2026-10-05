@@ -477,8 +477,13 @@ fn absence_of_preview_evidence_none_none_skips_whole_batch() {
         fn delete_branch(&self, git_dir: &Utf8Path, branch: &str) -> Result<(), crate::git::Error> {
             self.0.delete_branch(git_dir, branch)
         }
-        fn merge_no_ff(&self, worktree: &Utf8Path, source: &str) -> Result<(), crate::git::Error> {
-            self.0.merge_no_ff(worktree, source)
+        fn merge_no_ff(
+            &self,
+            worktree: &Utf8Path,
+            source: &str,
+            message: &str,
+        ) -> Result<(), crate::git::Error> {
+            self.0.merge_no_ff(worktree, source, message)
         }
         fn squash_merge(
             &self,
@@ -780,8 +785,13 @@ fn absence_of_preview_evidence_none_err_skips_whole_batch() {
         fn delete_branch(&self, git_dir: &Utf8Path, branch: &str) -> Result<(), crate::git::Error> {
             self.0.delete_branch(git_dir, branch)
         }
-        fn merge_no_ff(&self, worktree: &Utf8Path, source: &str) -> Result<(), crate::git::Error> {
-            self.0.merge_no_ff(worktree, source)
+        fn merge_no_ff(
+            &self,
+            worktree: &Utf8Path,
+            source: &str,
+            message: &str,
+        ) -> Result<(), crate::git::Error> {
+            self.0.merge_no_ff(worktree, source, message)
         }
         fn squash_merge(
             &self,
@@ -1238,8 +1248,13 @@ impl crate::git::Git for FailingRollbackGit {
     fn delete_branch(&self, git_dir: &Utf8Path, branch: &str) -> Result<(), crate::git::Error> {
         self.0.delete_branch(git_dir, branch)
     }
-    fn merge_no_ff(&self, worktree: &Utf8Path, source: &str) -> Result<(), crate::git::Error> {
-        self.0.merge_no_ff(worktree, source)
+    fn merge_no_ff(
+        &self,
+        worktree: &Utf8Path,
+        source: &str,
+        message: &str,
+    ) -> Result<(), crate::git::Error> {
+        self.0.merge_no_ff(worktree, source, message)
     }
     fn squash_merge(
         &self,
