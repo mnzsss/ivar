@@ -194,6 +194,18 @@ impl Layout {
         self.ivar_dir().join("state.json")
     }
 
+    /// `<hall>/.ivar/feedback/` — local feedback reports and proposals.
+    #[must_use]
+    pub fn feedback_dir(&self) -> Utf8PathBuf {
+        self.ivar_dir().join("feedback")
+    }
+
+    /// `<hall>/.ivar/feedback/<id>.md` — a specific feedback report or proposal.
+    #[must_use]
+    pub fn feedback_doc(&self, id: &str) -> Utf8PathBuf {
+        self.feedback_dir().join(format!("{id}.md"))
+    }
+
     /// `<hall>/.ivar/repos/<repo>/.bare/` — the bare clone every checkout of
     /// `repo` is a worktree off.
     #[must_use]

@@ -8,6 +8,7 @@
 
 pub mod discovery;
 pub mod feature;
+pub mod feedback;
 pub mod gitignore;
 pub mod graph;
 pub mod layout;
