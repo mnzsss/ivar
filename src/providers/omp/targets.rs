@@ -7,21 +7,34 @@ pub(crate) struct OmpWrite {
     pub(crate) writes: bool,
 }
 
-fn glob_literal_prefix(pattern: &str) -> Utf8PathBuf {
+fn glob_part_has_dotdot(glob_part: &str) -> bool {
+    glob_part.split(['/', '{', '}', ',']).any(|seg| seg == "..")
+}
+
+fn glob_literal_prefix(pattern: &str) -> Option<Utf8PathBuf> {
     let metachars = ['*', '?', '[', '{'];
     if let Some(idx) = pattern.find(|c| metachars.contains(&c)) {
-        let prefix = &pattern[..idx];
+        let (prefix, glob_part) = pattern.split_at(idx);
+        if glob_part_has_dotdot(glob_part) {
+            return None;
+        }
         if let Some((dir, _)) = prefix.rsplit_once('/') {
             if dir.is_empty() {
-                Utf8PathBuf::from(".")
+                if pattern.starts_with('/') {
+                    Some(Utf8PathBuf::from("/"))
+                } else {
+                    Some(Utf8PathBuf::from("."))
+                }
             } else {
-                Utf8PathBuf::from(dir)
+                Some(Utf8PathBuf::from(dir))
             }
+        } else if pattern.starts_with('/') {
+            Some(Utf8PathBuf::from("/"))
         } else {
-            Utf8PathBuf::from(".")
+            Some(Utf8PathBuf::from("."))
         }
     } else {
-        Utf8PathBuf::from(pattern)
+        Some(Utf8PathBuf::from(pattern))
     }
 }
 
@@ -42,7 +55,15 @@ fn extract_ast_edit(is_direct: bool, args: &serde_json::Value) -> OmpWrite {
             if let Some(paths) = obj.get("paths").and_then(|v| v.as_array()) {
                 for p in paths {
                     if let Some(s) = p.as_str() {
-                        targets.push(glob_literal_prefix(s));
+                        match glob_literal_prefix(s) {
+                            Some(target) => targets.push(target),
+                            None => {
+                                return OmpWrite {
+                                    targets: Vec::new(),
+                                    writes: true,
+                                };
+                            }
+                        }
                     }
                 }
             }

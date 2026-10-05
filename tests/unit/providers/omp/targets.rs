@@ -177,3 +177,42 @@ fn extract_xd_lsp_and_direct_lsp_mutating_actions_and_read_only_actions() {
         vec![Utf8PathBuf::from("src/lib.rs")]
     );
 }
+
+#[test]
+fn extract_xd_ast_edit_handles_root_globs_and_dotdot_escape() {
+    // "/**/*.rs" -> target "/"
+    let write_root_glob = serde_json::json!({
+        "path": "xd://ast_edit",
+        "content": "{\"paths\": [\"/**/*.rs\"]}"
+    });
+    let extracted = extract("write", &write_root_glob);
+    assert!(extracted.writes);
+    assert_eq!(extracted.targets, vec![Utf8PathBuf::from("/")]);
+
+    // "/*" -> target "/"
+    let write_root_star = serde_json::json!({
+        "path": "xd://ast_edit",
+        "content": "{\"paths\": [\"/*\"]}"
+    });
+    let extracted_star = extract("write", &write_root_star);
+    assert!(extracted_star.writes);
+    assert_eq!(extracted_star.targets, vec![Utf8PathBuf::from("/")]);
+
+    // "{src,../../x}/f.rs" -> targets empty and writes true
+    let write_escaping_brace = serde_json::json!({
+        "path": "xd://ast_edit",
+        "content": "{\"paths\": [\"{src,../../x}/f.rs\"]}"
+    });
+    let extracted_brace = extract("write", &write_escaping_brace);
+    assert!(extracted_brace.writes);
+    assert!(extracted_brace.targets.is_empty());
+
+    // "src/**/*.rs" -> target "src" (unchanged)
+    let write_src_glob = serde_json::json!({
+        "path": "xd://ast_edit",
+        "content": "{\"paths\": [\"src/**/*.rs\"]}"
+    });
+    let extracted_src = extract("write", &write_src_glob);
+    assert!(extracted_src.writes);
+    assert_eq!(extracted_src.targets, vec![Utf8PathBuf::from("src")]);
+}
