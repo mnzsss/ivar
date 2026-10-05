@@ -548,9 +548,11 @@ fn writable_set_fixture() -> (WritableSet, tempfile::TempDir) {
 
 #[test]
 fn reads_are_never_denied() {
+    let targets = vec![Utf8PathBuf::from("/etc/passwd")];
     let req = ToolRequest {
         tool: "Read".into(),
-        file_path: Some("/etc/passwd".into()),
+        targets: targets.clone(),
+        writes: false,
         search_pattern: None,
     };
     assert!(matches!(
@@ -559,7 +561,7 @@ fn reads_are_never_denied() {
                 scratch_dirs: Vec::new()
             },
             &req,
-            req.file_path.as_deref()
+            &targets
         ),
         GuardDecision::Allow
     ));
@@ -568,12 +570,14 @@ fn reads_are_never_denied() {
 #[test]
 fn writes_outside_the_set_are_denied_with_a_reason_naming_the_set() {
     let (set, _guard) = writable_set_fixture();
+    let targets = vec![Utf8PathBuf::from("/etc/passwd")];
     let req = ToolRequest {
         tool: "Write".into(),
-        file_path: Some("/etc/passwd".into()),
+        targets: targets.clone(),
+        writes: true,
         search_pattern: None,
     };
-    match decide(&Resolution::Resolved(&set), &req, req.file_path.as_deref()) {
+    match decide(&Resolution::Resolved(&set), &req, &targets) {
         GuardDecision::Deny { reason } => {
             assert!(
                 reason.contains("writable"),
@@ -600,12 +604,14 @@ fn every_structured_write_tool_is_denied_outside_the_set() {
         "apply_patch",
         "patch",
     ] {
+        let targets = vec![Utf8PathBuf::from("/etc/passwd")];
         let req = ToolRequest {
             tool: tool.to_owned(),
-            file_path: Some("/etc/passwd".into()),
+            targets: targets.clone(),
+            writes: true,
             search_pattern: None,
         };
-        match decide(&Resolution::Resolved(&set), &req, req.file_path.as_deref()) {
+        match decide(&Resolution::Resolved(&set), &req, &targets) {
             GuardDecision::Deny { reason } => assert!(
                 reason.contains("writable"),
                 "`{tool}` must name the set: {reason}"
@@ -664,10 +670,11 @@ fn writes_inside_the_set_are_allowed_and_shell_is_never_classified() {
             &Resolution::Resolved(&set),
             &ToolRequest {
                 tool: "Edit".into(),
-                file_path: Some(in_set.clone()),
+                targets: vec![in_set.clone()],
+                writes: true,
                 search_pattern: None,
             },
-            Some(&in_set)
+            &[in_set]
         ),
         GuardDecision::Allow
     ));
@@ -676,10 +683,11 @@ fn writes_inside_the_set_are_allowed_and_shell_is_never_classified() {
             &Resolution::Resolved(&set),
             &ToolRequest {
                 tool: "Bash".into(),
-                file_path: None,
+                targets: Vec::new(),
+                writes: false,
                 search_pattern: None,
             },
-            None
+            &[]
         ),
         GuardDecision::Allow
     ));
@@ -1690,12 +1698,13 @@ fn guard_decision_is_unchanged_when_recording_fails() {
     assert!(!db_path.exists());
     let req = ToolRequest {
         tool: "Grep".into(),
-        file_path: None,
+        targets: Vec::new(),
+        writes: false,
         search_pattern: Some("fn record_miss".into()),
     };
     let set = resolve_writable_set(&env).unwrap();
     assert!(matches!(
-        decide(&Resolution::Resolved(&set), &req, req.file_path.as_deref()),
+        decide(&Resolution::Resolved(&set), &req, &[]),
         GuardDecision::Allow
     ));
 }
@@ -2062,9 +2071,11 @@ fn ambiguous_target_matching_multiple_features_denies_and_names_all_conflicting_
     state_billing.write(&view_billing).unwrap();
 
     // Test decide() directly with Resolution::Ambiguous
+    let targets = vec![root.join("some/path.rs")];
     let req = ToolRequest {
         tool: "write".into(),
-        file_path: Some(root.join("some/path.rs")),
+        targets: targets.clone(),
+        writes: true,
         search_pattern: None,
     };
     let decision = decide(
@@ -2072,7 +2083,7 @@ fn ambiguous_target_matching_multiple_features_denies_and_names_all_conflicting_
             features: vec!["billing".to_owned(), "checkout".to_owned()],
         },
         &req,
-        req.file_path.as_deref(),
+        &targets,
     );
     match decision {
         GuardDecision::Deny { reason } => {
@@ -2093,7 +2104,7 @@ fn ambiguous_target_matching_multiple_features_denies_and_names_all_conflicting_
             ],
         },
         &req,
-        req.file_path.as_deref(),
+        &targets,
     );
     match decision_multi {
         GuardDecision::Deny { reason } => {
@@ -2366,4 +2377,62 @@ fn guard_tool_request_from_parent_session_allows_child_worktree_and_denies_sibli
         sibling_body["hookSpecificOutput"]["permissionDecision"],
         "deny"
     );
+}
+
+#[test]
+fn decide_multi_target_allows_only_if_all_targets_allowed_and_denies_naming_first_disallowed() {
+    let (set, _guard) = writable_set_fixture();
+    let inside = set.view_dir().join("notes.md");
+    let outside = Utf8PathBuf::from("/etc/passwd");
+    let targets = vec![inside.clone(), outside.clone()];
+
+    let req = ToolRequest {
+        tool: "write".into(),
+        targets: targets.clone(),
+        writes: true,
+        search_pattern: None,
+    };
+
+    let decision = decide(&Resolution::Resolved(&set), &req, &targets);
+    match decision {
+        GuardDecision::Deny { reason } => {
+            assert!(
+                reason.contains("/etc/passwd"),
+                "denial must name the first disallowed target path: {reason}"
+            );
+        }
+        GuardDecision::Allow => panic!("multi-target with one outside target must be denied"),
+    }
+}
+
+#[test]
+fn decide_all_uri_targets_are_allowed_but_empty_targets_on_write_is_denied() {
+    let (set, _guard) = writable_set_fixture();
+
+    let uri_targets = vec![
+        Utf8PathBuf::from("local://notes.md"),
+        Utf8PathBuf::from("agent://subagent"),
+    ];
+    let req_uri = ToolRequest {
+        tool: "write".into(),
+        targets: uri_targets.clone(),
+        writes: true,
+        search_pattern: None,
+    };
+    assert!(matches!(
+        decide(&Resolution::Resolved(&set), &req_uri, &uri_targets),
+        GuardDecision::Allow
+    ));
+
+    let empty_targets: Vec<Utf8PathBuf> = Vec::new();
+    let req_empty = ToolRequest {
+        tool: "write".into(),
+        targets: empty_targets.clone(),
+        writes: true,
+        search_pattern: None,
+    };
+    assert!(matches!(
+        decide(&Resolution::Resolved(&set), &req_empty, &empty_targets),
+        GuardDecision::Deny { .. }
+    ));
 }

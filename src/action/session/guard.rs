@@ -392,26 +392,6 @@ impl WritableSet {
     }
 }
 
-/// Whether `tool` is a structured write — a tool whose whole purpose is to put
-/// bytes on disk at a path it names.
-///
-/// Matched on a normalised name so `NotebookEdit`, `notebook_edit` and
-/// `notebook-edit` are one tool rather than three spellings, one of which is
-/// always the one a provider actually sends. The list is explicit and
-/// closed: a tool that writes and is not named here is a gap, and the test
-/// beside this function is where that gap is closed.
-fn is_structured_write(tool: &str) -> bool {
-    let normalised: String = tool
-        .chars()
-        .filter(|c| c.is_ascii_alphanumeric())
-        .map(|c| c.to_ascii_lowercase())
-        .collect();
-    matches!(
-        normalised.as_str(),
-        "write" | "edit" | "multiedit" | "notebookedit" | "applypatch" | "patch"
-    )
-}
-
 /// Check whether a path string starts with an RFC 3986 URI scheme (`<scheme>://`).
 /// Schemes match `^[a-zA-Z][a-zA-Z0-9+.-]*://`.
 fn has_uri_scheme(s: &str) -> bool {
@@ -452,25 +432,19 @@ pub(crate) enum Resolution<'a> {
 pub(crate) fn decide(
     resolution: &Resolution<'_>,
     req: &ToolRequest,
-    target: Option<&Utf8Path>,
+    targets: &[Utf8PathBuf],
 ) -> GuardDecision {
-    if !is_structured_write(&req.tool) {
+    if !req.writes {
         return GuardDecision::Allow;
     }
-    if req
-        .file_path
-        .as_ref()
-        .is_some_and(|p| has_uri_scheme(p.as_str()))
-    {
+    if !req.targets.is_empty() && req.targets.iter().all(|p| has_uri_scheme(p.as_str())) {
         return GuardDecision::Allow;
     }
     match resolution {
         Resolution::Resolved(set) => {
-            if target.is_some_and(|path| set.allows(path)) {
-                GuardDecision::Allow
-            } else {
-                let guidance = denial_guidance(Some(set), target, req.file_path.as_deref());
-                GuardDecision::Deny {
+            if targets.is_empty() {
+                let guidance = denial_guidance(Some(set), None, None);
+                return GuardDecision::Deny {
                     reason: format!(
                         "writable set: {}; {guidance}",
                         std::iter::once(set.view_dir().to_string())
@@ -481,7 +455,32 @@ pub(crate) fn decide(
                             .collect::<Vec<_>>()
                             .join(", "),
                     ),
+                };
+            }
+            if let Some(denied_target) = targets.iter().find(|t| !set.allows(t)) {
+                let original = req
+                    .targets
+                    .iter()
+                    .find(|orig| {
+                        orig.as_str() == denied_target.as_str()
+                            || denied_target.ends_with(orig.as_path())
+                    })
+                    .map(|p| p.as_path());
+                let guidance = denial_guidance(Some(set), Some(denied_target), original);
+                GuardDecision::Deny {
+                    reason: format!(
+                        "`{denied_target}` is outside the writable set; writable set: {}; {guidance}",
+                        std::iter::once(set.view_dir().to_string())
+                            .chain(set.feature_dir.as_ref().map(|f| f.to_string()))
+                            .chain(set.worktrees.iter().map(|w| w.to_string()))
+                            .chain(set.hall_sources.iter().map(|h| h.to_string()))
+                            .chain([set.hall.to_string()])
+                            .collect::<Vec<_>>()
+                            .join(", "),
+                    ),
                 }
+            } else {
+                GuardDecision::Allow
             }
         }
         Resolution::Unresolved { scratch_dirs } => GuardDecision::Deny {
@@ -892,45 +891,39 @@ pub fn guard(provider: Provider, stdin_json: &str) -> Result<GuardOutcome, Failu
         .flatten();
     let mut set = session_env.as_ref().and_then(resolve_writable_set);
 
-    let target = tool_request
-        .file_path
-        .as_ref()
-        .and_then(|fp| resolve_target(cwd.as_deref(), fp));
+    let targets: Vec<Utf8PathBuf> = tool_request
+        .targets
+        .iter()
+        .filter_map(|t| resolve_target(cwd.as_deref(), t))
+        .collect();
 
     let mut ambiguous_features = None;
 
     if set.is_none()
-        && is_structured_write(&tool_request.tool)
-        && let Some(target_path) = target.as_deref()
+        && tool_request.writes
+        && let Some(first_abs) = tool_request.targets.iter().find(|t| t.is_absolute())
+        && let Some(target_path) = resolve_target(cwd.as_deref(), first_abs)
     {
-        let is_relative = tool_request
-            .file_path
-            .as_ref()
-            .is_some_and(|p| !p.is_absolute());
-        if is_relative {
-            // Relative writes whose cwd resolves no session are denied.
-            // Do not resolve set by target for relative writes.
-        } else {
-            match resolve_set_by_target(target_path) {
-                TargetResolution::Unique(s) | TargetResolution::SharedHall(s) => {
-                    set = Some(s);
-                }
-                TargetResolution::Ambiguous(features) => {
-                    ambiguous_features = Some(features);
-                }
-                TargetResolution::None => {}
+        match resolve_set_by_target(&target_path) {
+            TargetResolution::Unique(s) | TargetResolution::SharedHall(s) => {
+                set = Some(s);
             }
+            TargetResolution::Ambiguous(features) => {
+                ambiguous_features = Some(features);
+            }
+            TargetResolution::None => {}
         }
     }
 
     let mut relative_denial = None;
     if set.is_none()
-        && is_structured_write(&tool_request.tool)
-        && let Some(file_path) = &tool_request.file_path
-        && !file_path.is_absolute()
-        && !has_uri_scheme(file_path.as_str())
+        && tool_request.writes
+        && let Some(first_rel) = tool_request
+            .targets
+            .iter()
+            .find(|t| !t.is_absolute() && !has_uri_scheme(t.as_str()))
     {
-        relative_denial = Some(relative_no_session_reason(file_path, cwd.as_deref()));
+        relative_denial = Some(relative_no_session_reason(first_rel, cwd.as_deref()));
     }
 
     let resolution = match (&set, ambiguous_features) {
@@ -944,7 +937,7 @@ pub fn guard(provider: Provider, stdin_json: &str) -> Result<GuardOutcome, Failu
     let decision = if let Some(reason) = relative_denial {
         GuardDecision::Deny { reason }
     } else {
-        decide(&resolution, &tool_request, target.as_deref())
+        decide(&resolution, &tool_request, &targets)
     };
     if matches!(decision, GuardDecision::Allow)
         && is_graph_explore_tool(&tool_request.tool)

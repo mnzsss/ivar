@@ -5,6 +5,7 @@ pub mod hook;
 pub mod launch;
 pub mod mcp;
 pub mod session;
+pub mod targets;
 
 use crate::providers::ManagedArtifact;
 
