@@ -42,9 +42,11 @@ src/
     graph_dispatch.rs  the `ivar graph` subcommand tree's dispatch.
 
   cli/             clap derive types ONLY — structs, enums, doc comments.
-    root.rs        every command, one file: the root entries and each group's
-                   subcommands. One file because clap derive is declarative and
-                   splitting it would only scatter the surface.
+    root.rs        root entries and command-group wiring; focused command
+                   modules own their argument types and conversions.
+    feature/       feature subcommands in mod.rs, lifecycle arguments and
+                   conversions in lifecycle.rs, run commands in execution.rs,
+                   and ordered delivery metadata parsing in delivery.rs.
 
   action/          one function per leaf command. The unit of behaviour.
     hall/          init · status · doctor · migrate · cleanup — one file per
@@ -65,18 +67,18 @@ src/
                    deliver/ — the preview fingerprint, push, and pull-request
                    phases split across mod.rs, repos.rs, and preview.rs,
                    with land/ (mod.rs, execute.rs, preflight.rs) for fast-forward
-                   merge and push — and integrate/ — the receipt-driven
-                   orchestration (preflight, reuse/re-verify/resume,
-                   close-on-integrated) in mod.rs, with the git-and-forge
-                   plumbing (local candidate staging, the PR path, and receipt
-                   persistence) in apply.rs. The nested-subfeature machinery
+                   merge and push — and integrate/ — orchestration and locking
+                   in mod.rs, result types in types.rs, validation in preflight.rs,
+                   per-repo receipt reuse/resume in repos.rs, persistence and
+                   staging cleanup in receipts.rs, with local.rs and pr.rs
+                   applying the selected integration path. Nested-subfeature machinery
                    lives in private focused modules: relations.rs (the
                    child-derived tree, receipt freshness, and descendant
                    blockers), lifecycle.rs (the shared plan-frontmatter close
                    seam), mutation.rs (the scoped whole-child/per-promotion
                    mutation guards), verification.rs (the ordered executable
-                   checks), reparent.rs, and pull_requests.rs (the shared PR
-                   operations delivery and integration both use).
+                   checks), reparent.rs, and pull_requests/ (shared lookup,
+                   mutation, merge observation and sibling-PR operations).
     execute/       feature execute: start · finish · status · accept-revision ·
                    checkpoint (checkpoint.rs records an approved wave on the
                    active run without touching the plan fingerprint), the
@@ -233,8 +235,8 @@ src/
                    derives it from `gh`/`$GITHUB_TOKEN` on each call). PR
                    operations themselves are not a trait seam: tests fake the
                    `gh` executable on PATH (see tests/support/fake_gh.rs), and
-                   the one `gh` construction site is
-                   `action/feature/pull_requests.rs`.
+                   shared command boundary lives in
+                   `action/feature/pull_requests/mod.rs`.
     term.rs        colour, NO_COLOR, is-a-tty, width. Decides *whether* to
                    colour.
     progress.rs    the transient stderr line a long verb reports through.
@@ -299,7 +301,7 @@ observed through the sweep that reports them; `action/sync/`'s `repo.rs`,
 `providers.rs`, and
 `setup.rs`; `action/mcp/auth/`'s `preregister.rs` and `dispatch.rs`;
 `action/feature/deliver/`'s `preview.rs` and `repos.rs`;
-`action/feature/integrate/`'s `apply.rs`; `action/execute/`'s lifecycle files;
+`action/feature/integrate/`'s focused children; `action/execute/`'s lifecycle files;
 `harness/commands/catalog.rs`; `harness/config/mcp.rs`; `infra/fs/`'s `io.rs`,
 `symlink.rs`, and `guard.rs`; `infra/proc/`'s `cwd.rs`; and `tui/scrollback.rs`
 are all tested through the linked file of the module that declares them
@@ -326,6 +328,9 @@ responsibility. Files that remain above it are coherent single-responsibility
 exceptions:
 
 - `cli/root.rs` — the declarative Clap surface, one searchable command model.
+- `cli/feature/lifecycle.rs` — declarative feature-lifecycle arguments beside
+  their action-input conversions; delivery metadata and execution commands
+  live in separate modules.
 - `store/versioned/mod.rs` — the single documented versioning machine with its
   two policies (its Error was extracted to `error.rs`).
 - `store/layout.rs` — every managed path is computed in one place.
@@ -356,18 +361,9 @@ exceptions:
   and repo-materialisation pieces it calls into. That inline apply pipeline is
   known debt, not a facade — splitting it further was not attempted in this
   pass.
-- `action/feature/integrate/mod.rs` and `apply.rs` — a facade split, but an
-  honest one: unlike `deliver/`, both halves stayed over the trigger, because
-  the orchestration state machine (preflight, reuse/re-verify/resume,
-  close-on-integrated) and the git-and-forge plumbing it calls (the local and
-  PR apply paths, and receipt persistence) are each real weight, not a thin
-  dispatcher over thin children.
 - `action/feature/relations.rs` — the derived child-feature tree: parent-cycle
   validation, receipt freshness against live git, and the descendant blockers
   — one scan, not a helper reimplemented at each call site.
-- `action/feature/pull_requests.rs` — the one `gh` construction site delivery
-  and nested integration both call; splitting it would risk a second PR
-  command shape drifting from this one.
 - `action/feature/mutation.rs` — the three scoped mutation guards (whole-child,
   structure, per-promotion) that keep a partial integration's planning mutable
   without freezing more than the receipt actually froze.
@@ -650,9 +646,10 @@ The direction of integration is always **up to the immediate parent's branch**:
 descendant (leaves first), and moves each promoted repo onto the parent's branch
 via `local` (a detached candidate is built and checked before the parent moves)
 or `pr` (push, create/reuse a PR against the parent's branch, required checks,
-explicit merge with `--match-head-commit`, observed to `MERGED`). The one `gh`
-construction site is `action/feature/pull_requests.rs`; tests fake the `gh`
-executable, never a trait.
+explicit merge with `--match-head-commit`, observed to `MERGED`). Shared `gh`
+execution and response decoding live in `action/feature/pull_requests/mod.rs`;
+focused operation modules build the commands. Tests fake the executable,
+never a trait.
 
 Multi-repo integration is **partial, durable, and resumable**: each repo's
 result is persisted as an `integration_receipt` the moment it lands — success and

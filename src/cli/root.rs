@@ -187,7 +187,7 @@ impl TryFrom<GuardArgs> for guard_cmd::GuardInput {
 
 #[path = "discovery.rs"]
 mod discovery;
-#[path = "feature.rs"]
+#[path = "feature/mod.rs"]
 mod feature;
 #[path = "mcp.rs"]
 mod mcp;

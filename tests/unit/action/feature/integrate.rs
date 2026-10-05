@@ -10,16 +10,24 @@
     clippy::indexing_slicing
 )]
 
+use camino::Utf8PathBuf;
+
+use super::receipts::{parent_checks_pending, persist_receipt};
 use super::*;
 use crate::action::feature::create::CreateInput;
 use crate::action::feature::create::create as create_action;
 use crate::action::feature::promote::{self, PromoteInput};
+use crate::action::feature::verification;
 use crate::action::hall::{self, InitInput};
 use crate::action::plan::approve as plan_approve;
 use crate::action::plan::create as plan_create;
-use crate::domain::feature::{Feature, RunBaseline, RunId, RunReceipt, WorktreeState};
+use crate::domain::feature::{
+    Feature, IntegrationStrategy, IntegrationVia, RunBaseline, RunId, RunReceipt,
+    VerificationEvidence, WorktreeState,
+};
 use crate::domain::name::{BranchName, HallName, RepoName, SessionId};
 use crate::domain::provider::Provider;
+use crate::domain::session::rfc3339_now;
 use crate::error::Status;
 use crate::store::manifest::{Manifest, Providers, Repo};
 use crate::test_support::{git, hall_root, seeded_repo};
@@ -1045,7 +1053,7 @@ fn an_integrate_interrupted_after_the_parent_moved_resumes_at_verification() {
         verification: VerificationEvidence {
             command_fingerprint: verification::fingerprint(&["true".to_owned()]).unwrap(),
             child: Vec::new(),
-            parent: vec![apply::parent_checks_pending()],
+            parent: vec![parent_checks_pending()],
             pr_checks: Vec::new(),
             verified_at: rfc3339_now(),
         },
