@@ -9,8 +9,7 @@ use camino::Utf8PathBuf;
 use serde::Serialize;
 
 use crate::action::batch::BatchItemResult;
-use crate::error::{Failure, Outcome, Palette, Report, WriteHuman};
-use crate::infra::term;
+use crate::error::{Failure, Outcome, Report, WriteHuman};
 
 /// Render a [`Report`]'s exit code: clean is `0`, warnings present is `1`.
 /// [`Report::is_clean`] is the one switch — see the module doc comment.
@@ -20,14 +19,6 @@ fn exit_code_for<T>(report: &Report<T>) -> ExitCode {
     } else {
         ExitCode::from(1)
     }
-}
-
-/// The palette for whatever is being written to stderr — failures and warnings.
-///
-/// Reads the decision `main` already primed, so the flag is honoured without
-/// being threaded through every dispatch arm.
-fn stderr_palette() -> Palette {
-    Palette::from_decision(term::colour_for(term::Stream::Stderr, None))
 }
 
 /// Render whatever an action returned, and pick the exit code.
@@ -54,9 +45,8 @@ where
                 // The value is never painted: it is data, and the --json
                 // surface shows the same strings raw.
                 let _ = report.value.write_human(stdout);
-                let palette = stderr_palette();
                 for warning in &report.warnings {
-                    let _ = warning.write_painted(stderr, &palette);
+                    let _ = warning.write_human(stderr);
                 }
             }
             exit
@@ -85,9 +75,8 @@ where
                 if json {
                     let _ = write_json(stdout, &report);
                 } else {
-                    let palette = stderr_palette();
                     for warning in &report.warnings {
-                        let _ = warning.write_painted(stderr, &palette);
+                        let _ = warning.write_human(stderr);
                     }
                     let _ = report.value.write_human(stdout);
                 }
@@ -97,7 +86,7 @@ where
                 if json {
                     let _ = write_json(stdout, &failure);
                 } else {
-                    let _ = failure.write_painted(stderr, &stderr_palette());
+                    let _ = failure.write_human(stderr);
                 }
             }
         }
@@ -120,7 +109,7 @@ pub(super) fn respond_failure(
     if json {
         let _ = write_json(stdout, &failure);
     } else {
-        let _ = failure.write_painted(stderr, &stderr_palette());
+        let _ = failure.write_human(stderr);
     }
     ExitCode::from(2)
 }

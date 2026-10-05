@@ -7,18 +7,24 @@ use crate::cli::root::{Command, SessionCommand};
 use crate::domain::upgrade::NoticeContext;
 use crate::infra::term;
 
-/// Verbs whose stderr is read by a program: provider hooks (`guard`,
-/// `session env`), the MCP stdio server, git's credential protocol, the
-/// relay contract — and `upgrade`, which reports versions itself.
-pub(super) fn is_machine_verb(command: &Command) -> bool {
+/// Verbs a program runs and reads back: provider hooks (`guard`,
+/// `session env`), the MCP stdio server, git's credential protocol and the
+/// relay contract. Their output carries no colour, whatever the flag or env
+/// says (N-STDERR-HOOKS).
+pub(super) fn is_hook_verb(command: &Command) -> bool {
     matches!(
         command,
         Command::Guard(_)
             | Command::GitCredential(_)
-            | Command::Upgrade(_)
             | Command::Session(SessionCommand::Env(_) | SessionCommand::Relay(_))
             | Command::Graph(GraphCommand::Mcp(_))
     )
+}
+
+/// Verbs that never print the update notice: the hook verbs, and `upgrade`,
+/// which reports versions itself.
+fn is_machine_verb(command: &Command) -> bool {
+    is_hook_verb(command) || matches!(command, Command::Upgrade(_))
 }
 
 pub(super) fn notice_context(json: bool, command: &Command) -> NoticeContext {

@@ -270,9 +270,12 @@ Verified both ways, not assumed.
 | `sha2` | content fingerprints — tree hash, config drift, plan revision | what the spike hashed with; parity vectors depend on it |
 | `walkdir` | directory traversal for tree hashing | `ignore` is only needed where gitignore semantics apply, and here they do not |
 | `uuid` | session ids | matches the ids already on disk; nothing wants sortable keys |
-| `owo-colors` | colour | honours `NO_COLOR`, no allocation, no global state |
-| `comfy-table` | status tables | what the prior art uses for exactly this |
-| `indicatif` | progress rendering fed by the reporter channel | pairs with the `mpsc` pattern |
+| `anstyle` / `anstream` | style definitions and stream colour stripping | zero-allocation style constants, authoritative choice at the stream boundary, clap 4 native styling |
+| `annotate-snippets` | compiler-style error snippets with source spans | structured span display for JSON/frontmatter parse failures |
+| `comfy-table` | status tables | compact table builder (`NOTHING` preset, two-space column padding, dynamic wrapping) |
+| `indicatif` | progress spinners | steady tick progress indicators on stderr |
+| `dialoguer` | interactive prompts | multi-choice and confirmation prompts on stderr |
+| `console` | terminal capability querying for prompts | companion to dialoguer |
 | `etcetera` | home and config directories | more principled about platform conventions than `dirs` |
 | `sysinfo` | process tree, for teardown and port attribution | cross-platform, unlike reading `/proc` |
 | `netstat2` | listening sockets, for port attribution | see below |

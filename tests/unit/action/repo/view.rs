@@ -189,9 +189,10 @@ fn the_human_surface_names_each_repo_its_branch_and_why_it_cannot_open() {
 
     let mut rendered = Vec::new();
     outcome.write_human(&mut rendered).unwrap();
-    let rendered = String::from_utf8(rendered).unwrap();
+    let stripped = anstream::adapter::strip_str(&String::from_utf8(rendered).unwrap()).to_string();
 
-    assert!(rendered.contains("api  main  /halls/acme/.ivar/repos/api/main"));
-    assert!(rendered.contains("no main worktree; run `ivar sync`"));
-    assert!(rendered.contains("1 shell opened"));
+    assert_eq!(
+        stripped,
+        "Repos in /halls/acme:\nREPO  BRANCH  WORKTREE / STATUS\napi   main    /halls/acme/.ivar/repos/api/main\nweb   main    no main worktree; run `ivar sync`\n1 shell opened\n"
+    );
 }

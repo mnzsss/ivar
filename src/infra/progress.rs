@@ -30,30 +30,32 @@
 //!
 //! # Design
 //!
-//! No escape codes. The line is erased by returning the carriage and writing
-//! spaces over the previous one, which is why [`Stderr`] has to remember how
-//! long that was. `\x1b[K` would be shorter and is universally supported, but
-//! this module owning zero terminal vocabulary is worth more than the bytes —
-//! [`super::term`] is where "what can this terminal do" lives.
+//! Indicatif draws a spinner on stderr with `{spinner} {wide_msg}` so the
+//! message automatically truncates to the terminal width without wrapping.
+//! The spinner is started lazily on the first [`Progress::step`]; a run that
+//! finishes fast or never calls `step` draws nothing at all.
 //!
-//! A line longer than the terminal wraps, and a wrapped line cannot be erased
-//! by one `\r`, so [`fit`] truncates first. It is a pure function over
-//! `(message, width)` and therefore testable without a terminal, which is the
-//! same split [`super::term::decide_colour`] uses.
+//! [`Progress::clear`] finishes and clears the progress bar, leaving stderr
+//! clean for subsequent output.
+//!
+//! Indicatif manages its own background tick thread to advance the spinner
+//! smoothly. For that reason, `app::run` never holds a persistent lock on the
+//! output streams so the tick thread can lock stderr when rendering ticks.
 //!
 //! Every write is best-effort: a failed write to a progress line must never
 //! turn into a [`crate::error::Failure`]. If stderr is gone, the work still
 //! ran, and the outcome is what the user came for.
 
 use std::fmt;
-use std::io::{self, Write as _};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
+use std::time::Duration;
+
+use indicatif::{ProgressBar, ProgressDrawTarget, ProgressFinish, ProgressStyle};
 
 use super::term::{self, Stream};
 
-/// The ellipsis appended to a message [`fit`] had to cut.
-const ELLIPSIS: char = '…';
-
+/// How often the spinner advances on its own while a step runs.
+const TICK: Duration = Duration::from_millis(100);
 /// Where a long-running verb reports what it is doing right now.
 ///
 /// `Send + Sync` because [`crate::action::Ctx`] is `Clone` and nothing should
@@ -77,58 +79,82 @@ impl Progress for Silent {
     fn clear(&self) {}
 }
 
-/// A single line redrawn in place on stderr.
+/// A spinner on stderr, created on the first [`Progress::step`] and removed by
+/// [`Progress::clear`].
 ///
-/// The `usize` is the printed length of the line currently on screen — how
-/// many spaces it takes to erase it. `0` means there is nothing to erase.
-#[derive(Debug, Default)]
+/// Lazy on purpose: [`reporter`] builds one for every human run on a tty,
+/// and a verb that never reports progress must draw nothing.
 pub struct Stderr {
-    live: Mutex<usize>,
+    bar: Mutex<Option<ProgressBar>>,
+    target: fn() -> ProgressDrawTarget,
+}
+
+impl fmt::Debug for Stderr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Stderr")
+            .field("started", &self.is_started())
+            .finish()
+    }
+}
+
+impl Default for Stderr {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Stderr {
-    /// A reporter with nothing on screen yet.
     #[must_use]
     pub fn new() -> Self {
-        Self::default()
+        Self::with_target(ProgressDrawTarget::stderr)
     }
 
-    /// The length of the line on screen, recovering the value from a poisoned
-    /// lock rather than propagating the panic.
-    ///
-    /// A panic in another thread must not take down a run over the bookkeeping
-    /// of a cosmetic line: the worst a stale count can do is leave a few
-    /// characters on screen.
-    fn live(&self) -> std::sync::MutexGuard<'_, usize> {
-        self.live
+    pub(crate) fn with_target(target: fn() -> ProgressDrawTarget) -> Self {
+        Self {
+            bar: Mutex::new(None),
+            target,
+        }
+    }
+
+    /// A poisoned lock is recovered, not propagated: a panic elsewhere must
+    /// not take a run down over a cosmetic line.
+    fn bar(&self) -> MutexGuard<'_, Option<ProgressBar>> {
+        self.bar
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    pub(crate) fn is_started(&self) -> bool {
+        self.bar().is_some()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn message(&self) -> Option<String> {
+        self.bar().as_ref().map(ProgressBar::message)
+    }
+
+    fn start(&self) -> ProgressBar {
+        let bar = ProgressBar::with_draw_target(None, (self.target)())
+            .with_finish(ProgressFinish::AndClear);
+        if let Ok(style) = ProgressStyle::with_template("{spinner} {wide_msg}") {
+            bar.set_style(style);
+        }
+        bar.enable_steady_tick(TICK);
+        bar
     }
 }
 
 impl Progress for Stderr {
     fn step(&self, message: &str) {
-        let line = fit(message, usize::from(term::width()));
-        let length = line.chars().count();
-        let mut live = self.live();
-        // Spaces over whatever the last line left uncovered, so a shorter line
-        // does not leave the tail of a longer one behind it.
-        let padding = live.saturating_sub(length);
-        let mut stderr = io::stderr().lock();
-        let _ = write!(stderr, "\r{line}{:padding$}", "");
-        let _ = stderr.flush();
-        *live = length;
+        let mut slot = self.bar();
+        let bar = slot.get_or_insert_with(|| self.start());
+        bar.set_message(one_line(message));
     }
 
     fn clear(&self) {
-        let mut live = self.live();
-        if *live == 0 {
-            return;
+        if let Some(bar) = self.bar().take() {
+            bar.finish_and_clear();
         }
-        let mut stderr = io::stderr().lock();
-        let _ = write!(stderr, "\r{:width$}\r", "", width = *live);
-        let _ = stderr.flush();
-        *live = 0;
     }
 }
 
@@ -148,32 +174,14 @@ pub fn reporter(wanted: bool) -> Arc<dyn Progress> {
     }
 }
 
-/// `message` as one line that fits in `width` columns.
-///
-/// Control characters — a newline above all — become spaces: they would move
-/// the cursor off the line the redraw is about to return to, and the erase
-/// would then blank the wrong row. A message too long is cut and given an
-/// [`ELLIPSIS`], which is what keeps the line from wrapping.
-///
-/// Truncation counts `char`s, not columns. A repo name is a validated
-/// [`crate::domain::name::RepoName`] and the rest of the message is ASCII, so
-/// the two agree here; a CJK-wide message would cut short, never long, which
-/// is the harmless direction.
-fn fit(message: &str, width: usize) -> String {
-    if width == 0 {
-        return String::new();
-    }
-    let flattened: String = message
+/// `message` with control characters as spaces: a newline inside the
+/// message would push the spinner off its line. Width is indicatif's job
+/// (`{wide_msg}` truncates to the terminal).
+pub(crate) fn one_line(message: &str) -> String {
+    message
         .chars()
         .map(|c| if c.is_control() { ' ' } else { c })
-        .collect();
-    if flattened.chars().count() <= width {
-        return flattened;
-    }
-    // `width` is at least 1 here, so the ellipsis always has room.
-    let mut line: String = flattened.chars().take(width - 1).collect();
-    line.push(ELLIPSIS);
-    line
+        .collect()
 }
 
 #[cfg(test)]

@@ -69,6 +69,7 @@ pub enum Error {
     #[error("{path}: invalid JSON")]
     Parse {
         path: camino::Utf8PathBuf,
+        text: String,
         #[source]
         source: serde_json::Error,
     },
@@ -84,12 +85,28 @@ impl From<Error> for Failure {
                 "json.serialize_failed",
                 format!("could not serialize value to JSON: {source}"),
             ),
-            Error::Parse { path, source } => Failure::failed(
-                "json.parse_failed",
-                format!("{path}: invalid JSON: {source}"),
-            )
-            .expected("valid JSON")
-            .actual(source.to_string()),
+            Error::Parse { path, text, source } => {
+                let line = source.line();
+                let col = if source.column() == 0 {
+                    1
+                } else {
+                    source.column()
+                };
+                let span = crate::error::SourceSpan::new(
+                    path.clone(),
+                    text,
+                    line,
+                    col,
+                    source.to_string(),
+                );
+                Failure::failed(
+                    "json.parse_failed",
+                    format!("{path}: invalid JSON: {source}"),
+                )
+                .expected("valid JSON")
+                .actual(source.to_string())
+                .at(span)
+            }
             Error::Fs(source) => source.into(),
         }
     }
@@ -138,6 +155,7 @@ pub fn read<T: DeserializeOwned>(path: &Utf8Path) -> Result<Option<T>, Error> {
     };
     let value = serde_json::from_str(&text).map_err(|source| Error::Parse {
         path: path.to_owned(),
+        text,
         source,
     })?;
     Ok(Some(value))

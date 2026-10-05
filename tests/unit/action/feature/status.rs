@@ -157,9 +157,11 @@ fn the_human_surface_lists_repos_and_their_states() {
     let mut out = Vec::new();
     outcome.write_human(&mut out).unwrap();
 
+    let stripped = anstream::adapter::strip_str(&String::from_utf8(out).unwrap()).to_string();
+
     assert_eq!(
-        String::from_utf8(out).unwrap(),
-        "Feature `checkout` (branch: checkout) in /hall:\n  api  ready  worktree present  base: main\n"
+        stripped,
+        "Feature `checkout` (branch: checkout) in /hall:\nREPO  STATE  WORKTREE  BASE  PR\napi   ready  present   main\n"
     );
 }
 
@@ -188,11 +190,11 @@ fn the_human_surface_marks_a_diverged_base() {
     };
     let mut out = Vec::new();
     outcome.write_human(&mut out).unwrap();
+    let stripped = anstream::adapter::strip_str(&String::from_utf8(out).unwrap()).to_string();
 
     assert_eq!(
-        String::from_utf8(out).unwrap(),
-        "Feature `checkout` (branch: checkout) in /hall:\n  api  ready  worktree present  \
-         base: main (diverged from the feature's declared base)\n"
+        stripped,
+        "Feature `checkout` (branch: checkout) in /hall:\nREPO  STATE  WORKTREE  BASE                                              PR\napi   ready  present   main (diverged from the feature's declared base)\n"
     );
 }
 

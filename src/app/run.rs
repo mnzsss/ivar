@@ -6,6 +6,8 @@
 use std::io::{self, Write};
 use std::process::ExitCode;
 
+use clap::{CommandFactory as _, FromArgMatches as _};
+
 use camino::Utf8PathBuf;
 
 use crate::action::Ctx;
@@ -82,8 +84,25 @@ pub fn run(cli: Cli) -> ExitCode {
     //
     // Both streams are primed because they are redirected independently: the
     // value goes to stdout, failures and warnings to stderr.
-    let _ = term::colour_for(term::Stream::Stdout, cli.color.as_override());
-    let _ = term::colour_for(term::Stream::Stderr, cli.color.as_override());
+    //
+    // Hook verbs are read by a program, so they are primed off: `FORCE_COLOR`
+    // or `--color always` in the user's shell must not reach a hook's bytes.
+    let colour_override = if super::notice::is_hook_verb(&cli.command) {
+        Some(false)
+    } else {
+        cli.color.as_override()
+    };
+    let _ = term::colour_for(term::Stream::Stdout, colour_override);
+    let _ = term::colour_for(term::Stream::Stderr, colour_override);
+    // indicatif and dialoguer paint through `console`, which has its own
+    // global switch; give it ivar's stderr decision so both follow the flag.
+    console::set_colors_enabled_stderr(term::colour_for(term::Stream::Stderr, colour_override));
+
+    if !json && term::is_tty(term::Stream::Stdout) {
+        term::prime_table_width(Some(term::width()));
+    } else {
+        term::prime_table_width(None);
+    }
 
     // The progress sink, decided once for the same reason the colour caches are
     // primed above: `--json` is a machine-shaped run and wants no redraw line
@@ -105,8 +124,8 @@ pub fn run(cli: Cli) -> ExitCode {
 
     let session_id = std::env::var("IVAR_SESSION_ID").ok();
 
-    let mut stdout = io::stdout().lock();
-    let mut stderr = io::stderr().lock();
+    let mut stdout = term::auto(io::stdout(), term::Stream::Stdout);
+    let mut stderr = term::auto(io::stderr(), term::Stream::Stderr);
 
     // Decided from the cache before the command runs; printed after it, so
     // the line never interleaves with the command's own output.
@@ -985,3 +1004,47 @@ pub fn run(cli: Cli) -> ExitCode {
     notice.finish(&mut stderr);
     code
 }
+
+/// Parse argv with the styled command. Pure: no stream, no exit.
+pub(crate) fn try_parse(args: &[std::ffi::OsString]) -> Result<Cli, clap::Error> {
+    let matches = Cli::command().try_get_matches_from(args)?;
+    Cli::from_arg_matches(&matches)
+}
+
+/// Parse argv, or render clap's help/version/usage error and exit.
+///
+/// Clap would decide colour itself (it ignores `FORCE_COLOR` and `--color`),
+/// so the error is rendered here instead: on the stream clap names
+/// (`use_stderr`: usage errors → stderr, `--help`/`--version` → stdout),
+/// painted only if `term` says that stream may be. Priming `colour_for` with
+/// the scanned flag is the same value `run` primes with afterwards.
+#[allow(clippy::needless_pass_by_value)]
+pub fn parse(args: Vec<std::ffi::OsString>) -> Cli {
+    match try_parse(&args) {
+        Ok(cli) => cli,
+        Err(err) => {
+            let stream = if err.use_stderr() {
+                term::Stream::Stderr
+            } else {
+                term::Stream::Stdout
+            };
+            let colour = term::colour_for(stream, term::color_flag(&args));
+            let rendered = err.render();
+            let text = if colour {
+                rendered.ansi().to_string()
+            } else {
+                rendered.to_string()
+            };
+            let _ = if err.use_stderr() {
+                write!(io::stderr(), "{text}")
+            } else {
+                write!(io::stdout(), "{text}")
+            };
+            std::process::exit(err.exit_code());
+        }
+    }
+}
+
+#[cfg(test)]
+#[path = "../../tests/unit/app/run.rs"]
+mod tests;

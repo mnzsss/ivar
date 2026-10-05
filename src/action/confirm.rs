@@ -15,7 +15,6 @@
 
 use std::fmt;
 use std::fmt::Write as _;
-use std::io::Write;
 use std::sync::Arc;
 
 use crate::error::{Failure, FixAction};
@@ -153,155 +152,84 @@ impl Confirm for Fixed {
 #[derive(Debug)]
 struct Interactive;
 
-/// Reads one line from stdin, returning the trimmed answer and the raw byte
-/// count `read_line` reported (0 on EOF) — every prompt reads its answer
-/// this way.
-fn read_answer_line() -> Result<(String, usize), Failure> {
-    let mut answer = String::new();
-    let bytes_read = std::io::stdin().read_line(&mut answer).map_err(|source| {
-        Failure::failed(
-            "confirm.read_answer",
-            format!("could not read your answer: {source}"),
-        )
-    })?;
-    Ok((answer, bytes_read))
-}
-
-/// Writes the prompt line, then one numbered line per option, to `stderr` —
-/// the listing both `select_many` and `select_one` show before reading stdin.
-fn write_prompt_and_options(
-    stderr: &mut std::io::StderrLock<'_>,
-    prompt: &str,
-    options: &[SelectOption],
-) -> Result<(), Failure> {
-    writeln!(stderr, "{prompt}").map_err(|source| {
-        Failure::failed(
-            "confirm.write_prompt",
-            format!("could not write the prompt: {source}"),
-        )
-    })?;
-    for (i, opt) in options.iter().enumerate() {
-        let desc_str = match &opt.description {
-            Some(d) => format!(" — {d}"),
-            None => String::new(),
-        };
-        writeln!(stderr, "  [{}] {}{desc_str}", i + 1, opt.id).map_err(|source| {
-            Failure::failed(
-                "confirm.write_prompt",
-                format!("could not write options: {source}"),
-            )
-        })?;
-    }
-    Ok(())
+/// Format a list of [`SelectOption`]s as item label strings for dialoguer menus,
+/// matching the existing format: `"{id}"` or `"{id} — {description}"`.
+fn select_items(options: &[SelectOption]) -> Vec<String> {
+    options
+        .iter()
+        .map(|opt| match &opt.description {
+            Some(desc) => format!("{} — {desc}", opt.id),
+            None => opt.id.clone(),
+        })
+        .collect()
 }
 
 impl Confirm for Interactive {
     fn confirm(&self, question: &str, caveat: Option<&str>) -> Result<bool, Failure> {
-        let mut stderr = std::io::stderr().lock();
+        let term = console::Term::stderr();
+        let theme = dialoguer::theme::ColorfulTheme::default();
         if let Some(caveat) = caveat {
-            writeln!(stderr, "{caveat}").map_err(|source| {
+            let _ = term.write_line(caveat);
+        }
+        let result = dialoguer::Confirm::with_theme(&theme)
+            .with_prompt(question)
+            .default(false)
+            .show_default(true)
+            .interact_on_opt(&term)
+            .map_err(|source| {
                 Failure::failed(
-                    "confirm.write_prompt",
-                    format!("could not write caveat: {source}"),
+                    "confirm.read_answer",
+                    format!("could not read your answer: {source}"),
                 )
             })?;
-        }
-        writeln!(stderr, "{question} [y/N] ").map_err(|source| {
-            Failure::failed(
-                "confirm.write_prompt",
-                format!("could not write the prompt: {source}"),
-            )
-        })?;
-
-        let (answer, _) = read_answer_line()?;
-        Ok(answer.trim().eq_ignore_ascii_case("y"))
+        Ok(result.unwrap_or(false))
     }
 
     fn select_many(&self, prompt: &str, options: &[SelectOption]) -> Result<Vec<usize>, Failure> {
-        let mut stderr = std::io::stderr().lock();
-        write_prompt_and_options(&mut stderr, prompt, options)?;
-        write!(stderr, "Enter numbers (comma-separated) or \"all\": ").map_err(|source| {
-            Failure::failed(
-                "confirm.write_prompt",
-                format!("could not write prompt line: {source}"),
-            )
-        })?;
-        let _ = stderr.flush();
-
-        let (answer, bytes_read) = read_answer_line()?;
-
-        let trimmed = answer.trim();
-        if trimmed.eq_ignore_ascii_case("all") {
-            return Ok((0..options.len()).collect());
+        if options.is_empty() {
+            return Ok(Vec::new());
         }
-
-        if bytes_read == 0 || trimmed.is_empty() {
-            return Err(Failure::blocked(
-                "confirm.no_answer",
-                "no selection entered on stdin",
-            ));
-        }
-
-        let mut selected = Vec::new();
-        for part in trimmed.split(',') {
-            let p = part.trim();
-            if p.is_empty() {
-                continue;
-            }
-            let idx: usize = p.parse().map_err(|_| {
-                Failure::blocked(
-                    "confirm.invalid_selection",
-                    format!("invalid selection `{p}`"),
+        let term = console::Term::stderr();
+        let theme = dialoguer::theme::ColorfulTheme::default();
+        let items = select_items(options);
+        let result = dialoguer::MultiSelect::with_theme(&theme)
+            .with_prompt(prompt)
+            .items(&items)
+            .interact_on_opt(&term)
+            .map_err(|source| {
+                Failure::failed(
+                    "confirm.read_answer",
+                    format!("could not read your answer: {source}"),
                 )
             })?;
-            if idx == 0 || idx > options.len() {
-                return Err(Failure::blocked(
-                    "confirm.invalid_selection",
-                    format!(
-                        "selection index `{idx}` out of range (1..{})",
-                        options.len()
-                    ),
-                ));
-            }
-            selected.push(idx - 1);
+        match result {
+            Some(selected) if !selected.is_empty() => Ok(selected),
+            _ => Err(Failure::blocked(
+                "confirm.no_answer",
+                "no selection entered on stdin",
+            )),
         }
-        Ok(selected)
     }
 
     fn select_one(&self, prompt: &str, options: &[SelectOption]) -> Result<Option<usize>, Failure> {
         if options.is_empty() {
             return Ok(None);
         }
-        let mut stderr = std::io::stderr().lock();
-        write_prompt_and_options(&mut stderr, prompt, options)?;
-        write!(
-            stderr,
-            "Enter number (1-{}) or press enter to cancel: ",
-            options.len()
-        )
-        .map_err(|source| {
-            Failure::failed(
-                "confirm.write_prompt",
-                format!("could not write prompt line: {source}"),
-            )
-        })?;
-        let _ = stderr.flush();
-
-        let (answer, bytes_read) = read_answer_line()?;
-
-        let trimmed = answer.trim();
-        if bytes_read == 0 || trimmed.is_empty() || trimmed.eq_ignore_ascii_case("q") {
-            return Ok(None);
-        }
-
-        let idx: usize = match trimmed.parse() {
-            Ok(i) => i,
-            Err(_) => return Ok(None),
-        };
-        if idx == 0 || idx > options.len() {
-            return Ok(None);
-        }
-        Ok(Some(idx - 1))
+        let term = console::Term::stderr();
+        let theme = dialoguer::theme::ColorfulTheme::default();
+        let items = select_items(options);
+        let result = dialoguer::Select::with_theme(&theme)
+            .with_prompt(prompt)
+            .items(&items)
+            .default(0)
+            .interact_on_opt(&term)
+            .map_err(|source| {
+                Failure::failed(
+                    "confirm.read_answer",
+                    format!("could not read your answer: {source}"),
+                )
+            })?;
+        Ok(result)
     }
 
     fn is_interactive(&self) -> bool {

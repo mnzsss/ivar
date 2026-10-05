@@ -41,10 +41,12 @@ impl WriteHuman for ListOutcome {
             return Ok(());
         }
         writeln!(w, "Plans in {}:", self.root)?;
+        let mut table = crate::infra::table::new(&["FEATURE", "ARTIFACTS"]);
         for plan in &self.plans {
-            writeln!(w, "  {}  [{}]", plan.feature, plan.artifacts.join(", "))?;
+            let artifacts = plan.artifacts.join(", ");
+            table.add_row(vec![plan.feature.as_str(), &artifacts]);
         }
-        Ok(())
+        crate::infra::table::write(w, &table)
     }
 }
 

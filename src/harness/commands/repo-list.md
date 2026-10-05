@@ -15,8 +15,8 @@ ivar repo list
 
 ## Output
 
-`ivar repo list` shows every repo in `ivar.json` with its name, default branch,
-and URL.
+`ivar repo list` shows every repo in `ivar.json` with its name, clone state,
+default branch, URL, and the features it is promoted into.
 
 Neighbouring views, each of which answers a different question:
 

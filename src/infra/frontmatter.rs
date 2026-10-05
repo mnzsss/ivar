@@ -38,6 +38,7 @@
 //! A fence line must be *exactly* `---` (with an optional trailing `\r`) — a line
 //! with trailing text or extra dashes does not count, and is treated as body.
 
+use camino::Utf8Path;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
@@ -158,6 +159,42 @@ pub fn parse<T: DeserializeOwned>(source: &str) -> Result<T, FrontmatterError> {
     let split = split(source)?;
     let block = split.frontmatter.unwrap_or_default();
     serde_saphyr::from_str(block).map_err(FrontmatterError::Invalid)
+}
+
+/// Parse frontmatter from `source`, attributing any parse failure to `path` with a `SourceSpan`.
+///
+/// # Errors
+///
+/// Returns [`Failure`] if the frontmatter has unterminated fences or invalid YAML.
+pub fn parse_at<T: DeserializeOwned>(path: &Utf8Path, source: &str) -> Result<T, Failure> {
+    let split = split(source)?;
+    let Some(block) = split.frontmatter else {
+        return serde_saphyr::from_str("")
+            .map_err(|err| Failure::failed("frontmatter.invalid_yaml", err.to_string()));
+    };
+    serde_saphyr::from_str(block).map_err(|err| {
+        let (line, column) = if let Some(loc) = err.location() {
+            // Opening fence is on line 1, so the first line of block is line 2 of source
+            (
+                usize::try_from(loc.line()).unwrap_or(1) + 1,
+                usize::try_from(loc.column()).unwrap_or(1),
+            )
+        } else {
+            (2, 1)
+        };
+        let span = crate::error::SourceSpan::new(
+            path.to_path_buf(),
+            source,
+            line,
+            column,
+            err.to_string(),
+        );
+        Failure::failed(
+            "frontmatter.invalid_yaml",
+            format!("{path}: invalid YAML: {err}"),
+        )
+        .at(span)
+    })
 }
 
 /// Re-emit `source` with its frontmatter replaced by `new_frontmatter`.

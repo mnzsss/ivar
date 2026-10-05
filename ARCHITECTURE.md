@@ -241,9 +241,9 @@ src/
                    Silent by default; bin/ivar.rs is the only thing that
                    builds a live one. Never part of an Outcome.
 
-  error.rs         Failure · Status · FixAction · Warning · Report · Palette.
-                   Palette lives here because the layout of a failure does, and
-                   colour must not become a second copy of that layout.
+  error.rs         Failure · Status · FixAction · Warning · Report · style roles.
+                   Style roles and paint() live here because the layout of a failure does,
+                   and colour must not become a second copy of that layout.
 ```
 
 ## Test layout
@@ -334,7 +334,7 @@ exceptions:
   already split out to `persistence.rs` and `error.rs`.
 - `bin/ivar.rs` — parse, dispatch, render, exit code; no domain logic.
 - `error.rs` — the single output/error envelope (`Failure`, `Status`,
-  `FixAction`, `Warning`, `Report`, `Palette`).
+  `FixAction`, `Warning`, `Report`, style roles).
 - `domain/name.rs` — one validation vocabulary with a common error model.
 - `domain/feature/run.rs` — the Run Receipt vocabulary and lifecycle
   invariants in one coherent module.

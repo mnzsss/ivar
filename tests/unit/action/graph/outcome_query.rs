@@ -62,11 +62,8 @@ fn stats_human_output_lists_usage_or_says_none() {
     StatsOutcome(db.stats().unwrap())
         .write_human(&mut empty)
         .unwrap();
-    assert!(
-        String::from_utf8(empty)
-            .unwrap()
-            .contains("Usage: none recorded")
-    );
+    let empty_text = anstream::adapter::strip_str(&String::from_utf8(empty).unwrap()).to_string();
+    assert!(empty_text.contains("Usage: none recorded"));
 
     db.record_usage(&UsageEvent {
         command: "explore".to_owned(),
@@ -82,10 +79,8 @@ fn stats_human_output_lists_usage_or_says_none() {
     StatsOutcome(db.stats().unwrap())
         .write_human(&mut out)
         .unwrap();
-    let text = String::from_utf8(out).unwrap();
-    assert!(text.contains("Usage:"), "got: {text}");
-    assert!(text.contains("explore"), "got: {text}");
-    assert!(text.contains("mcp"), "got: {text}");
+    let text = anstream::adapter::strip_str(&String::from_utf8(out).unwrap()).to_string();
+    assert!(text.contains("Usage:\nCOMMAND  SRC  COUNT  EMPTY  ERRORS  P50_MS  P95_MS  LAST_USED\nexplore  mcp      1      0       0       9       9  0s ago\n"), "got: {text}");
 }
 
 fn sample_miss(id: i64, ts: i64, kind: MissKind) -> MissRecord {

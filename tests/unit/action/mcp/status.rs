@@ -214,24 +214,9 @@ fn table_rendering_formats_kebab_case_and_aligns_long_server_names() {
     let res = outcome.write_human(&mut buf);
     assert!(res.is_ok());
 
-    let output = String::from_utf8(buf).unwrap_or_default();
-    let lines: Vec<&str> = output.lines().collect();
-    let [header, row1, row2] = lines.as_slice() else {
-        panic!("expected 3 lines, got {:?}", lines);
-    };
-
-    // Header should be formatted
-    assert!(header.starts_with("SERVER"));
-    assert!(header.contains("PROVIDER"));
-    assert!(header.contains("STATE (SOURCE)"));
-
-    // Check column alignment: provider and state start at identical offsets across rows
-    let p1_idx = row1.find("claude-code").unwrap_or(0);
-    let p2_idx = row2.find("opencode").unwrap_or(0);
-    assert_eq!(p1_idx, p2_idx);
-    assert!(p1_idx > "cloudflare-observability".len());
-
-    let s1_idx = row1.find("not-applicable").unwrap_or(0);
-    let s2_idx = row2.find("authenticated (live)").unwrap_or(0);
-    assert_eq!(s1_idx, s2_idx);
+    let stripped = anstream::adapter::strip_str(&String::from_utf8(buf).unwrap()).to_string();
+    assert_eq!(
+        stripped,
+        "SERVER                    PROVIDER     STATE (SOURCE)\ncloudflare-observability  claude-code  not-applicable\nfigma                     opencode     authenticated (live)\n"
+    );
 }

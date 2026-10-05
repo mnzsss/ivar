@@ -16,9 +16,9 @@
 //!   progress reporter cares.
 //!
 //! This module decides *whether* to colour. What the colours mean, and the
-//! escape codes themselves, belong to [`crate::error::Palette`] — which is where
+//! styles themselves, belong to [`crate::error`] style roles — which is where
 //! the layout of a failure already lives, so painting it needs no second
-//! renderer. There is no colour crate: the vocabulary is five SGR constants.
+//! renderer.
 //!
 //! Values themselves are never coloured — that would put escape codes inside
 //! data and break the `--json` contract. Only labels are painted.
@@ -94,6 +94,18 @@ pub fn decide_colour(
 
 static COLOUR: OnceLock<bool> = OnceLock::new();
 static COLOUR_STDERR: OnceLock<bool> = OnceLock::new();
+static TABLE_WIDTH: OnceLock<Option<u16>> = OnceLock::new();
+
+/// Prime the table width for the process. First call wins; subsequent calls are ignored.
+pub fn prime_table_width(width: Option<u16>) {
+    let _ = TABLE_WIDTH.set(width);
+}
+
+/// The primed table width, or `None` if unprimed.
+#[must_use]
+pub fn table_width() -> Option<u16> {
+    TABLE_WIDTH.get().copied().flatten()
+}
 
 /// Whether to emit colour. Decided once, from the real environment and the
 /// real tty state, then cached for the lifetime of the process.
@@ -179,6 +191,63 @@ pub fn is_tty(stream: Stream) -> bool {
         Stream::Stderr => std::io::stderr().is_tty(),
         Stream::Stdin => std::io::stdin().is_tty(),
     }
+}
+
+/// Return the [`anstream::ColorChoice`] for an explicit boolean decision.
+#[must_use]
+pub(crate) const fn choice_from(colour: bool) -> anstream::ColorChoice {
+    if colour {
+        anstream::ColorChoice::Always
+    } else {
+        anstream::ColorChoice::Never
+    }
+}
+
+/// Return the [`anstream::ColorChoice`] for `stream`.
+///
+/// ivar never passes `Auto` to anstream, so ivar's cached decision stays authoritative.
+#[must_use]
+pub fn choice(stream: Stream) -> anstream::ColorChoice {
+    choice_from(colour_for(stream, None))
+}
+
+/// Wrap `raw` in an [`anstream::AutoStream`] using the cached decision for `stream`.
+pub fn auto<S: anstream::stream::RawStream>(raw: S, stream: Stream) -> anstream::AutoStream<S> {
+    anstream::AutoStream::new(raw, choice(stream))
+}
+
+/// The `--color` value in `args`, read before clap parses so help and usage
+/// errors honour it. Mirrors `ColorMode::as_override`: `always` → `Some(true)`,
+/// `never` → `Some(false)`, `auto`/absent/unknown → `None`. The flag is global,
+/// so it may appear anywhere; the last one wins; nothing after `--` counts.
+#[must_use]
+pub fn color_flag(args: &[std::ffi::OsString]) -> Option<bool> {
+    fn value(v: &str) -> Option<Option<bool>> {
+        match v {
+            "always" => Some(Some(true)),
+            "never" => Some(Some(false)),
+            "auto" => Some(None),
+            _ => None,
+        }
+    }
+    let mut result = None;
+    let mut iter = args.iter().filter_map(|a| a.to_str());
+    while let Some(arg) = iter.next() {
+        if arg == "--" {
+            break;
+        }
+        let found = if let Some(v) = arg.strip_prefix("--color=") {
+            value(v)
+        } else if arg == "--color" {
+            iter.next().and_then(value)
+        } else {
+            None
+        };
+        if let Some(decision) = found {
+            result = decision;
+        }
+    }
+    result
 }
 
 #[cfg(test)]

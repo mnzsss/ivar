@@ -41,6 +41,10 @@ pub struct RepoStatusEntry {
 impl WriteHuman for StatusOutcome {
     fn write_human(&self, w: &mut impl io::Write) -> io::Result<()> {
         writeln!(w, "Hall at {} — {}", self.root, self.health)?;
+        if self.repos.is_empty() {
+            return Ok(());
+        }
+        let mut table = crate::infra::table::new(&["REPO", "CLONE", "WORKTREE"]);
         for repo in &self.repos {
             let bare = if repo.bare_cloned {
                 "cloned"
@@ -52,9 +56,9 @@ impl WriteHuman for StatusOutcome {
             } else {
                 "no worktree"
             };
-            writeln!(w, "  {}  {bare}  {worktree}", repo.name)?;
+            table.add_row(vec![repo.name.as_str(), bare, worktree]);
         }
-        Ok(())
+        crate::infra::table::write(w, &table)
     }
 }
 
