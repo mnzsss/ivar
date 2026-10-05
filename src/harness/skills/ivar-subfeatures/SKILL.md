@@ -157,8 +157,16 @@ Stop the child's session, then integrate it into the parent:
 
 ```bash
 ivar session stop <session-id>
-ivar feature integrate <child>
+ivar feature integrate <child> --name "<type>: <short message>"
 ```
+
+`--name` is the integration's title: the squash or merge commit on the
+parent's branch and, with `--via pr`, the PR title and merge subject. Write
+it like an `ivar-deliver` PR title — short, semantic, squash-ready,
+`<type>: <short message>` (for example `feat: add checkout tax` or
+`fix: handle empty cart`) — describing what the child's work does, from its
+`plan.md`. No Linear issue identifiers, no AI attribution. Omitted, it
+defaults to `feat: integrate <child>`.
 
 `integrate` refuses while the child has a session or an active run; a refusal
 names its fix command — run it, then integrate again. After each integration,
