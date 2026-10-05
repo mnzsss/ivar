@@ -558,7 +558,8 @@ fn reads_are_never_denied() {
     assert!(matches!(
         decide(
             &Resolution::Unresolved {
-                scratch_dirs: Vec::new()
+                scoped_scratch_dirs: Vec::new(),
+                live_count: 0,
             },
             &req,
             &targets
@@ -1444,6 +1445,96 @@ fn a_hall_root_write_from_no_session_cwd_resolves_to_a_live_session() {
 /// The exact call that started this feature: hall-root cwd, a target nowhere
 /// near a session. The old reason named no path at all.
 #[test]
+fn unresolved_denial_when_target_in_feature_with_live_session_lists_only_that_features_scratch() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root.clone());
+    let feature = Feature::read(&layout, &FeatureName::new("checkout").unwrap())
+        .unwrap()
+        .unwrap();
+
+    let feat_session_id = SessionId::new("6f0c9d5f-0000-4000-8000-000000000000").unwrap();
+    let feat_view = layout.feature_session(&feature.name, &feat_session_id);
+    crate::infra::fs::ensure_dir(&feat_view).unwrap();
+    let mut feat_state =
+        crate::domain::session::SessionState::new(Provider::Omp, "2026-08-29T00:00:00Z");
+    feat_state.bind(feature.name.clone(), "2026-08-29T00:00:00Z");
+    feat_state.write(&feat_view).unwrap();
+
+    let disc_session_id = SessionId::new("7a1d0e60-0000-4000-8000-000000000000").unwrap();
+    let disc_view = layout.discovery_session(&disc_session_id);
+    crate::infra::fs::ensure_dir(&disc_view).unwrap();
+    crate::domain::session::SessionState::new(Provider::Omp, "2026-08-30T00:00:00Z")
+        .write(&disc_view)
+        .unwrap();
+
+    // Target inside checkout feature directory
+    let target = layout.feature_dir(&feature.name).join("plan.md");
+    let scoped = vec![Layout::session_scratch(&feat_view)];
+    let req = ToolRequest {
+        tool: "write".into(),
+        targets: vec![target.clone()],
+        writes: true,
+        search_pattern: None,
+    };
+
+    let decision = decide(
+        &Resolution::Unresolved {
+            scoped_scratch_dirs: scoped,
+            live_count: 2,
+        },
+        &req,
+        std::slice::from_ref(&target),
+    );
+
+    match decision {
+        GuardDecision::Deny { reason } => {
+            assert!(
+                reason.contains("no ivar session resolves from the cwd or the target path"),
+                "reason missing first sentence: {reason}"
+            );
+            assert!(
+                reason.contains(Layout::session_scratch(&feat_view).as_str()),
+                "must list the matching feature session's scratch dir: {reason}"
+            );
+            assert!(
+                !reason.contains(Layout::session_scratch(&disc_view).as_str()),
+                "must NOT list unrelated discovery session scratch dir: {reason}"
+            );
+        }
+        GuardDecision::Allow => panic!("expected Deny, got Allow"),
+    }
+}
+
+#[test]
+fn feature_scratch_dirs_returns_only_matching_feature_scratches() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root.clone());
+    let feature = Feature::read(&layout, &FeatureName::new("checkout").unwrap())
+        .unwrap()
+        .unwrap();
+
+    let feat_session_id = SessionId::new("6f0c9d5f-0000-4000-8000-000000000000").unwrap();
+    let feat_view = layout.feature_session(&feature.name, &feat_session_id);
+    crate::infra::fs::ensure_dir(&feat_view).unwrap();
+    let mut feat_state =
+        crate::domain::session::SessionState::new(Provider::Omp, "2026-08-29T00:00:00Z");
+    feat_state.bind(feature.name.clone(), "2026-08-29T00:00:00Z");
+    feat_state.write(&feat_view).unwrap();
+
+    let disc_session_id = SessionId::new("7a1d0e60-0000-4000-8000-000000000000").unwrap();
+    let disc_view = layout.discovery_session(&disc_session_id);
+    crate::infra::fs::ensure_dir(&disc_view).unwrap();
+    crate::domain::session::SessionState::new(Provider::Omp, "2026-08-30T00:00:00Z")
+        .write(&disc_view)
+        .unwrap();
+
+    let target = layout.feature_dir(&feature.name).join("plan.md");
+    let scratches = feature_scratch_dirs(&layout, &target);
+    assert_eq!(scratches, vec![Layout::session_scratch(&feat_view)]);
+}
+
+/// Target outside every feature with 1 live session states count rather than listing scratch dir.
+#[test]
 fn an_unresolved_denial_names_the_only_live_sessions_scratch_dir() {
     let (_guard, root) = hall_with_promoted_feature();
     let layout = Layout::at(root.clone());
@@ -1473,15 +1564,13 @@ fn an_unresolved_denial_names_the_only_live_sessions_scratch_dir() {
         out.body
     );
     assert!(
-        out.body
-            .contains(Layout::session_scratch(&view_dir).as_str()),
-        "one live session means one named scratch dir: {}",
+        out.body.contains("; this hall has 1 live session"),
+        "target outside every feature states live session count: {}",
         out.body
     );
 }
 
-/// Two live sessions must be listed, never picked — naming one would send an
-/// agent into another session's view dir.
+/// Target outside every feature with multiple live sessions states count rather than listing all scratch dirs.
 #[test]
 fn an_unresolved_denial_lists_every_live_sessions_scratch_dir() {
     let (_guard, root) = hall_with_promoted_feature();
@@ -1514,23 +1603,21 @@ fn an_unresolved_denial_lists_every_live_sessions_scratch_dir() {
     let out = guard(Provider::Omp, &payload.to_string()).unwrap();
     assert!(!out.exit_zero);
     assert!(
-        out.body.contains(Layout::session_scratch(&first).as_str()),
-        "the feature session's scratch dir is missing: {}",
+        out.body
+            .contains("no ivar session resolves from the cwd or the target path"),
+        "{}",
         out.body
     );
     assert!(
-        out.body.contains(Layout::session_scratch(&second).as_str()),
-        "the discovery session's scratch dir is missing: {}",
+        out.body.contains("; this hall has 2 live sessions"),
+        "target outside every feature states live session count: {}",
         out.body
     );
 }
 
-/// With no live session there is no path to offer, and inventing one would be
-/// worse than saying so.
 #[test]
 fn an_unresolved_denial_with_no_live_session_names_no_path() {
     let (_guard, root) = hall_with_promoted_feature();
-
     let payload = serde_json::json!({
         "tool": "write",
         "args": { "filePath": "/etc/passwd" },
@@ -1540,14 +1627,8 @@ fn an_unresolved_denial_with_no_live_session_names_no_path() {
     let out = guard(Provider::Omp, &payload.to_string()).unwrap();
     assert!(!out.exit_zero);
     assert!(
-        out.body
-            .contains("no ivar session resolves from the cwd or the target path"),
+        out.body.contains("no ivar session resolves from the cwd or the target path; this hall has no live session"),
         "{}",
-        out.body
-    );
-    assert!(
-        !out.body.contains(crate::domain::session::SCRATCH_DIR),
-        "no live session means no scratch dir to name: {}",
         out.body
     );
 }

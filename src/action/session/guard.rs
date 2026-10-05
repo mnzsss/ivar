@@ -417,8 +417,13 @@ fn has_uri_scheme(s: &str) -> bool {
 /// never widen what may be written (N-NO-WIDEN).
 pub(crate) enum Resolution<'a> {
     Resolved(&'a WritableSet),
-    Unresolved { scratch_dirs: Vec<Utf8PathBuf> },
-    Ambiguous { features: Vec<String> },
+    Unresolved {
+        scoped_scratch_dirs: Vec<Utf8PathBuf>,
+        live_count: usize,
+    },
+    Ambiguous {
+        features: Vec<String>,
+    },
 }
 
 /// Decide whether a tool request is allowed inside the session.
@@ -483,8 +488,11 @@ pub(crate) fn decide(
                 GuardDecision::Allow
             }
         }
-        Resolution::Unresolved { scratch_dirs } => GuardDecision::Deny {
-            reason: unresolved_reason(scratch_dirs),
+        Resolution::Unresolved {
+            scoped_scratch_dirs,
+            live_count,
+        } => GuardDecision::Deny {
+            reason: unresolved_reason(scoped_scratch_dirs, *live_count),
         },
         Resolution::Ambiguous { features } => GuardDecision::Deny {
             reason: format!(
@@ -638,20 +646,66 @@ fn classify_layout_path_denial(
 
 /// The unresolved denial's reason. The first sentence is unchanged and
 /// load-bearing: five test assertions and two documents quote it.
-fn unresolved_reason(scratch_dirs: &[Utf8PathBuf]) -> String {
+fn unresolved_reason(scoped: &[Utf8PathBuf], live_count: usize) -> String {
     const SENTENCE: &str = "no ivar session resolves from the cwd or the target path";
-    match scratch_dirs {
-        [] => format!("{SENTENCE}; this hall has no live session"),
-        [only] => format!("{SENTENCE}; temporary files belong in {only}"),
-        many => format!(
-            "{SENTENCE}; temporary files belong in a live session's scratch dir: {}",
-            many.iter()
+    if !scoped.is_empty() {
+        format!(
+            "{SENTENCE}; temporary files belong in {}",
+            scoped
+                .iter()
                 .map(ToString::to_string)
                 .collect::<Vec<_>>()
                 .join(", ")
-        ),
+        )
+    } else {
+        match live_count {
+            0 => format!("{SENTENCE}; this hall has no live session"),
+            1 => format!("{SENTENCE}; this hall has 1 live session"),
+            n => format!("{SENTENCE}; this hall has {n} live sessions"),
+        }
     }
 }
+
+fn feature_scratch_dirs(layout: &Layout, target: &Utf8Path) -> Vec<Utf8PathBuf> {
+    let target = canonicalize_lenient(target);
+    let Ok(entries) = crate::infra::fs::read_dir(&layout.features_dir()) else {
+        return Vec::new();
+    };
+
+    for entry in entries {
+        let Some(name) = entry.file_name() else {
+            continue;
+        };
+        let Ok(feature_name) = crate::domain::name::FeatureName::new(name) else {
+            continue;
+        };
+        let Ok(Some(feature)) = Feature::read(layout, &feature_name) else {
+            continue;
+        };
+        let feature_dir = canonicalize_lenient(&layout.feature_dir(&feature_name));
+        let in_feature_dir = target.starts_with(&feature_dir);
+        let in_promoted_wt = feature.promotions.keys().any(|repo| {
+            let wt = canonicalize_lenient(&layout.repo_worktree(repo, &feature.branch));
+            target.starts_with(&wt)
+        });
+
+        if (in_feature_dir || in_promoted_wt)
+            && let Ok(sessions) = super::lookup::list_feature(layout, &feature_name)
+        {
+            let live_scratches: Vec<Utf8PathBuf> = sessions
+                .into_iter()
+                .filter(|s| s.state.is_some())
+                .map(|s| Layout::session_scratch(&s.view_dir))
+                .collect();
+            if !live_scratches.is_empty() {
+                return live_scratches;
+            }
+        }
+    }
+
+    Vec::new()
+}
+
 fn relative_no_session_reason(relative_path: &Utf8Path, cwd: Option<&Utf8Path>) -> String {
     match cwd {
         Some(cwd) => format!(
@@ -661,27 +715,6 @@ fn relative_no_session_reason(relative_path: &Utf8Path, cwd: Option<&Utf8Path>) 
             "relative path `{relative_path}` was resolved without a cwd, which belongs to no ivar session; use an absolute path inside your session's worktree or view dir"
         ),
     }
-}
-
-/// Every live session's scratch dir, for the unresolved message.
-///
-/// Called only after both resolution attempts have failed, so an allowed
-/// write never pays for this walk (N-ALLOW-PATH-COST).
-fn live_scratch_dirs(from: Option<&Utf8Path>) -> Vec<Utf8PathBuf> {
-    let Some(from) = from else {
-        return Vec::new();
-    };
-    let Ok(Some(layout)) = Layout::discover(from) else {
-        return Vec::new();
-    };
-    let Ok(sessions) = super::lookup::list_all(&layout) else {
-        return Vec::new();
-    };
-    sessions
-        .into_iter()
-        .filter(|session| session.state.is_some())
-        .map(|session| Layout::session_scratch(&session.view_dir))
-        .collect()
 }
 
 /// Resolve the target path for a tool request: absolute paths are leniently
@@ -929,9 +962,30 @@ pub fn guard(provider: Provider, stdin_json: &str) -> Result<GuardOutcome, Failu
     let resolution = match (&set, ambiguous_features) {
         (Some(set), _) => Resolution::Resolved(set),
         (None, Some(features)) => Resolution::Ambiguous { features },
-        (None, None) => Resolution::Unresolved {
-            scratch_dirs: live_scratch_dirs(cwd.as_deref()),
-        },
+        (None, None) => {
+            let (scoped, live_count) = match cwd
+                .as_deref()
+                .and_then(|c| Layout::discover(c).ok().flatten())
+            {
+                Some(layout) => {
+                    let live = super::lookup::list_all(&layout)
+                        .unwrap_or_default()
+                        .into_iter()
+                        .filter(|s| s.state.is_some())
+                        .count();
+                    let scoped = targets
+                        .first()
+                        .map(|t| feature_scratch_dirs(&layout, t))
+                        .unwrap_or_default();
+                    (scoped, live)
+                }
+                None => (Vec::new(), 0),
+            };
+            Resolution::Unresolved {
+                scoped_scratch_dirs: scoped,
+                live_count,
+            }
+        }
     };
 
     let decision = if let Some(reason) = relative_denial {
