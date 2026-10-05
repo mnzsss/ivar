@@ -590,6 +590,175 @@ fn a_head_movement_after_the_pr_blocks_the_merge_with_match_head_commit() {
         "was: {rerun}"
     );
 }
+/// The `title` field (8th) of every fake PR record. `filter_map` is
+/// load-bearing: the fake's `pr edit` rewrite leaves a blank line in the
+/// state file, which has no 8th field.
+fn pr_titles(fake: &FakeGh) -> Vec<String> {
+    std::fs::read_to_string(&fake.state)
+        .unwrap()
+        .lines()
+        .filter_map(|line| line.split('|').nth(7).map(str::to_owned))
+        .collect()
+}
+
+/// The subject of `branch`'s tip in the local origin the fake merges into.
+fn origin_subject(root: &Utf8Path, branch: &str) -> String {
+    let origin = root.parent().unwrap().join("origins/api");
+    let output = std::process::Command::new("git")
+        .args(["-C", origin.as_str(), "log", "-1", "--format=%s", branch])
+        .output()
+        .unwrap();
+    String::from_utf8_lossy(&output.stdout).trim().to_owned()
+}
+
+#[test]
+fn a_pr_integration_titles_the_pr_and_the_squash_with_the_name() {
+    let (_guard, root, fake) = github_hall(&["true"]);
+
+    let value = json_gh_output(
+        &root,
+        &fake,
+        &[
+            "feature",
+            "integrate",
+            "child",
+            "--via",
+            "pr",
+            "--strategy",
+            "squash",
+            "--name",
+            "feat: add checkout tax",
+        ],
+    );
+
+    assert_eq!(value["repos"][0]["status"], "integrated");
+    assert_eq!(pr_titles(&fake), ["feat: add checkout tax"]);
+    assert_eq!(origin_subject(&root, "parent"), "feat: add checkout tax");
+
+    // A rerun reuses the receipt: no new commit, no PR edit.
+    let rerun = json_gh_output(
+        &root,
+        &fake,
+        &[
+            "feature",
+            "integrate",
+            "child",
+            "--via",
+            "pr",
+            "--name",
+            "fix: other title",
+        ],
+    );
+    assert_eq!(rerun["repos"][0]["status"], "reused");
+    assert!(
+        !fake.log().lines().any(|line| line.starts_with("pr edit")),
+        "{}",
+        fake.log()
+    );
+    assert_eq!(pr_titles(&fake), ["feat: add checkout tax"]);
+    assert_eq!(origin_subject(&root, "parent"), "feat: add checkout tax");
+}
+
+#[test]
+fn without_a_name_the_pr_is_titled_with_the_semantic_default() {
+    let (_guard, root, fake) = github_hall(&["true"]);
+
+    let value = json_gh_output(
+        &root,
+        &fake,
+        &[
+            "feature",
+            "integrate",
+            "child",
+            "--via",
+            "pr",
+            "--strategy",
+            "merge",
+        ],
+    );
+
+    assert_eq!(value["repos"][0]["status"], "integrated");
+    assert_eq!(pr_titles(&fake), ["feat: integrate child"]);
+    assert_eq!(origin_subject(&root, "parent"), "feat: integrate child");
+}
+
+#[test]
+fn a_reused_pr_is_retitled_to_the_new_name() {
+    let (_guard, root, fake) = github_hall(&["true"]);
+    // First run: a pending required check opens the PR and stops before
+    // the merge — no receipt, so the next run reuses the open PR.
+    let url = "https://github.com/acme/pull/1";
+    fake.set_check(url, "ci", "pending", "pending");
+    let first = json_gh_output(
+        &root,
+        &fake,
+        &[
+            "feature",
+            "integrate",
+            "child",
+            "--via",
+            "pr",
+            "--name",
+            "feat: first title",
+        ],
+    );
+    assert_eq!(first["repos"][0]["status"], "pending");
+    assert_eq!(pr_titles(&fake), ["feat: first title"]);
+
+    fake.set_check(url, "ci", "pass", "completed");
+    let second = json_gh_output(
+        &root,
+        &fake,
+        &[
+            "feature",
+            "integrate",
+            "child",
+            "--via",
+            "pr",
+            "--name",
+            "fix: second title",
+        ],
+    );
+
+    assert_eq!(second["repos"][0]["status"], "integrated");
+    assert_eq!(pr_titles(&fake), ["fix: second title"]);
+    assert_eq!(origin_subject(&root, "parent"), "fix: second title");
+}
+
+#[test]
+fn a_rebase_pr_integration_passes_no_merge_subject() {
+    let (_guard, root, fake) = github_hall(&["true"]);
+
+    let value = json_gh_output(
+        &root,
+        &fake,
+        &[
+            "feature",
+            "integrate",
+            "child",
+            "--via",
+            "pr",
+            "--strategy",
+            "rebase",
+            "--name",
+            "feat: add checkout tax",
+        ],
+    );
+
+    assert_eq!(value["repos"][0]["status"], "integrated");
+    assert_eq!(
+        origin_subject(&root, "parent"),
+        "child work",
+        "rebase keeps the child's commit"
+    );
+    let log = fake.log();
+    let merge = log
+        .lines()
+        .find(|line| line.starts_with("pr merge"))
+        .unwrap_or_else(|| panic!("no pr merge in {log}"));
+    assert!(!merge.contains("--subject"), "{merge}");
+    assert_eq!(pr_titles(&fake), ["feat: add checkout tax"]);
+}
 
 /// `ivar` on the fake gh, accepting exit 0 or 1 (the close warning).
 fn json_gh_output(root: &Utf8Path, fake: &FakeGh, args: &[&str]) -> serde_json::Value {
