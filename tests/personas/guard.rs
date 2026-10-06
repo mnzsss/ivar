@@ -190,3 +190,35 @@ fn omp_write_xd_ast_edit_targeting_unpromoted_file_denies_and_lsp_hover_allows()
         "xd://lsp hover is read-only and allowed"
     );
 }
+
+#[test]
+fn the_guard_hook_denies_writes_to_feedback_directory() {
+    let (_guard, root) = hall_root();
+    one_repo_hall(&root);
+    let view = root.join(".ivar/sessions/6f0c9d5f-0000-4000-8000-000000000040");
+    std::fs::create_dir_all(&view).unwrap();
+    std::fs::write(
+        view.join("state.json"),
+        r#"{"version":1,"provider":"claude-code","started_at":"2026-10-02T00:00:00Z"}"#,
+    )
+    .unwrap();
+
+    let payload = serde_json::json!({
+        "tool_name": "Write",
+        "tool_input": { "file_path": root.join(".ivar/feedback/001-bug.md") },
+        "cwd": view,
+    });
+    let output = isolated_ivar(&home(&root))
+        .current_dir(&root)
+        .args(["guard", "--provider", "claude-code"])
+        .write_stdin(payload.to_string())
+        .output()
+        .unwrap();
+    let body: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(
+        body["hookSpecificOutput"]["permissionDecision"]
+            .as_str()
+            .unwrap(),
+        "deny"
+    );
+}

@@ -13,7 +13,11 @@
 //! flag that nothing forwards is a compile error rather than help text for
 //! a no-op. See ARCHITECTURE.md, seam 8.
 
+pub mod feedback;
 pub mod graph;
 pub mod root;
 
+pub use feedback::{
+    FeedbackAddArgs, FeedbackArgs, FeedbackCommand, FeedbackListArgs, FeedbackShowArgs,
+};
 pub use graph::{GraphArgs, GraphCommand};

@@ -28,6 +28,7 @@ use crate::action::feature::{
     cleanup, close, create, delete, deliver, demote, integrate, list as feature_list, promote,
     prune as feature_prune, rebase, rename, reparent, status, view, workspace,
 };
+use crate::action::feedback as feedback_action;
 use crate::action::hall;
 use crate::action::mcp::auth as mcp_auth;
 use crate::action::mcp::status as mcp_status;
@@ -57,6 +58,7 @@ use crate::action::sync;
 use crate::action::upgrade::Notice;
 use crate::action::upgrade::command as upgrade_cmd;
 use crate::app::respond::{current_dir, respond, respond_batch, respond_failure};
+use crate::cli::FeedbackCommand;
 use crate::cli::root::{
     Cli, Command, CommentCommand, DiscoveryCommand, ExecuteCommand, FeatureCommand, McpCommand,
     PlanCommand, ProviderCommand, RepoCommand, ReviewCommand, SessionCommand, SkillCommand,
@@ -940,6 +942,77 @@ pub fn run(cli: Cli) -> ExitCode {
             SkillCommand::Doctor => {
                 respond(skill_doctor::doctor(&ctx), json, &mut stdout, &mut stderr)
             }
+        },
+        Command::Feedback(cmd) => match cmd {
+            FeedbackCommand::Add(add_args) => {
+                let kind = match add_args.kind.as_str() {
+                    "proposal" => crate::domain::feedback::FeedbackKind::Proposal,
+                    _ => crate::domain::feedback::FeedbackKind::Bug,
+                };
+                let content_res = match add_args.file.as_deref() {
+                    Some("-") => {
+                        use std::io::Read;
+                        let mut buf = String::new();
+                        std::io::stdin()
+                            .read_to_string(&mut buf)
+                            .map(|_| Some(buf))
+                            .map_err(|e| {
+                                crate::error::Failure::failed(
+                                    "stdin.read_failed",
+                                    format!("failed to read stdin: {e}"),
+                                )
+                            })
+                    }
+                    Some(path) => {
+                        let p = Utf8PathBuf::from(path);
+                        match crate::infra::fs::read_text(&p) {
+                            Ok(Some(text)) => Ok(Some(text)),
+                            Ok(None) => Err(crate::error::Failure::blocked(
+                                "feedback.file_not_found",
+                                format!("file `{p}` not found"),
+                            )),
+                            Err(err) => Err(err.into()),
+                        }
+                    }
+                    None => Ok(None),
+                };
+                let result = content_res.and_then(|body| {
+                    feedback_action::add::add(
+                        &ctx,
+                        feedback_action::add::AddInput {
+                            title: add_args.title,
+                            kind,
+                            body,
+                        },
+                    )
+                });
+                respond(result, json, &mut stdout, &mut stderr)
+            }
+            FeedbackCommand::List(list_args) => {
+                let status = list_args.status.as_deref().and_then(|s| match s {
+                    "open" => Some(crate::domain::feedback::FeedbackStatus::Open),
+                    "published" => Some(crate::domain::feedback::FeedbackStatus::Published),
+                    _ => None,
+                });
+                respond(
+                    feedback_action::list::list(&ctx, feedback_action::list::ListInput { status }),
+                    json,
+                    &mut stdout,
+                    &mut stderr,
+                )
+            }
+            FeedbackCommand::Show(show_args) => respond(
+                feedback_action::show::show(
+                    &ctx,
+                    feedback_action::show::ShowInput {
+                        id: show_args.id,
+                        redacted: show_args.redacted,
+                    },
+                ),
+                json,
+                &mut stdout,
+                &mut stderr,
+            ),
         },
         Command::Guard(args) => {
             let input = match session_guard_cmd::GuardInput::try_from(args) {

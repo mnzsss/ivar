@@ -116,6 +116,9 @@ pub enum Command {
     /// Query and index the codebase dependency graph.
     #[command(subcommand)]
     Graph(super::graph::GraphCommand),
+    /// Record bugs, proposals, and submit issues.
+    #[command(subcommand)]
+    Feedback(super::feedback::FeedbackCommand),
     /// Guard: evaluate a tool request against the session's writable set.
     Guard(GuardArgs),
     /// Upgrade ivar through the channel that installed it.

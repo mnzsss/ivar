@@ -108,6 +108,22 @@ fn writable_set_is_view_dir_plus_promoted_worktrees_plus_feature_dir() {
 
     assert!(!set.allows(&layout.state()));
 }
+#[test]
+fn guard_denies_session_writes_to_feedback_dir() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root.clone());
+    let feature = Feature::read(&layout, &FeatureName::new("checkout").unwrap())
+        .unwrap()
+        .unwrap();
+    let session_id = SessionId::new("6f0c9d5f-0000-4000-8000-000000000000").unwrap();
+    let view_dir = layout.feature_session(&feature.name, &session_id);
+    crate::infra::fs::ensure_dir(&view_dir).unwrap();
+
+    let set = WritableSet::from_session(&layout, &feature, &view_dir).unwrap();
+
+    let feedback_file = layout.feedback_doc("001-bug");
+    assert!(!set.allows(&feedback_file));
+}
 
 #[test]
 fn discovery_session_writable_set_does_not_include_any_feature_dir() {

@@ -143,6 +143,8 @@ pub fn create(
 ///
 /// Returns [`Failure`] on serialization or atomic write failure.
 pub fn write(layout: &Layout, entry: &FeedbackEntry) -> Result<(), Failure> {
+    let dir = layout.feedback_dir();
+    fs::ensure_dir(&dir)?;
     let content = render(entry)?;
     let doc_path = layout.feedback_doc(&entry.id);
     fs::write_atomic(&doc_path, content.as_bytes()).map_err(Into::into)

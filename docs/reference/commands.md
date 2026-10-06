@@ -1110,6 +1110,44 @@ List recorded graph misses (skipped/follow-up searches, feedback)
 | `--limit` | `<LIMIT>` | `10` | Maximum number of misses to display (0 for unlimited) |
 
 
+#### `ivar feedback`
+
+Record bugs, proposals, and submit issues
+
+
+##### `ivar feedback add`
+
+Add a new feedback entry (bug or proposal)
+
+| flag | value | default | description |
+| --- | --- | --- | --- |
+| `--title` | `<TITLE>` |  | Title of the feedback entry |
+| `--kind` | `<KIND>` | `bug` | Kind of feedback (bug or proposal) |
+| `--file` | `<FILE>` |  | File containing feedback description, or - for stdin |
+
+
+##### `ivar feedback list`
+
+List recorded feedback entries
+
+| flag | value | default | description |
+| --- | --- | --- | --- |
+| `--status` | `<STATUS>` |  | Filter by status: open or published |
+
+
+##### `ivar feedback show`
+
+Show details and body of a feedback entry
+
+| argument | required | description |
+| --- | --- | --- |
+| `id` | yes | Feedback entry ID (e.g. 001-my-bug) |
+
+| flag | value | default | description |
+| --- | --- | --- | --- |
+| `--redacted` |  |  | Redact local paths, usernames, and hostnames in displayed output |
+
+
 #### `ivar guard`
 
 Guard: evaluate a tool request against the session's writable set
