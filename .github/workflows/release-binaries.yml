@@ -11,7 +11,7 @@ name: release binaries
 # and runs `sha256sum -c` against the second — so the assets are bare binaries
 # named for the platform, not archives named for the Rust target triple, and
 # the sidecar names `ivar` rather than the asset it sits beside. Changing any
-# of that breaks `curl -fsSL ivar.run/install | sh` silently, and takes
+# of that breaks `curl -fsSL https://ivar.run/install | sh` silently, and takes
 # packaging/aur/PKGBUILD-bin with it.
 #
 # Two entry points, and both take the tag explicitly rather than reading
@@ -331,7 +331,7 @@ jobs:
             echo
             echo '```sh'
             echo '# macOS and Linux. Verifies the SHA-256 before anything becomes executable.'
-            echo 'curl -fsSL ivar.run/install | sh'
+            echo 'curl -fsSL https://ivar.run/install | sh'
             echo
             echo '# Arch Linux'
             echo 'yay -S ivar-bin    # the prebuilt binary attached below'

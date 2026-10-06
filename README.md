@@ -7,7 +7,7 @@
 **Multi-repo worktrees for coding agents.** One feature across repos, as one unit: one branch, one plan, one pull request per repo, inside the Claude Code, OpenCode or OMP session you already use.
 
 ```sh
-curl -fsSL ivar.run/install | sh
+curl -fsSL https://ivar.run/install | sh
 ```
 
 Add an `avatarUrl` field to the user profile: the agent describes it in `shared-types`, returns it from `api` and renders it in `web`, with all three mounted as real git worktrees on the `avatar-url` branch. Repos you haven't promoted are guarded (kernel-enforced on Linux; see [Limitations](docs/reference/limitations.md)).
@@ -65,7 +65,7 @@ Read the detailed, candid comparison: [Why not just `git worktree`?](docs/why-no
 ## Install
 
 ```sh
-curl -fsSL ivar.run/install | sh
+curl -fsSL https://ivar.run/install | sh
 ```
 
 The installer defaults to zero telemetry, and the installed `ivar` binary never
@@ -75,7 +75,7 @@ per 20 hours it asks GitHub for the latest release tag, sending nothing but a
 count successful installations:
 
 ```sh
-curl -fsSL ivar.run/install | IVAR_INSTALL_ANALYTICS=1 sh
+curl -fsSL https://ivar.run/install | IVAR_INSTALL_ANALYTICS=1 sh
 ```
 
 Prefer to build from source?

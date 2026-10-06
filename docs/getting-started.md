@@ -19,7 +19,7 @@ takes about three minutes, and both paths below assume them.
 ## Before either path: install
 
 ```sh
-curl -fsSL ivar.run/install | sh
+curl -fsSL https://ivar.run/install | sh
 ```
 
 The script detects your platform, verifies the download's SHA-256 before making
@@ -37,7 +37,7 @@ release at most once per 20 hours and says so in one line on stderr — run
 successful installations, you can explicitly opt in:
 
 ```sh
-curl -fsSL ivar.run/install | IVAR_INSTALL_ANALYTICS=1 sh
+curl -fsSL https://ivar.run/install | IVAR_INSTALL_ANALYTICS=1 sh
 ```
 
 This sends a single anonymous install success event after the binary has been
