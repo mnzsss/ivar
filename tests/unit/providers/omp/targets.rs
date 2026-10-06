@@ -216,3 +216,63 @@ fn extract_xd_ast_edit_handles_root_globs_and_dotdot_escape() {
     assert!(extracted_src.writes);
     assert_eq!(extracted_src.targets, vec![Utf8PathBuf::from("src")]);
 }
+
+#[test]
+fn extract_hashline_takes_untagged_headers_and_mv_lexed_like_omp() {
+    let input = serde_json::json!({
+        "input": "[src/a.rs#ABCD]\nPUT 1:\n+x\n[other/b.rs]\nPUT 1:\n+y\n[src/c.rs#abcd]\n  MV\t'moved/c.rs'\n[src/d.rs#0000]\nMV \"moved/d.rs\"\n"
+    });
+    let extracted = extract("edit", &input);
+    assert!(extracted.writes);
+    assert_eq!(
+        extracted.targets,
+        vec![
+            Utf8PathBuf::from("src/a.rs"),
+            Utf8PathBuf::from("other/b.rs"),
+            Utf8PathBuf::from("src/c.rs"),
+            Utf8PathBuf::from("moved/c.rs"),
+            Utf8PathBuf::from("src/d.rs"),
+            Utf8PathBuf::from("moved/d.rs"),
+        ]
+    );
+}
+
+#[test]
+fn extract_routes_xd_devices_case_insensitively_and_trimmed() {
+    let content = serde_json::json!({"ops": [], "paths": ["/outside/x.rs"]}).to_string();
+    for path in ["XD://ast_edit", " xd://AST_EDIT ", "Xd://ast_edit"] {
+        let extracted = extract(
+            "write",
+            &serde_json::json!({"path": path, "content": content}),
+        );
+        assert!(extracted.writes, "{path}");
+        assert_eq!(
+            extracted.targets,
+            vec![Utf8PathBuf::from("/outside/x.rs")],
+            "{path}"
+        );
+    }
+    let lsp = serde_json::json!({"action": "rename", "file": "/outside/y.rs", "new_name": "z"})
+        .to_string();
+    let extracted = extract(
+        "write",
+        &serde_json::json!({"path": "XD://LSP", "content": lsp}),
+    );
+    assert!(extracted.writes);
+    assert_eq!(extracted.targets, vec![Utf8PathBuf::from("/outside/y.rs")]);
+}
+
+#[test]
+fn extract_lsp_treats_action_case_variants_and_non_bool_apply_as_mutating() {
+    let upper = serde_json::json!({"action": "RENAME", "file": "/outside/y.rs", "new_name": "z"});
+    assert!(extract("lsp", &upper).writes);
+
+    let string_apply =
+        serde_json::json!({"action": "code_actions", "file": "/outside/y.rs", "apply": "true"});
+    let extracted = extract("lsp", &string_apply);
+    assert!(extracted.writes);
+    assert_eq!(extracted.targets, vec![Utf8PathBuf::from("/outside/y.rs")]);
+
+    let preview = serde_json::json!({"action": "rename", "file": "/outside/y.rs", "new_name": "z", "apply": false});
+    assert!(!extract("lsp", &preview).writes);
+}
