@@ -6,7 +6,7 @@
 //! A **Hall** owns N **Repos** as bare clones. A **Feature** is one branch across
 //! the repos it has **Promoted**. A **Session** materialises a **View Dir** of
 //! symlinks into exactly those worktrees and opens a harness in it. Repos the
-//! feature has not promoted are held read-only by the kernel.
+//! feature has not promoted are guarded read-only.
 //!
 //! Two properties constrain every module here.
 //!
@@ -15,9 +15,9 @@
 //! loses the conversation and nothing else. So no state may exist only in a
 //! running process, and no verb may require a live session to be useful.
 //!
-//! **Read-only is a filesystem guarantee, not a harness one.** Non-promoted
-//! worktrees have their write bits cleared. Harness hooks are the *error message*
-//! that names the way out, never the barrier.
+//! **Read-only is enforced below the harness where the platform allows it.** On
+//! Linux with Landlock, the kernel refuses writes to non-promoted worktrees for an
+//! agent launched by `ivar session start`. Harness hooks are never the barrier.
 //!
 //! # Layering
 //!

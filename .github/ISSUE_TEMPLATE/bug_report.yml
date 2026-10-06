@@ -55,7 +55,7 @@ body:
     id: os
     attributes:
       label: OS
-      description: Windows is not supported — the view dir is built from symlinks. Use WSL, which reports as Linux.
+      description: Windows is not supported — the view dir is built from symlinks. WSL is untested.
       options:
         - macOS (Apple Silicon)
         - macOS (Intel)

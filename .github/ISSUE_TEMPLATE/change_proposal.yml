@@ -47,9 +47,9 @@ body:
     attributes:
       label: Scope check
       description: >
-        `ivar` is local-only and never talks to a server. That line is
-        architectural, not commercial — a change that adds a network call will
-        be declined on that basis however good it is.
+        `ivar` is local-only: there is no ivar server and no account. That line
+        is architectural, not commercial — a change that needs a hosted service
+        will be declined on that basis however good it is.
       options:
         - label: This does not require a hosted service, an account, or a network call.
           required: true

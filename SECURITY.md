@@ -26,10 +26,11 @@ nothing is backported.
 
 ## What `ivar` is, for threat-modelling purposes
 
-`ivar` is a local CLI. It has **no server, no account, no index and no
-telemetry** — not even opt-in. That is architectural and you can check it: there
-is no network client in this repo other than `ureq`, which talks to the GitHub
-API and to nothing else. So there is no hosted surface to attack, and no
+`ivar` is a local CLI. There is **no ivar server, no account, and no telemetry
+in the binary**; the installer sends one opt-in event only when
+`IVAR_INSTALL_ANALYTICS=1` is set. The binary's network calls go to GitHub (the
+update check, `git`/`gh` with your credentials, external skills) and to the
+OAuth endpoints of MCP servers a hall declares. So there is no hosted surface to attack, and no
 infrastructure disclosure to coordinate with. Everything below is on the machine
 that runs the binary.
 
