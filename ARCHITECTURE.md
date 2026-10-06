@@ -9,7 +9,7 @@ dependency was chosen, see [ADR-0001](docs/adr/0001-stack-and-tooling.md).
 **Repos** as bare clones; a **Feature** is one branch across the repos it has
 **Promoted**; a **Session** materialises a **View Dir** of symlinks into exactly
 those worktrees and opens a harness in it. The repos a feature has not promoted
-have their worktree root held read-only by the kernel.
+are guarded read-only, kernel-enforced on Linux.
 
 Two properties fall out of that and constrain every module below.
 
@@ -18,11 +18,16 @@ view dir and plan are files on disk and commits in git. A session dying loses th
 conversation and nothing else. So: no state may exist only in a running process,
 and no verb may require a live session to be useful.
 
-**Read-only is a filesystem guarantee, not a harness one.** Non-promoted worktrees
+**Read-only is enforced below the harness, not by it.** Non-promoted worktrees
 have their write bits cleared (`mode & ~0o222`) on the worktree root — one path,
 never the tree below it, for a reason `docs/reference/limitations.md` spells out.
-Harness hooks are the *error message* that names the way out — `ivar feature promote` — never the barrier. So:
-supporting a new harness is never blocked on whether it exposes a pre-tool hook.
+On Linux with Landlock, an agent launched by `ivar session start` with a TTY runs
+in a sandbox where the kernel refuses writes outside the promoted repos; on macOS,
+on kernels without Landlock and under `ivar session connect` there is no such
+sandbox, and `docs/reference/limitations.md` lists those cases. Harness hooks are
+the *error message* that names the way out — `ivar feature promote` — never the
+barrier. So: supporting a new harness is never blocked on whether it exposes a
+pre-tool hook.
 
 ## Module map
 
@@ -865,5 +870,4 @@ legal).
   shared. The mechanism offered instead is the setup script hook plus a documented
   recipe, and the limitation is named on a page users find before they hit it.
 - **No Windows.** The view dir is built entirely from symlinks, which need
-  Developer Mode or admin rights. The answer is WSL, which consumes the Linux
-  build unchanged.
+  Developer Mode or admin rights. WSL is untested.
