@@ -4,12 +4,20 @@
   <img src="docs/assets/readme-banner.webp" alt="A stylized Viking longship crossing a Nordic fjord between mountains" width="1200">
 </p>
 
-**Coordinate one feature across existing repositories without changing their topology. `ivar` gives it one working directory.**
+**Multi-repo worktrees for coding agents.** One feature across repos, as one unit: one branch, one plan, one pull request per repo, inside the Claude Code, OpenCode or OMP session you already use.
 
-A billing-currency change can touch an API contract in `api`, the generated
-client in `web`, and shared types in a third repository. It is one architectural
-change; Git sees several repositories. `ivar` keeps the repositories independent
-while making that change explicit, safe to scope, and straightforward to resume.
+```sh
+curl -fsSL ivar.run/install | sh
+```
+
+Add an `avatarUrl` field to the user profile: the agent describes it in `shared-types`, returns it from `api` and renders it in `web`, with all three mounted as real git worktrees on the `avatar-url` branch. Repos you haven't promoted are guarded (kernel-enforced on Linux; see [Limitations](docs/reference/limitations.md)).
+
+- **Your harness:** Claude Code, OpenCode or OMP, with MCP servers declared once in `ivar.json`.
+- **Plan first:** `/ivar-plan` stops for your approval after requirements, analysis and plan.
+- **Code graph:** one local SQLite graph of every repo. In a two-repo benchmark, discovery took a median 460k tokens instead of 738k.
+- **On your disk:** single Rust binary, Apache-2.0, no account, macOS and Linux. Pull requests go through `gh`.
+
+[Quickstart](https://ivar.run/docs/quickstart) · [Docs](https://ivar.run/docs) · [Why not just git worktree?](docs/why-not-worktree.md)
 
 ## The model
 
@@ -20,36 +28,26 @@ while making that change explicit, safe to scope, and straightforward to resume.
 2. **Feature** — one branch name shared by the repositories participating in one
    change.
 3. **Promotion** — the explicit decision to make a repository writable on that
-   feature. Everything else remains read-only at the filesystem level.
+   feature. Everything else stays guarded read-only (kernel-enforced on Linux).
 4. **Session** — a view directory opened for you or an agent.
 5. **View Dir** — symlinks to the right real worktrees: feature worktrees for
    promoted repositories and guarded default-branch worktrees for the rest.
 
 ```text
 Hall
-  api ── promoted ──► billing-currency worktree (writable)
-  web ── promoted ──► billing-currency worktree (writable)
-  shared ───────────► main worktree             (read-only)
-                     │
-                     ▼
-          Session / View Dir
-            api · web · shared · plans
+  api ────────── promoted ──► avatar-url worktree (writable)
+  web ────────── promoted ──► avatar-url worktree (writable)
+  shared-types ─ promoted ──► avatar-url worktree (writable)
+  infra ────────────────────► main worktree       (read-only)
+                             │
+                             ▼
+                  Session / View Dir
+         api · web · shared-types · infra · plans
 ```
 
-From the view dir, an agent can change the API contract, regenerate the web
-client, and update shared types in one session. The plan, branches, and
+From the view dir, one agent session describes the field in `shared-types`,
+returns it from `api` and renders it in `web`. The plan, branches, and
 worktrees remain on disk when the conversation ends.
-
-## Why not move to a monorepo?
-
-A monorepo is a good choice when ownership, access, releases, and tooling belong
-together. `ivar` does not ask you to change that repository topology when the
-repositories need to stay separate.
-
-It coordinates the existing repositories around a feature instead: one branch
-per promoted repository, one view directory, and an explicit writable boundary.
-The cross-repository change is coherent without pretending the repositories are
-one repository.
 
 ## Why not just `git worktree`?
 
@@ -116,20 +114,34 @@ walks through both paths.
 
 ## Local by architecture
 
-**`ivar` is local-only. It never talks to a server.** It does not run your code,
-watch your files, index your repositories, or keep a daemon. It arranges local
-directories, worktrees, and provider configuration, then gets out of the way.
+**`ivar` is local-only: there is no ivar server, no account, and no analytics in
+the binary.** It does not run your code or keep a system daemon. It arranges
+local directories, worktrees, and provider configuration, and keeps a local
+SQLite code graph of your repositories that never leaves the machine.
 
-The one exception is the update check described above; `ivar upgrade` then
-updates `ivar` through whichever channel installed it.
-It uses your existing GitHub credentials only when it must clone a repository or
-open a pull request as you. Read [Concepts](docs/concepts.md) and
-[Limitations](docs/reference/limitations.md) for the exact boundaries.
+The binary makes network requests in four cases, none of them to an ivar server:
+
+- the update check described above;
+- `git` and `gh`, with your own credentials, to clone repositories and open pull requests;
+- OAuth with the MCP servers your hall declares (`ivar mcp auth`);
+- the GitHub API, to fetch external skills.
+
+`ivar upgrade` updates `ivar` through whichever channel installed it. Read
+[Concepts](docs/concepts.md) and [Limitations](docs/reference/limitations.md)
+for the exact boundaries.
+
+## MCP server
+
+`ivar graph mcp` serves the hall's code graph to your harness over MCP, with the
+`graph_explore` and `graph_feedback` tools. It runs inside an ivar hall; start it
+with `ivar graph mcp` from the hall root.
+
+mcp-name: io.github.mnzsss/ivar
 
 ## Support
 
 **macOS and Linux.** Windows is not supported because a view dir is built from
-symlinks. Use WSL for the Linux build.
+symlinks. WSL is untested.
 
 Supported agent harness providers: **Claude Code**, **OpenCode**, and **OMP** (Oh My Pi).
 
@@ -162,4 +174,4 @@ terms or conditions.
 
 ---
 
-<sub>single Rust binary · no runtime · no account, no index, no server</sub>
+<sub>single Rust binary · no runtime · no account · no ivar server</sub>
