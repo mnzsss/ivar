@@ -86,6 +86,7 @@ jobs:
           PROJECT_ID: ${{ secrets.MODEL_PROJECT_ID }}
           MODEL: ${{ vars.TRIAGE_MODEL }}
         run: |
+          # shellcheck disable=SC2016 # ${...} below is a JavaScript template literal
           node --input-type=module -e '
             import { DatabaseSync } from "node:sqlite";
             const { DATA_DIR, REFRESH_TOKEN, PROJECT_ID, MODEL } = process.env;
