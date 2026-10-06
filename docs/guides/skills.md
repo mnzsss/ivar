@@ -126,7 +126,7 @@ the sharing.
 
 ## Shipped skills and workflow commands
 
-Alongside hall skills, `ivar` ships built-in **shipped skills** (`ivar-plan`, `ivar-execute`, `ivar-deliver`, and `ivar-subfeatures`) and **workflow commands** (such as `/ivar-sync` and other official workflows).
+Alongside hall skills, `ivar` ships built-in **shipped skills** (`ivar-plan`, `ivar-execute`, `ivar-deliver`, `ivar-subfeatures`, and `ivar-feedback`) and **workflow commands** (such as `/ivar-sync` and other official workflows).
 
 `ivar-execute` is distributed as an official shipped skill rather than a prompt command because complex wave execution, subagent dispatch, review barriers, and delivery gates require rich skill instructions and isolation.
 
