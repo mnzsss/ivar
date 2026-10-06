@@ -83,6 +83,11 @@ const SKILLS: &[ShippedSkill] = &[
         legacy_sha256: None,
     },
     ShippedSkill {
+        id: "feedback",
+        files: &[skill_file!("ivar-feedback", "SKILL.md")],
+        legacy_sha256: None,
+    },
+    ShippedSkill {
         id: "plan",
         files: &[
             skill_file!("ivar-plan", "SKILL.md"),
