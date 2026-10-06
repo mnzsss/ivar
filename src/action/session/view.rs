@@ -81,8 +81,8 @@ pub(crate) struct MaterialiseReport {
 ///
 /// For a **feature session** (`feature: Some`), a promoted repo is symlinked
 /// to its feature worktree (writable); every other repo is symlinked to its
-/// default-branch worktree and that worktree is held read-only by the kernel
-/// (write bits cleared). For a **discovery session** (`feature: None`), every
+/// default-branch worktree, guarded read-only (write bits cleared on its root;
+/// kernel-enforced under the Linux sandbox). For a **discovery session** (`feature: None`), every
 /// repo is a read-only default-branch worktree.
 ///
 /// `provider` is the session's own provider — what the session actually runs
@@ -128,7 +128,7 @@ pub(crate) fn materialise(
         // on every connect, and an unchanged link must not be renamed (each
         // rename opens a transient resolution race — see `infra::fs`).
         fs::replace_symlink_if_changed(&worktree, &link)?;
-        // A repo the session does not promote is held read-only by the kernel:
+        // A repo the session does not promote is guarded read-only:
         // clear (or re-clear) the write bits on its default-branch worktree.
         if feature.is_none_or(|feature| !feature.is_promoted(repo.name())) {
             fs::clear_write_bits(&worktree)?;

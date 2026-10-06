@@ -30,9 +30,9 @@ nothing is backported.
 in the binary**; the installer sends one opt-in event only when
 `IVAR_INSTALL_ANALYTICS=1` is set. The binary's network calls go to GitHub (the
 update check, `git`/`gh` with your credentials, external skills) and to the
-OAuth endpoints of MCP servers a hall declares. So there is no hosted surface to attack, and no
-infrastructure disclosure to coordinate with. Everything below is on the machine
-that runs the binary.
+OAuth endpoints of MCP servers a hall declares. So there is no hosted surface to
+attack, and no infrastructure disclosure to coordinate with. Everything below is
+on the machine that runs the binary.
 
 `ivar` does hold real power on that machine: it writes to your git repos, runs
 subprocesses, creates symlinks, and acts as you against GitHub.
