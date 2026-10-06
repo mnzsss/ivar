@@ -84,7 +84,14 @@ fn human_preview_surface_lists_each_repo_and_the_fingerprint() {
 
     let output = ivar()
         .current_dir(&root)
-        .args(["feature", "deliver", "checkout", "--preview"])
+        .args([
+            "feature",
+            "deliver",
+            "checkout",
+            "--preview",
+            "--color",
+            "never",
+        ])
         .assert()
         .success()
         .get_output()
@@ -148,4 +155,40 @@ fn approving_the_plan_after_a_preview_drifts_the_fingerprint() {
         .failure()
         .code(2)
         .stderr(predicate::str::contains("drifted"));
+}
+
+#[test]
+fn colour_always_paints_the_preview_and_strips_back_to_the_plain_bytes() {
+    let (_guard, root) = hall_root();
+    setup_deliver_hall(&root);
+    let run = |extra: &[&str]| {
+        let mut args = vec!["feature", "deliver", "checkout", "--preview"];
+        args.extend_from_slice(extra);
+        let output = ivar()
+            .current_dir(&root)
+            .env_remove("NO_COLOR")
+            .env_remove("FORCE_COLOR")
+            .args(&args)
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        String::from_utf8(output).expect("utf8 output")
+    };
+
+    let plain = run(&["--color", "never"]);
+    let coloured = run(&["--color", "always"]);
+    let json = run(&["--json", "--color", "always"]);
+
+    assert!(
+        !plain.contains('\x1b'),
+        "--color never must stay plain:\n{plain}"
+    );
+    assert!(
+        coloured.contains("\x1b["),
+        "--color always must paint:\n{coloured}"
+    );
+    assert_eq!(anstream::adapter::strip_str(&coloured).to_string(), plain);
+    assert!(!json.contains('\x1b'), "--json must stay plain:\n{json}");
 }

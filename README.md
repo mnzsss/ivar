@@ -12,6 +12,10 @@ curl -fsSL https://ivar.run/install | sh
 
 Add an `avatarUrl` field to the user profile: the agent describes it in `shared-types`, returns it from `api` and renders it in `web`, with all three mounted as real git worktrees on the `avatar-url` branch. Repos you haven't promoted are guarded (kernel-enforced on Linux; see [Limitations](docs/reference/limitations.md)).
 
+<p align="center">
+  <img src="docs/assets/ivar-terminal-avatar-url.gif" alt="Terminal recording against a demo hall. ivar feature create avatar-url, then ivar feature promote avatar-url for api, web and shared-types, then ivar session start avatar-url. The agent's planning and implementation are elided. ivar feature deliver avatar-url --preview then shows a new pull request for api, shared-types and web, the plan gate approved, and nothing for infra, which stays read-only." width="1093">
+</p>
+
 - **Your harness:** Claude Code, OpenCode or OMP, with MCP servers declared once in `ivar.json`.
 - **Plan first:** `/ivar-plan` stops for your approval after requirements, analysis and plan.
 - **Code graph:** one local SQLite graph of every repo. In a two-repo benchmark, discovery took a median 460k tokens instead of 738k.
