@@ -1013,6 +1013,32 @@ pub fn run(cli: Cli) -> ExitCode {
                 &mut stdout,
                 &mut stderr,
             ),
+            FeedbackCommand::Submit(submit_args) => {
+                if !term::is_tty(term::Stream::Stdout) {
+                    respond_failure(
+                        &crate::error::Failure::blocked(
+                            "feedback.submit_needs_terminal",
+                            "Feedback submission requires an interactive terminal for confirmation",
+                        ),
+                        json,
+                        &mut stdout,
+                        &mut stderr,
+                    )
+                } else {
+                    respond(
+                        feedback_action::submit::submit(
+                            &ctx,
+                            feedback_action::submit::SubmitInput {
+                                id: submit_args.id,
+                                repo: submit_args.repo,
+                            },
+                        ),
+                        json,
+                        &mut stdout,
+                        &mut stderr,
+                    )
+                }
+            }
         },
         Command::Guard(args) => {
             let input = match session_guard_cmd::GuardInput::try_from(args) {

@@ -413,30 +413,13 @@ fn read_body<T: Read>(mut reader: T) -> Result<String, Failure> {
 /// Percent-encode a query-string component per RFC 3986: unreserved characters
 /// stay, space becomes `%20`, everything else is `%XX`.
 fn query_encode(s: &str) -> String {
-    encode_component(s, false)
+    crate::infra::url::encode_component(s, false)
 }
 
 /// Percent-encode a form body component per `application/x-www-form-urlencoded`:
 /// unreserved characters stay, space becomes `+`, everything else is `%XX`.
 fn form_encode(s: &str) -> String {
-    encode_component(s, true)
-}
-
-fn encode_component(s: &str, space_as_plus: bool) -> String {
-    let mut out = String::with_capacity(s.len() * 3);
-    for &byte in s.as_bytes() {
-        match byte {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
-                out.push(byte as char);
-            }
-            b' ' if space_as_plus => out.push('+'),
-            b' ' => out.push_str("%20"),
-            _ => {
-                let _ = write!(out, "%{byte:02X}");
-            }
-        }
-    }
-    out
+    crate::infra::url::encode_component(s, true)
 }
 
 #[cfg(test)]

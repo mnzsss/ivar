@@ -10,6 +10,7 @@ pub const URL_LIMIT: usize = 8000;
 pub mod add;
 pub mod list;
 pub mod show;
+pub mod submit;
 
 pub(crate) fn redactions(layout: &Layout) -> Redactions {
     let home = std::env::var("HOME").ok();

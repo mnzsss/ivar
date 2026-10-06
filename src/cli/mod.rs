@@ -19,5 +19,6 @@ pub mod root;
 
 pub use feedback::{
     FeedbackAddArgs, FeedbackArgs, FeedbackCommand, FeedbackListArgs, FeedbackShowArgs,
+    FeedbackSubmitArgs,
 };
 pub use graph::{GraphArgs, GraphCommand};

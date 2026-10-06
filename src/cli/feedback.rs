@@ -14,6 +14,18 @@ pub enum FeedbackCommand {
     List(FeedbackListArgs),
     /// Show details and body of a feedback entry.
     Show(FeedbackShowArgs),
+    /// Submit a feedback entry as a GitHub issue.
+    Submit(FeedbackSubmitArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct FeedbackSubmitArgs {
+    /// Feedback entry ID (e.g. 001-my-bug).
+    pub id: String,
+
+    /// GitHub target repository (defaults to mnzsss/ivar).
+    #[arg(long)]
+    pub repo: Option<String>,
 }
 
 #[derive(Debug, Args)]

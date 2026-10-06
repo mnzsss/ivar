@@ -1148,6 +1148,19 @@ Show details and body of a feedback entry
 | `--redacted` |  |  | Redact local paths, usernames, and hostnames in displayed output |
 
 
+##### `ivar feedback submit`
+
+Submit a feedback entry as a GitHub issue
+
+| argument | required | description |
+| --- | --- | --- |
+| `id` | yes | Feedback entry ID (e.g. 001-my-bug) |
+
+| flag | value | default | description |
+| --- | --- | --- | --- |
+| `--repo` | `<REPO>` |  | GitHub target repository (defaults to mnzsss/ivar) |
+
+
 #### `ivar guard`
 
 Guard: evaluate a tool request against the session's writable set
