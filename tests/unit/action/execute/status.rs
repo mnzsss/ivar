@@ -140,3 +140,40 @@ fn status_without_any_run_is_run_missing() {
 
     assert_eq!(failure.code, "execute.run_missing");
 }
+
+#[test]
+fn status_without_flags_prefers_the_newest_receipt() {
+    let (_guard, root) = seeded_hall();
+    let ctx = Ctx::new(root);
+    let layout = discover_hall(&ctx).unwrap();
+    let feature = FeatureName::new("child-feature").unwrap();
+    let start = |id: &str, at: &str| {
+        RunReceipt::start(
+            RunId::new(id).unwrap(),
+            feature.clone(),
+            "plans/child-feature/plan.md",
+            "hash123",
+            RunBaseline::empty(),
+            SessionId::new("00000000-0000-4000-8000-000000000002").unwrap(),
+            Provider::ClaudeCode,
+            at,
+        )
+    };
+    let mut older = start(
+        "00000000-0000-4000-8000-000000000001",
+        "2026-01-01T00:00:00Z",
+    );
+    older.status = RunStatus::Succeeded;
+    older.write(&layout).unwrap();
+    run::archive_current(&layout, &feature).unwrap();
+    let newer = start(
+        "00000000-0000-4000-8000-000000000003",
+        "2026-01-02T00:00:00Z",
+    );
+    newer.write(&layout).unwrap();
+
+    let outcome = status(&ctx, default_status(&feature)).unwrap();
+
+    let ids: Vec<&RunId> = outcome.value.receipts.iter().map(|r| &r.id).collect();
+    assert_eq!(ids, vec![&newer.id]);
+}
