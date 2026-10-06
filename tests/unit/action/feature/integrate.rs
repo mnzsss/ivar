@@ -1073,6 +1073,20 @@ fn an_integrate_interrupted_after_the_parent_moved_resumes_at_verification() {
 
 // -- the per-parent lock ------------------------------------------------------
 
+/// A flock is released only when every fd sharing its open file description
+/// closes; a child spawned by a concurrent test holds an inherited copy until
+/// it execs, so release is awaited rather than assumed at `drop`.
+fn wait_until_released(layout: &Layout, parent: &FeatureName) -> bool {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while parent_integration_running(layout, parent) {
+        if std::time::Instant::now() >= deadline {
+            return false;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    true
+}
+
 #[test]
 fn the_parent_lock_is_visible_while_it_is_held() {
     let (_guard, root) = seeded_child_hall(&["true"]);
@@ -1082,7 +1096,25 @@ fn the_parent_lock_is_visible_while_it_is_held() {
     let lock = parent_integration_lock(&layout, &parent).unwrap();
     assert!(parent_integration_running(&layout, &parent));
     drop(lock);
-    assert!(!parent_integration_running(&layout, &parent));
+    assert!(wait_until_released(&layout, &parent));
+}
+
+#[test]
+fn the_parent_lock_survives_an_inherited_reference_until_it_closes() {
+    let (_guard, root) = seeded_child_hall(&["true"]);
+    let layout = Layout::at(&root);
+    let parent = FeatureName::new("parent").unwrap();
+
+    let lock = parent_integration_lock(&layout, &parent).unwrap();
+    let inherited = lock.try_clone().unwrap();
+    let releaser = std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        drop(inherited);
+    });
+    drop(lock);
+
+    assert!(wait_until_released(&layout, &parent));
+    releaser.join().unwrap();
 }
 
 #[test]
