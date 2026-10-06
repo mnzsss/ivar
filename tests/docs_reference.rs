@@ -68,8 +68,8 @@ fn markdown_files() -> Vec<PathBuf> {
 /// Pull every link and image target out of one file's Markdown.
 ///
 /// Two forms carry a target: `](…)` covers inline links and images alike,
-/// and `<img src="…">` covers the one HTML tag in the corpus
-/// (`README.md:4`). Reference-style definitions are absent from these files
+/// and `<img src="…">` covers the HTML image tags in `README.md` (the banner
+/// and the demo GIF). Reference-style definitions are absent from these files
 /// and are not handled — if one is ever added, its link will simply go
 /// unchecked rather than misreported.
 fn link_targets(text: &str) -> Vec<String> {
@@ -395,8 +395,8 @@ fn every_relative_documentation_link_resolves() {
 }
 
 /// A broken extractor would make the assertion above vacuous, so the count
-/// is asserted too. 51 links and images exist today; the floor is loose on
-/// purpose, to catch "matched nothing" rather than to pin a number.
+/// is asserted too. The floor is loose on purpose, to catch "matched
+/// nothing" rather than to pin a number.
 #[test]
 fn documentation_contains_links_to_check() {
     let found: usize = markdown_files()
