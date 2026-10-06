@@ -17,11 +17,11 @@ sitting right there in the same tree. An agent asked to "update the client" has
 no way to know that `infra` is off-limits, and a sufficiently confident one will
 edit it, commit it, and tell you it is done.
 
-`ivar` clears the write bits on every worktree the feature has not promoted. Not
-a config setting, not a hook, not a prompt asking the model to behave —
-`chmod`, enforced by the kernel. The agent gets `EACCES` and an error message
-naming the way out (`ivar feature promote docs`), and the decision to widen the
-blast radius stays yours.
+`ivar` guards every worktree the feature has not promoted. On Linux, for an agent
+started with `ivar session start`, Landlock makes the kernel refuse the write
+(`EACCES`), shell included. Elsewhere the guard is a guardrail rather than a
+boundary, and [Limitations](reference/limitations.md) lists the cases. Either
+way, widening the blast radius (`ivar feature promote docs`) stays your decision.
 
 A hand-rolled script can do this too. It is just that nobody's does, and the
 failure is silent until it isn't.
@@ -75,7 +75,7 @@ of the value if your team is larger than one.
 
 - **One repo.** Use `git worktree` directly. This tool's entire subject is the
   space *between* repos.
-- **You need Windows.** The view dir is built from symlinks. Use WSL, or don't.
+- **You need Windows.** The view dir is built from symlinks, and WSL is untested.
 - **You want isolation of running services, not files.** A container per
   environment is a different tool and a stronger promise. `ivar` isolates the
   filesystem and ports, and says so.
