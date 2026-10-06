@@ -1,6 +1,6 @@
 //! Which harnesses exist, and where each one keeps its config.
 //!
-//! The set is **closed and known at compile time** — Claude Code and OpenCode.
+//! The set is **closed and known at compile time** — Claude Code, OpenCode and OMP.
 //! That is a deliberate modelling choice, not a limitation waiting to be fixed:
 //! adding a harness means writing an adapter, a config materialiser and a log
 //! parser, so it is a code change either way. A closed enum means the compiler
@@ -115,7 +115,7 @@ const VALID_IDS: &str = "claude-code, opencode, omp";
 /// A harness `ivar` can open a session in.
 ///
 /// The set is closed — see the module doc comment for why. Every accessor here
-/// is a `match` over the two variants; there is no derivation from `id()`, which
+/// is a `match` over the three variants; there is no derivation from `id()`, which
 /// is the bug this type exists to make impossible.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Provider {

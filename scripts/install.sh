@@ -44,7 +44,7 @@ detect_platform() {
         Darwin) os="darwin" ;;
         Linux) os="linux" ;;
         *)
-            fail "unsupported operating system '$os': ivar supports macOS and Linux; on Windows use WSL (the view directory is built entirely from symlinks)"
+            fail "unsupported operating system '$os': ivar supports macOS and Linux (the view directory is built entirely from symlinks)"
             ;;
     esac
 

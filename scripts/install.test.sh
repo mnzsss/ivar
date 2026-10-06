@@ -254,11 +254,11 @@ for pair in "Darwin x86_64" "Darwin arm64" "Linux x86_64" "Linux aarch64"; do
     fi
 done
 
-# Windows native is refused with the WSL hint, before any download.
+# Windows native is refused with the supported-platforms message, before any download.
 run_installer FAKE_UNAME_S="MINGW64_NT-10.0-19045" FAKE_UNAME_M="x86_64"
-if [ "$RUN_RC" -eq 1 ] && grep -q "use WSL" "$WORK/run.out" \
+if [ "$RUN_RC" -eq 1 ] && grep -q "supports macOS and Linux" "$WORK/run.out" \
     && [ ! -s "$CURL_LOG" ]; then
-    ok "windows native refused with WSL hint, no download"
+    ok "windows native refused with supported platforms, no download"
 else
     bad "windows native refused (rc=$RUN_RC: $(cat "$WORK/run.out"))"
 fi

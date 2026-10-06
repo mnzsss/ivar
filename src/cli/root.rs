@@ -32,8 +32,8 @@ pub const STYLES: clap::builder::Styles = clap::builder::Styles::styled()
     .valid(crate::error::COMMAND)
     .invalid(crate::error::DANGER)
     .error(crate::error::DANGER);
-/// Mount the repos a feature spans into one directory, on one branch, for
-/// one agent session.
+/// Multi-repo worktrees for coding agents: one feature across repos, on one
+/// branch, one PR per repo.
 #[derive(Debug, Parser)]
 #[command(version = env!("IVAR_BUILD_VERSION"), about, long_about = None, styles = STYLES)]
 pub struct Cli {
