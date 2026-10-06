@@ -10,7 +10,7 @@ pub enum ExecuteCommand {
     Start(ExecuteStartArgs),
     /// Record a coordinator's structured completion report (see `--print-schema`).
     Finish(ExecuteFinishArgs),
-    /// Show the current receipt, a receipt by id, or complete history.
+    /// Show the current or most recent receipt, a receipt by id, or complete history.
     Status(ExecuteStatusArgs),
     /// Accept an approved plan revision for a diverged run.
     AcceptRevision(ExecuteAcceptRevisionArgs),

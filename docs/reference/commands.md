@@ -342,7 +342,7 @@ Record a coordinator's structured completion report (see `--print-schema`)
 
 ###### `ivar feature execute status`
 
-Show the current receipt, a receipt by id, or complete history
+Show the current or most recent receipt, a receipt by id, or complete history
 
 | argument | required | description |
 | --- | --- | --- |

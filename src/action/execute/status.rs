@@ -78,7 +78,10 @@ pub fn status(ctx: &Ctx, input: StatusInput) -> Outcome<StatusOutcome> {
     } else if input.history {
         run::history(&layout, &feature)?
     } else {
-        RunReceipt::read(&layout, &feature)?.into_iter().collect()
+        run::history(&layout, &feature)?
+            .into_iter()
+            .take(1)
+            .collect()
     };
     if receipts.is_empty() {
         let missing = Failure::blocked("execute.run_missing", "no matching run receipt exists");
