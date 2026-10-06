@@ -25,14 +25,14 @@ rust-version = "1.95.0" # MSRV. Public contract from the first publish; CI build
 # against exactly it — so the way to move it is to lower it and read the gate,
 # not to reason about it here.
 license = "Apache-2.0"
-description = "Mount the repos a feature spans into one directory, on one branch, for one agent session."
+description = "Multi-repo worktrees for coding agents: one feature across repos, on one branch, one PR per repo."
 repository = "https://github.com/mnzsss/ivar"
 homepage = "https://ivar.run"
 documentation = "https://ivar.run"
 readme = "README.md"
-keywords = ["multi-repo", "git-worktree", "monorepo", "cli", "agents"]
+keywords = ["git-worktree", "multi-repo", "claude-code", "opencode", "coding-agents"]
 categories = ["command-line-utilities", "development-tools"]
-exclude = [".github/", "docs/", "ARCHITECTURE.md"]
+exclude = [".github/", "docs/", "ARCHITECTURE.md", "context7.json"]
 
 [lib]
 name = "ivar"
