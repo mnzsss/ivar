@@ -448,6 +448,19 @@ fn plan_dir_and_discovery_doc_live_under_feature_dir() {
     );
 }
 
+#[test]
+fn feedback_dir_and_feedback_doc_live_under_ivar_dir() {
+    let layout = Layout::at("/hall");
+    assert_eq!(
+        layout.feedback_dir(),
+        Utf8PathBuf::from("/hall/.ivar/feedback")
+    );
+    assert_eq!(
+        layout.feedback_doc("001-test-issue"),
+        Utf8PathBuf::from("/hall/.ivar/feedback/001-test-issue.md")
+    );
+}
+
 // -- scratch dir --------------------------------------------------------
 
 #[test]

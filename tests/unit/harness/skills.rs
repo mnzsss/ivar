@@ -11,7 +11,7 @@ use std::collections::BTreeSet;
 #[test]
 fn catalog_is_complete_unique_and_current() {
     let skills = catalog();
-    assert_eq!(skills.len(), 4);
+    assert_eq!(skills.len(), 5);
 
     let ids = skills.iter().map(|skill| skill.id).collect::<BTreeSet<_>>();
     assert_eq!(ids.len(), skills.len());
@@ -26,6 +26,24 @@ fn catalog_is_complete_unique_and_current() {
         assert!(skill.skill_md().contains("name:"));
         assert!(skill.skill_md().contains("description:"));
     }
+}
+
+#[test]
+fn feedback_skill_content_satisfies_all_invariants() {
+    let skill = catalog()
+        .iter()
+        .find(|s| s.id == "feedback")
+        .expect("feedback skill is in catalog");
+
+    let content = skill.skill_md();
+    assert!(content.contains("name: ivar-feedback"));
+    assert!(content.contains("ivar feedback add"));
+    assert!(content.contains("## Symptom"));
+    assert!(content.contains("## Reproduction"));
+    assert!(content.contains("## Cause"));
+    assert!(content.contains("## What should change"));
+    assert!(content.contains("## Suggested tests"));
+    assert!(content.contains("NEVER run `ivar feedback submit`"));
 }
 
 #[test]

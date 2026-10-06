@@ -8,11 +8,26 @@
 use camino::Utf8PathBuf;
 
 /// A tool invocation the guard is asked to evaluate.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ToolRequest {
     pub tool: String,
-    pub file_path: Option<Utf8PathBuf>,
+    pub targets: Vec<Utf8PathBuf>,
+    pub writes: bool,
     pub search_pattern: Option<String>,
+}
+
+/// Normalise tool name and check if it is a standard structured write tool.
+#[must_use]
+pub fn is_structured_write(tool: &str) -> bool {
+    let normalised: String = tool
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .map(|c| c.to_ascii_lowercase())
+        .collect();
+    matches!(
+        normalised.as_str(),
+        "write" | "edit" | "multiedit" | "notebookedit" | "applypatch" | "patch"
+    )
 }
 
 /// The guard's decision for a tool request.

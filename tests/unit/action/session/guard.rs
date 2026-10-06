@@ -108,6 +108,22 @@ fn writable_set_is_view_dir_plus_promoted_worktrees_plus_feature_dir() {
 
     assert!(!set.allows(&layout.state()));
 }
+#[test]
+fn guard_denies_session_writes_to_feedback_dir() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root.clone());
+    let feature = Feature::read(&layout, &FeatureName::new("checkout").unwrap())
+        .unwrap()
+        .unwrap();
+    let session_id = SessionId::new("6f0c9d5f-0000-4000-8000-000000000000").unwrap();
+    let view_dir = layout.feature_session(&feature.name, &session_id);
+    crate::infra::fs::ensure_dir(&view_dir).unwrap();
+
+    let set = WritableSet::from_session(&layout, &feature, &view_dir).unwrap();
+
+    let feedback_file = layout.feedback_doc("001-bug");
+    assert!(!set.allows(&feedback_file));
+}
 
 #[test]
 fn discovery_session_writable_set_does_not_include_any_feature_dir() {
@@ -548,18 +564,21 @@ fn writable_set_fixture() -> (WritableSet, tempfile::TempDir) {
 
 #[test]
 fn reads_are_never_denied() {
+    let targets = vec![Utf8PathBuf::from("/etc/passwd")];
     let req = ToolRequest {
         tool: "Read".into(),
-        file_path: Some("/etc/passwd".into()),
+        targets: targets.clone(),
+        writes: false,
         search_pattern: None,
     };
     assert!(matches!(
         decide(
             &Resolution::Unresolved {
-                scratch_dirs: Vec::new()
+                scoped_scratch_dirs: Vec::new(),
+                live_count: 0,
             },
             &req,
-            req.file_path.as_deref()
+            &targets
         ),
         GuardDecision::Allow
     ));
@@ -568,12 +587,14 @@ fn reads_are_never_denied() {
 #[test]
 fn writes_outside_the_set_are_denied_with_a_reason_naming_the_set() {
     let (set, _guard) = writable_set_fixture();
+    let targets = vec![Utf8PathBuf::from("/etc/passwd")];
     let req = ToolRequest {
         tool: "Write".into(),
-        file_path: Some("/etc/passwd".into()),
+        targets: targets.clone(),
+        writes: true,
         search_pattern: None,
     };
-    match decide(&Resolution::Resolved(&set), &req, req.file_path.as_deref()) {
+    match decide(&Resolution::Resolved(&set), &req, &targets) {
         GuardDecision::Deny { reason } => {
             assert!(
                 reason.contains("writable"),
@@ -600,12 +621,14 @@ fn every_structured_write_tool_is_denied_outside_the_set() {
         "apply_patch",
         "patch",
     ] {
+        let targets = vec![Utf8PathBuf::from("/etc/passwd")];
         let req = ToolRequest {
             tool: tool.to_owned(),
-            file_path: Some("/etc/passwd".into()),
+            targets: targets.clone(),
+            writes: true,
             search_pattern: None,
         };
-        match decide(&Resolution::Resolved(&set), &req, req.file_path.as_deref()) {
+        match decide(&Resolution::Resolved(&set), &req, &targets) {
             GuardDecision::Deny { reason } => assert!(
                 reason.contains("writable"),
                 "`{tool}` must name the set: {reason}"
@@ -664,10 +687,11 @@ fn writes_inside_the_set_are_allowed_and_shell_is_never_classified() {
             &Resolution::Resolved(&set),
             &ToolRequest {
                 tool: "Edit".into(),
-                file_path: Some(in_set.clone()),
+                targets: vec![in_set.clone()],
+                writes: true,
                 search_pattern: None,
             },
-            Some(&in_set)
+            &[in_set]
         ),
         GuardDecision::Allow
     ));
@@ -676,10 +700,11 @@ fn writes_inside_the_set_are_allowed_and_shell_is_never_classified() {
             &Resolution::Resolved(&set),
             &ToolRequest {
                 tool: "Bash".into(),
-                file_path: None,
+                targets: Vec::new(),
+                writes: false,
                 search_pattern: None,
             },
-            None
+            &[]
         ),
         GuardDecision::Allow
     ));
@@ -1259,7 +1284,6 @@ fn scheme_prefixed_targets_are_allowed() {
     let (_guard, root) = hall_with_promoted_feature();
 
     let schemes = [
-        "xd://ast_edit",
         "xd://ast_grep",
         "memory://scratchpad",
         "artifact://output-log",
@@ -1282,6 +1306,18 @@ fn scheme_prefixed_targets_are_allowed() {
         );
         assert_eq!(out.body, "");
     }
+
+    // Under R-GUARD-XD-OTHER, xd://ast_edit without parseable content fails closed and is denied
+    let payload_ast = serde_json::json!({
+        "tool": "write",
+        "args": { "path": "xd://ast_edit" },
+        "cwd": root,
+    });
+    let out_ast = guard(Provider::Omp, &payload_ast.to_string()).unwrap();
+    assert!(
+        !out_ast.exit_zero,
+        "xd://ast_edit without parseable content must be denied"
+    );
 }
 
 #[test]
@@ -1425,6 +1461,96 @@ fn a_hall_root_write_from_no_session_cwd_resolves_to_a_live_session() {
 /// The exact call that started this feature: hall-root cwd, a target nowhere
 /// near a session. The old reason named no path at all.
 #[test]
+fn unresolved_denial_when_target_in_feature_with_live_session_lists_only_that_features_scratch() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root.clone());
+    let feature = Feature::read(&layout, &FeatureName::new("checkout").unwrap())
+        .unwrap()
+        .unwrap();
+
+    let feat_session_id = SessionId::new("6f0c9d5f-0000-4000-8000-000000000000").unwrap();
+    let feat_view = layout.feature_session(&feature.name, &feat_session_id);
+    crate::infra::fs::ensure_dir(&feat_view).unwrap();
+    let mut feat_state =
+        crate::domain::session::SessionState::new(Provider::Omp, "2026-08-29T00:00:00Z");
+    feat_state.bind(feature.name.clone(), "2026-08-29T00:00:00Z");
+    feat_state.write(&feat_view).unwrap();
+
+    let disc_session_id = SessionId::new("7a1d0e60-0000-4000-8000-000000000000").unwrap();
+    let disc_view = layout.discovery_session(&disc_session_id);
+    crate::infra::fs::ensure_dir(&disc_view).unwrap();
+    crate::domain::session::SessionState::new(Provider::Omp, "2026-08-30T00:00:00Z")
+        .write(&disc_view)
+        .unwrap();
+
+    // Target inside checkout feature directory
+    let target = layout.feature_dir(&feature.name).join("plan.md");
+    let scoped = vec![Layout::session_scratch(&feat_view)];
+    let req = ToolRequest {
+        tool: "write".into(),
+        targets: vec![target.clone()],
+        writes: true,
+        search_pattern: None,
+    };
+
+    let decision = decide(
+        &Resolution::Unresolved {
+            scoped_scratch_dirs: scoped,
+            live_count: 2,
+        },
+        &req,
+        std::slice::from_ref(&target),
+    );
+
+    match decision {
+        GuardDecision::Deny { reason } => {
+            assert!(
+                reason.contains("no ivar session resolves from the cwd or the target path"),
+                "reason missing first sentence: {reason}"
+            );
+            assert!(
+                reason.contains(Layout::session_scratch(&feat_view).as_str()),
+                "must list the matching feature session's scratch dir: {reason}"
+            );
+            assert!(
+                !reason.contains(Layout::session_scratch(&disc_view).as_str()),
+                "must NOT list unrelated discovery session scratch dir: {reason}"
+            );
+        }
+        GuardDecision::Allow => panic!("expected Deny, got Allow"),
+    }
+}
+
+#[test]
+fn feature_scratch_dirs_returns_only_matching_feature_scratches() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root.clone());
+    let feature = Feature::read(&layout, &FeatureName::new("checkout").unwrap())
+        .unwrap()
+        .unwrap();
+
+    let feat_session_id = SessionId::new("6f0c9d5f-0000-4000-8000-000000000000").unwrap();
+    let feat_view = layout.feature_session(&feature.name, &feat_session_id);
+    crate::infra::fs::ensure_dir(&feat_view).unwrap();
+    let mut feat_state =
+        crate::domain::session::SessionState::new(Provider::Omp, "2026-08-29T00:00:00Z");
+    feat_state.bind(feature.name.clone(), "2026-08-29T00:00:00Z");
+    feat_state.write(&feat_view).unwrap();
+
+    let disc_session_id = SessionId::new("7a1d0e60-0000-4000-8000-000000000000").unwrap();
+    let disc_view = layout.discovery_session(&disc_session_id);
+    crate::infra::fs::ensure_dir(&disc_view).unwrap();
+    crate::domain::session::SessionState::new(Provider::Omp, "2026-08-30T00:00:00Z")
+        .write(&disc_view)
+        .unwrap();
+
+    let target = layout.feature_dir(&feature.name).join("plan.md");
+    let scratches = feature_scratch_dirs(&layout, &target);
+    assert_eq!(scratches, vec![Layout::session_scratch(&feat_view)]);
+}
+
+/// Target outside every feature with 1 live session states count rather than listing scratch dir.
+#[test]
 fn an_unresolved_denial_names_the_only_live_sessions_scratch_dir() {
     let (_guard, root) = hall_with_promoted_feature();
     let layout = Layout::at(root.clone());
@@ -1454,15 +1580,13 @@ fn an_unresolved_denial_names_the_only_live_sessions_scratch_dir() {
         out.body
     );
     assert!(
-        out.body
-            .contains(Layout::session_scratch(&view_dir).as_str()),
-        "one live session means one named scratch dir: {}",
+        out.body.contains("; this hall has 1 live session"),
+        "target outside every feature states live session count: {}",
         out.body
     );
 }
 
-/// Two live sessions must be listed, never picked — naming one would send an
-/// agent into another session's view dir.
+/// Target outside every feature with multiple live sessions states count rather than listing all scratch dirs.
 #[test]
 fn an_unresolved_denial_lists_every_live_sessions_scratch_dir() {
     let (_guard, root) = hall_with_promoted_feature();
@@ -1495,23 +1619,21 @@ fn an_unresolved_denial_lists_every_live_sessions_scratch_dir() {
     let out = guard(Provider::Omp, &payload.to_string()).unwrap();
     assert!(!out.exit_zero);
     assert!(
-        out.body.contains(Layout::session_scratch(&first).as_str()),
-        "the feature session's scratch dir is missing: {}",
+        out.body
+            .contains("no ivar session resolves from the cwd or the target path"),
+        "{}",
         out.body
     );
     assert!(
-        out.body.contains(Layout::session_scratch(&second).as_str()),
-        "the discovery session's scratch dir is missing: {}",
+        out.body.contains("; this hall has 2 live sessions"),
+        "target outside every feature states live session count: {}",
         out.body
     );
 }
 
-/// With no live session there is no path to offer, and inventing one would be
-/// worse than saying so.
 #[test]
 fn an_unresolved_denial_with_no_live_session_names_no_path() {
     let (_guard, root) = hall_with_promoted_feature();
-
     let payload = serde_json::json!({
         "tool": "write",
         "args": { "filePath": "/etc/passwd" },
@@ -1521,14 +1643,8 @@ fn an_unresolved_denial_with_no_live_session_names_no_path() {
     let out = guard(Provider::Omp, &payload.to_string()).unwrap();
     assert!(!out.exit_zero);
     assert!(
-        out.body
-            .contains("no ivar session resolves from the cwd or the target path"),
+        out.body.contains("no ivar session resolves from the cwd or the target path; this hall has no live session"),
         "{}",
-        out.body
-    );
-    assert!(
-        !out.body.contains(crate::domain::session::SCRATCH_DIR),
-        "no live session means no scratch dir to name: {}",
         out.body
     );
 }
@@ -1690,12 +1806,13 @@ fn guard_decision_is_unchanged_when_recording_fails() {
     assert!(!db_path.exists());
     let req = ToolRequest {
         tool: "Grep".into(),
-        file_path: None,
+        targets: Vec::new(),
+        writes: false,
         search_pattern: Some("fn record_miss".into()),
     };
     let set = resolve_writable_set(&env).unwrap();
     assert!(matches!(
-        decide(&Resolution::Resolved(&set), &req, req.file_path.as_deref()),
+        decide(&Resolution::Resolved(&set), &req, &[]),
         GuardDecision::Allow
     ));
 }
@@ -2062,9 +2179,11 @@ fn ambiguous_target_matching_multiple_features_denies_and_names_all_conflicting_
     state_billing.write(&view_billing).unwrap();
 
     // Test decide() directly with Resolution::Ambiguous
+    let targets = vec![root.join("some/path.rs")];
     let req = ToolRequest {
         tool: "write".into(),
-        file_path: Some(root.join("some/path.rs")),
+        targets: targets.clone(),
+        writes: true,
         search_pattern: None,
     };
     let decision = decide(
@@ -2072,7 +2191,7 @@ fn ambiguous_target_matching_multiple_features_denies_and_names_all_conflicting_
             features: vec!["billing".to_owned(), "checkout".to_owned()],
         },
         &req,
-        req.file_path.as_deref(),
+        &targets,
     );
     match decision {
         GuardDecision::Deny { reason } => {
@@ -2093,7 +2212,7 @@ fn ambiguous_target_matching_multiple_features_denies_and_names_all_conflicting_
             ],
         },
         &req,
-        req.file_path.as_deref(),
+        &targets,
     );
     match decision_multi {
         GuardDecision::Deny { reason } => {
@@ -2366,4 +2485,62 @@ fn guard_tool_request_from_parent_session_allows_child_worktree_and_denies_sibli
         sibling_body["hookSpecificOutput"]["permissionDecision"],
         "deny"
     );
+}
+
+#[test]
+fn decide_multi_target_allows_only_if_all_targets_allowed_and_denies_naming_first_disallowed() {
+    let (set, _guard) = writable_set_fixture();
+    let inside = set.view_dir().join("notes.md");
+    let outside = Utf8PathBuf::from("/etc/passwd");
+    let targets = vec![inside.clone(), outside.clone()];
+
+    let req = ToolRequest {
+        tool: "write".into(),
+        targets: targets.clone(),
+        writes: true,
+        search_pattern: None,
+    };
+
+    let decision = decide(&Resolution::Resolved(&set), &req, &targets);
+    match decision {
+        GuardDecision::Deny { reason } => {
+            assert!(
+                reason.contains("/etc/passwd"),
+                "denial must name the first disallowed target path: {reason}"
+            );
+        }
+        GuardDecision::Allow => panic!("multi-target with one outside target must be denied"),
+    }
+}
+
+#[test]
+fn decide_all_uri_targets_are_allowed_but_empty_targets_on_write_is_denied() {
+    let (set, _guard) = writable_set_fixture();
+
+    let uri_targets = vec![
+        Utf8PathBuf::from("local://notes.md"),
+        Utf8PathBuf::from("agent://subagent"),
+    ];
+    let req_uri = ToolRequest {
+        tool: "write".into(),
+        targets: uri_targets.clone(),
+        writes: true,
+        search_pattern: None,
+    };
+    assert!(matches!(
+        decide(&Resolution::Resolved(&set), &req_uri, &uri_targets),
+        GuardDecision::Allow
+    ));
+
+    let empty_targets: Vec<Utf8PathBuf> = Vec::new();
+    let req_empty = ToolRequest {
+        tool: "write".into(),
+        targets: empty_targets.clone(),
+        writes: true,
+        search_pattern: None,
+    };
+    assert!(matches!(
+        decide(&Resolution::Resolved(&set), &req_empty, &empty_targets),
+        GuardDecision::Deny { .. }
+    ));
 }

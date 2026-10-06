@@ -392,26 +392,6 @@ impl WritableSet {
     }
 }
 
-/// Whether `tool` is a structured write — a tool whose whole purpose is to put
-/// bytes on disk at a path it names.
-///
-/// Matched on a normalised name so `NotebookEdit`, `notebook_edit` and
-/// `notebook-edit` are one tool rather than three spellings, one of which is
-/// always the one a provider actually sends. The list is explicit and
-/// closed: a tool that writes and is not named here is a gap, and the test
-/// beside this function is where that gap is closed.
-fn is_structured_write(tool: &str) -> bool {
-    let normalised: String = tool
-        .chars()
-        .filter(|c| c.is_ascii_alphanumeric())
-        .map(|c| c.to_ascii_lowercase())
-        .collect();
-    matches!(
-        normalised.as_str(),
-        "write" | "edit" | "multiedit" | "notebookedit" | "applypatch" | "patch"
-    )
-}
-
 /// Check whether a path string starts with an RFC 3986 URI scheme (`<scheme>://`).
 /// Schemes match `^[a-zA-Z][a-zA-Z0-9+.-]*://`.
 fn has_uri_scheme(s: &str) -> bool {
@@ -437,8 +417,13 @@ fn has_uri_scheme(s: &str) -> bool {
 /// never widen what may be written (N-NO-WIDEN).
 pub(crate) enum Resolution<'a> {
     Resolved(&'a WritableSet),
-    Unresolved { scratch_dirs: Vec<Utf8PathBuf> },
-    Ambiguous { features: Vec<String> },
+    Unresolved {
+        scoped_scratch_dirs: Vec<Utf8PathBuf>,
+        live_count: usize,
+    },
+    Ambiguous {
+        features: Vec<String>,
+    },
 }
 
 /// Decide whether a tool request is allowed inside the session.
@@ -452,25 +437,19 @@ pub(crate) enum Resolution<'a> {
 pub(crate) fn decide(
     resolution: &Resolution<'_>,
     req: &ToolRequest,
-    target: Option<&Utf8Path>,
+    targets: &[Utf8PathBuf],
 ) -> GuardDecision {
-    if !is_structured_write(&req.tool) {
+    if !req.writes {
         return GuardDecision::Allow;
     }
-    if req
-        .file_path
-        .as_ref()
-        .is_some_and(|p| has_uri_scheme(p.as_str()))
-    {
+    if !req.targets.is_empty() && req.targets.iter().all(|p| has_uri_scheme(p.as_str())) {
         return GuardDecision::Allow;
     }
     match resolution {
         Resolution::Resolved(set) => {
-            if target.is_some_and(|path| set.allows(path)) {
-                GuardDecision::Allow
-            } else {
-                let guidance = denial_guidance(Some(set), target, req.file_path.as_deref());
-                GuardDecision::Deny {
+            if targets.is_empty() {
+                let guidance = denial_guidance(Some(set), None, None);
+                return GuardDecision::Deny {
                     reason: format!(
                         "writable set: {}; {guidance}",
                         std::iter::once(set.view_dir().to_string())
@@ -481,11 +460,39 @@ pub(crate) fn decide(
                             .collect::<Vec<_>>()
                             .join(", "),
                     ),
+                };
+            }
+            if let Some(denied_target) = targets.iter().find(|t| !set.allows(t)) {
+                let original = req
+                    .targets
+                    .iter()
+                    .find(|orig| {
+                        orig.as_str() == denied_target.as_str()
+                            || denied_target.ends_with(orig.as_path())
+                    })
+                    .map(|p| p.as_path());
+                let guidance = denial_guidance(Some(set), Some(denied_target), original);
+                GuardDecision::Deny {
+                    reason: format!(
+                        "`{denied_target}` is outside the writable set; writable set: {}; {guidance}",
+                        std::iter::once(set.view_dir().to_string())
+                            .chain(set.feature_dir.as_ref().map(|f| f.to_string()))
+                            .chain(set.worktrees.iter().map(|w| w.to_string()))
+                            .chain(set.hall_sources.iter().map(|h| h.to_string()))
+                            .chain([set.hall.to_string()])
+                            .collect::<Vec<_>>()
+                            .join(", "),
+                    ),
                 }
+            } else {
+                GuardDecision::Allow
             }
         }
-        Resolution::Unresolved { scratch_dirs } => GuardDecision::Deny {
-            reason: unresolved_reason(scratch_dirs),
+        Resolution::Unresolved {
+            scoped_scratch_dirs,
+            live_count,
+        } => GuardDecision::Deny {
+            reason: unresolved_reason(scoped_scratch_dirs, *live_count),
         },
         Resolution::Ambiguous { features } => GuardDecision::Deny {
             reason: format!(
@@ -639,20 +646,66 @@ fn classify_layout_path_denial(
 
 /// The unresolved denial's reason. The first sentence is unchanged and
 /// load-bearing: five test assertions and two documents quote it.
-fn unresolved_reason(scratch_dirs: &[Utf8PathBuf]) -> String {
+fn unresolved_reason(scoped: &[Utf8PathBuf], live_count: usize) -> String {
     const SENTENCE: &str = "no ivar session resolves from the cwd or the target path";
-    match scratch_dirs {
-        [] => format!("{SENTENCE}; this hall has no live session"),
-        [only] => format!("{SENTENCE}; temporary files belong in {only}"),
-        many => format!(
-            "{SENTENCE}; temporary files belong in a live session's scratch dir: {}",
-            many.iter()
+    if !scoped.is_empty() {
+        format!(
+            "{SENTENCE}; temporary files belong in {}",
+            scoped
+                .iter()
                 .map(ToString::to_string)
                 .collect::<Vec<_>>()
                 .join(", ")
-        ),
+        )
+    } else {
+        match live_count {
+            0 => format!("{SENTENCE}; this hall has no live session"),
+            1 => format!("{SENTENCE}; this hall has 1 live session"),
+            n => format!("{SENTENCE}; this hall has {n} live sessions"),
+        }
     }
 }
+
+fn feature_scratch_dirs(layout: &Layout, target: &Utf8Path) -> Vec<Utf8PathBuf> {
+    let target = canonicalize_lenient(target);
+    let Ok(entries) = crate::infra::fs::read_dir(&layout.features_dir()) else {
+        return Vec::new();
+    };
+
+    for entry in entries {
+        let Some(name) = entry.file_name() else {
+            continue;
+        };
+        let Ok(feature_name) = crate::domain::name::FeatureName::new(name) else {
+            continue;
+        };
+        let Ok(Some(feature)) = Feature::read(layout, &feature_name) else {
+            continue;
+        };
+        let feature_dir = canonicalize_lenient(&layout.feature_dir(&feature_name));
+        let in_feature_dir = target.starts_with(&feature_dir);
+        let in_promoted_wt = feature.promotions.keys().any(|repo| {
+            let wt = canonicalize_lenient(&layout.repo_worktree(repo, &feature.branch));
+            target.starts_with(&wt)
+        });
+
+        if (in_feature_dir || in_promoted_wt)
+            && let Ok(sessions) = super::lookup::list_feature(layout, &feature_name)
+        {
+            let live_scratches: Vec<Utf8PathBuf> = sessions
+                .into_iter()
+                .filter(|s| s.state.is_some())
+                .map(|s| Layout::session_scratch(&s.view_dir))
+                .collect();
+            if !live_scratches.is_empty() {
+                return live_scratches;
+            }
+        }
+    }
+
+    Vec::new()
+}
+
 fn relative_no_session_reason(relative_path: &Utf8Path, cwd: Option<&Utf8Path>) -> String {
     match cwd {
         Some(cwd) => format!(
@@ -662,27 +715,6 @@ fn relative_no_session_reason(relative_path: &Utf8Path, cwd: Option<&Utf8Path>) 
             "relative path `{relative_path}` was resolved without a cwd, which belongs to no ivar session; use an absolute path inside your session's worktree or view dir"
         ),
     }
-}
-
-/// Every live session's scratch dir, for the unresolved message.
-///
-/// Called only after both resolution attempts have failed, so an allowed
-/// write never pays for this walk (N-ALLOW-PATH-COST).
-fn live_scratch_dirs(from: Option<&Utf8Path>) -> Vec<Utf8PathBuf> {
-    let Some(from) = from else {
-        return Vec::new();
-    };
-    let Ok(Some(layout)) = Layout::discover(from) else {
-        return Vec::new();
-    };
-    let Ok(sessions) = super::lookup::list_all(&layout) else {
-        return Vec::new();
-    };
-    sessions
-        .into_iter()
-        .filter(|session| session.state.is_some())
-        .map(|session| Layout::session_scratch(&session.view_dir))
-        .collect()
 }
 
 /// Resolve the target path for a tool request: absolute paths are leniently
@@ -892,59 +924,74 @@ pub fn guard(provider: Provider, stdin_json: &str) -> Result<GuardOutcome, Failu
         .flatten();
     let mut set = session_env.as_ref().and_then(resolve_writable_set);
 
-    let target = tool_request
-        .file_path
-        .as_ref()
-        .and_then(|fp| resolve_target(cwd.as_deref(), fp));
+    let targets: Vec<Utf8PathBuf> = tool_request
+        .targets
+        .iter()
+        .filter_map(|t| resolve_target(cwd.as_deref(), t))
+        .collect();
 
     let mut ambiguous_features = None;
 
     if set.is_none()
-        && is_structured_write(&tool_request.tool)
-        && let Some(target_path) = target.as_deref()
+        && tool_request.writes
+        && let Some(first_abs) = tool_request.targets.iter().find(|t| t.is_absolute())
+        && let Some(target_path) = resolve_target(cwd.as_deref(), first_abs)
     {
-        let is_relative = tool_request
-            .file_path
-            .as_ref()
-            .is_some_and(|p| !p.is_absolute());
-        if is_relative {
-            // Relative writes whose cwd resolves no session are denied.
-            // Do not resolve set by target for relative writes.
-        } else {
-            match resolve_set_by_target(target_path) {
-                TargetResolution::Unique(s) | TargetResolution::SharedHall(s) => {
-                    set = Some(s);
-                }
-                TargetResolution::Ambiguous(features) => {
-                    ambiguous_features = Some(features);
-                }
-                TargetResolution::None => {}
+        match resolve_set_by_target(&target_path) {
+            TargetResolution::Unique(s) | TargetResolution::SharedHall(s) => {
+                set = Some(s);
             }
+            TargetResolution::Ambiguous(features) => {
+                ambiguous_features = Some(features);
+            }
+            TargetResolution::None => {}
         }
     }
 
     let mut relative_denial = None;
     if set.is_none()
-        && is_structured_write(&tool_request.tool)
-        && let Some(file_path) = &tool_request.file_path
-        && !file_path.is_absolute()
-        && !has_uri_scheme(file_path.as_str())
+        && tool_request.writes
+        && let Some(first_rel) = tool_request
+            .targets
+            .iter()
+            .find(|t| !t.is_absolute() && !has_uri_scheme(t.as_str()))
     {
-        relative_denial = Some(relative_no_session_reason(file_path, cwd.as_deref()));
+        relative_denial = Some(relative_no_session_reason(first_rel, cwd.as_deref()));
     }
 
     let resolution = match (&set, ambiguous_features) {
         (Some(set), _) => Resolution::Resolved(set),
         (None, Some(features)) => Resolution::Ambiguous { features },
-        (None, None) => Resolution::Unresolved {
-            scratch_dirs: live_scratch_dirs(cwd.as_deref()),
-        },
+        (None, None) => {
+            let (scoped, live_count) = match cwd
+                .as_deref()
+                .and_then(|c| Layout::discover(c).ok().flatten())
+            {
+                Some(layout) => {
+                    let live = super::lookup::list_all(&layout)
+                        .unwrap_or_default()
+                        .into_iter()
+                        .filter(|s| s.state.is_some())
+                        .count();
+                    let scoped = targets
+                        .first()
+                        .map(|t| feature_scratch_dirs(&layout, t))
+                        .unwrap_or_default();
+                    (scoped, live)
+                }
+                None => (Vec::new(), 0),
+            };
+            Resolution::Unresolved {
+                scoped_scratch_dirs: scoped,
+                live_count,
+            }
+        }
     };
 
     let decision = if let Some(reason) = relative_denial {
         GuardDecision::Deny { reason }
     } else {
-        decide(&resolution, &tool_request, target.as_deref())
+        decide(&resolution, &tool_request, &targets)
     };
     if matches!(decision, GuardDecision::Allow)
         && is_graph_explore_tool(&tool_request.tool)

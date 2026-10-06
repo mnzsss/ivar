@@ -388,3 +388,69 @@ fn apply_is_idempotent() {
         before
     );
 }
+
+use crate::domain::name::{BranchName, HallName, RepoName};
+use crate::domain::provider::Provider;
+use crate::store::layout::Layout;
+use crate::store::manifest::{Manifest, Providers, Repo};
+
+#[test]
+fn materialise_suppresses_skill_repo_prefixed_while_keeping_other_warnings() {
+    let (_guard, root) = utf8_temp_dir();
+    let layout = Layout::at(root.clone());
+
+    // 1. Set up hall skills reserving "prefix-me" and both bare + prefixed for "skip-me"
+    let hall_skills = layout.skills_dir(&Provider::ClaudeCode);
+    fs::ensure_dir(&hall_skills).unwrap();
+    write_skill(
+        &hall_skills.join("prefix-me"),
+        "---\nname: prefix-me\n---\n",
+    );
+    write_skill(&hall_skills.join("skip-me"), "---\nname: skip-me\n---\n");
+    write_skill(
+        &hall_skills.join("repo-a--skip-me"),
+        "---\nname: repo-a--skip-me\n---\n",
+    );
+
+    // 2. Set up a real repo directory with a clashing skill (prefix-me) and a skipped skill (skip-me)
+    let repo_dir = root.join("repo-a");
+    let repo_skills = repo_dir.join(".claude/skills");
+    fs::ensure_dir(&repo_skills).unwrap();
+    write_skill(
+        &repo_skills.join("prefix-me"),
+        "---\nname: prefix-me\n---\n",
+    );
+    write_skill(&repo_skills.join("skip-me"), "---\nname: skip-me\n---\n");
+
+    // 3. Set up a view dir with a symlink to the repo
+    let view_dir = root.join("view");
+    fs::ensure_dir(&view_dir).unwrap();
+    fs::replace_symlink_if_changed(&repo_dir, &view_dir.join("repo-a")).unwrap();
+
+    let manifest = Manifest::new(
+        HallName::new("acme").unwrap(),
+        Providers::new(vec![Provider::ClaudeCode], Provider::ClaudeCode),
+        vec![Repo::new(
+            RepoName::new("repo-a").unwrap(),
+            "https://github.com/example/repo-a.git",
+            BranchName::new("main").unwrap(),
+        )],
+        None,
+    )
+    .unwrap();
+
+    let warnings =
+        super::materialise(&layout, &manifest, Provider::ClaudeCode, &view_dir, None).unwrap();
+
+    // skill.repo_prefixed for "prefix-me" is suppressed
+    assert!(
+        !warnings.iter().any(|w| w.code == "skill.repo_prefixed"),
+        "skill.repo_prefixed should be filtered out in materialise"
+    );
+
+    // Other warnings such as skill.repo_skipped (for repo-a--skip-me collision) are preserved
+    assert!(
+        warnings.iter().any(|w| w.code == "skill.repo_skipped"),
+        "skill.repo_skipped should be preserved"
+    );
+}

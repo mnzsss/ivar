@@ -21,18 +21,13 @@ pub(crate) fn parse_tool_request(
 ) -> Result<(ToolRequest, Option<Utf8PathBuf>), Failure> {
     let input: OmpHookInput = serde_json::from_str(stdin_json)
         .map_err(|e| Failure::blocked("guard.parse", format!("invalid OMP hook JSON: {e}")))?;
-    let file_path = input
-        .args
-        .get("filePath")
-        .or_else(|| input.args.get("file_path"))
-        .or_else(|| input.args.get("path"))
-        .and_then(|v| v.as_str())
-        .map(Utf8PathBuf::from);
+    let extracted = super::targets::extract(&input.tool, &input.args);
     Ok((
         ToolRequest {
             search_pattern: crate::providers::extract_search_pattern(&input.tool, &input.args),
             tool: input.tool,
-            file_path,
+            targets: extracted.targets,
+            writes: extracted.writes,
         },
         input.cwd,
     ))

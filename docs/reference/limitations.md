@@ -139,20 +139,27 @@ Protection operates in two distinct tiers:
    outside the session's allowed roots fails with `EACCES` (`Permission denied`)
    at the syscall level.
 2. **Advisory tool guard (All platforms):** The `ivar guard` hook intercepts
-   structured tool writes (Write, Edit) before execution. Its primary role is
-   **diagnostic legibility**: when an agent attempts an illegal write, the guard
-   returns the session's current `writable set: ...` so the agent understands why
-   the path is disallowed and can ask for repo promotion, rather than receiving an
-   opaque OS permission error. When no session resolves from the cwd or the target path,
-   the guard names the scratch directory of each live session instead, so an agent
-   that has nowhere to write is told where it may.
+   structured tool writes (Write, Edit, ApplyPatch, device writes) before execution.
+   Its primary role is **diagnostic legibility**: when an agent attempts an illegal
+   write, the guard returns the session's current `writable set: ...` so the agent
+   understands why the path is disallowed and can ask for repo promotion, rather
+   than receiving an opaque OS permission error. When no session resolves from the
+   cwd or the target path, the guard lists the scratch directories of live sessions
+   belonging to the target feature if any, or states the count of live sessions in the hall.
+
+### Multi-target structured writes and device tools
+
+The guard inspects all targets affected by a single tool invocation:
+- **Multi-target structured writes:** Hashline section headers (`[path#tag]`), `MV` destinations, and apply-patch headers (`*** Add File:`, `*** Update File:`, `*** Delete File:`, `*** Move to:`) are extracted from `args.input`. A multi-target write is allowed only if every target is allowed; otherwise, the denial names the first disallowed target.
+- **Device and direct tools:** Writes to `xd://ast_edit` or direct `ast_edit` tool invocations inspect the literal directory prefix of each path pattern in `paths[]`. Writes to `xd://lsp` or direct `lsp` tool invocations with mutating actions (`rename`, `rename_file`, `request`, or `code_actions` with `apply: true`) check the target file (and destination path for `rename_file`). Read-only actions and dry renames (`apply: false`) are allowed. Unparseable device content fails closed (denied).
+- **LSP rename residual:** An allowed `xd://lsp` rename can rewrite symbol references in files outside the session's writable set on platforms without Landlock enforcement.
 
 On platforms without Landlock (e.g. macOS), the advisory hook is the primary line of
 defense for structured tools. Its effectiveness depends on the provider honouring the
 hook protocol:
 - **Claude Code:** The guard exits 0 with `permissionDecision: deny` in the JSON body.
 - **OpenCode:** The guard exits non-zero to signal tool rejection.
-- **OMP:** The guard exits 0 with `{ "block": true, "reason": "..." }`.
+- **OMP:** The guard exits non-zero with the denial reason on stdout.
 
 ## Provider-specific capabilities and limitations
 

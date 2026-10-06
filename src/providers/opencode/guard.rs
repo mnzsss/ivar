@@ -17,14 +17,16 @@ pub(crate) fn parse_tool_request(
 ) -> Result<(ToolRequest, Option<Utf8PathBuf>), Failure> {
     let input: OpenCodeHookInput = serde_json::from_str(stdin_json)
         .map_err(|e| Failure::blocked("guard.parse", format!("invalid OpenCode hook JSON: {e}")))?;
+    let mut targets = Vec::new();
+    if let Some(p) = input.args.get("filePath").and_then(|v| v.as_str()) {
+        targets.push(Utf8PathBuf::from(p));
+    }
+    let writes = crate::domain::guard::is_structured_write(&input.tool);
     let req = ToolRequest {
         search_pattern: crate::providers::extract_search_pattern(&input.tool, &input.args),
         tool: input.tool,
-        file_path: input
-            .args
-            .get("filePath")
-            .and_then(|v| v.as_str())
-            .map(Utf8PathBuf::from),
+        targets,
+        writes,
     };
     Ok((req, input.cwd))
 }

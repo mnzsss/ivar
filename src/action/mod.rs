@@ -21,6 +21,7 @@ pub mod confirm;
 pub mod discovery;
 pub mod execute;
 pub mod feature;
+pub mod feedback;
 pub mod graph;
 pub mod hall;
 pub mod mcp;

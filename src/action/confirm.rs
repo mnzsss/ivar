@@ -144,6 +144,41 @@ impl Confirm for Fixed {
     }
 }
 
+#[cfg(test)]
+#[derive(Debug)]
+pub(crate) struct FixedInteractive {
+    pub(crate) answer: bool,
+}
+
+#[cfg(test)]
+impl Confirm for FixedInteractive {
+    fn confirm(&self, _question: &str, _caveat: Option<&str>) -> Result<bool, Failure> {
+        Ok(self.answer)
+    }
+
+    fn select_many(&self, _prompt: &str, options: &[SelectOption]) -> Result<Vec<usize>, Failure> {
+        Ok((0..options.len()).collect())
+    }
+
+    fn select_one(
+        &self,
+        _prompt: &str,
+        _options: &[SelectOption],
+    ) -> Result<Option<usize>, Failure> {
+        Ok(None)
+    }
+
+    fn is_interactive(&self) -> bool {
+        true
+    }
+}
+
+#[cfg(test)]
+#[must_use]
+pub(crate) fn fixed_interactive(answer: bool) -> std::sync::Arc<dyn Confirm> {
+    std::sync::Arc::new(FixedInteractive { answer })
+}
+
 /// The real interactive prompt: the question on stderr, the answer from
 /// stdin, `true` only for an explicit `y`.
 ///

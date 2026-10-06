@@ -85,6 +85,33 @@ to re-derive where the feature is in the SPDD cycle with
 that is `pending` or `needs-revision`. Start the provider in that session's
 view dir to pick the work back up.
 
+## Report issues and feedback
+
+When an agent encounters a bug, an unexpected guard denial, or tool friction, it can record a structured feedback entry:
+
+```sh
+ivar feedback add --title "unexpected guard denial on config" --kind bug --file - << 'EOF'
+## Symptom
+Guard denied edit to config.json in promoted repo.
+
+## Reproduction
+Edit tool called on repos/web/config.json.
+EOF
+```
+
+List and inspect recorded entries:
+
+```sh
+ivar feedback list
+ivar feedback show 001-unexpected-guard-denial-on-config --redacted
+```
+
+Publish an entry to GitHub issues (requires interactive confirmation):
+
+```sh
+ivar feedback submit 001-unexpected-guard-denial-on-config
+```
+
 ## See where you are
 
 ```sh

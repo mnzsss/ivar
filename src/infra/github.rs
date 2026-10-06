@@ -286,6 +286,34 @@ pub fn gh_stdout(args: &[&str], code: &'static str) -> Result<String, Failure> {
     }
 }
 
+/// Run a `gh` subcommand capturing its stdout, passing text to stdin.
+///
+/// Returns the trimmed stdout on success. Spawn failure becomes
+/// [`gh_missing`]; a non-zero exit becomes `Failure::blocked(code, stderr)`.
+///
+/// # Errors
+///
+/// Returns [`Failure`] if `gh` is missing, or [`Failure::blocked`] if
+/// it exits non-zero.
+pub fn gh_stdout_with_stdin(
+    args: &[&str],
+    stdin: &str,
+    code: &'static str,
+) -> Result<String, Failure> {
+    let output = proc::capture(
+        &proc::Command::new("gh")
+            .args(args.iter().copied())
+            .stdin(stdin),
+    )
+    .map_err(|_| gh_missing())?;
+
+    if output.success() {
+        Ok(output.stdout.trim().to_owned())
+    } else {
+        Err(Failure::blocked(code, output.diagnostic()))
+    }
+}
+
 /// Build a [`Failure`] for a missing `gh` binary.
 fn gh_missing() -> Failure {
     Failure::blocked("github.gh_missing", "`gh` is not installed").fix(FixAction::safe(

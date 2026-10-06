@@ -40,7 +40,12 @@ pub(crate) fn materialise(
     }
     let reserved = reserved_names(&reserved_dirs(layout.root(), home));
     let plan = plan(skills, &reserved);
-    warnings.extend(plan.warnings.iter().cloned());
+    warnings.extend(
+        plan.warnings
+            .iter()
+            .filter(|w| w.code != "skill.repo_prefixed")
+            .cloned(),
+    );
     warnings.extend(apply::apply(
         view_dir,
         &view_dir.join(provider.skills_dir()),

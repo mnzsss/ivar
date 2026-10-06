@@ -24,3 +24,4 @@ pub mod progress;
 pub mod release;
 pub mod table;
 pub mod term;
+pub mod url;

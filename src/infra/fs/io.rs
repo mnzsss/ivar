@@ -48,6 +48,27 @@ pub fn write_text(path: &Utf8Path, contents: &str) -> Result<(), Error> {
     })
 }
 
+/// Create a file with contents only if it does not already exist.
+/// # Errors
+///
+/// Returns [`Error`] if `path` already exists or cannot be created.
+pub fn create_new_text(path: &Utf8Path, contents: &str) -> Result<(), Error> {
+    use std::io::Write;
+    let mut file = fs_err::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path.as_std_path())
+        .map_err(|source| Error::Write {
+            path: path.to_owned(),
+            source,
+        })?;
+    file.write_all(contents.as_bytes())
+        .map_err(|source| Error::Write {
+            path: path.to_owned(),
+            source,
+        })
+}
+
 /// Write raw bytes to a file, plain — not crash-safe. Use [`write_atomic`] for
 /// state.
 /// # Errors

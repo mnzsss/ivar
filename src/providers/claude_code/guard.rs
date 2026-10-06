@@ -17,17 +17,19 @@ pub(crate) fn parse_tool_request(
 ) -> Result<(ToolRequest, Option<Utf8PathBuf>), Failure> {
     let input: ClaudeHookInput = serde_json::from_str(stdin_json)
         .map_err(|e| Failure::blocked("guard.parse", format!("invalid Claude hook JSON: {e}")))?;
+    let mut targets = Vec::new();
+    if let Some(p) = input.tool_input.get("file_path").and_then(|v| v.as_str()) {
+        targets.push(Utf8PathBuf::from(p));
+    }
+    let writes = crate::domain::guard::is_structured_write(&input.tool_name);
     let req = ToolRequest {
         search_pattern: crate::providers::extract_search_pattern(
             &input.tool_name,
             &input.tool_input,
         ),
         tool: input.tool_name,
-        file_path: input
-            .tool_input
-            .get("file_path")
-            .and_then(|v| v.as_str())
-            .map(Utf8PathBuf::from),
+        targets,
+        writes,
     };
     Ok((req, input.cwd))
 }
