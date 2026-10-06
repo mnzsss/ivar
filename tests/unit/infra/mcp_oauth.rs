@@ -83,8 +83,8 @@ fn parse_authorization_metadata_errors() {
 #[test]
 fn discover_oauth_endpoints_repro_405() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-    let port = listener.local_addr().unwrap().port();
-    let url = format!("http://127.0.0.1:{}", port);
+    let url = format!("http://127.0.0.1:{}", listener.local_addr().unwrap().port());
+    let metadata_url = format!("{url}/metadata");
 
     thread::spawn(move || {
         for stream in listener.incoming() {
@@ -93,31 +93,28 @@ fn discover_oauth_endpoints_repro_405() {
             let mut request_line = String::new();
             reader.read_line(&mut request_line).unwrap();
 
-            if request_line.starts_with("GET") {
-                stream
-                    .write_all(b"HTTP/1.1 405 Method Not Allowed\r\n\r\n")
-                    .unwrap();
-            } else if request_line.starts_with("POST") {
-                stream.write_all(b"HTTP/1.1 401 Unauthorized\r\nWWW-Authenticate: Bearer resource_metadata=\"http://localhost/metadata\"\r\n\r\n").unwrap();
-            }
+            let response = if request_line.starts_with("GET /metadata ") {
+                let body = r#"{"authorization_servers": []}"#;
+                format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}",
+                    body.len()
+                )
+            } else if request_line.starts_with("GET") {
+                "HTTP/1.1 405 Method Not Allowed\r\nContent-Length: 0\r\n\r\n".to_owned()
+            } else {
+                format!(
+                    "HTTP/1.1 401 Unauthorized\r\nWWW-Authenticate: Bearer resource_metadata=\"{metadata_url}\"\r\nContent-Length: 0\r\n\r\n"
+                )
+            };
+            stream.write_all(response.as_bytes()).unwrap();
         }
     });
 
-    // This should now succeed (or at least get past 405)
-    let result = discover_oauth_endpoints(&url);
-    // Now we assert success in proceeding past step 1!
-    // But Step 2 will fail because http://localhost/metadata doesn't exist.
-    // That's fine, we just want to prove we triggered the 401 and parsed the header correctly.
-    assert!(
-        result.is_err(),
-        "Expected error on Step 2 (not found), but got: {:?}",
-        result
-    );
-    let err = result.err().unwrap();
-    assert!(
-        err.code.contains("mcp_oauth.discover_resource_metadata"),
-        "Expected Step 2 error, got: {:?}",
-        err
+    let failure = discover_oauth_endpoints(&url)
+        .expect_err("an empty authorization_servers array must stop discovery at step 2");
+    assert_eq!(
+        failure.code, "mcp_oauth.resource_metadata_no_authorization_server",
+        "discovery must pass the 401 challenge and parse the resource metadata: {failure:?}"
     );
 }
 
