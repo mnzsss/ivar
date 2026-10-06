@@ -40,7 +40,7 @@ broken when it is telling you something.
 
 ### `ivar`
 
-Mount the repos a feature spans into one directory, on one branch, for one agent session.
+Multi-repo worktrees for coding agents: one feature across repos, on one branch, one PR per repo.
 
 | flag | value | default | description |
 | --- | --- | --- | --- |
