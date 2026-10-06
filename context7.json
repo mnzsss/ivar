@@ -1,0 +1,13 @@
+{
+  "$schema": "https://context7.com/schema/context7.json",
+  "projectTitle": "ivar",
+  "description": "Multi-repo worktrees for coding agents: one feature across repos, as one unit, with one branch, one plan and one pull request per repo.",
+  "folders": ["docs"],
+  "excludeFolders": ["docs/adr", "src", "tests", "target", "packaging"],
+  "rules": [
+    "A hall is a git repo that declares team repositories in ivar.json",
+    "Repos not promoted into a feature are guarded; the guard is kernel-enforced only on Linux, for agents launched by ivar session start",
+    "Supported providers are Claude Code, OpenCode and OMP; Codex is not a provider",
+    "Opening pull requests requires GitHub and the gh CLI"
+  ]
+}

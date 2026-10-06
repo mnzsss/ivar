@@ -57,8 +57,10 @@ branch is `checkout`, in every repo you promote onto it.
 Making a repo writable for a feature.
 
 Before promotion, a repo appears in your session on its default branch, and
-**its write bits are cleared** — `chmod`, the kernel, not a policy. An agent that
-tries to edit it gets `EACCES`, the same as you would.
+**it is guarded read-only**. On Linux, for an agent started with
+`ivar session start`, Landlock makes the kernel refuse the write: the agent gets
+`EACCES`, the same as you would. Elsewhere the guard is a guardrail rather than a
+boundary; [Limitations](reference/limitations.md) lists the cases.
 
 Promoting cuts a worktree on the feature's branch off that repo's bare clone,
 first refreshing the default branch so the new branch starts from current `main`,
@@ -178,10 +180,10 @@ ivar.json                     committed: the hall's identity and its repos
 
 ## What is deliberately not here
 
-`ivar` does not run your code, watch your files, index your repos, or hold state
-in a daemon. It has no server and does not talk to one. It arranges directories
-and gets out of the way — which is why a session dying costs you a conversation
-and nothing else.
+`ivar` does not run your code or hold state in a system daemon, and there is no
+ivar server. It arranges directories, keeps a local code graph that never leaves
+the machine, and gets out of the way — which is why a session dying costs you a
+conversation and nothing else.
 
 It also does not isolate anything but the filesystem and ports. A shared
 database stays shared; see [Limitations](reference/limitations.md), which says so

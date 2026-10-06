@@ -55,8 +55,7 @@ ivar --version
 ```
 
 **macOS and Linux.** Windows is not supported: the view dir is built entirely
-from symlinks, which need Developer Mode or admin rights there. WSL works and
-consumes the Linux build with no separate path.
+from symlinks, which need Developer Mode or admin rights there. WSL is untested.
 
 ## Before either path: authenticate
 

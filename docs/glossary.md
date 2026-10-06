@@ -310,5 +310,5 @@ only so you know they are absent by design rather than missing: **workspace**,
 **remote deleted**, and the five workspace verbs (`connect`, `push`, `pull`,
 `login`, `logout`).
 
-`ivar` is local-only. It has no account, no index and no server, and there is no
-configuration that makes it acquire one.
+`ivar` is local-only. It has no account and no ivar server, its code graph is a
+local SQLite file, and there is no configuration that makes it acquire either.
