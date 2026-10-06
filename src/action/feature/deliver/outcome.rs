@@ -9,7 +9,7 @@ use crate::domain::feature::{
     DeliveryAction, DeliveryMode, DeliveryPreview, DraftAction, VerificationResult,
 };
 use crate::domain::name::RepoName;
-use crate::error::{FixAction, WriteHuman};
+use crate::error::{CAUTION, FixAction, HEADER, MUTED, WriteHuman, paint};
 
 /// The pull request a push created or updated.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -115,25 +115,40 @@ fn write_human_push_preview(w: &mut impl io::Write, outcome: &DeliverOutcome) ->
         writeln!(w, "  no repos promoted")?;
     }
     for repo in &outcome.preview.repos {
-        writeln!(w, "  {}:", repo.repo)?;
-        writeln!(w, "    branch:  {}", repo.local_branch)?;
-        writeln!(w, "    remote:  {}", repo.remote)?;
-        writeln!(w, "    refspec: {}", repo.push_refspec)?;
-        writeln!(w, "    base:    {}", repo.base_branch)?;
+        writeln!(w, "  {}", paint(HEADER, &format!("{}:", repo.repo)))?;
+        writeln!(w, "    {}  {}", paint(MUTED, "branch:"), repo.local_branch)?;
+        writeln!(w, "    {}  {}", paint(MUTED, "remote:"), repo.remote)?;
+        writeln!(w, "    {} {}", paint(MUTED, "refspec:"), repo.push_refspec)?;
+        writeln!(w, "    {}    {}", paint(MUTED, "base:"), repo.base_branch)?;
         if repo.draft == Some(DraftAction::ConvertToDraft) {
-            writeln!(w, "    action:  {}", action_word(repo.action, None))?;
-            writeln!(w, "    action:  {}", action_word(repo.action, repo.draft))?;
+            writeln!(
+                w,
+                "    {}  {}",
+                paint(MUTED, "action:"),
+                action_word(repo.action, None)
+            )?;
+            writeln!(
+                w,
+                "    {}  {}",
+                paint(MUTED, "action:"),
+                action_word(repo.action, repo.draft)
+            )?;
         } else {
-            writeln!(w, "    action:  {}", action_word(repo.action, repo.draft))?;
+            writeln!(
+                w,
+                "    {}  {}",
+                paint(MUTED, "action:"),
+                action_word(repo.action, repo.draft)
+            )?;
         }
         for pending in &repo.pending {
-            writeln!(w, "    pending: {pending}")?;
+            writeln!(w, "    {} {pending}", paint(MUTED, "pending:"))?;
         }
         if repo.blockers.is_empty() {
-            writeln!(w, "    blockers: none")?;
+            writeln!(w, "    {} none", paint(MUTED, "blockers:"))?;
         } else {
             for blocker in &repo.blockers {
-                writeln!(w, "    blocker: {blocker}")?;
+                writeln!(w, "    {} {blocker}", paint(CAUTION, "blocker:"))?;
             }
         }
     }
@@ -237,16 +252,27 @@ impl WriteHuman for DeliverOutcome {
                 DeliveryMode::Push => write_human_push_preview(w, self)?,
                 DeliveryMode::Land => write_human_land_preview(w, self)?,
             }
-            writeln!(w, "  plan gate:   {}", self.preview.plan_gate)?;
+            writeln!(
+                w,
+                "  {}   {}",
+                paint(MUTED, "plan gate:"),
+                self.preview.plan_gate
+            )?;
             for blocker in &self.blockers {
-                writeln!(w, "  blocked:     {blocker}")?;
+                writeln!(w, "  {}     {blocker}", paint(CAUTION, "blocked:"))?;
             }
-            writeln!(w, "  fingerprint: {}", self.preview.fingerprint)?;
+            writeln!(
+                w,
+                "  {} {}",
+                paint(MUTED, "fingerprint:"),
+                self.preview.fingerprint
+            )?;
             if let Some(command) = &self.apply_command {
-                writeln!(w, "  apply:       {command}")?;
+                writeln!(w, "  {}       {command}", paint(MUTED, "apply:"))?;
                 writeln!(
                     w,
-                    "  note:        --name, --body, --draft and --only are part of the fingerprint; apply with the same values"
+                    "  {}        --name, --body, --draft and --only are part of the fingerprint; apply with the same values",
+                    paint(MUTED, "note:")
                 )?;
             }
             Ok(())
