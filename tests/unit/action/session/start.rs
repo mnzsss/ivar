@@ -2118,3 +2118,222 @@ fn a_missing_hall_settings_file_warns_and_links_nothing() {
         fs::SymlinkTarget::Absent
     );
 }
+
+// -- base view -------------------------------------------------------------
+
+/// A hall whose `api` origin has `main` plus a `develop` carrying
+/// `DEVELOP.md`, synced (so the bare holds both branches but only the
+/// `main` worktree exists), with an unpromoted feature `release` whose
+/// declared base is `base`.
+fn hall_with_based_feature(base: &str) -> (tempfile::TempDir, Utf8PathBuf) {
+    let (guard, root) = hall_root();
+    let ctx = Ctx::new(root.clone());
+    hall::init(
+        &ctx,
+        &InitInput {
+            path: Utf8PathBuf::from("."),
+            name: Some("acme".to_owned()),
+            provider: None,
+        },
+    )
+    .unwrap();
+
+    let origin = seeded_repo(&root.parent().unwrap().join("origins").join("api"), "main");
+    git(&origin, &["checkout", "-b", "develop"]);
+    std::fs::write(origin.join("DEVELOP.md"), "develop\n").unwrap();
+    git(&origin, &["add", "DEVELOP.md"]);
+    git(&origin, &["commit", "-m", "develop"]);
+    git(&origin, &["checkout", "main"]);
+
+    let layout = Layout::at(root.clone());
+    let manifest = Manifest::new(
+        HallName::new("acme").unwrap(),
+        Providers::new(vec![Provider::ClaudeCode], Provider::ClaudeCode),
+        vec![Repo::new(
+            RepoName::new("api").unwrap(),
+            origin.as_str(),
+            BranchName::new("main").unwrap(),
+        )],
+        None,
+    )
+    .unwrap();
+    Manifest::write(&layout, &manifest).unwrap();
+
+    feature_create::create(
+        &ctx,
+        CreateInput {
+            name: "release".to_owned(),
+            branch: None,
+            base: Some(base.to_owned()),
+            parent: None,
+            via: None,
+            strategy: None,
+        },
+    )
+    .unwrap();
+    crate::action::sync::sync(&ctx, &Default::default()).unwrap();
+
+    (guard, root)
+}
+
+/// Cut the `develop` base worktree by hand — what `base_view::prepare`
+/// does during a real `session start`.
+fn add_develop_worktree(layout: &Layout) -> Utf8PathBuf {
+    let api = RepoName::new("api").unwrap();
+    let worktree = layout.repo_worktree(&api, &BranchName::new("develop").unwrap());
+    git(
+        &layout.repo_bare(&api),
+        &["worktree", "add", worktree.as_str(), "develop"],
+    );
+    worktree
+}
+
+fn new_session_id() -> crate::domain::name::SessionId {
+    crate::domain::name::SessionId::new(uuid::Uuid::new_v4().to_string()).unwrap()
+}
+
+/// A root feature with an explicit base views an unpromoted repo through
+/// the base worktree, guarded read-only like a default worktree.
+#[test]
+fn materialise_links_an_unpromoted_repo_at_the_root_base_worktree() {
+    let (_guard, root) = hall_with_based_feature("develop");
+    let layout = Layout::at(root.clone());
+    let manifest = Manifest::read(&layout).unwrap().unwrap();
+    let develop = add_develop_worktree(&layout);
+    let name = FeatureName::new("release").unwrap();
+    let feature = Feature::read(&layout, &name).unwrap().unwrap();
+    let view_dir = layout.feature_session(&name, &new_session_id());
+
+    crate::action::session::view::materialise(
+        &layout,
+        &manifest,
+        Some(&feature),
+        Provider::ClaudeCode,
+        &view_dir,
+    )
+    .unwrap();
+
+    let target = read_link_target(&view_dir.join("api"));
+    assert!(
+        target.as_str().ends_with(".ivar/repos/api/develop"),
+        "an unpromoted repo must link the root's base worktree: {target}"
+    );
+    assert_eq!(
+        fs::unix_mode(&develop).unwrap().unwrap() & 0o222,
+        0,
+        "the base worktree must be guarded read-only"
+    );
+    unguard_worktrees(&root);
+}
+
+/// A declared base whose worktree was never cut (offline, or the branch is
+/// absent) still opens the session on the default branch.
+#[test]
+fn materialise_falls_back_to_the_default_worktree_when_the_base_worktree_is_absent() {
+    let (_guard, root) = hall_with_based_feature("develop");
+    let layout = Layout::at(root.clone());
+    let manifest = Manifest::read(&layout).unwrap().unwrap();
+    let name = FeatureName::new("release").unwrap();
+    let feature = Feature::read(&layout, &name).unwrap().unwrap();
+    let view_dir = layout.feature_session(&name, &new_session_id());
+
+    crate::action::session::view::materialise(
+        &layout,
+        &manifest,
+        Some(&feature),
+        Provider::ClaudeCode,
+        &view_dir,
+    )
+    .unwrap();
+
+    let target = read_link_target(&view_dir.join("api"));
+    assert!(
+        target.as_str().ends_with(".ivar/repos/api/main"),
+        "without a base worktree the default worktree is linked: {target}"
+    );
+    unguard_worktrees(&root);
+}
+
+/// A subfeature sees the repo its parent promoted through the parent's
+/// feature worktree, and materialisation never touches that worktree's
+/// write bits (R-PARENT-RO).
+#[test]
+fn materialise_links_a_subfeature_to_its_parents_worktree_without_guarding_it() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let ctx = Ctx::new(root.clone());
+    feature_create::create(
+        &ctx,
+        CreateInput {
+            name: "checkout-ui".to_owned(),
+            branch: None,
+            base: None,
+            parent: Some("checkout".to_owned()),
+            via: None,
+            strategy: None,
+        },
+    )
+    .unwrap();
+    let layout = Layout::at(root.clone());
+    let manifest = Manifest::read(&layout).unwrap().unwrap();
+    let parent = Feature::read(&layout, &FeatureName::new("checkout").unwrap())
+        .unwrap()
+        .unwrap();
+    let parent_worktree = layout.repo_worktree(&RepoName::new("api").unwrap(), &parent.branch);
+    let mode_before = fs::unix_mode(&parent_worktree).unwrap().unwrap();
+    let child_name = FeatureName::new("checkout-ui").unwrap();
+    let child = Feature::read(&layout, &child_name).unwrap().unwrap();
+    let view_dir = layout.feature_session(&child_name, &new_session_id());
+
+    crate::action::session::view::materialise(
+        &layout,
+        &manifest,
+        Some(&child),
+        Provider::ClaudeCode,
+        &view_dir,
+    )
+    .unwrap();
+
+    let target = read_link_target(&view_dir.join("api"));
+    assert!(
+        target.as_str().ends_with(".ivar/repos/api/checkout"),
+        "a subfeature must link its parent's feature worktree: {target}"
+    );
+    let mode_after = fs::unix_mode(&parent_worktree).unwrap().unwrap();
+    assert_eq!(
+        mode_after, mode_before,
+        "the parent's worktree mode must be untouched"
+    );
+    assert_ne!(
+        mode_after & 0o200,
+        0,
+        "the parent keeps writing to its own worktree"
+    );
+    unguard_worktrees(&root);
+}
+
+/// Discovery sessions are not feature sessions: they keep the default
+/// branch even when a base worktree exists in the hall (R-DISCOVERY).
+#[test]
+fn a_discovery_session_still_links_the_default_worktree_when_a_base_worktree_exists() {
+    let (_guard, root) = hall_with_based_feature("develop");
+    let layout = Layout::at(root.clone());
+    let manifest = Manifest::read(&layout).unwrap().unwrap();
+    add_develop_worktree(&layout);
+    let view_dir = layout.discovery_session(&new_session_id());
+
+    crate::action::session::view::materialise(
+        &layout,
+        &manifest,
+        None,
+        Provider::ClaudeCode,
+        &view_dir,
+    )
+    .unwrap();
+
+    let target = read_link_target(&view_dir.join("api"));
+    assert!(
+        target.as_str().ends_with(".ivar/repos/api/main"),
+        "a discovery session links the default worktree: {target}"
+    );
+    unguard_worktrees(&root);
+}

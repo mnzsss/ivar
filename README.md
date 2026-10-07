@@ -35,7 +35,7 @@ Add an `avatarUrl` field to the user profile: the agent describes it in `shared-
    feature. Everything else stays guarded read-only (kernel-enforced on Linux).
 4. **Session** — a view directory opened for you or an agent.
 5. **View Dir** — symlinks to the right real worktrees: feature worktrees for
-   promoted repositories and guarded default-branch worktrees for the rest.
+   promoted repositories, and for the rest the feature's base (the parent's worktree, the root's base branch, or the default branch).
 
 ```text
 Hall

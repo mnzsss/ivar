@@ -40,7 +40,7 @@ pub fn unix_mode(path: &Utf8Path) -> Result<Option<u32>, Error> {
 }
 
 /// Clear every write bit on `path` — the read-only guard ivar applies to the
-/// default-branch worktrees a session does not promote. Idempotent: a path
+/// default-branch and base-branch worktrees a session does not promote. Idempotent: a path
 /// with no write bits is left untouched, syscall included.
 ///
 /// Exactly the path given, never the tree under it. A worktree is full of
