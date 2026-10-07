@@ -252,8 +252,21 @@ fn teardown_descendants(
             teardown_branches(layout, git, node, &worktrees);
         warnings.extend(node_warnings);
         warnings.extend(branch_warnings);
-        let removed =
-            worktrees_removed && branches_deleted && remove_node_dir(layout, &node.name).is_ok();
+        let mut removed = false;
+        if worktrees_removed && branches_deleted {
+            match remove_node_dir(layout, &node.name) {
+                Ok(()) => {
+                    removed = true;
+                }
+                Err(failure) => {
+                    warnings.push(Warning::new(
+                        "feature.cleanup_dir_failed",
+                        node.name.as_str(),
+                        failure.what.clone(),
+                    ));
+                }
+            }
+        }
         descendant_outcomes.push(CleanupDescendantOutcome {
             feature: node.name.clone(),
             branch: node.branch.clone(),
