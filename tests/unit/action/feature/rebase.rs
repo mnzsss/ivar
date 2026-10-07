@@ -5,6 +5,8 @@
     clippy::indexing_slicing
 )]
 
+use camino::Utf8PathBuf;
+
 use super::*;
 use crate::action::feature::create::CreateInput;
 use crate::action::feature::create::create as create_action;
@@ -12,7 +14,8 @@ use crate::action::feature::promote::{self, PromoteInput};
 use crate::action::hall::{self, InitInput};
 use crate::domain::name::{BranchName, HallName};
 use crate::domain::provider::Provider;
-use crate::error::Status;
+use crate::error::{Status, WriteHuman};
+use crate::infra::fs;
 use crate::store::layout::Layout;
 use crate::store::manifest::{Manifest, Providers, Repo};
 use crate::test_support::{git, hall_root, seeded_repo};
