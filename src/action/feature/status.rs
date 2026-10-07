@@ -129,8 +129,9 @@ impl WriteHuman for StatusOutcome {
         }
         if let Some(tree) = &self.tree {
             writeln!(w, "Subtree:")?;
-            for entry in tree {
-                let indent = "  ".repeat(entry.depth + 1);
+            let depths: Vec<usize> = tree.iter().map(|entry| entry.depth).collect();
+            let prefixes = super::tree::tree_prefixes(&depths);
+            for (entry, prefix) in tree.iter().zip(prefixes) {
                 let blockers = if entry.blockers.is_empty() {
                     String::new()
                 } else {
@@ -145,7 +146,7 @@ impl WriteHuman for StatusOutcome {
                 };
                 writeln!(
                     w,
-                    "{indent}{}  state {}  plan {}  repos {}{run_str}  sessions {}{blockers}",
+                    "  {prefix}{}  state {}  plan {}  repos {}{run_str}  sessions {}{blockers}",
                     entry.feature,
                     entry.state,
                     entry.plan_gate,
