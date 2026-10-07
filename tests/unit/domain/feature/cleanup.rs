@@ -29,7 +29,6 @@ fn merged_repo_is_eligible() {
     let verdict = classify_cleanup(&CleanupFacts {
         repos: vec![repo_facts()],
         live_sessions: Vec::new(),
-        descendants: Vec::new(),
         session_inspection_error: None,
     });
 
@@ -46,22 +45,15 @@ fn collects_all_repository_blockers() {
     let verdict = classify_cleanup(&CleanupFacts {
         repos: vec![facts],
         live_sessions: vec![SessionId::new("2c6e6f1e-2d8a-4b3a-9c2a-6a7f6f9a1b2c").unwrap()],
-        descendants: vec![FeatureName::new("child").unwrap()],
         session_inspection_error: None,
     });
 
-    assert_eq!(verdict.blockers.len(), 6);
+    assert_eq!(verdict.blockers.len(), 5);
     assert!(
         verdict
             .blockers
             .iter()
             .any(|blocker| matches!(blocker, CleanupBlocker::LiveSessions { .. }))
-    );
-    assert!(
-        verdict
-            .blockers
-            .iter()
-            .any(|blocker| matches!(blocker, CleanupBlocker::Descendants { .. }))
     );
     assert!(
         verdict
@@ -94,7 +86,6 @@ fn empty_feature_is_explicitly_eligible() {
     let verdict = classify_cleanup(&CleanupFacts {
         repos: Vec::new(),
         live_sessions: Vec::new(),
-        descendants: Vec::new(),
         session_inspection_error: None,
     });
 
@@ -108,10 +99,8 @@ fn repo_absent_from_manifest_blocks_cleanup() {
     let verdict = classify_cleanup(&CleanupFacts {
         repos: vec![facts],
         live_sessions: Vec::new(),
-        descendants: Vec::new(),
         session_inspection_error: None,
     });
-
     assert_eq!(
         verdict.blockers,
         vec![CleanupBlocker::RepoAbsentFromManifest {
@@ -134,8 +123,8 @@ fn cleanup_preview_roundtrips_serde() {
             Utf8PathBuf::from(".ivar/features/checkout"),
         ],
         fingerprint: "sha256:1234".to_owned(),
+        descendants: Vec::new(),
     };
-
     let serialized = serde_json::to_string(&preview).unwrap();
     let deserialized: CleanupPreview = serde_json::from_str(&serialized).unwrap();
     assert_eq!(deserialized, preview);
@@ -260,6 +249,7 @@ fn cleanup_record_rejects_populated_outcome() {
         worktrees: Vec::new(),
         branches: Vec::new(),
         feature_removed: true,
+        descendants: Vec::new(),
     });
     assert!(
         record
@@ -289,7 +279,7 @@ fn cleanup_record_rejects_unknown_fields() {
 
 #[test]
 fn cleanup_apply_outcome_deserializes_legacy_plans_removed_key() {
-    let json = r#"{
+    let raw_json = r#"{
         "feature": "feature-cleanup",
         "branch": "feature-cleanup",
         "fingerprint": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
@@ -298,36 +288,39 @@ fn cleanup_apply_outcome_deserializes_legacy_plans_removed_key() {
         "feature_removed": true,
         "plans_removed": true
     }"#;
-    let outcome: Result<CleanupApplyOutcome, _> = serde_json::from_str(json);
+    let outcome: Result<CleanupApplyOutcome, _> = serde_json::from_str(raw_json);
     assert!(outcome.is_ok());
     let outcome = outcome.unwrap();
     assert!(outcome.feature_removed);
+
+    let serialized = crate::infra::json::to_canonical_string(&outcome).unwrap();
+    assert!(!serialized.contains("plans_removed"));
+    assert!(serialized.contains(r#""feature_removed": true"#));
 }
 
 #[test]
-fn cleanup_apply_outcome_serialisation_omits_plans_removed() {
-    let outcome = CleanupApplyOutcome {
+fn cleanup_record_roundtrips_serde() {
+    let mut record = sample_record();
+    record.outcome = Some(CleanupApplyOutcome {
         feature: FeatureName::new("feature-cleanup").unwrap(),
         branch: BranchName::new("feature-cleanup").unwrap(),
         fingerprint: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".to_owned(),
         worktrees: Vec::new(),
         branches: Vec::new(),
         feature_removed: true,
-    };
-    let json = serde_json::to_string(&outcome).unwrap();
-    assert!(!json.contains("plans_removed"));
-    assert!(json.contains(r#""feature_removed":true"#));
+        descendants: Vec::new(),
+    });
+    let serialized = crate::infra::json::to_canonical_string(&record).unwrap();
+    let roundtripped: CleanupRecord = serde_json::from_str(&serialized).unwrap();
+    assert_eq!(roundtripped, record);
 }
-
 fn facts_with(repo: CleanupRepoFacts) -> CleanupFacts {
     CleanupFacts {
         repos: vec![repo],
         live_sessions: Vec::new(),
-        descendants: Vec::new(),
         session_inspection_error: None,
     }
 }
-
 #[test]
 fn a_forge_merge_of_the_local_head_clears_unmerged_commits() {
     let mut repo = repo_facts();
@@ -418,4 +411,169 @@ fn a_pull_request_that_merged_another_head_is_named_by_number() {
     let detail = verdict.blockers[0].to_string();
     assert!(detail.contains("#7"), "{detail}");
     assert!(detail.contains("other than"), "{detail}");
+}
+
+#[test]
+fn descendant_classifier_matrix() {
+    let clean_repo = repo_facts();
+    let dirty_repo = CleanupRepoFacts {
+        dirty_worktree: Some(true),
+        ..repo_facts()
+    };
+    let inspection_err_repo = CleanupRepoFacts {
+        inspection_error: Some("git timeout".to_owned()),
+        ..repo_facts()
+    };
+
+    // Integrated and Abandoned are eligible
+    let integrated_verdict = classify_descendant_cleanup(&CleanupDescendantFacts {
+        state: FeatureIntegrationState::Integrated,
+        repos: vec![clean_repo.clone()],
+        live_sessions: Vec::new(),
+        session_inspection_error: None,
+    });
+    assert!(integrated_verdict.blockers.is_empty());
+
+    let abandoned_verdict = classify_descendant_cleanup(&CleanupDescendantFacts {
+        state: FeatureIntegrationState::Abandoned,
+        repos: vec![clean_repo.clone()],
+        live_sessions: Vec::new(),
+        session_inspection_error: None,
+    });
+    assert!(abandoned_verdict.blockers.is_empty());
+
+    // Active, Failed, Stale, Delivered produce NotIntegrated blocker
+    for state in [
+        FeatureIntegrationState::Active,
+        FeatureIntegrationState::Failed,
+        FeatureIntegrationState::Stale,
+        FeatureIntegrationState::Delivered,
+    ] {
+        let verdict = classify_descendant_cleanup(&CleanupDescendantFacts {
+            state,
+            repos: vec![clean_repo.clone()],
+            live_sessions: Vec::new(),
+            session_inspection_error: None,
+        });
+        assert_eq!(
+            verdict.blockers,
+            vec![CleanupBlocker::NotIntegrated { state }]
+        );
+    }
+
+    // Live sessions, session error, dirty worktree, inspection error are collected
+    let complex_verdict = classify_descendant_cleanup(&CleanupDescendantFacts {
+        state: FeatureIntegrationState::Active,
+        repos: vec![dirty_repo, inspection_err_repo],
+        live_sessions: vec![SessionId::new("2c6e6f1e-2d8a-4b3a-9c2a-6a7f6f9a1b2c").unwrap()],
+        session_inspection_error: Some("daemon down".to_owned()),
+    });
+    assert_eq!(complex_verdict.blockers.len(), 5);
+    assert!(
+        complex_verdict
+            .blockers
+            .contains(&CleanupBlocker::NotIntegrated {
+                state: FeatureIntegrationState::Active
+            })
+    );
+    assert!(
+        complex_verdict
+            .blockers
+            .iter()
+            .any(|b| matches!(b, CleanupBlocker::LiveSessions { .. }))
+    );
+    assert!(
+        complex_verdict
+            .blockers
+            .contains(&CleanupBlocker::SessionInspectionFailed {
+                error: "daemon down".to_owned()
+            })
+    );
+    assert!(
+        complex_verdict
+            .blockers
+            .contains(&CleanupBlocker::DirtyWorktree {
+                repo: RepoName::new("api").unwrap()
+            })
+    );
+    assert!(
+        complex_verdict
+            .blockers
+            .contains(&CleanupBlocker::RepositoryInspectionFailed {
+                repo: RepoName::new("api").unwrap(),
+                error: "git timeout".to_owned()
+            })
+    );
+}
+
+#[test]
+fn leaf_cleanup_preview_and_apply_outcome_serialization_stability() {
+    let preview = CleanupPreview {
+        feature: FeatureName::new("leaf").unwrap(),
+        branch: BranchName::new("leaf").unwrap(),
+        repos: Vec::new(),
+        blockers: Vec::new(),
+        paths_to_remove: Vec::new(),
+        fingerprint: "hash123".to_owned(),
+        descendants: Vec::new(),
+    };
+    let serialized_preview = crate::infra::json::to_canonical_string(&preview).unwrap();
+    assert!(!serialized_preview.contains("descendants"));
+
+    let outcome = CleanupApplyOutcome {
+        feature: FeatureName::new("leaf").unwrap(),
+        branch: BranchName::new("leaf").unwrap(),
+        fingerprint: "hash123".to_owned(),
+        worktrees: Vec::new(),
+        branches: Vec::new(),
+        feature_removed: true,
+        descendants: Vec::new(),
+    };
+    let serialized_outcome = crate::infra::json::to_canonical_string(&outcome).unwrap();
+    assert!(!serialized_outcome.contains("descendants"));
+
+    // Deserialization of record JSON without descendants into CleanupApplyOutcome works
+    let json_without_descendants = r#"{
+        "feature": "leaf",
+        "branch": "leaf",
+        "fingerprint": "hash123",
+        "worktrees": [],
+        "branches": [],
+        "feature_removed": true
+    }"#;
+    let parsed_outcome: CleanupApplyOutcome =
+        serde_json::from_str(json_without_descendants).unwrap();
+    assert_eq!(parsed_outcome.descendants, Vec::new());
+}
+
+#[test]
+fn preview_has_blockers_checks_root_and_descendants() {
+    let mut preview = CleanupPreview {
+        feature: FeatureName::new("root").unwrap(),
+        branch: BranchName::new("root").unwrap(),
+        repos: Vec::new(),
+        blockers: Vec::new(),
+        paths_to_remove: Vec::new(),
+        fingerprint: "hash".to_owned(),
+        descendants: Vec::new(),
+    };
+    assert!(!preview.has_blockers());
+
+    preview.blockers.push(CleanupBlocker::EmptyFeature);
+    assert!(preview.has_blockers());
+
+    preview.blockers.clear();
+    preview.descendants.push(CleanupDescendant {
+        feature: FeatureName::new("child").unwrap(),
+        branch: BranchName::new("child").unwrap(),
+        parent: FeatureName::new("root").unwrap(),
+        depth: 1,
+        state: FeatureIntegrationState::Active,
+        repos: Vec::new(),
+        blockers: vec![CleanupBlocker::NotIntegrated {
+            state: FeatureIntegrationState::Active,
+        }],
+        paths_to_remove: Vec::new(),
+    });
+    assert!(preview.has_blockers());
 }

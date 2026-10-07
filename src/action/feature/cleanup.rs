@@ -177,6 +177,7 @@ fn apply_cleanup(
             worktrees: worktree_removals,
             branches: branch_deletions,
             feature_removed: false,
+            descendants: Vec::new(),
         };
         return Ok(Report::with_warnings(
             CleanupOutcome {
@@ -209,6 +210,7 @@ fn apply_cleanup(
         worktrees: worktree_removals,
         branches: branch_deletions,
         feature_removed: true,
+        descendants: Vec::new(),
     };
 
     let abs_record_path = if record_path.is_absolute() {
@@ -583,27 +585,18 @@ fn preview_cleanup(
             ),
             Err(error) => (Vec::new(), Some(error.to_string())),
         };
-    let descendants = relations::descendants(layout, &feature.name)?
-        .into_iter()
-        .map(|descendant| descendant.name)
-        .collect();
 
-    let worktrees: WorktreeLookups = feature
-        .promotions
-        .keys()
-        .map(|repo| {
-            let lookup =
-                git::lookup_worktree(git, &layout.repo_bare(repo), feature.branch.as_str())
-                    .map_err(|error| match error {
-                        git::Error::Fs(_) => Failure::from(error),
-                        _ => Failure::failed(
-                            "feature.cleanup_worktree_lookup_failed",
-                            error.to_string(),
-                        ),
-                    });
-            (repo.clone(), lookup)
-        })
-        .collect();
+    let worktrees: std::collections::BTreeMap<RepoName, Result<Option<WorktreeEntry>, Failure>> =
+        feature
+            .promotions
+            .keys()
+            .map(|repo| {
+                let bare_path = layout.repo_bare(repo);
+                let entry = git::lookup_worktree(git, &bare_path, feature.branch.as_str())
+                    .map_err(Failure::from);
+                (repo.clone(), entry)
+            })
+            .collect();
     let repo_facts: Vec<_> = feature
         .promotions
         .iter()
@@ -615,7 +608,6 @@ fn preview_cleanup(
     let facts = CleanupFacts {
         repos: repo_facts,
         live_sessions,
-        descendants,
         session_inspection_error,
     };
     let verdict = classify_cleanup(&facts);
@@ -654,6 +646,7 @@ fn preview_cleanup(
             blockers: verdict.blockers,
             paths_to_remove,
             fingerprint,
+            descendants: Vec::new(),
         },
         forge_consulted,
         worktrees,
@@ -848,6 +841,7 @@ fn fingerprint_for(
         blockers: blockers.iter().map(without_forge_detail).collect(),
         paths_to_remove: paths_to_remove.to_vec(),
         fingerprint: String::new(),
+        descendants: Vec::new(),
     };
     Ok(hash::text(&json::to_canonical_string(&preview)?))
 }

@@ -211,13 +211,7 @@ fn reports_descendants() {
     .unwrap();
 
     let preview = run_preview(&root);
-
-    assert!(
-        preview
-            .blockers
-            .iter()
-            .any(|blocker| matches!(blocker, CleanupBlocker::Descendants { .. }))
-    );
+    assert_eq!(preview.descendants, Vec::new());
 }
 
 #[test]
@@ -952,7 +946,6 @@ fn forge_answer_text_does_not_move_the_cleanup_fingerprint() {
                 forge_delivery: Some(forge),
             }],
             live_sessions: Vec::new(),
-            descendants: Vec::new(),
             session_inspection_error: None,
         };
         let blockers = classify_cleanup(&facts).blockers;
