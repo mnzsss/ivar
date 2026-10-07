@@ -52,7 +52,7 @@ use std::io;
 use camino::Utf8PathBuf;
 use serde::Serialize;
 
-use crate::domain::feature::{ApprovalState, Gate, GateState};
+use crate::domain::feature::{ApprovalState, Feature, Gate, GateState};
 use crate::domain::name::FeatureName;
 use crate::domain::plan_commands::{CommandFinding, CommandKind, scan_shell_commands};
 use crate::error::{Failure, FixAction, Outcome, Report, WriteHuman};
@@ -61,6 +61,7 @@ use crate::store::layout::Layout;
 
 use super::super::{discover_hall, read_manifest};
 use crate::action::Ctx;
+use crate::action::session::base_view;
 use crate::store::manifest::Repo;
 
 /// What `ivar plan approve` needs.
@@ -331,16 +332,22 @@ fn require_known_repos(layout: &Layout, feature: &FeatureName) -> Result<Vec<Rep
 }
 
 /// Blocked when a `cd` or `run` in `plan.md` or `tasks/*.md` cannot run in any
-/// declared repo's default worktree. Skipped when no declared worktree is on
-/// disk: there is nothing to resolve a path against.
+/// declared repo's base view — the worktree a feature session links the repo
+/// at ([`base_view::resolve_on_disk`]), or the default worktree when the
+/// feature has no record. Skipped when no such worktree is on disk: there is
+/// nothing to resolve a path against.
 fn require_runnable_commands(
     layout: &Layout,
     feature: &FeatureName,
     repos: &[Repo],
 ) -> Result<(), Failure> {
+    let record = Feature::read(layout, feature)?;
     let mut roots = Vec::new();
     for repo in repos {
-        let root = layout.repo_worktree(repo.name(), repo.default_branch());
+        let root = match &record {
+            Some(record) => base_view::resolve_on_disk(layout, repo, record)?.1,
+            None => layout.repo_worktree(repo.name(), repo.default_branch()),
+        };
         if fs::is_dir(&root)? {
             roots.push(root);
         }
