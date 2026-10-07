@@ -368,14 +368,20 @@ fn apply_stops_at_first_failed_node_and_leaves_ancestor_feature_json() {
     )
     .unwrap();
 
-    let child = crate::action::feature::relations::read_feature(&layout, &FeatureName::new("child").unwrap()).unwrap();
+    let child = crate::action::feature::relations::read_feature(
+        &layout,
+        &FeatureName::new("child").unwrap(),
+    )
+    .unwrap();
     let child_worktree = layout.repo_worktree(&RepoName::new("api").unwrap(), &child.branch);
     let blocker_file = child_worktree.join(".locked_file");
     fs::write_text(&blocker_file, "locked").unwrap();
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let mut perms = std::fs::metadata(child_worktree.as_std_path()).unwrap().permissions();
+        let mut perms = std::fs::metadata(child_worktree.as_std_path())
+            .unwrap()
+            .permissions();
         perms.set_mode(0o555);
         std::fs::set_permissions(child_worktree.as_std_path(), perms).unwrap();
     }
@@ -393,14 +399,19 @@ fn apply_stops_at_first_failed_node_and_leaves_ancestor_feature_json() {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let mut perms = std::fs::metadata(child_worktree.as_std_path()).unwrap().permissions();
+        let mut perms = std::fs::metadata(child_worktree.as_std_path())
+            .unwrap()
+            .permissions();
         perms.set_mode(0o755);
         std::fs::set_permissions(child_worktree.as_std_path(), perms).unwrap();
     }
 
     if let Ok(report) = outcome {
         let apply = report.value.apply_outcome.unwrap();
-        assert!(!apply.feature_removed, "root feature.json must be kept when child fails");
+        assert!(
+            !apply.feature_removed,
+            "root feature.json must be kept when child fails"
+        );
         assert!(root.join(".ivar/features/checkout").exists());
     }
 }

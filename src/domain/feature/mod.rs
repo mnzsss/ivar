@@ -52,8 +52,8 @@ pub use cleanup::{
     CleanupBlocker, CleanupDescendant, CleanupDescendantFacts, CleanupDescendantOutcome,
     CleanupFacts, CleanupPreview, CleanupRecord, CleanupRepo, CleanupRepoFacts, CleanupVerdict,
     DeliveryApproval, DeliveryBlocker, DeliveryFacts, DeliveryRepoFacts, DeliveryVerdict,
-    DocumentationApproval, DocumentationDecision, ForgeDelivery, TeardownApproval,
-    WorktreeRemoval, classify_cleanup, classify_descendant_cleanup, classify_delivery,
+    DocumentationApproval, DocumentationDecision, ForgeDelivery, TeardownApproval, WorktreeRemoval,
+    classify_cleanup, classify_delivery, classify_descendant_cleanup,
 };
 pub use delivery::{
     DeliveryAction, DeliveryMode, DeliveryPreview, DeliveryRepo, DeliveryTreeBlocker, DraftAction,

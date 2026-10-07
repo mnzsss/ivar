@@ -101,7 +101,11 @@ fn a_parent_and_its_abandoned_subfeature_are_cleaned_up_with_one_record() {
         &["feature", "create", "child", "--parent", "checkout"][..],
         &["feature", "close", "child", "--outcome", "abandoned"][..],
     ] {
-        ivar_on_github(&fake, &[]).current_dir(&root).args(args).assert().success();
+        ivar_on_github(&fake, &[])
+            .current_dir(&root)
+            .args(args)
+            .assert()
+            .success();
     }
 
     // Preview the parent — verify child is listed in preview.descendants
@@ -133,11 +137,22 @@ fn a_parent_and_its_abandoned_subfeature_are_cleaned_up_with_one_record() {
         },
         "outcome": null
     });
-    std::fs::write(&record_path, serde_json::to_string_pretty(&record_json).unwrap()).unwrap();
+    std::fs::write(
+        &record_path,
+        serde_json::to_string_pretty(&record_json).unwrap(),
+    )
+    .unwrap();
     // Apply cleanup
     ivar_on_github(&fake, &[])
         .current_dir(&root)
-        .args(["feature", "cleanup", "checkout", "--record", "docs/updates/001-checkout.cleanup.json", "--json"])
+        .args([
+            "feature",
+            "cleanup",
+            "checkout",
+            "--record",
+            "docs/updates/001-checkout.cleanup.json",
+            "--json",
+        ])
         .assert()
         .success();
 

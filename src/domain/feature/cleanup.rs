@@ -4,11 +4,11 @@
 //! them here. Keeping the decisions here makes cleanup and prune share the one
 //! definition of a feature whose local state may be removed.
 
+use super::super::name::{BranchName, FeatureName, RepoName, SessionId};
+use super::integration::FeatureIntegrationState;
 use camino::Utf8PathBuf;
 use serde::{Deserialize, Serialize};
 use std::fmt;
-use super::integration::FeatureIntegrationState;
-use super::super::name::{BranchName, FeatureName, RepoName, SessionId};
 /// Minimal git and manifest facts for one promoted repository to judge delivery.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DeliveryRepoFacts {

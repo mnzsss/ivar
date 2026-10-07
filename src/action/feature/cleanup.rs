@@ -10,10 +10,10 @@ use crate::action::Ctx;
 use crate::action::feature::delete;
 use crate::action::session::lookup as session_lookup;
 use crate::domain::feature::{
-    classify_cleanup, classify_descendant_cleanup, BranchDeletion, CleanupApplyOutcome,
-    CleanupBlocker, CleanupDescendant, CleanupDescendantFacts, CleanupDescendantOutcome,
-    CleanupFacts, CleanupPreview, CleanupRecord, CleanupRepo, CleanupRepoFacts, Feature,
-    ForgeDelivery, WorktreeRemoval,
+    BranchDeletion, CleanupApplyOutcome, CleanupBlocker, CleanupDescendant, CleanupDescendantFacts,
+    CleanupDescendantOutcome, CleanupFacts, CleanupPreview, CleanupRecord, CleanupRepo,
+    CleanupRepoFacts, Feature, ForgeDelivery, WorktreeRemoval, classify_cleanup,
+    classify_descendant_cleanup,
 };
 use crate::domain::name::{FeatureName, RepoName, SessionId};
 use crate::error::{Failure, FixAction, Outcome, Report, Warning, WriteHuman};
@@ -289,7 +289,10 @@ fn write_record_outcome(
     })
 }
 
-fn remove_node_dir(layout: &crate::store::layout::Layout, name: &FeatureName) -> Result<(), Failure> {
+fn remove_node_dir(
+    layout: &crate::store::layout::Layout,
+    name: &FeatureName,
+) -> Result<(), Failure> {
     fs::remove_path(&layout.feature_dir(name)).map_err(|source| {
         Failure::failed(
             "feature.cleanup_dir_failed",
@@ -693,7 +696,9 @@ fn preview_cleanup(
         .iter()
         .map(|(repo, promotion)| {
             let worktree = worktrees.get(repo).unwrap_or(&Ok(None));
-            collect_repo_facts(git, layout, manifest, feature, repo, promotion, worktree, true)
+            collect_repo_facts(
+                git, layout, manifest, feature, repo, promotion, worktree, true,
+            )
         })
         .collect();
     let facts = CleanupFacts {
@@ -726,7 +731,9 @@ fn preview_cleanup(
                 .iter()
                 .map(|(repo, promotion)| {
                     let worktree = node_worktrees.get(repo).unwrap_or(&Ok(None));
-                    collect_repo_facts(git, layout, manifest, node, repo, promotion, worktree, false)
+                    collect_repo_facts(
+                        git, layout, manifest, node, repo, promotion, worktree, false,
+                    )
                 })
                 .collect(),
             live_sessions,
@@ -818,7 +825,9 @@ fn collect_repo_facts(
             };
             let forge_delivery = if consult_forge {
                 match (unmerged_commits, feature_head.as_deref()) {
-                    (Some(1..), Some(head)) => Some(ask_forge(&bare, feature.branch.as_str(), head)),
+                    (Some(1..), Some(head)) => {
+                        Some(ask_forge(&bare, feature.branch.as_str(), head))
+                    }
                     _ => None,
                 }
             } else {
