@@ -149,7 +149,10 @@ pub(crate) fn materialise(
                 let (view, worktree) = base_view::resolve_on_disk(layout, repo, feature)?;
                 (worktree, view.guards_read_only())
             }
-            None => (layout.repo_worktree(repo.name(), repo.default_branch()), true),
+            None => (
+                layout.repo_worktree(repo.name(), repo.default_branch()),
+                true,
+            ),
         };
         if !fs::is_dir(&worktree)? {
             continue;
