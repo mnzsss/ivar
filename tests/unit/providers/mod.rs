@@ -354,6 +354,18 @@ fn herestrings_and_shifts_do_not_open_a_heredoc() {
 }
 
 #[test]
+fn command_segments_keeps_every_pipeline_segment() {
+    assert_eq!(
+        providers::search::command_segments("cat a | grep b && cd c; ls 'd|e' 2>&1 | wc"),
+        ["cat a ", " grep b ", " cd c", " ls 'd|e' 2>&1 ", " wc"]
+    );
+    assert_eq!(
+        providers::search::command_segments("cat > f <<'EOF'\nrg x\nEOF"),
+        ["cat > f <<'EOF'"]
+    );
+}
+
+#[test]
 fn flag_values_are_not_mistaken_for_patterns_or_targets() {
     assert_eq!(bash_search("rg -t log foo build/"), None);
     assert_eq!(bash_search("rg -g '*.rs' foo dist"), None);

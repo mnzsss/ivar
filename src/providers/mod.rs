@@ -3,7 +3,7 @@
 pub mod claude_code;
 pub mod omp;
 pub mod opencode;
-mod search;
+pub(crate) mod search;
 
 use crate::domain::guard::{GuardDecision, GuardOutcome, ToolRequest};
 use crate::domain::mcp::{CredentialState, McpServerDef, McpTransport};
