@@ -150,3 +150,233 @@ fn glob_words_expand_through_the_filesystem_up_to_the_cap() {
         GLOB_CAP
     );
 }
+
+fn write(path: &Utf8Path, text: &str) {
+    fs::ensure_dir(path.parent().unwrap()).unwrap();
+    fs::write_text(path, text).unwrap();
+}
+
+/// A view dir `<tmp>/view` whose repo `api` is a symlink to
+/// `<tmp>/worktrees/api-main`, which holds an empty `src/deep/`.
+fn view_with_api() -> (tempfile::TempDir, Utf8PathBuf, Utf8PathBuf) {
+    let (dir, root) = utf8_temp_dir();
+    let worktree = root.join("worktrees/api-main");
+    fs::ensure_dir(&worktree.join("src/deep")).unwrap();
+    let view = root.join("view");
+    fs::ensure_dir(&view).unwrap();
+    fs::create_symlink(&worktree, &view.join("api")).unwrap();
+    (dir, view, worktree)
+}
+
+fn label(file: &Utf8Path) -> String {
+    format!(
+        "Repository instructions from {file} (they apply to work under {}):\n",
+        file.parent().unwrap()
+    )
+}
+
+#[test]
+fn chain_runs_from_the_repo_root_down_to_the_deepest_existing_directory() {
+    let (_dir, view, worktree) = view_with_api();
+    write(&worktree.join("CLAUDE.md"), "root");
+    write(&worktree.join("src/CLAUDE.md"), "src");
+    let expected = [view.join("api/CLAUDE.md"), view.join("api/src/CLAUDE.md")];
+    for touched in [
+        "api/src/deep/lib.rs",
+        "api/src/deep",
+        "api/src/deep/missing/more/x.rs",
+        "api/src/CLAUDE.md",
+    ] {
+        assert_eq!(
+            instruction_chain(&view, &view.join(touched), Provider::ClaudeCode),
+            expected,
+            "{touched}"
+        );
+    }
+    assert_eq!(
+        instruction_chain(&view, &view.join("api"), Provider::ClaudeCode),
+        [view.join("api/CLAUDE.md")]
+    );
+}
+
+#[test]
+fn each_directory_offers_the_provider_native_file_else_the_other() {
+    let (_dir, view, worktree) = view_with_api();
+    write(&worktree.join("CLAUDE.md"), "claude root");
+    write(&worktree.join("AGENTS.md"), "agents root");
+    write(&worktree.join("src/AGENTS.md"), "agents src");
+    write(&worktree.join("src/deep/CLAUDE.md"), "claude deep");
+    let touched = view.join("api/src/deep/lib.rs");
+    assert_eq!(
+        instruction_chain(&view, &touched, Provider::ClaudeCode),
+        [
+            view.join("api/CLAUDE.md"),
+            view.join("api/src/AGENTS.md"),
+            view.join("api/src/deep/CLAUDE.md")
+        ]
+    );
+    for provider in [Provider::Omp, Provider::OpenCode] {
+        assert_eq!(
+            instruction_chain(&view, &touched, provider),
+            [
+                view.join("api/AGENTS.md"),
+                view.join("api/src/AGENTS.md"),
+                view.join("api/src/deep/CLAUDE.md")
+            ],
+            "{provider:?}"
+        );
+    }
+}
+
+#[test]
+fn paths_outside_a_linked_repo_have_no_chain_and_deliver_nothing() {
+    let (_dir, view, worktree) = view_with_api();
+    write(&worktree.join("CLAUDE.md"), "root");
+    write(&view.join("CLAUDE.md"), "hall root file");
+    write(&view.join(".claude/CLAUDE.md"), "config dir");
+    let outside = [
+        Utf8PathBuf::from("/etc/hosts"),
+        view.clone(),
+        view.join("CLAUDE.md"),
+        view.join("missing/x.rs"),
+        view.join(".claude/x"),
+        // the worktree itself, not reached through the view symlink
+        worktree.join("src/lib.rs"),
+    ];
+    for path in &outside {
+        assert!(
+            instruction_chain(&view, path, Provider::ClaudeCode).is_empty(),
+            "{path}"
+        );
+    }
+    assert_eq!(
+        deliver(&view, Provider::ClaudeCode, "main", &outside).unwrap(),
+        None
+    );
+    assert!(!fs::exists(&state_dir(&view, Provider::ClaudeCode)).unwrap());
+}
+
+#[test]
+fn deliver_returns_unseen_files_whole_once_per_agent() {
+    let (_dir, view, worktree) = view_with_api();
+    write(&worktree.join("CLAUDE.md"), "root rules\n");
+    write(&worktree.join("src/CLAUDE.md"), "src rules\n");
+    let touched = [view.join("api/src/lib.rs"), view.join("api/README.md")];
+    let expected = format!(
+        "{}root rules\n\n\n{}src rules\n",
+        label(&view.join("api/CLAUDE.md")),
+        label(&view.join("api/src/CLAUDE.md"))
+    );
+    assert_eq!(
+        deliver(&view, Provider::ClaudeCode, "main", &touched).unwrap(),
+        Some(expected)
+    );
+    assert_eq!(
+        deliver(&view, Provider::ClaudeCode, "main", &touched).unwrap(),
+        None
+    );
+}
+
+#[test]
+fn a_changed_file_is_delivered_again_marked_updated() {
+    let (_dir, view, worktree) = view_with_api();
+    write(&worktree.join("CLAUDE.md"), "root rules");
+    write(&worktree.join("src/CLAUDE.md"), "src rules");
+    let touched = [view.join("api/src/lib.rs")];
+    deliver(&view, Provider::ClaudeCode, "main", &touched).unwrap();
+    write(&worktree.join("src/CLAUDE.md"), "src rules v2");
+    assert_eq!(
+        deliver(&view, Provider::ClaudeCode, "main", &touched).unwrap(),
+        Some(format!(
+            "UPDATED {}src rules v2",
+            label(&view.join("api/src/CLAUDE.md"))
+        ))
+    );
+}
+
+#[test]
+fn retargeting_the_repo_symlink_delivers_the_other_branch_file_as_updated() {
+    let (_dir, view, worktree) = view_with_api();
+    let feature = worktree.parent().unwrap().join("api-feature");
+    write(&worktree.join("CLAUDE.md"), "main rules");
+    write(&feature.join("CLAUDE.md"), "feat rules"); // same length on purpose
+    let mtime = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_700_000_000);
+    for file in [worktree.join("CLAUDE.md"), feature.join("CLAUDE.md")] {
+        std::fs::File::options()
+            .write(true)
+            .open(&file)
+            .unwrap()
+            .set_modified(mtime)
+            .unwrap();
+    }
+    let touched = [view.join("api/lib.rs")];
+    assert!(
+        deliver(&view, Provider::ClaudeCode, "main", &touched)
+            .unwrap()
+            .unwrap()
+            .ends_with("main rules")
+    );
+    fs::replace_symlink(&feature, &view.join("api")).unwrap();
+    assert_eq!(
+        deliver(&view, Provider::ClaudeCode, "main", &touched).unwrap(),
+        Some(format!(
+            "UPDATED {}feat rules",
+            label(&view.join("api/CLAUDE.md"))
+        ))
+    );
+}
+
+#[test]
+fn delivery_state_lives_in_the_config_dir_never_the_view_root() {
+    let (_dir, view, worktree) = view_with_api();
+    write(&worktree.join("CLAUDE.md"), "root");
+    assert_eq!(
+        state_dir(&view, Provider::ClaudeCode),
+        view.join(".claude/ivar/instructions")
+    );
+    assert_eq!(
+        state_dir(&view, Provider::Omp),
+        view.join(".omp/ivar/instructions")
+    );
+    deliver(&view, Provider::ClaudeCode, "main", &[view.join("api/x")]).unwrap();
+    assert_eq!(
+        fs::read_dir(&view).unwrap(),
+        [view.join(".claude"), view.join("api")]
+    );
+    let state: serde_json::Value = serde_json::from_str(
+        &fs::read_text(&view.join(".claude/ivar/instructions/main.json"))
+            .unwrap()
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(state.as_object().unwrap().len(), 1);
+    assert_eq!(
+        state[view.join("api/CLAUDE.md").as_str()],
+        crate::infra::hash::text("root")[..16]
+    );
+}
+
+#[test]
+fn each_agent_key_has_its_own_delivery_state() {
+    let (_dir, view, worktree) = view_with_api();
+    write(&worktree.join("CLAUDE.md"), "root");
+    let touched = [view.join("api/x")];
+    for agent in ["main", "agent/7 x"] {
+        assert!(
+            deliver(&view, Provider::ClaudeCode, agent, &touched)
+                .unwrap()
+                .is_some(),
+            "{agent}"
+        );
+    }
+    for agent in ["main", "agent/7 x"] {
+        assert_eq!(
+            deliver(&view, Provider::ClaudeCode, agent, &touched).unwrap(),
+            None,
+            "{agent}"
+        );
+    }
+    let dir = state_dir(&view, Provider::ClaudeCode);
+    assert!(fs::is_file(&dir.join("main.json")).unwrap());
+    assert!(fs::is_file(&dir.join("agent_7_x.json")).unwrap());
+}

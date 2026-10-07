@@ -8,9 +8,13 @@
     expect(dead_code, reason = "unused outside tests until the guard calls it")
 )]
 
+use std::collections::BTreeMap;
+
 use camino::{Utf8Component, Utf8Path, Utf8PathBuf};
 
-use crate::infra::fs;
+use crate::domain::provider::Provider;
+use crate::error::Failure;
+use crate::infra::{fs, hash};
 use crate::providers::search::command_segments;
 
 /// Most paths one glob word may expand to.
@@ -207,6 +211,165 @@ fn class(pattern: &[char], c: char) -> Option<(bool, &[char])> {
         }
     }
     Some((hit != negated, after.get(1..)?))
+}
+
+/// Instruction files from the repo root down to `path`'s deepest existing
+/// directory, root first, one per directory (provider-native name, else the
+/// other). Empty when `path` is not under `<view_dir>/<repo>/` for a
+/// directory `<repo>` present in the view whose name does not start with `.`.
+/// Lexical: never canonicalises, so the view symlink decides the branch.
+pub(crate) fn instruction_chain(
+    view_dir: &Utf8Path,
+    path: &Utf8Path,
+    provider: Provider,
+) -> Vec<Utf8PathBuf> {
+    let Ok(relative) = path.strip_prefix(view_dir) else {
+        return Vec::new();
+    };
+    let Some(Utf8Component::Normal(name)) = relative.components().next() else {
+        return Vec::new();
+    };
+    let repo = view_dir.join(name);
+    if name.starts_with('.') || !fs::is_dir(&repo).unwrap_or(false) {
+        return Vec::new();
+    }
+    let mut dir = path.to_owned();
+    while dir != repo && !fs::is_dir(&dir).unwrap_or(false) {
+        if !dir.pop() {
+            return Vec::new();
+        }
+    }
+    let names = [provider.instruction_file(), fallback_file(provider)];
+    let mut chain = Vec::new();
+    loop {
+        if let Some(file) = names
+            .iter()
+            .map(|name| dir.join(name))
+            .find(|file| fs::is_file(file).unwrap_or(false))
+        {
+            chain.push(file);
+        }
+        if dir == repo || !dir.pop() {
+            break;
+        }
+    }
+    chain.reverse();
+    chain
+}
+
+/// The instruction file read when a directory has no provider-native one.
+const fn fallback_file(provider: Provider) -> &'static str {
+    match provider {
+        Provider::ClaudeCode => "AGENTS.md",
+        Provider::OpenCode | Provider::Omp => "CLAUDE.md",
+    }
+}
+
+/// Where delivery state lives: inside the view (the omp sandbox only allows
+/// writes there) but under the ivar-owned config dir, never the view root.
+pub(crate) fn state_dir(view_dir: &Utf8Path, provider: Provider) -> Utf8PathBuf {
+    view_dir
+        .join(provider.config_dir())
+        .join("ivar")
+        .join("instructions")
+}
+
+/// Unseen-or-changed instruction files for `agent`, whole, joined with a blank
+/// line; records them in `<state_dir>/<agent>.json` (path -> sha256 hex prefix
+/// 16) under `<agent>.lock`.
+///
+/// # Errors
+///
+/// A [`Failure`] when the state dir, lock or state file cannot be created,
+/// read or written. An unreadable instruction file is skipped, not an error.
+pub(crate) fn deliver(
+    view_dir: &Utf8Path,
+    provider: Provider,
+    agent: &str,
+    paths: &[Utf8PathBuf],
+) -> Result<Option<String>, Failure> {
+    let files = instruction_files(view_dir, provider, paths);
+    if files.is_empty() {
+        return Ok(None);
+    }
+    record(view_dir, provider, agent, &files)
+}
+
+/// The chains of every path, merged in order without repeats.
+fn instruction_files(
+    view_dir: &Utf8Path,
+    provider: Provider,
+    paths: &[Utf8PathBuf],
+) -> Vec<Utf8PathBuf> {
+    let mut files = Vec::new();
+    for path in paths {
+        for file in instruction_chain(view_dir, path, provider) {
+            if !files.contains(&file) {
+                files.push(file);
+            }
+        }
+    }
+    files
+}
+
+/// Render the files `agent` has not seen in their current content and record
+/// them as seen. `Ok(None)` when there is nothing new.
+fn record(
+    view_dir: &Utf8Path,
+    provider: Provider,
+    agent: &str,
+    files: &[Utf8PathBuf],
+) -> Result<Option<String>, Failure> {
+    let dir = state_dir(view_dir, provider);
+    fs::ensure_dir(&dir)?;
+    let key = file_key(agent);
+    let _lock = fs::lock_exclusive(&dir.join(format!("{key}.lock")))?;
+    let state_file = dir.join(format!("{key}.json"));
+    // A corrupt state file re-delivers everything rather than failing.
+    let mut seen: BTreeMap<String, String> = fs::read_text(&state_file)?
+        .and_then(|text| serde_json::from_str(&text).ok())
+        .unwrap_or_default();
+    let mut sections = Vec::new();
+    for file in files {
+        let Ok(Some(body)) = fs::read_text(file) else {
+            continue;
+        };
+        let digest = hash::text(&body);
+        let digest = digest.get(..16).unwrap_or(&digest).to_owned();
+        let previous = seen.insert(file.to_string(), digest.clone());
+        if previous.as_ref() == Some(&digest) {
+            continue;
+        }
+        let updated = if previous.is_some() { "UPDATED " } else { "" };
+        let scope = file.parent().unwrap_or(view_dir);
+        sections.push(format!(
+            "{updated}Repository instructions from {file} (they apply to work under {scope}):\n{body}"
+        ));
+    }
+    if sections.is_empty() {
+        return Ok(None);
+    }
+    let state = serde_json::to_string(&seen).map_err(|error| {
+        Failure::failed(
+            "session.instructions_state",
+            format!("could not encode the instruction delivery state: {error}"),
+        )
+    })?;
+    fs::write_atomic(&state_file, state.as_bytes())?;
+    Ok(Some(sections.join("\n\n")))
+}
+
+/// `raw` safe as a file name: every char outside `[A-Za-z0-9_.-]` becomes `_`.
+fn file_key(raw: &str) -> String {
+    raw.chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '-') {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect()
 }
 
 #[cfg(test)]
