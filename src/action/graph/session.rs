@@ -2,6 +2,7 @@
 
 use camino::{Utf8Path, Utf8PathBuf};
 
+use crate::action::session::base_view;
 use crate::action::session::env::SessionEnv;
 use crate::action::session::lookup;
 use crate::domain::feature::Feature;
@@ -132,6 +133,33 @@ fn base_repo_view(layout: &Layout, declared: &[Repo], name: &RepoName) -> Option
     })
 }
 
+/// An unpromoted repo in a feature session: the worktree the session's
+/// view dir links (see `base_view`). A non-default worktree — the root
+/// feature's base branch, or the nearest promoting ancestor's feature
+/// worktree — is a layer over the default-branch index (`base_commit: None`
+/// makes freshness diff it against that index). The default worktree, or a
+/// resolution error, keeps today's base view: the graph never fails a query
+/// over a broken feature record.
+fn unpromoted_repo_view(
+    layout: &Layout,
+    declared: &[Repo],
+    name: &RepoName,
+    feature: &Feature,
+) -> Option<RepoViewInfo> {
+    let repo = declared.iter().find(|repo| repo.name() == name)?;
+    match base_view::resolve_on_disk(layout, repo, feature) {
+        Ok((_, worktree)) if worktree != layout.repo_worktree(name, repo.default_branch()) => {
+            Some(RepoViewInfo {
+                repo_name: name.to_string(),
+                worktree_path: worktree,
+                is_layer: true,
+                base_commit: None,
+            })
+        }
+        _ => base_repo_view(layout, declared, name),
+    }
+}
+
 fn build_feature_session_view(
     layout: &Layout,
     feature: &Feature,
@@ -147,7 +175,7 @@ fn build_feature_session_view(
                 is_layer: true,
                 base_commit: promotion.base.as_ref().map(|b| b.as_str().to_owned()),
             }),
-            None => base_repo_view(layout, &declared, name),
+            None => unpromoted_repo_view(layout, &declared, name, feature),
         })
         .collect();
     Ok(SessionView::FeatureSession {
