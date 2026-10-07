@@ -861,3 +861,103 @@ fn resolve_blocked_by_real_divergence_names_divergence_not_dirt() {
         "there is nothing uncommitted here: {reason}"
     );
 }
+
+/// Give the `api` origin a `develop` branch carrying `BASE.md` = `content`,
+/// leaving the origin checked out on `main`.
+fn commit_on_develop(origin: &Utf8Path, content: &str, create: bool) {
+    if create {
+        git(origin, &["checkout", "-b", "develop"]);
+    } else {
+        git(origin, &["checkout", "develop"]);
+    }
+    std::fs::write(origin.join("BASE.md"), content).unwrap();
+    git(origin, &["add", "BASE.md"]);
+    git(origin, &["commit", "-m", content.trim()]);
+    git(origin, &["checkout", "main"]);
+}
+
+/// A synced `api` hall with a `develop` worktree added beside `main`.
+fn hall_with_develop_worktree() -> (tempfile::TempDir, Utf8PathBuf, Utf8PathBuf) {
+    let (guard, root) = hall_with(&[("api", "main")]);
+    let origin = origin_path(&root, "api");
+    commit_on_develop(&origin, "v0\n", true);
+    let ctx = Ctx::new(root.clone());
+    crate::action::sync::sync(&ctx, &Default::default()).unwrap();
+
+    let layout = Layout::at(root.clone());
+    let api = RepoName::new("api").unwrap();
+    let worktree = layout.repo_worktree(&api, &BranchName::new("develop").unwrap());
+    git::System
+        .add_worktree(&layout.repo_bare(&api), &worktree, "develop")
+        .unwrap();
+    (guard, root, worktree)
+}
+
+/// The base-worktree refresh: a non-default branch's worktree catches up to
+/// the origin's new tip, through a read-only guard that is re-applied.
+#[test]
+fn refresh_worktree_advances_a_non_default_branch_and_reapplies_the_guard() {
+    let (_guard, root, worktree) = hall_with_develop_worktree();
+    commit_on_develop(&origin_path(&root, "api"), "v1\n", false);
+    fs::clear_write_bits(&worktree).unwrap();
+
+    let status = refresh_worktree(
+        &git::System,
+        &worktree,
+        &BranchName::new("develop").unwrap(),
+    );
+
+    assert_eq!(status, PullStatus::Refreshed);
+    assert_eq!(
+        std::fs::read_to_string(worktree.join("BASE.md")).unwrap(),
+        "v1\n"
+    );
+    assert_eq!(
+        fs::unix_mode(&worktree).unwrap().unwrap() & 0o222,
+        0,
+        "the read-only guard must be re-applied after the refresh"
+    );
+    assert_eq!(
+        std::fs::read_to_string(root.join(".ivar/repos/api/main/README.md")).unwrap(),
+        "seed\n",
+        "the default worktree is not this refresh's business"
+    );
+    fs::restore_write_bits(&worktree).unwrap();
+}
+
+#[test]
+fn refresh_worktree_of_a_missing_worktree_fails_naming_it() {
+    let (_guard, root) = hall_with(&[("api", "main")]);
+    let missing = root.join(".ivar/repos/api/develop");
+
+    let status = refresh_worktree(&git::System, &missing, &BranchName::new("develop").unwrap());
+
+    assert_eq!(
+        status,
+        PullStatus::Failed {
+            reason: format!("no worktree at `{missing}`"),
+        }
+    );
+}
+
+#[test]
+fn refresh_worktree_skips_a_diverged_branch_naming_it() {
+    let (_guard, root, worktree) = hall_with_develop_worktree();
+    git(&worktree, &["commit", "--allow-empty", "-m", "local drift"]);
+    commit_on_develop(&origin_path(&root, "api"), "v1\n", false);
+
+    let status = refresh_worktree(
+        &git::System,
+        &worktree,
+        &BranchName::new("develop").unwrap(),
+    );
+
+    assert!(
+        matches!(
+            &status,
+            PullStatus::Skipped { reason, divergence: None }
+                if reason.starts_with("cannot fast-forward `develop`: ")
+        ),
+        "got {status:?}"
+    );
+}

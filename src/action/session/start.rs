@@ -22,6 +22,12 @@
 //!   `commands/` symlinked in from the hall; the active plan projected in;
 //!   `work` linked to the hall's `docs/<feature>/` on a feature session; the
 //!   bootstrap instructions — see [`super::view`]).
+//! - The base view (see [`super::base_view`]): before the view dir is
+//!   materialised, every repo the feature does not promote is prepared at
+//!   its base — the root feature's declared base branch, through a
+//!   read-only `.ivar/repos/<repo>/<base>` worktree cut or fast-forwarded
+//!   here (warnings only), or a parent's feature worktree — rather than
+//!   always the default branch.
 //! - The harness spawn through [`crate::harness`] with real `portable-pty`.
 //! - The TUI loop, driven by the [`crate::tui`] modules.
 //!
@@ -58,7 +64,7 @@ use crate::tui::driver::{Driver, ShellSpec};
 use crate::tui::pty::PtsPty;
 
 use super::super::{discover_hall, read_manifest};
-use super::{hook, lookup, view};
+use super::{base_view, hook, lookup, view};
 
 /// What `ivar session start` needs.
 #[derive(Debug, Clone)]
@@ -188,6 +194,17 @@ pub fn start(ctx: &Ctx, input: StartInput) -> Outcome<StartOutcome> {
                 )),
             })
             .collect();
+
+    // 1b. The base view, also before the view dir: every repo the feature
+    //     does not promote whose root feature declares an explicit base gets
+    //     its read-only base worktree cut or fast-forwarded (see
+    //     `base_view`), for the same writable-target reason as the Smart
+    //     Fetch. Best-effort: every failure is a warning. A discovery
+    //     session has no feature and so no base.
+    if let Some(feature) = &feature {
+        let base_warnings = base_view::prepare(&git::System, &layout, &manifest, feature);
+        warnings.extend(base_warnings);
+    }
 
     // 2. The view dir and the session record. A discovery session lives in
     //    the hall's own session tree, and its record stays unbound.

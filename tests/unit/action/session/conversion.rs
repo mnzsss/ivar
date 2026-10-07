@@ -13,7 +13,7 @@ use crate::action::plan::create::{self as plan_create, CreateInput as PlanCreate
 use crate::domain::name::{BranchName, HallName, RepoName};
 use crate::domain::provider::Provider;
 use crate::store::manifest::{Manifest, Providers, Repo};
-use crate::test_support::{hall_root, seeded_repo};
+use crate::test_support::{git, hall_root, seeded_repo};
 
 const DISCOVERY_ID: &str = "2c6e6f1e-2d8a-4b3a-9c2a-6a7f6f9a1b2c";
 const STARTED_AT: &str = "2026-01-01T00:00:00.000000000Z";
@@ -795,5 +795,64 @@ updated_at: {STARTED_AT}
 
     assert_eq!(failure.code, "session.convert_discovery_ambiguous");
 
+    unguard_worktrees(&root);
+}
+
+/// Converting into a feature with a declared base prepares that base: the
+/// branch the origin gained after sync is fetched, cut and linked, and a
+/// repo without it warns instead of failing the conversion.
+#[test]
+fn convert_prepares_the_target_features_base_view() {
+    let (_guard, root) = hall_with_discovery_session();
+    let ctx = Ctx::new(root.clone());
+    let api_origin = root.parent().unwrap().join("origins").join("api");
+    git(&api_origin, &["checkout", "-b", "develop"]);
+    std::fs::write(api_origin.join("DEVELOP.md"), "develop\n").unwrap();
+    git(&api_origin, &["add", "DEVELOP.md"]);
+    git(&api_origin, &["commit", "-m", "develop"]);
+    git(&api_origin, &["checkout", "main"]);
+    crate::action::feature::create::create(
+        &ctx,
+        crate::action::feature::create::CreateInput {
+            name: "release-prep".to_owned(),
+            branch: None,
+            base: Some("develop".to_owned()),
+            parent: None,
+            via: None,
+            strategy: None,
+        },
+    )
+    .unwrap();
+    let session = start_discovery_session(&ctx);
+    associate_discovery(&ctx, "release-prep", &session);
+
+    let report = convert(
+        &ctx,
+        &ConvertInput {
+            session_id: session,
+        },
+    )
+    .unwrap();
+
+    let api_target = match fs::read_symlink(&report.value.view_dir.join("api")).unwrap() {
+        fs::SymlinkTarget::Target(path) => path,
+        other => panic!("expected a symlink, got {other:?}"),
+    };
+    assert!(
+        api_target.as_str().ends_with(".ivar/repos/api/develop"),
+        "api must link the base worktree: {api_target}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(root.join(".ivar/repos/api/develop/DEVELOP.md")).unwrap(),
+        "develop\n"
+    );
+    assert!(
+        report
+            .warnings
+            .iter()
+            .any(|warning| warning.code == "session.base_absent" && warning.subject == "web"),
+        "web has no develop: warnings: {:?}",
+        report.warnings
+    );
     unguard_worktrees(&root);
 }

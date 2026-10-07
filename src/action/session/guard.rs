@@ -938,8 +938,9 @@ pub fn guard(
     stdin_json: &str,
     slice: Option<usize>,
 ) -> Result<GuardOutcome, Failure> {
+    let ambient = std::env::var("IVAR_SESSION_ID").ok();
     if let Some(index) = slice {
-        let context = evaluate(provider, stdin_json)
+        let context = evaluate(provider, stdin_json, ambient.as_deref())
             .ok()
             .and_then(|evaluation| instructions_for(provider, &evaluation, index));
         return Ok(crate::providers::render_context(
@@ -948,26 +949,17 @@ pub fn guard(
         ));
     }
 
-    let evaluation = evaluate(provider, stdin_json)?;
+    let evaluation = evaluate(provider, stdin_json, ambient.as_deref())?;
     if matches!(evaluation.decision, GuardDecision::Allow)
         && is_graph_explore_tool(&evaluation.request.tool)
         && let Some(cwd) = evaluation.cwd.as_deref()
     {
-        record_graph_call_at(
-            cwd,
-            evaluation.session_env.as_ref(),
-            std::env::var("IVAR_SESSION_ID").ok(),
-        );
+        record_graph_call_at(cwd, evaluation.session_env.as_ref(), ambient.clone());
     }
     if let Some(pattern) = &evaluation.request.search_pattern
         && let Some(cwd) = evaluation.cwd.as_deref()
     {
-        record_search_miss_at(
-            cwd,
-            evaluation.session_env.as_ref(),
-            std::env::var("IVAR_SESSION_ID").ok(),
-            pattern,
-        );
+        record_search_miss_at(cwd, evaluation.session_env.as_ref(), ambient, pattern);
     }
 
     let context = instructions_for(provider, &evaluation, 0);
@@ -979,13 +971,22 @@ pub fn guard(
 }
 
 /// Parse, resolve and decide, with no side effect, so the slice entries can
-/// share it without recording graph calls or search misses again.
-fn evaluate(provider: Provider, stdin_json: &str) -> Result<Evaluation, Failure> {
+/// share it without recording graph calls or search misses again. `ambient`
+/// is the agent's `IVAR_SESSION_ID`, passed in so tests never touch process
+/// env: it names the agent's own session when the cwd is outside its view dir
+/// (see `SessionEnv::resolve_for_agent`).
+fn evaluate(
+    provider: Provider,
+    stdin_json: &str,
+    ambient: Option<&str>,
+) -> Result<Evaluation, Failure> {
     let (tool_request, cwd) = crate::providers::parse_tool_request(provider, stdin_json)?;
 
     let session_env = cwd
         .as_deref()
-        .and_then(|cwd| crate::action::session::env::SessionEnv::resolve_by_cwd(cwd).ok())
+        .and_then(|cwd| {
+            crate::action::session::env::SessionEnv::resolve_for_agent(cwd, ambient).ok()
+        })
         .flatten();
     let mut set = session_env.as_ref().and_then(resolve_writable_set);
 

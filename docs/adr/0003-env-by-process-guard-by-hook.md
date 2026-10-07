@@ -21,7 +21,7 @@ what a hook can do:
 
 ## Decisions
 
-### D1 — Session resolved by disk walk-up, never from environment
+### D1 — Session resolved by disk walk-up first, the agent's own id second
 
 `SessionEnv::resolve_by_cwd` walks from the current directory upward looking
 for `state.json` inside a directory whose name is a valid `SessionId`. No
@@ -29,6 +29,13 @@ environment variable is read. This means the session contract is a
 filesystem fact, not an ambient one — a process that happens to have the
 right `IVAR_SESSION_ID` in its environment but is not actually inside the
 view dir will not resolve.
+
+The guard and the graph use `SessionEnv::resolve_for_agent`: the same
+walk-up, but when it finds no view dir, an `IVAR_SESSION_ID` naming a live
+session of the cwd's hall wins over the promoted-worktree fallback. A
+subfeature's view links its parent's feature worktree, so a child agent's
+canonical cwd lands there; the fallback would hand it the parent's session
+and the parent's writable set.
 
 ### D2 — Env injected by the process, guard enforced by hook
 
@@ -51,8 +58,10 @@ its output shaping (`GuardOutcome`).
 
 - The session contract is testable without a running provider: a directory
   layout with `state.json` is sufficient.
-- A hook that fails to deny a write is a non-event: the filesystem holds
-  non-promoted worktrees read-only by kernel, so the hook is the error
-  message, not the barrier.
+- A hook that fails to deny a write is a non-event for default-branch and
+  base-branch worktrees: the filesystem holds them read-only, so the hook is
+  the error message, not the barrier. A parent's feature worktree seen by a
+  subfeature is the exception — its write bits stay on for the parent — so
+  there the hook (and, under the Linux sandbox, Landlock) is the barrier.
 - Adding a third provider means writing a new input deserialiser and output
   shaper; the decision logic (`decide`) is shared.

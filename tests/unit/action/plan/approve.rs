@@ -1018,3 +1018,65 @@ fn a_directory_the_plan_creates_only_silences_its_own_block() {
     assert!(actual.contains("plan.md:12:"), "{actual}");
     assert!(!actual.contains("plan.md:8:"), "{actual}");
 }
+
+/// A feature created with `--base develop` plans against `develop`: a `cd`
+/// into a directory that exists only on `develop` is runnable, even though
+/// the default (`main`) worktree lacks it.
+#[test]
+fn approve_plan_resolves_commands_against_the_features_base_branch() {
+    let (_guard, root) = seeded_hall();
+    declare_api_repo(&root);
+    let layout = Layout::at(root.clone());
+    let checkout = FeatureName::new("checkout").unwrap();
+    let mut record =
+        crate::domain::feature::Feature::read_or_not_found(&layout, &checkout).unwrap();
+    record.base = Some(BranchName::new("develop").unwrap());
+    record.write(&layout).unwrap();
+    let api = RepoName::new("api").unwrap();
+    let main = layout.repo_worktree(&api, &BranchName::new("main").unwrap());
+    let develop = layout.repo_worktree(&api, &BranchName::new("develop").unwrap());
+    fs::ensure_dir(&main).unwrap();
+    fs::ensure_dir(&develop.join("only-on-develop")).unwrap();
+    write_light_plan(
+        &root,
+        "---\nrepos: [api]\n---\n# Plan\n\n```sh\ncd only-on-develop\n```\n",
+    );
+
+    let report = approve_plan(&root).unwrap();
+
+    assert_eq!(
+        report.value.approvals.state(Gate::Plan),
+        Some(GateState::Approved)
+    );
+}
+
+/// With the base worktree absent, the view falls back to the default
+/// branch, and so does the command check.
+#[test]
+fn approve_plan_checks_the_default_worktree_when_the_base_worktree_is_absent() {
+    let (_guard, root) = seeded_hall();
+    declare_api_repo(&root);
+    let layout = Layout::at(root.clone());
+    let checkout = FeatureName::new("checkout").unwrap();
+    let mut record =
+        crate::domain::feature::Feature::read_or_not_found(&layout, &checkout).unwrap();
+    record.base = Some(BranchName::new("develop").unwrap());
+    record.write(&layout).unwrap();
+    let main = layout.repo_worktree(
+        &RepoName::new("api").unwrap(),
+        &BranchName::new("main").unwrap(),
+    );
+    fs::ensure_dir(&main).unwrap();
+    write_light_plan(
+        &root,
+        "---\nrepos: [api]\n---\n# Plan\n\n```sh\ncd only-on-develop\n```\n",
+    );
+
+    let failure = approve_plan(&root).unwrap_err();
+
+    assert_eq!(failure.code, "plan.invalid_commands");
+    assert!(
+        failure.actual.unwrap().contains("`cd only-on-develop`"),
+        "the default worktree lacks the directory"
+    );
+}

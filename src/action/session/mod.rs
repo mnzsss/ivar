@@ -9,6 +9,7 @@
 //! session) and `prune` (remove dead sessions), and the `relay` verb (a thin
 //! alias over `start --relay`).
 
+pub(crate) mod base_view;
 pub mod connect;
 pub mod conversion;
 pub mod env;

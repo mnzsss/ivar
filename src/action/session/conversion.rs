@@ -29,12 +29,14 @@ use crate::domain::feature::Feature;
 use crate::domain::name::{FeatureName, SessionId};
 use crate::domain::session::{SessionState, rfc3339_now};
 use crate::error::{Failure, FixAction, Outcome, Report, Warning, WriteHuman};
+use crate::git;
 use crate::infra::{fs, json};
 use crate::store::discovery;
 use crate::store::layout::Layout;
 use crate::store::manifest::Manifest;
 
 use super::super::{discover_hall, read_manifest};
+use super::base_view;
 use super::lookup;
 use super::view;
 use crate::action::Ctx;
@@ -462,9 +464,11 @@ fn run_conversion(
                 ))
             })?
             .provider();
-        let materialise_report =
-            view::materialise(layout, manifest, Some(feature), provider, &dest)?;
-        warnings.extend(materialise_report.warnings);
+        // The target feature's base view, cut or fast-forwarded before the
+        // View Dir is rebuilt to link it. Best-effort: warnings only.
+        warnings.extend(base_view::prepare(&git::System, layout, manifest, feature));
+        warnings
+            .extend(view::materialise(layout, manifest, Some(feature), provider, &dest)?.warnings);
         fs::remove_file(&transition_path(layout, feature_name))?;
     }
 

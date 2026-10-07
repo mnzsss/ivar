@@ -3,9 +3,16 @@
 //!
 //! A **View Dir** is the single directory an agent session works in: one
 //! symlink per registered repo (promoted repos point at their feature
-//! worktree, the rest at their read-only default-branch worktree), a real
-//! per-session harness config dir, and — for feature sessions — the
-//! session bootstrap instructions materialised.
+//! worktree; the rest at their base view — the root feature's declared base
+//! branch worktree, a parent's feature worktree, or the read-only
+//! default-branch worktree, see [`base_view`]), a real per-session harness
+//! config dir, and — for feature sessions — the session bootstrap
+//! instructions materialised.
+//!
+//! Materialisation never touches git: the base worktrees it links are
+//! created and fast-forwarded beforehand by [`base_view::prepare`]
+//! (`session start`/`connect`/`convert`), so `feature promote` and
+//! `feature rename` re-link without a fetch.
 //!
 //! # The harness config dir is real, never a symlink
 //!
@@ -67,7 +74,7 @@
 
 use camino::Utf8Path;
 
-use crate::action::session::{instructions, repo_skills};
+use crate::action::session::{base_view, instructions, repo_skills};
 use crate::domain::feature::Feature;
 use crate::domain::provider::Provider;
 use crate::error::{Failure, Warning};
@@ -90,23 +97,27 @@ pub(crate) struct MaterialiseReport {
 /// `HALL.md`, and — for a feature session — the bootstrap instructions written.
 ///
 /// For a **feature session** (`feature: Some`), a promoted repo is symlinked
-/// to its feature worktree (writable); every other repo is symlinked to its
-/// default-branch worktree, guarded read-only (write bits cleared on its root;
-/// kernel-enforced under the Linux sandbox). For a **discovery session** (`feature: None`), every
-/// repo is a read-only default-branch worktree.
+/// to its feature worktree (writable). Every other repo is symlinked to the
+/// worktree [`base_view::resolve_on_disk`] names: the root feature's base
+/// branch worktree or the default-branch worktree, both guarded read-only
+/// (write bits cleared on the root; kernel-enforced under the Linux
+/// sandbox), or the nearest promoting ancestor's feature worktree, whose
+/// write bits are left alone — the session is kept out of it by the write
+/// guard and the sandbox, not by chmod. For a **discovery session**
+/// (`feature: None`), every repo is a read-only default-branch worktree.
 ///
 /// `provider` is the session's own provider — what the session actually runs
 /// (or ran) under — not the hall's default. It decides which config dir and
 /// which instruction file the View Dir gets.
 ///
 /// A repo whose worktree is missing is skipped with the rest still linked —
+/// the session should still open for the repos that are there.
 ///
 /// Each linked repo's own skills (`.omp/skills`, `.agents/skills`,
 /// `.claude/skills`, `.opencode/skills`) are projected into the config dir's
 /// `skills/`, linked through the repo symlink so promotion retargets them; a
 /// name the hall or the user already uses is prefixed `<repo>--<name>` instead
 /// of shadowing it.
-/// the session should still open for the repos that are there.
 pub(crate) fn materialise(
     layout: &Layout,
     manifest: &Manifest,
@@ -124,11 +135,24 @@ pub(crate) fn materialise(
     fs::ensure_dir(&Layout::session_scratch(view_dir))?;
 
     for repo in manifest.repos() {
-        let worktree = match feature {
+        // `guard`: whether this session clears the worktree's write bits.
+        // A promoted repo is the session's own (writable); an unpromoted one
+        // is viewed at its base (see `base_view`), guarded read-only unless
+        // that base is a parent's feature worktree — the parent writes there,
+        // so its bits are never touched (Landlock and the guard hook still
+        // keep this session out of it).
+        let (worktree, guard) = match feature {
             Some(feature) if feature.is_promoted(repo.name()) => {
-                layout.repo_worktree(repo.name(), &feature.branch)
+                (layout.repo_worktree(repo.name(), &feature.branch), false)
             }
-            _ => layout.repo_worktree(repo.name(), repo.default_branch()),
+            Some(feature) => {
+                let (view, worktree) = base_view::resolve_on_disk(layout, repo, feature)?;
+                (worktree, view.guards_read_only())
+            }
+            None => (
+                layout.repo_worktree(repo.name(), repo.default_branch()),
+                true,
+            ),
         };
         if !fs::is_dir(&worktree)? {
             continue;
@@ -138,9 +162,7 @@ pub(crate) fn materialise(
         // on every connect, and an unchanged link must not be renamed (each
         // rename opens a transient resolution race — see `infra::fs`).
         fs::replace_symlink_if_changed(&worktree, &link)?;
-        // A repo the session does not promote is guarded read-only:
-        // clear (or re-clear) the write bits on its default-branch worktree.
-        if feature.is_none_or(|feature| !feature.is_promoted(repo.name())) {
+        if guard {
             fs::clear_write_bits(&worktree)?;
         }
     }

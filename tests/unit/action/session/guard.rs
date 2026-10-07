@@ -2523,6 +2523,88 @@ fn guard_tool_request_from_parent_session_allows_child_worktree_and_denies_sibli
     );
 }
 
+/// A subfeature's view links an unpromoted repo to its parent's feature
+/// worktree (`BaseView::Parent`), whose write bits stay on for the parent.
+/// The agent's hook cwd canonicalises into that worktree, where the
+/// promoted-worktree fallback names the parent's newest session; the
+/// agent's own `IVAR_SESSION_ID` must win, or the parent's writable set
+/// admits the write (R-PARENT-RO).
+#[test]
+fn a_child_agent_in_its_parents_worktree_is_guarded_as_the_child() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root.clone());
+    let ctx = crate::action::Ctx::new(root.clone());
+    feature_create::create(
+        &ctx,
+        CreateInput {
+            name: "checkout-ui".to_owned(),
+            branch: None,
+            base: None,
+            parent: Some("checkout".to_owned()),
+            via: None,
+            strategy: None,
+        },
+    )
+    .unwrap();
+
+    let parent_name = FeatureName::new("checkout").unwrap();
+    let parent = Feature::read(&layout, &parent_name).unwrap().unwrap();
+    let parent_worktree = layout.repo_worktree(&RepoName::new("api").unwrap(), &parent.branch);
+
+    // The parent's live session: what the promoted-worktree fallback picks.
+    let parent_id = SessionId::new("6f0c9d5f-0000-4000-8000-000000000020").unwrap();
+    let parent_view = layout.feature_session(&parent_name, &parent_id);
+    crate::infra::fs::ensure_dir(&parent_view).unwrap();
+    let mut parent_state =
+        crate::domain::session::SessionState::new(Provider::ClaudeCode, "2026-10-07T00:00:00Z");
+    parent_state.bind(parent_name.clone(), "2026-10-07T00:00:00Z");
+    parent_state.write(&parent_view).unwrap();
+
+    // The child's session, its `api` linked to the parent's worktree the
+    // way `view::materialise` links a `BaseView::Parent` repo.
+    let child_name = FeatureName::new("checkout-ui").unwrap();
+    let child_id = SessionId::new("6f0c9d5f-0000-4000-8000-000000000021").unwrap();
+    let child_view = layout.feature_session(&child_name, &child_id);
+    crate::infra::fs::ensure_dir(&child_view).unwrap();
+    let mut child_state =
+        crate::domain::session::SessionState::new(Provider::ClaudeCode, "2026-10-07T00:00:01Z");
+    child_state.bind(child_name, "2026-10-07T00:00:01Z");
+    child_state.write(&child_view).unwrap();
+    std::os::unix::fs::symlink(&parent_worktree, child_view.join("api")).unwrap();
+
+    // Through the view's link and from the physical path alike.
+    for cwd in [child_view.join("api"), parent_worktree.clone()] {
+        let payload = serde_json::json!({
+            "tool_name": "Edit",
+            "tool_input": {
+                "file_path": cwd.join("src/lib.rs"),
+                "old_string": "a",
+                "new_string": "b",
+            },
+            "cwd": cwd,
+        });
+        let evaluation = evaluate(
+            Provider::ClaudeCode,
+            &payload.to_string(),
+            Some(child_id.as_str()),
+        )
+        .unwrap();
+        assert_eq!(
+            evaluation
+                .session_env
+                .as_ref()
+                .map(|env| env.session_id.as_str()),
+            Some(child_id.as_str()),
+            "the agent's own session must resolve from cwd `{cwd}`"
+        );
+        assert!(
+            matches!(evaluation.decision, GuardDecision::Deny { .. }),
+            "a child agent must not write its parent's worktree (cwd `{cwd}`): {:?}",
+            evaluation.decision
+        );
+    }
+}
+
 #[test]
 fn decide_multi_target_allows_only_if_all_targets_allowed_and_denies_naming_first_disallowed() {
     let (set, _guard) = writable_set_fixture();
