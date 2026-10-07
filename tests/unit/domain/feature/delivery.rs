@@ -226,12 +226,20 @@ fn classify_base_is_moved_when_present_and_ancestry_cannot_be_checked() {
     );
 }
 
+fn checkout() -> FeatureName {
+    FeatureName::new("checkout").unwrap()
+}
+
 #[test]
 fn check_base_allows_delivery_when_the_verdict_is_ok() {
     let delivery_repo = repo("develop");
 
-    let refusal =
-        delivery_repo.check_base(&Ok(Some("deadbeef".to_owned())), Ok(true), &main_branch());
+    let refusal = delivery_repo.check_base(
+        &checkout(),
+        &Ok(Some("deadbeef".to_owned())),
+        Ok(true),
+        &main_branch(),
+    );
 
     assert!(refusal.is_none());
 }
@@ -241,7 +249,7 @@ fn check_base_refuses_a_merged_and_deleted_base_with_a_rebase_onto_default_fix()
     let delivery_repo = repo("develop");
 
     let failure = delivery_repo
-        .check_base(&Ok(None), Ok(true), &main_branch())
+        .check_base(&checkout(), &Ok(None), Ok(true), &main_branch())
         .expect("a merged-and-deleted base refuses");
 
     assert_eq!(failure.code, "feature.base_merged_and_deleted");
@@ -259,7 +267,7 @@ fn check_base_refuses_a_never_delivered_base_with_a_deliver_parent_first_fix() {
     let delivery_repo = repo("develop");
 
     let failure = delivery_repo
-        .check_base(&Ok(None), Ok(false), &main_branch())
+        .check_base(&checkout(), &Ok(None), Ok(false), &main_branch())
         .expect("a never-delivered base refuses");
 
     assert_eq!(failure.code, "feature.base_never_delivered");
@@ -275,7 +283,7 @@ fn check_base_refuses_as_unconfirmed_never_as_absent_when_the_remote_does_not_an
     let delivery_repo = repo("develop");
 
     let failure = delivery_repo
-        .check_base(&Err(()), Ok(true), &main_branch())
+        .check_base(&checkout(), &Err(()), Ok(true), &main_branch())
         .expect("an unanswered remote refuses");
 
     assert_eq!(failure.code, "feature.base_unconfirmed");
@@ -288,15 +296,23 @@ fn check_base_refuses_as_unconfirmed_never_as_absent_when_the_remote_does_not_an
 }
 
 #[test]
-fn check_base_refuses_a_moved_base_with_a_rebase_the_feature_fix() {
+fn check_base_refuses_a_moved_base_with_a_rebase_that_repo_fix() {
     let delivery_repo = repo("develop");
 
     let failure = delivery_repo
-        .check_base(&Ok(Some("deadbeef".to_owned())), Ok(false), &main_branch())
+        .check_base(
+            &checkout(),
+            &Ok(Some("deadbeef".to_owned())),
+            Ok(false),
+            &main_branch(),
+        )
         .expect("a moved base refuses");
 
     assert_eq!(failure.code, "feature.base_moved");
     assert!(failure.what.contains("develop"));
-    assert!(failure.fix_actions[0].what.contains("rebase"));
+    assert_eq!(
+        failure.fix_actions[0].what,
+        "Run `ivar feature rebase checkout --repo api` to bring the branch back onto its base."
+    );
     assert!(!failure.fix_actions[0].safe);
 }

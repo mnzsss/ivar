@@ -245,6 +245,7 @@ impl BaseVerdict {
     /// matters for the merged-and-deleted fix hint.
     fn into_failure(
         self,
+        feature: &FeatureName,
         repo: &RepoName,
         base: &BranchName,
         default_branch: &BranchName,
@@ -281,8 +282,9 @@ impl BaseVerdict {
                 "feature.base_moved",
                 format!("`{repo}`'s branch is no longer built on `{base}`'s current tip"),
                 "feature.rebase_feature",
-                "Run `ivar feature rebase <feature>` to bring the branch back onto its base."
-                    .to_owned(),
+                format!(
+                    "Run `ivar feature rebase {feature} --repo {repo}` to bring the branch back onto its base."
+                ),
             ),
         };
         Some(Failure::blocked(code, what).fix(FixAction::unsafe_(fix_code, fix_what)))
@@ -303,11 +305,13 @@ impl DeliveryRepo {
     #[must_use]
     pub fn check_base(
         &self,
+        feature: &FeatureName,
         remote_tip: &Result<Option<String>, ()>,
         secondary: Result<bool, ()>,
         default_branch: &BranchName,
     ) -> Option<Failure> {
         classify_base(remote_tip, secondary).into_failure(
+            feature,
             &self.repo,
             &self.base_branch,
             default_branch,
