@@ -43,11 +43,19 @@ impl crate::action::confirm::Confirm for RecordingConfirm {
         Ok(self.answer)
     }
 
-    fn select_many(&self, _prompt: &str, _options: &[crate::action::confirm::SelectOption]) -> Result<Vec<usize>, Failure> {
+    fn select_many(
+        &self,
+        _prompt: &str,
+        _options: &[crate::action::confirm::SelectOption],
+    ) -> Result<Vec<usize>, Failure> {
         Ok(Vec::new())
     }
 
-    fn select_one(&self, _prompt: &str, _options: &[crate::action::confirm::SelectOption]) -> Result<Option<usize>, Failure> {
+    fn select_one(
+        &self,
+        _prompt: &str,
+        _options: &[crate::action::confirm::SelectOption],
+    ) -> Result<Option<usize>, Failure> {
         Ok(None)
     }
 
@@ -106,7 +114,10 @@ fn delete_ask_non_interactive_refuses_with_exact_yes_command() {
     };
     let failure = delete(&ctx, input).unwrap_err();
     assert_eq!(failure.code, "feature.delete_subtree_needs_consent");
-    let fix_cmd = failure.fix_actions[0].command.as_deref().expect("fix command present");
+    let fix_cmd = failure.fix_actions[0]
+        .command
+        .as_deref()
+        .expect("fix command present");
     assert_eq!(fix_cmd, "ivar feature delete checkout --yes");
 
     // With force: command carries --force
@@ -116,7 +127,10 @@ fn delete_ask_non_interactive_refuses_with_exact_yes_command() {
         descendants: Descendants::Ask,
     };
     let failure_forced = delete(&ctx, input_forced).unwrap_err();
-    let fix_cmd_forced = failure_forced.fix_actions[0].command.as_deref().expect("fix command present");
+    let fix_cmd_forced = failure_forced.fix_actions[0]
+        .command
+        .as_deref()
+        .expect("fix command present");
     assert_eq!(fix_cmd_forced, "ivar feature delete checkout --yes --force");
 }
 
@@ -146,8 +160,16 @@ fn delete_ask_interactive_declined_deletes_nothing() {
     let failure = delete(&ctx, input).unwrap_err();
     assert_eq!(failure.code, "feature.delete_declined");
 
-    assert!(layout.feature_dir(&FeatureName::new("checkout").unwrap()).exists());
-    assert!(layout.feature_dir(&FeatureName::new("child").unwrap()).exists());
+    assert!(
+        layout
+            .feature_dir(&FeatureName::new("checkout").unwrap())
+            .exists()
+    );
+    assert!(
+        layout
+            .feature_dir(&FeatureName::new("child").unwrap())
+            .exists()
+    );
 }
 
 #[test]
@@ -184,8 +206,16 @@ fn delete_ask_interactive_yes_passes_rendered_tree_and_deletes() {
     assert!(caveat.contains("checkout"));
     assert!(caveat.contains("└── child"));
 
-    assert!(!layout.feature_dir(&FeatureName::new("child").unwrap()).exists());
-    assert!(!layout.feature_dir(&FeatureName::new("checkout").unwrap()).exists());
+    assert!(
+        !layout
+            .feature_dir(&FeatureName::new("child").unwrap())
+            .exists()
+    );
+    assert!(
+        !layout
+            .feature_dir(&FeatureName::new("checkout").unwrap())
+            .exists()
+    );
 }
 
 #[test]
@@ -233,9 +263,21 @@ fn delete_consented_removes_three_level_tree_leaves_first() {
     assert!(report.value.descendants[0].feature_removed);
     assert!(report.value.descendants[1].feature_removed);
 
-    assert!(!layout.feature_dir(&FeatureName::new("leaf").unwrap()).exists());
-    assert!(!layout.feature_dir(&FeatureName::new("child").unwrap()).exists());
-    assert!(!layout.feature_dir(&FeatureName::new("checkout").unwrap()).exists());
+    assert!(
+        !layout
+            .feature_dir(&FeatureName::new("leaf").unwrap())
+            .exists()
+    );
+    assert!(
+        !layout
+            .feature_dir(&FeatureName::new("child").unwrap())
+            .exists()
+    );
+    assert!(
+        !layout
+            .feature_dir(&FeatureName::new("checkout").unwrap())
+            .exists()
+    );
 }
 
 #[test]
@@ -276,11 +318,25 @@ fn delete_preflight_blocker_on_descendant_refuses_before_mutation() {
     };
     let failure = delete(&ctx, input).unwrap_err();
     assert_eq!(failure.code, "feature.delete_unsaved_work");
-    assert!(failure.actual.as_deref().unwrap().contains("`child`: `api` has uncommitted or untracked changes"));
+    assert!(
+        failure
+            .actual
+            .as_deref()
+            .unwrap()
+            .contains("`child`: `api` has uncommitted or untracked changes")
+    );
 
     // Neither child nor parent was deleted
-    assert!(layout.feature_dir(&FeatureName::new("child").unwrap()).exists());
-    assert!(layout.feature_dir(&FeatureName::new("checkout").unwrap()).exists());
+    assert!(
+        layout
+            .feature_dir(&FeatureName::new("child").unwrap())
+            .exists()
+    );
+    assert!(
+        layout
+            .feature_dir(&FeatureName::new("checkout").unwrap())
+            .exists()
+    );
     assert!(fs::is_file(&draft).unwrap());
 }
 
@@ -354,12 +410,24 @@ fn delete_stop_on_failure_preserves_failing_node_and_ancestors() {
     assert!(!report.value.descendants[1].worktrees[0].removed);
 
     // Deepest leaf was deleted before child failed
-    assert!(!layout.feature_dir(&FeatureName::new("leaf").unwrap()).exists());
+    assert!(
+        !layout
+            .feature_dir(&FeatureName::new("leaf").unwrap())
+            .exists()
+    );
     // Child record and worktree preserved
-    assert!(layout.feature_dir(&FeatureName::new("child").unwrap()).exists());
+    assert!(
+        layout
+            .feature_dir(&FeatureName::new("child").unwrap())
+            .exists()
+    );
     assert!(fs::is_dir(&worktree).unwrap());
     // Parent checkout record preserved
-    assert!(layout.feature_dir(&FeatureName::new("checkout").unwrap()).exists());
+    assert!(
+        layout
+            .feature_dir(&FeatureName::new("checkout").unwrap())
+            .exists()
+    );
 }
 
 #[test]
@@ -418,11 +486,7 @@ fn fold_into_ancestors_removes_descendants_preserving_order() {
     )
     .unwrap();
 
-    let targets = vec![
-        "leaf".to_owned(),
-        "checkout".to_owned(),
-        "other".to_owned(),
-    ];
+    let targets = vec!["leaf".to_owned(), "checkout".to_owned(), "other".to_owned()];
     let folded = fold_into_ancestors(&ctx, &targets).unwrap();
     // "leaf" is a descendant of "checkout", so it is omitted; "checkout", "other" are kept in order
     assert_eq!(folded, vec!["checkout", "other"]);

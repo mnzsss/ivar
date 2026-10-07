@@ -66,12 +66,7 @@ impl WriteHuman for ListOutcome {
             let feature_cell = format!("{prefix}{}", feature.name);
             let promoted = format!("{}/{}", feature.ready_count, feature.promoted_count);
             let state = feature.state.to_string();
-            table.add_row(vec![
-                &feature_cell,
-                &feature.branch,
-                &promoted,
-                &state,
-            ]);
+            table.add_row(vec![&feature_cell, &feature.branch, &promoted, &state]);
         }
         crate::infra::table::write(w, &table)
     }

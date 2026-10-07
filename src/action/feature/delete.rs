@@ -178,8 +178,8 @@ fn check_descendants_consent(
                 .chain(subtree.iter().map(|(d, _)| *d))
                 .collect::<Vec<_>>();
             let prefixes = crate::action::feature::tree::tree_prefixes(&depths);
-            let names = std::iter::once(name)
-                .chain(subtree.iter().map(|(_, descendant)| &descendant.name));
+            let names =
+                std::iter::once(name).chain(subtree.iter().map(|(_, descendant)| &descendant.name));
             let rendered_lines = names
                 .zip(prefixes)
                 .map(|(feature_name, prefix)| format!("{prefix}{feature_name}"))

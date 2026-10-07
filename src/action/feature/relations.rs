@@ -687,7 +687,7 @@ pub(crate) fn forest<'a>(map: &FeatureMap<'a>) -> Vec<(usize, &'a Feature)> {
 pub(crate) fn descendants_from_values<'a>(
     map: &FeatureMap<'a>,
     name: &FeatureName,
-  ) -> Vec<(usize, &'a Feature)> {
+) -> Vec<(usize, &'a Feature)> {
     let mut result = Vec::new();
     // DFS with an explicit stack: children sorted by name, pushed reversed so
     // the pop order is the sorted pre-order.

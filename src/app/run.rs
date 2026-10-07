@@ -528,7 +528,9 @@ pub fn run(cli: Cli) -> ExitCode {
                                 });
                                 respond_batch(items, json, &mut stdout, &mut stderr)
                             }
-                            Err(failure) => respond_failure(&failure, json, &mut stdout, &mut stderr),
+                            Err(failure) => {
+                                respond_failure(&failure, json, &mut stdout, &mut stderr)
+                            }
                         },
                         Err(failure) => respond_failure(&failure, json, &mut stdout, &mut stderr),
                     },

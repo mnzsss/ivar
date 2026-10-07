@@ -798,11 +798,7 @@ fn forest_treats_dangling_parent_feature_as_root_with_descendants_beneath_it() {
 
     assert_eq!(
         rendered,
-        vec![
-            (0, "normal"),
-            (0, "orphan"),
-            (1, "orphan-child"),
-        ]
+        vec![(0, "normal"), (0, "orphan"), (1, "orphan-child"),]
     );
 }
 

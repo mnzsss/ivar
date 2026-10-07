@@ -353,5 +353,11 @@ fn prune_refuses_parent_with_descendants() {
 
     let report = prune(&ctx).unwrap();
     assert!(report.value.pruned.is_empty());
-    assert!(report.value.kept.iter().any(|k| k.feature.as_str() == "checkout" && k.reason.contains("has 1 descendant(s)")));
+    assert!(
+        report
+            .value
+            .kept
+            .iter()
+            .any(|k| k.feature.as_str() == "checkout" && k.reason.contains("has 1 descendant(s)"))
+    );
 }

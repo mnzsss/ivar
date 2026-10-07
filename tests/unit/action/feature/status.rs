@@ -542,6 +542,12 @@ fn status_subtree_human_output_renders_tree_glyphs() {
 
     assert!(rendered.contains("Subtree:"));
     // Two space base indent + glyph
-    assert!(rendered.contains("  ├── child-a  state active  plan pending  repos 1  no run  sessions 1"));
-    assert!(rendered.contains("  └── child-b  state integrated  plan approved  repos 0  no run  sessions 0"));
+    assert!(
+        rendered.contains("  ├── child-a  state active  plan pending  repos 1  no run  sessions 1")
+    );
+    assert!(
+        rendered.contains(
+            "  └── child-b  state integrated  plan approved  repos 0  no run  sessions 0"
+        )
+    );
 }

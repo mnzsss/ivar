@@ -932,7 +932,9 @@ fn parent_deletion_without_yes_refuses_in_noninteractive_mode() {
     // Deleting parent without --yes in non-interactive / --json mode fails with consent code
     let failure = failure_output(&root, &["feature", "delete", "parent"]);
     assert_eq!(failure["code"], "feature.delete_subtree_needs_consent");
-    let fix_cmd = failure["fix_actions"][0]["command"].as_str().expect("fix command string");
+    let fix_cmd = failure["fix_actions"][0]["command"]
+        .as_str()
+        .expect("fix command string");
     assert_eq!(fix_cmd, "ivar feature delete parent --yes");
 
     // Verify nothing was removed
