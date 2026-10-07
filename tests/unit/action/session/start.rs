@@ -2337,3 +2337,80 @@ fn a_discovery_session_still_links_the_default_worktree_when_a_base_worktree_exi
     );
     unguard_worktrees(&root);
 }
+
+/// `session start` cuts the root's base worktree from the bare and links
+/// the unpromoted repo to it.
+#[test]
+fn session_start_cuts_the_base_worktree_and_links_it() {
+    let (_guard, root) = hall_with_based_feature("develop");
+    let ctx = Ctx::new(root.clone());
+    let layout = Layout::at(root.clone());
+    let develop = layout.repo_worktree(
+        &RepoName::new("api").unwrap(),
+        &BranchName::new("develop").unwrap(),
+    );
+    assert!(
+        !fs::is_dir(&develop).unwrap(),
+        "sync cuts only the default worktree"
+    );
+
+    let report = start(
+        &ctx,
+        StartInput {
+            feature: Some("release".to_owned()),
+            resume: false,
+            provider: None,
+            detached: true,
+            relay: false,
+        },
+    )
+    .unwrap();
+
+    assert!(report.is_clean(), "warnings: {:?}", report.warnings);
+    assert_eq!(
+        std::fs::read_to_string(develop.join("DEVELOP.md")).unwrap(),
+        "develop\n",
+        "the base worktree must be checked out on develop"
+    );
+    let target = read_link_target(&report.value.view_dir.join("api"));
+    assert!(
+        target.as_str().ends_with(".ivar/repos/api/develop"),
+        "the session must link the base worktree: {target}"
+    );
+    unguard_worktrees(&root);
+}
+
+/// A declared base the origin does not have warns and the session still
+/// opens, on the default branch.
+#[test]
+fn session_start_warns_and_links_the_default_when_the_base_is_absent() {
+    let (_guard, root) = hall_with_based_feature("nope");
+    let ctx = Ctx::new(root.clone());
+
+    let report = start(
+        &ctx,
+        StartInput {
+            feature: Some("release".to_owned()),
+            resume: false,
+            provider: None,
+            detached: true,
+            relay: false,
+        },
+    )
+    .unwrap();
+
+    assert!(
+        report
+            .warnings
+            .iter()
+            .any(|warning| warning.code == "session.base_absent" && warning.subject == "api"),
+        "warnings: {:?}",
+        report.warnings
+    );
+    let target = read_link_target(&report.value.view_dir.join("api"));
+    assert!(
+        target.as_str().ends_with(".ivar/repos/api/main"),
+        "an absent base falls back to the default worktree: {target}"
+    );
+    unguard_worktrees(&root);
+}

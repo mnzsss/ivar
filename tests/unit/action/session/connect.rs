@@ -18,7 +18,7 @@ use crate::domain::provider::Provider;
 use crate::infra::fs;
 use crate::store::layout::Layout;
 use crate::store::manifest::{Manifest, Providers, Repo};
-use crate::test_support::{hall_root, seeded_repo};
+use crate::test_support::{git, hall_root, seeded_repo};
 
 /// A hall with two registered repos — `api` promoted into `checkout`,
 /// `web` left read-only — plus a detached session on `checkout`.
@@ -825,4 +825,128 @@ fn connect_reports_what_it_promoted_without_adding_an_executable_line() {
             .all(|line| line.starts_with('#') || line.starts_with("export ")),
         "was: {text}"
     );
+}
+
+// -- base view -------------------------------------------------------------
+
+/// A hall whose `api` origin has `main` plus a `develop` carrying
+/// `DEVELOP.md`, synced, with an unpromoted feature `release` whose
+/// declared base is `base`. No session yet.
+fn hall_with_based_feature(base: &str) -> (tempfile::TempDir, Utf8PathBuf) {
+    let (guard, root) = hall_root();
+    let ctx = Ctx::new(root.clone());
+    hall::init(
+        &ctx,
+        &InitInput {
+            path: Utf8PathBuf::from("."),
+            name: Some("acme".to_owned()),
+            provider: None,
+        },
+    )
+    .unwrap();
+
+    let origin = seeded_repo(&root.parent().unwrap().join("origins").join("api"), "main");
+    git(&origin, &["checkout", "-b", "develop"]);
+    std::fs::write(origin.join("DEVELOP.md"), "develop\n").unwrap();
+    git(&origin, &["add", "DEVELOP.md"]);
+    git(&origin, &["commit", "-m", "develop"]);
+    git(&origin, &["checkout", "main"]);
+
+    let layout = Layout::at(root.clone());
+    let manifest = Manifest::new(
+        HallName::new("acme").unwrap(),
+        Providers::new(vec![Provider::ClaudeCode], Provider::ClaudeCode),
+        vec![Repo::new(
+            RepoName::new("api").unwrap(),
+            origin.as_str(),
+            BranchName::new("main").unwrap(),
+        )],
+        None,
+    )
+    .unwrap();
+    Manifest::write(&layout, &manifest).unwrap();
+
+    feature_create::create(
+        &ctx,
+        CreateInput {
+            name: "release".to_owned(),
+            branch: None,
+            base: Some(base.to_owned()),
+            parent: None,
+            via: None,
+            strategy: None,
+        },
+    )
+    .unwrap();
+    crate::action::sync::sync(&ctx, &Default::default()).unwrap();
+
+    (guard, root)
+}
+
+fn connect_create_release(ctx: &Ctx) -> Report<ConnectOutcome> {
+    connect(
+        ctx,
+        &ConnectInput {
+            session_id: None,
+            feature: Some("release".to_owned()),
+            create: true,
+        },
+    )
+    .unwrap()
+}
+
+/// R-BASE-FRESH: reconnecting picks up what the origin's base branch
+/// gained since the session started.
+#[test]
+fn connect_fast_forwards_the_base_worktree_to_the_origin() {
+    let (_guard, root) = hall_with_based_feature("develop");
+    let ctx = Ctx::new(root.clone());
+    let first = connect_create_release(&ctx);
+    let develop = root.join(".ivar/repos/api/develop");
+    assert!(
+        fs::is_dir(&develop).unwrap(),
+        "the first connect cuts the base worktree"
+    );
+
+    // The origin's develop gains a commit after the session started.
+    let origin = root.parent().unwrap().join("origins").join("api");
+    git(&origin, &["checkout", "develop"]);
+    std::fs::write(origin.join("NEXT.md"), "next\n").unwrap();
+    git(&origin, &["add", "NEXT.md"]);
+    git(&origin, &["commit", "-m", "next"]);
+    git(&origin, &["checkout", "main"]);
+
+    let again = connect_create_release(&ctx);
+
+    assert_eq!(again.value.session_id, first.value.session_id);
+    assert!(again.is_clean(), "warnings: {:?}", again.warnings);
+    assert_eq!(
+        std::fs::read_to_string(develop.join("NEXT.md")).unwrap(),
+        "next\n",
+        "connect must fast-forward the base worktree"
+    );
+    assert_eq!(
+        fs::unix_mode(&develop).unwrap().unwrap() & 0o222,
+        0,
+        "the refreshed base worktree is guarded read-only again"
+    );
+    unguard_worktrees(&root);
+}
+
+/// `connect --create` runs `session start` and then its own preparation;
+/// the absent base is reported once, not twice.
+#[test]
+fn connect_with_create_reports_an_absent_base_once() {
+    let (_guard, root) = hall_with_based_feature("nope");
+    let ctx = Ctx::new(root.clone());
+
+    let report = connect_create_release(&ctx);
+
+    let absent = report
+        .warnings
+        .iter()
+        .filter(|warning| warning.code == "session.base_absent" && warning.subject == "api")
+        .count();
+    assert_eq!(absent, 1, "warnings: {:?}", report.warnings);
+    unguard_worktrees(&root);
 }

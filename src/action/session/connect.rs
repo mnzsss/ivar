@@ -1,7 +1,8 @@
 //! `ivar session connect` — re-bind to an existing live session.
 //!
 //! Valhalla's **Connect**: locate a live session by id-prefix and/or feature,
-//! re-materialise its View Dir to match the feature's current promotion state
+//! refresh the feature's base view (see [`super::base_view`]), re-materialise
+//! its View Dir to match the feature's current promotion state
 //! (idempotent — a no-op when nothing drifted, but it repairs symlinks and
 //! read-only guards left stale), and emit the session binding
 //! (`IVAR_SESSION_ID`, `IVAR_FEATURE`, `IVAR_SESSION_PATH`). Used to resume
@@ -17,11 +18,13 @@ use crate::domain::feature::{Feature, GateState};
 use crate::domain::name::{FeatureName, RepoName};
 use crate::domain::session::{SessionRef, SessionState};
 use crate::error::{Failure, FixAction, Outcome, Report, Warning, WriteHuman};
+use crate::git;
 use crate::infra::proc;
 use crate::providers;
 use crate::store::layout::Layout;
 
 use super::super::{discover_hall, read_manifest};
+use super::base_view;
 use super::lookup;
 use super::start;
 use super::view;
@@ -132,6 +135,22 @@ pub fn connect(ctx: &Ctx, input: &ConnectInput) -> Outcome<ConnectOutcome> {
         Some(name) if !promoted.is_empty() => Feature::read(&layout, name)?,
         _ => feature,
     };
+
+    // The base view: cut or fast-forward the read-only base worktree of
+    // every repo the feature does not promote (see `base_view`) before the
+    // re-materialisation links it. Best-effort: failures only warn. The
+    // `--create` path's own `session start` already prepared once; a
+    // warning it reported is not repeated.
+    if let Some(feature) = &feature {
+        for warning in base_view::prepare(&git::System, &layout, &manifest, feature) {
+            if !warnings
+                .iter()
+                .any(|seen| seen.code == warning.code && seen.subject == warning.subject)
+            {
+                warnings.push(warning);
+            }
+        }
+    }
 
     // Re-materialise: repair drifted symlinks, the read-only guards, the
     // projected plan and the bootstrap instructions. A no-op when nothing
