@@ -499,6 +499,7 @@ pub fn run(cli: Cli) -> ExitCode {
                         delete::DeleteInput {
                             name,
                             force: args.force,
+                            descendants: delete::Descendants::Ask,
                         },
                     ),
                     json,
@@ -513,6 +514,7 @@ pub fn run(cli: Cli) -> ExitCode {
                                 delete::DeleteInput {
                                     name: f.to_owned(),
                                     force: args.force,
+                                    descendants: delete::Descendants::Ask,
                                 },
                             )
                         });

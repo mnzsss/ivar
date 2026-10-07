@@ -694,6 +694,7 @@ fn doctor_counts_a_live_features_base_worktree_as_owned() {
         crate::action::feature::delete::DeleteInput {
             name: "checkout".to_owned(),
             force: false,
+            descendants: crate::action::feature::delete::Descendants::Consented,
         },
     )
     .unwrap();

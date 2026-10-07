@@ -302,6 +302,7 @@ impl From<FeatureDeleteArgs> for delete::DeleteInput {
         Self {
             name: name.unwrap_or_default(),
             force,
+            descendants: delete::Descendants::Ask,
         }
     }
 }
