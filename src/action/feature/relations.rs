@@ -643,7 +643,7 @@ fn validate_tree(features: &[Feature]) -> Result<(), Failure> {
 }
 
 /// `name` → feature, for the walk helpers.
-type FeatureMap<'a> = BTreeMap<&'a FeatureName, &'a Feature>;
+pub(crate) type FeatureMap<'a> = BTreeMap<&'a FeatureName, &'a Feature>;
 
 fn feature_map(features: &[Feature]) -> FeatureMap<'_> {
     features
@@ -658,12 +658,36 @@ fn descendants_from<'a>(all: &'a [Feature], name: &FeatureName) -> Vec<(usize, &
     descendants_from_values(&feature_map(all), name)
 }
 
+/// Every root sorted by name at depth 0, each followed by its descendants in
+/// pre-order (`descendants_from_values`). A root is a feature whose `parent` is
+/// `None` or names a feature absent from `map` (dangling — listed today at
+/// depth 0 by `depth_with_map`). Features on a parent cycle are unreachable
+/// and so omitted, matching today's skip.
+pub(crate) fn forest<'a>(map: &FeatureMap<'a>) -> Vec<(usize, &'a Feature)> {
+    let mut roots: Vec<&'a Feature> = map
+        .values()
+        .filter(|feature| match &feature.parent {
+            None => true,
+            Some(parent_name) => !map.contains_key(parent_name),
+        })
+        .copied()
+        .collect();
+    roots.sort_by(|a, b| a.name.cmp(&b.name));
+
+    let mut result = Vec::with_capacity(map.len());
+    for root in roots {
+        result.push((0, root));
+        result.extend(descendants_from_values(map, &root.name));
+    }
+    result
+}
+
 /// The same traversal over an already-built map, so a caller that read the
 /// tree once does not read it again.
-fn descendants_from_values<'a>(
+pub(crate) fn descendants_from_values<'a>(
     map: &FeatureMap<'a>,
     name: &FeatureName,
-) -> Vec<(usize, &'a Feature)> {
+  ) -> Vec<(usize, &'a Feature)> {
     let mut result = Vec::new();
     // DFS with an explicit stack: children sorted by name, pushed reversed so
     // the pop order is the sorted pre-order.
