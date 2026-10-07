@@ -653,6 +653,58 @@ fn doctor_reports_an_unreadable_feature_record_instead_of_orphaning_its_worktree
     assert!(orphan_findings(&report.value).is_empty());
 }
 
+/// A feature created with `--base develop` owns the `develop` base worktree
+/// its sessions link; once the feature is deleted nothing owns it.
+#[test]
+fn doctor_counts_a_live_features_base_worktree_as_owned() {
+    let (_guard, root, bare) = synced_hall_with_bare();
+    let ctx = Ctx::new(root.clone());
+    feature_create(
+        &ctx,
+        CreateInput {
+            name: "checkout".to_owned(),
+            branch: None,
+            base: Some("develop".to_owned()),
+            parent: None,
+            via: None,
+            strategy: None,
+        },
+    )
+    .unwrap();
+    let git = crate::git::System;
+    crate::git::Git::create_branch(&git, &bare, "develop", "main").unwrap();
+    crate::git::Git::add_worktree(
+        &git,
+        &bare,
+        &root.join(".ivar/repos/api/develop"),
+        "develop",
+    )
+    .unwrap();
+
+    let live = doctor(&ctx).unwrap();
+
+    assert!(
+        orphan_findings(&live.value).is_empty(),
+        "{:?}",
+        orphan_findings(&live.value)
+    );
+
+    crate::action::feature::delete::delete(
+        &ctx,
+        crate::action::feature::delete::DeleteInput {
+            name: "checkout".to_owned(),
+            force: false,
+        },
+    )
+    .unwrap();
+
+    let deleted = doctor(&ctx).unwrap();
+
+    let orphans = orphan_findings(&deleted.value);
+    assert_eq!(orphans.len(), 1, "{orphans:?}");
+    assert!(orphans[0].what.contains("`develop`"), "{}", orphans[0].what);
+}
+
 #[test]
 fn doctor_names_a_stray_detached_worktree() {
     let (_guard, root, bare) = synced_hall_with_bare();

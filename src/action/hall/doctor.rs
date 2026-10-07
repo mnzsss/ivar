@@ -29,6 +29,7 @@ use crate::store::manifest::Manifest;
 
 use super::Ctx;
 use super::{discover_hall, read_manifest};
+use crate::action::session::base_view::{self, BaseView};
 use camino::{Utf8Path, Utf8PathBuf};
 
 /// One diagnosed problem.
@@ -265,7 +266,7 @@ fn diagnose_orphan_worktrees(
     manifest: &Manifest,
     git: &impl Git,
 ) -> Vec<Diagnosis> {
-    let owned = match feature_worktrees(layout) {
+    let owned = match feature_worktrees(layout, manifest) {
         Ok(owned) => owned,
         // Incomplete ownership data would name live feature worktrees as orphans.
         Err(unreadable) => return unreadable,
@@ -392,18 +393,50 @@ fn integration_running(layout: &Layout, child: &FeatureName) -> bool {
         })
 }
 
-/// Every `(repo, branch)` a feature owns: its branch in each repo it promoted.
-/// Fails with one diagnosis per feature record that cannot be read.
-fn feature_worktrees(layout: &Layout) -> Result<HashSet<(RepoName, String)>, Vec<Diagnosis>> {
-    Ok(feature_records(layout)?
-        .iter()
-        .flat_map(|feature| {
-            feature
-                .promotions
-                .keys()
-                .map(|repo| (repo.clone(), feature.branch.to_string()))
-        })
-        .collect())
+/// Every `(repo, branch)` a feature owns: its branch in each repo it
+/// promoted, and — in each manifest repo it did not promote — the base
+/// branch its sessions view ([`base_view::resolve`] → `BaseBranch`).
+/// Fails with one diagnosis per feature record that cannot be read, and per
+/// base view that cannot be resolved.
+fn feature_worktrees(
+    layout: &Layout,
+    manifest: &Manifest,
+) -> Result<HashSet<(RepoName, String)>, Vec<Diagnosis>> {
+    let mut owned = HashSet::new();
+    let mut unresolved = Vec::new();
+    for feature in feature_records(layout)? {
+        for repo in feature.promotions.keys() {
+            owned.insert((repo.clone(), feature.branch.to_string()));
+        }
+        for repo in manifest.repos() {
+            if feature.is_promoted(repo.name()) {
+                continue;
+            }
+            match base_view::resolve(layout, repo, &feature) {
+                Ok(BaseView::BaseBranch(branch)) => {
+                    owned.insert((repo.name().clone(), branch.to_string()));
+                }
+                Ok(BaseView::Default | BaseView::Parent { .. }) => {}
+                Err(error) => unresolved.push(Diagnosis {
+                    code: "feature.record_unreadable",
+                    what: format!(
+                        "the base view of `{}` for feature `{}` cannot be resolved: {error}",
+                        repo.name(),
+                        feature.name
+                    ),
+                    fix: format!(
+                        "Repair the feature records above `{}`; orphan worktrees are not checked until then.",
+                        feature.name
+                    ),
+                }),
+            }
+        }
+    }
+    if unresolved.is_empty() {
+        Ok(owned)
+    } else {
+        Err(unresolved)
+    }
 }
 
 /// Promotions that are failed or whose worktree is gone, and branches more
