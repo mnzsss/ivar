@@ -913,9 +913,74 @@ fn resolve_set_by_target(target: &Utf8Path) -> TargetResolution {
     TargetResolution::None
 }
 
-/// Run the guard: parse stdin JSON, resolve the session, decide, and
-/// shape the output for the given provider.
-pub fn guard(provider: Provider, stdin_json: &str) -> Result<GuardOutcome, Failure> {
+/// What the guard worked out for one tool call, before any side effect.
+struct Evaluation {
+    request: ToolRequest,
+    cwd: Option<Utf8PathBuf>,
+    session_env: Option<crate::action::session::env::SessionEnv>,
+    decision: GuardDecision,
+}
+
+/// Run the guard: parse stdin JSON, resolve the session, decide, attach the
+/// repository instructions to an allow, and shape the output for the
+/// provider.
+///
+/// `slice` is set only by Claude Code's extra hook entries. They return that
+/// slice of the instructions and never a decision, and exit 0 whatever the
+/// input: the decision belongs to the entry without `slice`.
+///
+/// # Errors
+///
+/// Without `slice`, returns [`Failure`] if `stdin_json` is not a valid hook
+/// payload for `provider`.
+pub fn guard(
+    provider: Provider,
+    stdin_json: &str,
+    slice: Option<usize>,
+) -> Result<GuardOutcome, Failure> {
+    if let Some(index) = slice {
+        let context = evaluate(provider, stdin_json)
+            .ok()
+            .and_then(|evaluation| instructions_for(provider, &evaluation, index));
+        return Ok(crate::providers::render_context(
+            provider,
+            context.as_deref(),
+        ));
+    }
+
+    let evaluation = evaluate(provider, stdin_json)?;
+    if matches!(evaluation.decision, GuardDecision::Allow)
+        && is_graph_explore_tool(&evaluation.request.tool)
+        && let Some(cwd) = evaluation.cwd.as_deref()
+    {
+        record_graph_call_at(
+            cwd,
+            evaluation.session_env.as_ref(),
+            std::env::var("IVAR_SESSION_ID").ok(),
+        );
+    }
+    if let Some(pattern) = &evaluation.request.search_pattern
+        && let Some(cwd) = evaluation.cwd.as_deref()
+    {
+        record_search_miss_at(
+            cwd,
+            evaluation.session_env.as_ref(),
+            std::env::var("IVAR_SESSION_ID").ok(),
+            pattern,
+        );
+    }
+
+    let context = instructions_for(provider, &evaluation, 0);
+    Ok(crate::providers::render_decision(
+        provider,
+        &evaluation.decision,
+        context.as_deref(),
+    ))
+}
+
+/// Parse, resolve and decide, with no side effect, so the slice entries can
+/// share it without recording graph calls or search misses again.
+fn evaluate(provider: Provider, stdin_json: &str) -> Result<Evaluation, Failure> {
     let (tool_request, cwd) = crate::providers::parse_tool_request(provider, stdin_json)?;
 
     let session_env = cwd
@@ -993,29 +1058,39 @@ pub fn guard(provider: Provider, stdin_json: &str) -> Result<GuardOutcome, Failu
     } else {
         decide(&resolution, &tool_request, &targets)
     };
-    if matches!(decision, GuardDecision::Allow)
-        && is_graph_explore_tool(&tool_request.tool)
-        && let Some(cwd) = cwd.as_deref()
-    {
-        record_graph_call_at(
-            cwd,
-            session_env.as_ref(),
-            std::env::var("IVAR_SESSION_ID").ok(),
-        );
-    }
+    Ok(Evaluation {
+        request: tool_request,
+        cwd,
+        session_env,
+        decision,
+    })
+}
 
-    if let Some(pattern) = &tool_request.search_pattern
-        && let Some(cwd) = cwd.as_deref()
-    {
-        record_search_miss_at(
-            cwd,
-            session_env.as_ref(),
-            std::env::var("IVAR_SESSION_ID").ok(),
-            pattern,
-        );
+/// The repository instructions this call carries: only on an allow, only
+/// inside a resolved session, and never an error. A failure here must not
+/// change or block the decision (R-FAIL-OPEN), so every error becomes `None`.
+fn instructions_for(provider: Provider, evaluation: &Evaluation, index: usize) -> Option<String> {
+    if !matches!(evaluation.decision, GuardDecision::Allow) {
+        return None;
     }
-
-    Ok(crate::providers::render_decision(provider, &decision))
+    let env = evaluation.session_env.as_ref()?;
+    let cwd = evaluation.cwd.as_deref()?;
+    let request = &evaluation.request;
+    let paths = super::instructions::touched_paths(&request.input, cwd);
+    let agent = request.agent.as_deref().unwrap_or("main");
+    let delivered = match (provider, request.call_id.as_deref()) {
+        (Provider::ClaudeCode, Some(call_id)) => super::instructions::deliver_slice(
+            &env.view_dir,
+            provider,
+            agent,
+            call_id,
+            &paths,
+            index,
+        ),
+        _ if index == 0 => super::instructions::deliver(&env.view_dir, provider, agent, &paths),
+        _ => Ok(None),
+    };
+    delivered.ok().flatten()
 }
 
 /// Claude Code spells MCP tools `mcp__<server>__<tool>`; OpenCode and OMP

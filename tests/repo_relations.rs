@@ -321,8 +321,7 @@ fn missing_hall_warns_but_session_materialisation_succeeds() {
 
     // Discovery: warns, opens, and carries no shared content.
     let (value, view_dir) = detached_session_view_dir(&root, &[]);
-    let warnings = value["warnings"].as_array().unwrap();
-    assert_eq!(warnings[0]["code"], "instructions.canonical_unavailable");
+    assert!(has_warning(&value, "instructions.canonical_unavailable"));
     assert!(
         !view_dir.join("CLAUDE.md").exists(),
         "a discovery session with no canonical content writes nothing"
@@ -330,8 +329,7 @@ fn missing_hall_warns_but_session_materialisation_succeeds() {
 
     // Feature: the same warning, and bootstrap only.
     let (value, view_dir) = detached_session_view_dir(&root, &["checkout"]);
-    let warnings = value["warnings"].as_array().unwrap();
-    assert_eq!(warnings[0]["code"], "instructions.canonical_unavailable");
+    assert!(has_warning(&value, "instructions.canonical_unavailable"));
     let instructions = std::fs::read_to_string(view_dir.join("CLAUDE.md")).unwrap();
     assert!(
         instructions.contains("ivar session — feature `checkout`"),
@@ -341,4 +339,12 @@ fn missing_hall_warns_but_session_materialisation_succeeds() {
         !instructions.contains("managed:start"),
         "without HALL.md there is no canonical content"
     );
+}
+
+fn has_warning(value: &serde_json::Value, code: &str) -> bool {
+    value["warnings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|warning| warning["code"] == code)
 }

@@ -16,6 +16,7 @@ pub mod env_cmd;
 pub mod guard;
 pub mod guard_cmd;
 pub(crate) mod hook;
+pub(crate) mod instructions;
 pub(crate) mod launch;
 pub(crate) mod lookup;
 pub mod prune;

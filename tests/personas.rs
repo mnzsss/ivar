@@ -43,3 +43,6 @@ mod deliver;
 
 #[path = "personas/contract.rs"]
 mod contract;
+
+#[path = "personas/repo_instructions.rs"]
+mod repo_instructions;

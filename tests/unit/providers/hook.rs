@@ -91,3 +91,50 @@ fn omp_managed_artifacts_findable_by_path() {
         "unregistered path should not be found in managed artifacts"
     );
 }
+
+#[test]
+fn omp_hook_sends_the_agent_and_returns_the_guard_stdout_as_context() {
+    let artifacts = providers::managed_artifacts(Provider::Omp);
+    let hook = artifacts
+        .iter()
+        .find(|a| a.relative_path == ".omp/hooks/pre/ivar.js")
+        .unwrap();
+    let js = hook.contents;
+    // Each subagent keys its own delivery state.
+    assert!(js.contains(r#"agent: ctx?.agent?.id ?? "main""#), "{js}");
+    // A non-blank stdout on exit 0 becomes the tool call's extra context...
+    assert!(js.contains("return { additionalContext: out };"), "{js}");
+    // ...and a non-zero exit still blocks.
+    assert!(js.contains("return { block: true, reason };"), "{js}");
+}
+
+#[test]
+fn opencode_plugin_appends_the_guard_stdout_to_the_tool_output() {
+    let artifacts = providers::managed_artifacts(Provider::OpenCode);
+    let js = artifacts[0].contents;
+    // The session resolves even though opencode sends no cwd.
+    assert!(
+        js.contains("cwd: input.cwd || output.cwd || process.cwd(),"),
+        "{js}"
+    );
+    assert!(js.contains("agent: input.sessionID,"), "{js}");
+    // `before` keeps the stdout per call; `after` appends it.
+    assert!(js.contains("contexts.set(input.callID, context);"), "{js}");
+    assert!(
+        js.contains(r#""tool.execute.after": async (input, output) => {"#),
+        "{js}"
+    );
+    assert!(
+        js.contains(
+            "output.output += `\\n\\n<system-reminder>\\n${context}\\n</system-reminder>`;"
+        ),
+        "{js}"
+    );
+    assert!(js.contains("contexts.delete(input.callID);"), "{js}");
+    // opencode 1.18 loads a named async plugin function, not a default object.
+    assert!(
+        js.contains("export const IvarPlugin = async () => ({"),
+        "{js}"
+    );
+    assert!(!js.contains("export default"), "{js}");
+}

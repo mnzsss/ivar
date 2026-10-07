@@ -1,6 +1,7 @@
 // tests/unit/providers/mod.rs
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
+use crate::domain::guard::GuardDecision;
 use crate::domain::provider::Provider;
 use crate::providers::{self, Capabilities};
 
@@ -354,6 +355,18 @@ fn herestrings_and_shifts_do_not_open_a_heredoc() {
 }
 
 #[test]
+fn command_segments_keeps_every_pipeline_segment() {
+    assert_eq!(
+        providers::search::command_segments("cat a | grep b && cd c; ls 'd|e' 2>&1 | wc"),
+        ["cat a ", " grep b ", " cd c", " ls 'd|e' 2>&1 ", " wc"]
+    );
+    assert_eq!(
+        providers::search::command_segments("cat > f <<'EOF'\nrg x\nEOF"),
+        ["cat > f <<'EOF'"]
+    );
+}
+
+#[test]
 fn flag_values_are_not_mistaken_for_patterns_or_targets() {
     assert_eq!(bash_search("rg -t log foo build/"), None);
     assert_eq!(bash_search("rg -g '*.rs' foo dist"), None);
@@ -423,4 +436,59 @@ fn user_home_from_resolution() {
     );
     assert!(providers::user_home_from(None, None, "linux").is_err());
     assert!(providers::user_home_from(Some("relative/path".to_owned()), None, "linux").is_err());
+}
+
+#[test]
+fn omp_and_opencode_parse_keep_args_and_the_agent_field() {
+    for provider in [Provider::Omp, Provider::OpenCode] {
+        let json = r#"{
+            "tool": "read",
+            "args": {"path": "/v/api/src/lib.rs", "filePath": "/v/api/src/lib.rs"},
+            "cwd": "/v",
+            "agent": "0-Explore"
+        }"#;
+        let (req, _cwd) = providers::parse_tool_request(provider, json).unwrap();
+        assert_eq!(
+            req.input,
+            serde_json::json!({"path": "/v/api/src/lib.rs", "filePath": "/v/api/src/lib.rs"}),
+            "{provider:?}"
+        );
+        assert_eq!(req.agent.as_deref(), Some("0-Explore"), "{provider:?}");
+        assert_eq!(req.call_id, None, "{provider:?}");
+    }
+}
+
+#[test]
+fn omp_and_opencode_parse_without_agent_leave_it_none() {
+    for provider in [Provider::Omp, Provider::OpenCode] {
+        let json = r#"{"tool": "read", "args": {"path": "/v/x"}, "cwd": "/v"}"#;
+        let (req, _cwd) = providers::parse_tool_request(provider, json).unwrap();
+        assert_eq!(req.agent, None, "{provider:?}");
+    }
+}
+
+#[test]
+fn omp_and_opencode_allow_body_is_the_context_and_deny_ignores_it() {
+    for provider in [Provider::Omp, Provider::OpenCode] {
+        let allow = providers::render_decision(provider, &GuardDecision::Allow, Some("ctx"));
+        assert!(allow.exit_zero, "{provider:?}");
+        assert_eq!(allow.body, "ctx", "{provider:?}");
+
+        let none = providers::render_decision(provider, &GuardDecision::Allow, None);
+        assert_eq!(none.body, "", "{provider:?}");
+
+        let deny = providers::render_decision(
+            provider,
+            &GuardDecision::Deny {
+                reason: "writable set: /v".to_owned(),
+            },
+            Some("ctx"),
+        );
+        assert!(!deny.exit_zero, "{provider:?}");
+        assert_eq!(deny.body, "writable set: /v", "{provider:?}");
+
+        let slice = providers::render_context(provider, Some("ctx"));
+        assert!(slice.exit_zero, "{provider:?}");
+        assert_eq!(slice.body, "ctx", "{provider:?}");
+    }
 }

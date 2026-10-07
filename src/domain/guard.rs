@@ -14,6 +14,13 @@ pub struct ToolRequest {
     pub targets: Vec<Utf8PathBuf>,
     pub writes: bool,
     pub search_pattern: Option<String>,
+    /// The provider's raw tool input (Claude `tool_input`, omp/opencode `args`).
+    pub input: serde_json::Value,
+    /// Whose delivery state this call belongs to: Claude `agent_id` else
+    /// `session_id`; omp/opencode payload `agent`.
+    pub agent: Option<String>,
+    /// Claude `tool_use_id`; `None` for omp and opencode.
+    pub call_id: Option<String>,
 }
 
 /// Normalise tool name and check if it is a standard structured write tool.

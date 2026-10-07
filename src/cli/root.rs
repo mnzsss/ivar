@@ -172,6 +172,10 @@ pub struct GuardArgs {
     /// The provider whose hook protocol to use for output shaping.
     #[arg(long)]
     pub provider: String,
+    /// Claude Code hook entry index: return that slice of the repository
+    /// instructions and no decision. Written into settings.json by ivar.
+    #[arg(long, hide = true)]
+    pub slice: Option<usize>,
 }
 
 impl TryFrom<GuardArgs> for guard_cmd::GuardInput {
@@ -184,7 +188,7 @@ impl TryFrom<GuardArgs> for guard_cmd::GuardInput {
                 format!("unknown provider `{}`: {e}", args.provider),
             )
         })?;
-        Ok(Self { provider })
+        guard_cmd::GuardInput::new(provider, args.slice)
     }
 }
 

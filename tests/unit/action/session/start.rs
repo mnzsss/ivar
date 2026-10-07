@@ -1273,6 +1273,238 @@ fn missing_canonical_content_warns_but_lets_the_session_open() {
     unguard_worktrees(&root);
 }
 
+// -- repository instruction pointers ----------------------------------------
+
+const POINTER_INTRO: &str = "## Repository instructions\n\nEach linked repository has its own \
+    instructions. They are delivered to you as you work in the repository; read them in full \
+    before working in it:\n\n";
+
+/// Write `name` at the root of `worktree`, lifting the root-only read-only
+/// guard first (materialisation clears it on default-branch worktrees).
+fn write_root_instructions(worktree: &camino::Utf8Path, name: &str, body: &str) {
+    fs::restore_write_bits(worktree).unwrap();
+    fs::write_text(&worktree.join(name), body).unwrap();
+}
+
+/// The promoted `api` feature worktree of the `checkout` hall.
+fn api_feature_worktree(root: &camino::Utf8Path) -> Utf8PathBuf {
+    Layout::at(root.to_path_buf()).repo_worktree(
+        &RepoName::new("api").unwrap(),
+        &BranchName::new("checkout").unwrap(),
+    )
+}
+
+#[test]
+fn the_root_file_lists_each_repo_instruction_file_after_the_canonical_content() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root.clone());
+    let hall = fs::read_text(&root.join("HALL.md")).unwrap().unwrap();
+    let feature = checkout_feature(&layout);
+    write_root_instructions(&api_feature_worktree(&root), "CLAUDE.md", "# api rules\n");
+
+    let view_dir = checkout_view(&root, Provider::ClaudeCode);
+
+    let bootstrap =
+        crate::harness::config::session::build_session_block(&feature.name, "../../plan.md");
+    assert_eq!(
+        fs::read_text(&view_dir.join("CLAUDE.md")).unwrap().unwrap(),
+        format!(
+            "{bootstrap}\n\n{}\n\n{POINTER_INTRO}- `api`: {view_dir}/api/CLAUDE.md\n",
+            hall.trim_end_matches('\n')
+        ),
+        "bootstrap, canonical content, then the pointer section with the absolute view path"
+    );
+    unguard_worktrees(&root);
+}
+
+#[test]
+fn the_pointer_falls_back_to_the_other_instruction_file_name() {
+    let (_guard, root) = hall_with_promoted_feature();
+    write_root_instructions(&api_feature_worktree(&root), "CLAUDE.md", "# api rules\n");
+
+    // omp's native name is AGENTS.md; the repo only has CLAUDE.md.
+    let view_dir = checkout_view(&root, Provider::Omp);
+    let agents = fs::read_text(&view_dir.join("AGENTS.md")).unwrap().unwrap();
+    assert!(
+        agents.ends_with(&format!("- `api`: {view_dir}/api/CLAUDE.md\n")),
+        "omp falls back to CLAUDE.md: {agents}"
+    );
+
+    // With both present, the provider-native name wins.
+    write_root_instructions(&api_feature_worktree(&root), "AGENTS.md", "# api agents\n");
+    let view_dir = checkout_view(&root, Provider::Omp);
+    let agents = fs::read_text(&view_dir.join("AGENTS.md")).unwrap().unwrap();
+    assert!(
+        agents.ends_with(&format!("- `api`: {view_dir}/api/AGENTS.md\n")),
+        "omp prefers AGENTS.md: {agents}"
+    );
+    let view_dir = checkout_view(&root, Provider::ClaudeCode);
+    let claude = fs::read_text(&view_dir.join("CLAUDE.md")).unwrap().unwrap();
+    assert!(
+        claude.ends_with(&format!("- `api`: {view_dir}/api/CLAUDE.md\n")),
+        "claude prefers CLAUDE.md: {claude}"
+    );
+    unguard_worktrees(&root);
+}
+
+#[test]
+fn no_pointer_section_when_no_linked_repo_has_an_instruction_file() {
+    let (_guard, root) = hall_with_promoted_feature();
+    for provider in Provider::ALL {
+        let view_dir = checkout_view(&root, provider);
+        let content = fs::read_text(&view_dir.join(provider.instruction_file()))
+            .unwrap()
+            .unwrap();
+        assert!(
+            !content.contains("## Repository instructions"),
+            "{provider}: no repo has an instruction file, so no section: {content}"
+        );
+    }
+    unguard_worktrees(&root);
+}
+
+#[test]
+fn pointers_follow_manifest_order_and_list_only_repos_with_a_file() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let ctx = Ctx::new(root.clone());
+    let layout = Layout::at(root.clone());
+    let api_origin = root.parent().unwrap().join("origins").join("api");
+    let web_origin = seeded_repo(&root.parent().unwrap().join("origins").join("web"), "main");
+    let docs_origin = seeded_repo(&root.parent().unwrap().join("origins").join("docs"), "main");
+    // Manifest order web, docs, api — deliberately not alphabetical.
+    let manifest = Manifest::new(
+        HallName::new("acme").unwrap(),
+        Providers::new(vec![Provider::ClaudeCode], Provider::ClaudeCode),
+        vec![
+            Repo::new(
+                RepoName::new("web").unwrap(),
+                web_origin.as_str(),
+                BranchName::new("main").unwrap(),
+            ),
+            Repo::new(
+                RepoName::new("docs").unwrap(),
+                docs_origin.as_str(),
+                BranchName::new("main").unwrap(),
+            ),
+            Repo::new(
+                RepoName::new("api").unwrap(),
+                api_origin.as_str(),
+                BranchName::new("main").unwrap(),
+            ),
+        ],
+        None,
+    )
+    .unwrap();
+    Manifest::write(&layout, &manifest).unwrap();
+    crate::action::sync::sync(&ctx, &Default::default()).unwrap();
+    let main = BranchName::new("main").unwrap();
+    write_root_instructions(
+        &layout.repo_worktree(&RepoName::new("web").unwrap(), &main),
+        "AGENTS.md",
+        "# web\n",
+    );
+    write_root_instructions(&api_feature_worktree(&root), "CLAUDE.md", "# api\n");
+    // `docs` has no instruction file and must not be listed.
+
+    let view_dir = checkout_view(&root, Provider::ClaudeCode);
+    let content = fs::read_text(&view_dir.join("CLAUDE.md")).unwrap().unwrap();
+    assert!(
+        content.ends_with(&format!(
+            "{POINTER_INTRO}- `web`: {view_dir}/web/AGENTS.md\n- `api`: {view_dir}/api/CLAUDE.md\n"
+        )),
+        "manifest order, fallback for web, docs omitted: {content}"
+    );
+    unguard_worktrees(&root);
+}
+
+#[test]
+fn the_pointer_section_is_idempotent_and_regenerated() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root.clone());
+    let manifest = manifest_of(&root);
+    let feature = checkout_feature(&layout);
+    write_root_instructions(&api_feature_worktree(&root), "CLAUDE.md", "# api rules\n");
+    let view_dir = layout.feature_session(
+        &feature.name,
+        &crate::domain::name::SessionId::new(uuid::Uuid::new_v4().to_string()).unwrap(),
+    );
+    let materialise = || {
+        crate::action::session::view::materialise(
+            &layout,
+            &manifest,
+            Some(&feature),
+            Provider::ClaudeCode,
+            &view_dir,
+        )
+        .unwrap();
+    };
+    let mtime = || {
+        std::fs::metadata(view_dir.join("CLAUDE.md").as_std_path())
+            .ok()
+            .and_then(|metadata| metadata.modified().ok())
+    };
+
+    materialise();
+    let before = fs::read_bytes(&view_dir.join("CLAUDE.md"))
+        .unwrap()
+        .unwrap();
+    let before_mtime = mtime();
+    materialise();
+    assert_eq!(
+        fs::read_bytes(&view_dir.join("CLAUDE.md"))
+            .unwrap()
+            .unwrap(),
+        before
+    );
+    assert_eq!(
+        mtime(),
+        before_mtime,
+        "an unchanged file with a section is not rewritten"
+    );
+
+    // The repo drops its file: the next materialisation drops the section.
+    fs::remove_file(&api_feature_worktree(&root).join("CLAUDE.md")).unwrap();
+    materialise();
+    let after = fs::read_text(&view_dir.join("CLAUDE.md")).unwrap().unwrap();
+    assert!(!after.contains("## Repository instructions"), "{after}");
+    unguard_worktrees(&root);
+}
+
+#[test]
+fn a_discovery_session_without_hall_md_still_gets_the_pointer_section() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root.clone());
+    fs::remove_file(&root.join("HALL.md")).unwrap();
+    let main_worktree = layout.repo_worktree(
+        &RepoName::new("api").unwrap(),
+        &BranchName::new("main").unwrap(),
+    );
+    write_root_instructions(&main_worktree, "CLAUDE.md", "# api main\n");
+    let view_dir = layout.discovery_session(
+        &crate::domain::name::SessionId::new(uuid::Uuid::new_v4().to_string()).unwrap(),
+    );
+
+    let report = crate::action::session::view::materialise(
+        &layout,
+        &manifest_of(&root),
+        None,
+        Provider::ClaudeCode,
+        &view_dir,
+    )
+    .unwrap();
+
+    assert_eq!(
+        report.warnings.first().unwrap().code,
+        "instructions.canonical_unavailable"
+    );
+    assert_eq!(
+        fs::read_text(&view_dir.join("CLAUDE.md")).unwrap().unwrap(),
+        format!("{POINTER_INTRO}- `api`: {view_dir}/api/CLAUDE.md\n"),
+        "the section alone, linking the default-branch worktree through the view"
+    );
+    unguard_worktrees(&root);
+}
+
 #[test]
 fn start_command_carries_the_session_environment() {
     let hall = Utf8PathBuf::from("/tmp/acme");
@@ -1765,4 +1997,124 @@ fn materialise_drops_a_repo_skill_removed_from_the_repo() {
         fs::read_symlink(&view_dir.join(".omp/skills/ivar-probe-gone")).unwrap(),
         fs::SymlinkTarget::Absent
     ));
+}
+
+/// Claude Code reads project settings only from `<cwd>/.claude/settings.json`,
+/// so the view links the hall's protected copy, which carries ivar's hooks.
+#[test]
+fn a_claude_view_links_the_hall_settings() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root.clone());
+    let manifest = Manifest::read(&layout).unwrap().unwrap();
+    let hall_settings = layout.root().join(Provider::CLAUDE_SETTINGS);
+    for provider in Provider::ALL {
+        let view_dir = layout.discovery_session(
+            &crate::domain::name::SessionId::new(uuid::Uuid::new_v4().to_string()).unwrap(),
+        );
+        let report = crate::action::session::view::materialise(
+            &layout, &manifest, None, provider, &view_dir,
+        )
+        .unwrap();
+        let settings = view_dir.join(".claude/settings.json");
+        if provider == Provider::ClaudeCode {
+            assert_eq!(
+                fs::read_symlink(&settings).unwrap(),
+                fs::SymlinkTarget::Target(hall_settings.clone()),
+                "the view's settings.json must link the hall file"
+            );
+            let doc: serde_json::Value =
+                serde_json::from_str(&fs::read_text(&settings).unwrap().unwrap()).unwrap();
+            let commands: Vec<&str> = doc["hooks"]["PreToolUse"][0]["hooks"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|hook| hook["command"].as_str().unwrap())
+                .collect();
+            assert!(
+                commands.contains(&"ivar guard --provider claude-code"),
+                "{doc}"
+            );
+            assert!(
+                report
+                    .warnings
+                    .iter()
+                    .all(|w| !w.code.starts_with("settings.")),
+                "{:?}",
+                report.warnings
+            );
+        } else {
+            assert_eq!(
+                fs::read_symlink(&settings).unwrap(),
+                fs::SymlinkTarget::Absent,
+                "{provider:?} views get no Claude settings"
+            );
+        }
+    }
+}
+
+#[test]
+fn rematerialising_a_claude_view_leaves_the_settings_link_unchanged() {
+    use std::os::unix::fs::MetadataExt as _;
+
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root.clone());
+    let manifest = Manifest::read(&layout).unwrap().unwrap();
+    let view_dir = layout.discovery_session(
+        &crate::domain::name::SessionId::new(uuid::Uuid::new_v4().to_string()).unwrap(),
+    );
+    crate::action::session::view::materialise(
+        &layout,
+        &manifest,
+        None,
+        Provider::ClaudeCode,
+        &view_dir,
+    )
+    .unwrap();
+    let settings = view_dir.join(".claude/settings.json");
+    let inode = std::fs::symlink_metadata(&settings).unwrap().ino();
+    crate::action::session::view::materialise(
+        &layout,
+        &manifest,
+        None,
+        Provider::ClaudeCode,
+        &view_dir,
+    )
+    .unwrap();
+    // An unchanged link is never renamed over (replace_symlink_if_changed).
+    assert_eq!(std::fs::symlink_metadata(&settings).unwrap().ino(), inode);
+    assert_eq!(
+        fs::read_symlink(&settings).unwrap(),
+        fs::SymlinkTarget::Target(layout.root().join(Provider::CLAUDE_SETTINGS))
+    );
+}
+
+#[test]
+fn a_missing_hall_settings_file_warns_and_links_nothing() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root.clone());
+    let manifest = Manifest::read(&layout).unwrap().unwrap();
+    fs::remove_file(&layout.root().join(Provider::CLAUDE_SETTINGS)).unwrap();
+    let view_dir = layout.discovery_session(
+        &crate::domain::name::SessionId::new(uuid::Uuid::new_v4().to_string()).unwrap(),
+    );
+    let report = crate::action::session::view::materialise(
+        &layout,
+        &manifest,
+        None,
+        Provider::ClaudeCode,
+        &view_dir,
+    )
+    .unwrap();
+    assert!(
+        report
+            .warnings
+            .iter()
+            .any(|w| w.code == "settings.hall_missing"),
+        "{:?}",
+        report.warnings
+    );
+    assert_eq!(
+        fs::read_symlink(&view_dir.join(".claude/settings.json")).unwrap(),
+        fs::SymlinkTarget::Absent
+    );
 }

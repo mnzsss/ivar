@@ -15,7 +15,10 @@ use crate::providers::ManagedArtifact;
 /// The decision itself stays in `ivar guard`, so all three providers share
 /// one policy: the hook shells out and translates a non-zero exit into the
 /// structured verdict. `guard` writes the denial reason to stdout and exits
-/// non-zero (`src/bin/ivar.rs`), which is what the `catch` reads.
+/// non-zero (`src/bin/ivar.rs`), which is what the `catch` reads. On allow
+/// its stdout is the repository instructions for the touched paths; the hook
+/// returns them as `{ additionalContext }`, which omp adds to the tool call.
+/// `agent` (`ctx.agent.id`) keys delivery per subagent.
 pub const OMP_HOOK: &str = r#"// ivar pre-tool guard hook for OMP
 // Materialised by `ivar sync`. Do not edit.
 
@@ -27,10 +30,12 @@ export default function ivarGuard(pi) {
       tool: event.toolName,
       args: event.input ?? {},
       cwd: ctx?.cwd ?? process.cwd(),
+      agent: ctx?.agent?.id ?? "main",
     });
 
+    let out;
     try {
-      execFileSync("ivar", ["guard", "--provider", "omp"], {
+      out = execFileSync("ivar", ["guard", "--provider", "omp"], {
         input: payload,
         encoding: "utf-8",
         stdio: ["pipe", "pipe", "pipe"],
@@ -40,6 +45,9 @@ export default function ivarGuard(pi) {
       const stderr = (err.stderr || "").toString().trim();
       const reason = stdout || stderr || "Write blocked by ivar guard policy";
       return { block: true, reason };
+    }
+    if (out && out.trim()) {
+      return { additionalContext: out };
     }
   });
 }

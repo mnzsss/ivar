@@ -95,7 +95,9 @@ other team's repo sits next to yours:
   docs -> ../../../../repos/docs/main           (read-only)
   (working documents live at ../../: requirements.md, analysis.md, plan.md, tasks/)
   CLAUDE.md / AGENTS.md                         (derived from HALL.md: canonical
-                                                instructions + session bootstrap)
+                                                instructions + session bootstrap
+                                                + pointers to each repo's own
+                                                CLAUDE.md / AGENTS.md)
 ```
 
 `cd api`, change the contract, `cd ../web`, regenerate the client. Same
@@ -114,11 +116,30 @@ receives its own provider-native instruction file derived from it. A feature
 session's file carries the canonical content plus a bootstrap block telling
 the agent to re-derive where the feature is with `ivar plan status
 ../../plan.md` and continue from the first gate that is `pending` or
-`needs-revision`; a discovery session's file is exactly the canonical content.
+`needs-revision`; a discovery session's file is the canonical content. Both
+end with a generated `## Repository instructions` section that lists, through
+the view dir, the absolute path of each linked repo's root instruction file.
 The provider root aliases (`CLAUDE.md` / `AGENTS.md` at the hall root) are
 relative symlinks to `HALL.md`, never sources. When `HALL.md` is missing, a
 session still opens, with a warning and no shared content. The bootstrap block
 is what lets a relay from one provider to another pick the work back up.
+
+Each linked repo's **own** instruction files — `CLAUDE.md` / `AGENTS.md` at its
+root and in nested directories — reach the agent as it works, and nothing is
+copied into the view dir or written inside a repo. `ivar guard` already runs
+before every tool call; when it allows a call that touches a path under
+`<view>/<repo>/` (a file the tool reads or edits, its working directory, a path
+in a shell command), it also returns every instruction file from that repo's
+root down to the touched directory that this agent has not received yet, whole
+and labelled with its absolute path. Each directory contributes the provider's
+own name (`CLAUDE.md` for Claude Code, `AGENTS.md` for OpenCode and OMP), else
+the other. A file is delivered once per agent — the main agent and each subagent
+separately — and again, marked `UPDATED`, when its content changes, including
+when `ivar feature promote` retargets the repo to the feature worktree in the
+middle of a session: the view symlink decides which branch is read, with no
+restart. A denied call carries nothing, and a failure while computing the
+instructions never changes the guard's decision. OpenCode receives the same text
+through the plugin `ivar` materialises, appended to the tool's output.
 
 A session is **live** while its view dir exists — liveness is not a process. Kill
 the agent, lose the conversation; the branch, the worktrees and the plan are on

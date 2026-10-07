@@ -78,6 +78,16 @@ fn opens_heredoc(after_operator: &str) -> bool {
 /// The first command of every pipeline in `command`, split on operators
 /// outside quotes. Stops at the end of a line that opens a heredoc.
 fn first_commands(command: &str) -> Vec<&str> {
+    segments(command, false)
+}
+
+/// Every command in `command`, including the ones after a `|`, split on
+/// operators outside quotes. Stops at the end of a line that opens a heredoc.
+pub(crate) fn command_segments(command: &str) -> Vec<&str> {
+    segments(command, true)
+}
+
+fn segments(command: &str, split_pipes: bool) -> Vec<&str> {
     let bytes = command.as_bytes();
     let (mut out, mut start, mut pipe_cut) = (Vec::new(), 0, None::<usize>);
     let (mut quote, mut escaped, mut heredoc) = (None::<u8>, false, false);
@@ -115,6 +125,10 @@ fn first_commands(command: &str) -> Vec<&str> {
                 i += 1;
                 start = i + 1;
                 pipe_cut = None;
+            }
+            (None, b'|') if split_pipes => {
+                out.push(&command[start..i]);
+                start = i + 1;
             }
             (None, b'|') => {
                 pipe_cut.get_or_insert(i);

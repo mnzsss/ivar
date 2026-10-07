@@ -18,7 +18,7 @@ use crate::domain::provider::Provider;
 use crate::store::layout::Layout;
 use crate::store::manifest::{Manifest, Providers, Repo};
 use crate::test_support::{hall_root, seed_protected_hall_paths, seeded_repo};
-use camino::Utf8PathBuf;
+use camino::{Utf8Path, Utf8PathBuf};
 
 fn hall_with_promoted_feature() -> (tempfile::TempDir, Utf8PathBuf) {
     let (guard, root) = hall_root();
@@ -532,21 +532,33 @@ fn discovery_guard_allows_a_hall_file_and_denies_ivar_state() {
         "args": { "filePath": layout.hall_skills().join("custom/SKILL.md") },
         "cwd": view_dir,
     });
-    assert!(guard(Provider::Omp, &allow.to_string()).unwrap().exit_zero);
+    assert!(
+        guard(Provider::Omp, &allow.to_string(), None)
+            .unwrap()
+            .exit_zero
+    );
 
     let docs = serde_json::json!({
         "tool": "write",
         "args": { "filePath": layout.root().join("docs/product/001-topic.md") },
         "cwd": view_dir,
     });
-    assert!(guard(Provider::Omp, &docs.to_string()).unwrap().exit_zero);
+    assert!(
+        guard(Provider::Omp, &docs.to_string(), None)
+            .unwrap()
+            .exit_zero
+    );
 
     let deny = serde_json::json!({
         "tool": "write",
         "args": { "filePath": layout.state() },
         "cwd": layout.discovery_session(&session_id),
     });
-    assert!(!guard(Provider::Omp, &deny.to_string()).unwrap().exit_zero);
+    assert!(
+        !guard(Provider::Omp, &deny.to_string(), None)
+            .unwrap()
+            .exit_zero
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -570,6 +582,9 @@ fn reads_are_never_denied() {
         targets: targets.clone(),
         writes: false,
         search_pattern: None,
+        input: serde_json::Value::Null,
+        agent: None,
+        call_id: None,
     };
     assert!(matches!(
         decide(
@@ -593,6 +608,9 @@ fn writes_outside_the_set_are_denied_with_a_reason_naming_the_set() {
         targets: targets.clone(),
         writes: true,
         search_pattern: None,
+        input: serde_json::Value::Null,
+        agent: None,
+        call_id: None,
     };
     match decide(&Resolution::Resolved(&set), &req, &targets) {
         GuardDecision::Deny { reason } => {
@@ -627,6 +645,9 @@ fn every_structured_write_tool_is_denied_outside_the_set() {
             targets: targets.clone(),
             writes: true,
             search_pattern: None,
+            input: serde_json::Value::Null,
+            agent: None,
+            call_id: None,
         };
         match decide(&Resolution::Resolved(&set), &req, &targets) {
             GuardDecision::Deny { reason } => assert!(
@@ -690,6 +711,9 @@ fn writes_inside_the_set_are_allowed_and_shell_is_never_classified() {
                 targets: vec![in_set.clone()],
                 writes: true,
                 search_pattern: None,
+                input: serde_json::Value::Null,
+                agent: None,
+                call_id: None,
             },
             &[in_set]
         ),
@@ -703,6 +727,9 @@ fn writes_inside_the_set_are_allowed_and_shell_is_never_classified() {
                 targets: Vec::new(),
                 writes: false,
                 search_pattern: None,
+                input: serde_json::Value::Null,
+                agent: None,
+                call_id: None,
             },
             &[]
         ),
@@ -738,7 +765,7 @@ fn claude_adapter_allow_and_deny_outputs_characterization() {
         "tool_input": { "file_path": "/etc/passwd" },
         "cwd": cwd,
     });
-    let deny_out = guard(Provider::ClaudeCode, &deny_payload.to_string()).unwrap();
+    let deny_out = guard(Provider::ClaudeCode, &deny_payload.to_string(), None).unwrap();
     assert!(deny_out.exit_zero);
     let deny_body: serde_json::Value = serde_json::from_str(&deny_out.body).unwrap();
     assert_eq!(
@@ -758,7 +785,7 @@ fn claude_adapter_allow_and_deny_outputs_characterization() {
         "tool_input": { "file_path": "/etc/passwd" },
         "cwd": cwd,
     });
-    let allow_out = guard(Provider::ClaudeCode, &allow_payload.to_string()).unwrap();
+    let allow_out = guard(Provider::ClaudeCode, &allow_payload.to_string(), None).unwrap();
     assert!(allow_out.exit_zero);
     let allow_body: serde_json::Value = serde_json::from_str(&allow_out.body).unwrap();
     assert_eq!(
@@ -795,7 +822,7 @@ fn opencode_adapter_allow_and_deny_outputs_characterization() {
         "args": { "filePath": "/etc/passwd" },
         "cwd": cwd,
     });
-    let deny_out = guard(Provider::OpenCode, &deny_payload.to_string()).unwrap();
+    let deny_out = guard(Provider::OpenCode, &deny_payload.to_string(), None).unwrap();
     assert!(!deny_out.exit_zero);
     assert!(deny_out.body.contains("writable set:"));
 
@@ -805,7 +832,7 @@ fn opencode_adapter_allow_and_deny_outputs_characterization() {
         "args": { "filePath": "/etc/passwd" },
         "cwd": cwd,
     });
-    let allow_out = guard(Provider::OpenCode, &allow_payload.to_string()).unwrap();
+    let allow_out = guard(Provider::OpenCode, &allow_payload.to_string(), None).unwrap();
     assert!(allow_out.exit_zero);
     assert_eq!(allow_out.body, "");
 }
@@ -832,7 +859,7 @@ fn omp_adapter_allows_read_and_non_write_tools() {
         "args": { "filePath": "/etc/passwd" },
         "cwd": cwd,
     });
-    let out = guard(Provider::Omp, &payload.to_string()).unwrap();
+    let out = guard(Provider::Omp, &payload.to_string(), None).unwrap();
     assert!(out.exit_zero);
     assert_eq!(out.body, "");
 }
@@ -857,7 +884,7 @@ fn omp_adapter_denies_unpromoted_write_by_exiting_non_zero() {
         "args": { "filePath": "/etc/passwd" },
         "cwd": view_dir,
     });
-    let out = guard(Provider::Omp, &payload.to_string()).unwrap();
+    let out = guard(Provider::Omp, &payload.to_string(), None).unwrap();
     // The embedded hook only enters its `catch` on a non-zero exit, and reads
     // the reason off stdout. Exit 0 with a JSON body would let the write run.
     assert!(!out.exit_zero);
@@ -893,7 +920,7 @@ fn omp_adapter_denies_write_when_cwd_is_unpromoted_repo_worktree() {
         "args": { "filePath": unpromoted_wt.join("src/index.js") },
         "cwd": unpromoted_wt,
     });
-    let out = guard(Provider::Omp, &payload.to_string()).unwrap();
+    let out = guard(Provider::Omp, &payload.to_string(), None).unwrap();
     assert!(!out.exit_zero);
     assert!(
         out.body.contains("writable set:")
@@ -924,7 +951,7 @@ fn hall_root_cwd_allows_write_into_the_target_feature_directory() {
         "cwd": root,
     });
 
-    let out = guard(Provider::Omp, &payload.to_string()).unwrap();
+    let out = guard(Provider::Omp, &payload.to_string(), None).unwrap();
     assert!(out.exit_zero);
     assert_eq!(out.body, "");
 }
@@ -951,7 +978,7 @@ fn hall_root_cwd_allows_write_into_a_promoted_worktree() {
         "cwd": root,
     });
 
-    let out = guard(Provider::Omp, &payload.to_string()).unwrap();
+    let out = guard(Provider::Omp, &payload.to_string(), None).unwrap();
     assert!(out.exit_zero);
     assert_eq!(out.body, "");
 }
@@ -977,7 +1004,7 @@ fn hall_root_cwd_allows_a_new_nested_file_inside_the_writable_set() {
         "cwd": root,
     });
 
-    let out = guard(Provider::Omp, &payload.to_string()).unwrap();
+    let out = guard(Provider::Omp, &payload.to_string(), None).unwrap();
     assert!(out.exit_zero);
     assert_eq!(out.body, "");
 }
@@ -1003,7 +1030,7 @@ fn hall_root_cwd_denies_a_target_outside_every_session() {
         "cwd": root,
     });
 
-    let out = guard(Provider::Omp, &payload.to_string()).unwrap();
+    let out = guard(Provider::Omp, &payload.to_string(), None).unwrap();
     assert!(!out.exit_zero);
     assert!(
         out.body
@@ -1038,7 +1065,7 @@ fn hall_root_cwd_denies_an_unpromoted_worktree_target() {
         "cwd": root,
     });
 
-    let out = guard(Provider::Omp, &payload.to_string()).unwrap();
+    let out = guard(Provider::Omp, &payload.to_string(), None).unwrap();
     assert!(!out.exit_zero);
     assert!(
         out.body
@@ -1068,7 +1095,7 @@ fn hall_root_cwd_denies_a_relative_target() {
         "cwd": root,
     });
 
-    let out = guard(Provider::Omp, &payload.to_string()).unwrap();
+    let out = guard(Provider::Omp, &payload.to_string(), None).unwrap();
     assert!(!out.exit_zero);
     assert!(out.body.contains("relative path") && out.body.contains("belongs to no ivar session"));
 }
@@ -1089,7 +1116,7 @@ fn relative_write_in_session_uses_payload_cwd() {
     let payload =
         serde_json::json!({"tool":"write","args":{"filePath":"notes/deep/new.md"},"cwd":view});
     assert!(
-        guard(Provider::Omp, &payload.to_string())
+        guard(Provider::Omp, &payload.to_string(), None)
             .unwrap()
             .exit_zero
     );
@@ -1106,7 +1133,7 @@ fn relative_hall_target_does_not_choose_the_latest_discovery() {
         .write(&view)
         .unwrap();
     let payload = serde_json::json!({"tool":"write","args":{"filePath":"apps/new.rs"},"cwd":root});
-    let out = guard(Provider::Omp, &payload.to_string()).unwrap();
+    let out = guard(Provider::Omp, &payload.to_string(), None).unwrap();
     assert!(!out.exit_zero);
     assert!(out.body.contains("absolute"));
     assert!(!out.body.contains(view.as_str()));
@@ -1148,7 +1175,7 @@ fn cwd_session_stays_authoritative_for_a_foreign_target() {
         "cwd": view_dir1,
     });
 
-    let out = guard(Provider::Omp, &payload.to_string()).unwrap();
+    let out = guard(Provider::Omp, &payload.to_string(), None).unwrap();
     assert!(!out.exit_zero);
     assert!(out.body.contains("writable set:"));
 }
@@ -1173,7 +1200,7 @@ fn discovery_cwd_denies_a_feature_document_target() {
         "cwd": discovery_view_dir,
     });
 
-    let out = guard(Provider::Omp, &payload.to_string()).unwrap();
+    let out = guard(Provider::Omp, &payload.to_string(), None).unwrap();
     assert!(!out.exit_zero);
     assert!(out.body.contains("writable set:"));
 }
@@ -1208,7 +1235,7 @@ fn hall_root_cwd_selects_the_most_recent_session_of_the_feature() {
         "args": { "filePath": view_new.join("notes.txt") },
         "cwd": root,
     });
-    let out_new = guard(Provider::Omp, &payload_new.to_string()).unwrap();
+    let out_new = guard(Provider::Omp, &payload_new.to_string(), None).unwrap();
     assert!(out_new.exit_zero);
     assert_eq!(out_new.body, "");
 
@@ -1218,7 +1245,7 @@ fn hall_root_cwd_selects_the_most_recent_session_of_the_feature() {
         "args": { "filePath": view_old.join("notes.txt") },
         "cwd": root,
     });
-    let out_old = guard(Provider::Omp, &payload_old.to_string()).unwrap();
+    let out_old = guard(Provider::Omp, &payload_old.to_string(), None).unwrap();
     assert!(out_old.exit_zero);
 }
 
@@ -1246,7 +1273,7 @@ fn claude_and_opencode_agree_with_omp_on_a_feature_document_target() {
         "tool_input": { "file_path": target },
         "cwd": root,
     });
-    let claude_out = guard(Provider::ClaudeCode, &claude_payload.to_string()).unwrap();
+    let claude_out = guard(Provider::ClaudeCode, &claude_payload.to_string(), None).unwrap();
     let claude_val: serde_json::Value = serde_json::from_str(&claude_out.body).unwrap();
     assert_eq!(
         claude_val["hookSpecificOutput"]["permissionDecision"],
@@ -1259,7 +1286,7 @@ fn claude_and_opencode_agree_with_omp_on_a_feature_document_target() {
         "args": { "filePath": target },
         "cwd": root,
     });
-    let opencode_out = guard(Provider::OpenCode, &opencode_payload.to_string()).unwrap();
+    let opencode_out = guard(Provider::OpenCode, &opencode_payload.to_string(), None).unwrap();
     assert!(opencode_out.exit_zero);
     assert_eq!(opencode_out.body, "");
 }
@@ -1274,7 +1301,7 @@ fn hall_root_cwd_allows_a_read_outside_every_session() {
         "cwd": root,
     });
 
-    let out = guard(Provider::Omp, &payload.to_string()).unwrap();
+    let out = guard(Provider::Omp, &payload.to_string(), None).unwrap();
     assert!(out.exit_zero);
     assert_eq!(out.body, "");
 }
@@ -1298,7 +1325,7 @@ fn scheme_prefixed_targets_are_allowed() {
             "cwd": root,
         });
 
-        let out = guard(Provider::Omp, &payload.to_string()).unwrap();
+        let out = guard(Provider::Omp, &payload.to_string(), None).unwrap();
         assert!(
             out.exit_zero,
             "scheme URI `{uri}` must be allowed by guard, got exit_zero=false with body: {}",
@@ -1313,7 +1340,7 @@ fn scheme_prefixed_targets_are_allowed() {
         "args": { "path": "xd://ast_edit" },
         "cwd": root,
     });
-    let out_ast = guard(Provider::Omp, &payload_ast.to_string()).unwrap();
+    let out_ast = guard(Provider::Omp, &payload_ast.to_string(), None).unwrap();
     assert!(
         !out_ast.exit_zero,
         "xd://ast_edit without parseable content must be denied"
@@ -1338,7 +1365,7 @@ fn windows_path_or_colon_in_filename_is_not_mistaken_for_uri_scheme() {
             "cwd": root,
         });
 
-        let out = guard(Provider::Omp, &payload.to_string()).unwrap();
+        let out = guard(Provider::Omp, &payload.to_string(), None).unwrap();
         assert!(
             !out.exit_zero,
             "non-scheme path `{path}` must be denied by guard when outside session"
@@ -1367,7 +1394,7 @@ fn a_write_inside_the_scratch_dir_is_allowed() {
         "cwd": root,
     });
 
-    let out = guard(Provider::Omp, &payload.to_string()).unwrap();
+    let out = guard(Provider::Omp, &payload.to_string(), None).unwrap();
     assert!(out.exit_zero);
     assert_eq!(out.body, "");
 }
@@ -1397,7 +1424,7 @@ fn a_resolved_denial_names_the_scratch_dir_and_keeps_the_writable_set() {
         "cwd": view_dir,
     });
 
-    let out = guard(Provider::Omp, &payload.to_string()).unwrap();
+    let out = guard(Provider::Omp, &payload.to_string(), None).unwrap();
     assert!(!out.exit_zero);
     assert!(
         out.body.contains("writable set:"),
@@ -1452,7 +1479,7 @@ fn a_hall_root_write_from_no_session_cwd_resolves_to_a_live_session() {
     });
 
     assert!(
-        guard(Provider::Omp, &payload.to_string())
+        guard(Provider::Omp, &payload.to_string(), None)
             .unwrap()
             .exit_zero
     );
@@ -1491,6 +1518,9 @@ fn unresolved_denial_when_target_in_feature_with_live_session_lists_only_that_fe
         targets: vec![target.clone()],
         writes: true,
         search_pattern: None,
+        input: serde_json::Value::Null,
+        agent: None,
+        call_id: None,
     };
 
     let decision = decide(
@@ -1571,7 +1601,7 @@ fn an_unresolved_denial_names_the_only_live_sessions_scratch_dir() {
         "cwd": root,
     });
 
-    let out = guard(Provider::Omp, &payload.to_string()).unwrap();
+    let out = guard(Provider::Omp, &payload.to_string(), None).unwrap();
     assert!(!out.exit_zero);
     assert!(
         out.body
@@ -1616,7 +1646,7 @@ fn an_unresolved_denial_lists_every_live_sessions_scratch_dir() {
         "cwd": root,
     });
 
-    let out = guard(Provider::Omp, &payload.to_string()).unwrap();
+    let out = guard(Provider::Omp, &payload.to_string(), None).unwrap();
     assert!(!out.exit_zero);
     assert!(
         out.body
@@ -1640,7 +1670,7 @@ fn an_unresolved_denial_with_no_live_session_names_no_path() {
         "cwd": root,
     });
 
-    let out = guard(Provider::Omp, &payload.to_string()).unwrap();
+    let out = guard(Provider::Omp, &payload.to_string(), None).unwrap();
     assert!(!out.exit_zero);
     assert!(
         out.body.contains("no ivar session resolves from the cwd or the target path; this hall has no live session"),
@@ -1809,6 +1839,9 @@ fn guard_decision_is_unchanged_when_recording_fails() {
         targets: Vec::new(),
         writes: false,
         search_pattern: Some("fn record_miss".into()),
+        input: serde_json::Value::Null,
+        agent: None,
+        call_id: None,
     };
     let set = resolve_writable_set(&env).unwrap();
     assert!(matches!(
@@ -1944,7 +1977,7 @@ fn assert_hook_payload_records_graph_call(provider: Provider) {
         "cwd": env.view_dir,
     });
 
-    let out = guard(provider, &payload.to_string()).unwrap();
+    let out = guard(provider, &payload.to_string(), None).unwrap();
 
     assert!(out.exit_zero);
     assert_eq!(
@@ -1978,7 +2011,7 @@ fn claude_scratchpad_denial_directs_to_session_tmp() {
         "tool_input":{"file_path":"/tmp/claude-1000/-home-user-hall/123/scratchpad/draft.md"},
         "cwd":view
     });
-    let out = guard(Provider::ClaudeCode, &payload.to_string()).unwrap();
+    let out = guard(Provider::ClaudeCode, &payload.to_string(), None).unwrap();
     assert!(!out.body.is_empty());
     assert!(out.body.contains("scratchpad"));
     assert!(out.body.contains(Layout::session_scratch(&view).as_str()));
@@ -1999,7 +2032,7 @@ fn claude_auto_memory_denial_directs_outside_hall() {
         "tool_input":{"file_path":"/home/user/.claude/projects/-home-user-hall/memory/notes.md"},
         "cwd":view
     });
-    let out = guard(Provider::ClaudeCode, &payload.to_string()).unwrap();
+    let out = guard(Provider::ClaudeCode, &payload.to_string(), None).unwrap();
     assert!(out.body.contains("deny"));
     assert!(
         out.body
@@ -2034,7 +2067,7 @@ fn unpromoted_repo_denial_suggests_feature_promote() {
         "args":{"filePath":unpromoted_wt.join("src/main.rs")},
         "cwd":view
     });
-    let out = guard(Provider::Omp, &payload.to_string()).unwrap();
+    let out = guard(Provider::Omp, &payload.to_string(), None).unwrap();
     assert!(!out.exit_zero);
     assert!(out.body.contains("ivar feature promote api"));
 }
@@ -2055,7 +2088,7 @@ fn protected_hook_config_denial_suggests_owning_ivar_command() {
         "args":{"filePath":root.join(".git/hooks/pre-commit")},
         "cwd":view
     });
-    let out = guard(Provider::Omp, &payload.to_string()).unwrap();
+    let out = guard(Provider::Omp, &payload.to_string(), None).unwrap();
     assert!(!out.exit_zero);
     assert!(out.body.contains("protected"));
     assert!(out.body.contains("owning `ivar` command"));
@@ -2084,7 +2117,7 @@ fn foreign_session_view_denial_directs_to_own_view() {
         "args":{"filePath":view2.join("scratch.md")},
         "cwd":view1
     });
-    let out = guard(Provider::Omp, &payload.to_string()).unwrap();
+    let out = guard(Provider::Omp, &payload.to_string(), None).unwrap();
     assert!(!out.exit_zero);
     assert!(
         out.body
@@ -2120,7 +2153,7 @@ fn symlinked_claude_skills_remain_writable() {
         "tool_input":{"file_path":claude_skills.join("my-skill/SKILL.md")},
         "cwd":view
     });
-    let out = guard(Provider::ClaudeCode, &payload.to_string()).unwrap();
+    let out = guard(Provider::ClaudeCode, &payload.to_string(), None).unwrap();
     assert!(out.exit_zero);
 }
 
@@ -2185,6 +2218,9 @@ fn ambiguous_target_matching_multiple_features_denies_and_names_all_conflicting_
         targets: targets.clone(),
         writes: true,
         search_pattern: None,
+        input: serde_json::Value::Null,
+        agent: None,
+        call_id: None,
     };
     let decision = decide(
         &Resolution::Ambiguous {
@@ -2466,7 +2502,7 @@ fn guard_tool_request_from_parent_session_allows_child_worktree_and_denies_sibli
         "tool_input": { "file_path": child_worktree.join("src/lib.rs") },
         "cwd": parent_view
     });
-    let child_res = guard(Provider::ClaudeCode, &child_payload.to_string()).unwrap();
+    let child_res = guard(Provider::ClaudeCode, &child_payload.to_string(), None).unwrap();
     let child_body: serde_json::Value = serde_json::from_str(&child_res.body).unwrap();
     assert_eq!(
         child_body["hookSpecificOutput"]["permissionDecision"],
@@ -2479,7 +2515,7 @@ fn guard_tool_request_from_parent_session_allows_child_worktree_and_denies_sibli
         "tool_input": { "file_path": sibling_worktree.join("src/lib.rs") },
         "cwd": parent_view
     });
-    let sibling_res = guard(Provider::ClaudeCode, &sibling_payload.to_string()).unwrap();
+    let sibling_res = guard(Provider::ClaudeCode, &sibling_payload.to_string(), None).unwrap();
     let sibling_body: serde_json::Value = serde_json::from_str(&sibling_res.body).unwrap();
     assert_eq!(
         sibling_body["hookSpecificOutput"]["permissionDecision"],
@@ -2499,6 +2535,9 @@ fn decide_multi_target_allows_only_if_all_targets_allowed_and_denies_naming_firs
         targets: targets.clone(),
         writes: true,
         search_pattern: None,
+        input: serde_json::Value::Null,
+        agent: None,
+        call_id: None,
     };
 
     let decision = decide(&Resolution::Resolved(&set), &req, &targets);
@@ -2526,6 +2565,9 @@ fn decide_all_uri_targets_are_allowed_but_empty_targets_on_write_is_denied() {
         targets: uri_targets.clone(),
         writes: true,
         search_pattern: None,
+        input: serde_json::Value::Null,
+        agent: None,
+        call_id: None,
     };
     assert!(matches!(
         decide(&Resolution::Resolved(&set), &req_uri, &uri_targets),
@@ -2538,9 +2580,287 @@ fn decide_all_uri_targets_are_allowed_but_empty_targets_on_write_is_denied() {
         targets: empty_targets.clone(),
         writes: true,
         search_pattern: None,
+        input: serde_json::Value::Null,
+        agent: None,
+        call_id: None,
     };
     assert!(matches!(
         decide(&Resolution::Resolved(&set), &req_empty, &empty_targets),
         GuardDecision::Deny { .. }
     ));
+}
+
+// ---------------------------------------------------------------------------
+// Repository instructions on allow
+// ---------------------------------------------------------------------------
+
+/// A Claude feature session whose view links `api` to a directory holding
+/// `CLAUDE.md`. The directory lies outside every writable root, so a write
+/// through the link is denied while a read is allowed.
+fn session_with_instructions() -> (tempfile::TempDir, Utf8PathBuf) {
+    let (guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root.clone());
+    let feature = FeatureName::new("checkout").unwrap();
+    let session_id = SessionId::new("6f0c9d5f-0000-4000-8000-0000000001c1").unwrap();
+    let view_dir = layout.feature_session(&feature, &session_id);
+    crate::infra::fs::ensure_dir(&view_dir).unwrap();
+    let mut state =
+        crate::domain::session::SessionState::new(Provider::ClaudeCode, "2026-10-06T00:00:00Z");
+    state.bind(feature, "2026-10-06T00:00:00Z");
+    state.write(&view_dir).unwrap();
+
+    let outside = root.parent().unwrap().join("outside-api");
+    crate::infra::fs::ensure_dir(&outside.join("src")).unwrap();
+    crate::infra::fs::write_text(
+        &outside.join("CLAUDE.md"),
+        "Run cargo xtask before commit.\n",
+    )
+    .unwrap();
+    crate::infra::fs::create_symlink(&outside, &view_dir.join("api")).unwrap();
+    (guard, view_dir)
+}
+
+fn claude_call(view_dir: &Utf8Path, tool: &str, file: &str, call: &str) -> String {
+    serde_json::json!({
+        "session_id": "sess-main",
+        "tool_use_id": call,
+        "tool_name": tool,
+        "tool_input": { "file_path": view_dir.join(file), "content": "x" },
+        "cwd": view_dir,
+    })
+    .to_string()
+}
+
+fn hook_output(out: &GuardOutcome) -> serde_json::Value {
+    serde_json::from_str::<serde_json::Value>(&out.body).unwrap()["hookSpecificOutput"].clone()
+}
+
+#[test]
+fn an_allowed_claude_call_carries_each_instruction_file_once_per_agent() {
+    let (_guard, view_dir) = session_with_instructions();
+
+    let out = guard(
+        Provider::ClaudeCode,
+        &claude_call(&view_dir, "Read", "api/src/lib.rs", "toolu_1"),
+        None,
+    )
+    .unwrap();
+    assert!(out.exit_zero);
+    let output = hook_output(&out);
+    assert_eq!(output["permissionDecision"], "allow");
+    let context = output["additionalContext"].as_str().unwrap();
+    assert!(
+        context.starts_with(&format!(
+            "Repository instructions from {view_dir}/api/CLAUDE.md (they apply to work under {view_dir}/api):\n"
+        )),
+        "{context}"
+    );
+    assert!(
+        context.contains("Run cargo xtask before commit."),
+        "{context}"
+    );
+
+    // Already delivered to this agent: the next call adds nothing.
+    let again = guard(
+        Provider::ClaudeCode,
+        &claude_call(&view_dir, "Read", "api/src/main.rs", "toolu_2"),
+        None,
+    )
+    .unwrap();
+    let output = hook_output(&again);
+    assert_eq!(output["permissionDecision"], "allow");
+    assert!(output.get("additionalContext").is_none(), "{output}");
+
+    // A subagent keeps its own state (R-SUBAGENTS).
+    let mut sub: serde_json::Value =
+        serde_json::from_str(&claude_call(&view_dir, "Read", "api/src/lib.rs", "toolu_3")).unwrap();
+    sub["agent_id"] = serde_json::json!("agent-7");
+    let sub_out = guard(Provider::ClaudeCode, &sub.to_string(), None).unwrap();
+    assert!(
+        hook_output(&sub_out)["additionalContext"]
+            .as_str()
+            .unwrap()
+            .contains("Run cargo xtask before commit."),
+        "{}",
+        sub_out.body
+    );
+}
+
+#[test]
+fn a_denied_call_carries_no_instructions_and_does_not_mark_them_delivered() {
+    let (_guard, view_dir) = session_with_instructions();
+    let write = claude_call(&view_dir, "Write", "api/src/new.rs", "toolu_w");
+
+    let out = guard(Provider::ClaudeCode, &write, None).unwrap();
+    let output = hook_output(&out);
+    assert_eq!(output["permissionDecision"], "deny");
+    assert!(output.get("additionalContext").is_none(), "{output}");
+
+    // The slice entries of the denied call run the same decision, emit no
+    // permissionDecision and no context, and never reach deliver_slice.
+    let slice = guard(Provider::ClaudeCode, &write, Some(1)).unwrap();
+    assert!(slice.exit_zero);
+    assert_eq!(slice.body, "{}");
+    let parsed: serde_json::Value = serde_json::from_str(&slice.body).unwrap();
+    assert!(
+        parsed
+            .pointer("/hookSpecificOutput/additionalContext")
+            .is_none()
+    );
+    assert!(
+        parsed
+            .pointer("/hookSpecificOutput/permissionDecision")
+            .is_none()
+    );
+    let state = crate::action::session::instructions::state_dir(&view_dir, Provider::ClaudeCode);
+    assert!(
+        !state.join("toolu_w.ctx").exists(),
+        "a denied call must cache nothing"
+    );
+    assert!(
+        !state.join("toolu_w.ctx.lock").exists(),
+        "a denied call must lock nothing"
+    );
+
+    // Nothing was recorded: the next allowed call still receives the file.
+    let read = guard(
+        Provider::ClaudeCode,
+        &claude_call(&view_dir, "Read", "api/src/lib.rs", "toolu_r"),
+        None,
+    )
+    .unwrap();
+    assert!(
+        hook_output(&read)["additionalContext"].is_string(),
+        "{}",
+        read.body
+    );
+}
+
+#[test]
+fn omp_and_opencode_allows_carry_the_instructions_as_the_body() {
+    for provider in [Provider::Omp, Provider::OpenCode] {
+        let (_guard, view_dir) = session_with_instructions();
+        let target = view_dir.join("api/src/lib.rs");
+        let read = serde_json::json!({
+            "tool": "read",
+            "args": { "path": target, "filePath": target },
+            "cwd": view_dir,
+            "agent": "main",
+        });
+        let out = guard(provider, &read.to_string(), None).unwrap();
+        assert!(out.exit_zero, "{provider:?}");
+        assert!(
+            out.body.starts_with(&format!(
+                "Repository instructions from {view_dir}/api/CLAUDE.md"
+            )),
+            "{provider:?}: {}",
+            out.body
+        );
+
+        let new_file = view_dir.join("api/src/new.rs");
+        let write = serde_json::json!({
+            "tool": "write",
+            "args": { "path": new_file, "filePath": new_file, "content": "x" },
+            "cwd": view_dir,
+            "agent": "fresh-agent",
+        });
+        let denied = guard(provider, &write.to_string(), None).unwrap();
+        assert!(!denied.exit_zero, "{provider:?}");
+        assert!(
+            !denied.body.contains("Repository instructions"),
+            "{provider:?}: {}",
+            denied.body
+        );
+    }
+}
+
+#[test]
+fn a_slice_entry_returns_its_part_and_never_decides() {
+    let (_guard, view_dir) = session_with_instructions();
+    let slice_chars = crate::action::session::instructions::CLAUDE_SLICE_CHARS;
+    let big = "x".repeat(slice_chars + 100);
+    crate::infra::fs::write_text(&view_dir.join("api/CLAUDE.md"), &big).unwrap();
+    let call = claude_call(&view_dir, "Read", "api/src/lib.rs", "toolu_big");
+
+    let entry = guard(Provider::ClaudeCode, &call, None).unwrap();
+    let first = hook_output(&entry)["additionalContext"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert_eq!(first.chars().count(), slice_chars);
+
+    let slice = guard(Provider::ClaudeCode, &call, Some(1)).unwrap();
+    assert!(slice.exit_zero);
+    let output = hook_output(&slice);
+    assert!(output.get("permissionDecision").is_none(), "{output}");
+    assert_eq!(output["hookEventName"], "PreToolUse");
+    let second = output["additionalContext"].as_str().unwrap();
+    assert!(format!("{first}{second}").contains(&big));
+
+    let past_the_end = guard(Provider::ClaudeCode, &call, Some(2)).unwrap();
+    assert!(past_the_end.exit_zero);
+    assert_eq!(past_the_end.body, "{}");
+}
+
+#[test]
+fn a_slice_entry_exits_zero_on_unparseable_input() {
+    let out = guard(Provider::ClaudeCode, "not json", Some(1)).unwrap();
+    assert!(out.exit_zero);
+    assert_eq!(out.body, "{}");
+}
+
+#[test]
+fn an_instruction_failure_never_changes_the_decision() {
+    // Unreadable instruction file (not UTF-8).
+    let (_guard, view_dir) = session_with_instructions();
+    crate::infra::fs::write_bytes(&view_dir.join("api/CLAUDE.md"), &[0xff, 0xfe, 0xfd]).unwrap();
+    let out = guard(
+        Provider::ClaudeCode,
+        &claude_call(&view_dir, "Read", "api/src/lib.rs", "toolu_u"),
+        None,
+    )
+    .unwrap();
+    assert!(out.exit_zero);
+    assert_eq!(hook_output(&out)["permissionDecision"], "allow");
+
+    // State directory blocked by a plain file: delivery cannot record anything.
+    let (_guard2, view_dir) = session_with_instructions();
+    let state = crate::action::session::instructions::state_dir(&view_dir, Provider::ClaudeCode);
+    crate::infra::fs::ensure_dir(state.parent().unwrap()).unwrap();
+    crate::infra::fs::write_text(&state, "not a directory").unwrap();
+    let out = guard(
+        Provider::ClaudeCode,
+        &claude_call(&view_dir, "Read", "api/src/lib.rs", "toolu_b"),
+        None,
+    )
+    .unwrap();
+    assert!(out.exit_zero);
+    let output = hook_output(&out);
+    assert_eq!(output["permissionDecision"], "allow");
+    assert!(output.get("additionalContext").is_none(), "{output}");
+
+    // omp keeps its state under its own config dir: block that one too.
+    let omp_state = crate::action::session::instructions::state_dir(&view_dir, Provider::Omp);
+    crate::infra::fs::ensure_dir(omp_state.parent().unwrap()).unwrap();
+    crate::infra::fs::write_text(&omp_state, "not a directory").unwrap();
+    let omp = serde_json::json!({
+        "tool": "read",
+        "args": { "path": view_dir.join("api/src/lib.rs") },
+        "cwd": view_dir,
+    });
+    let out = guard(Provider::Omp, &omp.to_string(), None).unwrap();
+    assert!(out.exit_zero);
+    assert_eq!(out.body, "");
+}
+
+#[test]
+fn a_call_outside_any_session_carries_no_instructions() {
+    let (_guard, view_dir) = session_with_instructions();
+    let mut call: serde_json::Value =
+        serde_json::from_str(&claude_call(&view_dir, "Read", "api/src/lib.rs", "toolu_n")).unwrap();
+    call["cwd"] = serde_json::json!("/");
+    let out = guard(Provider::ClaudeCode, &call.to_string(), None).unwrap();
+    let output = hook_output(&out);
+    assert_eq!(output["permissionDecision"], "allow");
+    assert!(output.get("additionalContext").is_none(), "{output}");
 }

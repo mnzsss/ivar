@@ -4,12 +4,14 @@ use serde::Deserialize;
 use crate::domain::guard::{GuardDecision, GuardOutcome, ToolRequest};
 use crate::error::Failure;
 
-/// OpenCode hook input: `tool`, `args.filePath`, `cwd`.
+/// OpenCode hook input: tool, args, cwd, agent (the opencode sessionID).
 #[derive(Debug, Deserialize)]
 struct OpenCodeHookInput {
     tool: String,
     args: serde_json::Value,
     cwd: Option<Utf8PathBuf>,
+    #[serde(default)]
+    agent: Option<String>,
 }
 
 pub(crate) fn parse_tool_request(
@@ -27,14 +29,17 @@ pub(crate) fn parse_tool_request(
         tool: input.tool,
         targets,
         writes,
+        input: input.args,
+        agent: input.agent,
+        call_id: None,
     };
     Ok((req, input.cwd))
 }
 
-pub(crate) fn render_decision(decision: &GuardDecision) -> GuardOutcome {
+pub(crate) fn render_decision(decision: &GuardDecision, context: Option<&str>) -> GuardOutcome {
     match decision {
         GuardDecision::Allow => GuardOutcome {
-            body: String::new(),
+            body: context.unwrap_or_default().to_owned(),
             exit_zero: true,
         },
         GuardDecision::Deny { reason } => GuardOutcome {

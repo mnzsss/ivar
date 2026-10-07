@@ -3,7 +3,7 @@
 pub mod claude_code;
 pub mod omp;
 pub mod opencode;
-mod search;
+pub(crate) mod search;
 
 use crate::domain::guard::{GuardDecision, GuardOutcome, ToolRequest};
 use crate::domain::mcp::{CredentialState, McpServerDef, McpTransport};
@@ -198,13 +198,31 @@ pub fn parse_tool_request(
     }
 }
 
-/// Renders a `GuardDecision` into the provider-specific outcome shape and exit code.
+/// Renders a `GuardDecision` into the provider-specific outcome shape and
+/// exit code. `context` (repository instructions) rides only on an allow.
 #[must_use]
-pub fn render_decision(provider: Provider, decision: &GuardDecision) -> GuardOutcome {
+pub fn render_decision(
+    provider: Provider,
+    decision: &GuardDecision,
+    context: Option<&str>,
+) -> GuardOutcome {
     match provider {
-        Provider::ClaudeCode => claude_code::guard::render_decision(decision),
-        Provider::OpenCode => opencode::guard::render_decision(decision),
-        Provider::Omp => omp::guard::render_decision(decision),
+        Provider::ClaudeCode => claude_code::guard::render_decision(decision, context),
+        Provider::OpenCode => opencode::guard::render_decision(decision, context),
+        Provider::Omp => omp::guard::render_decision(decision, context),
+    }
+}
+
+/// Renders context with no decision, for Claude Code's extra slice hook
+/// entries. Always exits 0.
+#[must_use]
+pub fn render_context(provider: Provider, context: Option<&str>) -> GuardOutcome {
+    match provider {
+        Provider::ClaudeCode => claude_code::guard::render_context(context),
+        Provider::OpenCode | Provider::Omp => GuardOutcome {
+            body: context.unwrap_or_default().to_owned(),
+            exit_zero: true,
+        },
     }
 }
 

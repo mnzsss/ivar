@@ -23,6 +23,12 @@
 //! not a hardcoded path, so the mapping from provider to dotdir stays in one
 //! place — so the hall's shipped commands still reach the agent.
 //!
+//! For claude-code, `settings.json` inside the real config dir is a symlink to
+//! the hall's own `.claude/settings.json` (the file only). Claude Code reads
+//! project settings only from the session's cwd, so without it the hall's
+//! hooks never reach a view. A link rather than a copy keeps the file under the
+//! hall's write protection, so an agent cannot remove its own guard hook.
+//!
 //! The config dir follows the **session's own provider**, never the hall's
 //! default: a relay from Claude Code to OpenCode materialises `.opencode/`
 //! and OpenCode's commands, not the default provider's. That is what a relay
@@ -35,9 +41,13 @@
 //! canonical `HALL.md` — never from the root alias, whose bytes and target
 //! are irrelevant here:
 //!
-//! - a discovery session's file is exactly the `HALL.md` content;
+//! - a discovery session's file is the `HALL.md` content;
 //! - a feature session's file is the session bootstrap block, two newlines,
-//!   then the `HALL.md` content.
+//!   then the `HALL.md` content;
+//! - either is followed by a generated `## Repository instructions` section
+//!   listing `<view>/<repo>/<file>` for each linked repo whose root has an
+//!   instruction file (provider-native name, else the other), in manifest
+//!   order — omitted when none has one.
 //!
 //! The file is ephemeral — it dies with the View Dir — and regenerated on
 //! every materialisation, so `session connect` repairs it. The hall's own
@@ -57,7 +67,7 @@
 
 use camino::Utf8Path;
 
-use crate::action::session::repo_skills;
+use crate::action::session::{instructions, repo_skills};
 use crate::domain::feature::Feature;
 use crate::domain::provider::Provider;
 use crate::error::{Failure, Warning};
@@ -157,10 +167,52 @@ pub(crate) fn materialise(
     }
 
     let mut report = MaterialiseReport::default();
+    materialise_session_settings(layout, provider, view_dir, &mut report);
     materialise_repo_skills(layout, manifest, provider, view_dir, &mut report);
-    materialise_session_instructions(layout, provider, feature, view_dir, &mut report)?;
+    materialise_session_instructions(layout, manifest, provider, feature, view_dir, &mut report)?;
 
     Ok(report)
+}
+
+/// Link the view's `.claude/settings.json` (the file only) to the hall's.
+/// Claude Code reads project settings only from `<cwd>/.claude/settings.json`,
+/// so without this the guard and its instruction slices never run in a
+/// session. A link, not a copy: the hall file is protected from agent writes
+/// (`Layout::guard_protected_paths`, the sandbox), so an agent cannot remove
+/// its own guard hook. It also carries the user's hall-level settings.
+/// Never fails the session: a missing hall file or a failed link is a warning.
+fn materialise_session_settings(
+    layout: &Layout,
+    provider: Provider,
+    view_dir: &Utf8Path,
+    report: &mut MaterialiseReport,
+) {
+    if provider != Provider::ClaudeCode {
+        return;
+    }
+    let hall_settings = layout.root().join(Provider::CLAUDE_SETTINGS);
+    let link = view_dir.join(Provider::CLAUDE_SETTINGS);
+    match fs::is_file(&hall_settings) {
+        Ok(true) => {
+            if let Err(error) = fs::replace_symlink_if_changed(&hall_settings, &link) {
+                report.warnings.push(Warning::new(
+                    "settings.view_unlinked",
+                    link.as_str(),
+                    format!("hall settings not linked; the guard will not run in this session: {error}"),
+                ));
+            }
+        }
+        Ok(false) => report.warnings.push(Warning::new(
+            "settings.hall_missing",
+            hall_settings.as_str(),
+            "the hall has no `.claude/settings.json` (run `ivar sync`); the guard will not run in this session",
+        )),
+        Err(error) => report.warnings.push(Warning::new(
+            "settings.hall_missing",
+            hall_settings.as_str(),
+            format!("the hall's `.claude/settings.json` is unreadable; the guard will not run in this session: {error}"),
+        )),
+    }
 }
 
 /// Project the skills each linked repo ships into the session's skills dir
@@ -197,7 +249,9 @@ fn materialise_repo_skills(
 /// the View Dir root, derived from the canonical `HALL.md`.
 ///
 /// A discovery session's file is exactly the canonical content; a feature
-/// session's file is the session bootstrap block followed by it. The
+/// session's file is the session bootstrap block followed by it. Both end
+/// with the repository pointer section from [`repo_instructions_section`]
+/// when a linked repo has an instruction file. The
 /// canonical file is read directly — never the root alias — and when it is
 /// missing or not a regular file, the session still opens with a warning:
 /// the feature session receives only its bootstrap, the discovery session
@@ -209,6 +263,7 @@ fn materialise_repo_skills(
 /// an unchanged file is not rewritten.
 fn materialise_session_instructions(
     layout: &Layout,
+    manifest: &Manifest,
     provider: Provider,
     feature: Option<&Feature>,
     view_dir: &Utf8Path,
@@ -247,6 +302,12 @@ fn materialise_session_instructions(
         None => hall,
     };
 
+    let content = match repo_instructions_section(manifest, provider, view_dir) {
+        Some(section) if content.is_empty() => section,
+        Some(section) => format!("{}\n\n{section}", content.trim_end_matches('\n')),
+        None => content,
+    };
+
     if content.is_empty() {
         // Discovery with no canonical content: no shared instructions. A
         // stale file from an earlier materialisation is cleared.
@@ -262,4 +323,42 @@ fn materialise_session_instructions(
         fs::write_text(&target, &content)?;
     }
     Ok(())
+}
+
+/// The generated `## Repository instructions` section: one absolute pointer,
+/// through the view symlink, per linked repo whose root holds an instruction
+/// file — the provider-native name, else the other — in manifest order.
+/// `None` when no linked repo has one. The pointer goes through the symlink,
+/// so it names the default branch's file before a promotion and the feature
+/// worktree's after, and is regenerated with every materialisation.
+fn repo_instructions_section(
+    manifest: &Manifest,
+    provider: Provider,
+    view_dir: &Utf8Path,
+) -> Option<String> {
+    let pointers: Vec<String> = manifest
+        .repos()
+        .iter()
+        .filter_map(|repo| {
+            let root = view_dir.join(repo.name().as_str());
+            // A path directly in the repo root: its chain is that root's file alone.
+            let file = instructions::instruction_chain(
+                view_dir,
+                &root.join(provider.instruction_file()),
+                provider,
+            )
+            .into_iter()
+            .next()?;
+            Some(format!("- `{}`: {file}\n", repo.name().as_str()))
+        })
+        .collect();
+    if pointers.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "## Repository instructions\n\nEach linked repository has its own instructions. They \
+         are delivered to you as you work in the repository; read them in full before working \
+         in it:\n\n{}",
+        pointers.concat()
+    ))
 }

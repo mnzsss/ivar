@@ -161,6 +161,52 @@ hook protocol:
 - **OpenCode:** The guard exits non-zero to signal tool rejection.
 - **OMP:** The guard exits non-zero with the denial reason on stdout.
 
+On an allow, the guard's output also carries the repository instructions for the
+touched paths: `additionalContext` in the JSON body for Claude Code, stdout for
+OMP and OpenCode. A deny never carries them.
+
+## Repository instructions in sessions
+
+`ivar guard` delivers the linked repos' own instruction files on the path of each
+tool call (see [Concepts](../concepts.md)). What it can and cannot see:
+
+- **Touched paths come from the tool input.** File-path fields, the working
+  directory, and the words of a shell command: after `&&`, `||`, `;`, `|`, `&`,
+  parentheses and newlines, the target of `cd` (followed for later words),
+  `--opt=path`, `-C path`, and glob words expanded through the view dir (at most
+  50 matches). Words containing `$` or a backtick are skipped, so a path the shell
+  builds at run time is not seen; the pointer list in the session's instruction
+  file is the fallback.
+- **Claude Code inlines about 10,000 characters of context per hook.** The guard
+  entry and five slice entries in `.claude/settings.json`
+  (`ivar guard --provider claude-code --slice 1` to `--slice 5`) each carry
+  9,500 characters of one context computed once per tool call, so up to 57,000
+  characters per call arrive whole. Beyond that, the context is cut and the last
+  slice names only the files the cut reached, so the agent can read them. Those
+  files are not marked as received, so a later call sends them again. A slice
+  entry never decides: a deny from the guard entry still blocks the call.
+- **Halls must run `ivar sync` after upgrading ivar.** The slice entries live in the
+  hall's `.claude/settings.json`, which `ivar sync` rewrites. A hall synced by an
+  older ivar keeps the old hooks until then. A session's view links that file, so
+  the next tool call after the sync picks up the new hooks.
+- **Claude Code's main agent is keyed by its session id.** Instructions that
+  `/compact` or `/clear` removes from the conversation are not sent again until
+  the file changes, because the guard still records them as received.
+- **The glob cap limits matches, not the directory read.** A glob word in a shell
+  command is expanded by reading the directories it names. At most 50 matches
+  count as touched, but a large directory is still read in full to find them.
+- **OpenCode's `glob` does not traverse the view dir's repo symlinks** (`app/**`
+  finds nothing), so a model that globs first may conclude a repo is empty. Reads
+  and shell commands still deliver the instructions.
+- **OpenCode's default `researcher` model ignores long instruction context.** In
+  live evaluation it answered from a 24 KB instruction file 0 times out of 3 even
+  though the whole file was delivered; `router/implementer` answered 2 out of 2.
+  That is model quality, not delivery.
+- **Delivery state lives in the view dir**, at
+  `<view>/<config dir>/ivar/instructions/`, the only place the guard can write
+  under the OMP Landlock sandbox. It dies with the view dir, so a new session
+  receives every file again.
+
 ## Provider-specific capabilities and limitations
 
 - **Session resume:** Claude Code supports resuming prior sessions (`--resume`).
