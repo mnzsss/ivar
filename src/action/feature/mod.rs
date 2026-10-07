@@ -33,6 +33,7 @@ mod relations;
 pub mod rename;
 pub mod reparent;
 pub mod status;
+mod tree;
 mod verification;
 pub mod view;
 pub mod workspace;
