@@ -234,3 +234,107 @@ fn resolve_by_cwd_from_promoted_worktree_picks_most_recent_session() {
     assert_eq!(env.session_id, second.value.session_id);
     assert_ne!(env.session_id, first_session_id);
 }
+
+/// `hall_with_promoted_feature_and_session` plus a subfeature `checkout-ui`
+/// (parent `checkout`, nothing promoted) with one live session recorded on
+/// disk. Returns the parent's and the child's session ids.
+fn hall_with_child_session() -> (tempfile::TempDir, Utf8PathBuf, String, String) {
+    let (guard, root, parent_id) = hall_with_promoted_feature_and_session();
+    let ctx = crate::action::Ctx::new(root.clone());
+    let layout = Layout::at(root.clone());
+    feature_create::create(
+        &ctx,
+        CreateInput {
+            name: "checkout-ui".to_owned(),
+            branch: None,
+            base: None,
+            parent: Some("checkout".to_owned()),
+            via: None,
+            strategy: None,
+        },
+    )
+    .unwrap();
+
+    let child_name = FeatureName::new("checkout-ui").unwrap();
+    let child_id = SessionId::new("6f0c9d5f-0000-4000-8000-000000000031").unwrap();
+    let view_dir = layout.feature_session(&child_name, &child_id);
+    crate::infra::fs::ensure_dir(&view_dir).unwrap();
+    let mut state =
+        crate::domain::session::SessionState::new(Provider::ClaudeCode, "2026-10-07T00:00:00Z");
+    state.bind(child_name, "2026-10-07T00:00:00Z");
+    state.write(&view_dir).unwrap();
+
+    (guard, root, parent_id, child_id.to_string())
+}
+
+fn parent_worktree(layout: &Layout) -> Utf8PathBuf {
+    let parent = Feature::read(layout, &FeatureName::new("checkout").unwrap())
+        .unwrap()
+        .unwrap();
+    layout.repo_worktree(&RepoName::new("api").unwrap(), &parent.branch)
+}
+
+/// A subfeature agent standing in its parent's worktree (its view links
+/// the parent's worktree, see `base_view`) keeps its own session: the
+/// promoted-worktree fallback would hand it the parent's.
+#[test]
+fn resolve_for_agent_prefers_the_ambient_session_over_the_promoted_worktree_fallback() {
+    let (_guard, root, parent_id, child_id) = hall_with_child_session();
+    let layout = Layout::at(root.clone());
+    let worktree = parent_worktree(&layout);
+
+    let env = SessionEnv::resolve_for_agent(&worktree, Some(&child_id))
+        .unwrap()
+        .expect("the ambient session resolves");
+    assert_eq!(env.session_id, child_id);
+    assert_eq!(env.feature, Some(FeatureName::new("checkout-ui").unwrap()));
+
+    let fallback = SessionEnv::resolve_by_cwd(&worktree)
+        .unwrap()
+        .expect("resolve_by_cwd keeps the promoted-worktree fallback");
+    assert_eq!(
+        fallback.session_id, parent_id,
+        "resolve_by_cwd must stay env-free and unchanged"
+    );
+}
+
+/// A view dir found by the walk-up is a filesystem fact and wins over any
+/// ambient id (ADR 0003 D1).
+#[test]
+fn resolve_for_agent_keeps_the_view_dir_walk_over_the_ambient_session() {
+    let (_guard, root, parent_id, child_id) = hall_with_child_session();
+    let layout = Layout::at(root.clone());
+    let parent_view = crate::action::session::lookup::most_recent(
+        &layout,
+        &FeatureName::new("checkout").unwrap(),
+    )
+    .unwrap()
+    .unwrap()
+    .view_dir;
+
+    // The view dir itself, not `<view>/api`: that link canonicalises into the
+    // worktree, outside the view dir, where the walk-up finds nothing.
+    let env = SessionEnv::resolve_for_agent(&parent_view, Some(&child_id))
+        .unwrap()
+        .expect("the view dir resolves");
+    assert_eq!(env.session_id, parent_id);
+}
+
+/// An ambient id that is not exactly a live session of this hall — an
+/// unknown id, or a mere prefix of one — is ignored, leaving the fallback.
+#[test]
+fn resolve_for_agent_ignores_an_ambient_id_that_is_not_a_session_of_this_hall() {
+    let (_guard, root, parent_id, child_id) = hall_with_child_session();
+    let layout = Layout::at(root.clone());
+    let worktree = parent_worktree(&layout);
+
+    for ambient in ["6f0c9d5f-0000-4000-8000-0000000000ff", &child_id[..8]] {
+        let env = SessionEnv::resolve_for_agent(&worktree, Some(ambient))
+            .unwrap()
+            .expect("the fallback still resolves");
+        assert_eq!(
+            env.session_id, parent_id,
+            "ambient `{ambient}` must not select a session"
+        );
+    }
+}

@@ -36,8 +36,10 @@ pub enum SessionView {
 
 /// Resolves the session view from the current working directory and environment.
 pub fn resolve_session_view(layout: &Layout, cwd: &Utf8Path) -> Result<SessionView, Failure> {
-    // 1. Check if we are inside a session environment (via hook/env)
-    if let Ok(Some(env)) = SessionEnv::resolve_by_cwd(cwd)
+    // 1. The agent's own session: its view dir by cwd, else its ambient
+    //    `IVAR_SESSION_ID`, else the feature whose promoted worktree holds cwd.
+    let ambient = std::env::var("IVAR_SESSION_ID").ok();
+    if let Ok(Some(env)) = SessionEnv::resolve_for_agent(cwd, ambient.as_deref())
         && let Some(feat_name) = env.feature
         && let Ok(Some(feature)) = Feature::read(layout, &feat_name)
     {
@@ -78,10 +80,10 @@ pub(crate) fn resolve_session_key(cwd: &Utf8Path) -> Option<String> {
 }
 
 pub(crate) fn session_key(cwd: &Utf8Path, ambient: Option<String>) -> Option<String> {
-    session_key_for(
-        SessionEnv::resolve_by_cwd(cwd).ok().flatten().as_ref(),
-        ambient,
-    )
+    let env = SessionEnv::resolve_for_agent(cwd, ambient.as_deref())
+        .ok()
+        .flatten();
+    session_key_for(env.as_ref(), ambient)
 }
 
 pub(crate) fn session_key_for(env: Option<&SessionEnv>, ambient: Option<String>) -> Option<String> {
