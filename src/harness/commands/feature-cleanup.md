@@ -50,7 +50,8 @@ The cleanup workflow owns three explicit human decisions, recorded independently
 
 Run `ivar feature cleanup <feature> --preview` to gather local state and evidence without side effects:
 - Check reachability of feature HEAD from effective base in each promoted repo.
-- Collect local branch presence, worktree status, active sessions, descendants, dirty worktrees, missing clones, and paths to be removed.
+- Collect local branch presence, worktree status, active sessions, dirty worktrees, missing clones, and paths to be removed.
+- When the feature has subfeatures, the preview covers the whole subtree: each descendant is listed (as a tree) with its integration state, repos, blockers and paths. An `integrated` or `abandoned` descendant is eligible; an `active`, `failed` or `stale` one blocks the whole cleanup. The fingerprint covers every node.
 - Recompute the preview SHA-256 fingerprint over canonical JSON.
 
 ### Step 2: Delivery Gate
@@ -92,6 +93,7 @@ Present the exact teardown set:
 - Local sessions to be stopped/removed.
 - Worktrees, metadata, and plan paths to be removed.
 - Local feature branches to be deleted per promoted repo.
+- For a feature with subfeatures: every descendant's sessions, worktrees, local branches and feature directory, torn down leaves first. One record approves the whole subtree.
 
 State the irreversible safeguard clearly:
 > **Warning**: Local teardown is irreversible. Remote branches are evidence and will remain untouched.
@@ -110,6 +112,7 @@ On partial failure:
 - Preserve the cleanup record with its partial outcome log.
 - Explain the failure and instructions to retry.
 - Never turn a failed apply into an assertion of success.
+- A subtree apply stops at the first node it cannot fully remove; that node and every ancestor keep their records. Re-run the preview — removed descendants drop out — and bind the record to the new fingerprint.
 
 ## Product Documentation & Index Markers
 
@@ -181,3 +184,4 @@ The durable cleanup record is stored at `docs/updates/<NNN>-<feature>.cleanup.js
 - `at` is an ISO-8601 UTC timestamp.
 - `approvals.delivery.approved` and `approvals.teardown.approved` must both be `true`. `false` is a valid record and a refusal to apply, never a bypass.
 - `outcome` is `null` until apply completes; apply writes the final per-repository and teardown results into it. A record whose `outcome` is already populated describes a finished run and is refused as an authorization for a new one.
+- `outcome.descendants` lists each removed subfeature in teardown order (leaves first). It is omitted for a feature with no subfeatures, so such records are unchanged.
