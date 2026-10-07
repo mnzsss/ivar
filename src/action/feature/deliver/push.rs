@@ -231,7 +231,7 @@ fn create_pr_for_repo(
 
     let bare = layout.repo_bare(&repo.repo);
 
-    if let Some(failure) = check_pr_base(git, manifest, &bare, repo) {
+    if let Some(failure) = check_pr_base(git, manifest, &bare, feature_name, repo) {
         warnings.push(Warning::new(
             failure.code,
             repo.repo.as_str(),
@@ -273,6 +273,7 @@ fn check_pr_base(
     git: &impl Git,
     manifest: &Manifest,
     bare: &camino::Utf8Path,
+    feature_name: &FeatureName,
     repo: &crate::domain::feature::DeliveryRepo,
 ) -> Option<Failure> {
     let default_branch = manifest
@@ -301,7 +302,7 @@ fn check_pr_base(
             .is_ancestor(bare, tip, repo.local_branch.as_str())
             .map_err(|_| ()),
     };
-    repo.check_base(&remote_tip, secondary, &default_branch)
+    repo.check_base(feature_name, &remote_tip, secondary, &default_branch)
 }
 
 /// Create or update the PR for a repo. A branch that already has a PR was

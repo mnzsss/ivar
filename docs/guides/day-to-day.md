@@ -130,11 +130,17 @@ to run test suites in three repos side by side.
 ivar repo pull                # fast-forward every repo's default branch
 ivar repo pull --diagnose     # …and, when a branch diverged, show what's on each side
 ivar repo pull --resolve      # …and reset branches whose local commits are duplicates upstream
-ivar feature rebase checkout  # rebase promoted worktrees onto their defaults
+ivar feature rebase checkout              # rebase promoted worktrees onto their base's remote tip
+ivar feature rebase checkout --repo api   # …only the `api` repo (repeat --repo for more)
+ivar feature rebase checkout --offline    # …onto the local base ref, no network
 ```
 
-`rebase` is best-effort per repo: a dirty worktree is skipped rather than
-autostashed, and a conflict aborts that repo and moves on. It will not leave you
+`rebase` replays onto the base's remote tip, the same tip `deliver` checks,
+so a stale local `main` no longer makes it a no-op. When the remote does not
+carry the base (an unpublished parent feature), the local ref is used; when
+the remote does not answer, the local ref is used and the report warns. It is
+best-effort per repo: a dirty worktree is skipped rather than autostashed,
+and a conflict aborts that repo and moves on. It will not leave you
 half-rebased across five repos.
 
 `repo pull` never rebases or resets a diverged default branch — it reports the

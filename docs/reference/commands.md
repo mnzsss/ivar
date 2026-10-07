@@ -439,7 +439,7 @@ Delete a feature: its worktrees, its directory under `.ivar/`, and its plans. Re
 
 ##### `ivar feature rebase`
 
-Rebase every promoted repo's worktree onto its effective base. A dirty worktree is skipped; a conflict is aborted and reported
+Rebase promoted repos' worktrees onto the remote tip of their base (`--offline`: the local ref); `--repo` selects repos. A dirty worktree is skipped; a conflict is aborted and reported
 
 | argument | required | description |
 | --- | --- | --- |
@@ -447,7 +447,9 @@ Rebase every promoted repo's worktree onto its effective base. A dirty worktree 
 
 | flag | value | default | description |
 | --- | --- | --- | --- |
-| `--onto` | `<ONTO>` |  | Collapse the base: rebase every promoted repo onto this branch, and record it as the declared base for each repo that lands there. The verb for once a feature's own base has landed |
+| `--onto` | `<ONTO>` |  | Collapse the base: rebase every selected repo onto this branch, and record it as the declared base for each repo that lands there. The verb for once a feature's own base has landed |
+| `--repo` | `<REPO>` |  | Rebase only this promoted repo; repeat to select several. Without it every promoted repo is rebased |
+| `--offline` |  |  | Make no network call: rebase onto the local base ref instead of the remote tip `deliver` checks |
 
 
 ##### `ivar feature view`
