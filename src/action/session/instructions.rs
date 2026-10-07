@@ -9,6 +9,7 @@
 )]
 
 use std::collections::BTreeMap;
+use std::time::{Duration, SystemTime};
 
 use camino::{Utf8Component, Utf8Path, Utf8PathBuf};
 
@@ -19,6 +20,17 @@ use crate::providers::search::command_segments;
 
 /// Most paths one glob word may expand to.
 pub(crate) const GLOB_CAP: usize = 50;
+
+/// Characters per Claude hook entry's context; Claude inlines up to about
+/// 10,000 and replaces anything longer with a 2 KB preview.
+pub(crate) const CLAUDE_SLICE_CHARS: usize = 9_500;
+
+/// Claude hook entries per tool call: the guard entry returns slice 0 and
+/// `ivar guard --slice 1` to `--slice 5` the rest: up to 57,000 chars per call.
+pub(crate) const CLAUDE_SLICES: usize = 6;
+
+/// Age after which a call's cached context and lock are pruned.
+const CALL_CACHE_TTL: Duration = Duration::from_secs(10 * 60);
 
 /// Paths a tool call names: `file_path`/`path`/`filePath`, the `workdir`/`cwd`
 /// field, and the words of `command`. The command base (the `workdir`/`cwd`
@@ -292,7 +304,7 @@ pub(crate) fn deliver(
     if files.is_empty() {
         return Ok(None);
     }
-    record(view_dir, provider, agent, &files)
+    record(view_dir, provider, agent, &files, None)
 }
 
 /// The chains of every path, merged in order without repeats.
@@ -314,11 +326,16 @@ fn instruction_files(
 
 /// Render the files `agent` has not seen in their current content and record
 /// them as seen. `Ok(None)` when there is nothing new.
+///
+/// With `budget`, a rendering longer than `budget` chars is cut to exactly
+/// `budget` chars, ending with a note that names the files the cut reached.
+/// Those files keep their previous state, so a later call sends them again.
 fn record(
     view_dir: &Utf8Path,
     provider: Provider,
     agent: &str,
     files: &[Utf8PathBuf],
+    budget: Option<usize>,
 ) -> Result<Option<String>, Failure> {
     let dir = state_dir(view_dir, provider);
     fs::ensure_dir(&dir)?;
@@ -329,7 +346,7 @@ fn record(
     let mut seen: BTreeMap<String, String> = fs::read_text(&state_file)?
         .and_then(|text| serde_json::from_str(&text).ok())
         .unwrap_or_default();
-    let mut sections = Vec::new();
+    let mut sections: Vec<Section<'_>> = Vec::new();
     for file in files {
         let Ok(Some(body)) = fs::read_text(file) else {
             continue;
@@ -342,13 +359,48 @@ fn record(
         }
         let updated = if previous.is_some() { "UPDATED " } else { "" };
         let scope = file.parent().unwrap_or(view_dir);
-        sections.push(format!(
-            "{updated}Repository instructions from {file} (they apply to work under {scope}):\n{body}"
+        sections.push((
+            file,
+            previous,
+            format!(
+                "{updated}Repository instructions from {file} (they apply to work under {scope}):\n{body}"
+            ),
         ));
     }
     if sections.is_empty() {
         return Ok(None);
     }
+    let joined = sections
+        .iter()
+        .map(|(_, _, text)| text.as_str())
+        .collect::<Vec<_>>()
+        .join("\n\n");
+
+    let context = match budget {
+        Some(budget) if joined.chars().count() > budget => {
+            // Leading sections that fit whole beside the note; the note's
+            // length depends on which files it names, so shrink until stable.
+            let mut kept = sections.len();
+            let (room, note) = loop {
+                let note = overflow_note(sections.get(kept..).unwrap_or_default());
+                let room = budget.saturating_sub(note.chars().count());
+                let fit = fitting(&sections, room);
+                if fit == kept {
+                    break (room, note);
+                }
+                kept = fit;
+            };
+            for (file, previous, _) in sections.get(kept..).unwrap_or_default() {
+                match previous {
+                    Some(previous) => seen.insert(file.to_string(), previous.clone()),
+                    None => seen.remove(file.as_str()),
+                };
+            }
+            joined.chars().take(room).chain(note.chars()).collect()
+        }
+        _ => joined,
+    };
+
     let state = serde_json::to_string(&seen).map_err(|error| {
         Failure::failed(
             "session.instructions_state",
@@ -356,7 +408,35 @@ fn record(
         )
     })?;
     fs::write_atomic(&state_file, state.as_bytes())?;
-    Ok(Some(sections.join("\n\n")))
+    Ok(Some(context))
+}
+
+/// One rendered instruction file: the file, its previous digest, its text.
+type Section<'a> = (&'a Utf8PathBuf, Option<String>, String);
+
+/// How many leading sections fit whole in `room` chars, counting the
+/// `"\n\n"` separators between them.
+fn fitting(sections: &[Section<'_>], room: usize) -> usize {
+    let mut used = 0;
+    for (count, (_, _, text)) in sections.iter().enumerate() {
+        used += text.chars().count() + if count == 0 { 0 } else { 2 };
+        if used > room {
+            return count;
+        }
+    }
+    sections.len()
+}
+
+/// The note ending a cut context, naming only the files the cut reached.
+fn overflow_note(cut: &[Section<'_>]) -> String {
+    if cut.is_empty() {
+        return String::new();
+    }
+    let files: Vec<&str> = cut.iter().map(|(file, _, _)| file.as_str()).collect();
+    format!(
+        "\n[The repository instructions continue beyond this message; read the rest of: {}]",
+        files.join(", ")
+    )
 }
 
 /// `raw` safe as a file name: every char outside `[A-Za-z0-9_.-]` becomes `_`.
@@ -370,6 +450,74 @@ fn file_key(raw: &str) -> String {
             }
         })
         .collect()
+}
+
+/// The `index`-th `CLAUDE_SLICE_CHARS`-char slice of `context`, cut on char
+/// boundaries. `None` past the end.
+pub(crate) fn slice(context: &str, index: usize) -> Option<String> {
+    let piece: String = context
+        .chars()
+        .skip(index.saturating_mul(CLAUDE_SLICE_CHARS))
+        .take(CLAUDE_SLICE_CHARS)
+        .collect();
+    (!piece.is_empty()).then_some(piece)
+}
+
+/// Slice `index` of the context for one Claude tool call. The `CLAUDE_SLICES`
+/// hook entries of a call share one computation: the first to take
+/// `<call_id>.ctx.lock` runs [`record`] with the slices' total as budget and
+/// caches the text in `<call_id>.ctx`; the others read it. Computing prunes
+/// call files older than ten minutes.
+///
+/// # Errors
+///
+/// A [`Failure`] when the state dir, lock, cache or agent state cannot be
+/// created, read or written.
+pub(crate) fn deliver_slice(
+    view_dir: &Utf8Path,
+    provider: Provider,
+    agent: &str,
+    call_id: &str,
+    paths: &[Utf8PathBuf],
+    index: usize,
+) -> Result<Option<String>, Failure> {
+    let files = instruction_files(view_dir, provider, paths);
+    if files.is_empty() {
+        return Ok(None);
+    }
+    let dir = state_dir(view_dir, provider);
+    fs::ensure_dir(&dir)?;
+    let key = file_key(call_id);
+    let _lock = fs::lock_exclusive(&dir.join(format!("{key}.ctx.lock")))?;
+    let cache = dir.join(format!("{key}.ctx"));
+    let context = if let Some(context) = fs::read_text(&cache)? {
+        context
+    } else {
+        prune_stale_calls(&dir);
+        let budget = CLAUDE_SLICES * CLAUDE_SLICE_CHARS;
+        let context = record(view_dir, provider, agent, &files, Some(budget))?.unwrap_or_default();
+        fs::write_atomic(&cache, context.as_bytes())?;
+        context
+    };
+    Ok(slice(&context, index))
+}
+
+/// Remove `.ctx` caches and `.ctx.lock` locks older than [`CALL_CACHE_TTL`].
+/// Best effort: a file that cannot be inspected or removed is left alone.
+fn prune_stale_calls(dir: &Utf8Path) {
+    let now = SystemTime::now();
+    for entry in fs::read_dir(dir).unwrap_or_default() {
+        let call_file = entry.as_str().ends_with(".ctx") || entry.as_str().ends_with(".ctx.lock");
+        let stale = fs::stat(&entry)
+            .ok()
+            .flatten()
+            .and_then(|metadata| metadata.modified().ok())
+            .and_then(|modified| now.duration_since(modified).ok())
+            .is_some_and(|age| age > CALL_CACHE_TTL);
+        if call_file && stale {
+            fs::remove_file(&entry).ok();
+        }
+    }
 }
 
 #[cfg(test)]

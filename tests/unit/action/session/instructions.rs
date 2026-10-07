@@ -380,3 +380,230 @@ fn each_agent_key_has_its_own_delivery_state() {
     assert!(fs::is_file(&dir.join("main.json")).unwrap());
     assert!(fs::is_file(&dir.join("agent_7_x.json")).unwrap());
 }
+
+/// A view whose `api/CLAUDE.md` body is `body_chars` multibyte chars, and the
+/// context `deliver` renders for it.
+fn big_view(body_chars: usize) -> (tempfile::TempDir, Utf8PathBuf, String) {
+    let (dir, view, worktree) = view_with_api();
+    let body = "ü".repeat(body_chars);
+    write(&worktree.join("CLAUDE.md"), &body);
+    let context = format!("{}{body}", label(&view.join("api/CLAUDE.md")));
+    (dir, view, context)
+}
+
+#[test]
+fn slices_cut_on_char_boundaries_and_end_with_none() {
+    let text = "é".repeat(CLAUDE_SLICE_CHARS) + "ab";
+    assert_eq!(slice(&text, 0), Some("é".repeat(CLAUDE_SLICE_CHARS)));
+    assert_eq!(slice(&text, 1).as_deref(), Some("ab"));
+    assert_eq!(slice(&text, 2), None);
+    assert_eq!(slice("", 0), None);
+    assert_eq!(slice("short", 0).as_deref(), Some("short"));
+}
+
+#[test]
+fn every_slice_of_one_call_reconstructs_one_computation() {
+    // The label pushes this body into the last slice without exceeding the budget.
+    let (_dir, view, context) = big_view((CLAUDE_SLICES - 1) * CLAUDE_SLICE_CHARS);
+    let touched = [view.join("api/src/lib.rs")];
+    let pieces: Vec<Option<String>> = (0..CLAUDE_SLICES)
+        .map(|index| {
+            deliver_slice(
+                &view,
+                Provider::ClaudeCode,
+                "main",
+                "toolu_1",
+                &touched,
+                index,
+            )
+            .unwrap()
+        })
+        .collect();
+    assert!(pieces.iter().all(Option::is_some));
+    // A second computation would have found the file already delivered and
+    // returned nothing, so equality proves the other slices read slice 0's result.
+    assert_eq!(pieces.into_iter().flatten().collect::<String>(), context);
+    for index in 0..CLAUDE_SLICES {
+        assert_eq!(
+            deliver_slice(
+                &view,
+                Provider::ClaudeCode,
+                "main",
+                "toolu_2",
+                &touched,
+                index
+            )
+            .unwrap(),
+            None,
+            "{index}"
+        );
+    }
+}
+
+#[test]
+fn concurrent_slice_entries_for_one_call_agree() {
+    let (_dir, view, context) = big_view(3 * CLAUDE_SLICE_CHARS);
+    let touched = [view.join("api/src/lib.rs")];
+    let pieces: Vec<Option<String>> = std::thread::scope(|scope| {
+        let handles: Vec<_> = (0..CLAUDE_SLICES)
+            .map(|index| {
+                let (view, touched) = (&view, &touched);
+                scope.spawn(move || {
+                    deliver_slice(
+                        view,
+                        Provider::ClaudeCode,
+                        "main",
+                        "toolu_c",
+                        touched,
+                        index,
+                    )
+                    .unwrap()
+                })
+            })
+            .collect();
+        handles.into_iter().map(|h| h.join().unwrap()).collect()
+    });
+    assert_eq!(pieces.into_iter().flatten().collect::<String>(), context);
+}
+
+#[test]
+fn a_small_context_fills_only_the_first_slice() {
+    let (_dir, view, worktree) = view_with_api();
+    write(&worktree.join("CLAUDE.md"), "root");
+    let touched = [view.join("api/x")];
+    assert_eq!(
+        deliver_slice(&view, Provider::ClaudeCode, "main", "toolu_s", &touched, 0).unwrap(),
+        Some(format!("{}root", label(&view.join("api/CLAUDE.md"))))
+    );
+    for index in 1..CLAUDE_SLICES {
+        assert_eq!(
+            deliver_slice(
+                &view,
+                Provider::ClaudeCode,
+                "main",
+                "toolu_s",
+                &touched,
+                index
+            )
+            .unwrap(),
+            None,
+            "{index}"
+        );
+    }
+}
+
+#[test]
+fn context_beyond_every_slice_names_only_the_cut_files_and_keeps_them_unseen() {
+    let (_dir, view, worktree) = view_with_api();
+    write(&worktree.join("CLAUDE.md"), "root");
+    let big = "ü".repeat(CLAUDE_SLICES * CLAUDE_SLICE_CHARS);
+    write(&worktree.join("src/CLAUDE.md"), &big);
+    let touched = [view.join("api/src/x")];
+    let root_file = view.join("api/CLAUDE.md");
+    let src_file = view.join("api/src/CLAUDE.md");
+
+    let pieces: Vec<String> = (0..=CLAUDE_SLICES)
+        .filter_map(|index| {
+            deliver_slice(
+                &view,
+                Provider::ClaudeCode,
+                "main",
+                "toolu_big",
+                &touched,
+                index,
+            )
+            .unwrap()
+        })
+        .collect();
+    assert_eq!(pieces.len(), CLAUDE_SLICES, "nothing past the last slice");
+    let context: String = pieces.concat();
+    assert_eq!(context.chars().count(), CLAUDE_SLICES * CLAUDE_SLICE_CHARS);
+    let note = format!(
+        "\n[The repository instructions continue beyond this message; read the rest of: {src_file}]"
+    );
+    assert!(pieces.last().unwrap().ends_with(&note), "{note}");
+    assert!(context.starts_with(&format!(
+        "{}root\n\n{}",
+        label(&root_file),
+        label(&src_file)
+    )));
+
+    // The root file fitted and is recorded; the cut file is not, so the
+    // next call sends it again (not as UPDATED) and nothing else.
+    let next = deliver_slice(
+        &view,
+        Provider::ClaudeCode,
+        "main",
+        "toolu_next",
+        &touched,
+        0,
+    )
+    .unwrap()
+    .unwrap();
+    assert!(
+        next.starts_with(&label(&src_file)),
+        "{}",
+        next.chars().take(200).collect::<String>()
+    );
+    assert!(!next.contains(&label(&root_file)));
+}
+
+#[test]
+fn a_call_touching_no_repo_writes_nothing() {
+    let (_dir, view, worktree) = view_with_api();
+    write(&worktree.join("CLAUDE.md"), "root");
+    for index in 0..CLAUDE_SLICES {
+        assert_eq!(
+            deliver_slice(
+                &view,
+                Provider::ClaudeCode,
+                "main",
+                "toolu_x",
+                &[Utf8PathBuf::from("/etc/hosts")],
+                index
+            )
+            .unwrap(),
+            None
+        );
+    }
+    assert!(!fs::exists(&state_dir(&view, Provider::ClaudeCode)).unwrap());
+}
+
+#[test]
+fn computing_a_call_prunes_call_files_older_than_ten_minutes() {
+    let (_dir, view, worktree) = view_with_api();
+    write(&worktree.join("CLAUDE.md"), "root");
+    let dir = state_dir(&view, Provider::ClaudeCode);
+    for name in ["old.ctx", "old.ctx.lock", "other.json", "fresh.ctx"] {
+        write(&dir.join(name), "");
+    }
+    let old = std::time::SystemTime::now() - std::time::Duration::from_secs(11 * 60);
+    for name in ["old.ctx", "old.ctx.lock", "other.json"] {
+        std::fs::File::options()
+            .write(true)
+            .open(dir.join(name))
+            .unwrap()
+            .set_modified(old)
+            .unwrap();
+    }
+    deliver_slice(
+        &view,
+        Provider::ClaudeCode,
+        "main",
+        "toolu_new",
+        &[view.join("api/x")],
+        0,
+    )
+    .unwrap();
+    assert_eq!(
+        fs::read_dir(&dir).unwrap(),
+        [
+            dir.join("fresh.ctx"),
+            dir.join("main.json"),
+            dir.join("main.lock"),
+            dir.join("other.json"),
+            dir.join("toolu_new.ctx"),
+            dir.join("toolu_new.ctx.lock"),
+        ]
+    );
+}
