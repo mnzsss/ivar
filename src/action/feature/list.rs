@@ -58,12 +58,16 @@ impl WriteHuman for ListOutcome {
             return Ok(());
         }
         writeln!(w, "Features in {}:", self.root)?;
+        let depths: Vec<usize> = self.features.iter().map(|f| f.depth).collect();
+        let prefixes = super::tree::tree_prefixes(&depths);
+
         let mut table = crate::infra::table::new(&["FEATURE", "BRANCH", "PROMOTED", "STATE"]);
-        for feature in &self.features {
+        for (feature, prefix) in self.features.iter().zip(prefixes) {
+            let feature_cell = format!("{prefix}{}", feature.name);
             let promoted = format!("{}/{}", feature.ready_count, feature.promoted_count);
             let state = feature.state.to_string();
             table.add_row(vec![
-                feature.name.as_str(),
+                &feature_cell,
                 &feature.branch,
                 &promoted,
                 &state,
@@ -102,13 +106,13 @@ pub fn list(ctx: &Ctx) -> Outcome<ListOutcome> {
     }
 
     let map = relations::build_feature_map(&loaded_features);
+    let ordered_forest = relations::forest(&map);
     let mut features = Vec::new();
-    for feature in &loaded_features {
+    for (_depth, feature) in ordered_forest {
         if let Some(summary) = summary_of(&git, &layout, &manifest, &map, feature) {
             features.push(summary);
         }
     }
-    features.sort_by(|a, b| a.name.cmp(&b.name));
 
     Ok(Report::new(ListOutcome {
         root: layout.root().to_path_buf(),
