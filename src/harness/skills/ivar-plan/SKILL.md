@@ -15,6 +15,9 @@ below is that resolved name.
 ## Prerequisites
 
 - You must be inside a **Feature Session** (`IVAR_FEATURE` must be set).
+- In that session a repo the feature has not promoted is read-only and shows
+  the feature's **base view**, not necessarily the default branch — see
+  Phase 2.
 - The feature must exist (`ivar feature list`).
 - Start a new SPDD flow with `ivar plan create <feature>` to scaffold the
   planning artifacts. Name a subset — `ivar plan create <feature> plan` — to
@@ -102,6 +105,18 @@ blocks approval of this artifact. This checkpoint never edits `HALL.md`;
    - Recommendations
    
    Query `ivar graph explore <query>` to inspect repo-qualified relations, provenance, confidence, entry points, and bounded dependency flow. Graph evidence is advisory: if graph queries are stale, empty, unsupported, or unavailable, fall back directly to source search and file reading. Graph evidence supplements source inspection and never creates, approves, or bypasses an approval gate.
+   
+   **Analyse against the base view.** In a feature session, a repo the
+   feature has not promoted is viewed at the feature's effective base: the
+   worktree of the nearest ancestor feature that promotes it; else the root
+   feature's `--base` branch (when it differs from the default branch);
+   else the repo's default branch. `ls -l $IVAR_SESSION_PATH/<repo>` shows
+   which — the link ends in `.ivar/repos/<repo>/<branch>`. Read code, plan
+   paths and commands against that view, and record each analysed repo's
+   base (branch, and the ancestor feature when it is one) in `analysis.md`,
+   so the plan is reviewed against the tree execution will start from. If
+   the session warned `session.base_absent`, the base branch was not found
+   and the view fell back to the default branch — say so in `analysis.md`.
 3. Write the Analysis artifact to `../../analysis.md` (relative to `$IVAR_SESSION_PATH`).
 
 4. **Gate.** Show the analysis and ask: **(a) Approve and continue** to the
