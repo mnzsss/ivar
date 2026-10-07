@@ -570,6 +570,9 @@ fn reads_are_never_denied() {
         targets: targets.clone(),
         writes: false,
         search_pattern: None,
+        input: serde_json::Value::Null,
+        agent: None,
+        call_id: None,
     };
     assert!(matches!(
         decide(
@@ -593,6 +596,9 @@ fn writes_outside_the_set_are_denied_with_a_reason_naming_the_set() {
         targets: targets.clone(),
         writes: true,
         search_pattern: None,
+        input: serde_json::Value::Null,
+        agent: None,
+        call_id: None,
     };
     match decide(&Resolution::Resolved(&set), &req, &targets) {
         GuardDecision::Deny { reason } => {
@@ -627,6 +633,9 @@ fn every_structured_write_tool_is_denied_outside_the_set() {
             targets: targets.clone(),
             writes: true,
             search_pattern: None,
+            input: serde_json::Value::Null,
+            agent: None,
+            call_id: None,
         };
         match decide(&Resolution::Resolved(&set), &req, &targets) {
             GuardDecision::Deny { reason } => assert!(
@@ -690,6 +699,9 @@ fn writes_inside_the_set_are_allowed_and_shell_is_never_classified() {
                 targets: vec![in_set.clone()],
                 writes: true,
                 search_pattern: None,
+                input: serde_json::Value::Null,
+                agent: None,
+                call_id: None,
             },
             &[in_set]
         ),
@@ -703,6 +715,9 @@ fn writes_inside_the_set_are_allowed_and_shell_is_never_classified() {
                 targets: Vec::new(),
                 writes: false,
                 search_pattern: None,
+                input: serde_json::Value::Null,
+                agent: None,
+                call_id: None,
             },
             &[]
         ),
@@ -1491,6 +1506,9 @@ fn unresolved_denial_when_target_in_feature_with_live_session_lists_only_that_fe
         targets: vec![target.clone()],
         writes: true,
         search_pattern: None,
+        input: serde_json::Value::Null,
+        agent: None,
+        call_id: None,
     };
 
     let decision = decide(
@@ -1809,6 +1827,9 @@ fn guard_decision_is_unchanged_when_recording_fails() {
         targets: Vec::new(),
         writes: false,
         search_pattern: Some("fn record_miss".into()),
+        input: serde_json::Value::Null,
+        agent: None,
+        call_id: None,
     };
     let set = resolve_writable_set(&env).unwrap();
     assert!(matches!(
@@ -2185,6 +2206,9 @@ fn ambiguous_target_matching_multiple_features_denies_and_names_all_conflicting_
         targets: targets.clone(),
         writes: true,
         search_pattern: None,
+        input: serde_json::Value::Null,
+        agent: None,
+        call_id: None,
     };
     let decision = decide(
         &Resolution::Ambiguous {
@@ -2499,6 +2523,9 @@ fn decide_multi_target_allows_only_if_all_targets_allowed_and_denies_naming_firs
         targets: targets.clone(),
         writes: true,
         search_pattern: None,
+        input: serde_json::Value::Null,
+        agent: None,
+        call_id: None,
     };
 
     let decision = decide(&Resolution::Resolved(&set), &req, &targets);
@@ -2526,6 +2553,9 @@ fn decide_all_uri_targets_are_allowed_but_empty_targets_on_write_is_denied() {
         targets: uri_targets.clone(),
         writes: true,
         search_pattern: None,
+        input: serde_json::Value::Null,
+        agent: None,
+        call_id: None,
     };
     assert!(matches!(
         decide(&Resolution::Resolved(&set), &req_uri, &uri_targets),
@@ -2538,6 +2568,9 @@ fn decide_all_uri_targets_are_allowed_but_empty_targets_on_write_is_denied() {
         targets: empty_targets.clone(),
         writes: true,
         search_pattern: None,
+        input: serde_json::Value::Null,
+        agent: None,
+        call_id: None,
     };
     assert!(matches!(
         decide(&Resolution::Resolved(&set), &req_empty, &empty_targets),

@@ -5,7 +5,7 @@ use crate::domain::guard::{GuardDecision, GuardOutcome, ToolRequest};
 use crate::error::Failure;
 
 /// OMP hook input, as the embedded hook actually sends it
-/// (`src/providers/omp/hook.rs`): `{ tool, args, cwd }`. It is the OpenCode
+/// (`src/providers/omp/hook.rs`): `{ tool, args, cwd, agent }`. It is the OpenCode
 /// wire shape, because the hook was written to it — the field names OMP uses
 /// internally (`toolName`, `input`) are translated JS-side before the spawn.
 #[derive(Debug, Deserialize)]
@@ -14,6 +14,10 @@ pub(crate) struct OmpHookInput {
     #[serde(default)]
     pub(crate) args: serde_json::Value,
     pub(crate) cwd: Option<Utf8PathBuf>,
+    /// The calling agent (`ctx.agent.id`), so each subagent gets its own
+    /// instruction-delivery state. Absent from older hooks.
+    #[serde(default)]
+    pub(crate) agent: Option<String>,
 }
 
 pub(crate) fn parse_tool_request(
@@ -28,6 +32,9 @@ pub(crate) fn parse_tool_request(
             tool: input.tool,
             targets: extracted.targets,
             writes: extracted.writes,
+            input: input.args,
+            agent: input.agent,
+            call_id: None,
         },
         input.cwd,
     ))

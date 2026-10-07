@@ -436,3 +436,32 @@ fn user_home_from_resolution() {
     assert!(providers::user_home_from(None, None, "linux").is_err());
     assert!(providers::user_home_from(Some("relative/path".to_owned()), None, "linux").is_err());
 }
+
+#[test]
+fn omp_and_opencode_parse_keep_args_and_the_agent_field() {
+    for provider in [Provider::Omp, Provider::OpenCode] {
+        let json = r#"{
+            "tool": "read",
+            "args": {"path": "/v/api/src/lib.rs", "filePath": "/v/api/src/lib.rs"},
+            "cwd": "/v",
+            "agent": "0-Explore"
+        }"#;
+        let (req, _cwd) = providers::parse_tool_request(provider, json).unwrap();
+        assert_eq!(
+            req.input,
+            serde_json::json!({"path": "/v/api/src/lib.rs", "filePath": "/v/api/src/lib.rs"}),
+            "{provider:?}"
+        );
+        assert_eq!(req.agent.as_deref(), Some("0-Explore"), "{provider:?}");
+        assert_eq!(req.call_id, None, "{provider:?}");
+    }
+}
+
+#[test]
+fn omp_and_opencode_parse_without_agent_leave_it_none() {
+    for provider in [Provider::Omp, Provider::OpenCode] {
+        let json = r#"{"tool": "read", "args": {"path": "/v/x"}, "cwd": "/v"}"#;
+        let (req, _cwd) = providers::parse_tool_request(provider, json).unwrap();
+        assert_eq!(req.agent, None, "{provider:?}");
+    }
+}

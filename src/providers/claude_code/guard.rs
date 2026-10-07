@@ -4,12 +4,16 @@ use serde::Deserialize;
 use crate::domain::guard::{GuardDecision, GuardOutcome, ToolRequest};
 use crate::error::Failure;
 
-/// Claude Code hook input: `tool_name`, `tool_input.file_path`, `cwd`.
+/// Claude Code hook input: `tool_name`, `tool_input`, `cwd`, and the ids that
+/// key instruction delivery (`agent_id` is present only inside subagents).
 #[derive(Debug, Deserialize)]
 struct ClaudeHookInput {
     tool_name: String,
     tool_input: serde_json::Value,
     cwd: Option<Utf8PathBuf>,
+    session_id: Option<String>,
+    agent_id: Option<String>,
+    tool_use_id: Option<String>,
 }
 
 pub(crate) fn parse_tool_request(
@@ -30,6 +34,9 @@ pub(crate) fn parse_tool_request(
         tool: input.tool_name,
         targets,
         writes,
+        input: input.tool_input,
+        agent: input.agent_id.or(input.session_id),
+        call_id: input.tool_use_id,
     };
     Ok((req, input.cwd))
 }
