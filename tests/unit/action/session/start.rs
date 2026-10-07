@@ -1766,3 +1766,123 @@ fn materialise_drops_a_repo_skill_removed_from_the_repo() {
         fs::SymlinkTarget::Absent
     ));
 }
+
+/// Claude Code reads project settings only from `<cwd>/.claude/settings.json`,
+/// so the view links the hall's protected copy, which carries ivar's hooks.
+#[test]
+fn a_claude_view_links_the_hall_settings() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root.clone());
+    let manifest = Manifest::read(&layout).unwrap().unwrap();
+    let hall_settings = layout.root().join(Provider::CLAUDE_SETTINGS);
+    for provider in Provider::ALL {
+        let view_dir = layout.discovery_session(
+            &crate::domain::name::SessionId::new(uuid::Uuid::new_v4().to_string()).unwrap(),
+        );
+        let report = crate::action::session::view::materialise(
+            &layout, &manifest, None, provider, &view_dir,
+        )
+        .unwrap();
+        let settings = view_dir.join(".claude/settings.json");
+        if provider == Provider::ClaudeCode {
+            assert_eq!(
+                fs::read_symlink(&settings).unwrap(),
+                fs::SymlinkTarget::Target(hall_settings.clone()),
+                "the view's settings.json must link the hall file"
+            );
+            let doc: serde_json::Value =
+                serde_json::from_str(&fs::read_text(&settings).unwrap().unwrap()).unwrap();
+            let commands: Vec<&str> = doc["hooks"]["PreToolUse"][0]["hooks"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|hook| hook["command"].as_str().unwrap())
+                .collect();
+            assert!(
+                commands.contains(&"ivar guard --provider claude-code"),
+                "{doc}"
+            );
+            assert!(
+                report
+                    .warnings
+                    .iter()
+                    .all(|w| !w.code.starts_with("settings.")),
+                "{:?}",
+                report.warnings
+            );
+        } else {
+            assert_eq!(
+                fs::read_symlink(&settings).unwrap(),
+                fs::SymlinkTarget::Absent,
+                "{provider:?} views get no Claude settings"
+            );
+        }
+    }
+}
+
+#[test]
+fn rematerialising_a_claude_view_leaves_the_settings_link_unchanged() {
+    use std::os::unix::fs::MetadataExt as _;
+
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root.clone());
+    let manifest = Manifest::read(&layout).unwrap().unwrap();
+    let view_dir = layout.discovery_session(
+        &crate::domain::name::SessionId::new(uuid::Uuid::new_v4().to_string()).unwrap(),
+    );
+    crate::action::session::view::materialise(
+        &layout,
+        &manifest,
+        None,
+        Provider::ClaudeCode,
+        &view_dir,
+    )
+    .unwrap();
+    let settings = view_dir.join(".claude/settings.json");
+    let inode = std::fs::symlink_metadata(&settings).unwrap().ino();
+    crate::action::session::view::materialise(
+        &layout,
+        &manifest,
+        None,
+        Provider::ClaudeCode,
+        &view_dir,
+    )
+    .unwrap();
+    // An unchanged link is never renamed over (replace_symlink_if_changed).
+    assert_eq!(std::fs::symlink_metadata(&settings).unwrap().ino(), inode);
+    assert_eq!(
+        fs::read_symlink(&settings).unwrap(),
+        fs::SymlinkTarget::Target(layout.root().join(Provider::CLAUDE_SETTINGS))
+    );
+}
+
+#[test]
+fn a_missing_hall_settings_file_warns_and_links_nothing() {
+    let (_guard, root) = hall_with_promoted_feature();
+    let layout = Layout::at(root.clone());
+    let manifest = Manifest::read(&layout).unwrap().unwrap();
+    fs::remove_file(&layout.root().join(Provider::CLAUDE_SETTINGS)).unwrap();
+    let view_dir = layout.discovery_session(
+        &crate::domain::name::SessionId::new(uuid::Uuid::new_v4().to_string()).unwrap(),
+    );
+    let report = crate::action::session::view::materialise(
+        &layout,
+        &manifest,
+        None,
+        Provider::ClaudeCode,
+        &view_dir,
+    )
+    .unwrap();
+    assert!(
+        report
+            .warnings
+            .iter()
+            .any(|w| w.code == "settings.hall_missing"),
+        "{:?}",
+        report.warnings
+    );
+    assert_eq!(
+        fs::read_symlink(&view_dir.join(".claude/settings.json")).unwrap(),
+        fs::SymlinkTarget::Absent
+    );
+}

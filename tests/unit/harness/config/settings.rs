@@ -198,3 +198,59 @@ fn remove_settings_drops_attribution_and_keeps_user_keys() {
     assert!(doc.get("attribution").is_none());
     assert!(doc.get("permissions").is_some());
 }
+
+#[test]
+fn pre_tool_use_runs_the_guard_then_five_instruction_slices() {
+    let (_guard, dir) = utf8_temp_dir();
+    let path = dir.join("settings.json");
+    materialise_settings(&path).unwrap();
+
+    let doc = read_doc(&path);
+    let entries = doc["hooks"]["PreToolUse"].as_array().unwrap();
+    assert_eq!(
+        entries.len(),
+        1,
+        "one entry, so every command runs for the same call: {doc}"
+    );
+    assert_eq!(entries[0]["matcher"], "");
+    let commands: Vec<&str> = entries[0]["hooks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|hook| {
+            assert_eq!(hook["type"], "command", "{hook}");
+            hook["command"].as_str().unwrap()
+        })
+        .collect();
+    assert_eq!(
+        commands,
+        [
+            "ivar guard --provider claude-code",
+            "ivar guard --provider claude-code --slice 1",
+            "ivar guard --provider claude-code --slice 2",
+            "ivar guard --provider claude-code --slice 3",
+            "ivar guard --provider claude-code --slice 4",
+            "ivar guard --provider claude-code --slice 5",
+        ]
+    );
+}
+
+#[test]
+fn an_existing_single_guard_entry_is_rewritten() {
+    let (_guard, dir) = utf8_temp_dir();
+    let path = dir.join("settings.json");
+    fs::write_text(
+        &path,
+        r#"{ "hooks": { "PreToolUse": [ { "matcher": "", "hooks": [ { "type": "command", "command": "ivar guard --provider claude-code" } ] } ] } }"#,
+    )
+    .unwrap();
+
+    assert_eq!(materialise_settings(&path).unwrap(), Change::Updated);
+    assert_eq!(
+        read_doc(&path)["hooks"]["PreToolUse"][0]["hooks"]
+            .as_array()
+            .unwrap()
+            .len(),
+        6
+    );
+}

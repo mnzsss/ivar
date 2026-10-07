@@ -121,7 +121,9 @@ fn remove_legacy_ivar_hall(object: &mut serde_json::Map<String, serde_json::Valu
 
 /// The full document ivar wants: `hooks` holding the session lifecycle hooks
 /// and `attribution` blanked. Used when the file is absent or when merging
-/// into an existing document.
+/// into an existing document. `PreToolUse` runs the guard and five `--slice`
+/// commands in one entry, so each inlines up to ~10,000 chars of repository
+/// instructions for the same call (57,000 chars in all).
 fn ivar_doc() -> serde_json::Value {
     let mut root = serde_json::Map::new();
 
@@ -151,6 +153,26 @@ fn ivar_doc() -> serde_json::Value {
                     {
                         "type": "command",
                         "command": "ivar guard --provider claude-code"
+                    },
+                    {
+                        "type": "command",
+                        "command": "ivar guard --provider claude-code --slice 1"
+                    },
+                    {
+                        "type": "command",
+                        "command": "ivar guard --provider claude-code --slice 2"
+                    },
+                    {
+                        "type": "command",
+                        "command": "ivar guard --provider claude-code --slice 3"
+                    },
+                    {
+                        "type": "command",
+                        "command": "ivar guard --provider claude-code --slice 4"
+                    },
+                    {
+                        "type": "command",
+                        "command": "ivar guard --provider claude-code --slice 5"
                     }
                 ]
             }
