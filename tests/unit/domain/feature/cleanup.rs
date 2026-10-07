@@ -293,7 +293,7 @@ fn cleanup_apply_outcome_deserializes_legacy_plans_removed_key() {
     let outcome = outcome.unwrap();
     assert!(outcome.feature_removed);
 
-    let serialized = crate::infra::json::to_canonical_string(&outcome).unwrap();
+    let serialized = serde_json::to_string_pretty(&outcome).unwrap();
     assert!(!serialized.contains("plans_removed"));
     assert!(serialized.contains(r#""feature_removed": true"#));
 }
@@ -310,7 +310,7 @@ fn cleanup_record_roundtrips_serde() {
         feature_removed: true,
         descendants: Vec::new(),
     });
-    let serialized = crate::infra::json::to_canonical_string(&record).unwrap();
+    let serialized = serde_json::to_string(&record).unwrap();
     let roundtripped: CleanupRecord = serde_json::from_str(&serialized).unwrap();
     assert_eq!(roundtripped, record);
 }
@@ -517,7 +517,7 @@ fn leaf_cleanup_preview_and_apply_outcome_serialization_stability() {
         fingerprint: "hash123".to_owned(),
         descendants: Vec::new(),
     };
-    let serialized_preview = crate::infra::json::to_canonical_string(&preview).unwrap();
+    let serialized_preview = serde_json::to_string(&preview).unwrap();
     assert!(!serialized_preview.contains("descendants"));
 
     let outcome = CleanupApplyOutcome {
@@ -529,7 +529,7 @@ fn leaf_cleanup_preview_and_apply_outcome_serialization_stability() {
         feature_removed: true,
         descendants: Vec::new(),
     };
-    let serialized_outcome = crate::infra::json::to_canonical_string(&outcome).unwrap();
+    let serialized_outcome = serde_json::to_string(&outcome).unwrap();
     assert!(!serialized_outcome.contains("descendants"));
 
     // Deserialization of record JSON without descendants into CleanupApplyOutcome works
