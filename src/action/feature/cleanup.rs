@@ -10,11 +10,12 @@ use crate::action::Ctx;
 use crate::action::feature::delete;
 use crate::action::session::lookup as session_lookup;
 use crate::domain::feature::{
-    BranchDeletion, CleanupApplyOutcome, CleanupBlocker, CleanupFacts, CleanupPreview,
-    CleanupRecord, CleanupRepo, CleanupRepoFacts, Feature, ForgeDelivery, WorktreeRemoval,
-    classify_cleanup,
+    classify_cleanup, classify_descendant_cleanup, BranchDeletion, CleanupApplyOutcome,
+    CleanupBlocker, CleanupDescendant, CleanupDescendantFacts, CleanupDescendantOutcome,
+    CleanupFacts, CleanupPreview, CleanupRecord, CleanupRepo, CleanupRepoFacts, Feature,
+    ForgeDelivery, WorktreeRemoval,
 };
-use crate::domain::name::{FeatureName, RepoName};
+use crate::domain::name::{FeatureName, RepoName, SessionId};
 use crate::error::{Failure, FixAction, Outcome, Report, Warning, WriteHuman};
 use crate::git::{self, Git, TargetState, WorktreeEntry};
 use crate::infra::{fs, hash, json};
@@ -156,19 +157,42 @@ fn apply_cleanup(
         preview,
         forge_consulted,
         worktrees,
+        descendants,
     } = preview_cleanup(&git, &layout, &manifest, &feature, own_session)?;
 
     validate_record_against_preview(&record, &preview, forge_consulted)?;
-    preflight_deletable(&layout, &feature)?;
+    preflight_deletable(&layout, &feature, &descendants)?;
 
-    let (worktree_removals, mut warnings, all_worktrees_removed) =
+    let (descendant_outcomes, mut warnings, all_descendants_removed) =
+        teardown_descendants(&layout, &git, &descendants)?;
+    if !all_descendants_removed {
+        let apply_outcome = CleanupApplyOutcome {
+            feature: feature.name.clone(),
+            branch: feature.branch,
+            fingerprint: preview.fingerprint.clone(),
+            worktrees: Vec::new(),
+            branches: Vec::new(),
+            feature_removed: false,
+            descendants: descendant_outcomes,
+        };
+        return Ok(Report::with_warnings(
+            CleanupOutcome {
+                root: layout.root().to_path_buf(),
+                preview,
+                apply_outcome: Some(apply_outcome),
+            },
+            warnings,
+        ));
+    }
+
+    let (worktree_removals, root_warnings, all_worktrees_removed) =
         teardown_worktrees(&layout, &git, &feature, &worktrees)?;
     let (branch_deletions, branch_warnings, all_branches_deleted) =
         teardown_branches(&layout, &git, &feature, &worktree_removals);
+    warnings.extend(root_warnings);
     warnings.extend(branch_warnings);
 
     let complete_success = all_worktrees_removed && all_branches_deleted;
-
     if !complete_success {
         let apply_outcome = CleanupApplyOutcome {
             feature: feature.name.clone(),
@@ -177,7 +201,7 @@ fn apply_cleanup(
             worktrees: worktree_removals,
             branches: branch_deletions,
             feature_removed: false,
-            descendants: Vec::new(),
+            descendants: descendant_outcomes,
         };
         return Ok(Report::with_warnings(
             CleanupOutcome {
@@ -190,19 +214,8 @@ fn apply_cleanup(
     }
 
     // Complete success: remove feature directory, then update durable record outcome
-    fs::remove_path(&layout.feature_dir(&feature.name)).map_err(|source| {
-        Failure::failed(
-            "feature.cleanup_dir_failed",
-            format!("could not remove feature `{}`: {source}", feature.name),
-        )
-    })?;
+    remove_node_dir(&layout, &feature.name)?;
 
-    let db_path = layout.ivar_dir().join("memory.db");
-    if db_path.is_file()
-        && let Ok(db) = crate::store::graph::db::GraphDb::open(db_path.as_std_path())
-    {
-        let _ = db.drop_feature_layers(feature.name.as_str());
-    }
     let apply_outcome = CleanupApplyOutcome {
         feature: feature.name.clone(),
         branch: feature.branch,
@@ -210,23 +223,10 @@ fn apply_cleanup(
         worktrees: worktree_removals,
         branches: branch_deletions,
         feature_removed: true,
-        descendants: Vec::new(),
+        descendants: descendant_outcomes,
     };
 
-    let abs_record_path = if record_path.is_absolute() {
-        record_path.to_path_buf()
-    } else {
-        layout.root().join(record_path)
-    };
-    let mut record = record;
-    record.outcome = Some(apply_outcome.clone());
-    let record_json = json::to_canonical_string(&record)?;
-    fs::write_atomic(&abs_record_path, record_json.as_bytes()).map_err(|source| {
-        Failure::failed(
-            "feature.cleanup_record_write_failed",
-            format!("could not write cleanup outcome to record `{record_path}`: {source}"),
-        )
-    })?;
+    write_record_outcome(&layout, record, record_path, &apply_outcome)?;
 
     Ok(Report::with_warnings(
         CleanupOutcome {
@@ -236,6 +236,73 @@ fn apply_cleanup(
         },
         warnings,
     ))
+}
+
+fn teardown_descendants(
+    layout: &crate::store::layout::Layout,
+    git: &impl Git,
+    descendants: &[(Feature, WorktreeLookups)],
+) -> Result<(Vec<CleanupDescendantOutcome>, Vec<Warning>, bool), Failure> {
+    let mut warnings = Vec::new();
+    let mut descendant_outcomes = Vec::new();
+    for (node, node_worktrees) in descendants.iter().rev() {
+        let (worktrees, node_warnings, worktrees_removed) =
+            teardown_worktrees(layout, git, node, node_worktrees)?;
+        let (branches, branch_warnings, branches_deleted) =
+            teardown_branches(layout, git, node, &worktrees);
+        warnings.extend(node_warnings);
+        warnings.extend(branch_warnings);
+        let removed =
+            worktrees_removed && branches_deleted && remove_node_dir(layout, &node.name).is_ok();
+        descendant_outcomes.push(CleanupDescendantOutcome {
+            feature: node.name.clone(),
+            branch: node.branch.clone(),
+            worktrees,
+            branches,
+            feature_removed: removed,
+        });
+        if !removed {
+            return Ok((descendant_outcomes, warnings, false));
+        }
+    }
+    Ok((descendant_outcomes, warnings, true))
+}
+
+fn write_record_outcome(
+    layout: &crate::store::layout::Layout,
+    mut record: CleanupRecord,
+    record_path: &Utf8Path,
+    apply_outcome: &CleanupApplyOutcome,
+) -> Result<(), Failure> {
+    let abs_record_path = if record_path.is_absolute() {
+        record_path.to_path_buf()
+    } else {
+        layout.root().join(record_path)
+    };
+    record.outcome = Some(apply_outcome.clone());
+    let record_json = json::to_canonical_string(&record)?;
+    fs::write_atomic(&abs_record_path, record_json.as_bytes()).map_err(|source| {
+        Failure::failed(
+            "feature.cleanup_record_write_failed",
+            format!("could not write cleanup outcome to record `{record_path}`: {source}"),
+        )
+    })
+}
+
+fn remove_node_dir(layout: &crate::store::layout::Layout, name: &FeatureName) -> Result<(), Failure> {
+    fs::remove_path(&layout.feature_dir(name)).map_err(|source| {
+        Failure::failed(
+            "feature.cleanup_dir_failed",
+            format!("could not remove feature `{name}`: {source}"),
+        )
+    })?;
+    let db_path = layout.ivar_dir().join("memory.db");
+    if db_path.is_file()
+        && let Ok(db) = crate::store::graph::db::GraphDb::open(db_path.as_std_path())
+    {
+        let _ = db.drop_feature_layers(name.as_str());
+    }
+    Ok(())
 }
 
 fn load_and_validate_record(
@@ -366,7 +433,7 @@ fn validate_record_against_preview(
         ));
     }
 
-    if !preview.blockers.is_empty() {
+    if preview.has_blockers() {
         let command = format!("ivar feature cleanup {} --preview", preview.feature);
         return Err(Failure::blocked(
             "feature.cleanup_blocked",
@@ -390,44 +457,27 @@ fn validate_record_against_preview(
 fn preflight_deletable(
     layout: &crate::store::layout::Layout,
     feature: &Feature,
+    descendants: &[(Feature, WorktreeLookups)],
 ) -> Result<(), Failure> {
-    let descendants = relations::descendants(layout, &feature.name)?;
-    if !descendants.is_empty() {
-        let names = descendants
-            .iter()
-            .map(|descendant| descendant.name.to_string())
-            .collect::<Vec<_>>();
-        return Err(Failure::blocked(
-            "feature.has_descendants",
-            format!(
-                "cannot delete feature `{}`: it has {} descendant(s)",
-                feature.name,
-                descendants.len()
-            ),
-        )
-        .expected("every descendant to be deleted first")
-        .actual(format!("descendants: {}", names.join(", ")))
-        .fix(FixAction::safe(
-            "feature.delete_leaves_first",
-            "Delete the descendants first, leaves first.",
-        )));
+    let mut all_blockers = Vec::new();
+    all_blockers.extend(delete::collect_blockers(&layout.feature_dir(&feature.name)));
+    for (node, _) in descendants {
+        all_blockers.extend(delete::collect_blockers(&layout.feature_dir(&node.name)));
     }
-
-    let blockers = delete::collect_blockers(&layout.feature_dir(&feature.name));
-    if !blockers.is_empty() {
-        let details = serde_json::to_value(&blockers).unwrap_or(serde_json::Value::Null);
+    if !all_blockers.is_empty() {
+        let details = serde_json::to_value(&all_blockers).unwrap_or(serde_json::Value::Null);
         return Err(Failure::blocked(
             "feature.delete_blocked",
             format!(
                 "cannot clean up feature `{}`: {} path(s) under its directory are not removable",
                 feature.name,
-                blockers.len()
+                all_blockers.len()
             ),
         )
         .expected("every directory under the feature directory to be writable and searchable")
         .actual(format!(
             "{} path(s) could not be removed — see details for paths, modes, and owners",
-            blockers.len()
+            all_blockers.len()
         ))
         .fix(FixAction::safe(
             "feature.fix_permissions",
@@ -560,11 +610,73 @@ struct PreviewedCleanup {
     /// answer differently between the preview run and the apply run.
     forge_consulted: bool,
     worktrees: WorktreeLookups,
+    descendants: Vec<(Feature, WorktreeLookups)>,
 }
 
 /// Each promoted repo's worktree for the feature branch, looked up once per
 /// command; the error is kept as text so preview and apply can each report it.
 type WorktreeLookups = BTreeMap<RepoName, Result<Option<WorktreeEntry>, Failure>>;
+
+fn lookup_worktrees(
+    git: &impl Git,
+    layout: &crate::store::layout::Layout,
+    feature: &Feature,
+) -> WorktreeLookups {
+    feature
+        .promotions
+        .keys()
+        .map(|repo| {
+            let lookup =
+                git::lookup_worktree(git, &layout.repo_bare(repo), feature.branch.as_str())
+                    .map_err(|error| match error {
+                        git::Error::Fs(_) => Failure::from(error),
+                        _ => Failure::failed(
+                            "feature.cleanup_worktree_lookup_failed",
+                            error.to_string(),
+                        ),
+                    });
+            (repo.clone(), lookup)
+        })
+        .collect()
+}
+
+fn removal_paths(
+    layout: &crate::store::layout::Layout,
+    feature: &Feature,
+    repos: &[CleanupRepo],
+    worktrees: &WorktreeLookups,
+) -> Vec<Utf8PathBuf> {
+    let mut paths = Vec::new();
+    for repo in repos {
+        match worktrees.get(&repo.repo) {
+            Some(Ok(Some(entry))) => paths.push(entry.path.clone()),
+            _ if !layout.repo_bare(&repo.repo).is_dir() => {
+                paths.push(layout.repo_worktree(&repo.repo, &feature.branch));
+            }
+            _ => {}
+        }
+    }
+    paths.push(layout.feature_dir(&feature.name));
+    paths
+}
+
+fn live_sessions_of(
+    layout: &crate::store::layout::Layout,
+    name: &FeatureName,
+    own_session: Option<&str>,
+) -> (Vec<SessionId>, Option<String>) {
+    match session_lookup::list_feature(layout, name) {
+        Ok(sessions) => (
+            sessions
+                .into_iter()
+                .filter(|session| own_session != Some(session.id.as_str()))
+                .map(|session| session.id)
+                .collect(),
+            None,
+        ),
+        Err(error) => (Vec::new(), Some(error.to_string())),
+    }
+}
 
 fn preview_cleanup(
     git: &impl Git,
@@ -574,35 +686,14 @@ fn preview_cleanup(
     own_session: Option<&str>,
 ) -> Result<PreviewedCleanup, Failure> {
     let (live_sessions, session_inspection_error) =
-        match session_lookup::list_feature(layout, &feature.name) {
-            Ok(sessions) => (
-                sessions
-                    .into_iter()
-                    .map(|session| session.id)
-                    .filter(|id| Some(id.as_str()) != own_session)
-                    .collect(),
-                None,
-            ),
-            Err(error) => (Vec::new(), Some(error.to_string())),
-        };
-
-    let worktrees: std::collections::BTreeMap<RepoName, Result<Option<WorktreeEntry>, Failure>> =
-        feature
-            .promotions
-            .keys()
-            .map(|repo| {
-                let bare_path = layout.repo_bare(repo);
-                let entry = git::lookup_worktree(git, &bare_path, feature.branch.as_str())
-                    .map_err(Failure::from);
-                (repo.clone(), entry)
-            })
-            .collect();
+        live_sessions_of(layout, &feature.name, own_session);
+    let worktrees = lookup_worktrees(git, layout, feature);
     let repo_facts: Vec<_> = feature
         .promotions
         .iter()
         .map(|(repo, promotion)| {
             let worktree = worktrees.get(repo).unwrap_or(&Ok(None));
-            collect_repo_facts(git, layout, manifest, feature, repo, promotion, worktree)
+            collect_repo_facts(git, layout, manifest, feature, repo, promotion, worktree, true)
         })
         .collect();
     let facts = CleanupFacts {
@@ -616,17 +707,50 @@ fn preview_cleanup(
         .iter()
         .filter_map(cleanup_repo)
         .collect::<Vec<_>>();
-    let mut paths_to_remove = Vec::new();
-    for repo in &repos {
-        match worktrees.get(&repo.repo) {
-            Some(Ok(Some(entry))) => paths_to_remove.push(entry.path.clone()),
-            _ if !layout.repo_bare(&repo.repo).is_dir() => {
-                paths_to_remove.push(layout.repo_worktree(&repo.repo, &feature.branch));
-            }
-            _ => {}
-        }
+    let forge_consulted = facts.repos.iter().any(|repo| repo.forge_delivery.is_some());
+    let paths_to_remove = removal_paths(layout, feature, &repos, &worktrees);
+
+    let all = relations::read_all(layout)?;
+    let map = relations::build_feature_map(&all);
+    let mut descendants = Vec::new();
+    let mut descendant_worktrees = Vec::new();
+    for (depth, node) in relations::descendants_from_values(&map, &feature.name) {
+        let state = relations::feature_state_with_map(git, layout, manifest, &map, node)?;
+        let (live_sessions, session_inspection_error) =
+            live_sessions_of(layout, &node.name, own_session);
+        let node_worktrees = lookup_worktrees(git, layout, node);
+        let node_facts = CleanupDescendantFacts {
+            state,
+            repos: node
+                .promotions
+                .iter()
+                .map(|(repo, promotion)| {
+                    let worktree = node_worktrees.get(repo).unwrap_or(&Ok(None));
+                    collect_repo_facts(git, layout, manifest, node, repo, promotion, worktree, false)
+                })
+                .collect(),
+            live_sessions,
+            session_inspection_error,
+        };
+        let node_verdict = classify_descendant_cleanup(&node_facts);
+        let node_repos = node_facts
+            .repos
+            .iter()
+            .filter_map(cleanup_repo)
+            .collect::<Vec<_>>();
+        let node_paths = removal_paths(layout, node, &node_repos, &node_worktrees);
+        descendants.push(CleanupDescendant {
+            feature: node.name.clone(),
+            branch: node.branch.clone(),
+            depth,
+            parent: node.parent.clone().unwrap_or_else(|| feature.name.clone()),
+            state,
+            repos: node_repos,
+            blockers: node_verdict.blockers,
+            paths_to_remove: node_paths,
+        });
+        descendant_worktrees.push((node.clone(), node_worktrees));
     }
-    paths_to_remove.push(layout.feature_dir(&feature.name));
 
     let fingerprint = fingerprint_for(
         &feature.name,
@@ -634,9 +758,8 @@ fn preview_cleanup(
         &repos,
         &verdict.blockers,
         &paths_to_remove,
+        &descendants,
     )?;
-
-    let forge_consulted = facts.repos.iter().any(|repo| repo.forge_delivery.is_some());
 
     Ok(PreviewedCleanup {
         preview: CleanupPreview {
@@ -646,13 +769,15 @@ fn preview_cleanup(
             blockers: verdict.blockers,
             paths_to_remove,
             fingerprint,
-            descendants: Vec::new(),
+            descendants,
         },
         forge_consulted,
         worktrees,
+        descendants: descendant_worktrees,
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn collect_repo_facts(
     git: &impl Git,
     layout: &crate::store::layout::Layout,
@@ -661,6 +786,7 @@ fn collect_repo_facts(
     repo: &RepoName,
     promotion: &crate::domain::feature::Promotion,
     worktree_lookup: &Result<Option<WorktreeEntry>, Failure>,
+    consult_forge: bool,
 ) -> CleanupRepoFacts {
     let Some(manifest_repo) = manifest
         .repos()
@@ -690,9 +816,13 @@ fn collect_repo_facts(
                     None
                 }
             };
-            let forge_delivery = match (unmerged_commits, feature_head.as_deref()) {
-                (Some(1..), Some(head)) => Some(ask_forge(&bare, feature.branch.as_str(), head)),
-                _ => None,
+            let forge_delivery = if consult_forge {
+                match (unmerged_commits, feature_head.as_deref()) {
+                    (Some(1..), Some(head)) => Some(ask_forge(&bare, feature.branch.as_str(), head)),
+                    _ => None,
+                }
+            } else {
+                None
             };
             (
                 feature_head,
@@ -833,6 +963,7 @@ fn fingerprint_for(
     repos: &[CleanupRepo],
     blockers: &[CleanupBlocker],
     paths_to_remove: &[Utf8PathBuf],
+    descendants: &[CleanupDescendant],
 ) -> Result<String, Failure> {
     let preview = CleanupPreview {
         feature: feature.clone(),
@@ -841,7 +972,13 @@ fn fingerprint_for(
         blockers: blockers.iter().map(without_forge_detail).collect(),
         paths_to_remove: paths_to_remove.to_vec(),
         fingerprint: String::new(),
-        descendants: Vec::new(),
+        descendants: descendants
+            .iter()
+            .map(|node| CleanupDescendant {
+                blockers: node.blockers.iter().map(without_forge_detail).collect(),
+                ..node.clone()
+            })
+            .collect(),
     };
     Ok(hash::text(&json::to_canonical_string(&preview)?))
 }

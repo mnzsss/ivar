@@ -89,3 +89,59 @@ fn an_open_pull_request_keeps_the_blocker_and_names_the_forge_reason() {
         "the forge reason must name the pull request and its state, got: {forge}"
     );
 }
+
+#[test]
+fn a_parent_and_its_abandoned_subfeature_are_cleaned_up_with_one_record() {
+    let (guard, root) = hall_root();
+    setup_deliver_hall(&root);
+    let fake = FakeGh::install(&root);
+    let bare: Utf8PathBuf = root.join(".ivar/repos/api/.bare");
+    fake.set_existing_pr(&bare, "checkout", PR_URL, "main", "MERGED");
+    for args in [
+        &["feature", "create", "child", "--parent", "checkout"][..],
+        &["feature", "close", "child", "--outcome", "abandoned"][..],
+    ] {
+        ivar_on_github(&fake, &[]).current_dir(&root).args(args).assert().success();
+    }
+
+    // Preview the parent — verify child is listed in preview.descendants
+    let preview_output = ivar_on_github(&fake, &[])
+        .current_dir(&root)
+        .args(["feature", "cleanup", "checkout", "--preview", "--json"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let preview_val: serde_json::Value = serde_json::from_slice(&preview_output).unwrap();
+    let preview = &preview_val["preview"];
+    assert_eq!(preview["descendants"][0]["feature"], "child");
+
+    let fingerprint = preview["fingerprint"].as_str().unwrap();
+    let record_dir = root.join("docs/updates");
+    std::fs::create_dir_all(&record_dir).unwrap();
+    let record_path = record_dir.join("001-checkout.cleanup.json");
+    let record_json = serde_json::json!({
+        "schema_version": 1,
+        "feature": "checkout",
+        "branch": "checkout",
+        "fingerprint": fingerprint,
+        "approvals": {
+            "delivery": { "approved": true, "at": "2026-08-28T12:00:00Z" },
+            "documentation": { "decision": "not_required", "paths": [], "reason": "Internal refactor", "at": "2026-08-28T12:05:00Z" },
+            "teardown": { "approved": true, "at": "2026-08-28T12:10:00Z" }
+        },
+        "outcome": null
+    });
+    std::fs::write(&record_path, serde_json::to_string_pretty(&record_json).unwrap()).unwrap();
+    // Apply cleanup
+    ivar_on_github(&fake, &[])
+        .current_dir(&root)
+        .args(["feature", "cleanup", "checkout", "--record", "docs/updates/001-checkout.cleanup.json", "--json"])
+        .assert()
+        .success();
+
+    assert!(!root.join(".ivar/features/checkout").exists());
+    assert!(!root.join(".ivar/features/child").exists());
+    drop(guard);
+}
