@@ -68,8 +68,9 @@ pub enum FeatureCommand {
     /// removable, and preserves the feature record for retry if a teardown
     /// step fails.
     Delete(FeatureDeleteArgs),
-    /// Rebase every promoted repo's worktree onto its effective base. A dirty
-    /// worktree is skipped; a conflict is aborted and reported.
+    /// Rebase promoted repos' worktrees onto the remote tip of their base
+    /// (`--offline`: the local ref); `--repo` selects repos. A dirty worktree
+    /// is skipped; a conflict is aborted and reported.
     Rebase(FeatureRebaseArgs),
     /// Open an interactive multi-shell view over the feature's promoted
     /// repos — one shell per repo, each running in its worktree.

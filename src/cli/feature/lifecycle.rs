@@ -144,11 +144,19 @@ pub struct FeatureDeleteArgs {
 pub struct FeatureRebaseArgs {
     /// The feature to rebase.
     pub name: Option<String>,
-    /// Collapse the base: rebase every promoted repo onto this branch, and
+    /// Collapse the base: rebase every selected repo onto this branch, and
     /// record it as the declared base for each repo that lands there. The
     /// verb for once a feature's own base has landed.
     #[arg(long)]
     pub onto: Option<String>,
+    /// Rebase only this promoted repo; repeat to select several. Without
+    /// it every promoted repo is rebased.
+    #[arg(long = "repo", value_name = "REPO")]
+    pub repos: Vec<String>,
+    /// Make no network call: rebase onto the local base ref instead of the
+    /// remote tip `deliver` checks.
+    #[arg(long)]
+    pub offline: bool,
 }
 
 /// Arguments for `ivar feature view`.
@@ -300,10 +308,17 @@ impl From<FeatureDeleteArgs> for delete::DeleteInput {
 
 impl From<FeatureRebaseArgs> for rebase::RebaseInput {
     fn from(args: FeatureRebaseArgs) -> Self {
-        let FeatureRebaseArgs { name, onto } = args;
+        let FeatureRebaseArgs {
+            name,
+            onto,
+            repos,
+            offline,
+        } = args;
         Self {
             name: name.unwrap_or_default(),
             onto,
+            repos,
+            offline,
         }
     }
 }

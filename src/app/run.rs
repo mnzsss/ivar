@@ -579,6 +579,8 @@ pub fn run(cli: Cli) -> ExitCode {
                         rebase::RebaseInput {
                             name,
                             onto: args.onto,
+                            repos: args.repos,
+                            offline: args.offline,
                         },
                     ),
                     json,
@@ -593,6 +595,8 @@ pub fn run(cli: Cli) -> ExitCode {
                                 rebase::RebaseInput {
                                     name: f.to_owned(),
                                     onto: args.onto.clone(),
+                                    repos: args.repos.clone(),
+                                    offline: args.offline,
                                 },
                             )
                         });
