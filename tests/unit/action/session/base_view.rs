@@ -9,9 +9,16 @@
     clippy::indexing_slicing
 )]
 
+use camino::Utf8Path;
+
 use super::*;
-use crate::domain::name::RepoName;
-use crate::test_support::hall_root;
+use crate::action::Ctx;
+use crate::action::hall::{self, InitInput};
+use crate::domain::name::{HallName, RepoName};
+use crate::domain::provider::Provider;
+use crate::git::System;
+use crate::store::manifest::Providers;
+use crate::test_support::{git, hall_root, seeded_repo};
 
 /// A scratch hall layout: only `.ivar/features/*` and `.ivar/repos/*`
 /// directories are ever created under it by these resolver tests.
@@ -217,5 +224,215 @@ fn resolve_on_disk_falls_back_to_the_default_branch_without_a_base_worktree() {
             BaseView::Default,
             layout.root().join(".ivar/repos/api/main")
         )
+    );
+}
+
+/// A synced hall declaring `api` (default `main`). With `develop_at_sync`,
+/// the origin already has `develop` (at the seed commit) when the bare is
+/// cloned, so the bare holds a local — soon stale — `develop`.
+fn synced_hall(develop_at_sync: bool) -> (tempfile::TempDir, Layout, Utf8PathBuf) {
+    let (guard, root) = hall_root();
+    let ctx = Ctx::new(root.clone());
+    hall::init(
+        &ctx,
+        &InitInput {
+            path: Utf8PathBuf::from("."),
+            name: Some("acme".to_owned()),
+            provider: None,
+        },
+    )
+    .unwrap();
+    let origin = seeded_repo(&root.parent().unwrap().join("origins").join("api"), "main");
+    if develop_at_sync {
+        git(&origin, &["branch", "develop"]);
+    }
+    let layout = Layout::at(root.clone());
+    let manifest = Manifest::new(
+        HallName::new("acme").unwrap(),
+        Providers::new(vec![Provider::ClaudeCode], Provider::ClaudeCode),
+        vec![Repo::new(
+            RepoName::new("api").unwrap(),
+            origin.as_str(),
+            BranchName::new("main").unwrap(),
+        )],
+        None,
+    )
+    .unwrap();
+    Manifest::write(&layout, &manifest).unwrap();
+    crate::action::sync::sync(&ctx, &Default::default()).unwrap();
+    (guard, layout, origin)
+}
+
+/// Commit `BASE.md` = `content` on the origin's `develop` (creating the
+/// branch if needed) and return the new tip; the origin is left on `main`.
+fn advance_develop(origin: &Utf8Path, content: &str) -> String {
+    if System
+        .list_branches(origin)
+        .unwrap()
+        .iter()
+        .any(|b| b == "develop")
+    {
+        git(origin, &["checkout", "develop"]);
+    } else {
+        git(origin, &["checkout", "-b", "develop"]);
+    }
+    std::fs::write(origin.join("BASE.md"), content).unwrap();
+    git(origin, &["add", "BASE.md"]);
+    git(origin, &["commit", "-m", content.trim()]);
+    let tip = System.head_commit(origin).unwrap();
+    git(origin, &["checkout", "main"]);
+    tip
+}
+
+fn manifest_of(layout: &Layout) -> Manifest {
+    Manifest::read(layout).unwrap().unwrap()
+}
+
+fn codes(warnings: &[Warning]) -> Vec<&'static str> {
+    warnings.iter().map(|warning| warning.code).collect()
+}
+
+fn develop_worktree(layout: &Layout) -> Utf8PathBuf {
+    layout.root().join(".ivar/repos/api/develop")
+}
+
+/// The bare cloned `develop` at the seed commit; the origin moved on since.
+/// The new base worktree starts from the origin's tip, not the stale copy.
+#[test]
+fn prepare_creates_the_base_worktree_at_the_origins_tip() {
+    let (_guard, layout, origin) = synced_hall(true);
+    let tip = advance_develop(&origin, "v1\n");
+    let root = record(&layout, "checkout", Some("develop"), None, false);
+
+    let warnings = prepare(&System, &layout, &manifest_of(&layout), &root);
+
+    assert!(warnings.is_empty(), "{warnings:?}");
+    let base = develop_worktree(&layout);
+    assert_eq!(System.head_branch(&base).unwrap(), "develop");
+    assert_eq!(System.head_commit(&base).unwrap(), tip);
+    assert_eq!(
+        std::fs::read_to_string(base.join("BASE.md")).unwrap(),
+        "v1\n"
+    );
+}
+
+/// A base branch the origin gained after the hall was synced exists only as
+/// `refs/remotes/origin/develop` once fetched; the worktree tracks it.
+#[test]
+fn prepare_creates_a_base_worktree_for_a_branch_the_origin_gained_after_sync() {
+    let (_guard, layout, origin) = synced_hall(false);
+    let tip = advance_develop(&origin, "v1\n");
+    let root = record(&layout, "checkout", Some("develop"), None, false);
+
+    let warnings = prepare(&System, &layout, &manifest_of(&layout), &root);
+
+    assert!(warnings.is_empty(), "{warnings:?}");
+    let base = develop_worktree(&layout);
+    assert_eq!(System.head_branch(&base).unwrap(), "develop");
+    assert_eq!(System.head_commit(&base).unwrap(), tip);
+}
+
+#[test]
+fn prepare_fast_forwards_an_existing_base_worktree_through_its_guard() {
+    let (_guard, layout, origin) = synced_hall(true);
+    let root = record(&layout, "checkout", Some("develop"), None, false);
+    assert!(prepare(&System, &layout, &manifest_of(&layout), &root).is_empty());
+    let base = develop_worktree(&layout);
+    fs::clear_write_bits(&base).unwrap();
+    let tip = advance_develop(&origin, "v2\n");
+
+    let warnings = prepare(&System, &layout, &manifest_of(&layout), &root);
+
+    assert!(warnings.is_empty(), "{warnings:?}");
+    assert_eq!(System.head_commit(&base).unwrap(), tip);
+    assert_eq!(
+        std::fs::read_to_string(base.join("BASE.md")).unwrap(),
+        "v2\n"
+    );
+    assert_eq!(
+        fs::unix_mode(&base).unwrap().unwrap() & 0o222,
+        0,
+        "the read-only guard must be re-applied after the refresh"
+    );
+    fs::restore_write_bits(&base).unwrap();
+}
+
+#[test]
+fn prepare_warns_once_when_the_base_branch_does_not_exist() {
+    let (_guard, layout, _origin) = synced_hall(true);
+    let root = record(&layout, "checkout", Some("release"), None, false);
+
+    let warnings = prepare(&System, &layout, &manifest_of(&layout), &root);
+
+    assert_eq!(codes(&warnings), vec!["session.base_absent"]);
+    assert_eq!(warnings[0].subject, "api");
+    assert_eq!(
+        warnings[0].what,
+        "base `release` not found in `api`; using `main`"
+    );
+    assert!(!layout.root().join(".ivar/repos/api/release").exists());
+}
+
+/// Only an unpromoted repo viewed at an explicit base branch is prepared:
+/// a promoted repo, a default view and a parent view create nothing, and a
+/// parent worktree's mode is never touched.
+#[test]
+fn prepare_leaves_promoted_default_and_parent_views_alone() {
+    let (_guard, layout, _origin) = synced_hall(true);
+    let promoted = record(&layout, "promoted", Some("develop"), None, true);
+    let plain = record(&layout, "plain", None, None, false);
+    record(&layout, "parent", Some("develop"), None, true);
+    let parent_worktree = on_disk(&layout, "parent");
+    let parent_mode = fs::unix_mode(&parent_worktree).unwrap();
+    let child = record(&layout, "child", Some("parent"), Some("parent"), false);
+
+    for feature in [&promoted, &plain, &child] {
+        let warnings = prepare(&System, &layout, &manifest_of(&layout), feature);
+        assert!(warnings.is_empty(), "{}: {warnings:?}", feature.name);
+    }
+
+    assert!(!develop_worktree(&layout).exists());
+    assert_eq!(fs::unix_mode(&parent_worktree).unwrap(), parent_mode);
+}
+
+#[test]
+fn prepare_only_warns_when_the_remote_is_unreachable_for_an_existing_base() {
+    let (_guard, layout, _origin) = synced_hall(true);
+    let root = record(&layout, "checkout", Some("develop"), None, false);
+    assert!(prepare(&System, &layout, &manifest_of(&layout), &root).is_empty());
+    git(
+        &layout.repo_bare(api().name()),
+        &["remote", "set-url", "origin", "/nonexistent/origin"],
+    );
+
+    let warnings = prepare(&System, &layout, &manifest_of(&layout), &root);
+
+    assert_eq!(codes(&warnings), vec!["session.base_refresh_failed"]);
+    assert_eq!(warnings[0].subject, "api");
+    assert!(
+        warnings[0].what.contains("`develop`"),
+        "{}",
+        warnings[0].what
+    );
+    assert!(develop_worktree(&layout).is_dir());
+}
+
+/// Offline, a base branch the bare already holds is still checked out —
+/// from the local copy — with one warning for the failed fetch.
+#[test]
+fn prepare_creates_the_base_worktree_offline_from_the_local_branch() {
+    let (_guard, layout, _origin) = synced_hall(true);
+    git(
+        &layout.repo_bare(api().name()),
+        &["remote", "set-url", "origin", "/nonexistent/origin"],
+    );
+    let root = record(&layout, "checkout", Some("develop"), None, false);
+
+    let warnings = prepare(&System, &layout, &manifest_of(&layout), &root);
+
+    assert_eq!(codes(&warnings), vec!["session.base_refresh_failed"]);
+    assert_eq!(
+        System.head_branch(&develop_worktree(&layout)).unwrap(),
+        "develop"
     );
 }
