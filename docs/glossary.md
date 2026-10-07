@@ -47,12 +47,20 @@ records the provider that launched it.
 **View dir** — the per-session directory of symlinks, one per repo, pointing at
 the right worktree: the feature branch for promoted repos, the shared read-only
 default branch for the rest. A feature session's working documents live in its
-parent feature directory (), and the session carries a provider-native
-instruction file ( / ) with the hall's standing instructions
+parent feature directory (`../../`), and the session carries a provider-native
+instruction file (`CLAUDE.md` / `AGENTS.md`) with the hall's standing instructions
 plus a session bootstrap block telling the agent how to re-derive where the feature
-is in the SPDD cycle. At  for feature sessions,
- for discovery sessions. The instruction file is a per-session
+is in the SPDD cycle, followed by a `## Repository instructions` section pointing
+at each linked repo's own instruction file through the view dir. At
+`.ivar/features/<feature>/sessions/<id>/` for feature sessions,
+`.ivar/sessions/<id>/` for discovery sessions. The instruction file is a per-session
 view, never a copy: it dies with the view dir.
+
+**Repository instructions** — a linked repo's own `CLAUDE.md` / `AGENTS.md` files,
+at its root and in nested directories. `ivar` never copies them: the session's
+instruction file points at each repo's root file, and `ivar guard` delivers the
+files on the path of every tool call that touches the repo, once per agent, and
+again marked `UPDATED` when they change.
 
 **Provider** — the agent harness that runs inside a session: Claude Code or
 OpenCode. Chosen at `ivar init`, added later with `ivar provider add`, removed

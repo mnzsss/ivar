@@ -74,8 +74,12 @@ Aliases are never sources and never workflow edit targets.
 
 Session view dirs also carry a provider-native instruction file, but that file
 is **derived** from `HALL.md` (canonical content, plus the session bootstrap
-for feature sessions), lives in the ephemeral view dir, and is never
-committed.
+for feature sessions, plus a generated `## Repository instructions` section
+pointing at each linked repo's own instruction file), lives in the ephemeral
+view dir, and is never committed. Which repo instruction files each agent has
+already received is recorded under `<view>/<config dir>/ivar/instructions/`
+(`<agent>.json`, plus short-lived `<call>.ctx` and `<call>.ctx.lock` files for
+Claude Code's slices); that state is ephemeral too and dies with the view dir.
 
 The `ivar-*.md` workflow commands under each provider's command directory
 (`.claude/commands/`, `.opencode/commands/`, `.omp/commands/`), MCP documents
