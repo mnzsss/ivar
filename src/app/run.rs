@@ -492,37 +492,48 @@ pub fn run(cli: Cli) -> ExitCode {
                     Err(failure) => respond_failure(&failure, json, &mut stdout, &mut stderr),
                 },
             },
-            FeatureCommand::Delete(args) => match args.name {
-                Some(name) => respond(
-                    delete::delete(
-                        &ctx,
-                        delete::DeleteInput {
-                            name,
-                            force: args.force,
-                            descendants: delete::Descendants::Ask,
-                        },
+            FeatureCommand::Delete(args) => {
+                let descendants = if args.yes {
+                    delete::Descendants::Consented
+                } else {
+                    delete::Descendants::Ask
+                };
+                match args.name {
+                    Some(name) => respond(
+                        delete::delete(
+                            &ctx,
+                            delete::DeleteInput {
+                                name,
+                                force: args.force,
+                                descendants,
+                            },
+                        ),
+                        json,
+                        &mut stdout,
+                        &mut stderr,
                     ),
-                    json,
-                    &mut stdout,
-                    &mut stderr,
-                ),
-                None => match resolve_multi_features(&ctx, None, "Select features to delete") {
-                    Ok(targets) => {
-                        let items = run_feature_batch(&targets, 4, |f| {
-                            delete::delete(
-                                &ctx,
-                                delete::DeleteInput {
-                                    name: f.to_owned(),
-                                    force: args.force,
-                                    descendants: delete::Descendants::Ask,
-                                },
-                            )
-                        });
-                        respond_batch(items, json, &mut stdout, &mut stderr)
-                    }
-                    Err(failure) => respond_failure(&failure, json, &mut stdout, &mut stderr),
-                },
-            },
+                    None => match resolve_multi_features(&ctx, None, "Select features to delete") {
+                        Ok(targets) => match delete::fold_into_ancestors(&ctx, &targets) {
+                            Ok(roots) => {
+                                // Sequential batch execution (batch size 1) to avoid concurrent prompts or races
+                                let items = run_feature_batch(&roots, 1, |f| {
+                                    delete::delete(
+                                        &ctx,
+                                        delete::DeleteInput {
+                                            name: f.to_owned(),
+                                            force: args.force,
+                                            descendants,
+                                        },
+                                    )
+                                });
+                                respond_batch(items, json, &mut stdout, &mut stderr)
+                            }
+                            Err(failure) => respond_failure(&failure, json, &mut stdout, &mut stderr),
+                        },
+                        Err(failure) => respond_failure(&failure, json, &mut stdout, &mut stderr),
+                    },
+                }
+            }
             FeatureCommand::Cleanup(args) => {
                 let input = |feature: String| cleanup::CleanupInput {
                     feature,

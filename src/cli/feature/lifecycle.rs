@@ -137,6 +137,9 @@ pub struct FeatureDeleteArgs {
     /// in a promoted worktree, discarding them.
     #[arg(long)]
     pub force: bool,
+    /// Consent to deleting the feature together with every subfeature, without asking.
+    #[arg(long)]
+    pub yes: bool,
 }
 
 /// Arguments for `ivar feature rebase`.
@@ -298,11 +301,15 @@ impl From<FeatureCloseArgs> for close::CloseInput {
 
 impl From<FeatureDeleteArgs> for delete::DeleteInput {
     fn from(args: FeatureDeleteArgs) -> Self {
-        let FeatureDeleteArgs { name, force } = args;
+        let FeatureDeleteArgs { name, force, yes } = args;
         Self {
             name: name.unwrap_or_default(),
             force,
-            descendants: delete::Descendants::Ask,
+            descendants: if yes {
+                delete::Descendants::Consented
+            } else {
+                delete::Descendants::Ask
+            },
         }
     }
 }
