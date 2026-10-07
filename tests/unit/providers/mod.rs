@@ -1,6 +1,7 @@
 // tests/unit/providers/mod.rs
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
+use crate::domain::guard::GuardDecision;
 use crate::domain::provider::Provider;
 use crate::providers::{self, Capabilities};
 
@@ -463,5 +464,31 @@ fn omp_and_opencode_parse_without_agent_leave_it_none() {
         let json = r#"{"tool": "read", "args": {"path": "/v/x"}, "cwd": "/v"}"#;
         let (req, _cwd) = providers::parse_tool_request(provider, json).unwrap();
         assert_eq!(req.agent, None, "{provider:?}");
+    }
+}
+
+#[test]
+fn omp_and_opencode_allow_body_is_the_context_and_deny_ignores_it() {
+    for provider in [Provider::Omp, Provider::OpenCode] {
+        let allow = providers::render_decision(provider, &GuardDecision::Allow, Some("ctx"));
+        assert!(allow.exit_zero, "{provider:?}");
+        assert_eq!(allow.body, "ctx", "{provider:?}");
+
+        let none = providers::render_decision(provider, &GuardDecision::Allow, None);
+        assert_eq!(none.body, "", "{provider:?}");
+
+        let deny = providers::render_decision(
+            provider,
+            &GuardDecision::Deny {
+                reason: "writable set: /v".to_owned(),
+            },
+            Some("ctx"),
+        );
+        assert!(!deny.exit_zero, "{provider:?}");
+        assert_eq!(deny.body, "writable set: /v", "{provider:?}");
+
+        let slice = providers::render_context(provider, Some("ctx"));
+        assert!(slice.exit_zero, "{provider:?}");
+        assert_eq!(slice.body, "ctx", "{provider:?}");
     }
 }

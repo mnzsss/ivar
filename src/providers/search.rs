@@ -83,10 +83,6 @@ fn first_commands(command: &str) -> Vec<&str> {
 
 /// Every command in `command`, including the ones after a `|`, split on
 /// operators outside quotes. Stops at the end of a line that opens a heredoc.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "unused outside tests until the guard calls it")
-)]
 pub(crate) fn command_segments(command: &str) -> Vec<&str> {
     segments(command, true)
 }

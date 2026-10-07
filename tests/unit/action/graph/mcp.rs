@@ -1278,7 +1278,7 @@ fn a_grep_after_an_mcp_explore_in_the_same_session_is_a_followup_carrying_the_qu
         "tool_input": { "pattern": "fn main" },
         "cwd": view_dir,
     });
-    crate::action::session::guard::guard(Provider::ClaudeCode, &hook.to_string()).unwrap();
+    crate::action::session::guard::guard(Provider::ClaudeCode, &hook.to_string(), None).unwrap();
 
     let misses = db.list_misses(&MissFilter::default()).unwrap();
     assert_eq!(misses.len(), 1, "{misses:?}");

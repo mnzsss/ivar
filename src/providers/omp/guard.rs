@@ -45,10 +45,11 @@ pub(crate) fn parse_tool_request(
 /// non-zero with the bare reason on stdout — the same shape OpenCode uses.
 /// A JSON `{"block":true}` body with exit 0 would be silently ignored: the
 /// hook would never enter its `catch`, and every denied write would proceed.
-pub(crate) fn render_decision(decision: &GuardDecision) -> GuardOutcome {
+/// On allow, stdout is the repository instructions (empty when none).
+pub(crate) fn render_decision(decision: &GuardDecision, context: Option<&str>) -> GuardOutcome {
     match decision {
         GuardDecision::Allow => GuardOutcome {
-            body: String::new(),
+            body: context.unwrap_or_default().to_owned(),
             exit_zero: true,
         },
         GuardDecision::Deny { reason } => GuardOutcome {

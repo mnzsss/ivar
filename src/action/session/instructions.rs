@@ -3,10 +3,6 @@
 //! Pure over the filesystem: paths are joined lexically and never
 //! canonicalised, so the view dir's repo symlink decides which branch's file
 //! is read.
-#![cfg_attr(
-    not(test),
-    expect(dead_code, reason = "unused outside tests until the guard calls it")
-)]
 
 use std::collections::BTreeMap;
 use std::time::{Duration, SystemTime};

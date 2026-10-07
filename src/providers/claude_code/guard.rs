@@ -41,18 +41,42 @@ pub(crate) fn parse_tool_request(
     Ok((req, input.cwd))
 }
 
-pub(crate) fn render_decision(decision: &GuardDecision) -> GuardOutcome {
-    let (perm, reason): (String, String) = match decision {
-        GuardDecision::Allow => ("allow".into(), String::new()),
-        GuardDecision::Deny { reason } => ("deny".into(), reason.clone()),
+/// Claude reads the decision from JSON and always exits 0. Repository
+/// instructions ride on an allow as `additionalContext`; a deny never
+/// carries them.
+pub(crate) fn render_decision(decision: &GuardDecision, context: Option<&str>) -> GuardOutcome {
+    let (perm, reason, context): (&str, &str, Option<&str>) = match decision {
+        GuardDecision::Allow => ("allow", "", context),
+        GuardDecision::Deny { reason } => ("deny", reason.as_str(), None),
     };
-    let body = serde_json::json!({
-        "hookSpecificOutput": {
-            "hookEventName": "PreToolUse",
-            "permissionDecision": perm,
-            "permissionDecisionReason": reason,
-        }
+    let mut output = serde_json::json!({
+        "hookEventName": "PreToolUse",
+        "permissionDecision": perm,
+        "permissionDecisionReason": reason,
     });
+    if let Some(context) = context
+        && let Some(fields) = output.as_object_mut()
+    {
+        fields.insert("additionalContext".to_owned(), context.into());
+    }
+    GuardOutcome {
+        body: serde_json::json!({ "hookSpecificOutput": output }).to_string(),
+        exit_zero: true,
+    }
+}
+
+/// The extra `--slice` hook entries: context only, never a
+/// `permissionDecision`, so the guard entry's deny still blocks the call.
+pub(crate) fn render_context(context: Option<&str>) -> GuardOutcome {
+    let body = match context {
+        Some(context) => serde_json::json!({
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "additionalContext": context,
+            }
+        }),
+        None => serde_json::json!({}),
+    };
     GuardOutcome {
         body: body.to_string(),
         exit_zero: true,

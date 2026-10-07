@@ -36,10 +36,10 @@ pub(crate) fn parse_tool_request(
     Ok((req, input.cwd))
 }
 
-pub(crate) fn render_decision(decision: &GuardDecision) -> GuardOutcome {
+pub(crate) fn render_decision(decision: &GuardDecision, context: Option<&str>) -> GuardOutcome {
     match decision {
         GuardDecision::Allow => GuardOutcome {
-            body: String::new(),
+            body: context.unwrap_or_default().to_owned(),
             exit_zero: true,
         },
         GuardDecision::Deny { reason } => GuardOutcome {

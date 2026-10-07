@@ -1,4 +1,4 @@
-#![allow(clippy::unwrap_used)]
+#![allow(clippy::unwrap_used, clippy::indexing_slicing)]
 
 use super::*;
 
@@ -79,4 +79,62 @@ fn parse_tool_request_without_ids_leaves_them_none() {
     assert_eq!(req.agent, None);
     assert_eq!(req.call_id, None);
     assert_eq!(req.input, serde_json::json!({"file_path": "/tmp/x.rs"}));
+}
+
+#[test]
+fn render_decision_puts_context_beside_an_allow() {
+    let out = render_decision(
+        &GuardDecision::Allow,
+        Some("Repository instructions from /v/api/CLAUDE.md"),
+    );
+    assert!(out.exit_zero);
+    let body: serde_json::Value = serde_json::from_str(&out.body).unwrap();
+    assert_eq!(body["hookSpecificOutput"]["permissionDecision"], "allow");
+    assert_eq!(
+        body["hookSpecificOutput"]["additionalContext"],
+        "Repository instructions from /v/api/CLAUDE.md"
+    );
+}
+
+#[test]
+fn render_decision_never_puts_context_on_a_deny() {
+    let deny = GuardDecision::Deny {
+        reason: "writable set: /v".to_owned(),
+    };
+    let body: serde_json::Value =
+        serde_json::from_str(&render_decision(&deny, Some("ctx")).body).unwrap();
+    assert_eq!(body["hookSpecificOutput"]["permissionDecision"], "deny");
+    assert!(
+        body["hookSpecificOutput"]
+            .get("additionalContext")
+            .is_none(),
+        "{body}"
+    );
+}
+
+#[test]
+fn render_decision_without_context_omits_the_key() {
+    let body: serde_json::Value =
+        serde_json::from_str(&render_decision(&GuardDecision::Allow, None).body).unwrap();
+    assert!(
+        body["hookSpecificOutput"]
+            .get("additionalContext")
+            .is_none(),
+        "{body}"
+    );
+}
+
+#[test]
+fn render_context_carries_no_permission_decision() {
+    let out = render_context(Some("ctx"));
+    assert!(out.exit_zero);
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&out.body).unwrap(),
+        serde_json::json!({
+            "hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": "ctx"}
+        })
+    );
+    let empty = render_context(None);
+    assert!(empty.exit_zero);
+    assert_eq!(empty.body, "{}");
 }

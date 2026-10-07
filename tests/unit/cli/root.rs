@@ -1086,3 +1086,36 @@ fn upgrade_parses_with_and_without_check() {
         other => panic!("expected Upgrade, got {other:?}"),
     }
 }
+
+#[test]
+fn guard_takes_a_hidden_slice_for_claude_code_only() {
+    let cli = Cli::try_parse_from(["ivar", "guard", "--provider", "claude-code", "--slice", "2"])
+        .unwrap();
+    let Command::Guard(args) = cli.command else {
+        panic!("expected the guard command");
+    };
+    let input = guard_cmd::GuardInput::try_from(args).unwrap();
+    // `cli` may import only `action` (tests/architecture.rs), so compare by Debug name.
+    assert_eq!(format!("{:?}", input.provider), "ClaudeCode");
+    assert_eq!(input.slice, Some(2));
+
+    let cli = Cli::try_parse_from(["ivar", "guard", "--provider", "omp", "--slice", "1"]).unwrap();
+    let Command::Guard(args) = cli.command else {
+        panic!("expected the guard command");
+    };
+    assert!(guard_cmd::GuardInput::try_from(args).is_err());
+
+    let cli = Cli::try_parse_from(["ivar", "guard", "--provider", "omp"]).unwrap();
+    let Command::Guard(args) = cli.command else {
+        panic!("expected the guard command");
+    };
+    assert_eq!(guard_cmd::GuardInput::try_from(args).unwrap().slice, None);
+
+    let mut root = Cli::command();
+    let help = root
+        .find_subcommand_mut("guard")
+        .unwrap()
+        .render_long_help()
+        .to_string();
+    assert!(!help.contains("--slice"), "{help}");
+}
