@@ -39,10 +39,10 @@ mod diagnosis;
 
 use std::io;
 
-use camino::Utf8PathBuf;
+use camino::{Utf8Path, Utf8PathBuf};
 use serde::Serialize;
 
-use crate::domain::name::RepoName;
+use crate::domain::name::{BranchName, RepoName};
 use crate::error::{Failure, FixAction, Outcome, Report, Warning, WriteHuman};
 use crate::git::{self, Divergence, Git, TargetState};
 use crate::infra::fs;
@@ -305,64 +305,101 @@ pub(crate) fn refresh_default(
 ) -> PullStatus {
     let worktree = layout.repo_worktree(repo.name(), repo.default_branch());
 
-    match git.target_state(&worktree) {
-        Ok(TargetState::Repository) => {}
-        Ok(_) => {
-            return PullStatus::Failed {
-                reason: "no default-branch worktree; run `ivar sync`".to_owned(),
-            };
-        }
-        Err(error) => {
-            return PullStatus::Failed {
-                reason: error.to_string(),
-            };
-        }
-    }
-
-    // Lift the read-only guard (if any) for the git mutation below. Held as a
-    // value: the re-guard happens on drop, so no path out of the match below
-    // can leave the worktree writable.
-    let _guard = match fs::LiftedGuard::lift(&[&worktree]) {
+    let _guard = match lift_and_fetch(git, &worktree, repo.default_branch(), || {
+        "no default-branch worktree; run `ivar sync`".to_owned()
+    }) {
         Ok(guard) => guard,
-        Err(failure) => {
-            return PullStatus::Failed {
-                reason: failure.what,
-            };
-        }
+        Err(status) => return status,
     };
 
-    match git.fetch_branch(&worktree, repo.default_branch().as_str()) {
-        Err(error) => PullStatus::Failed {
-            reason: error.to_string(),
-        },
-        Ok(()) => match git.fast_forward(&worktree) {
-            Ok(()) => PullStatus::Refreshed,
-            Err(error) => {
-                let reason = format!("cannot fast-forward the default branch: {error}");
-                let divergence = if diagnose || resolve {
-                    diagnose_divergence(git, &worktree, repo)
-                } else {
-                    None
-                };
-                // Only `--resolve` gets the named blocker: it is the run that
-                // tried to act and declined, so it is the run that owes an
-                // explanation. A plain pull never offered to fix anything, and
-                // its callers already assert git's own wording.
-                match resolve.then(|| safe_to_reset(git, &worktree, repo)) {
-                    None => PullStatus::Skipped { reason, divergence },
-                    Some(Ok(())) => match git.reset_hard(&worktree, &remote_ref(repo)) {
-                        Ok(()) => PullStatus::Resolved,
-                        Err(reset_error) => PullStatus::Skipped {
-                            reason: format!("{reason}; and could not resolve: {reset_error}"),
-                            divergence,
-                        },
-                    },
-                    Some(Err(blocker)) => PullStatus::Skipped {
-                        reason: blocker.reason().to_owned(),
+    match git.fast_forward(&worktree) {
+        Ok(()) => PullStatus::Refreshed,
+        Err(error) => {
+            let reason = format!("cannot fast-forward the default branch: {error}");
+            let divergence = if diagnose || resolve {
+                diagnose_divergence(git, &worktree, repo)
+            } else {
+                None
+            };
+            // Only `--resolve` gets the named blocker: it is the run that
+            // tried to act and declined, so it is the run that owes an
+            // explanation. A plain pull never offered to fix anything, and
+            // its callers already assert git's own wording.
+            match resolve.then(|| safe_to_reset(git, &worktree, repo)) {
+                None => PullStatus::Skipped { reason, divergence },
+                Some(Ok(())) => match git.reset_hard(&worktree, &remote_ref(repo)) {
+                    Ok(()) => PullStatus::Resolved,
+                    Err(reset_error) => PullStatus::Skipped {
+                        reason: format!("{reason}; and could not resolve: {reset_error}"),
                         divergence,
                     },
-                }
+                },
+                Some(Err(blocker)) => PullStatus::Skipped {
+                    reason: blocker.reason().to_owned(),
+                    divergence,
+                },
             }
+        }
+    }
+}
+
+/// The part of a worktree refresh both refreshers share: check `worktree` is
+/// a repository (`missing` names the caller's own reason when it is not),
+/// lift its read-only guard, and fetch `branch` into it.
+///
+/// Returns the lifted guard on success: the caller holds it across its
+/// fast-forward, and dropping it re-applies the guard on every path.
+fn lift_and_fetch(
+    git: &impl Git,
+    worktree: &Utf8Path,
+    branch: &BranchName,
+    missing: impl FnOnce() -> String,
+) -> Result<fs::LiftedGuard, PullStatus> {
+    match git.target_state(worktree) {
+        Ok(TargetState::Repository) => {}
+        Ok(_) => return Err(PullStatus::Failed { reason: missing() }),
+        Err(error) => {
+            return Err(PullStatus::Failed {
+                reason: error.to_string(),
+            });
+        }
+    }
+    // Lift the read-only guard (if any) for the git mutation that follows.
+    // Returned as a value: the re-guard happens on drop, so no path out of
+    // the caller can leave the worktree writable.
+    let guard = fs::LiftedGuard::lift(&[worktree]).map_err(|failure| PullStatus::Failed {
+        reason: failure.what,
+    })?;
+    git.fetch_branch(worktree, branch.as_str())
+        .map_err(|error| PullStatus::Failed {
+            reason: error.to_string(),
+        })?;
+    Ok(guard)
+}
+
+/// Fetch-and-fast-forward the worktree at `worktree`, checked out on
+/// `branch` — the refresh of a read-only base worktree a feature session
+/// views (`session::base_view::prepare`).
+///
+/// Same lift/fetch/fast-forward as [`refresh_default`], without its
+/// `--diagnose`/`--resolve` handling: a base branch that cannot
+/// fast-forward is reported, never reconciled.
+pub(crate) fn refresh_worktree(
+    git: &impl Git,
+    worktree: &Utf8Path,
+    branch: &BranchName,
+) -> PullStatus {
+    let _guard = match lift_and_fetch(git, worktree, branch, || {
+        format!("no worktree at `{worktree}`")
+    }) {
+        Ok(guard) => guard,
+        Err(status) => return status,
+    };
+    match git.fast_forward(worktree) {
+        Ok(()) => PullStatus::Refreshed,
+        Err(error) => PullStatus::Skipped {
+            reason: format!("cannot fast-forward `{branch}`: {error}"),
+            divergence: None,
         },
     }
 }
