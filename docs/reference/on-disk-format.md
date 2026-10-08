@@ -435,16 +435,28 @@ the audit.
 
 ### Claude approval boundary
 
-When Ivar launches a Claude Code session (for `session start` and
-`session start --resume`), it passes `--settings` with an inline
-`{"enabledMcpjsonServers":[…]}` list. That list contains **exactly** the
-hall-qualified names of the MCP servers declared by that hall's manifest —
-sorted and derived only from the manifest, rebuilt on every launch. Ivar never
-writes a settings file, never modifies a global or project Claude Code config,
-and never enables `enableAllProjectMcpServers`. A server not present in the
-manifest is never on the allowlist, so it is not approved. When a hall declares
-no MCP servers, the list is present but empty —
-`{"enabledMcpjsonServers":[]}` — granting approval to nothing.
+Claude Code asks before it starts a server from a project's `.mcp.json`.
+Ivar approves exactly the servers it materialised there — the hall-qualified
+names of the MCP servers the manifest declares, sorted and derived only from
+the manifest — through two paths:
+
+- **The hall's `.claude/settings.json`.** `ivar sync` writes those names into
+  `enabledMcpjsonServers`, so `claude` started directly in the hall (outside
+  `ivar session start`) does not prompt for them. Ivar owns only the entries
+  named `<hall>-…`: every other entry is yours and is kept, entries for
+  servers no longer declared are dropped, and the key is removed when nothing
+  is left in it. Removing Claude Code from the hall strips the `<hall>-…`
+  entries the same way. Claude Code honours this key only in a workspace you
+  have trusted.
+- **The launch flag.** When Ivar launches a Claude Code session (for
+  `session start` and `session start --resume`), it also passes `--settings`
+  with an inline `{"enabledMcpjsonServers":[…]}` list holding the same
+  names, rebuilt on every launch. When a hall declares no MCP servers, the
+  list is present but empty — `{"enabledMcpjsonServers":[]}`.
+
+Ivar never modifies a global Claude Code config and never enables
+`enableAllProjectMcpServers`. A server not present in the manifest is never
+approved by Ivar.
 
 `session connect` and `session relay` create or re-bind a session without
-launching a provider, so no Claude Code approval is granted by either path.
+launching a provider, so neither passes the launch flag.
