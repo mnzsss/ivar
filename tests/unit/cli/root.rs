@@ -1,6 +1,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use clap::CommandFactory as _;
+use rstest::rstest;
 
 use super::*;
 use crate::action::upgrade::command::UpgradeInput;
@@ -108,6 +109,39 @@ fn cli_definition_is_valid() {
     Cli::command().debug_assert();
 }
 
+#[rstest]
+#[case::git_credential_get(&["ivar", "git-credential", "get"], |command: &Command| matches!(command, Command::GitCredential(args) if args.operation.as_deref() == Some("get")))]
+#[case::git_credential_store(&["ivar", "git-credential", "store"], |command: &Command| matches!(command, Command::GitCredential(args) if args.operation.as_deref() == Some("store")))]
+#[case::git_credential_erase(&["ivar", "git-credential", "erase"], |command: &Command| matches!(command, Command::GitCredential(args) if args.operation.as_deref() == Some("erase")))]
+// gitcredentials(7): the helper must ignore an operation it does not implement, so clap must not reject it first.
+#[case::git_credential_unknown_operation(&["ivar", "git-credential", "capability"], |command: &Command| matches!(command, Command::GitCredential(args) if args.operation.as_deref() == Some("capability")))]
+#[case::feature_create_base(&["ivar", "feature", "create", "checkout", "--base", "develop"], |command: &Command| matches!(command, Command::Feature(FeatureCommand::Create(args)) if args.base.as_deref() == Some("develop")))]
+#[case::feature_create_parent_via_strategy(&["ivar", "feature", "create", "child", "--parent", "parent", "--via", "pr", "--strategy", "rebase"], |command: &Command| matches!(command, Command::Feature(FeatureCommand::Create(args)) if args.parent.as_deref() == Some("parent") && args.via.as_deref() == Some("pr") && args.strategy.as_deref() == Some("rebase")))]
+#[case::feature_reparent_child_and_parent(&["ivar", "feature", "reparent", "child", "--parent", "new-parent"], |command: &Command| matches!(command, Command::Feature(FeatureCommand::Reparent(args)) if args.child.as_deref() == Some("child") && args.parent == "new-parent"))]
+#[case::feature_status_recursive(&["ivar", "feature", "status", "parent", "--recursive"], |command: &Command| matches!(command, Command::Feature(FeatureCommand::Status(args)) if args.recursive))]
+#[case::feature_integrate_via_strategy(&["ivar", "feature", "integrate", "child", "--via", "pr", "--strategy", "rebase"], |command: &Command| matches!(command, Command::Feature(FeatureCommand::Integrate(args)) if args.feature.as_deref() == Some("child") && args.via.as_deref() == Some("pr") && args.strategy.as_deref() == Some("rebase")))]
+#[case::feature_rebase_onto(&["ivar", "feature", "rebase", "checkout", "--onto", "main"], |command: &Command| matches!(command, Command::Feature(FeatureCommand::Rebase(args)) if args.onto.as_deref() == Some("main")))]
+#[case::feature_deliver_global_draft(&["ivar", "feature", "deliver", "checkout", "--draft"], |command: &Command| matches!(command, Command::Feature(FeatureCommand::Deliver(args)) if args.global_metadata.draft == Some(true)))]
+#[case::session_sandbox_trailing_argv(&["ivar", "session", "sandbox", "--session", "6f0c9d5f-0000-4000-8000-000000000000", "--", "claude", "--resume"], |command: &Command| matches!(command, Command::Session(SessionCommand::Sandbox(args)) if args.session == "6f0c9d5f-0000-4000-8000-000000000000" && args.command == ["claude", "--resume"]))]
+#[case::session_relay_without_feature(&["ivar", "session", "relay", "--provider", "claude-code"], |command: &Command| matches!(command, Command::Session(SessionCommand::Relay(args)) if args.feature.is_none() && args.provider == "claude-code"))]
+#[case::session_relay_with_feature(&["ivar", "session", "relay", "feat-a", "--provider", "claude-code"], |command: &Command| matches!(command, Command::Session(SessionCommand::Relay(args)) if args.feature.as_deref() == Some("feat-a") && args.provider == "claude-code"))]
+#[case::review_comment_add(&["ivar", "review", "comment", "add", "checkout", "--repo", "api", "--file", "src/lib.rs", "--lines", "3-5", "--body", "- rename this"], |command: &Command| matches!(command, Command::Review(ReviewCommand::Comment(CommentCommand::Add(args))) if args.feature.as_deref() == Some("checkout") && args.lines == "3-5" && args.body == "- rename this"))]
+#[case::review_comment_resolve_without_feature(&["ivar", "review", "comment", "resolve", "c1"], |command: &Command| matches!(command, Command::Review(ReviewCommand::Comment(CommentCommand::Resolve(args))) if args.feature.is_none() && args.id == "c1"))]
+#[case::execute_finish_without_plan(&["ivar", "feature", "execute", "finish", "checkout", "--report-json", "r.json", "--outcome", "succeeded"], |command: &Command| matches!(command, Command::Feature(FeatureCommand::Execute(ExecuteCommand::Finish(args))) if args.plan.is_none()))]
+#[case::execute_accept_revision_without_plan(&["ivar", "feature", "execute", "accept-revision", "checkout"], |command: &Command| matches!(command, Command::Feature(FeatureCommand::Execute(ExecuteCommand::AcceptRevision(args))) if args.plan.is_none()))]
+#[case::execute_status_with_plan(&["ivar", "feature", "execute", "status", "checkout", "--plan", "custom/plan.md"], |command: &Command| matches!(command, Command::Feature(FeatureCommand::Execute(ExecuteCommand::Status(args))) if args.plan.as_deref() == Some("custom/plan.md")))]
+#[case::mcp_status_flags(&["ivar", "mcp", "status", "figma", "--provider", "claude-code", "--live"], |command: &Command| matches!(command, Command::Mcp(McpCommand::Status(args)) if args.server.as_deref() == Some("figma") && args.provider.as_deref() == Some("claude-code") && args.live))]
+#[case::mcp_status_defaults(&["ivar", "mcp", "status"], |command: &Command| matches!(command, Command::Mcp(McpCommand::Status(args)) if args.server.is_none() && args.provider.is_none() && !args.live))]
+fn cli_parses_argv_into_command(#[case] argv: &[&str], #[case] expected: fn(&Command) -> bool) {
+    let cli = Cli::try_parse_from(argv).unwrap_or_else(|error| panic!("{argv:?} refused: {error}"));
+
+    assert!(
+        expected(&cli.command),
+        "{argv:?} parsed as {:?}",
+        cli.command
+    );
+}
+
 #[test]
 fn execute_status_rejects_history_with_a_specific_run() {
     let error = Cli::try_parse_from([
@@ -182,69 +216,6 @@ fn color_mode_maps_to_the_override_colour_expects() {
     assert_eq!(ColorMode::Never.as_override(), Some(false));
 }
 
-/// git appends the operation it wants to the helper command line: the
-/// registered `!ivar git-credential` is invoked as `ivar git-credential get`,
-/// `… store`, `… erase`. A definition that takes no operand makes clap refuse
-/// every one of them, and the refusal lands in the middle of a `git push`.
-#[test]
-fn git_credential_accepts_the_operation_git_appends() {
-    for operation in ["get", "store", "erase"] {
-        let cli = Cli::try_parse_from(["ivar", "git-credential", operation])
-            .unwrap_or_else(|error| panic!("git-credential {operation} refused: {error}"));
-
-        match cli.command {
-            Command::GitCredential(args) => {
-                assert_eq!(args.operation.as_deref(), Some(operation));
-            }
-            other => panic!("expected GitCredential, got {other:?}"),
-        }
-    }
-}
-
-/// `--base` names the branch new promotions should start from; omitted, it
-/// stays `None` and each repo's own default branch stands in.
-#[test]
-fn feature_create_accepts_base() {
-    let cli = Cli::try_parse_from(["ivar", "feature", "create", "checkout", "--base", "develop"])
-        .unwrap();
-
-    match cli.command {
-        Command::Feature(FeatureCommand::Create(args)) => {
-            assert_eq!(args.base.as_deref(), Some("develop"));
-        }
-        other => panic!("expected Feature(Create), got {other:?}"),
-    }
-}
-
-/// A subfeature is created with `--parent`, which derives the base from the
-/// parent's branch; `--via`/`--strategy` persist the feature's own policy
-/// override.
-#[test]
-fn feature_create_accepts_parent_via_and_strategy() {
-    let cli = Cli::try_parse_from([
-        "ivar",
-        "feature",
-        "create",
-        "child",
-        "--parent",
-        "parent",
-        "--via",
-        "pr",
-        "--strategy",
-        "rebase",
-    ])
-    .unwrap();
-
-    match cli.command {
-        Command::Feature(FeatureCommand::Create(args)) => {
-            assert_eq!(args.parent.as_deref(), Some("parent"));
-            assert_eq!(args.via.as_deref(), Some("pr"));
-            assert_eq!(args.strategy.as_deref(), Some("rebase"));
-        }
-        other => panic!("expected Feature(Create), got {other:?}"),
-    }
-}
-
 /// `--base` and `--parent` are two answers to the same question — where the
 /// child's work starts from — and clap refuses both together.
 #[test]
@@ -281,27 +252,6 @@ fn feature_create_args_convert_into_create_input_without_change() {
     assert_eq!(input.strategy, None);
 }
 
-#[test]
-fn feature_reparent_parses_a_child_and_parent() {
-    let cli = Cli::try_parse_from([
-        "ivar",
-        "feature",
-        "reparent",
-        "child",
-        "--parent",
-        "new-parent",
-    ])
-    .unwrap();
-
-    match cli.command {
-        Command::Feature(FeatureCommand::Reparent(args)) => {
-            assert_eq!(args.child.as_deref(), Some("child"));
-            assert_eq!(args.parent, "new-parent");
-        }
-        other => panic!("expected Feature(Reparent), got {other:?}"),
-    }
-}
-
 /// Reparenting is meaningless without a target: `--parent` is required.
 #[test]
 fn feature_reparent_requires_a_parent() {
@@ -323,42 +273,6 @@ fn feature_reparent_args_convert_into_reparent_input() {
 }
 
 #[test]
-fn feature_status_accepts_recursive() {
-    let cli = Cli::try_parse_from(["ivar", "feature", "status", "parent", "--recursive"]).unwrap();
-
-    match cli.command {
-        Command::Feature(FeatureCommand::Status(args)) => {
-            assert!(args.recursive);
-        }
-        other => panic!("expected Feature(Status), got {other:?}"),
-    }
-}
-
-#[test]
-fn feature_integrate_accepts_via_and_strategy() {
-    let cli = Cli::try_parse_from([
-        "ivar",
-        "feature",
-        "integrate",
-        "child",
-        "--via",
-        "pr",
-        "--strategy",
-        "rebase",
-    ])
-    .unwrap();
-
-    match cli.command {
-        Command::Feature(FeatureCommand::Integrate(args)) => {
-            assert_eq!(args.feature.as_deref(), Some("child"));
-            assert_eq!(args.via.as_deref(), Some("pr"));
-            assert_eq!(args.strategy.as_deref(), Some("rebase"));
-        }
-        other => panic!("expected Feature(Integrate), got {other:?}"),
-    }
-}
-
-#[test]
 fn feature_integrate_args_convert_into_integrate_input() {
     let args = FeatureIntegrateArgs {
         feature: Some("child".to_owned()),
@@ -374,6 +288,7 @@ fn feature_integrate_args_convert_into_integrate_input() {
     assert_eq!(input.strategy.as_deref(), Some("merge"));
     assert_eq!(input.name.as_deref(), Some("feat: add checkout tax"));
 }
+
 #[test]
 fn feature_status_args_convert_into_status_input() {
     let args = FeatureStatusArgs {
@@ -404,33 +319,6 @@ fn there_is_no_feature_policy_configure_subcommand() {
         );
     }
     assert!(names.iter().any(|name| name == "reparent"));
-}
-
-/// `--onto` collapses the base for every promoted repo — see
-/// `action::feature::rebase`.
-#[test]
-fn feature_rebase_accepts_onto() {
-    let cli =
-        Cli::try_parse_from(["ivar", "feature", "rebase", "checkout", "--onto", "main"]).unwrap();
-
-    match cli.command {
-        Command::Feature(FeatureCommand::Rebase(args)) => {
-            assert_eq!(args.onto.as_deref(), Some("main"));
-        }
-        other => panic!("expected Feature(Rebase), got {other:?}"),
-    }
-}
-
-#[test]
-fn feature_deliver_parses_draft_intent() {
-    let cli = Cli::try_parse_from(["ivar", "feature", "deliver", "checkout", "--draft"]).unwrap();
-
-    match cli.command {
-        Command::Feature(FeatureCommand::Deliver(args)) => {
-            assert_eq!(args.global_metadata.draft, Some(true));
-        }
-        other => panic!("expected Feature(Deliver), got {other:?}"),
-    }
 }
 
 /// Multi-occurrence `--draft`: two scoped occurrences each bind to their
@@ -479,43 +367,6 @@ fn feature_deliver_global_and_scoped_draft_mixed() {
             assert_eq!(api.metadata.draft, Some(true));
         }
         other => panic!("expected Feature(Deliver), got {other:?}"),
-    }
-}
-
-/// A future git may name an operation this build has never heard of. Parsing
-/// must still succeed — gitcredentials(7) requires the helper to ignore what
-/// it does not implement, and it cannot ignore what clap rejected first.
-#[test]
-fn git_credential_accepts_an_operation_it_does_not_implement() {
-    let cli = Cli::try_parse_from(["ivar", "git-credential", "capability"])
-        .expect("an unknown operation parses; the helper ignores it");
-
-    match cli.command {
-        Command::GitCredential(args) => assert_eq!(args.operation.as_deref(), Some("capability")),
-        other => panic!("expected GitCredential, got {other:?}"),
-    }
-}
-
-#[test]
-fn session_sandbox_parses_hidden_subcommand_with_trailing_argv() {
-    let cli = Cli::try_parse_from([
-        "ivar",
-        "session",
-        "sandbox",
-        "--session",
-        "6f0c9d5f-0000-4000-8000-000000000000",
-        "--",
-        "claude",
-        "--resume",
-    ])
-    .expect("hidden session sandbox subcommand must parse");
-
-    match cli.command {
-        Command::Session(SessionCommand::Sandbox(args)) => {
-            assert_eq!(args.session, "6f0c9d5f-0000-4000-8000-000000000000");
-            assert_eq!(args.command, vec!["claude", "--resume"]);
-        }
-        other => panic!("expected SessionCommand::Sandbox, got {other:?}"),
     }
 }
 
@@ -772,22 +623,6 @@ fn parse_optional_feature_positionals_omitted_and_supplied() {
 }
 
 #[test]
-fn session_relay_feature_positional_is_optional() {
-    assert!(Cli::try_parse_from(["ivar", "session", "relay", "--provider", "claude-code"]).is_ok());
-    assert!(
-        Cli::try_parse_from([
-            "ivar",
-            "session",
-            "relay",
-            "feat-a",
-            "--provider",
-            "claude-code"
-        ])
-        .is_ok()
-    );
-}
-
-#[test]
 fn feature_create_remains_required_positional() {
     assert!(Cli::try_parse_from(["ivar", "feature", "create"]).is_err());
     assert!(Cli::try_parse_from(["ivar", "feature", "create", "feat-a"]).is_ok());
@@ -819,96 +654,6 @@ fn repo_create_requires_exactly_one_mode_and_maps_public() {
     let input_local: repo_create::CreateInput = args_local.into();
     assert_eq!(input_local.mode, repo_create::CreateMode::Local);
     assert_eq!(input_local.default_branch, None);
-}
-
-#[test]
-fn parses_review_comment_add() {
-    let parsed = Cli::try_parse_from([
-        "ivar",
-        "review",
-        "comment",
-        "add",
-        "checkout",
-        "--repo",
-        "api",
-        "--file",
-        "src/lib.rs",
-        "--lines",
-        "3-5",
-        "--body",
-        "- rename this",
-    ])
-    .unwrap();
-    let Command::Review(ReviewCommand::Comment(CommentCommand::Add(args))) = parsed.command else {
-        panic!("expected review comment add")
-    };
-    assert_eq!(
-        (
-            args.feature.as_deref(),
-            args.lines.as_str(),
-            args.body.as_str()
-        ),
-        (Some("checkout"), "3-5", "- rename this")
-    );
-}
-
-#[test]
-fn review_comment_resolve_parses_with_the_feature_omitted() {
-    let parsed = Cli::try_parse_from(["ivar", "review", "comment", "resolve", "c1"]).unwrap();
-    let Command::Review(ReviewCommand::Comment(CommentCommand::Resolve(args))) = parsed.command
-    else {
-        panic!("expected review comment resolve")
-    };
-    assert_eq!((args.feature, args.id.as_str()), (None, "c1"));
-}
-
-#[test]
-fn execute_verbs_parse_without_plan_and_status_accepts_plan() {
-    match Cli::try_parse_from([
-        "ivar",
-        "feature",
-        "execute",
-        "finish",
-        "checkout",
-        "--report-json",
-        "r.json",
-        "--outcome",
-        "succeeded",
-    ])
-    .unwrap()
-    .command
-    {
-        Command::Feature(FeatureCommand::Execute(ExecuteCommand::Finish(args))) => {
-            assert_eq!(args.plan, None);
-        }
-        other => panic!("expected execute finish, got {other:?}"),
-    }
-    match Cli::try_parse_from(["ivar", "feature", "execute", "accept-revision", "checkout"])
-        .unwrap()
-        .command
-    {
-        Command::Feature(FeatureCommand::Execute(ExecuteCommand::AcceptRevision(args))) => {
-            assert_eq!(args.plan, None);
-        }
-        other => panic!("expected execute accept-revision, got {other:?}"),
-    }
-    match Cli::try_parse_from([
-        "ivar",
-        "feature",
-        "execute",
-        "status",
-        "checkout",
-        "--plan",
-        "custom/plan.md",
-    ])
-    .unwrap()
-    .command
-    {
-        Command::Feature(FeatureCommand::Execute(ExecuteCommand::Status(args))) => {
-            assert_eq!(args.plan.as_deref(), Some("custom/plan.md"));
-        }
-        other => panic!("expected execute status, got {other:?}"),
-    }
 }
 
 #[test]
@@ -1033,42 +778,6 @@ fn feature_deliver_parses_repeated_only_independently_of_repo_groups() {
             assert!(input.repo_overrides.is_empty());
         }
         other => panic!("expected feature deliver, got {other:?}"),
-    }
-}
-#[test]
-fn mcp_status_parses_flags() {
-    let cli = Cli::try_parse_from([
-        "ivar",
-        "mcp",
-        "status",
-        "figma",
-        "--provider",
-        "claude-code",
-        "--live",
-    ])
-    .unwrap();
-
-    match cli.command {
-        Command::Mcp(McpCommand::Status(args)) => {
-            assert_eq!(args.server.as_deref(), Some("figma"));
-            assert_eq!(args.provider.as_deref(), Some("claude-code"));
-            assert!(args.live);
-        }
-        other => panic!("expected mcp status, got {other:?}"),
-    }
-}
-
-#[test]
-fn mcp_status_parses_defaults_when_flags_omitted() {
-    let cli = Cli::try_parse_from(["ivar", "mcp", "status"]).unwrap();
-
-    match cli.command {
-        Command::Mcp(McpCommand::Status(args)) => {
-            assert_eq!(args.server, None);
-            assert_eq!(args.provider, None);
-            assert!(!args.live);
-        }
-        other => panic!("expected mcp status, got {other:?}"),
     }
 }
 
