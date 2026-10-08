@@ -70,10 +70,11 @@ pub(crate) fn hall_root() -> (TempDir, Utf8PathBuf) {
 /// Identity and branch name are passed with `-c` / `--initial-branch` rather
 /// than left to the machine's own git config, so a developer whose
 /// `init.defaultBranch` is `master` gets the same result as CI.
+///
+/// Copied from a template built by that same `git init`; see
+/// [`copy_template`].
 pub(crate) fn empty_repo(path: &Utf8Path, branch: &str) -> Utf8PathBuf {
-    std::fs::create_dir_all(path).unwrap();
-    git(path, &["init", "--initial-branch", branch, "."]);
-    path.to_path_buf()
+    copy_template("empty", branch, path, init_empty)
 }
 
 /// A real git repository at `path`, on `branch`, with one commit adding a
@@ -83,12 +84,89 @@ pub(crate) fn empty_repo(path: &Utf8Path, branch: &str) -> Utf8PathBuf {
 /// repository whose branch exists only as an unborn `HEAD`, which no worktree
 /// can be added on. Anything testing the clone-then-worktree path needs
 /// content.
+///
+/// Copied from a template built by that same init and commit; see
+/// [`copy_template`].
 pub(crate) fn seeded_repo(path: &Utf8Path, branch: &str) -> Utf8PathBuf {
-    empty_repo(path, branch);
+    copy_template("seeded", branch, path, init_seeded)
+}
+
+fn init_empty(path: &Utf8Path, branch: &str) {
+    std::fs::create_dir_all(path).unwrap();
+    git(path, &["init", "--initial-branch", branch, "."]);
+}
+
+fn init_seeded(path: &Utf8Path, branch: &str) {
+    init_empty(path, branch);
     std::fs::write(path.join("README.md"), "seed\n").unwrap();
     git(path, &["add", "README.md"]);
     git(path, &["commit", "-m", "seed"]);
+}
+
+/// Bump when `init_empty`/`init_seeded` change what a repo holds: a template
+/// outlives the run that built it and is never rebuilt while it exists.
+const TEMPLATE_VERSION: u32 = 1;
+
+/// `init` run once per target dir, then copied: a plain repo's `.git` holds
+/// no absolute path, so a copy is a repo of its own. The template lives
+/// under the test binary's target profile dir so it survives a
+/// process-per-test runner and `cargo clean` removes it; it is published
+/// with a `rename`, so a concurrent process sees all of it or none.
+///
+/// An existing `.git` at `path` is re-initialised in place instead, which is
+/// what `git init` there always did: it keeps `HEAD` and history. A branch
+/// name outside `[A-Za-z0-9._/-]` is built in place too: such names are
+/// generated per run (hostile-name tests), and templating them would leave
+/// one template behind per run.
+fn copy_template(
+    kind: &str,
+    branch: &str,
+    path: &Utf8Path,
+    init: fn(&Utf8Path, &str),
+) -> Utf8PathBuf {
+    let plain_branch = branch
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '/' | '-'));
+    if !plain_branch || path.join(".git").exists() {
+        init(path, branch);
+        return path.to_path_buf();
+    }
+    let root = templates_dir();
+    let template = root.join(format!(
+        "{kind}-v{TEMPLATE_VERSION}-{}",
+        branch.replace('/', "%2F")
+    ));
+    if !template.exists() {
+        std::fs::create_dir_all(&root).unwrap();
+        let staging = TempDir::new_in(&root).unwrap();
+        let built = Utf8Path::from_path(staging.path()).unwrap().join("repo");
+        init(&built, branch);
+        // Losing the race to another process leaves its identical template.
+        let _ = std::fs::rename(&built, &template);
+    }
+    copy_tree(template.as_std_path(), path.as_std_path());
     path.to_path_buf()
+}
+
+/// `<target>/<profile>/ivar-test-templates`: every test binary runs from
+/// `<target>/<profile>/deps/`.
+fn templates_dir() -> Utf8PathBuf {
+    let exe = std::env::current_exe().unwrap();
+    let profile_dir = exe.parent().and_then(std::path::Path::parent).unwrap();
+    Utf8PathBuf::from_path_buf(profile_dir.join("ivar-test-templates")).unwrap()
+}
+
+fn copy_tree(from: &std::path::Path, to: &std::path::Path) {
+    std::fs::create_dir_all(to).unwrap();
+    for entry in std::fs::read_dir(from).unwrap() {
+        let entry = entry.unwrap();
+        let target = to.join(entry.file_name());
+        if entry.file_type().unwrap().is_dir() {
+            copy_tree(&entry.path(), &target);
+        } else {
+            std::fs::copy(entry.path(), target).unwrap();
+        }
+    }
 }
 
 /// Run git in `cwd`, with a fixed identity, panicking with git's own stderr if
