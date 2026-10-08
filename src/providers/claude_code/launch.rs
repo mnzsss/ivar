@@ -20,10 +20,12 @@ pub const fn contract() -> LaunchContract {
 /// Claude's launch argv.
 ///
 /// `mcp_allowlist` is serialised into `--settings` under the
-/// `enabledMcpjsonServers` key, scoping approval to this process only: no
-/// settings file is written and no user-global configuration is touched. The
-/// flag is never omitted — an empty list is passed explicitly so that a hall
-/// declaring no MCP servers approves none.
+/// `enabledMcpjsonServers` key, approving the hall's servers for this
+/// process. `ivar sync` writes the same list into the hall's
+/// `.claude/settings.json` for `claude` started outside Ivar; the flag keeps
+/// an Ivar launch independent of that file's state. The flag is never
+/// omitted — an empty list is passed explicitly so that a hall declaring no
+/// MCP servers approves none.
 ///
 /// The names arrive already sorted and deduplicated; this function passes
 /// them through as given.

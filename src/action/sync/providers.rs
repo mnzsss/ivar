@@ -189,10 +189,12 @@ pub(crate) fn sync_settings(
     let path = layout.root().join(Provider::CLAUDE_SETTINGS);
     let label = format!("{} settings.json", provider.config_dir());
 
+    let hall = manifest.name();
     let result = if manifest.providers().available().contains(&provider) {
-        config::materialise_settings(&path)
+        let allowlist = crate::domain::mcp::hall_mcp_allowlist(hall, manifest.mcp_servers());
+        config::materialise_settings(&path, hall, &allowlist)
     } else {
-        config::remove_settings(&path)
+        config::remove_settings(&path, hall)
     };
 
     match result {

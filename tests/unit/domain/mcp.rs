@@ -180,6 +180,21 @@ fn materialised_name_prefixes_the_hall_and_leaves_name_untouched() {
 }
 
 #[test]
+fn hall_mcp_allowlist_is_hall_qualified_sorted_and_deduplicated() {
+    let hall = HallName::new("acme").unwrap();
+    let servers = vec![
+        McpServerDef::new("graph", "local").command("ivar"),
+        McpServerDef::new("docs", "http").url("https://docs.example/mcp"),
+        McpServerDef::new("docs", "http").url("https://docs.example/mcp"),
+    ];
+
+    assert_eq!(
+        hall_mcp_allowlist(&hall, &servers),
+        ["acme-docs", "acme-graph"]
+    );
+}
+
+#[test]
 fn validation_fails_for_args_without_command_on_local() {
     let def = McpServerDef::new("test", "local").args(vec!["arg".to_owned()]);
     assert_eq!(
