@@ -26,8 +26,8 @@ pub(crate) use shared::*;
 #[path = "fake_gh.rs"]
 mod fake_gh;
 
-// Used by delivery.rs and nested_subfeatures.rs; the other integration
-// binaries that include this module see it as unused.
+// Used by the delivery and cli binaries; personas and provider_live include
+// this module without using it.
 #[allow(unused_imports)]
 pub(crate) use fake_gh::FakeGh;
 

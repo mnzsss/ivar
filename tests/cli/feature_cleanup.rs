@@ -12,15 +12,9 @@
     clippy::indexing_slicing
 )]
 
-#[path = "support/integration.rs"]
-mod common;
-
-#[path = "delivery/support.rs"]
-mod support;
-
+use crate::common::{FakeGh, hall_root};
+use crate::delivery_support::{ivar_on_github, setup_deliver_hall};
 use camino::Utf8PathBuf;
-use common::{FakeGh, hall_root};
-use support::{ivar_on_github, setup_deliver_hall};
 
 const PR_URL: &str = "https://github.com/acme/pull/1";
 

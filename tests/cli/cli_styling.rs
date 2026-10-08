@@ -1,11 +1,7 @@
-// tests/cli_styling.rs
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-#[path = "support/integration.rs"]
-mod common;
-
+use crate::common::{declare_repos, git, hall_root, ivar, seeded_repo};
 use assert_cmd::Command;
-use common::{declare_repos, git, hall_root, ivar, seeded_repo};
 use predicates::prelude::*;
 use rstest::rstest;
 

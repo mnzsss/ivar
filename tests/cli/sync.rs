@@ -18,10 +18,7 @@
     clippy::indexing_slicing
 )]
 
-#[path = "support/integration.rs"]
-mod common;
-
-use common::{declare_repos, hall_root, ivar, seeded_repo};
+use crate::common::{declare_repos, hall_root, ivar, seeded_repo};
 use predicates::prelude::*;
 
 #[test]

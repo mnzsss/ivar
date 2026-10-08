@@ -12,11 +12,8 @@
     clippy::indexing_slicing
 )]
 
-#[path = "support/integration.rs"]
-mod common;
-
+use crate::common::{declare_repos, hall_root, ivar, seeded_repo};
 use camino::{Utf8Path, Utf8PathBuf};
-use common::{declare_repos, hall_root, ivar, seeded_repo};
 
 // `camino`, `serde_json` and `tempfile` are all reachable here: the first two
 // are crate dependencies and `tempfile` is a dev-dependency
