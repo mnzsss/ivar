@@ -324,8 +324,29 @@ fn drop_before_callback_releases_port_and_does_not_leak_thread() {
     let addr = server.addr();
     drop(server);
 
-    let rebinding = std::net::TcpListener::bind(addr);
-    assert!(rebinding.is_ok(), "port should be available after drop");
+    assert_port_frees(addr);
+}
+
+#[cfg(target_os = "linux")]
+fn assert_port_frees(addr: std::net::SocketAddr) {
+    assert!(
+        std::net::TcpListener::bind(addr).is_ok(),
+        "port should be available after drop"
+    );
+}
+
+// Without listener shutdown, a child forked by a concurrent test keeps the port
+// bound until it execs, so the release is only eventual.
+#[cfg(not(target_os = "linux"))]
+fn assert_port_frees(addr: std::net::SocketAddr) {
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    while std::net::TcpListener::bind(addr).is_err() {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "port should be available after drop"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    }
 }
 
 #[cfg(target_os = "linux")]
