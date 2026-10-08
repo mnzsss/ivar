@@ -7,11 +7,15 @@ pub const LEASE_FILE: &str = "graph-watch.lock";
 
 #[derive(Debug)]
 pub struct Lease {
-    #[expect(
-        dead_code,
-        reason = "held only to keep the kernel flock alive until the lease drops"
-    )]
     file: std::fs::File,
+}
+
+impl Drop for Lease {
+    fn drop(&mut self) {
+        // A child forked by any thread inherits this descriptor until it execs, which keeps
+        // the flock alive past close; an explicit unlock releases it for every duplicate.
+        let _ = self.file.unlock();
+    }
 }
 
 impl Lease {
