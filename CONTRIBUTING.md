@@ -49,6 +49,24 @@ instead — GitHub access goes through a trait, and the fake is what tests see.
 Coverage is reported, not enforced. Do not let a coverage number push you into
 writing a test you do not believe in.
 
+## Measuring test time
+
+```sh
+sh scripts/test-timings.sh
+```
+
+It builds every test target, then runs the whole suite with libtest's
+per-test timing, and prints the incremental build time, each binary's finish
+time, the 30 slowest tests, how many tests take over 1s and over 0.3s, and
+the summed test time. The full log stays in `target/test-timings.log`, and
+`sh scripts/test-timings.sh target/test-timings.log` prints the summary
+again without rerunning anything.
+
+Run it before and after a change that claims to speed up the suite, on the
+same machine with a warm build cache, and compare the two summaries. The
+script sets `RUSTC_BOOTSTRAP=1` to unlock the per-test timing, which makes
+cargo rebuild the test targets once the first time you run it.
+
 ## Testing a candidate locally
 
 `cargo test --test personas` runs the persona suite: the compiled binary driven
