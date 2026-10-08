@@ -1,5 +1,30 @@
 use super::fixture::*;
 use super::*;
+use crate::test_support::{FakeGh, fake_gh_on_this_thread};
+
+#[test]
+fn pull_request_lookups_run_the_fake_gh_redirected_for_this_thread() {
+    let (_guard, root) = hall_root();
+    let fake = FakeGh::install(&root);
+    let _gh = fake_gh_on_this_thread(&fake);
+    fake.set_existing_pr(
+        &root,
+        "checkout",
+        "https://github.com/acme/api/pull/7",
+        "main",
+        "OPEN",
+    );
+
+    let found = crate::action::feature::pull_requests::find_pull_request(&root, "checkout", "open")
+        .unwrap();
+
+    assert_eq!(found.map(|pr| pr.number), Some(7));
+    assert!(
+        fake.log().contains("pr list --head checkout --state open"),
+        "the fake must have answered: {}",
+        fake.log()
+    );
+}
 
 #[test]
 fn deliver_refuses_a_child_with_the_integrate_command() {
@@ -23,6 +48,17 @@ fn github_repo_in_land_mode_creates_no_pull_request() {
     let (_guard, root) = hall_with_promoted(&["api"]);
     let ctx = Ctx::new(root.clone());
     approve_through_plan(&root);
+    let fake = FakeGh::install(&root);
+    let _gh = fake_gh_on_this_thread(&fake);
+    let origin = root.parent().unwrap().join("origins/api");
+    git(
+        &root.join(".ivar/repos/api/.bare"),
+        &[
+            "config",
+            &format!("url.{origin}.insteadOf"),
+            "https://github.com/acme/api",
+        ],
+    );
 
     let layout = Layout::at(&root);
     let manifest = read_manifest(&layout).unwrap();

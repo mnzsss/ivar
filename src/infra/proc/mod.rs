@@ -225,16 +225,66 @@ impl Command {
     /// explicit overrides, so a caller that really means to set `PWD` itself
     /// still wins.
     fn to_std(&self) -> StdCommand {
-        let mut command = StdCommand::new(&self.program);
+        let redirect = redirected(&self.program);
+        let target = redirect.as_ref().unwrap_or(self);
+        let mut command = StdCommand::new(&target.program);
+        if let Some(redirect) = &redirect {
+            command.args(redirect.args.iter().map(OsStr::new));
+        }
         command.args(self.args.iter().map(OsStr::new));
         if let Some(dir) = &self.cwd {
             command.current_dir(dir);
             command.env("PWD", dir);
         }
-        for (key, value) in &self.env {
+        for (key, value) in redirect.iter().flat_map(|r| &r.env).chain(&self.env) {
             command.env(key, value);
         }
         command
+    }
+}
+
+/// The program a test registered in place of `program` on this thread.
+#[cfg(not(test))]
+fn redirected(_program: &str) -> Option<Command> {
+    None
+}
+
+#[cfg(test)]
+fn redirected(program: &str) -> Option<Command> {
+    REDIRECT.with(|slot| {
+        slot.borrow()
+            .as_ref()
+            .filter(|(name, _)| name == program)
+            .map(|(_, to)| to.clone())
+    })
+}
+
+#[cfg(test)]
+thread_local! {
+    static REDIRECT: std::cell::RefCell<Option<(String, Command)>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Run `to` wherever this thread would spawn `program`, until the guard
+/// drops. Thread-scoped because tests run in parallel threads that share one
+/// process environment, and `unsafe_code` is forbidden, so `PATH` cannot be
+/// changed instead. Test-only: an external program is swapped for its fake
+/// and nothing internal is replaced.
+#[cfg(test)]
+pub(crate) fn redirect_on_this_thread(program: &str, to: Command) -> Redirect {
+    REDIRECT.with(|slot| *slot.borrow_mut() = Some((program.to_owned(), to)));
+    Redirect(())
+}
+
+/// Clears this thread's redirect when dropped.
+#[cfg(test)]
+#[derive(Debug)]
+pub(crate) struct Redirect(());
+
+#[cfg(test)]
+impl Drop for Redirect {
+    fn drop(&mut self) {
+        REDIRECT.with(|slot| *slot.borrow_mut() = None);
     }
 }
 

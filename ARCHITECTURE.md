@@ -239,7 +239,9 @@ src/
     github.rs      GitHub token lookup (and the credential-helper wiring that
                    derives it from `gh`/`$GITHUB_TOKEN` on each call). PR
                    operations themselves are not a trait seam: tests fake the
-                   `gh` executable on PATH (see tests/support/fake_gh.rs), and
+                   `gh` executable (tests/support/fake_gh.rs) — on PATH for an
+                   integration binary, through `proc`'s test-only per-thread
+                   program redirect for an in-process unit test — and the
                    shared command boundary lives in
                    `action/feature/pull_requests/mod.rs`.
     term.rs        colour, NO_COLOR, is-a-tty, width. Decides *whether* to
