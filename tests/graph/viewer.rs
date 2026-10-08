@@ -6,20 +6,41 @@ use std::net::TcpStream;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
-use crate::support::graph::GraphHall;
+use crate::support::graph::TestHall;
 use ivar::action::graph::view::{ViewSeed, ViewerServer};
 use ivar::store::graph::db::GraphDb;
 
+/// The symbols the endpoints below look up: `GraphDb` for search, node,
+/// expand and impact, and an `Implements` edge `GraphDb -> ViewerServer` so
+/// that the path endpoint walks a real one-step path.
+const VIEWER_FIXTURE: &str = "\
+pub trait ViewerServer {
+    fn serve(&self);
+}
+
+pub struct GraphDb;
+
+impl ViewerServer for GraphDb {
+    fn serve(&self) {}
+}
+
+pub fn open() -> GraphDb {
+    GraphDb
+}
+";
+
 #[test]
 fn test_graph_viewer_server_endpoints_and_security() {
-    let hall = GraphHall::from_current_repo();
+    let hall = TestHall::new();
+    hall.commit_base("app", &[("src/lib.rs", VIEWER_FIXTURE)]);
+    hall.graph_command(hall.root(), &["index", "--repo", "app"]);
 
     // Verify read-only database opening
-    let db = GraphDb::open_read_only(hall.db_path.as_std_path())
+    let db = GraphDb::open_read_only(hall.root().join(".ivar/memory.db").as_std_path())
         .expect("GraphDb::open_read_only should succeed on indexed hall");
 
     // Bind server on ephemeral port with default repo seed
-    let seed = ViewSeed::Repo(hall.repo_name.clone());
+    let seed = ViewSeed::Repo("app".to_owned());
     let server =
         ViewerServer::bind(db, seed).expect("ViewerServer::bind should succeed on ephemeral port");
 
