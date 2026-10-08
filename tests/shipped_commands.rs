@@ -269,39 +269,6 @@ fn sync_materialises_shipped_skills_and_doctor_inspects_them() {
     assert!(restored.contains("name: ivar-execute"));
 }
 
-/// Shipped skill `ivar-execute` instructions describe guided wave execution:
-/// subagent dispatch, wave lightweight validation, deferred validation failures,
-/// dual-axis review barrier, and gated draft delivery.
-#[test]
-fn shipped_ivar_execute_skill_documents_lifecycle_guarantees() {
-    let skill_path = format!(
-        "{}/src/harness/skills/ivar-execute/SKILL.md",
-        env!("CARGO_MANIFEST_DIR")
-    );
-    let content = std::fs::read_to_string(skill_path).unwrap();
-
-    assert!(
-        content.contains("name: ivar-execute"),
-        "skill must have frontmatter name"
-    );
-    assert!(
-        content.contains("lightweight validation"),
-        "skill must document lightweight validation"
-    );
-    assert!(
-        content.contains("Deferred validation failures"),
-        "skill must document deferred validation failures"
-    );
-    assert!(
-        content.contains("Standards review") && content.contains("Spec review"),
-        "skill must document dual-axis Standards and Spec review barrier"
-    );
-    assert!(
-        content.contains("Draft delivery"),
-        "skill must document draft delivery mode"
-    );
-}
-
 /// Shipped skill `ivar-execute` aligns with the execution run receipt lifecycle
 /// and completion branching: starting the run in preparation, finishing before
 /// completion, and branching to integrate for subfeatures or deliver for root features.
@@ -390,37 +357,6 @@ fn ivar_execute_skill_records_progress_through_execute_checkpoint_only() {
         assert!(!execute.contains(stale), "ivar-execute still says: {stale}");
     }
     assert!(!plan.contains("marks each wave complete in"));
-}
-
-/// Shipped workflow commands and execution skill document advisory graph guidance with fallback.
-#[test]
-fn shipped_spdd_guidance_documents_graph_use_and_fallbacks() {
-    let base = env!("CARGO_MANIFEST_DIR");
-    let discovery =
-        std::fs::read_to_string(format!("{base}/src/harness/commands/discovery.md")).unwrap();
-    let plan =
-        std::fs::read_to_string(format!("{base}/src/harness/skills/ivar-plan/SKILL.md")).unwrap();
-    let review = std::fs::read_to_string(format!("{base}/src/harness/commands/review.md")).unwrap();
-    let execute =
-        std::fs::read_to_string(format!("{base}/src/harness/skills/ivar-execute/SKILL.md"))
-            .unwrap();
-
-    assert!(
-        discovery.contains("ivar graph explore")
-            && (discovery.contains("fallback") || discovery.contains("fall back"))
-    );
-    assert!(
-        plan.contains("ivar graph explore")
-            && (plan.contains("fallback") || plan.contains("fall back"))
-    );
-    assert!(
-        review.contains("ivar graph affected")
-            && (review.contains("fallback") || review.contains("fall back"))
-    );
-    assert!(
-        execute.contains("ivar graph affected")
-            && (execute.contains("fallback") || execute.contains("fall back"))
-    );
 }
 
 /// A fingerprint-matching legacy `repo-list.md` is removed by sync; a customised

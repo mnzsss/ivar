@@ -115,7 +115,6 @@ landlock = "0.4"
 # never mocked; external systems are faked at a trait seam. wiremock is
 # deliberately absent — it is async and would pull tokio into the test profile.
 assert_cmd = "2"
-insta = { version = "1", features = ["json"] }
 rstest = "0.26"
 predicates = "3"
 

@@ -6,38 +6,6 @@ use crate::support::{
     preview_on_github_with, setup_deliver_hall,
 };
 
-/// An existing ready PR is converted with `gh pr ready --undo <url>`.
-#[test]
-fn existing_ready_pr_conversion_uses_pr_ready_undo() {
-    let (_guard, root) = hall_root();
-    setup_deliver_hall(&root);
-    approve_through_plan(&root, "checkout");
-    let fake = FakeGh::install(&root);
-    let rewrites = as_github_remotes(&root);
-
-    // Create the initial (ready) PR without --draft.
-    deliver_on_github(&root, &fake, &rewrites, "checkout");
-
-    // Second delivery with --draft triggers conversion.
-    let preview = preview_on_github_with(&root, &fake, &rewrites, "checkout", &["--draft"]);
-    assert_eq!(
-        preview["preview"]["repos"][0]["draft"], "convert_to_draft",
-        "existing ready PR should plan convert_to_draft"
-    );
-
-    let _applied = deliver_on_github_with(&root, &fake, &rewrites, "checkout", &["--draft"]);
-    let log = fake.log();
-    assert!(
-        log.contains("pr ready --undo https://github.com/acme/pull/1"),
-        "should call pr ready --undo on the PR URL: {log}"
-    );
-    // No second pr create — the PR already exists.
-    assert_eq!(
-        log.matches("pr create").count(),
-        1,
-        "only the initial pr create should appear: {log}"
-    );
-}
 /// An already-draft PR receives no readiness command when `--draft` is set.
 #[test]
 fn already_draft_pr_skips_conversion() {

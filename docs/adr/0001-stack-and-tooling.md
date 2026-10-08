@@ -295,8 +295,9 @@ and reading `/proc` on Linux.
 - **No mocking of internal code.** Real temporary git repositories via
   `tempfile`, real filesystem, real subprocesses — matching the prior art's
   integration tier and the house convention it came from.
-- `assert_cmd` drives the compiled binary; `insta` snapshots stdout, which is the
-  cheapest guard on "the human surface and `--json` emit the same bytes".
+- `assert_cmd` drives the compiled binary. "The human surface and `--json`
+  report the same facts" is guarded by comparing the two field by field
+  (`json_and_human_surfaces_carry_the_same_facts`), not by snapshots.
 - `rstest` for parametrised cases. External systems are faked at a trait seam.
 - `cargo-llvm-cov` **reports** coverage and does not gate. A per-file threshold is
   good discipline inside a private monorepo and a hostile gate for a stranger
